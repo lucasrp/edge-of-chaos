@@ -29,7 +29,13 @@ def init():
 @click.option("--dry-run", is_flag=True, help="Show what would be extracted without writing.")
 def scan(sanitization, max_sessions, dry_run):
     """Scan Claude Code transcripts and create bootstrap memory."""
-    click.echo("Not implemented yet.")
+    from continuum.scan import run_scan
+
+    run_scan(
+        sanitization=sanitization,
+        max_sessions=max_sessions,
+        dry_run=dry_run,
+    )
 
 
 @main.command()
