@@ -1,0 +1,222 @@
+{
+  "project": "Continuum",
+  "branchName": "ralph/continuum-mvp",
+  "description": "Runtime local-first para Claude Code: memória persistente, rotinas autônomas e bootstrap inteligente via scanner de transcripts. Instalável via `continuum init`.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Project scaffolding and pyproject.toml",
+      "description": "As a developer, I want the project structure so that I can install continuum as a Python package with CLI entry point",
+      "acceptanceCriteria": [
+        "pyproject.toml with [project] metadata, version 0.1.0, python>=3.10",
+        "Entry point: continuum = 'continuum.cli:main'",
+        "src/continuum/ package with __init__.py (version string), cli.py (click-based CLI skeleton with init/scan/run/status/doctor subcommands that print 'not implemented yet')",
+        "README.md with project description, installation, quick start",
+        "LICENSE file (MIT)",
+        ".gitignore for Python",
+        "`pip install -e .` works and `continuum --help` shows all commands",
+        "Typecheck passes or no type errors"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "Use click for CLI. Minimal deps: click, toml (stdlib in 3.11+), pathlib. No Flask, no heavy deps."
+    },
+    {
+      "id": "US-002",
+      "title": "Config system and continuum.toml",
+      "description": "As a user, I want a configuration file so that I can customize my continuum installation",
+      "acceptanceCriteria": [
+        "src/continuum/config.py with Config dataclass/model",
+        "Reads from .continuum/config/continuum.toml",
+        "Default config generated on init with sensible defaults",
+        "Config fields: project.name, project.domain, project.language, scanner.enabled, scanner.sanitization (strict/balanced/raw), skills.prefix, scheduler.enabled",
+        "Config loads with defaults for missing fields",
+        "Config accessible via `from continuum.config import load_config`"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "Use tomllib (stdlib 3.11+) for reading, tomli-w or manual string for writing. Keep it simple."
+    },
+    {
+      "id": "US-003",
+      "title": "continuum init - interactive bootstrap",
+      "description": "As a user, I want to run `continuum init` to set up the system interactively",
+      "acceptanceCriteria": [
+        "Prompts for: project name (default: directory name), work domain, language (default: en), skill prefix (default: cx)",
+        "Creates directory structure: .continuum/{config,memory/{bootstrap,working,consolidated},skills/{core,local},reports,runtime/{runs,logs,state},templates}",
+        "Generates continuum.toml from answers",
+        "Generates CLAUDE.md template in .continuum/templates/ referencing memory paths and conventions",
+        "Generates empty memory files: .continuum/memory/working/debugging.md, preferences.md, profile.md",
+        "Prints summary of what was created",
+        "If .continuum/ already exists, warns and asks to overwrite or abort",
+        "Works when run from any directory"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "Use click.prompt for interactive input. CLAUDE.md template should be a useful starting point that tells Claude where memory lives, what conventions to follow."
+    },
+    {
+      "id": "US-004",
+      "title": "Transcript discovery and parser",
+      "description": "As a user, I want continuum to find and parse my Claude Code session transcripts",
+      "acceptanceCriteria": [
+        "src/continuum/scanner/discover.py finds all .jsonl files under ~/.claude/projects/*/",
+        "Handles nested project paths (e.g. -home-user-projects-foo)",
+        "src/continuum/scanner/parser.py parses each .jsonl line into structured messages",
+        "Extracts: role, text content, tool calls (name + args summary), files mentioned, commands mentioned",
+        "Returns list of Session objects with project_path, messages, timestamp estimates",
+        "Handles malformed lines gracefully (skip with warning)",
+        "Reports stats: N sessions found, M messages total, top projects by volume"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "JSONL format is one JSON object per line. Each line has 'type' field. Look for 'human' and 'assistant' message types. Tool use is nested in content blocks."
+    },
+    {
+      "id": "US-005",
+      "title": "Heuristic extractor - preferences and corrections",
+      "description": "As a user, I want the scanner to extract my preferences and corrections from transcripts without using an LLM",
+      "acceptanceCriteria": [
+        "src/continuum/scanner/heuristics.py with extract_preferences() and extract_corrections()",
+        "Detects explicit preferences via pattern matching: language preference, verbosity, style directives (be concise, no fluff, step by step, etc)",
+        "Detects corrections: messages following assistant output that contain negation patterns (não, no not that, instead do, don't, stop doing, wrong)",
+        "Detects technology preferences: programming languages, frameworks, tools mentioned frequently",
+        "Detects project structure patterns: common directory names, config files, build tools",
+        "Returns structured dict with confidence scores (based on frequency)",
+        "Works on the Session objects from US-004"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "Pure Python, no ML. Regex + frequency counting. Support both English and Portuguese patterns. This is the deterministic foundation before any LLM pass."
+    },
+    {
+      "id": "US-006",
+      "title": "Sanitizer and bootstrap memory writer",
+      "description": "As a user, I want extracted data to be sanitized before being written as bootstrap memory",
+      "acceptanceCriteria": [
+        "src/continuum/scanner/sanitize.py with sanitize() function",
+        "Three modes: strict (remove all named entities, paths, specific values), balanced (keep tech terms and patterns, remove personal data), raw (keep everything)",
+        "Removes apparent secrets (API keys, tokens, passwords matching common patterns)",
+        "src/continuum/scanner/bootstrap.py writes sanitized data to .continuum/memory/bootstrap/",
+        "Generates: user_profile.md (human-readable summary), preferences.json, corrections.json, tech_stack.json, topics.json",
+        "bootstrap_summary.md with overview of what was extracted and confidence levels"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "Sanitization is critical for trust. When in doubt, remove. The balanced mode should be safe for most users."
+    },
+    {
+      "id": "US-007",
+      "title": "continuum scan - full pipeline",
+      "description": "As a user, I want to run `continuum scan` to analyze my transcripts and create bootstrap memory",
+      "acceptanceCriteria": [
+        "`continuum scan` runs the full pipeline: discover -> parse -> heuristics -> sanitize -> write",
+        "Shows progress: 'Found N sessions...', 'Analyzing...', 'Extracting preferences...', 'Writing bootstrap memory...'",
+        "Accepts --sanitization flag (strict/balanced/raw, default: balanced)",
+        "Accepts --max-sessions flag (default: 200) to limit processing",
+        "Accepts --dry-run flag to show what would be extracted without writing",
+        "Prints summary: preferences found, corrections found, tech stack, top topics",
+        "Handles case where no transcripts exist (prints helpful message)",
+        "Writes results to .continuum/memory/bootstrap/"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "This is the killer feature. Make the output clear and trustworthy. User should feel confident in what was extracted."
+    },
+    {
+      "id": "US-008",
+      "title": "Skill manifest and runner",
+      "description": "As a user, I want to run skills that read memory and produce outputs",
+      "acceptanceCriteria": [
+        "src/continuum/skills/manifest.py defines Skill dataclass from skill.yaml",
+        "Skill fields: id, name, description, version, triggers (schedule/manual), inputs, outputs, capabilities, entrypoint",
+        "src/continuum/skills/runner.py loads skill manifest, resolves inputs, executes entrypoint, captures output",
+        "Skills can be: a prompt.md file (run via claude -p), or a Python script",
+        "Runner logs execution to .continuum/runtime/runs/<timestamp>_<skill-id>/",
+        "Each run has: manifest.json (copy), output.txt, status.json (started_at, completed_at, exit_code)",
+        "`continuum run <skill-id>` finds skill by id in .continuum/skills/ and runs it",
+        "`continuum skills list` shows available skills with status"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "For prompt-based skills, shell out to `claude -p <prompt> --max-turns 15`. For Python skills, subprocess. Keep it simple."
+    },
+    {
+      "id": "US-009",
+      "title": "Built-in skills: consolidate, reflect, discover",
+      "description": "As a user, I want built-in skills that work out of the box",
+      "acceptanceCriteria": [
+        "3 built-in skills installed to .continuum/skills/core/ during init",
+        "consolidate-state: reads .continuum/memory/working/*.md, summarizes recent changes, writes to consolidated/. Prompt-based skill.",
+        "daily-reflection: reads memory + recent runs, reflects on patterns and suggests next steps. Prompt-based skill.",
+        "project-discovery: scans current directory structure and recent git activity, updates memory with project context. Prompt-based skill.",
+        "Each skill has: skill.yaml + prompt.md",
+        "Skills reference memory paths relative to .continuum/",
+        "prompts are clear, actionable, and reference the right files"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "These are prompt.md files that get passed to claude -p. The prompts should instruct Claude to read memory, do the work, and write results back. Simple but effective."
+    },
+    {
+      "id": "US-010",
+      "title": "continuum doctor and status",
+      "description": "As a user, I want to verify my installation and see current status",
+      "acceptanceCriteria": [
+        "`continuum doctor` checks: .continuum/ exists, config valid, memory dirs exist, skills present, claude CLI available",
+        "Reports each check as PASS/FAIL with helpful fix suggestions",
+        "Returns exit code 0 if all pass, 1 if any fail",
+        "`continuum status` shows: memory stats (file count, last modified), bootstrap status (scanned or not), skills available, last 5 runs",
+        "Both commands work without errors even on fresh install"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "doctor is critical for debugging install issues. Keep output clean and actionable."
+    },
+    {
+      "id": "US-011",
+      "title": "CLAUDE.md template and memory conventions",
+      "description": "As a user, I want a CLAUDE.md that teaches Claude how to use the continuum system",
+      "acceptanceCriteria": [
+        ".continuum/templates/CLAUDE.md is generated during init with the user's config values interpolated",
+        "CLAUDE.md sections: Identity (name, domain), Memory (where files are, how to read/write), Skills (how to invoke), Conventions (file formats, naming), Preferences (from bootstrap if available)",
+        "Instructions tell Claude to: read memory at session start, write insights to working memory, never overwrite consolidated memory, use skill prompts for recurring tasks",
+        "Template uses Jinja2-style placeholders replaced during init (or simple string.format)",
+        "A copy command or suggestion to place it in the project root or ~/.claude/"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "This is the bridge between continuum and Claude Code. Must be clear and concise. 1-2 pages max."
+    },
+    {
+      "id": "US-012",
+      "title": "Skill scaffolding - continuum skills new",
+      "description": "As a user, I want to create my own custom skills easily",
+      "acceptanceCriteria": [
+        "`continuum skills new <name>` creates .continuum/skills/local/<name>/ with skill.yaml and prompt.md templates",
+        "skill.yaml template has all fields with helpful comments",
+        "prompt.md template has structure: context section, task section, output section",
+        "Prints instructions on how to customize and run the new skill",
+        "Validates skill name (kebab-case, no conflicts with existing)"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Low friction skill creation is key for adoption."
+    },
+    {
+      "id": "US-013",
+      "title": "Integration test and end-to-end flow",
+      "description": "As a developer, I want to verify the full flow works end-to-end",
+      "acceptanceCriteria": [
+        "Test script or pytest that: runs init in temp dir, creates fake .jsonl transcripts, runs scan, verifies bootstrap memory created, runs doctor (all pass), runs status, lists skills, creates a new skill",
+        "All commands exit 0",
+        "No crashes on empty state",
+        "No crashes on missing claude CLI (graceful degradation)",
+        "README has 'Quick Start' section that a new user can follow in 2 minutes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "This is the final validation. If a friend can clone, install, init, scan and see results - we ship."
+    }
+  ]
+}
