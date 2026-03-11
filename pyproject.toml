@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "continuum"
+version = "0.1.0"
+description = "Local-first runtime for Claude Code: persistent memory, autonomous routines, and intelligent bootstrap via transcript scanning."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    {name = "Continuum Contributors"}
+]
+
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+continuum = "continuum.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
