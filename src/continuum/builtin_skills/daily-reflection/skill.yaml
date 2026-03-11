@@ -1,0 +1,17 @@
+id: daily-reflection
+name: Daily Reflection
+description: Review recent activity, reflect on patterns, and suggest next steps
+version: 0.1.0
+triggers:
+  - schedule
+  - manual
+inputs:
+  - memory/working
+  - runtime/logs
+outputs:
+  - reports
+capabilities:
+  - read_memory
+  - read_runtime
+  - write_reports
+entrypoint: prompt.md

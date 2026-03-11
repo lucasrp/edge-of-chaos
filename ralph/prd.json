@@ -18,7 +18,7 @@
         "Typecheck passes or no type errors"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "Use click for CLI. Minimal deps: click, toml (stdlib in 3.11+), pathlib. No Flask, no heavy deps."
     },
     {
@@ -34,7 +34,7 @@
         "Config accessible via `from continuum.config import load_config`"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "Use tomllib (stdlib 3.11+) for reading, tomli-w or manual string for writing. Keep it simple."
     },
     {
@@ -52,7 +52,7 @@
         "Works when run from any directory"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "Use click.prompt for interactive input. CLAUDE.md template should be a useful starting point that tells Claude where memory lives, what conventions to follow."
     },
     {
@@ -69,7 +69,7 @@
         "Reports stats: N sessions found, M messages total, top projects by volume"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "JSONL format is one JSON object per line. Each line has 'type' field. Look for 'human' and 'assistant' message types. Tool use is nested in content blocks."
     },
     {
@@ -86,7 +86,7 @@
         "Works on the Session objects from US-004"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "Pure Python, no ML. Regex + frequency counting. Support both English and Portuguese patterns. This is the deterministic foundation before any LLM pass."
     },
     {
@@ -102,7 +102,7 @@
         "bootstrap_summary.md with overview of what was extracted and confidence levels"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "Sanitization is critical for trust. When in doubt, remove. The balanced mode should be safe for most users."
     },
     {
@@ -120,7 +120,7 @@
         "Writes results to .continuum/memory/bootstrap/"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "This is the killer feature. Make the output clear and trustworthy. User should feel confident in what was extracted."
     },
     {

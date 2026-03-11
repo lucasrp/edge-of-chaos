@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "continuum"
 version = "0.1.0"
-description = "Local-first runtime for Claude Code: persistent memory, autonomous routines, and intelligent bootstrap via transcript scanning."
+description = "Edge of Chaos — persistent memory, autonomous routines, and intelligent warm-start for Claude Code."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -25,6 +25,10 @@ dev = [
 
 [project.scripts]
 continuum = "continuum.cli:main"
+edge = "continuum.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+continuum = ["builtin_skills/**/*.yaml", "builtin_skills/**/*.md"]

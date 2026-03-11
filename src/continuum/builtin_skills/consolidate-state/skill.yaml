@@ -1,0 +1,16 @@
+id: consolidate-state
+name: Consolidate State
+description: Summarize recent working memory and move insights to consolidated memory
+version: 0.1.0
+triggers:
+  - schedule
+  - manual
+inputs:
+  - memory/working
+  - memory/consolidated
+outputs:
+  - memory/consolidated
+capabilities:
+  - read_memory
+  - write_memory
+entrypoint: prompt.md

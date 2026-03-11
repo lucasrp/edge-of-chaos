@@ -1,4 +1,4 @@
-# Continuum
+# Edge of Chaos
 
 Local-first runtime for Claude Code: persistent memory, autonomous routines, and intelligent bootstrap via transcript scanning.
 

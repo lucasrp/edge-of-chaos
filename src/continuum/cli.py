@@ -8,7 +8,7 @@ from continuum import __version__
 @click.group()
 @click.version_option(version=__version__, prog_name="continuum")
 def main():
-    """Continuum — local-first runtime for Claude Code.
+    """Edge of Chaos — local-first runtime for Claude Code.
 
     Persistent memory, autonomous routines, and intelligent bootstrap
     via transcript scanning.
@@ -42,19 +42,27 @@ def scan(sanitization, max_sessions, dry_run):
 @click.argument("skill_id")
 def run(skill_id):
     """Run a skill by ID."""
-    click.echo("Not implemented yet.")
+    from continuum.skills.runner import run_skill
+
+    run_skill(skill_id)
 
 
 @main.command()
 def status():
     """Show current continuum status."""
-    click.echo("Not implemented yet.")
+    from continuum.status import run_status
+
+    run_status()
 
 
 @main.command()
 def doctor():
     """Check continuum installation health."""
-    click.echo("Not implemented yet.")
+    import sys as _sys
+
+    from continuum.doctor import run_doctor
+
+    _sys.exit(run_doctor())
 
 
 @main.group()
@@ -65,11 +73,51 @@ def skills():
 @skills.command("list")
 def skills_list():
     """List available skills."""
-    click.echo("Not implemented yet.")
+    from pathlib import Path
+
+    from continuum.config import CONTINUUM_DIR
+    from continuum.skills.manifest import discover_skills
+
+    root = Path.cwd()
+    continuum_dir = root / CONTINUUM_DIR
+
+    if not continuum_dir.exists():
+        click.echo("No .continuum/ directory found. Run 'continuum init' first.")
+        return
+
+    found = discover_skills(continuum_dir)
+    if not found:
+        click.echo("No skills found.")
+        click.echo("  Core skills go in .continuum/skills/core/")
+        click.echo("  Local skills go in .continuum/skills/local/")
+        click.echo("  Create one with: continuum skills new <name>")
+        return
+
+    click.echo(f"Available skills ({len(found)}):\n")
+    for skill_dir, skill in found:
+        # Determine if core or local
+        location = "core" if "/skills/core/" in str(skill_dir) else "local"
+        triggers = ", ".join(skill.triggers)
+        click.echo(f"  {skill.id}  [{location}]  v{skill.version}")
+        if skill.description:
+            click.echo(f"    {skill.description}")
+        click.echo(f"    triggers: {triggers}  entrypoint: {skill.entrypoint}")
 
 
 @skills.command("new")
 @click.argument("name")
 def skills_new(name):
     """Create a new skill scaffold."""
-    click.echo("Not implemented yet.")
+    from pathlib import Path
+
+    from continuum.config import CONTINUUM_DIR
+    from continuum.skills.scaffold import create_skill
+
+    root = Path.cwd()
+    continuum_dir = root / CONTINUUM_DIR
+
+    if not continuum_dir.exists():
+        click.echo("No .continuum/ directory found. Run 'continuum init' first.")
+        raise SystemExit(1)
+
+    create_skill(name, continuum_dir)

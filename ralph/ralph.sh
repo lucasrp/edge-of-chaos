@@ -93,7 +93,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   else
     # Claude Code: --print auto-approves tools. env -u CLAUDECODE allows nesting.
     # --max-turns 50 = enough for 1 story. --no-session-persistence = clean each iteration.
-    OUTPUT=$(env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT claude --print --no-session-persistence --max-turns 50 < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(cd "$SCRIPT_DIR/.." && env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT claude --print --dangerously-skip-permissions --no-session-persistence --max-turns 50 < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
   fi
   
   # Check for completion signal
