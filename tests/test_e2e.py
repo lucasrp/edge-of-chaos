@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 from click.testing import CliRunner
-from continuum.cli import main
+from edge_of_chaos.cli import main
 
 
 # Input for the init command: project name, domain (empty), language (default), skill prefix
@@ -27,7 +27,7 @@ def test_init_creates_structure():
         assert Path('.continuum/templates/CLAUDE.md').exists()
 
 
-@patch('continuum.scan.find_transcripts', return_value=[])
+@patch('edge_of_chaos.scan.find_transcripts', return_value=[])
 def test_scan_no_transcripts(mock_find):
     """Test scan handles missing transcripts gracefully."""
     runner = CliRunner()
@@ -76,7 +76,7 @@ def test_skills_new():
         assert Path('.continuum/skills/local/my-custom-skill/prompt.md').exists()
 
 
-@patch('continuum.scan.find_transcripts', return_value=[])
+@patch('edge_of_chaos.scan.find_transcripts', return_value=[])
 def test_scan_with_fake_transcripts(mock_find):
     """Test scan with synthetic transcript data."""
     runner = CliRunner()

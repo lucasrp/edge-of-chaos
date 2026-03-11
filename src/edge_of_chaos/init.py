@@ -8,7 +8,7 @@ from pathlib import Path
 
 import click
 
-from continuum.config import CONTINUUM_DIR, Config, ProjectConfig, SkillsConfig, save_config
+from edge_of_chaos.config import CONTINUUM_DIR, Config, ProjectConfig, SkillsConfig, save_config
 
 
 # All directories to create under .continuum/

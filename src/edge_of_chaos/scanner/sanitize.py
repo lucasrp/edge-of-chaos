@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from continuum.scanner.heuristics import Correction, HeuristicsResult, Preference
+from edge_of_chaos.scanner.heuristics import Correction, HeuristicsResult, Preference
 
 
 # ---------------------------------------------------------------------------

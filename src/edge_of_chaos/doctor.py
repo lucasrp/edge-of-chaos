@@ -8,7 +8,7 @@ from pathlib import Path
 
 import click
 
-from continuum.config import CONTINUUM_DIR, CONFIG_PATH
+from edge_of_chaos.config import CONTINUUM_DIR, CONFIG_PATH
 
 if sys.version_info >= (3, 11):
     import tomllib

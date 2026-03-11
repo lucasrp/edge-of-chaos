@@ -15,7 +15,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from continuum.scanner.heuristics import HeuristicsResult
+from edge_of_chaos.scanner.heuristics import HeuristicsResult
 
 
 def _write_json(path: Path, data: object) -> None:

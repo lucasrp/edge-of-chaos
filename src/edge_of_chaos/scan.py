@@ -6,11 +6,11 @@ from pathlib import Path
 
 import click
 
-from continuum.scanner.bootstrap import write_bootstrap
-from continuum.scanner.discover import find_transcripts, report_stats
-from continuum.scanner.heuristics import run_heuristics
-from continuum.scanner.parser import parse_transcripts, report_parse_stats
-from continuum.scanner.sanitize import sanitize
+from edge_of_chaos.scanner.bootstrap import write_bootstrap
+from edge_of_chaos.scanner.discover import find_transcripts, report_stats
+from edge_of_chaos.scanner.heuristics import run_heuristics
+from edge_of_chaos.scanner.parser import parse_transcripts, report_parse_stats
+from edge_of_chaos.scanner.sanitize import sanitize
 
 
 def run_scan(

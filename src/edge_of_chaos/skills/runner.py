@@ -10,8 +10,8 @@ from pathlib import Path
 
 import click
 
-from continuum.config import CONTINUUM_DIR
-from continuum.skills.manifest import Skill, discover_skills
+from edge_of_chaos.config import CONTINUUM_DIR
+from edge_of_chaos.skills.manifest import Skill, discover_skills
 
 
 def _find_skill(skill_id: str, root: Path) -> tuple[Path, Skill] | None:

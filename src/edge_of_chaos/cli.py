@@ -2,7 +2,7 @@
 
 import click
 
-from continuum import __version__
+from edge_of_chaos import __version__
 
 
 @click.group()
@@ -18,7 +18,7 @@ def main():
 @main.command()
 def init():
     """Initialize continuum in the current directory."""
-    from continuum.init import run_init
+    from edge_of_chaos.init import run_init
 
     run_init()
 
@@ -29,7 +29,7 @@ def init():
 @click.option("--dry-run", is_flag=True, help="Show what would be extracted without writing.")
 def scan(sanitization, max_sessions, dry_run):
     """Scan Claude Code transcripts and create bootstrap memory."""
-    from continuum.scan import run_scan
+    from edge_of_chaos.scan import run_scan
 
     run_scan(
         sanitization=sanitization,
@@ -42,7 +42,7 @@ def scan(sanitization, max_sessions, dry_run):
 @click.argument("skill_id")
 def run(skill_id):
     """Run a skill by ID."""
-    from continuum.skills.runner import run_skill
+    from edge_of_chaos.skills.runner import run_skill
 
     run_skill(skill_id)
 
@@ -50,7 +50,7 @@ def run(skill_id):
 @main.command()
 def status():
     """Show current continuum status."""
-    from continuum.status import run_status
+    from edge_of_chaos.status import run_status
 
     run_status()
 
@@ -60,7 +60,7 @@ def doctor():
     """Check continuum installation health."""
     import sys as _sys
 
-    from continuum.doctor import run_doctor
+    from edge_of_chaos.doctor import run_doctor
 
     _sys.exit(run_doctor())
 
@@ -75,8 +75,8 @@ def skills_list():
     """List available skills."""
     from pathlib import Path
 
-    from continuum.config import CONTINUUM_DIR
-    from continuum.skills.manifest import discover_skills
+    from edge_of_chaos.config import CONTINUUM_DIR
+    from edge_of_chaos.skills.manifest import discover_skills
 
     root = Path.cwd()
     continuum_dir = root / CONTINUUM_DIR
@@ -110,8 +110,8 @@ def skills_new(name):
     """Create a new skill scaffold."""
     from pathlib import Path
 
-    from continuum.config import CONTINUUM_DIR
-    from continuum.skills.scaffold import create_skill
+    from edge_of_chaos.config import CONTINUUM_DIR
+    from edge_of_chaos.skills.scaffold import create_skill
 
     root = Path.cwd()
     continuum_dir = root / CONTINUUM_DIR

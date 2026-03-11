@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from continuum.config import CONTINUUM_DIR
+from edge_of_chaos.config import CONTINUUM_DIR
 
 # Kebab-case: lowercase letters, numbers, hyphens; must start/end with letter/number
 KEBAB_CASE_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")

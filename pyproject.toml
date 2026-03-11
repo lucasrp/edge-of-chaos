@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "continuum"
+name = "edge-of-chaos"
 version = "0.1.0"
 description = "Edge of Chaos — persistent memory, autonomous routines, and intelligent warm-start for Claude Code."
 readme = "README.md"
@@ -24,8 +24,8 @@ dev = [
 ]
 
 [project.scripts]
-continuum = "continuum.cli:main"
-edge = "continuum.cli:main"
+edge = "edge_of_chaos.cli:main"
+
 
 [tool.setuptools.packages.find]
 where = ["src"]

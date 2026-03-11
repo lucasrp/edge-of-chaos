@@ -10,7 +10,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
-from continuum.scanner.parser import Message, Session
+from edge_of_chaos.scanner.parser import Message, Session
 
 
 # ---------------------------------------------------------------------------
