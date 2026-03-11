@@ -18,7 +18,9 @@ def main():
 @main.command()
 def init():
     """Initialize continuum in the current directory."""
-    click.echo("Not implemented yet.")
+    from continuum.init import run_init
+
+    run_init()
 
 
 @main.command()
