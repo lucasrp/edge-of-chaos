@@ -42,13 +42,13 @@ def cmd_add(args):
         f.write(line)
 
     count = sum(1 for l in path.read_text().split("\n") if l.startswith("- "))
-    print(f"OK: +1 ({count} total) -> {path}")
+    print(f"OK: +1 ({count} total) → {path}")
 
 
 def cmd_show(args):
     path = get_path(args.session)
     if not path.exists():
-        print("Scratchpad empty.")
+        print("Scratchpad vazio.")
         return
     print(path.read_text())
 
@@ -60,13 +60,13 @@ def cmd_path(args):
 def cmd_list(_args):
     pads = sorted(SCRATCH_DIR.glob(f"{PREFIX}-*.md"))
     if not pads:
-        print("No active scratchpads.")
+        print("Nenhum scratchpad ativo.")
         return
     for p in pads:
         lines = sum(1 for l in p.read_text().split("\n") if l.startswith("- "))
         age = datetime.now().timestamp() - p.stat().st_mtime
         age_str = f"{int(age / 60)}min" if age < 3600 else f"{int(age / 3600)}h"
-        print(f"  {p.name} ({lines} obs, {age_str} ago)")
+        print(f"  {p.name} ({lines} obs, {age_str} atrás)")
 
 
 def main():

@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""edge-event — Log and query system state events.
+"""edge-event — log e consultar eventos de estado do sistema.
 
-Usage:
-  edge-event log --type TYPE --summary "what happened"
-  edge-event log --type TYPE --thread ID --summary "..."
-  edge-event log --type TYPE --artifacts "a.md,b.html"
-  edge-event recent                                        # last 20 events
-  edge-event recent --thread ID                            # events for a thread
-  edge-event recent -n 50                                  # last 50
-  edge-event stats                                         # counts by type
+Uso:
+  edge-event log --type TYPE --summary "o que aconteceu"     # logar evento
+  edge-event log --type TYPE --thread ID --summary "..."     # com thread
+  edge-event log --type TYPE --artifacts "a.md,b.html"       # com artefatos
+  edge-event recent                                          # últimos 20 eventos
+  edge-event recent --thread ID                              # eventos de um fio
+  edge-event recent -n 50                                    # últimos 50
+  edge-event stats                                           # contagem por tipo
 
-Event types:
-  skill_dispatched   — heartbeat dispatched a skill
-  artifact_created   — blog entry, report, note created
-  thread_updated     — thread updated (resurface, status, decision)
-  claim_resolved     — open claim (!) resolved
-  user_directive     — user request received
-  error_logged       — error registered in debugging.md
-  maintenance        — compaction, indexing, cleanup
+Tipos de evento:
+  skill_dispatched   — heartbeat despachou uma skill
+  artifact_created   — blog entry, report, nota criados
+  thread_updated     — fio atualizado (resurface, status, decisão)
+  claim_resolved     — claim aberta (!) resolvida
+  user_directive     — pedido do usuário recebido
+  error_logged       — erro registrado no debugging.md
+  maintenance        — compactação, indexação, cleanup
 """
 
 import argparse
@@ -42,9 +42,9 @@ EVENT_TYPES = [
 
 
 def log_event(args):
-    """Append an event to the log."""
+    """Append um evento ao log."""
     if args.type not in EVENT_TYPES:
-        print(f"WARN: type '{args.type}' is not standard. Types: {', '.join(EVENT_TYPES)}", file=sys.stderr)
+        print(f"WARN: tipo '{args.type}' não é padrão. Tipos: {', '.join(EVENT_TYPES)}", file=sys.stderr)
 
     event = {
         "event_id": f"EVT-{uuid.uuid4().hex[:8]}",
@@ -72,9 +72,9 @@ def log_event(args):
 
 
 def cmd_recent(args):
-    """Show recent events."""
+    """Mostra eventos recentes."""
     if not EVENTS_FILE.exists():
-        print("No events recorded.")
+        print("Nenhum evento registrado.")
         return
 
     events = []
@@ -88,20 +88,24 @@ def cmd_recent(args):
             except json.JSONDecodeError:
                 continue
 
+    # Filtrar por thread se pedido
     if args.thread:
         events = [e for e in events if e.get("thread_id") == args.thread]
 
+    # Filtrar por tipo se pedido
     if args.type:
         events = [e for e in events if e.get("type") == args.type]
 
+    # Últimos N
     events = events[-args.n:]
 
     if not events:
-        print("No events found.")
+        print("Nenhum evento encontrado.")
         return
 
     for e in events:
         ts = e.get("timestamp", "?")
+        # Mostrar só hora se for hoje
         try:
             dt = datetime.fromisoformat(ts)
             today = datetime.now(timezone.utc).date()
@@ -118,24 +122,25 @@ def cmd_recent(args):
         skill = e.get("skill", "")
         artifacts = e.get("artifacts", [])
 
+        # Formatar linha
         parts = [f"[{ts_display}]", f"({etype})"]
         if skill:
             parts.append(f"/{skill}")
         if thread:
-            parts.append(f"thread:{thread}")
+            parts.append(f"fio:{thread}")
         parts.append(summary)
 
         print(" ".join(parts))
 
         if artifacts:
             for a in artifacts:
-                print(f"  -> {a}")
+                print(f"  → {a}")
 
 
 def cmd_stats(args):
-    """Event counts by type."""
+    """Contagem de eventos por tipo."""
     if not EVENTS_FILE.exists():
-        print("No events recorded.")
+        print("Nenhum evento registrado.")
         return
 
     counts = {}
@@ -161,30 +166,32 @@ def cmd_stats(args):
                 continue
 
     print("=== EVENT STATS ===")
-    print(f"Total: {total} events")
+    print(f"Total: {total} eventos")
     if first_ts:
-        print(f"First: {first_ts[:16]}")
-        print(f"Last:  {last_ts[:16]}")
+        print(f"Primeiro: {first_ts[:16]}")
+        print(f"Último:   {last_ts[:16]}")
     print()
     for etype, n in sorted(counts.items(), key=lambda x: -x[1]):
         print(f"  {etype}: {n}")
 
 
 def update_thread(thread_id, resurface_days=None):
-    """Update updated: and optionally resurface: of a thread."""
+    """Atualiza updated: e opcionalmente resurface: de um thread."""
     threads_dir = Path.home() / "edge" / "threads"
     thread_file = threads_dir / f"{thread_id}.md"
 
     if not thread_file.exists():
-        print(f"WARN: thread {thread_id} not found in {threads_dir}", file=sys.stderr)
+        print(f"WARN: thread {thread_id} não encontrado em {threads_dir}", file=sys.stderr)
         return False
 
     today = datetime.now().strftime("%Y-%m-%d")
     content = thread_file.read_text()
 
+    # Atualizar updated:
     import re
     content = re.sub(r'^updated:.*$', f'updated: {today}', content, flags=re.MULTILINE)
 
+    # Atualizar resurface: se pedido
     if resurface_days:
         from datetime import timedelta
         new_resurface = (datetime.now() + timedelta(days=resurface_days)).strftime("%Y-%m-%d")
@@ -198,31 +205,35 @@ def update_thread(thread_id, resurface_days=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Log and query state events")
+    parser = argparse.ArgumentParser(description="Log e consultar eventos de estado")
     sub = parser.add_subparsers(dest="cmd")
 
-    p_log = sub.add_parser("log", help="Record event")
-    p_log.add_argument("--type", "-t", required=True, help="Event type")
-    p_log.add_argument("--summary", "-s", required=True, help="Summary of what happened")
-    p_log.add_argument("--thread", help="Related thread")
-    p_log.add_argument("--task", help="Related task")
-    p_log.add_argument("--artifacts", help="Created artifacts (comma-separated)")
-    p_log.add_argument("--skill", help="Dispatched skill")
+    # log
+    p_log = sub.add_parser("log", help="Registrar evento")
+    p_log.add_argument("--type", "-t", required=True, help="Tipo do evento")
+    p_log.add_argument("--summary", "-s", required=True, help="Resumo do que aconteceu")
+    p_log.add_argument("--thread", help="Thread relacionado")
+    p_log.add_argument("--task", help="Task relacionada")
+    p_log.add_argument("--artifacts", help="Artefatos criados (separados por vírgula)")
+    p_log.add_argument("--skill", help="Skill despachada")
     p_log.add_argument("--session", help="Session ID")
     p_log.add_argument("--update-thread", type=int, metavar="DAYS",
-                       help="Update thread (updated=today, resurface=today+DAYS)")
+                       help="Atualizar thread (updated=hoje, resurface=hoje+DAYS)")
 
-    p_recent = sub.add_parser("recent", help="Recent events")
-    p_recent.add_argument("-n", type=int, default=20, help="Count (default: 20)")
-    p_recent.add_argument("--thread", help="Filter by thread")
-    p_recent.add_argument("--type", help="Filter by type")
+    # recent
+    p_recent = sub.add_parser("recent", help="Eventos recentes")
+    p_recent.add_argument("-n", type=int, default=20, help="Quantidade (default: 20)")
+    p_recent.add_argument("--thread", help="Filtrar por thread")
+    p_recent.add_argument("--type", help="Filtrar por tipo")
 
-    sub.add_parser("stats", help="Statistics")
+    # stats
+    sub.add_parser("stats", help="Estatísticas")
 
     args = parser.parse_args()
 
     if args.cmd == "log":
         log_event(args)
+        # Se --update-thread, atualizar o arquivo do thread
         if args.thread and args.update_thread is not None:
             update_thread(args.thread, args.update_thread)
     elif args.cmd == "recent":

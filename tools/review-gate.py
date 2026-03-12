@@ -4,7 +4,7 @@ review-gate — Quality gate for YAML report specs.
 
 Three-phase pipeline with 2 hardcoded improvement rounds:
   Phase 1 (co-author): GPT with tools enriches/generates YAML draft
-  Phase 2 (review+refine loop): Reviewer evaluates -> Refiner rewrites YAML -> repeat 2x
+  Phase 2 (review+refine loop): Reviewer evaluates → Refiner rewrites YAML → repeat 2x
   Result: improved YAML written back to file
 
 Usage:
@@ -12,8 +12,8 @@ Usage:
     review-gate spec.yaml --review-only            # Review only (no co-authoring, no refinement)
     review-gate spec.yaml --coauthor-only          # Co-author only (no review)
     review-gate spec.yaml --entry blog-entry.md    # Include blog entry for consistency
-    review-gate spec.yaml --skill research         # Include skill-specific rules
-    review-gate spec.yaml --brief "topic summary"
+    review-gate spec.yaml --skill pesquisa         # Include skill-specific rules
+    review-gate spec.yaml --brief "autonomia #10, slack + pipeline + identity"
     review-gate spec.yaml --rounds 1               # Override: only 1 improvement round
 
 Exit codes: 0 = pass, 1 = fail (after all rounds), 2 = error
@@ -33,7 +33,7 @@ except ImportError:
     sys.exit("openai package required: pip install openai")
 
 # ---------------------------------------------------------------------------
-# Paths — configurable via EDGE_PROJECT_SLUG env var
+# Paths
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent
@@ -41,13 +41,11 @@ RUBRIC_PATH = Path.home() / ".claude/skills/_shared/report-template.md"
 BLOG_RULES_PATH = Path.home() / ".claude/skills/ed-blog/SKILL.md"
 SKILLS_DIR = Path.home() / ".claude/skills"
 SECRETS_PATH = Path.home() / "edge/secrets/openai.env"
-
-_PROJECT_SLUG = os.environ.get("EDGE_PROJECT_SLUG", "default")
-MEMORY_DIR = Path.home() / ".claude/projects" / _PROJECT_SLUG / "memory"
+MEMORY_DIR = Path.home() / ".claude/projects/-home-vboxuser/memory"
 REPORTS_DIR = Path.home() / "edge/reports"
 NOTES_DIR = Path.home() / "edge/notes"
 
-DEFAULT_MODEL = os.environ.get("EDGE_DEFAULT_MODEL", "gpt-5.4")
+DEFAULT_MODEL = "gpt-5.4"
 
 # ---------------------------------------------------------------------------
 # Tool definitions for co-author phase
@@ -63,7 +61,7 @@ TOOLS = [
                 "debugging.md (recurring errors and lessons), "
                 "personality.md (agent identity, tone, communication style), "
                 "insights.md (user direction, preferences, corrections), "
-                "metodo.md (method, derivation-first approach), "
+                "metodo.md (Feynman method, derivation-first approach), "
                 "working-state.md (current work context, timeline, active threads), "
                 "breaks-active.md (last 5 research breaks). "
                 "Use to enrich the YAML with relevant context."
@@ -98,7 +96,7 @@ TOOLS = [
                 "properties": {
                     "topic": {
                         "type": "string",
-                        "description": "Topic keyword to search for",
+                        "description": "Topic keyword to search for (e.g. 'autonomia', 'pesquisa-llm', 'ssh')",
                     }
                 },
                 "required": ["topic"],
@@ -110,9 +108,9 @@ TOOLS = [
         "function": {
             "name": "search_corpus",
             "description": (
-                "Search the agent's knowledge base using hybrid search "
+                "Search the agent's knowledge base (~1200 docs) using hybrid search "
                 "(FTS + embeddings). Returns top matches with title, path, and snippet. "
-                "Use to find related prior work, verify claims, enrich lineage."
+                "Use to find related prior work, verify claims, enrich linhagem."
             ),
             "parameters": {
                 "type": "object",
@@ -145,7 +143,7 @@ TOOLS = [
                 "properties": {
                     "tag": {
                         "type": "string",
-                        "description": "Filter by tag (research, discovery, reflection, etc.). Empty = all.",
+                        "description": "Filter by tag (pesquisa, descoberta, reflexao, etc.). Empty = all.",
                         "default": "",
                     },
                     "n": {
@@ -248,8 +246,8 @@ TOOL_DISPATCH = {
 
 DIMENSIONS = {
     "structural_completeness": (
-        "Required sections present: lineage (first section), "
-        "'What I Don't Know' (penultimate), glossary (last), "
+        "Required sections present: linhagem (first section), "
+        "'O que Nao Sei' (penultimate), glossario (last), "
         "executive_summary, metrics, bibliography. "
         "All blocks use valid types from the report template."
     ),
@@ -261,13 +259,13 @@ DIMENSIONS = {
     ),
     "storytelling": (
         "The report tells a STORY, not just presents information. "
-        "There is a narrative arc: setup (why this matters) -> tension (the problem/question) "
-        "-> exploration (what was tried/discovered) -> resolution (what changed). "
+        "There is a narrative arc: setup (why this matters) → tension (the problem/question) "
+        "→ exploration (what was tried/discovered) → resolution (what changed). "
         "Sections flow into each other with cause-effect or temporal logic. "
-        "The reader should want to keep reading -- not just scanning headers. "
+        "The reader should want to keep reading — not just scanning headers. "
         "The title and executive_summary hook the reader. "
         "Analogies and concrete scenarios make abstract ideas tangible. "
-        "The conclusion connects back to the opening -- the arc closes."
+        "The conclusion connects back to the opening — the arc closes."
     ),
     "feynman_method": (
         "Evidence of derivation-first thinking: the author tried to reason from "
@@ -276,13 +274,13 @@ DIMENSIONS = {
         "The report shows WHERE the author's knowledge stopped and research began. "
         "Explanations are written as if teaching someone intelligent but unfamiliar. "
         "No jargon without definition. Analogies used to test understanding. "
-        "The process of thinking is visible -- not just conclusions. "
-        "If the report has a 'Derivation' or equivalent section, it contains genuine "
+        "The process of thinking is visible — not just conclusions. "
+        "If the report has a 'Derivacao' or equivalent section, it contains genuine "
         "reasoning steps (not just restating known facts). "
         "Uncertainty is quantified or bounded, not hand-waved."
     ),
     "writing_quality": (
-        "Text in paragraph blocks is flowing prose, not telegraphic "
+        "Text in paragraph blocks is fluido (flowing prose), not telegráfico "
         "(bullet-point-only). Transitions between ideas. "
         "Reflective tone, not didactic or robotic. "
         "Blockquotes sound like crystallized thoughts. "
@@ -295,7 +293,7 @@ DIMENSIONS = {
         "SVG follows standards: viewBox, font-family, semantic colors."
     ),
     "intellectual_honesty": (
-        "'What I Don't Know' section has genuine, specific gaps -- not boilerplate. "
+        "'O que Nao Sei' section has genuine, specific gaps — not boilerplate. "
         "Uncertainty stated clearly. Blind spots acknowledged. "
         "Assumptions marked as untested. gap-table with real IDs and descriptions. "
         "callout danger/warning for critical unknowns."
@@ -304,22 +302,23 @@ DIMENSIONS = {
         "Executive summary matches section content. "
         "Metrics match what's reported in sections. "
         "Title matches actual scope. Numbers consistent throughout. "
-        "Lineage references real prior work, not generic placeholders. "
+        "Linhagem references real prior work, not generic placeholders. "
         "Blog entry (if provided) is consistent with report content."
     ),
     "didactic_clarity": (
         "Every concept, acronym, and technical term is explained on first use. "
         "The reader should NEVER have to guess what a term means. "
         "Specific checks: "
-        "(1) Acronyms expanded on first mention. "
-        "(2) Domain jargon defined inline or in glossary. "
-        "(3) Tool/system names explained with what they DO, not just what they ARE. "
-        "(4) Concept boxes (concept-grid) used for new ideas -- with analogy + practical definition. "
-        "(5) The glossary section is not a dump of terms -- each entry has a definition a newcomer can understand. "
+        "(1) Acronyms expanded on first mention (e.g. 'MECE (Mutuamente Exclusivo, Coletivamente Exaustivo)'). "
+        "(2) Domain jargon defined inline or in glossary (e.g. 'nuggets', 'Sheridan level', 'heartbeat'). "
+        "(3) Tool/system names explained with what they DO, not just what they ARE "
+        "(e.g. 'edge-search (busca semantica no corpus de 1300+ documentos)', not just 'edge-search'). "
+        "(4) Concept boxes (concept-grid) used for new ideas — with analogy + practical definition. "
+        "(5) The glossary section is not a dump of terms — each entry has a definition a newcomer can understand. "
         "(6) Numbers have context (e.g. '47% coverage' means nothing without '47% of nuggets were found in agent output'). "
         "Score 5 = a smart person unfamiliar with the project can read and understand everything. "
         "Score 3 = most things explained, a few insider terms slip through. "
-        "Score 1 = reads like internal notes -- full of unexplained jargon."
+        "Score 1 = reads like internal notes — full of unexplained jargon."
     ),
 }
 
@@ -332,9 +331,11 @@ DIMENSION_WEIGHTS = [0.15, 0.15, 0.12, 0.12, 0.08, 0.08, 0.10, 0.08, 0.12]
 # System prompts
 # ---------------------------------------------------------------------------
 
-COAUTHOR_SYSTEM = """You are a co-author helping an autonomous AI agent improve a YAML report specification before publication. The YAML will be converted to an HTML report, published to an internal blog, and indexed into long-term memory.
+COAUTHOR_SYSTEM = """You are a co-author helping an autonomous AI agent (edge_of_chaos) improve a YAML report specification before publication. The YAML will be converted to an HTML report, published to an internal blog, and indexed into long-term memory.
 
 Your role: ENRICH the YAML by pulling relevant context using your tools. You are NOT rewriting from scratch — you are adding what's missing, deepening what's shallow, and connecting to prior work.
+
+Language: Portuguese (PT-BR).
 
 ## What to do:
 1. Read the YAML spec carefully
@@ -352,7 +353,7 @@ Your role: ENRICH the YAML by pulling relevant context using your tools. You are
 ## Tools available:
 - read_memory: Read agent memory files (debugging.md, personality.md, insights.md, metodo.md, working-state.md, breaks-active.md)
 - get_previous_report: Get previous report YAML on same topic (for continuity)
-- search_corpus: Search docs for related work
+- search_corpus: Search ~1200 docs for related work
 - read_blog_entries: Read recent blog entries (for connections)
 
 ## Process:
@@ -378,11 +379,13 @@ Your role: ENRICH the YAML by pulling relevant context using your tools. You are
 }}
 """
 
-REVIEWER_SYSTEM = """You are a quality reviewer for YAML report specifications used by an autonomous AI agent. These specs get converted to HTML reports via yaml_to_html.py, published to an internal blog, and indexed into long-term memory.
+REVIEWER_SYSTEM = """You are a quality reviewer for YAML report specifications used by an autonomous AI agent (edge_of_chaos). These specs get converted to HTML reports via yaml_to_html.py, published to an internal blog, and indexed into long-term memory.
 
 Your job: evaluate the YAML spec against the rubric and provide structured, SPECIFIC feedback. Cite section titles, block types, and exact content when pointing out issues. Your feedback will be used by the agent to improve the spec in a self-refinement loop.
 
 IMPORTANT: You are evaluating the artifact AS-IS. You have no tools and no external context. Judge only what's in front of you. If a claim seems unverified, flag it. If context seems missing, note it.
+
+Language: respond in Portuguese (PT-BR).
 
 ## Evaluation Dimensions
 
@@ -411,11 +414,11 @@ Rate each dimension 0-5:
 ## Critical Issues (blocking)
 
 Flag as critical_issues if ANY of these:
-- Required section completely missing (lineage, "What I Don't Know", glossary)
+- Required section completely missing (linhagem, "O que Nao Sei", glossario)
 - executive_summary or metrics missing at top level
 - Empty sections (title present but no blocks/content)
 - Zero SVG visualizations in entire spec
-- "What I Don't Know" is clearly boilerplate (vague generic text, not specific to this report's topic)
+- "O que Nao Sei" is clearly boilerplate (vague generic text, not specific to this report's topic)
 - Sections reference data/events not present elsewhere in the spec (internal contradiction)
 - Blog entry says one thing, report says another (if blog entry provided)
 - 3+ acronyms or technical terms used without any explanation (reader cannot understand the report)
@@ -451,7 +454,7 @@ Rules for pass/fail:
 
 REFINER_SYSTEM = """You are a YAML report spec editor. You receive a YAML report spec and reviewer feedback (scores + issues + suggestions). Your job: APPLY the feedback by rewriting the YAML.
 
-Output: ONLY the complete, corrected YAML. No markdown fences, no commentary, no explanation — just the YAML content.
+Language: Portuguese (PT-BR). Output: ONLY the complete, corrected YAML. No markdown fences, no commentary, no explanation — just the YAML content.
 
 ## Rules:
 - Fix ALL critical_issues first — these are blockers
@@ -460,11 +463,11 @@ Output: ONLY the complete, corrected YAML. No markdown fences, no commentary, no
 - Preserve the YAML structure (title, subtitle, date, executive_summary, metrics, sections, bibliography)
 - If the reviewer says a section is shallow, DEEPEN it with concrete content (not lorem ipsum)
 - If an SVG is missing and the reviewer flagged it, add a simple but real SVG visualization
-- If "What I Don't Know" is flagged as boilerplate, rewrite with genuine, specific gaps
+- If "O que Nao Sei" is flagged as boilerplate, rewrite with genuine, specific gaps
 - Keep all existing metadata intact (title, date, etc.)
 
 ## Report Template Rules (summary)
-- Required sections: lineage (first), "What I Don't Know" (penultimate), glossary (last)
+- Required sections: linhagem (first), "O que Nao Sei" (penultimate), glossario (last)
 - Required top-level keys: executive_summary, metrics, bibliography
 - At least 1 SVG visualization (inline raw-html block)
 - Tables paired with charts when 3+ values compared
@@ -501,9 +504,9 @@ def load_blog_rules() -> str:
     in_style = False
     style_lines = []
     for line in lines:
-        if "Writing Style" in line or "Estilo de Escrita" in line:
+        if "Estilo de Escrita" in line:
             in_style = True
-        elif in_style and line.startswith("## ") and "Style" not in line and "Estilo" not in line:
+        elif in_style and line.startswith("## ") and "Estilo" not in line:
             break
         if in_style:
             style_lines.append(line)
@@ -880,7 +883,7 @@ def print_coauthor_report(result: dict):
         raw_content = e.get("content", "")
         content_preview = (str(raw_content) if not isinstance(raw_content, str) else raw_content)[:150]
         if content_preview:
-            print(f"     -> {content_preview}...", file=sys.stderr)
+            print(f"     → {content_preview}...", file=sys.stderr)
         print(file=sys.stderr)
 
     if missing:
@@ -916,7 +919,7 @@ def print_review_report(result: dict):
     dims = result.get("dimensions", {})
     for name, data in dims.items():
         score = data.get("score", 0)
-        bar = "X" * score + "." * (5 - score)
+        bar = "█" * score + "░" * (5 - score)
         feedback = data.get("feedback", "")
         color = "\033[32m" if score >= 4 else "\033[33m" if score >= 3 else "\033[31m"
         print(f"  {color}{bar} {score}/5\033[0m  {name}", file=sys.stderr)
@@ -994,7 +997,7 @@ def main():
 
     # Phase 1: Co-author (enrich with tools)
     if not args.review_only:
-        print("-- Phase 1: Co-Author --", file=sys.stderr)
+        print("── Phase 1: Co-Author ──", file=sys.stderr)
         ca_result = coauthor(
             str(yaml_path),
             skill=args.skill,
@@ -1018,7 +1021,7 @@ def main():
         results["rounds"] = []
 
         for r in range(1, rounds + 1):
-            print(f"\n-- Round {r}/{rounds}: Review --", file=sys.stderr)
+            print(f"\n── Round {r}/{rounds}: Review ──", file=sys.stderr)
 
             rv_result = review(
                 str(yaml_path),
@@ -1040,7 +1043,7 @@ def main():
                 break
 
             # Refine: apply feedback to YAML
-            print(f"-- Round {r}/{rounds}: Refine --", file=sys.stderr)
+            print(f"── Round {r}/{rounds}: Refine ──", file=sys.stderr)
             refine_meta = refine(
                 str(yaml_path),
                 rv_result,

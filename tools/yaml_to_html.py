@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Convert structured YAML to HTML content (<main>) for reports.
+Converte YAML estruturado para HTML (conteudo do <main>) for reports.
 
-Usage:
+Uso:
     python3 yaml_to_html.py spec.yaml --output /tmp/content.html
     python3 yaml_to_html.py spec.yaml  # stdout
 
-The YAML defines sections, blocks, and content. This script generates HTML
-for <main class="report-content"> — generate_report.py handles the rest
-(CSS, SVG, header, footer).
+O YAML define secoes, blocos e conteudo. Este script gera o HTML que vai
+dentro de <main class="report-content"> — o generate_report.py cuida do
+resto (CSS, SVG, header, footer).
 """
 
 import argparse
@@ -94,7 +94,7 @@ def render_concept_grid(b):
     for item in items:
         cells.append(
             f'<div class="callout callout-info">'
-            f'<strong>{render_text(item.get("name", item.get("title", "(no name)")))}</strong><br>'
+            f'<strong>{render_text(item.get("name", item.get("title", "(sem nome)")))}</strong><br>'
             f'{render_text(item.get("text") or item.get("description") or "")}'
             f'</div>'
         )
@@ -321,10 +321,10 @@ def render_risk_table(b):
         "high": "danger", "medium": "warning", "low": "success",
     }
     parts = ['<div class="table-wrapper">', '<table>', '<thead>', '<tr>']
-    parts.append('<th>Risk</th><th>Probability</th><th>Mitigation</th>')
+    parts.append('<th>Risco</th><th>Probabilidade</th><th>Mitigacao</th>')
     parts.append('</tr></thead><tbody>')
     for row in b["rows"]:
-        prob = row.get("probability", "medium")
+        prob = row.get("probability", "media")
         variant = prob_badge.get(prob.lower(), "neutral")
         parts.append('<tr>')
         parts.append(f'<td>{render_text(row["risk"])}</td>')
@@ -337,10 +337,12 @@ def render_risk_table(b):
 
 @renderer("code-block")
 def render_code_block(b):
+    content = b.get("content") or b.get("code", "")
+    label = b.get("label") or b.get("title", "")
     parts = ['<div class="card">']
-    if b.get("label") or b.get("badge"):
+    if label or b.get("badge"):
         parts.append('<div class="card-header">')
-        parts.append(f'<span class="card-title">{render_text(b.get("label", ""))}</span>')
+        parts.append(f'<span class="card-title">{render_text(label)}</span>')
         if b.get("badge"):
             bc = b.get("badge_class", "info")
             parts.append(badge_html(b["badge"], bc))
@@ -349,7 +351,7 @@ def render_code_block(b):
         f'<pre style="font-family: \'Courier New\', monospace; font-size: 13px; '
         f'line-height: 1.55; background: var(--gray-50); padding: 16px; '
         f'border-radius: 6px; overflow-x: auto;">'
-        f'{render_pre(b["content"])}</pre>'
+        f'{render_pre(content)}</pre>'
     )
     parts.append('</div>')
     return "\n".join(parts)
@@ -415,7 +417,7 @@ def render_next_steps_grid(b):
             elif isinstance(phase_items, str):
                 steps.append({"title": phase_items, "phase": phase_key})
     for step in steps:
-        # Normalize: string -> dict
+        # Normalize: string → dict
         if isinstance(step, str):
             step = {"title": step}
         parts.append('<div class="next-step-card">')
@@ -486,7 +488,7 @@ def render_derivation(b):
     parts = ['<div class="derivation">']
     parts.append('<div class="derivation-header">')
     parts.append('<span class="derivation-icon">D</span>')
-    title = b.get("title", "Derivation")
+    title = b.get("title", "Derivacao")
     parts.append(f'<span class="derivation-title">{render_text(title)}</span>')
     parts.append('</div>')
     if b.get("text"):
@@ -530,13 +532,13 @@ def render_gap_table(b):
         "open": "gap-status-open",
     }
     parts = ['<div class="table-wrapper">', '<table>', '<thead>', '<tr>']
-    parts.append('<th>#</th><th>Gap</th><th>What I need to know</th><th>Status</th>')
+    parts.append('<th>#</th><th>Gap</th><th>O que preciso saber</th><th>Status</th>')
     parts.append('</tr></thead><tbody>')
     for row in b.get("gaps", []):
         num = row.get("id", "")
         desc = row.get("description", "")
         need = row.get("need", "")
-        status = row.get("status", "open")
+        status = row.get("status", "aberto")
         cls = status_cls.get(status.lower(), "gap-status-open")
         parts.append('<tr>')
         parts.append(f'<td style="font-weight:600;text-align:center;">{html.escape(str(num))}</td>')
@@ -600,7 +602,7 @@ def render_bibliography(b):
                         "x": "neutral", "twitter": "neutral",
                         "arxiv": "success", "paper": "success", "semantic scholar": "success",
                         "github": "neutral", "hackernews": "warning", "hn": "warning",
-                        "blog": "neutral", "docs": "info",
+                        "moltbook": "info", "blog": "neutral", "docs": "info",
                     }.get(source.lower(), "neutral")
                     li_parts.append(f' {badge_html(source, variant)}')
                 parts.append(f'<li>{"".join(li_parts)}</li>')
@@ -700,7 +702,7 @@ BLOCK_SCHEMAS = {
     "code-block": {
         "required": ["content"],
         "optional": ["label", "badge", "badge_class"],
-        "synonyms": {},
+        "synonyms": {"code": "content", "title": "label"},
         "container_field": None,
     },
     "ascii-diagram": {
@@ -796,12 +798,12 @@ def _validate_block(block_type: str, block: dict) -> list:
     # Missing required fields
     for field in schema["required"]:
         if field not in block:
-            warnings.append(f"Missing required field: '{field}'")
+            warnings.append(f"Campo obrigatorio ausente: '{field}'")
 
     # Unknown fields (probable typo)
     unknown = present - known
     if unknown:
-        warnings.append(f"Unknown field(s) (possible typo): {sorted(unknown)}")
+        warnings.append(f"Campo(s) desconhecido(s) (possivel typo): {sorted(unknown)}")
 
     # Empty container
     container = schema.get("container_field")
@@ -809,8 +811,8 @@ def _validate_block(block_type: str, block: dict) -> list:
         has_data = any(block.get(f) for f in container)
         if not has_data:
             warnings.append(
-                f"Empty container: none of {container} have data. "
-                f"Fields present: {sorted(present)}"
+                f"Container vazio: nenhum dos campos {container} tem dados. "
+                f"Campos presentes: {sorted(present)}"
             )
 
     return warnings
@@ -842,7 +844,7 @@ def _log_render_event(block_type: str, event: str, detail: str, fields: list[str
             "ts": datetime.datetime.now().isoformat(timespec="seconds"),
             "source": _current_source,
             "block_type": block_type,
-            "event": event,
+            "event": event,  # "unknown_fields", "missing_required", "empty_render", "synonym_used", "unknown_block_type"
             "detail": detail,
         }
         if fields:
@@ -858,10 +860,21 @@ def get_validation_error_count() -> int:
     return _validation_error_count
 
 
+_BLOCK_TYPE_ALIASES = {
+    "steps": "next-steps-grid",
+}
+
+
 def render_block(block: dict) -> str:
     """Dispatch a single block to its renderer."""
     global _validation_error_count
     block_type = block.get("type", "paragraph")
+    if block_type in _BLOCK_TYPE_ALIASES:
+        canonical = _BLOCK_TYPE_ALIASES[block_type]
+        _log_render_event(block_type, "synonym_used",
+                          f"Block type '{block_type}' aliased to '{canonical}'")
+        block_type = canonical
+        block["type"] = canonical
     fn = RENDERERS.get(block_type)
     if fn is None:
         _log_render_event(block_type, "unknown_block_type", f"Block type '{block_type}' has no renderer")
@@ -873,7 +886,7 @@ def render_block(block: dict) -> str:
         for syn, canonical in schema.get("synonyms", {}).items():
             if syn in block and canonical not in block:
                 _log_render_event(block_type, "synonym_used",
-                                  f"'{syn}' used instead of '{canonical}' -- accepted via synonym",
+                                  f"'{syn}' usado em vez de '{canonical}' — aceito via synonym",
                                   fields=sorted(k for k in block if k != "type"))
 
     # Pre-render validation
@@ -882,20 +895,20 @@ def render_block(block: dict) -> str:
     if warnings:
         _validation_error_count += len(warnings)
         for w in warnings:
-            print(f"ERROR block [{block_type}]: {w}", file=sys.stderr)
+            print(f"ERRO bloco [{block_type}]: {w}", file=sys.stderr)
             # Classify and log each warning
-            if "Unknown" in w:
+            if "desconhecido" in w:
                 _log_render_event(block_type, "unknown_fields", w,
                                   fields=sorted(k for k in block if k != "type"))
-            elif "required" in w:
+            elif "obrigatorio" in w:
                 _log_render_event(block_type, "missing_required", w)
-            elif "Empty container" in w:
+            elif "Container vazio" in w:
                 _log_render_event(block_type, "empty_container", w,
                                   fields=sorted(k for k in block if k != "type"))
         error_html = (
             f'<div style="border:2px solid #DC2626;background:#FEF2F2;padding:8px;'
             f'border-radius:6px;margin:8px 0;font-size:13px;color:#991B1B;">'
-            f'ERROR block [{html.escape(block_type)}]: '
+            f'ERRO bloco [{html.escape(block_type)}]: '
             + "<br>".join(html.escape(w) for w in warnings)
             + '</div>'
         )
@@ -906,14 +919,14 @@ def render_block(block: dict) -> str:
     if not warnings and _is_empty_render(block_type, result):
         _validation_error_count += 1
         present = sorted(k for k in block if k != "type")
-        msg = f"ERROR block [{block_type}]: rendered empty (post-render). Fields: {present}"
+        msg = f"ERRO bloco [{block_type}]: renderizou vazio (post-render). Campos: {present}"
         print(msg, file=sys.stderr)
         _log_render_event(block_type, "empty_render", msg, fields=present)
         error_html = (
             f'<div style="border:2px solid #DC2626;background:#FEF2F2;padding:8px;'
             f'border-radius:6px;margin:8px 0;font-size:13px;color:#991B1B;">'
-            f'ERROR block [{html.escape(block_type)}]: rendered empty. '
-            f'Fields present: {html.escape(str(present))}'
+            f'ERRO bloco [{html.escape(block_type)}]: renderizou vazio. '
+            f'Campos presentes: {html.escape(str(present))}'
             + '</div>'
         )
 
@@ -971,9 +984,9 @@ def _normalize_section_blocks(section: dict) -> list:
 
     if block.get("text") or block.get("items") or block.get("steps") \
        or block.get("headers") or block.get("content"):
-        title = section.get("title", "(no title)")
-        print(f"WARNING: section '{title}' uses shorthand format (type/content at section level). "
-              f"Correct format: blocks: [{{type: ..., text: ...}}]. Auto-converted.",
+        title = section.get("title", "(sem titulo)")
+        print(f"AVISO: secao '{title}' usa formato shorthand (type/content no nivel da secao). "
+              f"Formato correto: blocks: [{{type: ..., text: ...}}]. Convertido automaticamente.",
               file=sys.stderr)
         return [block]
 
@@ -987,8 +1000,8 @@ def render_section(section: dict) -> str:
         parts.append(f'<h2 class="section-title">{render_text(section["title"])}</h2>')
     blocks = _normalize_section_blocks(section)
     if not blocks and section.get("title"):
-        print(f"WARNING: section '{section['title']}' has no content (no blocks, no type/content). "
-              f"Check the YAML.", file=sys.stderr)
+        print(f"AVISO: secao '{section['title']}' sem conteudo (sem blocks, sem type/content). "
+              f"Verifique o YAML.", file=sys.stderr)
     for block in blocks:
         parts.append(render_block(block))
     parts.append('</div>')
@@ -999,7 +1012,7 @@ def render_executive_summary(items: list) -> str:
     """Render executive summary block."""
     parts = [
         '<div class="executive-summary">',
-        '<h3>Executive Summary</h3>',
+        '<h3>Resumo Executivo</h3>',
         '<ul>',
     ]
     for item in items:
@@ -1052,7 +1065,7 @@ def yaml_to_html(yaml_path: str) -> str:
     # Top-level bibliography (auto-rendered as last section)
     if spec.get("bibliography"):
         bib_section = {
-            "title": "References",
+            "title": "Referencias",
             "blocks": [{
                 "type": "bibliography",
                 "references": spec["bibliography"],
@@ -1080,9 +1093,9 @@ def main():
     parser.add_argument("input", help="YAML spec file")
     parser.add_argument("--output", "-o", help="Output HTML file (default: stdout)")
     parser.add_argument("--strict", action="store_true", default=True,
-                        help="Exit 1 on validation errors (default: True)")
+                        help="Exit 1 se houver erros de validacao (default: True)")
     parser.add_argument("--no-strict", action="store_true",
-                        help="Allow validation errors (emit warning but don't block)")
+                        help="Permitir erros de validacao (emite warning mas nao bloqueia)")
     args = parser.parse_args()
 
     global _current_source
@@ -1093,10 +1106,10 @@ def main():
     n_errors = get_validation_error_count()
     if n_errors > 0:
         if not args.no_strict:
-            print(f"BLOCKED: {n_errors} rendering error(s) in YAML. Fix and try again.", file=sys.stderr)
+            print(f"BLOQUEADO: {n_errors} erro(s) de renderizacao no YAML. Corrija e tente novamente.", file=sys.stderr)
             sys.exit(1)
         else:
-            print(f"WARNING: {n_errors} rendering error(s) (--no-strict, continuing)", file=sys.stderr)
+            print(f"WARNING: {n_errors} erro(s) de renderizacao (--no-strict, continuando)", file=sys.stderr)
 
     if args.output:
         out = Path(args.output)

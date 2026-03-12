@@ -9,17 +9,17 @@ Cada skill define suas proprias secoes obrigatorias e regras de ouro 1-3. Este a
 
 1. **Gerar YAML** com as secoes da skill chamadora, usando os block types abaixo
 2. **Escrever YAML** em `/tmp/spec-[skill]-[slug].yaml`
-3. **Incluir claims no frontmatter da blog entry** (compactacao — OBRIGATORIO):
+3. **Incluir claims no frontmatter da blog entry** (compactação — OBRIGATÓRIO):
    ```yaml
    claims:
      - "Fato verificado que aprendi"
-     - "!Coisa que ainda nao sei — gap de conhecimento"
+     - "!Coisa que ainda não sei — gap de conhecimento"
    threads: [fio-relacionado-1, fio-relacionado-2]
    ```
-   - Claims = conhecimento duravel extraido do entry. O que sobrevive sem reler o texto inteiro.
-   - Prefixo `!` = "nao sei" — gap aberto, candidato a pesquisa futura.
-   - `threads:` = fios de investigacao relacionados (ver `~/edge/threads/`).
-   - O `consolidar-estado` avisa se claims estao ausentes.
+   - Claims = conhecimento durável extraído do entry. O que sobrevive sem reler o texto inteiro.
+   - Prefixo `!` = "não sei" — gap aberto, candidato a pesquisa futura.
+   - `threads:` = fios de investigação relacionados (ver `~/edge/threads/`).
+   - O `consolidar-estado` avisa se claims estão ausentes.
 4. **Publicar atomicamente** (blog entry + report HTML + meta-report + state commit):
    ```bash
    consolidar-estado ~/edge/blog/entries/<arquivo>.md /tmp/spec-[skill]-[slug].yaml
@@ -28,17 +28,17 @@ Cada skill define suas proprias secoes obrigatorias e regras de ouro 1-3. Este a
    - Phase 0/0.5: Frontmatter + review gate
    - Phase 1: Blog entry (blog-publish.sh)
    - Phase 2: Content report (generate_report.py → ~/edge/reports/)
-   - Phase 3/3.4: Verificacao + LLM cost
+   - Phase 3/3.4: Verificação + LLM cost
    - **Phase 4: Meta-report** (state delta + scratchpad + adversarial → ~/edge/meta-reports/)
    - Phase 5: State commit (claims, threads, events, digest)
    - Phase 6: Diffs + git commit
 
-   Content report e opcional — publicar sem YAML gera apenas meta-report:
+   Content report é opcional — publicar sem YAML gera apenas meta-report:
    ```bash
    consolidar-estado ~/edge/blog/entries/<arquivo>.md
    ```
 
-   Flags uteis: `--scratchpad PATH`, `--no-adversarial`, `--no-meta`, `--skip-review`
+   Flags úteis: `--scratchpad PATH`, `--no-adversarial`, `--no-meta`, `--skip-review`
 5. **Ler meta-report** (`~/edge/meta-reports/<slug>-meta.md`) ANTES de editar estado
 6. **Read do HTML gerado** (`~/edge/reports/<arquivo>.html`) para verificacao
 
@@ -166,7 +166,7 @@ SVG nao e so para numeros — qualquer informacao que comunica melhor como image
 
 ## Sanity Check Adversarial (edge-consult — OBRIGATORIO em TODA skill)
 
-ANTES de gerar o YAML do relatorio, submeter as conclusoes/recomendacoes ao `edge-consult` para deliberacao cross-model. Um modelo diferente do autor encontra furos, biases, premissas fracas.
+ANTES de gerar o YAML do relatorio, submeter as conclusoes/recomendacoes ao `edge-consult` para deliberacao cross-model. cross-model reviewer (modelo diferente do autor) encontra furos, biases, premissas fracas.
 
 ```bash
 # Adversarial (default) — sintetizar conclusoes em 2-3 frases
@@ -179,7 +179,7 @@ edge-consult --mode collab "Estou travado em X, que angulos explorar?"
 **Protocolo de resposta:**
 1. Ler a critica com honestidade
 2. Se o argumento e valido → ajustar conclusoes/YAML
-3. Se mantiver posicao → registrar no relatorio como `callout` variant=info: "Sanity check: [objecao]. Resposta: [por que mantenho]."
+3. Se mantiver posicao → registrar no relatorio como `callout` variant=info: "Sanity check cross-model reviewer: [objecao]. Resposta: [por que mantenho]."
 
 **No relatorio:** incluir bloco mostrando o que foi desafiado e como respondeu. Conviccao testada > conviccao nao desafiada.
 

@@ -2,13 +2,13 @@
 """edge-task — Task ledger CLI.
 
 Event-sourced task management. Append-only JSONL + materialized snapshot.
-Agent writes via CLI, human reads via dashboard.
+Agent writes via CLI, human reads via dashboard (/dashboard on blog server).
 
 Usage:
   edge-task add "Title" --priority P1 --owner agent --criteria "Done when X"
   edge-task add "Title" -p P1 -o agent -c "Done when X" --thread foo --area ops
   edge-task update TASK-ID --status doing --next "Edit skill X"
-  edge-task block TASK-ID --reason "Need user decision"
+  edge-task block TASK-ID --reason "Need owner decision"
   edge-task done TASK-ID --resolution "3 skills migrated"
   edge-task drop TASK-ID --reason "No longer relevant"
   edge-task list [--status todo|doing|blocked] [--priority P0|P1] [--owner agent|human]
@@ -142,7 +142,7 @@ def cmd_update(args):
         event["title"] = args.title
     append_event(event)
     status = args.status or snap[args.task_id].get("status", "?")
-    print(f"Updated: {args.task_id} -> {status}")
+    print(f"Updated: {args.task_id} → {status}")
 
 
 def cmd_block(args):
@@ -200,15 +200,18 @@ def cmd_list(args):
     snap = load_snapshot()
     tasks = list(snap.values())
 
+    # Filter
     if args.status:
         tasks = [t for t in tasks if t.get("status") == args.status]
     else:
+        # Default: hide done/dropped
         tasks = [t for t in tasks if t.get("status") not in ("done", "dropped")]
     if args.priority:
         tasks = [t for t in tasks if t.get("priority") == args.priority]
     if args.owner:
         tasks = [t for t in tasks if t.get("owner") == args.owner]
 
+    # Sort by priority then updated_at
     prio_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
     tasks.sort(key=lambda t: (prio_order.get(t.get("priority", "P3"), 9), t.get("updated_at", "")))
 
@@ -216,6 +219,7 @@ def cmd_list(args):
         print("No tasks found.")
         return
 
+    # Display
     for t in tasks:
         status = t.get("status", "?")
         prio = t.get("priority", "?")
@@ -233,6 +237,7 @@ def cmd_list(args):
             line += f"\n    NEXT: {next_a}"
         print(line)
 
+    # Summary
     total = len(tasks)
     by_status = {}
     for t in tasks:
@@ -267,6 +272,7 @@ def cmd_show(args):
     print(f"Source:   {t.get('source', '-')}")
     if t.get("notes"):
         print(f"Notes:    {t['notes']}")
+    # History
     history = t.get("history", [])
     if history:
         print(f"\nHistory ({len(history)} events):")
@@ -299,6 +305,7 @@ def cmd_stats(args):
     print(f"Priority: {json.dumps(by_priority)}")
     print(f"Owner:    {json.dumps(by_owner)}")
 
+    # Stale check (>48h without update)
     now = datetime.now(timezone.utc)
     stale = []
     for t in tasks:
@@ -320,6 +327,7 @@ def main():
     parser = argparse.ArgumentParser(description="Task ledger CLI", prog="edge-task")
     sub = parser.add_subparsers(dest="command")
 
+    # add
     p_add = sub.add_parser("add", help="Create a new task")
     p_add.add_argument("title", help="Task title")
     p_add.add_argument("-p", "--priority", default="P1", choices=["P0", "P1", "P2", "P3"])
@@ -328,10 +336,11 @@ def main():
     p_add.add_argument("-n", "--next-action", default="", help="Next concrete action")
     p_add.add_argument("--kind", default="task", choices=["task", "bug", "project", "investigation"])
     p_add.add_argument("--area", default="ops", help="Area (ops, architecture, research, publication, infra)")
-    p_add.add_argument("--source", default="agent", choices=["agent", "user", "system"])
+    p_add.add_argument("--source", default="agent", choices=["agent", "lucas", "system"])
     p_add.add_argument("--thread", default="", help="Related thread")
     p_add.add_argument("--notes", default="", help="Additional notes")
 
+    # update
     p_up = sub.add_parser("update", help="Update a task")
     p_up.add_argument("task_id", help="Task ID")
     p_up.add_argument("-s", "--status", choices=["todo", "doing", "blocked", "done", "dropped"])
@@ -340,26 +349,32 @@ def main():
     p_up.add_argument("--notes", help="Notes")
     p_up.add_argument("--title", help="Update title")
 
+    # block
     p_block = sub.add_parser("block", help="Block a task")
     p_block.add_argument("task_id", help="Task ID")
     p_block.add_argument("--reason", required=True, help="Block reason")
 
+    # done
     p_done = sub.add_parser("done", help="Complete a task")
     p_done.add_argument("task_id", help="Task ID")
     p_done.add_argument("--resolution", required=True, help="Resolution description")
 
+    # drop
     p_drop = sub.add_parser("drop", help="Drop a task")
     p_drop.add_argument("task_id", help="Task ID")
     p_drop.add_argument("--reason", required=True, help="Drop reason")
 
+    # list
     p_list = sub.add_parser("list", help="List tasks")
     p_list.add_argument("-s", "--status", choices=["todo", "doing", "blocked", "done", "dropped"])
     p_list.add_argument("-p", "--priority", choices=["P0", "P1", "P2", "P3"])
     p_list.add_argument("-o", "--owner", choices=["agent", "human", "shared"])
 
+    # show
     p_show = sub.add_parser("show", help="Show task details")
     p_show.add_argument("task_id", help="Task ID")
 
+    # stats
     sub.add_parser("stats", help="Show statistics")
 
     args = parser.parse_args()

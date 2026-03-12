@@ -2,20 +2,20 @@
 """
 Generate self-contained HTML report.
 
-Usage (raw HTML):
+Uso (HTML cru):
     python3 generate_report.py \
-        --title "Report Title" \
-        --subtitle "Subtitle" \
-        --content content.html \
-        --output ~/edge/reports/report.html
+        --title "Titulo do Relatorio" \
+        --subtitle "Subtitulo" \
+        --content conteudo.html \
+        --output ~/edge/reports/relatorio.html
 
-Usage (YAML spec):
+Uso (YAML spec):
     python3 generate_report.py \
         --yaml spec.yaml \
-        --output ~/edge/reports/report.html
+        --output ~/edge/reports/relatorio.html
 
-With --yaml, title/subtitle/date are extracted from the YAML (can be overridden via CLI).
-The script handles: CSS (base.css), SVG logo, header, footer, accent stripe.
+Com --yaml, title/subtitle/date sao extraidos do YAML (podem ser sobrescritos via CLI).
+O script cuida de: CSS (base.css), SVG logo, header, footer, faixa tricolor.
 """
 
 import argparse
@@ -25,45 +25,43 @@ from datetime import date
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate self-contained HTML report")
-    parser.add_argument("--title", default=None, help="Report title")
-    parser.add_argument("--subtitle", default=None, help="Subtitle (appears in header)")
-    parser.add_argument("--content", default=None, help="HTML file with <main> content")
-    parser.add_argument("--yaml", default=None, help="YAML spec (alternative to --content)")
-    parser.add_argument("--output", required=True, help="Output HTML path")
-    parser.add_argument("--date", default=None, help="Date in footer (YYYY-MM-DD). Default: today")
-    parser.add_argument("--no-branding", action="store_true", help="Omit logo and institutional footer")
+    parser = argparse.ArgumentParser(description="Gera report HTML")
+    parser.add_argument("--title", default=None, help="Titulo do relatorio")
+    parser.add_argument("--subtitle", default=None, help="Subtitulo (aparece no header)")
+    parser.add_argument("--content", default=None, help="Arquivo HTML com conteudo do <main>")
+    parser.add_argument("--yaml", default=None, help="YAML spec (alternativa a --content)")
+    parser.add_argument("--output", required=True, help="Caminho do HTML de saida")
+    parser.add_argument("--date", default=None, help="Data no footer (DD/MM/YYYY). Default: hoje")
+    parser.add_argument("--no-branding", action="store_true", help="Skip institutional branding")
     args = parser.parse_args()
 
-    # Validate: need --content or --yaml
+    # Validar: precisa de --content ou --yaml
     if not args.content and not args.yaml:
-        parser.error("--content or --yaml is required")
+        parser.error("--content ou --yaml e obrigatorio")
     if args.content and args.yaml:
-        parser.error("use --content or --yaml, not both")
+        parser.error("use --content ou --yaml, nao ambos")
 
-    # Asset paths (relative to this script)
+    # Paths dos assets (relativos a este script)
     script_dir = Path(__file__).parent
     css_path = script_dir / "assets" / "base.css"
-    svg_path = script_dir / "assets" / "logo-horizontal.svg"
+    svg_path = script_dir / "assets" / "logo.svg"
 
-    # Read assets
+    # Ler assets
     css = css_path.read_text(encoding="utf-8")
-    svg = ""
-    if svg_path.exists():
-        svg = svg_path.read_text(encoding="utf-8")
+    svg = svg_path.read_text(encoding="utf-8")
 
-    # Read content: YAML or raw HTML
+    # Ler conteudo: YAML ou HTML cru
     if args.yaml:
         from yaml_to_html import yaml_to_html, load_spec, get_validation_error_count
         content = yaml_to_html(args.yaml)
         n_errors = get_validation_error_count()
         if n_errors > 0:
-            print(f"\nBLOCKED: {n_errors} validation error(s). Fix the YAML and try again.", file=sys.stderr)
+            print(f"\nBLOQUEADO: {n_errors} erro(s) de validacao. Corrija o YAML e tente novamente.", file=sys.stderr)
             sys.exit(1)
         spec = load_spec(args.yaml)
-        # Extract title/subtitle/date from YAML if not provided via CLI
+        # Extrair title/subtitle/date do YAML se nao vieram via CLI
         if not args.title:
-            args.title = spec.get("title", "Report")
+            args.title = spec.get("title", "Relatorio")
         if not args.subtitle:
             args.subtitle = spec.get("subtitle", "")
         if not args.date:
@@ -74,23 +72,23 @@ def main():
         content_path = Path(args.content)
         content = content_path.read_text(encoding="utf-8")
 
-    # Validate title (required)
+    # Validar title (obrigatorio)
     if not args.title:
-        parser.error("--title is required when using --content")
+        parser.error("--title e obrigatorio quando usando --content")
 
-    # Date
+    # Data
     if args.date:
         footer_date = args.date
     else:
         today = date.today()
-        footer_date = today.strftime("%Y-%m-%d")
+        footer_date = today.strftime("%d/%m/%Y")
 
     # Subtitle HTML
     subtitle_html = ""
     if args.subtitle and args.subtitle.strip():
         subtitle_html = f'<p class="subtitle">{args.subtitle}</p>'
 
-    # Build HTML
+    # Montar HTML
     no_branding = getattr(args, 'no_branding', False)
 
     if no_branding:
@@ -105,7 +103,7 @@ def main():
   </header>"""
         footer_html = f"""  <footer class="report-footer">
     <div class="footer-content">
-      <p class="footer-date">Generated on {footer_date}</p>
+      <p class="footer-date">Gerado em {footer_date}</p>
     </div>
   </footer>"""
     else:
@@ -121,12 +119,13 @@ def main():
   </header>"""
         footer_html = f"""  <footer class="report-footer">
     <div class="footer-content">
-      <p class="footer-date">Generated on {footer_date}</p>
+      <p>edge-of-chaos</p>
+      <p class="footer-date">Gerado em {footer_date}</p>
     </div>
   </footer>"""
 
     html = f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -146,19 +145,19 @@ def main():
 </body>
 </html>"""
 
-    # Write output
+    # Escrever output
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
 
-    # Copy YAML spec alongside HTML (for efficient re-reading -- YAML is ~54% smaller)
+    # Copiar YAML spec junto do HTML (para releitura eficiente — YAML e ~54% menor)
     if args.yaml:
         import shutil
         yaml_dest = output_path.with_suffix(".yaml")
         shutil.copy2(args.yaml, yaml_dest)
-        print(f"Report generated: {output_path} ({output_path.stat().st_size / 1024:.1f}KB) + {yaml_dest.name} ({yaml_dest.stat().st_size / 1024:.1f}KB)")
+        print(f"Relatorio gerado: {output_path} ({output_path.stat().st_size / 1024:.1f}KB) + {yaml_dest.name} ({yaml_dest.stat().st_size / 1024:.1f}KB)")
     else:
-        print(f"Report generated: {output_path} ({output_path.stat().st_size / 1024:.1f}KB)")
+        print(f"Relatorio gerado: {output_path} ({output_path.stat().st_size / 1024:.1f}KB)")
 
 
 if __name__ == "__main__":

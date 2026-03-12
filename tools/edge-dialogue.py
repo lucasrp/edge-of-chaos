@@ -117,8 +117,7 @@ def dialogue_chat_api(client, model, system_prompt, messages, session_name):
 def main():
     parser = argparse.ArgumentParser(description="Multi-turn GPT dialogue")
     parser.add_argument("--session", required=True, help="Session name for log file")
-    parser.add_argument("--model", default=os.environ.get("EDGE_DEFAULT_MODEL", "gpt-5.4-pro"),
-                        help="Model to use")
+    parser.add_argument("--model", default="gpt-5.4-pro", help="Model to use")
     parser.add_argument("--system", default="", help="System prompt")
     parser.add_argument("--system-file", help="File containing system prompt")
     parser.add_argument("--messages", nargs="+", required=True, help="Message files (one per turn)")

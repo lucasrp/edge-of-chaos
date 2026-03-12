@@ -5,7 +5,7 @@ Usage:
     edge-skill-step <skill> <step_id>          # Log step as done
     edge-skill-step <skill> skip <step_id> [reason]  # Log explicit skip
     edge-skill-step <skill> end                # Compute summary (missing steps)
-    edge-skill-step report [--last N]          # Summary for reflection
+    edge-skill-step report [--last N]          # Summary for /ed-reflexao
 """
 
 import datetime
@@ -69,7 +69,7 @@ def cmd_end(skill):
 
     if not expected_ids:
         _log({"skill": skill, "event": "end", "warning": f"skill '{skill}' not in registry"})
-        print(f"WARNING: Skill '{skill}' not in registry. Nothing to compare.")
+        print(f"⚠ Skill '{skill}' não está no registry. Nada para comparar.")
         return
 
     # Read log backwards to find steps for this skill since last 'end' event
@@ -108,22 +108,22 @@ def cmd_end(skill):
     # Print summary
     if silent_skips:
         named = [step_names.get(s, s) for s in silent_skips]
-        print(f"WARNING: {skill}: {len(silent_skips)} steps silently skipped:")
+        print(f"⚠ {skill}: {len(silent_skips)} passos silenciosamente pulados:")
         for s in named:
             print(f"  - {s}")
     if recorded_skip:
-        print(f"  ({len(recorded_skip)} explicit skip(s))")
-    print(f"OK: {skill}: {summary['done']}/{summary['expected']} steps "
+        print(f"  ({len(recorded_skip)} skip(s) explícito(s))")
+    print(f"✓ {skill}: {summary['done']}/{summary['expected']} passos "
           f"({summary['completion_pct']}%)")
 
 
 def cmd_report(last_n=20):
-    """Summary report for reflection."""
+    """Summary report for /ed-reflexao."""
     entries = _read_log()
     ends = [e for e in entries if e.get("event") == "end" and "expected" in e]
 
     if not ends:
-        print("No skill execution data found.")
+        print("Sem dados de execução de skills.")
         return
 
     recent = ends[-last_n:]
@@ -133,14 +133,14 @@ def cmd_report(last_n=20):
     for e in recent:
         by_skill[e["skill"]].append(e)
 
-    print(f"=== Skill Step Completion ({len(recent)} recent executions) ===\n")
+    print(f"=== Skill Step Completion ({len(recent)} execuções recentes) ===\n")
 
     # Global stats
     total_silent = sum(len(e.get("silent_skips", [])) for e in recent)
     total_explicit = sum(e.get("explicit_skips", 0) for e in recent)
     avg_completion = sum(e.get("completion_pct", 0) for e in recent) / len(recent) if recent else 0
 
-    print(f"Average completion: {avg_completion:.0f}%")
+    print(f"Média de completude: {avg_completion:.0f}%")
     print(f"Total silent skips: {total_silent}")
     print(f"Total explicit skips: {total_explicit}")
     print()
@@ -152,12 +152,12 @@ def cmd_report(last_n=20):
             all_silent_steps[f"{e['skill']}:{s}"] += 1
 
     if all_silent_steps:
-        print("Most silently skipped steps:")
+        print("Passos mais silenciosamente pulados:")
         for step, count in all_silent_steps.most_common(10):
             skill_name, step_id = step.split(":", 1)
             _, names = _registry_steps(skill_name)
             label = names.get(step_id, step_id)
-            print(f"  {step}: {count}x -- {label}")
+            print(f"  {step}: {count}x — {label}")
         print()
 
     # Per-skill summary

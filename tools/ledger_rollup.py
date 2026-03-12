@@ -3,20 +3,19 @@
 
 Usage:
   ledger_rollup.py              # default 48h window
-  ledger_rollup.py --since 7d   # 7-day window
+  ledger_rollup.py --since 7d   # 7-day window (for manual reflexao)
   ledger_rollup.py --since 24h  # 24h window
 
 Reads ~/edge/logs/execution-ledger.jsonl and produces
 ~/edge/state/ops-hotspots.json with aggregated telemetry:
 incidents, top_pain, recovered_but_unstable, codify_now.
 
-Cross-references memory/debugging.md to mark workaround_known=true
-when an error fingerprint matches a known entry.
+Cross-references ~/.claude/projects/-home-vboxuser/memory/debugging.md
+to mark workaround_known=true when an error fingerprint matches a known entry.
 """
 
 import argparse
 import json
-import os
 import re
 import sys
 from collections import defaultdict
@@ -25,14 +24,11 @@ from pathlib import Path
 
 LEDGER_FILE = Path.home() / "edge" / "logs" / "execution-ledger.jsonl"
 OUTPUT_FILE = Path.home() / "edge" / "state" / "ops-hotspots.json"
-
-# Configurable: set EDGE_PROJECT_SLUG env var to match your Claude project slug
-_PROJECT_SLUG = os.environ.get("EDGE_PROJECT_SLUG", "default")
 DEBUGGING_MD = (
     Path.home()
     / ".claude"
     / "projects"
-    / _PROJECT_SLUG
+    / "-home-vboxuser"
     / "memory"
     / "debugging.md"
 )
@@ -245,7 +241,7 @@ def main():
 
     print(
         f"OK: {len(incidents)} incidents, {len(top_pain)} top_pain, "
-        f"{len(recovered)} recovered_unstable, {len(codify)} codify_now -> {OUTPUT_FILE}"
+        f"{len(recovered)} recovered_unstable, {len(codify)} codify_now → {OUTPUT_FILE}"
     )
 
 

@@ -9,9 +9,9 @@ Three modes:
 Protected files: MEMORY.md, capabilities.md, debugging.md, personality.md, skills/**/*.md
 
 Usage:
-  edge-state-audit snapshot --slug SLUG
-  edge-state-audit propose --slug SLUG --file PATH
-  edge-state-audit audit --slug SLUG
+  edge-state-audit snapshot --slug SLUG          # Phase 4a step 1: save PRE hashes
+  edge-state-audit propose --slug SLUG --file PATH  # Phase 4a step 2: register proposal (called by agent)
+  edge-state-audit audit --slug SLUG             # Phase 5b: compare PRE vs POST, validate proposal
 
 Exit codes:
   0 = OK (all changes proposed)
@@ -19,9 +19,6 @@ Exit codes:
   2 = partial (some proposed changes not executed)
   4 = divergence (proposed action != executed action)
   5 = violation (unproposed change to protected file)
-
-Note: Configure PROTECTED_PATTERNS and PROTECTED_GLOBS below
-to match your project layout.
 """
 
 import argparse
@@ -40,15 +37,11 @@ META_DIR = HOME / "edge" / "meta-reports"
 SNAPSHOT_DIR = HOME / "edge" / "state-snapshots"
 
 # Protected paths — any change here MUST be proposed
-# Configure these to match your project's memory/state file layout
-_PROJECT_SLUG = os.environ.get("EDGE_PROJECT_SLUG", "default")
-_MEMORY_BASE = HOME / ".claude" / "projects" / _PROJECT_SLUG / "memory"
-
 PROTECTED_PATTERNS = [
-    str(_MEMORY_BASE / "MEMORY.md"),
-    str(_MEMORY_BASE / "debugging.md"),
-    str(_MEMORY_BASE / "personality.md"),
-    str(_MEMORY_BASE / "insights.md"),
+    str(HOME / ".claude/projects/-home-vboxuser/memory/MEMORY.md"),
+    str(HOME / ".claude/projects/-home-vboxuser/memory/debugging.md"),
+    str(HOME / ".claude/projects/-home-vboxuser/memory/personality.md"),
+    str(HOME / ".claude/projects/-home-vboxuser/memory/insights.md"),
     str(HOME / "edge/autonomy/capabilities.md"),
     str(HOME / "edge/autonomy/frontier.md"),
     str(HOME / "edge/autonomy/workflows.md"),
@@ -108,7 +101,7 @@ def short_path(path: str) -> str:
     return path
 
 
-# --- SNAPSHOT ---
+# ─── SNAPSHOT ───
 
 def cmd_snapshot(slug: str):
     """Capture SHA256 hashes of all protected files."""
@@ -130,11 +123,11 @@ def cmd_snapshot(slug: str):
 
     out_path = SNAPSHOT_DIR / f"{slug}.pre.yaml"
     out_path.write_text(yaml.dump(snapshot, allow_unicode=True, default_flow_style=False, sort_keys=False))
-    ok(f"Snapshot PRE: {len(files)} protected files -> {out_path.name}")
+    ok(f"Snapshot PRE: {len(files)} arquivos protegidos → {out_path.name}")
     return str(out_path)
 
 
-# --- PROPOSE ---
+# ─── PROPOSE ───
 
 def cmd_propose(slug: str, proposals: list[dict]):
     """Write state-proposal.yaml with intended changes.
@@ -161,11 +154,11 @@ def cmd_propose(slug: str, proposals: list[dict]):
 
     out_path = META_DIR / f"{slug}.state-proposal.yaml"
     out_path.write_text(yaml.dump(proposal, allow_unicode=True, default_flow_style=False, sort_keys=False))
-    ok(f"Proposal: {len(proposals)} changes -> {out_path.name}")
+    ok(f"Proposta: {len(proposals)} mudanças → {out_path.name}")
     return str(out_path)
 
 
-# --- AUDIT ---
+# ─── AUDIT ───
 
 def cmd_audit(slug: str) -> int:
     """Compare PRE snapshot vs current state. Validate against proposal."""
@@ -173,7 +166,7 @@ def cmd_audit(slug: str) -> int:
     # Load PRE snapshot
     pre_path = SNAPSHOT_DIR / f"{slug}.pre.yaml"
     if not pre_path.exists():
-        fail(f"PRE snapshot not found: {pre_path}")
+        fail(f"Snapshot PRE não encontrado: {pre_path}")
         return 1
 
     pre = yaml.safe_load(pre_path.read_text())
@@ -200,6 +193,7 @@ def cmd_audit(slug: str) -> int:
     results = []
     exit_code = 0
 
+    # Check every protected file
     all_paths = sorted(set(list(pre.get("files", {}).keys()) + list(post_hashes.keys())))
 
     for path in all_paths:
@@ -211,6 +205,7 @@ def cmd_audit(slug: str) -> int:
         changed = pre_hash != post_hash
 
         if not changed:
+            # Check if it was proposed but not executed
             if path in proposed_changes:
                 results.append({
                     "path": path,
@@ -219,12 +214,13 @@ def cmd_audit(slug: str) -> int:
                     "result": "omitted",
                     "severity": "warn",
                 })
-                warn(f"Proposed but not executed: {path}")
+                warn(f"Proposto mas não executado: {path}")
                 exit_code = max(exit_code, 2)
             continue
 
         # File changed — was it proposed?
         if path not in proposed_changes:
+            # VIOLATION: unproposed change to protected file
             results.append({
                 "path": path,
                 "proposed_action": "none",
@@ -234,13 +230,15 @@ def cmd_audit(slug: str) -> int:
                 "result": "violation",
                 "severity": "fatal",
             })
-            fail(f"VIOLATION: unproposed change to {path}")
+            fail(f"VIOLAÇÃO: mudança não proposta em {path}")
 
+            # Show diff
             full_path = path.replace("~", str(HOME))
             _show_diff_for_file(full_path, pre_hash)
 
             exit_code = max(exit_code, 5)
         else:
+            # Proposed and changed — check action matches
             proposed_action = proposed_changes[path]["action"]
             if post_hash == "MISSING":
                 executed_action = "delete"
@@ -257,7 +255,7 @@ def cmd_audit(slug: str) -> int:
                     "result": "ok",
                     "severity": "info",
                 })
-                ok(f"{path}: {executed_action} (as proposed)")
+                ok(f"{path}: {executed_action} (conforme proposta)")
             else:
                 results.append({
                     "path": path,
@@ -266,7 +264,7 @@ def cmd_audit(slug: str) -> int:
                     "result": "divergence",
                     "severity": "fatal",
                 })
-                fail(f"DIVERGENCE: {path} — proposed={proposed_action}, executed={executed_action}")
+                fail(f"DIVERGÊNCIA: {path} — proposto={proposed_action}, executado={executed_action}")
                 exit_code = max(exit_code, 4)
 
     # Write audit report
@@ -282,11 +280,12 @@ def cmd_audit(slug: str) -> int:
     audit_path = META_DIR / f"{slug}.state-audit.yaml"
     audit_path.write_text(yaml.dump(audit, allow_unicode=True, default_flow_style=False, sort_keys=False))
 
+    # Summary
     ok_count = sum(1 for r in results if r["result"] == "ok")
     warn_count = sum(1 for r in results if r["result"] == "omitted")
     fail_count = sum(1 for r in results if r["result"] in ("violation", "divergence"))
 
-    summary = f"Audit: {ok_count} ok, {warn_count} omitted, {fail_count} violations -> {audit_path.name}"
+    summary = f"Audit: {ok_count} ok, {warn_count} omitidos, {fail_count} violações → {audit_path.name}"
     if exit_code == 0:
         ok(summary)
     elif exit_code == 2:
@@ -300,6 +299,7 @@ def cmd_audit(slug: str) -> int:
 def _show_diff_for_file(full_path: str, pre_hash: str):
     """Try to show a git diff for the file."""
     dirpath = os.path.dirname(full_path)
+    # Find the git repo
     check = dirpath
     while check != "/":
         if os.path.isdir(os.path.join(check, ".git")):
@@ -315,6 +315,7 @@ def _show_diff_for_file(full_path: str, pre_hash: str):
         )
         if result.stdout.strip():
             lines = result.stdout.strip().split("\n")
+            # Show first 20 lines
             for line in lines[:20]:
                 if line.startswith("+") and not line.startswith("+++"):
                     print(f"    {GREEN}{line}{NC}")
@@ -328,7 +329,7 @@ def _show_diff_for_file(full_path: str, pre_hash: str):
         pass
 
 
-# --- SCAN (out-of-pipeline) ---
+# ─── SCAN (out-of-pipeline) ───
 
 def cmd_scan():
     """Scan protected files for changes since last known state (git HEAD)."""
@@ -337,6 +338,7 @@ def cmd_scan():
 
     for f in files:
         dirpath = os.path.dirname(f)
+        # Find git repo
         check = dirpath
         while check != "/":
             if os.path.isdir(os.path.join(check, ".git")):
@@ -345,6 +347,7 @@ def cmd_scan():
         else:
             continue
 
+        # Check if file has uncommitted changes
         result = subprocess.run(
             ["git", "diff", "--name-only", "--", f],
             cwd=check, capture_output=True, text=True
@@ -361,32 +364,36 @@ def cmd_scan():
                 "proposed": False,
                 "severity": "warning",
             })
-            warn(f"Uncommitted change: {short_path(f)}")
+            warn(f"Mudança não commitada: {short_path(f)}")
 
     if not violations:
-        ok(f"Scan: {len(files)} protected files — no pending changes")
+        ok(f"Scan: {len(files)} arquivos protegidos — nenhuma mudança pendente")
         return 0
     else:
-        warn(f"Scan: {len(violations)} pending changes to protected files")
+        warn(f"Scan: {len(violations)} mudanças pendentes em arquivos protegidos")
         return 2
 
 
-# --- CLI ---
+# ─── CLI ───
 
 def main():
     parser = argparse.ArgumentParser(description="State audit: snapshot, propose, audit, scan")
     sub = parser.add_subparsers(dest="command")
 
+    # snapshot
     snap = sub.add_parser("snapshot", help="Capture PRE hashes")
     snap.add_argument("--slug", required=True)
 
+    # propose (used programmatically — reads YAML from stdin or file)
     prop = sub.add_parser("propose", help="Write state proposal")
     prop.add_argument("--slug", required=True)
     prop.add_argument("--file", help="YAML file with changes list")
 
+    # audit
     aud = sub.add_parser("audit", help="Compare PRE vs POST, validate proposal")
     aud.add_argument("--slug", required=True)
 
+    # scan
     sub.add_parser("scan", help="Scan protected files for uncommitted changes")
 
     args = parser.parse_args()

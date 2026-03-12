@@ -2,8 +2,8 @@
 """edge-fontes — Unified external source search.
 
 Usage:
-    edge-fontes "topic"                          # default intent: research
-    edge-fontes "topic" --intent strategy        # specific intent
+    edge-fontes "topic"                          # default intent: pesquisa
+    edge-fontes "topic" --intent estrategia      # specific intent
     edge-fontes "topic" --sources x,hn,arxiv     # override source selection
     edge-fontes --front-page                     # headlines only (for heartbeat)
     edge-fontes "topic" --json                   # JSON output
@@ -21,18 +21,18 @@ from datetime import datetime, timedelta
 
 # --- Routing table: intent -> sources ---
 ROUTING = {
-    'research':   {'primary': ['hn', 'arxiv', 'semantic_scholar', 'exa'], 'secondary': ['reddit', 'github', 'hf_papers']},
-    'discovery':  {'primary': ['hn', 'reddit', 'exa'], 'secondary': ['hf_papers', 'arxiv']},
-    'leisure':    {'primary': ['hn', 'reddit'], 'secondary': ['hf_papers', 'exa']},
-    'strategy':   {'primary': ['hn', 'github', 'exa'], 'secondary': ['reddit', 'semantic_scholar']},
+    'pesquisa':   {'primary': ['hn', 'arxiv', 'semantic_scholar', 'exa'], 'secondary': ['reddit', 'github', 'hf_papers']},
+    'descoberta': {'primary': ['hn', 'reddit', 'exa'], 'secondary': ['hf_papers', 'arxiv']},
+    'lazer':      {'primary': ['hn', 'reddit'], 'secondary': ['hf_papers', 'exa']},
+    'estrategia': {'primary': ['hn', 'github', 'exa'], 'secondary': ['reddit', 'semantic_scholar']},
     'heartbeat':  {'primary': ['hn', 'reddit'], 'secondary': ['github', 'exa']},
-    'reflection': {'primary': ['hn', 'reddit'], 'secondary': ['semantic_scholar', 'exa']},
-    'planning':   {'primary': ['hn', 'github', 'exa'], 'secondary': ['arxiv', 'hf_papers']},
-    'execution':  {'primary': ['hn', 'github'], 'secondary': ['reddit', 'exa']},
-    'report':     {'primary': ['hn', 'arxiv', 'semantic_scholar', 'exa'], 'secondary': ['reddit', 'github', 'hf_papers']},
+    'reflexao':   {'primary': ['hn', 'reddit'], 'secondary': ['semantic_scholar', 'exa']},
+    'planejar':   {'primary': ['hn', 'github', 'exa'], 'secondary': ['arxiv', 'hf_papers']},
+    'executar':   {'primary': ['hn', 'github'], 'secondary': ['reddit', 'exa']},
+    'relatorio':  {'primary': ['hn', 'arxiv', 'semantic_scholar', 'exa'], 'secondary': ['reddit', 'github', 'hf_papers']},
 }
 
-# X removed — covered by edge-x
+# X removed — covered by edge-x / xav
 ALL_SOURCES = ['hn', 'arxiv', 'semantic_scholar', 'reddit', 'github', 'hf_papers', 'exa']
 
 
@@ -47,7 +47,7 @@ def search_x(topic):
     """Call edge-x subprocess."""
     try:
         r = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve().parent / "edge-x"), topic, "--json", "--max", "10", "--light"],
+            [sys.executable, str(Path.home() / "edge/tools/edge-x"), topic, "--json", "--max", "10", "--light"],
             capture_output=True, text=True, timeout=30
         )
         if r.returncode != 0:
@@ -71,7 +71,7 @@ def search_hn(topic):
     """Call edge-hn subprocess."""
     try:
         r = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve().parent / "edge-hn"), topic, "--json", "--max", "10"],
+            [sys.executable, str(Path.home() / "edge/tools/edge-hn"), topic, "--json", "--max", "10"],
             capture_output=True, text=True, timeout=30
         )
         if r.returncode != 0:
@@ -279,7 +279,7 @@ def search_exa(topic):
 # --- Dispatcher ---
 
 SOURCE_FN = {
-    # 'x': search_x,  # removed — covered by edge-x
+    # 'x': search_x,  # removed — covered by edge-x / xav
     'hn': search_hn,
     'arxiv': search_arxiv,
     'semantic_scholar': search_semantic_scholar,
@@ -316,7 +316,7 @@ def run_sources(topic, sources, max_workers=6):
 
 def format_markdown(topic, intent, results_by_source, wildcard_src=None):
     """Format results as structured markdown."""
-    lines = [f"## External Sources — \"{topic}\" (intent: {intent})\n"]
+    lines = [f"## Fontes Externas — \"{topic}\" (intent: {intent})\n"]
 
     # Flatten and sort by score
     all_items = []
@@ -331,7 +331,7 @@ def format_markdown(topic, intent, results_by_source, wildcard_src=None):
     rest = [i for i in all_items if i not in top and 'error' not in i.get('title', '').lower()][:10]
 
     if top:
-        lines.append("### High Relevance\n")
+        lines.append("### Alta Relevancia\n")
         for i, item in enumerate(top, 1):
             lines.append(f"- **[{item['source']}]** {item['title']}")
             if item.get('detail'):
@@ -341,7 +341,7 @@ def format_markdown(topic, intent, results_by_source, wildcard_src=None):
             lines.append("")
 
     if rest:
-        lines.append("### Complementary\n")
+        lines.append("### Complementares\n")
         for item in rest:
             lines.append(f"- **[{item['source']}]** {item['title']}")
             if item.get('url'):
@@ -355,21 +355,21 @@ def format_markdown(topic, intent, results_by_source, wildcard_src=None):
             if 'error' in item.get('title', '').lower():
                 errors.append(f"  - {item['title']}")
     if errors:
-        lines.append("### Errors\n")
+        lines.append("### Erros\n")
         lines.extend(errors)
         lines.append("")
 
     # Source summary
-    lines.append("### Sources Queried\n")
+    lines.append("### Fontes Consultadas\n")
     for src, items in results_by_source.items():
         ok_count = len([i for i in items if 'error' not in i.get('title', '').lower()])
         wc = " (WILDCARD)" if src == wildcard_src else ""
-        lines.append(f"- {src}: {ok_count} results{wc}")
+        lines.append(f"- {src}: {ok_count} resultados{wc}")
     lines.append("")
 
     # Note about WebSearch
-    lines.append("### Note")
-    lines.append("WebSearch/WebFetch are not scriptable (Claude tools). To complement, use WebSearch in the conversation context.\n")
+    lines.append("### Nota")
+    lines.append("WebSearch/WebFetch nao sao scriptaveis (tools do Claude). Para complementar, use WebSearch no contexto da conversa.\n")
 
     return "\n".join(lines)
 
@@ -391,7 +391,7 @@ def front_page():
     # For HN, get front page instead of search
     try:
         r = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve().parent / "edge-hn"), "--front-page", "--json"],
+            [sys.executable, str(Path.home() / "edge/tools/edge-hn"), "--front-page", "--json"],
             capture_output=True, text=True, timeout=15
         )
         if r.returncode == 0 and r.stdout.strip():
@@ -412,8 +412,8 @@ def front_page():
 def main():
     parser = argparse.ArgumentParser(description="Unified external source search")
     parser.add_argument("topic", nargs="?", default="", help="Search topic")
-    parser.add_argument("--intent", "-i", default="research", choices=list(ROUTING.keys()),
-                        help="Search intent (default: research)")
+    parser.add_argument("--intent", "-i", default="pesquisa", choices=list(ROUTING.keys()),
+                        help="Search intent (default: pesquisa)")
     parser.add_argument("--sources", "-s", default="", help="Comma-separated source override (e.g. x,hn,arxiv)")
     parser.add_argument("--front-page", action="store_true", help="Headlines-only mode (HN)")
     parser.add_argument("--json", action="store_true", help="JSON output")
@@ -435,7 +435,7 @@ def main():
     if args.sources:
         sources = [s.strip() for s in args.sources.split(",") if s.strip() in SOURCE_FN]
     else:
-        route = ROUTING.get(args.intent, ROUTING['research'])
+        route = ROUTING.get(args.intent, ROUTING['pesquisa'])
         sources = route['primary'] + route['secondary']
 
     # Wildcard

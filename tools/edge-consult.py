@@ -8,11 +8,11 @@ Collaborative: expands, connects, suggests unseen angles.
 Supports multiple model providers: OpenAI (gpt-*), xAI (grok-*).
 
 Usage:
-    edge-consult "my analysis: X implies Y"
-    edge-consult "any flaws?" --context spec.yaml notes.md
-    edge-consult --model grok-4 "where is this weakest?"
-    cat analysis.md | edge-consult "where is this weakest?"
-    edge-consult --mode collab "what angles am I missing?"
+    edge-consult "minha análise: X implica Y"
+    edge-consult "tem furo?" --context spec.yaml notes.md
+    edge-consult --model grok-4 "onde está mais fraco?"
+    cat analysis.md | edge-consult "onde está mais fraco?"
+    edge-consult --mode collab "que ângulos não estou vendo?"
 
 Exit codes: 0 = success, 1 = error
 """
@@ -31,9 +31,7 @@ except ImportError:
 
 SECRETS_DIR = Path.home() / "edge/secrets"
 LOG_DIR = Path.home() / "edge/logs/consult"
-
-# Default model — can be overridden via EDGE_DEFAULT_MODEL env var or --model flag
-DEFAULT_MODEL = os.environ.get("EDGE_DEFAULT_MODEL", "gpt-5.4")
+DEFAULT_MODEL = "gpt-5.4"
 
 # Provider configs: model prefix -> (secrets_file, env_var, base_url)
 PROVIDERS = {
@@ -71,6 +69,7 @@ sunk cost, survivorship bias, false consensus. Name it, show where it operates.
 - Be SPECIFIC. Not "this might be wrong" — exactly WHERE and WHY.
 - If the reasoning is solid, say so — but still identify the weakest link.
 - No flattery. No "great analysis, but...". Straight to the critique.
+- PT-BR.
 - 200-400 words. Dense signal, no filler."""
 
 COLLABORATIVE_SYSTEM = """\
@@ -90,6 +89,7 @@ game theory, design, psychology that apply here?
 - Generative, not evaluative. Add, don't subtract.
 - Bring concepts the author probably doesn't know about.
 - Concrete > abstract. "Like X in Y because Z" > "consider perspectives".
+- PT-BR.
 - 200-400 words. Dense signal, no filler."""
 
 
@@ -148,7 +148,7 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> str
 
 def log_consultation(mode: str, question: str, context_files: list,
                      response: str, model: str, cost: str, tokens: dict):
-    """Log consultation for audit trail."""
+    """Log consultation for audit trail (/ed-reflexao can review these)."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     log_entry = {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""git_signals.py — Extract structured signals from git log for reflection.
+"""git_signals.py — Extract structured signals from git log for reflexao.
 
 Usage:
   python3 git_signals.py                  # default: 7d window
@@ -288,7 +288,7 @@ def compute_claims_summary(commits):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Extract structured signals from git log for reflection"
+        description="Extract structured signals from git log for reflexao"
     )
     parser.add_argument(
         "--since",
@@ -334,7 +334,7 @@ def main():
     print(
         f"OK: {len(commits)} commits, {len(fix_chains)} fix_chains, "
         f"{len(pipeline_failures)} pipeline_failures, "
-        f"{len(persistent_gaps)} persistent_gaps -> {OUTPUT_FILE}"
+        f"{len(persistent_gaps)} persistent_gaps → {OUTPUT_FILE}"
     )
 
 

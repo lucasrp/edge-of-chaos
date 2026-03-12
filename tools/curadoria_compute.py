@@ -113,7 +113,7 @@ def extract_rare_terms(title):
     """Extract terms from title for self-probe query."""
     if not title:
         return []
-    words = re.findall(r"[a-zA-Z\u00C0-\u00FA]{4,}", title)
+    words = re.findall(r"[a-zA-ZÀ-ú]{4,}", title)
     # Filter common words
     stopwords = {
         "para", "como", "sobre", "entre", "mais", "este", "esta",
@@ -143,6 +143,9 @@ def run_self_probe(title):
 
 def parse_self_rank(output, doc_id):
     """Parse edge-search output to find rank of doc_id. Returns rank or None."""
+    # Output format: "#1   score  type  filename"
+    # We can't reliably parse doc_id from CLI output, so return None
+    # In full mode, we query the DB directly instead
     return None
 
 
@@ -214,8 +217,8 @@ def title_overlap(t1, t2):
     """Jaccard similarity between title word sets."""
     if not t1 or not t2:
         return 0.0
-    s1 = set(re.findall(r"[a-zA-Z\u00C0-\u00FA]{3,}", t1.lower()))
-    s2 = set(re.findall(r"[a-zA-Z\u00C0-\u00FA]{3,}", t2.lower()))
+    s1 = set(re.findall(r"[a-zA-ZÀ-ú]{3,}", t1.lower()))
+    s2 = set(re.findall(r"[a-zA-ZÀ-ú]{3,}", t2.lower()))
     if not s1 or not s2:
         return 0.0
     return len(s1 & s2) / len(s1 | s2)
@@ -403,7 +406,7 @@ def main():
         }
         OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
         OUTPUT_FILE.write_text(json.dumps(output, indent=2, ensure_ascii=False) + "\n")
-        print(f"OK: {len(docs)} docs analyzed -> {OUTPUT_FILE}")
+        print(f"OK: {len(docs)} docs analyzed → {OUTPUT_FILE}")
         conn.close()
         return
 
@@ -431,7 +434,7 @@ def main():
         }
         OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
         OUTPUT_FILE.write_text(json.dumps(output, indent=2, ensure_ascii=False) + "\n")
-        print(f"OK: {len(docs)} docs, {len(stale)} stale -> {OUTPUT_FILE}")
+        print(f"OK: {len(docs)} docs, {len(stale)} stale → {OUTPUT_FILE}")
         conn.close()
         return
 
@@ -467,7 +470,7 @@ def main():
     print(
         f"OK: {len(docs)} docs, {len(stale)} stale, "
         f"{len(archive_auto)} archive, {len(merge_review)} merge, "
-        f"{len(strengthen_targets)} strengthen, {len(suppressed)} suppressed -> {OUTPUT_FILE}"
+        f"{len(strengthen_targets)} strengthen, {len(suppressed)} suppressed → {OUTPUT_FILE}"
     )
 
     conn.close()

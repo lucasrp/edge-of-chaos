@@ -12,8 +12,6 @@ Usage:
   edge-meta-report --slug SLUG --entry PATH --scratchpad /tmp/edge-scratch-active.md
   edge-meta-report --slug SLUG --entry PATH --no-adversarial
   edge-meta-report --slug SLUG --entry PATH --dry-run
-
-Note: Configure TRACKED_REPOS below to match your project layout.
 """
 
 import argparse
@@ -29,13 +27,10 @@ HOME = Path.home()
 META_DIR = HOME / "edge" / "meta-reports"
 SCRATCHPADS_ARCHIVE = HOME / "edge" / "scratchpads"
 EDGE_DIR = HOME / "edge"
-CONSULT_SCRIPT = Path(__file__).resolve().parent / "edge-consult.py"
+CONSULT_SCRIPT = HOME / "edge" / "tools" / "edge-consult.py"
 
-# Configure tracked repos for your setup
-# Maps directory path -> short name for display
-_PROJECT_SLUG = os.environ.get("EDGE_PROJECT_SLUG", "default")
 TRACKED_REPOS = {
-    str(HOME / ".claude" / "projects" / _PROJECT_SLUG / "memory"): "memory",
+    str(HOME / ".claude" / "projects" / "-home-vboxuser" / "memory"): "memory",
     str(HOME / ".claude" / "skills"): "skills",
     str(HOME / "edge" / "notes"): "notes",
 }
@@ -61,10 +56,12 @@ def capture_diffs_preview():
         git_dir = os.path.join(dirpath, ".git")
         if not os.path.isdir(git_dir):
             continue
+        # Diff against HEAD (unstaged + staged)
         result = subprocess.run(
             ["git", "diff", "HEAD", "--stat"],
             cwd=dirpath, capture_output=True, text=True
         )
+        # Untracked files
         result2 = subprocess.run(
             ["git", "status", "--short"],
             cwd=dirpath, capture_output=True, text=True
@@ -99,6 +96,7 @@ def read_scratchpad(scratchpad_path):
             return p.read_text(), str(p)
         return None, None
 
+    # Try default active scratchpad
     default = Path("/tmp/edge-scratch-active.md")
     if default.exists():
         return default.read_text(), str(default)
@@ -107,6 +105,7 @@ def read_scratchpad(scratchpad_path):
 
 def run_adversarial(summary, entry_path):
     """Run edge-consult adversarial on the publication summary."""
+    # Try edge-consult in PATH first, then direct script
     cmd_candidates = [
         ["edge-consult"],
         [sys.executable, str(CONSULT_SCRIPT)],
@@ -114,13 +113,14 @@ def run_adversarial(summary, entry_path):
 
     for base_cmd in cmd_candidates:
         cmd = base_cmd + [
-            f"Publication: {summary}. Where is this reasoning weakest? What am I not seeing?",
+            f"Publicação: {summary}. Onde esse raciocínio é mais fraco? O que não estou vendo?",
             "--context", str(entry_path),
         ]
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if result.returncode == 0:
                 return result.stdout.strip()
+            # If the command was found but failed, return the error
             if result.returncode != 127:
                 return f"[edge-consult exit {result.returncode}: {result.stderr.strip()[:200]}]"
         except FileNotFoundError:
@@ -128,7 +128,7 @@ def run_adversarial(summary, entry_path):
         except subprocess.TimeoutExpired:
             return "[edge-consult timeout (60s)]"
 
-    return "[edge-consult not found]"
+    return "[edge-consult não encontrado]"
 
 
 def archive_scratchpad(scratchpad_path, slug):
@@ -142,6 +142,7 @@ def archive_scratchpad(scratchpad_path, slug):
     SCRATCHPADS_ARCHIVE.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = SCRATCHPADS_ARCHIVE / f"{slug}-{timestamp}.md"
+    # Copy then remove (rename fails across filesystems /tmp vs ~/edge)
     dest.write_text(src.read_text())
     src.unlink()
     return str(dest)
@@ -168,19 +169,19 @@ def generate_meta_report(slug, fm, diffs, scratchpad_content, adversarial_output
     lines.append(f"<!-- {datetime.now().isoformat()} | slug: {slug} -->")
     lines.append("")
 
-    # What was published
-    lines.append("## Publication")
+    # ── What was published ──
+    lines.append("## Publicação")
     lines.append(f"- **Entry:** {title}")
-    report = fm.get("report", "none")
+    report = fm.get("report", "nenhum")
     lines.append(f"- **Report:** {report}")
-    lines.append(f"- **Claims:** {len(claims)} ({len(open_claims)} open)")
+    lines.append(f"- **Claims:** {len(claims)} ({len(open_claims)} abertas)")
     if threads:
         lines.append(f"- **Threads:** {', '.join(threads)}")
     if tags:
         lines.append(f"- **Tags:** {', '.join(str(t) for t in tags)}")
     lines.append("")
 
-    # Claims detail
+    # ── Claims detail ──
     def _claim_text(c):
         if isinstance(c, dict):
             text = c.get("claim", str(c))
@@ -189,27 +190,27 @@ def generate_meta_report(slug, fm, diffs, scratchpad_content, adversarial_output
         return str(c).lstrip("! ")
 
     if verified:
-        lines.append("### What I learned")
+        lines.append("### O que aprendi")
         for c in verified:
             lines.append(f"- {_claim_text(c)}")
         lines.append("")
 
     if open_claims:
-        lines.append("### What I don't know")
+        lines.append("### O que não sei")
         for c in open_claims:
             lines.append(f"- {_claim_text(c)}")
         lines.append("")
 
-    # Scratchpad
-    lines.append("## Session observations")
+    # ── Scratchpad ──
+    lines.append("## Observações da sessão")
     if scratchpad_content:
         lines.append(scratchpad_content.strip())
     else:
-        lines.append("*No observations recorded this session.*")
+        lines.append("*Nenhuma observação registrada nesta sessão.*")
     lines.append("")
 
-    # State diffs
-    lines.append("## Pending state changes")
+    # ── State diffs ──
+    lines.append("## Mudanças de estado pendentes")
     if diffs:
         for repo, info in sorted(diffs.items()):
             lines.append(f"### {repo}/")
@@ -219,28 +220,29 @@ def generate_meta_report(slug, fm, diffs, scratchpad_content, adversarial_output
                 lines.append("```")
             stat = info.get("stat", "")
             if stat:
+                # Last line of --stat is the summary
                 summary_line = stat.strip().split("\n")[-1]
                 lines.append(f"*{summary_line}*")
             lines.append("")
     else:
-        lines.append("*No state changes detected.*")
+        lines.append("*Nenhuma mudança de estado detectada.*")
         lines.append("")
 
-    # Adversarial
-    lines.append("## Adversarial challenge")
+    # ── Adversarial ──
+    lines.append("## Desafio adversarial")
     if adversarial_output:
         lines.append(adversarial_output)
     else:
         lines.append("*Skipped (--no-adversarial).*")
     lines.append("")
 
-    # Directive
+    # ── Directive ──
     lines.append("---")
     lines.append(
-        "*Directive: Read this meta-report BEFORE editing state files "
+        "*Diretriz: Ler este meta-report ANTES de editar arquivos de estado "
         "(MEMORY.md, debugging.md, etc.). "
-        "Automated state (claims, threads, events, digest) "
-        "has already been processed by the pipeline.*"
+        "Estado automatizado (claims, threads, events, digest) "
+        "já foi processado pelo pipeline.*"
     )
 
     return "\n".join(lines)
@@ -257,35 +259,43 @@ def main():
 
     META_DIR.mkdir(parents=True, exist_ok=True)
 
+    # 1. Read frontmatter
     fm = read_frontmatter(args.entry)
     title = fm.get("title", args.slug)
     claims = fm.get("claims", [])
 
+    # 2. Capture diffs preview
     diffs = capture_diffs_preview()
 
+    # 3. Read scratchpad
     scratchpad_content, scratchpad_path = read_scratchpad(args.scratchpad)
 
+    # 4. Adversarial challenge
     adversarial_output = None
     if not args.no_adversarial:
-        summary = f"{title}. Claims: {len(claims)} ({sum(1 for c in claims if _is_open(c))} open)."
+        summary = f"{title}. Claims: {len(claims)} ({sum(1 for c in claims if _is_open(c))} abertas)."
         if scratchpad_content:
             obs = [l.strip() for l in scratchpad_content.split("\n") if l.startswith("- [")]
             if obs:
                 texts = [o.split("] ", 1)[-1] if "] " in o else o for o in obs[:5]]
-                summary += f" Observations: {'; '.join(texts)}"
+                summary += f" Observações: {'; '.join(texts)}"
         adversarial_output = run_adversarial(summary, args.entry)
 
+    # 5. Generate meta-report
     report = generate_meta_report(args.slug, fm, diffs, scratchpad_content, adversarial_output)
 
     if args.dry_run:
         print(report)
         return
 
+    # 6. Save meta-report
     output_path = META_DIR / f"{args.slug}-meta.md"
     output_path.write_text(report)
 
+    # 7. Archive scratchpad
     archived = archive_scratchpad(scratchpad_path, args.slug)
 
+    # Output for pipeline to parse
     print(f"OK: {output_path}")
     if archived:
         print(f"  Scratchpad: {archived}")

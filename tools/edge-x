@@ -13,7 +13,7 @@ Searches with multiple strategies, filters by quality, returns signal.
 import os, sys, json, argparse
 from pathlib import Path
 
-# Load credentials from secrets
+# Load credentials
 env_file = Path.home() / "edge" / "secrets" / "x-api.env"
 if env_file.exists():
     for line in env_file.read_text().splitlines():
@@ -39,7 +39,7 @@ def get_client():
     )
 
 # Trusted accounts — practitioners, researchers, builders
-# Customize this list for your domain
+# These are people whose tweets about AI/agents/tools are consistently high-signal
 TRUSTED_ACCOUNTS = [
     "karpathy",        # AI research, practical insights
     "swyx",            # AI engineering, latent space
@@ -50,15 +50,19 @@ TRUSTED_ACCOUNTS = [
     "OpenAI",          # OpenAI official
     "alexalbert__",    # Anthropic, Claude
     "DrJimFan",        # NVIDIA, embodied AI
-    "bindureddy",      # AI products, former AllenAI
+    "bindureddy",       # AI products, former AllenAI
+    "laborinthAI",     # AI agents
     "eugeneyan",       # ML engineering, production AI
     "shreyar",         # Guardrails, LLM reliability
     "jerryjliu0",      # LlamaIndex creator
     "jobergum",        # Vespa, search, RAG
+    "rasaborb",        # BERTopic, embeddings
+    "ClawSecure",      # OpenClaw security
     "GregKamradt",     # RAG, evals, chunking
+    "llaborinthAI",    # AI agents community
 ]
 
-# Validate handles at import time
+# Validate handles at import time — fail loud, not silent
 _bad = [h for h in TRUSTED_ACCOUNTS if len(h) > 15]
 if _bad:
     raise ValueError(f"X handles >15 chars (invalid): {_bad}")
@@ -79,6 +83,8 @@ def search_x(topic, from_accounts=None, min_followers=100, min_engagement=2, max
     queries.append(f'{topic} -is:retweet lang:en')
 
     if light:
+        # Light mode: only 1 trusted-accounts query (top 10 in a single OR batch)
+        # Total: 2 API calls instead of 8. Fits 5 queries in rate limit window.
         top_batch = TRUSTED_ACCOUNTS[:10]
         from_clause = " OR ".join(f"from:{a}" for a in top_batch)
         queries.append(f'({from_clause}) {topic} -is:retweet')
@@ -95,6 +101,7 @@ def search_x(topic, from_accounts=None, min_followers=100, min_engagement=2, max
             for acct in from_accounts:
                 queries.append(f'from:{acct} {topic} -is:retweet')
         else:
+            # Auto-select relevant trusted accounts (batch of 5 per query, max 4 queries)
             for i in range(0, min(len(TRUSTED_ACCOUNTS), 20), 5):
                 batch = TRUSTED_ACCOUNTS[i:i+5]
                 from_clause = " OR ".join(f"from:{a}" for a in batch)
@@ -103,7 +110,7 @@ def search_x(topic, from_accounts=None, min_followers=100, min_engagement=2, max
     for q in queries:
         try:
             results = client.search_recent_tweets(
-                query=q[:512],
+                query=q[:512],  # API limit
                 max_results=min(max_results, 10),
                 tweet_fields=['created_at', 'public_metrics', 'author_id'],
                 expansions=['author_id'],
@@ -202,6 +209,7 @@ def main():
     print(f"=== X Search: {args.topic} ({len(shown)} quality / {total_raw} raw) ===\n")
 
     for i, t in enumerate(shown, 1):
+        # Compact format: rank, author, engagement, text, url
         engagement_str = f"{t['likes']}L {t['rts']}RT {t['replies']}Re"
         follower_str = f"{t['followers']:,}fol"
         text = t['text'].replace('\n', ' ')[:200]
