@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-BLOG_DIR="$HOME/continuum/blog"
+BLOG_DIR="$HOME/edge/blog"
 ENTRIES_DIR="$BLOG_DIR/entries"
 CHANGELOG="$BLOG_DIR/changelog.md"
 API_URL="http://localhost:8766"
@@ -107,7 +107,7 @@ fi
 
 # --- Step 2.5: Find related posts ---
 echo "[2.5/6] Finding related posts..."
-RELATED_OUTPUT=$(python3 "$HOME/continuum/search/related.py" "$ENTRY_PATH" 5 2>&1) || true
+RELATED_OUTPUT=$(python3 "$HOME/edge/search/related.py" "$ENTRY_PATH" 5 2>&1) || true
 if echo "$RELATED_OUTPUT" | grep -q "^Related"; then
     echo "  $RELATED_OUTPUT" | head -6
 else
@@ -159,7 +159,7 @@ VERIFY_OK=true
 # Check SQLite
 python3 -c "
 import sys
-sys.path.insert(0, '$HOME/continuum/search')
+sys.path.insert(0, '$HOME/edge/search')
 try:
     from db import ensure_db
     conn = ensure_db()

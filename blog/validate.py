@@ -19,8 +19,8 @@ from pathlib import Path
 
 import yaml
 
-ENTRIES_DIR = Path.home() / "continuum/blog/entries"
-REPORTS_DIR = Path.home() / "continuum/reports"
+ENTRIES_DIR = Path.home() / "edge/blog/entries"
+REPORTS_DIR = Path.home() / "edge/reports"
 RED = "\033[91m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"

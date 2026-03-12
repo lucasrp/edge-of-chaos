@@ -19,7 +19,7 @@ import markdown
 import yaml
 
 # ─── Paths ───
-ROOT = Path.home() / "continuum"
+ROOT = Path.home() / "edge"
 BLOG_DIR = ROOT / "blog"
 ENTRIES_DIR = BLOG_DIR / "entries"
 COMMENTS_FILE = BLOG_DIR / "comments.json"
@@ -1129,7 +1129,7 @@ def dashboard_page():
     return render_template(
         "dashboard.html",
         tab="dashboard",
-        page_title="continuum -- ops console",
+        page_title="edge -- ops console",
         header_sub="ops console",
         stats=get_stats_data(),
         health=health,

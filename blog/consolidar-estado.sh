@@ -28,9 +28,9 @@
 
 set -uo pipefail
 
-BLOG_DIR="$HOME/continuum/blog"
-REPORTS_DIR="$HOME/continuum/reports"
-TOOLS_DIR="$HOME/continuum/tools"
+BLOG_DIR="$HOME/edge/blog"
+REPORTS_DIR="$HOME/edge/reports"
+TOOLS_DIR="$HOME/edge/tools"
 
 # Parse flags
 SKIP_REVIEW=false
@@ -83,16 +83,16 @@ if [[ "$RECOVER" == "true" ]]; then
     echo "========================================="
     echo ""
 
-    FAILURES_LOG="$HOME/continuum/logs/pipeline-failures.jsonl"
+    FAILURES_LOG="$HOME/edge/logs/pipeline-failures.jsonl"
     RECOVERED=0
 
     # Find entries published today that may be missing state commit
-    for entry_file in "$HOME/continuum/blog/entries/"*.md; do
+    for entry_file in "$HOME/edge/blog/entries/"*.md; do
         [[ -f "$entry_file" ]] || continue
         entry_slug=$(basename "$entry_file" .md)
 
-        # Check if entry has a git commit in ~/continuum/
-        if ! git -C "$HOME/continuum" log --oneline --all --grep="publish: $entry_slug" 2>/dev/null | head -1 | grep -q .; then
+        # Check if entry has a git commit in ~/edge/
+        if ! git -C "$HOME/edge" log --oneline --all --grep="publish: $entry_slug" 2>/dev/null | head -1 | grep -q .; then
             echo "  Incomplete: $entry_slug (no git commit)"
 
             # Check if entry is in blog API
@@ -163,7 +163,7 @@ echo ""
 echo "-- Phase 0a: State Snapshot --"
 # NOTE: Replace with your state-audit tool name if different
 if command -v edge-state-audit &>/dev/null; then
-    PRE_SNAPSHOT="$HOME/continuum/state-snapshots/${SLUG}.pre.yaml"
+    PRE_SNAPSHOT="$HOME/edge/state-snapshots/${SLUG}.pre.yaml"
     if [[ -f "$PRE_SNAPSHOT" ]]; then
         ok "Snapshot PRE already exists (agent captured before changes)"
     else
@@ -495,7 +495,7 @@ def ok(msg): print(f"  {GREEN}OK{NC}: {msg}")
 def warn(msg): print(f"  {YELLOW}WARN{NC}: {msg}")
 def fail(msg): print(f"  {RED}FAIL{NC}: {msg}")
 
-FAILURES_FILE = Path.home() / "continuum" / "logs" / "pipeline-failures.jsonl"
+FAILURES_FILE = Path.home() / "edge" / "logs" / "pipeline-failures.jsonl"
 FAILURES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 def log_failure(phase, operation, error, tb=None):
@@ -549,7 +549,7 @@ except Exception as e:
 
 # -- 2. Thread update --
 try:
-    threads_dir = Path.home() / "continuum" / "threads"
+    threads_dir = Path.home() / "edge" / "threads"
     updated_threads = []
     for tid in threads:
         tfile = threads_dir / f"{tid}.md"
@@ -568,7 +568,7 @@ except Exception as e:
 
 # -- 3. Event log --
 try:
-    events_file = Path.home() / "continuum" / "logs" / "events.jsonl"
+    events_file = Path.home() / "edge" / "logs" / "events.jsonl"
     artifacts = [f"blog/entries/{slug}.md"]
     if report_filename:
         artifacts.append(f"reports/{report_filename}")
@@ -616,7 +616,7 @@ echo "-- Phase 5b: State Audit --"
 # NOTE: Replace with your state-audit tool name if different
 if command -v edge-state-audit &>/dev/null; then
     # Check if proposal exists (agent should have written it during the session)
-    PROPOSAL_FILE="$HOME/continuum/meta-reports/${SLUG}.state-proposal.yaml"
+    PROPOSAL_FILE="$HOME/edge/meta-reports/${SLUG}.state-proposal.yaml"
     if [[ -f "$PROPOSAL_FILE" ]]; then
         ok "Proposal found: $(basename "$PROPOSAL_FILE")"
     else
@@ -631,7 +631,7 @@ if command -v edge-state-audit &>/dev/null; then
         echo "========================================="
         echo -e " ${RED}ABORTED${NC}: State audit detected violation"
         echo "  Proposal: $PROPOSAL_FILE"
-        echo "  Audit: $HOME/continuum/meta-reports/${SLUG}.state-audit.yaml"
+        echo "  Audit: $HOME/edge/meta-reports/${SLUG}.state-audit.yaml"
         echo "========================================="
         exit 5
     fi
@@ -658,7 +658,7 @@ def ok(msg): print(f"  {GREEN}OK{NC}: {msg}")
 def warn(msg): print(f"  {YELLOW}WARN{NC}: {msg}")
 def fail(msg): print(f"  {RED}FAIL{NC}: {msg}")
 
-FAILURES_FILE = Path.home() / "continuum" / "logs" / "pipeline-failures.jsonl"
+FAILURES_FILE = Path.home() / "edge" / "logs" / "pipeline-failures.jsonl"
 FAILURES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 def log_failure(phase, operation, error, tb=None):
@@ -715,7 +715,7 @@ def _claim_text(c):
 TRACKED = {
     os.path.expanduser("~/.claude/projects/memory"): "memory",
     os.path.expanduser("~/.claude/skills"): "skills",
-    os.path.expanduser("~/continuum/notes"): "notes",
+    os.path.expanduser("~/edge/notes"): "notes",
 }
 
 all_diffs = []
@@ -769,7 +769,7 @@ for dirpath, prefix in TRACKED.items():
 
 # -- 2. Capture diffs from main repo --
 try:
-    main_dir = os.path.expanduser("~/continuum")
+    main_dir = os.path.expanduser("~/edge")
     subprocess.run(["git", "add", "-A"], cwd=main_dir, capture_output=True, timeout=30)
 
     # ORPHAN GUARD: unstage blog entries/reports/meta-reports that don't belong to this slug.
@@ -810,7 +810,7 @@ try:
             if line.startswith("diff --git a/"):
                 if current_file and current_lines:
                     all_diffs.append({
-                        "path": f"continuum/{current_file}",
+                        "path": f"edge/{current_file}",
                         "diff": "\n".join(current_lines)
                     })
                 file_parts = line.split(" b/", 1)
@@ -820,7 +820,7 @@ try:
                 current_lines.append(line)
         if current_file and current_lines:
             all_diffs.append({
-                "path": f"continuum/{current_file}",
+                "path": f"edge/{current_file}",
                 "diff": "\n".join(current_lines)
             })
 except Exception as e:
@@ -884,8 +884,8 @@ if failures:
 lines.append("")
 
 # State audit summary (if audit ran)
-proposal_path = Path.home() / "continuum" / "meta-reports" / f"{slug}.state-proposal.yaml"
-audit_path = Path.home() / "continuum" / "meta-reports" / f"{slug}.state-audit.yaml"
+proposal_path = Path.home() / "edge" / "meta-reports" / f"{slug}.state-proposal.yaml"
+audit_path = Path.home() / "edge" / "meta-reports" / f"{slug}.state-audit.yaml"
 if audit_path.exists():
     try:
         audit_data = yaml.safe_load(audit_path.read_text())
@@ -927,7 +927,7 @@ if audit_path.exists():
 
 # -- Execution summary from ops-hotspots.json --
 try:
-    hotspots_path = Path.home() / "continuum" / "state" / "ops-hotspots.json"
+    hotspots_path = Path.home() / "edge" / "state" / "ops-hotspots.json"
     if hotspots_path.exists():
         hotspots = json.loads(hotspots_path.read_text())
         incidents = hotspots.get("incidents", [])

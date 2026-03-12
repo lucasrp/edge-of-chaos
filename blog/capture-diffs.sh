@@ -7,7 +7,7 @@
 # Tracked directories (git repos):
 #   ~/.claude/projects/memory/     (working-state, breaks, proposals, etc.)
 #   ~/.claude/skills/              (SKILL.md files)
-#   ~/continuum/notes/             (research notes)
+#   ~/edge/notes/             (research notes)
 
 SLUG="${1:-}"
 if [ -z "$SLUG" ]; then
@@ -26,8 +26,8 @@ slug = os.environ.get("CAPTURE_SLUG", "")
 TRACKED = {
     os.path.expanduser("~/.claude/projects/memory"): "memory",
     os.path.expanduser("~/.claude/skills"): "skills",
-    os.path.expanduser("~/continuum/notes"): "notes",
-    os.path.expanduser("~/continuum/autonomy"): "autonomy",
+    os.path.expanduser("~/edge/notes"): "notes",
+    os.path.expanduser("~/edge/autonomy"): "autonomy",
 }
 
 BLOG_API = "http://localhost:8766/api/diffs"

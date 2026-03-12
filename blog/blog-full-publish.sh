@@ -31,9 +31,9 @@
 
 set -uo pipefail
 
-BLOG_DIR="$HOME/continuum/blog"
-REPORTS_DIR="$HOME/continuum/reports"
-TOOLS_DIR="$HOME/continuum/tools"
+BLOG_DIR="$HOME/edge/blog"
+REPORTS_DIR="$HOME/edge/reports"
+TOOLS_DIR="$HOME/edge/tools"
 
 # Parse flags
 SKIP_REVIEW=false
@@ -86,16 +86,16 @@ if [[ "$RECOVER" == "true" ]]; then
     echo "========================================="
     echo ""
 
-    FAILURES_LOG="$HOME/continuum/logs/pipeline-failures.jsonl"
+    FAILURES_LOG="$HOME/edge/logs/pipeline-failures.jsonl"
     RECOVERED=0
 
     # Find entries published today that may be missing state commit
-    for entry_file in "$HOME/continuum/blog/entries/"*.md; do
+    for entry_file in "$HOME/edge/blog/entries/"*.md; do
         [[ -f "$entry_file" ]] || continue
         entry_slug=$(basename "$entry_file" .md)
 
         # Check if entry has a git commit
-        if ! git -C "$HOME/continuum" log --oneline --all --grep="publish: $entry_slug" 2>/dev/null | head -1 | grep -q .; then
+        if ! git -C "$HOME/edge" log --oneline --all --grep="publish: $entry_slug" 2>/dev/null | head -1 | grep -q .; then
             echo "  Incomplete: $entry_slug (no git commit)"
 
             # Check if entry is in blog API
@@ -164,7 +164,7 @@ echo ""
 # ─── PHASE 0a: State snapshot ───
 echo "-- Phase 0a: State Snapshot --"
 if command -v edge-state-audit &>/dev/null; then
-    PRE_SNAPSHOT="$HOME/continuum/state-snapshots/${SLUG}.pre.yaml"
+    PRE_SNAPSHOT="$HOME/edge/state-snapshots/${SLUG}.pre.yaml"
     if [[ -f "$PRE_SNAPSHOT" ]]; then
         ok "Snapshot PRE already exists (agent captured before changes)"
     else

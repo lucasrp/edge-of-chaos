@@ -7,7 +7,7 @@ from pathlib import Path
 
 import markdown
 
-ROOT = Path.home() / "continuum"
+ROOT = Path.home() / "edge"
 STATE_DIR = ROOT / "state"
 THREADS_DIR = ROOT / "threads"
 LOGS_DIR = ROOT / "logs"
