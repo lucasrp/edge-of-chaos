@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="knowledge">
+
+  <!-- Health Strip -->
+  <div class="dash-health">
+    <div class="dash-health-item">
+      <span class="dash-label">clusters</span>
+      <span class="dash-value">{{ total_files }}</span>
+    </div>
+    <div class="dash-health-item">
+      <span class="dash-label">rules</span>
+      <span class="dash-value">{{ total_rules }}</span>
+    </div>
+    <div class="dash-health-item">
+      <span class="dash-label">topics</span>
+      <span class="dash-value">{{ topics|length }}</span>
+    </div>
+    <div class="dash-health-item {{ 'health-warn' if misses and misses[0].pending > 0 else 'health-ok' }}">
+      <span class="dash-label">misses</span>
+      <span class="dash-value">{{ misses[0].rules if misses else 0 }} <small>({{ misses[0].pending if misses else 0 }} pending)</small></span>
+    </div>
+  </div>
+
+  <div class="know-layout">
+    <!-- File list (sidebar) -->
+    <div class="know-sidebar">
+
+      <!-- Core -->
+      {% if core %}
+      <div class="know-group">
+        <div class="know-group-title">core (always loaded)</div>
+        {% for c in core %}
+        <a class="know-file {{ 'know-file-active' if selected == c.name }}"
+           href="/knowledge?file={{ c.name }}">
+          <span class="know-file-icon know-icon-core">C</span>
+          <span class="know-file-name">{{ c.name }}</span>
+          <span class="know-file-rules">{{ c.rules }}r</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Topics -->
+      {% if topics %}
+      <div class="know-group">
+        <div class="know-group-title">topics (loaded on demand)</div>
+        {% for c in topics %}
+        <a class="know-file {{ 'know-file-active' if selected == c.name }}"
+           href="/knowledge?file={{ c.name }}">
+          <span class="know-file-icon know-icon-topic">T</span>
+          <span class="know-file-name">{{ c.name }}</span>
+          <span class="know-file-rules">{{ c.rules }}r</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Misses -->
+      {% if misses %}
+      <div class="know-group">
+        <div class="know-group-title">miss log</div>
+        {% for c in misses %}
+        <a class="know-file {{ 'know-file-active' if selected == c.name }}"
+           href="/knowledge?file={{ c.name }}">
+          <span class="know-file-icon know-icon-miss">!</span>
+          <span class="know-file-name">{{ c.name }}</span>
+          <span class="know-file-rules">{{ c.rules }}m</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+    </div>
+
+    <!-- File content (main area) -->
+    <div class="know-content">
+      {% if selected_content %}
+        <div class="know-content-header">
+          <h2>{{ selected_name }}</h2>
+          <span class="know-content-meta">{{ selected_content.split('\n')|length }} lines</span>
+        </div>
+        <div class="know-content-body">{{ selected_content | e | replace('\n', '<br>') | safe }}</div>
+      {% else %}
+        <div class="know-empty">
+          <p>Select a file to view and curate.</p>
+          <p class="know-empty-hint">
+            <strong>Core:</strong> loaded every session. Cross-cutting rules.<br>
+            <strong>Topics:</strong> thematic clusters. Loaded on demand (2-3 per session).<br>
+            <strong>Misses:</strong> errors a rule would have prevented. Become rules via reflection.
+          </p>
+          <div class="know-design-summary">
+            <h3>Design: Knowledge Clusters</h3>
+            <div class="know-flow">
+              <span class="know-step">write</span>
+              <span class="know-arrow">&rarr;</span>
+              <span class="know-step">read</span>
+              <span class="know-arrow">&rarr;</span>
+              <span class="know-step">use</span>
+              <span class="know-arrow">&rarr;</span>
+              <span class="know-step">evaluate</span>
+              <span class="know-arrow">&rarr;</span>
+              <span class="know-step">curate</span>
+            </div>
+            <ul>
+              <li><strong>Format:</strong> decision rules -- "when [context], [action]"</li>
+              <li><strong>Test:</strong> if deleting it doesn't change behavior, it was clutter</li>
+              <li><strong>Writing:</strong> <code>memory:</code> field in frontmatter, heartbeat saves to topic</li>
+              <li><strong>Reading:</strong> load lists topics, loads 2-3 relevant + core always</li>
+              <li><strong>Curation:</strong> human edits here + reflection prunes when it grows too large</li>
+            </ul>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

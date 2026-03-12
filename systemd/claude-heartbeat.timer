@@ -1,0 +1,11 @@
+[Unit]
+Description=Claude Code Heartbeat Timer
+
+[Timer]
+# Default: every 2 hours. Installer will update based on user choice.
+OnActiveSec=2h
+OnUnitActiveSec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

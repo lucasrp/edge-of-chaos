@@ -1,101 +1,50 @@
-# Continuum
+# edge-of-chaos
 
-Runtime local-first para Claude Code: memória persistente, rotinas autônomas e bootstrap inteligente via scanner de transcripts.
+Autonomous AI agent infrastructure for Claude Code.
 
-## Estrutura do projeto
+## Repo Structure
 
 ```
-continuum/
-  pyproject.toml
-  README.md
-  LICENSE
-  src/continuum/
-    __init__.py          # version
-    cli.py               # click CLI (init, scan, run, status, doctor, skills)
-    config.py            # Config loading from continuum.toml
-    init.py              # Bootstrap logic (interactive prompts, dir creation)
-    scanner/
-      __init__.py
-      discover.py        # Find .jsonl transcripts
-      parser.py          # Parse JSONL into Session objects
-      heuristics.py      # Extract preferences, corrections, tech stack
-      sanitize.py        # Remove sensitive data (3 modes)
-      bootstrap.py       # Write bootstrap memory files
-    skills/
-      __init__.py
-      manifest.py        # Skill dataclass from skill.yaml
-      runner.py          # Execute skills
-      scaffold.py        # `skills new` scaffolding
-    memory/
-      __init__.py
-      writer.py          # Write memory files
-      reader.py          # Read memory files
-    templates/
-      CLAUDE.md.template # Template for generated CLAUDE.md
-      continuum.toml.template
-    builtin_skills/
-      consolidate-state/
-        skill.yaml
-        prompt.md
-      daily-reflection/
-        skill.yaml
-        prompt.md
-      project-discovery/
-        skill.yaml
-        prompt.md
-  tests/
-    test_e2e.py
-    fixtures/
-      sample_transcript.jsonl
+edge-of-chaos/
+├── install.sh              ← Interactive installer
+├── .env.example            ← API key template
+├── models.env.example      ← Default model config
+├── blog/                   ← Flask internal blog server
+├── tools/                  ← 25+ CLI tools
+├── search/                 ← SQLite FTS + vector search
+├── skills/                 ← 22 skill templates (SKILL.md)
+│   └── _shared/            ← Shared protocols (report-template, state-protocol)
+├── memory/                 ← Memory templates (personality, rules, method)
+├── autonomy/               ← Autonomy policy and capability tracking
+├── ralph/                  ← Autonomous coding agent loop
+├── avatar/                 ← Visual identity
+├── systemd/                ← Service file templates
+└── templates/              ← Generated file templates (CLAUDE.md, MEMORY.md, heartbeat.sh)
 ```
 
-## Convenções
+## How it works
 
-- Python 3.10+, click para CLI
-- Sem deps pesadas (sem Flask, sem ML, sem DB)
-- Deps mínimas: click, pyyaml (para skill.yaml)
-- tomllib stdlib (3.11+) para ler TOML, fallback para tomli
-- Testes com pytest
-- Código limpo, sem overengineering
-- Cada módulo faz UMA coisa
+1. User clones repo and runs `./install.sh`
+2. Installer asks for: agent name, codename, domain, skill prefix, heartbeat interval
+3. Files are deployed to `~/edge/` (system root)
+4. Skills are installed to `~/.claude/skills/{prefix}-*/`
+5. Blog server + heartbeat timer are set up via systemd
+6. Agent operates autonomously via heartbeat, user interacts via blog + Claude Code
 
-## Onboarding flow (continuum init)
+## Key concepts
 
-1. Perguntar nome do projeto (default: dirname)
-2. Perguntar diretório de trabalho (default: cwd)
-3. Perguntar domínio de trabalho (ex: "marketing", "pesquisa", "auditoria")
-4. Perguntar idioma (default: en)
-5. Detectar conta GitHub disponível (`gh auth status` ou `git config user.name`)
-6. Perguntar skill prefix (default: cx)
-7. Oferecer scan de transcripts existentes
-8. Criar estrutura .continuum/
-9. Se scan aceito, rodar pipeline discover→parse→heuristics→sanitize→bootstrap
+- **Skills are SKILL.md files** — invoked via `/prefix-name` slash commands in Claude Code, NOT via CLI
+- **Blog is internal** — agent writes entries, owner reads via browser (port 8766)
+- **Heartbeat dispatches skills** — systemd timer invokes Claude Code with a skill
+- **Memory is markdown** — no database for memory, just files in ~/edge/memory/
+- **consolidar-estado is THE pipeline** — all artifacts go through the 7-phase pipeline
+- **Prefix is configurable** — ed-heartbeat becomes {prefix}-heartbeat (fleet pattern)
 
-## Scanner de transcripts
+## Conventions
 
-O scanner lê ~/.claude/projects/*/conversations/*.jsonl (ou paths similares).
-Cada linha JSONL tem formato do Claude Code:
-- Mensagens do tipo "human" e "assistant"
-- Tool calls aninhados em content blocks
-- Arquivos mencionados, comandos shell, etc.
-
-Extrair:
-- Preferências explícitas (idioma, verbosidade, estilo)
-- Correções do usuário (padrões de negação após resposta)
-- Stack tecnológico (linguagens, frameworks, tools)
-- Padrões de projeto (dirs comuns, configs)
-- Tópicos recorrentes (por frequência)
-
-## Como rodar
-
-```bash
-pip install -e .
-continuum --help
-continuum init
-continuum scan
-continuum doctor
-continuum status
-continuum run consolidate-state
-continuum skills list
-continuum skills new my-skill
-```
+- Skills reference ~/edge/ paths (fixed install root)
+- Tools are standalone executables in ~/edge/tools/
+- All shell scripts use set -euo pipefail
+- Python tools use #!/usr/bin/env python3
+- API keys in ~/edge/secrets/*.env (chmod 600)
+- Model selection via ~/edge/secrets/models.env

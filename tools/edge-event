@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""edge-event — Log and query system state events.
+
+Usage:
+  edge-event log --type TYPE --summary "what happened"
+  edge-event log --type TYPE --thread ID --summary "..."
+  edge-event log --type TYPE --artifacts "a.md,b.html"
+  edge-event recent                                        # last 20 events
+  edge-event recent --thread ID                            # events for a thread
+  edge-event recent -n 50                                  # last 50
+  edge-event stats                                         # counts by type
+
+Event types:
+  skill_dispatched   — heartbeat dispatched a skill
+  artifact_created   — blog entry, report, note created
+  thread_updated     — thread updated (resurface, status, decision)
+  claim_resolved     — open claim (!) resolved
+  user_directive     — user request received
+  error_logged       — error registered in debugging.md
+  maintenance        — compaction, indexing, cleanup
+"""
+
+import argparse
+import json
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+import uuid
+
+EVENTS_FILE = Path.home() / "edge" / "logs" / "events.jsonl"
+
+EVENT_TYPES = [
+    "skill_dispatched",
+    "artifact_created",
+    "thread_updated",
+    "claim_resolved",
+    "user_directive",
+    "error_logged",
+    "maintenance",
+]
+
+
+def log_event(args):
+    """Append an event to the log."""
+    if args.type not in EVENT_TYPES:
+        print(f"WARN: type '{args.type}' is not standard. Types: {', '.join(EVENT_TYPES)}", file=sys.stderr)
+
+    event = {
+        "event_id": f"EVT-{uuid.uuid4().hex[:8]}",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "type": args.type,
+        "summary": args.summary,
+    }
+
+    if args.thread:
+        event["thread_id"] = args.thread
+    if args.task:
+        event["task_id"] = args.task
+    if args.artifacts:
+        event["artifacts"] = [a.strip() for a in args.artifacts.split(",")]
+    if args.skill:
+        event["skill"] = args.skill
+    if args.session:
+        event["session_id"] = args.session
+
+    EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(EVENTS_FILE, "a") as f:
+        f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    print(f"OK: {event['event_id']} [{event['type']}] {event['summary']}")
+
+
+def cmd_recent(args):
+    """Show recent events."""
+    if not EVENTS_FILE.exists():
+        print("No events recorded.")
+        return
+
+    events = []
+    with open(EVENTS_FILE) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+    if args.thread:
+        events = [e for e in events if e.get("thread_id") == args.thread]
+
+    if args.type:
+        events = [e for e in events if e.get("type") == args.type]
+
+    events = events[-args.n:]
+
+    if not events:
+        print("No events found.")
+        return
+
+    for e in events:
+        ts = e.get("timestamp", "?")
+        try:
+            dt = datetime.fromisoformat(ts)
+            today = datetime.now(timezone.utc).date()
+            if dt.date() == today:
+                ts_display = dt.strftime("%H:%M")
+            else:
+                ts_display = dt.strftime("%m-%d %H:%M")
+        except (ValueError, AttributeError):
+            ts_display = ts[:16]
+
+        etype = e.get("type", "?")
+        summary = e.get("summary", "")
+        thread = e.get("thread_id", "")
+        skill = e.get("skill", "")
+        artifacts = e.get("artifacts", [])
+
+        parts = [f"[{ts_display}]", f"({etype})"]
+        if skill:
+            parts.append(f"/{skill}")
+        if thread:
+            parts.append(f"thread:{thread}")
+        parts.append(summary)
+
+        print(" ".join(parts))
+
+        if artifacts:
+            for a in artifacts:
+                print(f"  -> {a}")
+
+
+def cmd_stats(args):
+    """Event counts by type."""
+    if not EVENTS_FILE.exists():
+        print("No events recorded.")
+        return
+
+    counts = {}
+    total = 0
+    first_ts = None
+    last_ts = None
+
+    with open(EVENTS_FILE) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                e = json.loads(line)
+                etype = e.get("type", "unknown")
+                counts[etype] = counts.get(etype, 0) + 1
+                total += 1
+                ts = e.get("timestamp", "")
+                if first_ts is None:
+                    first_ts = ts
+                last_ts = ts
+            except json.JSONDecodeError:
+                continue
+
+    print("=== EVENT STATS ===")
+    print(f"Total: {total} events")
+    if first_ts:
+        print(f"First: {first_ts[:16]}")
+        print(f"Last:  {last_ts[:16]}")
+    print()
+    for etype, n in sorted(counts.items(), key=lambda x: -x[1]):
+        print(f"  {etype}: {n}")
+
+
+def update_thread(thread_id, resurface_days=None):
+    """Update updated: and optionally resurface: of a thread."""
+    threads_dir = Path.home() / "edge" / "threads"
+    thread_file = threads_dir / f"{thread_id}.md"
+
+    if not thread_file.exists():
+        print(f"WARN: thread {thread_id} not found in {threads_dir}", file=sys.stderr)
+        return False
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    content = thread_file.read_text()
+
+    import re
+    content = re.sub(r'^updated:.*$', f'updated: {today}', content, flags=re.MULTILINE)
+
+    if resurface_days:
+        from datetime import timedelta
+        new_resurface = (datetime.now() + timedelta(days=resurface_days)).strftime("%Y-%m-%d")
+        content = re.sub(r'^resurface:.*$', f'resurface: {new_resurface}', content, flags=re.MULTILINE)
+        print(f"  thread {thread_id}: updated={today}, resurface={new_resurface}")
+    else:
+        print(f"  thread {thread_id}: updated={today}")
+
+    thread_file.write_text(content)
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Log and query state events")
+    sub = parser.add_subparsers(dest="cmd")
+
+    p_log = sub.add_parser("log", help="Record event")
+    p_log.add_argument("--type", "-t", required=True, help="Event type")
+    p_log.add_argument("--summary", "-s", required=True, help="Summary of what happened")
+    p_log.add_argument("--thread", help="Related thread")
+    p_log.add_argument("--task", help="Related task")
+    p_log.add_argument("--artifacts", help="Created artifacts (comma-separated)")
+    p_log.add_argument("--skill", help="Dispatched skill")
+    p_log.add_argument("--session", help="Session ID")
+    p_log.add_argument("--update-thread", type=int, metavar="DAYS",
+                       help="Update thread (updated=today, resurface=today+DAYS)")
+
+    p_recent = sub.add_parser("recent", help="Recent events")
+    p_recent.add_argument("-n", type=int, default=20, help="Count (default: 20)")
+    p_recent.add_argument("--thread", help="Filter by thread")
+    p_recent.add_argument("--type", help="Filter by type")
+
+    sub.add_parser("stats", help="Statistics")
+
+    args = parser.parse_args()
+
+    if args.cmd == "log":
+        log_event(args)
+        if args.thread and args.update_thread is not None:
+            update_thread(args.thread, args.update_thread)
+    elif args.cmd == "recent":
+        cmd_recent(args)
+    elif args.cmd == "stats":
+        cmd_stats(args)
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

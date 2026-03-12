@@ -1,0 +1,36 @@
+{% if pipeline_commits or pipeline_stats %}
+<div class="dash-section dash-collapsible">
+  <h2 class="dash-section-title dash-collapse-toggle" onclick="this.parentElement.classList.toggle('collapsed')">
+    State Commit Pipeline <span class="dash-collapse-icon">&#9660;</span>
+  </h2>
+  <div class="dash-collapse-body">
+    <!-- Aggregate stats -->
+    <div class="pipe-stats">
+      <span class="pipe-stat">{{ pipeline_stats.total_commits_7d }} runs (7d)</span>
+      <span class="dash-sep">|</span>
+      <span class="pipe-stat">{{ pipeline_stats.success_rate }}% success</span>
+      <span class="dash-sep">|</span>
+      <span class="pipe-stat">{{ pipeline_stats.fix_chains }} fix chains</span>
+      <span class="dash-sep">|</span>
+      <span class="pipe-stat">{{ pipeline_stats.duplicate_slugs }} dup slugs</span>
+    </div>
+
+    <!-- Pipeline runs -->
+    {% if pipeline_commits %}
+    <div class="pipe-runs">
+      {% for c in pipeline_commits %}
+      <div class="pipe-run">
+        <span class="pipe-status pipe-status-{{ c.status }}">{{ c.status }}</span>
+        <span class="pipe-slug">{{ c.slug }}</span>
+        <span class="pipe-ts">{{ c.timestamp_short }}</span>
+        {% if c.fix_chain %}<span class="pipe-fix-chain">fix-chain</span>{% endif %}
+        {% if c.failed_phases %}<span class="pipe-failed-phase">{{ c.failed_phases|join(', ') }}</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="dash-task-meta" style="padding: 0.5rem 0;">No publish commits found.</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

@@ -1,0 +1,22 @@
+# Python dependencies for edge tools
+# Install: pip install -r requirements.txt
+
+# Core
+PyYAML>=6.0
+requests>=2.28
+
+# X/Twitter search (edge-x)
+tweepy>=4.14
+
+# OpenAI API (edge-consult, edge-dialogue, review-gate)
+openai>=1.0
+
+# Search infrastructure (curadoria_compute, edge-search)
+# sqlite-vec is optional — only needed if using vector search
+# sqlite-vec>=0.1
+
+# Exa search (edge-fontes, via MCP or direct)
+# exa-py>=1.0
+
+# Semantic Scholar (edge-fontes)
+# semanticscholar>=0.8

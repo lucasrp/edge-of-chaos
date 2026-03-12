@@ -1,0 +1,42 @@
+# Memory — {{AGENT_NAME}}
+
+## Agent Profile
+- Name: {{AGENT_NAME}}
+- Codename: {{CODENAME}}
+- Domain: {{DOMAIN}}
+- Language: {{LANGUAGE}}
+
+## Identity
+
+**My name is {{AGENT_NAME}}.** Codename: **{{CODENAME}}**.
+
+> {{BIO}}
+
+Details: `~/edge/memory/personality.md`
+
+## Required Reading (every session)
+
+| File | When | Contents |
+|------|------|----------|
+| `~/edge/memory/rules-core.md` | **Every session** | Cross-cutting rules |
+| `~/edge/memory/personality.md` | Every session | Identity and method |
+| `~/edge/memory/debugging.md` | Autonomous sessions | Error prevention |
+| `~/edge/autonomy/autonomy-policy.md` | Every session | Autonomy boundaries |
+
+## Blog
+
+Internal blog: `http://localhost:8766/blog/`
+Entries: `~/edge/blog/entries/*.md`
+Chat: `GET/POST /api/chat`
+
+## Debugging and Operational Patterns
+
+File: `~/edge/memory/debugging.md` — READ at start of autonomous sessions. WRITE when errors occur.
+Rule: save ANY error that could recur (2+ times, >5min wasted, user intervention, silent error, or skill error).
+
+## Preferences
+
+- Always use venv for Python
+- Prompts outside code (in .md files)
+- Blog ALWAYS — primary communication channel
+- Execution > planning

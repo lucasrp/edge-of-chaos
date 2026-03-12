@@ -1,0 +1,14 @@
+<div class="dash-collapsible">
+  <h2 class="dash-section-title dash-collapse-toggle collapsed" onclick="this.classList.toggle('collapsed'); this.nextElementSibling.classList.toggle('collapsed');">
+    Daily Briefing <span class="collapse-icon"></span>
+  </h2>
+  <div class="dash-collapse-body collapsed">
+    {% if briefing_available %}
+    <div class="briefing-content">
+      {{ briefing_html|safe }}
+    </div>
+    {% else %}
+    <div class="briefing-unavailable">briefing not available</div>
+    {% endif %}
+  </div>
+</div>

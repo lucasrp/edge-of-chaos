@@ -1,0 +1,41 @@
+#!/bin/bash
+# Claude Code Heartbeat — wrapper for systemd
+# Runs /{{PREFIX}}-heartbeat from {{WORK_DIR}}
+
+set -euo pipefail
+
+LOG="$HOME/.claude/heartbeat-output.log"
+LOCK="/tmp/claude-heartbeat.lock"
+
+# Avoid overlap: if another heartbeat is running, skip
+if [ -f "$LOCK" ]; then
+  pid=$(cat "$LOCK" 2>/dev/null || echo "")
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    echo "--- skipped $(date -Iseconds) (pid $pid still running) ---" >> "$LOG"
+    exit 0
+  fi
+  rm -f "$LOCK"
+fi
+
+echo $$ > "$LOCK"
+trap "rm -f $LOCK" EXIT
+
+echo "--- heartbeat $(date -Iseconds) ---" >> "$LOG"
+
+cd {{WORK_DIR}}
+
+if claude -p "/{{PREFIX}}-heartbeat" \
+  --max-turns 30 \
+  --allowedTools "Bash(*),Read(*),Write(*),Edit(*),Glob(*),Grep(*),WebSearch(*),WebFetch(*),Task(*),Skill(*)" \
+  >> "$LOG" 2>&1; then
+  echo "--- done $(date -Iseconds) ---" >> "$LOG"
+else
+  echo "--- failed $(date -Iseconds) (exit code $?) ---" >> "$LOG"
+fi
+
+# Sync RAG index (if search system is installed)
+if [ -f "$HOME/edge/search/ingest.py" ]; then
+  python3 "$HOME/edge/search/ingest.py" \
+    "$HOME/edge/reports/" "$HOME/edge/notes/" "$HOME/edge/blog/entries/" \
+    --no-embed --quiet 2>/dev/null || true
+fi

@@ -1,0 +1,384 @@
+#!/usr/bin/env python3
+"""edge-task — Task ledger CLI.
+
+Event-sourced task management. Append-only JSONL + materialized snapshot.
+Agent writes via CLI, human reads via dashboard.
+
+Usage:
+  edge-task add "Title" --priority P1 --owner agent --criteria "Done when X"
+  edge-task add "Title" -p P1 -o agent -c "Done when X" --thread foo --area ops
+  edge-task update TASK-ID --status doing --next "Edit skill X"
+  edge-task block TASK-ID --reason "Need user decision"
+  edge-task done TASK-ID --resolution "3 skills migrated"
+  edge-task drop TASK-ID --reason "No longer relevant"
+  edge-task list [--status todo|doing|blocked] [--priority P0|P1] [--owner agent|human]
+  edge-task show TASK-ID
+  edge-task stats
+"""
+
+import argparse
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+STATE_DIR = Path.home() / "edge" / "state"
+EVENTS_FILE = STATE_DIR / "tasks.jsonl"
+SNAPSHOT_FILE = STATE_DIR / "tasks.snapshot.json"
+
+VALID_STATUS = {"todo", "doing", "blocked", "done", "dropped"}
+VALID_PRIORITY = {"P0", "P1", "P2", "P3"}
+VALID_OWNER = {"agent", "human", "shared"}
+
+
+def now_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def gen_task_id():
+    d = datetime.now().strftime("%Y%m%d")
+    existing = load_snapshot()
+    day_tasks = [t for t in existing.values() if d in t.get("task_id", "")]
+    seq = len(day_tasks) + 1
+    return f"TASK-{d}-{seq:03d}"
+
+
+def append_event(event):
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(EVENTS_FILE, "a") as f:
+        f.write(json.dumps(event, ensure_ascii=False) + "\n")
+    materialize()
+
+
+def load_events():
+    if not EVENTS_FILE.exists():
+        return []
+    events = []
+    for line in EVENTS_FILE.read_text().splitlines():
+        line = line.strip()
+        if line:
+            events.append(json.loads(line))
+    return events
+
+
+def materialize():
+    """Rebuild snapshot from events."""
+    events = load_events()
+    tasks = {}
+    for ev in events:
+        tid = ev.get("task_id")
+        if not tid:
+            continue
+        op = ev.get("op")
+        if op == "upsert":
+            tasks[tid] = {k: v for k, v in ev.items() if k not in ("op", "ts", "updated_by")}
+            tasks[tid]["created_at"] = ev["ts"]
+            tasks[tid]["updated_at"] = ev["ts"]
+            tasks[tid]["history"] = [ev]
+        elif tid in tasks:
+            for k, v in ev.items():
+                if k not in ("op", "ts", "updated_by") and v is not None:
+                    tasks[tid][k] = v
+            tasks[tid]["updated_at"] = ev["ts"]
+            tasks[tid].setdefault("history", []).append(ev)
+
+    SNAPSHOT_FILE.write_text(json.dumps(tasks, ensure_ascii=False, indent=2))
+    return tasks
+
+
+def load_snapshot():
+    if SNAPSHOT_FILE.exists():
+        return json.loads(SNAPSHOT_FILE.read_text())
+    return materialize()
+
+
+def cmd_add(args):
+    tid = gen_task_id()
+    event = {
+        "ts": now_iso(),
+        "op": "upsert",
+        "task_id": tid,
+        "title": args.title,
+        "status": "todo",
+        "priority": args.priority,
+        "kind": args.kind,
+        "area": args.area,
+        "owner": args.owner,
+        "source": args.source,
+        "thread": args.thread,
+        "success_criteria": args.criteria,
+        "next_action": args.next_action or args.title,
+        "updated_by": "edge-task",
+        "notes": args.notes,
+    }
+    append_event(event)
+    print(f"Created: {tid} — {args.title} [{args.priority}]")
+    return tid
+
+
+def cmd_update(args):
+    snap = load_snapshot()
+    if args.task_id not in snap:
+        print(f"ERROR: {args.task_id} not found", file=sys.stderr)
+        sys.exit(1)
+    event = {
+        "ts": now_iso(),
+        "op": "update",
+        "task_id": args.task_id,
+        "updated_by": "edge-task",
+    }
+    if args.status:
+        if args.status not in VALID_STATUS:
+            print(f"ERROR: status must be one of {VALID_STATUS}", file=sys.stderr)
+            sys.exit(1)
+        event["status"] = args.status
+    if args.next_action:
+        event["next_action"] = args.next_action
+    if args.priority:
+        event["priority"] = args.priority
+    if args.notes:
+        event["notes"] = args.notes
+    if args.title:
+        event["title"] = args.title
+    append_event(event)
+    status = args.status or snap[args.task_id].get("status", "?")
+    print(f"Updated: {args.task_id} -> {status}")
+
+
+def cmd_block(args):
+    snap = load_snapshot()
+    if args.task_id not in snap:
+        print(f"ERROR: {args.task_id} not found", file=sys.stderr)
+        sys.exit(1)
+    event = {
+        "ts": now_iso(),
+        "op": "block",
+        "task_id": args.task_id,
+        "status": "blocked",
+        "block_reason": args.reason,
+        "updated_by": "edge-task",
+    }
+    append_event(event)
+    print(f"Blocked: {args.task_id} — {args.reason}")
+
+
+def cmd_done(args):
+    snap = load_snapshot()
+    if args.task_id not in snap:
+        print(f"ERROR: {args.task_id} not found", file=sys.stderr)
+        sys.exit(1)
+    event = {
+        "ts": now_iso(),
+        "op": "resolve",
+        "task_id": args.task_id,
+        "status": "done",
+        "resolution": args.resolution,
+        "updated_by": "edge-task",
+    }
+    append_event(event)
+    print(f"Done: {args.task_id} — {args.resolution}")
+
+
+def cmd_drop(args):
+    snap = load_snapshot()
+    if args.task_id not in snap:
+        print(f"ERROR: {args.task_id} not found", file=sys.stderr)
+        sys.exit(1)
+    event = {
+        "ts": now_iso(),
+        "op": "drop",
+        "task_id": args.task_id,
+        "status": "dropped",
+        "drop_reason": args.reason,
+        "updated_by": "edge-task",
+    }
+    append_event(event)
+    print(f"Dropped: {args.task_id} — {args.reason}")
+
+
+def cmd_list(args):
+    snap = load_snapshot()
+    tasks = list(snap.values())
+
+    if args.status:
+        tasks = [t for t in tasks if t.get("status") == args.status]
+    else:
+        tasks = [t for t in tasks if t.get("status") not in ("done", "dropped")]
+    if args.priority:
+        tasks = [t for t in tasks if t.get("priority") == args.priority]
+    if args.owner:
+        tasks = [t for t in tasks if t.get("owner") == args.owner]
+
+    prio_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+    tasks.sort(key=lambda t: (prio_order.get(t.get("priority", "P3"), 9), t.get("updated_at", "")))
+
+    if not tasks:
+        print("No tasks found.")
+        return
+
+    for t in tasks:
+        status = t.get("status", "?")
+        prio = t.get("priority", "?")
+        owner = t.get("owner", "?")
+        tid = t.get("task_id", "?")
+        title = t.get("title", "?")
+        next_a = t.get("next_action", "")
+        block = t.get("block_reason", "")
+
+        status_icon = {"todo": " ", "doing": ">", "blocked": "!", "done": "x", "dropped": "-"}.get(status, "?")
+        line = f"[{status_icon}] {prio} {tid}  {title}  ({owner})"
+        if status == "blocked" and block:
+            line += f"\n    BLOCKED: {block}"
+        elif status == "doing" and next_a:
+            line += f"\n    NEXT: {next_a}"
+        print(line)
+
+    total = len(tasks)
+    by_status = {}
+    for t in tasks:
+        s = t.get("status", "?")
+        by_status[s] = by_status.get(s, 0) + 1
+    summary = " | ".join(f"{s}: {c}" for s, c in sorted(by_status.items()))
+    print(f"\n{total} tasks — {summary}")
+
+
+def cmd_show(args):
+    snap = load_snapshot()
+    if args.task_id not in snap:
+        print(f"ERROR: {args.task_id} not found", file=sys.stderr)
+        sys.exit(1)
+    t = snap[args.task_id]
+    print(f"Task:     {t.get('task_id')}")
+    print(f"Title:    {t.get('title')}")
+    print(f"Status:   {t.get('status')}")
+    print(f"Priority: {t.get('priority')}")
+    print(f"Owner:    {t.get('owner')}")
+    print(f"Area:     {t.get('area', '-')}")
+    print(f"Kind:     {t.get('kind', '-')}")
+    print(f"Thread:   {t.get('thread', '-')}")
+    print(f"Criteria: {t.get('success_criteria', '-')}")
+    print(f"Next:     {t.get('next_action', '-')}")
+    if t.get("block_reason"):
+        print(f"Blocked:  {t['block_reason']}")
+    if t.get("resolution"):
+        print(f"Resolved: {t['resolution']}")
+    print(f"Created:  {t.get('created_at', '-')}")
+    print(f"Updated:  {t.get('updated_at', '-')}")
+    print(f"Source:   {t.get('source', '-')}")
+    if t.get("notes"):
+        print(f"Notes:    {t['notes']}")
+    history = t.get("history", [])
+    if history:
+        print(f"\nHistory ({len(history)} events):")
+        for ev in history:
+            op = ev.get("op", "?")
+            ts = ev.get("ts", "?")
+            status = ev.get("status", "")
+            print(f"  [{ts}] {op} {status}")
+
+
+def cmd_stats(args):
+    snap = load_snapshot()
+    tasks = list(snap.values())
+    total = len(tasks)
+    by_status = {}
+    by_priority = {}
+    by_owner = {}
+    for t in tasks:
+        s = t.get("status", "?")
+        p = t.get("priority", "?")
+        o = t.get("owner", "?")
+        by_status[s] = by_status.get(s, 0) + 1
+        if s not in ("done", "dropped"):
+            by_priority[p] = by_priority.get(p, 0) + 1
+            by_owner[o] = by_owner.get(o, 0) + 1
+
+    active = total - by_status.get("done", 0) - by_status.get("dropped", 0)
+    print(f"Total: {total} | Active: {active}")
+    print(f"Status:   {json.dumps(by_status)}")
+    print(f"Priority: {json.dumps(by_priority)}")
+    print(f"Owner:    {json.dumps(by_owner)}")
+
+    now = datetime.now(timezone.utc)
+    stale = []
+    for t in tasks:
+        if t.get("status") in ("done", "dropped"):
+            continue
+        updated = t.get("updated_at", "")
+        if updated:
+            try:
+                dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+                if (now - dt).total_seconds() > 48 * 3600:
+                    stale.append(t.get("task_id"))
+            except (ValueError, TypeError):
+                pass
+    if stale:
+        print(f"Stale (>48h): {', '.join(stale)}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Task ledger CLI", prog="edge-task")
+    sub = parser.add_subparsers(dest="command")
+
+    p_add = sub.add_parser("add", help="Create a new task")
+    p_add.add_argument("title", help="Task title")
+    p_add.add_argument("-p", "--priority", default="P1", choices=["P0", "P1", "P2", "P3"])
+    p_add.add_argument("-o", "--owner", default="agent", choices=["agent", "human", "shared"])
+    p_add.add_argument("-c", "--criteria", default="", help="Success criteria")
+    p_add.add_argument("-n", "--next-action", default="", help="Next concrete action")
+    p_add.add_argument("--kind", default="task", choices=["task", "bug", "project", "investigation"])
+    p_add.add_argument("--area", default="ops", help="Area (ops, architecture, research, publication, infra)")
+    p_add.add_argument("--source", default="agent", choices=["agent", "user", "system"])
+    p_add.add_argument("--thread", default="", help="Related thread")
+    p_add.add_argument("--notes", default="", help="Additional notes")
+
+    p_up = sub.add_parser("update", help="Update a task")
+    p_up.add_argument("task_id", help="Task ID")
+    p_up.add_argument("-s", "--status", choices=["todo", "doing", "blocked", "done", "dropped"])
+    p_up.add_argument("-n", "--next-action", help="Next concrete action")
+    p_up.add_argument("-p", "--priority", choices=["P0", "P1", "P2", "P3"])
+    p_up.add_argument("--notes", help="Notes")
+    p_up.add_argument("--title", help="Update title")
+
+    p_block = sub.add_parser("block", help="Block a task")
+    p_block.add_argument("task_id", help="Task ID")
+    p_block.add_argument("--reason", required=True, help="Block reason")
+
+    p_done = sub.add_parser("done", help="Complete a task")
+    p_done.add_argument("task_id", help="Task ID")
+    p_done.add_argument("--resolution", required=True, help="Resolution description")
+
+    p_drop = sub.add_parser("drop", help="Drop a task")
+    p_drop.add_argument("task_id", help="Task ID")
+    p_drop.add_argument("--reason", required=True, help="Drop reason")
+
+    p_list = sub.add_parser("list", help="List tasks")
+    p_list.add_argument("-s", "--status", choices=["todo", "doing", "blocked", "done", "dropped"])
+    p_list.add_argument("-p", "--priority", choices=["P0", "P1", "P2", "P3"])
+    p_list.add_argument("-o", "--owner", choices=["agent", "human", "shared"])
+
+    p_show = sub.add_parser("show", help="Show task details")
+    p_show.add_argument("task_id", help="Task ID")
+
+    sub.add_parser("stats", help="Show statistics")
+
+    args = parser.parse_args()
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+
+    cmds = {
+        "add": cmd_add,
+        "update": cmd_update,
+        "block": cmd_block,
+        "done": cmd_done,
+        "drop": cmd_drop,
+        "list": cmd_list,
+        "show": cmd_show,
+        "stats": cmd_stats,
+    }
+    cmds[args.command](args)
+
+
+if __name__ == "__main__":
+    main()

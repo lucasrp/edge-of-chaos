@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""edge-ledger — record and query execution events for operational telemetry.
+
+Usage:
+  edge-ledger record --skill S --tool T --ok --duration-ms 150
+  edge-ledger record --skill S --tool T --fail --exit-code 1 --error-class timeout --duration-ms 3000
+  edge-ledger query --since 48h
+  edge-ledger query --since 24h --tool bash --fails-only
+  edge-ledger stats --since 24h
+
+Every tool attempt is recorded as a structured event so retry loops and
+operational suffering become visible instead of hidden behind successful outcomes.
+"""
+
+import argparse
+import json
+import os
+import re
+import sys
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+LEDGER_FILE = Path.home() / "edge" / "logs" / "execution-ledger.jsonl"
+
+
+def parse_since(since_str):
+    """Parse a duration string like '48h', '7d', '2w' into a timedelta."""
+    m = re.match(r'^(\d+)\s*([hdwm])$', since_str.strip())
+    if not m:
+        print(f"ERROR: invalid --since format '{since_str}'. Use e.g. 48h, 7d, 2w", file=sys.stderr)
+        sys.exit(1)
+    val, unit = int(m.group(1)), m.group(2)
+    if unit == 'h':
+        return timedelta(hours=val)
+    elif unit == 'd':
+        return timedelta(days=val)
+    elif unit == 'w':
+        return timedelta(weeks=val)
+    elif unit == 'm':
+        return timedelta(days=val * 30)
+
+
+def read_events(since_td=None):
+    """Read events from the ledger, optionally filtering by time window."""
+    if not LEDGER_FILE.exists():
+        return []
+
+    events = []
+    cutoff = None
+    if since_td:
+        cutoff = datetime.now(timezone.utc) - since_td
+
+    with open(LEDGER_FILE) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if cutoff:
+                try:
+                    ts = datetime.fromisoformat(ev["ts"])
+                    if ts < cutoff:
+                        continue
+                except (KeyError, ValueError):
+                    continue
+
+            events.append(ev)
+
+    return events
+
+
+def cmd_record(args):
+    """Record a single execution event."""
+    now = datetime.now(timezone.utc)
+
+    # Determine run_id
+    run_id = args.run_id or os.environ.get("EDGE_RUN_ID") or now.strftime("run-%Y%m%d-%H%M%S")
+
+    # Determine op_id
+    target_id = args.target_id or ""
+    op_id = f"{args.skill}:{target_id}" if target_id else args.skill
+
+    # Determine ok status
+    ok = True
+    if args.fail:
+        ok = False
+    # --ok is the default if neither specified
+
+    # Truncate stderr_tail
+    stderr_tail = args.stderr_tail or ""
+    if len(stderr_tail) > 200:
+        stderr_tail = stderr_tail[:200]
+
+    event = {
+        "ts": now.isoformat(),
+        "run_id": run_id,
+        "skill": args.skill,
+        "phase": args.phase or "",
+        "tool": args.tool,
+        "op_id": op_id,
+        "target_id": target_id,
+        "attempt": args.attempt or 1,
+        "ok": ok,
+        "exit_code": args.exit_code if args.exit_code is not None else (0 if ok else 1),
+        "duration_ms": args.duration_ms or 0,
+        "error_class": args.error_class or "",
+        "error_fingerprint": args.error_fingerprint or "",
+        "stderr_tail": stderr_tail,
+        "resolved_on_retry": args.resolved_on_retry or False,
+    }
+
+    LEDGER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(LEDGER_FILE, "a") as f:
+        f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    status = "OK" if ok else "FAIL"
+    print(f"RECORDED: [{status}] {event['tool']} ({event['skill']}/{event['phase']}) attempt={event['attempt']} {event['duration_ms']}ms")
+
+
+def cmd_query(args):
+    """Query events from the ledger."""
+    since_td = parse_since(args.since) if args.since else None
+    events = read_events(since_td)
+
+    # Filter by tool
+    if args.tool:
+        events = [e for e in events if e.get("tool") == args.tool]
+
+    # Filter by skill
+    if args.skill:
+        events = [e for e in events if e.get("skill") == args.skill]
+
+    # Filter fails only
+    if args.fails_only:
+        events = [e for e in events if not e.get("ok", True)]
+
+    # Filter by run_id
+    if args.run_id:
+        events = [e for e in events if e.get("run_id") == args.run_id]
+
+    print(json.dumps(events, indent=2, ensure_ascii=False))
+
+
+def cmd_stats(args):
+    """Compute aggregate stats from the ledger."""
+    since_td = parse_since(args.since) if args.since else timedelta(hours=48)
+    events = read_events(since_td)
+
+    if not events:
+        stats = {
+            "window": args.since or "48h",
+            "total_events": 0,
+            "total_retries": 0,
+            "retry_rate": 0.0,
+            "top_error_fingerprints": [],
+            "wasted_time_ms": 0,
+            "top_painful_ops": [],
+        }
+        print(json.dumps(stats, indent=2))
+        return
+
+    total = len(events)
+    retries = sum(1 for e in events if e.get("attempt", 1) > 1)
+    retry_rate = retries / total if total > 0 else 0.0
+
+    # Wasted time: duration of failed attempts
+    wasted_ms = sum(e.get("duration_ms", 0) for e in events if not e.get("ok", True))
+
+    # Top error fingerprints
+    fp_counts = defaultdict(int)
+    for e in events:
+        fp = e.get("error_fingerprint", "")
+        if fp:
+            fp_counts[fp] += 1
+    top_fps = sorted(fp_counts.items(), key=lambda x: -x[1])[:5]
+
+    # Top painful ops (by retry count per op_id)
+    op_retries = defaultdict(int)
+    op_wasted = defaultdict(int)
+    for e in events:
+        if e.get("attempt", 1) > 1:
+            op_id = e.get("op_id", "unknown")
+            op_retries[op_id] += 1
+            if not e.get("ok", True):
+                op_wasted[op_id] += e.get("duration_ms", 0)
+    top_painful = sorted(op_retries.items(), key=lambda x: -x[1])[:5]
+
+    stats = {
+        "window": args.since or "48h",
+        "total_events": total,
+        "total_retries": retries,
+        "retry_rate": round(retry_rate, 4),
+        "top_error_fingerprints": [{"fingerprint": fp, "count": c} for fp, c in top_fps],
+        "wasted_time_ms": wasted_ms,
+        "top_painful_ops": [{"op_id": op, "retry_count": c, "wasted_ms": op_wasted.get(op, 0)} for op, c in top_painful],
+    }
+
+    print(json.dumps(stats, indent=2))
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Record and query execution events for operational telemetry"
+    )
+    sub = parser.add_subparsers(dest="cmd")
+
+    # record
+    p_rec = sub.add_parser("record", help="Record an execution event")
+    p_rec.add_argument("--run-id", help="Run identifier (default: $EDGE_RUN_ID or timestamp)")
+    p_rec.add_argument("--skill", required=True, help="Skill that triggered the operation")
+    p_rec.add_argument("--phase", help="Phase within the skill")
+    p_rec.add_argument("--tool", required=True, help="Tool used (e.g. bash, edge-search)")
+    p_rec.add_argument("--attempt", type=int, default=1, help="Attempt number (default: 1)")
+    p_rec.add_argument("--ok", action="store_true", default=True, help="Mark as success (default)")
+    p_rec.add_argument("--fail", action="store_true", help="Mark as failure")
+    p_rec.add_argument("--exit-code", type=int, help="Exit code (default: 0 for ok, 1 for fail)")
+    p_rec.add_argument("--duration-ms", type=int, help="Duration in milliseconds")
+    p_rec.add_argument("--error-class", help="Error classification (e.g. timeout, permission)")
+    p_rec.add_argument("--error-fingerprint", help="Unique error fingerprint for dedup")
+    p_rec.add_argument("--target-id", help="Target identifier (e.g. blog slug, doc id)")
+    p_rec.add_argument("--stderr-tail", help="Last 200 chars of stderr")
+    p_rec.add_argument("--resolved-on-retry", action="store_true", help="Was this resolved by retrying?")
+
+    # query
+    p_query = sub.add_parser("query", help="Query execution events")
+    p_query.add_argument("--since", help="Time window (e.g. 48h, 7d)")
+    p_query.add_argument("--tool", help="Filter by tool name")
+    p_query.add_argument("--skill", help="Filter by skill name")
+    p_query.add_argument("--fails-only", action="store_true", help="Show only failed events")
+    p_query.add_argument("--run-id", help="Filter by run ID")
+
+    # stats
+    p_stats = sub.add_parser("stats", help="Aggregate statistics")
+    p_stats.add_argument("--since", help="Time window (e.g. 48h, 7d, default: 48h)")
+
+    args = parser.parse_args()
+
+    if args.cmd == "record":
+        cmd_record(args)
+    elif args.cmd == "query":
+        cmd_query(args)
+    elif args.cmd == "stats":
+        cmd_stats(args)
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

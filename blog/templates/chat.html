@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="chat-container">
+  <div class="chat-messages" id="chatMessages"
+       hx-get="/htmx/chat-messages"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="loading">loading</div>
+  </div>
+  <div class="chat-input-row">
+    <textarea class="chat-input" id="chatInput" placeholder="send message..." rows="1"></textarea>
+    <button class="chat-send" id="chatSend">send</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  var input = document.getElementById('chatInput');
+  var sendBtn = document.getElementById('chatSend');
+  var messages = document.getElementById('chatMessages');
+
+  function sendMessage() {
+    var text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    input.style.height = '';
+
+    // Optimistic render
+    var div = document.createElement('div');
+    div.className = 'chat-bubble chat-user';
+    div.innerHTML = '<span class="chat-author">user</span><span class="chat-text">' +
+      text.replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+      '</span><span class="chat-ts">' + new Date().toISOString().substring(0, 19).replace('T', ' ') + '</span>';
+    var empty = messages.querySelector('.empty-state');
+    if (empty) empty.remove();
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+
+    fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author: 'user', text: text })
+    }).catch(function() {});
+  }
+
+  sendBtn.addEventListener('click', sendMessage);
+  input.addEventListener('keydown', function(ev) {
+    if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); sendMessage(); }
+  });
+
+  // Scroll to bottom after htmx load
+  document.body.addEventListener('htmx:afterSwap', function(e) {
+    if (e.detail.target.id === 'chatMessages') {
+      messages.scrollTop = messages.scrollHeight;
+    }
+  });
+})();
+</script>
+{% endblock %}

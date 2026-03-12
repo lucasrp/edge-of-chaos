@@ -1,0 +1,98 @@
+{# Expanded entry card #}
+{% set entry_key = (entry.title or '')[:80] %}
+{% set ed = comments_data.get('entries', {}).get(entry_key, {}) %}
+{% set saved = ed.get('saved', false) %}
+{% set comments = ed.get('comments', []) %}
+
+<article class="entry{{ ' saved-entry' if saved }}"
+         data-key="{{ entry_key }}" data-slug="{{ entry.slug }}" data-tag="{{ entry.tag }}">
+  <div class="entry-header">
+    <div class="entry-title-wrap">
+      <span class="entry-number">#{{ entry.break_number }} | {{ entry.tag }} #{{ entry.category_number }}</span>
+      <div class="entry-title">{{ entry.title }}</div>
+    </div>
+    {% if not entry.published %}<span class="entry-tag" style="background:#e74c3c;color:#fff;font-weight:bold">NO PIPELINE</span>{% endif %}
+    <span class="entry-tag tag-{{ entry.tag }}">{{ entry.tag }}</span>
+    <span class="temp-badge temp-{{ entry.temperature or 'null' }}"
+          data-path="{{ entry.path }}"
+          data-temp="{{ entry.temperature or '' }}"
+          onclick="cycleTemp(this)">{{ entry.temperature or '\u25CB' }}</span>
+  </div>
+
+  {# Proposal metadata #}
+  {% if entry.tag == 'planejamento' or entry.proposta_id %}
+    <div class="prop-meta">
+      {% set st = entry.status or 'proposta' %}
+      <span class="prop-status status-{{ st|replace(' ', '-') }}">{{ st }}</span>
+      {% if entry.effort %}<span>effort: {{ entry.effort }}</span>{% endif %}
+      {% if entry.project %}<span>project: {{ entry.project }}</span>{% endif %}
+    </div>
+  {% endif %}
+
+  <div class="entry-date">{{ format_date(entry.date) }}{% if entry.context %} -- {{ entry.context }}{% endif %}</div>
+
+  {% if entry.content_html or entry.body_html %}
+    <div class="entry-content">{{ (entry.content_html or entry.body_html)|safe }}</div>
+  {% endif %}
+
+  {# Report links + LLM cost #}
+  {% if entry.report or entry.meta_report or entry.state_audit or entry.llm_cost %}
+    <div class="entry-report">
+      {% if entry.report %}<a href="/reports/{{ entry.report }}" target="_blank">report &rarr;</a>{% endif %}
+      {% if entry.meta_report %}<a href="/meta-reports/{{ entry.meta_report }}" target="_blank">meta &rarr;</a>{% endif %}
+      {% if entry.state_audit %}<span class="state-badge" title="State audit: proposal validated against execution">state: ok</span>{% endif %}
+      {% if entry.llm_cost %}<span class="llm-cost" title="LLM cost for generating this artifact">LLM: {{ entry.llm_cost }}</span>{% endif %}
+    </div>
+  {% endif %}
+
+  {# State diffs #}
+  {% if entry.diffs %}
+    {% set total_adds = namespace(n=0) %}
+    {% set total_dels = namespace(n=0) %}
+    {% for f in entry.diffs %}
+      {% for line in f.diff.split('\n') %}
+        {% if line.startswith('+') and not line.startswith('+++') %}{% set total_adds.n = total_adds.n + 1 %}{% endif %}
+        {% if line.startswith('-') and not line.startswith('---') %}{% set total_dels.n = total_dels.n + 1 %}{% endif %}
+      {% endfor %}
+    {% endfor %}
+    <span class="entry-diffs-toggle">diffs: {{ entry.diffs|length }} file{{ 's' if entry.diffs|length > 1 }} (+{{ total_adds.n }} -{{ total_dels.n }})</span>
+    <div class="entry-diffs-container">
+      {% for f in entry.diffs %}
+        <div class="diff-file-header">{{ f.path }}</div>
+        <div class="diff-block">
+          {%- for line in f.diff.split('\n') -%}
+            {%- if line.startswith('@@') -%}<span class="diff-hunk">{{ line }}</span>
+{% elif line.startswith('+') and not line.startswith('+++') %}<span class="diff-add">{{ line }}</span>
+{% elif line.startswith('-') and not line.startswith('---') %}<span class="diff-del">{{ line }}</span>
+{% elif not line.startswith('diff ') and not line.startswith('index ') and not line.startswith('---') and not line.startswith('+++') %}{{ line }}
+{% endif -%}
+          {%- endfor -%}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {# Actions bar #}
+  <div class="entry-actions">
+    <button class="act-btn act-save{{ ' on' if saved }}" onclick="toggleSave(this)">save</button>
+    <button class="act-btn act-comment{{ ' has-comments' if comments }}" onclick="toggleThread(this)">
+      comment{% if comments %} ({{ comments|length }}){% endif %}
+    </button>
+  </div>
+
+  {# Comment thread #}
+  <div class="entry-thread" id="comments-{{ entry.slug }}" style="display:{{ '' if comments else 'none' }}">
+    <div class="entry-comments">
+      {% for c in comments %}
+        <div class="comment comment-{{ 'user' if c.author == 'user' else 'claude' }}">
+          <span class="comment-meta">{{ 'you' if c.author == 'user' else 'agent' }}{% if c.ts %} -- {{ c.ts[:10] }}{% endif %}</span>
+          <p class="comment-text">{{ c.text }}</p>
+        </div>
+      {% endfor %}
+    </div>
+    <div class="entry-comment-input">
+      <textarea class="comment-input" placeholder="comment..." rows="1"></textarea>
+      <button class="comment-send" onclick="submitComment(this)">send</button>
+    </div>
+  </div>
+</article>

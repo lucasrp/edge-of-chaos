@@ -25,9 +25,26 @@ ENV/
 .coverage
 htmlcov/
 
-# Continuum runtime (local state)
-.continuum/
-
 # OS
 .DS_Store
 Thumbs.db
+
+# Databases (created at runtime)
+*.db
+*.sqlite
+
+# Secrets (never commit real keys)
+secrets/
+!.env.example
+!models.env.example
+
+# Runtime logs
+*.log
+*.lock
+*.pid
+
+# User-generated content (empty dirs with .gitkeep)
+blog/entries/*.md
+!blog/entries/.gitkeep
+blog/diffs/
+!blog/diffs/.gitkeep

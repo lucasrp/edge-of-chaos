@@ -1,0 +1,151 @@
+{# Build current filter URL helper #}
+{% macro filter_url(toggle_cat=None, toggle_temp=None, toggle_status=None, toggle_report=None, set_q=None, set_page=None, set_view=None) %}
+{%- set params = [] -%}
+{%- set new_cats = cat|list -%}
+{%- if toggle_cat -%}
+  {%- if toggle_cat in new_cats -%}
+    {%- set _ = new_cats.remove(toggle_cat) -%}
+  {%- else -%}
+    {%- set _ = new_cats.append(toggle_cat) -%}
+  {%- endif -%}
+{%- endif -%}
+{%- for c in new_cats -%}
+  {%- set _ = params.append('cat=' + c) -%}
+{%- endfor -%}
+{%- set new_temp = toggle_temp if (toggle_temp and toggle_temp != temp) else (temp if not toggle_temp else '') -%}
+{%- if new_temp -%}{%- set _ = params.append('temp=' + new_temp) -%}{%- endif -%}
+{%- set new_status = toggle_status if (toggle_status and toggle_status != status_f) else (status_f if not toggle_status else '') -%}
+{%- if new_status -%}{%- set _ = params.append('status=' + new_status) -%}{%- endif -%}
+{%- set new_report = (not report_f) if toggle_report else report_f -%}
+{%- if new_report -%}{%- set _ = params.append('report=1') -%}{%- endif -%}
+{%- set new_q = set_q if set_q is not none else q -%}
+{%- if new_q -%}{%- set _ = params.append('q=' + new_q) -%}{%- endif -%}
+{%- set new_view = set_view or view -%}
+{%- if new_view != 'expanded' -%}{%- set _ = params.append('view=' + new_view) -%}{%- endif -%}
+{%- set new_page = set_page or page -%}
+{%- if new_page > 1 -%}{%- set _ = params.append('page=' + new_page|string) -%}{%- endif -%}
+/blog/?tab=feed{% if params %}&{{ params|join('&') }}{% endif %}
+{%- endmacro %}
+
+<div class="feed-filters">
+  {# Search input with htmx #}
+  <input type="text" class="feed-search" name="q" placeholder="search entries..."
+         value="{{ q }}"
+         hx-get="/htmx/entries"
+         hx-trigger="keyup changed delay:300ms, search"
+         hx-target="#entryResults"
+         hx-include="[name='q']"
+         hx-vals='{"tab":"feed", "view":"{{ view }}"{% for c in cat %}, "cat":"{{ c }}"{% endfor %}{% if temp %}, "temp":"{{ temp }}"{% endif %}{% if status_f %}, "status":"{{ status_f }}"{% endif %}{% if report_f %}, "report":"1"{% endif %}}'
+         hx-push-url="false">
+
+  {# Category chips #}
+  <div class="filter-group-row">
+    {% for group in skill_groups %}
+      {% if not loop.first %}<span class="filter-group-sep"></span>{% endif %}
+      <span class="filter-group-label">{{ group.label }}</span>
+      {% for tag in group.tags %}
+        <a class="cat-chip cat-chip-{{ tag }}{{ ' active' if tag in cat }}"
+           href="{{ filter_url(toggle_cat=tag, set_page=1) }}"
+           hx-get="/htmx/entries?tab=feed&view={{ view }}{% for c in cat %}{% if c != tag %}&cat={{ c }}{% endif %}{% endfor %}{% if tag not in cat %}&cat={{ tag }}{% endif %}{% if temp %}&temp={{ temp }}{% endif %}{% if status_f %}&status={{ status_f }}{% endif %}{% if report_f %}&report=1{% endif %}{% if q %}&q={{ q }}{% endif %}"
+           hx-target="#entryResults"
+           hx-push-url="false">{{ tag }}</a>
+      {% endfor %}
+    {% endfor %}
+  </div>
+
+  {# Temperature + status + report + view toggle #}
+  <div class="filter-bar">
+    {% for t in ['quente', 'morno', 'frio'] %}
+      <a class="temp-filter-btn{{ ' active' if temp == t }}" data-temp="{{ t }}"
+         href="{{ filter_url(toggle_temp=t, set_page=1) }}"
+         hx-get="/htmx/entries?tab=feed&view={{ view }}{% for c in cat %}&cat={{ c }}{% endfor %}{% if temp != t %}&temp={{ t }}{% endif %}{% if status_f %}&status={{ status_f }}{% endif %}{% if report_f %}&report=1{% endif %}{% if q %}&q={{ q }}{% endif %}"
+         hx-target="#entryResults"
+         hx-push-url="false">{{ t }}</a>
+    {% endfor %}
+    <span class="filter-sep"></span>
+    <a class="filter-btn{{ ' active' if status_f == 'saved' }}"
+       href="{{ filter_url(toggle_status='saved', set_page=1) }}"
+       hx-get="/htmx/entries?tab=feed&view={{ view }}{% for c in cat %}&cat={{ c }}{% endfor %}{% if temp %}&temp={{ temp }}{% endif %}{% if status_f != 'saved' %}&status=saved{% endif %}{% if report_f %}&report=1{% endif %}{% if q %}&q={{ q }}{% endif %}"
+       hx-target="#entryResults"
+       hx-push-url="false">saved</a>
+    <a class="filter-btn{{ ' active' if status_f == 'commented' }}"
+       href="{{ filter_url(toggle_status='commented', set_page=1) }}"
+       hx-get="/htmx/entries?tab=feed&view={{ view }}{% for c in cat %}&cat={{ c }}{% endfor %}{% if temp %}&temp={{ temp }}{% endif %}{% if status_f != 'commented' %}&status=commented{% endif %}{% if report_f %}&report=1{% endif %}{% if q %}&q={{ q }}{% endif %}"
+       hx-target="#entryResults"
+       hx-push-url="false">commented</a>
+    <span class="filter-sep"></span>
+    <a class="filter-btn{{ ' active' if report_f }}"
+       href="{{ filter_url(toggle_report=True, set_page=1) }}"
+       hx-get="/htmx/entries?tab=feed&view={{ view }}{% for c in cat %}&cat={{ c }}{% endfor %}{% if temp %}&temp={{ temp }}{% endif %}{% if status_f %}&status={{ status_f }}{% endif %}{% if not report_f %}&report=1{% endif %}{% if q %}&q={{ q }}{% endif %}"
+       hx-target="#entryResults"
+       hx-push-url="false">with report</a>
+    <span class="filter-sep"></span>
+    <span class="view-toggle">
+      <a class="view-toggle-btn{{ ' active' if view == 'expanded' }}"
+         href="{{ filter_url(set_view='expanded') }}"
+         hx-get="/htmx/entries?tab=feed&view=expanded{% for c in cat %}&cat={{ c }}{% endfor %}{% if temp %}&temp={{ temp }}{% endif %}{% if status_f %}&status={{ status_f }}{% endif %}{% if report_f %}&report=1{% endif %}{% if q %}&q={{ q }}{% endif %}&page={{ page }}"
+         hx-target="#entryResults"
+         hx-push-url="false"
+         title="expanded">&#x2261;</a>
+      <a class="view-toggle-btn{{ ' active' if view == 'compact' }}"
+         href="{{ filter_url(set_view='compact') }}"
+         hx-get="/htmx/entries?tab=feed&view=compact{% for c in cat %}&cat={{ c }}{% endfor %}{% if temp %}&temp={{ temp }}{% endif %}{% if status_f %}&status={{ status_f }}{% endif %}{% if report_f %}&report=1{% endif %}{% if q %}&q={{ q }}{% endif %}&page={{ page }}"
+         hx-target="#entryResults"
+         hx-push-url="false"
+         title="compact">&#x2630;</a>
+    </span>
+    {% if pending_count %}
+    <span class="filter-sep"></span>
+    <a class="filter-btn filter-pending{{ ' active' if show_pending }}"
+       href="/blog/?tab=feed{% if show_pending %}{% else %}&pending=1{% endif %}&view={{ view }}{% for c in cat %}&cat={{ c }}{% endfor %}{% if temp %}&temp={{ temp }}{% endif %}{% if status_f %}&status={{ status_f }}{% endif %}{% if report_f %}&report=1{% endif %}{% if q %}&q={{ q }}{% endif %}"
+       hx-get="/htmx/entries?tab=feed&view={{ view }}{% if show_pending %}{% else %}&pending=1{% endif %}{% for c in cat %}&cat={{ c }}{% endfor %}{% if temp %}&temp={{ temp }}{% endif %}{% if status_f %}&status={{ status_f }}{% endif %}{% if report_f %}&report=1{% endif %}{% if q %}&q={{ q }}{% endif %}"
+       hx-target="#entryResults"
+       hx-push-url="false"
+       style="color: #e74c3c; border-color: #e74c3c;">{{ pending_count }} pending</a>
+    {% endif %}
+    <span class="filter-count">
+      {{ total_filtered }} / {{ total_entries }}
+      {% if saved_count %} | {{ saved_count }} saved{% endif %}
+      {% if commented_count %}, {{ commented_count }} commented{% endif %}
+    </span>
+  </div>
+
+  {# Active filters chips #}
+  <div class="active-filters">
+    {% for c in cat %}
+      <a class="active-chip"
+         href="{{ filter_url(toggle_cat=c, set_page=1) }}"
+         hx-get="/htmx/entries?tab=feed&view={{ view }}{% for c2 in cat %}{% if c2 != c %}&cat={{ c2 }}{% endif %}{% endfor %}{% if temp %}&temp={{ temp }}{% endif %}{% if status_f %}&status={{ status_f }}{% endif %}{% if report_f %}&report=1{% endif %}{% if q %}&q={{ q }}{% endif %}"
+         hx-target="#entryResults"
+         hx-push-url="false">{{ c }} <span class="chip-x">&times;</span></a>
+    {% endfor %}
+    {% if temp %}
+      <a class="active-chip"
+         href="{{ filter_url(toggle_temp=temp, set_page=1) }}"
+         hx-get="/htmx/entries?tab=feed&view={{ view }}{% for c in cat %}&cat={{ c }}{% endfor %}{% if status_f %}&status={{ status_f }}{% endif %}{% if report_f %}&report=1{% endif %}{% if q %}&q={{ q }}{% endif %}"
+         hx-target="#entryResults"
+         hx-push-url="false">temp: {{ temp }} <span class="chip-x">&times;</span></a>
+    {% endif %}
+    {% if status_f %}
+      <a class="active-chip"
+         href="{{ filter_url(toggle_status=status_f, set_page=1) }}"
+         hx-get="/htmx/entries?tab=feed&view={{ view }}{% for c in cat %}&cat={{ c }}{% endfor %}{% if temp %}&temp={{ temp }}{% endif %}{% if report_f %}&report=1{% endif %}{% if q %}&q={{ q }}{% endif %}"
+         hx-target="#entryResults"
+         hx-push-url="false">{{ 'saved' if status_f == 'saved' else 'commented' }} <span class="chip-x">&times;</span></a>
+    {% endif %}
+    {% if report_f %}
+      <a class="active-chip"
+         href="{{ filter_url(toggle_report=True, set_page=1) }}"
+         hx-get="/htmx/entries?tab=feed&view={{ view }}{% for c in cat %}&cat={{ c }}{% endfor %}{% if temp %}&temp={{ temp }}{% endif %}{% if status_f %}&status={{ status_f }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+         hx-target="#entryResults"
+         hx-push-url="false">with report <span class="chip-x">&times;</span></a>
+    {% endif %}
+    {% if q %}
+      <a class="active-chip"
+         href="/blog/?tab=feed{% for c in cat %}&cat={{ c }}{% endfor %}{% if temp %}&temp={{ temp }}{% endif %}{% if status_f %}&status={{ status_f }}{% endif %}{% if report_f %}&report=1{% endif %}&view={{ view }}"
+         hx-get="/htmx/entries?tab=feed&view={{ view }}{% for c in cat %}&cat={{ c }}{% endfor %}{% if temp %}&temp={{ temp }}{% endif %}{% if status_f %}&status={{ status_f }}{% endif %}{% if report_f %}&report=1{% endif %}"
+         hx-target="#entryResults"
+         hx-push-url="false">search: {{ q }} <span class="chip-x">&times;</span></a>
+    {% endif %}
+  </div>
+</div>

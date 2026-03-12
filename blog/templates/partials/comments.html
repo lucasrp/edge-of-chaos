@@ -1,0 +1,13 @@
+{# Comments partial for a single entry -- htmx target #}
+<div class="entry-comments">
+  {% for c in comments %}
+    <div class="comment comment-{{ 'user' if c.author == 'user' else 'claude' }}">
+      <span class="comment-meta">{{ 'you' if c.author == 'user' else 'agent' }}{% if c.ts %} -- {{ c.ts[:10] }}{% endif %}</span>
+      <p class="comment-text">{{ c.text }}</p>
+    </div>
+  {% endfor %}
+</div>
+<div class="entry-comment-input">
+  <textarea class="comment-input" placeholder="comment..." rows="1"></textarea>
+  <button class="comment-send" onclick="submitComment(this)">send</button>
+</div>

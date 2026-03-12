@@ -1,0 +1,45 @@
+<div class="stats">
+  <div><a href="/blog/?tab=feed" style="color:inherit;text-decoration:none">entries: <span>{{ stats.entries or 0 }}</span></a></div>
+  <div><a href="/blog/?tab=feed&cat=planejamento" style="color:inherit;text-decoration:none">proposals: <span>{{ stats.propostas or 0 }}</span></a></div>
+  <div><a href="/blog/?tab=feed&cat=descoberta" style="color:inherit;text-decoration:none">discoveries: <span>{{ stats.descobertas or 0 }}</span></a></div>
+  <div><a href="/blog/?tab=feed&report=1" style="color:inherit;text-decoration:none">reports: <span>{{ stats.reports or 0 }}</span></a></div>
+  <div class="stat-quente"><a href="/blog/?tab=feed&temp=quente" style="color:inherit;text-decoration:none">hot: <span>{{ stats.quentes or 0 }}</span></a></div>
+</div>
+
+{% if stats.autonomy %}
+<div class="autonomy-card" id="autonomyCard">
+  <div class="autonomy-header" onclick="document.getElementById('autonomyCard').classList.toggle('expanded')">
+    <div class="autonomy-title">
+      <span class="autonomy-label">autonomy</span>
+      <span class="autonomy-level">{{ stats.autonomy.avg }}</span>
+      <span class="autonomy-scale">/10</span>
+    </div>
+    <div class="autonomy-bar">
+      <div class="autonomy-bar-fill" style="width: {{ (stats.autonomy.avg * 10)|int }}%"></div>
+    </div>
+    <span class="autonomy-toggle">+</span>
+  </div>
+  <div class="autonomy-detail">
+    <div class="autonomy-caps">
+      {% for cap in stats.autonomy.caps|sort(attribute='level', reverse=true) %}
+      <div class="autonomy-cap-row">
+        <span class="cap-name">{{ cap.name }}</span>
+        <span class="cap-bar-container">
+          <span class="cap-bar" style="width: {{ cap.level * 10 }}%"
+                data-level="{{ cap.level }}"></span>
+        </span>
+        <span class="cap-level">{{ cap.level }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% if stats.autonomy.next_steps %}
+    <div class="autonomy-next">
+      <span class="autonomy-next-label">frontier</span>
+      {% for step in stats.autonomy.next_steps %}
+      <div class="autonomy-gap">{{ step.id }}: {{ step.title }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

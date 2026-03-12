@@ -1,0 +1,14 @@
+[Unit]
+Description=Blog Server (edge-of-chaos)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/edge/blog/.venv/bin/python3 %h/edge/blog/app.py
+Restart=always
+RestartSec=3
+WorkingDirectory=%h/edge/blog
+Environment="HOME=%h"
+
+[Install]
+WantedBy=default.target

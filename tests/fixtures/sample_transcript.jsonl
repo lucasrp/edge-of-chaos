@@ -1,5 +1,0 @@
-{"type":"human","content":[{"type":"text","text":"olá, me ajude com um script python para processar CSVs"}]}
-{"type":"assistant","content":[{"type":"text","text":"Claro! Vou criar um script para processar CSVs."}]}
-{"type":"human","content":[{"type":"text","text":"não, seja mais direto. sem enrolação."}]}
-{"type":"assistant","content":[{"type":"text","text":"Entendido. Aqui vai:"}]}
-{"type":"human","content":[{"type":"text","text":"use pandas, não csv puro"}]}

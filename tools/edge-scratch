@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""edge-scratch — Session scratchpad for observations.
+
+Accumulates observations during a session. Fed into meta-report at publication.
+Archived after processing (~/edge/scratchpads/) for future reflections.
+
+Usage:
+  edge-scratch add "observation"              # append to active scratchpad
+  edge-scratch add --session ID "observation" # append to specific scratchpad
+  edge-scratch show [--session ID]            # show scratchpad contents
+  edge-scratch path [--session ID]            # print scratchpad file path
+  edge-scratch list                           # list all active scratchpads
+"""
+
+import argparse
+import sys
+from datetime import datetime
+from pathlib import Path
+
+SCRATCH_DIR = Path("/tmp")
+PREFIX = "edge-scratch"
+ACTIVE_NAME = f"{PREFIX}-active.md"
+
+
+def get_path(session=None):
+    """Get scratchpad path. Default: active. With session: session-specific."""
+    if session:
+        return SCRATCH_DIR / f"{PREFIX}-{session}.md"
+    return SCRATCH_DIR / ACTIVE_NAME
+
+
+def cmd_add(args):
+    path = get_path(args.session)
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    line = f"- [{timestamp}] {args.text}\n"
+
+    if not path.exists():
+        header = f"# Scratchpad — {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+        path.write_text(header)
+
+    with open(path, "a") as f:
+        f.write(line)
+
+    count = sum(1 for l in path.read_text().split("\n") if l.startswith("- "))
+    print(f"OK: +1 ({count} total) -> {path}")
+
+
+def cmd_show(args):
+    path = get_path(args.session)
+    if not path.exists():
+        print("Scratchpad empty.")
+        return
+    print(path.read_text())
+
+
+def cmd_path(args):
+    print(str(get_path(args.session)))
+
+
+def cmd_list(_args):
+    pads = sorted(SCRATCH_DIR.glob(f"{PREFIX}-*.md"))
+    if not pads:
+        print("No active scratchpads.")
+        return
+    for p in pads:
+        lines = sum(1 for l in p.read_text().split("\n") if l.startswith("- "))
+        age = datetime.now().timestamp() - p.stat().st_mtime
+        age_str = f"{int(age / 60)}min" if age < 3600 else f"{int(age / 3600)}h"
+        print(f"  {p.name} ({lines} obs, {age_str} ago)")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Session scratchpad for observations")
+    sub = parser.add_subparsers(dest="cmd")
+
+    p_add = sub.add_parser("add", help="Add observation")
+    p_add.add_argument("text", help="Observation text")
+    p_add.add_argument("--session", "-s", help="Session ID (default: active)")
+
+    p_show = sub.add_parser("show", help="Show scratchpad")
+    p_show.add_argument("--session", "-s", help="Session ID")
+
+    p_path = sub.add_parser("path", help="Print scratchpad file path")
+    p_path.add_argument("--session", "-s", help="Session ID")
+
+    sub.add_parser("list", help="List active scratchpads")
+
+    args = parser.parse_args()
+
+    if args.cmd == "add":
+        cmd_add(args)
+    elif args.cmd == "show":
+        cmd_show(args)
+    elif args.cmd == "path":
+        cmd_path(args)
+    elif args.cmd == "list":
+        cmd_list(args)
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

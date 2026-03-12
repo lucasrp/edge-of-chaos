@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard">
+
+  <!-- Status Strip (auto-refreshes every 60s via HTMX) -->
+  <div hx-get="/partials/status-strip" hx-trigger="every 60s" hx-swap="innerHTML">
+    {% include 'partials/status_strip.html' %}
+  </div>
+
+  <!-- Attention Panel (auto-refreshes every 120s via HTMX) -->
+  <div hx-get="/partials/alerts" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/alerts.html' %}
+  </div>
+
+  <!-- State Commit Pipeline (collapsible) -->
+  <div hx-get="/partials/pipeline" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/pipeline.html' %}
+  </div>
+
+  <!-- Operational Hotspots (collapsible) -->
+  <div hx-get="/partials/hotspots" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/hotspots.html' %}
+  </div>
+
+  <!-- Corpus Health (collapsible) -->
+  <div hx-get="/partials/corpus" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/corpus.html' %}
+  </div>
+
+  <!-- Daily Briefing (collapsible, collapsed by default) -->
+  <div hx-get="/partials/briefing" hx-trigger="every 300s" hx-swap="innerHTML">
+    {% include 'partials/briefing.html' %}
+  </div>
+
+  <!-- Tasks: Now (doing) -->
+  {% if tasks_doing %}
+  <div class="dash-section">
+    <h2 class="dash-section-title">now</h2>
+    {% for t in tasks_doing %}
+    <div class="dash-task dash-task-doing">
+      <div class="dash-task-header">
+        <span class="dash-task-prio prio-{{ t.priority|lower }}">{{ t.priority }}</span>
+        <span class="dash-task-title">{{ t.title }}</span>
+        <span class="dash-task-status status-badge-{{ t.status }}">{{ t.status }}</span>
+      </div>
+      <div class="dash-task-meta">
+        <span class="dash-task-id">{{ t.task_id }}</span>
+        {% if t.area %}<span class="dash-task-area">{{ t.area }}</span>{% endif %}
+        <span class="dash-task-owner">{{ t.owner }}</span>
+        <span class="dash-task-age">{{ t.age }}</span>
+        {% if t.last_updated %}<span class="dash-task-updated">upd {{ t.last_updated }}</span>{% endif %}
+      </div>
+      {% if t.next_action %}
+      <div class="dash-task-next">{{ t.next_action }}</div>
+      {% endif %}
+      {% if t.success_criteria %}
+      <div class="dash-task-criteria">{{ t.success_criteria }}</div>
+      {% endif %}
+      <div class="dash-task-actions">
+        <button class="action-btn action-done" onclick="taskAction('{{ t.task_id }}', 'done')">done</button>
+        <button class="action-btn action-blocked" onclick="showBlockReason(this)">blocked</button>
+      </div>
+      <div class="block-reason-form hidden">
+        <input type="text" class="block-reason-input" placeholder="reason for blocking...">
+        <button class="action-btn action-confirm" onclick="submitBlock('{{ t.task_id }}', this)">confirm</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Tasks: Blocked -->
+  {% if tasks_blocked %}
+  <div class="dash-section">
+    <h2 class="dash-section-title dash-warn">blocked</h2>
+    {% for t in tasks_blocked %}
+    <div class="dash-task dash-task-blocked">
+      <div class="dash-task-header">
+        <span class="dash-task-prio prio-{{ t.priority|lower }}">{{ t.priority }}</span>
+        <span class="dash-task-title">{{ t.title }}</span>
+        <span class="dash-task-status status-badge-{{ t.status }}">{{ t.status }}</span>
+      </div>
+      <div class="dash-task-meta">
+        <span class="dash-task-id">{{ t.task_id }}</span>
+        {% if t.area %}<span class="dash-task-area">{{ t.area }}</span>{% endif %}
+        <span class="dash-task-owner">{{ t.owner }}</span>
+        <span class="dash-task-age">{{ t.age }}</span>
+        {% if t.last_updated %}<span class="dash-task-updated">upd {{ t.last_updated }}</span>{% endif %}
+      </div>
+      {% if t.next_action %}
+      <div class="dash-task-next">{{ t.next_action }}</div>
+      {% endif %}
+      {% if t.success_criteria %}
+      <div class="dash-task-criteria">{{ t.success_criteria }}</div>
+      {% endif %}
+      {% if t.block_reason %}
+      <div class="dash-task-block-reason">{{ t.block_reason }}</div>
+      {% endif %}
+      <div class="dash-task-actions">
+        <button class="action-btn action-unblock" onclick="taskAction('{{ t.task_id }}', 'todo')">unblock</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Tasks: Next Up (todo, top 5 by priority) -->
+  {% if tasks_todo %}
+  <div class="dash-section">
+    <h2 class="dash-section-title">next</h2>
+    {% for t in tasks_todo %}
+    <div class="dash-task dash-task-todo">
+      <div class="dash-task-header">
+        <span class="dash-task-prio prio-{{ t.priority|lower }}">{{ t.priority }}</span>
+        <span class="dash-task-title">{{ t.title }}</span>
+        <span class="dash-task-status status-badge-{{ t.status }}">{{ t.status }}</span>
+      </div>
+      <div class="dash-task-meta">
+        <span class="dash-task-id">{{ t.task_id }}</span>
+        {% if t.area %}<span class="dash-task-area">{{ t.area }}</span>{% endif %}
+        <span class="dash-task-owner">{{ t.owner }}</span>
+        <span class="dash-task-age">{{ t.age }}</span>
+        {% if t.last_updated %}<span class="dash-task-updated">upd {{ t.last_updated }}</span>{% endif %}
+      </div>
+      {% if t.next_action and t.next_action != t.title %}
+      <div class="dash-task-next">{{ t.next_action }}</div>
+      {% endif %}
+      {% if t.success_criteria %}
+      <div class="dash-task-criteria">{{ t.success_criteria }}</div>
+      {% endif %}
+      <div class="dash-task-actions">
+        <button class="action-btn action-start" onclick="taskAction('{{ t.task_id }}', 'doing')">start</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Tasks: Stale (>48h without update) -->
+  {% if tasks_stale %}
+  <div class="dash-section">
+    <h2 class="dash-section-title dash-warn">stale >48h</h2>
+    {% for t in tasks_stale %}
+    <div class="dash-task dash-task-stale">
+      <div class="dash-task-header">
+        <span class="dash-task-prio prio-{{ t.priority|lower }}">{{ t.priority }}</span>
+        <span class="dash-task-title">{{ t.title }}</span>
+        <span class="dash-task-status status-badge-{{ t.status }}">{{ t.status }}</span>
+      </div>
+      <div class="dash-task-meta">
+        <span class="dash-task-id">{{ t.task_id }}</span>
+        {% if t.area %}<span class="dash-task-area">{{ t.area }}</span>{% endif %}
+        <span class="dash-task-owner">{{ t.owner }}</span>
+        <span class="dash-task-age">{{ t.age }}</span>
+        {% if t.last_updated %}<span class="dash-task-updated">upd {{ t.last_updated }}</span>{% endif %}
+      </div>
+      {% if t.next_action %}
+      <div class="dash-task-next">{{ t.next_action }}</div>
+      {% endif %}
+      {% if t.success_criteria %}
+      <div class="dash-task-criteria">{{ t.success_criteria }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Recent done -->
+  {% if tasks_done %}
+  <div class="dash-section">
+    <h2 class="dash-section-title dash-muted">recently completed</h2>
+    {% for t in tasks_done %}
+    <div class="dash-task dash-task-done">
+      <div class="dash-task-header">
+        <span class="dash-task-prio prio-muted">{{ t.priority }}</span>
+        <span class="dash-task-title">{{ t.title }}</span>
+        <span class="dash-task-status status-badge-done">{{ t.status }}</span>
+      </div>
+      <div class="dash-task-meta">
+        <span class="dash-task-id">{{ t.task_id }}</span>
+        {% if t.area %}<span class="dash-task-area">{{ t.area }}</span>{% endif %}
+        {% if t.last_updated %}<span class="dash-task-updated">upd {{ t.last_updated }}</span>{% endif %}
+      </div>
+      {% if t.resolution %}
+      <div class="dash-task-resolution">{{ t.resolution }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Threads summary -->
+  {% if threads %}
+  <div class="dash-section">
+    <h2 class="dash-section-title">active threads</h2>
+    <div class="dash-threads">
+      {% for th in threads %}
+      <div class="dash-thread">
+        <span class="dash-thread-status status-{{ th.status }}">{{ th.status }}</span>
+        <span class="dash-thread-name">{{ th.name }}</span>
+        <span class="dash-thread-owner">{{ th.owner }}</span>
+        <select class="thread-action-select" onchange="threadAction('{{ th.id }}', this.value); this.value='';">
+          <option value="" disabled selected>action</option>
+          {% if th.status != 'active' %}<option value="active">active</option>{% endif %}
+          {% if th.status != 'dormant' %}<option value="dormant">dormant</option>{% endif %}
+          {% if th.status != 'done' %}<option value="done">done</option>{% endif %}
+        </select>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Knowledge clusters -->
+  {% if knowledge_clusters %}
+  <div class="dash-section">
+    <h2 class="dash-section-title">knowledge clusters <a href="/knowledge" style="float:right;font-size:0.65rem;color:var(--accent);text-decoration:none">view all &rarr;</a></h2>
+    <div class="dash-threads">
+      {% for c in knowledge_clusters %}
+      <div class="dash-thread">
+        <span class="dash-thread-status {{ 'status-active' if c.type == 'core' else ('status-waiting' if c.type == 'misses') }}">{{ c.type }}</span>
+        <span class="dash-thread-name">{{ c.name }}</span>
+        <span class="dash-thread-owner">{{ c.rules }}r</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Summary stats -->
+  <div class="dash-summary">
+    <span>{{ task_stats.total }} tasks</span>
+    <span class="dash-sep">|</span>
+    <span class="dash-doing">{{ task_stats.doing }} doing</span>
+    <span class="dash-sep">|</span>
+    <span class="dash-blocked-count">{{ task_stats.blocked }} blocked</span>
+    <span class="dash-sep">|</span>
+    <span>{{ task_stats.todo }} todo</span>
+    <span class="dash-sep">|</span>
+    <span class="dash-muted">{{ task_stats.done }} done</span>
+  </div>
+
+  <!-- Chat input -->
+  <div class="dash-chat">
+    <div class="dash-chat-row">
+      <textarea class="dash-chat-input" id="dash-chat-input" rows="1" placeholder="message to agent..."></textarea>
+      <button class="action-btn action-send" onclick="sendDashChat()">send</button>
+    </div>
+    <span class="dash-chat-confirm" id="dash-chat-confirm"></span>
+  </div>
+
+</div>
+
+<script>
+function taskAction(taskId, action, reason) {
+  var body = {action: action};
+  if (reason) body.reason = reason;
+  fetch('/api/tasks/' + taskId + '/action', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  }).then(function(r) {
+    if (r.ok) { location.reload(); }
+    else { r.json().then(function(d) { alert(d.error || 'Action failed'); }); }
+  }).catch(function() { alert('Network error'); });
+}
+
+function showBlockReason(btn) {
+  var form = btn.closest('.dash-task').querySelector('.block-reason-form');
+  if (form) {
+    form.classList.toggle('hidden');
+    if (!form.classList.contains('hidden')) {
+      form.querySelector('.block-reason-input').focus();
+    }
+  }
+}
+
+function submitBlock(taskId, btn) {
+  var form = btn.closest('.block-reason-form');
+  var input = form.querySelector('.block-reason-input');
+  var reason = input.value.trim();
+  if (!reason) { input.focus(); return; }
+  taskAction(taskId, 'blocked', reason);
+}
+
+function triggerHeartbeat(btn) {
+  btn.disabled = true;
+  btn.textContent = '...';
+  fetch('/api/heartbeat/trigger', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'}
+  }).then(function(r) {
+    if (r.ok) {
+      btn.textContent = 'triggered';
+      setTimeout(function() { btn.textContent = 'trigger'; btn.disabled = false; }, 3000);
+    } else if (r.status === 429) {
+      r.json().then(function(d) {
+        btn.textContent = 'wait ' + d.retry_after_seconds + 's';
+        setTimeout(function() { btn.textContent = 'trigger'; btn.disabled = false; }, 3000);
+      });
+    }
+  }).catch(function() { btn.textContent = 'error'; btn.disabled = false; });
+}
+
+function threadAction(threadId, action) {
+  if (!action) return;
+  fetch('/api/threads/' + threadId + '/action', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: action})
+  }).then(function(r) {
+    if (r.ok) { location.reload(); }
+    else { r.json().then(function(d) { alert(d.error || 'Action failed'); }); }
+  }).catch(function() { alert('Network error'); });
+}
+
+function sendDashChat() {
+  var input = document.getElementById('dash-chat-input');
+  var text = input.value.trim();
+  if (!text) return;
+  fetch('/api/chat', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'add', author: 'operator', text: text})
+  }).then(function(r) {
+    if (r.ok) {
+      input.value = '';
+      input.style.height = 'auto';
+      var confirm = document.getElementById('dash-chat-confirm');
+      confirm.textContent = 'sent';
+      confirm.style.display = 'inline';
+      setTimeout(function() { confirm.style.display = 'none'; }, 2000);
+    } else {
+      r.json().then(function(d) { alert(d.error || 'Send failed'); });
+    }
+  }).catch(function() { alert('Network error'); });
+}
+
+// Enter to send chat (shift+enter for newline)
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'dash-chat-input') {
+    e.preventDefault();
+    sendDashChat();
+  }
+});
+
+// Enter to submit block reason
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && e.target.classList.contains('block-reason-input')) {
+    e.preventDefault();
+    var btn = e.target.closest('.block-reason-form').querySelector('.action-confirm');
+    if (btn) btn.click();
+  }
+});
+</script>
+{% endblock %}

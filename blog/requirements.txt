@@ -1,0 +1,4 @@
+flask>=3.0
+flask-compress
+markdown
+pyyaml

@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+"""edge-digest — Generate briefing.md from structured data.
+
+Deterministic. Zero tokens. Runs after blog publishing.
+Reads: events.jsonl, threads/*.md, open claims, recent beats, active errors.
+Generates: ~/edge/briefing.md — the ONLY file sessions need to read.
+
+Usage:
+  edge-digest              # generate briefing
+  edge-digest --dry-run    # show without saving
+
+Note: Configure MEMORY_DIR path via EDGE_PROJECT_SLUG env var
+or by editing the constants below.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import yaml
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+HOME = Path.home()
+EVENTS_FILE = HOME / "edge" / "logs" / "events.jsonl"
+THREADS_DIR = HOME / "edge" / "threads"
+BLOG_DIR = HOME / "edge" / "blog" / "entries"
+HEARTBEAT_LOG = HOME / "edge" / "logs" / f"heartbeat-{datetime.now().strftime('%Y-%m-%d')}.log"
+
+# Configurable memory paths
+_PROJECT_SLUG = os.environ.get("EDGE_PROJECT_SLUG", "default")
+_MEMORY_BASE = HOME / ".claude" / "projects" / _PROJECT_SLUG / "memory"
+DEBUG_FILE = _MEMORY_BASE / "debugging.md"
+INSIGHTS_FILE = _MEMORY_BASE / "insights.md"
+OUTPUT_FILE = HOME / "edge" / "briefing.md"
+
+TODAY = datetime.now().strftime("%Y-%m-%d")
+NOW = datetime.now().strftime("%H:%M")
+
+
+def read_threads():
+    """Read frontmatter from all threads."""
+    threads = []
+    if not THREADS_DIR.exists():
+        return threads
+    for f in sorted(THREADS_DIR.glob("*.md")):
+        try:
+            raw = f.read_text()
+            parts = raw.split("---", 2)
+            if len(parts) < 3:
+                continue
+            fm = yaml.safe_load(parts[1])
+            if not fm:
+                continue
+            fm["_file"] = f.name
+            fm["_id"] = fm.get("id", f.stem)
+            threads.append(fm)
+        except Exception:
+            continue
+    return threads
+
+
+def read_events(limit=30):
+    """Last N events."""
+    if not EVENTS_FILE.exists():
+        return []
+    events = []
+    with open(EVENTS_FILE) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return events[-limit:]
+
+
+def read_open_claims():
+    """Open claims (!) from all entries."""
+    claims = []
+    if not BLOG_DIR.exists():
+        return claims
+    for f in sorted(BLOG_DIR.glob("*.md"), reverse=True):
+        try:
+            raw = f.read_text()
+            parts = raw.split("---", 2)
+            if len(parts) < 3:
+                continue
+            fm = yaml.safe_load(parts[1])
+            if not fm or "claims" not in fm:
+                continue
+            for c in fm.get("claims", []):
+                if isinstance(c, dict):
+                    status = c.get("status", "").lower()
+                    if status in ("unverified", "open", "disputed"):
+                        claims.append({
+                            "claim": c.get("claim", ""),
+                            "source": fm.get("title", f.name),
+                            "threads": fm.get("threads", []),
+                        })
+                elif isinstance(c, str) and c.startswith("!"):
+                    claims.append({
+                        "claim": c.lstrip("! "),
+                        "source": fm.get("title", f.name),
+                        "threads": fm.get("threads", []),
+                    })
+        except Exception:
+            continue
+    return claims
+
+
+def read_beats():
+    """Last beats from today."""
+    if not HEARTBEAT_LOG.exists():
+        return []
+    lines = HEARTBEAT_LOG.read_text().strip().split("\n")
+    return lines[-5:]
+
+
+def read_open_errors():
+    """Open errors in debugging.md."""
+    if not DEBUG_FILE.exists():
+        return []
+    content = DEBUG_FILE.read_text()
+    errors = []
+    for line in content.split("\n"):
+        if re.search(r'status:\s*(open|aberto)|\[ \]', line, re.IGNORECASE):
+            errors.append(line.strip()[:120])
+    return errors[:5]
+
+
+def read_unread_insights():
+    """Insights not yet marked as read."""
+    if not INSIGHTS_FILE.exists():
+        return []
+    content = INSIGHTS_FILE.read_text()
+    insights = []
+    for line in content.split("\n"):
+        if line.startswith("- ") and "[READ" not in line and "[LIDO" not in line:
+            insights.append(line[2:].strip()[:120])
+    return insights[:5]
+
+
+def count_blog_entries():
+    """Count entries with and without claims."""
+    if not BLOG_DIR.exists():
+        return 0, 0
+    total = 0
+    with_claims = 0
+    for f in BLOG_DIR.glob("*.md"):
+        total += 1
+        try:
+            raw = f.read_text()
+            parts = raw.split("---", 2)
+            if len(parts) >= 3:
+                fm = yaml.safe_load(parts[1])
+                if fm and fm.get("claims"):
+                    with_claims += 1
+        except Exception:
+            continue
+    return total, with_claims
+
+
+def generate_briefing():
+    """Generate the complete briefing."""
+    threads = read_threads()
+    events = read_events(20)
+    open_claims = read_open_claims()
+    beats = read_beats()
+    errors = read_open_errors()
+    insights = read_unread_insights()
+    total_entries, entries_with_claims = count_blog_entries()
+
+    lines = []
+    lines.append(f"# Briefing — {TODAY} {NOW}")
+    lines.append(f"<!-- Generated by edge-digest. DO NOT edit manually. -->")
+    lines.append("")
+
+    # Threads for today
+    resurface_threads = []
+    active_threads = []
+    waiting_threads = []
+    for t in threads:
+        status = t.get("status", "")
+        resurface = str(t.get("resurface", ""))
+        if status in ("active", "waiting") and resurface and resurface <= TODAY:
+            resurface_threads.append(t)
+        if status == "active":
+            active_threads.append(t)
+        elif status == "waiting":
+            waiting_threads.append(t)
+
+    if resurface_threads:
+        lines.append("## Resurface TODAY")
+        for t in resurface_threads:
+            owner = t.get("owner", "?")
+            title = t.get("title", t["_id"])
+            status = t.get("status", "?")
+            lines.append(f"- **{title}** [{status}] owner:{owner}")
+        lines.append("")
+
+    # Active threads
+    lines.append(f"## Threads ({len(active_threads)} active, {len(waiting_threads)} waiting)")
+    for t in active_threads:
+        owner = t.get("owner", "?")
+        title = t.get("title", t["_id"])
+        resurface = str(t.get("resurface", "?"))
+        updated = str(t.get("updated", "?"))
+        lines.append(f"- [{t.get('status','')}] {title} (owner:{owner}, resurface:{resurface}, updated:{updated})")
+    for t in waiting_threads:
+        owner = t.get("owner", "?")
+        title = t.get("title", t["_id"])
+        lines.append(f"- [waiting] {title} (owner:{owner})")
+    lines.append("")
+
+    # What I don't know
+    if open_claims:
+        lines.append(f"## What I don't know ({len(open_claims)} gaps)")
+        for c in open_claims[:7]:
+            threads_str = ", ".join(c["threads"]) if c["threads"] else "no thread"
+            lines.append(f"- ? {c['claim']} <- {c['source']} ({threads_str})")
+        lines.append("")
+
+    # Recent events
+    if events:
+        lines.append(f"## Recent events ({len(events)})")
+        for e in events[-10:]:
+            ts = e.get("timestamp", "?")
+            try:
+                dt = datetime.fromisoformat(ts)
+                ts_display = dt.strftime("%m-%d %H:%M")
+            except (ValueError, AttributeError):
+                ts_display = ts[:16]
+            etype = e.get("type", "?")
+            summary = e.get("summary", "")
+            thread = e.get("thread_id", "")
+            thread_str = f" thread:{thread}" if thread else ""
+            lines.append(f"- [{ts_display}] {etype}{thread_str} — {summary}")
+        lines.append("")
+
+    # Today's beats
+    if beats:
+        lines.append(f"## Beats today ({len(beats)})")
+        for b in beats:
+            lines.append(f"- {b}")
+        lines.append("")
+
+    # Active errors
+    if errors:
+        lines.append(f"## Active errors ({len(errors)})")
+        for e in errors:
+            lines.append(f"- {e}")
+        lines.append("")
+
+    # Unread insights
+    if insights:
+        lines.append(f"## New insights ({len(insights)})")
+        for i in insights:
+            lines.append(f"- {i}")
+        lines.append("")
+
+    # Metrics
+    lines.append("## Metrics")
+    lines.append(f"- Entries: {total_entries} total, {entries_with_claims} with claims ({int(entries_with_claims/max(total_entries,1)*100)}%)")
+    lines.append(f"- Threads: {len(active_threads)} active, {len(waiting_threads)} waiting")
+    lines.append(f"- Open gaps: {len(open_claims)}")
+    lines.append(f"- Active errors: {len(errors)}")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate briefing.md from structured data")
+    parser.add_argument("--dry-run", action="store_true", help="Show without saving")
+    args = parser.parse_args()
+
+    briefing = generate_briefing()
+
+    if args.dry_run:
+        print(briefing)
+    else:
+        OUTPUT_FILE.write_text(briefing)
+        lines = briefing.count("\n")
+        print(f"OK: {OUTPUT_FILE} ({lines} lines)")
+
+
+if __name__ == "__main__":
+    main()

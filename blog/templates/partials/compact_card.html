@@ -1,0 +1,29 @@
+{# Compact entry card #}
+{% set entry_key = (entry.title or '')[:80] %}
+{% set ed = comments_data.get('entries', {}).get(entry_key, {}) %}
+{% set saved = ed.get('saved', false) %}
+
+<article class="entry compact{{ ' saved-entry' if saved }}"
+         data-key="{{ entry_key }}" data-slug="{{ entry.slug }}" data-tag="{{ entry.tag }}">
+  <div class="compact-row">
+    <span class="entry-number">#{{ entry.break_number }}</span>
+    <span class="compact-title">{{ entry.title[:60] }}{{ '...' if entry.title|length > 60 }}</span>
+    {% if not entry.published %}<span class="entry-tag" style="background:#e74c3c;color:#fff;font-size:0.7em">NO PIPELINE</span>{% endif %}
+    <span class="entry-tag tag-{{ entry.tag }}">{{ entry.tag }}</span>
+    <span class="temp-badge temp-{{ entry.temperature or 'null' }}"
+          data-path="{{ entry.path }}"
+          data-temp="{{ entry.temperature or '' }}"
+          onclick="event.stopPropagation(); cycleTemp(this)">{{ entry.temperature or '\u25CB' }}</span>
+    {% if entry.tag == 'planejamento' or entry.proposta_id %}
+      {% set st = entry.status or 'proposta' %}
+      <span class="prop-status status-{{ st|replace(' ', '-') }}">{{ st }}</span>
+    {% endif %}
+    {% if entry.report %}
+      <span class="compact-report-icon">&#x1F4CE;</span>
+    {% endif %}
+    {% if entry.llm_cost %}
+      <span class="llm-cost">{{ entry.llm_cost }}</span>
+    {% endif %}
+    <span class="compact-date">{{ short_date(entry.date) }}</span>
+  </div>
+</article>

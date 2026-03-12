@@ -1,0 +1,9 @@
+#!/bin/bash
+# agent-index: Index files into agent memory (SQLite + FTS5 + embeddings)
+# Usage: agent-index file1 [file2 ...]
+# Runs silently — errors don't break the calling skill.
+
+REAL_PATH="$(readlink -f "$0")"
+SCRIPT_DIR="$(dirname "$REAL_PATH")"
+
+python3 "$SCRIPT_DIR/ingest.py" "$@" --quiet || true

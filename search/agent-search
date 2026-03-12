@@ -1,0 +1,8 @@
+#!/bin/bash
+# agent-search: Search agent memory (hybrid FTS5 + vector)
+# Usage: agent-search "query" [-k N] [--type note|report|blog] [--fts] [--semantic]
+
+REAL_PATH="$(readlink -f "$0")"
+SCRIPT_DIR="$(dirname "$REAL_PATH")"
+
+python3 "$SCRIPT_DIR/search.py" "$@"

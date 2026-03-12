@@ -1,0 +1,16 @@
+{# Chat messages partial -- htmx target #}
+{% if messages %}
+  {% for msg in messages %}
+    {% set is_user = msg.author == 'user' %}
+    <div class="chat-bubble {{ 'chat-user' if is_user else 'chat-claude' }}">
+      <span class="chat-author">{{ 'user' if is_user else ('agent' if msg.author == 'claude' else msg.author) }}</span>
+      <span class="chat-text">{{ msg.text }}</span>
+      {% if msg.ts %}<span class="chat-ts">{{ msg.ts }}</span>{% endif %}
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="empty-state">
+    <div class="empty-icon">~</div>
+    no messages yet
+  </div>
+{% endif %}

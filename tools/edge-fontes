@@ -1,0 +1,460 @@
+#!/usr/bin/env python3
+"""edge-fontes — Unified external source search.
+
+Usage:
+    edge-fontes "topic"                          # default intent: research
+    edge-fontes "topic" --intent strategy        # specific intent
+    edge-fontes "topic" --sources x,hn,arxiv     # override source selection
+    edge-fontes --front-page                     # headlines only (for heartbeat)
+    edge-fontes "topic" --json                   # JSON output
+
+Runs all sources concurrently, curates by signal, outputs structured markdown.
+Sources that can't be scripted (WebSearch/WebFetch) are noted in output.
+"""
+
+import sys, os, json, argparse, subprocess, random
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.request import urlopen, Request
+from urllib.parse import quote, urlencode
+from datetime import datetime, timedelta
+
+# --- Routing table: intent -> sources ---
+ROUTING = {
+    'research':   {'primary': ['hn', 'arxiv', 'semantic_scholar', 'exa'], 'secondary': ['reddit', 'github', 'hf_papers']},
+    'discovery':  {'primary': ['hn', 'reddit', 'exa'], 'secondary': ['hf_papers', 'arxiv']},
+    'leisure':    {'primary': ['hn', 'reddit'], 'secondary': ['hf_papers', 'exa']},
+    'strategy':   {'primary': ['hn', 'github', 'exa'], 'secondary': ['reddit', 'semantic_scholar']},
+    'heartbeat':  {'primary': ['hn', 'reddit'], 'secondary': ['github', 'exa']},
+    'reflection': {'primary': ['hn', 'reddit'], 'secondary': ['semantic_scholar', 'exa']},
+    'planning':   {'primary': ['hn', 'github', 'exa'], 'secondary': ['arxiv', 'hf_papers']},
+    'execution':  {'primary': ['hn', 'github'], 'secondary': ['reddit', 'exa']},
+    'report':     {'primary': ['hn', 'arxiv', 'semantic_scholar', 'exa'], 'secondary': ['reddit', 'github', 'hf_papers']},
+}
+
+# X removed — covered by edge-x
+ALL_SOURCES = ['hn', 'arxiv', 'semantic_scholar', 'reddit', 'github', 'hf_papers', 'exa']
+
+
+def fetch_json(url, timeout=15):
+    req = Request(url, headers={"User-Agent": "edge-fontes/1.0"})
+    return json.loads(urlopen(req, timeout=timeout).read())
+
+
+# --- Source functions: each returns list of {title, url, source, detail, score} ---
+
+def search_x(topic):
+    """Call edge-x subprocess."""
+    try:
+        r = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent / "edge-x"), topic, "--json", "--max", "10", "--light"],
+            capture_output=True, text=True, timeout=30
+        )
+        if r.returncode != 0:
+            return [{"title": f"edge-x error: {r.stderr[:100]}", "url": "", "source": "X", "detail": "", "score": 0}]
+        tweets = json.loads(r.stdout) if r.stdout.strip() else []
+        results = []
+        for t in tweets[:10]:
+            results.append({
+                "title": f"@{t.get('username', '?')} ({t.get('followers', 0):,} fol)",
+                "url": t.get("url", ""),
+                "source": "X",
+                "detail": t.get("text", "")[:200].replace("\n", " "),
+                "score": t.get("likes", 0) + t.get("rts", 0) * 3 + t.get("replies", 0) * 2,
+            })
+        return results
+    except Exception as e:
+        return [{"title": f"X error: {e}", "url": "", "source": "X", "detail": "", "score": 0}]
+
+
+def search_hn(topic):
+    """Call edge-hn subprocess."""
+    try:
+        r = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent / "edge-hn"), topic, "--json", "--max", "10"],
+            capture_output=True, text=True, timeout=30
+        )
+        if r.returncode != 0:
+            return [{"title": f"edge-hn error: {r.stderr[:100]}", "url": "", "source": "HN", "detail": "", "score": 0}]
+        data = json.loads(r.stdout) if r.stdout.strip() else {}
+        stories = data.get("stories", [])
+        results = []
+        for s in stories[:10]:
+            results.append({
+                "title": s.get("title", ""),
+                "url": s.get("url", "") or s.get("hn_url", ""),
+                "source": "HN",
+                "detail": f"{s.get('points', 0)}pts, {s.get('comments', 0)} comments",
+                "score": s.get("points", 0),
+            })
+        return results
+    except Exception as e:
+        return [{"title": f"HN error: {e}", "url": "", "source": "HN", "detail": "", "score": 0}]
+
+
+def search_arxiv(topic):
+    """Search ArXiv API."""
+    try:
+        import xml.etree.ElementTree as ET
+        query = f'all:"{topic}"'
+        url = f"http://export.arxiv.org/api/query?search_query={quote(query)}&start=0&max_results=8&sortBy=submittedDate&sortOrder=descending"
+        resp = urlopen(Request(url), timeout=15)
+        root = ET.fromstring(resp.read())
+        ns = {'a': 'http://www.w3.org/2005/Atom'}
+        results = []
+        for entry in root.findall('a:entry', ns):
+            title = entry.find('a:title', ns).text.strip().replace('\n', ' ')
+            published = entry.find('a:published', ns).text[:10]
+            summary = entry.find('a:summary', ns).text.strip()[:200].replace('\n', ' ')
+            link = entry.find('a:id', ns).text
+            authors = [a.find('a:name', ns).text for a in entry.findall('a:author', ns)]
+            results.append({
+                "title": f"[{published}] {title}",
+                "url": link,
+                "source": "ArXiv",
+                "detail": f"{', '.join(authors[:3])}. {summary}",
+                "score": 5,  # ArXiv doesn't have engagement metrics
+            })
+        return results
+    except Exception as e:
+        return [{"title": f"ArXiv error: {e}", "url": "", "source": "ArXiv", "detail": "", "score": 0}]
+
+
+def search_semantic_scholar(topic):
+    """Search Semantic Scholar API."""
+    try:
+        fields = 'title,year,citationCount,influentialCitationCount,authors,url,tldr'
+        url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={quote(topic)}&limit=8&fields={fields}"
+        data = fetch_json(url)
+        results = []
+        for paper in (data or {}).get('data', []) or []:
+            if not paper:
+                continue
+            title = paper.get('title', '') or ''
+            year = paper.get('year') or '?'
+            cites = paper.get('citationCount') or 0
+            influential = paper.get('influentialCitationCount') or 0
+            authors_list = paper.get('authors') or []
+            authors = ', '.join(a.get('name', '') for a in authors_list[:3] if a)
+            tldr_obj = paper.get('tldr')
+            tldr = (tldr_obj.get('text', '') if isinstance(tldr_obj, dict) else '')[:150]
+            paper_url = paper.get('url') or ''
+            results.append({
+                "title": f"[{year}, {cites}c, {influential}i] {title}",
+                "url": paper_url,
+                "source": "SemanticScholar",
+                "detail": f"{authors}. {tldr}" if tldr else authors,
+                "score": influential * 10 + cites,
+            })
+        return results
+    except Exception as e:
+        return [{"title": f"SemanticScholar error: {e}", "url": "", "source": "SemanticScholar", "detail": "", "score": 0}]
+
+
+def search_reddit(topic):
+    """Search Reddit JSON API."""
+    try:
+        subreddits = ['MachineLearning', 'LocalLLaMA', 'ClaudeAI']
+        results = []
+        for sub in subreddits:
+            url = f"https://www.reddit.com/r/{sub}/search.json?q={quote(topic)}&restrict_sr=1&sort=relevance&t=month&limit=5"
+            req = Request(url, headers={'User-Agent': 'edge-fontes/1.0'})
+            data = json.loads(urlopen(req, timeout=10).read())
+            for post in data.get('data', {}).get('children', []):
+                d = post['data']
+                results.append({
+                    "title": d.get('title', '')[:120],
+                    "url": f"https://www.reddit.com{d.get('permalink', '')}",
+                    "source": f"Reddit r/{sub}",
+                    "detail": f"{d.get('score', 0)}pts, {d.get('num_comments', 0)} comments",
+                    "score": d.get('score', 0),
+                })
+        results.sort(key=lambda x: x['score'], reverse=True)
+        return results[:10]
+    except Exception as e:
+        return [{"title": f"Reddit error: {e}", "url": "", "source": "Reddit", "detail": "", "score": 0}]
+
+
+def search_github(topic):
+    """Search GitHub via gh CLI."""
+    try:
+        # Search repos
+        r = subprocess.run(
+            ["gh", "search", "repos", topic, "--sort", "stars", "--limit", "5", "--json", "name,owner,description,stargazersCount,url,updatedAt"],
+            capture_output=True, text=True, timeout=15
+        )
+        repos = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
+        results = []
+        for repo in repos:
+            results.append({
+                "title": f"{repo.get('owner', {}).get('login', '?')}/{repo.get('name', '?')} ({repo.get('stargazersCount', 0)} stars)",
+                "url": repo.get("url", ""),
+                "source": "GitHub",
+                "detail": (repo.get("description") or "")[:150],
+                "score": repo.get("stargazersCount", 0),
+            })
+        return results
+    except Exception as e:
+        return [{"title": f"GitHub error: {e}", "url": "", "source": "GitHub", "detail": "", "score": 0}]
+
+
+def search_hf_papers(topic):
+    """Search HuggingFace daily papers (trending). Topic used for client-side filter."""
+    try:
+        url = "https://huggingface.co/api/daily_papers"
+        data = fetch_json(url)
+        if not isinstance(data, list):
+            return []
+        topic_lower = topic.lower()
+        keywords = topic_lower.split()
+        results = []
+        for item in data:
+            paper = item.get('paper', {}) or {}
+            title = paper.get('title', '')
+            paper_id = paper.get('id', '')
+            authors = paper.get('authors', []) or []
+            author_str = ', '.join(a.get('name', '') for a in authors[:3] if isinstance(a, dict) and a.get('name'))
+            upvotes = item.get('paper', {}).get('upvotes', 0) or 0
+            # Client-side relevance filter
+            title_lower = title.lower()
+            match = any(kw in title_lower for kw in keywords)
+            results.append({
+                "title": title,
+                "url": f"https://huggingface.co/papers/{paper_id}" if paper_id else "",
+                "source": "HF Papers",
+                "detail": author_str,
+                "score": upvotes + (50 if match else 0),
+                "_match": match,
+            })
+        # Prioritize matches, then by upvotes
+        results.sort(key=lambda x: x['score'], reverse=True)
+        # Return top matches + top trending
+        matched = [r for r in results if r.pop('_match', False)][:5]
+        trending = [r for r in results if r not in matched][:3]
+        return matched + trending
+    except Exception as e:
+        return [{"title": f"HF Papers error: {e}", "url": "", "source": "HF Papers", "detail": "", "score": 0}]
+
+
+def search_exa(topic):
+    """Search Exa API (semantic web search)."""
+    try:
+        secrets = Path.home() / "edge/secrets/exa.env"
+        api_key = None
+        if secrets.exists():
+            for line in secrets.read_text().splitlines():
+                if line.startswith("EXA_API_KEY="):
+                    api_key = line.split("=", 1)[1].strip()
+        if not api_key:
+            return [{"title": "Exa error: EXA_API_KEY not found", "url": "", "source": "Exa", "detail": "", "score": 0}]
+        body = json.dumps({
+            "query": topic,
+            "type": "auto",
+            "numResults": 10,
+            "contents": {"text": {"maxCharacters": 300}},
+        }).encode()
+        req = Request(
+            "https://api.exa.ai/search",
+            data=body,
+            headers={"x-api-key": api_key, "Content-Type": "application/json", "User-Agent": "edge-fontes/1.0"},
+            method="POST",
+        )
+        data = json.loads(urlopen(req, timeout=15).read())
+        results = []
+        for r in (data.get("results") or []):
+            text = (r.get("text") or "")[:200].replace("\n", " ")
+            score_val = int(float(r.get("score", 0)) * 100) if r.get("score") else 5
+            results.append({
+                "title": r.get("title", "")[:150],
+                "url": r.get("url", ""),
+                "source": "Exa",
+                "detail": text,
+                "score": score_val,
+            })
+        return results
+    except Exception as e:
+        return [{"title": f"Exa error: {e}", "url": "", "source": "Exa", "detail": "", "score": 0}]
+
+
+# --- Dispatcher ---
+
+SOURCE_FN = {
+    # 'x': search_x,  # removed — covered by edge-x
+    'hn': search_hn,
+    'arxiv': search_arxiv,
+    'semantic_scholar': search_semantic_scholar,
+    'reddit': search_reddit,
+    'github': search_github,
+    'hf_papers': search_hf_papers,
+    'exa': search_exa,
+}
+
+
+def pick_wildcard(selected_sources):
+    """Pick one source NOT in the selected set (forced serendipity)."""
+    candidates = [s for s in ALL_SOURCES if s not in selected_sources]
+    return random.choice(candidates) if candidates else None
+
+
+def run_sources(topic, sources, max_workers=6):
+    """Run multiple sources concurrently."""
+    all_results = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {}
+        for src in sources:
+            fn = SOURCE_FN.get(src)
+            if fn:
+                futures[pool.submit(fn, topic)] = src
+        for future in as_completed(futures):
+            src = futures[future]
+            try:
+                all_results[src] = future.result()
+            except Exception as e:
+                all_results[src] = [{"title": f"{src} error: {e}", "url": "", "source": src, "detail": "", "score": 0}]
+    return all_results
+
+
+def format_markdown(topic, intent, results_by_source, wildcard_src=None):
+    """Format results as structured markdown."""
+    lines = [f"## External Sources — \"{topic}\" (intent: {intent})\n"]
+
+    # Flatten and sort by score
+    all_items = []
+    for src, items in results_by_source.items():
+        for item in items:
+            if item.get("url") or "error" not in item.get("title", "").lower():
+                all_items.append(item)
+    all_items.sort(key=lambda x: x.get('score', 0), reverse=True)
+
+    # Top results
+    top = [i for i in all_items if i.get('score', 0) > 0][:15]
+    rest = [i for i in all_items if i not in top and 'error' not in i.get('title', '').lower()][:10]
+
+    if top:
+        lines.append("### High Relevance\n")
+        for i, item in enumerate(top, 1):
+            lines.append(f"- **[{item['source']}]** {item['title']}")
+            if item.get('detail'):
+                lines.append(f"  {item['detail'][:200]}")
+            if item.get('url'):
+                lines.append(f"  URL: {item['url']}")
+            lines.append("")
+
+    if rest:
+        lines.append("### Complementary\n")
+        for item in rest:
+            lines.append(f"- **[{item['source']}]** {item['title']}")
+            if item.get('url'):
+                lines.append(f"  URL: {item['url']}")
+        lines.append("")
+
+    # Errors
+    errors = []
+    for src, items in results_by_source.items():
+        for item in items:
+            if 'error' in item.get('title', '').lower():
+                errors.append(f"  - {item['title']}")
+    if errors:
+        lines.append("### Errors\n")
+        lines.extend(errors)
+        lines.append("")
+
+    # Source summary
+    lines.append("### Sources Queried\n")
+    for src, items in results_by_source.items():
+        ok_count = len([i for i in items if 'error' not in i.get('title', '').lower()])
+        wc = " (WILDCARD)" if src == wildcard_src else ""
+        lines.append(f"- {src}: {ok_count} results{wc}")
+    lines.append("")
+
+    # Note about WebSearch
+    lines.append("### Note")
+    lines.append("WebSearch/WebFetch are not scriptable (Claude tools). To complement, use WebSearch in the conversation context.\n")
+
+    return "\n".join(lines)
+
+
+def format_json(results_by_source, wildcard_src=None):
+    """Format results as JSON."""
+    output = {}
+    for src, items in results_by_source.items():
+        output[src] = {
+            "results": items,
+            "wildcard": src == wildcard_src,
+        }
+    return json.dumps(output, indent=2, ensure_ascii=False)
+
+
+def front_page():
+    """Headlines-only mode for heartbeat: HN front page."""
+    results = run_sources("", ["hn"], max_workers=3)
+    # For HN, get front page instead of search
+    try:
+        r = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent / "edge-hn"), "--front-page", "--json"],
+            capture_output=True, text=True, timeout=15
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            data = json.loads(r.stdout)
+            fp = data.get("front_page", [])
+            results["hn"] = [{
+                "title": s.get("title", ""),
+                "url": s.get("url", ""),
+                "source": "HN",
+                "detail": f"{s.get('points', 0)}pts",
+                "score": s.get("points", 0),
+            } for s in fp[:10]]
+    except Exception:
+        pass
+    return results
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Unified external source search")
+    parser.add_argument("topic", nargs="?", default="", help="Search topic")
+    parser.add_argument("--intent", "-i", default="research", choices=list(ROUTING.keys()),
+                        help="Search intent (default: research)")
+    parser.add_argument("--sources", "-s", default="", help="Comma-separated source override (e.g. x,hn,arxiv)")
+    parser.add_argument("--front-page", action="store_true", help="Headlines-only mode (HN)")
+    parser.add_argument("--json", action="store_true", help="JSON output")
+    parser.add_argument("--no-wildcard", action="store_true", help="Skip wildcard source")
+    args = parser.parse_args()
+
+    if args.front_page:
+        results = front_page()
+        if args.json:
+            print(format_json(results))
+        else:
+            print(format_markdown("headlines", "heartbeat", results))
+        return
+
+    if not args.topic:
+        parser.error("topic is required (unless --front-page)")
+
+    # Select sources
+    if args.sources:
+        sources = [s.strip() for s in args.sources.split(",") if s.strip() in SOURCE_FN]
+    else:
+        route = ROUTING.get(args.intent, ROUTING['research'])
+        sources = route['primary'] + route['secondary']
+
+    # Wildcard
+    wildcard_src = None
+    if not args.no_wildcard and not args.sources:
+        wildcard_src = pick_wildcard(sources)
+        if wildcard_src:
+            sources.append(wildcard_src)
+
+    # Execute
+    print(f"Querying {len(sources)} sources for \"{args.topic}\" (intent: {args.intent})...", file=sys.stderr)
+    results = run_sources(args.topic, sources)
+
+    # Output
+    if args.json:
+        print(format_json(results, wildcard_src))
+    else:
+        print(format_markdown(args.topic, args.intent, results, wildcard_src))
+
+
+if __name__ == "__main__":
+    main()

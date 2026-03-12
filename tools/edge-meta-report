@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+"""edge-meta-report — Generate meta-report for publication state changes.
+
+Captures state delta, reads scratchpad, runs adversarial challenge.
+The agent reads this BEFORE making manual state changes.
+
+Outputs: ~/edge/meta-reports/{slug}-meta.md
+Archives scratchpad to: ~/edge/scratchpads/{slug}-{timestamp}.md
+
+Usage:
+  edge-meta-report --slug SLUG --entry PATH
+  edge-meta-report --slug SLUG --entry PATH --scratchpad /tmp/edge-scratch-active.md
+  edge-meta-report --slug SLUG --entry PATH --no-adversarial
+  edge-meta-report --slug SLUG --entry PATH --dry-run
+
+Note: Configure TRACKED_REPOS below to match your project layout.
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import yaml
+from datetime import datetime
+from pathlib import Path
+
+HOME = Path.home()
+META_DIR = HOME / "edge" / "meta-reports"
+SCRATCHPADS_ARCHIVE = HOME / "edge" / "scratchpads"
+EDGE_DIR = HOME / "edge"
+CONSULT_SCRIPT = Path(__file__).resolve().parent / "edge-consult.py"
+
+# Configure tracked repos for your setup
+# Maps directory path -> short name for display
+_PROJECT_SLUG = os.environ.get("EDGE_PROJECT_SLUG", "default")
+TRACKED_REPOS = {
+    str(HOME / ".claude" / "projects" / _PROJECT_SLUG / "memory"): "memory",
+    str(HOME / ".claude" / "skills"): "skills",
+    str(HOME / "edge" / "notes"): "notes",
+}
+
+
+def read_frontmatter(entry_path):
+    """Read YAML frontmatter from blog entry."""
+    try:
+        raw = Path(entry_path).read_text()
+        parts = raw.split("---", 2)
+        if len(parts) >= 3:
+            return yaml.safe_load(parts[1]) or {}
+    except Exception:
+        pass
+    return {}
+
+
+def capture_diffs_preview():
+    """Capture pending changes from tracked repos and edge/ (preview, not staged)."""
+    diffs = {}
+
+    for dirpath, prefix in TRACKED_REPOS.items():
+        git_dir = os.path.join(dirpath, ".git")
+        if not os.path.isdir(git_dir):
+            continue
+        result = subprocess.run(
+            ["git", "diff", "HEAD", "--stat"],
+            cwd=dirpath, capture_output=True, text=True
+        )
+        result2 = subprocess.run(
+            ["git", "status", "--short"],
+            cwd=dirpath, capture_output=True, text=True
+        )
+        stat = result.stdout.strip()
+        status = result2.stdout.strip()
+        if stat or status:
+            diffs[prefix] = {"stat": stat, "status": status}
+
+    # Edge repo
+    result = subprocess.run(
+        ["git", "diff", "HEAD", "--stat"],
+        cwd=str(EDGE_DIR), capture_output=True, text=True
+    )
+    result2 = subprocess.run(
+        ["git", "status", "--short"],
+        cwd=str(EDGE_DIR), capture_output=True, text=True
+    )
+    stat = result.stdout.strip()
+    status = result2.stdout.strip()
+    if stat or status:
+        diffs["edge"] = {"stat": stat, "status": status}
+
+    return diffs
+
+
+def read_scratchpad(scratchpad_path):
+    """Read scratchpad contents. Falls back to active scratchpad."""
+    if scratchpad_path:
+        p = Path(scratchpad_path)
+        if p.exists():
+            return p.read_text(), str(p)
+        return None, None
+
+    default = Path("/tmp/edge-scratch-active.md")
+    if default.exists():
+        return default.read_text(), str(default)
+    return None, None
+
+
+def run_adversarial(summary, entry_path):
+    """Run edge-consult adversarial on the publication summary."""
+    cmd_candidates = [
+        ["edge-consult"],
+        [sys.executable, str(CONSULT_SCRIPT)],
+    ]
+
+    for base_cmd in cmd_candidates:
+        cmd = base_cmd + [
+            f"Publication: {summary}. Where is this reasoning weakest? What am I not seeing?",
+            "--context", str(entry_path),
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode == 0:
+                return result.stdout.strip()
+            if result.returncode != 127:
+                return f"[edge-consult exit {result.returncode}: {result.stderr.strip()[:200]}]"
+        except FileNotFoundError:
+            continue
+        except subprocess.TimeoutExpired:
+            return "[edge-consult timeout (60s)]"
+
+    return "[edge-consult not found]"
+
+
+def archive_scratchpad(scratchpad_path, slug):
+    """Move scratchpad to archive directory."""
+    if not scratchpad_path:
+        return None
+    src = Path(scratchpad_path)
+    if not src.exists():
+        return None
+
+    SCRATCHPADS_ARCHIVE.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = SCRATCHPADS_ARCHIVE / f"{slug}-{timestamp}.md"
+    dest.write_text(src.read_text())
+    src.unlink()
+    return str(dest)
+
+
+def _is_open(c):
+    """Check if a claim is open/unverified. Accepts str or dict."""
+    if isinstance(c, dict):
+        return c.get("status", "").lower() in ("unverified", "open", "disputed")
+    return isinstance(c, str) and c.startswith("!")
+
+
+def generate_meta_report(slug, fm, diffs, scratchpad_content, adversarial_output):
+    """Generate the meta-report markdown."""
+    title = fm.get("title", slug)
+    claims = fm.get("claims", [])
+    threads = fm.get("threads", [])
+    tags = fm.get("tags", [])
+    verified = [c for c in claims if not _is_open(c)]
+    open_claims = [c for c in claims if _is_open(c)]
+
+    lines = []
+    lines.append(f"# Meta: {title}")
+    lines.append(f"<!-- {datetime.now().isoformat()} | slug: {slug} -->")
+    lines.append("")
+
+    # What was published
+    lines.append("## Publication")
+    lines.append(f"- **Entry:** {title}")
+    report = fm.get("report", "none")
+    lines.append(f"- **Report:** {report}")
+    lines.append(f"- **Claims:** {len(claims)} ({len(open_claims)} open)")
+    if threads:
+        lines.append(f"- **Threads:** {', '.join(threads)}")
+    if tags:
+        lines.append(f"- **Tags:** {', '.join(str(t) for t in tags)}")
+    lines.append("")
+
+    # Claims detail
+    def _claim_text(c):
+        if isinstance(c, dict):
+            text = c.get("claim", str(c))
+            src = c.get("source", "")
+            return f"{text} ({src})" if src else text
+        return str(c).lstrip("! ")
+
+    if verified:
+        lines.append("### What I learned")
+        for c in verified:
+            lines.append(f"- {_claim_text(c)}")
+        lines.append("")
+
+    if open_claims:
+        lines.append("### What I don't know")
+        for c in open_claims:
+            lines.append(f"- {_claim_text(c)}")
+        lines.append("")
+
+    # Scratchpad
+    lines.append("## Session observations")
+    if scratchpad_content:
+        lines.append(scratchpad_content.strip())
+    else:
+        lines.append("*No observations recorded this session.*")
+    lines.append("")
+
+    # State diffs
+    lines.append("## Pending state changes")
+    if diffs:
+        for repo, info in sorted(diffs.items()):
+            lines.append(f"### {repo}/")
+            if info.get("status"):
+                lines.append("```")
+                lines.append(info["status"])
+                lines.append("```")
+            stat = info.get("stat", "")
+            if stat:
+                summary_line = stat.strip().split("\n")[-1]
+                lines.append(f"*{summary_line}*")
+            lines.append("")
+    else:
+        lines.append("*No state changes detected.*")
+        lines.append("")
+
+    # Adversarial
+    lines.append("## Adversarial challenge")
+    if adversarial_output:
+        lines.append(adversarial_output)
+    else:
+        lines.append("*Skipped (--no-adversarial).*")
+    lines.append("")
+
+    # Directive
+    lines.append("---")
+    lines.append(
+        "*Directive: Read this meta-report BEFORE editing state files "
+        "(MEMORY.md, debugging.md, etc.). "
+        "Automated state (claims, threads, events, digest) "
+        "has already been processed by the pipeline.*"
+    )
+
+    return "\n".join(lines)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate publication meta-report")
+    parser.add_argument("--slug", required=True, help="Publication slug")
+    parser.add_argument("--entry", required=True, help="Path to blog entry .md")
+    parser.add_argument("--scratchpad", help="Path to scratchpad file")
+    parser.add_argument("--no-adversarial", action="store_true", help="Skip edge-consult")
+    parser.add_argument("--dry-run", action="store_true", help="Print without saving")
+    args = parser.parse_args()
+
+    META_DIR.mkdir(parents=True, exist_ok=True)
+
+    fm = read_frontmatter(args.entry)
+    title = fm.get("title", args.slug)
+    claims = fm.get("claims", [])
+
+    diffs = capture_diffs_preview()
+
+    scratchpad_content, scratchpad_path = read_scratchpad(args.scratchpad)
+
+    adversarial_output = None
+    if not args.no_adversarial:
+        summary = f"{title}. Claims: {len(claims)} ({sum(1 for c in claims if _is_open(c))} open)."
+        if scratchpad_content:
+            obs = [l.strip() for l in scratchpad_content.split("\n") if l.startswith("- [")]
+            if obs:
+                texts = [o.split("] ", 1)[-1] if "] " in o else o for o in obs[:5]]
+                summary += f" Observations: {'; '.join(texts)}"
+        adversarial_output = run_adversarial(summary, args.entry)
+
+    report = generate_meta_report(args.slug, fm, diffs, scratchpad_content, adversarial_output)
+
+    if args.dry_run:
+        print(report)
+        return
+
+    output_path = META_DIR / f"{args.slug}-meta.md"
+    output_path.write_text(report)
+
+    archived = archive_scratchpad(scratchpad_path, args.slug)
+
+    print(f"OK: {output_path}")
+    if archived:
+        print(f"  Scratchpad: {archived}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,375 @@
+#!/usr/bin/env python3
+"""State consistency linter. Detects drift between memory files.
+
+Usage:
+    edge-state-lint              # Run all checks, human-readable output
+    edge-state-lint --json       # JSON output
+    edge-state-lint --check X    # Run specific check (gaps, threads, refs, breaks)
+
+Checks:
+    gaps     — frontier.md GAP statuses vs debugging.md mentions
+    threads  — overdue resurface dates, missing fields, stale threads
+    refs     — file path references in memory/*.md -> existence check
+    breaks   — breaks-active.md staleness (entries > 7 days old)
+
+Note: MEMORY_DIR and related paths should be configured via environment
+variables or by editing the constants below to match your project layout.
+"""
+
+import datetime
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+# Configurable paths — adjust to your project layout
+# These default to a Claude Code project memory structure
+_PROJECT_SLUG = os.environ.get("EDGE_PROJECT_SLUG", "default")
+MEMORY_DIR = Path(os.environ.get("EDGE_MEMORY_DIR",
+    str(Path.home() / ".claude" / "projects" / _PROJECT_SLUG / "memory")))
+FRONTIER = Path.home() / "edge/autonomy/frontier.md"
+DEBUGGING = MEMORY_DIR / "debugging.md"
+THREADS_DIR = Path.home() / "edge/threads"
+BREAKS_ACTIVE = MEMORY_DIR / "breaks-active.md"
+TODAY = datetime.date.today()
+
+findings = []
+
+
+def finding(check, severity, message, detail=None):
+    """Record a finding."""
+    f = {"check": check, "severity": severity, "message": message}
+    if detail:
+        f["detail"] = detail
+    findings.append(f)
+
+
+# ---------------------------------------------------------------------------
+# Check 1: GAP cross-reference (frontier.md vs debugging.md)
+# ---------------------------------------------------------------------------
+
+def check_gaps():
+    """Compare GAP statuses between frontier.md and debugging.md."""
+    if not FRONTIER.exists():
+        finding("gaps", "warn", "frontier.md not found", str(FRONTIER))
+        return
+    if not DEBUGGING.exists():
+        finding("gaps", "warn", "debugging.md not found", str(DEBUGGING))
+        return
+
+    frontier_text = FRONTIER.read_text()
+    debug_text = DEBUGGING.read_text()
+
+    # Parse frontier.md GAP entries
+    frontier_gaps = {}
+    for m in re.finditer(
+        r'###\s+(?:~~)?GAP-(\d+)[:\s]+(.+?)(?:~~)?\s*(?:—|RESOLVIDO|RESOLVED|PARTIALLY|$)',
+        frontier_text
+    ):
+        gap_id = f"GAP-{m.group(1)}"
+        line = m.group(0)
+        if "~~" in line and ("RESOLVIDO" in line.upper() or "RESOLVED" in line.upper()):
+            frontier_gaps[gap_id] = "RESOLVED"
+        elif "PARTIALLY" in line.upper() or "PARCIALMENTE" in line.upper():
+            frontier_gaps[gap_id] = "PARTIALLY"
+        elif "IMPROVING" in line.upper() or "MELHORANDO" in line.upper():
+            frontier_gaps[gap_id] = "IMPROVING"
+        else:
+            frontier_gaps[gap_id] = "OPEN"
+
+    # Check debugging.md for mentions of each GAP
+    for gap_id, frontier_status in frontier_gaps.items():
+        gap_mentions = [line for line in debug_text.split("\n")
+                        if gap_id in line]
+        if not gap_mentions:
+            continue
+
+        debug_resolved = any(
+            re.search(r'RESOLVIDO|RESOLVED|CORRIGIDO|fix\s+sist', line, re.IGNORECASE)
+            for line in gap_mentions
+        )
+
+        if debug_resolved and frontier_status not in ("RESOLVED",):
+            finding("gaps", "error",
+                    f"{gap_id}: debugging.md says RESOLVED but frontier.md says {frontier_status}",
+                    {"frontier": frontier_status, "debugging": "resolved language found"})
+
+        if frontier_status == "RESOLVED":
+            debug_active = any(
+                re.search(r'Active Errors|RECURRING|not resolved', line, re.IGNORECASE)
+                for line in gap_mentions
+            )
+            if debug_active:
+                finding("gaps", "warn",
+                        f"{gap_id}: frontier.md says RESOLVED but debugging.md has active entry")
+
+
+# ---------------------------------------------------------------------------
+# Check 2: Thread consistency
+# ---------------------------------------------------------------------------
+
+def check_threads():
+    """Validate thread files: required fields, overdue resurface, staleness."""
+    if not THREADS_DIR.exists():
+        finding("threads", "warn", "Threads directory not found", str(THREADS_DIR))
+        return
+
+    thread_files = list(THREADS_DIR.glob("*.md"))
+    if not thread_files:
+        finding("threads", "info", "No threads found")
+        return
+
+    required_fields = {"id", "title", "status", "owner", "created", "updated", "resurface"}
+    valid_statuses = {"active", "dormant", "waiting", "done"}
+    # Configure valid owners for your setup
+    valid_owners = {"edge", "user", "agent"}
+
+    for tf in thread_files:
+        text = tf.read_text()
+
+        # Extract YAML frontmatter
+        fm_match = re.match(r'^---\s*\n(.*?)\n---', text, re.DOTALL)
+        if not fm_match:
+            finding("threads", "error", f"{tf.name}: no YAML frontmatter")
+            continue
+
+        if yaml is None:
+            fm = {}
+            for line in fm_match.group(1).split("\n"):
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    fm[k.strip()] = v.strip().strip('"').strip("'")
+        else:
+            try:
+                fm = yaml.safe_load(fm_match.group(1)) or {}
+            except yaml.YAMLError:
+                finding("threads", "error", f"{tf.name}: invalid YAML frontmatter")
+                continue
+
+        # Missing fields
+        missing = required_fields - set(fm.keys())
+        if missing:
+            finding("threads", "error", f"{tf.name}: missing fields: {sorted(missing)}")
+
+        # Validate status
+        status = str(fm.get("status", "")).lower()
+        if status and status not in valid_statuses:
+            finding("threads", "error",
+                    f"{tf.name}: status '{status}' invalid (valid: {valid_statuses})")
+
+        # Validate owner
+        owner = str(fm.get("owner", "")).lower()
+        if owner and owner not in valid_owners:
+            finding("threads", "warn",
+                    f"{tf.name}: owner '{owner}' unknown (valid: {valid_owners})")
+
+        # ID vs filename
+        thread_id = fm.get("id", "")
+        expected_id = tf.stem
+        if thread_id and thread_id != expected_id:
+            finding("threads", "warn",
+                    f"{tf.name}: id '{thread_id}' != filename '{expected_id}'")
+
+        # Overdue resurface
+        resurface = fm.get("resurface")
+        if resurface and status in ("active", "waiting"):
+            try:
+                if isinstance(resurface, str):
+                    rd = datetime.date.fromisoformat(resurface)
+                elif isinstance(resurface, datetime.date):
+                    rd = resurface
+                else:
+                    rd = None
+
+                if rd and rd < TODAY:
+                    days_overdue = (TODAY - rd).days
+                    finding("threads", "warn",
+                            f"{tf.name}: resurface {resurface} overdue by {days_overdue} days "
+                            f"(status: {status})",
+                            {"resurface": str(resurface), "days_overdue": days_overdue})
+            except (ValueError, TypeError):
+                finding("threads", "warn", f"{tf.name}: resurface '{resurface}' is not a valid date")
+
+        # Date consistency
+        created = fm.get("created")
+        updated = fm.get("updated")
+        if created and updated:
+            try:
+                cd = created if isinstance(created, datetime.date) else datetime.date.fromisoformat(str(created))
+                ud = updated if isinstance(updated, datetime.date) else datetime.date.fromisoformat(str(updated))
+                if cd > ud:
+                    finding("threads", "warn",
+                            f"{tf.name}: created ({created}) > updated ({updated})")
+            except (ValueError, TypeError):
+                pass
+
+        # Stale thread: active but not updated in 14+ days
+        if status == "active" and updated:
+            try:
+                ud = updated if isinstance(updated, datetime.date) else datetime.date.fromisoformat(str(updated))
+                days_stale = (TODAY - ud).days
+                if days_stale > 14:
+                    finding("threads", "info",
+                            f"{tf.name}: active but not updated in {days_stale} days",
+                            {"last_updated": str(updated)})
+            except (ValueError, TypeError):
+                pass
+
+
+# ---------------------------------------------------------------------------
+# Check 3: File references
+# ---------------------------------------------------------------------------
+
+def check_refs():
+    """Scan memory/*.md for file paths and verify existence."""
+    if not MEMORY_DIR.exists():
+        return
+
+    # Pattern: backtick-wrapped paths or bare paths starting with ~/
+    path_pattern = re.compile(r'`(~/[^`\s]+)`|`(memory/[^`\s]+)`')
+    home = str(Path.home())
+
+    checked = set()
+    for md_file in MEMORY_DIR.glob("*.md"):
+        text = md_file.read_text()
+        for m in path_pattern.finditer(text):
+            raw_path = m.group(1) or m.group(2)
+            if raw_path in checked:
+                continue
+            checked.add(raw_path)
+
+            # Skip URLs, patterns, examples
+            if any(x in raw_path for x in ["*", "{", "}", "...", "<", ">"]):
+                continue
+
+            # Resolve path
+            if raw_path.startswith("~/"):
+                resolved = Path(raw_path.replace("~/", home + "/", 1))
+            elif raw_path.startswith("memory/"):
+                resolved = MEMORY_DIR / raw_path.replace("memory/", "", 1)
+            else:
+                continue
+
+            # Check existence (file or directory)
+            if not resolved.exists():
+                alt = resolved.parent if resolved.name == "" else resolved
+                if not alt.exists():
+                    finding("refs", "warn",
+                            f"Broken reference in {md_file.name}: `{raw_path}`",
+                            {"file": str(md_file), "referenced": str(resolved)})
+
+
+# ---------------------------------------------------------------------------
+# Check 4: Breaks staleness
+# ---------------------------------------------------------------------------
+
+def check_breaks():
+    """Check breaks-active.md for stale entries."""
+    if not BREAKS_ACTIVE.exists():
+        finding("breaks", "warn", "breaks-active.md not found")
+        return
+
+    text = BREAKS_ACTIVE.read_text()
+
+    # Find date patterns in entries: **[YYYY-MM-DD]**
+    for m in re.finditer(r'\*\*\[(\d{4}-\d{2}-\d{2})\]\*\*', text):
+        try:
+            entry_date = datetime.date.fromisoformat(m.group(1))
+            days_old = (TODAY - entry_date).days
+            if days_old > 7:
+                line_start = text.rfind("\n", 0, m.start()) + 1
+                line_end = text.find("\n", m.end())
+                context = text[line_start:line_end].strip()[:120]
+                finding("breaks", "info",
+                        f"Entry {days_old} days old in breaks-active (>7d): {m.group(1)}",
+                        {"date": m.group(1), "days_old": days_old, "context": context})
+        except ValueError:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def print_findings(as_json=False):
+    if as_json:
+        output = {
+            "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+            "total": len(findings),
+            "by_severity": {},
+            "findings": findings,
+        }
+        for f in findings:
+            sev = f["severity"]
+            output["by_severity"][sev] = output["by_severity"].get(sev, 0) + 1
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return
+
+    if not findings:
+        print("OK: No inconsistencies detected.")
+        return
+
+    # Group by check
+    by_check = {}
+    for f in findings:
+        by_check.setdefault(f["check"], []).append(f)
+
+    severity_icon = {"error": "X", "warn": "!", "info": "."}
+
+    print(f"=== State Lint: {len(findings)} finding(s) ===\n")
+    for check, items in by_check.items():
+        errors = sum(1 for i in items if i["severity"] == "error")
+        warns = sum(1 for i in items if i["severity"] == "warn")
+        infos = sum(1 for i in items if i["severity"] == "info")
+        print(f"[{check}] {errors} errors, {warns} warnings, {infos} info")
+        for item in items:
+            icon = severity_icon.get(item["severity"], "?")
+            print(f"  {icon} {item['message']}")
+        print()
+
+    # Save to log
+    log_path = Path.home() / "edge/logs/state-lint.jsonl"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+        "total": len(findings),
+        "errors": sum(1 for f in findings if f["severity"] == "error"),
+        "warnings": sum(1 for f in findings if f["severity"] == "warn"),
+        "checks": list(by_check.keys()),
+        "findings": findings,
+    }
+    with open(log_path, "a") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    print(f"(log saved to {log_path})")
+
+
+def main():
+    args = sys.argv[1:]
+    as_json = "--json" in args
+
+    checks_to_run = {"gaps", "threads", "refs", "breaks"}
+    if "--check" in args:
+        idx = args.index("--check")
+        if idx + 1 < len(args):
+            checks_to_run = {args[idx + 1]}
+
+    if "gaps" in checks_to_run:
+        check_gaps()
+    if "threads" in checks_to_run:
+        check_threads()
+    if "refs" in checks_to_run:
+        check_refs()
+    if "breaks" in checks_to_run:
+        check_breaks()
+
+    print_findings(as_json)
+
+
+if __name__ == "__main__":
+    main()

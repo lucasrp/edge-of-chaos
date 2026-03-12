@@ -1,0 +1,54 @@
+{# Entry list + pagination -- htmx swap target #}
+<div id="feedEntries">
+  {% if entries %}
+    {% for entry in entries %}
+      {% if view == 'compact' %}
+        {% include 'partials/compact_card.html' %}
+      {% else %}
+        {% include 'partials/entry_card.html' %}
+      {% endif %}
+    {% endfor %}
+  {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">~</div>
+      no entries found
+    </div>
+  {% endif %}
+</div>
+
+{# Pagination #}
+{% set base_params = [] %}
+{% for c in cat %}{% if base_params.append('cat=' + c) %}{% endif %}{% endfor %}
+{% if temp %}{% if base_params.append('temp=' + temp) %}{% endif %}{% endif %}
+{% if status_f %}{% if base_params.append('status=' + status_f) %}{% endif %}{% endif %}
+{% if report_f %}{% if base_params.append('report=1') %}{% endif %}{% endif %}
+{% if q %}{% if base_params.append('q=' + q) %}{% endif %}{% endif %}
+{% if view != 'expanded' %}{% if base_params.append('view=' + view) %}{% endif %}{% endif %}
+{% if show_pending %}{% if base_params.append('pending=1') %}{% endif %}{% endif %}
+{% set qs = base_params|join('&') %}
+
+<div class="pagination">
+  {% if page > 1 %}
+    <button hx-get="/htmx/entries?tab=feed&page={{ page - 1 }}&{{ qs }}"
+            hx-target="#entryResults"
+            hx-push-url="false"
+            onclick="window.scrollTo(0,0)">&larr; prev</button>
+  {% else %}
+    <button disabled>&larr; prev</button>
+  {% endif %}
+  <span class="page-info">{{ page }} / {{ total_pages }} ({{ total_filtered }})</span>
+  {% if page < total_pages %}
+    <button hx-get="/htmx/entries?tab=feed&page={{ page + 1 }}&{{ qs }}"
+            hx-target="#entryResults"
+            hx-push-url="false"
+            onclick="window.scrollTo(0,0)">next &rarr;</button>
+  {% else %}
+    <button disabled>next &rarr;</button>
+  {% endif %}
+</div>
+
+{# Filter count #}
+<script>
+  var fc = document.querySelector('.filter-count');
+  if (fc) fc.textContent = '{{ total_filtered }} / {{ total_entries }}{% if saved_count %} | {{ saved_count }} saved{% endif %}{% if commented_count %}, {{ commented_count }} commented{% endif %}';
+</script>

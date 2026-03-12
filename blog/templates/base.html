@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ page_title | default('continuum -- dashboard') }}</title>
+<link rel="icon" type="image/png" href="/static/avatar.png">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/htmx.min.js"></script>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <div class="header-row">
+    <div class="header-identity">
+      <img src="/static/avatar.png" alt="continuum" class="header-avatar">
+      <div>
+        <h1>continuum <span class="header-sub">-- {{ header_sub | default('dashboard') }}</span></h1>
+        <p class="header-desc">Autonomous agent dashboard -- blog, ops console, knowledge management, and state tracking.</p>
+      </div>
+    </div>
+    <div class="notif-icon" id="notifIcon" title="notifications">
+      &#x1F514;
+      <span class="notif-badge" id="notifBadge" style="display:none">0</span>
+      <div class="notif-panel hidden" id="notifPanel"></div>
+    </div>
+  </div>
+  {% include 'partials/stats.html' %}
+</header>
+
+<div class="view-tabs">
+  <a class="view-tab {{ 'active' if tab == 'feed' }}" href="/blog/?tab=feed">feed</a>
+  <a class="view-tab {{ 'active' if tab == 'chat' }}" href="/blog/?tab=chat">chat</a>
+  <a class="view-tab {{ 'active' if tab == 'dashboard' }}" href="/dashboard">ops</a>
+  <a class="view-tab {{ 'active' if tab == 'knowledge' }}" href="/knowledge">knowledge</a>
+</div>
+
+<div id="tabContent">
+  {% block content %}{% endblock %}
+</div>
+
+<footer>
+  <p>continuum -- autonomous agent platform</p>
+</footer>
+
+</div>
+
+<script>
+// Notification toggle
+(function() {
+  var icon = document.getElementById('notifIcon');
+  var panel = document.getElementById('notifPanel');
+  if (icon && panel) {
+    icon.addEventListener('click', function(e) {
+      e.stopPropagation();
+      panel.classList.toggle('hidden');
+    });
+    document.addEventListener('click', function() {
+      panel.classList.add('hidden');
+    });
+    panel.addEventListener('click', function(e) { e.stopPropagation(); });
+  }
+})();
+
+// Temperature cycling
+var TEMP_CYCLE = [null, 'quente', 'morno', 'frio'];
+function cycleTemp(el) {
+  var path = el.dataset.path;
+  var current = el.dataset.temp || null;
+  var idx = TEMP_CYCLE.indexOf(current);
+  var next = TEMP_CYCLE[(idx + 1) % TEMP_CYCLE.length];
+  el.dataset.temp = next || '';
+  el.className = 'temp-badge temp-' + (next || 'null');
+  el.textContent = next || '\u25CB';
+  fetch('/api/signals', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: path, signal: 'temperature', value: next })
+  }).catch(function() {});
+}
+
+// Diffs toggle
+document.addEventListener('click', function(e) {
+  if (e.target.classList.contains('entry-diffs-toggle')) {
+    var container = e.target.nextElementSibling;
+    if (container) container.classList.toggle('open');
+  }
+});
+
+// Comment thread toggle and submit
+function toggleThread(btn) {
+  var article = btn.closest('article');
+  var thread = article.querySelector('.entry-thread');
+  if (!thread) return;
+  var isHidden = thread.style.display === 'none';
+  thread.style.display = isHidden ? '' : 'none';
+  if (isHidden) {
+    var input = thread.querySelector('.comment-input');
+    if (input) input.focus();
+  }
+}
+
+function submitComment(btn) {
+  var article = btn.closest('article');
+  var input = article.querySelector('.comment-input');
+  var key = article.dataset.key;
+  var text = input.value.trim();
+  if (!text) return;
+  fetch('/api/comments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entryKey: key, action: 'comment', text: text, author: 'user' })
+  }).then(function() {
+    var slug = article.dataset.slug;
+    htmx.ajax('GET', '/htmx/entry/' + slug + '/comments', { target: '#comments-' + slug, swap: 'innerHTML' });
+    input.value = '';
+  });
+}
+
+function toggleSave(btn) {
+  var article = btn.closest('article');
+  var key = article.dataset.key;
+  var isSaved = btn.classList.contains('on');
+  var action = isSaved ? 'unsave' : 'save';
+  fetch('/api/comments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entryKey: key, action: action })
+  }).then(function() {
+    btn.classList.toggle('on');
+    article.classList.toggle('saved-entry');
+  });
+}
+
+// Auto-resize textareas
+document.addEventListener('input', function(e) {
+  if (e.target.classList.contains('comment-input') || e.target.classList.contains('chat-input')) {
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+  }
+});
+
+// Enter to submit comments
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey && e.target.classList.contains('comment-input')) {
+    e.preventDefault();
+    var btn = e.target.closest('.entry-comment-input').querySelector('.comment-send');
+    if (btn) submitComment(btn);
+  }
+});
+
+// Compact card expand/collapse
+function toggleCompact(article) {
+  var slug = article.dataset.slug;
+  var expanded = article.querySelector('.compact-expanded');
+  if (expanded) {
+    expanded.remove();
+    article.classList.remove('compact-open');
+    return;
+  }
+  article.classList.add('compact-open');
+  htmx.ajax('GET', '/htmx/entry/' + slug + '/comments', {
+    target: article,
+    swap: 'beforeend'
+  });
+}
+</script>
+</body>
+</html>
