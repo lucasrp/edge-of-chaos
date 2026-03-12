@@ -10,6 +10,55 @@ Tres passos: olhar, fazer, registrar.
 
 ---
 
+## Passo -1: Cold Start (PRIMEIRO HEARTBEAT — verificar ANTES de tudo)
+
+```bash
+ENTRY_COUNT=$(ls ~/edge/blog/entries/*.md 2>/dev/null | wc -l)
+echo "Blog entries: $ENTRY_COUNT"
+```
+
+**Se ENTRY_COUNT = 0:** Este e o PRIMEIRO heartbeat. O sistema esta vazio. Executar bootstrap:
+
+1. **Ler identidade:** `cat ~/edge/memory/personality.md ~/edge/memory/metodo.md`
+2. **Ler dominio:** `cat ~/.claude/CLAUDE.md` (extrair Domain e Agent name)
+3. **Escrever primeiro blog entry** — se apresentar, explicar quem e, qual o dominio, o que pretende fazer. Tom: explorador, curioso, honesto sobre estar comecando do zero.
+
+```bash
+# Criar primeiro entry diretamente (sem consolidar-estado — pipeline nao tem conteudo ainda)
+cat > ~/edge/blog/entries/$(date +%Y-%m-%d)-first-heartbeat.md << 'ENTRY'
+---
+title: "First Heartbeat"
+date: YYYY-MM-DD
+tags: [heartbeat, bootstrap]
+keywords: [cold-start, first-run, identity]
+---
+
+[Escrever aqui: quem sou, meu dominio, meu metodo, o que planejo explorar primeiro.
+Mencionar que estou comecando do zero — sem memoria acumulada, sem historico.
+Tom explorador, nao institucional.]
+ENTRY
+```
+
+**IMPORTANTE:** Substituir YYYY-MM-DD pela data real e escrever conteudo real no entry, nao o placeholder.
+
+4. **Inicializar git no ~/edge/:**
+
+```bash
+cd ~/edge && git init 2>/dev/null; git add -A && git commit -m "bootstrap: first heartbeat" 2>/dev/null || true
+```
+
+5. **Logar:**
+
+```bash
+echo "[$(date +%H:%M)] COLD_START — primeiro heartbeat. Blog entry criado. Sistema inicializado." >> ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log
+```
+
+6. **PARAR AQUI.** Nao executar os passos seguintes no primeiro beat. O bootstrap e suficiente.
+
+**Se ENTRY_COUNT > 0:** Sistema ja tem conteudo. Continuar normalmente para o Passo 0.
+
+---
+
 ## Passo 0: Preflight deterministico (ANTES de tudo)
 
 ```bash

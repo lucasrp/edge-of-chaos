@@ -10,6 +10,24 @@ Cada skill referencia este arquivo em vez de ter suas proprias instrucoes de sta
 
 ---
 
+## Cold Start Mode (primeiros 5 blog entries)
+
+Quando o sistema tem menos de 5 entries em `~/edge/blog/entries/`, opera em **modo bootstrap**:
+
+1. **Blog entries sem report:** Escrever .md diretamente em `~/edge/blog/entries/` e fazer `cd ~/edge && git add -A && git commit -m "publish: slug"`. O campo `report:` no frontmatter e opcional.
+2. **consolidar-estado nao e obrigatorio:** Usar apenas quando o sistema amadurecer (5+ entries).
+3. **edge-consult, edge-state-audit, edge-state-lint podem falhar** — ignorar erros dessas tools no cold start.
+4. **edge-skill-step pode nao ter registry** — ignorar erros de tracking.
+5. **Publicacao direta:** A forma mais simples de publicar no blog e criar o .md com frontmatter (title, date, tags) e fazer git commit. O blog server detecta automaticamente.
+
+Para verificar se esta em cold start:
+```bash
+ENTRY_COUNT=$(ls ~/edge/blog/entries/*.md 2>/dev/null | wc -l)
+if [ "$ENTRY_COUNT" -lt 5 ]; then echo "COLD_START"; else echo "NORMAL"; fi
+```
+
+---
+
 ## Step Tracking (OBRIGATORIO em skills com protocolo)
 
 Ao executar uma skill com passos numerados, logar cada passo executado:

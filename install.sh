@@ -230,6 +230,27 @@ if ! $SKIP_BLOG; then
     warn "  sqlite-vec not available — vector search disabled, FTS still works"
   }
 
+  # Create changelog and empty DBs
+  touch "$EDGE_ROOT/blog/changelog.md"
+
+  # Initialize blog database (FTS + chat)
+  "$EDGE_ROOT/blog/.venv/bin/python3" -c "
+import sqlite3, os
+db_path = os.path.expanduser('~/edge/blog/blog_fts.db')
+conn = sqlite3.connect(db_path)
+conn.execute('''CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(slug, title, content, tag)''')
+conn.execute('''CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    author TEXT NOT NULL,
+    text TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    processed BOOLEAN DEFAULT 0
+)''')
+conn.commit()
+conn.close()
+print('Blog database initialized')
+" 2>/dev/null || warn "  Could not initialize blog database"
+
   ok "  Blog server installed"
 else
   info "  Skipping blog (--skip-blog)"
@@ -336,9 +357,12 @@ for skill_dir in "$SCRIPT_DIR/skills/"*/; do
   fi
 done
 
-# Install shared templates
+# Install shared templates (also replace {{PREFIX}})
 if [ -d "$SCRIPT_DIR/skills/_shared" ]; then
-  cp "$SCRIPT_DIR/skills/_shared/"* "$HOME/.claude/skills/_shared/" 2>/dev/null || true
+  for shared_file in "$SCRIPT_DIR/skills/_shared/"*; do
+    fname=$(basename "$shared_file")
+    sed "s/{{PREFIX}}/${PREFIX}/g" "$shared_file" > "$HOME/.claude/skills/_shared/$fname"
+  done
 fi
 
 ok "Installed $SKILL_COUNT skills with prefix '${PREFIX}-'"
