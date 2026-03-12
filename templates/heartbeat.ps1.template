@@ -1,0 +1,70 @@
+# Claude Code Heartbeat — Windows wrapper
+# Runs /{{PREFIX}}-heartbeat from {{WORK_DIR}}
+
+$ErrorActionPreference = "Continue"
+
+$LogFile = Join-Path $env:USERPROFILE ".claude\heartbeat-output.log"
+$LockFile = Join-Path $env:TEMP "claude-heartbeat.lock"
+
+# Avoid overlap: if another heartbeat is running, skip
+if (Test-Path $LockFile) {
+    $lockContent = Get-Content $LockFile -ErrorAction SilentlyContinue
+    if ($lockContent) {
+        try {
+            $proc = Get-Process -Id ([int]$lockContent) -ErrorAction Stop
+            if ($proc -and -not $proc.HasExited) {
+                $ts = Get-Date -Format "o"
+                Add-Content $LogFile "--- skipped $ts (pid $lockContent still running) ---"
+                exit 0
+            }
+        } catch {
+            # Process not found — stale lock
+        }
+    }
+    Remove-Item $LockFile -Force -ErrorAction SilentlyContinue
+}
+
+# Write lock
+$PID | Set-Content $LockFile
+
+# Cleanup on exit
+$cleanupBlock = {
+    Remove-Item $LockFile -Force -ErrorAction SilentlyContinue
+}
+Register-EngineEvent PowerShell.Exiting -Action $cleanupBlock | Out-Null
+
+try {
+    $ts = Get-Date -Format "o"
+    Add-Content $LogFile "--- heartbeat $ts ---"
+
+    Set-Location "{{WORK_DIR}}"
+
+    $result = & claude -p "/{{PREFIX}}-heartbeat" `
+        --max-turns 30 `
+        --allowedTools "Bash(*),Read(*),Write(*),Edit(*),Glob(*),Grep(*),WebSearch(*),WebFetch(*),Task(*),Skill(*)" `
+        2>&1
+
+    $result | Add-Content $LogFile
+
+    if ($LASTEXITCODE -eq 0) {
+        $ts = Get-Date -Format "o"
+        Add-Content $LogFile "--- done $ts ---"
+    } else {
+        $ts = Get-Date -Format "o"
+        Add-Content $LogFile "--- failed $ts (exit code $LASTEXITCODE) ---"
+    }
+
+    # Sync RAG index (if search system is installed)
+    $ingestScript = Join-Path $env:USERPROFILE "edge\search\ingest.py"
+    if (Test-Path $ingestScript) {
+        $pythonExe = Join-Path $env:USERPROFILE "edge\blog\.venv\Scripts\python.exe"
+        if (Test-Path $pythonExe) {
+            $reportsDir = Join-Path $env:USERPROFILE "edge\reports"
+            $notesDir = Join-Path $env:USERPROFILE "edge\notes"
+            $entriesDir = Join-Path $env:USERPROFILE "edge\blog\entries"
+            & $pythonExe $ingestScript $reportsDir $notesDir $entriesDir --no-embed --quiet 2>$null
+        }
+    }
+} finally {
+    Remove-Item $LockFile -Force -ErrorAction SilentlyContinue
+}

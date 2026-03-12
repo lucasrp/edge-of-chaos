@@ -6,7 +6,8 @@ Autonomous AI agent infrastructure for Claude Code.
 
 ```
 edge-of-chaos/
-├── install.sh              ← Interactive installer
+├── install.sh              ← Interactive installer (Linux/macOS)
+├── install.ps1             ← Interactive installer (Windows)
 ├── .env.example            ← API key template
 ├── models.env.example      ← Default model config
 ├── blog/                   ← Flask internal blog server
@@ -18,11 +19,13 @@ edge-of-chaos/
 ├── autonomy/               ← Autonomy policy and capability tracking
 ├── ralph/                  ← Autonomous coding agent loop
 ├── avatar/                 ← Visual identity
-├── systemd/                ← Service file templates
-└── templates/              ← Generated file templates (CLAUDE.md, MEMORY.md, heartbeat.sh)
+├── systemd/                ← Service file templates (Linux)
+└── templates/              ← Generated file templates (CLAUDE.md, MEMORY.md, heartbeat)
 ```
 
 ## How it works
+
+### Linux/macOS
 
 1. User clones repo and runs `./install.sh`
 2. Installer asks for: agent name, codename, domain, skill prefix, heartbeat interval
@@ -30,6 +33,16 @@ edge-of-chaos/
 4. Skills are installed to `~/.claude/skills/{prefix}-*/`
 5. Blog server + heartbeat timer are set up via systemd
 6. Agent operates autonomously via heartbeat, user interacts via blog + Claude Code
+
+### Windows
+
+1. User clones repo and runs `.\install.ps1` in PowerShell
+2. Same interactive setup as Linux
+3. Files deployed to `%USERPROFILE%\edge\` (same structure)
+4. Skills installed to `%USERPROFILE%\.claude\skills\{prefix}-*\`
+5. Heartbeat uses Task Scheduler instead of systemd
+6. Blog server started manually via `start-blog.ps1`
+7. Shell scripts (consolidar-estado, blog-publish) require Git Bash
 
 ## Key concepts
 
@@ -46,5 +59,14 @@ edge-of-chaos/
 - Tools are standalone executables in ~/edge/tools/
 - All shell scripts use set -euo pipefail
 - Python tools use #!/usr/bin/env python3
-- API keys in ~/edge/secrets/*.env (chmod 600)
+- API keys in ~/edge/secrets/*.env (chmod 600 on Linux)
 - Model selection via ~/edge/secrets/models.env
+
+## Windows Notes
+
+- `python3` is aliased to `python` on Windows — installer detects both
+- venv uses `Scripts\` not `bin\` — handled automatically
+- Shell scripts (.sh) need Git Bash — `tools/bash-wrapper.ps1` handles this transparently
+- No systemd — heartbeat uses Task Scheduler (`ClaudeHeartbeat` task)
+- Blog server has no auto-start service — run `~/edge/start-blog.ps1` manually or at login
+- `~/edge/` = `%USERPROFILE%\edge\` on Windows
