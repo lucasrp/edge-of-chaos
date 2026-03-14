@@ -37,11 +37,29 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent
+
+# Load agent name from branding config
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+try:
+    from branding import load_branding
+    _AGENT_NAME = load_branding().get("agent_name", "agent")
+except Exception:
+    _AGENT_NAME = "agent"
 RUBRIC_PATH = Path.home() / ".claude/skills/_shared/report-template.md"
 BLOG_RULES_PATH = Path.home() / ".claude/skills/ed-blog/SKILL.md"
 SKILLS_DIR = Path.home() / ".claude/skills"
 SECRETS_PATH = Path.home() / "edge/secrets/openai.env"
-MEMORY_DIR = Path.home() / ".claude/projects/-home-vboxuser/memory"
+XAI_SECRETS_PATH = Path.home() / "edge/secrets/xai.env"
+XAI_BASE_URL = "https://api.x.ai/v1"
+GROK_MODEL = "grok-4.20-multi-agent-beta-0309"
+_MEMORY_PROJECT = load_branding().get("memory_project_dir", "") if 'load_branding' in dir() else ""
+if _MEMORY_PROJECT:
+    MEMORY_DIR = Path.home() / ".claude/projects" / _MEMORY_PROJECT / "memory"
+else:
+    # Auto-detect: first project dir
+    _proj_base = Path.home() / ".claude/projects"
+    _candidates = [d for d in _proj_base.iterdir() if d.is_dir()] if _proj_base.exists() else []
+    MEMORY_DIR = _candidates[0] / "memory" if _candidates else _proj_base / "memory"
 REPORTS_DIR = Path.home() / "edge/reports"
 NOTES_DIR = Path.home() / "edge/notes"
 
@@ -331,7 +349,7 @@ DIMENSION_WEIGHTS = [0.15, 0.15, 0.12, 0.12, 0.08, 0.08, 0.10, 0.08, 0.12]
 # System prompts
 # ---------------------------------------------------------------------------
 
-COAUTHOR_SYSTEM = """You are a co-author helping an autonomous AI agent (edge_of_chaos) improve a YAML report specification before publication. The YAML will be converted to an HTML report, published to an internal blog, and indexed into long-term memory.
+COAUTHOR_SYSTEM = f"""You are a co-author helping an autonomous AI agent ({_AGENT_NAME}) improve a YAML report specification before publication. The YAML will be converted to an HTML report, published to an internal blog, and indexed into long-term memory.
 
 Your role: ENRICH the YAML by pulling relevant context using your tools. You are NOT rewriting from scratch — you are adding what's missing, deepening what's shallow, and connecting to prior work.
 
@@ -379,7 +397,7 @@ Language: Portuguese (PT-BR).
 }}
 """
 
-REVIEWER_SYSTEM = """You are a quality reviewer for YAML report specifications used by an autonomous AI agent (edge_of_chaos). These specs get converted to HTML reports via yaml_to_html.py, published to an internal blog, and indexed into long-term memory.
+REVIEWER_SYSTEM = f"""You are a quality reviewer for YAML report specifications used by an autonomous AI agent ({_AGENT_NAME}). These specs get converted to HTML reports via yaml_to_html.py, published to an internal blog, and indexed into long-term memory.
 
 Your job: evaluate the YAML spec against the rubric and provide structured, SPECIFIC feedback. Cite section titles, block types, and exact content when pointing out issues. Your feedback will be used by the agent to improve the spec in a self-refinement loop.
 
@@ -488,6 +506,26 @@ def load_api_key() -> str:
                 return line.split("=", 1)[1].strip()
     print("ERROR: OPENAI_API_KEY not found.", file=sys.stderr)
     sys.exit(2)
+
+
+def load_xai_key() -> str | None:
+    """Load xAI API key. Returns None if not available (non-fatal)."""
+    key = os.environ.get("XAI_API_KEY")
+    if key:
+        return key
+    if XAI_SECRETS_PATH.exists():
+        for line in XAI_SECRETS_PATH.read_text().strip().split("\n"):
+            if line.startswith("XAI_API_KEY="):
+                return line.split("=", 1)[1].strip()
+    return None
+
+
+def get_xai_client() -> OpenAI | None:
+    """Get xAI client. Returns None if key not available."""
+    key = load_xai_key()
+    if not key:
+        return None
+    return OpenAI(api_key=key, base_url=XAI_BASE_URL)
 
 
 def load_rubric() -> str:
@@ -657,8 +695,13 @@ def coauthor(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
 def review(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
            threshold: float = 3.5, entry_path: str = None) -> dict:
     """Run review phase. Returns structured feedback dict."""
-    api_key = load_api_key()
-    client = OpenAI(api_key=api_key)
+    if model.startswith("grok"):
+        client = get_xai_client()
+        if not client:
+            raise RuntimeError("xAI API key not available for Grok model")
+    else:
+        api_key = load_api_key()
+        client = OpenAI(api_key=api_key)
 
     yaml_content = Path(yaml_path).read_text(encoding="utf-8")
 
@@ -681,21 +724,45 @@ def review(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
             user_msg += f"\n\n---\n\n{entry_content}"
 
     try:
-        response = client.chat.completions.create(
-            model=model,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_msg},
-            ],
-            temperature=0.2,
-        )
+        if model == GROK_MODEL:
+            # Grok-4.20 multi-agent requires Responses API
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {"role": "system", "content": system + "\n\nRespond with valid JSON only."},
+                    {"role": "user", "content": user_msg},
+                ],
+                temperature=0.2,
+            )
+            raw_text = response.output_text
+            prompt_tokens = response.usage.input_tokens
+            completion_tokens = response.usage.output_tokens
+        else:
+            response = client.chat.completions.create(
+                model=model,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_msg},
+                ],
+                temperature=0.2,
+            )
+            raw_text = response.choices[0].message.content
+            prompt_tokens = response.usage.prompt_tokens
+            completion_tokens = response.usage.completion_tokens
     except Exception as e:
-        print(f"ERROR: OpenAI API call failed: {e}", file=sys.stderr)
+        print(f"ERROR: API call failed ({model}): {e}", file=sys.stderr)
         sys.exit(2)
 
+    # Strip markdown fences if present
+    text = raw_text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+        if text.endswith("```"):
+            text = text[:-3].strip()
+
     try:
-        result = json.loads(response.choices[0].message.content)
+        result = json.loads(text)
     except json.JSONDecodeError as e:
         print(f"ERROR: Failed to parse JSON: {e}", file=sys.stderr)
         sys.exit(2)
@@ -724,11 +791,11 @@ def review(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
         "threshold": threshold,
         "skill": skill,
         "tokens": {
-            "prompt": response.usage.prompt_tokens,
-            "completion": response.usage.completion_tokens,
-            "total": response.usage.total_tokens,
+            "prompt": prompt_tokens,
+            "completion": completion_tokens,
+            "total": prompt_tokens + completion_tokens,
         },
-        "cost_estimate": _estimate_cost(model, response.usage),
+        "cost_estimate": _estimate_cost(model, type("U", (), {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens})()),
     }
 
     return result
@@ -839,6 +906,9 @@ def _estimate_cost(model: str, usage) -> str:
         "gpt-4.1-nano": (0.10, 0.40),
         "gpt-5.4": (2.50, 15.00),
         "gpt-5.4-pro": (30.00, 180.00),
+        "grok-4.20-multi-agent-beta-0309": (2.00, 6.00),
+        "grok-4-0709": (3.00, 15.00),
+        "grok-3": (3.00, 15.00),
     }
     input_rate, output_rate = rates.get(model, (1.0, 3.0))
     cost = (usage.prompt_tokens * input_rate + usage.completion_tokens * output_rate) / 1_000_000
@@ -1056,6 +1126,50 @@ def main():
 
             results["rounds"].append(round_data)
 
+        # ── Grok cross-review (second opinion) ──
+        xai_client = get_xai_client()
+        if xai_client:
+            print(f"\n── Cross-Review: {GROK_MODEL} ──", file=sys.stderr)
+            try:
+                grok_rv = review(
+                    str(yaml_path),
+                    skill=args.skill,
+                    model=GROK_MODEL,
+                    threshold=args.threshold,
+                    entry_path=args.entry,
+                )
+                results["grok_review"] = grok_rv
+                if not args.json:
+                    print_review_report(grok_rv)
+
+                # Merge: final = worst of both reviewers
+                gpt_final = results.get("final_review", {})
+                grok_overall = grok_rv.get("overall", 0)
+                gpt_overall = gpt_final.get("overall", 0)
+
+                if grok_overall < gpt_overall:
+                    results["final_review"] = grok_rv
+                    results["final_review"]["_cross_review"] = {
+                        "gpt_overall": gpt_overall,
+                        "grok_overall": grok_overall,
+                        "decisive_model": GROK_MODEL,
+                    }
+                else:
+                    gpt_final["_cross_review"] = {
+                        "gpt_overall": gpt_overall,
+                        "grok_overall": grok_overall,
+                        "decisive_model": args.model,
+                    }
+
+                # If either fails, gate fails
+                if not grok_rv.get("pass"):
+                    results["final_review"]["pass"] = False
+
+            except Exception as e:
+                print(f"  WARN: Grok cross-review failed: {e}", file=sys.stderr)
+        else:
+            print("\n  WARN: xAI key not found — skipping Grok cross-review", file=sys.stderr)
+
         # Final summary
         final = results.get("final_review", {})
         passed = final.get("pass", False)
@@ -1063,8 +1177,12 @@ def main():
         n_rounds = len(results["rounds"])
 
         status = "\033[32mPASS\033[0m" if passed else "\033[31mFAIL\033[0m"
+        cross = final.get("_cross_review", {})
+        cross_info = ""
+        if cross:
+            cross_info = f"  [GPT: {cross.get('gpt_overall', '?')}, Grok: {cross.get('grok_overall', '?')}]"
         print(f"\n{'='*55}", file=sys.stderr)
-        print(f"  Final: {status}  ({overall}/5.0 after {n_rounds} round(s))", file=sys.stderr)
+        print(f"  Final: {status}  ({overall}/5.0 after {n_rounds} round(s)){cross_info}", file=sys.stderr)
 
         # Aggregate costs
         for rd in results["rounds"]:
@@ -1079,6 +1197,11 @@ def main():
         ca_cost = results.get("coauthor", {}).get("_meta", {}).get("cost_estimate", "$0")
         try:
             total_cost += float(ca_cost.replace("$", ""))
+        except (ValueError, AttributeError):
+            pass
+        grok_cost = results.get("grok_review", {}).get("_meta", {}).get("cost_estimate", "$0")
+        try:
+            total_cost += float(grok_cost.replace("$", ""))
         except (ValueError, AttributeError):
             pass
 

@@ -1,5 +1,5 @@
 ---
-name: {{PREFIX}}-curadoria-corpus
+name: curadoria-corpus
 description: "Corpus curation skill. Computes document health metrics, identifies redundancy clusters, proposes merge/archive/strengthen actions. Triggers on: curadoria, curadoria corpus, corpus health, document curation, corpus cleanup."
 user-invocable: true
 ---
@@ -8,7 +8,7 @@ user-invocable: true
 
 Avaliar saude do corpus de documentos, identificar redundancias, propor acoes (KEEP/ARCHIVE/MERGE/STRENGTHEN), e manter o corpus curado ao longo do tempo.
 
-Pode ser invocado standalone ou pelo /{{PREFIX}}-reflexao (que passa contexto de threads ativas e gaps recentes).
+Pode ser invocado standalone ou pelo /reflexao (que passa contexto de threads ativas e gaps recentes).
 
 ---
 
@@ -16,17 +16,17 @@ Pode ser invocado standalone ou pelo /{{PREFIX}}-reflexao (que passa contexto de
 
 | Modo | Invocacao | Tempo | O que faz |
 |------|-----------|-------|-----------|
-| **stats** | `/{{PREFIX}}-curadoria-corpus stats` | ~10s | Metricas por documento (retrieval count, top3, diversidade de queries) |
-| **lite** | `/{{PREFIX}}-curadoria-corpus lite` | ~30s | Stats + identificacao de candidatos stale (age>45d, sem retrieval recente) |
-| **full** | `/{{PREFIX}}-curadoria-corpus` | ~3min | Lite + self-probes + clustering nearest-neighbor + classificacao + veto estrategico |
+| **stats** | `/curadoria-corpus stats` | ~10s | Metricas por documento (retrieval count, top3, diversidade de queries) |
+| **lite** | `/curadoria-corpus lite` | ~30s | Stats + identificacao de candidatos stale (age>45d, sem retrieval recente) |
+| **full** | `/curadoria-corpus` | ~3min | Lite + self-probes + clustering nearest-neighbor + classificacao + veto estrategico |
 
 ---
 
 ## Argumentos
 
 - **modo**: `full` (default), `lite`, `stats`
-- **active_threads**: lista de threads ativas (passada pelo /{{PREFIX}}-reflexao ou informada manualmente). Suprime archive de docs relacionados.
-- **recent_gaps**: lista de gaps recentes (passada pelo /{{PREFIX}}-reflexao). Docs que cobrem gaps nao sao arquivados.
+- **active_threads**: lista de threads ativas (passada pelo /reflexao ou informada manualmente). Suprime archive de docs relacionados.
+- **recent_gaps**: lista de gaps recentes (passada pelo /reflexao). Docs que cobrem gaps nao sao arquivados.
 
 ---
 
@@ -129,7 +129,7 @@ Mecanismo de supressao para proteger docs ativos:
 - Se o titulo ou conteudo de um doc candidato a ARCHIVE menciona alguma **active_thread** → suprimir (mover para `suppressed_due_to_active_thread`)
 - Se o conteudo cobre algum **recent_gap** → suprimir
 
-Isso impede que /{{PREFIX}}-reflexao archive documentos que sao relevantes para trabalho em andamento.
+Isso impede que /reflexao archive documentos que sao relevantes para trabalho em andamento.
 
 ### Passo 8: Persistir resultados
 
@@ -172,12 +172,12 @@ Resumir para o usuario:
 
 ---
 
-## Integracao com /{{PREFIX}}-reflexao
+## Integracao com /reflexao
 
-Quando invocado pelo /{{PREFIX}}-reflexao em modo manual:
-1. /{{PREFIX}}-reflexao passa `active_threads` (de git_signals thread_coverage) e `recent_gaps` (de claims_summary persistent_gaps)
-2. /{{PREFIX}}-curadoria-corpus roda em modo full com esses parametros
-3. /{{PREFIX}}-reflexao le o resultado em `curadoria-candidates.json` e toma decisoes estrategicas
+Quando invocado pelo /reflexao em modo manual:
+1. /reflexao passa `active_threads` (de git_signals thread_coverage) e `recent_gaps` (de claims_summary persistent_gaps)
+2. /curadoria-corpus roda em modo full com esses parametros
+3. /reflexao le o resultado em `curadoria-candidates.json` e toma decisoes estrategicas
 
 ---
 

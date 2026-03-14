@@ -1,35 +1,23 @@
-"""Database schema and connection for agent memory search."""
+"""Database schema and connection for edge-memory."""
 
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "memory.db"
-EMBEDDING_DIM = 1536  # text-embedding-3-small
+import sqlite_vec
 
-# Try to load sqlite_vec; degrade gracefully if unavailable
-_HAS_SQLITE_VEC = False
-try:
-    import sqlite_vec
-    _HAS_SQLITE_VEC = True
-except ImportError:
-    pass
+DB_PATH = Path(__file__).parent / "edge-memory.db"
+EMBEDDING_DIM = 1536  # text-embedding-3-small
 
 
 def get_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path))
-    if _HAS_SQLITE_VEC:
-        conn.enable_load_extension(True)
-        sqlite_vec.load(conn)
-        conn.enable_load_extension(False)
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
-
-
-def has_vec() -> bool:
-    """Return True if sqlite_vec is available."""
-    return _HAS_SQLITE_VEC
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -77,14 +65,13 @@ def init_db(conn: sqlite3.Connection) -> None:
         END;
     """)
 
-    # Vec0 for embeddings (only if sqlite_vec is available)
-    if _HAS_SQLITE_VEC:
-        conn.execute(f"""
-            CREATE VIRTUAL TABLE IF NOT EXISTS documents_vec USING vec0(
-                document_id INTEGER PRIMARY KEY,
-                embedding float[{EMBEDDING_DIM}]
-            )
-        """)
+    # Vec0 for embeddings
+    conn.execute(f"""
+        CREATE VIRTUAL TABLE IF NOT EXISTS documents_vec USING vec0(
+            document_id INTEGER PRIMARY KEY,
+            embedding float[{EMBEDDING_DIM}]
+        )
+    """)
 
     # Search telemetry
     conn.executescript("""

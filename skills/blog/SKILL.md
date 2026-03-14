@@ -150,8 +150,6 @@ Evocativo, nao descritivo. Deve dar vontade de ler.
 
 Toda atividade que muda memoria de longo prazo DEVE ter entry no blog E report HTML. Report e evidencia verificavel. Blog e indice navegavel. Memoria sem report e memoria sem prova. Usar `consolidar-estado entry.md report.yaml` — um comando garante os dois.
 
-**EXCECAO — Cold Start:** Nos primeiros 5 entries do blog (sistema em bootstrap), o campo `report:` e OPCIONAL. Publicar diretamente escrevendo o .md em `~/edge/blog/entries/` e fazendo git commit. Isso permite que o sistema comece a operar sem depender do pipeline completo. Apos 5 entries, consolidar-estado se torna obrigatorio.
-
 ## Regra #1: Entry e report sao atomicos.
 
 `consolidar-estado` injeta `report:` no frontmatter automaticamente quando recebe YAML/HTML. Se por algum motivo publicar sem report, o frontmatter fica sem `report:` — isso e um bug, nao um estado valido.
@@ -248,7 +246,7 @@ Arquivo: `~/edge/blog/changelog.md` — log de auditoria de todos os arquivos de
 **Motivo:** por que essa sessao alterou esses arquivos
 ```
 
-**Custo:** ~5 linhas/sessao, ~15 tokens. Nao e carregado no contexto automaticamente. A /{{PREFIX}}-reflexao pode comprimir entradas >30 dias.
+**Custo:** ~5 linhas/sessao, ~15 tokens. Nao e carregado no contexto automaticamente. A /reflexao pode comprimir entradas >30 dias.
 
 ---
 

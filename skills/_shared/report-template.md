@@ -1,6 +1,6 @@
 # Template de Relatorio — Referencia Compartilhada
 
-Usado por: /{{PREFIX}}-pesquisa, /{{PREFIX}}-descoberta, /{{PREFIX}}-lazer, /{{PREFIX}}-estrategia, /{{PREFIX}}-planejar, /{{PREFIX}}-reflexao.
+Usado por: /ed-pesquisa, /ed-descoberta, /ed-lazer, /ed-estrategia, /ed-planejar, /ed-reflexao.
 Cada skill define suas proprias secoes obrigatorias e regras de ouro 1-3. Este arquivo define o que e COMUM a todas.
 
 ---
@@ -137,7 +137,7 @@ SVG nao e so para numeros — qualquer informacao que comunica melhor como image
 
 ## Secoes Finais Obrigatorias
 
-### Penultima Secao: "O que Nao Sei" (OBRIGATORIA — exceto /{{PREFIX}}-lazer)
+### Penultima Secao: "O que Nao Sei" (OBRIGATORIA — exceto /ed-lazer)
 
 - `gap-table` com gaps abertos (status: aberto/parcial)
 - `callout` variant=danger para incertezas criticas (que podem invalidar uma recomendacao)
@@ -166,7 +166,7 @@ SVG nao e so para numeros — qualquer informacao que comunica melhor como image
 
 ## Sanity Check Adversarial (edge-consult — OBRIGATORIO em TODA skill)
 
-ANTES de gerar o YAML do relatorio, submeter as conclusoes/recomendacoes ao `edge-consult` para deliberacao cross-model. cross-model reviewer (modelo diferente do autor) encontra furos, biases, premissas fracas.
+ANTES de gerar o YAML do relatorio, submeter as conclusoes/recomendacoes ao `edge-consult` para deliberacao cross-model. GPT-5.4 (modelo diferente do autor) encontra furos, biases, premissas fracas.
 
 ```bash
 # Adversarial (default) — sintetizar conclusoes em 2-3 frases
@@ -179,11 +179,11 @@ edge-consult --mode collab "Estou travado em X, que angulos explorar?"
 **Protocolo de resposta:**
 1. Ler a critica com honestidade
 2. Se o argumento e valido → ajustar conclusoes/YAML
-3. Se mantiver posicao → registrar no relatorio como `callout` variant=info: "Sanity check cross-model reviewer: [objecao]. Resposta: [por que mantenho]."
+3. Se mantiver posicao → registrar no relatorio como `callout` variant=info: "Sanity check GPT-5.4: [objecao]. Resposta: [por que mantenho]."
 
 **No relatorio:** incluir bloco mostrando o que foi desafiado e como respondeu. Conviccao testada > conviccao nao desafiada.
 
-**Custo:** ~$0.02/consulta. **Log:** ~/edge/logs/consult/ (para /{{PREFIX}}-reflexao revisar).
+**Custo:** ~$0.02/consulta. **Log:** ~/edge/logs/consult/ (para /ed-reflexao revisar).
 
 ---
 
@@ -201,7 +201,7 @@ review-gate /tmp/spec-[skill]-[slug].yaml --skill [skill]
 # Se PASS: publicar
 ```
 
-O review gate avalia 6 dimensoes (structural_completeness, content_depth, writing_quality, visualization, intellectual_honesty, internal_consistency) via LLM-as-judge. Custo: ~$0.002/review. Threshold: 3.5/5.
+O review gate avalia 6 dimensoes (structural_completeness, content_depth, writing_quality, visualization, intellectual_honesty, internal_consistency) via GPT-4o-mini. Custo: ~$0.002/review. Threshold: 3.5/5.
 
 **IMPORTANTE:** O `consolidar-estado` tambem roda o review gate automaticamente (Phase 0.5). Se o YAML nao passar, a publicacao e bloqueada. Use `--skip-review` para forcar (so quando ja revisou manualmente).
 

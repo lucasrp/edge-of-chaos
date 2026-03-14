@@ -1,5 +1,5 @@
 ---
-name: {{PREFIX}}-prd
+name: prd
 description: "Generate a Product Requirements Document (PRD) for a new feature. Use when planning a feature, starting a new project, or when asked to create a PRD. Triggers on: create a prd, write prd for, plan this feature, requirements for, spec out."
 user-invocable: true
 ---
@@ -23,7 +23,7 @@ Create detailed Product Requirements Documents that are clear, actionable, and s
 
 ## Step 0.5: Buscar contexto externo (opcional)
 
-Se a feature envolve tecnologias ou padroes que valem pesquisa, rodar `/{{PREFIX}}-fontes planejar "[tema da feature]"` para encontrar exemplos, padroes, e gotchas antes de escrever o PRD.
+Se a feature envolve tecnologias ou padroes que valem pesquisa, rodar `/fontes planejar "[tema da feature]"` para encontrar exemplos, padroes, e gotchas antes de escrever o PRD.
 
 ## Step 1: Clarifying Questions
 
@@ -90,7 +90,7 @@ Each story should be small enough to implement in one focused session.
 - [ ] **[UI stories only]** Verify in browser using dev-browser skill
 ```
 
-**Important:**
+**Important:** 
 - Acceptance criteria must be verifiable, not vague. "Works correctly" is bad. "Button shows confirmation dialog before deleting" is good.
 - **For any story with UI changes:** Always include "Verify in browser using dev-browser skill" as acceptance criteria. This ensures visual verification of frontend work.
 

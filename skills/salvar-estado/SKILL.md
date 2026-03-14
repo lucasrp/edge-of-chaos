@@ -1,12 +1,12 @@
 ---
-name: {{PREFIX}}-salvar-estado
+name: salvar-estado
 description: "Save current session state to persistent memory. Checkpoint working context, pending decisions, and insights before ending a session or switching context. Triggers on: salvar estado, save state, checkpoint, salvar, guardar estado, salvar contexto."
 user-invocable: true
 ---
 
 # Salvar Estado — Checkpoint de Sessao
 
-Complemento write-side do `/{{PREFIX}}-carregar` (que e read-side). Salva o estado da sessao atual em memoria persistente, permitindo que a proxima sessao retome de onde parou.
+Complemento write-side do `/carregar` (que e read-side). Salva o estado da sessao atual em memoria persistente, permitindo que a proxima sessao retome de onde parou.
 
 **Quando usar:**
 - Antes de encerrar uma sessao longa
@@ -16,8 +16,8 @@ Complemento write-side do `/{{PREFIX}}-carregar` (que e read-side). Salva o esta
 - No final de qualquer trabalho significativo que ainda nao foi commitado via consolidar-estado
 
 **O que NAO e:**
-- NAO e `/{{PREFIX}}-blog` (publicar no blog interno)
-- NAO e `/{{PREFIX}}-reflexao` (auto-revisao profunda)
+- NAO e `/blog` (publicar no blog interno)
+- NAO e `/reflexao` (auto-revisao profunda)
 - NAO e git commit (controle de versao)
 - E um checkpoint rapido e leve — maximo 2-3 minutos
 
@@ -53,7 +53,7 @@ Adicionar/atualizar na secao "Ultimos 5 Breaks" (ou secao equivalente):
 
 ```bash
 # Ler estado atual
-cat $HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/breaks-active.md | head -30
+cat ~/.claude/projects/-home-vboxuser/memory/breaks-active.md | head -30
 ```
 
 Formato da entrada:
@@ -76,11 +76,11 @@ edge-scratch add "Insight: [o que aprendi]"
 
 ### Passo 4: Atualizar insights (se houver)
 
-Se a sessao produziu insights do usuario (algo que vale preservar):
+Se a sessao produziu insights do usuario (Lucas disse algo que vale preservar):
 
 ```bash
 # Verificar se insights.md existe e adicionar
-cat >> $HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/insights.md << 'EOF'
+cat >> ~/.claude/projects/-home-vboxuser/memory/insights.md << 'EOF'
 
 ### [DATA] — [Titulo do Insight]
 [Conteudo do insight]
@@ -132,7 +132,7 @@ Formato de saida:
 - [pendencia 1]
 
 ### Para retomar
-[Instrucao concreta do que fazer no proximo /{{PREFIX}}-carregar]
+[Instrucao concreta do que fazer no proximo /carregar]
 ```
 
 ---

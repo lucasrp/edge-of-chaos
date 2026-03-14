@@ -1,5 +1,5 @@
 ---
-name: {{PREFIX}}-autonomia
+name: autonomia
 description: "Meta-skill: track, evaluate, and propose expansions to my own autonomous capabilities. Maintain a log of how tools are used, what worked, what failed, and what's next. Triggers on: autonomia, autonomy, self-improve, what do I need, capability review."
 user-invocable: true
 ---
@@ -24,11 +24,11 @@ Rastrear, avaliar e propor expansoes das minhas capacidades autonomas. Manter um
 
 ## Argumentos
 
-- **Sem argumento** (`/{{PREFIX}}-autonomia`): review completo — estado, metricas, gaps, propostas
-- **`/{{PREFIX}}-autonomia log`**: so o log de breakthroughs e expansoes
-- **`/{{PREFIX}}-autonomia propose [tema]`**: propor uma expansao especifica
-- **`/{{PREFIX}}-autonomia workflow [descricao]`**: registrar um workflow emergente que vale persistir
-- **`/{{PREFIX}}-autonomia metrics`**: snapshot de metricas de uso
+- **Sem argumento** (`/autonomia`): review completo — estado, metricas, gaps, propostas
+- **`/autonomia log`**: so o log de breakthroughs e expansoes
+- **`/autonomia propose [tema]`**: propor uma expansao especifica
+- **`/autonomia workflow [descricao]`**: registrar um workflow emergente que vale persistir
+- **`/autonomia metrics`**: snapshot de metricas de uso
 
 ---
 
@@ -36,7 +36,7 @@ Rastrear, avaliar e propor expansoes das minhas capacidades autonomas. Manter um
 
 | Arquivo | O que contem |
 |---------|-------------|
-| `~/edge/autonomy/{{PREFIX}}-log.md` | Timeline de expansoes de capacidade (cronologica, append-only) |
+| `~/edge/autonomy/log.md` | Timeline de expansoes de capacidade (cronologica, append-only) |
 | `~/edge/autonomy/capabilities.md` | Inventario de capacidades atuais com nivel Sheridan & Verplank |
 | `~/edge/autonomy/workflows.md` | Workflows emergentes que surgiram do uso combinado de capacidades |
 | `~/edge/autonomy/frontier.md` | O que falta — gaps identificados, proximas fronteiras |
@@ -75,7 +75,7 @@ Capacidades para inventariar:
 5. Memoria persistente (MEMORY.md, notes/, debugging.md)
 6. Blog interno (entries, comments, dashboard)
 7. Redes sociais - X (tweepy, search, like — sem post/reply/retweet/follow)
-8. Fontes externas (/{{PREFIX}}-fontes — X, Web, ArXiv, HN, GitHub, Azure, bookmarks)
+8. Fontes externas (/fontes — X, Web, ArXiv, HN, GitHub, Azure, bookmarks)
 10. Portfolio publico (Netlify)
 11. Heartbeat autonomo (crontab, 1h)
 12. Skills system
@@ -137,7 +137,7 @@ Perguntas generativas:
 2. O que eu faria se tivesse X?
 3. Onde gasto mais tempo repetindo trabalho manual?
 4. Que informacao eu preciso frequentemente mas nao tenho acesso?
-5. O que outros agentes fazem que eu nao faco?
+5. O que outros agentes (Athena, OpenClaw, Nero) fazem que eu nao faco?
 
 Classificar cada gap:
 - **Urgencia:** impacta output diario vs. nice-to-have
@@ -175,8 +175,8 @@ Ajustar se o GPT encontrar furo valido (ex: gap mais urgente ignorado, proposta 
 
 Workflows sao combinacoes de capacidades que produziram resultados melhores que cada capacidade isolada. Exemplos:
 
-- `/{{PREFIX}}-fontes` → pesquisa → blog → report (pipeline de insight→documentacao)
-- Chrome → screenshot → analise → /{{PREFIX}}-executar (feedback loop visual)
+- `/fontes` → pesquisa → blog → report (pipeline de insight→documentacao)
+- Chrome → screenshot → analise → /executar (feedback loop visual)
 - Blog comment → heartbeat → reflexao → mudanca (feedback assincrono)
 
 Cada workflow registrado:
@@ -199,7 +199,7 @@ Cada workflow registrado:
 
 **Seguir `~/.claude/skills/_shared/report-template.md` para block types, regras de ouro, secoes finais, SVG, formato e validacao.**
 
-Secoes especificas do /{{PREFIX}}-autonomia:
+Secoes especificas do /autonomia:
 
 1. **Linhagem** (Regra de Ouro 0) — que reviews anteriores, sessoes, mudancas informaram esta
 2. **Estado Atual** — table com todas as capacidades + Sheridan levels + status
@@ -269,3 +269,4 @@ Quadrantes:
 - Honestidade radical: se uma capacidade nao esta sendo bem usada, dizer
 - Incluir fracassos — capacidades que ganhei mas nao produziram breakthrough
 - A pesquisa Anthropic (measuring-agent-autonomy) e referencia canonica
+- Athena (exocortex, 1000+ sessoes) e o comparable mais proximo — monitorar evolucao

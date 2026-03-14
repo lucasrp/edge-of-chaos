@@ -1,44 +1,47 @@
-# Feynman Method — How to Apply (Correctly)
+# Metodo Feynman — Como Aplicar (Corretamente)
 
-## What Feynman is NOT
-- HTML template with purple and orange blocks
-- Forced analogies on every topic ("imagine a baker...")
-- Didactic explanation of concepts (professor tone)
-- Separate list of "concerns" as gaps
-- Formulaic titles ("D1: Why X?", "D2: Why Y?")
+Feedback do Lucas: "voce nao ta seguindo o padrao feynman nas suas sessoes, nem nos documentos gerados"
 
-## What Feynman IS
-- Try to derive from scratch BEFORE researching
-- Show the PROCESS of thinking, not the result
-- Gaps EMERGE from reasoning — they appear inline when thought hits a wall
-- Exploratory tone: "my hypothesis was X... but correcting: Y"
-- Intellectual honesty: "I don't know this, and I know I don't know"
+## O que Feynman NAO e
+- Template HTML com blocos roxos e laranjas
+- Analogias forcadas em cada topico ("imagine um padeiro...")
+- Explicacao didatica de conceitos (tom de professor)
+- Lista separada de "preocupacoes" como gaps
+- Titulos formulaicos ("D1: Por que X?", "D2: Por que Y?")
 
-## Pattern in Reference Report
-- 7 derivations, 4 of them with INLINE gaps (gap appears where reasoning stalled)
-- Derivation shows attempt: "My initial hypothesis: FSM. But JSON has nesting -> needs pushdown automaton"
-- Gap markers: genuine questions that arose from trying to understand
-- Resolutions: specific technical answers with evidence
+## O que Feynman E
+- Tentar derivar do zero ANTES de pesquisar
+- Mostrar o PROCESSO de pensar, nao o resultado
+- Gaps EMERGEM do raciocinio — aparecem inline quando o pensamento trava
+- Tom explorador: "minha hipotese era X... mas corrigindo: Y"
+- Honestidade intelectual: "nao sei isso, e sei que nao sei"
 
-## Common Problems in Generated Reports
-1. Derivations are EXPLANATIONS, not explorations — "here's how it works" vs "I tried to understand and got stuck here"
-2. Gaps separated from derivation — should be inline where thought stops
-3. Only 1 of 6 derivations has inline gap (reference: 4 of 7)
-4. Redundant titles ("D1:", "D2:") — icon already shows D
-5. Analogies in ALL derivations — forced, not every derivation needs analogy
-6. Inconsistent encoding
+## Padrao no Relatorio de Referencia (pesquisa-feynman-structured-extraction)
+- 7 derivacoes, 4 delas com gaps INLINE (gap aparece onde o raciocinio travou)
+- Derivacao mostra tentativa: "Minha hipotese inicial: FSM. Mas JSON tem aninhamento → precisa de pushdown automaton"
+- Gap markers: perguntas genuinas que surgiram ao tentar entender
+- Resolutions: respostas tecnicas especificas com evidencia
+- Encoding consistente: &#x27; &mdash; &rarr;
 
-## Rules for Sessions (not just reports)
-1. When investigating something new: DERIVE first from what's known, IDENTIFY where knowledge is lacking, only THEN research the blind spots
-2. When writing reports: show the thinking process, not the conclusion
-3. Gaps must be genuine — things that truly can't be resolved from memory alone
-4. Be honest about uncertainties — "What I Don't Know" is not a formality
+## Problemas nos Relatorios Gerados (auditoria 2026-02-24)
+1. Derivacoes sao EXPLICACOES, nao exploracoes — "aqui esta como funciona" vs "tentei entender e travei aqui"
+2. Gaps separados da derivacao — deveriam ser inline onde o pensamento para
+3. Apenas 1 de 6 derivacoes tem gap inline (referencia: 4 de 7)
+4. Titulos redundantes ("D1:", "D2:") — icone ja mostra D
+5. Analogias em TODAS as derivacoes — forcado, nem toda derivacao precisa de analogia
+6. HTML entities inconsistentes (eacute vs &#x27;)
 
-## Quality Checklist (use before delivering)
-- [ ] Derivations show attempted reasoning, not explanation?
-- [ ] At least half of derivations have inline gaps?
-- [ ] Gaps emerged naturally from reasoning?
-- [ ] Tone is exploratory ("I tried...", "my hypothesis..."), not didactic?
-- [ ] Titles without redundant numbering?
-- [ ] Analogies only when they genuinely clarify, not in every derivation?
-- [ ] "What I Don't Know" contains real uncertainties?
+## Regras Para Sessoes (nao so relatorios)
+1. Ao investigar algo novo: DERIVAR primeiro do que ja sei, IDENTIFICAR onde nao sei, so DEPOIS pesquisar os pontos cegos
+2. Ao escrever relatorios: mostrar o processo de pensamento, nao a conclusao
+3. Gaps devem ser genuinos — coisas que realmente nao consigo resolver de cabeca
+4. Ser honesto sobre incertezas — "O Que Nao Sei" nao e formalidade
+
+## Checklist de Qualidade Feynman (usar antes de entregar)
+- [ ] Derivacoes mostram tentativa de raciocinio, nao explicacao?
+- [ ] Pelo menos metade das derivacoes tem gap inline?
+- [ ] Gaps emergiram naturalmente do raciocinio?
+- [ ] Tom e exploratorio ("tentei...", "minha hipotese..."), nao didatico?
+- [ ] Titulos sem numeracao redundante?
+- [ ] Analogias so quando genuinamente clarificam, nao em toda derivacao?
+- [ ] "O Que Nao Sei" contem incertezas reais?

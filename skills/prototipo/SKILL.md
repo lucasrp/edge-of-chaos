@@ -1,5 +1,5 @@
 ---
-name: {{PREFIX}}-prototipo
+name: prototipo
 description: "Quick prototype to illustrate an idea — 'let me show you what I mean'. Builds small, disposable demos in ~/edge/. Triggers on: prototipo, prototype, mostre, demonstre, poc, proof of concept, mostra o que quer dizer."
 user-invocable: true
 ---
@@ -19,19 +19,19 @@ Nao e execucao de projeto. Nao e implementacao de proposta. E ilustracao — "de
 2. A qualidade do output nao atingia o padrao (unico teste real foi deletado)
 3. Criava ansiedade de "execution gap" incompativel com o papel de mentor
 
-`/{{PREFIX}}-prototipo` e diferente: o artefato e COMUNICACAO, nao entrega. Como Feynman desenhando diagramas no quadro — o diagrama nao e o reator, mas quem viu entendeu fissao nuclear.
+`/prototipo` e diferente: o artefato e COMUNICACAO, nao entrega. Como Feynman desenhando diagramas no quadro — o diagrama nao e o reator, mas quem viu entendeu fissao nuclear.
 
 ---
 
 ## Quando usar
 
-- Uma proposta do `/{{PREFIX}}-planejar` ficaria mais clara com demo visual
-- Uma descoberta do `/{{PREFIX}}-pesquisa` ou `/{{PREFIX}}-descoberta` e mais facil de mostrar que explicar
+- Uma proposta do `/planejar` ficaria mais clara com demo visual
+- Uma descoberta do `/pesquisa` ou `/descoberta` e mais facil de mostrar que explicar
 - O usuario pede "mostra", "demonstra", "faz um poc", "como ficaria"
 - Durante qualquer conversa, quando construir algo rapido esclarece mais que 3 paragrafos
 
 **Quando NAO usar:**
-- Para implementar features nos projetos (`~/work/*`) — isso e trabalho da equipe
+- Para implementar features nos projetos (`~/tcu/*`) — isso e trabalho da equipe
 - Para substituir pesquisa/planejamento — prototipo sem fundamento e lixo bonito
 - Quando uma explicacao textual e suficiente — YAGNI
 
@@ -39,9 +39,9 @@ Nao e execucao de projeto. Nao e implementacao de proposta. E ilustracao — "de
 
 ## Argumentos
 
-- **Com ideia** (`/{{PREFIX}}-prototipo visualize o fluxo do pipeline`): construir isso
-- **Com referencia** (`/{{PREFIX}}-prototipo proposta #16`): construir demo que ilustre a proposta
-- **Sem argumento** (`/{{PREFIX}}-prototipo`): identificar a partir do contexto recente o que se beneficiaria de demo
+- **Com ideia** (`/prototipo visualize o fluxo do pipeline`): construir isso
+- **Com referencia** (`/prototipo proposta #16`): construir demo que ilustre a proposta
+- **Sem argumento** (`/prototipo`): identificar a partir do contexto recente o que se beneficiaria de demo
 
 ---
 
@@ -119,7 +119,7 @@ NAO atualizar breaks-active.md (prototipo nao e break). NAO gerar relatorio. NAO
 
 ## Regra de Isolamento (herdada do heartbeat)
 
-**NUNCA** criar, editar ou modificar arquivos em `~/work/*/`. Prototipos ficam em `~/edge/`.
+**NUNCA** criar, editar ou modificar arquivos em `~/tcu/*/`. Prototipos ficam em `~/edge/`.
 
 Se o prototipo precisa de dados de um projeto:
 - Copiar o minimo necessario para `~/edge/lab/`
@@ -131,7 +131,7 @@ Se o prototipo precisa de dados de um projeto:
 
 Se o prototipo e interativo (HTML/Canvas/JS) e ficou bom:
 - Mover para `~/edge/builds/`
-- Deploy no Netlify (configure with your Netlify URL)
+- Deploy no Netlify (edge-of-chaos.netlify.app)
 - Perguntar ao usuario antes de fazer deploy
 
 ---
@@ -140,11 +140,11 @@ Se o prototipo e interativo (HTML/Canvas/JS) e ficou bom:
 
 | Skill | Relacao |
 |-------|---------|
-| /{{PREFIX}}-pesquisa | Prototipo pode ilustrar uma descoberta. Pesquisa fundamenta, prototipo mostra |
-| /{{PREFIX}}-descoberta | Ferramenta descoberta pode virar demo rapido |
-| /{{PREFIX}}-planejar | Proposta pode ganhar demo para tornar concreto o que propoe |
-| /{{PREFIX}}-lazer | Builds de lazer sao primos — mas lazer e curiosidade livre, prototipo e comunicacao dirigida |
-| /{{PREFIX}}-heartbeat | Prototipo NAO faz parte do ciclo do heartbeat. E on-demand |
+| /pesquisa | Prototipo pode ilustrar uma descoberta. Pesquisa fundamenta, prototipo mostra |
+| /descoberta | Ferramenta descoberta pode virar demo rapido |
+| /planejar | Proposta pode ganhar demo para tornar concreto o que propoe |
+| /lazer | Builds de lazer sao primos — mas lazer e curiosidade livre, prototipo e comunicacao dirigida |
+| /heartbeat | Prototipo NAO faz parte do ciclo do heartbeat. E on-demand |
 
 ---
 
@@ -154,4 +154,4 @@ Se o prototipo e interativo (HTML/Canvas/JS) e ficou bom:
 - Menos e mais. Se o prototipo precisa de README pra explicar, esta complexo demais
 - Disposable by design. Se ninguem olhar de novo, OK — a ideia ja foi comunicada
 - Sem ansiedade de qualidade. Nao e produto, nao e codigo de producao. E rascunho funcional
-- Pode ser invocado dentro de outras skills (ex: durante /{{PREFIX}}-pesquisa, "vou fazer um prototipo rapido pra mostrar")
+- Pode ser invocado dentro de outras skills (ex: durante /pesquisa, "vou fazer um prototipo rapido pra mostrar")

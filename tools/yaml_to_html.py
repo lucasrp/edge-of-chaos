@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Converte YAML estruturado para HTML (conteudo do <main>) for reports.
+Converte YAML estruturado para HTML (conteudo do <main>) para relatorios.
 
 Uso:
     python3 yaml_to_html.py spec.yaml --output /tmp/content.html
@@ -202,7 +202,7 @@ def render_flow_example(b):
     parts.append(
         f'<pre style="font-family: \'Courier New\', monospace; font-size: 12px; '
         f'line-height: 1.55; background: #DEF7EC; padding: 12px; border-radius: 6px; '
-        f'border-left: 3px solid var(--accent-green);">'
+        f'border-left: 3px solid var(--brand-green, #38a169);">'
         f'{render_pre(b["output"])}</pre>'
     )
 
@@ -261,7 +261,10 @@ def render_comparison(b):
 def render_table(b):
     highlight = set(b.get("highlight_rows", []))
     score_row_idx = b.get("score_row")
-    parts = ['<div class="table-wrapper">', '<table>', '<thead>', '<tr>']
+    parts = ['<div class="table-wrapper">']
+    if b.get("title"):
+        parts.append(f'<p style="font-weight:600;font-size:14px;margin-bottom:8px;">{render_text(b["title"])}</p>')
+    parts.extend(['<table>', '<thead>', '<tr>'])
     for h in b.get("headers", []):
         parts.append(f'<th>{render_text(h)}</th>')
     parts.append('</tr></thead><tbody>')
@@ -275,7 +278,13 @@ def render_table(b):
         for cell in row:
             parts.append(f'<td>{render_text(str(cell))}</td>')
         parts.append('</tr>')
-    parts.append('</tbody></table></div>')
+    parts.append('</tbody></table>')
+    if b.get("note"):
+        parts.append(
+            f'<p style="font-size: 12px; color: var(--gray-500); margin-top: 4px;">'
+            f'{render_text(b["note"])}</p>'
+        )
+    parts.append('</div>')
     return "\n".join(parts)
 
 
@@ -423,12 +432,12 @@ def render_next_steps_grid(b):
         parts.append('<div class="next-step-card">')
         # Support both "number" and "phase"/"priority" as the badge
         badge = step.get("number") or step.get("phase") or step.get("priority") or step.get("owner") or ""
-        title = step.get("title") or step.get("action") or ""
+        title = step.get("title") or step.get("action") or step.get("label") or ""
         parts.append(
             f'<span class="step-number">{html.escape(str(badge))}</span>'
             f'<span class="step-title">{render_text(title)}</span>'
         )
-        desc = step.get("description") or step.get("text") or step.get("detail") or ""
+        desc = step.get("description") or step.get("text") or step.get("detail") or step.get("content") or ""
         deadline = step.get("deadline") or ""
         if deadline:
             desc = f"{desc} ({deadline})" if desc else deadline
@@ -636,7 +645,7 @@ BLOCK_SCHEMAS = {
     "paragraph": {
         "required": ["text"],
         "optional": ["style"],
-        "synonyms": {},
+        "synonyms": {"content": "text", "description": "text", "body": "text"},
         "container_field": None,
     },
     "subsection": {
@@ -683,7 +692,7 @@ BLOCK_SCHEMAS = {
     },
     "table": {
         "required": ["headers", "rows"],
-        "optional": ["highlight_rows", "score_row"],
+        "optional": ["highlight_rows", "score_row", "title", "note"],
         "synonyms": {},
         "container_field": ("rows",),
     },
@@ -861,7 +870,46 @@ def get_validation_error_count() -> int:
 
 
 _BLOCK_TYPE_ALIASES = {
+    # Paragraph aliases
+    "text": "paragraph",
+    "p": "paragraph",
+    "body": "paragraph",
+    # Table aliases
+    "key-value": "table",
+    "kv": "table",
+    "data-table": "table",
+    "stat-row": "table",
+    # Metrics aliases
+    "metrics": "metrics-grid",
+    "metric-card": "metrics-grid",
+    "metric-cards": "metrics-grid",
+    "kpi-row": "metrics-grid",
+    "kpi-grid": "metrics-grid",
+    "stats": "metrics-grid",
+    # Card aliases
+    "numbered-cards": "numbered-card",
+    "step-card": "numbered-card",
     "steps": "next-steps-grid",
+    # Code aliases
+    "code": "code-block",
+    "code-snippet": "code-block",
+    # Raw HTML aliases
+    "custom-html": "raw-html",
+    "html": "raw-html",
+    "svg": "raw-html",
+    # List aliases
+    "bullet-list": "list",
+    "bullets": "list",
+    "ordered-list": "list",
+    # Comparison aliases
+    "pros-cons": "comparison",
+    "compare": "comparison",
+    # Callout aliases
+    "note": "callout",
+    "warning": "callout",
+    "info": "callout",
+    "alert": "callout",
+    "tip": "callout",
 }
 
 
@@ -880,7 +928,7 @@ def render_block(block: dict) -> str:
         _log_render_event(block_type, "unknown_block_type", f"Block type '{block_type}' has no renderer")
         return f'<!-- unknown block type: {html.escape(block_type)} -->'
 
-    # Check for synonym usage (log before validation normalizes them away)
+    # Apply field synonyms (e.g. content → text for paragraph)
     schema = BLOCK_SCHEMAS.get(block_type)
     if schema:
         for syn, canonical in schema.get("synonyms", {}).items():
@@ -888,6 +936,7 @@ def render_block(block: dict) -> str:
                 _log_render_event(block_type, "synonym_used",
                                   f"'{syn}' usado em vez de '{canonical}' — aceito via synonym",
                                   fields=sorted(k for k in block if k != "type"))
+                block[canonical] = block.pop(syn)
 
     # Pre-render validation
     warnings = _validate_block(block_type, block)

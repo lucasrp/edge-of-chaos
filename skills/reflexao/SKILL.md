@@ -1,5 +1,5 @@
 ---
-name: {{PREFIX}}-reflexao
+name: reflexao
 description: "Self-review and feedback loop. Review recent sessions, process user feedback, identify patterns, update own files. Triggers on: reflexao, reflect, review sessions, process feedback, self-review."
 user-invocable: true
 ---
@@ -14,9 +14,9 @@ Revisao autonoma com 3 fontes de sinal: **git archaeology** (git_signals.py), **
 
 | Modo | Duracao | Quando | Output |
 |------|---------|--------|--------|
-| **heartbeat-normal** | < 90s | Chamado pelo /{{PREFIX}}-heartbeat (rotina) | Max 3 insights acionaveis |
+| **heartbeat-normal** | < 90s | Chamado pelo /heartbeat (rotina) | Max 3 insights acionaveis |
 | **heartbeat-escalated** | ate 5min | Anomalia detectada durante heartbeat-normal | Insights + transcript sampling + 1 entrada em debugging.md |
-| **manual** | 15-20min | `/{{PREFIX}}-reflexao` invocado pelo usuario | Analise completa + curadoria + blog + relatorio HTML |
+| **manual** | 15-20min | `/reflexao` invocado pelo usuario | Analise completa + curadoria + blog + relatorio HTML |
 
 ### Triggers de Escalacao (normal → escalado)
 
@@ -28,29 +28,29 @@ Escalar para heartbeat-escalated se QUALQUER condicao:
 
 ---
 
-## Arquivos que /{{PREFIX}}-reflexao Atualiza
+## Arquivos que /reflexao Atualiza
 
 | Arquivo | Quando |
 |---------|--------|
-| `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/reflexao-log.md` | **SEMPRE** — log de execucao |
-| `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/debugging.md` | Erros novos ou recorrentes (passo de crossref) |
-| `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/MEMORY.md` | Conhecimento consolidado (manual mode) |
+| `~/.claude/projects/-home-vboxuser/memory/reflexao-log.md` | **SEMPRE** — log de execucao |
+| `~/.claude/projects/-home-vboxuser/memory/debugging.md` | Erros novos ou recorrentes (passo de crossref) |
+| `~/.claude/projects/-home-vboxuser/memory/MEMORY.md` | Conhecimento consolidado (manual mode) |
 | `~/edge/state/ops-hotspots.json` | Regenerado por ledger_rollup.py |
 | `~/edge/logs/yaml-render.jsonl` | Log persistente de validação do yaml_to_html.py (synonym_used, unknown_fields, empty_render) |
 | `~/edge/logs/skill-steps.jsonl` | Log de passos executados/pulados por skill (edge-skill-step) |
 | `~/edge/logs/state-lint.jsonl` | Log de achados de consistência entre arquivos de estado (edge-state-lint) |
 | `~/edge/state/git-signals.json` | Regenerado por git_signals.py |
 | `~/edge/state/curadoria-candidates.json` | Regenerado por curadoria_compute.py (manual mode) |
-| `~/work/CLAUDE.md` | Prioridades, feedback processado (ownership exclusivo) |
+| `~/tcu/CLAUDE.md` | Prioridades, feedback processado (ownership exclusivo) |
 | `~/.claude/skills/*/SKILL.md` | Se protocolo precisa ajuste |
-| `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/personality.md` | Descobertas adotadas |
-| `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/descobertas.md` | Marcar como ADOTADA/ARQUIVADA |
+| `~/.claude/projects/-home-vboxuser/memory/personality.md` | Descobertas adotadas |
+| `~/.claude/projects/-home-vboxuser/memory/descobertas.md` | Marcar como ADOTADA/ARQUIVADA |
 
 ---
 
 ## Log de Reflexao
 
-Arquivo: `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/reflexao-log.md`
+Arquivo: `~/.claude/projects/-home-vboxuser/memory/reflexao-log.md`
 
 Cada execucao adiciona uma entrada. Se o arquivo nao existir, criar com header:
 ```markdown
@@ -130,7 +130,7 @@ Verificar:
 
 ### HN-3: Crossref debugging.md
 
-Ler `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/debugging.md`.
+Ler `~/.claude/projects/-home-vboxuser/memory/debugging.md`.
 
 Cruzar com achados de HN-1 e HN-2:
 - Incidente em `codify_now` que JA tem entrada → atualizar ocorrencia
@@ -140,8 +140,8 @@ Cruzar com achados de HN-1 e HN-2:
 ### HN-4: Verificar divida do usuario
 
 ```bash
-# Feedback pendente em ~/work/CLAUDE.md
-grep -c "PROCESSADO" ~/work/CLAUDE.md 2>/dev/null || echo "0"
+# Feedback pendente em ~/tcu/CLAUDE.md
+grep -c "PROCESSADO" ~/tcu/CLAUDE.md 2>/dev/null || echo "0"
 
 # Chat assincrono
 curl -s "http://localhost:8766/api/chat?unprocessed=true" 2>/dev/null | python3 -c "
@@ -180,7 +180,7 @@ Verificar:
 Também verificar arquivos de estado básicos:
 ```bash
 ls -la ~/edge/state/ops-hotspots.json ~/edge/state/git-signals.json 2>/dev/null
-grep -c "## Erros Operacionais\|## Regras de Operação\|## Segurança e Política" $HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/debugging.md
+grep -c "## Erros Operacionais\|## Regras de Operação\|## Segurança e Política" ~/.claude/projects/-home-vboxuser/memory/debugging.md
 ```
 
 ### HN-6: Corpus smoke-test probe
@@ -255,7 +255,7 @@ Insights do heartbeat-normal + achados da analise profunda. Fechar log com detal
 
 ## Manual (15-20min)
 
-Analise completa invocada via `/{{PREFIX}}-reflexao`. Inclui curadoria, feedback, descobertas, blog e relatorio HTML.
+Analise completa invocada via `/reflexao`. Inclui curadoria, feedback, descobertas, blog e relatorio HTML.
 
 ### M-1: Full git archaeology (7d)
 
@@ -319,7 +319,7 @@ Ler `~/edge/state/curadoria-candidates.json`. Para cada categoria:
 
 ### M-6: Processar feedback
 
-Procurar em `~/work/CLAUDE.md` feedback NAO marcado como `[PROCESSADO]`.
+Procurar em `~/tcu/CLAUDE.md` feedback NAO marcado como `[PROCESSADO]`.
 
 Se houver:
 - Entender o que o usuario quer
@@ -331,7 +331,7 @@ Ler chat assincrono (HN-4) — classificar mas NAO responder.
 
 ### M-7: Avaliar descobertas pendentes
 
-Verificar `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/descobertas.md` por entradas `[PENDENTE]`.
+Verificar `~/.claude/projects/-home-vboxuser/memory/descobertas.md` por entradas `[PENDENTE]`.
 
 Para cada:
 1. Ler notas da descoberta (`~/edge/notes/descoberta-[tema].md`)
@@ -372,7 +372,7 @@ Atualizacoes possiveis:
 - **MEMORY.md** — conhecimento consolidado: "Se eu lesse isso no inicio de uma sessao nova, mudaria alguma decisao?"
 - **personality.md** — descobertas adotadas (M-7)
 - **descobertas.md** — status atualizado (M-7)
-- **~/work/CLAUDE.md** — prioridades, feedback processado (M-6)
+- **~/tcu/CLAUDE.md** — prioridades, feedback processado (M-6)
 - **skills** — protocolos que precisam de ajuste
 
 Consolidacao de memoria (a cada ~5 breaks): se breaks-active.md > 150 linhas → comprimir.
@@ -443,7 +443,7 @@ bibliography:
 - **callout** para feedback processado (texto original + acao tomada)
 - Block types e formato: ver `~/.claude/skills/_shared/report-template.md`
 
-**Retrospectiva:** se 5+ blog entries desde a ultima retrospectiva E convergem num meta-tema → escrever retrospectiva (ver `/{{PREFIX}}-blog` SKILL.md).
+**Retrospectiva:** se 5+ blog entries desde a ultima retrospectiva E convergem num meta-tema → escrever retrospectiva (ver `/blog` SKILL.md).
 
 ### M-Output: Fechar log e reportar
 
@@ -491,9 +491,9 @@ Relatorio ao usuario:
 
 ## Quando Usar
 
-- **heartbeat-normal:** Chamado automaticamente pelo /{{PREFIX}}-heartbeat a cada ciclo
+- **heartbeat-normal:** Chamado automaticamente pelo /heartbeat a cada ciclo
 - **heartbeat-escalated:** Escalacao automatica quando anomalia detectada durante heartbeat-normal
-- **manual:** `/{{PREFIX}}-reflexao` — invocado pelo usuario para revisao profunda
+- **manual:** `/reflexao` — invocado pelo usuario para revisao profunda
 
 ---
 

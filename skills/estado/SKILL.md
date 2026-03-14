@@ -1,5 +1,5 @@
 ---
-name: {{PREFIX}}-estado
+name: estado
 description: "Concrete state inspection of all managed artifacts. Counts, categorizes, checks health, produces a factual snapshot — not narrative, not strategic. Triggers on: estado, state, dashboard, inventory, status dos artefatos."
 user-invocable: true
 ---
@@ -28,7 +28,7 @@ NAO e contexto (qualitativo, orientacao). NAO e estrategia (prioridades, decisoe
 ```bash
 echo "=== STATE FILES ==="
 for f in breaks-active.md breaks-archive.md propostas.md descobertas.md personality.md reflexao-log.md; do
-  path="$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/$f"
+  path="$HOME/.claude/projects/-home-vboxuser/memory/$f"
   if [ -f "$path" ]; then
     lines=$(wc -l < "$path")
     size=$(du -h "$path" | cut -f1)
@@ -50,7 +50,7 @@ done
 
 ```bash
 echo "=== PROPOSTAS ==="
-file="$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/propostas.md"
+file="$HOME/.claude/projects/-home-vboxuser/memory/propostas.md"
 if [ -f "$file" ]; then
   echo "Total de propostas: $(grep -c '^\## \[' "$file" 2>/dev/null || echo 0)"
   for status in PROPOSTA APROVADA "EM EXECUCAO" CONCLUIDA REJEITADA SUPERSEDED; do
@@ -60,11 +60,13 @@ if [ -f "$file" ]; then
 fi
 ```
 
+Listar cada proposta com: numero, titulo resumido, status, data.
+
 ### Passo 3: Descobertas
 
 ```bash
 echo "=== DESCOBERTAS ==="
-file="$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/descobertas.md"
+file="$HOME/.claude/projects/-home-vboxuser/memory/descobertas.md"
 if [ -f "$file" ]; then
   echo "Total: $(grep -c '^\## \[' "$file" 2>/dev/null || echo 0)"
   for status in PENDENTE ADOTADA ARQUIVADA "EXPLORAR MAIS"; do
@@ -78,11 +80,12 @@ fi
 
 ```bash
 echo "=== HEARTBEAT ==="
-grep -A 5 "Estado do Heartbeat" $HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/breaks-active.md 2>/dev/null
+# Extrair estado do heartbeat de breaks-active.md
+grep -A 5 "Estado do Heartbeat" ~/.claude/projects/-home-vboxuser/memory/breaks-active.md 2>/dev/null
 
 echo ""
 echo "=== BREAKS (archive) ==="
-file="$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/breaks-archive.md"
+file="$HOME/.claude/projects/-home-vboxuser/memory/breaks-archive.md"
 if [ -f "$file" ]; then
   total=$(grep -c '^\## \[' "$file" 2>/dev/null || echo 0)
   echo "Total de breaks: $total"
@@ -90,6 +93,9 @@ if [ -f "$file" ]; then
     count=$(grep -ci "tipo.*$tipo\|$tipo —" "$file" 2>/dev/null || echo 0)
     [ "$count" -gt 0 ] && echo "  $tipo: $count"
   done
+  echo ""
+  echo "Ultimo break:"
+  grep '^\## \[' "$file" | tail -1
 fi
 ```
 
@@ -114,10 +120,15 @@ echo "=== ARTEFATOS (~/edge/) ==="
 echo "Notes:"
 notes_count=$(ls ~/edge/notes/*.md 2>/dev/null | wc -l)
 echo "  $notes_count notas"
+[ -f ~/edge/notes/INDEX.md ] && echo "  INDEX.md existe" || echo "  INDEX.md NAO EXISTE"
 
 echo "Labs:"
 labs=$(ls -d ~/edge/labs/*/ 2>/dev/null | wc -l)
 echo "  $labs labs"
+ls -d ~/edge/labs/*/ 2>/dev/null | while read d; do
+  name=$(basename "$d")
+  echo "    $name"
+done
 
 echo "Reports:"
 reports=$(ls ~/edge/reports/*.html 2>/dev/null | wc -l)
@@ -128,20 +139,24 @@ ls -d ~/edge/builds/*/ 2>/dev/null | wc -l | xargs -I{} echo "  {} builds"
 
 echo "Blog:"
 [ -f ~/edge/blog/index.html ] && echo "  existe" || echo "  NAO EXISTE"
+
+echo "Netlify pages:"
+ls -d ~/edge/netlify/*/ 2>/dev/null | wc -l | xargs -I{} echo "  {} pages"
 ```
 
 ### Passo 7: Projetos git
 
 ```bash
 echo "=== PROJETOS GIT ==="
-# Customize with your project list
-for proj in $(ls ~/work/ 2>/dev/null); do
-  dir="$HOME/work/$proj"
+for proj in Doc_AssertIA assertia-mise assertia-multiagent assertia-nextjs ralph daily-watcher; do
+  dir="$HOME/tcu/$proj"
   if [ -d "$dir/.git" ]; then
     branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null)
     last_commit=$(git -C "$dir" log -1 --format="%ar" 2>/dev/null)
     dirty=$(git -C "$dir" status --porcelain 2>/dev/null | wc -l)
     echo "$proj: branch=$branch, ultimo_commit=$last_commit, dirty_files=$dirty"
+  else
+    echo "$proj: NAO ENCONTRADO"
   fi
 done
 ```
@@ -150,18 +165,24 @@ done
 
 ```bash
 echo "=== FEEDBACK ==="
-pending=$(grep -c '^\d\.' ~/work/CLAUDE.md 2>/dev/null || echo 0)
-processed=$(grep -c '\[PROCESSADO\]' ~/work/CLAUDE.md 2>/dev/null || echo 0)
-echo "Feedback total: $pending (processados: $processed)"
+# Contar feedback pendente vs processado em ~/tcu/CLAUDE.md
+pending=$(grep -c '^\d\.' ~/tcu/CLAUDE.md 2>/dev/null || echo 0)
+processed=$(grep -c '\[PROCESSADO\]' ~/tcu/CLAUDE.md 2>/dev/null || echo 0)
+unprocessed=$(grep '^\d\.' ~/tcu/CLAUDE.md 2>/dev/null | grep -v '\[PROCESSADO\]' | wc -l)
+echo "Feedback total: $pending (processados: $processed, pendentes: $unprocessed)"
+if [ "$unprocessed" -gt 0 ]; then
+  echo "PENDENTES:"
+  grep '^\d\.' ~/tcu/CLAUDE.md 2>/dev/null | grep -v '\[PROCESSADO\]'
+fi
 ```
 
 ### Passo 9: Anomalias
 
 Apos coletar todos os dados, verificar:
 
-1. **Consistencia propostas <-> arquivos:** Cada proposta referencia um arquivo — o arquivo existe?
+1. **Consistencia propostas ↔ arquivos:** Cada proposta referencia um arquivo de proposta — o arquivo existe?
 2. **Descobertas estagnadas:** Alguma [PENDENTE] ha mais de 3 heartbeats?
-3. **Notes orfas:** Notes que nao estao indexadas?
+3. **Notes orfas:** Notes em `~/edge/notes/` que nao estao no INDEX.md?
 4. **Labs abandonados:** Labs sem commits recentes?
 5. **breaks-active.md inchado:** >150 linhas = flag
 6. **Reflexao-log crescendo:** >300 linhas sem consolidacao?
@@ -179,50 +200,93 @@ Produzir o snapshot no formato abaixo. Numeros exatos, sem narrativa.
 ## State Files
 | Arquivo | Linhas | Tamanho | Modificado | Saude |
 |---------|--------|---------|------------|-------|
+| breaks-active.md | N | Xk | N dias | ok/crescendo/critico |
+| breaks-archive.md | N | Xk | N dias | — |
+| propostas.md | N | Xk | N dias | — |
+| descobertas.md | N | Xk | N dias | — |
+| personality.md | N | Xk | N dias | — |
+| reflexao-log.md | N | Xk | N dias | — |
 
 ## Propostas
 | # | Titulo | Status | Data |
+|---|--------|--------|------|
+| N | ... | [STATUS] | YYYY-MM-DD |
 
 ## Descobertas
 | Titulo | Status | Data |
+|--------|--------|------|
+| ... | [STATUS] | YYYY-MM-DD |
 
 ## Heartbeat
 - Ultimo beat: #N
+- Tipo: ...
+- Beats desde estrategia: N
+- Beats desde planejar: N
 
 ## Skills: N total
+[lista simples]
 
 ## Artefatos
-- Notes: N
-- Labs: N
+- Notes: N (INDEX: sim/nao)
+- Labs: N [nomes]
 - Reports: N
 - Builds: N
+- Blog: sim/nao
+- Netlify pages: N
 
 ## Projetos Git
 | Projeto | Branch | Ultimo Commit | Dirty |
+|---------|--------|---------------|-------|
+| ... | ... | ... | N |
+
+## Feedback
+- Processados: N
+- Pendentes: N
+[lista dos pendentes se houver]
 
 ## Anomalias
-- [lista factual ou "Nenhuma"]
+- [lista factual de inconsistencias detectadas, ou "Nenhuma"]
 ```
 
 ---
 
 ## Argumentos
 
-- `/{{PREFIX}}-estado` — snapshot completo (default)
-- `/{{PREFIX}}-estado propostas` — apenas secao de propostas
-- `/{{PREFIX}}-estado saude` — apenas state files + anomalias (rapido)
+- `/estado` — snapshot completo (default)
+- `/estado propostas` — apenas secao de propostas
+- `/estado saude` — apenas state files + anomalias (rapido)
+
+---
+
+## Quando Usar
+
+- **Standalone:** `/estado` — quando quiser um dashboard factual
+- **Antes de /heartbeat:** para informar o dispatch com dados concretos
+- **Apos /reflexao:** para verificar se o estado foi atualizado corretamente
+- **Debug:** quando algo parece inconsistente — `/estado saude`
+
+---
+
+## O que /estado NAO faz
+
+- NAO interpreta (isso e /contexto)
+- NAO recomenda acoes (isso e /estrategia)
+- NAO modifica nenhum arquivo (leitura pura)
+- NAO le sessoes CLI ou logs de conversa (isso e /contexto)
+- NAO faz git log detalhado (so branch, ultimo commit, dirty count)
 
 ---
 
 ## Regra de Isolamento (OBRIGATORIA)
 
 **Leitura pura.** Esta skill NAO modifica NENHUM arquivo — nem state files, nem projetos, nem nada.
+Todos os comandos sao de leitura (cat, wc, ls, grep, git status, stat).
 
 ---
 
 ## Notas
 
 - Output factual e conciso. Sem "eu acho", sem "talvez". Numeros ou "NAO EXISTE"
-- Anomalias sao factuais, nao recomendacoes
+- Anomalias sao factuais, nao recomendacoes. Ex: "proposta #3 referencia arquivo inexistente" — nao "deveria criar o arquivo"
 - Se um state file nao existe, reportar como anomalia — nao criar
 - Tempo de execucao esperado: <30 segundos (tudo local, sem rede)

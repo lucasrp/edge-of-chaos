@@ -31,7 +31,6 @@ except ImportError:
 
 SECRETS_DIR = Path.home() / "edge/secrets"
 LOG_DIR = Path.home() / "edge/logs/consult"
-DEFAULT_MODEL = "gpt-5.4"
 
 # Provider configs: model prefix -> (secrets_file, env_var, base_url)
 PROVIDERS = {
@@ -138,6 +137,8 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> str
         "gpt-4.1-nano": (0.10, 0.40),
         "gpt-5.4": (2.50, 15.00),
         "gpt-5.4-pro": (30.00, 180.00),
+        "grok-4.20-multi-agent-beta-0309": (2.00, 6.00),
+        "grok-4-0709": (3.00, 15.00),
         "grok-4": (3.00, 15.00),
         "grok-3": (3.00, 15.00),
     }
@@ -166,21 +167,15 @@ def log_consultation(mode: str, question: str, context_files: list,
 
 
 # ---------------------------------------------------------------------------
-# Core
+# Dual-model consultation (always both GPT + Grok)
 # ---------------------------------------------------------------------------
 
-def consult(question: str, mode: str = "adversarial", context_files: list = None,
-            stdin_content: str = None, model: str = DEFAULT_MODEL) -> str:
-    """Send consultation to external model and return response."""
-    api_key, base_url = load_api_key(model)
-    client_kwargs = {"api_key": api_key}
-    if base_url:
-        client_kwargs["base_url"] = base_url
-    client = OpenAI(**client_kwargs)
+DUAL_MODELS = ["gpt-5.4", "grok-4.20-multi-agent-beta-0309"]
 
-    system = ADVERSARIAL_SYSTEM if mode == "adversarial" else COLLABORATIVE_SYSTEM
 
-    # Build user message
+def _build_user_msg(question: str, context_files: list = None,
+                    stdin_content: str = None) -> str:
+    """Build user message from question, context files, and stdin."""
     parts = []
 
     if context_files:
@@ -200,10 +195,34 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
         parts.append(f"--- Piped input ---\n{stdin_content}")
 
     parts.append(f"--- Question ---\n{question}")
+    return "\n\n".join(parts)
 
-    user_msg = "\n\n".join(parts)
 
-    try:
+# Models that require Responses API instead of Chat Completions
+RESPONSES_API_MODELS = {"grok-4.20-multi-agent-beta-0309", "gpt-5.4-pro"}
+
+
+def _call_model(model: str, system: str, user_msg: str) -> tuple[str, dict, str]:
+    """Call a single model. Returns (response_text, tokens_dict, cost_str)."""
+    api_key, base_url = load_api_key(model)
+    client_kwargs = {"api_key": api_key}
+    if base_url:
+        client_kwargs["base_url"] = base_url
+    client = OpenAI(**client_kwargs)
+
+    if model in RESPONSES_API_MODELS:
+        response = client.responses.create(
+            model=model,
+            input=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_msg},
+            ],
+            temperature=0.4,
+        )
+        result = response.output_text
+        prompt_tokens = response.usage.input_tokens
+        completion_tokens = response.usage.output_tokens
+    else:
         response = client.chat.completions.create(
             model=model,
             messages=[
@@ -212,40 +231,94 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
             ],
             temperature=0.4,
         )
-    except Exception as e:
-        print(f"ERROR: API call failed: {e}", file=sys.stderr)
-        sys.exit(1)
+        result = response.choices[0].message.content
+        prompt_tokens = response.usage.prompt_tokens
+        completion_tokens = response.usage.completion_tokens
 
-    result = response.choices[0].message.content
-    prompt_tokens = response.usage.prompt_tokens
-    completion_tokens = response.usage.completion_tokens
     cost = estimate_cost(model, prompt_tokens, completion_tokens)
-
     tokens = {
         "prompt": prompt_tokens,
         "completion": completion_tokens,
         "total": prompt_tokens + completion_tokens,
     }
+    return result, tokens, cost
 
-    # Log for audit trail
-    log_consultation(
-        mode=mode,
-        question=question,
-        context_files=[str(f) for f in (context_files or [])],
-        response=result,
-        model=model,
-        cost=cost,
-        tokens=tokens,
+
+def consult(question: str, mode: str = "adversarial", context_files: list = None,
+            stdin_content: str = None, gate_spec: str = None) -> str:
+    """Send consultation to BOTH GPT-5.4 and Grok-4.20 and return combined response.
+
+    If gate_spec is provided, saves review as {spec}.review.json for
+    consolidar-estado to enforce resolution before publishing.
+    """
+    system = ADVERSARIAL_SYSTEM if mode == "adversarial" else COLLABORATIVE_SYSTEM
+    user_msg = _build_user_msg(question, context_files, stdin_content)
+
+    models = list(DUAL_MODELS)
+
+    results = []
+    all_tokens = []
+    all_costs = []
+
+    for m in models:
+        try:
+            result, tokens, cost = _call_model(m, system, user_msg)
+            results.append((m, result))
+            all_tokens.append(tokens)
+            all_costs.append(cost)
+
+            # Log each model separately
+            log_consultation(
+                mode=mode,
+                question=question,
+                context_files=[str(f) for f in (context_files or [])],
+                response=result,
+                model=m,
+                cost=cost,
+                tokens=tokens,
+            )
+
+            # Metadata to stderr
+            mode_label = "\033[31mADVERSARIAL\033[0m" if mode == "adversarial" else "\033[36mCOLLABORATIVE\033[0m"
+            print(f"\n{'='*55}", file=sys.stderr)
+            print(f"  edge-consult [{mode_label}]  ({m})", file=sys.stderr)
+            print(f"  Tokens: {tokens['total']} | Cost: {cost}", file=sys.stderr)
+            print(f"{'='*55}", file=sys.stderr)
+
+        except Exception as e:
+            print(f"  WARN: {m} failed: {e}", file=sys.stderr)
+            results.append((m, f"[{m} error: {e}]"))
+
+    # Combine outputs from both models
+    combined = "\n\n".join(
+        f"── {m} ──\n{text}" for m, text in results
     )
 
-    # Metadata to stderr (response to stdout for piping)
-    mode_label = "\033[31mADVERSARIAL\033[0m" if mode == "adversarial" else "\033[36mCOLLABORATIVE\033[0m"
-    print(f"\n{'='*55}", file=sys.stderr)
-    print(f"  edge-consult [{mode_label}]  ({model})", file=sys.stderr)
-    print(f"  Tokens: {tokens['total']} | Cost: {cost}", file=sys.stderr)
-    print(f"{'='*55}\n", file=sys.stderr)
+    # Gate: save combined review alongside YAML spec
+    if gate_spec:
+        spec_path = Path(gate_spec)
+        review_path = spec_path.with_suffix(".review.json")
+        resolved_path = spec_path.with_suffix(".resolved")
+        if resolved_path.exists():
+            resolved_path.unlink()
+        total_cost = sum(
+            float(c.replace("$", "")) for c in all_costs
+        )
+        review_data = {
+            "timestamp": datetime.now().isoformat(),
+            "spec": str(spec_path),
+            "mode": mode,
+            "models": [m for m, _ in results],
+            "question": question[:500],
+            "response": combined[:4000],
+            "cost": f"${total_cost:.4f}",
+            "resolved": False,
+        }
+        review_path.write_text(json.dumps(review_data, indent=2, ensure_ascii=False))
+        print(f"\n  Gate review saved: {review_path}", file=sys.stderr)
+        print(f"  To resolve: address feedback, then touch {resolved_path}", file=sys.stderr)
 
-    return result
+    return combined
 
 
 # ---------------------------------------------------------------------------
@@ -263,8 +336,8 @@ def main():
                         help="Mode: adversarial (default) or collab")
     parser.add_argument("--context", "-c", nargs="+", default=None,
                         help="Context files to include")
-    parser.add_argument("--model", default=DEFAULT_MODEL,
-                        help=f"Model (default: {DEFAULT_MODEL}). Supports: gpt-* (OpenAI), grok-* (xAI)")
+    parser.add_argument("--gate", default=None, metavar="SPEC_PATH",
+                        help="Save review as .review.json alongside SPEC_PATH for consolidar-estado enforcement")
     args = parser.parse_args()
 
     # Read from stdin if piped
@@ -282,7 +355,7 @@ def main():
         mode=args.mode,
         context_files=args.context,
         stdin_content=stdin_content,
-        model=args.model,
+        gate_spec=args.gate,
     )
 
     print(result)

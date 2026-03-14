@@ -1,19 +1,20 @@
 #!/bin/bash
-# consolidar-estado -- Pipeline completo: entry + report + meta-report + state commit
+# consolidar-estado — Pipeline completo: entry + report + meta-report + state commit
 #
 # Uso:
 #   consolidar-estado <entry.md>                       # entry + meta-report (content report opcional)
 #   consolidar-estado <entry.md> <report.yaml>         # entry + content report + meta-report
 #   consolidar-estado <entry.md> <report.html>         # entry + content report pre-gerado + meta-report
 #
-# Pipeline (7 fases):
+# Pipeline (8 fases):
 #   0.  Frontmatter injection (report: field)
+#   0.3 Adversarial review enforcement (edge-consult --gate)
 #   0.5 Review gate (LLM-as-judge, content report only)
 #   1.  Blog entry (blog-publish.sh)
 #   2.  Content report (generate_report.py, optional)
-#   3.  Verificacao (API, frontmatter, files)
+#   3.  Verificação (API, frontmatter, files)
 #   3.4 LLM cost injection
-#   4.  Meta-report (state delta + scratchpad + adversarial -> cognitive mirror)
+#   4.  Meta-report (state delta + scratchpad + adversarial → cognitive mirror)
 #   5.  State commit (claims + threads + event + digest)
 #   6.  Diffs + Git commit (audit trail)
 #
@@ -22,8 +23,8 @@
 # Flags:
 #   --skip-review      Pular o review gate (LLM-as-judge)
 #   --review-only      Rodar so o review gate, sem publicar
-#   --scratchpad PATH  Scratchpad para meta-report (default: /tmp/scratch-active.md)
-#   --no-adversarial   Pular adversarial review no meta-report
+#   --scratchpad PATH  Scratchpad para meta-report (default: /tmp/edge-scratch-active.md)
+#   --no-adversarial   Pular edge-consult no meta-report
 #   --no-meta          Pular meta-report (Phase 4)
 
 set -uo pipefail
@@ -31,6 +32,28 @@ set -uo pipefail
 BLOG_DIR="$HOME/edge/blog"
 REPORTS_DIR="$HOME/edge/reports"
 TOOLS_DIR="$HOME/edge/tools"
+
+# --- Load branding config (phenotype) ---
+BRANDING_FILE="$HOME/edge/config/branding.yaml"
+if [ -f "$BRANDING_FILE" ]; then
+  BLOG_PORT=$(grep '^  port:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}')
+  BLOG_AUTH_ENABLED=$(grep '^  auth_enabled:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}')
+  BLOG_AUTH_USER=$(grep '^  auth_user:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
+  BLOG_AUTH_PASS=$(grep '^  auth_pass:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
+  MEMORY_PROJECT_DIR=$(grep '^memory_project_dir:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
+else
+  BLOG_PORT=8766
+  BLOG_AUTH_ENABLED=false
+  BLOG_AUTH_USER=""
+  BLOG_AUTH_PASS=""
+  MEMORY_PROJECT_DIR=""
+fi
+BLOG_PORT=${BLOG_PORT:-8766}
+BLOG_URL="http://localhost:${BLOG_PORT}"
+CURL_AUTH=""
+if [ "$BLOG_AUTH_ENABLED" = "true" ] && [ -n "$BLOG_AUTH_USER" ]; then
+  CURL_AUTH="-u ${BLOG_AUTH_USER}:${BLOG_AUTH_PASS}"
+fi
 
 # Parse flags
 SKIP_REVIEW=false
@@ -66,12 +89,32 @@ ok()   { echo -e "  ${GREEN}OK${NC}: $1"; }
 warn() { echo -e "  ${YELLOW}WARN${NC}: $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}: $1"; }
 
+# Log pipeline failure to JSONL (bash phases)
+FAILURES_LOG="$HOME/edge/logs/pipeline-failures.jsonl"
+mkdir -p "$(dirname "$FAILURES_LOG")"
+log_failure() {
+    local phase="$1" operation="$2" error="$3"
+    python3 -c "
+import json, sys
+from datetime import datetime, timezone
+entry = {
+    'timestamp': datetime.now(timezone.utc).isoformat(),
+    'slug': '${SLUG:-unknown}',
+    'phase': sys.argv[1],
+    'operation': sys.argv[2],
+    'error': sys.argv[3],
+}
+with open('$FAILURES_LOG', 'a') as f:
+    f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+" "$phase" "$operation" "$error" 2>/dev/null
+}
+
 if [[ -z "$ENTRY_PATH" && "$RECOVER" == "false" ]]; then
     echo "Uso: consolidar-estado <entry.md> [report.yaml|report.html]"
     echo "  --skip-review      Pular review gate"
-    echo "  --recover          Detectar e re-executar Phase 5/6 de publicacoes incompletas"
+    echo "  --recover          Detectar e re-executar Phase 5/6 de publicações incompletas"
     echo "  --scratchpad PATH  Scratchpad para meta-report"
-    echo "  --no-adversarial   Pular adversarial review no meta-report"
+    echo "  --no-adversarial   Pular edge-consult no meta-report"
     echo "  --no-meta          Pular meta-report (Phase 4)"
     exit 1
 fi
@@ -96,7 +139,7 @@ if [[ "$RECOVER" == "true" ]]; then
             echo "  Incomplete: $entry_slug (no git commit)"
 
             # Check if entry is in blog API
-            VISIBLE=$(curl -s -m 3 "http://localhost:8766/blog/entries/" 2>/dev/null | python3 -c "
+            VISIBLE=$(curl -s -m 3 $CURL_AUTH "${BLOG_URL}/blog/entries/" 2>/dev/null | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
@@ -106,7 +149,7 @@ except: print('error')
 " 2>&1)
 
             if [[ "$VISIBLE" == "visible" ]]; then
-                echo "    Entry visible in API -- re-running Phase 5/6..."
+                echo "    Entry visible in API — re-running Phase 5/6..."
                 # Extract report from frontmatter
                 REPORT_FN=$(python3 -c "
 import yaml
@@ -120,16 +163,16 @@ print(fm.get('report', '') if fm else '')
                 bash "$0" --skip-review --no-meta --reason "recover: Phase 5/6 re-run" "$entry_file" ${REPORT_FN:+} 2>&1 | tail -5
                 RECOVERED=$((RECOVERED + 1))
             else
-                echo "    Entry NOT visible -- needs full republish (run without --recover)"
+                echo "    Entry NOT visible — needs full republish (run without --recover)"
             fi
         fi
     done
 
     if [[ $RECOVERED -eq 0 ]]; then
-        echo "  All entries have commits. Nothing to recover."
+        echo "  Todas as entries têm commit. Nada para recuperar."
     else
         echo ""
-        echo "  Recovered: $RECOVERED entries"
+        echo "  Recuperadas: $RECOVERED entries"
     fi
     exit 0
 fi
@@ -145,10 +188,10 @@ REPORT_RESULT="skip"
 TOTAL_LLM_COST="0"
 META_REPORT_PATH=""
 
-# ─── GUARDRAIL: Rule #0 -- every publication generates a meta-report ───
-# Content report (YAML/HTML) is optional. Meta-report is always generated (Phase 4).
+# ─── GUARDRAIL: Regra #0 — toda publicação gera meta-report ───
+# Content report (YAML/HTML) é opcional. Meta-report é sempre gerado (Phase 4).
 if [[ -z "$REPORT_INPUT" ]]; then
-    echo -e "  ${YELLOW}INFO${NC}: No content report. Meta-report will be generated (Phase 4)."
+    echo -e "  ${YELLOW}INFO${NC}: Sem content report. Meta-report será gerado (Phase 4)."
 fi
 
 STATE_AUDIT_EXIT=0
@@ -158,19 +201,23 @@ echo " consolidar-estado: $SLUG"
 echo "========================================="
 echo ""
 
-# ─── PHASE 0a: State snapshot (PRE -- capture protected files before anything changes) ───
+# ─── PHASE 0a: State snapshot (PRE — capture protected files before anything changes) ───
 # If agent already took snapshot (before making state changes), skip.
-echo "-- Phase 0a: State Snapshot --"
-# NOTE: Replace with your state-audit tool name if different
+echo "── Phase 0a: State Snapshot ──"
 if command -v edge-state-audit &>/dev/null; then
     PRE_SNAPSHOT="$HOME/edge/state-snapshots/${SLUG}.pre.yaml"
     if [[ -f "$PRE_SNAPSHOT" ]]; then
-        ok "Snapshot PRE already exists (agent captured before changes)"
+        ok "Snapshot PRE já existe (agente capturou antes das mudanças)"
     else
-        edge-state-audit snapshot --slug "$SLUG"
+        if edge-state-audit snapshot --slug "$SLUG" 2>/dev/null; then
+            ok "Snapshot PRE capturado"
+        else
+            warn "edge-state-audit snapshot falhou"
+            log_failure "0a" "state_snapshot" "edge-state-audit snapshot returned non-zero"
+        fi
     fi
 else
-    warn "state-audit tool not found -- skipping state audit"
+    warn "edge-state-audit não encontrado — skipping state audit"
 fi
 echo ""
 
@@ -197,27 +244,79 @@ else:
 " 2>/dev/null)
 
         if [[ "$HAS_REPORT" == "no" ]]; then
-            echo "-- Phase 0: Frontmatter --"
+            echo "── Phase 0: Frontmatter ──"
             # Inject report: field after the last frontmatter field (before closing ---)
-            python3 -c "
-raw = open('$ENTRY_PATH').read()
-parts = raw.split('---', 2)
-if len(parts) >= 3:
-    fm_text = parts[1].rstrip()
-    fm_text += '\nreport: $REPORT_FILENAME\n'
-    result = '---' + fm_text + '---' + parts[2]
-    open('$ENTRY_PATH', 'w').write(result)
-    print('  OK: report: $REPORT_FILENAME injected into frontmatter')
-"
+            if python3 -c "
+try:
+    raw = open('$ENTRY_PATH').read()
+    parts = raw.split('---', 2)
+    if len(parts) >= 3:
+        fm_text = parts[1].rstrip()
+        fm_text += '\nreport: $REPORT_FILENAME\n'
+        result = '---' + fm_text + '---' + parts[2]
+        open('$ENTRY_PATH', 'w').write(result)
+        print('  OK: report: $REPORT_FILENAME injetado no frontmatter')
+    else:
+        print('  WARN: frontmatter não encontrado (sem --- delimiters)')
+        exit(1)
+except Exception as e:
+    print(f'  FAIL: frontmatter injection: {e}')
+    exit(1)
+" 2>&1; then
+                :
+            else
+                log_failure "0" "frontmatter_injection" "Failed to inject report: field"
+            fi
             echo ""
         fi
+    fi
+fi
+
+# ─── PHASE 0.3: Adversarial Review Enforcement ───
+# If edge-consult was run with --gate against this YAML spec,
+# a .review.json exists. Block publication until .resolved marker is created.
+if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) && "$SKIP_REVIEW" == "false" ]]; then
+    REVIEW_JSON_FILE="${REPORT_INPUT%.yaml}.review.json"
+    [[ "$REPORT_INPUT" == *.yml ]] && REVIEW_JSON_FILE="${REPORT_INPUT%.yml}.review.json"
+    RESOLVED_FILE="${REVIEW_JSON_FILE%.review.json}.resolved"
+
+    if [[ -f "$REVIEW_JSON_FILE" && ! -f "$RESOLVED_FILE" ]]; then
+        echo "── Phase 0.3: Adversarial Review ──"
+        fail "Adversarial review pendente: $(basename "$REVIEW_JSON_FILE")"
+        echo ""
+        echo "  O edge-consult gerou feedback que ainda não foi endereçado."
+        echo "  Opções:"
+        echo "    1. Endereçar o feedback no YAML e criar o marker:"
+        echo "       touch $RESOLVED_FILE"
+        echo "    2. Forçar publicação:"
+        echo "       consolidar-estado --skip-review ..."
+        echo ""
+        # Show the review summary
+        python3 -c "
+import json, sys
+try:
+    d = json.load(open('$REVIEW_JSON_FILE'))
+    resp = d.get('response', '')
+    print('  Review (resumo):')
+    for line in resp.split('\n')[:8]:
+        print(f'    {line}')
+    if len(resp.split('\n')) > 8:
+        print('    ...')
+except: pass
+" 2>/dev/null
+        echo ""
+        exit 3
+    elif [[ -f "$REVIEW_JSON_FILE" && -f "$RESOLVED_FILE" ]]; then
+        echo "── Phase 0.3: Adversarial Review ──"
+        ok "Adversarial review resolvida ($(basename "$RESOLVED_FILE") presente)"
+        echo ""
     fi
 fi
 
 # ─── PHASE 0.5: Review Gate (LLM-as-judge) ───
 if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) && "$SKIP_REVIEW" == "false" ]]; then
     if command -v review-gate &>/dev/null; then
-        echo "-- Phase 0.5: Review Gate --"
+        echo "── Phase 0.5: Review Gate ──"
         # Detect skill from YAML filename (spec-SKILL-slug.yaml)
         YAML_BASENAME=$(basename "$REPORT_INPUT")
         SKILL_NAME=""
@@ -283,19 +382,19 @@ for s in r.get('suggestions', [])[:5]:
 " 2>/dev/null
             if [[ "$REVIEW_ONLY" == "true" ]]; then
                 echo ""
-                echo "Review-only mode. Fix the YAML and try again."
+                echo "Review-only mode. Ajuste o YAML e tente novamente."
                 exit 3
             fi
             echo ""
-            echo "  Publication blocked. Use --skip-review to force."
+            echo "  Publicação bloqueada. Use --skip-review para forçar."
             exit 3
         else
-            warn "Review gate error (API/config) -- continuing without review"
+            warn "Review gate erro (API/config) — continuando sem review"
         fi
 
         if [[ "$REVIEW_ONLY" == "true" ]]; then
             echo ""
-            echo "Review-only mode. Nothing published."
+            echo "Review-only mode. Nada publicado."
             exit 0
         fi
         echo ""
@@ -303,35 +402,36 @@ for s in r.get('suggestions', [])[:5]:
 fi
 
 # ─── PHASE 1: Blog entry ───
-echo "-- Phase 1: Blog Entry --"
+echo "── Phase 1: Blog Entry ──"
 if CALLED_FROM_CONSOLIDAR_ESTADO=1 bash "$BLOG_DIR/blog-publish.sh" "$ENTRY_PATH"; then
-    ok "Entry published"
+    ok "Entry publicada"
 else
-    fail "blog-publish.sh failed"
+    fail "blog-publish.sh falhou"
+    log_failure "1" "blog_publish" "blog-publish.sh returned non-zero"
     exit 1
 fi
 echo ""
 
 # ─── PHASE 2: Report (opcional) ───
 if [[ -n "$REPORT_INPUT" ]]; then
-    echo "-- Phase 2: Report --"
+    echo "── Phase 2: Report ──"
 
     if [[ ! -f "$REPORT_INPUT" ]]; then
-        fail "Report not found: $REPORT_INPUT"
+        fail "Report não encontrado: $REPORT_INPUT"
         REPORT_RESULT="fail"
     elif [[ "$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml ]]; then
         # Generate HTML from YAML
         REPORT_HTML="$REPORTS_DIR/$REPORT_FILENAME"
-        echo "  Generating HTML from $(basename "$REPORT_INPUT")..."
+        echo "  Gerando HTML de $(basename "$REPORT_INPUT")..."
         if python3 "$TOOLS_DIR/generate_report.py" --yaml "$REPORT_INPUT" --output "$REPORT_HTML" 2>&1; then
-            ok "Report generated: $REPORT_FILENAME"
+            ok "Report gerado: $REPORT_FILENAME"
             REPORT_RESULT="ok"
         else
-            fail "generate_report.py failed"
+            fail "generate_report.py falhou"
             REPORT_RESULT="fail"
         fi
     elif [[ "$REPORT_INPUT" == *.html ]]; then
-        # Pre-generated HTML -- copy to reports dir if not already there
+        # Pre-generated HTML — copy to reports dir if not already there
         if [[ "$(dirname "$REPORT_INPUT")" != "$REPORTS_DIR" ]]; then
             cp "$REPORT_INPUT" "$REPORTS_DIR/$REPORT_FILENAME"
         fi
@@ -340,37 +440,36 @@ if [[ -n "$REPORT_INPUT" ]]; then
             ok "Report HTML: $REPORT_FILENAME"
             REPORT_RESULT="ok"
         else
-            fail "Report HTML not found"
+            fail "Report HTML não encontrado"
             REPORT_RESULT="fail"
         fi
     else
-        warn "Unrecognized report format: $REPORT_INPUT"
+        warn "Formato de report não reconhecido: $REPORT_INPUT"
         REPORT_RESULT="fail"
     fi
 
     # Index report
     if [[ "$REPORT_RESULT" == "ok" && -n "$REPORT_HTML" ]]; then
-        echo "  Indexing report..."
-        # NOTE: Replace with your index tool name if different
+        echo "  Indexando report..."
         if command -v edge-index &>/dev/null; then
             if edge-index "$REPORT_HTML" 2>/dev/null; then
-                ok "Report indexed"
+                ok "Report indexado"
             else
-                warn "index tool returned error (non-fatal)"
+                warn "edge-index retornou erro (não-fatal)"
             fi
         else
-            warn "index tool not found"
+            warn "edge-index não encontrado"
         fi
     fi
     echo ""
 fi
 
 # ─── PHASE 3: Verificacao final ───
-echo "-- Phase 3: Verification --"
+echo "── Phase 3: Verificação ──"
 ALL_OK=true
 
 # Entry visible?
-VISIBLE=$(curl -s -m 5 "http://localhost:8766/blog/entries/" 2>/dev/null | python3 -c "
+VISIBLE=$(curl -s -m 5 $CURL_AUTH "${BLOG_URL}/blog/entries/" 2>/dev/null | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
@@ -380,9 +479,9 @@ except:
     print('ERROR')
 " 2>&1)
 if [[ "$VISIBLE" == "OK" ]]; then
-    ok "Entry visible in API"
+    ok "Entry visível na API"
 else
-    warn "Entry NOT visible in API ($VISIBLE)"
+    warn "Entry NÃO visível na API ($VISIBLE)"
     ALL_OK=false
 fi
 
@@ -410,33 +509,43 @@ if [[ -n "$REPORT_HTML" && "$REPORT_RESULT" == "ok" ]]; then
         SIZE=$(du -h "$REPORT_HTML" | cut -f1)
         RENDER_ERRORS=$(grep -c 'ERRO bloco' "$REPORT_HTML" 2>/dev/null || echo 0)
         if [[ "$RENDER_ERRORS" -gt 0 ]]; then
-            fail "Report has $RENDER_ERRORS render error(s). Fix the YAML and regenerate."
+            fail "Report tem $RENDER_ERRORS erro(s) de renderização. Corrija o YAML e regenere."
             ALL_OK=false
             REPORT_RESULT="fail"
         else
-            ok "Report file: $REPORT_FILENAME ($SIZE, 0 errors)"
+            ok "Report file: $REPORT_FILENAME ($SIZE, 0 erros)"
         fi
     else
-        fail "Report disappeared: $REPORT_HTML"
+        fail "Report desapareceu: $REPORT_HTML"
         ALL_OK=false
     fi
 fi
 
 # ─── PHASE 3.4: Inject llm_cost into frontmatter ───
 if [[ "$TOTAL_LLM_COST" != "0" && "$TOTAL_LLM_COST" != "" ]]; then
-    python3 -c "
-import yaml
-
-raw = open('$ENTRY_PATH').read()
-parts = raw.split('---', 2)
-if len(parts) >= 3:
-    fm = yaml.safe_load(parts[1]) or {}
-    fm['llm_cost'] = '\$$TOTAL_LLM_COST'
-    fm_text = yaml.dump(fm, allow_unicode=True, default_flow_style=False, sort_keys=False)
-    result = '---\n' + fm_text + '---' + parts[2]
-    open('$ENTRY_PATH', 'w').write(result)
-" 2>/dev/null
-    ok "llm_cost: \$$TOTAL_LLM_COST injected into frontmatter"
+    if python3 -c "
+import yaml, sys
+try:
+    raw = open('$ENTRY_PATH').read()
+    parts = raw.split('---', 2)
+    if len(parts) >= 3:
+        fm = yaml.safe_load(parts[1]) or {}
+        fm['llm_cost'] = '\$$TOTAL_LLM_COST'
+        fm_text = yaml.dump(fm, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        result = '---\n' + fm_text + '---' + parts[2]
+        open('$ENTRY_PATH', 'w').write(result)
+    else:
+        print('WARN: no frontmatter delimiters', file=sys.stderr)
+        sys.exit(1)
+except Exception as e:
+    print(f'FAIL: {e}', file=sys.stderr)
+    sys.exit(1)
+" 2>/dev/null; then
+        ok "llm_cost: \$$TOTAL_LLM_COST injetado no frontmatter"
+    else
+        warn "llm_cost injection falhou"
+        log_failure "3.4" "llm_cost_injection" "Failed to inject llm_cost into frontmatter"
+    fi
 fi
 
 # ─── PHASE 4: Meta-report (cognitive mirror) ───
@@ -444,8 +553,7 @@ fi
 # Agent reads this before making manual state changes (MEMORY.md, debugging.md, etc.)
 if [[ "$NO_META" == "false" ]]; then
     echo ""
-    echo "-- Phase 4: Meta-report --"
-    # NOTE: Replace with your meta-report tool name if different
+    echo "── Phase 4: Meta-report ──"
     if command -v edge-meta-report &>/dev/null || [[ -x "$TOOLS_DIR/edge-meta-report" ]]; then
         META_CMD="edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
         # Use tools dir if not in PATH
@@ -459,23 +567,48 @@ if [[ "$NO_META" == "false" ]]; then
 
         if [[ $META_EXIT -eq 0 ]]; then
             META_REPORT_PATH=$(echo "$META_OUTPUT" | head -1 | sed 's/^OK: //')
-            ok "Meta-report: $(basename "$META_REPORT_PATH")"
+            META_BASENAME=$(basename "$META_REPORT_PATH")
+            ok "Meta-report: $META_BASENAME"
+            # Inject meta_report field into entry frontmatter
+            if ! grep -q "^meta_report:" "$ENTRY_PATH" 2>/dev/null; then
+                if python3 -c "
+import sys
+try:
+    path, meta = sys.argv[1], sys.argv[2]
+    text = open(path).read()
+    parts = text.split('---', 2)
+    if len(parts) >= 3 and 'meta_report:' not in parts[1]:
+        parts[1] = parts[1].rstrip() + '\nmeta_report: ' + meta + '\n'
+        open(path, 'w').write('---'.join(parts))
+        print('ADDED')
+    else:
+        print('SKIP')
+except Exception as e:
+    print(f'FAIL: {e}', file=sys.stderr)
+    sys.exit(1)
+" "$ENTRY_PATH" "$META_BASENAME" 2>/dev/null; then
+                    ok "Added meta_report: $META_BASENAME to entry frontmatter"
+                else
+                    warn "meta_report injection falhou"
+                    log_failure "4" "meta_report_injection" "Failed to inject meta_report into frontmatter"
+                fi
+            fi
             if echo "$META_OUTPUT" | grep -q "Scratchpad:"; then
                 ARCHIVED=$(echo "$META_OUTPUT" | grep "Scratchpad:" | sed 's/.*Scratchpad: //')
-                ok "Scratchpad archived: $(basename "$ARCHIVED")"
+                ok "Scratchpad arquivado: $(basename "$ARCHIVED")"
             fi
         else
-            warn "meta-report tool failed (exit $META_EXIT)"
+            warn "edge-meta-report falhou (exit $META_EXIT)"
         fi
     else
-        warn "meta-report tool not found -- skipping"
+        warn "edge-meta-report não encontrado — skipping"
     fi
 fi
 echo ""
 
 # ─── PHASE 5: State commit (claims + threads + event + digest) ───
-# Everything happens here. Zero LLM. One script, one frontmatter read.
-echo "-- Phase 5: State Commit --"
+# Tudo acontece aqui. Zero LLM. Um script, uma leitura do frontmatter.
+echo "── Phase 5: State Commit ──"
 REPORT_FOR_COMMIT="${REPORT_FILENAME:-}"
 python3 - "$ENTRY_PATH" "$SLUG" "$REPORT_FOR_COMMIT" <<'PYEOF'
 import sys, json, yaml, re, os, traceback
@@ -513,9 +646,9 @@ def log_failure(phase, operation, error, tb=None):
         with open(FAILURES_FILE, "a") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception:
-        pass  # Last resort -- can't log the logger
+        pass  # Last resort — can't log the logger
 
-# -- Read frontmatter (once) --
+# ── Ler frontmatter (uma vez) ──
 try:
     raw = Path(entry_path).read_text()
     parts = raw.split("---", 2)
@@ -524,7 +657,7 @@ try:
 except Exception as e:
     fm = {}
     log_failure("5", "read_frontmatter", e, traceback.format_exc())
-    warn(f"Frontmatter not read: {e}")
+    warn(f"Frontmatter não lido: {e}")
 
 claims = fm.get("claims", [])
 threads = fm.get("threads", [])
@@ -536,18 +669,18 @@ def _is_open(c):
         return c.get("status", "").lower() in ("unverified", "open", "disputed")
     return isinstance(c, str) and c.startswith("!")
 
-# -- 1. Claims check --
+# ── 1. Claims check ──
 try:
     if claims:
         open_count = sum(1 for c in claims if _is_open(c))
-        ok(f"Claims: {len(claims)} ({open_count} open), {len(threads)} threads")
+        ok(f"Claims: {len(claims)} ({open_count} abertas), {len(threads)} fios")
     else:
-        warn("No claims. Add claims: and threads: to compact knowledge.")
+        warn("Sem claims. Adicione claims: e threads: para compactar conhecimento.")
 except Exception as e:
     log_failure("5", "claims_check", e, traceback.format_exc())
-    warn(f"Claims check failed: {e}")
+    warn(f"Claims check falhou: {e}")
 
-# -- 2. Thread update --
+# ── 2. Thread update ──
 try:
     threads_dir = Path.home() / "edge" / "threads"
     updated_threads = []
@@ -561,75 +694,89 @@ try:
         updated_threads.append(tid)
 
     if updated_threads:
-        ok(f"Threads updated: {', '.join(updated_threads)}")
+        ok(f"Threads atualizados: {', '.join(updated_threads)}")
 except Exception as e:
     log_failure("5", "thread_update", e, traceback.format_exc())
-    warn(f"Thread update failed: {e}")
+    warn(f"Thread update falhou: {e}")
 
-# -- 3. Event log --
+# ── 3. Event log (idempotent) ──
 try:
     events_file = Path.home() / "edge" / "logs" / "events.jsonl"
     artifacts = [f"blog/entries/{slug}.md"]
     if report_filename:
         artifacts.append(f"reports/{report_filename}")
 
-    event = {
-        "event_id": f"EVT-{uuid.uuid4().hex[:8]}",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "type": "artifact_created",
-        "summary": f"Published: {title}",
-        "artifacts": artifacts,
-    }
-    if threads:
-        event["thread_id"] = threads[0]
-    if len(claims) > 0:
-        event["claims_count"] = len(claims)
-        event["open_claims"] = sum(1 for c in claims if _is_open(c))
+    # Idempotency: skip if event for this slug already exists
+    slug_artifact = f"blog/entries/{slug}.md"
+    already_logged = False
+    if events_file.exists():
+        for line in events_file.read_text().splitlines():
+            try:
+                e = json.loads(line)
+                if slug_artifact in e.get("artifacts", []):
+                    already_logged = True
+                    break
+            except:
+                pass
 
-    events_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(events_file, "a") as f:
-        f.write(json.dumps(event, ensure_ascii=False) + "\n")
-    ok(f"Event: {event['event_id']}")
+    if already_logged:
+        ok(f"Evento já existe para {slug} — skip (idempotente)")
+    else:
+        event = {
+            "event_id": f"EVT-{uuid.uuid4().hex[:8]}",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "type": "artifact_created",
+            "summary": f"Publicado: {title}",
+            "artifacts": artifacts,
+        }
+        if threads:
+            event["thread_id"] = threads[0]
+        if len(claims) > 0:
+            event["claims_count"] = len(claims)
+            event["open_claims"] = sum(1 for c in claims if _is_open(c))
+
+        events_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(events_file, "a") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        ok(f"Evento: {event['event_id']}")
 except Exception as e:
     log_failure("5", "event_log", e, traceback.format_exc())
-    fail(f"Event log failed: {e}")
+    fail(f"Event log falhou: {e}")
 
-# -- 4. Digest (generates briefing.md) --
+# ── 4. Digest (gera briefing.md) ──
 try:
     import subprocess
-    # NOTE: Replace with your digest tool name if different
     result = subprocess.run(["edge-digest"], capture_output=True, text=True, timeout=10)
     if result.returncode == 0:
-        ok("briefing.md updated")
+        ok("briefing.md atualizado")
     else:
-        warn(f"digest tool failed (exit {result.returncode})")
+        warn(f"edge-digest falhou (exit {result.returncode})")
         log_failure("5", "digest", f"exit {result.returncode}: {result.stderr[:200]}")
 except FileNotFoundError:
-    warn("digest tool not found")
+    warn("edge-digest não encontrado")
 except Exception as e:
     log_failure("5", "digest", e, traceback.format_exc())
-    warn(f"digest error: {e}")
+    warn(f"edge-digest erro: {e}")
 PYEOF
 
 # ─── PHASE 5b: State audit (compare PRE vs POST, validate proposal) ───
-echo "-- Phase 5b: State Audit --"
-# NOTE: Replace with your state-audit tool name if different
+echo "── Phase 5b: State Audit ──"
 if command -v edge-state-audit &>/dev/null; then
     # Check if proposal exists (agent should have written it during the session)
     PROPOSAL_FILE="$HOME/edge/meta-reports/${SLUG}.state-proposal.yaml"
     if [[ -f "$PROPOSAL_FILE" ]]; then
-        ok "Proposal found: $(basename "$PROPOSAL_FILE")"
+        ok "Proposta encontrada: $(basename "$PROPOSAL_FILE")"
     else
-        warn "No change proposal (state-proposal.yaml). Any change to protected files will be a violation."
+        warn "Sem proposta de mudanças (state-proposal.yaml). Qualquer mudança em arquivo protegido será violação."
     fi
     edge-state-audit audit --slug "$SLUG"
     STATE_AUDIT_EXIT=$?
     if [[ $STATE_AUDIT_EXIT -ge 4 ]]; then
-        fail "State audit FAILED (exit $STATE_AUDIT_EXIT) -- unapproved or divergent change"
-        fail "Pipeline ABORTED. Fix the proposal or revert changes."
+        fail "State audit FALHOU (exit $STATE_AUDIT_EXIT) — mudança não proposta ou divergente"
+        fail "Pipeline ABORTADO. Corrija a proposta ou reverta as mudanças."
         echo ""
         echo "========================================="
-        echo -e " ${RED}ABORTED${NC}: State audit detected violation"
+        echo -e " ${RED}ABORTADO${NC}: State audit detectou violação"
         echo "  Proposal: $PROPOSAL_FILE"
         echo "  Audit: $HOME/edge/meta-reports/${SLUG}.state-audit.yaml"
         echo "========================================="
@@ -639,7 +786,7 @@ fi
 echo ""
 
 # ─── PHASE 6: Diffs + Git commit (audit trail) ───
-echo "-- Phase 6: Diffs + Git Commit --"
+echo "── Phase 6: Diffs + Git Commit ──"
 
 python3 - "$ENTRY_PATH" "$SLUG" "$REPORT_FOR_COMMIT" "$COMMIT_REASON" "$STATE_AUDIT_EXIT" "$REPORT_RESULT" <<'PYPHASE5'
 import sys, yaml, json, os, subprocess, urllib.request, traceback
@@ -678,7 +825,7 @@ def log_failure(phase, operation, error, tb=None):
     except Exception:
         pass
 
-# -- Read frontmatter --
+# ── Ler frontmatter ──
 try:
     raw = Path(entry_path).read_text()
     parts = raw.split("---", 2)
@@ -687,7 +834,7 @@ try:
 except Exception as e:
     fm = {}
     log_failure("6", "read_frontmatter", e, traceback.format_exc())
-    warn(f"Frontmatter not read in Phase 6: {e}")
+    warn(f"Frontmatter não lido em Phase 6: {e}")
 
 title = fm.get("title", slug)
 raw_claims = fm.get("claims", [])
@@ -710,10 +857,9 @@ def _claim_text(c):
         return c.get("claim", c.get("text", str(c)))
     return str(c).lstrip("! ")
 
-# -- 1. Capture diffs from tracked directories (memory, skills, notes) --
-# NOTE: Adjust these paths to match your project structure
+# ── 1. Captura diffs dos mini-repos (memory, skills, notes) ──
 TRACKED = {
-    os.path.expanduser("~/.claude/projects/memory"): "memory",
+    os.path.expanduser("~/.claude/projects/${MEMORY_PROJECT_DIR:-$(ls ~/.claude/projects/ 2>/dev/null | head -1)}/memory"): "memory",
     os.path.expanduser("~/.claude/skills"): "skills",
     os.path.expanduser("~/edge/notes"): "notes",
 }
@@ -765,19 +911,19 @@ for dirpath, prefix in TRACKED.items():
             })
     except Exception as e:
         log_failure("6", f"diff_mini_repo_{prefix}", e, traceback.format_exc())
-        warn(f"Diff {prefix} failed: {e}")
+        warn(f"Diff {prefix} falhou: {e}")
 
-# -- 2. Capture diffs from main repo --
+# ── 2. Captura diffs do ~/edge/ (repo principal) ──
 try:
-    main_dir = os.path.expanduser("~/edge")
-    subprocess.run(["git", "add", "-A"], cwd=main_dir, capture_output=True, timeout=30)
+    edge_dir = os.path.expanduser("~/edge")
+    subprocess.run(["git", "add", "-A"], cwd=edge_dir, capture_output=True, timeout=30)
 
     # ORPHAN GUARD: unstage blog entries/reports/meta-reports that don't belong to this slug.
     # Prevents files written to disk but never published via consolidar-estado from being
     # swept into another slug's commit by git add -A. (Root cause of orphan entries bug.)
     staged_result = subprocess.run(
         ["git", "diff", "--cached", "--name-only"],
-        cwd=main_dir, capture_output=True, text=True, timeout=10
+        cwd=edge_dir, capture_output=True, text=True, timeout=10
     )
     if staged_result.returncode == 0 and staged_result.stdout.strip():
         staged_files = staged_result.stdout.strip().split("\n")
@@ -789,24 +935,24 @@ try:
             if (is_entry or is_report or is_meta) and slug not in f:
                 orphans.append(f)
         if orphans:
-            warn(f"ORPHAN GUARD: {len(orphans)} file(s) from ANOTHER slug in staging -- removing:")
+            warn(f"ORPHAN GUARD: {len(orphans)} arquivo(s) de OUTRO slug no staging — removendo:")
             for o in orphans:
-                warn(f"  -> {o}")
+                warn(f"  ↳ {o}")
             subprocess.run(
                 ["git", "reset", "HEAD", "--"] + orphans,
-                cwd=main_dir, capture_output=True, timeout=10
+                cwd=edge_dir, capture_output=True, timeout=10
             )
-            warn("Publish orphan files via consolidar-estado separately.")
+            warn("Publique arquivos órfãos via consolidar-estado separadamente.")
 
     result = subprocess.run(
         ["git", "diff", "--cached", "--unified=3", "--", ".", ":(exclude)*.venv*", ":(exclude)*.b64", ":(exclude)*.png", ":(exclude)*.jpg", ":(exclude)*.pdf", ":(exclude)*.db"],
-        cwd=main_dir, capture_output=True, text=True, errors="replace", timeout=30
+        cwd=edge_dir, capture_output=True, text=True, errors="replace", timeout=30
     )
-    main_diff = result.stdout.strip()
-    if main_diff:
+    edge_diff = result.stdout.strip()
+    if edge_diff:
         current_file = None
         current_lines = []
-        for line in main_diff.split("\n"):
+        for line in edge_diff.split("\n"):
             if line.startswith("diff --git a/"):
                 if current_file and current_lines:
                     all_diffs.append({
@@ -824,31 +970,39 @@ try:
                 "diff": "\n".join(current_lines)
             })
 except Exception as e:
-    log_failure("6", "diff_main_repo", e, traceback.format_exc())
-    warn(f"Diff main repo failed: {e}")
+    log_failure("6", "diff_edge_repo", e, traceback.format_exc())
+    warn(f"Diff edge repo falhou: {e}")
 
-# -- 3. Post diffs to blog API --
+# ── 3. Posta diffs no blog API ──
 if all_diffs:
     payload = json.dumps({"slug": slug, "files": all_diffs}).encode("utf-8")
+    blog_port = os.environ.get("BLOG_PORT", "$BLOG_PORT")
+    auth_user = os.environ.get("BLOG_AUTH_USER", "$BLOG_AUTH_USER")
+    auth_pass = os.environ.get("BLOG_AUTH_PASS", "$BLOG_AUTH_PASS")
+    diffs_headers = {"Content-Type": "application/json"}
+    if auth_user and auth_pass:
+        import base64
+        cred = base64.b64encode(f"{auth_user}:{auth_pass}".encode()).decode()
+        diffs_headers["Authorization"] = f"Basic {cred}"
     try:
         req = urllib.request.Request(
-            "http://localhost:8766/api/diffs",
+            f"http://localhost:{blog_port}/api/diffs",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=diffs_headers,
             method="POST"
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             resp.read()
         adds = sum(sum(1 for l in d["diff"].split("\n") if l.startswith("+") and not l.startswith("+++")) for d in all_diffs)
         dels = sum(sum(1 for l in d["diff"].split("\n") if l.startswith("-") and not l.startswith("---")) for d in all_diffs)
-        ok(f"Diffs: {len(all_diffs)} files (+{adds} -{dels})")
+        ok(f"Diffs: {len(all_diffs)} arquivos (+{adds} -{dels})")
     except Exception as e:
         log_failure("6", "blog_api_diffs", e, traceback.format_exc())
         warn(f"Blog API diffs: {e}")
 else:
-    ok("No state diffs")
+    ok("Sem diffs de estado")
 
-# -- 4. Generate structured commit message --
+# ── 4. Gerar commit message estruturada ──
 # State audit status
 state_label = {0: "ok", 2: "partial", 4: "divergence", 5: "violation"}.get(state_audit_exit, "skip" if state_audit_exit < 0 else "unknown")
 
@@ -857,7 +1011,7 @@ lines = [f"publish: {slug} [state:{state_label}]", ""]
 if reason:
     lines.append(f"reason: {reason}")
 else:
-    lines.append(f"reason: publication via consolidar-estado")
+    lines.append(f"reason: publicação via consolidar-estado")
 lines.append("")
 
 # Pipeline status
@@ -900,7 +1054,7 @@ if audit_path.exists():
         lines.append("")
     except Exception as e:
         log_failure("6", "audit_summary", e, traceback.format_exc())
-        warn(f"Audit summary failed: {e}")
+        warn(f"Audit summary falhou: {e}")
 
 if verified:
     lines.append(f"learned ({len(verified)}):")
@@ -925,7 +1079,7 @@ if proposal_path.exists():
 if audit_path.exists():
     lines.append(f"audit: {audit_path.name}")
 
-# -- Execution summary from ops-hotspots.json --
+# ── Execution summary from ops-hotspots.json ──
 try:
     hotspots_path = Path.home() / "edge" / "state" / "ops-hotspots.json"
     if hotspots_path.exists():
@@ -945,7 +1099,7 @@ try:
             tools_str = ",".join(f"{t}({c})" for t, c in sorted(tool_counts.items(), key=lambda x: -x[1]))
             lines.append(f"execution-summary: retries={total_retries} tools_failed={tools_str} wasted_ms={total_wasted}")
 except Exception:
-    pass  # Backwards compatible -- omit on any error
+    pass  # Backwards compatible — omit on any error
 
 lines.append("")
 meta = {
@@ -960,7 +1114,7 @@ meta = {
 lines.append(json.dumps(meta, ensure_ascii=False))
 commit_msg = "\n".join(lines)
 
-# -- 5. Commit mini-repos with structured message --
+# ── 5. Commit mini-repos com mensagem estruturada ──
 for dirpath, prefix in mini_repos_with_changes:
     try:
         subprocess.run(
@@ -969,44 +1123,44 @@ for dirpath, prefix in mini_repos_with_changes:
         )
     except Exception as e:
         log_failure("6", f"commit_mini_repo_{prefix}", e, traceback.format_exc())
-        warn(f"Commit {prefix} failed: {e}")
+        warn(f"Commit {prefix} falhou: {e}")
 
-# -- 6. Commit main repo --
+# ── 6. Commit ~/edge/ ──
 try:
     result = subprocess.run(
         ["git", "commit", "-m", commit_msg],
-        cwd=main_dir, capture_output=True, text=True, timeout=30
+        cwd=edge_dir, capture_output=True, text=True, timeout=30
     )
     if result.returncode == 0:
         hash_result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            cwd=main_dir, capture_output=True, text=True, timeout=10
+            cwd=edge_dir, capture_output=True, text=True, timeout=10
         )
         ok(f"Commit: {hash_result.stdout.strip()}")
     else:
-        warn("Nothing to commit or git failed")
+        warn("Nada para commitar ou git falhou")
 except Exception as e:
-    log_failure("6", "commit_main", e, traceback.format_exc())
-    fail(f"Git commit failed: {e}")
+    log_failure("6", "commit_edge", e, traceback.format_exc())
+    fail(f"Git commit falhou: {e}")
 PYPHASE5
 
 echo ""
 echo "========================================="
 if $ALL_OK && [[ "$REPORT_RESULT" != "fail" ]]; then
-    echo -e " ${GREEN}PUBLISHED COMPLETE${NC}: $SLUG"
+    echo -e " ${GREEN}PUBLICADO COMPLETO${NC}: $SLUG"
     [[ -n "$REPORT_FILENAME" ]] && echo " Content report: $REPORT_FILENAME"
     [[ -n "$META_REPORT_PATH" ]] && echo " Meta-report: $META_REPORT_PATH"
     [[ -n "$META_REPORT_PATH" ]] && echo ""
-    [[ -n "$META_REPORT_PATH" ]] && echo -e " ${YELLOW}-> Read meta-report BEFORE editing state${NC}"
+    [[ -n "$META_REPORT_PATH" ]] && echo -e " ${YELLOW}→ Ler meta-report ANTES de editar estado${NC}"
     echo "========================================="
     exit 0
 elif $ALL_OK; then
-    echo -e " ${YELLOW}PARTIAL${NC}: Entry OK, report has issues"
+    echo -e " ${YELLOW}PARCIAL${NC}: Entry OK, report com issues"
     [[ -n "$META_REPORT_PATH" ]] && echo " Meta-report: $META_REPORT_PATH"
     echo "========================================="
     exit 2
 else
-    echo -e " ${RED}ISSUES${NC}: verify manually"
+    echo -e " ${RED}ISSUES${NC}: verificar manualmente"
     echo "========================================="
     exit 2
 fi

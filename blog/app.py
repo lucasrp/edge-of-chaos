@@ -250,9 +250,9 @@ def load_entries():
             "path": str(fp),
         })
 
-    entries.sort(key=lambda e: (e["date"], e["mtime"]), reverse=True)
+    entries.sort(key=lambda e: (e["date"], e["slug"]), reverse=True)
 
-    chronological = sorted(entries, key=lambda e: (e["date"], e["mtime"]))
+    chronological = sorted(entries, key=lambda e: (e["date"], e["slug"]))
     cat_counters = {}
     for i, entry in enumerate(chronological, 1):
         entry["break_number"] = i
@@ -316,7 +316,7 @@ def get_temp_map():
 
 
 def get_entry_meta():
-    """Get metadata from DB for entries (status, effort, project, proposta_id, content_html)."""
+    """Get metadata from DuckDB for entries (status, effort, project, proposta_id, content_html)."""
     try:
         from db import ensure_db
         conn = ensure_db()
@@ -612,11 +612,11 @@ def entries_json():
 
 
 def get_autonomy_data():
-    """Read autonomy capabilities and compute stats."""
+    """Read ~/edge/autonomy/capabilities.md and compute Sheridan stats."""
     import re
     try:
-        cap_path = ROOT / "autonomy" / "capabilities.md"
-        frontier_path = ROOT / "autonomy" / "frontier.md"
+        cap_path = Path.home() / "edge" / "autonomy" / "capabilities.md"
+        frontier_path = Path.home() / "edge" / "autonomy" / "frontier.md"
         content = cap_path.read_text()
         # Parse table rows: | # | Name | Sheridan | ...
         rows = re.findall(r'^\|\s*\d+\s*\|([^|]+)\|\s*(\d+)\s*\|', content, re.MULTILINE)
@@ -904,7 +904,7 @@ def comments_json():
     return jsonify(load_comments())
 
 
-# ─── Static files from root ───
+# ─── Static files from ~/edge/ root ───
 @app.route("/reports/<path:filename>")
 def serve_reports(filename):
     return send_from_directory(str(ROOT / "reports"), filename)
@@ -1027,11 +1027,10 @@ def get_health_data(entries):
             if "heartbeat" in title_lower:
                 health["beats_today"] += 1
 
-    # Claims from snapshot
+    # Claims from snapshot (edge-claims uses blog entries)
     try:
         import subprocess
         result = subprocess.run(
-            # NOTE: Replace with your claims tool name if different
             ["edge-claims", "stats"],
             capture_output=True, text=True, timeout=5
         )
@@ -1129,7 +1128,7 @@ def dashboard_page():
     return render_template(
         "dashboard.html",
         tab="dashboard",
-        page_title="edge -- ops console",
+        page_title="edge_of_chaos — ops console",
         header_sub="ops console",
         stats=get_stats_data(),
         health=health,
@@ -1180,8 +1179,7 @@ def api_task_detail(task_id):
 
 
 # ─── Knowledge Clusters ───
-# NOTE: Adjust MEMORY_DIR to match your Claude project memory path
-MEMORY_DIR = Path.home() / ".claude" / "projects" / "memory"
+MEMORY_DIR = Path.home() / ".claude" / "projects" / "-home-vboxuser" / "memory"
 TOPICS_DIR = MEMORY_DIR / "topics"
 
 
@@ -1253,7 +1251,7 @@ def load_knowledge_clusters():
 
 @app.route("/knowledge")
 def knowledge_page():
-    """Knowledge clusters -- browse and curate topic files."""
+    """Knowledge clusters — browse and curate topic files."""
     clusters = load_knowledge_clusters()
 
     total_rules = sum(c.get("rules", 0) for c in clusters)
@@ -1311,10 +1309,10 @@ def api_knowledge_detail(name):
     return jsonify({"error": "not found"}), 404
 
 
-# Catch-all for other files (images, etc.)
+# Catch-all for other ~/edge/ files (images, etc.)
 @app.route("/<path:filepath>")
 def serve_edge_file(filepath):
-    """Serve any file from root (backward compat with old server)."""
+    """Serve any file from ~/edge/ root (backward compat with old server)."""
     full = ROOT / filepath
     if full.is_file():
         return send_from_directory(str(full.parent), full.name)

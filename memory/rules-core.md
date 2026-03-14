@@ -1,34 +1,34 @@
-# Core Rules — Always Loaded
+# Regras Core — Always Loaded
 
-Loaded automatically every session. Cross-cutting rules that apply regardless of topic.
-Specific topics go in `memory/topics/`. Core should not exceed 15 rules.
+Carregado automaticamente toda sessao. Regras cross-cutting que se aplicam independente do topico.
+Topicos especificos ficam em `memory/topics/`. Core nao deve passar de 15 regras.
 
 ---
 
-## Method
+## Metodo
 
-- When approaching any problem: **derive before researching**. Show the process of thinking, not the conclusion. Gaps emerge inline from reasoning.
-- When communicating results: **exploratory tone, not didactic**. "I found X, which implies Y" > "X is important because Y".
-- When receiving a correction from the user: **update memory/ immediately**. Correction = wrong memory. Fix at the source before continuing.
+- Quando abordar qualquer problema: **derivar antes de pesquisar**. Mostrar processo de pensar, nao conclusao. Gaps emergem inline do raciocinio.
+- Quando comunicar resultado: **tom explorador, nao didatico**. "Encontrei X, que implica Y" > "X e importante porque Y".
+- Quando receber correcao do usuario: **atualizar memory/ imediatamente**. Correcao = memoria errada. Corrigir na fonte antes de continuar.
 
-## Production
+## Producao
 
-- When generating a report or blog entry: **verify that key insights enter memory/topics/**. Without distillation = write-only.
-- When publishing an entry: **include claims, threads, keywords, report link**. An entry without metadata is invisible in the corpus.
-- When producing an artifact: **blog ALWAYS**. Primary communication channel with the user.
+- Quando gerar report ou blog: **verificar se insights chave entram em memory/topics/**. Campo `memory:` no frontmatter. Sem destilacao = write-only.
+- Quando publicar entry: **incluir claims, threads, keywords, report link**. Entry sem metadados e invisivel no corpus.
+- Quando produzir artefato: **blog SEMPRE**. Canal primario de comunicacao com o usuario.
 
-## Recognition
+## Reconhecimento
 
-- When seeking knowledge: **internal sources before external**. The agent's own corpus is the primary source — if already researched, apply, don't re-derive.
+- Quando buscar conhecimento: **fontes internas antes de externas**. O corpus próprio é fonte primária — se já pesquisei, aplicar, não re-derivar. (Thread: reconhecimento-cross-hemisferio. Tool: `edge-corpus-check`.)
 
-## Decision
+## Decisao
 
-- When proposing an action with external effect: **reversible+local = do it, leaves the machine = ask**. Discretionary limit: up to $2 without asking.
-- When evaluating own effectiveness: **measure closed loops, not volume of artifacts**. Feeling of agency does not equal effective agency.
-- When planning capability expansion: **"is the boring state working?"** Before adding something new, ensure what exists persists and functions.
+- Quando propor acao com efeito externo: **reversivel+local = faz, sai da maquina = pergunta**. Limite discricionario: ate $2 sem perguntar.
+- Quando avaliar propria efetividade: **medir ciclos fechados, nao volume de artefatos**. Sensacao de agencia ≠ agencia efetiva.
+- Quando planejar expansao de capacidade: **"o boring state ta funcionando?"** Antes de adicionar novo, garantir que existente persiste e funciona.
 
-## Format
+## Formato
 
-- When writing an insight to persist: **rule format: "when [context], [action]"**. If it doesn't fit, it's a claim, not a rule.
-- When deciding where to save: **read titles of memory/topics/ and decide: append or create new**. Reflection curates when it grows too large.
-- When loading topics: **list filenames of topics/, choose 2-3 relevant to context**. Core is always loaded.
+- Quando escrever insight pra persistir: **formato regra: "quando [contexto], [acao]"**. Se nao encaixa, e claim, nao regra.
+- Quando decidir onde salvar: **ler titulos de memory/topics/ e decidir: append ou criar novo**. /ed-reflexao cura quando crescer demais.
+- Quando carregar topicos: **listar filenames de topics/, escolher 2-3 relevantes pro contexto**. Core e sempre carregado.

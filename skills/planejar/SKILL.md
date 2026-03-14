@@ -1,5 +1,5 @@
 ---
-name: {{PREFIX}}-planejar
+name: planejar
 description: "Propose development cycles for new or existing projects. Analyzes context, creates detailed proposals, manages proposal state. Triggers on: planejar, plan project, propose, proposta, ciclo de desenvolvimento."
 user-invocable: true
 ---
@@ -12,16 +12,16 @@ Analisar o que o agente tem feito (memoria, breaks, descobertas, projetos) e pro
 
 ## Argumentos Opcionais
 
-- **Sem argumento** (`/{{PREFIX}}-planejar`): analisar contexto e propor autonomamente
-- **Com tema** (`/{{PREFIX}}-planejar eval de prompts`): propor ciclo sobre esse tema
-- **Com projeto** (`/{{PREFIX}}-planejar project-a`): propor ciclo para esse projeto existente
-- **Status** (`/{{PREFIX}}-planejar status`): listar todas as propostas e seus estados
+- **Sem argumento** (`/planejar`): analisar contexto e propor autonomamente
+- **Com tema** (`/planejar eval de prompts`): propor ciclo sobre esse tema
+- **Com projeto** (`/planejar Doc_AssertIA`): propor ciclo para esse projeto existente
+- **Status** (`/planejar status`): listar todas as propostas e seus estados
 
 Exemplos:
-- `/{{PREFIX}}-planejar` → analisa contexto, propoe algo relevante
-- `/{{PREFIX}}-planejar blog dashboard` → propoe ciclo para nova feature no blog
-- `/{{PREFIX}}-planejar project-b` → propoe ciclo para o backend existente
-- `/{{PREFIX}}-planejar status` → dashboard de propostas
+- `/planejar` → analisa contexto, propoe algo relevante
+- `/planejar blog dashboard` → propoe ciclo para nova feature no blog
+- `/planejar assertia-multiagent` → propoe ciclo para o backend existente
+- `/planejar status` → dashboard de propostas
 
 ---
 
@@ -37,7 +37,7 @@ Exemplos:
 
 ## Estado Persistente
 
-Arquivo: `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/propostas.md`
+Arquivo: `~/.claude/projects/-home-vboxuser/memory/propostas.md`
 
 Cada proposta tem um status:
 - `[PROPOSTA]` — nova, aguardando avaliacao do usuario
@@ -48,7 +48,7 @@ Cada proposta tem um status:
 
 ## Protocolo (seguir na ordem)
 
-### Desvio: `/{{PREFIX}}-planejar status`
+### Desvio: `/planejar status`
 
 Se o argumento for `status`, mostrar dashboard e parar:
 
@@ -72,11 +72,11 @@ Se o argumento for `status`, mostrar dashboard e parar:
 
 ---
 
-### Passo 1: Rodar /{{PREFIX}}-contexto (OBRIGATORIO)
+### Passo 1: Rodar /contexto (OBRIGATORIO)
 
-Executar a skill `/{{PREFIX}}-contexto` para obter scan cross-project completo. Nao pular este passo.
+Executar a skill `/contexto` para obter scan cross-project completo. Nao pular este passo.
 
-Se `/{{PREFIX}}-contexto` ja foi rodado nesta sessao (ex: pelo usuario ou heartbeat), apenas reler o output — nao repetir.
+Se `/contexto` ja foi rodado nesta sessao (ex: pelo usuario ou heartbeat), apenas reler o output — nao repetir.
 
 ### Passo 1.5: Consultar relatorios anteriores
 
@@ -100,16 +100,16 @@ Para cada YAML com nome relevante (palavras-chave no slug), ler as primeiras ~30
 
 ```bash
 # Descobertas pendentes — novas areas exploradas
-cat $HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/descobertas.md 2>/dev/null
+cat ~/.claude/projects/-home-vboxuser/memory/descobertas.md 2>/dev/null
 
 # Propostas existentes — evitar duplicatas
-cat $HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/propostas.md 2>/dev/null
+cat ~/.claude/projects/-home-vboxuser/memory/propostas.md 2>/dev/null
 
 # Projetos em labs — o que ja existe
 ls -d ~/edge/labs/*/ 2>/dev/null
 ```
 
-Usar `ultrathink` (thinkmax). Com o output do `/{{PREFIX}}-contexto` + as fontes acima, identificar:
+Usar `ultrathink` (thinkmax). Com o output do `/contexto` + as fontes acima, identificar:
 - Problemas recorrentes que poderiam ser resolvidos com uma ferramenta
 - Descobertas que poderiam virar projeto
 - Sugestoes do CLAUDE.md nao executadas
@@ -118,7 +118,7 @@ Usar `ultrathink` (thinkmax). Com o output do `/{{PREFIX}}-contexto` + as fontes
 
 ### Passo 2.5: Buscar fontes externas (OBRIGATORIO)
 
-Rodar `/{{PREFIX}}-fontes planejar "[tema da proposta]"` para obter experiencias praticas de implementacao de todas as fontes relevantes (Web, X, GitHub, HN).
+Rodar `/fontes planejar "[tema da proposta]"` para obter experiencias praticas de implementacao de todas as fontes relevantes (Web, X, GitHub, HN).
 
 Incorporar na proposta (riscos, decisoes de design, ferramentas alternativas) e citar no relatorio (com URL).
 
@@ -192,8 +192,10 @@ Conexao com trabalho recente, descobertas, ou decisoes estrategicas.]
 1. **Criar repositorio no GitHub:**
 
 ```bash
-gh repo create YOUR-USER/[nome-do-projeto] --private --description "[descricao curta]"
-git clone https://github.com/YOUR-USER/[nome-do-projeto].git ~/edge/labs/[nome-do-projeto]
+gh auth switch --user lucasrp
+gh repo create lucasrp/[nome-do-projeto] --private --description "[descricao curta]"
+git clone https://github.com/lucasrp/[nome-do-projeto].git ~/edge/labs/[nome-do-projeto]
+gh auth switch --user lucasrp_TCU
 ```
 
 2. **Criar README.md** no repo (`~/edge/labs/[nome-do-projeto]/README.md`):
@@ -239,7 +241,9 @@ $X.XX por ciclo (APIs, infra).
 cd ~/edge/labs/[nome-do-projeto]
 git add -A
 git commit -m "proposta: [titulo] — ciclo de desenvolvimento proposto"
+gh auth switch --user lucasrp
 git push -u origin main
+gh auth switch --user lucasrp_TCU
 ```
 
 ### Passo 3.5: Sanity check adversarial (OBRIGATORIO)
@@ -254,7 +258,7 @@ Ajustar se o GPT encontrar furo valido (ex: escopo inflado, risco subestimado, a
 
 ### Passo 4: Registrar proposta
 
-Adicionar no topo de `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/propostas.md` (abaixo do header):
+Adicionar no topo de `~/.claude/projects/-home-vboxuser/memory/propostas.md` (abaixo do header):
 
 ```markdown
 ---
@@ -262,7 +266,7 @@ Adicionar no topo de `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/p
 ## [YYYY-MM-DD] #N — [Titulo] [PROPOSTA]
 
 **Tipo:** [novo | existente]
-**Projeto:** [nome-do-repo ou projeto]
+**Projeto:** [nome-do-repo ou projeto TCU]
 **Origem:** [contexto | descoberta | pesquisa | manual | heartbeat]
 **Custo estimado:** $X.XX
 **Proposta em:** [caminho do arquivo .md com proposta completa]
@@ -275,7 +279,7 @@ Se o arquivo nao existir, criar com:
 # Propostas de Desenvolvimento
 
 Registro persistente de todas as propostas de ciclos de desenvolvimento.
-Consultar com `/{{PREFIX}}-planejar status`.
+Consultar com `/planejar status`.
 ```
 
 O numero `#N` e sequencial — contar propostas existentes + 1.
@@ -298,7 +302,7 @@ Registrar em TRES arquivos:
 
 ### Passo 6: Atualizar blog interno + gerar relatorio HTML pedagogico
 
-1. Criar entry .md em `~/edge/blog/entries/` com tag `planejamento` (formato: ver `/{{PREFIX}}-blog` SKILL.md)
+1. Criar entry .md em `~/edge/blog/entries/` com tag `planejamento` (formato: ver `/blog` SKILL.md)
 
 O relatorio HTML e o artefato principal da proposta. Deve ser **autoexplicativo** — quem ler sem contexto nenhum deve entender exatamente o que vai acontecer, o que precisa fornecer, e o que vai receber de volta.
 
@@ -411,7 +415,7 @@ Exemplos do tipo de pecas-chave que devem ter input→output:
 - **Template preenchido obrigatorio para cada item:** para cada coisa que o usuario precisa fornecer, mostrar um template com dados realistas num bloco `<pre>` formatado. O template deve incluir:
   - Formato exato esperado (markdown, JSON, YAML, checklist)
   - Dados de exemplo preenchidos (nao placeholders genericos — dados que parecem reais)
-  - Caminho onde os dados provavelmente ja existem (`~/work/...`, banco de dados, etc.)
+  - Caminho onde os dados provavelmente ja existem (`~/tcu/...`, banco de dados, etc.)
   - Alternativa se o usuario nao tiver: "Se nao tiver X, pode criar Y manualmente usando este formato"
 - Callout claro diferenciando o que ja existe do que precisa ser criado
 - Se nao precisa de nada: dizer explicitamente "execucao 100% autonoma"
@@ -474,35 +478,35 @@ $X.XX
 ~/edge/reports/[arquivo].html
 
 ### Proximo Passo
-Para ver todas as propostas: `/{{PREFIX}}-planejar status`
+Para ver todas as propostas: `/planejar status`
 ```
 
 ---
 
 ## Quando Usar
 
-- **Via /{{PREFIX}}-heartbeat:** Quando contexto sugere oportunidade de projeto
-- **Manualmente:** `/{{PREFIX}}-planejar` — "proponha um ciclo de desenvolvimento"
-- **Com direcao:** `/{{PREFIX}}-planejar eval system` — "proponha ciclo sobre isso"
-- **Status:** `/{{PREFIX}}-planejar status` — "quais propostas existem?"
-- **Apos /{{PREFIX}}-pesquisa:** Quando pesquisa produziu recomendacoes que merecem proposta detalhada
+- **Via /heartbeat:** Quando contexto sugere oportunidade de projeto
+- **Manualmente:** `/planejar` — "proponha um ciclo de desenvolvimento"
+- **Com direcao:** `/planejar eval system` — "proponha ciclo sobre isso"
+- **Status:** `/planejar status` — "quais propostas existem?"
+- **Apos /pesquisa:** Quando pesquisa produziu recomendacoes que merecem proposta detalhada
 
 ---
 
 ## Regra de Isolamento (OBRIGATORIA)
 
-**Propostas NUNCA sao criadas em diretorios de projeto (`~/work/*/`).**
+**Propostas NUNCA sao criadas em diretorios de projeto (`~/tcu/*/`).**
 
 Todas as propostas ficam em `~/edge/propostas/proposta-[nome-slug].md`.
 
 Para **projetos novos:**
 - Tudo em `~/edge/labs/[nome]/` (repo GitHub privado)
-- Conta pessoal, nunca conta de trabalho
+- Conta pessoal `lucasrp`, nunca conta de trabalho
 
 **Arquivos de estado do sistema (excecao):**
-- `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/propostas.md`
-- `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/breaks-active.md`
-- `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/breaks-archive.md`
+- `~/.claude/projects/-home-vboxuser/memory/propostas.md`
+- `~/.claude/projects/-home-vboxuser/memory/breaks-active.md`
+- `~/.claude/projects/-home-vboxuser/memory/breaks-archive.md`
 - `~/edge/blog/index.html`
 
 ---

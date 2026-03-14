@@ -1,4 +1,4 @@
-"""Ingest documents into agent memory."""
+"""Ingest documents into edge-memory."""
 
 import hashlib
 import json
@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 
-from db import ensure_db, has_vec
+from db import ensure_db
 from embed import embed_batch, embed_text
 
 
@@ -85,15 +85,40 @@ def _detect_type(path: Path) -> str:
         return "note"
     if "/reports/" in s:
         return "report"
-    if "/blog/entries/" in s or "/entries/" in s:
+    if "/blog/entries/" in s:
         return "blog"
-    if "archive" in s:
+    if "breaks-archive" in s:
         return "archive"
+    if "propostas" in s:
+        return "proposta"
+    if "descobertas" in s:
+        return "descoberta"
     return "other"
 
 
 def _split_archive_entries(content: str) -> list[tuple[str, str]]:
-    """Split archive markdown into individual entries."""
+    """Split breaks-archive.md into individual entries."""
+    entries = []
+    current_title = None
+    current_lines = []
+
+    for line in content.splitlines():
+        if line.startswith("## ["):
+            if current_title and current_lines:
+                entries.append((current_title, "\n".join(current_lines)))
+            current_title = line.lstrip("# ").strip()
+            current_lines = [line]
+        elif current_title:
+            current_lines.append(line)
+
+    if current_title and current_lines:
+        entries.append((current_title, "\n".join(current_lines)))
+
+    return entries
+
+
+def _split_propostas(content: str) -> list[tuple[str, str]]:
+    """Split propostas.md into individual proposals."""
     entries = []
     current_title = None
     current_lines = []
@@ -189,7 +214,7 @@ def ingest_file(
             status = "new"
 
         # Embedding
-        if not skip_embedding and has_vec():
+        if not skip_embedding:
             try:
                 emb_text = f"{title or ''}\n{body}"
                 embedding = embed_text(emb_text)
@@ -312,8 +337,8 @@ def ingest_bulk_with_batch_embeddings(
 
     conn.commit()
 
-    # Phase 2: Batch embed (only if sqlite_vec available)
-    if docs_needing_embedding and has_vec():
+    # Phase 2: Batch embed
+    if docs_needing_embedding:
         if verbose:
             print(f"\nEmbedding {len(docs_needing_embedding)} documents...")
 
@@ -339,9 +364,6 @@ def ingest_bulk_with_batch_embeddings(
             if verbose:
                 print(f"  WARNING: batch embedding failed: {e}")
                 print("  Documents are indexed in FTS5 but without embeddings")
-    elif docs_needing_embedding and not has_vec():
-        if verbose:
-            print("  NOTE: sqlite_vec not installed — skipping embeddings (FTS5 only)")
 
     conn.close()
     return stats
@@ -353,7 +375,7 @@ def ingest_bulk_with_batch_embeddings(
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Ingest documents into agent memory")
+    parser = argparse.ArgumentParser(description="Ingest documents into edge-memory")
     parser.add_argument("paths", nargs="+", help="Files or directories to ingest")
     parser.add_argument(
         "--pattern", default="*.md", help="Glob pattern for directories (default: *.md)"

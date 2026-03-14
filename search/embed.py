@@ -1,4 +1,4 @@
-"""Embedding provider for agent memory search."""
+"""Embedding provider for edge-memory."""
 
 import os
 from pathlib import Path
@@ -10,31 +10,20 @@ MAX_CHARS = 8000  # ~2000 tokens, safe limit
 
 
 def _load_key() -> str:
-    """Load OpenAI API key from environment or secrets file."""
-    # Check environment first
+    env_file = Path.home() / "edge" / "secrets" / "openai.env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                os.environ[key.strip()] = val.strip()
+
     api_key = os.environ.get("OPENAI_API_KEY")
-    if api_key:
-        return api_key
-
-    # Try common secrets locations
-    secrets_paths = [
-        Path.home() / ".config" / "openai" / "api_key",
-        Path.home() / "secrets" / "openai.env",
-    ]
-    for env_file in secrets_paths:
-        if env_file.exists():
-            for line in env_file.read_text().splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, val = line.split("=", 1)
-                    os.environ[key.strip()] = val.strip()
-            api_key = os.environ.get("OPENAI_API_KEY")
-            if api_key:
-                return api_key
-
-    raise RuntimeError(
-        "OPENAI_API_KEY not found. Set it as an environment variable or in a secrets file."
-    )
+    if not api_key:
+        raise RuntimeError(
+            "OPENAI_API_KEY not found. Set it in ~/edge/secrets/openai.env"
+        )
+    return api_key
 
 
 def embed_text(text: str) -> list[float]:

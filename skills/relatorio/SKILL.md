@@ -1,10 +1,10 @@
 ---
-name: {{PREFIX}}-relatorio
-description: "Generate a structured HTML report on any topic. Use when you need to deeply understand something, analyze a question, or produce a deliverable for the user. Dual-purpose: user invokes for deliverables, agent self-invokes to think through problems. Triggers on: relatorio, report, gerar relatorio, analise, analyze, explique em detalhe."
+name: relatorio
+description: "Generate a structured HTML report on any topic. Use when you need to deeply understand something, analyze a question, or produce a deliverable for the user. Dual-purpose: user invokes for deliverables, edge_of_chaos self-invokes to think through problems. Triggers on: relatorio, report, gerar relatorio, analise, analyze, explique em detalhe."
 user-invocable: true
 ---
 
-# /{{PREFIX}}-relatorio — Pensar Produzindo
+# /relatorio — Pensar Produzindo
 
 Gerar relatorio HTML estruturado sobre qualquer tema. Ferramenta de pensamento E de comunicacao.
 
@@ -15,7 +15,7 @@ Gerar relatorio HTML estruturado sobre qualquer tema. Ferramenta de pensamento E
 - "analise isso em detalhe"
 - "quero entender melhor Y"
 
-**O agente decide:**
+**edge_of_chaos decide:**
 - Preciso entender algo antes de agir — o relatorio forca pensamento estruturado
 - Um tema complexo precisa ser decomposto — o formato de secoes obriga clareza
 - Quero registrar um raciocinio que pode ser util depois — o HTML persiste
@@ -55,13 +55,13 @@ Usar as ferramentas disponiveis conforme o tema:
 
 ### Passo 2.5: Buscar fontes externas (OBRIGATORIO)
 
-Rodar `/{{PREFIX}}-fontes relatorio "[tema central]"` para busca abrangente em TODAS as fontes externas (X, Web, ArXiv, HN, GitHub).
+Rodar `/fontes relatorio "[tema central]"` para busca abrangente em TODAS as fontes externas (X, Web, ArXiv, HN, GitHub).
 
 Incorporar na analise e citar no relatorio (com @username e URL para tweets, links para papers/posts).
 
 ### Passo 3: Estruturar em YAML
 
-Montar o YAML spec com secoes e block types.
+Montar o YAML spec com secoes e block types. O formato e o mesmo do `/relatorio-tcu`.
 
 ```yaml
 title: "Titulo do Relatorio"
@@ -143,15 +143,15 @@ Ajustar se o GPT encontrar furo valido. Se mantiver posicao, registrar como call
 **Blog ANTES de HTML. SEMPRE.** O HTML e o passo mais caro em tokens. Se o contexto esgota durante a geracao do HTML, o blog ja foi escrito. O filename do report e deterministico (`YYYY-MM-DD-slug.html`) — pode ser referenciado antes de existir.
 
 **4a. Blog interno:**
-1. Criar entry .md com tag `relatorio` (ou da skill chamadora). Formato: ver `/{{PREFIX}}-blog` SKILL.md
+1. Criar entry .md com tag `relatorio` (ou da skill chamadora). Formato: ver `/blog` SKILL.md
 2. A publicacao sera feita no Passo 5 junto com o report (via `consolidar-estado`)
 
 **4b. Observações de estado:** `edge-scratch add "Relatório [tema]: [conclusão principal]. [próximo passo]."` (estado via meta-report, ver `~/.claude/skills/_shared/state-protocol.md`).
 
 **4c. Descobertas** — se o relatorio revelou algo novo (ferramenta, padrao, bug, insight):
 - Anotar em `~/edge/notes/` se merece nota propria
-- Ou adicionar como entrada em `$HOME/.claude/projects/$(echo $HOME | tr '/' '-')/memory/descobertas.md` com `[PENDENTE]`
-- A `/{{PREFIX}}-reflexao` vai processar na proxima execucao
+- Ou adicionar como entrada em `~/.claude/projects/-home-vboxuser/memory/descobertas.md` com `[PENDENTE]`
+- A `/reflexao` vai processar na proxima execucao
 
 Se foi auto-invocado, explicar ao usuario o que gerou e por que:
 > "Gerei um relatorio sobre X porque precisava entender Y antes de Z. Esta em ~/edge/reports/..."
@@ -226,7 +226,7 @@ SVG inline e a linguagem visual dos relatorios. Gerar via bloco `raw-html` no YA
 - `font-family: 'Segoe UI', sans-serif`
 - `max-width: 100%` no container
 - Cores semanticas:
-  - `#2b6cb0` normal/info (azul)
+  - `#2b6cb0` normal/info (azul TCU)
   - `#38a169` sucesso/positivo
   - `#e53e3e` perigo/critico
   - `#ed8936` alerta/atencao

@@ -10,24 +10,6 @@ Cada skill referencia este arquivo em vez de ter suas próprias instruções de 
 
 ---
 
-## Cold Start Mode (primeiros 5 blog entries)
-
-Quando o sistema tem menos de 5 entries em `~/edge/blog/entries/`, opera em **modo bootstrap**:
-
-1. **Blog entries sem report:** Escrever .md diretamente em `~/edge/blog/entries/` e fazer `cd ~/edge && git add -A && git commit -m "publish: slug"`. O campo `report:` no frontmatter é opcional.
-2. **consolidar-estado não é obrigatório:** Usar apenas quando o sistema amadurecer (5+ entries).
-3. **edge-consult, edge-state-audit, edge-state-lint podem falhar** — ignorar erros dessas tools no cold start.
-4. **edge-skill-step pode não ter registry** — ignorar erros de tracking.
-5. **Publicação direta:** A forma mais simples de publicar no blog é criar o .md com frontmatter (title, date, tags) e fazer git commit. O blog server detecta automaticamente.
-
-Para verificar se está em cold start:
-```bash
-ENTRY_COUNT=$(ls ~/edge/blog/entries/*.md 2>/dev/null | wc -l)
-if [ "$ENTRY_COUNT" -lt 5 ]; then echo "COLD_START"; else echo "NORMAL"; fi
-```
-
----
-
 ## Step Tracking (OBRIGATÓRIO em skills com protocolo)
 
 Ao executar uma skill com passos numerados, logar cada passo executado:
@@ -40,7 +22,7 @@ edge-skill-step <skill> end                     # summary (detecta skips silenci
 
 **Regra:** chamar `edge-skill-step <skill> end` ao finalizar a skill. O tool compara passos logados contra o registry (`~/edge/tools/skill-steps-registry.yaml`) e reporta passos silenciosamente pulados.
 
-Se um passo é pulado por razão válida (ex: cache hit, já rodou nesta sessão), usar `skip` com razão. Passo não logado nem como skip = **silent skip** = /{{PREFIX}}-reflexao vai flaggear.
+Se um passo é pulado por razão válida (ex: cache hit, já rodou nesta sessão), usar `skip` com razão. Passo não logado nem como skip = **silent skip** = /ed-reflexao vai flaggear.
 
 ---
 
@@ -72,7 +54,7 @@ Qualquer mudança nesses arquivos é monitorada por `edge-state-audit`:
 - `~/edge/autonomy/frontier.md`
 - `~/edge/autonomy/workflows.md`
 - `~/edge/autonomy/metrics.md`
-- `~/edge/autonomy/{{PREFIX}}-log.md`
+- `~/edge/autonomy/ed-log.md`
 - `~/edge/autonomy/autonomy-policy.md`
 
 **Skills:**
@@ -119,7 +101,7 @@ changes:
   - path: "~/edge/autonomy/capabilities.md"
     action: modify
     reason: "Registrar nova capacidade #24"
-  - path: "~/edge/autonomy/{{PREFIX}}-log.md"
+  - path: "~/edge/autonomy/ed-log.md"
     action: modify
     reason: "Append entrada de expansão"
 EOF
@@ -222,7 +204,7 @@ Sem proposta necessária. O pipeline é backwards-compatible.
 
 ## Registro de Breaks (preservado)
 
-Skills que fazem breaks (/{{PREFIX}}-lazer, /{{PREFIX}}-pesquisa, /{{PREFIX}}-descoberta, /{{PREFIX}}-planejar) continuam registrando em:
+Skills que fazem breaks (/ed-lazer, /ed-pesquisa, /ed-descoberta, /ed-planejar) continuam registrando em:
 
 1. **breaks-archive.md** — entrada completa com metadados
 2. **breaks-active.md** — resumo dos últimos 5 breaks

@@ -1,0 +1,26 @@
+# Branding — Agent phenotype config
+# Copy to branding.yaml and customize for your agent
+
+agent_name: "my-agent"
+org_name: ""
+org_short: ""
+logo_filename: ""
+css_var_prefix: "brand"
+
+colors:
+  primary: "#2b6cb0"
+  green: "#38a169"
+  yellow: "#ed8936"
+  web_blue: "#2b6cb0"
+  web_blue_dark: "#1a365d"
+  logo_blue: "#2b6cb0"
+
+blog:
+  port: 8766
+  host: "127.0.0.1"
+  auth_enabled: false
+  auth_user: ""
+  auth_pass: ""
+
+memory_project_dir: ""
+skill_prefix: "agent"

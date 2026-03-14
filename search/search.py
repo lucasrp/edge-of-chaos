@@ -1,4 +1,4 @@
-"""Search memory database: FTS5, vector, or hybrid."""
+"""Search edge-memory database: FTS5, vector, or hybrid."""
 
 import json
 import re
@@ -6,7 +6,7 @@ import struct
 import sys
 from pathlib import Path
 
-from db import EMBEDDING_DIM, ensure_db, has_vec
+from db import EMBEDDING_DIM, ensure_db
 from embed import embed_text
 
 
@@ -67,9 +67,6 @@ def vec_search(
     conn=None,
 ) -> list[dict]:
     """Vector similarity search using sqlite-vec."""
-    if not has_vec():
-        return []
-
     own_conn = conn is None
     if own_conn:
         conn = ensure_db()
@@ -262,13 +259,7 @@ def stats(conn=None) -> dict:
         by_type = conn.execute(
             "SELECT type, COUNT(*) as cnt FROM documents GROUP BY type ORDER BY cnt DESC"
         ).fetchall()
-
-        with_vec = 0
-        if has_vec():
-            try:
-                with_vec = conn.execute("SELECT COUNT(*) FROM documents_vec").fetchone()[0]
-            except Exception:
-                pass
+        with_vec = conn.execute("SELECT COUNT(*) FROM documents_vec").fetchone()[0]
 
         return {
             "total": total,
@@ -286,7 +277,7 @@ def stats(conn=None) -> dict:
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Search agent memory")
+    parser = argparse.ArgumentParser(description="Search edge-memory")
     parser.add_argument("query", nargs="*", help="Search query")
     parser.add_argument("--fts", action="store_true", help="FTS5 only (no embeddings)")
     parser.add_argument(
