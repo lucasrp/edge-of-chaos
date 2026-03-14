@@ -1,15 +1,15 @@
 @import url('https://fonts.googleapis.com/css2?family=Libre+Franklin:ital,wght@0,100..900;1,100..900&display=swap');
 
 :root {
-  /* Cores institucionais */
-  --tcu-blue: #26247B;
+  /* Brand colors */
+  --brand-blue: #26247B;
   --accent-green: #008C44;
   --accent-yellow: #FFCB05;
 
   /* Cores web */
   --accent-blue: #1C519B;
   --accent-blue-dark: #1A3560;
-  --tcu-logo-blue: #26145F;
+  --brand-logo-blue: #26145F;
 
   /* Escala de azul */
   --blue-50: #F2F6FD;

@@ -74,16 +74,16 @@ if echo "$bob_last_error" | grep -qi "erro\|error\|fail" 2>/dev/null; then
   SIGNALS+=("BOB:erro detectado no último beat")
 fi
 
-# 7. Inbox Doc_AssertIA?
+# 7. Inbox docs?
 inbox_count=0
-for dir in ~/work/Doc_AssertIA/transcricoes/inbox/produto/ ~/work/Doc_AssertIA/transcricoes/inbox/dev/; do
+for dir in ~/work/docs/transcricoes/inbox/produto/ ~/work/docs/transcricoes/inbox/dev/; do
   if [ -d "$dir" ]; then
     count=$(find "$dir" -type f -name "*.md" -o -name "*.txt" 2>/dev/null | wc -l)
     inbox_count=$((inbox_count + count))
   fi
 done
 if [ "$inbox_count" -gt 0 ] 2>/dev/null; then
-  SIGNALS+=("INBOX:${inbox_count} arquivos no inbox Doc_AssertIA")
+  SIGNALS+=("INBOX:${inbox_count} arquivos no inbox")
 fi
 
 # Resultado
