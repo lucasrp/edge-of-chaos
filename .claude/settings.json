@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "NotebookEdit(*)",
+      "WebSearch(*)",
+      "WebFetch(*)"
+    ]
+  },
+  "effortLevel": "high",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|WebSearch|WebFetch|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/alex/Projects/business-experiments/tools/guardrail-hook.sh",
+            "timeout": 360
+          }
+        ]
+      }
+    ]
+  }
+}
