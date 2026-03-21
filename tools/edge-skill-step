@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""Track skill step execution. Detects silently skipped steps.
+
+Usage:
+    edge-skill-step <skill> <step_id>          # Log step as done
+    edge-skill-step <skill> skip <step_id> [reason]  # Log explicit skip
+    edge-skill-step <skill> end                # Compute summary (missing steps)
+    edge-skill-step report [--last N]          # Summary for /ed-reflexao
+"""
+
+import datetime
+import json
+import sys
+from collections import Counter, defaultdict
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("PyYAML required: pip install pyyaml")
+
+LOG = Path.home() / "edge/logs/skill-steps.jsonl"
+REGISTRY = Path(__file__).resolve().parent / "skill-steps-registry.yaml"
+
+
+def _load_registry():
+    if REGISTRY.exists():
+        with open(REGISTRY) as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+
+def _log(data):
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    data["ts"] = datetime.datetime.now().isoformat(timespec="seconds")
+    with open(LOG, "a") as f:
+        f.write(json.dumps(data, ensure_ascii=False) + "\n")
+
+
+def _read_log():
+    if not LOG.exists():
+        return []
+    return [json.loads(line) for line in LOG.read_text().strip().split("\n") if line.strip()]
+
+
+def _registry_steps(skill):
+    """Get expected step IDs for a skill from registry."""
+    reg = _load_registry()
+    entries = reg.get(skill, [])
+    return [s.split(":")[0] for s in entries], {s.split(":")[0]: s for s in entries}
+
+
+def cmd_step(skill, step_id):
+    """Log a step as executed."""
+    _log({"skill": skill, "event": "step", "step": step_id, "status": "done"})
+
+
+def cmd_skip(skill, step_id, reason=None):
+    """Log a step as explicitly skipped."""
+    entry = {"skill": skill, "event": "step", "step": step_id, "status": "skipped"}
+    if reason:
+        entry["reason"] = reason
+    _log(entry)
+
+
+def cmd_end(skill):
+    """End a skill run. Compare logged steps against registry."""
+    expected_ids, step_names = _registry_steps(skill)
+
+    if not expected_ids:
+        _log({"skill": skill, "event": "end", "warning": f"skill '{skill}' not in registry"})
+        print(f"⚠ Skill '{skill}' não está no registry. Nada para comparar.")
+        return
+
+    # Read log backwards to find steps for this skill since last 'end' event
+    all_entries = _read_log()
+    recorded_done = set()
+    recorded_skip = {}
+
+    for entry in reversed(all_entries):
+        if entry.get("skill") != skill:
+            continue
+        if entry.get("event") == "end":
+            break  # stop at previous end
+        if entry.get("event") == "step":
+            sid = entry.get("step", "")
+            if entry.get("status") == "done":
+                recorded_done.add(sid)
+            elif entry.get("status") == "skipped":
+                recorded_skip[sid] = entry.get("reason", "")
+
+    all_accounted = recorded_done | set(recorded_skip.keys())
+    silent_skips = [s for s in expected_ids if s not in all_accounted]
+
+    summary = {
+        "skill": skill,
+        "event": "end",
+        "expected": len(expected_ids),
+        "done": len(recorded_done),
+        "explicit_skips": len(recorded_skip),
+        "silent_skips": silent_skips,
+        "completion_pct": round(len(recorded_done) / len(expected_ids) * 100) if expected_ids else 0,
+    }
+    if recorded_skip:
+        summary["skip_details"] = recorded_skip
+    _log(summary)
+
+    # Print summary
+    if silent_skips:
+        named = [step_names.get(s, s) for s in silent_skips]
+        print(f"⚠ {skill}: {len(silent_skips)} passos silenciosamente pulados:")
+        for s in named:
+            print(f"  - {s}")
+    if recorded_skip:
+        print(f"  ({len(recorded_skip)} skip(s) explícito(s))")
+    print(f"✓ {skill}: {summary['done']}/{summary['expected']} passos "
+          f"({summary['completion_pct']}%)")
+
+
+def cmd_report(last_n=20):
+    """Summary report for /ed-reflexao."""
+    entries = _read_log()
+    ends = [e for e in entries if e.get("event") == "end" and "expected" in e]
+
+    if not ends:
+        print("Sem dados de execução de skills.")
+        return
+
+    recent = ends[-last_n:]
+
+    # Aggregate by skill
+    by_skill = defaultdict(list)
+    for e in recent:
+        by_skill[e["skill"]].append(e)
+
+    print(f"=== Skill Step Completion ({len(recent)} execuções recentes) ===\n")
+
+    # Global stats
+    total_silent = sum(len(e.get("silent_skips", [])) for e in recent)
+    total_explicit = sum(e.get("explicit_skips", 0) for e in recent)
+    avg_completion = sum(e.get("completion_pct", 0) for e in recent) / len(recent) if recent else 0
+
+    print(f"Média de completude: {avg_completion:.0f}%")
+    print(f"Total silent skips: {total_silent}")
+    print(f"Total explicit skips: {total_explicit}")
+    print()
+
+    # Per-skill breakdown
+    all_silent_steps = Counter()
+    for e in recent:
+        for s in e.get("silent_skips", []):
+            all_silent_steps[f"{e['skill']}:{s}"] += 1
+
+    if all_silent_steps:
+        print("Passos mais silenciosamente pulados:")
+        for step, count in all_silent_steps.most_common(10):
+            skill_name, step_id = step.split(":", 1)
+            _, names = _registry_steps(skill_name)
+            label = names.get(step_id, step_id)
+            print(f"  {step}: {count}x — {label}")
+        print()
+
+    # Per-skill summary
+    for skill, runs in sorted(by_skill.items()):
+        avg_pct = sum(r.get("completion_pct", 0) for r in runs) / len(runs)
+        silent = sum(len(r.get("silent_skips", [])) for r in runs)
+        print(f"{skill} ({len(runs)} runs, avg {avg_pct:.0f}%, {silent} silent skips)")
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__)
+        sys.exit(1)
+
+    if args[0] == "report":
+        last_n = 20
+        if "--last" in args:
+            idx = args.index("--last")
+            last_n = int(args[idx + 1])
+        cmd_report(last_n)
+        return
+
+    skill = args[0]
+
+    if len(args) == 1:
+        print(__doc__)
+        sys.exit(1)
+
+    if args[1] == "end":
+        cmd_end(skill)
+    elif args[1] == "skip":
+        if len(args) < 3:
+            print("Usage: edge-skill-step <skill> skip <step_id> [reason]")
+            sys.exit(1)
+        reason = " ".join(args[3:]) if len(args) > 3 else None
+        cmd_skip(skill, args[2], reason)
+    else:
+        # edge-skill-step <skill> <step_id>
+        cmd_step(skill, args[1])
+
+
+if __name__ == "__main__":
+    main()

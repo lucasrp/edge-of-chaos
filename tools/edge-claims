@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""edge-claims — buscar e listar claims extraídas de artefatos.
+
+Uso:
+  edge-claims                     # listar todas as claims
+  edge-claims --thread ID         # claims ligadas a um fio
+  edge-claims --open              # claims abertas (! = não sei)
+  edge-claims --search TERMO      # buscar claims por texto
+  edge-claims --stats             # contagem por tipo e thread
+"""
+
+import argparse
+import os
+import re
+import yaml
+from pathlib import Path
+from datetime import datetime
+
+BLOG_DIR = Path.home() / "edge" / "blog" / "entries"
+
+
+def _normalize_claim(c):
+    """Normalize claim to string. Accepts str or dict ({claim, status})."""
+    if isinstance(c, dict):
+        text = c.get("claim", "")
+        status = c.get("status", "").lower()
+        if status in ("unverified", "open", "disputed"):
+            return f"!{text}"
+        return text
+    return str(c)
+
+
+def extract_claims(entry_path):
+    """Extrai claims e metadata de um blog entry."""
+    try:
+        raw = entry_path.read_text()
+        parts = raw.split("---", 2)
+        if len(parts) < 3:
+            return None
+        fm = yaml.safe_load(parts[1])
+        if not fm or "claims" not in fm:
+            return None
+        return {
+            "file": entry_path.name,
+            "title": fm.get("title", ""),
+            "date": str(fm.get("date", "")),
+            "claims": [_normalize_claim(c) for c in fm.get("claims", [])],
+            "threads": fm.get("threads", []),
+            "tags": fm.get("tags", []),
+        }
+    except Exception:
+        return None
+
+
+def all_entries():
+    """Coleta claims de todos os entries."""
+    results = []
+    if not BLOG_DIR.exists():
+        return results
+    for f in sorted(BLOG_DIR.glob("*.md"), reverse=True):
+        data = extract_claims(f)
+        if data:
+            results.append(data)
+    return results
+
+
+def print_claim(claim, source_title, source_date):
+    """Formata uma claim para output."""
+    prefix = "  ?"  if claim.startswith("!") else "  ✓"
+    text = claim.lstrip("! ")
+    print(f"{prefix} {text}")
+    print(f"     ← {source_title} ({source_date})")
+
+
+def cmd_list(entries):
+    known = []
+    open_claims = []
+    for e in entries:
+        for c in e["claims"]:
+            item = (c, e["title"], e["date"])
+            if c.startswith("!"):
+                open_claims.append(item)
+            else:
+                known.append(item)
+
+    if known:
+        print(f"=== CLAIMS ({len(known)}) ===")
+        for c, t, d in known:
+            print_claim(c, t, d)
+            print()
+
+    if open_claims:
+        print(f"=== ABERTOS ({len(open_claims)}) ===")
+        for c, t, d in open_claims:
+            print_claim(c, t, d)
+            print()
+
+    print(f"Total: {len(known)} claims, {len(open_claims)} abertos, {len(entries)} entries com claims.")
+
+
+def cmd_thread(entries, thread_id):
+    print(f"=== CLAIMS DO FIO: {thread_id} ===\n")
+    found = 0
+    for e in entries:
+        if thread_id in e.get("threads", []):
+            for c in e["claims"]:
+                print_claim(c, e["title"], e["date"])
+                print()
+                found += 1
+    if found == 0:
+        print("Nenhuma claim ligada a este fio.")
+    else:
+        print(f"{found} claims encontradas.")
+
+
+def cmd_open(entries):
+    print("=== O QUE NÃO SEI ===\n")
+    found = 0
+    for e in entries:
+        for c in e["claims"]:
+            if c.startswith("!"):
+                print_claim(c, e["title"], e["date"])
+                threads = e.get("threads", [])
+                if threads:
+                    print(f"     fios: {', '.join(threads)}")
+                print()
+                found += 1
+    if found == 0:
+        print("Nenhum claim aberto encontrado.")
+    else:
+        print(f"{found} coisas que ainda não sei.")
+
+
+def cmd_search(entries, term):
+    term_lower = term.lower()
+    print(f'=== CLAIMS COM "{term}" ===\n')
+    found = 0
+    for e in entries:
+        for c in e["claims"]:
+            if term_lower in c.lower():
+                print_claim(c, e["title"], e["date"])
+                print()
+                found += 1
+    if found == 0:
+        print("Nenhuma claim encontrada.")
+    else:
+        print(f"{found} claims encontradas.")
+
+
+def cmd_stats(entries):
+    total_claims = 0
+    total_open = 0
+    thread_counts = {}
+    for e in entries:
+        for c in e["claims"]:
+            total_claims += 1
+            if c.startswith("!"):
+                total_open += 1
+        for t in e.get("threads", []):
+            thread_counts[t] = thread_counts.get(t, 0) + len(e["claims"])
+
+    print("=== STATS ===")
+    print(f"Entries com claims: {len(entries)}")
+    print(f"Total claims: {total_claims}")
+    print(f"  ✓ verificadas: {total_claims - total_open}")
+    print(f"  ? abertas: {total_open}")
+    print()
+    if thread_counts:
+        print("Por fio:")
+        for t, n in sorted(thread_counts.items(), key=lambda x: -x[1]):
+            print(f"  {t}: {n} claims")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Buscar claims extraídas de artefatos")
+    parser.add_argument("--thread", "-t", help="Filtrar por fio")
+    parser.add_argument("--open", "-o", action="store_true", help="Só claims abertas (! = não sei)")
+    parser.add_argument("--search", "-s", help="Buscar por texto")
+    parser.add_argument("--stats", action="store_true", help="Estatísticas")
+    args = parser.parse_args()
+
+    entries = all_entries()
+
+    if args.thread:
+        cmd_thread(entries, args.thread)
+    elif args.open:
+        cmd_open(entries)
+    elif args.search:
+        cmd_search(entries, args.search)
+    elif args.stats:
+        cmd_stats(entries)
+    else:
+        cmd_list(entries)
+
+
+if __name__ == "__main__":
+    main()

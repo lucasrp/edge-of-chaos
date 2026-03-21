@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""edge-hn — Smart Hacker News search via Algolia API.
+
+Usage:
+    edge-hn "topic"                      # search stories
+    edge-hn "topic" --comments           # search comments too
+    edge-hn "topic" --min-points 50      # only high-signal stories
+    edge-hn "topic" --days 7             # last 7 days only
+    edge-hn "topic" --front-page         # also show current front page
+
+No auth needed. Free API. Zero config.
+"""
+
+import sys, json, argparse, time
+from urllib.request import urlopen, Request
+from urllib.parse import quote, urlencode
+from datetime import datetime, timedelta
+
+
+HN_SEARCH = "https://hn.algolia.com/api/v1/search"
+HN_SEARCH_DATE = "https://hn.algolia.com/api/v1/search_by_date"
+HN_FRONT_PAGE = "https://hacker-news.firebaseio.com/v0/topstories.json"
+HN_ITEM = "https://hacker-news.firebaseio.com/v0/item/{}.json"
+
+
+def fetch_json(url):
+    req = Request(url, headers={"User-Agent": "edge-hn/1.0"})
+    return json.loads(urlopen(req, timeout=10).read())
+
+
+def search_stories(topic, min_points=0, days=None, max_results=15):
+    """Search HN stories via Algolia. Returns sorted by relevance."""
+    params = {
+        "query": topic,
+        "tags": "story",
+        "hitsPerPage": min(max_results * 3, 50),  # overfetch for filtering
+    }
+    if days:
+        cutoff = int((datetime.utcnow() - timedelta(days=days)).timestamp())
+        params["numericFilters"] = f"created_at_i>{cutoff}"
+
+    url = f"{HN_SEARCH}?{urlencode(params)}"
+    data = fetch_json(url)
+
+    results = []
+    for hit in data.get("hits", []):
+        points = hit.get("points", 0) or 0
+        if points < min_points:
+            continue
+        results.append({
+            "title": hit.get("title", ""),
+            "url": hit.get("url", ""),
+            "hn_url": f"https://news.ycombinator.com/item?id={hit['objectID']}",
+            "points": points,
+            "comments": hit.get("num_comments", 0) or 0,
+            "author": hit.get("author", ""),
+            "date": hit.get("created_at", "")[:10],
+            "id": hit["objectID"],
+        })
+
+    # Sort by points (signal strength)
+    results.sort(key=lambda r: (r["points"], r["comments"]), reverse=True)
+    return results[:max_results]
+
+
+def search_comments(topic, min_points=0, max_results=10):
+    """Search HN comments — practitioner insights buried in threads."""
+    params = {
+        "query": topic,
+        "tags": "comment",
+        "hitsPerPage": min(max_results * 3, 50),
+    }
+    url = f"{HN_SEARCH}?{urlencode(params)}"
+    data = fetch_json(url)
+
+    results = []
+    for hit in data.get("hits", []):
+        points = hit.get("points", 0) or 0
+        if points < min_points:
+            continue
+        text = hit.get("comment_text", "") or ""
+        # Strip HTML tags
+        import re
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) < 30:
+            continue
+        results.append({
+            "text": text[:300],
+            "author": hit.get("author", ""),
+            "points": points,
+            "date": hit.get("created_at", "")[:10],
+            "hn_url": f"https://news.ycombinator.com/item?id={hit['objectID']}",
+            "story_id": hit.get("story_id", ""),
+            "story_title": hit.get("story_title", ""),
+        })
+
+    results.sort(key=lambda r: r["points"], reverse=True)
+    return results[:max_results]
+
+
+def get_front_page(limit=10):
+    """Get current HN front page top stories."""
+    ids = fetch_json(HN_FRONT_PAGE)[:limit]
+    stories = []
+    for sid in ids:
+        try:
+            item = fetch_json(HN_ITEM.format(sid))
+            if item and item.get("type") == "story":
+                stories.append({
+                    "title": item.get("title", ""),
+                    "url": item.get("url", ""),
+                    "hn_url": f"https://news.ycombinator.com/item?id={sid}",
+                    "points": item.get("score", 0),
+                    "comments": item.get("descendants", 0),
+                    "author": item.get("by", ""),
+                })
+        except Exception:
+            continue
+    return stories
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Smart Hacker News search")
+    parser.add_argument("topic", nargs="?", help="Topic to search")
+    parser.add_argument("--comments", action="store_true", help="Also search comments (practitioner insights)")
+    parser.add_argument("--min-points", type=int, default=0, help="Minimum points filter (default: 0)")
+    parser.add_argument("--days", type=int, default=None, help="Limit to last N days")
+    parser.add_argument("--max", type=int, default=15, help="Max results (default: 15)")
+    parser.add_argument("--front-page", action="store_true", help="Show current front page")
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
+    args = parser.parse_args()
+
+    if not args.topic and not args.front_page:
+        parser.error("Provide a topic or use --front-page")
+
+    all_output = {}
+
+    # Front page
+    if args.front_page:
+        fp = get_front_page(10)
+        all_output["front_page"] = fp
+        if not args.json:
+            print("=== HN Front Page (top 10) ===\n")
+            for i, s in enumerate(fp, 1):
+                print(f"[{i}] {s['title']} ({s['points']}pts, {s['comments']}c)")
+                if s["url"]:
+                    print(f"    {s['url']}")
+                print(f"    {s['hn_url']}")
+                print()
+
+    # Story search
+    if args.topic:
+        stories = search_stories(args.topic, min_points=args.min_points, days=args.days, max_results=args.max)
+        all_output["stories"] = stories
+
+        if not args.json:
+            if not stories:
+                print(f"No stories for '{args.topic}' (try --min-points 0)")
+            else:
+                print(f"=== HN Stories: {args.topic} ({len(stories)} results) ===\n")
+                for i, s in enumerate(stories, 1):
+                    print(f"[{i}] {s['title']} ({s['points']}pts, {s['comments']}c) [{s['date']}]")
+                    if s["url"]:
+                        print(f"    {s['url']}")
+                    print(f"    {s['hn_url']}")
+                    print()
+
+    # Comment search
+    if args.topic and args.comments:
+        comments = search_comments(args.topic, max_results=args.max)
+        all_output["comments"] = comments
+
+        if not args.json:
+            if comments:
+                print(f"\n=== HN Comments: {args.topic} ({len(comments)} results) ===\n")
+                for i, c in enumerate(comments, 1):
+                    text = c["text"][:200]
+                    print(f"[{i}] @{c['author']} ({c['points']}pts) [{c['date']}]")
+                    if c["story_title"]:
+                        print(f"    Re: {c['story_title']}")
+                    print(f"    \"{text}\"")
+                    print(f"    {c['hn_url']}")
+                    print()
+
+    if args.json:
+        print(json.dumps(all_output, indent=2, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

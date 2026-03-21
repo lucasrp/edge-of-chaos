@@ -1,0 +1,471 @@
+#!/usr/bin/env python3
+"""edge-meta-report — Generate meta-report for publication state changes.
+
+Part 1 (pre-state): Captures state delta, reads scratchpad, runs adversarial challenge.
+Part 2 (post-state): Appends what actually changed after state commit.
+
+Outputs: ~/edge/meta-reports/{slug}-meta.md
+Archives scratchpad to: ~/edge/scratchpads/{slug}-{timestamp}.md
+
+Usage:
+  edge-meta-report --slug SLUG --entry PATH                    # Part 1: pre-state
+  edge-meta-report --slug SLUG --entry PATH --no-adversarial   # Part 1: skip adversarial
+  edge-meta-report --slug SLUG --post-state                    # Part 2: append post-state
+  edge-meta-report --slug SLUG --entry PATH --dry-run
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import yaml
+from datetime import datetime
+from pathlib import Path
+
+HOME = Path.home()
+META_DIR = HOME / "edge" / "meta-reports"
+SCRATCHPADS_ARCHIVE = HOME / "edge" / "scratchpads"
+EDGE_DIR = HOME / "edge"
+CONSULT_SCRIPT = HOME / "edge" / "tools" / "edge-consult.py"
+
+# Load memory_project_dir from branding if available
+sys.path.insert(0, str(HOME / "edge" / "config"))
+try:
+    from branding import load_branding
+    _MEMORY_PROJECT = load_branding().get("memory_project_dir", "")
+except Exception:
+    _MEMORY_PROJECT = ""
+
+if _MEMORY_PROJECT:
+    _MEMORY_PATH = str(HOME / ".claude" / "projects" / _MEMORY_PROJECT / "memory")
+else:
+    _proj_base = HOME / ".claude" / "projects"
+    _candidates = [d for d in _proj_base.iterdir() if d.is_dir()] if _proj_base.exists() else []
+    _MEMORY_PATH = str(_candidates[0] / "memory") if _candidates else str(_proj_base / "memory")
+
+TRACKED_REPOS = {
+    _MEMORY_PATH: "memory",
+    str(HOME / ".claude" / "skills"): "skills",
+    str(HOME / "edge" / "notes"): "notes",
+}
+
+
+def read_frontmatter(entry_path):
+    """Read YAML frontmatter from blog entry."""
+    try:
+        raw = Path(entry_path).read_text()
+        parts = raw.split("---", 2)
+        if len(parts) >= 3:
+            return yaml.safe_load(parts[1]) or {}
+    except Exception:
+        pass
+    return {}
+
+
+def capture_diffs_preview():
+    """Capture pending changes from tracked repos and edge/ (preview, not staged)."""
+    diffs = {}
+
+    for dirpath, prefix in TRACKED_REPOS.items():
+        git_dir = os.path.join(dirpath, ".git")
+        if not os.path.isdir(git_dir):
+            continue
+        # Diff against HEAD (unstaged + staged)
+        result = subprocess.run(
+            ["git", "diff", "HEAD", "--stat"],
+            cwd=dirpath, capture_output=True, text=True
+        )
+        # Untracked files
+        result2 = subprocess.run(
+            ["git", "status", "--short"],
+            cwd=dirpath, capture_output=True, text=True
+        )
+        stat = result.stdout.strip()
+        status = result2.stdout.strip()
+        if stat or status:
+            diffs[prefix] = {"stat": stat, "status": status}
+
+    # Edge repo
+    result = subprocess.run(
+        ["git", "diff", "HEAD", "--stat"],
+        cwd=str(EDGE_DIR), capture_output=True, text=True
+    )
+    result2 = subprocess.run(
+        ["git", "status", "--short"],
+        cwd=str(EDGE_DIR), capture_output=True, text=True
+    )
+    stat = result.stdout.strip()
+    status = result2.stdout.strip()
+    if stat or status:
+        diffs["edge"] = {"stat": stat, "status": status}
+
+    return diffs
+
+
+def read_scratchpad(scratchpad_path):
+    """Read scratchpad contents. Falls back to active scratchpad."""
+    if scratchpad_path:
+        p = Path(scratchpad_path)
+        if p.exists():
+            return p.read_text(), str(p)
+        return None, None
+
+    # Try default active scratchpad
+    default = Path("/tmp/edge-scratch-active.md")
+    if default.exists():
+        return default.read_text(), str(default)
+    return None, None
+
+
+def run_adversarial(summary, entry_path):
+    """Run edge-consult adversarial (calls both GPT-5.4 + Grok-4.20 internally)."""
+    cmd_candidates = [
+        ["edge-consult"],
+        [sys.executable, str(CONSULT_SCRIPT)],
+    ]
+
+    question = f"Publicação: {summary}. Onde esse raciocínio é mais fraco? O que não estou vendo?"
+
+    for base_cmd in cmd_candidates:
+        cmd = base_cmd + [question, "--context", str(entry_path)]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if result.returncode == 0:
+                return result.stdout.strip()
+            if result.returncode != 127:
+                return f"[edge-consult exit {result.returncode}: {result.stderr.strip()[:200]}]"
+        except FileNotFoundError:
+            continue
+        except subprocess.TimeoutExpired:
+            return "[edge-consult timeout (120s)]"
+
+    return "[edge-consult não encontrado]"
+
+
+def archive_scratchpad(scratchpad_path, slug):
+    """Move scratchpad to archive directory."""
+    if not scratchpad_path:
+        return None
+    src = Path(scratchpad_path)
+    if not src.exists():
+        return None
+
+    SCRATCHPADS_ARCHIVE.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = SCRATCHPADS_ARCHIVE / f"{slug}-{timestamp}.md"
+    # Copy then remove (rename fails across filesystems /tmp vs ~/edge)
+    dest.write_text(src.read_text())
+    src.unlink()
+    return str(dest)
+
+
+def _is_open(c):
+    """Check if a claim is open/unverified. Accepts str or dict."""
+    if isinstance(c, dict):
+        return c.get("status", "").lower() in ("unverified", "open", "disputed")
+    return isinstance(c, str) and c.startswith("!")
+
+
+def generate_meta_report(slug, fm, diffs, scratchpad_content, adversarial_output):
+    """Generate the meta-report markdown."""
+    title = fm.get("title", slug)
+    claims = fm.get("claims", [])
+    threads = fm.get("threads", [])
+    tags = fm.get("tags", [])
+    verified = [c for c in claims if not _is_open(c)]
+    open_claims = [c for c in claims if _is_open(c)]
+
+    lines = []
+    lines.append(f"# Meta: {title}")
+    lines.append(f"<!-- {datetime.now().isoformat()} | slug: {slug} -->")
+    lines.append("")
+
+    # ── What was published ──
+    lines.append("## Publicação")
+    lines.append(f"- **Entry:** {title}")
+    report = fm.get("report", "nenhum")
+    lines.append(f"- **Report:** {report}")
+    lines.append(f"- **Claims:** {len(claims)} ({len(open_claims)} abertas)")
+    if threads:
+        lines.append(f"- **Threads:** {', '.join(threads)}")
+    if tags:
+        lines.append(f"- **Tags:** {', '.join(str(t) for t in tags)}")
+    lines.append("")
+
+    # ── Claims detail ──
+    def _claim_text(c):
+        if isinstance(c, dict):
+            text = c.get("claim", str(c))
+            src = c.get("source", "")
+            return f"{text} ({src})" if src else text
+        return str(c).lstrip("! ")
+
+    if verified:
+        lines.append("### O que aprendi")
+        for c in verified:
+            lines.append(f"- {_claim_text(c)}")
+        lines.append("")
+
+    if open_claims:
+        lines.append("### O que não sei")
+        for c in open_claims:
+            lines.append(f"- {_claim_text(c)}")
+        lines.append("")
+
+    # ── Scratchpad ──
+    lines.append("## Observações da sessão")
+    if scratchpad_content:
+        lines.append(scratchpad_content.strip())
+    else:
+        lines.append("*Nenhuma observação registrada nesta sessão.*")
+    lines.append("")
+
+    # ── State diffs ──
+    lines.append("## Mudanças de estado pendentes")
+    if diffs:
+        for repo, info in sorted(diffs.items()):
+            lines.append(f"### {repo}/")
+            if info.get("status"):
+                lines.append("```")
+                lines.append(info["status"])
+                lines.append("```")
+            stat = info.get("stat", "")
+            if stat:
+                # Last line of --stat is the summary
+                summary_line = stat.strip().split("\n")[-1]
+                lines.append(f"*{summary_line}*")
+            lines.append("")
+    else:
+        lines.append("*Nenhuma mudança de estado detectada.*")
+        lines.append("")
+
+    # ── Adversarial ──
+    lines.append("## Desafio adversarial")
+    if adversarial_output:
+        lines.append(adversarial_output)
+    else:
+        lines.append("*Skipped (--no-adversarial).*")
+    lines.append("")
+
+    # ── Directive ──
+    lines.append("---")
+    lines.append(
+        "*Diretriz: Ler este meta-report ANTES de editar arquivos de estado "
+        "(MEMORY.md, debugging.md, etc.). "
+        "Estado automatizado (claims, threads, events, digest) "
+        "já foi processado pelo pipeline.*"
+    )
+
+    return "\n".join(lines)
+
+
+def capture_post_state_changes(slug, entry_path):
+    """Capture what actually changed after state commit (Phase 5)."""
+    lines = []
+    lines.append("")
+    lines.append(f"## O que mudou (pós-commit)")
+    lines.append(f"<!-- post-state: {datetime.now().isoformat()} -->")
+    lines.append("")
+
+    fm = read_frontmatter(entry_path) if entry_path else {}
+    claims = fm.get("claims", [])
+    threads = fm.get("threads", [])
+
+    # ── Claims written ──
+    if claims:
+        open_c = [c for c in claims if _is_open(c)]
+        closed_c = [c for c in claims if not _is_open(c)]
+        lines.append(f"### Claims registradas ({len(claims)})")
+        for c in closed_c:
+            text = c.get("claim", str(c)) if isinstance(c, dict) else str(c).lstrip("! ")
+            lines.append(f"- ✓ {text}")
+        for c in open_c:
+            text = c.get("claim", str(c)) if isinstance(c, dict) else str(c).lstrip("! ")
+            lines.append(f"- ? {text}")
+        lines.append("")
+
+    # ── Threads touched ──
+    if threads:
+        threads_dir = HOME / "edge" / "threads"
+        lines.append(f"### Threads tocados ({len(threads)})")
+        for tid in threads:
+            tfile = threads_dir / f"{tid}.md"
+            if tfile.exists():
+                # Read status and title
+                content = tfile.read_text()
+                status = ""
+                title = tid
+                for line in content.split("\n"):
+                    if line.startswith("status:"):
+                        status = line.split(":", 1)[1].strip()
+                    if line.startswith("title:"):
+                        title = line.split(":", 1)[1].strip().strip('"')
+                lines.append(f"- **{tid}** [{status}] — {title}")
+            else:
+                lines.append(f"- **{tid}** — arquivo não encontrado")
+        lines.append("")
+
+    # ── Event logged ──
+    events_file = HOME / "edge" / "logs" / "events.jsonl"
+    if events_file.exists():
+        slug_artifact = f"blog/entries/{slug}.md"
+        for raw_line in reversed(events_file.read_text().splitlines()[-20:]):
+            try:
+                evt = json.loads(raw_line)
+                if slug_artifact in evt.get("artifacts", []):
+                    lines.append("### Evento registrado")
+                    lines.append(f"- **ID:** {evt.get('event_id', '?')}")
+                    lines.append(f"- **Tipo:** {evt.get('type', '?')}")
+                    lines.append(f"- **Resumo:** {evt.get('summary', '?')}")
+                    lines.append("")
+                    break
+            except Exception:
+                pass
+
+    # ── Actual git diffs (what changed in state files) ──
+    lines.append("### Diff real dos arquivos de estado")
+    found_diffs = False
+    for dirpath, prefix in TRACKED_REPOS.items():
+        if not os.path.isdir(dirpath):
+            continue
+        # Show actual file-level changes
+        result = subprocess.run(
+            ["git", "diff", "HEAD", "--name-status"],
+            cwd=dirpath, capture_output=True, text=True
+        )
+        result2 = subprocess.run(
+            ["git", "status", "--short"],
+            cwd=dirpath, capture_output=True, text=True
+        )
+        changes = (result.stdout.strip() + "\n" + result2.stdout.strip()).strip()
+        if changes:
+            found_diffs = True
+            lines.append(f"**{prefix}/**")
+            lines.append("```")
+            lines.append(changes)
+            lines.append("```")
+
+    # Edge repo state files specifically
+    state_files = ["briefing.md", "threads/", "logs/events.jsonl"]
+    result = subprocess.run(
+        ["git", "diff", "HEAD", "--stat", "--", *state_files],
+        cwd=str(EDGE_DIR), capture_output=True, text=True
+    )
+    if result.stdout.strip():
+        found_diffs = True
+        lines.append("**edge/ (state files)**")
+        lines.append("```")
+        lines.append(result.stdout.strip())
+        lines.append("```")
+
+    if not found_diffs:
+        lines.append("*Nenhuma mudança detectada nos arquivos de estado.*")
+    lines.append("")
+
+    # ── Briefing updated? ──
+    briefing = HOME / "edge" / "briefing.md"
+    if briefing.exists():
+        mtime = datetime.fromtimestamp(briefing.stat().st_mtime)
+        age_seconds = (datetime.now() - mtime).total_seconds()
+        if age_seconds < 120:  # Updated in last 2 min = this pipeline
+            lines.append("### briefing.md")
+            # Show first 10 lines
+            content = briefing.read_text().split("\n")[:10]
+            lines.append("```")
+            lines.append("\n".join(content))
+            lines.append("```")
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate publication meta-report")
+    parser.add_argument("--slug", required=True, help="Publication slug")
+    parser.add_argument("--entry", default=None, help="Path to blog entry .md")
+    parser.add_argument("--scratchpad", help="Path to scratchpad file")
+    parser.add_argument("--no-adversarial", action="store_true", help="Skip edge-consult")
+    parser.add_argument("--post-state", action="store_true", help="Append post-state changes to existing meta-report")
+    parser.add_argument("--dry-run", action="store_true", help="Print without saving")
+    args = parser.parse_args()
+
+    META_DIR.mkdir(parents=True, exist_ok=True)
+
+    # ── Post-state mode: append to existing meta-report ──
+    if args.post_state:
+        meta_path = META_DIR / f"{args.slug}-meta.md"
+        entry_path = args.entry
+        # Try to find entry if not provided
+        if not entry_path:
+            candidate = HOME / "edge" / "blog" / "entries" / f"{args.slug}.md"
+            if candidate.exists():
+                entry_path = str(candidate)
+
+        post_content = capture_post_state_changes(args.slug, entry_path)
+
+        if args.dry_run:
+            print(post_content)
+            return
+
+        if meta_path.exists():
+            # Insert before the final directive
+            existing = meta_path.read_text()
+            marker = "---\n*Diretriz:"
+            if marker in existing:
+                parts = existing.split(marker, 1)
+                updated = parts[0] + post_content + "\n" + marker + parts[1]
+            else:
+                updated = existing + "\n" + post_content
+            meta_path.write_text(updated)
+            print(f"OK: {meta_path} (post-state appended)")
+        else:
+            # No pre-state exists, write standalone
+            meta_path.write_text(f"# Meta: {args.slug}\n\n" + post_content)
+            print(f"OK: {meta_path} (post-state only)")
+        return
+
+    # 1. Read frontmatter
+    fm = read_frontmatter(args.entry)
+    title = fm.get("title", args.slug)
+    claims = fm.get("claims", [])
+
+    # 2. Capture diffs preview
+    diffs = capture_diffs_preview()
+
+    # 3. Read scratchpad
+    scratchpad_content, scratchpad_path = read_scratchpad(args.scratchpad)
+
+    # 4. Adversarial challenge
+    adversarial_output = None
+    if not args.no_adversarial:
+        summary = f"{title}. Claims: {len(claims)} ({sum(1 for c in claims if _is_open(c))} abertas)."
+        if scratchpad_content:
+            obs = [l.strip() for l in scratchpad_content.split("\n") if l.startswith("- [")]
+            if obs:
+                texts = [o.split("] ", 1)[-1] if "] " in o else o for o in obs[:5]]
+                summary += f" Observações: {'; '.join(texts)}"
+        adversarial_output = run_adversarial(summary, args.entry)
+
+    # 5. Generate meta-report
+    report = generate_meta_report(args.slug, fm, diffs, scratchpad_content, adversarial_output)
+
+    if args.dry_run:
+        print(report)
+        return
+
+    # 6. Save meta-report
+    output_path = META_DIR / f"{args.slug}-meta.md"
+    output_path.write_text(report)
+
+    # 7. Archive scratchpad
+    archived = archive_scratchpad(scratchpad_path, args.slug)
+
+    # Output for pipeline to parse
+    print(f"OK: {output_path}")
+    if archived:
+        print(f"  Scratchpad: {archived}")
+
+
+if __name__ == "__main__":
+    main()
