@@ -17,7 +17,36 @@ preflight_output=$(bash ~/edge/tools/heartbeat-preflight.sh 2>/dev/null)
 echo "$preflight_output"
 ```
 
-**Se `PREFLIGHT_CLEAN`:** Não há trabalho urgente. Despachar `/ed-lazer` ou `/ed-descoberta` diretamente (sem passar pelo Passo 1 completo). Logar:
+### 0a: Health check (OBRIGATÓRIO — ler resultado do preflight)
+
+O preflight roda `edge-check.sh` automaticamente e reporta o estado de saúde. Ler `health/current.json`:
+
+```bash
+cat ~/edge/health/current.json 2>/dev/null | python3 -c "
+import json, sys
+h = json.load(sys.stdin)
+print(f'Health: {h.get(\"status\", \"unknown\")} (score: {h.get(\"score\", \"?\")})')
+for k, v in h.get('components', {}).items():
+    if isinstance(v, dict) and v.get('status') not in ('ok', None):
+        print(f'  ⚠ {k}: {v.get(\"status\")} — {v.get(\"detail\", \"\")}')
+" 2>/dev/null
+```
+
+**Seguir SURVIVAL_POLICY.md:**
+- **score >= 70 (normal):** Trabalho normal + 1 ação de remediação se algum componente degraded
+- **score 40-69 (degraded):** Reparo prioritário + trabalho limitado. Dedicar metade do beat a corrigir componentes com problema
+- **score < 40 (maintenance):** SÓ diagnóstico e reparo. NÃO despachar skill de trabalho. Criar `health/operator-alert.flag` se reparo falhar
+
+```bash
+# Se há componente degraded/fail, tentar reparo:
+bash ~/edge/bin/edge-repair.sh 2>/dev/null
+```
+
+### 0b: Decisão de roteamento
+
+**Se `HEALTH:CRITICAL`:** Modo maintenance. Reparar e sair. Não gastar tokens com trabalho.
+
+**Se `PREFLIGHT_CLEAN` (e saúde ok):** Não há trabalho urgente. Despachar `/ed-lazer` ou `/ed-descoberta` diretamente (sem passar pelo Passo 1 completo). Logar:
 ```bash
 echo "[$(date +%H:%M)] PREFLIGHT_CLEAN — sem sinais. Despachando exploração." >> ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log
 ```

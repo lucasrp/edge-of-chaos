@@ -13,6 +13,27 @@ SIGNALS=()
 # shellcheck source=../config/paths.sh
 source "$(dirname "$0")/../config/paths.sh"
 
+# 0. Health check (runs edge-check.sh, updates health/current.json)
+HEALTH_SCRIPT="$(dirname "$0")/../bin/edge-check.sh"
+HEALTH_FILE="$EDGE_DIR/health/current.json"
+
+if [ -x "$HEALTH_SCRIPT" ]; then
+  bash "$HEALTH_SCRIPT" >/dev/null 2>&1
+fi
+
+if [ -f "$HEALTH_FILE" ]; then
+  health_score=$(python3 -c "import json; print(json.load(open('$HEALTH_FILE')).get('score', 100))" 2>/dev/null || echo 100)
+  health_status=$(python3 -c "import json; print(json.load(open('$HEALTH_FILE')).get('status', 'unknown'))" 2>/dev/null || echo "unknown")
+
+  if [ "$health_status" = "critical" ] || [ "$health_score" -lt 40 ] 2>/dev/null; then
+    SIGNALS+=("HEALTH:CRITICAL score=${health_score} — maintenance mode, repair before working")
+  elif [ "$health_status" = "unhealthy" ] || [ "$health_score" -lt 70 ] 2>/dev/null; then
+    SIGNALS+=("HEALTH:UNHEALTHY score=${health_score} — reserve part of beat for repair")
+  elif [ "$health_status" = "degraded" ] || [ "$health_score" -lt 85 ] 2>/dev/null; then
+    SIGNALS+=("HEALTH:DEGRADED score=${health_score} — 1 remediation action recommended")
+  fi
+fi
+
 # 1. Chat pendente?
 chat_pending=$(curl -s --max-time 3 $CURL_AUTH "http://localhost:${BLOG_PORT}/api/chat?unprocessed=true" 2>/dev/null | \
   python3 -c "
