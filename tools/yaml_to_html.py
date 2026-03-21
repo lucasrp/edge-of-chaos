@@ -20,6 +20,10 @@ import re
 import sys
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import LOGS_DIR
+
 try:
     import yaml
 except ImportError:
@@ -856,7 +860,7 @@ def _is_empty_render(block_type: str, result: str) -> bool:
 # ---------------------------------------------------------------------------
 
 _validation_error_count = 0
-_RENDER_LOG = Path(os.environ.get("YAML_RENDER_LOG", Path.home() / "edge/logs/yaml-render.jsonl"))
+_RENDER_LOG = Path(os.environ.get("YAML_RENDER_LOG", str(LOGS_DIR / "yaml-render.jsonl")))
 _current_source: str | None = None  # set by caller (main or external)
 
 

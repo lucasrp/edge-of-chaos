@@ -19,7 +19,11 @@ try:
 except ImportError:
     sys.exit("PyYAML required: pip install pyyaml")
 
-LOG = Path.home() / "edge/logs/skill-steps.jsonl"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import LOGS_DIR
+
+LOG = LOGS_DIR / "skill-steps.jsonl"
 REGISTRY = Path(__file__).resolve().parent / "skill-steps-registry.yaml"
 
 

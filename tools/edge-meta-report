@@ -24,30 +24,16 @@ from datetime import datetime
 from pathlib import Path
 
 HOME = Path.home()
-META_DIR = HOME / "edge" / "meta-reports"
-SCRATCHPADS_ARCHIVE = HOME / "edge" / "scratchpads"
-EDGE_DIR = HOME / "edge"
-CONSULT_SCRIPT = HOME / "edge" / "tools" / "edge-consult.py"
-
-# Load memory_project_dir from branding if available
-sys.path.insert(0, str(HOME / "edge" / "config"))
-try:
-    from branding import load_branding
-    _MEMORY_PROJECT = load_branding().get("memory_project_dir", "")
-except Exception:
-    _MEMORY_PROJECT = ""
-
-if _MEMORY_PROJECT:
-    _MEMORY_PATH = str(HOME / ".claude" / "projects" / _MEMORY_PROJECT / "memory")
-else:
-    _proj_base = HOME / ".claude" / "projects"
-    _candidates = [d for d in _proj_base.iterdir() if d.is_dir()] if _proj_base.exists() else []
-    _MEMORY_PATH = str(_candidates[0] / "memory") if _candidates else str(_proj_base / "memory")
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import (META_DIR, SCRATCHPADS_DIR as SCRATCHPADS_ARCHIVE,
+                   EDGE_DIR, TOOLS_DIR, MEMORY_DIR, SKILLS_DIR, NOTES_DIR)
+CONSULT_SCRIPT = TOOLS_DIR / "edge-consult.py"
 
 TRACKED_REPOS = {
-    _MEMORY_PATH: "memory",
-    str(HOME / ".claude" / "skills"): "skills",
-    str(HOME / "edge" / "notes"): "notes",
+    str(MEMORY_DIR): "memory",
+    str(SKILLS_DIR): "skills",
+    str(NOTES_DIR): "notes",
 }
 
 

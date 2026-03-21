@@ -13,8 +13,12 @@ Searches with multiple strategies, filters by quality, returns signal.
 import os, sys, json, argparse
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import SECRETS_DIR
+
 # Load credentials
-env_file = Path.home() / "edge" / "secrets" / "x-api.env"
+env_file = SECRETS_DIR / "x-api.env"
 if env_file.exists():
     for line in env_file.read_text().splitlines():
         line = line.strip()

@@ -36,8 +36,11 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-LOG_DIR = Path.home() / "edge" / "logs" / "deepresearch"
-SECRETS_DIR = Path.home() / "edge" / "secrets"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import LOGS_DIR as _LOGS_DIR, SECRETS_DIR
+
+LOG_DIR = _LOGS_DIR / "deepresearch"
 
 DEFAULT_OPENAI_MODEL = os.environ.get("EDGE_MODEL_DEEPRESEARCH_OPENAI", "gpt-4.1")
 DEFAULT_GEMINI_MODEL = os.environ.get("EDGE_MODEL_DEEPRESEARCH_GEMINI", "gemini-2.5-flash")

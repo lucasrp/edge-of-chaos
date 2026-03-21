@@ -10,7 +10,7 @@ Reads ~/edge/logs/execution-ledger.jsonl and produces
 ~/edge/state/ops-hotspots.json with aggregated telemetry:
 incidents, top_pain, recovered_but_unstable, codify_now.
 
-Cross-references ~/.claude/projects/-home-vboxuser/memory/debugging.md
+Cross-references the agent's debugging.md (resolved via config/paths.py)
 to mark workaround_known=true when an error fingerprint matches a known entry.
 """
 
@@ -22,16 +22,9 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-LEDGER_FILE = Path.home() / "edge" / "logs" / "execution-ledger.jsonl"
-OUTPUT_FILE = Path.home() / "edge" / "state" / "ops-hotspots.json"
-DEBUGGING_MD = (
-    Path.home()
-    / ".claude"
-    / "projects"
-    / "-home-vboxuser"
-    / "memory"
-    / "debugging.md"
-)
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import LEDGER_FILE, OPS_HOTSPOTS as OUTPUT_FILE, DEBUGGING_FILE as DEBUGGING_MD
 
 
 def parse_since(since_str):

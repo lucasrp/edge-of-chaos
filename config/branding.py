@@ -26,6 +26,7 @@ _DEFAULTS = {
         "auth_user": "",
         "auth_pass": "",
     },
+    "edge_dir": "",
     "memory_project_dir": "",
     "skill_prefix": "agent",
 }
@@ -38,10 +39,8 @@ def load_branding(config_path=None):
         return _BRANDING_CACHE
 
     if config_path is None:
-        config_path = Path(os.environ.get(
-            "BRANDING_CONFIG",
-            Path.home() / "edge" / "config" / "branding.yaml"
-        ))
+        _default = Path(__file__).parent / "branding.yaml"
+        config_path = Path(os.environ.get("BRANDING_CONFIG", _default))
     else:
         config_path = Path(config_path)
 

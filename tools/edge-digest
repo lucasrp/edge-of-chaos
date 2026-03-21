@@ -15,18 +15,18 @@ import json
 import os
 import re
 import subprocess
+import sys
 import yaml
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 HOME = Path.home()
-EVENTS_FILE = HOME / "edge" / "logs" / "events.jsonl"
-THREADS_DIR = HOME / "edge" / "threads"
-BLOG_DIR = HOME / "edge" / "blog" / "entries"
-HEARTBEAT_LOG = HOME / "edge" / "logs" / f"heartbeat-{datetime.now().strftime('%Y-%m-%d')}.log"
-DEBUG_FILE = HOME / ".claude" / "projects" / "-home-vboxuser" / "memory" / "debugging.md"
-INSIGHTS_FILE = HOME / ".claude" / "projects" / "-home-vboxuser" / "memory" / "insights.md"
-OUTPUT_FILE = HOME / "edge" / "briefing.md"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import (EVENTS_FILE, THREADS_DIR, ENTRIES_DIR as BLOG_DIR,
+                   LOGS_DIR, DEBUGGING_FILE as DEBUG_FILE,
+                   INSIGHTS_FILE, BRIEFING_FILE as OUTPUT_FILE)
+HEARTBEAT_LOG = LOGS_DIR / f"heartbeat-{datetime.now().strftime('%Y-%m-%d')}.log"
 
 TODAY = datetime.now().strftime("%Y-%m-%d")
 NOW = datetime.now().strftime("%H:%M")
