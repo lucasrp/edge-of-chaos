@@ -1,0 +1,58 @@
+<div class="status-strip">
+  <!-- Attention badge -->
+  {% if attention_count > 0 %}
+  <div class="status-strip-attention">
+    <span class="attention-badge">{{ attention_count }}</span>
+  </div>
+  {% endif %}
+
+  <!-- Heartbeat -->
+  <div class="status-strip-item status-border-{{ heartbeat.color }}">
+    <span class="dash-label">heartbeat</span>
+    <span class="dash-value status-text-{{ heartbeat.color }}">{{ heartbeat.status }}</span>
+    {% if heartbeat.color != 'green' %}
+    <button class="action-btn action-heartbeat" onclick="triggerHeartbeat(this)">trigger</button>
+    {% endif %}
+  </div>
+
+  <!-- Pipeline -->
+  <div class="status-strip-item status-border-{{ 'green' if pipeline_status == 'ok' else ('yellow' if pipeline_status == 'partial' else 'red') }}">
+    <span class="dash-label">pipeline</span>
+    <span class="dash-value">{{ pipeline_status }}</span>
+    {% if pipeline_failure_count > 0 %}
+    <span class="status-strip-detail">{{ pipeline_failure_count }} fail</span>
+    {% endif %}
+  </div>
+
+  <!-- Workload -->
+  <div class="status-strip-item">
+    <span class="dash-label">workload</span>
+    <span class="dash-value">
+      <span class="status-text-green">{{ workload_doing }}</span>/<span class="status-text-red">{{ workload_blocked }}</span>/<span>{{ workload_todo }}</span>
+    </span>
+    <span class="status-strip-detail">do/blk/todo{% if workload_stale > 0 %} · <span class="status-text-yellow">{{ workload_stale }} stale</span>{% endif %}</span>
+  </div>
+
+  <!-- Production -->
+  <div class="status-strip-item">
+    <span class="dash-label">production</span>
+    <span class="dash-value">{{ entries_total }} <small>entries</small></span>
+    <span class="status-strip-detail">{{ reports_total }} reports · {{ published_today }} today</span>
+  </div>
+
+  <!-- Error Pressure -->
+  <div class="status-strip-item {{ 'status-border-red' if failures_24h > 0 else 'status-border-green' }}">
+    <span class="dash-label">errors 24h</span>
+    <span class="dash-value {{ 'status-text-red' if failures_24h > 0 else '' }}">{{ failures_24h }}</span>
+    {% if top_failing_tool %}
+    <span class="status-strip-detail">top: {{ top_failing_tool }}</span>
+    {% endif %}
+  </div>
+
+  <!-- Claims / Threads -->
+  <div class="status-strip-item">
+    <span class="dash-label">claims/threads</span>
+    <span class="dash-value">{{ claims_total }} <small>({{ claims_open }} open)</small></span>
+    <span class="status-strip-detail">{{ active_threads }} threads</span>
+  </div>
+</div>

@@ -1,0 +1,18 @@
+<div class="dash-section dash-collapsible">
+  <h2 class="dash-section-title dash-collapse-toggle" onclick="this.parentElement.classList.toggle('collapsed')">
+    Corpus Health <span class="dash-collapse-icon">&#9660;</span>
+  </h2>
+  <div class="dash-collapse-body">
+    <div class="corpus-stats">
+      <span class="corpus-stat"><strong>{{ corpus_total_docs }}</strong> docs</span>
+      <span class="dash-sep">|</span>
+      <span class="corpus-stat{% if corpus_stale > 0 %} corpus-warn{% endif %}">{{ corpus_stale }} stale</span>
+      <span class="dash-sep">|</span>
+      <span class="corpus-stat">{{ corpus_archive }} archive</span>
+      <span class="dash-sep">|</span>
+      <span class="corpus-stat{% if corpus_merge > 0 %} corpus-warn{% endif %}">{{ corpus_merge }} merge</span>
+      <span class="dash-sep">|</span>
+      <span class="corpus-stat">{{ corpus_strengthen }} strengthen</span>
+    </div>
+  </div>
+</div>

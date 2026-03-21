@@ -1,0 +1,50 @@
+{% if hotspots_top_pain or hotspots_recovered or hotspots_codify %}
+<div class="dash-section dash-collapsible">
+  <h2 class="dash-section-title dash-collapse-toggle" onclick="this.parentElement.classList.toggle('collapsed')">
+    Operational Hotspots <span class="dash-collapse-icon">&#9660;</span>
+  </h2>
+  <div class="dash-collapse-body">
+
+    {% if hotspots_top_pain %}
+    <div class="hotspot-group">
+      <h3 class="hotspot-group-title">Top Pain ({{ hotspots_top_pain|length }})</h3>
+      {% for h in hotspots_top_pain %}
+      <div class="hotspot-item">
+        <span class="hotspot-sig">{{ h.signature }}</span>
+        <span class="hotspot-count">{{ h.count }}x</span>
+        <span class="hotspot-wasted">{{ h.total_wasted_ms }}ms wasted</span>
+        {% if h.workaround_known %}<span class="hotspot-workaround">workaround</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if hotspots_recovered %}
+    <div class="hotspot-group">
+      <h3 class="hotspot-group-title">Recovered but Unstable ({{ hotspots_recovered|length }})</h3>
+      {% for h in hotspots_recovered %}
+      <div class="hotspot-item">
+        <span class="hotspot-sig">{{ h.signature }}</span>
+        <span class="hotspot-count">{{ h.count }}x</span>
+        <span class="hotspot-wasted">{{ h.total_wasted_ms }}ms wasted</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if hotspots_codify %}
+    <div class="hotspot-group">
+      <h3 class="hotspot-group-title">Codify Now ({{ hotspots_codify|length }})</h3>
+      {% for h in hotspots_codify %}
+      <div class="hotspot-item">
+        <span class="hotspot-sig">{{ h.signature }}</span>
+        <span class="hotspot-count">{{ h.count }}x</span>
+        {% if h.workaround_known %}<span class="hotspot-workaround">workaround</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endif %}
