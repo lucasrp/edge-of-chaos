@@ -1,0 +1,23 @@
+{% if alerts %}
+<div class="dash-section dash-alerts-panel">
+  <h2 class="dash-section-title dash-warn">attention required <span class="dash-alert-total">({{ alerts|length }})</span></h2>
+  {% for alert in alerts[:8] %}
+  <div class="dash-alert-card dash-alert-{{ alert.severity }}">
+    <div class="dash-alert-header">
+      <span class="dash-alert-severity sev-{{ alert.severity }}">{{ alert.severity }}</span>
+      <span class="dash-alert-title">{{ alert.title }}</span>
+      <span class="dash-alert-source">{{ alert.source }}</span>
+    </div>
+    <div class="dash-alert-body">
+      {% if alert.detail %}
+      <span class="dash-alert-detail">{{ alert.detail }}</span>
+      {% endif %}
+      <span class="dash-alert-meta">
+        {% if alert.count > 1 %}count: {{ alert.count }}{% endif %}
+        {% if alert.last_seen %} &middot; {{ alert.last_seen }}{% endif %}
+      </span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
