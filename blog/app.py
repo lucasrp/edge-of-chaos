@@ -22,6 +22,7 @@ import yaml
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (
+    _branding,
     EDGE_DIR, BLOG_DIR, ENTRIES_DIR, REPORTS_DIR,
     META_DIR, SEARCH_DIR, THREADS_DIR as _THREADS_DIR,
     STATE_DIR as _STATE_DIR, MEMORY_DIR, TOPICS_DIR,
@@ -1326,5 +1327,8 @@ if __name__ == "__main__":
     # Warm up cache on startup
     print("Warming up entry cache and FTS index...")
     get_entries()
-    print(f"Blog server (Flask) on http://localhost:8766/blog/")
-    app.run(host="127.0.0.1", port=8766, debug=False, threaded=True)
+    _blog = _branding.get("blog", {})
+    _host = _blog.get("host", "127.0.0.1")
+    _port = _blog.get("port", 8766)
+    print(f"Blog server (Flask) on http://{_host}:{_port}/blog/")
+    app.run(host=_host, port=_port, debug=False, threaded=True)
