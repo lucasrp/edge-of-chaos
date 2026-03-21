@@ -25,11 +25,10 @@ try:
 except ImportError:
     yaml = None
 
-MEMORY_DIR = Path.home() / ".claude/projects/-home-vboxuser/memory"
-FRONTIER = Path.home() / "edge/autonomy/frontier.md"
-DEBUGGING = MEMORY_DIR / "debugging.md"
-THREADS_DIR = Path.home() / "edge/threads"
-BREAKS_ACTIVE = MEMORY_DIR / "breaks-active.md"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import (MEMORY_DIR, FRONTIER_FILE as FRONTIER,
+                   DEBUGGING_FILE as DEBUGGING, THREADS_DIR, BREAKS_ACTIVE)
 TODAY = datetime.date.today()
 
 findings = []

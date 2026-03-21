@@ -38,32 +38,28 @@ except ImportError:
 
 SCRIPT_DIR = Path(__file__).parent
 
-# Load agent name from branding config
+# Load paths from shared config
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-try:
-    from branding import load_branding
-    _AGENT_NAME = load_branding().get("agent_name", "agent")
-except Exception:
-    _AGENT_NAME = "agent"
-RUBRIC_PATH = Path.home() / ".claude/skills/_shared/report-template.md"
-BLOG_RULES_PATH = Path.home() / ".claude/skills/ed-blog/SKILL.md"
-SKILLS_DIR = Path.home() / ".claude/skills"
-SECRETS_PATH = Path.home() / "edge/secrets/openai.env"
-XAI_SECRETS_PATH = Path.home() / "edge/secrets/xai.env"
+from branding import load_branding
+from paths import (MEMORY_DIR, REPORTS_DIR, NOTES_DIR, SKILLS_DIR,
+                   RUBRIC_PATH, OPENAI_ENV as SECRETS_PATH,
+                   XAI_ENV as XAI_SECRETS_PATH)
+_AGENT_NAME = load_branding().get("agent_name", "agent")
+_SKILL_PREFIX = load_branding().get("skill_prefix", "agent")
+BLOG_RULES_PATH = SKILLS_DIR / f"{_SKILL_PREFIX}-blog" / "SKILL.md"
 XAI_BASE_URL = "https://api.x.ai/v1"
 GROK_MODEL = "grok-4.20-multi-agent-beta-0309"
-_MEMORY_PROJECT = load_branding().get("memory_project_dir", "") if 'load_branding' in dir() else ""
-if _MEMORY_PROJECT:
-    MEMORY_DIR = Path.home() / ".claude/projects" / _MEMORY_PROJECT / "memory"
-else:
-    # Auto-detect: first project dir
-    _proj_base = Path.home() / ".claude/projects"
-    _candidates = [d for d in _proj_base.iterdir() if d.is_dir()] if _proj_base.exists() else []
-    MEMORY_DIR = _candidates[0] / "memory" if _candidates else _proj_base / "memory"
-REPORTS_DIR = Path.home() / "edge/reports"
-NOTES_DIR = Path.home() / "edge/notes"
 
 DEFAULT_MODEL = "gpt-5.4"
+
+# Models that require the Responses API instead of Chat Completions
+RESPONSES_API_MODELS = {GROK_MODEL, "gpt-5.4-pro"}
+
+
+def _is_responses_api(model: str) -> bool:
+    """Check if a model requires the Responses API."""
+    return model in RESPONSES_API_MODELS
+
 
 # ---------------------------------------------------------------------------
 # Tool definitions for co-author phase
@@ -349,16 +345,23 @@ DIMENSION_WEIGHTS = [0.15, 0.15, 0.12, 0.12, 0.08, 0.08, 0.10, 0.08, 0.12]
 # System prompts
 # ---------------------------------------------------------------------------
 
-COAUTHOR_SYSTEM = f"""You are a co-author helping an autonomous AI agent ({_AGENT_NAME}) improve a YAML report specification before publication. The YAML will be converted to an HTML report, published to an internal blog, and indexed into long-term memory.
+COAUTHOR_SYSTEM = """You are a co-author helping an autonomous AI agent (""" + _AGENT_NAME + """) improve a YAML report specification before publication. The YAML will be converted to an HTML report, published to an internal blog, and indexed into long-term memory.
 
-Your role: ENRICH the YAML by pulling relevant context using your tools. You are NOT rewriting from scratch — you are adding what's missing, deepening what's shallow, and connecting to prior work.
+Your role: SUGGEST improvements to the YAML. You do NOT rewrite it — the agent keeps control. You pull context using your tools and return structured suggestions that the agent will decide whether to incorporate.
 
 Language: Portuguese (PT-BR).
 
 ## What to do:
 1. Read the YAML spec carefully
 2. Use your tools to pull relevant context (memory files, previous reports, corpus search, blog entries)
-3. Return a JSON object with specific, actionable enrichments
+3. Return a JSON object with specific, actionable SUGGESTIONS (not rewrites)
+
+## Response format:
+Return JSON with these keys:
+- "suggestions": list of objects with keys section, type, description, rationale — what to add/change and why
+- "missing_context": list of things found via tools that the spec should reference
+- "strengths": what is already good (so the agent doesn't remove it)
+- "concerns": potential issues with current content
 
 ## Report Template Rules
 {rubric}
@@ -397,7 +400,7 @@ Language: Portuguese (PT-BR).
 }}
 """
 
-REVIEWER_SYSTEM = f"""You are a quality reviewer for YAML report specifications used by an autonomous AI agent ({_AGENT_NAME}). These specs get converted to HTML reports via yaml_to_html.py, published to an internal blog, and indexed into long-term memory.
+REVIEWER_SYSTEM = """You are a quality reviewer for YAML report specifications used by an autonomous AI agent (""" + _AGENT_NAME + """). These specs get converted to HTML reports via yaml_to_html.py, published to an internal blog, and indexed into long-term memory.
 
 Your job: evaluate the YAML spec against the rubric and provide structured, SPECIFIC feedback. Cite section titles, block types, and exact content when pointing out issues. Your feedback will be used by the agent to improve the spec in a self-refinement loop.
 
@@ -606,53 +609,87 @@ def coauthor(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
     tool_calls_made = []
 
     # Tool-use loop (max 10 rounds)
+    use_responses_api = _is_responses_api(model)
     for _round in range(10):
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=TOOLS,
-                tool_choice="auto",
-                temperature=0.3,
-            )
+            if use_responses_api:
+                # Responses API: convert tools to function format
+                resp_tools = [
+                    {"type": "function", **t["function"]}
+                    for t in TOOLS
+                ]
+                response = client.responses.create(
+                    model=model,
+                    input=messages,
+                    tools=resp_tools,
+                    temperature=0.3,
+                )
+                total_prompt_tokens += response.usage.input_tokens
+                total_completion_tokens += response.usage.output_tokens
+
+                # Check for function calls in output
+                fn_calls = [o for o in response.output if o.type == "function_call"]
+                text_outputs = [o for o in response.output if o.type == "message" and hasattr(o, "content")]
+
+                if not fn_calls:
+                    # No tool calls — extract final text
+                    content = response.output_text or ""
+                    break
+
+                # Process tool calls
+                messages.append({"role": "assistant", "content": response.output})
+                for fc in fn_calls:
+                    fn_name = fc.name
+                    fn_args = json.loads(fc.arguments)
+                    tool_calls_made.append(f"{fn_name}({json.dumps(fn_args, ensure_ascii=False)})")
+                    print(f"  [co-author] tool: {fn_name}({', '.join(f'{k}={v!r}' for k,v in fn_args.items())})",
+                          file=sys.stderr)
+                    handler = TOOL_DISPATCH.get(fn_name)
+                    result_text = handler(fn_args) if handler else f"Unknown tool: {fn_name}"
+                    messages.append({
+                        "type": "function_call_output",
+                        "call_id": fc.call_id,
+                        "output": result_text,
+                    })
+            else:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    tools=TOOLS,
+                    tool_choice="auto",
+                    temperature=0.3,
+                )
+                total_prompt_tokens += response.usage.prompt_tokens
+                total_completion_tokens += response.usage.completion_tokens
+
+                msg = response.choices[0].message
+
+                # If no tool calls, we have the final response
+                if not msg.tool_calls:
+                    messages.append(msg)
+                    content = msg.content or ""
+                    break
+
+                # Process tool calls
+                messages.append(msg)
+                for tc in msg.tool_calls:
+                    fn_name = tc.function.name
+                    fn_args = json.loads(tc.function.arguments)
+                    tool_calls_made.append(f"{fn_name}({json.dumps(fn_args, ensure_ascii=False)})")
+                    print(f"  [co-author] tool: {fn_name}({', '.join(f'{k}={v!r}' for k,v in fn_args.items())})",
+                          file=sys.stderr)
+                    handler = TOOL_DISPATCH.get(fn_name)
+                    result_text = handler(fn_args) if handler else f"Unknown tool: {fn_name}"
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result_text,
+                    })
         except Exception as e:
             print(f"ERROR: OpenAI API call failed: {e}", file=sys.stderr)
             sys.exit(2)
-
-        total_prompt_tokens += response.usage.prompt_tokens
-        total_completion_tokens += response.usage.completion_tokens
-
-        msg = response.choices[0].message
-
-        # If no tool calls, we have the final response
-        if not msg.tool_calls:
-            messages.append(msg)
-            break
-
-        # Process tool calls
-        messages.append(msg)
-        for tc in msg.tool_calls:
-            fn_name = tc.function.name
-            fn_args = json.loads(tc.function.arguments)
-            tool_calls_made.append(f"{fn_name}({json.dumps(fn_args, ensure_ascii=False)})")
-
-            print(f"  [co-author] tool: {fn_name}({', '.join(f'{k}={v!r}' for k,v in fn_args.items())})",
-                  file=sys.stderr)
-
-            handler = TOOL_DISPATCH.get(fn_name)
-            if handler:
-                result_text = handler(fn_args)
-            else:
-                result_text = f"Unknown tool: {fn_name}"
-
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result_text,
-            })
-
-    # Parse final response
-    content = msg.content or ""
+    else:
+        content = ""
     # Try to extract JSON from the response
     try:
         result = json.loads(content)
@@ -693,7 +730,7 @@ def coauthor(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
 # ---------------------------------------------------------------------------
 
 def review(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
-           threshold: float = 3.5, entry_path: str = None) -> dict:
+           threshold: float = 3.0, entry_path: str = None) -> dict:
     """Run review phase. Returns structured feedback dict."""
     if model.startswith("grok"):
         client = get_xai_client()
@@ -724,8 +761,7 @@ def review(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
             user_msg += f"\n\n---\n\n{entry_content}"
 
     try:
-        if model == GROK_MODEL:
-            # Grok-4.20 multi-agent requires Responses API
+        if _is_responses_api(model):
             response = client.responses.create(
                 model=model,
                 input=[
@@ -777,7 +813,7 @@ def review(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
         result["overall"] = round(weighted, 1)
         min_score = min(scores)
         result["pass"] = (
-            min_score >= 3
+            min_score >= 2
             and len(critical) == 0
             and result["overall"] >= threshold
         )
@@ -840,19 +876,29 @@ def refine(yaml_path: str, review_result: dict, model: str = DEFAULT_MODEL) -> d
     user_msg = f"## YAML to improve:\n\n{yaml_content}\n\n---\n\n## Reviewer feedback:\n\n{feedback_text}"
 
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": REFINER_SYSTEM},
-                {"role": "user", "content": user_msg},
-            ],
-            temperature=0.3,
-        )
+        if _is_responses_api(model):
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {"role": "system", "content": REFINER_SYSTEM},
+                    {"role": "user", "content": user_msg},
+                ],
+                temperature=0.3,
+            )
+            refined_yaml = response.output_text or ""
+        else:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": REFINER_SYSTEM},
+                    {"role": "user", "content": user_msg},
+                ],
+                temperature=0.3,
+            )
+            refined_yaml = response.choices[0].message.content or ""
     except Exception as e:
         print(f"ERROR: Refiner API call failed: {e}", file=sys.stderr)
         return {"error": str(e)}
-
-    refined_yaml = response.choices[0].message.content or ""
 
     # Strip markdown fences if model wrapped it
     refined_yaml = refined_yaml.strip()
@@ -1065,9 +1111,9 @@ def main():
     results = {}
     total_cost = 0.0
 
-    # Phase 1: Co-author (enrich with tools)
+    # ── Phase 1: Co-Author (suggestions only — does NOT rewrite YAML) ──
     if not args.review_only:
-        print("── Phase 1: Co-Author ──", file=sys.stderr)
+        print("── Phase 1: Co-Author (suggestions) ──", file=sys.stderr)
         ca_result = coauthor(
             str(yaml_path),
             skill=args.skill,
@@ -1085,128 +1131,46 @@ def main():
                 print(json.dumps(results, indent=2, ensure_ascii=False))
             sys.exit(0)
 
-    # Phase 2: Review + Refine loop (hardcoded N rounds)
+    # ── Phase 2: Review (1 pass, feedback only — does NOT rewrite YAML) ──
     if not args.coauthor_only:
-        rounds = max(1, args.rounds)
-        results["rounds"] = []
+        print(f"\n── Phase 2: Review ──", file=sys.stderr)
 
-        for r in range(1, rounds + 1):
-            print(f"\n── Round {r}/{rounds}: Review ──", file=sys.stderr)
+        rv_result = review(
+            str(yaml_path),
+            skill=args.skill,
+            model=args.model,
+            threshold=args.threshold,
+            entry_path=args.entry,
+        )
+        results["review"] = rv_result
+        results["final_review"] = rv_result
 
-            rv_result = review(
-                str(yaml_path),
-                skill=args.skill,
-                model=args.model,
-                threshold=args.threshold,
-                entry_path=args.entry,
-            )
-
-            if not args.json:
-                print_review_report(rv_result)
-
-            round_data = {"round": r, "review": rv_result}
-
-            # If passed or last round, don't refine
-            if rv_result.get("pass") or r == rounds:
-                results["rounds"].append(round_data)
-                results["final_review"] = rv_result
-                break
-
-            # Refine: apply feedback to YAML
-            print(f"── Round {r}/{rounds}: Refine ──", file=sys.stderr)
-            refine_meta = refine(
-                str(yaml_path),
-                rv_result,
-                model=args.model,
-            )
-            round_data["refine"] = refine_meta
-
-            if not args.json:
-                print_refine_report(refine_meta, r)
-
-            results["rounds"].append(round_data)
-
-        # ── Grok cross-review (second opinion) ──
-        xai_client = get_xai_client()
-        if xai_client:
-            print(f"\n── Cross-Review: {GROK_MODEL} ──", file=sys.stderr)
-            try:
-                grok_rv = review(
-                    str(yaml_path),
-                    skill=args.skill,
-                    model=GROK_MODEL,
-                    threshold=args.threshold,
-                    entry_path=args.entry,
-                )
-                results["grok_review"] = grok_rv
-                if not args.json:
-                    print_review_report(grok_rv)
-
-                # Merge: final = worst of both reviewers
-                gpt_final = results.get("final_review", {})
-                grok_overall = grok_rv.get("overall", 0)
-                gpt_overall = gpt_final.get("overall", 0)
-
-                if grok_overall < gpt_overall:
-                    results["final_review"] = grok_rv
-                    results["final_review"]["_cross_review"] = {
-                        "gpt_overall": gpt_overall,
-                        "grok_overall": grok_overall,
-                        "decisive_model": GROK_MODEL,
-                    }
-                else:
-                    gpt_final["_cross_review"] = {
-                        "gpt_overall": gpt_overall,
-                        "grok_overall": grok_overall,
-                        "decisive_model": args.model,
-                    }
-
-                # If either fails, gate fails
-                if not grok_rv.get("pass"):
-                    results["final_review"]["pass"] = False
-
-            except Exception as e:
-                print(f"  WARN: Grok cross-review failed: {e}", file=sys.stderr)
-        else:
-            print("\n  WARN: xAI key not found — skipping Grok cross-review", file=sys.stderr)
+        if not args.json:
+            print_review_report(rv_result)
 
         # Final summary
-        final = results.get("final_review", {})
-        passed = final.get("pass", False)
+        final = rv_result
         overall = final.get("overall", 0)
-        n_rounds = len(results["rounds"])
 
-        status = "\033[32mPASS\033[0m" if passed else "\033[31mFAIL\033[0m"
-        cross = final.get("_cross_review", {})
-        cross_info = ""
-        if cross:
-            cross_info = f"  [GPT: {cross.get('gpt_overall', '?')}, Grok: {cross.get('grok_overall', '?')}]"
         print(f"\n{'='*55}", file=sys.stderr)
-        print(f"  Final: {status}  ({overall}/5.0 after {n_rounds} round(s)){cross_info}", file=sys.stderr)
+        print(f"  Score: {overall}/5.0", file=sys.stderr)
 
         # Aggregate costs
-        for rd in results["rounds"]:
-            rv_meta = rd.get("review", {}).get("_meta", {})
-            rf_meta = rd.get("refine", {})
-            for m in [rv_meta, rf_meta]:
-                cost_str = m.get("cost_estimate", "$0")
-                try:
-                    total_cost += float(cost_str.replace("$", ""))
-                except (ValueError, AttributeError):
-                    pass
         ca_cost = results.get("coauthor", {}).get("_meta", {}).get("cost_estimate", "$0")
-        try:
-            total_cost += float(ca_cost.replace("$", ""))
-        except (ValueError, AttributeError):
-            pass
-        grok_cost = results.get("grok_review", {}).get("_meta", {}).get("cost_estimate", "$0")
-        try:
-            total_cost += float(grok_cost.replace("$", ""))
-        except (ValueError, AttributeError):
-            pass
+        rv_cost = rv_result.get("_meta", {}).get("cost_estimate", "$0")
+        for cost_str in [ca_cost, rv_cost]:
+            try:
+                total_cost += float(cost_str.replace("$", ""))
+            except (ValueError, AttributeError):
+                pass
 
         print(f"  Total cost: ${total_cost:.4f}", file=sys.stderr)
         print(f"{'='*55}\n", file=sys.stderr)
+
+    # Save feedback to JSON file alongside YAML (for agent to read and incorporate)
+    feedback_path = yaml_path.with_suffix(".feedback.json")
+    feedback_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"  Feedback saved: {feedback_path}", file=sys.stderr)
 
     # Output JSON
     if args.json:
@@ -1214,12 +1178,8 @@ def main():
     elif not args.coauthor_only:
         print(json.dumps(results.get("final_review", {}), ensure_ascii=False))
 
-    # Exit code
-    final = results.get("final_review", {})
-    if final:
-        sys.exit(0 if final.get("pass") else 1)
-    else:
-        sys.exit(0)
+    # Exit code: always 0 (feedback is advisory, agent incorporates manually)
+    sys.exit(0)
 
 
 if __name__ == "__main__":

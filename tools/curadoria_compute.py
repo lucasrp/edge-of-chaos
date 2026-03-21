@@ -21,13 +21,16 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import SEARCH_DIR, STATE_DIR
+
 # Add search module to path
-SEARCH_DIR = Path.home() / "edge" / "search"
 sys.path.insert(0, str(SEARCH_DIR))
 
 from db import ensure_db
 
-OUTPUT_FILE = Path.home() / "edge" / "state" / "curadoria-candidates.json"
+OUTPUT_FILE = STATE_DIR / "curadoria-candidates.json"
 
 
 # --- Union-Find ---

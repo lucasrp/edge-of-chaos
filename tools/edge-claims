@@ -12,11 +12,16 @@ Uso:
 import argparse
 import os
 import re
+import sys
 import yaml
 from pathlib import Path
 from datetime import datetime
 
-BLOG_DIR = Path.home() / "edge" / "blog" / "entries"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import ENTRIES_DIR
+
+BLOG_DIR = ENTRIES_DIR
 
 
 def _normalize_claim(c):

@@ -26,5 +26,6 @@ blog:
   auth_pass: "{{BLOG_AUTH_PASS}}"
 
 # Paths
+edge_dir: ""  # empty = auto-detect from script location
 memory_project_dir: "{{MEMORY_PROJECT_DIR}}"
 skill_prefix: "{{SKILL_PREFIX}}"

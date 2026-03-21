@@ -28,7 +28,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 import uuid
 
-EVENTS_FILE = Path.home() / "edge" / "logs" / "events.jsonl"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import EVENTS_FILE, THREADS_DIR
 
 EVENT_TYPES = [
     "skill_dispatched",
@@ -177,7 +179,7 @@ def cmd_stats(args):
 
 def update_thread(thread_id, resurface_days=None):
     """Atualiza updated: e opcionalmente resurface: de um thread."""
-    threads_dir = Path.home() / "edge" / "threads"
+    threads_dir = THREADS_DIR
     thread_file = threads_dir / f"{thread_id}.md"
 
     if not thread_file.exists():

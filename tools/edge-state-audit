@@ -33,27 +33,28 @@ from pathlib import Path
 from glob import glob
 
 HOME = Path.home()
-META_DIR = HOME / "edge" / "meta-reports"
-SNAPSHOT_DIR = HOME / "edge" / "state-snapshots"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import META_DIR, SNAPSHOT_DIR, MEMORY_DIR, AUTONOMY_DIR, SKILLS_DIR
 
 # Protected paths — any change here MUST be proposed
 PROTECTED_PATTERNS = [
-    str(HOME / ".claude/projects/-home-vboxuser/memory/MEMORY.md"),
-    str(HOME / ".claude/projects/-home-vboxuser/memory/debugging.md"),
-    str(HOME / ".claude/projects/-home-vboxuser/memory/personality.md"),
-    str(HOME / ".claude/projects/-home-vboxuser/memory/insights.md"),
-    str(HOME / "edge/autonomy/capabilities.md"),
-    str(HOME / "edge/autonomy/frontier.md"),
-    str(HOME / "edge/autonomy/workflows.md"),
-    str(HOME / "edge/autonomy/metrics.md"),
-    str(HOME / "edge/autonomy/log.md"),
-    str(HOME / "edge/autonomy/autonomy-policy.md"),
+    str(MEMORY_DIR / "MEMORY.md"),
+    str(MEMORY_DIR / "debugging.md"),
+    str(MEMORY_DIR / "personality.md"),
+    str(MEMORY_DIR / "insights.md"),
+    str(AUTONOMY_DIR / "capabilities.md"),
+    str(AUTONOMY_DIR / "frontier.md"),
+    str(AUTONOMY_DIR / "workflows.md"),
+    str(AUTONOMY_DIR / "metrics.md"),
+    str(AUTONOMY_DIR / "log.md"),
+    str(AUTONOMY_DIR / "autonomy-policy.md"),
 ]
 
 # Glob patterns for skills
 PROTECTED_GLOBS = [
-    str(HOME / ".claude/skills/*/SKILL.md"),
-    str(HOME / ".claude/skills/_shared/*.md"),
+    str(SKILLS_DIR / "*/SKILL.md"),
+    str(SKILLS_DIR / "_shared/*.md"),
 ]
 
 GREEN = "\033[0;32m"

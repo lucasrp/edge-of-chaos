@@ -21,8 +21,11 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-EDGE_DIR = Path.home() / "edge"
-OUTPUT_FILE = EDGE_DIR / "state" / "git-signals.json"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import EDGE_DIR, STATE_DIR
+
+OUTPUT_FILE = STATE_DIR / "git-signals.json"
 SEPARATOR = "---SEPARATOR---"
 
 

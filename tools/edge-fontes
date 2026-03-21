@@ -19,6 +19,10 @@ from urllib.request import urlopen, Request
 from urllib.parse import quote, urlencode
 from datetime import datetime, timedelta
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import TOOLS_DIR, SECRETS_DIR
+
 # --- Routing table: intent -> sources ---
 ROUTING = {
     'pesquisa':   {'primary': ['hn', 'arxiv', 'semantic_scholar', 'exa'], 'secondary': ['reddit', 'github', 'hf_papers']},
@@ -47,7 +51,7 @@ def search_x(topic):
     """Call edge-x subprocess."""
     try:
         r = subprocess.run(
-            [sys.executable, str(Path.home() / "edge/tools/edge-x"), topic, "--json", "--max", "10", "--light"],
+            [sys.executable, str(TOOLS_DIR / "edge-x"), topic, "--json", "--max", "10", "--light"],
             capture_output=True, text=True, timeout=30
         )
         if r.returncode != 0:
@@ -71,7 +75,7 @@ def search_hn(topic):
     """Call edge-hn subprocess."""
     try:
         r = subprocess.run(
-            [sys.executable, str(Path.home() / "edge/tools/edge-hn"), topic, "--json", "--max", "10"],
+            [sys.executable, str(TOOLS_DIR / "edge-hn"), topic, "--json", "--max", "10"],
             capture_output=True, text=True, timeout=30
         )
         if r.returncode != 0:
@@ -239,7 +243,7 @@ def search_hf_papers(topic):
 def search_exa(topic):
     """Search Exa API (semantic web search)."""
     try:
-        secrets = Path.home() / "edge/secrets/exa.env"
+        secrets = SECRETS_DIR / "exa.env"
         api_key = None
         if secrets.exists():
             for line in secrets.read_text().splitlines():
@@ -391,7 +395,7 @@ def front_page():
     # For HN, get front page instead of search
     try:
         r = subprocess.run(
-            [sys.executable, str(Path.home() / "edge/tools/edge-hn"), "--front-page", "--json"],
+            [sys.executable, str(TOOLS_DIR / "edge-hn"), "--front-page", "--json"],
             capture_output=True, text=True, timeout=15
         )
         if r.returncode == 0 and r.stdout.strip():

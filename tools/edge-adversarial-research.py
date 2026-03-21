@@ -32,8 +32,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-LOG_DIR = Path.home() / "edge" / "logs" / "adversarial-research"
-SECRETS_DIR = Path.home() / "edge" / "secrets"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import LOGS_DIR as _LOGS_DIR, SECRETS_DIR
+
+LOG_DIR = _LOGS_DIR / "adversarial-research"
 
 MAX_CONVERGE_ROUNDS = 5  # default max iterations for convergence
 

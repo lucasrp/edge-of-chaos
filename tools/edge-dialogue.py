@@ -16,12 +16,16 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import OPENAI_ENV, LOGS_DIR
+
 def load_api_key():
     """Load OpenAI API key from env or secrets file."""
     key = os.environ.get("OPENAI_API_KEY")
     if key:
         return key
-    secrets = Path.home() / "edge" / "secrets" / "openai.env"
+    secrets = OPENAI_ENV
     if secrets.exists():
         for line in secrets.read_text().splitlines():
             if line.startswith("OPENAI_API_KEY="):
@@ -121,7 +125,7 @@ def main():
     parser.add_argument("--system", default="", help="System prompt")
     parser.add_argument("--system-file", help="File containing system prompt")
     parser.add_argument("--messages", nargs="+", required=True, help="Message files (one per turn)")
-    parser.add_argument("--log-dir", default=str(Path.home() / "edge" / "logs" / "dialogue"),
+    parser.add_argument("--log-dir", default=str(LOGS_DIR / "dialogue"),
                         help="Directory for conversation logs")
     args = parser.parse_args()
 

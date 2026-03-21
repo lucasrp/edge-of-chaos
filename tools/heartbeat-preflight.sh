@@ -9,38 +9,9 @@ set -uo pipefail
 TODAY=$(date +%Y-%m-%d)
 SIGNALS=()
 
-# --- Load branding config (phenotype) ---
-BRANDING_FILE="$HOME/edge/config/branding.yaml"
-if [ -f "$BRANDING_FILE" ]; then
-  BLOG_PORT=$(grep '^  port:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}')
-  BLOG_AUTH_ENABLED=$(grep '^  auth_enabled:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}')
-  BLOG_AUTH_USER=$(grep '^  auth_user:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
-  BLOG_AUTH_PASS=$(grep '^  auth_pass:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
-  MEMORY_PROJECT_DIR=$(grep '^memory_project_dir:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
-  SKILL_PREFIX=$(grep '^skill_prefix:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
-else
-  BLOG_PORT=8766
-  BLOG_AUTH_ENABLED=false
-  BLOG_AUTH_USER=""
-  BLOG_AUTH_PASS=""
-  MEMORY_PROJECT_DIR=""
-  SKILL_PREFIX="ed"
-fi
-BLOG_PORT=${BLOG_PORT:-8766}
-SKILL_PREFIX=${SKILL_PREFIX:-ed}
-
-# Build curl auth flag
-CURL_AUTH=""
-if [ "$BLOG_AUTH_ENABLED" = "true" ] && [ -n "$BLOG_AUTH_USER" ]; then
-  CURL_AUTH="-u ${BLOG_AUTH_USER}:${BLOG_AUTH_PASS}"
-fi
-
-# Memory project path
-if [ -n "$MEMORY_PROJECT_DIR" ]; then
-  MEMORY_BASE="$HOME/.claude/projects/${MEMORY_PROJECT_DIR}/memory"
-else
-  MEMORY_BASE="$HOME/.claude/projects/$(ls "$HOME/.claude/projects/" 2>/dev/null | head -1)/memory"
-fi
+# --- Load shared paths (branding, memory, blog config) ---
+# shellcheck source=../config/paths.sh
+source "$(dirname "$0")/../config/paths.sh"
 
 # 1. Chat pendente?
 chat_pending=$(curl -s --max-time 3 $CURL_AUTH "http://localhost:${BLOG_PORT}/api/chat?unprocessed=true" 2>/dev/null | \
@@ -58,7 +29,7 @@ if [ "$chat_pending" -gt 0 ] 2>/dev/null; then
 fi
 
 # 2. Fios com resurface <= hoje?
-for f in ~/edge/threads/*.md; do
+for f in "$THREADS_DIR"/*.md; do
   [ -f "$f" ] || continue
   status=$(grep '^status:' "$f" 2>/dev/null | head -1 | awk '{print $2}')
   resurface=$(grep '^resurface:' "$f" 2>/dev/null | head -1 | awk '{print $2}')
@@ -92,7 +63,7 @@ if [ -f "$debug_file" ]; then
 fi
 
 # 5. Sessão recente do operador (última 2h)?
-PROJECT_DIR="$HOME/.claude/projects/${MEMORY_PROJECT_DIR}"
+# PROJECT_DIR already set by paths.sh
 latest_session=$(ls -t "${PROJECT_DIR}"/*.jsonl 2>/dev/null | head -1)
 if [ -n "$latest_session" ]; then
   session_age=$(( $(date +%s) - $(stat -c %Y "$latest_session" 2>/dev/null || echo 0) ))

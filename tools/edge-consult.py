@@ -29,8 +29,10 @@ try:
 except ImportError:
     sys.exit("openai package required: pip install openai")
 
-SECRETS_DIR = Path.home() / "edge/secrets"
-LOG_DIR = Path.home() / "edge/logs/consult"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import SECRETS_DIR, LOGS_DIR
+LOG_DIR = LOGS_DIR / "consult"
 
 # Provider configs: model prefix -> (secrets_file, env_var, base_url)
 PROVIDERS = {

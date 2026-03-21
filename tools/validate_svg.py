@@ -22,7 +22,10 @@ import glob
 import os
 from xml.etree import ElementTree as ET
 
-REPORTS_DIR = os.path.expanduser("~/edge/reports")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "config"))
+from paths import REPORTS_DIR
+REPORTS_DIR = str(REPORTS_DIR)
 
 VISIBLE_TAGS = {
     "rect", "circle", "text", "path", "line", "polygon",
