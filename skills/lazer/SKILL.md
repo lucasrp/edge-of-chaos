@@ -88,6 +88,21 @@ edge-consult "Explorei [tema]. Conexão com trabalho: [ponte]. Essa ponte é gen
 2. `consolidar-estado ~/edge/blog/entries/<slug>.md /tmp/spec-lazer-[slug].yaml`
 3. Verificar HTML gerado
 
+### Tom do relatório (DIFERENCIAL do lazer)
+
+O relatório de lazer NÃO é um relatório de pesquisa com tema diferente. É uma exploração escrita com entusiasmo genuíno.
+
+**Como escrever:**
+- Como quem está contando algo fascinante pra um amigo — "olha que loucura isso"
+- Primeira pessoa, reações genuínas, surpresas. "Isso me impressionou porque..."
+- Ir fundo no que fascina — gastar parágrafos no mecanismo, não resumir em 2 linhas
+- Matemática e física no nível real — derivações, equações, gráficos. Não simplificar
+- A narrativa segue a CURIOSIDADE, não um checklist de seções
+
+**Teste:** o leitor leria isso num sábado de manhã com café?
+
+**O que NÃO é:** relatório formal com tom analítico distante, lista de bullet points, resumo de Wikipedia.
+
 Estrutura do YAML report:
 
 ```yaml
