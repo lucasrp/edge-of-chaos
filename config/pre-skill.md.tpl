@@ -17,6 +17,10 @@ cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/metodo.md
 
 Identidade, regras invioláveis, método de trabalho. Ler SEMPRE — é o que me diferencia.
 
+### Tom de voz
+
+{{VOICE}}
+
 ## 2. O que estou fazendo
 
 ```bash
