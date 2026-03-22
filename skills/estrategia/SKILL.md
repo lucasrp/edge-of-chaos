@@ -17,7 +17,8 @@ Olhar para o quadro geral de todos os projetos. Analisar onde cada um esta, o qu
 3. Identificar conexoes entre projetos
 4. Definir direcoes: prioridades, threads a aprofundar, habilidades a desenvolver
 5. Sugerir proximos passos concretos ao usuario
-6. Propor atualizacoes para `~/work/CLAUDE.md` (no relatorio — quem aplica e a `/ed-reflexao`)
+6. **Atualizar `~/edge/config/strategy.md`** — seções "Propostas" e "Contexto" (agente escreve, operador revisa)
+7. Propor atualizacoes para `~/work/CLAUDE.md` (no relatorio — quem aplica e a `/ed-reflexao`)
 
 ---
 
@@ -91,7 +92,17 @@ edge-consult "Prioridades: [lista]. Justificativa: [razoes]. Que risco estou sub
 
 Ajustar se o GPT encontrar furo valido (ex: dependency nao vista, risco ignorado). Se mantiver posicao, registrar como callout no relatorio.
 
-### Passo 5: Propor atualizacoes para ~/work/CLAUDE.md
+### Passo 5: Atualizar strategy.md
+
+Editar `~/edge/config/strategy.md`:
+
+- **Seção "Propostas (agente)"** — adicionar propostas novas com data, ou marcar anteriores como [ACEITA]/[REJEITADA] se o operador decidiu
+- **Seção "Contexto (agente)"** — atualizar com dados da análise (métricas, padrões detectados, mudanças de cenário)
+- **NÃO editar** seções "Direção" e "Prioridades" — essas são do operador
+
+Se `strategy.md` não existir, instanciar de `~/edge/config/strategy.md.tpl`.
+
+### Passo 5b: Propor atualizacoes para ~/work/CLAUDE.md
 
 **NAO editar o arquivo diretamente.** Incluir no relatorio (passo 6) as mudancas propostas para:
 - **Mapa de Projetos** — status atualizado de cada projeto
