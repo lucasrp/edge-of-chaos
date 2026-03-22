@@ -32,9 +32,9 @@ Pode ser qualquer coisa, desde que tenha aplicação prática bem contextualizad
 
 ---
 
-## Pré-requisito
+## Ativação de Contexto
 
-**Seguir `~/edge/config/pre-skill.md` antes de começar.**
+**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
 
 ---
 

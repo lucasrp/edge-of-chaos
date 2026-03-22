@@ -32,6 +32,7 @@ Escalar para heartbeat-escalated se QUALQUER condicao:
 
 | Arquivo | Quando |
 |---------|--------|
+| `~/edge/config/pre-skill.md` | **Contexto mudou** — projetos novos/encerrados, arquivos a absorver, prioridades do operador mudaram |
 | `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/reflexao-log.md` | **SEMPRE** — log de execucao |
 | `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md` | Erros novos ou recorrentes (passo de crossref) |
 | `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/MEMORY.md` | Conhecimento consolidado (manual mode) |
@@ -45,6 +46,18 @@ Escalar para heartbeat-escalated se QUALQUER condicao:
 | `~/.claude/skills/*/SKILL.md` | Se protocolo precisa ajuste |
 | `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/personality.md` | Descobertas adotadas |
 | `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/descobertas.md` | Marcar como ADOTADA/ARQUIVADA |
+
+### Responsabilidade: pre-skill.md
+
+O `~/edge/config/pre-skill.md` é a carta de ativação do agente — define quem ele é, o que está fazendo, e o que absorver. A `/ed-reflexao` é responsável por mantê-lo atualizado:
+
+- **Projeto novo apareceu** → adicionar na seção de contexto
+- **Projeto encerrou** → remover
+- **Operador deu feedback "não está vendo X"** → adicionar na lista de absorção
+- **Arquivo não serve mais** → remover
+- **Prioridades mudaram** → refletir na seção "O que estou fazendo"
+
+Template base: `~/edge/config/pre-skill.md.tpl`. A reflexão instancia e mantém o `pre-skill.md` vivo.
 
 ---
 
