@@ -90,11 +90,15 @@ Adicionar no topo de `descobertas.md`:
 
 ---
 
-## Pós-execução
+## Publicação
 
-**Seguir `~/edge/config/post-skill.md` para registro e publicação.**
+**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de estado.**
 
-Tag do blog: `descoberta`. Estrutura do YAML report:
+1. Blog entry com tag `descoberta` + YAML report
+2. `consolidar-estado ~/edge/blog/entries/<slug>.md /tmp/spec-descoberta-[slug].yaml`
+3. Verificar HTML gerado
+
+Estrutura do YAML report:
 
 ```yaml
 title: "Descoberta: [Nome]"
@@ -108,6 +112,12 @@ bibliography: [...]               # OBRIGATÓRIO
 ```
 
 **Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
+
+---
+
+## Pós-execução
+
+**Seguir `~/edge/config/post-skill.md` para ações pós-publicação** (notificar, atualizar estratégia).
 
 ---
 
