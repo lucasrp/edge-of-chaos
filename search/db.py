@@ -103,9 +103,11 @@ def init_db(conn: sqlite3.Connection) -> None:
             author TEXT NOT NULL,
             text TEXT NOT NULL,
             ts TEXT NOT NULL DEFAULT (datetime('now')),
-            processed INTEGER DEFAULT 0
+            processed INTEGER DEFAULT 0,
+            pinned INTEGER DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_chat_processed ON chat(processed);
+        CREATE INDEX IF NOT EXISTS idx_chat_pinned ON chat(pinned);
     """)
 
     conn.commit()

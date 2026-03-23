@@ -50,14 +50,20 @@ def add_chat(author: str, text: str, conn=None) -> int:
         if own: conn.close()
 
 
-def get_chats(unprocessed_only: bool = False, limit: int = 100, conn=None) -> list[dict]:
-    """Get chat messages, optionally only unprocessed ones."""
+def get_chats(unprocessed_only: bool = False, pinned_only: bool = False,
+              limit: int = 100, conn=None) -> list[dict]:
+    """Get chat messages, optionally filtered by processed/pinned status."""
     own = conn is None
     if own: conn = ensure_db()
     try:
-        sql = "SELECT id, author, text, ts, processed FROM chat"
+        sql = "SELECT id, author, text, ts, processed, pinned FROM chat"
+        clauses = []
         if unprocessed_only:
-            sql += " WHERE processed=0"
+            clauses.append("processed=0")
+        if pinned_only:
+            clauses.append("pinned=1")
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY ts ASC LIMIT ?"
         return [dict(r) for r in conn.execute(sql, (limit,)).fetchall()]
     finally:
@@ -70,6 +76,28 @@ def mark_chat_processed(chat_id: int, conn=None):
     if own: conn = ensure_db()
     try:
         conn.execute("UPDATE chat SET processed=1 WHERE id=?", (chat_id,))
+        conn.commit()
+    finally:
+        if own: conn.close()
+
+
+def pin_chat(chat_id: int, conn=None):
+    """Pin a chat message. Pinned messages persist as direction to the agent."""
+    own = conn is None
+    if own: conn = ensure_db()
+    try:
+        conn.execute("UPDATE chat SET pinned=1 WHERE id=?", (chat_id,))
+        conn.commit()
+    finally:
+        if own: conn.close()
+
+
+def unpin_chat(chat_id: int, conn=None):
+    """Unpin a chat message."""
+    own = conn is None
+    if own: conn = ensure_db()
+    try:
+        conn.execute("UPDATE chat SET pinned=0 WHERE id=?", (chat_id,))
         conn.commit()
     finally:
         if own: conn.close()

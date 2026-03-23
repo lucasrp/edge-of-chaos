@@ -44,6 +44,12 @@ Rastrear, avaliar e propor expansoes das minhas capacidades autonomas. Manter um
 
 ---
 
+## Ativação de Contexto
+
+**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+
+---
+
 ## Protocolo
 
 ### Passo 0: Ler estado atual
@@ -197,7 +203,9 @@ Cada workflow registrado:
 
 ### Passo 6: Blog + Relatorio HTML (atomico)
 
-**Seguir `~/.claude/skills/_shared/report-template.md` para block types, regras de ouro, secoes finais, SVG, formato e validacao.**
+**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de estado.**
+
+**Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
 
 Secoes especificas do /ed-autonomia:
 
@@ -251,6 +259,12 @@ Quadrantes:
 - **Alto autonomia, alto risco:** perigoso (push git, delete files, send messages)
 - **Baixo autonomia, baixo risco:** ineficiente (pedir aprovacao para ler arquivos)
 - **Baixo autonomia, alto risco:** correto (executar codigo em producao)
+
+---
+
+## Pós-execução
+
+**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
 
 ---
 

@@ -22,11 +22,17 @@ Olhar para o quadro geral de todos os projetos. Analisar onde cada um esta, o qu
 
 ---
 
+## Ativação de Contexto
+
+**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+
+---
+
 ## Protocolo (seguir na ordem)
 
-### Passo 1: Absorver contexto
+### Passo 1: Absorver contexto de projetos
 
-Rodar `/ed-contexto` para obter estado cross-project completo.
+Rodar `/ed-contexto` para obter estado cross-project completo (git, boards, issues, digests).
 
 Se `/ed-contexto` ja foi rodado nesta sessao, reler o output — nao repetir.
 
@@ -114,6 +120,8 @@ A `/ed-reflexao` e a unica skill que aplica mudancas no `~/work/CLAUDE.md`.
 
 ### Passo 6: Atualizar blog interno + gerar relatorio HTML
 
+**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de estado.**
+
 1. Criar entry .md em `~/edge/blog/entries/` com tag `estrategia` (formato: ver `/ed-blog` SKILL.md)
 2. **Gerar YAML** do relatorio com as secoes abaixo, usando block types do conversor
 3. **Escrever YAML** em `/tmp/spec-estrategia-[slug].yaml`
@@ -166,7 +174,7 @@ bibliography:
     source: "WebSearch"   # De onde veio: ArXiv, X, WebSearch, GitHub, HN, Docs, etc.
 ```
 
-**Block types, regra de ouro 0, regra de ouro 4, secoes finais, formato, validacao e indexacao:** ver ~/.claude/skills/_shared/report-template.md.
+**Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
 
 #### Regra de ouro 1: card com badge de status por projeto
 
@@ -232,6 +240,12 @@ Formato:
 ### Relatorio HTML
 ~/edge/reports/[arquivo].html
 ```
+
+---
+
+## Pós-execução
+
+**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
 
 ---
 

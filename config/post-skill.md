@@ -10,15 +10,12 @@ Estas ações são **fenótipo** — variam por agente e por operador.
 Se a skill foi despachada pelo heartbeat (autônoma), reportar o que fez:
 
 ```bash
-# Via Slack (se configurado)
-curl -s -X POST "${SLACK_WEBHOOK_URL}" \
-  -H "Content-Type: application/json" \
-  -d "{\"text\": \"[skill]: [resumo do que fez]. Report: [URL]\"}" 2>/dev/null
+# notify.sh resolve canal + método automaticamente (bot > webhook > chat local)
+# Tipos: heartbeat, alert, report, default
+notify heartbeat "[skill]: [resumo do que fez]. Report: [URL]"
 
-# Via chat assíncrono (sempre disponível)
-curl -s -X POST http://localhost:${BLOG_PORT}/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"author":"claude","text":"[resumo do que fez]"}'
+# Com upload de arquivo (relatório HTML):
+notify report "[skill]: [resumo]" --file ~/edge/reports/[report].html
 ```
 
 Se foi sessão interativa → responder no terminal, sem notificação extra.
@@ -34,11 +31,8 @@ Se a skill produziu insight que afeta a direção do trabalho:
 
 ## 3. Ações customizáveis por agente
 
-Cada agente pode adicionar ações aqui conforme necessidade:
-
-- **bob**: organizar artefatos no Google Drive
-- **gauss**: sincronizar com Overleaf
-- **ed**: nada adicional (Slack já configurado via MCP)
+Cada agente pode adicionar ações aqui conforme necessidade.
+Exemplos: sincronizar com ferramenta externa, organizar artefatos em pasta específica.
 
 ---
 
