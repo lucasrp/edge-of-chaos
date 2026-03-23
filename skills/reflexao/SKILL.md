@@ -10,6 +10,14 @@ Revisao autonoma com 3 fontes de sinal: **git archaeology** (git_signals.py), **
 
 ---
 
+## Ativação de Contexto
+
+**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+
+> Nota: /ed-reflexao é responsável por MANTER o pre-skill.md atualizado (ver seção "Responsabilidade: pre-skill.md" abaixo).
+
+---
+
 ## Modos de Operacao
 
 | Modo | Duracao | Quando | Output |
@@ -450,11 +458,13 @@ bibliography:
    ```
 5. Read do HTML gerado para verificacao
 
+**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de estado.**
+
 **Regras de ouro do relatorio:**
 - **diff-block** para cada mudanca feita (o leitor ve a mudanca, nao le sobre ela)
 - **table** para padroes (padrao × evidencia × acao)
 - **callout** para feedback processado (texto original + acao tomada)
-- Block types e formato: ver `~/.claude/skills/_shared/report-template.md`
+- **Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`
 
 **Retrospectiva:** se 5+ blog entries desde a ultima retrospectiva E convergem num meta-tema → escrever retrospectiva (ver `/ed-blog` SKILL.md).
 
@@ -499,6 +509,12 @@ Relatorio ao usuario:
 ### Relatorio HTML
 ~/edge/reports/[arquivo].html
 ```
+
+---
+
+## Pós-execução
+
+**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
 
 ---
 

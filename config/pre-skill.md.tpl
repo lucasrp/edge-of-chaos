@@ -53,8 +53,17 @@ edge-search "[tema da skill]" -k 5 2>/dev/null
 ```
 
 ```bash
-# Insights pendentes do operador (prioridade sobre tudo)
-cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/insights.md 2>/dev/null | grep -v '\[LIDO'
+# Mensagens pinadas do operador (prioridade sobre tudo)
+curl -s "http://localhost:${BLOG_PORT:-8080}/api/chat?pinned=true" 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    msgs = [m for m in data.get('messages', []) if m.get('pinned')]
+    for m in msgs:
+        print(f'[PIN] {m[\"text\"]}')
+    if not msgs: print('(nenhuma mensagem pinada)')
+except: print('(chat indisponivel)')
+" 2>/dev/null
 ```
 
 ### Contexto adicional por modo

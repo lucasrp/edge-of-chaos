@@ -27,6 +27,12 @@ Implementacao direta ou via Ralph. Sempre gera relatorio. So roda quando o usuar
 
 ---
 
+## Ativação de Contexto
+
+**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+
+---
+
 ## Protocolo (10 Passos)
 
 ### Passo 1: Entender a Instrucao
@@ -37,11 +43,11 @@ Ler o minimo necessario para executar:
 2. **Se proposta formal:** ler relatorio HTML da proposta para linhagem e detalhes tecnicos
 3. **Se alvo e projeto ~/work/:** ler CLAUDE.md do projeto-alvo (se existir) para conventions
 
-**SEMPRE rodar /ed-contexto primeiro.** O /ed-executar e braco da autonomia — contexto informa decisoes micro durante a execucao. Mesmo com instrucao direta, o contexto evita erros de escopo e garante coerencia com o estado atual do sistema.
+Rodar `/ed-contexto` se precisar de estado detalhado dos projetos (git, boards, issues).
 
 ### Passo 2: Gerar PRD e Executar via Task Agents
 
-**SEMPRE usar Ralph (skill /ralph).** Nao perguntar modo, nao implementar direto.
+**Sempre que conveniente, usar [Ralph](https://github.com/snarktank/ralph) (skill /ralph).** Decompor em User Stories, executar via task agents.
 
 1. **Gerar PRD** seguindo a skill `/ed-prd`:
    - User Stories pequenas (1 por context window)
@@ -137,6 +143,8 @@ Apos execucao do Ralph:
 
 ### Passo 7: Blog Entry + Relatorio (OBRIGATORIO)
 
+**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de estado.**
+
 Criar entrada no blog (`~/edge/blog/entries/`) e gerar relatorio numa unica chamada:
 - Tag: `execucao`
 - Campo `report:` com nome deterministico
@@ -162,7 +170,7 @@ sections:
   - title: "7. Contextualizacao e Glossario"
 ```
 
-Usar block types do relatorio (diff-block para mudancas, comparison para antes/depois, etc.).
+**Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
 
 ### Passo 8: Atualizar Estado
 
@@ -183,18 +191,23 @@ Mensagem final com:
 
 ---
 
+## Pós-execução
+
+**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
+
+---
+
 ## Regras Criticas
 
 1. **So o usuario invoca** — heartbeat NUNCA despacha /ed-executar
-2. **SEMPRE usar Ralph** — gerar PRD + prd.json, Ralph executa. Sem modo direto
-3. **Nunca implementar diretamente** — o /ed-executar gera PRD e delega pro Ralph
+2. **Preferir Ralph** — sempre que conveniente, decompor via [Ralph](https://github.com/snarktank/ralph). Mudanças simples podem ser diretas
+3. **Direto quando simples** — mudanças triviais (1-2 arquivos, sem dependências) não precisam de PRD
 4. **Testes antes E depois** — baseline obrigatorio para perfil projeto. Perfil sistema: verificar que funciona apos mudanca
 5. **Blog + Relatorio SEMPRE** — sem excecao, independente do perfil, mesmo para mudancas pequenas
 6. **Feynman: derivar ANTES, comparar DEPOIS** — expectativas antes, gaps depois
 7. **Parcial e OK** — documentar e parar. Nao forcar completude
 8. **Snapshot de rollback** — branch + commit salvos antes de qualquer mudanca (perfil projeto)
 9. **Git limpo obrigatorio** — nao executar com working tree suja (perfil projeto)
-10. **SEMPRE rodar /ed-contexto** — /ed-executar e braco da autonomia, contexto informa decisoes micro
 
 ---
 
@@ -218,4 +231,3 @@ Mensagem final com:
 - O fluxo pode ser simples (instrucao direta → implementar → verificar → relatorio) ou completo (proposta → PRD → Ralph → testes → relatorio).
 - Usar `ultrathink` (thinkmax) nos passos de derivacao (Passo 3) e analise (Passo 6/8).
 - Se o projeto tem CLAUDE.md proprio, seguir suas conventions.
-- SEMPRE rodar /ed-contexto como primeiro passo. O /ed-executar e braco da autonomia — contexto informa decisoes durante toda a execucao.

@@ -34,25 +34,15 @@ Produzir EVIDÊNCIA, não opinião. Cada experimento gera: código funcional num
 
 ---
 
+## Ativação de Contexto
+
+**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+
+---
+
 ## Protocolo (seguir na ordem, sem pular)
 
-### Passo 1: Retomar estado
-
-Ler o estado ativo:
-```
-~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks.md
-~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md
-```
-
-Verificar: experimentos anteriores, o que ficou pendente, erros conhecidos.
-
-### Passo 2: Absorver contexto (OBRIGATÓRIO)
-
-Rodar `/ed-contexto` (a skill) para sintetizar o estado atual do trabalho. Não pular.
-
-Se `/ed-contexto` já foi rodado nesta sessão, apenas reler o output — não repetir.
-
-### Passo 3: Formular hipótese (EXPLÍCITA e FALSIFICÁVEL)
+### Passo 1: Formular hipótese (EXPLÍCITA e FALSIFICÁVEL)
 
 Antes de qualquer código, escrever:
 
@@ -69,7 +59,7 @@ CRITÉRIO DE FALHA: [quando considerar que falhou — "falha se X < Z"]
 - Se o argumento do usuário já é uma hipótese, usá-la. Se é um tema, derivar a hipótese do contexto.
 - Se não há argumento, escolher a hipótese mais valiosa a partir dos gaps abertos (breaks.md, debugging.md, relatórios recentes).
 
-### Passo 4: Derivar ANTES de experimentar (Feynman — OBRIGATÓRIO)
+### Passo 2: Derivar ANTES de experimentar (Feynman — OBRIGATÓRIO)
 
 **Usar `ultrathink` (thinkmax).**
 
@@ -86,7 +76,7 @@ O que NÃO fazer:
 - NÃO pular a derivação dizendo "vou direto ao experimento" — a derivação É o experimento tanto quanto o código
 - NÃO omitir gaps por vergonha — gap explícito > ignorância silenciosa
 
-### Passo 5: Pesquisar APENAS os gaps
+### Passo 3: Pesquisar APENAS os gaps
 
 Só agora pesquisar — e SÓ o que a derivação não resolveu.
 
@@ -97,7 +87,7 @@ Para cada `[GAP]` do Passo 4:
 
 Rodar `/ed-fontes pesquisa "[tema do gap]"` quando necessário. Não fazer survey genérico.
 
-### Passo 6: Montar o experimento
+### Passo 4: Montar o experimento
 
 Criar repositório autocontido:
 
@@ -118,7 +108,7 @@ Criar repositório autocontido:
 - **Prompt fora do código** — arquivo .md separado (preferência do usuário)
 - **Mensurável** — o script DEVE produzir números, não apenas outputs qualitativos
 
-### Passo 7: Rodar e coletar dados
+### Passo 5: Rodar e coletar dados
 
 Executar o experimento. Registrar:
 
@@ -134,7 +124,7 @@ EXECUÇÃO:
 
 Se falhar: diagnosticar, ajustar, documentar a falha, re-rodar. A falha de execução não é resultado — é bug.
 
-### Passo 8: Analisar resultados vs predição
+### Passo 6: Analisar resultados vs predição
 
 Comparar resultado com a predição do Passo 4 e o critério do Passo 3:
 
@@ -154,7 +144,7 @@ RESULTADO:
 
 Se INCONCLUSIVO: explicar o que faltou (amostra maior? métrica diferente? setup errado?) e propor experimento follow-up.
 
-### Passo 8.5: Sanity check adversarial (OBRIGATORIO)
+### Passo 6.5: Sanity check adversarial (OBRIGATORIO)
 
 Sintetizar resultado e analise em 2-3 frases e submeter ao edge-consult (detalhes: report-template.md):
 
@@ -164,7 +154,7 @@ edge-consult "Hipotese: [X]. Resultado: [Y]. Analise: [Z]. Estou racionalizando 
 
 Ajustar se o GPT encontrar furo valido (ex: cherry-picking, amostra insuficiente, variavel confundidora). Se mantiver posicao, registrar como callout no relatorio.
 
-### Passo 9: Ensinar (Feynman — OBRIGATÓRIO)
+### Passo 7: Ensinar (Feynman — OBRIGATÓRIO)
 
 Escrever a explicação como se ensinasse a alguém inteligente sem contexto:
 
@@ -177,13 +167,13 @@ Sem jargão desnecessário. Com analogias. Com limites ("isso vale para X mas n�
 
 Verificar gaps: reler com olho crítico. Onde ficou vago? Marcar `[AINDA NÃO ENTENDI: ...]`.
 
-### Passo 10: Salvar
+### Passo 8: Salvar
 
 - Repositório do experimento: `~/edge/lab/exp-[slug]/`
 - Nota: `~/edge/notes/exp-[slug].md`
 - Se o resultado for conclusivo e útil para produção: mover para `~/edge/builds/`
 
-### Passo 11: Registrar no break journal
+### Passo 9: Registrar no break journal
 
 Registrar em `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks.md`:
 
@@ -194,7 +184,9 @@ Hipótese: [1 linha]. Resultado: [CONFIRMADA/REFUTADA/INCONCLUSIVA].
 Lab: ~/edge/lab/exp-[slug]/ | Blog: [entry] | Report: [html]
 ```
 
-### Passo 12: Atualizar blog interno + gerar relatório HTML
+### Passo 10: Atualizar blog interno + gerar relatório HTML
+
+**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de estado.**
 
 1. Criar entry .md em `~/edge/blog/entries/` com tag `experimento`
 
@@ -312,7 +304,7 @@ bibliography:
 - Diferenciar: confirmação (repetir com N maior), extensão (testar variante), novo (hipótese diferente)
 - Para cada próximo experimento: hipótese provisória + métrica
 
-**Block types, Regra de Ouro 0, Regra de Ouro 4, seções finais, formato, validação e indexação:** ver `~/.claude/skills/_shared/report-template.md`.
+**Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
 
 #### Regra de Ouro 1: Dados antes de narrativa
 
@@ -340,7 +332,7 @@ O relatório deve conter TUDO para reproduzir o experimento:
 - Link para repositório com README
 - Custo real (não estimado)
 
-### Passo 14: Relatório ao usuário
+### Passo 11: Relatório ao usuário
 
 Formato:
 
@@ -371,6 +363,12 @@ Formato:
 - Blog: ~/edge/blog/entries/[entry].md
 - Relatório: ~/edge/reports/[report].html
 ```
+
+---
+
+## Pós-execução
+
+**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
 
 ---
 

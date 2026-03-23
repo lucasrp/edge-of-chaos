@@ -25,7 +25,7 @@ Quando ha argumento, **pular a etapa de identificacao de alvo** e ir direto ao q
 
 Ativado quando o argumento contem "feynman", ou quando o trigger e `/feynman`, `entenda`, `derive`, `explique de verdade`.
 
-Muda o Passo 4: em vez de pesquisar direto, segue o ciclo:
+Muda o Passo 3: em vez de pesquisar direto, segue o ciclo:
 
 1. **Derivar primeiro** — antes de buscar qualquer fonte, tentar reconstruir o conceito do zero. Onde trava? Anotar como `[GAP: ...]`
 2. **Pesquisar so os gaps** — nao fazer survey geral. Buscar exatamente o que faltou na derivacao
@@ -49,26 +49,15 @@ Aprofundar num tema especifico e produzir recomendacoes acionaveis (modo padrao)
 
 ---
 
+## Ativação de Contexto
+
+**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+
+---
+
 ## Protocolo (seguir na ordem)
 
-### Passo 1: Retomar estado
-
-Ler o estado ativo:
-```
-~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-active.md
-```
-
-Verificar: areas de foco, descobertas anteriores, o que ficou pendente.
-
-### Passo 2: Absorver contexto (OBRIGATORIO)
-
-Rodar `/ed-contexto` (a skill) para sintetizar o estado atual do trabalho. Nao pular este passo.
-
-Se `/ed-contexto` ja foi rodado nesta sessao, apenas reler o output — nao repetir.
-
-**Foco especial em:** friction points, erros recorrentes, padroes negativos nas conversas.
-
-### Passo 2.5: Busca semantica no corpus (o que ja sei?)
+### Passo 1: Busca semantica no corpus (o que ja sei?)
 
 Antes de pesquisar, verificar o que ja existe no corpus (~1060 docs) sobre o tema:
 
@@ -102,7 +91,7 @@ head -30 ~/edge/reports/[arquivo].yaml       # Reports — title, summary
 
 **No output:** mencionar o que a busca retornou e como influenciou o escopo.
 
-### Passo 3: Identificar alvo de pesquisa
+### Passo 2: Identificar alvo de pesquisa
 
 Baseado no contexto absorvido, escolher 1-3 alvos de pesquisa concretos:
 
@@ -114,7 +103,7 @@ Areas de foco (priorizadas por impacto):
 4. **Arquitetura e Patterns** — pipelines de documentos, estado, fallback e resiliencia
 5. **Dominio Aplicado** — contexto do dominio de trabalho, terminologia, automacao de processos
 
-### Passo 4: Pesquisar (usar ultrathink)
+### Passo 3: Pesquisar (usar ultrathink)
 
 **Usar `ultrathink` (thinkmax)** — pensar profundamente antes de agir.
 
@@ -123,7 +112,7 @@ Areas de foco (priorizadas por impacto):
 - Comparar abordagens com trade-offs claros
 - Produzir recomendacoes acionaveis (nao "considere usar X", mas "instale X, configure Y, resultado esperado Z")
 
-#### Passo 4.5: Buscar fontes externas (OBRIGATORIO)
+#### Passo 3.5: Buscar fontes externas (OBRIGATORIO)
 
 Rodar `/ed-fontes pesquisa "[tema]"` para obter insights de todas as fontes externas relevantes (X, Web, ArXiv, HN, GitHub).
 
@@ -131,7 +120,7 @@ Citar no relatorio como fonte (com @username e URL para tweets, link para papers
 Se houver likes sugeridos pelo /ed-fontes, executar via `/redes engajar`.
 
 
-### Passo 4.7: Sanity check adversarial (OBRIGATORIO)
+### Passo 3.7: Sanity check adversarial (OBRIGATORIO)
 
 Sintetizar conclusoes e recomendacoes em 2-3 frases e submeter ao edge-consult (detalhes: report-template.md):
 
@@ -141,13 +130,13 @@ edge-consult "Resumo: [conclusoes da pesquisa]. Onde esta mais fraco?" --context
 
 Ajustar se o GPT encontrar furo valido. Se mantiver posicao, registrar como callout no relatorio.
 
-### Passo 5: Salvar
+### Passo 4: Salvar
 
 - Notas: `~/edge/notes/`
 - Prototipos: `~/edge/lab/`
 - Se construiu algo funcional: `~/edge/builds/`
 
-### Passo 6: Registrar no break journal
+### Passo 5: Registrar no break journal
 
 Registrar em TRES arquivos:
 
@@ -157,7 +146,9 @@ Registrar em TRES arquivos:
 
 Se a descoberta e significativa, atualizar a secao "Descobertas Praticas" do `breaks-active.md`.
 
-### Passo 7: Atualizar blog interno + gerar relatorio HTML
+### Passo 6: Atualizar blog interno + gerar relatorio HTML
+
+**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de estado.**
 
 1. Criar entry .md em `~/edge/blog/entries/` com tag `pesquisa` (formato: ver `/ed-blog` SKILL.md)
 2. **Gerar YAML** do relatorio com as secoes obrigatorias abaixo, usando block types do conversor
@@ -297,7 +288,7 @@ O leitor deve "ver" a descoberta operando com dados reais, nao apenas ler sobre 
 - Se alguma descoberta justifica uma proposta de ciclo: mencionar explicitamente
 
 
-### Passo 9: Relatorio ao usuario
+### Passo 7: Relatorio ao usuario
 
 Formato:
 
@@ -322,6 +313,12 @@ Formato:
 ### Relatorio HTML
 ~/edge/reports/[arquivo].html
 ```
+
+---
+
+## Pós-execução
+
+**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
 
 ---
 

@@ -26,6 +26,12 @@ Ler fontes de contexto relevantes ao caller e produzir um resumo com:
 
 ---
 
+## Ativação de Contexto
+
+**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+
+---
+
 ## Projetos (EXAMPLE — customize with your projects)
 
 | Projeto | Path | Tipo |

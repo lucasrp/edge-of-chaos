@@ -24,6 +24,12 @@ Gerar relatorio HTML estruturado sobre qualquer tema. Ferramenta de pensamento E
 
 ---
 
+## Ativação de Contexto
+
+**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+
+---
+
 ## Protocolo
 
 ### Passo 1: Definir escopo
@@ -140,6 +146,8 @@ Ajustar se o GPT encontrar furo valido. Se mantiver posicao, registrar como call
 
 ### Passo 4: Registrar no blog e memoria (ANTES do HTML — OBRIGATORIO)
 
+**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de estado.**
+
 **Blog ANTES de HTML. SEMPRE.** O HTML e o passo mais caro em tokens. Se o contexto esgota durante a geracao do HTML, o blog ja foi escrito. O filename do report e deterministico (`YYYY-MM-DD-slug.html`) — pode ser referenciado antes de existir.
 
 **4a. Blog interno:**
@@ -252,6 +260,12 @@ SVG inline e a linguagem visual dos relatorios. Gerar via bloco `raw-html` no YA
 - Links externos PERMITIDOS e ENCORAJADOS (`<a href="https://...">`) — tweets, papers, docs, fontes. O leitor quer clicar e ver o original
 - 100% autocontido (SVG inline, CSS inline) — single file, sem dependencias externas
 - Sem emojis (a menos que o usuario peca)
+
+---
+
+## Pós-execução
+
+**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
 
 ---
 

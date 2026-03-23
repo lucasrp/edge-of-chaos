@@ -39,6 +39,7 @@ sys.path.insert(0, str(ROOT))
 
 from blog.api_dashboard import dashboard_bp, _build_status_strip_data, _build_alerts_data, _build_pipeline_data, _build_hotspots_data, _build_corpus_data, _build_briefing_data
 from blog.api_actions import actions_bp
+from blog.api_setup import setup_bp
 
 # ─── Flask app ───
 app = Flask(
@@ -51,6 +52,7 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 Compress(app)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(actions_bp)
+app.register_blueprint(setup_bp)
 
 PAGE_SIZE = 20
 
@@ -793,8 +795,9 @@ def api_chat_get():
     try:
         from dashboard_db import get_chats
         unprocessed = request.args.get("unprocessed", "0") == "1"
+        pinned = request.args.get("pinned", "0") == "1"
         limit = int(request.args.get("limit", "100"))
-        messages = get_chats(unprocessed_only=unprocessed, limit=limit)
+        messages = get_chats(unprocessed_only=unprocessed, pinned_only=pinned, limit=limit)
         return jsonify({"messages": messages})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -803,7 +806,7 @@ def api_chat_get():
 @app.route("/api/chat", methods=["POST"])
 def api_chat_post():
     try:
-        from dashboard_db import add_chat, mark_chat_processed
+        from dashboard_db import add_chat, mark_chat_processed, pin_chat, unpin_chat
         body = request.get_json()
         action = body.get("action", "add")
         if action == "add":
@@ -818,6 +821,18 @@ def api_chat_post():
             if not chat_id:
                 return jsonify({"error": "id is required"}), 400
             mark_chat_processed(chat_id)
+            return jsonify({"ok": True})
+        elif action == "pin":
+            chat_id = body.get("id")
+            if not chat_id:
+                return jsonify({"error": "id is required"}), 400
+            pin_chat(chat_id)
+            return jsonify({"ok": True})
+        elif action == "unpin":
+            chat_id = body.get("id")
+            if not chat_id:
+                return jsonify({"error": "id is required"}), 400
+            unpin_chat(chat_id)
             return jsonify({"ok": True})
         else:
             return jsonify({"error": f"unknown action: {action}"}), 400
@@ -1151,6 +1166,71 @@ def dashboard_page():
         **hotspots_data,
         **corpus_data,
         **briefing_data,
+    )
+
+
+@app.route("/setup")
+def setup_page():
+    """Setup tab — configure agent files, view system state."""
+    from blog.setup_examples import EDITABLE_FILES, SYSTEM_FILES, GROUP_ORDER
+
+    groups = []
+    for key, label, editable in GROUP_ORDER:
+        source = EDITABLE_FILES if editable else SYSTEM_FILES
+        files = [f for f in source if f["group"] == key]
+
+        enriched = []
+        for f in files:
+            path = ROOT / f["path"]
+            is_dir = f.get("is_dir", False)
+            entry = {**f}
+
+            if is_dir:
+                if path.is_dir():
+                    all_files = sorted(
+                        [p for p in path.iterdir() if p.is_file() and not p.name.startswith(".")],
+                        key=lambda p: p.stat().st_mtime, reverse=True,
+                    )
+                    entry["dir_count"] = len(all_files)
+                    entry["dir_recent"] = [p.name for p in all_files[:5]]
+                    entry["status"] = "configured"
+                else:
+                    entry["dir_count"] = 0
+                    entry["dir_recent"] = []
+                    entry["status"] = "missing"
+            else:
+                try:
+                    content = path.read_text(encoding="utf-8")
+                except (FileNotFoundError, PermissionError):
+                    content = None
+
+                entry["content"] = content or ""
+                if content is None:
+                    entry["status"] = "missing"
+                elif not content.strip():
+                    entry["status"] = "empty"
+                elif "{{" in content or "PLACEHOLDER" in content:
+                    entry["status"] = "placeholder"
+                else:
+                    entry["status"] = "configured"
+
+            enriched.append(entry)
+
+        groups.append({
+            "key": key,
+            "label": label,
+            "editable": editable,
+            "files": enriched,
+        })
+
+    return render_template(
+        "setup.html",
+        tab="setup",
+        page_title=f"{_branding.get('agent_name', 'agent')} — setup",
+        header_sub="setup",
+        stats=get_stats_data(),
+        health=get_health_data(get_entries()),
+        groups=groups,
     )
 
 

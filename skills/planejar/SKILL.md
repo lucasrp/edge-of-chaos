@@ -46,6 +46,12 @@ Cada proposta tem um status:
 
 ---
 
+## Ativação de Contexto
+
+**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+
+---
+
 ## Protocolo (seguir na ordem)
 
 ### Desvio: `/ed-planejar status`
@@ -72,11 +78,11 @@ Se o argumento for `status`, mostrar dashboard e parar:
 
 ---
 
-### Passo 1: Rodar /ed-contexto (OBRIGATORIO)
+### Passo 1: Absorver contexto de projetos
 
-Executar a skill `/ed-contexto` para obter scan cross-project completo. Nao pular este passo.
+Rodar `/ed-contexto` para obter scan cross-project completo (git, boards, issues, digests).
 
-Se `/ed-contexto` ja foi rodado nesta sessao (ex: pelo usuario ou heartbeat), apenas reler o output — nao repetir.
+Se `/ed-contexto` ja foi rodado nesta sessao, reler o output — nao repetir.
 
 ### Passo 1.5: Consultar relatorios anteriores
 
@@ -302,6 +308,8 @@ Registrar em TRES arquivos:
 
 ### Passo 6: Atualizar blog interno + gerar relatorio HTML pedagogico
 
+**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de estado.**
+
 1. Criar entry .md em `~/edge/blog/entries/` com tag `planejamento` (formato: ver `/ed-blog` SKILL.md)
 
 O relatorio HTML e o artefato principal da proposta. Deve ser **autoexplicativo** — quem ler sem contexto nenhum deve entender exatamente o que vai acontecer, o que precisa fornecer, e o que vai receber de volta.
@@ -358,7 +366,7 @@ bibliography:
     source: "WebSearch"   # De onde veio: ArXiv, X, WebSearch, GitHub, HN, Docs, etc.
 ```
 
-**Block types, regra de ouro 0, regra de ouro 4, secoes finais, formato, validacao e indexacao:** ver ~/.claude/skills/_shared/report-template.md.
+**Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
 
 #### Regra de ouro: concept-box obrigatorio
 
@@ -480,6 +488,12 @@ $X.XX
 ### Proximo Passo
 Para ver todas as propostas: `/ed-planejar status`
 ```
+
+---
+
+## Pós-execução
+
+**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
 
 ---
 

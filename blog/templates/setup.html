@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="setup">
+
+  {% for group in groups %}
+  <div class="setup-group">
+    <h2 class="setup-group-title" onclick="this.parentElement.classList.toggle('collapsed')">
+      <span class="setup-chevron">&#9660;</span>
+      {{ group.label }}
+      <span class="setup-group-badge {% if group.editable %}badge-human{% else %}badge-agent{% endif %}">
+        {{ 'humano' if group.editable else 'sistema' }}
+      </span>
+      <span class="setup-group-count">{{ group.files | length }} arquivo{{ 's' if group.files | length != 1 }}</span>
+    </h2>
+
+    <div class="setup-group-body">
+      {% for f in group.files %}
+      <div class="setup-file {% if f.status == 'placeholder' %}setup-file-warn{% elif f.status == 'missing' %}setup-file-missing{% endif %}">
+        <div class="setup-file-header" onclick="this.parentElement.classList.toggle('expanded')">
+          <span class="setup-status setup-status-{{ f.status }}" title="{{ f.status }}">&#9679;</span>
+          <code class="setup-path">{{ f.path }}</code>
+          <span class="setup-purpose">{{ f.purpose | truncate(80) }}</span>
+          {% if f.managed_by %}
+          <span class="setup-managed">{{ f.managed_by }}</span>
+          {% endif %}
+        </div>
+
+        <div class="setup-file-body">
+          <p class="setup-purpose-full">{{ f.purpose }}</p>
+
+          {% if f.editable %}
+          {# ── Editable: textarea + example side by side ── #}
+          <div class="setup-panels">
+            <div class="setup-panel setup-panel-current">
+              <h3>Atual</h3>
+              <textarea class="setup-editor" id="editor-{{ loop.index0 }}-{{ loop.parent.loop.index0 }}"
+                        data-path="{{ f.path }}" spellcheck="false">{{ f.content }}</textarea>
+              <div class="setup-actions">
+                <button class="action-btn action-save"
+                        onclick="saveFile('{{ f.path }}', 'editor-{{ loop.index0 }}-{{ loop.parent.loop.index0 }}', this)">
+                  save
+                </button>
+                <span class="setup-save-status"></span>
+              </div>
+            </div>
+            <div class="setup-panel setup-panel-example">
+              <h3>Exemplo <span class="setup-example-note">(agente "atlas", dominio "edtech")</span></h3>
+              <pre class="setup-example">{{ f.example }}</pre>
+            </div>
+          </div>
+
+          {% elif f.is_dir is defined and f.is_dir %}
+          {# ── Directory: count + recent files ── #}
+          <div class="setup-dir-info">
+            <span class="setup-dir-count">{{ f.dir_count }} arquivo{{ 's' if f.dir_count != 1 }}</span>
+            {% if f.dir_recent %}
+            <div class="setup-dir-recent">
+              <span>recentes:</span>
+              {% for name in f.dir_recent %}
+              <code>{{ name }}</code>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+
+          {% else %}
+          {# ── System file: read-only pre ── #}
+          <pre class="setup-readonly">{{ f.content }}</pre>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+</div>
+
+<style>
+/* ── Setup Tab Styles ── */
+.setup { max-width: 100%; }
+
+.setup-group {
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+}
+.setup-group.collapsed .setup-group-body { display: none; }
+.setup-group.collapsed .setup-chevron { transform: rotate(-90deg); }
+
+.setup-group-title {
+  cursor: pointer;
+  padding: 0.75rem 1rem;
+  margin: 0;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg-elevated, #1a1a2e);
+  user-select: none;
+}
+.setup-chevron {
+  font-size: 0.7rem;
+  transition: transform 0.2s;
+  color: var(--muted, #666);
+}
+.setup-group-badge {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.badge-human { background: #2563eb22; color: #60a5fa; border: 1px solid #2563eb44; }
+.badge-agent { background: #7c3aed22; color: #a78bfa; border: 1px solid #7c3aed44; }
+.setup-group-count {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--muted, #666);
+  font-weight: normal;
+}
+
+.setup-group-body { padding: 0; }
+
+.setup-file {
+  border-top: 1px solid var(--border, #333);
+}
+.setup-file-warn { border-left: 3px solid #f59e0b; }
+.setup-file-missing { border-left: 3px solid #ef4444; }
+
+.setup-file-header {
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+.setup-file-header:hover { background: var(--bg-elevated, #1a1a2e); }
+
+.setup-file-body {
+  display: none;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border, #222);
+}
+.setup-file.expanded .setup-file-body { display: block; }
+
+.setup-status { font-size: 0.6rem; }
+.setup-status-configured { color: #10b981; }
+.setup-status-placeholder { color: #f59e0b; }
+.setup-status-missing { color: #ef4444; }
+.setup-status-empty { color: #6b7280; }
+
+.setup-path { font-size: 0.8rem; font-weight: bold; }
+.setup-purpose { color: var(--muted, #888); font-size: 0.75rem; flex: 1; }
+.setup-purpose-full { font-size: 0.8rem; color: var(--muted, #aaa); margin: 0 0 0.75rem 0; }
+.setup-managed {
+  font-size: 0.65rem;
+  color: #a78bfa;
+  background: #7c3aed11;
+  padding: 0.1rem 0.3rem;
+  border-radius: 2px;
+}
+
+/* Panels: side by side */
+.setup-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+@media (max-width: 768px) {
+  .setup-panels { grid-template-columns: 1fr; }
+}
+
+.setup-panel h3 {
+  font-size: 0.75rem;
+  color: var(--muted, #888);
+  margin: 0 0 0.5rem 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.setup-example-note { font-weight: normal; font-size: 0.65rem; }
+
+.setup-editor {
+  width: 100%;
+  min-height: 200px;
+  max-height: 500px;
+  background: var(--bg, #0d0d1a);
+  color: var(--fg, #e0e0e0);
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.setup-example, .setup-readonly {
+  background: var(--bg, #0d0d1a);
+  color: var(--fg-muted, #aaa);
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  max-height: 500px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.setup-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.action-save {
+  background: #2563eb;
+  color: white;
+  border: none;
+  padding: 0.3rem 0.8rem;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+.action-save:hover { background: #1d4ed8; }
+.setup-save-status { font-size: 0.7rem; color: #10b981; }
+
+/* Directory info */
+.setup-dir-info { font-size: 0.8rem; }
+.setup-dir-count { font-weight: bold; }
+.setup-dir-recent {
+  margin-top: 0.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+.setup-dir-recent span { color: var(--muted, #888); font-size: 0.7rem; }
+.setup-dir-recent code {
+  font-size: 0.7rem;
+  background: var(--bg-elevated, #1a1a2e);
+  padding: 0.1rem 0.3rem;
+  border-radius: 2px;
+}
+</style>
+
+<script>
+function saveFile(path, editorId, btn) {
+  var editor = document.getElementById(editorId);
+  var statusEl = btn.parentElement.querySelector('.setup-save-status');
+  btn.disabled = true;
+  btn.textContent = '...';
+
+  fetch('/api/setup/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path: path, content: editor.value})
+  }).then(function(r) {
+    return r.json().then(function(d) {
+      if (r.ok) {
+        btn.textContent = 'save';
+        btn.disabled = false;
+        statusEl.textContent = 'saved';
+        statusEl.style.color = '#10b981';
+        setTimeout(function() { statusEl.textContent = ''; }, 3000);
+      } else {
+        btn.textContent = 'save';
+        btn.disabled = false;
+        statusEl.textContent = d.error || 'error';
+        statusEl.style.color = '#ef4444';
+      }
+    });
+  }).catch(function() {
+    btn.textContent = 'save';
+    btn.disabled = false;
+    statusEl.textContent = 'network error';
+    statusEl.style.color = '#ef4444';
+  });
+}
+
+// Tab key inserts spaces in textareas
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Tab' && e.target.classList.contains('setup-editor')) {
+    e.preventDefault();
+    var s = e.target.selectionStart;
+    e.target.value = e.target.value.substring(0, s) + '  ' + e.target.value.substring(e.target.selectionEnd);
+    e.target.selectionStart = e.target.selectionEnd = s + 2;
+  }
+});
+</script>
+{% endblock %}
