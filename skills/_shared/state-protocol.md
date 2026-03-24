@@ -44,10 +44,10 @@ Mudança não proposta em arquivo protegido = **violação fatal** = pipeline ab
 Qualquer mudança nesses arquivos é monitorada por `edge-state-audit`:
 
 **Memória:**
-- `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/MEMORY.md`
-- `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md`
-- `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/personality.md`
-- `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/insights.md`
+- `~/.claude/projects/-home-vboxuser/memory/MEMORY.md`
+- `~/.claude/projects/-home-vboxuser/memory/debugging.md`
+- `~/.claude/projects/-home-vboxuser/memory/personality.md`
+- `~/.claude/projects/-home-vboxuser/memory/insights.md`
 
 **Autonomia:**
 - `~/edge/autonomy/capabilities.md`
@@ -62,6 +62,20 @@ Qualquer mudança nesses arquivos é monitorada por `edge-state-audit`:
 - `~/.claude/skills/_shared/*.md`
 
 **Exceção:** debugging.md pode ser editado imediatamente quando um erro CRÍTICO é encontrado (>5min desperdiçados, intervenção do usuario, erro que vai recorrer). Registrar a exceção no scratchpad.
+
+---
+
+## Consulta de Workflows (OBRIGATORIO, antes de executar)
+
+Antes de iniciar qualquer skill, consultar workflows relevantes:
+
+```bash
+edge-search "termos relevantes ao que vou fazer" --type workflow -k 3
+```
+
+Retorna workflows validados (passos, secrets, quando funciona/falha) e anti-patterns (o que nao funcionou e por que). Usar os resultados para informar a execucao — seguir workflows que funcionam, evitar anti-patterns documentados.
+
+Ao final da sessao, se uma combinacao nova de capacidades produziu resultado (ou falhou de forma instrutiva), capturar como blog entry com tag `workflow` (ou `workflow` + `anti-pattern`). Ver `~/.claude/skills/_shared/workflow-conventions.md`.
 
 ---
 
@@ -94,7 +108,7 @@ Declarar EXATAMENTE quais arquivos protegidos serão modificados e por quê:
 # Criar YAML com as mudanças propostas
 cat > /tmp/state-changes-<SLUG>.yaml <<'EOF'
 changes:
-  - path: "~/.claude/projects/$MEMORY_PROJECT_DIR/memory/MEMORY.md"
+  - path: "~/.claude/projects/-home-vboxuser/memory/MEMORY.md"
     action: modify
     reason: "Adicionar insight sobre X confirmado nesta sessão"
     sections: ["Conhecimento Consolidado"]
@@ -167,10 +181,11 @@ O pipeline imprime o path. Ler antes de continuar.
 
 Se a skill NÃO altera nenhum arquivo protegido (ex: blog entry puro, pesquisa):
 
-1. Executar skill
-2. Anotar no scratchpad
-3. Criar blog entry com claims
-4. `consolidar-estado` (Phase 0a captura snapshot, Phase 5b confirma que nada mudou — OK)
+1. Consultar workflows relevantes (`edge-search "termos" --type workflow -k 3`)
+2. Executar skill
+3. Anotar no scratchpad
+4. Criar blog entry com claims (+ blog entry com tag `workflow` se combinacao nova emergiu)
+5. `consolidar-estado` (Phase 0a captura snapshot, Phase 5b confirma que nada mudou — OK)
 
 Sem proposta necessária. O pipeline é backwards-compatible.
 
