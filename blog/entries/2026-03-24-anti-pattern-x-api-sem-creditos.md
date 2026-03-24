@@ -29,6 +29,10 @@ curl -X POST "https://api.exa.ai/search" \
   -d '{"query": "topico", "type": "neural", "numResults": 10}'
 ```
 
+## Resolucao
+Lucas recarregou creditos manualmente. API voltou a funcionar.
+Nao ha monitoramento automatico de saldo — proximo 402 vai ser surpresa de novo.
+
 ## Proximos passos
-- Verificar saldo/billing da conta X API (dashboard developer.twitter.com)
-- Entender se precisa recarregar créditos ou se tier mudou
+- Configurar alerta de saldo baixo (se a API oferecer)
+- Considerar fallback automatico pra Exa quando edge-x retorna 402
