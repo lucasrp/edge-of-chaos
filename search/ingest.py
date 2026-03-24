@@ -302,7 +302,6 @@ def ingest_bulk_with_batch_embeddings(
             continue
 
         h = content_hash(raw)
-        doc_type = _detect_type(path)
 
         existing = conn.execute(
             "SELECT id, content_hash FROM documents WHERE path = ?", (str(path),)
@@ -322,6 +321,7 @@ def ingest_bulk_with_batch_embeddings(
             title = path.stem
             body = raw
 
+        doc_type = _detect_type(path, meta)
         meta_json = json.dumps(meta, ensure_ascii=False) if meta else None
         now = datetime.now(timezone.utc).isoformat()
 
