@@ -78,8 +78,18 @@ def _extract_html_text(html: str) -> tuple[str | None, str]:
     return title, parser.get_text()
 
 
-def _detect_type(path: Path) -> str:
-    """Detect document type from path."""
+def _detect_type(path: Path, meta: dict | None = None) -> str:
+    """Detect document type from path and frontmatter metadata.
+
+    Workflow entries are blog entries with 'workflow' in their tags.
+    Frontmatter-based detection takes priority over path-based for workflows.
+    """
+    # Check frontmatter tags for workflow type
+    if meta:
+        tags = meta.get("tags", [])
+        if isinstance(tags, list) and "workflow" in tags:
+            return "workflow"
+
     s = str(path)
     if "/notes/" in s:
         return "note"
@@ -170,7 +180,6 @@ def ingest_file(
             return "error"
 
         h = content_hash(raw)
-        doc_type = _detect_type(path)
 
         # Check if unchanged
         existing = conn.execute(
@@ -192,6 +201,9 @@ def ingest_file(
         else:
             title = path.stem
             body = raw
+
+        # Detect type using both path and frontmatter metadata
+        doc_type = _detect_type(path, meta)
 
         meta_json = json.dumps(meta, ensure_ascii=False) if meta else None
         now = datetime.now(timezone.utc).isoformat()
