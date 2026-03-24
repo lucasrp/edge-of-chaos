@@ -137,6 +137,12 @@ Isto e **OBRIGATORIO** antes de executar qualquer skill (ver state-protocol.md).
 
 ---
 
+## Workflow quebrado = bug
+
+Workflow que falha na execucao deve ser registrado em `debugging.md` e marcado como stale (claim `"!Gap"` ou anti-pattern novo).
+
+---
+
 ## Decaimento
 
 Workflows que nunca sao resgatados perdem relevancia naturalmente:
