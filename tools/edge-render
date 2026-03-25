@@ -48,6 +48,8 @@ def load_agent_yaml(path: Path) -> dict:
     cfg.setdefault("public_url", "")
     cfg.setdefault("repo_owner", "")
     cfg.setdefault("repo_name", cfg["name"])
+    cfg.setdefault("pre_skill", "config/pre-skill.md")
+    cfg.setdefault("post_skill", "config/post-skill.md")
 
     # Resolve blog_host
     blog_host = cfg.get("blog_host", "auto")
@@ -101,6 +103,8 @@ def build_placeholder_map(cfg: dict) -> dict:
         "REPO_OWNER": cfg["repo_owner"],
         "REPO_NAME": cfg["repo_name"],
         "KB_PATH": cfg["knowledge_base"],
+        "PRE_SKILL": cfg["pre_skill"],
+        "POST_SKILL": cfg["post_skill"],
     }
 
 
