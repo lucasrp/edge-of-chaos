@@ -107,7 +107,9 @@ fi
 
 # --- Step 2.5: Find related posts ---
 echo "[2.5/6] Buscando related posts..."
-RELATED_OUTPUT=$(python3 "$EDGE_DIR/search/related.py" "$ENTRY_PATH" 5 2>&1) || true
+SEARCH_PYTHON="$EDGE_DIR/search/.venv/bin/python3"
+[ -x "$SEARCH_PYTHON" ] || SEARCH_PYTHON="python3"
+RELATED_OUTPUT=$($SEARCH_PYTHON "$EDGE_DIR/search/related.py" "$ENTRY_PATH" 5 2>&1) || true
 if echo "$RELATED_OUTPUT" | grep -q "^Related"; then
     echo "  $RELATED_OUTPUT" | head -6
 else
