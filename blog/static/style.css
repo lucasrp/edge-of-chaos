@@ -2143,6 +2143,28 @@
     color: var(--text-muted);
     margin-left: auto;
   }
+  .workflow-views-badge {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+  }
+  .workflow-sort-toggle {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+  .workflow-sort-btn {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-decoration: none;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .workflow-sort-btn.active {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
   .workflow-tag {
     font-size: 0.6rem;
     color: var(--text-muted);
