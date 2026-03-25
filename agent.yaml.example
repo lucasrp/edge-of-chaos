@@ -16,10 +16,10 @@ tool_prefix: edge
 edge_home: ""                   # default: ~/{codename}/
 heartbeat_interval: 2h
 blog_port: 8766
-blog_host: auto                 # auto: 127.0.0.1 local, 0.0.0.0 em VPS
-blog_auth_enabled: false
-blog_auth_user: ""
-blog_auth_pass: ""
+blog_host: "0.0.0.0"           # público por default (acessível de fora)
+blog_auth_enabled: true         # protegido por login
+blog_auth_user: admin           # REQUIRED se auth_enabled: trocar antes de deploy
+blog_auth_pass: trocar123       # REQUIRED se auth_enabled: trocar antes de deploy
 
 # --- Lifecycle hooks ---
 pre_skill: config/pre-skill.md  # executado ANTES de cada skill (identidade, contexto, anti-redundância)
