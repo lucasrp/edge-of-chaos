@@ -291,7 +291,7 @@ def phase_venv(cfg, dry_run, skip_venv=False):
         return False
 
     pip = venv_dir / "bin" / "pip"
-    result = run(f"{pip} install -q flask flask-compress markdown pyyaml")
+    result = run(f"{pip} install -q flask flask-compress markdown pyyaml sqlite-vec")
     if result.returncode != 0:
         fail(f"pip install falhou: {result.stderr.strip()}")
         return False
@@ -476,17 +476,26 @@ def phase_tools(cfg, dry_run):
     elif (search_venv / "bin" / "python3").exists():
         ok("Search venv já existe")
 
-    # Create edge-index and edge-search wrappers
+    # Create edge-index and edge-search wrappers (load secrets for API keys)
     if not dry_run:
         for wrapper_name, script in [("edge-index", "ingest.py"), ("edge-search", "search.py")]:
             wrapper = local_bin / wrapper_name
             wrapper.write_text(
-                f"#!/bin/bash\n"
-                f'cd "{edge}"\n'
+                f'#!/bin/bash\n'
+                f'EDGE_DIR="{edge}"\n'
+                f'cd "$EDGE_DIR"\n'
+                f'[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a\n'
                 f'"{search_dst / ".venv" / "bin" / "python3"}" "{search_dst / script}" "$@"\n'
             )
             wrapper.chmod(0o755)
-        ok("edge-index + edge-search wrappers criados")
+        ok("edge-index + edge-search wrappers criados (com secrets)")
+
+    # Configure git identity (needed for consolidar-estado commits)
+    if not dry_run:
+        name = cfg.get("name", "agent")
+        run(f'git config --global user.name "{name}"')
+        run(f'git config --global user.email "{name}@edge-of-chaos"')
+        ok(f"Git identity: {name}")
 
     # Ensure .bashrc has PATH
     bashrc = Path.home() / ".bashrc"
