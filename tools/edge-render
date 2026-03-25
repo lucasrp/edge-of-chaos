@@ -78,7 +78,7 @@ def load_agent_yaml(path: Path) -> dict:
     cfg["systemd_interval"] = systemd_map.get(cfg["heartbeat_interval"], "2h")
 
     # Memory project dir (Claude Code convention)
-    edge_abs = os.path.expanduser(cfg["edge_home"])
+    edge_abs = os.path.expanduser(cfg["edge_home"]).rstrip("/")
     cfg["memory_project_dir"] = edge_abs.replace("/", "-").lstrip("-")
 
     return cfg
