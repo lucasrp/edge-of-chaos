@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""edge-doctor: Validate agent installation health.
+
+Usage:
+    edge-doctor                        # auto-detect from current dir
+    edge-doctor --config agent.yaml    # explicit config
+"""
+
+import argparse
+import os
+import shutil
+import socket
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+CHECKS_PASSED = 0
+CHECKS_WARNED = 0
+CHECKS_FAILED = 0
+
+
+def ok(msg):
+    global CHECKS_PASSED
+    CHECKS_PASSED += 1
+    print(f"  \033[32m✓\033[0m {msg}")
+
+
+def warn(msg):
+    global CHECKS_WARNED
+    CHECKS_WARNED += 1
+    print(f"  \033[33m⚠\033[0m {msg}")
+
+
+def fail(msg):
+    global CHECKS_FAILED
+    CHECKS_FAILED += 1
+    print(f"  \033[31m✗\033[0m {msg}")
+
+
+def check_file(path: Path, label: str):
+    if path.exists():
+        ok(f"{label}: {path}")
+    else:
+        fail(f"{label}: {path} — NÃO ENCONTRADO")
+
+
+def check_dir(path: Path, label: str):
+    if path.is_dir():
+        ok(f"{label}: {path}")
+    else:
+        fail(f"{label}: {path} — NÃO ENCONTRADO")
+
+
+def check_command(cmd: str, label: str):
+    if shutil.which(cmd):
+        ok(f"{label}: {cmd}")
+    else:
+        fail(f"{label}: {cmd} — NÃO INSTALADO")
+
+
+def check_port(port: int, host: str = "127.0.0.1"):
+    """Check if port is in use (blog running) or available."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(2)
+    try:
+        s.connect((host, port))
+        s.close()
+        ok(f"Blog respondendo em {host}:{port}")
+    except (ConnectionRefusedError, OSError):
+        warn(f"Blog NÃO respondendo em {host}:{port} — iniciar com systemctl --user start blog-server")
+
+
+def check_secret(env_file: Path, key: str):
+    if not env_file.exists():
+        fail(f"Secrets file não encontrado: {env_file}")
+        return
+    content = env_file.read_text()
+    # Check for the key without quotes around value
+    for line in content.splitlines():
+        if line.startswith(f"{key}="):
+            val = line.split("=", 1)[1].strip()
+            if val.startswith('"') and val.endswith('"'):
+                warn(f"{key}: valor com aspas literais — remover aspas de {env_file}")
+            elif val:
+                ok(f"{key}: configurado")
+            else:
+                fail(f"{key}: vazio em {env_file}")
+            return
+    warn(f"{key}: não encontrado em {env_file}")
+
+
+def check_residual_placeholders(path: Path, label: str):
+    """Check for unrendered {{ PLACEHOLDER }} in a file."""
+    if not path.exists():
+        return
+    content = path.read_text()
+    import re
+    residuals = re.findall(r"\{\{[^}]+\}\}", content)
+    if residuals:
+        fail(f"{label}: {len(residuals)} placeholder(s) não renderizados: {residuals[:3]}")
+    else:
+        ok(f"{label}: sem placeholders residuais")
+
+
+def check_systemd_timer():
+    """Check if heartbeat timer is enabled."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-enabled", "claude-heartbeat.timer"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.stdout.strip() == "enabled":
+            ok("Heartbeat timer: enabled")
+        else:
+            warn(f"Heartbeat timer: {result.stdout.strip()} — habilitar com: systemctl --user enable --now claude-heartbeat.timer")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        warn("systemctl não disponível — verificar heartbeat manualmente")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Validate agent installation")
+    parser.add_argument("--config", "-c", default="agent.yaml")
+    args = parser.parse_args()
+
+    config_path = Path(args.config)
+    if not config_path.exists():
+        print(f"Procurando agent.yaml em: {config_path.resolve()}")
+        fail("agent.yaml não encontrado")
+        print(f"\nResultado: 0 ok, 0 warn, 1 fail")
+        sys.exit(1)
+
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+
+    name = cfg.get("name", "?")
+    codename = cfg.get("codename", "?")
+    edge_home = Path(os.path.expanduser(cfg.get("edge_home", f"~/{codename}")))
+    blog_port = int(cfg.get("blog_port", 8766))
+    blog_host = cfg.get("blog_host", "127.0.0.1")
+
+    print(f"\n\033[1m━━━  edge-doctor: {name} ({codename})  ━━━\033[0m\n")
+
+    # 1. Dependencies
+    print("\033[1m[1/6] Dependências\033[0m")
+    check_command("claude", "Claude Code CLI")
+    check_command("python3", "Python 3")
+    check_command("git", "Git")
+    check_command("gh", "GitHub CLI (opcional)")
+    print()
+
+    # 2. Directory structure
+    print("\033[1m[2/6] Diretórios\033[0m")
+    check_dir(edge_home, "EDGE_HOME")
+    check_dir(edge_home / "blog" / "entries", "Blog entries")
+    check_dir(edge_home / "reports", "Reports")
+    check_dir(edge_home / "tools", "Tools")
+    check_dir(edge_home / "config", "Config")
+    check_dir(edge_home / "secrets", "Secrets")
+    check_dir(edge_home / "logs", "Logs")
+    print()
+
+    # 3. Critical files
+    print("\033[1m[3/6] Arquivos críticos\033[0m")
+    claude_md = Path.home() / ".claude" / "CLAUDE.md"
+    check_file(claude_md, "CLAUDE.md")
+    check_file(edge_home / "config" / "branding.yaml", "branding.yaml")
+    check_file(edge_home / "config" / "pre-skill.md", "pre-skill.md")
+    check_file(edge_home / "config" / "post-skill.md", "post-skill.md")
+    check_file(edge_home / "config" / "strategy.md", "strategy.md")
+    check_residual_placeholders(claude_md, "CLAUDE.md")
+    check_residual_placeholders(edge_home / "config" / "branding.yaml", "branding.yaml")
+    print()
+
+    # 4. Secrets
+    print("\033[1m[4/6] Secrets\033[0m")
+    keys_env = edge_home / "secrets" / "keys.env"
+    check_secret(keys_env, "ANTHROPIC_API_KEY")
+    check_secret(keys_env, "OPENAI_API_KEY")
+    print()
+
+    # 5. Services
+    print("\033[1m[5/6] Serviços\033[0m")
+    check_port(blog_port, "127.0.0.1")
+    check_systemd_timer()
+    print()
+
+    # 6. Skills
+    print("\033[1m[6/6] Skills\033[0m")
+    skills_dir = Path.home() / ".claude" / "skills"
+    prefix = cfg.get("skill_prefix", codename)
+    expected_skills = ["heartbeat", "pesquisa", "descoberta", "lazer", "reflexao", "relatorio"]
+    for skill in expected_skills:
+        skill_path = skills_dir / f"{prefix}-{skill}"
+        if skill_path.is_dir():
+            ok(f"/{prefix}-{skill}")
+        else:
+            warn(f"/{prefix}-{skill} — não encontrado em {skills_dir}")
+    print()
+
+    # Summary
+    total = CHECKS_PASSED + CHECKS_WARNED + CHECKS_FAILED
+    color = "\033[32m" if CHECKS_FAILED == 0 else "\033[31m"
+    print(f"{color}━━━  {CHECKS_PASSED} ok, {CHECKS_WARNED} warn, {CHECKS_FAILED} fail (de {total})  ━━━\033[0m")
+
+    if CHECKS_FAILED == 0 and CHECKS_WARNED == 0:
+        print("\n✓ Instalação saudável. Pronto para operar.")
+    elif CHECKS_FAILED == 0:
+        print("\n⚠ Instalação funcional com avisos. Revisar os warnings.")
+    else:
+        print("\n✗ Instalação com problemas. Corrigir os itens em vermelho.")
+
+    sys.exit(0 if CHECKS_FAILED == 0 else 1)
+
+
+if __name__ == "__main__":
+    main()

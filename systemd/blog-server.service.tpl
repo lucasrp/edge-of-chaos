@@ -9,7 +9,7 @@ Restart=always
 RestartSec=3
 WorkingDirectory={{ WORK_DIR }}/blog
 Environment="HOME=%h"
-Environment="BLOG_PORT={{ BLOG_PORT }}"
+EnvironmentFile=-{{ WORK_DIR }}/secrets/keys.env
 
 [Install]
 WantedBy=default.target

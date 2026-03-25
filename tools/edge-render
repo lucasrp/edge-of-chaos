@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""edge-render: Generate all instance files from agent.yaml + templates.
+
+Usage:
+    edge-render                          # uses ./agent.yaml
+    edge-render --config path/to.yaml    # explicit config
+    edge-render --dry-run                # show what would be generated
+"""
+
+import argparse
+import os
+import re
+import sys
+from pathlib import Path
+
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def load_agent_yaml(path: Path) -> dict:
+    """Load and validate agent.yaml, apply defaults."""
+    with open(path) as f:
+        cfg = yaml.safe_load(f)
+
+    required = ["name", "codename", "missao", "persona", "dominio"]
+    missing = [k for k in required if not cfg.get(k)]
+    if missing:
+        print(f"ERRO: Campos obrigatórios faltando: {', '.join(missing)}")
+        sys.exit(1)
+
+    # Apply smart defaults
+    cfg.setdefault("idioma", "pt-BR")
+    cfg.setdefault("skill_prefix", cfg["codename"])
+    if not cfg.get("skill_prefix"):
+        cfg["skill_prefix"] = cfg["codename"]
+    cfg.setdefault("tool_prefix", "edge")
+    cfg.setdefault("edge_home", f"~/{cfg['codename']}")
+    cfg.setdefault("heartbeat_interval", "2h")
+    cfg.setdefault("blog_port", 8766)
+    cfg.setdefault("blog_auth_enabled", False)
+    cfg.setdefault("blog_auth_user", "")
+    cfg.setdefault("blog_auth_pass", "")
+    cfg.setdefault("onboarding_mode", True)
+    cfg.setdefault("bio", cfg["missao"])
+    cfg.setdefault("cognitive_profile", "Analytical. Decomposes problems, seeks structure.")
+    cfg.setdefault("knowledge_base", "")
+    cfg.setdefault("public_url", "")
+    cfg.setdefault("repo_owner", "")
+    cfg.setdefault("repo_name", cfg["name"])
+
+    # Resolve blog_host
+    blog_host = cfg.get("blog_host", "auto")
+    if blog_host == "auto":
+        # Heuristic: if running on a VPS (no DISPLAY, not macOS), bind 0.0.0.0
+        is_vps = not os.environ.get("DISPLAY") and sys.platform == "linux"
+        cfg["blog_host"] = "0.0.0.0" if is_vps else "127.0.0.1"
+    else:
+        cfg["blog_host"] = blog_host
+
+    # Compute derived values
+    cfg["edge_home_expanded"] = os.path.expanduser(cfg["edge_home"])
+
+    interval_map = {"30min": 1800, "1h": 3600, "2h": 7200, "24h": 86400}
+    cfg["heartbeat_seconds"] = interval_map.get(cfg["heartbeat_interval"], 7200)
+
+    systemd_map = {"30min": "30min", "1h": "1h", "2h": "2h", "24h": "24h"}
+    cfg["systemd_interval"] = systemd_map.get(cfg["heartbeat_interval"], "2h")
+
+    # Memory project dir (Claude Code convention)
+    home = str(Path.home())
+    edge_abs = os.path.expanduser(cfg["edge_home"])
+    cfg["memory_project_dir"] = edge_abs.replace("/", "-").lstrip("-")
+
+    return cfg
+
+
+def build_placeholder_map(cfg: dict) -> dict:
+    """Map agent.yaml fields to {{ PLACEHOLDER }} names."""
+    return {
+        "AGENT_NAME": cfg["name"],
+        "CODENAME": cfg["codename"],
+        "AGENT_MISSION": cfg["missao"],
+        "AGENT_PERSONA": cfg["persona"],
+        "AGENT_DOMAIN": cfg["dominio"],
+        "LANGUAGE": cfg["idioma"],
+        "SKILL_PREFIX": cfg["skill_prefix"],
+        "TOOL_PREFIX": cfg["tool_prefix"],
+        "WORK_DIR": cfg["edge_home_expanded"],
+        "BLOG_PORT": str(cfg["blog_port"]),
+        "BLOG_HOST": cfg["blog_host"],
+        "BLOG_AUTH_ENABLED": str(cfg["blog_auth_enabled"]).lower(),
+        "BLOG_AUTH_USER": cfg["blog_auth_user"],
+        "BLOG_AUTH_PASS": cfg["blog_auth_pass"],
+        "AGENT_BIO": cfg["bio"],
+        "AGENT_COGNITIVE_PROFILE": cfg["cognitive_profile"],
+        "HEARTBEAT_INTERVAL": cfg["heartbeat_interval"],
+        "HEARTBEAT_SECONDS": str(cfg["heartbeat_seconds"]),
+        "SYSTEMD_INTERVAL": cfg["systemd_interval"],
+        "MEMORY_PROJECT_DIR": cfg["memory_project_dir"],
+        "REPO_OWNER": cfg["repo_owner"],
+        "REPO_NAME": cfg["repo_name"],
+        "KB_PATH": cfg["knowledge_base"],
+    }
+
+
+def render_template(content: str, placeholders: dict) -> str:
+    """Replace {{ KEY }} and {{KEY}} with values from placeholder map."""
+    for key, val in placeholders.items():
+        content = content.replace(f"{{{{ {key} }}}}", str(val))
+        content = content.replace(f"{{{{{key}}}}}", str(val))
+    return content
+
+
+def find_templates(repo_root: Path) -> list[Path]:
+    """Find all .tpl files in the repo."""
+    return sorted(repo_root.rglob("*.tpl"))
+
+
+def render_all(repo_root: Path, placeholders: dict, dry_run: bool = False) -> list[str]:
+    """Render all templates, write output files."""
+    templates = find_templates(repo_root)
+    results = []
+
+    for tpl in templates:
+        # Skip node_modules, .git, etc.
+        rel = tpl.relative_to(repo_root)
+        if any(p.startswith(".") or p == "node_modules" for p in rel.parts):
+            continue
+
+        content = tpl.read_text()
+        rendered = render_template(content, placeholders)
+
+        # Output: same path without .tpl extension
+        out_path = tpl.with_suffix("")
+
+        # Check for residual placeholders
+        residuals = re.findall(r"\{\{[^}]+\}\}", rendered)
+
+        if dry_run:
+            status = "WARN" if residuals else "OK"
+            results.append(f"  [{status}] {rel} → {out_path.relative_to(repo_root)}")
+            if residuals:
+                results.append(f"         Residuals: {residuals[:3]}")
+        else:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(rendered)
+            status = "WARN" if residuals else "OK"
+            results.append(f"  [{status}] {out_path.relative_to(repo_root)}")
+            if residuals:
+                results.append(f"         Residuals: {residuals[:3]}")
+
+    return results
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Render agent templates from agent.yaml")
+    parser.add_argument("--config", "-c", default="agent.yaml", help="Path to agent.yaml")
+    parser.add_argument("--dry-run", "-n", action="store_true", help="Show what would be rendered")
+    args = parser.parse_args()
+
+    config_path = Path(args.config)
+    if not config_path.exists():
+        print(f"ERRO: {config_path} não encontrado. Copie agent.yaml.example → agent.yaml")
+        sys.exit(1)
+
+    cfg = load_agent_yaml(config_path)
+    placeholders = build_placeholder_map(cfg)
+
+    print(f"{'[DRY RUN] ' if args.dry_run else ''}Rendering templates para: {cfg['name']} ({cfg['codename']})")
+    print(f"  edge_home: {cfg['edge_home_expanded']}")
+    print(f"  blog: {cfg['blog_host']}:{cfg['blog_port']}")
+    print(f"  onboarding: {'ON' if cfg.get('onboarding_mode') else 'OFF'}")
+    print()
+
+    results = render_all(REPO_ROOT, placeholders, dry_run=args.dry_run)
+    for r in results:
+        print(r)
+
+    print(f"\n{'[DRY RUN] ' if args.dry_run else ''}Rendered {len([r for r in results if r.startswith('  [')])} templates.")
+
+
+if __name__ == "__main__":
+    main()
