@@ -121,6 +121,7 @@ def hybrid_search(
     vec_weight: float = 0.7,
     doc_type: str | None = None,
     conn=None,
+    _query_embedding: list[float] | None = None,
 ) -> list[dict]:
     """Hybrid search combining FTS5 + vector via Reciprocal Rank Fusion."""
     own_conn = conn is None
@@ -133,14 +134,15 @@ def hybrid_search(
         # FTS5 results
         fts_results = fts_search(query, limit=limit * 3, doc_type=doc_type, conn=conn)
 
-        # Vector results
+        # Vector results (reuse embedding if provided)
         try:
-            query_embedding = embed_text(query)
+            query_embedding = _query_embedding or embed_text(query)
             vec_results = vec_search(
                 query_embedding, limit=limit * 3, doc_type=doc_type, conn=conn
             )
         except Exception:
             # If embedding fails, fall back to FTS-only
+            query_embedding = None
             vec_results = []
 
         # RRF merge
@@ -174,6 +176,56 @@ def hybrid_search(
             })
 
         return results
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def search_with_sidecar(
+    query: str,
+    limit: int = 10,
+    doc_type: str | None = None,
+    wf_limit: int = 3,
+    min_wf_score: float = -0.15,
+    conn=None,
+) -> tuple[list[dict], list[dict]]:
+    """Hybrid search + automatic workflow sidecar.
+
+    Returns (results, workflows). The workflow lookup reuses the same
+    embedding — zero extra API cost, ~1ms extra latency.
+    """
+    own_conn = conn is None
+    if own_conn:
+        conn = ensure_db()
+
+    try:
+        # Compute embedding once
+        try:
+            query_embedding = embed_text(query)
+        except Exception:
+            query_embedding = None
+
+        # Main search
+        results = hybrid_search(
+            query, limit=limit, doc_type=doc_type,
+            _query_embedding=query_embedding, conn=conn,
+        )
+
+        # Workflow sidecar (skip if already filtering by workflow)
+        workflows = []
+        if doc_type != "workflow" and query_embedding is not None:
+            # IDs already in main results (avoids duplicates)
+            main_ids = {r["id"] for r in results}
+            wf_raw = vec_search(
+                query_embedding, limit=wf_limit + len(main_ids),
+                doc_type="workflow", conn=conn,
+            )
+            workflows = [
+                r for r in wf_raw
+                if r["score"] > min_wf_score and r["id"] not in main_ids
+            ][:wf_limit]
+
+        return results, workflows
     finally:
         if own_conn:
             conn.close()
@@ -225,26 +277,45 @@ def doc_stats(conn=None) -> list[dict]:
             conn.close()
 
 
-def format_results(results: list[dict], mode: str = "hybrid") -> str:
+def format_results(
+    results: list[dict],
+    mode: str = "hybrid",
+    workflows: list[dict] | None = None,
+) -> str:
     """Format search results for terminal output."""
-    if not results:
+    if not results and not workflows:
         return "No results found."
 
-    lines = [f"Results ({mode}, {len(results)} matches):\n"]
-    for i, r in enumerate(results, 1):
-        path = Path(r["path"])
-        name = path.name
-        score = r.get("score", 0)
-        doc_type = r.get("type", "?")
-        title = r.get("title", "")
+    lines = []
 
-        lines.append(f"  #{i:<3} {score:>8.4f}  {doc_type:<8} {name}")
-        if title and title != path.stem:
-            lines.append(f"       {' ' * 8}  {' ' * 8} {title[:80]}")
-        if r.get("snippet"):
-            snippet = r["snippet"].replace("\n", " ")[:120]
-            lines.append(f"       {' ' * 8}  {' ' * 8} ...{snippet}...")
-        lines.append("")
+    if results:
+        lines.append(f"Results ({mode}, {len(results)} matches):\n")
+        for i, r in enumerate(results, 1):
+            path = Path(r["path"])
+            name = path.name
+            score = r.get("score", 0)
+            doc_type = r.get("type", "?")
+            title = r.get("title", "")
+
+            lines.append(f"  #{i:<3} {score:>8.4f}  {doc_type:<8} {name}")
+            if title and title != path.stem:
+                lines.append(f"       {' ' * 8}  {' ' * 8} {title[:80]}")
+            if r.get("snippet"):
+                snippet = r["snippet"].replace("\n", " ")[:120]
+                lines.append(f"       {' ' * 8}  {' ' * 8} ...{snippet}...")
+            lines.append("")
+
+    if workflows:
+        lines.append(f"  Workflows relevantes ({len(workflows)}):\n")
+        for i, r in enumerate(workflows, 1):
+            path = Path(r["path"])
+            name = path.name
+            score = r.get("score", 0)
+            title = r.get("title", "")
+            lines.append(f"  #{i:<3} {score:>8.4f}  workflow {name}")
+            if title and title != path.stem:
+                lines.append(f"       {' ' * 8}  {' ' * 8} {title[:80]}")
+            lines.append("")
 
     return "\n".join(lines)
 
@@ -292,6 +363,9 @@ def main():
         "--no-telemetry", action="store_true", help="Skip search telemetry logging"
     )
     parser.add_argument(
+        "--no-sidecar", action="store_true", help="Disable automatic workflow sidecar"
+    )
+    parser.add_argument(
         "--doc-stats", action="store_true", help="Show per-doc retrieval stats"
     )
     args = parser.parse_args()
@@ -325,6 +399,7 @@ def main():
         sys.exit(1)
 
     conn = ensure_db()
+    workflows = []
 
     if args.fts:
         results = fts_search(query, limit=args.k, doc_type=args.doc_type, conn=conn)
@@ -335,17 +410,23 @@ def main():
             query_embedding, limit=args.k, doc_type=args.doc_type, conn=conn
         )
         mode = "semantic"
+    elif not args.no_sidecar and args.doc_type != "workflow":
+        results, workflows = search_with_sidecar(
+            query, limit=args.k, doc_type=args.doc_type, conn=conn
+        )
+        mode = "hybrid"
     else:
         results = hybrid_search(
             query, limit=args.k, doc_type=args.doc_type, conn=conn
         )
         mode = "hybrid"
 
-    print(format_results(results, mode))
+    print(format_results(results, mode, workflows=workflows))
 
-    # Log telemetry unless --no-telemetry
-    if not args.no_telemetry and results:
-        log_search_telemetry(query, results, conn=conn)
+    # Log telemetry (includes workflow hits)
+    all_results = results + workflows
+    if not args.no_telemetry and all_results:
+        log_search_telemetry(query, all_results, conn=conn)
 
     conn.close()
 
