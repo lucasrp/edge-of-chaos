@@ -20,7 +20,7 @@ colors:
 # Blog
 blog:
   port: {{BLOG_PORT}}
-  host: "127.0.0.1"
+  host: "{{BLOG_HOST}}"
   auth_enabled: {{BLOG_AUTH_ENABLED}}
   auth_user: "{{BLOG_AUTH_USER}}"
   auth_pass: "{{BLOG_AUTH_PASS}}"
