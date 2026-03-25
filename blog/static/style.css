@@ -2152,5 +2152,88 @@
   }
   .empty-state { color: var(--text-muted); text-align: center; padding: 2rem; }
 
+  /* ─── Workflow Detail ─── */
+  .workflow-detail-nav { margin-bottom: 1rem; }
+  .workflow-back-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 0.3rem 0.7rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.75rem;
+  }
+  .workflow-back-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .workflow-detail-content {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.25rem 1.5rem;
+  }
+  .workflow-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .workflow-detail-title {
+    font-size: 1.1rem;
+    margin: 0 0 0.75rem;
+    font-weight: 600;
+  }
+  .workflow-detail-secrets {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    background: #da36331a;
+    border: 1px solid #da363333;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+    display: inline-block;
+  }
+  .workflow-detail-body { font-size: 0.85rem; line-height: 1.6; }
+  .workflow-detail-body h2 {
+    font-size: 0.95rem;
+    margin: 1.5rem 0 0.5rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--accent);
+  }
+  .workflow-detail-body h3 { font-size: 0.85rem; margin: 1rem 0 0.3rem; }
+  .workflow-detail-body p { margin: 0.4rem 0; }
+  .workflow-detail-body ul, .workflow-detail-body ol { padding-left: 1.5rem; margin: 0.4rem 0; }
+  .workflow-detail-body li { margin-bottom: 0.2rem; }
+  .workflow-detail-body pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    position: relative;
+  }
+  .workflow-detail-body code {
+    font-size: 0.8rem;
+    background: var(--border);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+  }
+  .workflow-detail-body pre code {
+    background: none;
+    padding: 0;
+  }
+  .code-copy-btn {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.4rem;
+    background: var(--border);
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .code-copy-btn:hover { color: var(--accent); }
+
   /* Hidden utility */
   .hidden { display: none !important; }

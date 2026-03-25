@@ -253,7 +253,7 @@ def load_entries():
         if WORKFLOW_TAGS.intersection(tags_list):
             trigger_match = re.search(
                 r'^## (?:Trigger|O que tentei)\s*\n(.*?)(?=\n## |\Z)',
-                body_md, _re.MULTILINE | _re.DOTALL)
+                body_md, re.MULTILINE | re.DOTALL)
             if trigger_match:
                 trigger_text = trigger_match.group(1).strip()
 
@@ -631,6 +631,17 @@ def htmx_entry_comments(slug):
                            entry_key=key,
                            saved=ed.get("saved", False),
                            comments=ed.get("comments", []))
+
+
+@app.route("/htmx/workflow/<slug>")
+def htmx_workflow_detail(slug):
+    """Return workflow detail view as HTML partial (htmx target)."""
+    entries = get_entries()
+    entry = next((e for e in entries if e["slug"] == slug), None)
+    if not entry:
+        abort(404)
+    render_page_html([entry])
+    return render_template("partials/workflow_detail.html", entry=entry)
 
 
 # ─── Routes: JSON APIs (backward compatible) ───
