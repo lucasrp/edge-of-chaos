@@ -1,7 +1,12 @@
 {% if entries %}
 <div class="workflow-list">
   {% for e in entries %}
-  <article class="workflow-card {{ 'anti-pattern' if 'anti-pattern' in e.tags else 'workflow' }}" data-slug="{{ e.slug }}">
+  <article class="workflow-card {{ 'anti-pattern' if 'anti-pattern' in e.tags else 'workflow' }}"
+           data-slug="{{ e.slug }}"
+           hx-get="/htmx/workflow/{{ e.slug }}"
+           hx-target="#workflowResults"
+           hx-swap="innerHTML"
+           style="cursor: pointer;">
     <div class="workflow-card-header">
       {% if 'anti-pattern' in e.tags %}
       <span class="workflow-badge badge-antipattern">anti-pattern</span>
