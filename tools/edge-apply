@@ -77,7 +77,7 @@ def run(cmd, **kwargs):
 # ─── Phase 1: Render ───
 
 def phase_render(config_path, dry_run):
-    header("1/7  Render templates")
+    header("1/8  Render templates")
     cmd = f"python3 {REPO_ROOT / 'tools' / 'edge-render'} --config {config_path}"
     if dry_run:
         cmd += " --dry-run"
@@ -94,7 +94,7 @@ def phase_render(config_path, dry_run):
 # ─── Phase 2: Dirs ───
 
 def phase_dirs(cfg, dry_run):
-    header("2/7  Diretórios")
+    header("2/8  Diretórios")
     edge = Path(cfg["edge_home_expanded"])
     dirs = [
         edge / "blog" / "entries", edge / "blog" / "diffs",
@@ -116,7 +116,7 @@ def phase_dirs(cfg, dry_run):
 # ─── Phase 3: Skills ───
 
 def phase_skills(cfg, dry_run):
-    header("3/7  Skills")
+    header("3/8  Skills")
     prefix = cfg["skill_prefix"]
     skills_src = REPO_ROOT / "skills"
     skills_dst = Path.home() / ".claude" / "skills"
@@ -172,7 +172,7 @@ def phase_skills(cfg, dry_run):
 # ─── Phase 4: CLAUDE.md + Config + Memory ───
 
 def phase_identity(cfg, dry_run):
-    header("4/7  CLAUDE.md + Config + Memory + Onboarding")
+    header("4/8  CLAUDE.md + Config + Memory + Onboarding")
     edge = Path(cfg["edge_home_expanded"])
 
     # CLAUDE.md → ~/.claude/CLAUDE.md
@@ -247,7 +247,7 @@ def phase_identity(cfg, dry_run):
 # ─── Phase 5: Blog venv ───
 
 def phase_venv(cfg, dry_run, skip_venv=False):
-    header("5/7  Blog (venv + files)")
+    header("5a/8  Blog (venv + files)")
     if skip_venv:
         warn("--skip-venv: pulando")
         return True
@@ -300,20 +300,75 @@ def phase_venv(cfg, dry_run, skip_venv=False):
     return True
 
 
+# ─── Phase 5b: Tools venv ───
+
+def phase_tools_venv(cfg, dry_run, skip_venv=False):
+    header("5b/8  Tools venv (edge-consult, review-gate, etc.)")
+    if skip_venv:
+        warn("--skip-venv: pulando")
+        return True
+
+    edge = Path(cfg["edge_home_expanded"])
+    tools_dir = edge / "tools"
+    venv_dir = tools_dir / ".venv"
+    reqs = tools_dir / "requirements.txt"
+
+    # Also check in REPO_ROOT
+    if not reqs.exists():
+        reqs = REPO_ROOT / "tools" / "requirements.txt"
+    if not reqs.exists():
+        warn("tools/requirements.txt não encontrado — pulando venv de tools")
+        return True
+
+    if venv_dir.exists() and (venv_dir / "bin" / "python3").exists():
+        ok("tools venv já existe")
+        return True
+
+    if dry_run:
+        print(f"  [DRY] python3 -m venv {venv_dir}")
+        print(f"  [DRY] pip install -r {reqs}")
+        return True
+
+    result = run(f"python3 -m venv {venv_dir}")
+    if result.returncode != 0:
+        fail(f"python3 -m venv falhou: {result.stderr.strip()}")
+        warn("Tente: sudo apt install python3-venv")
+        return False
+
+    pip = venv_dir / "bin" / "pip"
+    result = run(f"{pip} install -q -r {reqs}")
+    if result.returncode != 0:
+        fail(f"pip install falhou: {result.stderr.strip()}")
+        return False
+
+    # Update shebangs in Python tools to use venv
+    for tool in tools_dir.glob("*.py"):
+        content = tool.read_text()
+        if content.startswith("#!/usr/bin/env python3"):
+            content = content.replace(
+                "#!/usr/bin/env python3",
+                f"#!{venv_dir}/bin/python3",
+                1
+            )
+            tool.write_text(content)
+
+    ok("tools venv criado + deps instaladas + shebangs atualizados")
+    return True
+
+
 # ─── Phase 6: Systemd ───
 
 def phase_systemd(cfg, dry_run):
-    header("6/7  Systemd")
+    header("6/8  Systemd")
     if platform.system() != "Linux":
         warn(f"Plataforma {platform.system()} — pulando systemd")
         return True
 
     service_dir = Path.home() / ".config" / "systemd" / "user"
 
-    # Map: rendered name in systemd/ → installed name
     units = {
-        "agent-heartbeat.service": "claude-heartbeat.service",
-        "agent-heartbeat.timer": "claude-heartbeat.timer",
+        "agent-heartbeat.service": "agent-heartbeat.service",
+        "agent-heartbeat.timer": "agent-heartbeat.timer",
         "blog-server.service": "blog-server.service",
     }
 
@@ -343,7 +398,7 @@ def phase_systemd(cfg, dry_run):
 # ─── Phase 7: Tools ───
 
 def phase_tools(cfg, dry_run):
-    header("7/7  Tools")
+    header("7/8  Tools + Symlinks")
     edge = Path(cfg["edge_home_expanded"])
     tools_src = REPO_ROOT / "tools"
     tools_dst = edge / "tools"
@@ -452,6 +507,7 @@ def main():
     results.append(("Skills", phase_skills(cfg, args.dry_run)))
     results.append(("Identity", phase_identity(cfg, args.dry_run)))
     results.append(("Blog", phase_venv(cfg, args.dry_run, args.skip_venv)))
+    results.append(("Tools venv", phase_tools_venv(cfg, args.dry_run, args.skip_venv)))
     results.append(("Systemd", phase_systemd(cfg, args.dry_run)))
     results.append(("Tools", phase_tools(cfg, args.dry_run)))
 
@@ -466,8 +522,9 @@ def main():
         print(f"\n{GREEN}✓{RESET} Instalação concluída. Próximos passos:")
         print(f"  1. Verificar:  python3 tools/edge-doctor --config agent.yaml")
         print(f"  2. Blog:       systemctl --user enable --now blog-server")
-        print(f"  3. Heartbeat:  systemctl --user enable --now claude-heartbeat.timer")
+        print(f"  3. Heartbeat:  systemctl --user enable --now agent-heartbeat.timer")
         print(f"  4. Testar:     claude -p '/{prefix}-heartbeat'")
+        print(f"  5. Doctor:     python3 tools/edge-doctor --config agent.yaml")
     else:
         print(f"\n{RED}✗{RESET} {failed} fase(s) falharam.")
 
