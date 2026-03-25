@@ -7,29 +7,6 @@
     <p class="workflow-subtitle">{{ entries | length }} operational procedures documented</p>
   </div>
 
-  {% if entries %}
-  <div class="workflow-list">
-    {% for e in entries %}
-    <article class="workflow-card {{ 'anti-pattern' if 'anti-pattern' in e.tags else 'workflow' }}" data-slug="{{ e.slug }}">
-      <div class="workflow-card-header">
-        {% if 'anti-pattern' in e.tags %}
-        <span class="workflow-badge badge-antipattern">anti-pattern</span>
-        {% else %}
-        <span class="workflow-badge badge-workflow">workflow</span>
-        {% endif %}
-        <span class="workflow-date">{{ e.date }}</span>
-      </div>
-      <h3 class="workflow-title">{{ e.title }}</h3>
-      <div class="workflow-tags">
-        {% for t in e.tags if t not in ('workflow', 'anti-pattern') %}
-        <span class="workflow-tag">{{ t }}</span>
-        {% endfor %}
-      </div>
-    </article>
-    {% endfor %}
-  </div>
-  {% else %}
-  <p class="empty-state">No workflows documented yet.</p>
-  {% endif %}
+  {% include 'partials/workflow_list.html' %}
 </div>
 {% endblock %}

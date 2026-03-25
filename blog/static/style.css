@@ -2121,7 +2121,28 @@
   .badge-antipattern { background: #f8514933; color: #f85149; }
   .workflow-date { font-size: 0.7rem; color: var(--text-muted); }
   .workflow-title { font-size: 0.85rem; margin: 0; font-weight: 500; }
-  .workflow-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+  .workflow-trigger {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin: 0.3rem 0 0;
+    line-height: 1.4;
+  }
+  .workflow-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-top: 0.4rem; }
+  .workflow-meta-item {
+    font-size: 0.65rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+  }
+  .workflow-secrets {
+    color: var(--text-muted);
+    background: #da36331a;
+    border: 1px solid #da363333;
+  }
+  .workflow-cost {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
   .workflow-tag {
     font-size: 0.6rem;
     color: var(--text-muted);

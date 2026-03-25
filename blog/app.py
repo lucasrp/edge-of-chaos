@@ -242,6 +242,21 @@ def load_entries():
         # Pipeline enforcement: entry is "published" only if meta-report exists
         published = bool(meta_report)
 
+        # Workflow metadata
+        secrets_list = fm.get("secrets", [])
+        if not isinstance(secrets_list, list):
+            secrets_list = []
+        cost_estimate = fm.get("cost_estimate", "")
+
+        # Extract ## Trigger section from body
+        trigger_text = ""
+        if WORKFLOW_TAGS.intersection(tags_list):
+            trigger_match = re.search(
+                r'^## (?:Trigger|O que tentei)\s*\n(.*?)(?=\n## |\Z)',
+                body_md, _re.MULTILINE | _re.DOTALL)
+            if trigger_match:
+                trigger_text = trigger_match.group(1).strip()
+
         entries.append({
             "title": fm.get("title", fp.stem),
             "tag": tag,
@@ -265,6 +280,9 @@ def load_entries():
             "body_html": "",
             "mtime": fp.stat().st_mtime,
             "path": str(fp),
+            "secrets": secrets_list,
+            "cost_estimate": cost_estimate,
+            "trigger": trigger_text,
         })
 
     entries.sort(key=lambda e: (e["date"], e["slug"]), reverse=True)
