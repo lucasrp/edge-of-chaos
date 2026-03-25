@@ -23,6 +23,11 @@
           {% if f.managed_by %}
           <span class="setup-managed">{{ f.managed_by }}</span>
           {% endif %}
+          <span class="setup-meta-group">
+            {% if f.mtime %}<span class="setup-meta" title="última modificação">{{ f.mtime }}</span>{% endif %}
+            {% if f.size %}<span class="setup-meta" title="tamanho">{{ f.size }}</span>{% endif %}
+            {% if f.lines %}<span class="setup-meta" title="linhas">{{ f.lines }}L</span>{% endif %}
+          </span>
         </div>
 
         <div class="setup-file-body">
@@ -161,6 +166,18 @@
   background: #7c3aed11;
   padding: 0.1rem 0.3rem;
   border-radius: 2px;
+}
+.setup-meta-group {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.setup-meta {
+  font-size: 0.65rem;
+  color: var(--muted, #666);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  white-space: nowrap;
 }
 
 /* Panels: side by side */
