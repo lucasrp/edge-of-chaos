@@ -1,0 +1,38 @@
+# agent.yaml — Spec declarativa de uma instância
+# Campos REQUIRED não têm default. O resto é derivado automaticamente.
+# Copie para agent.yaml e preencha os campos obrigatórios.
+
+# --- Identidade (REQUIRED) ---
+name: meu-agente               # REQUIRED: nome único (lowercase, hyphens ok)
+codename: ma                    # REQUIRED: prefixo de skills (ex: /ma-pesquisa)
+missao: "Descreva a missão do agente em 1-2 frases"  # REQUIRED
+persona: "Tom direto, técnico e detalhista"           # REQUIRED
+dominio: "governo"              # REQUIRED: contexto de trabalho
+
+# --- Derivados (defaults inteligentes — sobrescreva se quiser) ---
+idioma: pt-BR
+skill_prefix: ""                # default: = codename
+tool_prefix: edge
+edge_home: ""                   # default: ~/{codename}/
+heartbeat_interval: 2h
+blog_port: 8766
+blog_host: auto                 # auto: 127.0.0.1 local, 0.0.0.0 em VPS
+blog_auth_enabled: false
+blog_auth_user: ""
+blog_auth_pass: ""
+
+# --- Onboarding ---
+onboarding_mode: true           # false depois de graduado
+
+# --- Opcional ---
+bio: ""                         # default: = missao
+cognitive_profile: "Analytical. Decomposes problems, seeks structure."
+knowledge_base: ""              # path local, URL git, ou URL https
+public_url: ""                  # se blog público
+repo_owner: ""                  # GitHub user/org
+repo_name: ""                   # default: = name
+
+# --- Secrets (NUNCA aqui — em .secrets ou env vars) ---
+# ANTHROPIC_API_KEY=sk-ant-...
+# OPENAI_API_KEY=sk-...
+# EXA_API_KEY=...
