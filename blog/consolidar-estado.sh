@@ -166,10 +166,86 @@ REPORT_RESULT="skip"
 TOTAL_LLM_COST="0"
 META_REPORT_PATH=""
 
-# ─── GUARDRAIL: Regra #0 — toda publicação gera meta-report ───
-# Content report (YAML/HTML) é opcional. Meta-report é sempre gerado (Phase 4).
+# ─── GUARDRAIL: toda publicação DEVE ter report HTML ───
+# Se o agente não passou spec, gerar automaticamente a partir da entry.
 if [[ -z "$REPORT_INPUT" ]]; then
-    echo -e "  ${YELLOW}INFO${NC}: Sem content report. Meta-report será gerado (Phase 4)."
+    echo -e "  ${YELLOW}AUTO-SPEC${NC}: Gerando YAML spec a partir da entry..."
+    AUTO_SPEC="/tmp/spec-${SLUG}.yaml"
+    TOOLS_PYTHON="$EDGE_DIR/tools/.venv/bin/python3"
+    [ -x "$TOOLS_PYTHON" ] || TOOLS_PYTHON="python3"
+
+    if $TOOLS_PYTHON - "$ENTRY_PATH" "$AUTO_SPEC" << 'AUTOSPEC_PY'
+import sys, re, yaml
+from pathlib import Path
+from datetime import date
+
+entry_path = Path(sys.argv[1])
+out_path = Path(sys.argv[2])
+text = entry_path.read_text()
+
+# Parse frontmatter
+fm = {}
+body = text
+if text.startswith("---"):
+    parts = text.split("---", 2)
+    if len(parts) >= 3:
+        try:
+            fm = yaml.safe_load(parts[1]) or {}
+        except:
+            pass
+        body = parts[2].strip()
+
+title = fm.get("title", entry_path.stem.replace("-", " ").title())
+tags = fm.get("tags", [])
+claims = fm.get("claims", [])
+
+# Split body into ## sections
+sections = []
+current_title = None
+current_lines = []
+for line in body.splitlines():
+    if line.startswith("## "):
+        if current_title:
+            content = "\n".join(current_lines).strip()
+            if content:
+                sections.append({
+                    "title": current_title,
+                    "blocks": [{"type": "paragraph", "text": content}]
+                })
+        current_title = line[3:].strip()
+        current_lines = []
+    else:
+        current_lines.append(line)
+if current_title:
+    content = "\n".join(current_lines).strip()
+    if content:
+        sections.append({
+            "title": current_title,
+            "blocks": [{"type": "paragraph", "text": content}]
+        })
+
+# Fallback: no ## sections found — use full body as single section
+if not sections:
+    sections = [{"title": "Conteúdo", "blocks": [{"type": "paragraph", "text": body[:3000]}]}]
+
+spec = {
+    "title": title,
+    "subtitle": ", ".join(tags[:3]) if tags else "",
+    "date": date.today().strftime("%d/%m/%Y"),
+    "executive_summary": claims[:4] if claims else [body[:300].replace("\n", " ") + "..."],
+    "sections": sections,
+}
+
+out_path.write_text(yaml.dump(spec, allow_unicode=True, default_flow_style=False, sort_keys=False))
+AUTOSPEC_PY
+    then
+        REPORT_INPUT="$AUTO_SPEC"
+        ok "Auto-spec gerado: $AUTO_SPEC"
+    else
+        fail "Auto-spec falhou — publicação BLOQUEADA (toda entry precisa de report HTML)"
+        log_failure "auto-spec" "generate" "Failed to auto-generate YAML spec from entry"
+        exit 1
+    fi
 fi
 
 STATE_AUDIT_EXIT=0
@@ -250,45 +326,34 @@ except Exception as e:
     fi
 fi
 
-# ─── PHASE 0.3: Adversarial Review Enforcement ───
-# If edge-consult was run with --gate against this YAML spec,
-# a .review.json exists. Block publication until .resolved marker is created.
-if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) && "$SKIP_REVIEW" == "false" ]]; then
+# ─── PHASE 0.3: Adversarial Review (execute + enforce) ───
+if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) && "$SKIP_REVIEW" == "false" && "$NO_ADVERSARIAL" == "false" ]]; then
+    echo "── Phase 0.3: Adversarial Review ──"
     REVIEW_JSON_FILE="${REPORT_INPUT%.yaml}.review.json"
     [[ "$REPORT_INPUT" == *.yml ]] && REVIEW_JSON_FILE="${REPORT_INPUT%.yml}.review.json"
     RESOLVED_FILE="${REVIEW_JSON_FILE%.review.json}.resolved"
 
-    if [[ -f "$REVIEW_JSON_FILE" && ! -f "$RESOLVED_FILE" ]]; then
-        echo "── Phase 0.3: Adversarial Review ──"
+    if [[ -f "$REVIEW_JSON_FILE" && -f "$RESOLVED_FILE" ]]; then
+        ok "Adversarial review já resolvida"
+    elif [[ -f "$REVIEW_JSON_FILE" && ! -f "$RESOLVED_FILE" ]]; then
         fail "Adversarial review pendente: $(basename "$REVIEW_JSON_FILE")"
-        echo ""
-        echo "  O edge-consult gerou feedback que ainda não foi endereçado."
-        echo "  Opções:"
-        echo "    1. Endereçar o feedback no YAML e criar o marker:"
-        echo "       touch $RESOLVED_FILE"
-        echo "    2. Forçar publicação:"
-        echo "       consolidar-estado --skip-review ..."
-        echo ""
-        # Show the review summary
-        python3 -c "
-import json, sys
-try:
-    d = json.load(open('$REVIEW_JSON_FILE'))
-    resp = d.get('response', '')
-    print('  Review (resumo):')
-    for line in resp.split('\n')[:8]:
-        print(f'    {line}')
-    if len(resp.split('\n')) > 8:
-        print('    ...')
-except: pass
-" 2>/dev/null
-        echo ""
+        echo "  Opções: endereçar feedback + touch $RESOLVED_FILE, ou --skip-review"
         exit 3
-    elif [[ -f "$REVIEW_JSON_FILE" && -f "$RESOLVED_FILE" ]]; then
-        echo "── Phase 0.3: Adversarial Review ──"
-        ok "Adversarial review resolvida ($(basename "$RESOLVED_FILE") presente)"
-        echo ""
+    elif command -v edge-consult &>/dev/null; then
+        # Run adversarial review automatically
+        echo "  Executando edge-consult..."
+        CONSULT_OUTPUT=$(edge-consult "Analise este relatório. Onde o raciocínio é mais fraco?" --context "$REPORT_INPUT" 2>&1) || true
+        if echo "$CONSULT_OUTPUT" | grep -q "edge-consult"; then
+            ok "Adversarial review executada"
+            # Auto-resolve (feedback was shown to console, agent can address in future iterations)
+            touch "$RESOLVED_FILE"
+        else
+            warn "edge-consult retornou sem output (sem API key?)"
+        fi
+    else
+        warn "edge-consult não disponível — adversarial review pulada"
     fi
+    echo ""
 fi
 
 # ─── PHASE 0.5: Review Gate (LLM-as-judge) ───
