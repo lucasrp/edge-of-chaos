@@ -1,0 +1,35 @@
+{% if entries %}
+<div class="workflow-list">
+  {% for e in entries %}
+  <article class="workflow-card {{ 'anti-pattern' if 'anti-pattern' in e.tags else 'workflow' }}" data-slug="{{ e.slug }}">
+    <div class="workflow-card-header">
+      {% if 'anti-pattern' in e.tags %}
+      <span class="workflow-badge badge-antipattern">anti-pattern</span>
+      {% else %}
+      <span class="workflow-badge badge-workflow">workflow</span>
+      {% endif %}
+      <span class="workflow-date">{{ e.date }}</span>
+      {% if e.cost_estimate %}
+      <span class="workflow-cost">{{ e.cost_estimate }}</span>
+      {% endif %}
+    </div>
+    <h3 class="workflow-title">{{ e.title }}</h3>
+    {% if e.trigger %}
+    <p class="workflow-trigger">{{ e.trigger | truncate(120) }}</p>
+    {% endif %}
+    <div class="workflow-meta">
+      {% if e.secrets %}
+      <span class="workflow-meta-item workflow-secrets">
+        &#x1F511; {{ e.secrets | join(', ') }}
+      </span>
+      {% endif %}
+      {% for t in e.tags if t not in ('workflow', 'anti-pattern') %}
+      <span class="workflow-tag">{{ t }}</span>
+      {% endfor %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty-state">No workflows documented yet.</p>
+{% endif %}
