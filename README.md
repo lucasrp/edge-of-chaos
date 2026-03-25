@@ -1,77 +1,143 @@
-# Agent Template — Claude Code Autonomous Agent
+# edge-of-chaos — Autonomous AI Agent Framework
 
-Template for creating autonomous AI agents based on Claude Code CLI.
+Framework for deploying autonomous AI agents based on Claude Code. Each agent has its own identity, blog, skills, and heartbeat cycle.
 
-## Quick Install
+## Quick Start (5 min)
 
 ```bash
-# Clone and run installer
-git clone https://github.com/alexlopespereira/agent-template.git my-agent
-cd my-agent && bash install.sh
+# 1. Clone
+git clone https://github.com/lucasrp/edge-of-chaos.git my-agent
+cd my-agent
+
+# 2. Configure (edit 5 required fields)
+cp agent.yaml.example agent.yaml
+nano agent.yaml
+
+# 3. Render + Install
+python3 tools/edge-render
+python3 tools/edge-apply
+
+# 4. Validate
+python3 tools/edge-doctor --config agent.yaml
 ```
 
-Or use as a GitHub template:
+Done. Blog running, 22 skills installed, heartbeat ready.
+
+## agent.yaml
+
+The single source of truth. Five required fields:
+
+```yaml
+name: my-agent                    # unique name (lowercase, hyphens)
+codename: ma                      # prefix for skills (/ma-pesquisa, /ma-heartbeat)
+missao: "What this agent does"    # 1-2 sentences
+persona: "How it communicates"    # tone and style
+dominio: "government"             # work domain
+```
+
+Everything else has smart defaults. See `agent.yaml.example` for all options.
+
+## What edge-apply Does (8 phases)
+
+1. **Render** — generates all files from agent.yaml + templates
+2. **Directories** — creates blog/, reports/, logs/, etc.
+3. **Skills** — installs 22 skills with your prefix to ~/.claude/skills/
+4. **Identity** — CLAUDE.md, memory files, config, onboarding templates
+5. **Blog venv** — Flask server with FTS5 search
+6. **Tools venv** — edge-consult, review-gate, edge-deepresearch
+7. **Systemd** — heartbeat timer + blog server service
+8. **Tools** — CLI tools + symlinks to ~/.local/bin/
+
+## After Install
+
 ```bash
-gh repo create my-agent --template alexlopespereira/agent-template --private
-cd my-agent && bash install.sh
+# Start blog
+systemctl --user enable --now blog-server
+
+# Start autonomous heartbeat (every 2h)
+systemctl --user enable --now agent-heartbeat.timer
+
+# Or run manually
+claude -p '/PREFIX-heartbeat'
 ```
 
-## What the Installer Does
+The first heartbeat publishes a self-introduction and delivers the first useful content about the domain. No warmup phase — the agent produces from day one.
 
-1. Asks questions about your specific installation
-2. Substitutes placeholders in all configuration files
-3. Sets up the autonomous heartbeat cycle (systemd/launchd/Task Scheduler)
-4. Connects your business knowledge base
-5. Triggers the first cycle to validate
-
-## Structure After Installation
+## Structure
 
 ```
-your-repo/
-├── CLAUDE.md           ← agent instructions (personalized)
-├── MEMORY.md           ← persistent memory (starts empty)
-├── heartbeat.sh        ← autonomous execution script
-├── kb.config           ← knowledge base configuration
-├── tools/              ← agent CLI tools
-├── memory/             ← structured memory files
-│   ├── rules-core.md   ← cross-cutting rules (max 15)
-│   ├── personality.md  ← cognitive profile
-│   ├── metodo.md       ← Feynman method
-│   ├── debugging.md    ← error log
-│   └── topics/         ← thematic knowledge clusters
-├── blog/entries/       ← agent blog entries
-├── reports/            ← HTML reports
-├── logs/               ← execution logs
-├── secrets/            ← API keys (gitignored)
-└── systemd/            ← systemd units (Linux)
+my-agent/
+├── agent.yaml              ← your config (gitignored)
+├── agent.yaml.example      ← template with all fields
+├── config/
+│   ├── pre-skill.md        ← loaded before every skill (identity, context)
+│   ├── post-skill.md       ← runs after every skill (notify, update strategy)
+│   ├── strategy.md         ← operator direction (agent reads, proposes)
+│   ├── interests.md        ← shared interests (guides exploration)
+│   └── branding.yaml       ← agent phenotype (name, colors, blog config)
+├── skills/                 ← 22 core skills (genotype)
+├── tools/                  ← CLI tools (edge-consult, edge-fontes, etc.)
+├── blog/                   ← Flask + htmx blog server
+├── search/                 ← FTS5 + vector search engine
+├── templates/              ← .tpl files rendered by edge-render
+├── memory/                 ← personality, rules, method (genotype)
+├── autonomy/               ← autonomy policy, capabilities, frontier
+└── systemd/                ← service + timer templates
 ```
-
-## Prerequisites
-
-- **Claude Code**: `npm install -g @anthropic-ai/claude-code`
-- **GitHub CLI**: `gh auth login`
-- **Python 3.10+** with pip and venv
-- **ANTHROPIC_API_KEY** configured
-- **OPENAI_API_KEY** for adversarial review (review-gate, edge-consult)
 
 ## Key Concepts
 
-### Heartbeat
-The agent wakes up at a configurable interval, evaluates context (pending tasks, user messages, investigation threads), and dispatches an appropriate skill — research, discovery, creative leisure, reflection, strategy, or execution.
+**Genotype / Phenotype / Epigenetics**
 
-### Adversarial Review
-The agent never evaluates its own output. Before publishing, it submits conclusions to a different model (GPT) via `edge-consult` for adversarial review. This creates a checks-and-balances loop.
+Every change goes through one question: is this genotype or phenotype?
 
-### Knowledge Clusters
-Persistent knowledge organized as text that changes behavior. Rules in `rules-core.md`, thematic clusters in `memory/topics/`. The test: "if I delete this file and behavior doesn't change, it was clutter."
+- **Genotype** — shared code (skills, tools, blog server). Lives in the repo. Propagates via git pull.
+- **Phenotype** — instance config (agent.yaml, branding, strategy). Per-agent. Generated at install.
+- **Epigenetics** — runtime state (blog entries, reports, memory). Never replicates.
 
-### Pipeline (consolidar-estado)
-8-phase atomic publication pipeline: state snapshot, adversarial review, quality gate, blog publish, HTML report, meta-report, state commit, git structured commit.
+**Heartbeat**
 
-## Documentation
+The agent wakes every 2h via systemd timer. It evaluates context (sessions, threads, tasks, health) and dispatches one skill — research, discovery, creative break, reflection, strategy, or execution.
 
-See [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md) for detailed setup and operation guide.
+**Adversarial Review**
 
-## Architecture
+The agent never evaluates its own output. Before publishing, it submits conclusions to GPT/Grok via `edge-consult`. This creates a cross-model review loop.
 
-See [REPLICATION_BLUEPRINT.md](REPLICATION_BLUEPRINT.md) for the full architectural blueprint.
+**Onboarding**
+
+New agents produce from the first heartbeat. A checklist tracks progress (identity, production, recognition, calibration) and completes organically as the agent delivers real content. No sequential phases — onboarding is concurrent with production.
+
+**Publication Pipeline (consolidar-estado)**
+
+8-phase atomic publication: state snapshot → adversarial review → quality gate → blog publish → HTML report → meta-report → state commit → git commit.
+
+## Tools
+
+| Tool | Purpose |
+|------|---------|
+| `edge-render` | Generate files from agent.yaml + templates |
+| `edge-apply` | Provision host (idempotent, 8 phases) |
+| `edge-doctor` | Validate installation (30 checks) |
+| `edge-consult` | Cross-model adversarial review |
+| `edge-fontes` | Unified external source search |
+| `edge-index` | Index content into FTS5 + vectors |
+| `edge-search` | Hybrid search (semantic + keyword) |
+| `edge-task` | Event-sourced task ledger |
+| `edge-event` | Structured event logging |
+| `review-gate` | LLM-as-judge quality gate |
+
+## Requirements
+
+- **Claude Code** CLI (`npm install -g @anthropic-ai/claude-code`)
+- **Python 3.10+** with venv
+- **Git**
+- **Linux** with systemd (or macOS with launchd)
+
+API keys (optional, degrade gracefully):
+- `OPENAI_API_KEY` — enables adversarial review and quality gates
+- `EXA_API_KEY` — enables semantic search via Exa
+- `XAI_API_KEY` — enables Grok as second reviewer
+
+## License
+
+MIT
