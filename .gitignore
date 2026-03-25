@@ -1,15 +1,57 @@
 # Secrets e configurações locais — NUNCA commitar
 .install-answers.env
-.env
+agent.env
 *.env
 !.env.example
 !models.env.example
 
 # Sistema de secrets
 secrets/_shared.yaml
+secrets/keys.env
 experiments/*/secrets.yaml
 !secrets/_shared.template.yaml
 !secrets/secrets.template.yaml
+
+# Agent-specific config (gerado pelo installer — só .tpl é genotype)
+agent.yaml
+config/branding.yaml
+config/strategy.md
+config/interests.md
+config/pre-skill.md
+config/features.yaml
+memory/personality.md
+onboarding.md
+onboarding_checklist.md
+briefing.md
+
+# Rendered templates (gerados pelo edge-render — só .tpl é genotype)
+templates/CLAUDE.md
+templates/MEMORY.md
+templates/heartbeat.sh
+templates/heartbeat.plist
+templates/heartbeat.ps1
+templates/heartbeat-skill.md
+templates/kb.config
+templates/onboarding.md
+templates/onboarding_checklist.md
+systemd/agent-heartbeat.service
+systemd/agent-heartbeat.timer
+systemd/blog-server.service
+
+# Runtime state (epigenetics — never replicate)
+blog/entries/*.md
+!blog/entries/.gitkeep
+blog/diffs/
+!blog/diffs/.gitkeep
+blog/blog_fts.db
+meta-reports/
+state-snapshots/
+scratchpads/
+search/edge-memory.db
+health/
+reports/*.html
+reports/*.yaml
+!reports/.gitkeep
 
 # Logs
 logs/
@@ -31,5 +73,9 @@ __pycache__/
 venv/
 .venv/
 
-# Reports gerados
-reports/*.html
+# Ralph runtime
+tools/ralph/progress.txt
+tools/ralph/prd.json
+tools/ralph/.last-branch
+tools/ralph/archive/
+prd.json
