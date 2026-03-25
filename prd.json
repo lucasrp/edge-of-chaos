@@ -1,0 +1,80 @@
+{
+  "project": "edge-of-chaos blog",
+  "branchName": "ralph/workflow-section",
+  "description": "Workflow Section — dedicated tab for operational workflows and anti-patterns, separated from regular blog entries",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add workflows tab to blog navigation",
+      "description": "As a user, I want a dedicated 'workflows' tab in the blog so operational procedures don't pollute the main feed.",
+      "acceptanceCriteria": [
+        "New tab 'workflows' appears in the view-tabs bar in blog/templates/base.html, between 'feed' and 'chat'",
+        "Tab links to /blog/?tab=workflows",
+        "Tab shows active state when selected",
+        "Regular feed (/blog/?tab=feed) no longer shows entries tagged with 'workflow' or 'anti-pattern'"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "Tabs are in blog/templates/base.html line 32-37. Feed filtering is in blog/app.py get_entries() function."
+    },
+    {
+      "id": "US-002",
+      "title": "Workflows list view with metadata",
+      "description": "As a user, I want to see all workflows in a clean list showing trigger, secrets needed, and cost estimate.",
+      "acceptanceCriteria": [
+        "When tab=workflows, the htmx content area shows a list of all entries tagged 'workflow' or 'anti-pattern'",
+        "Each workflow card shows: title, date, trigger (from '## Trigger' section), secrets used (from frontmatter 'secrets' field), cost_estimate (from frontmatter)",
+        "Anti-patterns have a visual distinction (red/orange badge) vs regular workflows (blue badge)",
+        "List is sorted by date descending",
+        "Create new Jinja2 partial: blog/templates/partials/workflow_list.html"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Workflow entries have frontmatter fields: tags (contains 'workflow' or 'anti-pattern'), secrets (list), cost_estimate (string). Body has ## sections: Trigger, Passos, Secrets, Armadilhas, Quando funciona, Quando falha."
+    },
+    {
+      "id": "US-003",
+      "title": "Workflow detail view with step navigation",
+      "description": "As a user, I want to click a workflow and see its full content with clear step-by-step navigation.",
+      "acceptanceCriteria": [
+        "Clicking a workflow card expands it inline (htmx) or navigates to detail view",
+        "Detail shows all markdown sections rendered as HTML",
+        "Code blocks have copy-to-clipboard button",
+        "Sections (Trigger, Passos, Armadilhas, etc.) have anchor-style visual separation",
+        "Back button returns to workflow list",
+        "Create new htmx endpoint: /htmx/workflow/<slug>"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "The blog already renders markdown via the 'markdown' Python package. Reuse existing markdown rendering from feed entries."
+    },
+    {
+      "id": "US-004",
+      "title": "Workflow access stats",
+      "description": "As a user, I want to see how often each workflow has been consulted so I know which ones are actually used.",
+      "acceptanceCriteria": [
+        "Each time a workflow detail is viewed, increment a counter in blog_fts.db (new table: workflow_views with columns slug, viewed_at)",
+        "Workflow list shows view count badge next to each entry",
+        "Most-viewed workflows float to top (optional sort toggle: by date or by views)",
+        "API endpoint: GET /api/workflow-stats returns JSON with view counts per slug"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "blog_fts.db already exists for FTS5 search. Add a simple views table. No authentication needed for stats."
+    },
+    {
+      "id": "US-005",
+      "title": "Filter feed to exclude workflows",
+      "description": "As a user, I don't want workflows and anti-patterns cluttering the main feed.",
+      "acceptanceCriteria": [
+        "The main feed (tab=feed) filters out entries where tags contain 'workflow' or 'anti-pattern'",
+        "The /htmx/entries endpoint respects this filter when tab != 'workflows'",
+        "The /api/entries endpoint also respects this filter by default (add ?include_workflows=true to override)",
+        "Existing workflow entries still appear in search results"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "This is critical — workflows in the feed was the original complaint. Implement alongside US-001."
+    }
+  ]
+}
