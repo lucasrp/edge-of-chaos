@@ -459,6 +459,51 @@ def phase_tools(cfg, dry_run):
                 shutil.copy2(f, search_dst / f.name)
         ok("Search tools copiados")
 
+    # Create search venv (sqlite-vec, openai for embeddings)
+    search_venv = search_dst / ".venv"
+    search_reqs = search_dst / "requirements.txt"
+    if not search_reqs.exists():
+        search_reqs = REPO_ROOT / "search" / "requirements.txt"
+    if search_reqs.exists() and not (search_venv / "bin" / "python3").exists():
+        if not dry_run:
+            result = run(f"python3 -m venv {search_venv}")
+            if result.returncode == 0:
+                pip = search_venv / "bin" / "pip"
+                run(f"{pip} install -q -r {search_reqs}")
+                ok("Search venv criado")
+            else:
+                warn("Search venv falhou")
+    elif (search_venv / "bin" / "python3").exists():
+        ok("Search venv já existe")
+
+    # Create edge-index and edge-search wrappers
+    if not dry_run:
+        for wrapper_name, script in [("edge-index", "ingest.py"), ("edge-search", "search.py")]:
+            wrapper = local_bin / wrapper_name
+            wrapper.write_text(
+                f"#!/bin/bash\n"
+                f'cd "{edge}"\n'
+                f'"{search_dst / ".venv" / "bin" / "python3"}" "{search_dst / script}" "$@"\n'
+            )
+            wrapper.chmod(0o755)
+        ok("edge-index + edge-search wrappers criados")
+
+    # Ensure .bashrc has PATH
+    bashrc = Path.home() / ".bashrc"
+    if not dry_run:
+        bashrc_content = bashrc.read_text() if bashrc.exists() else ""
+        additions = []
+        if ".local/bin" not in bashrc_content:
+            additions.append('export PATH="$HOME/.local/bin:$PATH"')
+        if "EDGE_DIR" not in bashrc_content:
+            additions.append(f'export EDGE_DIR="{edge}"')
+        if additions:
+            with open(bashrc, "a") as f:
+                f.write("\n" + "\n".join(additions) + "\n")
+            ok(f".bashrc atualizado ({len(additions)} linhas)")
+        else:
+            ok(".bashrc já configurado")
+
     # Copy bin/ (health scripts)
     bin_src = REPO_ROOT / "bin"
     bin_dst = edge / "bin"
