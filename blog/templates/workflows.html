@@ -5,6 +5,18 @@
   <div class="workflow-header">
     <h2>Workflows & Anti-Patterns</h2>
     <p class="workflow-subtitle">{{ entries | length }} operational procedures documented</p>
+    <div class="workflow-sort-toggle">
+      <a href="/blog/?tab=workflows&sort=date"
+         class="workflow-sort-btn {{ 'active' if sort_by|default('date') == 'date' }}"
+         hx-get="/blog/?tab=workflows&sort=date"
+         hx-target="#tabContent"
+         hx-push-url="true">by date</a>
+      <a href="/blog/?tab=workflows&sort=views"
+         class="workflow-sort-btn {{ 'active' if sort_by|default('date') == 'views' }}"
+         hx-get="/blog/?tab=workflows&sort=views"
+         hx-target="#tabContent"
+         hx-push-url="true">by views</a>
+    </div>
   </div>
 
   {% include 'partials/workflow_list.html' %}

@@ -14,6 +14,9 @@
       <span class="workflow-badge badge-workflow">workflow</span>
       {% endif %}
       <span class="workflow-date">{{ e.date }}</span>
+      {% if e.view_count is defined and e.view_count > 0 %}
+      <span class="workflow-views-badge" title="views">&#x1F441; {{ e.view_count }}</span>
+      {% endif %}
       {% if e.cost_estimate %}
       <span class="workflow-cost">{{ e.cost_estimate }}</span>
       {% endif %}
