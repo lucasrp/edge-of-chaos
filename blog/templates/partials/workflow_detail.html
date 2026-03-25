@@ -1,0 +1,59 @@
+<div class="workflow-detail">
+  <div class="workflow-detail-nav">
+    <button class="workflow-back-btn"
+            hx-get="/blog/?tab=workflows"
+            hx-target="#tabContent"
+            hx-push-url="true"
+            onclick="if(!this.getAttribute('hx-get')){history.back()}">
+      &larr; back to workflows
+    </button>
+  </div>
+
+  <article class="workflow-detail-content">
+    <div class="workflow-detail-header">
+      {% if 'anti-pattern' in entry.tags %}
+      <span class="workflow-badge badge-antipattern">anti-pattern</span>
+      {% else %}
+      <span class="workflow-badge badge-workflow">workflow</span>
+      {% endif %}
+      <span class="workflow-date">{{ entry.date }}</span>
+      {% if entry.cost_estimate %}
+      <span class="workflow-cost">{{ entry.cost_estimate }}</span>
+      {% endif %}
+    </div>
+
+    <h2 class="workflow-detail-title">{{ entry.title }}</h2>
+
+    {% if entry.secrets %}
+    <div class="workflow-detail-secrets">
+      &#x1F511; secrets: {{ entry.secrets | join(', ') }}
+    </div>
+    {% endif %}
+
+    <div class="workflow-detail-body">
+      {{ entry.body_html | safe }}
+    </div>
+  </article>
+</div>
+
+<script>
+// Copy-to-clipboard for code blocks in workflow detail
+(function() {
+  var blocks = document.querySelectorAll('.workflow-detail-body pre');
+  blocks.forEach(function(pre) {
+    var btn = document.createElement('button');
+    btn.className = 'code-copy-btn';
+    btn.textContent = 'copy';
+    btn.addEventListener('click', function() {
+      var code = pre.querySelector('code');
+      var text = code ? code.textContent : pre.textContent;
+      navigator.clipboard.writeText(text).then(function() {
+        btn.textContent = 'copied!';
+        setTimeout(function() { btn.textContent = 'copy'; }, 1500);
+      });
+    });
+    pre.style.position = 'relative';
+    pre.appendChild(btn);
+  });
+})();
+</script>
