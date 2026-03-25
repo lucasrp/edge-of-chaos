@@ -14,6 +14,7 @@ Usage:
 import argparse
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,20 @@ YELLOW = "\033[33m"
 RED = "\033[31m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
+
+
+def _reprefix(content: str, prefix: str) -> str:
+    """Replace ed- prefix with the target prefix in skill content.
+
+    Handles: /ed-pesquisa, name: ed-pesquisa, `ed-pesquisa`, "ed-pesquisa"
+    Does NOT touch words like 'described', 'used', 'based' (no slash/quote before ed-).
+    """
+    content = re.sub(r'/ed-', f'/{prefix}-', content)
+    content = re.sub(r'(?<=name: )ed-', f'{prefix}-', content)
+    content = re.sub(r'`ed-', f'`{prefix}-', content)
+    content = re.sub(r'"ed-', f'"{prefix}-', content)
+    content = content.replace("/PREFIX-", f"/{prefix}-")
+    return content
 
 
 def ok(msg): print(f"  {GREEN}✓{RESET} {msg}")
@@ -133,8 +148,7 @@ def phase_skills(cfg, dry_run):
         else:
             target.mkdir(parents=True, exist_ok=True)
             content = skill_file.read_text()
-            content = content.replace("/PREFIX-", f"/{prefix}-")
-            content = content.replace("PREFIX-", f"{prefix}-")
+            content = _reprefix(content, prefix)
             (target / "SKILL.md").write_text(content)
         installed += 1
 
@@ -147,8 +161,7 @@ def phase_skills(cfg, dry_run):
         if not dry_run:
             hb_dst.parent.mkdir(parents=True, exist_ok=True)
             content = hb_rendered.read_text()
-            content = content.replace("/PREFIX-", f"/{prefix}-")
-            content = content.replace("PREFIX-", f"{prefix}-")
+            content = _reprefix(content, prefix)
             hb_dst.write_text(content)
         ok(f"Heartbeat skill (rendered) → {prefix}-heartbeat")
 
