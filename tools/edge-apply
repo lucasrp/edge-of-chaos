@@ -334,7 +334,9 @@ def phase_systemd(cfg, dry_run):
 
     if not dry_run:
         run("systemctl --user daemon-reload")
-    ok("systemd daemon-reload")
+        run("systemctl --user enable blog-server.service")
+        run("systemctl --user restart blog-server.service")
+    ok("systemd daemon-reload + blog-server enabled + started")
     return True
 
 
