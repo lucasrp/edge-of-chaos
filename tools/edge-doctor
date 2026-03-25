@@ -72,12 +72,14 @@ def check_port(port: int, host: str = "127.0.0.1"):
         warn(f"Blog NÃO respondendo em {host}:{port} — iniciar com systemctl --user start blog-server")
 
 
-def check_secret(env_file: Path, key: str):
+def check_secret(env_file: Path, key: str, required: bool = True):
     if not env_file.exists():
-        fail(f"Secrets file não encontrado: {env_file}")
+        if required:
+            fail(f"Secrets file não encontrado: {env_file}")
+        else:
+            warn(f"Secrets file não encontrado: {env_file}")
         return
     content = env_file.read_text()
-    # Check for the key without quotes around value
     for line in content.splitlines():
         if line.startswith(f"{key}="):
             val = line.split("=", 1)[1].strip()
@@ -86,9 +88,15 @@ def check_secret(env_file: Path, key: str):
             elif val:
                 ok(f"{key}: configurado")
             else:
-                fail(f"{key}: vazio em {env_file}")
+                if required:
+                    fail(f"{key}: vazio em {env_file}")
+                else:
+                    warn(f"{key}: vazio (opcional — funcionalidade degradada)")
             return
-    warn(f"{key}: não encontrado em {env_file}")
+    if required:
+        warn(f"{key}: não encontrado em {env_file}")
+    else:
+        warn(f"{key}: não encontrado (opcional)")
 
 
 def check_residual_placeholders(path: Path, label: str):
@@ -176,8 +184,8 @@ def main():
     # 4. Secrets
     print("\033[1m[4/6] Secrets\033[0m")
     keys_env = edge_home / "secrets" / "keys.env"
-    check_secret(keys_env, "ANTHROPIC_API_KEY")
-    check_secret(keys_env, "OPENAI_API_KEY")
+    check_secret(keys_env, "ANTHROPIC_API_KEY", required=False)  # OAuth works without it
+    check_secret(keys_env, "OPENAI_API_KEY", required=False)    # degrades: no review-gate/consult
     print()
 
     # 5. Services
