@@ -94,6 +94,12 @@ def get_fts_conn():
             tokenize='porter unicode61 remove_diacritics 2'
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS workflow_views (
+            slug TEXT NOT NULL,
+            viewed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+        )
+    """)
     return conn
 
 
@@ -135,6 +141,24 @@ def fts_search(query, limit=20):
         results = []
     conn.close()
     return results
+
+
+def record_workflow_view(slug):
+    """Record a workflow detail view."""
+    conn = get_fts_conn()
+    conn.execute("INSERT INTO workflow_views (slug) VALUES (?)", (slug,))
+    conn.commit()
+    conn.close()
+
+
+def get_workflow_view_counts():
+    """Return {slug: count} for all workflow views."""
+    conn = get_fts_conn()
+    rows = conn.execute(
+        "SELECT slug, COUNT(*) AS cnt FROM workflow_views GROUP BY slug"
+    ).fetchall()
+    conn.close()
+    return {r["slug"]: r["cnt"] for r in rows}
 
 
 # ─── Data loading ───
@@ -494,11 +518,18 @@ def blog_index():
         # Show only workflow/anti-pattern entries
         workflow_entries = [e for e in entries
                            if WORKFLOW_TAGS.intersection(e.get("tags", []))]
+        view_counts = get_workflow_view_counts()
+        for e in workflow_entries:
+            e["view_count"] = view_counts.get(e["slug"], 0)
+        sort_by = request.args.get("sort", "date")
+        if sort_by == "views":
+            workflow_entries.sort(key=lambda e: e["view_count"], reverse=True)
         render_page_html(workflow_entries)
         return render_template("workflows.html",
                                tab=tab,
                                entries=workflow_entries,
                                stats=stats,
+                               sort_by=sort_by,
                                is_htmx=request.headers.get("HX-Request") == "true")
 
     if tab == "feed":
@@ -640,6 +671,8 @@ def htmx_workflow_detail(slug):
     entry = next((e for e in entries if e["slug"] == slug), None)
     if not entry:
         abort(404)
+    # Record view
+    record_workflow_view(slug)
     render_page_html([entry])
     return render_template("partials/workflow_detail.html", entry=entry)
 
@@ -738,6 +771,13 @@ def get_stats_data():
 @app.route("/api/stats")
 def api_stats():
     return jsonify(get_stats_data())
+
+
+@app.route("/api/workflow-stats")
+def api_workflow_stats():
+    """Return view counts per workflow slug."""
+    counts = get_workflow_view_counts()
+    return jsonify(counts)
 
 
 @app.route("/api/entries")
