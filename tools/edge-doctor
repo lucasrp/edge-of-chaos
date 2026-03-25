@@ -116,13 +116,13 @@ def check_systemd_timer():
     """Check if heartbeat timer is enabled."""
     try:
         result = subprocess.run(
-            ["systemctl", "--user", "is-enabled", "claude-heartbeat.timer"],
+            ["systemctl", "--user", "is-enabled", "agent-heartbeat.timer"],
             capture_output=True, text=True, timeout=5
         )
         if result.stdout.strip() == "enabled":
             ok("Heartbeat timer: enabled")
         else:
-            warn(f"Heartbeat timer: {result.stdout.strip()} — habilitar com: systemctl --user enable --now claude-heartbeat.timer")
+            warn(f"Heartbeat timer: {result.stdout.strip()} — habilitar com: systemctl --user enable --now agent-heartbeat.timer")
     except (FileNotFoundError, subprocess.TimeoutExpired):
         warn("systemctl não disponível — verificar heartbeat manualmente")
 
@@ -188,14 +188,28 @@ def main():
     check_secret(keys_env, "OPENAI_API_KEY", required=False)    # degrades: no review-gate/consult
     print()
 
-    # 5. Services
-    print("\033[1m[5/6] Serviços\033[0m")
+    # 5. Venvs
+    print("\033[1m[5/7] Python venvs\033[0m")
+    blog_venv = edge_home / "blog" / ".venv" / "bin" / "python3"
+    if blog_venv.exists():
+        ok("Blog venv: instalado")
+    else:
+        fail("Blog venv: não encontrado — rodar edge-apply")
+    tools_venv = edge_home / "tools" / ".venv" / "bin" / "python3"
+    if tools_venv.exists():
+        ok("Tools venv: instalado (edge-consult, review-gate)")
+    else:
+        fail("Tools venv: não encontrado — edge-consult/review-gate/deepresearch QUEBRADOS")
+    print()
+
+    # 6. Services
+    print("\033[1m[6/7] Serviços\033[0m")
     check_port(blog_port, "127.0.0.1")
     check_systemd_timer()
     print()
 
-    # 6. Skills
-    print("\033[1m[6/6] Skills\033[0m")
+    # 7. Skills
+    print("\033[1m[7/7] Skills\033[0m")
     skills_dir = Path.home() / ".claude" / "skills"
     prefix = cfg.get("skill_prefix", codename)
     expected_skills = ["heartbeat", "pesquisa", "descoberta", "lazer", "reflexao", "relatorio"]
