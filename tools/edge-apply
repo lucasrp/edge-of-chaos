@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """edge-apply: Provision host from agent.yaml. Idempotent.
 
-Replaces the interactive install.sh. Reads everything from agent.yaml,
-renders templates via edge-render, then provisions: dirs, venv, skills,
-systemd, blog, secrets. Safe to run multiple times.
+Replaces install.sh. Reads everything from agent.yaml, renders templates,
+provisions host. Safe to run multiple times.
 
 Usage:
     edge-apply                         # uses ./agent.yaml
@@ -39,8 +38,6 @@ def header(msg): print(f"\n{BOLD}━━━  {msg}  ━━━{RESET}\n")
 def load_config(path: Path) -> dict:
     with open(path) as f:
         cfg = yaml.safe_load(f)
-
-    # Apply defaults
     cfg.setdefault("codename", cfg.get("name", "agent"))
     cfg.setdefault("skill_prefix", cfg["codename"])
     if not cfg.get("skill_prefix"):
@@ -49,33 +46,28 @@ def load_config(path: Path) -> dict:
     cfg.setdefault("blog_port", 8766)
     cfg.setdefault("blog_host", "auto")
     cfg.setdefault("idioma", "pt-BR")
-    cfg.setdefault("pre_skill", "config/pre-skill.md")
-    cfg.setdefault("post_skill", "config/post-skill.md")
     cfg.setdefault("heartbeat_interval", "2h")
     cfg.setdefault("onboarding_mode", True)
-
     cfg["edge_home_expanded"] = os.path.expanduser(cfg["edge_home"])
     interval_map = {"30min": "30min", "1h": "1h", "2h": "2h", "24h": "24h"}
     cfg["systemd_interval"] = interval_map.get(cfg["heartbeat_interval"], "2h")
-    edge_abs = cfg["edge_home_expanded"]
-    cfg["memory_project_dir"] = edge_abs.replace("/", "-").lstrip("-")
-
+    cfg["memory_project_dir"] = cfg["edge_home_expanded"].replace("/", "-").lstrip("-")
     return cfg
 
 
-def run(cmd, check=True, **kwargs):
-    """Run shell command, return result."""
+def run(cmd, **kwargs):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True, **kwargs)
 
 
-def phase_render(cfg, dry_run):
-    """Phase 1: Render templates via edge-render."""
+# ─── Phase 1: Render ───
+
+def phase_render(config_path, dry_run):
     header("1/7  Render templates")
-    render_cmd = f"python3 {REPO_ROOT / 'tools' / 'edge-render'} --config {cfg['_config_path']}"
+    cmd = f"python3 {REPO_ROOT / 'tools' / 'edge-render'} --config {config_path}"
     if dry_run:
-        render_cmd += " --dry-run"
-    result = run(render_cmd)
-    print(result.stdout)
+        cmd += " --dry-run"
+    result = run(cmd)
+    print(result.stdout.rstrip())
     if result.returncode != 0:
         print(result.stderr)
         fail("edge-render falhou")
@@ -84,58 +76,44 @@ def phase_render(cfg, dry_run):
     return True
 
 
+# ─── Phase 2: Dirs ───
+
 def phase_dirs(cfg, dry_run):
-    """Phase 2: Create directory structure."""
     header("2/7  Diretórios")
     edge = Path(cfg["edge_home_expanded"])
     dirs = [
-        edge / "blog" / "entries",
-        edge / "blog" / "diffs",
-        edge / "blog" / "templates",
-        edge / "blog" / "static",
-        edge / "reports",
-        edge / "meta-reports",
-        edge / "logs",
-        edge / "notes",
-        edge / "threads",
-        edge / "state",
-        edge / "state-snapshots",
-        edge / "scratchpads",
-        edge / "secrets",
-        edge / "search",
-        edge / "health" / "raw",
-        edge / "health" / "last_success",
-        edge / "autonomy",
-        edge / "config",
+        edge / "blog" / "entries", edge / "blog" / "diffs",
+        edge / "reports", edge / "meta-reports", edge / "logs",
+        edge / "notes", edge / "threads", edge / "state",
+        edge / "state-snapshots", edge / "scratchpads",
+        edge / "secrets", edge / "search",
+        edge / "health" / "raw", edge / "health" / "last_success",
+        edge / "autonomy", edge / "config", edge / "templates",
+        Path.home() / ".claude",
     ]
-    claude_dir = Path.home() / ".claude"
-    dirs.append(claude_dir)
-
     for d in dirs:
-        if dry_run:
-            print(f"  [DRY] mkdir -p {d}")
-        else:
+        if not dry_run:
             d.mkdir(parents=True, exist_ok=True)
     ok(f"{len(dirs)} diretórios garantidos")
     return True
 
 
+# ─── Phase 3: Skills ───
+
 def phase_skills(cfg, dry_run):
-    """Phase 3: Install skills with prefix."""
     header("3/7  Skills")
     prefix = cfg["skill_prefix"]
     skills_src = REPO_ROOT / "skills"
     skills_dst = Path.home() / ".claude" / "skills"
 
     if not skills_src.exists():
-        warn(f"Diretório de skills não encontrado: {skills_src}")
+        warn(f"skills/ não encontrado em {REPO_ROOT}")
         return True
 
     installed = 0
     for skill_dir in sorted(skills_src.iterdir()):
         if not skill_dir.is_dir() or skill_dir.name.startswith("."):
             continue
-
         if skill_dir.name == "_shared":
             dst = skills_dst / "_shared"
             if not dry_run:
@@ -145,114 +123,152 @@ def phase_skills(cfg, dry_run):
             ok(f"_shared/ ({len(list(skill_dir.glob('*.md')))} files)")
             continue
 
-        target = skills_dst / f"{prefix}-{skill_dir.name}"
         skill_file = skill_dir / "SKILL.md"
         if not skill_file.exists():
             continue
 
+        target = skills_dst / f"{prefix}-{skill_dir.name}"
         if dry_run:
             print(f"  [DRY] {skill_dir.name} → {prefix}-{skill_dir.name}")
         else:
             target.mkdir(parents=True, exist_ok=True)
             content = skill_file.read_text()
-            # Replace generic prefix references
             content = content.replace("/PREFIX-", f"/{prefix}-")
             content = content.replace("PREFIX-", f"{prefix}-")
             (target / "SKILL.md").write_text(content)
         installed += 1
 
+    # Install rendered heartbeat skill (from templates/)
+    hb_rendered = REPO_ROOT / "templates" / "heartbeat-skill.md"
+    if not hb_rendered.exists():
+        hb_rendered = REPO_ROOT / "templates" / "heartbeat-skill.md.tpl"
+    if hb_rendered.exists():
+        hb_dst = skills_dst / f"{prefix}-heartbeat" / "SKILL.md"
+        if not dry_run:
+            hb_dst.parent.mkdir(parents=True, exist_ok=True)
+            content = hb_rendered.read_text()
+            content = content.replace("/PREFIX-", f"/{prefix}-")
+            content = content.replace("PREFIX-", f"{prefix}-")
+            hb_dst.write_text(content)
+        ok(f"Heartbeat skill (rendered) → {prefix}-heartbeat")
+
     ok(f"{installed} skills instaladas com prefixo {prefix}-")
     return True
 
 
-def phase_claude_md(cfg, dry_run):
-    """Phase 4: Install CLAUDE.md and memory files."""
-    header("4/7  CLAUDE.md + Memory")
+# ─── Phase 4: CLAUDE.md + Config + Memory ───
+
+def phase_identity(cfg, dry_run):
+    header("4/7  CLAUDE.md + Config + Memory + Onboarding")
     edge = Path(cfg["edge_home_expanded"])
-    claude_md_src = REPO_ROOT / "templates" / "CLAUDE.md"
-    claude_md_dst = Path.home() / ".claude" / "CLAUDE.md"
 
-    if claude_md_src.exists():
-        if dry_run:
-            print(f"  [DRY] cp {claude_md_src} → {claude_md_dst}")
-        else:
-            shutil.copy2(claude_md_src, claude_md_dst)
-        ok(f"CLAUDE.md → {claude_md_dst}")
+    # CLAUDE.md → ~/.claude/CLAUDE.md
+    claude_src = REPO_ROOT / "templates" / "CLAUDE.md"
+    claude_dst = Path.home() / ".claude" / "CLAUDE.md"
+    if claude_src.exists():
+        if not dry_run:
+            shutil.copy2(claude_src, claude_dst)
+        ok(f"CLAUDE.md → {claude_dst}")
     else:
-        warn("templates/CLAUDE.md não encontrado (render primeiro?)")
+        fail("templates/CLAUDE.md não encontrado — rode edge-render primeiro")
+        return False
 
-    # Copy rendered config files to edge_home
-    for cfg_file in ["pre-skill.md", "post-skill.md", "strategy.md",
-                      "interests.md", "features.yaml", "branding.yaml"]:
-        src = REPO_ROOT / "config" / cfg_file
-        dst = edge / "config" / cfg_file
-        if src.exists():
-            if not dry_run:
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dst)
+    # Config files → edge_home/config/ (skip if same dir)
+    config_files = ["pre-skill.md", "post-skill.md", "strategy.md",
+                    "interests.md", "features.yaml", "branding.yaml",
+                    "paths.py", "paths.sh", "branding.py"]
+    config_src = REPO_ROOT / "config"
+    config_dst = edge / "config"
+    if config_src.resolve() != config_dst.resolve():
+        for f in config_files:
+            src = config_src / f
+            if src.exists() and not dry_run:
+                config_dst.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, config_dst / f)
+        ok(f"Config → {config_dst}")
+    else:
+        ok("Config: repo = edge_home (in-place)")
 
-    # Copy memory templates
-    memory_dir = edge / "memory" if (edge / "memory").exists() else REPO_ROOT / "memory"
-    for mem_file in ["personality.md", "rules-core.md", "metodo.md",
-                      "debugging.md", "knowledge-design.md"]:
-        src = REPO_ROOT / "memory" / mem_file
-        dst_mem = Path.home() / ".claude" / "projects" / cfg["memory_project_dir"] / "memory"
-        if src.exists():
-            if not dry_run:
-                dst_mem.mkdir(parents=True, exist_ok=True)
-                # Only copy if not already exists (don't overwrite epigenetics)
-                dst_file = dst_mem / mem_file
-                if not dst_file.exists():
-                    shutil.copy2(src, dst_file)
-
-    # Copy onboarding files
-    for onb_file in ["onboarding.md", "onboarding_checklist.md"]:
-        src = REPO_ROOT / "templates" / onb_file
-        dst = edge / onb_file
-        if src.exists() and not dry_run:
+    # Memory → ~/.claude/projects/{project}/memory/ (only if not exists)
+    mem_dst = Path.home() / ".claude" / "projects" / cfg["memory_project_dir"] / "memory"
+    mem_files = ["personality.md", "rules-core.md", "metodo.md",
+                 "debugging.md", "knowledge-design.md"]
+    created = 0
+    for f in mem_files:
+        src = REPO_ROOT / "memory" / f
+        dst = mem_dst / f
+        if src.exists() and not dst.exists() and not dry_run:
+            mem_dst.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
+            created += 1
+    ok(f"Memory: {created} novos (existentes preservados) → {mem_dst}")
 
-    # Copy quick_win_archetypes and self_intro_template
+    # Onboarding files → edge_home/
+    for onb in ["onboarding.md", "onboarding_checklist.md"]:
+        src = REPO_ROOT / "templates" / onb
+        dst = edge / onb
+        if src.exists() and not dst.exists() and not dry_run:
+            shutil.copy2(src, dst)
     for tmpl in ["quick_win_archetypes.md", "self_intro_template.md"]:
         src = REPO_ROOT / "templates" / tmpl
         dst = edge / "templates" / tmpl
         if src.exists() and not dry_run:
-            dst.parent.mkdir(parents=True, exist_ok=True)
+            (edge / "templates").mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
+    ok("Onboarding templates copiados")
 
-    ok("Config + memory + onboarding files instalados")
+    # Autonomy files
+    auto_src = REPO_ROOT / "autonomy"
+    auto_dst = edge / "autonomy"
+    if auto_src.exists() and auto_src.resolve() != auto_dst.resolve():
+        if not dry_run:
+            auto_dst.mkdir(parents=True, exist_ok=True)
+            for f in auto_src.glob("*.md"):
+                shutil.copy2(f, auto_dst / f.name)
+        ok("Autonomy files copiados")
+
     return True
 
 
+# ─── Phase 5: Blog venv ───
+
 def phase_venv(cfg, dry_run, skip_venv=False):
-    """Phase 5: Python venv for blog."""
-    header("5/7  Python venv (blog)")
+    header("5/7  Blog (venv + files)")
     if skip_venv:
-        warn("--skip-venv: pulando criação de venv")
+        warn("--skip-venv: pulando")
         return True
 
     edge = Path(cfg["edge_home_expanded"])
-    venv_dir = edge / "blog" / ".venv"
+    blog_dst = edge / "blog"
+    venv_dir = blog_dst / ".venv"
 
-    if venv_dir.exists():
+    # Copy blog app files (if repo != edge_home)
+    blog_src = REPO_ROOT / "blog"
+    if blog_src.resolve() != blog_dst.resolve():
+        if not dry_run:
+            for f in blog_src.glob("*.py"):
+                shutil.copy2(f, blog_dst / f.name)
+            for f in blog_src.glob("*.sh"):
+                dst = blog_dst / f.name
+                shutil.copy2(f, dst)
+                dst.chmod(0o755)
+            for d in ["templates", "static"]:
+                src_d = blog_src / d
+                dst_d = blog_dst / d
+                if src_d.exists():
+                    shutil.copytree(src_d, dst_d, dirs_exist_ok=True)
+        ok("Blog files copiados")
+    else:
+        ok("Blog: repo = edge_home (in-place)")
+
+    # Create venv
+    if venv_dir.exists() and (venv_dir / "bin" / "python3").exists():
         ok("venv já existe")
         return True
 
     if dry_run:
         print(f"  [DRY] python3 -m venv {venv_dir}")
-        print(f"  [DRY] pip install flask flask-compress markdown pyyaml")
         return True
-
-    # Copy blog app files
-    blog_src = REPO_ROOT / "blog"
-    blog_dst = edge / "blog"
-    for f in blog_src.glob("*.py"):
-        shutil.copy2(f, blog_dst / f.name)
-    for d in ["templates", "static"]:
-        src_d = blog_src / d
-        dst_d = blog_dst / d
-        if src_d.exists():
-            shutil.copytree(src_d, dst_d, dirs_exist_ok=True)
 
     result = run(f"python3 -m venv {venv_dir}")
     if result.returncode != 0:
@@ -270,42 +286,47 @@ def phase_venv(cfg, dry_run, skip_venv=False):
     return True
 
 
+# ─── Phase 6: Systemd ───
+
 def phase_systemd(cfg, dry_run):
-    """Phase 6: Install systemd services (Linux only)."""
-    header("6/7  Systemd services")
+    header("6/7  Systemd")
     if platform.system() != "Linux":
         warn(f"Plataforma {platform.system()} — pulando systemd")
         return True
 
     service_dir = Path.home() / ".config" / "systemd" / "user"
-    edge = Path(cfg["edge_home_expanded"])
 
+    # Map: rendered name in systemd/ → installed name
     units = {
-        "claude-heartbeat.service": REPO_ROOT / "systemd" / "agent-heartbeat.service",
-        "claude-heartbeat.timer": REPO_ROOT / "systemd" / "agent-heartbeat.timer",
-        "blog-server.service": REPO_ROOT / "systemd" / "blog-server.service",
+        "agent-heartbeat.service": "claude-heartbeat.service",
+        "agent-heartbeat.timer": "claude-heartbeat.timer",
+        "blog-server.service": "blog-server.service",
     }
 
-    if dry_run:
-        for name, src in units.items():
-            print(f"  [DRY] cp {src} → {service_dir / name}")
-        return True
+    if not dry_run:
+        service_dir.mkdir(parents=True, exist_ok=True)
 
-    service_dir.mkdir(parents=True, exist_ok=True)
-    for name, src in units.items():
+    for src_name, dst_name in units.items():
+        src = REPO_ROOT / "systemd" / src_name
+        # Try rendered (without .tpl) first, then original
+        if not src.exists():
+            src = REPO_ROOT / "systemd" / (src_name + ".tpl")
         if src.exists():
-            shutil.copy2(src, service_dir / name)
-            ok(f"{name}")
+            if not dry_run:
+                shutil.copy2(src, service_dir / dst_name)
+            ok(dst_name)
         else:
-            warn(f"{src} não encontrado")
+            warn(f"{src_name} não encontrado")
 
-    run("systemctl --user daemon-reload")
+    if not dry_run:
+        run("systemctl --user daemon-reload")
     ok("systemd daemon-reload")
     return True
 
 
+# ─── Phase 7: Tools ───
+
 def phase_tools(cfg, dry_run):
-    """Phase 7: Install tools to PATH."""
     header("7/7  Tools")
     edge = Path(cfg["edge_home_expanded"])
     tools_src = REPO_ROOT / "tools"
@@ -320,39 +341,72 @@ def phase_tools(cfg, dry_run):
         tools_dst.mkdir(parents=True, exist_ok=True)
         local_bin.mkdir(parents=True, exist_ok=True)
 
+    # Copy tools (if repo != edge_home)
     count = 0
-    for tool in tools_src.iterdir():
-        if tool.name.startswith(".") or tool.name.startswith("__"):
-            continue
-        if tool.is_file():
+    if tools_src.resolve() != tools_dst.resolve():
+        for tool in tools_src.iterdir():
+            if tool.name.startswith(".") or tool.name.startswith("__") or tool.is_dir():
+                continue
             if not dry_run:
                 dst = tools_dst / tool.name
                 shutil.copy2(tool, dst)
                 dst.chmod(0o755)
-                # Symlink to ~/.local/bin for PATH access
-                link = local_bin / tool.stem  # remove .py extension for convenience
-                if tool.suffix == ".py":
-                    link = local_bin / tool.stem
-                else:
-                    link = local_bin / tool.name
-                link.unlink(missing_ok=True)
-                link.symlink_to(dst)
             count += 1
+        ok(f"{count} tools copiados → {tools_dst}")
+    else:
+        count = len([f for f in tools_src.iterdir() if f.is_file() and not f.name.startswith(".")])
+        # Just ensure executable
+        if not dry_run:
+            for tool in tools_src.iterdir():
+                if tool.is_file() and not tool.name.startswith("."):
+                    tool.chmod(0o755)
+        ok(f"Tools: repo = edge_home (in-place, {count} tools)")
+
+    # Symlink key tools to ~/.local/bin/
+    key_tools = ["edge-render", "edge-apply", "edge-doctor",
+                 "edge-fontes", "edge-consult.py", "edge-digest",
+                 "edge-event", "edge-task", "edge-scratch"]
+    linked = 0
+    for name in key_tools:
+        src = tools_dst / name
+        if not src.exists():
+            src = tools_src / name
+        if src.exists() and not dry_run:
+            link = local_bin / name
+            link.unlink(missing_ok=True)
+            link.symlink_to(src.resolve())
+            linked += 1
+    ok(f"{linked} symlinks em ~/.local/bin/")
 
     # Copy search tools
     search_src = REPO_ROOT / "search"
     search_dst = edge / "search"
-    if search_src.exists() and not dry_run:
-        search_dst.mkdir(parents=True, exist_ok=True)
-        for f in search_src.glob("*.py"):
-            shutil.copy2(f, search_dst / f.name)
+    if search_src.exists() and search_src.resolve() != search_dst.resolve():
+        if not dry_run:
+            search_dst.mkdir(parents=True, exist_ok=True)
+            for f in search_src.glob("*.py"):
+                shutil.copy2(f, search_dst / f.name)
+        ok("Search tools copiados")
 
-    ok(f"{count} tools instalados + symlinks em ~/.local/bin/")
+    # Copy bin/ (health scripts)
+    bin_src = REPO_ROOT / "bin"
+    bin_dst = edge / "bin"
+    if bin_src.exists() and bin_src.resolve() != bin_dst.resolve():
+        if not dry_run:
+            bin_dst.mkdir(parents=True, exist_ok=True)
+            for f in bin_src.glob("*.sh"):
+                dst = bin_dst / f.name
+                shutil.copy2(f, dst)
+                dst.chmod(0o755)
+        ok("Health scripts copiados")
+
     return True
 
 
+# ─── Main ───
+
 def main():
-    parser = argparse.ArgumentParser(description="Provision agent host from agent.yaml")
+    parser = argparse.ArgumentParser(description="Provision agent from agent.yaml")
     parser.add_argument("--config", "-c", default="agent.yaml")
     parser.add_argument("--dry-run", "-n", action="store_true")
     parser.add_argument("--skip-venv", action="store_true")
@@ -361,12 +415,10 @@ def main():
     config_path = Path(args.config).resolve()
     if not config_path.exists():
         print(f"{RED}✗{RESET} {config_path} não encontrado")
-        print(f"  Copie agent.yaml.example → agent.yaml e preencha os campos obrigatórios")
+        print(f"  Copie agent.yaml.example → agent.yaml e preencha")
         sys.exit(1)
 
     cfg = load_config(config_path)
-    cfg["_config_path"] = str(config_path)
-
     name = cfg.get("name", "?")
     codename = cfg.get("codename", "?")
 
@@ -379,29 +431,29 @@ def main():
         print(f"  {YELLOW}[DRY RUN]{RESET}")
 
     results = []
-    results.append(("Render", phase_render(cfg, args.dry_run)))
+    results.append(("Render", phase_render(str(config_path), args.dry_run)))
     results.append(("Dirs", phase_dirs(cfg, args.dry_run)))
     results.append(("Skills", phase_skills(cfg, args.dry_run)))
-    results.append(("CLAUDE.md", phase_claude_md(cfg, args.dry_run)))
-    results.append(("Venv", phase_venv(cfg, args.dry_run, args.skip_venv)))
+    results.append(("Identity", phase_identity(cfg, args.dry_run)))
+    results.append(("Blog", phase_venv(cfg, args.dry_run, args.skip_venv)))
     results.append(("Systemd", phase_systemd(cfg, args.dry_run)))
     results.append(("Tools", phase_tools(cfg, args.dry_run)))
 
-    # Summary
-    passed = sum(1 for _, ok in results if ok)
-    failed = sum(1 for _, ok in results if not ok)
+    passed = sum(1 for _, r in results if r)
+    failed = sum(1 for _, r in results if not r)
     color = GREEN if failed == 0 else RED
 
     print(f"\n{color}━━━  {passed}/{len(results)} fases OK  ━━━{RESET}")
 
     if failed == 0:
+        prefix = cfg.get("skill_prefix", codename)
         print(f"\n{GREEN}✓{RESET} Instalação concluída. Próximos passos:")
-        print(f"  1. Verificar: python3 tools/edge-doctor --config agent.yaml")
-        print(f"  2. Iniciar blog: systemctl --user start blog-server")
-        print(f"  3. Iniciar heartbeat: systemctl --user enable --now claude-heartbeat.timer")
-        print(f"  4. Testar: claude -p '/{codename}-heartbeat'")
+        print(f"  1. Verificar:  python3 tools/edge-doctor --config agent.yaml")
+        print(f"  2. Blog:       systemctl --user enable --now blog-server")
+        print(f"  3. Heartbeat:  systemctl --user enable --now claude-heartbeat.timer")
+        print(f"  4. Testar:     claude -p '/{prefix}-heartbeat'")
     else:
-        print(f"\n{RED}✗{RESET} {failed} fase(s) falharam. Verifique os erros acima.")
+        print(f"\n{RED}✗{RESET} {failed} fase(s) falharam.")
 
     sys.exit(0 if failed == 0 else 1)
 
