@@ -39,9 +39,9 @@ def load_agent_yaml(path: Path) -> dict:
     cfg.setdefault("edge_home", f"~/{cfg['codename']}")
     cfg.setdefault("heartbeat_interval", "2h")
     cfg.setdefault("blog_port", 8766)
-    cfg.setdefault("blog_auth_enabled", False)
-    cfg.setdefault("blog_auth_user", "")
-    cfg.setdefault("blog_auth_pass", "")
+    cfg.setdefault("blog_auth_enabled", True)
+    cfg.setdefault("blog_auth_user", "admin")
+    cfg.setdefault("blog_auth_pass", "trocar123")
     cfg.setdefault("onboarding_mode", True)
     cfg.setdefault("bio", cfg["missao"])
     cfg.setdefault("cognitive_profile", "Analytical. Decomposes problems, seeks structure.")
@@ -60,7 +60,7 @@ def load_agent_yaml(path: Path) -> dict:
     cfg.setdefault("timezone", "America/Sao_Paulo")
 
     # Resolve blog_host
-    blog_host = cfg.get("blog_host", "auto")
+    blog_host = cfg.get("blog_host", "0.0.0.0")
     if blog_host == "auto":
         is_vps = not os.environ.get("DISPLAY") and sys.platform == "linux"
         cfg["blog_host"] = "0.0.0.0" if is_vps else "127.0.0.1"
