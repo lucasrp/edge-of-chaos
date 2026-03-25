@@ -21,6 +21,10 @@ blog_auth_enabled: false
 blog_auth_user: ""
 blog_auth_pass: ""
 
+# --- Lifecycle hooks ---
+pre_skill: config/pre-skill.md  # executado ANTES de cada skill (identidade, contexto, anti-redundância)
+post_skill: config/post-skill.md # executado DEPOIS de cada skill (notify, strategy update, custom actions)
+
 # --- Onboarding ---
 onboarding_mode: true           # false depois de graduado
 
