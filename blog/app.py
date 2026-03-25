@@ -9,6 +9,7 @@ import re
 import sqlite3
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from flask import (
@@ -18,22 +19,17 @@ from flask_compress import Compress
 import markdown
 import yaml
 
-# ─── Paths (from config/paths.py) ───
-SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import (
-    _branding,
-    EDGE_DIR, BLOG_DIR, ENTRIES_DIR, REPORTS_DIR,
-    META_DIR, SEARCH_DIR, THREADS_DIR as _THREADS_DIR,
-    STATE_DIR as _STATE_DIR, MEMORY_DIR, TOPICS_DIR,
-)
-
-ROOT = EDGE_DIR
+# ─── Paths ───
+ROOT = Path.home() / "edge"
+BLOG_DIR = ROOT / "blog"
+ENTRIES_DIR = BLOG_DIR / "entries"
 COMMENTS_FILE = BLOG_DIR / "comments.json"
 DIFFS_DIR = BLOG_DIR / "diffs"
 DIFFS_DIR.mkdir(parents=True, exist_ok=True)
-META_REPORTS_DIR = META_DIR
+META_REPORTS_DIR = ROOT / "meta-reports"
+REPORTS_DIR = ROOT / "reports"
 
+SEARCH_DIR = ROOT / "search"
 sys.path.insert(0, str(SEARCH_DIR))
 sys.path.insert(0, str(ROOT))
 
@@ -622,8 +618,8 @@ def get_autonomy_data():
     """Read ~/edge/autonomy/capabilities.md and compute Sheridan stats."""
     import re
     try:
-        cap_path = ROOT / "autonomy" / "capabilities.md"
-        frontier_path = ROOT / "autonomy" / "frontier.md"
+        cap_path = Path.home() / "edge" / "autonomy" / "capabilities.md"
+        frontier_path = Path.home() / "edge" / "autonomy" / "frontier.md"
         content = cap_path.read_text()
         # Parse table rows: | # | Name | Sheridan | ...
         rows = re.findall(r'^\|\s*\d+\s*\|([^|]+)\|\s*(\d+)\s*\|', content, re.MULTILINE)
@@ -907,14 +903,17 @@ def api_diffs():
 @app.route("/api/search")
 def api_search():
     try:
-        from search import hybrid_search
+        from search import search_with_sidecar, hybrid_search
         q = request.args.get("q", "")
         limit = int(request.args.get("limit", "10"))
         doc_type = request.args.get("type")
         if not q:
             return jsonify({"error": "q parameter is required"}), 400
-        results = hybrid_search(q, limit=limit, doc_type=doc_type)
-        return jsonify({"results": results})
+        if doc_type == "workflow":
+            results = hybrid_search(q, limit=limit, doc_type=doc_type)
+            return jsonify({"results": results, "workflows": []})
+        results, workflows = search_with_sidecar(q, limit=limit, doc_type=doc_type)
+        return jsonify({"results": results, "workflows": workflows})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -951,10 +950,10 @@ def serve_meta_reports(filename):
 
 
 # ─── Task Ledger + Dashboard ───
-STATE_DIR = _STATE_DIR
+STATE_DIR = ROOT / "state"
 TASKS_JSONL = STATE_DIR / "tasks.jsonl"
 TASKS_SNAPSHOT = STATE_DIR / "tasks.snapshot.json"
-THREADS_DIR = _THREADS_DIR
+THREADS_DIR = ROOT / "threads"
 
 
 def load_tasks_snapshot():
@@ -1169,6 +1168,18 @@ def dashboard_page():
     )
 
 
+def _human_size(size_bytes):
+    """Human-readable file size."""
+    for unit in ("B", "K", "M", "G"):
+        if abs(size_bytes) < 1024:
+            return f"{size_bytes}{unit}" if unit == "B" else f"{size_bytes:.1f}{unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f}T"
+
+
+_SETUP_MAX_CONTENT = 50_000  # truncate files larger than this in the setup view
+
+
 @app.route("/setup")
 def setup_page():
     """Setup tab — configure agent files, view system state."""
@@ -1194,6 +1205,14 @@ def setup_page():
                     entry["dir_count"] = len(all_files)
                     entry["dir_recent"] = [p.name for p in all_files[:5]]
                     entry["status"] = "configured"
+                    # dir metadata: newest file mtime + total size
+                    try:
+                        if all_files:
+                            entry["mtime"] = datetime.fromtimestamp(all_files[0].stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                        total = sum(p.stat().st_size for p in all_files)
+                        entry["size"] = _human_size(total)
+                    except OSError:
+                        pass
                 else:
                     entry["dir_count"] = 0
                     entry["dir_recent"] = []
@@ -1204,7 +1223,23 @@ def setup_page():
                 except (FileNotFoundError, PermissionError):
                     content = None
 
-                entry["content"] = content or ""
+                # file metadata
+                try:
+                    st = path.stat()
+                    entry["mtime"] = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
+                    entry["size"] = _human_size(st.st_size)
+                    entry["lines"] = content.count("\n") + 1 if content else 0
+                except (FileNotFoundError, OSError):
+                    pass
+
+                # truncate very large files for the UI
+                if content and len(content) > _SETUP_MAX_CONTENT:
+                    full_size = _human_size(len(content.encode("utf-8")))
+                    entry["content"] = content[:_SETUP_MAX_CONTENT] + f"\n\n[... truncado — {full_size} total ...]"
+                    entry["truncated"] = True
+                else:
+                    entry["content"] = content or ""
+
                 if content is None:
                     entry["status"] = "missing"
                 elif not content.strip():
@@ -1226,7 +1261,7 @@ def setup_page():
     return render_template(
         "setup.html",
         tab="setup",
-        page_title=f"{_branding.get('agent_name', 'agent')} — setup",
+        page_title="edge_of_chaos — setup",
         header_sub="setup",
         stats=get_stats_data(),
         health=get_health_data(get_entries()),
@@ -1264,7 +1299,9 @@ def api_task_detail(task_id):
 
 
 # ─── Knowledge Clusters ───
-# MEMORY_DIR and TOPICS_DIR already imported via paths above
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).parent.parent / "config"))
+from paths import MEMORY_DIR, TOPICS_DIR
 
 
 def load_knowledge_clusters():
@@ -1407,8 +1444,5 @@ if __name__ == "__main__":
     # Warm up cache on startup
     print("Warming up entry cache and FTS index...")
     get_entries()
-    _blog = _branding.get("blog", {})
-    _host = _blog.get("host", "127.0.0.1")
-    _port = _blog.get("port", 8766)
-    print(f"Blog server (Flask) on http://{_host}:{_port}/blog/")
-    app.run(host=_host, port=_port, debug=False, threaded=True)
+    print(f"Blog server (Flask) on http://localhost:8766/blog/")
+    app.run(host="127.0.0.1", port=8766, debug=False, threaded=True)
