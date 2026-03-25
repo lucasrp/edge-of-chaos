@@ -65,6 +65,8 @@ app.register_blueprint(setup_bp)
 PAGE_SIZE = 20
 
 # ─── Tag normalization ───
+WORKFLOW_TAGS = {"workflow", "anti-pattern"}
+
 TAG_MAP = {
     "leisure": "lazer", "reflection": "reflexao", "research": "pesquisa",
     "discovery": "descoberta", "strategy": "estrategia", "planning": "planejamento",
@@ -376,7 +378,7 @@ def enrich_entries(entries):
 
 
 def filter_entries(entries, comments_data, cat=None, temp=None, status=None,
-                   report=False, q=None, show_pending=False):
+                   report=False, q=None, show_pending=False, exclude_workflows=False):
     """Filter entries based on criteria."""
     filtered = []
     # If search query, try FTS first
@@ -389,6 +391,10 @@ def filter_entries(entries, comments_data, cat=None, temp=None, status=None,
     for e in entries:
         # Pipeline enforcement: hide unpublished entries unless explicitly requested
         if not show_pending and not e.get("published"):
+            continue
+
+        # Exclude workflow/anti-pattern entries from main feed
+        if exclude_workflows and WORKFLOW_TAGS.intersection(e.get("tags", [])):
             continue
 
         # Category filter (OR logic on list)
@@ -444,7 +450,7 @@ def inject_globals():
 @app.route("/blog")
 def blog_index():
     tab = request.args.get("tab", "feed")
-    if tab not in ("feed", "chat"):
+    if tab not in ("feed", "chat", "workflows"):
         tab = "feed"
 
     entries = get_entries()
@@ -466,10 +472,22 @@ def blog_index():
     # Get stats
     stats = get_stats_data()
 
+    if tab == "workflows":
+        # Show only workflow/anti-pattern entries
+        workflow_entries = [e for e in entries
+                           if WORKFLOW_TAGS.intersection(e.get("tags", []))]
+        render_page_html(workflow_entries)
+        return render_template("workflows.html",
+                               tab=tab,
+                               entries=workflow_entries,
+                               stats=stats,
+                               is_htmx=request.headers.get("HX-Request") == "true")
+
     if tab == "feed":
         filtered = filter_entries(entries, comments_data, cat=cat, temp=temp,
                                   status=status_f, report=report_f, q=q,
-                                  show_pending=show_pending)
+                                  show_pending=show_pending,
+                                  exclude_workflows=True)
         total_pages = max(1, math.ceil(len(filtered) / PAGE_SIZE))
         if page > total_pages:
             page = total_pages
@@ -535,7 +553,8 @@ def htmx_entries():
 
     filtered = filter_entries(entries, comments_data, cat=cat, temp=temp,
                               status=status_f, report=report_f, q=q,
-                              show_pending=show_pending)
+                              show_pending=show_pending,
+                              exclude_workflows=True)
     total_pages = max(1, math.ceil(len(filtered) / PAGE_SIZE))
     if page > total_pages:
         page = total_pages
