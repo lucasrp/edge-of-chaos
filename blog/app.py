@@ -487,7 +487,7 @@ def blog_index():
         filtered = filter_entries(entries, comments_data, cat=cat, temp=temp,
                                   status=status_f, report=report_f, q=q,
                                   show_pending=show_pending,
-                                  exclude_workflows=True)
+                                  exclude_workflows=not q)
         total_pages = max(1, math.ceil(len(filtered) / PAGE_SIZE))
         if page > total_pages:
             page = total_pages
@@ -554,7 +554,7 @@ def htmx_entries():
     filtered = filter_entries(entries, comments_data, cat=cat, temp=temp,
                               status=status_f, report=report_f, q=q,
                               show_pending=show_pending,
-                              exclude_workflows=True)
+                              exclude_workflows=not q)
     total_pages = max(1, math.ceil(len(filtered) / PAGE_SIZE))
     if page > total_pages:
         page = total_pages
@@ -723,6 +723,7 @@ def api_entries():
         status_filter = params.get("status")
         temp = params.get("temp")
         q = params.get("q")
+        include_workflows = params.get("include_workflows", "").lower() in ("true", "1", "yes")
 
         conn = ensure_db()
         sql = "SELECT d.path, d.title, d.type, d.metadata, d.content FROM documents d WHERE d.type='blog'"
@@ -758,6 +759,9 @@ def api_entries():
             if temp and entry_temp != temp:
                 continue
             fm = json.loads(r["metadata"]) if r["metadata"] else _parse_frontmatter(r["content"] or "")
+            # Exclude workflow/anti-pattern entries by default
+            if not include_workflows and WORKFLOW_TAGS.intersection(fm.get("tags", [])):
+                continue
             body_md = r["content"] or ""
             try:
                 body_html = markdown.markdown(body_md, extensions=["extra"])
