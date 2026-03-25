@@ -51,7 +51,7 @@ def load_config(path: Path) -> dict:
     cfg["edge_home_expanded"] = os.path.expanduser(cfg["edge_home"])
     interval_map = {"30min": "30min", "1h": "1h", "2h": "2h", "24h": "24h"}
     cfg["systemd_interval"] = interval_map.get(cfg["heartbeat_interval"], "2h")
-    cfg["memory_project_dir"] = cfg["edge_home_expanded"].replace("/", "-").lstrip("-")
+    cfg["memory_project_dir"] = cfg["edge_home_expanded"].rstrip("/").replace("/", "-").lstrip("-")
     return cfg
 
 
@@ -213,8 +213,9 @@ def phase_identity(cfg, dry_run):
         src = REPO_ROOT / "templates" / tmpl
         dst = edge / "templates" / tmpl
         if src.exists() and not dry_run:
-            (edge / "templates").mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            if src.resolve() != dst.resolve():
+                (edge / "templates").mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
     ok("Onboarding templates copiados")
 
     # Autonomy files
