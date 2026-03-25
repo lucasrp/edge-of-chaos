@@ -182,6 +182,8 @@ def phase_identity(cfg, dry_run):
         if not dry_run:
             shutil.copy2(claude_src, claude_dst)
         ok(f"CLAUDE.md → {claude_dst}")
+    elif dry_run:
+        ok(f"[DRY] CLAUDE.md → {claude_dst} (será gerado pelo render)")
     else:
         fail("templates/CLAUDE.md não encontrado — rode edge-render primeiro")
         return False
