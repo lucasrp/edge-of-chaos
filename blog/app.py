@@ -19,17 +19,28 @@ from flask_compress import Compress
 import markdown
 import yaml
 
-# ─── Paths ───
-ROOT = Path.home() / "edge"
-BLOG_DIR = ROOT / "blog"
-ENTRIES_DIR = BLOG_DIR / "entries"
+# ─── Paths (resolved via config/paths.py, env, or auto-detect) ───
+_app_dir = Path(__file__).resolve().parent
+_repo_root = _app_dir.parent
+sys.path.insert(0, str(_repo_root))
+sys.path.insert(0, str(_repo_root / "config"))
+
+try:
+    from config.paths import EDGE_DIR, BLOG_DIR, ENTRIES_DIR, REPORTS_DIR, META_DIR, SEARCH_DIR
+    ROOT = EDGE_DIR
+    META_REPORTS_DIR = META_DIR
+except ImportError:
+    ROOT = Path(os.environ.get("EDGE_DIR", str(_repo_root)))
+    BLOG_DIR = ROOT / "blog"
+    ENTRIES_DIR = BLOG_DIR / "entries"
+    REPORTS_DIR = ROOT / "reports"
+    META_REPORTS_DIR = ROOT / "meta-reports"
+    SEARCH_DIR = ROOT / "search"
+
 COMMENTS_FILE = BLOG_DIR / "comments.json"
 DIFFS_DIR = BLOG_DIR / "diffs"
 DIFFS_DIR.mkdir(parents=True, exist_ok=True)
-META_REPORTS_DIR = ROOT / "meta-reports"
-REPORTS_DIR = ROOT / "reports"
 
-SEARCH_DIR = ROOT / "search"
 sys.path.insert(0, str(SEARCH_DIR))
 sys.path.insert(0, str(ROOT))
 
@@ -1490,8 +1501,19 @@ def serve_edge_file(filepath):
 
 
 if __name__ == "__main__":
-    # Warm up cache on startup
+    _branding_path = ROOT / "config" / "branding.yaml"
+    _blog_cfg = {}
+    if _branding_path.exists():
+        try:
+            with open(_branding_path) as f:
+                _blog_cfg = yaml.safe_load(f).get("blog", {})
+        except Exception:
+            pass
+
+    _port = int(os.environ.get("BLOG_PORT", _blog_cfg.get("port", 8766)))
+    _host = os.environ.get("BLOG_HOST", _blog_cfg.get("host", "127.0.0.1"))
+
     print("Warming up entry cache and FTS index...")
     get_entries()
-    print(f"Blog server (Flask) on http://localhost:8766/blog/")
-    app.run(host="127.0.0.1", port=8766, debug=False, threaded=True)
+    print(f"Blog server (Flask) on http://{_host}:{_port}/blog/")
+    app.run(host=_host, port=_port, debug=False, threaded=True)
