@@ -251,7 +251,7 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
     """Send consultation to BOTH GPT-5.4 and Grok-4.20 and return combined response.
 
     If gate_spec is provided, saves review as {spec}.review.json for
-    consolidar-estado to enforce resolution before publishing.
+    consolidate-state to enforce resolution before publishing.
     """
     system = ADVERSARIAL_SYSTEM if mode == "adversarial" else COLLABORATIVE_SYSTEM
     user_msg = _build_user_msg(question, context_files, stdin_content)
@@ -339,7 +339,7 @@ def main():
     parser.add_argument("--context", "-c", nargs="+", default=None,
                         help="Context files to include")
     parser.add_argument("--gate", default=None, metavar="SPEC_PATH",
-                        help="Save review as .review.json alongside SPEC_PATH for consolidar-estado enforcement")
+                        help="Save review as .review.json alongside SPEC_PATH for consolidate-state enforcement")
     args = parser.parse_args()
 
     # Read from stdin if piped
