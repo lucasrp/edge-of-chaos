@@ -3,9 +3,9 @@
 from flask import Blueprint, jsonify, render_template
 
 from blog.services import (
-    load_tasks_snapshot, load_hotspots, load_git_signals, load_curadoria,
-    categorize_tasks, get_publish_commits, get_error_pressure_24h,
-    get_heartbeat_status, get_production_stats, task_age, get_briefing_html,
+    load_hotspots, load_git_signals, load_curadoria, load_threads_enriched,
+    get_publish_commits, get_error_pressure_24h,
+    get_heartbeat_status, get_production_stats, get_briefing_html,
 )
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -14,8 +14,6 @@ dashboard_bp = Blueprint("dashboard", __name__)
 @dashboard_bp.route("/api/dashboard/overview")
 def overview():
     """Aggregated overview for status strip and summary."""
-    snap = load_tasks_snapshot()
-    cats = categorize_tasks(snap)
     hotspots = load_hotspots()
     signals = load_git_signals()
     curadoria = load_curadoria()
@@ -39,9 +37,7 @@ def overview():
     alert_count = 0
     if heartbeat["status"] == "stalled":
         alert_count += 1
-    alert_count += len(cats["blocked"])
     alert_count += len(pipeline_failures)
-    alert_count += len(cats["stale_ids"])
     alert_count += len(hotspots.get("top_pain", []))
     alert_count += len(hotspots.get("recovered_but_unstable", []))
     alert_count += len(hotspots.get("codify_now", []))
@@ -55,12 +51,6 @@ def overview():
             "pipeline": {
                 "last_status": last_pipeline_status,
                 "failure_count": len(pipeline_failures),
-            },
-            "workload": {
-                "doing": len(cats["doing"]),
-                "blocked": len(cats["blocked"]),
-                "todo": len(cats["todo"]),
-                "stale": len(cats["stale_ids"]),
             },
             "output": {
                 "total_commits": signals.get("total_commits", 0),
@@ -76,14 +66,6 @@ def overview():
             },
         },
         "alert_count": alert_count,
-        "task_summary": {
-            "doing": len(cats["doing"]),
-            "blocked": len(cats["blocked"]),
-            "todo": len(cats["todo"]),
-            "done": len(cats["done"]),
-            "stale": len(cats["stale_ids"]),
-            "total": cats["total"],
-        },
         "pipeline_summary": {
             "total_commits_7d": signals.get("total_commits", 0),
             "fix_chains": len(signals.get("fix_chains", [])),
@@ -111,8 +93,6 @@ def _build_alerts_data():
     """Build prioritized alert cards from multiple sources."""
     hotspots = load_hotspots()
     signals = load_git_signals()
-    snap = load_tasks_snapshot()
-    cats = categorize_tasks(snap)
     heartbeat = get_heartbeat_status()
 
     alert_cards = []
@@ -135,30 +115,6 @@ def _build_alerts_data():
             "count": 1,
             "last_seen": None,
             "source": "heartbeat",
-        })
-
-    # Blocked tasks = high
-    if cats["blocked"]:
-        for t in cats["blocked"]:
-            alert_cards.append({
-                "title": f"Blocked: {t.get('title', t.get('task_id'))}",
-                "severity": "high",
-                "detail": t.get("next_action", ""),
-                "count": 1,
-                "last_seen": t.get("updated_at"),
-                "source": "tasks",
-            })
-
-    # Stale tasks = medium
-    for tid in cats["stale_ids"]:
-        t = snap.get(tid, {})
-        alert_cards.append({
-            "title": f"Stale: {t.get('title', tid)}",
-            "severity": "medium",
-            "detail": f"Not updated in >48h. Status: {t.get('status', '?')}",
-            "count": 1,
-            "last_seen": t.get("updated_at"),
-            "source": "tasks",
         })
 
     # Pipeline failures = high
@@ -405,36 +361,30 @@ def partial_corpus():
 
 def _build_status_strip_data():
     """Build context dict for the status strip partial."""
-    snap = load_tasks_snapshot()
-    cats = categorize_tasks(snap)
-    hotspots = load_hotspots()
     signals = load_git_signals()
     heartbeat = get_heartbeat_status()
     error_pressure = get_error_pressure_24h()
     production = get_production_stats()
     claims = signals.get("claims_summary", {})
-    active_threads = len(signals.get("thread_coverage", {}))
+    thread_data = load_threads_enriched()
+    thread_stats = thread_data.get("stats", {})
 
     pipeline_failures = signals.get("pipeline_failures", [])
     last_pipeline_status = "ok"
     if pipeline_failures:
         last_pipeline_status = pipeline_failures[0].get("pipeline_status", "failed")
 
-    # Attention badge: critical conditions
     attention_count = 0
     if heartbeat["status"] == "stalled":
         attention_count += 1
-    attention_count += len(cats["blocked"])
     attention_count += len(pipeline_failures)
+    if thread_stats.get("resurface_due", 0) > 0:
+        attention_count += 1
 
     return {
         "heartbeat": heartbeat,
         "pipeline_status": last_pipeline_status,
         "pipeline_failure_count": len(pipeline_failures),
-        "workload_doing": len(cats["doing"]),
-        "workload_blocked": len(cats["blocked"]),
-        "workload_todo": len(cats["todo"]),
-        "workload_stale": len(cats["stale_ids"]),
         "entries_total": production["entries_total"],
         "reports_total": production["reports_total"],
         "published_today": production["published_today"],
@@ -442,7 +392,10 @@ def _build_status_strip_data():
         "top_failing_tool": error_pressure["top_failing_tool"],
         "claims_total": claims.get("total_learned", 0),
         "claims_open": claims.get("total_gaps", 0),
-        "active_threads": active_threads,
+        "threads_active_count": thread_stats.get("active", 0),
+        "threads_proposed_count": thread_stats.get("proposed", 0),
+        "threads_dormant_count": thread_stats.get("dormant", 0),
+        "threads_resurface_due": thread_stats.get("resurface_due", 0),
         "attention_count": attention_count,
     }
 

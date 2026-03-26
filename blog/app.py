@@ -19,12 +19,8 @@ from flask_compress import Compress
 import markdown
 import yaml
 
-# ─── Paths (auto-detect from script location) ───
-_app_dir = Path(__file__).resolve().parent
-_repo_root = _app_dir.parent
-sys.path.insert(0, str(_repo_root))
-
-ROOT = Path(os.environ.get("EDGE_DIR", str(_repo_root)))
+# ─── Paths ───
+ROOT = Path.home() / "edge"
 BLOG_DIR = ROOT / "blog"
 ENTRIES_DIR = BLOG_DIR / "entries"
 COMMENTS_FILE = BLOG_DIR / "comments.json"
@@ -1062,52 +1058,13 @@ def serve_meta_reports(filename):
     return send_from_directory(str(META_REPORTS_DIR), filename)
 
 
-# ─── Task Ledger + Dashboard ───
+# ─── Dashboard ───
 STATE_DIR = ROOT / "state"
-TASKS_JSONL = STATE_DIR / "tasks.jsonl"
-TASKS_SNAPSHOT = STATE_DIR / "tasks.snapshot.json"
 THREADS_DIR = ROOT / "threads"
 
 
-def load_tasks_snapshot():
-    """Load materialized task snapshot."""
-    if TASKS_SNAPSHOT.exists():
-        try:
-            return json.loads(TASKS_SNAPSHOT.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
 
 
-def task_age(created_at):
-    """Human-readable age from ISO timestamp."""
-    try:
-        from datetime import datetime, timezone
-        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-        delta = datetime.now(timezone.utc) - dt
-        hours = delta.total_seconds() / 3600
-        if hours < 1:
-            return f"{int(delta.total_seconds() / 60)}m"
-        if hours < 24:
-            return f"{int(hours)}h"
-        return f"{int(hours / 24)}d"
-    except Exception:
-        return "?"
-
-
-def enrich_task(t):
-    """Add computed fields for template rendering."""
-    t["age"] = task_age(t.get("created_at", t.get("updated_at", "")))
-    # Human-readable last updated timestamp
-    updated = t.get("updated_at", "")
-    if updated:
-        try:
-            t["last_updated"] = updated[:16].replace("T", " ")
-        except Exception:
-            t["last_updated"] = ""
-    else:
-        t["last_updated"] = ""
-    return t
 
 
 def _build_threads_data():
@@ -1327,33 +1284,6 @@ def setup_page():
     )
 
 
-@app.route("/api/tasks", methods=["GET"])
-def api_tasks_get():
-    """JSON API: list tasks with optional filters."""
-    snap = load_tasks_snapshot()
-    tasks = list(snap.values())
-    status = request.args.get("status")
-    priority = request.args.get("priority")
-    owner = request.args.get("owner")
-    if status:
-        tasks = [t for t in tasks if t.get("status") == status]
-    if priority:
-        tasks = [t for t in tasks if t.get("priority") == priority]
-    if owner:
-        tasks = [t for t in tasks if t.get("owner") == owner]
-    # Remove history from API response (too verbose)
-    for t in tasks:
-        t.pop("history", None)
-    return jsonify({"tasks": tasks, "count": len(tasks)})
-
-
-@app.route("/api/tasks/<task_id>", methods=["GET"])
-def api_task_detail(task_id):
-    """JSON API: single task with history."""
-    snap = load_tasks_snapshot()
-    if task_id not in snap:
-        return jsonify({"error": "not found"}), 404
-    return jsonify(snap[task_id])
 
 
 # ─── Knowledge Clusters ───
@@ -1499,19 +1429,8 @@ def serve_edge_file(filepath):
 
 
 if __name__ == "__main__":
-    _branding_path = ROOT / "config" / "branding.yaml"
-    _blog_cfg = {}
-    if _branding_path.exists():
-        try:
-            with open(_branding_path) as f:
-                _blog_cfg = yaml.safe_load(f).get("blog", {})
-        except Exception:
-            pass
-
-    _port = int(os.environ.get("BLOG_PORT", _blog_cfg.get("port", 8766)))
-    _host = os.environ.get("BLOG_HOST", _blog_cfg.get("host", "0.0.0.0"))
-
+    # Warm up cache on startup
     print("Warming up entry cache and FTS index...")
     get_entries()
-    print(f"Blog server (Flask) on http://{_host}:{_port}/blog/")
-    app.run(host=_host, port=_port, debug=False, threaded=True)
+    print(f"Blog server (Flask) on http://localhost:8766/blog/")
+    app.run(host="127.0.0.1", port=8766, debug=False, threaded=True)
