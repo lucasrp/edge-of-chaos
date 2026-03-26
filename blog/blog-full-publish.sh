@@ -30,7 +30,8 @@ set -uo pipefail
 
 # --- Load shared paths (branding, memory, blog config) ---
 # shellcheck source=../config/paths.sh
-source "$(dirname "$0")/../config/paths.sh"
+REAL_SCRIPT="$(readlink -f "$0")"
+source "$(dirname "$REAL_SCRIPT")/../config/paths.sh"
 
 # Parse flags
 SKIP_REVIEW=false

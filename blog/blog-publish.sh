@@ -15,7 +15,8 @@ set -euo pipefail
 
 # --- Load shared paths (branding, memory, blog config) ---
 # shellcheck source=../config/paths.sh
-source "$(dirname "$0")/../config/paths.sh"
+REAL_SCRIPT="$(readlink -f "$0")"
+source "$(dirname "$REAL_SCRIPT")/../config/paths.sh"
 CHANGELOG="$BLOG_DIR/changelog.md"
 API_URL="$BLOG_URL"
 ENTRY_PATH="${1:-}"

@@ -17,7 +17,8 @@ fi
 
 # --- Load shared paths ---
 # shellcheck source=../config/paths.sh
-source "$(dirname "$0")/../config/paths.sh"
+REAL_SCRIPT="$(readlink -f "$0")"
+source "$(dirname "$REAL_SCRIPT")/../config/paths.sh"
 
 # Use Python for all diff processing (bash is unreliable with special chars in diffs)
 export CAPTURE_SLUG="$SLUG"
