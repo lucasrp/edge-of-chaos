@@ -451,20 +451,27 @@ def phase_tools(cfg, dry_run):
                     tool.chmod(0o755)
         ok(f"Tools: repo = edge_home (in-place, {count} tools)")
 
-    # Symlink key tools to ~/.local/bin/
-    key_tools = ["edge-render", "edge-apply", "edge-doctor",
-                 "edge-sources", "edge-consult.py", "edge-digest",
-                 "edge-event", "edge-task", "edge-scratch"]
+    # Symlink ALL tools to ~/.local/bin/ (not just a hardcoded list)
     linked = 0
-    for name in key_tools:
-        src = tools_dst / name
-        if not src.exists():
-            src = tools_src / name
-        if src.exists() and not dry_run:
-            link = local_bin / name
+    for tool in tools_dst.iterdir():
+        if tool.name.startswith(".") or tool.name.startswith("__") or tool.is_dir():
+            continue
+        if tool.suffix in (".md", ".yaml", ".yml", ".txt", ".css", ".svg", ".json"):
+            continue  # skip non-executables
+        if not dry_run:
+            # Link name: strip .py suffix (edge-consult.py → edge-consult)
+            link_name = tool.stem if tool.suffix == ".py" else tool.name
+            link = local_bin / link_name
             link.unlink(missing_ok=True)
-            link.symlink_to(src.resolve())
+            link.symlink_to(tool.resolve())
             linked += 1
+    # Also link consolidar-estado from blog/
+    cs = edge / "blog" / "consolidar-estado.sh"
+    if cs.exists() and not dry_run:
+        link = local_bin / "consolidar-estado"
+        link.unlink(missing_ok=True)
+        link.symlink_to(cs.resolve())
+        linked += 1
     ok(f"{linked} symlinks em ~/.local/bin/")
 
     # Copy search tools
