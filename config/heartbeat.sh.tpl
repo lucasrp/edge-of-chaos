@@ -24,11 +24,11 @@ mkdir -p "$(dirname "$LOGFILE")"
 cd "$EDGE_DIR"
 
 # Run Claude Code with the heartbeat skill
-# --max-budget-usd 3: safety net (~1h of work)
-# --dangerously-skip-permissions: autonomous mode
+# No budget limit — subscription covers Claude tokens.
+# Real API costs (OpenAI, Exa) are cents per heartbeat.
+# Timeout controlled by systemd TimeoutStartSec (1h).
 claude -p "$SKILL" \
     --dangerously-skip-permissions \
-    --max-budget-usd 3 \
     >> "$LOGFILE" 2>&1
 
 # Index new content after heartbeat
