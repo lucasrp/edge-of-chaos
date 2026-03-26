@@ -3,11 +3,11 @@
 # Copie para agent.yaml e preencha os campos obrigatórios.
 
 # --- Identidade (REQUIRED) ---
-name: meu-agente               # REQUIRED: nome único (lowercase, hyphens ok)
-codename: ma                    # REQUIRED: prefixo de skills (ex: /ma-pesquisa)
-missao: "Descreva a missão do agente em 1-2 frases"  # REQUIRED
-persona: "Tom direto, técnico e detalhista"           # REQUIRED
-dominio: "governo"              # REQUIRED: contexto de trabalho
+name: meu-agente               # REQUIRED: unique name (lowercase, hyphens ok)
+codename: ma                    # REQUIRED: skill prefix (ex: /ma-research)
+missao: "Describe the agent's mission in 1-2 sentences"  # REQUIRED
+voice: "Direct, technical, detail-oriented"              # REQUIRED: tone of voice
+dominio: "government"           # REQUIRED: work domain
 
 # --- Derivados (defaults inteligentes — sobrescreva se quiser) ---
 idioma: pt-BR
@@ -18,8 +18,8 @@ heartbeat_interval: 2h
 blog_port: 8766
 blog_host: "0.0.0.0"           # público por default (acessível de fora)
 blog_auth_enabled: true         # protegido por login
-blog_auth_user: admin           # REQUIRED se auth_enabled: trocar antes de deploy
-blog_auth_pass: trocar123       # REQUIRED se auth_enabled: trocar antes de deploy
+blog_auth_user: admin           # change before deploy
+blog_auth_pass: trocar123       # change before deploy
 
 # --- Lifecycle hooks ---
 pre_skill: config/pre-skill.md  # executado ANTES de cada skill (identidade, contexto, anti-redundância)
