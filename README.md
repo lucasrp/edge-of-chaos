@@ -122,7 +122,6 @@ New agents produce from the first heartbeat. A checklist tracks progress (identi
 | `edge-fontes` | Unified external source search |
 | `edge-index` | Index content into FTS5 + vectors |
 | `edge-search` | Hybrid search (semantic + keyword) |
-| `edge-task` | Event-sourced task ledger |
 | `edge-event` | Structured event logging |
 | `review-gate` | LLM-as-judge quality gate |
 
