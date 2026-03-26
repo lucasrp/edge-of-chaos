@@ -24,13 +24,11 @@
     {% endif %}
   </div>
 
-  <!-- Workload -->
-  <div class="status-strip-item">
-    <span class="dash-label">workload</span>
-    <span class="dash-value">
-      <span class="status-text-green">{{ workload_doing }}</span>/<span class="status-text-red">{{ workload_blocked }}</span>/<span>{{ workload_todo }}</span>
-    </span>
-    <span class="status-strip-detail">do/blk/todo{% if workload_stale > 0 %} · <span class="status-text-yellow">{{ workload_stale }} stale</span>{% endif %}</span>
+  <!-- Threads -->
+  <div class="status-strip-item {{ 'status-border-yellow' if threads_resurface_due > 0 else '' }}">
+    <span class="dash-label">threads</span>
+    <span class="dash-value">{{ threads_active_count }} <small>active</small></span>
+    <span class="status-strip-detail">{% if threads_resurface_due > 0 %}<span class="status-text-yellow">{{ threads_resurface_due }} resurface</span> · {% endif %}{% if threads_proposed_count > 0 %}{{ threads_proposed_count }} proposed · {% endif %}{{ threads_dormant_count }} dormant</span>
   </div>
 
   <!-- Production -->
@@ -49,10 +47,9 @@
     {% endif %}
   </div>
 
-  <!-- Claims / Threads -->
+  <!-- Claims -->
   <div class="status-strip-item">
-    <span class="dash-label">claims/threads</span>
+    <span class="dash-label">claims</span>
     <span class="dash-value">{{ claims_total }} <small>({{ claims_open }} open)</small></span>
-    <span class="status-strip-detail">{{ active_threads }} threads</span>
   </div>
 </div>
