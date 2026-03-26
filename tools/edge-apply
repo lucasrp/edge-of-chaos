@@ -522,6 +522,36 @@ def phase_tools(cfg, dry_run):
         run(f'git config --global user.email "{name}@edge-of-chaos"')
         ok(f"Git identity: {name}")
 
+    # Generate per-tool .env files from keys.env
+    # Tools expect secrets/openai.env, secrets/x-api.env etc.
+    keys_env = edge / "secrets" / "keys.env"
+    if keys_env.exists() and not dry_run:
+        keys = {}
+        for line in keys_env.read_text().splitlines():
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                keys[k.strip()] = v.strip()
+
+        env_map = {
+            "openai.env": ["OPENAI_API_KEY"],
+            "exa.env": ["EXA_API_KEY"],
+            "xai.env": ["XAI_API_KEY"],
+            "cloudflare.env": ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"],
+            "x-api.env": ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN",
+                          "X_ACCESS_TOKEN_SECRET", "X_BEARER_TOKEN"],
+            "moltbook.env": ["MOLTBOOK_API_KEY", "MOLTBOOK_USERNAME", "MOLTBOOK_AGENT_ID"],
+        }
+        generated = 0
+        for filename, key_names in env_map.items():
+            lines = [f"{k}={keys[k]}" for k in key_names if k in keys and keys[k]]
+            if lines:
+                env_file = edge / "secrets" / filename
+                env_file.write_text("\n".join(lines) + "\n")
+                env_file.chmod(0o600)
+                generated += 1
+        if generated:
+            ok(f"{generated} per-tool .env files gerados de keys.env")
+
     # Ensure .bashrc has PATH
     bashrc = Path.home() / ".bashrc"
     if not dry_run:
