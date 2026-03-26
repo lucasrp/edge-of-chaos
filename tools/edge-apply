@@ -392,6 +392,19 @@ def phase_systemd(cfg, dry_run):
         else:
             warn(f"{src_name} não encontrado")
 
+    # Install heartbeat.sh wrapper to ~/.local/bin/
+    hb_src = REPO_ROOT / "config" / "heartbeat.sh"
+    if not hb_src.exists():
+        hb_src = REPO_ROOT / "config" / "heartbeat.sh.tpl"  # fallback to template
+    local_bin = Path.home() / ".local" / "bin"
+    if hb_src.exists() and not dry_run:
+        local_bin.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(hb_src, local_bin / "heartbeat.sh")
+        (local_bin / "heartbeat.sh").chmod(0o755)
+        ok("heartbeat.sh → ~/.local/bin/")
+    elif not hb_src.exists():
+        warn("config/heartbeat.sh não encontrado")
+
     if not dry_run:
         run("systemctl --user daemon-reload")
         run("systemctl --user enable blog-server.service")
