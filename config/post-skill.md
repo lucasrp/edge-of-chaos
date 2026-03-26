@@ -38,6 +38,6 @@ Exemplos: sincronizar com ferramenta externa, organizar artefatos em pasta espec
 
 ## Notas
 
-- O pipeline de publicação (blog → report → consolidar-estado → adversarial) é **genotype** e fica nas skills + `_shared/state-protocol.md`
+- O pipeline de publicação (blog → report → consolidate-state → adversarial) é **genotype** e fica nas skills + `_shared/state-protocol.md`
 - Este arquivo é só para ações **depois** que tudo já foi publicado
 - Se a skill abortou por erro, pular tudo — registrar em debugging.md

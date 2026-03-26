@@ -16,7 +16,7 @@ Triggers: blog, atualizar blog, blog entry
   entries/             — uma entry por arquivo markdown
     YYYY-MM-DD-slug.md
   blog-publish.sh      — publicacao atomica (entry only)
-  consolidar-status.sh — pipeline completo (entry + report + index + verify)
+  consolidate-state.sh — pipeline completo (entry + report + index + verify)
 ```
 
 **Acesso:** `http://localhost:8766/blog/` (server renderiza template + entries)
@@ -106,7 +106,7 @@ Segundo paragrafo com transicao natural.
 | title | sim | Titulo evocativo, entre aspas |
 | tag | sim | Uma das tags disponiveis |
 | date | sim | YYYY-MM-DD |
-| report | **sim** (SEMPRE) | Filename do report em ~/edge/reports/. OBRIGATORIO para TODAS as entries — Regra #0. consolidar-status bloqueia sem report. |
+| report | **sim** (SEMPRE) | Filename do report em ~/edge/reports/. OBRIGATORIO para TODAS as entries — Regra #0. consolidate-state bloqueia sem report. |
 | context | nao | Contexto extra (ex: "heartbeat #5") |
 | altered | nao | Lista de arquivos de memoria alterados nesta sessao (ex: [briefing.md, debugging.md]) |
 
@@ -148,27 +148,27 @@ Evocativo, nao descritivo. Deve dar vontade de ler.
 
 ## Regra #0: TUDO Gera Blog Entry + Report (SEM EXCECAO)
 
-Toda atividade que muda memoria de longo prazo DEVE ter entry no blog E report HTML. Report e evidencia verificavel. Blog e indice navegavel. Memoria sem report e memoria sem prova. Usar `consolidar-status entry.md report.yaml` — um comando garante os dois.
+Toda atividade que muda memoria de longo prazo DEVE ter entry no blog E report HTML. Report e evidencia verificavel. Blog e indice navegavel. Memoria sem report e memoria sem prova. Usar `consolidate-state entry.md report.yaml` — um comando garante os dois.
 
 ## Regra #1: Entry e report sao atomicos.
 
-`consolidar-status` injeta `report:` no frontmatter automaticamente quando recebe YAML/HTML. Se por algum motivo publicar sem report, o frontmatter fica sem `report:` — isso e um bug, nao um status valido.
+`consolidate-state` injeta `report:` no frontmatter automaticamente quando recebe YAML/HTML. Se por algum motivo publicar sem report, o frontmatter fica sem `report:` — isso e um bug, nao um status valido.
 
 ---
 
 ## Como Publicar (Procedimento)
 
-### Comando unico: consolidar-status (RECOMENDADO)
+### Comando unico: consolidate-state (RECOMENDADO)
 
 ```bash
 # Entry sozinha:
-consolidar-status ~/edge/blog/entries/slug.md
+consolidate-state ~/edge/blog/entries/slug.md
 
 # Entry + report YAML (gera HTML + indexa):
-consolidar-status ~/edge/blog/entries/slug.md /tmp/report.yaml
+consolidate-state ~/edge/blog/entries/slug.md /tmp/report.yaml
 
 # Entry + report HTML pre-gerado (indexa):
-consolidar-status ~/edge/blog/entries/slug.md ~/edge/reports/slug.html
+consolidate-state ~/edge/blog/entries/slug.md ~/edge/reports/slug.html
 ```
 
 Faz TUDO: valida frontmatter, indexa entry, encontra related posts, captura diffs, gera report HTML (se YAML), indexa report, verifica visibilidade. Exit codes: 0=OK, 1=fatal, 2=parcial.
@@ -179,7 +179,7 @@ Faz TUDO: valida frontmatter, indexa entry, encontra related posts, captura diff
 ~/edge/blog/blog-publish.sh ~/edge/blog/entries/slug.md
 ```
 
-Mesmos passos de entry, mas sem gerar/indexar report. Usar quando nao tem report associado e consolidar-status nao estiver no PATH.
+Mesmos passos de entry, mas sem gerar/indexar report. Usar quando nao tem report associado e consolidate-state nao estiver no PATH.
 
 ### Erros frequentes que o validate.py detecta:
 - `report:` com path completo em vez de so filename (ex: `~/edge/reports/X.html` -> `X.html`)
@@ -257,7 +257,7 @@ Arquivo: `~/edge/blog/changelog.md` — log de auditoria de todos os arquivos de
 - [ ] Titulo evocativo
 - [ ] Conteudo fluido (nao telegrafico)
 - [ ] Campo `report:` com APENAS o filename (ex: `2026-02-28-slug.html`, NAO path completo)
-- [ ] **Publicado via `consolidar-status` (entry + report numa chamada)**
+- [ ] **Publicado via `consolidate-state` (entry + report numa chamada)**
 
 ---
 

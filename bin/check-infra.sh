@@ -50,7 +50,7 @@ check_sqlite() {
   fi
 
   local size
-  size=$(stat -c%s "$SQLITE_DB" 2>/dev/null || echo 0)
+  size=$(stat -Lc%s "$SQLITE_DB" 2>/dev/null || echo 0)
   if [[ "$size" -eq 0 ]]; then
     emit_component sqlite critical "db size=0 bytes"
     return
@@ -116,7 +116,7 @@ check_index() {
   fi
 }
 
-# --- consolidar-estado ---
+# --- consolidate-state ---
 check_consolidate() {
   local latest
   latest=$(find "$REPO_ROOT/meta-reports" -name '*meta*' -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)

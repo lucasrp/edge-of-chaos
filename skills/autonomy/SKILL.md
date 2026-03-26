@@ -220,7 +220,7 @@ Secoes especificas do /ed-autonomy:
 9. **Glossario** — termos (Sheridan, heartbeat, edge-index, etc.)
 
 ```bash
-consolidar-status ~/edge/blog/entries/<slug>.md /tmp/spec-autonomy.yaml
+consolidate-state ~/edge/blog/entries/<slug>.md /tmp/spec-autonomy.yaml
 ```
 
 ### Passo 7: Relatorio ao usuario

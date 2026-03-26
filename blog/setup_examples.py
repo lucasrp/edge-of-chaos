@@ -491,16 +491,16 @@ SYSTEM_FILES = [
         "group_label": "Produção do agente",
         "purpose": "Entradas do blog (markdown com frontmatter). Uma por skill executada. Canal primário de comunicação",
         "owner": "agent",
-        "managed_by": "consolidar-estado",
+        "managed_by": "consolidate-state",
         "is_dir": True,
     },
     {
         "path": "reports/",
         "group": "production",
         "group_label": "Produção do agente",
-        "purpose": "Relatórios HTML autocontidos. Gerados pelo pipeline consolidar-estado a partir de YAML specs",
+        "purpose": "Relatórios HTML autocontidos. Gerados pelo pipeline consolidate-state a partir de YAML specs",
         "owner": "agent",
-        "managed_by": "consolidar-estado",
+        "managed_by": "consolidate-state",
         "is_dir": True,
     },
     {
@@ -518,7 +518,7 @@ SYSTEM_FILES = [
         "group_label": "Produção do agente",
         "purpose": "Fios de investigação (YAML frontmatter + markdown). Status, owner, resurface date. Pipeline de claims",
         "owner": "agent",
-        "managed_by": "consolidar-estado + heartbeat",
+        "managed_by": "consolidate-state + heartbeat",
         "is_dir": True,
     },
     {
