@@ -24,7 +24,7 @@ def load_agent_yaml(path: Path) -> dict:
     with open(path) as f:
         cfg = yaml.safe_load(f)
 
-    required = ["name", "codename", "missao", "persona", "dominio"]
+    required = ["name", "codename", "missao", "voice", "dominio"]
     missing = [k for k in required if not cfg.get(k)]
     if missing:
         print(f"ERRO: Campos obrigatórios faltando: {', '.join(missing)}")
@@ -95,7 +95,7 @@ def build_placeholder_map(cfg: dict) -> dict:
         "AGENT_NAME": cfg["name"],
         "CODENAME": cfg["codename"],
         "AGENT_MISSION": cfg["missao"],
-        "AGENT_PERSONA": cfg["persona"],
+        "AGENT_VOICE": cfg["voice"],
         "AGENT_DOMAIN": cfg["dominio"],
         "AGENT_BIO": cfg["bio"],
         "AGENT_COGNITIVE_PROFILE": cfg["cognitive_profile"],
@@ -135,7 +135,7 @@ def build_placeholder_map(cfg: dict) -> dict:
         "DATE": today,
         "USER_TIMEZONE": cfg["timezone"],
         # Phenotype content (defaults, operator customizes post-install)
-        "VOICE": cfg["persona"],
+        "VOICE": cfg["voice"],
         "PROJECT_CONTEXT": "(nenhum projeto configurado — atualizado por /reflexao)",
         "SHARED_PROFILE": cfg["bio"],
         "INTERESTS_TABLE": "| Area | Conexão |\n|------|--------|\n| (a definir) | (a definir) |",
