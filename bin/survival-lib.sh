@@ -33,16 +33,15 @@ compute_score() {
 
   for comp in "${!weights[@]}"; do
     local w="${weights[$comp]}"
-    max=$((max + w))
     local raw_file="$RAW_DIR/${comp}.json"
     if [[ -f "$raw_file" ]]; then
       local st
       st=$(jq -r '.status' "$raw_file" 2>/dev/null)
       case "$st" in
-        ok)       total=$((total + w)) ;;
-        degraded) total=$((total + w / 2)) ;;
-        unknown)  total=$((total + w / 4)) ;;
-        fail)     ;;
+        ok)       max=$((max + w)); total=$((total + w)) ;;
+        degraded) max=$((max + w)); total=$((total + w / 2)) ;;
+        unknown)  ;;  # exclude from score — no data yet, not a failure
+        fail)     max=$((max + w)) ;;
         *)        ;;
       esac
     fi
