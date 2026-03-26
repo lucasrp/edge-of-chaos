@@ -155,12 +155,22 @@ check_providers
 generate_backfill
 
 # Determine status
-local_status="ok"
-if [[ "$adversarial_rate" -lt 50 ]] || [[ "$fontes_rate" -lt 30 ]]; then
-  local_status="degraded"
-fi
-if [[ "$adversarial_rate" -lt 15 ]] || [[ "$fontes_rate" -lt 10 ]] || [[ "$review_gate_active" == "false" ]]; then
-  local_status="fail"
+# If no entries/meta-reports exist yet, quality is not applicable (ok)
+if [[ "$total_meta_7d" -eq 0 ]] && [[ "$total_q2q3_7d" -eq 0 ]]; then
+  local_status="unknown"
+else
+  local_status="ok"
+  if [[ "$total_meta_7d" -gt 0 ]]; then
+    if [[ "$adversarial_rate" -lt 50 ]]; then local_status="degraded"; fi
+    if [[ "$adversarial_rate" -lt 15 ]]; then local_status="fail"; fi
+  fi
+  if [[ "$total_q2q3_7d" -gt 0 ]]; then
+    if [[ "$fontes_rate" -lt 30 ]] && [[ "$local_status" != "fail" ]]; then local_status="degraded"; fi
+    if [[ "$fontes_rate" -lt 10 ]]; then local_status="fail"; fi
+  fi
+  if [[ "$total_meta_7d" -gt 0 ]] && [[ "$review_gate_active" == "false" ]]; then
+    local_status="fail"
+  fi
 fi
 
 detail="adversarial=${adversarial_rate}% (${meta_with_adversarial}/${total_meta_7d})"
