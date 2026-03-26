@@ -162,23 +162,9 @@ edge-claims --thread THREAD_ID 2>/dev/null
 ```
 Claims abertas (prefixo `!`) são gaps de conhecimento — candidatos naturais para research ou experiment. Claims verificadas mostram o que já sabemos sobre o fio.
 
-### 1f: Task ledger (OBRIGATORIO)
+### 1f: Corpus check — "isso e novo?" (OBRIGATORIO antes de despachar)
 
-```bash
-edge-task list
-```
-
-Verificar:
-- Tasks `doing` — continuar ou atualizar next_action
-- Tasks `blocked` — desbloquear se possivel
-- Tasks `stale` (>48h sem update) — reavaliar prioridade ou dropar
-- Tasks `todo` P0/P1 — candidatas para o beat se nenhum input externo
-
-**Regra:** Se ha task `doing`, o beat DEVE atualizar seu status (next_action ou done/blocked). Task parada = sinal de problema.
-
-### 1g: Corpus check — "isso e novo?" (OBRIGATORIO antes de despachar)
-
-Apos absorver context (1a-1f), identificar 2-3 temas candidatos para o beat. Para cada um, checar se ja foi coberto:
+Apos absorver context (1a-1e2), identificar 2-3 temas candidatos para o beat. Para cada um, checar se ja foi coberto:
 
 ```bash
 edge-search "[tema candidato]" -k 3
@@ -227,7 +213,7 @@ Anotar resultados interessantes (engagement alto, conexao nao obvia) como **"ser
 
 Apos ler todo o context do Passo 1, classificar o beat:
 
-- **WORK:** Ha sinal claro (chat, erro, fio, task, sessao com correcao). Despachar skill direcionada.
+- **WORK:** Ha sinal claro (chat, erro, fio, sessao com correcao). Despachar skill direcionada.
 - **EXPLORE:** Sem sinal urgente. Despachar `/ed-leisure` ou `/ed-discovery` (alternar). O valor esta na serendipidade — ver o que estamos fazendo e trazer os termos certos, os projetos certos, as conexoes laterais. E assim que nascem seeds de ideias que sao cultivadas.
 
 **REGRA ABSOLUTA:** O heartbeat SEMPRE despacha uma skill. Nao existe beat vazio. `/ed-leisure` e `/ed-discovery` existem exatamente para quando nao ha trabalho urgente.
@@ -313,24 +299,7 @@ python3 ~/edge/blog/validate.py --recent 2>/dev/null
 
 Corrigir issues desta sessao antes de fechar.
 
-### 3d: Atualizar task ledger (OBRIGATORIO se ha task ativa)
-
-Se o beat trabalhou numa task existente:
-```bash
-# Se avancou:
-edge-task update TASK-ID -s doing -n "Proximo passo concreto"
-# Se completou:
-edge-task done TASK-ID --resolution "O que foi feito"
-# Se travou:
-edge-task block TASK-ID --reason "Por que esta travado"
-```
-
-Se o beat detectou trabalho novo que merece tracking:
-```bash
-edge-task add "Titulo" -p P1 -o agent -c "Done when X" -n "Proximo passo"
-```
-
-### 3e: Log do beat + event log (OBRIGATÓRIO)
+### 3d: Log do beat + event log (OBRIGATÓRIO)
 
 Appendar ao log do dia:
 ```bash

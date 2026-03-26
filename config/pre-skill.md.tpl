@@ -1,101 +1,16 @@
-# Ativação de Contexto
+# Pre-Skill — Contexto do Agente (fenótipo)
 
-> Quem eu sou, o que estou fazendo, e o que preciso absorver para trabalhar.
-> Sem isso, sou Claude genérico. Com isso, sou {{AGENT_NAME}}.
-
-**Atualizado por:** `/{{SKILL_PREFIX}}-reflection` (quando detecta que o context mudou).
+> Configuração específica deste agente. O pipeline do genótipo já carregou
+> identidade, regras, threads, health e anti-redundância antes desta etapa.
+> Aqui entra só o que é único deste agente.
 
 ---
 
-## 1. Quem eu sou
-
-```bash
-cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/personality.md
-cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/rules-core.md
-cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/metodo.md
-```
-
-Identidade, regras invioláveis, método de trabalho. Ler SEMPRE — é o que me diferencia.
-
-### Tom de voz
+## Tom de voz
 
 {{VOICE}}
 
-## 2. O que estou fazendo
+## Projetos
 
-```bash
-cat ~/edge/config/strategy.md
-```
-
-Direção do operador: fase atual, prioridades, restrições, horizonte. Orienta TODA decisão.
-
-```bash
-cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-active.md
-```
-
-Últimas atividades. Construir sobre o que foi feito, não repetir.
-
-```bash
-cat ~/edge/health/current.json 2>/dev/null | python3 -c "
-import json, sys
-h = json.load(sys.stdin)
-print(f'Health: {h.get(\"status\", \"unknown\")} (score: {h.get(\"score\", \"?\")})')
-" 2>/dev/null
-```
-
-Se degraded/critical: priorizar reparo antes de trabalhar.
-
-## 3. O que absorver
-
-```bash
-# Anti-redundância: o que já sei sobre o tema
-edge-search "[tema da skill]" -k 5 2>/dev/null
-```
-
-```bash
-# Mensagens pinadas do operador (prioridade sobre tudo)
-curl -s "http://localhost:${BLOG_PORT:-8080}/api/chat?pinned=true" 2>/dev/null | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    msgs = [m for m in data.get('messages', []) if m.get('pinned')]
-    for m in msgs:
-        print(f'[PIN] {m[\"text\"]}')
-    if not msgs: print('(nenhuma mensagem pinada)')
-except: print('(chat indisponivel)')
-" 2>/dev/null
-```
-
-### Contexto adicional por modo
-
-**Sessão interativa:** o context da conversa já carrega muito. Absorver o mínimo acima.
-
-**Sessão autônoma (heartbeat):** absorver mais:
-
-```bash
-# Erros que não podem recorrer
-cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md
-
-# O que o heartbeat já fez hoje
-cat ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log 2>/dev/null | tail -15
-
-# Fios de investigação com resurface vencido
-today=$(date +%Y-%m-%d)
-for f in ~/edge/threads/*.md; do
-  [ -f "$f" ] || continue
-  status=$(grep '^status:' "$f" 2>/dev/null | head -1 | awk '{print $2}')
-  resurface=$(grep '^resurface:' "$f" 2>/dev/null | head -1 | awk '{print $2}')
-  if [ "$status" = "active" ] && [ -n "$resurface" ] && [ "$resurface" \<= "$today" ]; then
-    echo "RESURFACE: $(grep '^title:' "$f" | head -1 | sed 's/^title: *//')"
-  fi
-done
-
-# Task ledger
-edge-task list 2>/dev/null
-```
-
-### Contexto de projetos
-
-<!-- {{SKILL_PREFIX}}-reflection mantém esta seção atualizada -->
-
-{{PROJECT_CONTEXT}}
+Verificar atualizações nos repositórios de trabalho (GitHub) antes de agir.
+Não assumir que o estado local está atualizado — sempre `git pull` ou checar o remote.
