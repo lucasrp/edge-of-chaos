@@ -629,8 +629,8 @@ def get_autonomy_data():
     """Read ~/edge/autonomy/capabilities.md and compute Sheridan stats."""
     import re
     try:
-        cap_path = Path.home() / "edge" / "autonomy" / "capabilities.md"
-        frontier_path = Path.home() / "edge" / "autonomy" / "frontier.md"
+        cap_path = ROOT / "autonomy" / "capabilities.md"
+        frontier_path = ROOT / "autonomy" / "frontier.md"
         content = cap_path.read_text()
         # Parse table rows: | # | Name | Sheridan | ...
         rows = re.findall(r'^\|\s*\d+\s*\|([^|]+)\|\s*(\d+)\s*\|', content, re.MULTILINE)
