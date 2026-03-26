@@ -1,42 +1,58 @@
-# agent.yaml — Spec declarativa de uma instância
-# Campos REQUIRED não têm default. O resto é derivado automaticamente.
-# Copie para agent.yaml e preencha os campos obrigatórios.
+# agent.yaml — Declarative spec for an agent instance
+# REQUIRED fields have no default. Everything else is derived automatically.
+# Copy to agent.yaml and fill in the required fields.
 
-# --- Identidade (REQUIRED) ---
-name: meu-agente               # REQUIRED: unique name (lowercase, hyphens ok)
-codename: ma                    # REQUIRED: skill prefix (ex: /ma-research)
-missao: "Describe the agent's mission in 1-2 sentences"  # REQUIRED
-voice: "Direct, technical, detail-oriented"              # REQUIRED: tone of voice
-dominio: "government"           # REQUIRED: work domain
+# --- Identity (REQUIRED) ---
+name: my-agent                  # REQUIRED: unique name (lowercase, hyphens ok)
+codename: ma                    # REQUIRED: skill prefix (e.g. /ma-research)
+mission: "Describe the agent's mission in 1-2 sentences"  # REQUIRED
+voice: "Direct, technical, detail-oriented"                # REQUIRED: tone of voice
+domain: "government"            # REQUIRED: work domain
 
-# --- Derivados (defaults inteligentes — sobrescreva se quiser) ---
-idioma: pt-BR
+# --- Defaults (smart defaults — override if needed) ---
+language: pt-BR
 skill_prefix: ""                # default: = codename
 tool_prefix: edge
 edge_home: ""                   # default: ~/{codename}/
 heartbeat_interval: 2h
 blog_port: 8766
-blog_host: "0.0.0.0"           # público por default (acessível de fora)
-blog_auth_enabled: true         # protegido por login
+blog_host: "0.0.0.0"           # public by default (accessible from outside)
+blog_auth_enabled: true         # protected by login
 blog_auth_user: admin           # change before deploy
-blog_auth_pass: trocar123       # change before deploy
+blog_auth_pass: change-me       # change before deploy
 
-# --- Lifecycle hooks ---
-pre_skill: config/pre-skill.md  # executado ANTES de cada skill (identidade, contexto, anti-redundância)
-post_skill: config/post-skill.md # executado DEPOIS de cada skill (notify, strategy update, custom actions)
+# --- Pre-Skill (phenotype: loaded BEFORE each skill) ---
+# Behaviors the agent should follow before starting any skill.
+# The genotype pipeline already loads identity, rules, threads, health
+# and anti-redundancy. This is only for instance-specific context.
+# voice is inherited from the field above — no need to repeat.
+pre_skill:
+  - "Check my GitHub repos for new commits before acting on project files"
+  - "Review the Trello board for updated priorities"
+#  - "Pull latest data from the shared drive before analysis"
+
+# --- Post-Skill (phenotype: runs AFTER each skill + publication) ---
+# Actions the agent should take after completing a skill.
+# The publication pipeline (blog → report → consolidate-state → adversarial)
+# is genotype and runs BEFORE these actions.
+post_skill:
+  - "Save HTML reports to Google Drive in /ACME/reports/"
+  - "Notify operator via configured channel if running autonomously"
+#  - "Update the team wiki with key findings"
+#  - "Post a summary to the #updates Slack channel"
 
 # --- Onboarding ---
-onboarding_mode: true           # false depois de graduado
+onboarding_mode: true           # false after graduated
 
-# --- Opcional ---
-bio: ""                         # default: = missao
+# --- Optional ---
+bio: ""                         # default: = mission
 cognitive_profile: "Analytical. Decomposes problems, seeks structure."
-knowledge_base: ""              # path local, URL git, ou URL https
-public_url: ""                  # se blog público
+knowledge_base: ""              # local path, git URL, or https URL
+public_url: ""                  # if blog is public
 repo_owner: ""                  # GitHub user/org
 repo_name: ""                   # default: = name
 
-# --- Secrets (NUNCA aqui — em .secrets ou env vars) ---
+# --- Secrets (NEVER here — use .secrets or env vars) ---
 # ANTHROPIC_API_KEY=sk-ant-...
 # OPENAI_API_KEY=sk-...
 # EXA_API_KEY=...

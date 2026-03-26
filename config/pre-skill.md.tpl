@@ -1,16 +1,15 @@
-# Pre-Skill — Contexto do Agente (fenótipo)
+# Pre-Skill — Agent Context (phenotype)
 
-> Configuração específica deste agente. O pipeline do genótipo já carregou
-> identidade, regras, threads, health e anti-redundância antes desta etapa.
-> Aqui entra só o que é único deste agente.
+> Instance-specific configuration. The genotype pipeline already loads
+> identity, rules, threads, health and anti-redundancy before this step.
+> Only what is unique to this agent goes here.
 
 ---
 
-## Tom de voz
+## Voice
 
-{{VOICE}}
+{{ VOICE }}
 
-## Projetos
+## Before each skill
 
-Verificar atualizações nos repositórios de trabalho (GitHub) antes de agir.
-Não assumir que o estado local está atualizado — sempre `git pull` ou checar o remote.
+{{ PRE_SKILL_CHECKLIST }}
