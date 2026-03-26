@@ -39,7 +39,7 @@ FILENAME=$(basename "$ENTRY_PATH")
 SLUG="${FILENAME%.md}"
 
 # Guardrail: BLOCK direct calls — everything must go through consolidar-estado
-if [[ -z "${CALLED_FROM_CONSOLIDAR_ESTADO:-}" ]]; then
+if [[ -z "${CALLED_FROM_CONSOLIDAR_ESTADO:-}" && -z "${CALLED_FROM_FULL_PUBLISH:-}" ]]; then
     echo "ERROR: blog-publish.sh não pode ser chamado diretamente."
     echo "       Use: consolidar-estado <entry.md> [report.yaml]"
     echo "       Motivo: toda publicação precisa de meta-report + state audit."
