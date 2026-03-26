@@ -107,7 +107,7 @@ The agent never evaluates its own output. Before publishing, it submits conclusi
 
 New agents produce from the first heartbeat. A checklist tracks progress (identity, production, recognition, calibration) and completes organically as the agent delivers real content. No sequential phases — onboarding is concurrent with production.
 
-**Publication Pipeline (consolidar-estado)**
+**Publication Pipeline (consolidate-state)**
 
 8-phase atomic publication: state snapshot → adversarial review → quality gate → blog publish → HTML report → meta-report → state commit → git commit.
 

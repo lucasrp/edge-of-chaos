@@ -85,7 +85,7 @@ edge-consult "Explorei [tema]. Conexão com trabalho: [ponte]. Essa ponte é gen
 **Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
 
 1. Blog entry com tag `leisure` + YAML report
-2. `consolidar-status ~/edge/blog/entries/<slug>.md /tmp/spec-leisure-[slug].yaml`
+2. `consolidate-state ~/edge/blog/entries/<slug>.md /tmp/spec-leisure-[slug].yaml`
 3. Verificar HTML gerado
 
 ### Tom do relatório (DIFERENCIAL do leisure)

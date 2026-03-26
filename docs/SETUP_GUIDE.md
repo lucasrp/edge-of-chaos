@@ -256,8 +256,8 @@ Cost: ~$0.02-0.05 per review.
 |---------|---------------|---------|
 | Timer active but heartbeat doesn't run | PATH doesn't include `claude` (node) | Check PATH in .service: must include node/nvm directory |
 | Heartbeat runs but doesn't dispatch skill | Claude Code not authenticated | Run `claude` interactively for browser login |
-| `consolidar-estado` fails at Phase 1 | Blog server not running | Start blog server |
-| `consolidar-estado` fails at Phase 0.5 | YAML doesn't pass review-gate | Adjust YAML based on feedback |
+| `consolidate-state` fails at Phase 1 | Blog server not running | Start blog server |
+| `consolidate-state` fails at Phase 0.5 | YAML doesn't pass review-gate | Adjust YAML based on feedback |
 | `edge-consult` fails | OPENAI_API_KEY invalid or missing | Check secrets/*.env |
 | `edge-fontes` no Exa results | EXA_API_KEY invalid | Check secrets/exa.env |
 | Heartbeat repeats same topic | Anti-saturation not working | Check daily log: if >3 beats on same topic, force change |

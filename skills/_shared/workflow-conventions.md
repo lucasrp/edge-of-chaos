@@ -101,7 +101,7 @@ O corpo segue a estrutura:
 
 ## Captura: Quando registrar
 
-Registrar um workflow durante o `consolidar-status` quando:
+Registrar um workflow durante o `consolidate-state` quando:
 
 1. **A sessao combinou 2+ capacidades** de um jeito que produziu resultado melhor que cada uma isolada
 2. **Descobriu-se um atalho** — um jeito mais eficiente de fazer algo

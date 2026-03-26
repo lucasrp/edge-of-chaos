@@ -322,7 +322,7 @@ O report HTML e o artefato principal da proposta. Deve ser **autoexplicativo** â
 3. **Escrever YAML** em `/tmp/spec-planner-[slug].yaml`
 4. Publicar tudo atomicamente (blog entry + report HTML + indexacao):
    ```bash
-   consolidar-status ~/edge/blog/entries/<arquivo>.md /tmp/spec-planner-[slug].yaml
+   consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-planner-[slug].yaml
    ```
 5. **Read do HTML gerado** (`~/edge/reports/<arquivo>.html`) para verificacao
 

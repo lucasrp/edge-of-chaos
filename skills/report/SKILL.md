@@ -152,7 +152,7 @@ Ajustar se o GPT encontrar furo valido. Se mantiver posicao, registrar como call
 
 **4a. Blog interno:**
 1. Criar entry .md com tag `report` (ou da skill chamadora). Formato: ver `/ed-blog` SKILL.md
-2. A publicacao sera feita no Passo 5 junto com o report (via `consolidar-status`)
+2. A publicacao sera feita no Passo 5 junto com o report (via `consolidate-state`)
 
 **4b. Observações de status:** `edge-scratch add "Relatório [tema]: [conclusão principal]. [próximo passo]."` (status via meta-report, ver `~/.claude/skills/_shared/state-protocol.md`).
 
@@ -167,10 +167,10 @@ Se foi auto-invocado, explicar ao usuario o que gerou e por que:
 ### Passo 5: Publicar blog entry + gerar HTML + indexar (atomico)
 
 ```bash
-consolidar-status ~/edge/blog/entries/<arquivo>.md /tmp/spec-[slug].yaml
+consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-[slug].yaml
 ```
 
-O `consolidar-status` faz tudo: publica a blog entry, gera o HTML do report em `~/edge/reports/`, e indexa no edge-memory.
+O `consolidate-state` faz tudo: publica a blog entry, gera o HTML do report em `~/edge/reports/`, e indexa no edge-memory.
 
 Se notas foram criadas em ~/edge/notes/, indexar separadamente:
 ```bash
