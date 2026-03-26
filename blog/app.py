@@ -19,29 +19,17 @@ from flask_compress import Compress
 import markdown
 import yaml
 
-# ─── Paths (resolved via config/paths.py or env) ───
-_app_dir = Path(__file__).resolve().parent
-_repo_root = _app_dir.parent
-sys.path.insert(0, str(_repo_root))
-sys.path.insert(0, str(_repo_root / "config"))
-
-try:
-    from config.paths import EDGE_DIR, BLOG_DIR, ENTRIES_DIR, REPORTS_DIR, META_DIR, SEARCH_DIR
-    ROOT = EDGE_DIR
-    META_REPORTS_DIR = META_DIR
-except ImportError:
-    # Fallback: derive from app.py location (blog/ is inside the repo root)
-    ROOT = Path(os.environ.get("EDGE_DIR", str(_repo_root)))
-    BLOG_DIR = ROOT / "blog"
-    ENTRIES_DIR = BLOG_DIR / "entries"
-    REPORTS_DIR = ROOT / "reports"
-    META_REPORTS_DIR = ROOT / "meta-reports"
-    SEARCH_DIR = ROOT / "search"
-
+# ─── Paths ───
+ROOT = Path.home() / "edge"
+BLOG_DIR = ROOT / "blog"
+ENTRIES_DIR = BLOG_DIR / "entries"
 COMMENTS_FILE = BLOG_DIR / "comments.json"
 DIFFS_DIR = BLOG_DIR / "diffs"
 DIFFS_DIR.mkdir(parents=True, exist_ok=True)
+META_REPORTS_DIR = ROOT / "meta-reports"
+REPORTS_DIR = ROOT / "reports"
 
+SEARCH_DIR = ROOT / "search"
 sys.path.insert(0, str(SEARCH_DIR))
 sys.path.insert(0, str(ROOT))
 
@@ -65,8 +53,6 @@ app.register_blueprint(setup_bp)
 PAGE_SIZE = 20
 
 # ─── Tag normalization ───
-WORKFLOW_TAGS = {"workflow", "anti-pattern"}
-
 TAG_MAP = {
     "leisure": "lazer", "reflection": "reflexao", "research": "pesquisa",
     "discovery": "descoberta", "strategy": "estrategia", "planning": "planejamento",
@@ -92,12 +78,6 @@ def get_fts_conn():
         CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
             slug, title, body, tags,
             tokenize='porter unicode61 remove_diacritics 2'
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS workflow_views (
-            slug TEXT NOT NULL,
-            viewed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
         )
     """)
     return conn
@@ -141,24 +121,6 @@ def fts_search(query, limit=20):
         results = []
     conn.close()
     return results
-
-
-def record_workflow_view(slug):
-    """Record a workflow detail view."""
-    conn = get_fts_conn()
-    conn.execute("INSERT INTO workflow_views (slug) VALUES (?)", (slug,))
-    conn.commit()
-    conn.close()
-
-
-def get_workflow_view_counts():
-    """Return {slug: count} for all workflow views."""
-    conn = get_fts_conn()
-    rows = conn.execute(
-        "SELECT slug, COUNT(*) AS cnt FROM workflow_views GROUP BY slug"
-    ).fetchall()
-    conn.close()
-    return {r["slug"]: r["cnt"] for r in rows}
 
 
 # ─── Data loading ───
@@ -266,21 +228,6 @@ def load_entries():
         # Pipeline enforcement: entry is "published" only if meta-report exists
         published = bool(meta_report)
 
-        # Workflow metadata
-        secrets_list = fm.get("secrets", [])
-        if not isinstance(secrets_list, list):
-            secrets_list = []
-        cost_estimate = fm.get("cost_estimate", "")
-
-        # Extract ## Trigger section from body
-        trigger_text = ""
-        if WORKFLOW_TAGS.intersection(tags_list):
-            trigger_match = re.search(
-                r'^## (?:Trigger|O que tentei)\s*\n(.*?)(?=\n## |\Z)',
-                body_md, re.MULTILINE | re.DOTALL)
-            if trigger_match:
-                trigger_text = trigger_match.group(1).strip()
-
         entries.append({
             "title": fm.get("title", fp.stem),
             "tag": tag,
@@ -304,9 +251,6 @@ def load_entries():
             "body_html": "",
             "mtime": fp.stat().st_mtime,
             "path": str(fp),
-            "secrets": secrets_list,
-            "cost_estimate": cost_estimate,
-            "trigger": trigger_text,
         })
 
     entries.sort(key=lambda e: (e["date"], e["slug"]), reverse=True)
@@ -420,7 +364,7 @@ def enrich_entries(entries):
 
 
 def filter_entries(entries, comments_data, cat=None, temp=None, status=None,
-                   report=False, q=None, show_pending=False, exclude_workflows=False):
+                   report=False, q=None, show_pending=False):
     """Filter entries based on criteria."""
     filtered = []
     # If search query, try FTS first
@@ -433,10 +377,6 @@ def filter_entries(entries, comments_data, cat=None, temp=None, status=None,
     for e in entries:
         # Pipeline enforcement: hide unpublished entries unless explicitly requested
         if not show_pending and not e.get("published"):
-            continue
-
-        # Exclude workflow/anti-pattern entries from main feed
-        if exclude_workflows and WORKFLOW_TAGS.intersection(e.get("tags", [])):
             continue
 
         # Category filter (OR logic on list)
@@ -492,7 +432,7 @@ def inject_globals():
 @app.route("/blog")
 def blog_index():
     tab = request.args.get("tab", "feed")
-    if tab not in ("feed", "chat", "workflows"):
+    if tab not in ("feed", "chat"):
         tab = "feed"
 
     entries = get_entries()
@@ -514,29 +454,10 @@ def blog_index():
     # Get stats
     stats = get_stats_data()
 
-    if tab == "workflows":
-        # Show only workflow/anti-pattern entries
-        workflow_entries = [e for e in entries
-                           if WORKFLOW_TAGS.intersection(e.get("tags", []))]
-        view_counts = get_workflow_view_counts()
-        for e in workflow_entries:
-            e["view_count"] = view_counts.get(e["slug"], 0)
-        sort_by = request.args.get("sort", "date")
-        if sort_by == "views":
-            workflow_entries.sort(key=lambda e: e["view_count"], reverse=True)
-        render_page_html(workflow_entries)
-        return render_template("workflows.html",
-                               tab=tab,
-                               entries=workflow_entries,
-                               stats=stats,
-                               sort_by=sort_by,
-                               is_htmx=request.headers.get("HX-Request") == "true")
-
     if tab == "feed":
         filtered = filter_entries(entries, comments_data, cat=cat, temp=temp,
                                   status=status_f, report=report_f, q=q,
-                                  show_pending=show_pending,
-                                  exclude_workflows=not q)
+                                  show_pending=show_pending)
         total_pages = max(1, math.ceil(len(filtered) / PAGE_SIZE))
         if page > total_pages:
             page = total_pages
@@ -602,8 +523,7 @@ def htmx_entries():
 
     filtered = filter_entries(entries, comments_data, cat=cat, temp=temp,
                               status=status_f, report=report_f, q=q,
-                              show_pending=show_pending,
-                              exclude_workflows=not q)
+                              show_pending=show_pending)
     total_pages = max(1, math.ceil(len(filtered) / PAGE_SIZE))
     if page > total_pages:
         page = total_pages
@@ -662,19 +582,6 @@ def htmx_entry_comments(slug):
                            entry_key=key,
                            saved=ed.get("saved", False),
                            comments=ed.get("comments", []))
-
-
-@app.route("/htmx/workflow/<slug>")
-def htmx_workflow_detail(slug):
-    """Return workflow detail view as HTML partial (htmx target)."""
-    entries = get_entries()
-    entry = next((e for e in entries if e["slug"] == slug), None)
-    if not entry:
-        abort(404)
-    # Record view
-    record_workflow_view(slug)
-    render_page_html([entry])
-    return render_template("partials/workflow_detail.html", entry=entry)
 
 
 # ─── Routes: JSON APIs (backward compatible) ───
@@ -773,13 +680,6 @@ def api_stats():
     return jsonify(get_stats_data())
 
 
-@app.route("/api/workflow-stats")
-def api_workflow_stats():
-    """Return view counts per workflow slug."""
-    counts = get_workflow_view_counts()
-    return jsonify(counts)
-
-
 @app.route("/api/entries")
 def api_entries():
     try:
@@ -792,7 +692,6 @@ def api_entries():
         status_filter = params.get("status")
         temp = params.get("temp")
         q = params.get("q")
-        include_workflows = params.get("include_workflows", "").lower() in ("true", "1", "yes")
 
         conn = ensure_db()
         sql = "SELECT d.path, d.title, d.type, d.metadata, d.content FROM documents d WHERE d.type='blog'"
@@ -828,9 +727,6 @@ def api_entries():
             if temp and entry_temp != temp:
                 continue
             fm = json.loads(r["metadata"]) if r["metadata"] else _parse_frontmatter(r["content"] or "")
-            # Exclude workflow/anti-pattern entries by default
-            if not include_workflows and WORKFLOW_TAGS.intersection(fm.get("tags", [])):
-                continue
             body_md = r["content"] or ""
             try:
                 body_html = markdown.markdown(body_md, extensions=["extra"])
@@ -1022,6 +918,110 @@ def api_search():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/threads")
+def api_threads():
+    """Enriched threads with entries_count, resurface, next_step."""
+    try:
+        from blog.services import load_threads_enriched
+        status = request.args.get("status")
+        return jsonify(load_threads_enriched(status_filter=status))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/threads/<thread_id>/detail")
+def api_thread_detail(thread_id):
+    """Full thread detail: metadata, body, linked entries, reports, claims."""
+    try:
+        from blog.services import load_thread_detail
+        detail = load_thread_detail(thread_id)
+        if detail is None:
+            return jsonify({"error": f"Thread '{thread_id}' not found"}), 404
+        return jsonify(detail)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/thread/<thread_id>")
+def thread_page(thread_id):
+    """Render thread detail page."""
+    from blog.services import load_thread_detail
+    detail = load_thread_detail(thread_id)
+    if detail is None:
+        abort(404)
+    return render_template("thread_detail.html", thread=detail)
+
+
+@app.route("/api/thread-candidates")
+def api_thread_candidates():
+    """Detect recurring tags that could become threads."""
+    try:
+        from blog.services import compute_thread_candidates
+        return jsonify({"candidates": compute_thread_candidates()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/thread-candidates/<tag>/promote", methods=["POST"])
+def api_promote_candidate(tag):
+    """Create a thread from a candidate tag."""
+    from datetime import timedelta
+    threads_dir = ROOT / "threads"
+    thread_path = threads_dir / f"{tag}.md"
+    if thread_path.exists():
+        return jsonify({"error": f"Thread '{tag}' already exists"}), 409
+    today = datetime.now().strftime("%Y-%m-%d")
+    resurface = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+    title = tag.replace("-", " ").replace("_", " ").title()
+    content = f"""---
+id: {tag}
+title: "{title}"
+type: investigation
+status: proposed
+owner: agent
+created: {today}
+updated: {today}
+resurface: {resurface}
+goal: ""
+done_when: ""
+---
+
+## Fio
+
+Thread criado a partir de candidate (tag '{tag}').
+
+## Próximo passo
+
+[definir]
+"""
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    thread_path.write_text(content, encoding="utf-8")
+    return jsonify({"ok": True, "thread_id": tag})
+
+
+@app.route("/api/threads/<thread_id>/snooze", methods=["POST"])
+def api_thread_snooze(thread_id):
+    """Snooze: update resurface +7d."""
+    from datetime import timedelta
+    thread_path = ROOT / "threads" / f"{thread_id}.md"
+    if not thread_path.exists():
+        return jsonify({"error": f"Thread {thread_id} not found"}), 404
+    data = request.get_json(silent=True) or {}
+    mode = data.get("mode", "snooze")
+    raw = thread_path.read_text(encoding="utf-8")
+    parts = raw.split("---", 2)
+    if len(parts) < 3:
+        return jsonify({"error": "Invalid thread file"}), 400
+    fm = yaml.safe_load(parts[1]) or {}
+    today = datetime.now().strftime("%Y-%m-%d")
+    fm["resurface"] = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+    if mode == "worked":
+        fm["updated"] = today
+    new_fm = yaml.dump(fm, default_flow_style=False, allow_unicode=True).rstrip("\n")
+    thread_path.write_text(f"---\n{new_fm}\n---{parts[2]}", encoding="utf-8")
+    return jsonify({"ok": True, "resurface": fm["resurface"]})
+
+
 @app.route("/blog/comments.json")
 def comments_json():
     return jsonify(load_comments())
@@ -1101,27 +1101,25 @@ def enrich_task(t):
     return t
 
 
-def load_threads_summary():
-    """Load thread YAML frontmatter for dashboard."""
-    threads = []
-    if not THREADS_DIR.exists():
-        return threads
-    for fp in sorted(THREADS_DIR.glob("*.md")):
-        try:
-            raw = fp.read_text(encoding="utf-8")
-            parts = raw.split("---", 2)
-            if len(parts) >= 3:
-                fm = yaml.safe_load(parts[1]) or {}
-                if fm.get("status") in ("active", "waiting"):
-                    threads.append({
-                        "id": fp.stem,
-                        "name": fm.get("title", fp.stem),
-                        "status": fm.get("status", "?"),
-                        "owner": fm.get("owner", "?"),
-                    })
-        except Exception:
-            continue
-    return threads
+def _build_threads_data():
+    """Build context for threads partial."""
+    from blog.services import load_threads_enriched, compute_thread_candidates
+    data = load_threads_enriched()
+    threads = data["threads"]
+    return {
+        "threads_due": [t for t in threads if t["resurface_due"] and t["status"] == "active"],
+        "threads_active": [t for t in threads if not t["resurface_due"] and t["status"] == "active"],
+        "threads_proposed": [t for t in threads if t["status"] == "proposed"],
+        "threads_dormant": [t for t in threads if t["status"] == "dormant"],
+        "thread_candidates": compute_thread_candidates(),
+        "thread_stats": data["stats"],
+    }
+
+
+@app.route("/partials/threads")
+def partial_threads():
+    """HTMX partial: threads section."""
+    return render_template("partials/threads.html", **_build_threads_data())
 
 
 def get_health_data(entries):
@@ -1188,65 +1186,18 @@ def get_health_data(entries):
 @app.route("/dashboard")
 def dashboard_page():
     """Operational dashboard — 30-second health check for operator."""
-    snap = load_tasks_snapshot()
     entries = get_entries()
-
-    prio_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
-    all_tasks = sorted(
-        snap.values(),
-        key=lambda t: (prio_order.get(t.get("priority", "P3"), 9), t.get("updated_at", ""))
-    )
-
-    # Categorize
-    tasks_doing = [enrich_task(t) for t in all_tasks if t.get("status") == "doing"]
-    tasks_blocked = [enrich_task(t) for t in all_tasks if t.get("status") == "blocked"]
-    tasks_todo = [enrich_task(t) for t in all_tasks if t.get("status") == "todo"][:7]
-    tasks_done = [enrich_task(t) for t in all_tasks if t.get("status") == "done"][:5]
-
-    # Stale: active tasks not updated in 48h
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-    tasks_stale = []
-    for t in all_tasks:
-        if t.get("status") in ("done", "dropped"):
-            continue
-        updated = t.get("updated_at", "")
-        if updated:
-            try:
-                dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
-                if (now - dt).total_seconds() > 48 * 3600:
-                    tasks_stale.append(enrich_task(t))
-            except Exception:
-                pass
-
-    # Stats
-    active_tasks = [t for t in all_tasks if t.get("status") not in ("done", "dropped")]
-    task_stats = {
-        "total": len(all_tasks),
-        "doing": len([t for t in all_tasks if t.get("status") == "doing"]),
-        "blocked": len([t for t in all_tasks if t.get("status") == "blocked"]),
-        "todo": len([t for t in all_tasks if t.get("status") == "todo"]),
-        "done": len([t for t in all_tasks if t.get("status") == "done"]),
-    }
-
     health = get_health_data(entries)
-    threads = load_threads_summary()
     knowledge_clusters = load_knowledge_clusters()
-    # Strip content for dashboard summary
     kc_summary = [{k: v for k, v in c.items() if k != "content"} for c in knowledge_clusters]
 
-    # Status strip data for initial render (HTMX refreshes after)
     status_strip = _build_status_strip_data()
-    # Alerts data for initial render (HTMX refreshes after)
     alerts = _build_alerts_data()
-    # Pipeline data for initial render (HTMX refreshes after)
     pipeline = _build_pipeline_data()
-    # Hotspots data for initial render (HTMX refreshes after)
     hotspots_data = _build_hotspots_data()
-    # Corpus data for initial render (HTMX refreshes after)
     corpus_data = _build_corpus_data()
-    # Briefing data for initial render (HTMX refreshes after)
     briefing_data = _build_briefing_data()
+    threads_data = _build_threads_data()
 
     return render_template(
         "dashboard.html",
@@ -1255,13 +1206,6 @@ def dashboard_page():
         header_sub="ops console",
         stats=get_stats_data(),
         health=health,
-        tasks_doing=tasks_doing,
-        tasks_blocked=tasks_blocked,
-        tasks_todo=tasks_todo,
-        tasks_done=tasks_done,
-        tasks_stale=tasks_stale,
-        task_stats=task_stats,
-        threads=threads,
         knowledge_clusters=kc_summary,
         alerts=alerts,
         **status_strip,
@@ -1269,6 +1213,7 @@ def dashboard_page():
         **hotspots_data,
         **corpus_data,
         **briefing_data,
+        **threads_data,
     )
 
 
@@ -1545,21 +1490,8 @@ def serve_edge_file(filepath):
 
 
 if __name__ == "__main__":
-    # Resolve host/port from branding.yaml → env vars → defaults
-    _branding_path = ROOT / "config" / "branding.yaml"
-    _blog_cfg = {}
-    if _branding_path.exists():
-        try:
-            with open(_branding_path) as f:
-                _blog_cfg = yaml.safe_load(f).get("blog", {})
-        except Exception:
-            pass
-
-    _port = int(os.environ.get("BLOG_PORT", _blog_cfg.get("port", 8766)))
-    _host = os.environ.get("BLOG_HOST", _blog_cfg.get("host", "127.0.0.1"))
-
     # Warm up cache on startup
     print("Warming up entry cache and FTS index...")
     get_entries()
-    print(f"Blog server (Flask) on http://{_host}:{_port}/blog/")
-    app.run(host=_host, port=_port, debug=False, threaded=True)
+    print(f"Blog server (Flask) on http://localhost:8766/blog/")
+    app.run(host="127.0.0.1", port=8766, debug=False, threaded=True)
