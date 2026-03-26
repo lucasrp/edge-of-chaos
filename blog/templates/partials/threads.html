@@ -1,0 +1,127 @@
+<!-- Overcommit warning -->
+{% if threads_active|length + threads_due|length > 7 %}
+<div class="dash-section">
+  <div class="dash-overcommit">{{ threads_active|length + threads_due|length }} threads ativos — considere arquivar ou pausar alguns</div>
+</div>
+{% endif %}
+
+<!-- Threads: Resurface due (prominent) -->
+{% if threads_due %}
+<div class="dash-section">
+  <h2 class="dash-section-title dash-warn">resurface</h2>
+  {% for th in threads_due %}
+  <div class="dash-thread-card dash-thread-due">
+    <div class="dash-thread-header">
+      <span class="dash-thread-status status-{{ th.status }}">{{ th.status }}</span>
+      <a href="/thread/{{ th.id }}" class="dash-thread-name" style="color:inherit;text-decoration:none;" onclick="event.stopPropagation()">{{ th.title }}</a>
+      <span class="dash-thread-type">{{ th.type }}</span>
+      <span class="dash-thread-owner">{{ th.owner }}</span>
+      <span class="dash-thread-entries">{{ th.entries_count }} entries</span>
+    </div>
+    {% if th.goal %}
+    <div class="dash-thread-goal">{{ th.goal }}</div>
+    {% endif %}
+    {% if th.next_step %}
+    <div class="dash-thread-next">{{ th.next_step }}</div>
+    {% endif %}
+    <div class="dash-thread-actions">
+      <button class="action-btn action-worked" onclick="threadSnooze('{{ th.id }}', 'worked')">worked</button>
+      <button class="action-btn action-snooze" onclick="threadSnooze('{{ th.id }}', 'snooze')">snooze 7d</button>
+      <button class="action-btn action-dormant" onclick="threadAction('{{ th.id }}', 'dormant')">dormant</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Threads: Active -->
+{% if threads_active %}
+<div class="dash-section">
+  <h2 class="dash-section-title">threads ativos</h2>
+  {% for th in threads_active %}
+  <div class="dash-thread-card" onclick="this.classList.toggle('expanded')">
+    <div class="dash-thread-header">
+      <span class="dash-thread-status status-{{ th.status }}">{{ th.status }}</span>
+      <a href="/thread/{{ th.id }}" class="dash-thread-name" style="color:inherit;text-decoration:none;" onclick="event.stopPropagation()">{{ th.title }}</a>
+      <span class="dash-thread-type">{{ th.type }}</span>
+      <span class="dash-thread-owner">{{ th.owner }}</span>
+      <span class="dash-thread-entries">{{ th.entries_count }} entries</span>
+      {% if th.resurface %}<span class="dash-thread-resurface">{{ th.resurface }}</span>{% endif %}
+    </div>
+    <div class="dash-thread-detail">
+      {% if th.goal %}
+      <div class="dash-thread-goal">{{ th.goal }}</div>
+      {% endif %}
+      {% if th.next_step %}
+      <div class="dash-thread-next">{{ th.next_step }}</div>
+      {% endif %}
+      {% if th.done_when %}
+      <div class="dash-thread-done-when">done when: {{ th.done_when }}</div>
+      {% endif %}
+      <div class="dash-thread-actions">
+        <select class="thread-action-select" onclick="event.stopPropagation()" onchange="threadAction('{{ th.id }}', this.value); this.value='';">
+          <option value="" disabled selected>action</option>
+          {% if th.status != 'dormant' %}<option value="dormant">dormant</option>{% endif %}
+          {% if th.status != 'done' %}<option value="done">done</option>{% endif %}
+        </select>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Threads: Proposed (candidates promoted to thread) -->
+{% if threads_proposed %}
+<div class="dash-section">
+  <h2 class="dash-section-title dash-muted">propostos</h2>
+  {% for th in threads_proposed %}
+  <div class="dash-thread-card dash-thread-candidate">
+    <div class="dash-thread-header">
+      <span class="dash-thread-status status-proposed">proposed</span>
+      <a href="/thread/{{ th.id }}" class="dash-thread-name" style="color:inherit;text-decoration:none;" onclick="event.stopPropagation()">{{ th.title }}</a>
+      <span class="dash-thread-entries">{{ th.entries_count }} entries</span>
+      <button class="action-btn action-start" onclick="event.stopPropagation(); threadAction('{{ th.id }}', 'active')">activate</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Thread candidates (tags without threads yet) -->
+{% if thread_candidates %}
+<div class="dash-section">
+  <h2 class="dash-section-title dash-muted">sugestões</h2>
+  <div class="dash-threads">
+    {% for c in thread_candidates[:5] %}
+    <div class="dash-thread-card dash-thread-candidate">
+      <div class="dash-thread-header">
+        <span class="dash-thread-status status-candidate">?</span>
+        <span class="dash-thread-name">{{ c.tag }}</span>
+        <span class="dash-thread-entries">{{ c.entry_count }} entries</span>
+        <button class="action-btn action-promote" onclick="promoteCandidate('{{ c.tag }}')">criar thread</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Threads: Dormant (collapsed) -->
+{% if threads_dormant %}
+<div class="dash-section collapsed" onclick="this.classList.toggle('collapsed')">
+  <h2 class="dash-section-title dash-muted">dormant ({{ threads_dormant|length }})</h2>
+  <div class="dash-section-body">
+    {% for th in threads_dormant %}
+    <div class="dash-thread-card dash-thread-dormant">
+      <div class="dash-thread-header">
+        <span class="dash-thread-status status-dormant">dormant</span>
+        <a href="/thread/{{ th.id }}" class="dash-thread-name" style="color:inherit;text-decoration:none;" onclick="event.stopPropagation()">{{ th.title }}</a>
+        <span class="dash-thread-entries">{{ th.entries_count }} entries</span>
+        <button class="action-btn action-start" onclick="event.stopPropagation(); threadAction('{{ th.id }}', 'active')">activate</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
