@@ -19,8 +19,12 @@ from flask_compress import Compress
 import markdown
 import yaml
 
-# ─── Paths ───
-ROOT = Path.home() / "edge"
+# ─── Paths (auto-detect from script location) ───
+_app_dir = Path(__file__).resolve().parent
+_repo_root = _app_dir.parent
+sys.path.insert(0, str(_repo_root))
+
+ROOT = Path(os.environ.get("EDGE_DIR", str(_repo_root)))
 BLOG_DIR = ROOT / "blog"
 ENTRIES_DIR = BLOG_DIR / "entries"
 COMMENTS_FILE = BLOG_DIR / "comments.json"
@@ -1495,8 +1499,19 @@ def serve_edge_file(filepath):
 
 
 if __name__ == "__main__":
-    # Warm up cache on startup
+    _branding_path = ROOT / "config" / "branding.yaml"
+    _blog_cfg = {}
+    if _branding_path.exists():
+        try:
+            with open(_branding_path) as f:
+                _blog_cfg = yaml.safe_load(f).get("blog", {})
+        except Exception:
+            pass
+
+    _port = int(os.environ.get("BLOG_PORT", _blog_cfg.get("port", 8766)))
+    _host = os.environ.get("BLOG_HOST", _blog_cfg.get("host", "0.0.0.0"))
+
     print("Warming up entry cache and FTS index...")
     get_entries()
-    print(f"Blog server (Flask) on http://localhost:8766/blog/")
-    app.run(host="127.0.0.1", port=8766, debug=False, threaded=True)
+    print(f"Blog server (Flask) on http://{_host}:{_port}/blog/")
+    app.run(host=_host, port=_port, debug=False, threaded=True)
