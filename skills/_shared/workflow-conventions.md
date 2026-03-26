@@ -20,21 +20,21 @@ Um workflow e uma blog entry normal com `workflow` nas tags. O edge-search detec
 
 ```yaml
 ---
-title: "workflow: fontes → pesquisa → consult → report"
+title: "workflow: sources → research → consult → report"
 date: 2026-03-24
-tags: [workflow, pesquisa, fontes, edge-consult]
-keywords: [edge-fontes, ed-pesquisa, edge-consult, exa, openai, pipeline]
+tags: [workflow, research, sources, edge-consult]
+keywords: [edge-sources, ed-research, edge-consult, exa, openai, pipeline]
 claims:
-  - "Combinar fontes + consult antes do report melhora qualidade do output"
+  - "Combinar sources + consult antes do report melhora qualidade do output"
 secrets: [exa.env, openai.env]
 cost_estimate: "~$0.15/execucao"
 ---
 
 ## Trigger
-Heartbeat identifica tema relevante, ou usuario pede /ed-pesquisa.
+Heartbeat identifica tema relevante, ou usuario pede /ed-research.
 
 ## Passos
-1. `edge-fontes "topico" --intent pesquisa` → coleta de fontes (Exa + X + HN)
+1. `edge-sources "topico" --intent research` → coleta de sources (Exa + X + HN)
 2. Curadoria LLM → filtrar sinal de ruido
 3. `edge-consult` → review adversarial do rascunho (GPT-5.4)
 4. Blog entry + report HTML
@@ -44,10 +44,10 @@ Heartbeat identifica tema relevante, ou usuario pede /ed-pesquisa.
 - `openai.env` — review adversarial no passo 3
 
 ## Quando funciona
-Temas tecnico-cientificos com boa cobertura nas fontes.
+Temas tecnico-cientificos com boa cobertura nas sources.
 
 ## Quando falha
-Temas muito nichados onde fontes retornam pouco sinal.
+Temas muito nichados onde sources retornam pouco sinal.
 
 ## Custo
 ~$0.15/execucao (Exa: ~$0.01, OpenAI consult: ~$0.10, margem)
@@ -101,11 +101,11 @@ O corpo segue a estrutura:
 
 ## Captura: Quando registrar
 
-Registrar um workflow durante o `consolidar-estado` quando:
+Registrar um workflow durante o `consolidar-status` quando:
 
 1. **A sessao combinou 2+ capacidades** de um jeito que produziu resultado melhor que cada uma isolada
 2. **Descobriu-se um atalho** — um jeito mais eficiente de fazer algo
-3. **Uma combinacao falhou** de um jeito instrutivo — o anti-pattern evita redescoberta do fracasso
+3. **Uma combinacao falhou** de um jeito instrutivo — o anti-pattern evita rediscovery do fracasso
 
 Nao registrar:
 - Uso isolado de uma skill (isso e blog, nao workflow)
@@ -115,7 +115,7 @@ Nao registrar:
 
 ```bash
 # Verificar se workflow similar ja existe
-edge-search "fontes pesquisa consult" --type workflow -k 3
+edge-search "sources research consult" --type workflow -k 3
 ```
 
 Se existe algo similar, atualizar a entry existente em vez de criar nova.
@@ -124,16 +124,16 @@ Se existe algo similar, atualizar a entry existente em vez de criar nova.
 
 ## Resgate: Como skills consultam
 
-Antes de executar, skills podem consultar workflows relevantes:
+Antes de execute, skills podem consultar workflows relevantes:
 
 ```bash
 # Buscar workflows relacionados ao que vou fazer
-edge-search "pesquisa fontes blog" --type workflow -k 3
+edge-search "research sources blog" --type workflow -k 3
 ```
 
 O resultado traz workflows validados com passos, secrets necessarios, e quando funciona/falha. Anti-patterns aparecem junto — a skill sabe o que evitar.
 
-Isto e **OBRIGATORIO** antes de executar qualquer skill (ver state-protocol.md).
+Isto e **OBRIGATORIO** antes de execute qualquer skill (ver state-protocol.md).
 
 ---
 
@@ -147,7 +147,7 @@ Workflow que falha na execucao deve ser registrado em `debugging.md` e marcado c
 
 Workflows que nunca sao resgatados perdem relevancia naturalmente:
 - `edge-search` registra telemetria de cada busca
-- `/ed-curadoria-corpus` pode identificar workflows nunca consultados
+- `/ed-corpus-curation` pode identificar workflows nunca consultados
 - Workflow sem resgate em 60 dias e candidato a archive
 
 Workflow atualizado frequentemente (novas sessoes confirmam o pattern) ganha relevancia.

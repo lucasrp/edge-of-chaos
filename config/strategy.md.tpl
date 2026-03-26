@@ -23,12 +23,12 @@
 
 ## Propostas (agente — pendente aprovação)
 
-<!-- ed-estrategia escreve aqui. Operador aceita/rejeita. -->
+<!-- ed-strategy escreve aqui. Operador aceita/rejeita. -->
 
 _Nenhuma proposta pendente._
 
 ## Contexto (agente — informativo)
 
-<!-- Dados que informam a estratégia. Atualizado por ed-estrategia. -->
+<!-- Dados que informam a estratégia. Atualizado por ed-strategy. -->
 
 _Aguardando primeiro ciclo estratégico._

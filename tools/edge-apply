@@ -33,7 +33,7 @@ RESET = "\033[0m"
 def _reprefix(content: str, prefix: str) -> str:
     """Replace ed- prefix with the target prefix in skill content.
 
-    Handles: /ed-pesquisa, name: ed-pesquisa, `ed-pesquisa`, "ed-pesquisa"
+    Handles: /ed-research, name: ed-research, `ed-research`, "ed-research"
     Does NOT touch words like 'described', 'used', 'based' (no slash/quote before ed-).
     """
     content = re.sub(r'/ed-', f'/{prefix}-', content)
@@ -437,7 +437,7 @@ def phase_tools(cfg, dry_run):
 
     # Symlink key tools to ~/.local/bin/
     key_tools = ["edge-render", "edge-apply", "edge-doctor",
-                 "edge-fontes", "edge-consult.py", "edge-digest",
+                 "edge-sources", "edge-consult.py", "edge-digest",
                  "edge-event", "edge-task", "edge-scratch"]
     linked = 0
     for name in key_tools:
@@ -492,7 +492,7 @@ def phase_tools(cfg, dry_run):
             wrapper.chmod(0o755)
         ok("edge-index + edge-search wrappers criados (com secrets)")
 
-    # Configure git identity (needed for consolidar-estado commits)
+    # Configure git identity (needed for consolidar-status commits)
     if not dry_run:
         name = cfg.get("name", "agent")
         run(f'git config --global user.name "{name}"')
