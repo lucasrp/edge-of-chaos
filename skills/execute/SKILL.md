@@ -150,7 +150,7 @@ Criar entrada no blog (`~/edge/blog/entries/`) e gerar report numa unica chamada
 - Campo `report:` com nome deterministico
 
 ```bash
-consolidar-status ~/edge/blog/entries/<slug>.md /tmp/<slug>.yaml
+consolidate-state ~/edge/blog/entries/<slug>.md /tmp/<slug>.yaml
 ```
 
 Relatorio YAML spec:

@@ -19,12 +19,12 @@ Cada skill define suas proprias secoes obrigatorias e regras de ouro 1-3. Este a
    - Claims = conhecimento durável extraído do entry. O que sobrevive sem reler o texto inteiro.
    - Prefixo `!` = "não sei" — gap aberto, candidato a research futura.
    - `threads:` = fios de investigação relacionados (ver `~/edge/threads/`).
-   - O `consolidar-status` avisa se claims estão ausentes.
+   - O `consolidate-state` avisa se claims estão ausentes.
 4. **Publicar atomicamente** (blog entry + report HTML + meta-report + state commit):
    ```bash
-   consolidar-status ~/edge/blog/entries/<arquivo>.md /tmp/spec-[skill]-[slug].yaml
+   consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-[skill]-[slug].yaml
    ```
-   O `consolidar-status` faz tudo em 7 fases:
+   O `consolidate-state` faz tudo em 7 fases:
    - Phase 0/0.5: Frontmatter + review gate
    - Phase 1: Blog entry (blog-publish.sh)
    - Phase 2: Content report (generate_report.py → ~/edge/reports/)
@@ -35,7 +35,7 @@ Cada skill define suas proprias secoes obrigatorias e regras de ouro 1-3. Este a
 
    Content report é opcional — publicar sem YAML gera apenas meta-report:
    ```bash
-   consolidar-status ~/edge/blog/entries/<arquivo>.md
+   consolidate-state ~/edge/blog/entries/<arquivo>.md
    ```
 
    Flags úteis: `--scratchpad PATH`, `--no-adversarial`, `--no-meta`, `--skip-review`
@@ -191,7 +191,7 @@ edge-consult --mode collab "Estou travado em X, que angulos explorar?"
 
 ### Review Gate (LLM-as-judge — RODAR ANTES de publicar)
 
-Antes de chamar `consolidar-status`, rodar o review gate para validacao semantica:
+Antes de chamar `consolidate-state`, rodar o review gate para validacao semantica:
 
 ```bash
 # Review standalone (loop de refinamento)
@@ -203,11 +203,11 @@ review-gate /tmp/spec-[skill]-[slug].yaml --skill [skill]
 
 O review gate avalia 6 dimensoes (structural_completeness, content_depth, writing_quality, visualization, intellectual_honesty, internal_consistency) via GPT-4o-mini. Custo: ~$0.002/review. Threshold: 3.5/5.
 
-**IMPORTANTE:** O `consolidar-status` tambem roda o review gate automaticamente (Phase 0.5). Se o YAML nao passar, a publicacao e bloqueada. Use `--skip-review` para forcar (so quando ja revisou manualmente).
+**IMPORTANTE:** O `consolidate-state` tambem roda o review gate automaticamente (Phase 0.5). Se o YAML nao passar, a publicacao e bloqueada. Use `--skip-review` para forcar (so quando ja revisou manualmente).
 
 ### Validation Gate (NAO PULAR)
 
-O `consolidar-status` ja executa a publicacao, geracao de HTML e indexacao do report. Apos ele, validar:
+O `consolidate-state` ja executa a publicacao, geracao de HTML e indexacao do report. Apos ele, validar:
 
 ```bash
 python3 ~/edge/blog/validate.py --recent
@@ -220,7 +220,7 @@ Issues comuns:
 
 ### Auto-indexar artefatos adicionais
 
-Se notas adicionais foram criadas em ~/edge/notes/ (alem do report e blog entry ja indexados pelo consolidar-status):
+Se notas adicionais foram criadas em ~/edge/notes/ (alem do report e blog entry ja indexados pelo consolidate-state):
 
 ```bash
 edge-index ~/edge/notes/[nota].md
