@@ -196,7 +196,7 @@ O blog entry do experiment segue o arco narrativo: **o que eu achava → o que t
 3. **Escrever** em `/tmp/spec-experiment-[slug].yaml`
 4. Publicar tudo atomicamente (blog entry + report HTML + indexação):
    ```bash
-   consolidar-status ~/edge/blog/entries/<arquivo>.md /tmp/spec-experiment-[slug].yaml
+   consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-experiment-[slug].yaml
    ```
 5. **Read do HTML gerado** (`~/edge/reports/<arquivo>.html`) para verificação
 
