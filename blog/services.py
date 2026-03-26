@@ -9,12 +9,15 @@ from pathlib import Path
 import markdown
 import yaml
 
-ROOT = Path.home() / "edge"
+import os as _os
+ROOT = Path(_os.environ.get("EDGE_DIR", str(Path(__file__).resolve().parent.parent)))
 STATE_DIR = ROOT / "state"
 THREADS_DIR = ROOT / "threads"
 LOGS_DIR = ROOT / "logs"
 ENTRIES_DIR = ROOT / "blog" / "entries"
 
+TASKS_SNAPSHOT = STATE_DIR / "tasks.snapshot.json"
+TASKS_JSONL = STATE_DIR / "tasks.jsonl"
 OPS_HOTSPOTS = STATE_DIR / "ops-hotspots.json"
 GIT_SIGNALS = STATE_DIR / "git-signals.json"
 CURADORIA_CANDIDATES = STATE_DIR / "curadoria-candidates.json"
@@ -31,6 +34,35 @@ def load_json_safe(path, default=None):
     except Exception:
         pass
     return default
+
+
+def load_tasks_snapshot():
+    """Load materialized task snapshot."""
+    return load_json_safe(TASKS_SNAPSHOT, {
+        "tasks": [], "summary": {"total": 0, "by_status": {}, "by_priority": {}}
+    })
+
+
+def categorize_tasks(snap):
+    """Categorize tasks from snapshot into status buckets."""
+    tasks = snap.get("tasks", [])
+    result = {"doing": [], "todo": [], "blocked": [], "done": []}
+    for t in tasks:
+        status = t.get("status", "todo")
+        result.setdefault(status, []).append(t)
+    return result
+
+
+def task_age(task):
+    """Return age in days of a task."""
+    created = task.get("created_at", task.get("ts", ""))
+    if not created:
+        return 0
+    try:
+        dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - dt).days
+    except (ValueError, TypeError):
+        return 0
 
 
 def load_hotspots():
