@@ -95,7 +95,7 @@ Adicionar no topo de `discoverys.md`:
 **Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
 
 1. Blog entry com tag `discovery` + YAML report
-2. `consolidar-status ~/edge/blog/entries/<slug>.md /tmp/spec-discovery-[slug].yaml`
+2. `consolidate-state ~/edge/blog/entries/<slug>.md /tmp/spec-discovery-[slug].yaml`
 3. Verificar HTML gerado
 
 Estrutura do YAML report:

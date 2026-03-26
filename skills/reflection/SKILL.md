@@ -454,7 +454,7 @@ bibliography:
 3. Escrever YAML em `/tmp/spec-reflection-[slug].yaml`
 4. Publicar:
    ```bash
-   consolidar-status ~/edge/blog/entries/<arquivo>.md /tmp/spec-reflection-[slug].yaml
+   consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-reflection-[slug].yaml
    ```
 5. Read do HTML gerado para verificacao
 

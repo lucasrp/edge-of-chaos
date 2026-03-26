@@ -13,7 +13,7 @@ Complemento write-side do `/ed-loader` (que e read-side). Salva o status da sess
 - Quando o usuario pede para "lembrar onde parei"
 - Antes de trocar de context (ex: de projeto A para projeto B)
 - Quando ha decisoes pendentes que nao devem ser perdidas
-- No final de qualquer trabalho significativo que ainda nao foi commitado via consolidar-status
+- No final de qualquer trabalho significativo que ainda nao foi commitado via consolidate-state
 
 **O que NAO e:**
 - NAO e `/ed-blog` (publicar no blog interno)
@@ -140,7 +140,7 @@ Formato de saida:
 ## Regras
 
 1. **Rapidez:** Maximo 2-3 minutos. Nao e reflection profunda — e checkpoint.
-2. **Nao duplicar:** Se a sessao ja publicou via consolidar-status, o state commit (Phase 5) ja salvou claims/threads. Nao duplicar.
+2. **Nao duplicar:** Se a sessao ja publicou via consolidate-state, o state commit (Phase 5) ja salvou claims/threads. Nao duplicar.
 3. **Sem overthink:** Se a sessao foi curta ou trivial, registrar apenas no scratchpad. Nao forcar insights onde nao ha.
 4. **Sempre confirmar:** Mostrar ao usuario o que foi salvo. Transparencia.
 5. **Git:** NAO fazer git commit automaticamente. O status e salvo em arquivos de memoria, nao em VCS.

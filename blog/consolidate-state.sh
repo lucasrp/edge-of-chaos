@@ -1,10 +1,10 @@
 #!/bin/bash
-# consolidar-estado — Pipeline completo: entry + report + meta-report + state commit
+# consolidate-state — Pipeline completo: entry + report + meta-report + state commit
 #
 # Uso:
-#   consolidar-estado <entry.md>                       # entry + meta-report (content report opcional)
-#   consolidar-estado <entry.md> <report.yaml>         # entry + content report + meta-report
-#   consolidar-estado <entry.md> <report.html>         # entry + content report pre-gerado + meta-report
+#   consolidate-state <entry.md>                       # entry + meta-report (content report opcional)
+#   consolidate-state <entry.md> <report.yaml>         # entry + content report + meta-report
+#   consolidate-state <entry.md> <report.html>         # entry + content report pre-gerado + meta-report
 #
 # Pipeline (8 fases):
 #   0.  Frontmatter injection (report: field)
@@ -90,7 +90,7 @@ with open('$FAILURES_LOG', 'a') as f:
 }
 
 if [[ -z "$ENTRY_PATH" && "$RECOVER" == "false" ]]; then
-    echo "Uso: consolidar-estado <entry.md> [report.yaml|report.html]"
+    echo "Uso: consolidate-state <entry.md> [report.yaml|report.html]"
     echo "  --skip-review      Pular review gate"
     echo "  --recover          Detectar e re-executar Phase 5/6 de publicações incompletas"
     echo "  --scratchpad PATH  Scratchpad para meta-report"
@@ -102,7 +102,7 @@ fi
 # ─── RECOVER MODE: re-run Phase 5/6 for entries that have no git commit ───
 if [[ "$RECOVER" == "true" ]]; then
     echo "========================================="
-    echo " consolidar-estado --recover"
+    echo " consolidate-state --recover"
     echo "========================================="
     echo ""
 
@@ -177,7 +177,7 @@ fi
 STATE_AUDIT_EXIT=0
 
 echo "========================================="
-echo " consolidar-estado: $SLUG"
+echo " consolidate-state: $SLUG"
 echo "========================================="
 echo ""
 
@@ -318,7 +318,7 @@ if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.y
         echo "    1. Endereçar o feedback no YAML e criar o marker:"
         echo "       touch $RESOLVED_FILE"
         echo "    2. Forçar publicação:"
-        echo "       consolidar-estado --skip-review ..."
+        echo "       consolidate-state --skip-review ..."
         echo ""
         # Show the review summary
         python3 -c "
@@ -973,7 +973,7 @@ try:
     subprocess.run(["git", "add", "-A"], cwd=edge_dir, capture_output=True, timeout=30)
 
     # ORPHAN GUARD: unstage blog entries/reports/meta-reports that don't belong to this slug.
-    # Prevents files written to disk but never published via consolidar-estado from being
+    # Prevents files written to disk but never published via consolidate-state from being
     # swept into another slug's commit by git add -A. (Root cause of orphan entries bug.)
     staged_result = subprocess.run(
         ["git", "diff", "--cached", "--name-only"],
@@ -996,7 +996,7 @@ try:
                 ["git", "reset", "HEAD", "--"] + orphans,
                 cwd=edge_dir, capture_output=True, timeout=10
             )
-            warn("Publique arquivos órfãos via consolidar-estado separadamente.")
+            warn("Publique arquivos órfãos via consolidate-state separadamente.")
 
     result = subprocess.run(
         ["git", "diff", "--cached", "--unified=3", "--", ".", ":(exclude)*.venv*", ":(exclude)*.b64", ":(exclude)*.png", ":(exclude)*.jpg", ":(exclude)*.pdf", ":(exclude)*.db"],
@@ -1065,7 +1065,7 @@ lines = [f"publish: {slug} [state:{state_label}]", ""]
 if reason:
     lines.append(f"reason: {reason}")
 else:
-    lines.append(f"reason: publicação via consolidar-estado")
+    lines.append(f"reason: publicação via consolidate-state")
 lines.append("")
 
 # Pipeline status

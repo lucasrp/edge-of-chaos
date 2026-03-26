@@ -155,7 +155,7 @@ Se a discovery e significativa, atualizar a secao "Descobertas Praticas" do `bre
 3. **Escrever YAML** em `/tmp/spec-research-[slug].yaml`
 4. Publicar tudo atomicamente (blog entry + report HTML + indexacao):
    ```bash
-   consolidar-status ~/edge/blog/entries/<arquivo>.md /tmp/spec-research-[slug].yaml
+   consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-research-[slug].yaml
    ```
 5. **Read do HTML gerado** (`~/edge/reports/<arquivo>.html`) para verificacao
 

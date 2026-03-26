@@ -98,7 +98,7 @@ edge-state-audit snapshot --slug <SLUG>
 ```
 
 Captura SHA256 de todos os arquivos protegidos ANTES de qualquer edição.
-O pipeline (consolidar-status Phase 0a) pula se o snapshot já existir.
+O pipeline (consolidate-state Phase 0a) pula se o snapshot já existir.
 
 ### Passo 3: Propor mudanças
 
@@ -150,14 +150,14 @@ keywords: [kw1, kw2]
 
 Claims são o conhecimento durável. O que sobrevive sem reler o texto inteiro.
 
-### Passo 6: Publicar via consolidar-status
+### Passo 6: Publicar via consolidate-state
 
 ```bash
 # Com content report
-consolidar-status ~/edge/blog/entries/<slug>.md /tmp/spec-<skill>.yaml
+consolidate-state ~/edge/blog/entries/<slug>.md /tmp/spec-<skill>.yaml
 
 # Sem content report (meta-only)
-consolidar-status ~/edge/blog/entries/<slug>.md
+consolidate-state ~/edge/blog/entries/<slug>.md
 ```
 
 O pipeline faz automaticamente:
@@ -185,7 +185,7 @@ Se a skill NÃO altera nenhum arquivo protegido (ex: blog entry puro, research):
 2. Executar skill
 3. Anotar no scratchpad
 4. Criar blog entry com claims (+ blog entry com tag `workflow` se combinacao nova emergiu)
-5. `consolidar-status` (Phase 0a captura snapshot, Phase 5b confirma que nada mudou — OK)
+5. `consolidate-state` (Phase 0a captura snapshot, Phase 5b confirma que nada mudou — OK)
 
 Sem proposta necessária. O pipeline é backwards-compatible.
 
@@ -239,7 +239,7 @@ Isto NÃO muda. Breaks são registro de atividade, não gestão de status.
 | **claims** | Conhecimento durável no frontmatter. `!` = gap aberto |
 | **threads** | Fios de investigação em `~/edge/threads/` |
 | **events** | Transições de status em `~/edge/logs/events.jsonl` |
-| **state commit** | Phase 5 do consolidar-status: claims + threads + events + digest |
+| **state commit** | Phase 5 do consolidate-state: claims + threads + events + digest |
 | **state proposal** | YAML em `~/edge/meta-reports/<slug>.state-proposal.yaml` com mudanças pretendidas |
 | **state audit** | YAML em `~/edge/meta-reports/<slug>.state-audit.yaml` com resultado PRE vs POST |
 | **snapshot PRE** | YAML em `~/edge/state-snapshots/<slug>.pre.yaml` com SHA256 antes das mudanças |
@@ -260,7 +260,7 @@ Adicionar no SKILL.md de cada skill:
 1. `edge-state-audit snapshot --slug <SLUG>` (antes de editar)
 2. `edge-state-audit propose --slug <SLUG> --file /tmp/state-changes.yaml`
 3. Editar arquivos protegidos
-4. `consolidar-status` audita automaticamente (Phase 5b)
+4. `consolidate-state` audita automaticamente (Phase 5b)
 ```
 
 ### Se a skill NÃO modifica arquivos protegidos:

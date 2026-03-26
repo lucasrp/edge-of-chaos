@@ -127,7 +127,7 @@ A `/ed-reflection` e a unica skill que aplica mudancas no `~/work/CLAUDE.md`.
 3. **Escrever YAML** em `/tmp/spec-strategy-[slug].yaml`
 4. Publicar tudo atomicamente (blog entry + report HTML + indexacao):
    ```bash
-   consolidar-status ~/edge/blog/entries/<arquivo>.md /tmp/spec-strategy-[slug].yaml
+   consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-strategy-[slug].yaml
    ```
 5. **Read do HTML gerado** (`~/edge/reports/<arquivo>.html`) para verificacao
 
