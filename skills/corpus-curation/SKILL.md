@@ -1,5 +1,5 @@
 ---
-name: ed-corpus-curation
+name: ed-curadoria-corpus
 description: "Corpus curation skill. Computes document health metrics, identifies redundancy clusters, proposes merge/archive/strengthen actions. Triggers on: curadoria, curadoria corpus, corpus health, document curation, corpus cleanup."
 user-invocable: true
 ---
@@ -8,7 +8,7 @@ user-invocable: true
 
 Avaliar saude do corpus de documentos, identificar redundancias, propor acoes (KEEP/ARCHIVE/MERGE/STRENGTHEN), e manter o corpus curado ao longo do tempo.
 
-Pode ser invocado standalone ou pelo /ed-reflection (que passa context de threads ativas e gaps recentes).
+Pode ser invocado standalone ou pelo /ed-reflexao (que passa contexto de threads ativas e gaps recentes).
 
 ---
 
@@ -16,17 +16,17 @@ Pode ser invocado standalone ou pelo /ed-reflection (que passa context de thread
 
 | Modo | Invocacao | Tempo | O que faz |
 |------|-----------|-------|-----------|
-| **stats** | `/ed-corpus-curation stats` | ~10s | Metricas por documento (retrieval count, top3, diversidade de queries) |
-| **lite** | `/ed-corpus-curation lite` | ~30s | Stats + identificacao de candidatos stale (age>45d, sem retrieval recente) |
-| **full** | `/ed-corpus-curation` | ~3min | Lite + self-probes + clustering nearest-neighbor + classificacao + veto estrategico |
+| **stats** | `/ed-curadoria-corpus stats` | ~10s | Metricas por documento (retrieval count, top3, diversidade de queries) |
+| **lite** | `/ed-curadoria-corpus lite` | ~30s | Stats + identificacao de candidatos stale (age>45d, sem retrieval recente) |
+| **full** | `/ed-curadoria-corpus` | ~3min | Lite + self-probes + clustering nearest-neighbor + classificacao + veto estrategico |
 
 ---
 
 ## Argumentos
 
 - **modo**: `full` (default), `lite`, `stats`
-- **active_threads**: lista de threads ativas (passada pelo /ed-reflection ou informada manualmente). Suprime archive de docs relacionados.
-- **recent_gaps**: lista de gaps recentes (passada pelo /ed-reflection). Docs que cobrem gaps nao sao arquivados.
+- **active_threads**: lista de threads ativas (passada pelo /ed-reflexao ou informada manualmente). Suprime archive de docs relacionados.
+- **recent_gaps**: lista de gaps recentes (passada pelo /ed-reflexao). Docs que cobrem gaps nao sao arquivados.
 
 ---
 
@@ -85,7 +85,7 @@ python3 ~/edge/tools/curadoria_compute.py --mode full --active-threads "thread1,
 
 Interpretacao:
 - self_rank <= 3: doc e relevante para seu proprio conteudo → KEEP
-- self_rank 4-5: doc e encontravel mas nao dominante → avaliar context
+- self_rank 4-5: doc e encontravel mas nao dominante → avaliar contexto
 - self_rank > 5 ou ausente: doc esta enterrado → candidato a ARCHIVE/MERGE
 
 ### Passo 5: Clustering por nearest-neighbor (full only)
@@ -112,7 +112,7 @@ Criterios (TODOS devem ser verdadeiros):
 Criterios:
 - Cluster com >= 3 documentos
 - Similaridade mediana no cluster >= 0.83
-- Requer revisao humana antes de execute
+- Requer revisao humana antes de executar
 
 #### STRENGTHEN
 Criterios:
@@ -129,7 +129,7 @@ Mecanismo de supressao para proteger docs ativos:
 - Se o titulo ou conteudo de um doc candidato a ARCHIVE menciona alguma **active_thread** → suprimir (mover para `suppressed_due_to_active_thread`)
 - Se o conteudo cobre algum **recent_gap** → suprimir
 
-Isso impede que /ed-reflection archive documentos que sao relevantes para trabalho em andamento.
+Isso impede que /ed-reflexao archive documentos que sao relevantes para trabalho em andamento.
 
 ### Passo 8: Persistir resultados
 
@@ -172,12 +172,97 @@ Resumir para o usuario:
 
 ---
 
-## Integracao com /ed-reflection
+## Claims Lifecycle (curadoria de claims)
 
-Quando invocado pelo /ed-reflection em modo manual:
-1. /ed-reflection passa `active_threads` (de git_signals thread_coverage) e `recent_gaps` (de claims_summary persistent_gaps)
-2. /ed-corpus-curation roda em modo full com esses parametros
-3. /ed-reflection le o resultado em `curadoria-candidates.json` e toma decisoes estrategicas
+Além de documentos, esta skill cuida do ciclo de vida das claims — consolidando memória de curto prazo (claims no frontmatter) em memória de longo prazo (topics/*.md).
+
+### Modo claims
+
+Invocação: `/ed-curadoria-corpus claims` ou `/ed-curadoria-corpus claims --thread THREAD_ID`
+
+### Passo C1: Coleta
+
+Para o thread especificado (ou todos os threads ativos):
+1. Puxar todas as claims que tocam o thread (claims são 1:N com threads — uma claim pode pertencer a múltiplos threads via entry)
+2. Separar verificadas (✓) e abertas (!)
+
+```bash
+edge-claims -t THREAD_ID
+```
+
+### Passo C2: Triagem automática (sem LLM)
+
+Para o conjunto de claims coletadas:
+
+**Duplicatas** — embedding similarity > 0.92 entre claims do mesmo thread. Agrupar candidatas.
+
+**Factuais stale** — claims contendo números, datas ou contagens cuja entry tem mais de 30 dias E entries mais recentes existem no thread. Marcar como `stale_candidate`.
+
+**Gaps potencialmente respondidos** — claim aberta (`!`) com embedding similar (> 0.85) a claim verificada posterior (data mais recente) no mesmo thread. Marcar como `answered_candidate`.
+
+### Passo C3: Consolidação (LLM)
+
+Mandar o batch de claims para `edge-consult` com prompt estruturado:
+
+```bash
+edge-consult "Claims do thread [ID]:
+[lista de claims]
+
+Classifique cada claim:
+- keep: conhecimento independente que sobrevive
+- merge(claim_ids): duplicatas que dizem a mesma coisa
+- superseded_by(claim_text): foi atualizada por versão mais recente
+- answered_by(claim_text): gap que foi respondido
+- stale: factual com dados desatualizados
+- keep_as_is: conceitual/atemporal, não tocar
+
+Output: JSON array com {claim_text, action, target, reason}" --context ~/edge/threads/THREAD_ID.md
+```
+
+### Passo C4: Proposta de consolidação no topic
+
+Com base no output do C3:
+1. Claims `keep` que formam cluster (3+ sobre mesmo subtema) → propor parágrafo consolidado para o topic
+2. Cada parágrafo inclui provenance: `← entry-slug-1, entry-slug-2`
+3. Gaps `answered_by` → listar como resolvidos
+4. Claims `stale` → listar para revisão
+5. Claims `merge` → identificar canônica
+
+Salvar proposta em `~/edge/state/claims-curation-{thread_id}.json`:
+```json
+{
+  "thread_id": "...",
+  "generated_at": "ISO",
+  "total_claims": N,
+  "actions": [
+    {"claim": "...", "action": "keep|merge|superseded|answered|stale", "target": "...", "reason": "..."}
+  ],
+  "topic_patches": [
+    {"section": "Extração de nuggets", "content": "...", "sources": ["entry-1", "entry-2"]}
+  ],
+  "gaps_resolved": [
+    {"gap": "!...", "answered_by": "...", "evidence_entry": "..."}
+  ]
+}
+```
+
+### Passo C5: Aplicação
+
+- Em sessão interativa: apresentar proposta ao Lucas, aplicar com confirmação
+- Em sessão autônoma: aplicar automaticamente se todas as ações são low-risk (merge, answered, stale factual). Segurar high-risk (conceituais, decisões) para revisão humana.
+
+Aplicar significa:
+1. Atualizar o topic correspondente (adicionar parágrafos com provenance)
+2. Gaps resolvidos permanecem no frontmatter original mas o topic reflete o estado atual
+
+---
+
+## Integracao com /ed-reflexao
+
+Quando invocado pelo /ed-reflexao em modo manual:
+1. /ed-reflexao passa `active_threads` (de git_signals thread_coverage) e `recent_gaps` (de claims_summary persistent_gaps)
+2. /ed-curadoria-corpus roda em modo full com esses parametros
+3. /ed-reflexao le o resultado em `curadoria-candidates.json` e toma decisoes estrategicas
 
 ---
 
