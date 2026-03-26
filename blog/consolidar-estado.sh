@@ -8,6 +8,7 @@
 #
 # Pipeline (8 fases):
 #   0.  Frontmatter injection (report: field)
+#   0b. Note link injection (note: field, if matching note exists)
 #   0.3 Adversarial review enforcement (edge-consult --gate)
 #   0.5 Review gate (LLM-as-judge, content report only)
 #   1.  Blog entry (blog-publish.sh)
@@ -30,10 +31,8 @@
 set -uo pipefail
 
 # --- Load shared paths (branding, memory, blog config) ---
-# Resolve real path (not symlink) to find config/paths.sh
-REAL_SCRIPT="$(readlink -f "$0")"
 # shellcheck source=../config/paths.sh
-source "$(dirname "$REAL_SCRIPT")/../config/paths.sh"
+source "$(dirname "$0")/../config/paths.sh"
 
 # Parse flags
 SKIP_REVIEW=false
@@ -168,86 +167,10 @@ REPORT_RESULT="skip"
 TOTAL_LLM_COST="0"
 META_REPORT_PATH=""
 
-# ─── GUARDRAIL: toda publicação DEVE ter report HTML ───
-# Se o agente não passou spec, gerar automaticamente a partir da entry.
+# ─── GUARDRAIL: Regra #0 — toda publicação gera meta-report ───
+# Content report (YAML/HTML) é opcional. Meta-report é sempre gerado (Phase 4).
 if [[ -z "$REPORT_INPUT" ]]; then
-    echo -e "  ${YELLOW}AUTO-SPEC${NC}: Gerando YAML spec a partir da entry..."
-    AUTO_SPEC="/tmp/spec-${SLUG}.yaml"
-    TOOLS_PYTHON="$EDGE_DIR/tools/.venv/bin/python3"
-    [ -x "$TOOLS_PYTHON" ] || TOOLS_PYTHON="python3"
-
-    if $TOOLS_PYTHON - "$ENTRY_PATH" "$AUTO_SPEC" << 'AUTOSPEC_PY'
-import sys, re, yaml
-from pathlib import Path
-from datetime import date
-
-entry_path = Path(sys.argv[1])
-out_path = Path(sys.argv[2])
-text = entry_path.read_text()
-
-# Parse frontmatter
-fm = {}
-body = text
-if text.startswith("---"):
-    parts = text.split("---", 2)
-    if len(parts) >= 3:
-        try:
-            fm = yaml.safe_load(parts[1]) or {}
-        except:
-            pass
-        body = parts[2].strip()
-
-title = fm.get("title", entry_path.stem.replace("-", " ").title())
-tags = fm.get("tags", [])
-claims = fm.get("claims", [])
-
-# Split body into ## sections
-sections = []
-current_title = None
-current_lines = []
-for line in body.splitlines():
-    if line.startswith("## "):
-        if current_title:
-            content = "\n".join(current_lines).strip()
-            if content:
-                sections.append({
-                    "title": current_title,
-                    "blocks": [{"type": "paragraph", "text": content}]
-                })
-        current_title = line[3:].strip()
-        current_lines = []
-    else:
-        current_lines.append(line)
-if current_title:
-    content = "\n".join(current_lines).strip()
-    if content:
-        sections.append({
-            "title": current_title,
-            "blocks": [{"type": "paragraph", "text": content}]
-        })
-
-# Fallback: no ## sections found — use full body as single section
-if not sections:
-    sections = [{"title": "Conteúdo", "blocks": [{"type": "paragraph", "text": body[:3000]}]}]
-
-spec = {
-    "title": title,
-    "subtitle": ", ".join(tags[:3]) if tags else "",
-    "date": date.today().strftime("%d/%m/%Y"),
-    "executive_summary": claims[:4] if claims else [body[:300].replace("\n", " ") + "..."],
-    "sections": sections,
-}
-
-out_path.write_text(yaml.dump(spec, allow_unicode=True, default_flow_style=False, sort_keys=False))
-AUTOSPEC_PY
-    then
-        REPORT_INPUT="$AUTO_SPEC"
-        ok "Auto-spec gerado: $AUTO_SPEC"
-    else
-        fail "Auto-spec falhou — publicação BLOQUEADA (toda entry precisa de report HTML)"
-        log_failure "auto-spec" "generate" "Failed to auto-generate YAML spec from entry"
-        exit 1
-    fi
+    echo -e "  ${YELLOW}INFO${NC}: Sem content report. Meta-report será gerado (Phase 4)."
 fi
 
 STATE_AUDIT_EXIT=0
@@ -328,34 +251,94 @@ except Exception as e:
     fi
 fi
 
-# ─── PHASE 0.3: Adversarial Review (execute + enforce) ───
-if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) && "$SKIP_REVIEW" == "false" && "$NO_ADVERSARIAL" == "false" ]]; then
-    echo "── Phase 0.3: Adversarial Review ──"
+# ─── PHASE 0b: Note Link (inject note: in frontmatter if matching note exists) ───
+NOTE_SLUG=$(echo "$SLUG" | sed 's/^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}-//')
+NOTE_FILE="$NOTES_DIR/${NOTE_SLUG}.md"
+if [[ -f "$NOTE_FILE" ]]; then
+    HAS_NOTE=$(python3 -c "
+import yaml
+raw = open('$ENTRY_PATH').read()
+parts = raw.split('---', 2)
+if len(parts) >= 3:
+    fm = yaml.safe_load(parts[1]) or {}
+    print('yes' if fm.get('note') else 'no')
+else:
+    print('no')
+" 2>/dev/null)
+
+    if [[ "$HAS_NOTE" == "no" ]]; then
+        echo "── Phase 0b: Note Link ──"
+        NOTE_BASENAME="${NOTE_SLUG}.md"
+        if python3 -c "
+try:
+    raw = open('$ENTRY_PATH').read()
+    parts = raw.split('---', 2)
+    if len(parts) >= 3:
+        fm_text = parts[1].rstrip()
+        fm_text += '\nnote: $NOTE_BASENAME\n'
+        result = '---' + fm_text + '---' + parts[2]
+        open('$ENTRY_PATH', 'w').write(result)
+        print('  OK: note: $NOTE_BASENAME injetado no frontmatter')
+    else:
+        print('  WARN: frontmatter não encontrado (sem --- delimiters)')
+        exit(1)
+except Exception as e:
+    print(f'  FAIL: note link injection: {e}')
+    exit(1)
+" 2>&1; then
+            :
+        else
+            log_failure "0b" "note_link_injection" "Failed to inject note: field"
+        fi
+        echo ""
+    else
+        echo "── Phase 0b: Note Link ──"
+        ok "note: já presente no frontmatter"
+        echo ""
+    fi
+else
+    :  # No matching note — skip silently
+fi
+
+# ─── PHASE 0.3: Adversarial Review Enforcement ───
+# If edge-consult was run with --gate against this YAML spec,
+# a .review.json exists. Block publication until .resolved marker is created.
+if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) && "$SKIP_REVIEW" == "false" ]]; then
     REVIEW_JSON_FILE="${REPORT_INPUT%.yaml}.review.json"
     [[ "$REPORT_INPUT" == *.yml ]] && REVIEW_JSON_FILE="${REPORT_INPUT%.yml}.review.json"
     RESOLVED_FILE="${REVIEW_JSON_FILE%.review.json}.resolved"
 
-    if [[ -f "$REVIEW_JSON_FILE" && -f "$RESOLVED_FILE" ]]; then
-        ok "Adversarial review já resolvida"
-    elif [[ -f "$REVIEW_JSON_FILE" && ! -f "$RESOLVED_FILE" ]]; then
+    if [[ -f "$REVIEW_JSON_FILE" && ! -f "$RESOLVED_FILE" ]]; then
+        echo "── Phase 0.3: Adversarial Review ──"
         fail "Adversarial review pendente: $(basename "$REVIEW_JSON_FILE")"
-        echo "  Opções: endereçar feedback + touch $RESOLVED_FILE, ou --skip-review"
+        echo ""
+        echo "  O edge-consult gerou feedback que ainda não foi endereçado."
+        echo "  Opções:"
+        echo "    1. Endereçar o feedback no YAML e criar o marker:"
+        echo "       touch $RESOLVED_FILE"
+        echo "    2. Forçar publicação:"
+        echo "       consolidar-estado --skip-review ..."
+        echo ""
+        # Show the review summary
+        python3 -c "
+import json, sys
+try:
+    d = json.load(open('$REVIEW_JSON_FILE'))
+    resp = d.get('response', '')
+    print('  Review (resumo):')
+    for line in resp.split('\n')[:8]:
+        print(f'    {line}')
+    if len(resp.split('\n')) > 8:
+        print('    ...')
+except: pass
+" 2>/dev/null
+        echo ""
         exit 3
-    elif command -v edge-consult &>/dev/null; then
-        # Run adversarial review automatically
-        echo "  Executando edge-consult..."
-        CONSULT_OUTPUT=$(edge-consult "Analise este relatório. Onde o raciocínio é mais fraco?" --context "$REPORT_INPUT" 2>&1) || true
-        if echo "$CONSULT_OUTPUT" | grep -q "edge-consult"; then
-            ok "Adversarial review executada"
-            # Auto-resolve (feedback was shown to console, agent can address in future iterations)
-            touch "$RESOLVED_FILE"
-        else
-            warn "edge-consult retornou sem output (sem API key?)"
-        fi
-    else
-        warn "edge-consult não disponível — adversarial review pulada"
+    elif [[ -f "$REVIEW_JSON_FILE" && -f "$RESOLVED_FILE" ]]; then
+        echo "── Phase 0.3: Adversarial Review ──"
+        ok "Adversarial review resolvida ($(basename "$RESOLVED_FILE") presente)"
+        echo ""
     fi
-    echo ""
 fi
 
 # ─── PHASE 0.5: Review Gate (LLM-as-judge) ───
@@ -854,8 +837,7 @@ echo ""
 # ─── PHASE 6: Diffs + Git commit (audit trail) ───
 echo "── Phase 6: Diffs + Git Commit ──"
 
-# Export variables needed inside single-quoted heredoc (Python can't see bash locals)
-export BLOG_PORT BLOG_AUTH_USER BLOG_AUTH_PASS
+# Note: BLOG_PORT, BLOG_AUTH_USER, BLOG_AUTH_PASS already exported by paths.sh
 
 python3 - "$ENTRY_PATH" "$SLUG" "$REPORT_FOR_COMMIT" "$COMMIT_REASON" "$STATE_AUDIT_EXIT" "$REPORT_RESULT" <<'PYPHASE5'
 import sys, yaml, json, os, subprocess, urllib.request, traceback
@@ -1047,7 +1029,7 @@ except Exception as e:
 # ── 3. Posta diffs no blog API ──
 if all_diffs:
     payload = json.dumps({"slug": slug, "files": all_diffs}).encode("utf-8")
-    blog_port = os.environ.get("BLOG_PORT", "8766")
+    blog_url = os.environ.get("BLOG_URL", "http://localhost:8766")
     auth_user = os.environ.get("BLOG_AUTH_USER", "")
     auth_pass = os.environ.get("BLOG_AUTH_PASS", "")
     diffs_headers = {"Content-Type": "application/json"}
@@ -1057,7 +1039,7 @@ if all_diffs:
         diffs_headers["Authorization"] = f"Basic {cred}"
     try:
         req = urllib.request.Request(
-            f"http://localhost:{blog_port}/api/diffs",
+            f"{blog_url}/api/diffs",
             data=payload,
             headers=diffs_headers,
             method="POST"
