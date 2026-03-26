@@ -9,7 +9,8 @@ from pathlib import Path
 import markdown
 import yaml
 
-ROOT = Path.home() / "edge"
+import os as _os
+ROOT = Path(_os.environ.get("EDGE_DIR", str(Path(__file__).resolve().parent.parent)))
 STATE_DIR = ROOT / "state"
 THREADS_DIR = ROOT / "threads"
 LOGS_DIR = ROOT / "logs"
@@ -31,6 +32,13 @@ def load_json_safe(path, default=None):
     except Exception:
         pass
     return default
+
+
+def load_tasks_snapshot():
+    """Load materialized task snapshot."""
+    return load_json_safe(STATE_DIR / "tasks.snapshot.json", {
+        "tasks": [], "summary": {"total": 0, "by_status": {}, "by_priority": {}}
+    })
 
 
 def load_hotspots():
