@@ -176,7 +176,10 @@ def phase_identity(cfg, dry_run):
     edge = Path(cfg["edge_home_expanded"])
 
     # CLAUDE.md → ~/.claude/CLAUDE.md
-    claude_src = REPO_ROOT / "templates" / "CLAUDE.md"
+    # Rendered CLAUDE.md — edge-render generates from config/CLAUDE.md.tpl
+    claude_src = REPO_ROOT / "config" / "CLAUDE.md"
+    if not claude_src.exists():
+        claude_src = REPO_ROOT / "templates" / "CLAUDE.md"  # fallback
     claude_dst = Path.home() / ".claude" / "CLAUDE.md"
     if claude_src.exists():
         if not dry_run:
