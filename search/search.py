@@ -6,8 +6,57 @@ import struct
 import sys
 from pathlib import Path
 
+import yaml
+
 from db import EMBEDDING_DIM, ensure_db
 from embed import embed_text
+
+EDGE_HOME = Path.home() / "edge"
+NOTES_DIR = EDGE_HOME / "notes"
+
+
+def _parse_frontmatter_note(filepath: Path) -> str | None:
+    """Extract the 'note' field from YAML frontmatter. Returns None on any failure."""
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+        if not text.startswith("---"):
+            return None
+        end = text.index("---", 3)
+        fm = yaml.safe_load(text[3:end])
+        if isinstance(fm, dict):
+            return fm.get("note")
+    except Exception:
+        return None
+    return None
+
+
+def _enrich_with_notes(results: list[dict]) -> list[dict]:
+    """Enrich blog results with linked note content when available.
+
+    For each result where type == "blog", reads the entry file, parses its
+    frontmatter for a ``note:`` field, and if present reads the note file
+    from ~/edge/notes/{note_filename}.  Adds ``note_path`` (str) and
+    ``note_content`` (first 2000 chars) to the result dict.
+
+    Fault-tolerant: any failure is silently skipped.
+    """
+    for result in results:
+        if result.get("type") != "blog":
+            continue
+        try:
+            entry_path = EDGE_HOME / result["path"]
+            note_filename = _parse_frontmatter_note(entry_path)
+            if not note_filename:
+                continue
+            note_path = NOTES_DIR / note_filename
+            if not note_path.is_file():
+                continue
+            note_text = note_path.read_text(encoding="utf-8", errors="replace")
+            result["note_path"] = str(note_path)
+            result["note_content"] = note_text[:2000]
+        except Exception:
+            continue
+    return results
 
 
 def _serialize_f32(vec: list[float]) -> bytes:
@@ -175,6 +224,7 @@ def hybrid_search(
                 "snippet": info.get("snippet"),
             })
 
+        _enrich_with_notes(results)
         return results
     finally:
         if own_conn:
@@ -225,6 +275,7 @@ def search_with_sidecar(
                 if r["score"] > min_wf_score and r["id"] not in main_ids
             ][:wf_limit]
 
+        _enrich_with_notes(results)
         return results, workflows
     finally:
         if own_conn:

@@ -19,28 +19,17 @@ from flask_compress import Compress
 import markdown
 import yaml
 
-# ─── Paths (resolved via config/paths.py, env, or auto-detect) ───
-_app_dir = Path(__file__).resolve().parent
-_repo_root = _app_dir.parent
-sys.path.insert(0, str(_repo_root))
-sys.path.insert(0, str(_repo_root / "config"))
-
-try:
-    from config.paths import EDGE_DIR, BLOG_DIR, ENTRIES_DIR, REPORTS_DIR, META_DIR, SEARCH_DIR
-    ROOT = EDGE_DIR
-    META_REPORTS_DIR = META_DIR
-except ImportError:
-    ROOT = Path(os.environ.get("EDGE_DIR", str(_repo_root)))
-    BLOG_DIR = ROOT / "blog"
-    ENTRIES_DIR = BLOG_DIR / "entries"
-    REPORTS_DIR = ROOT / "reports"
-    META_REPORTS_DIR = ROOT / "meta-reports"
-    SEARCH_DIR = ROOT / "search"
-
+# ─── Paths ───
+ROOT = Path.home() / "edge"
+BLOG_DIR = ROOT / "blog"
+ENTRIES_DIR = BLOG_DIR / "entries"
 COMMENTS_FILE = BLOG_DIR / "comments.json"
 DIFFS_DIR = BLOG_DIR / "diffs"
 DIFFS_DIR.mkdir(parents=True, exist_ok=True)
+META_REPORTS_DIR = ROOT / "meta-reports"
+REPORTS_DIR = ROOT / "reports"
 
+SEARCH_DIR = ROOT / "search"
 sys.path.insert(0, str(SEARCH_DIR))
 sys.path.insert(0, str(ROOT))
 
@@ -629,8 +618,8 @@ def get_autonomy_data():
     """Read ~/edge/autonomy/capabilities.md and compute Sheridan stats."""
     import re
     try:
-        cap_path = ROOT / "autonomy" / "capabilities.md"
-        frontier_path = ROOT / "autonomy" / "frontier.md"
+        cap_path = Path.home() / "edge" / "autonomy" / "capabilities.md"
+        frontier_path = Path.home() / "edge" / "autonomy" / "frontier.md"
         content = cap_path.read_text()
         # Parse table rows: | # | Name | Sheridan | ...
         rows = re.findall(r'^\|\s*\d+\s*\|([^|]+)\|\s*(\d+)\s*\|', content, re.MULTILINE)
@@ -1047,6 +1036,11 @@ def serve_reports(filename):
 @app.route("/builds/<path:filename>")
 def serve_builds(filename):
     return send_from_directory(str(ROOT / "builds"), filename)
+
+
+@app.route("/notes/<path:filename>")
+def serve_notes(filename):
+    return send_from_directory(str(ROOT / "notes"), filename)
 
 
 @app.route("/blog/entries/<path:filename>")
@@ -1501,19 +1495,8 @@ def serve_edge_file(filepath):
 
 
 if __name__ == "__main__":
-    _branding_path = ROOT / "config" / "branding.yaml"
-    _blog_cfg = {}
-    if _branding_path.exists():
-        try:
-            with open(_branding_path) as f:
-                _blog_cfg = yaml.safe_load(f).get("blog", {})
-        except Exception:
-            pass
-
-    _port = int(os.environ.get("BLOG_PORT", _blog_cfg.get("port", 8766)))
-    _host = os.environ.get("BLOG_HOST", _blog_cfg.get("host", "127.0.0.1"))
-
+    # Warm up cache on startup
     print("Warming up entry cache and FTS index...")
     get_entries()
-    print(f"Blog server (Flask) on http://{_host}:{_port}/blog/")
-    app.run(host=_host, port=_port, debug=False, threaded=True)
+    print(f"Blog server (Flask) on http://localhost:8766/blog/")
+    app.run(host="127.0.0.1", port=8766, debug=False, threaded=True)

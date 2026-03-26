@@ -30,12 +30,14 @@
   .entry-date { color: #718096; font-size: .8rem; white-space: nowrap; }
   .entry-title-link { color: #63b3ed; text-decoration: none; flex: 1; }
   .entry-title-link:hover { text-decoration: underline; }
-  .entry-report-link { font-size: .75rem; background: #4a5568; color: #e2e8f0; padding: .1rem .4rem; border-radius: 3px; text-decoration: none; white-space: nowrap; }
-  .entry-report-link:hover { background: #718096; }
+  .entry-report-link, .entry-note-link { font-size: .75rem; background: #4a5568; color: #e2e8f0; padding: .1rem .4rem; border-radius: 3px; text-decoration: none; white-space: nowrap; }
+  .entry-report-link:hover, .entry-note-link:hover { background: #718096; }
+  .entry-note-link { background: #553c9a; }
   .entry-tags { display: flex; gap: .3rem; flex-wrap: wrap; }
   .entry-tag { font-size: .7rem; background: #4a5568; color: #a0aec0; padding: .05rem .35rem; border-radius: 3px; }
   .claims-list { list-style: none; padding: 0; }
-  .claims-list li { background: #2d3748; padding: .5rem .8rem; margin-bottom: .3rem; border-radius: 4px; border-left: 3px solid #805ad5; color: #cbd5e0; font-size: .9rem; }
+  .claims-list li { background: #2d3748; padding: .5rem .8rem; margin-bottom: .3rem; border-radius: 4px; border-left: 3px solid #38a169; color: #cbd5e0; font-size: .9rem; }
+  .claims-list li.claim-gap { border-left-color: #ed8936; }
   .reports-list { list-style: none; padding: 0; }
   .reports-list li { margin-bottom: .3rem; }
   .reports-list a { color: #63b3ed; text-decoration: none; }
@@ -62,7 +64,8 @@
     </div>
     <div>
       <span class="stat-pill">{{ thread.entries_count }} entries</span>
-      <span class="stat-pill">{{ thread.claims_count }} claims</span>
+      <span class="stat-pill" style="border-left:3px solid #38a169;">{{ thread.verified_count }} verified</span>
+      <span class="stat-pill" style="border-left:3px solid #ed8936;">{{ thread.gaps_count }} gaps</span>
       <span class="stat-pill">{{ thread.reports|length }} reports</span>
     </div>
     {% if thread.goal %}
@@ -84,6 +87,9 @@
     <li>
       <span class="entry-date">{{ e.date }}</span>
       <a class="entry-title-link" href="/entry/{{ e.slug }}">{{ e.title }}</a>
+      {% if e.note %}
+      <a class="entry-note-link" href="/notes/{{ e.note }}" title="derivação completa">note</a>
+      {% endif %}
       {% if e.report %}
       <a class="entry-report-link" href="/reports/{{ e.report }}" title="report HTML">report</a>
       {% endif %}
@@ -110,14 +116,25 @@
   </ul>
   {% endif %}
 
-  {% if thread.claims %}
-  <h2 class="section-title">Claims ({{ thread.claims_count }})</h2>
+  {% if thread.claims_verified %}
+  <h2 class="section-title">Verified ({{ thread.verified_count }})</h2>
   <ul class="claims-list">
-    {% for c in thread.claims %}
+    {% for c in thread.claims_verified %}
     <li>{{ c }}</li>
     {% endfor %}
   </ul>
-  {% else %}
+  {% endif %}
+
+  {% if thread.claims_gaps %}
+  <h2 class="section-title">Gaps abertos ({{ thread.gaps_count }})</h2>
+  <ul class="claims-list">
+    {% for c in thread.claims_gaps %}
+    <li class="claim-gap">{{ c }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if not thread.claims %}
   <h2 class="section-title">Claims</h2>
   <p class="empty-state">Nenhuma claim registrada nas entries desta thread.</p>
   {% endif %}

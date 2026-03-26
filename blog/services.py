@@ -9,15 +9,12 @@ from pathlib import Path
 import markdown
 import yaml
 
-import os as _os
-ROOT = Path(_os.environ.get("EDGE_DIR", str(Path(__file__).resolve().parent.parent)))
+ROOT = Path.home() / "edge"
 STATE_DIR = ROOT / "state"
 THREADS_DIR = ROOT / "threads"
 LOGS_DIR = ROOT / "logs"
 ENTRIES_DIR = ROOT / "blog" / "entries"
 
-TASKS_SNAPSHOT = STATE_DIR / "tasks.snapshot.json"
-TASKS_JSONL = STATE_DIR / "tasks.jsonl"
 OPS_HOTSPOTS = STATE_DIR / "ops-hotspots.json"
 GIT_SIGNALS = STATE_DIR / "git-signals.json"
 CURADORIA_CANDIDATES = STATE_DIR / "curadoria-candidates.json"
@@ -34,38 +31,6 @@ def load_json_safe(path, default=None):
     except Exception:
         pass
     return default
-
-
-def load_tasks_snapshot():
-    """Load materialized task snapshot."""
-    return load_json_safe(STATE_DIR / "tasks.snapshot.json", {
-        "tasks": [], "summary": {"total": 0, "by_status": {}, "by_priority": {}}
-    })
-
-
-def categorize_tasks(snap):
-    """Categorize tasks from snapshot into status buckets."""
-    tasks = snap.get("tasks", [])
-    result = {"doing": [], "todo": [], "blocked": [], "done": []}
-    for t in tasks:
-        status = t.get("status", "todo")
-        if status in result:
-            result[status].append(t)
-        else:
-            result.setdefault(status, []).append(t)
-    return result
-
-
-def task_age(task):
-    """Return age in days of a task."""
-    created = task.get("created_at", task.get("ts", ""))
-    if not created:
-        return 0
-    try:
-        dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-        return (datetime.now(timezone.utc) - dt).days
-    except (ValueError, TypeError):
-        return 0
 
 
 def load_hotspots():
@@ -385,6 +350,7 @@ def load_thread_detail(thread_id):
                 if not isinstance(entry_claims, list):
                     entry_claims = []
                 report_file = efm.get("report", "")
+                note_file = efm.get("note", "")
                 if report_file:
                     reports_set.add(report_file)
                 entries.append({
@@ -394,6 +360,7 @@ def load_thread_detail(thread_id):
                     "tags": efm.get("tags", []),
                     "claims": entry_claims,
                     "report": report_file,
+                    "note": note_file,
                 })
                 all_claims.extend(entry_claims)
             except Exception:
@@ -408,6 +375,10 @@ def load_thread_detail(thread_id):
             "exists": rpath.exists(),
             "url": f"/reports/{rf}" if rpath.exists() else None,
         })
+
+    # Separate claims by type
+    verified = [c for c in all_claims if not str(c).startswith("!")]
+    gaps = [c for c in all_claims if str(c).startswith("!")]
 
     return {
         "id": fm.get("id", thread_id),
@@ -425,7 +396,11 @@ def load_thread_detail(thread_id):
         "entries_count": len(entries),
         "reports": reports,
         "claims": all_claims,
+        "claims_verified": verified,
+        "claims_gaps": gaps,
         "claims_count": len(all_claims),
+        "verified_count": len(verified),
+        "gaps_count": len(gaps),
     }
 
 
