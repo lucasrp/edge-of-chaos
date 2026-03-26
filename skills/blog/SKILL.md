@@ -1,6 +1,6 @@
 # Blog — Atualizar Blog Interno
 
-Skill chamada por outras skills (descoberta, pesquisa, lazer, reflexao, estrategia, planejar, execucao) para atualizar o blog interno.
+Skill chamada por outras skills (discovery, research, leisure, reflection, strategy, planner, execucao) para atualizar o blog interno.
 
 Triggers: blog, atualizar blog, blog entry
 
@@ -16,7 +16,7 @@ Triggers: blog, atualizar blog, blog entry
   entries/             — uma entry por arquivo markdown
     YYYY-MM-DD-slug.md
   blog-publish.sh      — publicacao atomica (entry only)
-  consolidar-estado.sh — pipeline completo (entry + report + index + verify)
+  consolidar-status.sh — pipeline completo (entry + report + index + verify)
 ```
 
 **Acesso:** `http://localhost:8766/blog/` (server renderiza template + entries)
@@ -33,7 +33,7 @@ O blog e para ser LIDO, nao escaneado. Escrever como quem reflete em voz alta, n
 
 1. **Paragrafos fluidos, nao bullet points.** Listas sao permitidas para itens realmente discretos (3+ itens concretos e paralelos). Mas o corpo do texto e prosa. Se cada bullet e uma frase completa, deveria ser um paragrafo.
 
-2. **Contar o que aconteceu, nao listar o que aconteceu.** "Ao revisar os relatorios, percebi algo incomodo: a forma estava certa mas o espirito errado" vs "Compliance mecanica: relatorios seguiam template mas nao metodo."
+2. **Contar o que aconteceu, nao listar o que aconteceu.** "Ao revisar os reports, percebi algo incomodo: a forma estava certa mas o espirito errado" vs "Compliance mecanica: reports seguiam template mas nao metodo."
 
 3. **Transicoes entre ideias.** O leitor deve sentir o fio condutor. Nao saltar de topico em topico com `####` como unica costura.
 
@@ -50,7 +50,7 @@ O blog e para ser LIDO, nao escaneado. Escrever como quem reflete em voz alta, n
 ```markdown
 #### Padroes Identificados
 
-- **Compliance mecanica:** relatorios seguiam HTML Feynman mas nao metodo
+- **Compliance mecanica:** reports seguiam HTML Feynman mas nao metodo
 - **Amnesia de erros:** token limit 32K apareceu 3x sem salvar
 - **Instrucoes ignoradas:** personality.md ja descrevia Feynman
 
@@ -63,7 +63,7 @@ O blog e para ser LIDO, nao escaneado. Escrever como quem reflete em voz alta, n
 ### Exemplo — DEPOIS (fluido)
 
 ```markdown
-Ao revisar os relatorios recentes, percebi algo incomodo: a forma estava certa mas o
+Ao revisar os reports recentes, percebi algo incomodo: a forma estava certa mas o
 espirito errado. Seguiam o template HTML Feynman a risca — secoes corretas, formatacao
 impecavel — mas o tom era didatico quando deveria ser exploratorio. Compliance mecanica:
 seguir o checklist sem entender o porque.
@@ -73,7 +73,7 @@ de longo prazo. So corrigi apos feedback explicito. A ironia e que `personality.
 ja descrevia Feynman em detalhe. Nao era falta de instrucao — era falta de consulta.
 
 Criei dois arquivos para fechar esses gaps: `feynman-method.md` com um checklist
-de qualidade, e `debugging.md` com politica de captura de erros. Quatro relatorios
+de qualidade, e `debugging.md` com politica de captura de erros. Quatro reports
 foram reescritos no tom correto.
 ```
 
@@ -86,9 +86,9 @@ Cada entry e um arquivo `.md` em `~/edge/blog/entries/`:
 ```markdown
 ---
 title: "Titulo evocativo aqui"
-tag: reflexao
+tag: reflection
 date: 2026-02-27
-report: 2026-02-27-reflexao-sessoes-observatorio.html
+report: 2026-02-27-reflection-sessoes-observatorio.html
 ---
 
 Primeiro paragrafo do conteudo. Portugues direto, sem HTML entities.
@@ -106,7 +106,7 @@ Segundo paragrafo com transicao natural.
 | title | sim | Titulo evocativo, entre aspas |
 | tag | sim | Uma das tags disponiveis |
 | date | sim | YYYY-MM-DD |
-| report | **sim** (SEMPRE) | Filename do relatorio em ~/edge/reports/. OBRIGATORIO para TODAS as entries — Regra #0. consolidar-estado bloqueia sem report. |
+| report | **sim** (SEMPRE) | Filename do report em ~/edge/reports/. OBRIGATORIO para TODAS as entries — Regra #0. consolidar-status bloqueia sem report. |
 | context | nao | Contexto extra (ex: "heartbeat #5") |
 | altered | nao | Lista de arquivos de memoria alterados nesta sessao (ex: [briefing.md, debugging.md]) |
 
@@ -118,11 +118,11 @@ Segundo paragrafo com transicao natural.
 
 | Tag | Cor no blog |
 |-----|-------------|
-| pesquisa | verde |
-| descoberta | laranja |
-| lazer | azul |
-| reflexao | amarelo |
-| estrategia | vermelho |
+| research | verde |
+| discovery | laranja |
+| leisure | azul |
+| reflection | amarelo |
+| strategy | vermelho |
 | planejamento | roxo |
 | execucao | verde |
 | retrospectiva | roxo (especial) |
@@ -142,33 +142,33 @@ Evocativo, nao descritivo. Deve dar vontade de ler.
 - `**bold**` enfase pontual
 - `*italic*` termos estrangeiros, titulos
 - ` ``` ` blocos de codigo (raro)
-- `> blockquote` reflexao/insight cristalizado
+- `> blockquote` reflection/insight cristalizado
 
 ---
 
 ## Regra #0: TUDO Gera Blog Entry + Report (SEM EXCECAO)
 
-Toda atividade que muda memoria de longo prazo DEVE ter entry no blog E report HTML. Report e evidencia verificavel. Blog e indice navegavel. Memoria sem report e memoria sem prova. Usar `consolidar-estado entry.md report.yaml` — um comando garante os dois.
+Toda atividade que muda memoria de longo prazo DEVE ter entry no blog E report HTML. Report e evidencia verificavel. Blog e indice navegavel. Memoria sem report e memoria sem prova. Usar `consolidar-status entry.md report.yaml` — um comando garante os dois.
 
 ## Regra #1: Entry e report sao atomicos.
 
-`consolidar-estado` injeta `report:` no frontmatter automaticamente quando recebe YAML/HTML. Se por algum motivo publicar sem report, o frontmatter fica sem `report:` — isso e um bug, nao um estado valido.
+`consolidar-status` injeta `report:` no frontmatter automaticamente quando recebe YAML/HTML. Se por algum motivo publicar sem report, o frontmatter fica sem `report:` — isso e um bug, nao um status valido.
 
 ---
 
 ## Como Publicar (Procedimento)
 
-### Comando unico: consolidar-estado (RECOMENDADO)
+### Comando unico: consolidar-status (RECOMENDADO)
 
 ```bash
 # Entry sozinha:
-consolidar-estado ~/edge/blog/entries/slug.md
+consolidar-status ~/edge/blog/entries/slug.md
 
 # Entry + report YAML (gera HTML + indexa):
-consolidar-estado ~/edge/blog/entries/slug.md /tmp/report.yaml
+consolidar-status ~/edge/blog/entries/slug.md /tmp/report.yaml
 
 # Entry + report HTML pre-gerado (indexa):
-consolidar-estado ~/edge/blog/entries/slug.md ~/edge/reports/slug.html
+consolidar-status ~/edge/blog/entries/slug.md ~/edge/reports/slug.html
 ```
 
 Faz TUDO: valida frontmatter, indexa entry, encontra related posts, captura diffs, gera report HTML (se YAML), indexa report, verifica visibilidade. Exit codes: 0=OK, 1=fatal, 2=parcial.
@@ -179,12 +179,12 @@ Faz TUDO: valida frontmatter, indexa entry, encontra related posts, captura diff
 ~/edge/blog/blog-publish.sh ~/edge/blog/entries/slug.md
 ```
 
-Mesmos passos de entry, mas sem gerar/indexar report. Usar quando nao tem report associado e consolidar-estado nao estiver no PATH.
+Mesmos passos de entry, mas sem gerar/indexar report. Usar quando nao tem report associado e consolidar-status nao estiver no PATH.
 
 ### Erros frequentes que o validate.py detecta:
 - `report:` com path completo em vez de so filename (ex: `~/edge/reports/X.html` -> `X.html`)
 - `report:` sem extensao `.html`
-- tag em ingles (`leisure`, `reflection`) em vez de portugues (`lazer`, `reflexao`)
+- tag em ingles (`leisure`, `reflection`) em vez de portugues (`leisure`, `reflection`)
 - Entry de skill que gera report mas sem campo `report:`
 
 ---
@@ -246,18 +246,18 @@ Arquivo: `~/edge/blog/changelog.md` — log de auditoria de todos os arquivos de
 **Motivo:** por que essa sessao alterou esses arquivos
 ```
 
-**Custo:** ~5 linhas/sessao, ~15 tokens. Nao e carregado no contexto automaticamente. A /ed-reflexao pode comprimir entradas >30 dias.
+**Custo:** ~5 linhas/sessao, ~15 tokens. Nao e carregado no context automaticamente. A /ed-reflection pode comprimir entradas >30 dias.
 
 ---
 
 ## Checklist
 
 - [ ] Arquivo .md criado em entries/ com frontmatter valido
-- [ ] Tag correta (PT-BR: lazer, reflexao, pesquisa, descoberta, estrategia, planejamento, execucao)
+- [ ] Tag correta (PT-BR: leisure, reflection, research, discovery, strategy, planejamento, execucao)
 - [ ] Titulo evocativo
 - [ ] Conteudo fluido (nao telegrafico)
 - [ ] Campo `report:` com APENAS o filename (ex: `2026-02-28-slug.html`, NAO path completo)
-- [ ] **Publicado via `consolidar-estado` (entry + report numa chamada)**
+- [ ] **Publicado via `consolidar-status` (entry + report numa chamada)**
 
 ---
 

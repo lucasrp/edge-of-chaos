@@ -21,9 +21,9 @@ Create detailed Product Requirements Documents that are clear, actionable, and s
 
 ---
 
-## Step 0.5: Buscar contexto externo (opcional)
+## Step 0.5: Buscar context externo (opcional)
 
-Se a feature envolve tecnologias ou padroes que valem pesquisa, rodar `/ed-fontes planejar "[tema da feature]"` para encontrar exemplos, padroes, e gotchas antes de escrever o PRD.
+Se a feature envolve tecnologias ou padroes que valem research, rodar `/ed-sources planner "[tema da feature]"` para encontrar exemplos, padroes, e gotchas antes de escrever o PRD.
 
 ## Step 1: Clarifying Questions
 

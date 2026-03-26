@@ -1,6 +1,6 @@
 # Template de Relatorio — Referencia Compartilhada
 
-Usado por: /ed-pesquisa, /ed-descoberta, /ed-lazer, /ed-estrategia, /ed-planejar, /ed-reflexao.
+Usado por: /ed-research, /ed-discovery, /ed-leisure, /ed-strategy, /ed-planner, /ed-reflection.
 Cada skill define suas proprias secoes obrigatorias e regras de ouro 1-3. Este arquivo define o que e COMUM a todas.
 
 ---
@@ -17,14 +17,14 @@ Cada skill define suas proprias secoes obrigatorias e regras de ouro 1-3. Este a
    threads: [fio-relacionado-1, fio-relacionado-2]
    ```
    - Claims = conhecimento durável extraído do entry. O que sobrevive sem reler o texto inteiro.
-   - Prefixo `!` = "não sei" — gap aberto, candidato a pesquisa futura.
+   - Prefixo `!` = "não sei" — gap aberto, candidato a research futura.
    - `threads:` = fios de investigação relacionados (ver `~/edge/threads/`).
-   - O `consolidar-estado` avisa se claims estão ausentes.
+   - O `consolidar-status` avisa se claims estão ausentes.
 4. **Publicar atomicamente** (blog entry + report HTML + meta-report + state commit):
    ```bash
-   consolidar-estado ~/edge/blog/entries/<arquivo>.md /tmp/spec-[skill]-[slug].yaml
+   consolidar-status ~/edge/blog/entries/<arquivo>.md /tmp/spec-[skill]-[slug].yaml
    ```
-   O `consolidar-estado` faz tudo em 7 fases:
+   O `consolidar-status` faz tudo em 7 fases:
    - Phase 0/0.5: Frontmatter + review gate
    - Phase 1: Blog entry (blog-publish.sh)
    - Phase 2: Content report (generate_report.py → ~/edge/reports/)
@@ -35,11 +35,11 @@ Cada skill define suas proprias secoes obrigatorias e regras de ouro 1-3. Este a
 
    Content report é opcional — publicar sem YAML gera apenas meta-report:
    ```bash
-   consolidar-estado ~/edge/blog/entries/<arquivo>.md
+   consolidar-status ~/edge/blog/entries/<arquivo>.md
    ```
 
    Flags úteis: `--scratchpad PATH`, `--no-adversarial`, `--no-meta`, `--skip-review`
-5. **Ler meta-report** (`~/edge/meta-reports/<slug>-meta.md`) ANTES de editar estado
+5. **Ler meta-report** (`~/edge/meta-reports/<slug>-meta.md`) ANTES de editar status
 6. **Read do HTML gerado** (`~/edge/reports/<arquivo>.html`) para verificacao
 
 ---
@@ -99,7 +99,7 @@ bibliography:
 | `gap-marker` | Feynman: gap individual | id?, text |
 | `gap-table` | Feynman: tabela de gaps | gaps[{id, description, need, status}] |
 | `gap-resolution` | Feynman: gap → resposta | gap_id?, gap, text?, answer |
-| `glossary` | Glossario + contexto | context?, terms[{term, definition}] |
+| `glossary` | Glossario + context | context?, terms[{term, definition}] |
 
 Campos `text` suportam `**bold**`, `*italic*`, `` `code` ``, `--` (mdash), `->` (rarr).
 
@@ -107,9 +107,9 @@ Campos `text` suportam `**bold**`, `*italic*`, `` `code` ``, `--` (mdash), `->` 
 
 ## Regra de Ouro 0: Linhagem Obrigatoria (TODAS as skills)
 
-A PRIMEIRA secao de todo relatorio DEVE incluir um bloco mostrando a cadeia de raciocinio que levou ate aqui. Usar `table` com colunas: **Acao Anterior** | **O que Trouxe** | **Conexao com Este Trabalho**.
+A PRIMEIRA secao de todo report DEVE incluir um bloco mostrando a cadeia de raciocinio que levou ate aqui. Usar `table` com colunas: **Acao Anterior** | **O que Trouxe** | **Conexao com Este Trabalho**.
 
-Incluir: relatorios anteriores, breaks, descobertas, propostas, pesquisas, execucoes, conversas com o usuario — qualquer acao que informou este trabalho. Citar pelo nome/numero (ex: "Break #26 — tradecraft", "Pesquisa pipeline-minimo-viavel").
+Incluir: reports anteriores, breaks, discoverys, propostas, researchs, execucoes, conversas com o usuario — qualquer acao que informou este trabalho. Citar pelo nome/numero (ex: "Break #26 — tradecraft", "Pesquisa pipeline-minimo-viavel").
 
 Se nao ha trabalho anterior relevante, dizer explicitamente: "Primeiro trabalho sobre este tema."
 
@@ -131,13 +131,13 @@ SVG nao e so para numeros — qualquer informacao que comunica melhor como image
 - Hierarquia/taxonomia: tree diagram
 - Ciclo/loop: diagrama circular (feedback loops, ciclos iterativos)
 
-**Padrao SVG:** viewBox fixo (`700 280` charts, `700 400` diagramas), `font-family:'Segoe UI',sans-serif`, cores semanticas (`#e53e3e` perigo, `#2b6cb0` normal, `#38a169` sucesso, `#ed8936` alerta, `#805ad5` destaque, `#718096` neutro), legenda inline, `max-width:100%`, `<title>` para acessibilidade. Dados numericos: SVG + tabela = par obrigatorio. Diagramas de relacao/fluxo nao precisam de tabela. Minimo 1 SVG por relatorio.
+**Padrao SVG:** viewBox fixo (`700 280` charts, `700 400` diagramas), `font-family:'Segoe UI',sans-serif`, cores semanticas (`#e53e3e` perigo, `#2b6cb0` normal, `#38a169` sucesso, `#ed8936` alerta, `#805ad5` destaque, `#718096` neutro), legenda inline, `max-width:100%`, `<title>` para acessibilidade. Dados numericos: SVG + tabela = par obrigatorio. Diagramas de relacao/fluxo nao precisam de tabela. Minimo 1 SVG por report.
 
 ---
 
 ## Secoes Finais Obrigatorias
 
-### Penultima Secao: "O que Nao Sei" (OBRIGATORIA — exceto /ed-lazer)
+### Penultima Secao: "O que Nao Sei" (OBRIGATORIA — exceto /ed-leisure)
 
 - `gap-table` com gaps abertos (status: aberto/parcial)
 - `callout` variant=danger para incertezas criticas (que podem invalidar uma recomendacao)
@@ -166,7 +166,7 @@ SVG nao e so para numeros — qualquer informacao que comunica melhor como image
 
 ## Sanity Check Adversarial (edge-consult — OBRIGATORIO em TODA skill)
 
-ANTES de gerar o YAML do relatorio, submeter as conclusoes/recomendacoes ao `edge-consult` para deliberacao cross-model. GPT-5.4 (modelo diferente do autor) encontra furos, biases, premissas fracas.
+ANTES de gerar o YAML do report, submeter as conclusoes/recomendacoes ao `edge-consult` para deliberacao cross-model. GPT-5.4 (modelo diferente do autor) encontra furos, biases, premissas fracas.
 
 ```bash
 # Adversarial (default) — sintetizar conclusoes em 2-3 frases
@@ -179,11 +179,11 @@ edge-consult --mode collab "Estou travado em X, que angulos explorar?"
 **Protocolo de resposta:**
 1. Ler a critica com honestidade
 2. Se o argumento e valido → ajustar conclusoes/YAML
-3. Se mantiver posicao → registrar no relatorio como `callout` variant=info: "Sanity check GPT-5.4: [objecao]. Resposta: [por que mantenho]."
+3. Se mantiver posicao → registrar no report como `callout` variant=info: "Sanity check GPT-5.4: [objecao]. Resposta: [por que mantenho]."
 
-**No relatorio:** incluir bloco mostrando o que foi desafiado e como respondeu. Conviccao testada > conviccao nao desafiada.
+**No report:** incluir bloco mostrando o que foi desafiado e como respondeu. Conviccao testada > conviccao nao desafiada.
 
-**Custo:** ~$0.02/consulta. **Log:** ~/edge/logs/consult/ (para /ed-reflexao revisar).
+**Custo:** ~$0.02/consulta. **Log:** ~/edge/logs/consult/ (para /ed-reflection revisar).
 
 ---
 
@@ -191,7 +191,7 @@ edge-consult --mode collab "Estou travado em X, que angulos explorar?"
 
 ### Review Gate (LLM-as-judge — RODAR ANTES de publicar)
 
-Antes de chamar `consolidar-estado`, rodar o review gate para validacao semantica:
+Antes de chamar `consolidar-status`, rodar o review gate para validacao semantica:
 
 ```bash
 # Review standalone (loop de refinamento)
@@ -203,11 +203,11 @@ review-gate /tmp/spec-[skill]-[slug].yaml --skill [skill]
 
 O review gate avalia 6 dimensoes (structural_completeness, content_depth, writing_quality, visualization, intellectual_honesty, internal_consistency) via GPT-4o-mini. Custo: ~$0.002/review. Threshold: 3.5/5.
 
-**IMPORTANTE:** O `consolidar-estado` tambem roda o review gate automaticamente (Phase 0.5). Se o YAML nao passar, a publicacao e bloqueada. Use `--skip-review` para forcar (so quando ja revisou manualmente).
+**IMPORTANTE:** O `consolidar-status` tambem roda o review gate automaticamente (Phase 0.5). Se o YAML nao passar, a publicacao e bloqueada. Use `--skip-review` para forcar (so quando ja revisou manualmente).
 
 ### Validation Gate (NAO PULAR)
 
-O `consolidar-estado` ja executa a publicacao, geracao de HTML e indexacao do report. Apos ele, validar:
+O `consolidar-status` ja executa a publicacao, geracao de HTML e indexacao do report. Apos ele, validar:
 
 ```bash
 python3 ~/edge/blog/validate.py --recent
@@ -215,12 +215,12 @@ python3 ~/edge/blog/validate.py --recent
 
 Issues comuns:
 - `report:` com path completo em vez de filename → usar so o filename
-- Tag em ingles → usar PT-BR (lazer, reflexao, pesquisa, descoberta, estrategia, planejamento)
+- Tag em ingles → usar PT-BR (leisure, reflection, research, discovery, strategy, planejamento)
 - Report orfao → criar blog entry referenciando-o
 
 ### Auto-indexar artefatos adicionais
 
-Se notas adicionais foram criadas em ~/edge/notes/ (alem do report e blog entry ja indexados pelo consolidar-estado):
+Se notas adicionais foram criadas em ~/edge/notes/ (alem do report e blog entry ja indexados pelo consolidar-status):
 
 ```bash
 edge-index ~/edge/notes/[nota].md

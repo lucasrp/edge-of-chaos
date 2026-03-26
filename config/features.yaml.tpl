@@ -11,7 +11,7 @@ search:
   serper: auto              # busca web via Serper/Google (precisa: SERPER_API_KEY)
 
 research:
-  deep: auto                # edge-deepresearch — pesquisa profunda com web (precisa: OPENAI + GOOGLE)
+  deep: auto                # edge-deepresearch — research profunda com web (precisa: OPENAI + GOOGLE)
   adversarial: auto         # cross-provider validation com convergência (precisa: 2+ LLM providers)
 
 notifications:

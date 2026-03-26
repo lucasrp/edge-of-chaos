@@ -1,18 +1,18 @@
 # State Protocol — Gestão de Estado entre Skills
 
-Usado por: TODAS as skills que produzem output ou alteram estado.
+Usado por: TODAS as skills que produzem output ou alteram status.
 Cada skill referencia este arquivo em vez de ter suas próprias instruções de state management.
 
-**Decisões de autonomia:** ver `~/edge/autonomy/autonomy-policy.md` (quando executar vs perguntar).
+**Decisões de autonomy:** ver `~/edge/autonomy/autonomy-policy.md` (quando execute vs perguntar).
 **Ferramenta de auditoria:** `edge-state-audit` (snapshot, propose, audit, scan).
 **Tracking de passos:** `edge-skill-step` (registra passos executados/pulados por skill).
-**Consistência de estado:** `edge-state-lint` (detecta drift entre arquivos de memória).
+**Consistência de status:** `edge-state-lint` (detecta drift entre arquivos de memória).
 
 ---
 
 ## Step Tracking (OBRIGATÓRIO em skills com protocolo)
 
-Ao executar uma skill com passos numerados, logar cada passo executado:
+Ao execute uma skill com passos numerados, logar cada passo executado:
 
 ```bash
 edge-skill-step <skill> <step_id>              # passo executado
@@ -22,7 +22,7 @@ edge-skill-step <skill> end                     # summary (detecta skips silenci
 
 **Regra:** chamar `edge-skill-step <skill> end` ao finalizar a skill. O tool compara passos logados contra o registry (`~/edge/tools/skill-steps-registry.yaml`) e reporta passos silenciosamente pulados.
 
-Se um passo é pulado por razão válida (ex: cache hit, já rodou nesta sessão), usar `skip` com razão. Passo não logado nem como skip = **silent skip** = /ed-reflexao vai flaggear.
+Se um passo é pulado por razão válida (ex: cache hit, já rodou nesta sessão), usar `skip` com razão. Passo não logado nem como skip = **silent skip** = /ed-reflection vai flaggear.
 
 ---
 
@@ -30,7 +30,7 @@ Se um passo é pulado por razão válida (ex: cache hit, já rodou nesta sessão
 
 **Toda mudança em arquivo protegido deve ser PROPOSTA antes e AUDITADA depois.**
 
-O agente pode editar seus próprios arquivos de estado — mas cada mudança precisa ser:
+O agente pode editar seus próprios arquivos de status — mas cada mudança precisa ser:
 1. **Declarada** (proposta com justificativa ANTES de editar)
 2. **Visível** (auditada automaticamente pelo pipeline)
 3. **Rastreável** (registrada no commit com status ok/partial/failed)
@@ -65,7 +65,7 @@ Qualquer mudança nesses arquivos é monitorada por `edge-state-audit`:
 
 ---
 
-## Consulta de Workflows (OBRIGATORIO, antes de executar)
+## Consulta de Workflows (OBRIGATORIO, antes de execute)
 
 Antes de iniciar qualquer skill, consultar workflows relevantes:
 
@@ -79,7 +79,7 @@ Ao final da sessao, se uma combinacao nova de capacidades produziu resultado (ou
 
 ---
 
-## Fluxo Completo (com mudanças de estado)
+## Fluxo Completo (com mudanças de status)
 
 ### Passo 1: Executar skill + anotar no scratchpad
 
@@ -98,7 +98,7 @@ edge-state-audit snapshot --slug <SLUG>
 ```
 
 Captura SHA256 de todos os arquivos protegidos ANTES de qualquer edição.
-O pipeline (consolidar-estado Phase 0a) pula se o snapshot já existir.
+O pipeline (consolidar-status Phase 0a) pula se o snapshot já existir.
 
 ### Passo 3: Propor mudanças
 
@@ -150,21 +150,21 @@ keywords: [kw1, kw2]
 
 Claims são o conhecimento durável. O que sobrevive sem reler o texto inteiro.
 
-### Passo 6: Publicar via consolidar-estado
+### Passo 6: Publicar via consolidar-status
 
 ```bash
 # Com content report
-consolidar-estado ~/edge/blog/entries/<slug>.md /tmp/spec-<skill>.yaml
+consolidar-status ~/edge/blog/entries/<slug>.md /tmp/spec-<skill>.yaml
 
 # Sem content report (meta-only)
-consolidar-estado ~/edge/blog/entries/<slug>.md
+consolidar-status ~/edge/blog/entries/<slug>.md
 ```
 
 O pipeline faz automaticamente:
 - **Phase 0a:** Snapshot PRE (pula se já existe — Passo 2)
 - **Phase 1-4:** Entry, report, verificação, meta-report
 - **Phase 5:** State commit (claims + threads + event)
-- **Phase 5b:** **State audit** — compara snapshot PRE vs estado atual vs proposta
+- **Phase 5b:** **State audit** — compara snapshot PRE vs status atual vs proposta
   - `exit 0` = OK (tudo proposto e executado)
   - `exit 2` = partial (proposto mas não executado — WARN)
   - `exit 4` = divergência (ação diferente da proposta — **ABORT**)
@@ -177,15 +177,15 @@ O pipeline imprime o path. Ler antes de continuar.
 
 ---
 
-## Fluxo Simplificado (sem mudanças de estado)
+## Fluxo Simplificado (sem mudanças de status)
 
-Se a skill NÃO altera nenhum arquivo protegido (ex: blog entry puro, pesquisa):
+Se a skill NÃO altera nenhum arquivo protegido (ex: blog entry puro, research):
 
 1. Consultar workflows relevantes (`edge-search "termos" --type workflow -k 3`)
 2. Executar skill
 3. Anotar no scratchpad
 4. Criar blog entry com claims (+ blog entry com tag `workflow` se combinacao nova emergiu)
-5. `consolidar-estado` (Phase 0a captura snapshot, Phase 5b confirma que nada mudou — OK)
+5. `consolidar-status` (Phase 0a captura snapshot, Phase 5b confirma que nada mudou — OK)
 
 Sem proposta necessária. O pipeline é backwards-compatible.
 
@@ -210,21 +210,21 @@ Sem proposta necessária. O pipeline é backwards-compatible.
 | Antes | Agora |
 |-------|-------|
 | Append 3-5 linhas no working-state.md Timeline | `edge-scratch add "observação"` |
-| Ler working-state.md para contexto | Ler `~/edge/briefing.md` (gerado por edge-digest) |
+| Ler working-state.md para context | Ler `~/edge/briefing.md` (gerado por edge-digest) |
 | Atualizar "Threads Ativos" manualmente | Threads em `~/edge/threads/`, atualizados pelo pipeline |
 | Editar MEMORY.md/debugging.md ad-hoc | Proposta → edição → auditoria |
-| breaks-archive.md / breaks-active.md | Continua igual (registro de breaks, não de estado) |
+| breaks-archive.md / breaks-active.md | Continua igual (registro de breaks, não de status) |
 
 ---
 
 ## Registro de Breaks (preservado)
 
-Skills que fazem breaks (/ed-lazer, /ed-pesquisa, /ed-descoberta, /ed-planejar) continuam registrando em:
+Skills que fazem breaks (/ed-leisure, /ed-research, /ed-discovery, /ed-planner) continuam registrando em:
 
 1. **breaks-archive.md** — entrada completa com metadados
 2. **breaks-active.md** — resumo dos últimos 5 breaks
 
-Isto NÃO muda. Breaks são registro de atividade, não gestão de estado.
+Isto NÃO muda. Breaks são registro de atividade, não gestão de status.
 
 ---
 
@@ -235,11 +235,11 @@ Isto NÃO muda. Breaks são registro de atividade, não gestão de estado.
 | **scratchpad** | Arquivo temporário (`/tmp/edge-scratch-*.md`) para observações mid-sessão |
 | **meta-report** | Markdown em `~/edge/meta-reports/` com state delta + scratchpad + adversarial |
 | **content report** | HTML em `~/edge/reports/` — artefato analítico pesado (opcional) |
-| **briefing.md** | `~/edge/briefing.md` — estado compactado, gerado por edge-digest |
+| **briefing.md** | `~/edge/briefing.md` — status compactado, gerado por edge-digest |
 | **claims** | Conhecimento durável no frontmatter. `!` = gap aberto |
 | **threads** | Fios de investigação em `~/edge/threads/` |
-| **events** | Transições de estado em `~/edge/logs/events.jsonl` |
-| **state commit** | Phase 5 do consolidar-estado: claims + threads + events + digest |
+| **events** | Transições de status em `~/edge/logs/events.jsonl` |
+| **state commit** | Phase 5 do consolidar-status: claims + threads + events + digest |
 | **state proposal** | YAML em `~/edge/meta-reports/<slug>.state-proposal.yaml` com mudanças pretendidas |
 | **state audit** | YAML em `~/edge/meta-reports/<slug>.state-audit.yaml` com resultado PRE vs POST |
 | **snapshot PRE** | YAML em `~/edge/state-snapshots/<slug>.pre.yaml` com SHA256 antes das mudanças |
@@ -251,7 +251,7 @@ Isto NÃO muda. Breaks são registro de atividade, não gestão de estado.
 Adicionar no SKILL.md de cada skill:
 
 ```markdown
-**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de estado.**
+**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
 ```
 
 ### Se a skill modifica arquivos protegidos:
@@ -260,7 +260,7 @@ Adicionar no SKILL.md de cada skill:
 1. `edge-state-audit snapshot --slug <SLUG>` (antes de editar)
 2. `edge-state-audit propose --slug <SLUG> --file /tmp/state-changes.yaml`
 3. Editar arquivos protegidos
-4. `consolidar-estado` audita automaticamente (Phase 5b)
+4. `consolidar-status` audita automaticamente (Phase 5b)
 ```
 
 ### Se a skill NÃO modifica arquivos protegidos:

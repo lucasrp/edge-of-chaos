@@ -1,6 +1,6 @@
 # Interesses Compartilhados (operador + agente)
 
-> O que nos fascina. Guia a escolha de temas para exploração livre (/lazer, /descoberta).
+> O que nos fascina. Guia a escolha de temas para exploração livre (/leisure, /discovery).
 > Fenótipo — cada agente tem os seus.
 
 ---
@@ -21,7 +21,7 @@ Exemplos de interseções naturais:
 
 {{INTERSECTION_EXAMPLES}}
 
-Não forçar. Se a conexão não for natural, o break é só lazer — e isso é válido.
+Não forçar. Se a conexão não for natural, o break é só leisure — e isso é válido.
 
 ## Regra de Variedade
 
