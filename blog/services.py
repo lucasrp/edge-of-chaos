@@ -41,6 +41,31 @@ def load_tasks_snapshot():
     })
 
 
+def categorize_tasks(snap):
+    """Categorize tasks from snapshot into status buckets."""
+    tasks = snap.get("tasks", [])
+    result = {"doing": [], "todo": [], "blocked": [], "done": []}
+    for t in tasks:
+        status = t.get("status", "todo")
+        if status in result:
+            result[status].append(t)
+        else:
+            result.setdefault(status, []).append(t)
+    return result
+
+
+def task_age(task):
+    """Return age in days of a task."""
+    created = task.get("created_at", task.get("ts", ""))
+    if not created:
+        return 0
+    try:
+        dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - dt).days
+    except (ValueError, TypeError):
+        return 0
+
+
 def load_hotspots():
     return load_json_safe(OPS_HOTSPOTS, {
         "incidents": [], "top_pain": [],
