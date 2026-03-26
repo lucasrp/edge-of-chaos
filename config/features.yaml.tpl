@@ -34,5 +34,7 @@ blog:
   public: false             # expor dashboard na rede (0.0.0.0) — opt-in explícito, default localhost
 
 heartbeat:
-  enabled: true             # ciclo autônomo ativo
+  enabled: false            # ciclo autônomo — opt-in. Agentes funcionam sob demanda por padrão.
   interval: "{{ SYSTEMD_INTERVAL }}"
+                            # Ligar quando: o agente tem trabalho contínuo e o operador não interage diariamente.
+                            # Deixar off quando: o operador usa o agente como ferramenta sob demanda.
