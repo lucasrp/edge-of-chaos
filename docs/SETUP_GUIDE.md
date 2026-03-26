@@ -117,7 +117,6 @@ cd ~/your-agent && claude -p "/PREFIX-heartbeat" --max-turns 30
 ./tools/edge-claims --open  # open gaps
 
 # Tasks
-./tools/edge-task list
 
 # Recent events
 ./tools/edge-event recent
