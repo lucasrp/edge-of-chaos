@@ -16,6 +16,8 @@ THREADS_DIR = ROOT / "threads"
 LOGS_DIR = ROOT / "logs"
 ENTRIES_DIR = ROOT / "blog" / "entries"
 
+TASKS_SNAPSHOT = STATE_DIR / "tasks.snapshot.json"
+TASKS_JSONL = STATE_DIR / "tasks.jsonl"
 OPS_HOTSPOTS = STATE_DIR / "ops-hotspots.json"
 GIT_SIGNALS = STATE_DIR / "git-signals.json"
 CURADORIA_CANDIDATES = STATE_DIR / "curadoria-candidates.json"
