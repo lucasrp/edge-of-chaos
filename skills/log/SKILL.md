@@ -6,13 +6,13 @@ user-invocable: true
 
 # Log — Log Unificado do Sistema de Autonomia
 
-Leitura pura (read-only). Agrega dados de todas as fontes do sistema de autonomia e apresenta um log cronologico estruturado. Sem modificar nenhum arquivo.
+Leitura pura (read-only). Agrega dados de todas as sources do sistema de autonomy e apresenta um log cronologico estruturado. Sem modificar nenhum arquivo.
 
 ---
 
 ## O Job
 
-Ler multiplas fontes de atividade do sistema de autonomia e produzir um log cronologico com:
+Ler multiplas sources de atividade do sistema de autonomy e produzir um log cronologico com:
 - **Timeline** — eventos ordenados por data/hora
 - **Metricas** — contagens por tipo de atividade
 - **Estado Atual** — heartbeat state
@@ -39,11 +39,11 @@ O usuario pode passar argumentos apos `/ed-log`:
 Parsear o argumento do usuario:
 
 - **Periodo:** Se nenhum argumento ou tipo, default = 24h. Se `hoje`, usar data de hoje. Se `Nd`, calcular data de corte. Se `Nw`, calcular.
-- **Tipo:** Se o argumento e um tipo conhecido (heartbeat, breaks, propostas, descobertas, reflexoes, notes, reports), filtrar apenas esse tipo.
+- **Tipo:** Se o argumento e um tipo conhecido (heartbeat, breaks, propostas, discoverys, reflexoes, notes, reports), filtrar apenas esse tipo.
 
 Guardar a data de corte como variavel para filtrar eventos.
 
-### Passo 2: Coletar eventos de TODAS as fontes
+### Passo 2: Coletar eventos de TODAS as sources
 
 Executar os comandos abaixo e parsear os resultados. Cada evento deve ter: `[data/hora] tipo — resumo`.
 
@@ -79,14 +79,14 @@ Cada linha `## [YYYY-MM-DD]` e um break. Parsear tipo e titulo.
 
 ```bash
 # Extrair entradas com data e status
-grep '^\## \[' ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/descobertas.md 2>/dev/null
+grep '^\## \[' ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md 2>/dev/null
 ```
 
 #### 2d. Reflexoes
 
 ```bash
-# Extrair entradas do reflexao-log
-grep '^\## \[' ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/reflexao-log.md 2>/dev/null
+# Extrair entradas do reflection-log
+grep '^\## \[' ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/reflection-log.md 2>/dev/null
 ```
 
 #### 2e. Propostas
@@ -129,7 +129,7 @@ Se o usuario pediu um tipo especifico, manter apenas eventos daquele tipo.
 
 Ordenar todos os eventos coletados por data/hora, do mais antigo ao mais recente.
 
-### Passo 6: Extrair estado atual do heartbeat
+### Passo 6: Extrair status atual do heartbeat
 
 ```bash
 grep -A 10 "Estado do Heartbeat" ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-active.md 2>/dev/null
@@ -139,7 +139,7 @@ grep -A 10 "Estado do Heartbeat" ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/b
 
 Contar por tipo:
 - Heartbeats: executados, skipped, com erro
-- Breaks: total e por tipo (lazer, pesquisa, descoberta, estrategia, reflexao, planejamento, execucao)
+- Breaks: total e por tipo (leisure, research, discovery, strategy, reflection, planejamento, execucao)
 - Propostas: criadas no periodo, por status
 - Descobertas: criadas no periodo, por status
 - Reflexoes: total no periodo
@@ -167,7 +167,7 @@ Produzir markdown estruturado direto no terminal:
 
 ### Metricas
 - Heartbeats: N executados, N skipped, N erros
-- Breaks: N total (N lazer, N pesquisa, N descoberta...)
+- Breaks: N total (N leisure, N research, N discovery...)
 - Propostas: N no periodo (N PROPOSTA, N APROVADA, N CONCLUIDA...)
 - Descobertas: N no periodo (N PENDENTE, N ADOTADA...)
 - Reflexoes: N
@@ -177,8 +177,8 @@ Produzir markdown estruturado direto no terminal:
 ### Estado Atual
 - Ultimo beat: #N
 - Dispatch: [tipo]
-- Beats desde estrategia: N
-- Beats desde planejar: N
+- Beats desde strategy: N
+- Beats desde planner: N
 - Proximo heartbeat: [se detectavel do log]
 ```
 
@@ -204,4 +204,4 @@ Todos os comandos sao de leitura (cat, grep, ls, wc, stat).
 - Heartbeats vazios (sem output entre heartbeat e done/proximo) representam execucoes que nao geraram acao — listar como "HEARTBEAT — sem dispatch"
 - Heartbeats com "skipped" nao sao execucoes — listar separadamente nas metricas
 - Para notas e reports: usar data de modificacao do filesystem
-- Nao duplicar eventos que aparecem em multiplas fontes (ex: um break aparece no archive E no heartbeat log)
+- Nao duplicar eventos que aparecem em multiplas sources (ex: um break aparece no archive E no heartbeat log)

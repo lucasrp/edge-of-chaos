@@ -19,7 +19,7 @@ echo "$preflight_output"
 
 ### 0a: Health check (OBRIGATÓRIO — ler resultado do preflight)
 
-O preflight roda `edge-check.sh` automaticamente e reporta o estado de saúde. Ler `health/current.json`:
+O preflight roda `edge-check.sh` automaticamente e reporta o status de saúde. Ler `health/current.json`:
 
 ```bash
 cat ~/edge/health/current.json 2>/dev/null | python3 -c "
@@ -46,11 +46,11 @@ bash ~/edge/bin/edge-repair.sh 2>/dev/null
 
 **Se `HEALTH:CRITICAL`:** Modo maintenance. Reparar e sair. Não gastar tokens com trabalho.
 
-**Se `PREFLIGHT_CLEAN` (e saúde ok):** Não há trabalho urgente. Despachar `/ed-lazer` ou `/ed-descoberta` diretamente (sem passar pelo Passo 1 completo). Logar:
+**Se `PREFLIGHT_CLEAN` (e saúde ok):** Não há trabalho urgente. Despachar `/ed-leisure` ou `/ed-discovery` diretamente (sem passar pelo Passo 1 completo). Logar:
 ```bash
 echo "[$(date +%H:%M)] PREFLIGHT_CLEAN — sem sinais. Despachando exploração." >> ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log
 ```
-Depois ir direto para o Passo 2 com skill = `/ed-lazer` ou `/ed-descoberta` (alternar).
+Depois ir direto para o Passo 2 com skill = `/ed-leisure` ou `/ed-discovery` (alternar).
 
 **Se `PREFLIGHT_WORK`:** Continuar para Passo 1 normalmente. Usar os sinais detectados para informar a leitura e a decisão.
 
@@ -105,7 +105,7 @@ cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/insights.md 2>/dev/null
 Canal curado humano → IA. Insights, intuicoes, direcoes, correcoes. So sinal, sem ruido.
 - Insights novos (sem `[LIDO]`) tem PRIORIDADE sobre o ciclo normal
 - Podem influenciar a escolha de skill no Passo 2
-- Podem ser o INPUT direto de uma pesquisa, descoberta, ou reflexao
+- Podem ser o INPUT direto de uma research, discovery, ou reflection
 - Apos processar, marcar com `[LIDO YYYY-MM-DD]` — nao deletar
 
 ### 1c: Ler beats anteriores (evitar repeticao)
@@ -124,13 +124,13 @@ cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md
 
 Verificar se o beat anterior deixou erro pendente.
 
-### 1e: Ler contexto de projeto (leve)
+### 1e: Ler context de projeto (leve)
 
 ```bash
 cat ~/work/CLAUDE.md
 ```
 
-Absorver prioridades e estado dos projetos. NAO rodar /ed-contexto completo — o heartbeat simplificado le direto.
+Absorver prioridades e status dos projetos. NAO rodar /ed-context completo — o heartbeat simplificado le direto.
 
 ### 1e2: Ler fios de investigação (OBRIGATORIO)
 
@@ -160,7 +160,7 @@ Para cada fio com resurface, consultar claims relacionadas:
 ```bash
 edge-claims --thread THREAD_ID 2>/dev/null
 ```
-Claims abertas (prefixo `!`) são gaps de conhecimento — candidatos naturais para pesquisa ou experimento. Claims verificadas mostram o que já sabemos sobre o fio.
+Claims abertas (prefixo `!`) são gaps de conhecimento — candidatos naturais para research ou experiment. Claims verificadas mostram o que já sabemos sobre o fio.
 
 ### 1f: Task ledger (OBRIGATORIO)
 
@@ -174,11 +174,11 @@ Verificar:
 - Tasks `stale` (>48h sem update) — reavaliar prioridade ou dropar
 - Tasks `todo` P0/P1 — candidatas para o beat se nenhum input externo
 
-**Regra:** Se ha task `doing`, o beat DEVE atualizar seu estado (next_action ou done/blocked). Task parada = sinal de problema.
+**Regra:** Se ha task `doing`, o beat DEVE atualizar seu status (next_action ou done/blocked). Task parada = sinal de problema.
 
 ### 1g: Corpus check — "isso e novo?" (OBRIGATORIO antes de despachar)
 
-Apos absorver contexto (1a-1f), identificar 2-3 temas candidatos para o beat. Para cada um, checar se ja foi coberto:
+Apos absorver context (1a-1f), identificar 2-3 temas candidatos para o beat. Para cada um, checar se ja foi coberto:
 
 ```bash
 edge-search "[tema candidato]" -k 3
@@ -200,13 +200,13 @@ Apos ler as sessoes (1a), identificar os temas principais do trabalho do usuario
 - Buscar o **ADJACENTE**: conceitos relacionados de outros dominios, fenomenos que se aplicam, tendencias que impactam
 - **2-3 palavras CONCEITUAIS, nao tecnicas.** X Basic tier busca AND entre palavras, janela de 7 dias. Queries longas/especificas retornam 0.
 - Pensar em FENOMENOS, nao em FERRAMENTAS. "benchmark gaming" > "LLM evaluation error taxonomy"
-- Uma query deve cruzar DOMINIO (conectar o trabalho tecnico com o contexto institucional/mercado)
+- Uma query deve cruzar DOMINIO (conectar o trabalho tecnico com o context institucional/mercado)
 
 **Exemplo:**
 - Trabalho do usuario: "evaluation recall inflado" num pipeline de NLP
 - Query 1: "benchmark gaming AI" (fenomeno: metricas que mentem)
 - Query 2: "coding agent workflow" (adjacente: como practitioners usam agentes)
-- Query 3: "AI enterprise adoption" (cruzamento de dominio: AI + contexto organizacional)
+- Query 3: "AI enterprise adoption" (cruzamento de dominio: AI + context organizacional)
 
 **Anti-padrao:** "LLM evaluation error taxonomy" (4 palavras tecnicas → 0 resultados sempre)
 
@@ -217,7 +217,7 @@ python3 ~/edge/tools/edge-x "QUERY_LATERAL" --max 3 --json 2>/dev/null
 
 Anotar resultados interessantes (engagement alto, conexao nao obvia) como **"serendipidade"** — usar para informar o Passo 2 (escolha de skill/tema) e incluir no blog entry se relevante.
 
-**Se nenhuma sessao recente:** usar contexto de ~/work/CLAUDE.md como base.
+**Se nenhuma sessao recente:** usar context de ~/work/CLAUDE.md como base.
 **Se X nao retornar nada util:** seguir sem — nao bloqueia o beat.
 **Budget:** 3 queries, ~5 resultados cada. Rapido e barato.
 
@@ -225,14 +225,14 @@ Anotar resultados interessantes (engagement alto, conexao nao obvia) como **"ser
 
 ## Passo 1.5: Classificar o beat (ANTES de despachar)
 
-Apos ler todo o contexto do Passo 1, classificar o beat:
+Apos ler todo o context do Passo 1, classificar o beat:
 
 - **WORK:** Ha sinal claro (chat, erro, fio, task, sessao com correcao). Despachar skill direcionada.
-- **EXPLORE:** Sem sinal urgente. Despachar `/ed-lazer` ou `/ed-descoberta` (alternar). O valor esta na serendipidade — ver o que estamos fazendo e trazer os termos certos, os projetos certos, as conexoes laterais. E assim que nascem seeds de ideias que sao cultivadas.
+- **EXPLORE:** Sem sinal urgente. Despachar `/ed-leisure` ou `/ed-discovery` (alternar). O valor esta na serendipidade — ver o que estamos fazendo e trazer os termos certos, os projetos certos, as conexoes laterais. E assim que nascem seeds de ideias que sao cultivadas.
 
-**REGRA ABSOLUTA:** O heartbeat SEMPRE despacha uma skill. Nao existe beat vazio. `/ed-lazer` e `/ed-descoberta` existem exatamente para quando nao ha trabalho urgente.
+**REGRA ABSOLUTA:** O heartbeat SEMPRE despacha uma skill. Nao existe beat vazio. `/ed-leisure` e `/ed-discovery` existem exatamente para quando nao ha trabalho urgente.
 
-**Anti-saturacao** muda de significado: nao e "pare", e "mude de tema". Se os ultimos 3 beats foram no mesmo tema, mudar para outro. Se foram todos trabalho, fazer /ed-lazer. Se foram todos exploracao, fazer /ed-pesquisa num fio.
+**Anti-saturacao** muda de significado: nao e "pare", e "mude de tema". Se os ultimos 3 beats foram no mesmo tema, mudar para outro. Se foram todos trabalho, fazer /ed-leisure. Se foram todos exploracao, fazer /ed-research num fio.
 
 ---
 
@@ -240,23 +240,23 @@ Apos ler todo o contexto do Passo 1, classificar o beat:
 
 ### Arvore de decisao (simples)
 
-1. **Usuario pediu algo?** (mensagem no chat/comentario com direcao) → Atender. Se e mudanca interna → fazer. Se e projeto → anotar, responder que precisa de /ed-executar.
+1. **Usuario pediu algo?** (mensagem no chat/comentario com direcao) → Atender. Se e mudanca interna → fazer. Se e projeto → anotar, responder que precisa de /ed-execute.
 
 2. **Erro pendente no debugging.md que eu posso resolver?** → Resolver.
 
-3. **Fio com resurface vencido e owner:edge?** → Usar o fio como tema. Ler o arquivo do fio (`~/edge/threads/ID.md`), entender o próximo passo, e despachar a skill adequada. Consultar `edge-claims --thread THREAD_ID` para ver claims verificadas e abertas do fio. Claims abertas (`!`) são gaps de conhecimento — candidatos naturais para `/ed-pesquisa` ou `/ed-experimento`. Atualizar `resurface` e `updated` no fio após o beat.
+3. **Fio com resurface vencido e owner:edge?** → Usar o fio como tema. Ler o arquivo do fio (`~/edge/threads/ID.md`), entender o próximo passo, e despachar a skill adequada. Consultar `edge-claims --thread THREAD_ID` para ver claims verificadas e abertas do fio. Claims abertas (`!`) são gaps de conhecimento — candidatos naturais para `/ed-research` ou `/ed-experiment`. Atualizar `resurface` e `updated` no fio após o beat.
 
-4. **Claim aberta sem fio resurfacing?** → `edge-claims --open` mostra o que ainda não sei. Se alguma claim aberta amadureceu (mais contexto disponível, pesquisa nova que pode responder), considerá-la como tema para `/ed-pesquisa`.
+4. **Claim aberta sem fio resurfacing?** → `edge-claims --open` mostra o que ainda não sei. Se alguma claim aberta amadureceu (mais context disponível, research nova que pode responder), considerá-la como tema para `/ed-research`.
 
 5. **Nenhum dos acima?** → Escolher UMA skill baseado no que parece mais util AGORA:
-   - `/ed-pesquisa [tema]` — quando ha pergunta aberta ou tema quente
-   - `/ed-descoberta` — quando o contexto sugere conexao lateral interessante
-   - `/ed-lazer` — quando os ultimos 3+ beats foram trabalho puro (variar)
-   - `/ed-estrategia` — a cada ~5 beats, ou quando contexto mudou
-   - `/ed-reflexao` — quando ha feedback do usuario para processar
-   - `/ed-planejar` — quando ha insight maduro para virar proposta
+   - `/ed-research [tema]` — quando ha pergunta aberta ou tema quente
+   - `/ed-discovery` — quando o context sugere conexao lateral interessante
+   - `/ed-leisure` — quando os ultimos 3+ beats foram trabalho puro (variar)
+   - `/ed-strategy` — a cada ~5 beats, ou quando context mudou
+   - `/ed-reflection` — quando ha feedback do usuario para processar
+   - `/ed-planner` — quando ha insight maduro para virar proposta
 
-6. **Fallback absoluto (NUNCA pular):** Se nada acima se aplica, despachar `/ed-lazer` ou `/ed-descoberta` (alternar com o ultimo). O heartbeat NUNCA encerra sem despachar. O valor do agente esta na serendipidade — conectar o que se esta fazendo com o que existe la fora.
+6. **Fallback absoluto (NUNCA pular):** Se nada acima se aplica, despachar `/ed-leisure` ou `/ed-discovery` (alternar com o ultimo). O heartbeat NUNCA encerra sem despachar. O valor do agente esta na serendipidade — conectar o que se esta fazendo com o que existe la fora.
 
 **Regra anti-saturacao:** Se os ultimos 3 beats foram no mesmo tema, MUDAR DE TEMA (nao parar).
 
@@ -348,7 +348,7 @@ edge-event log -t error_logged -s "[descrição do erro]" --thread [thread_id]
 
 O `--update-thread N` atualiza automaticamente `updated:` e `resurface:` no arquivo do fio. Sem isso, threads envelhecem silenciosamente.
 
-**Seguir ~/.claude/skills/_shared/state-protocol.md para gestão de estado.**
+**Seguir ~/.claude/skills/_shared/state-protocol.md para gestão de status.**
 
 ---
 
@@ -366,6 +366,6 @@ O `--update-thread N` atualiza automaticamente `updated:` e `resurface:` no arqu
 
 ## O que o Heartbeat NAO faz
 
-- NAO executa tarefas em projetos (reservado para /ed-executar)
+- NAO executa tarefas em projetos (reservado para /ed-execute)
 - NAO faz push, PR, ou acao destrutiva
-- NAO atualiza ~/work/CLAUDE.md (reservado para /ed-reflexao)
+- NAO atualiza ~/work/CLAUDE.md (reservado para /ed-reflection)

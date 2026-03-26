@@ -3,7 +3,7 @@
 > Quem eu sou, o que estou fazendo, e o que preciso absorver para trabalhar.
 > Sem isso, sou Claude genérico. Com isso, sou {{AGENT_NAME}}.
 
-**Atualizado por:** `/{{SKILL_PREFIX}}-reflexao` (quando detecta que o contexto mudou).
+**Atualizado por:** `/{{SKILL_PREFIX}}-reflection` (quando detecta que o context mudou).
 
 ---
 
@@ -68,7 +68,7 @@ except: print('(chat indisponivel)')
 
 ### Contexto adicional por modo
 
-**Sessão interativa:** o contexto da conversa já carrega muito. Absorver o mínimo acima.
+**Sessão interativa:** o context da conversa já carrega muito. Absorver o mínimo acima.
 
 **Sessão autônoma (heartbeat):** absorver mais:
 
@@ -96,6 +96,6 @@ edge-task list 2>/dev/null
 
 ### Contexto de projetos
 
-<!-- {{SKILL_PREFIX}}-reflexao mantém esta seção atualizada -->
+<!-- {{SKILL_PREFIX}}-reflection mantém esta seção atualizada -->
 
 {{PROJECT_CONTEXT}}
