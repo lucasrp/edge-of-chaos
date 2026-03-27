@@ -1,233 +1,233 @@
 ---
 name: ed-execute
-description: "Execute propostas ou mudancas nos projetos. Implementacao direta ou via Ralph. Invocacao manual exclusiva — so quando o usuario pedir expressamente. Triggers on: execute, execute, rodar proposta, implementar proposta, implementar."
+description: "Execute proposals or changes in projects. Direct implementation or via Ralph. Manual invocation only — only when the user explicitly asks. Triggers on: execute, executar, rodar proposta, implementar proposta, implementar, run proposal, implement."
 user-invocable: true
 ---
 
-# /ed-execute — Execucao de Mudancas
+# /ed-execute — Change Execution
 
-Implementacao direta ou via Ralph. Sempre gera report. So roda quando o usuario pede expressamente — heartbeat NUNCA despacha.
+Direct implementation or via Ralph. Always generates a report. Only runs when the user explicitly asks — heartbeat NEVER dispatches.
 
-**Escopo:** qualquer modificacao que o usuario peca — projetos (`~/work/`), sistema (`~/edge/`, `~/.claude/skills/`), ou ambos.
+**Scope:** any modification the user requests — projects (`~/work/`), system (`~/edge/`, `~/.claude/skills/`), or both.
 
-**Dois perfis de execucao:**
-- **Projeto (`~/work/`):** protocolo completo — git checks, testes, rollback, branch
-- **Sistema (`~/edge/`, `~/.claude/`):** protocolo leve — sem git/testes, mas blog + report SEMPRE
-
----
-
-## Argumentos
-
-| Argumento | Exemplo | Comportamento |
-|-----------|---------|---------------|
-| `#N` | `/ed-execute #22` | Busca proposta #22 em propostas.md |
-| Descricao | `/ed-execute circuit breakers` | Busca por palavra-chave nas propostas |
-| Instrucao direta | `/ed-execute adicionar termination conditions no base_chat.py` | Executa sem proposta formal |
-| Sem argumento | `/ed-execute` | Lista propostas `[PROPOSTA]`, usuario escolhe |
+**Two execution profiles:**
+- **Project (`~/work/`):** full protocol — git checks, tests, rollback, branch
+- **System (`~/edge/`, `~/.claude/`):** lightweight protocol — no git/tests, but blog + report ALWAYS
 
 ---
 
-## Ativação de Contexto
+## Arguments
 
-**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+| Argument | Example | Behavior |
+|----------|---------|----------|
+| `#N` | `/ed-execute #22` | Looks up proposal #22 in propostas.md |
+| Description | `/ed-execute circuit breakers` | Searches by keyword in proposals |
+| Direct instruction | `/ed-execute add termination conditions to base_chat.py` | Executes without formal proposal |
+| No argument | `/ed-execute` | Lists `[PROPOSAL]` proposals, user chooses |
 
 ---
 
-## Protocolo (10 Passos)
+## Context Activation
 
-### Passo 1: Entender a Instrucao
+**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
 
-Ler o minimo necessario para execute:
+---
 
-1. **Proposta/instrucao** — localizar proposta em propostas.md ou entender instrucao direta do usuario
-2. **Se proposta formal:** ler report HTML da proposta para linhagem e detalhes tecnicos
-3. **Se alvo e projeto ~/work/:** ler CLAUDE.md do projeto-alvo (se existir) para conventions
+## Protocol (10 Steps)
 
-Rodar `/ed-context` se precisar de status detalhado dos projetos (git, boards, issues).
+### Step 1: Understand the Instruction
 
-### Passo 2: Gerar PRD e Executar via Task Agents
+Read the minimum necessary to execute:
 
-**Sempre que conveniente, usar [Ralph](https://github.com/snarktank/ralph) (skill /ralph).** Decompor em User Stories, execute via task agents.
+1. **Proposal/instruction** — locate proposal in propostas.md or understand direct instruction from user
+2. **If formal proposal:** read the proposal's HTML report for lineage and technical details
+3. **If target is project ~/work/:** read the target project's CLAUDE.md (if it exists) for conventions
 
-1. **Gerar PRD** seguindo a skill `/ed-prd`:
-   - User Stories pequenas (1 por context window)
-   - Ordem por dependencia
-   - Acceptance criteria com testes
-   - Salvar em `~/edge/notes/prd-execute-[slug].md`
+Run `/ed-context` if you need detailed project status (git, boards, issues).
 
-2. **Converter para prd.json** usando a skill `/ralph`
+### Step 2: Generate PRD and Execute via Task Agents
 
-3. **Executar via Task agents** (1 agent por User Story, em ordem de dependencia):
-   - Cada Task agent recebe: specs da US, arquivos relevantes, acceptance criteria
-   - Funciona identico a uma iteracao Ralph — context isolado, 1 story por vez
-   - **Nota:** `ralph.sh` NAO roda nested dentro de outra sessao Claude Code (env CLAUDECODE bloqueia). Task agents sao o mecanismo correto.
+**Whenever convenient, use [Ralph](https://github.com/snarktank/ralph) (skill /ralph).** Decompose into User Stories, execute via task agents.
 
-### Passo 3: Derivacao Pre-Execucao (Feynman)
+1. **Generate PRD** following the skill `/ed-prd`:
+   - Small User Stories (1 per context window)
+   - Order by dependency
+   - Acceptance criteria with tests
+   - Save in `~/edge/notes/prd-execute-[slug].md`
 
-ANTES de execute, derivar expectativas. Pensar em voz alta:
+2. **Convert to prd.json** using the skill `/ralph`
 
-- **Quais arquivos vao mudar?** (listar com base no codigo existente)
-- **Quais riscos prevejo?** (conflitos, dependencias, side effects)
-- **O que pode dar errado?** (cenarios de falha)
+3. **Execute via Task agents** (1 agent per User Story, in dependency order):
+   - Each Task agent receives: US specs, relevant files, acceptance criteria
+   - Works identically to a Ralph iteration — isolated context, 1 story at a time
+   - **Note:** `ralph.sh` does NOT run nested inside another Claude Code session (CLAUDECODE env blocks it). Task agents are the correct mechanism.
 
-Anotar gaps explicitamente:
+### Step 3: Pre-Execution Derivation (Feynman)
+
+BEFORE executing, derive expectations. Think out loud:
+
+- **Which files will change?** (list based on existing code)
+- **What risks do I foresee?** (conflicts, dependencies, side effects)
+- **What can go wrong?** (failure scenarios)
+
+Note gaps explicitly:
 ```
-[GAP: nao sei se X vai conflitar com Y]
-[GAP: preciso verificar se Z ja existe no projeto]
+[GAP: don't know if X will conflict with Y]
+[GAP: need to verify if Z already exists in the project]
 ```
 
-**Alimenta a secao "Expectativa vs Realidade" do report final.**
+**Feeds the "Expectation vs Reality" section of the final report.**
 
-### Passo 3.5: Buscar sources externas (OBRIGATORIO)
+### Step 3.5: Search external sources (MANDATORY)
 
-Rodar `/ed-sources execute "[tecnologia/padrao]"` para obter best practices e gotchas de todas as sources relevantes (Web, X, GitHub).
+Run `/ed-sources execute "[technology/pattern]"` to get best practices and gotchas from all relevant sources (Web, X, GitHub).
 
-Incorporar na derivacao pre-execucao (Passo 3) e citar no report (com URL).
+Incorporate into pre-execution derivation (Step 3) and cite in the report (with URL).
 
-### Passo 4: Validar Precondicoes
+### Step 4: Validate Preconditions
 
-#### Perfil Projeto (`~/work/`)
+#### Project Profile (`~/work/`)
 
-Verificar TODOS os itens antes de prosseguir:
+Verify ALL items before proceeding:
 
-1. **Projeto-alvo existe:** `ls ~/work/[projeto]`
-2. **Git status limpo:** `cd ~/work/[projeto] && git status --porcelain`
-   - Se dirty: **PARAR.** Reportar ao usuario. Nao continuar com working tree suja.
-3. **Branch atual:** `git branch --show-current`
-   - Se `main` ou `master`: perguntar se quer criar branch nova.
-4. **Testes baseline:** Rodar suite ANTES de mudar qualquer coisa
-   - Python: `pytest` / Node: `npm test` / Typecheck: `npx tsc --noEmit` ou `mypy .`
-5. **Salvar snapshot de rollback:**
+1. **Target project exists:** `ls ~/work/[project]`
+2. **Git status clean:** `cd ~/work/[project] && git status --porcelain`
+   - If dirty: **STOP.** Report to user. Do not continue with dirty working tree.
+3. **Current branch:** `git branch --show-current`
+   - If `main` or `master`: ask if user wants to create a new branch.
+4. **Baseline tests:** Run suite BEFORE changing anything
+   - Python: `pytest` / Node: `npm test` / Typecheck: `npx tsc --noEmit` or `mypy .`
+5. **Save rollback snapshot:**
    ```
-   BRANCH=[branch atual]
-   SHA=[ultimo commit SHA]
-   TESTES_BASELINE=[resultado]
+   BRANCH=[current branch]
+   SHA=[last commit SHA]
+   TESTS_BASELINE=[result]
    ```
 
-**Se precondicao critica falha (projeto nao existe, git sujo): PARAR.**
+**If critical precondition fails (project doesn't exist, dirty git): STOP.**
 
-#### Perfil Sistema (`~/edge/`, `~/.claude/`)
+#### System Profile (`~/edge/`, `~/.claude/`)
 
-Precondicoes minimas:
-1. **Arquivos-alvo existem:** verificar paths
-2. **Ler arquivos antes de editar:** entender o que existe antes de mudar
-3. **Se server (blog, etc.):** verificar se esta rodando (`systemctl --user status`)
+Minimal preconditions:
+1. **Target files exist:** verify paths
+2. **Read files before editing:** understand what exists before changing
+3. **If server (blog, etc.):** check if running (`systemctl --user status`)
 
-Nao ha git, testes ou rollback formal. O blog + report servem como documentacao da mudanca.
+No git, tests, or formal rollback. Blog + report serve as change documentation.
 
-### Passo 5: Executar User Stories
+### Step 5: Execute User Stories
 
-O PRD e prd.json ja foram gerados no Passo 2. A execucao acontece via Task agents (Passo 2.3).
+The PRD and prd.json were already generated in Step 2. Execution happens via Task agents (Step 2.3).
 
-Para cada User Story (em ordem de prioridade):
-1. Ler arquivos-alvo que a story vai modificar
-2. Lancar Task agent com prompt detalhado (specs, criteria, context dos arquivos)
-3. Verificar resultado do agent antes de passar para a proxima story
-4. Se story falhou: documentar e avaliar se proximas stories dependem dela
+For each User Story (in priority order):
+1. Read target files the story will modify
+2. Launch Task agent with detailed prompt (specs, criteria, file context)
+3. Verify agent result before moving to the next story
+4. If story failed: document and assess whether next stories depend on it
 
-### Passo 6: Verificar Resultado
+### Step 6: Verify Result
 
-Apos execucao do Ralph:
+After Ralph execution:
 
-1. **Rodar testes:**
+1. **Run tests:**
    ```bash
-   cd ~/work/[projeto] && pytest  # ou npm test
+   cd ~/work/[project] && pytest  # or npm test
    ```
-2. **Comparar com baseline do Passo 4**
-3. **git diff contra snapshot**
-4. **Classificar:**
-   - **COMPLETA:** tudo OK
-   - **PARCIAL:** algo faltou ou quebrou
+2. **Compare with Step 4 baseline**
+3. **git diff against snapshot**
+4. **Classify:**
+   - **COMPLETE:** everything OK
+   - **PARTIAL:** something was missing or broke
 
-**Se testes quebraram: NAO fazer push. Alertar usuario.**
+**If tests broke: DO NOT push. Alert user.**
 
-### Passo 7: Blog Entry + Relatorio (OBRIGATORIO)
+### Step 7: Blog Entry + Report (MANDATORY)
 
-**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
+**Follow `~/.claude/skills/_shared/state-protocol.md` for status management.**
 
-Criar entrada no blog (`~/edge/blog/entries/`) e gerar report numa unica chamada:
-- Tag: `execucao`
-- Campo `report:` com nome deterministico
+Create blog entry (`~/edge/blog/entries/`) and generate report in a single call:
+- Tag: `execution`
+- `report:` field with deterministic name
 
 ```bash
 consolidate-state ~/edge/blog/entries/<slug>.md /tmp/<slug>.yaml
 ```
 
-Relatorio YAML spec:
+Report YAML spec:
 
 ```yaml
-title: "Execucao: [nome]"
-subtitle: "[resumo do que foi feito]"
+title: "Execution: [name]"
+subtitle: "[summary of what was done]"
 date: "DD/MM/YYYY"
 
 sections:
-  - title: "1. Linhagem"           # De onde veio esta mudanca
-  - title: "2. Derivacao Pre-Execucao"  # Expectativas (Passo 3)
-  - title: "3. Execucao"           # O que foi feito, arquivo por arquivo
-  - title: "4. Expectativa vs Realidade"  # Gaps entre previsto e real
-  - title: "5. Testes"             # Baseline vs resultado
-  - title: "6. O que Nao Sei"      # Riscos residuais
-  - title: "7. Contextualizacao e Glossario"
+  - title: "1. Lineage"                    # Where this change came from
+  - title: "2. Pre-Execution Derivation"   # Expectations (Step 3)
+  - title: "3. Execution"                  # What was done, file by file
+  - title: "4. Expectation vs Reality"     # Gaps between predicted and actual
+  - title: "5. Tests"                      # Baseline vs result
+  - title: "6. What I Don't Know"          # Residual risks
+  - title: "7. Contextualization and Glossary"
 ```
 
-**Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
+**Block types and rules:** see `~/.claude/skills/_shared/report-template.md`.
 
-### Passo 8: Atualizar Estado
+### Step 8: Update State
 
-1. **`propostas.md`:** marcar como `[CONCLUIDA]` ou `[PARCIAL]` (se veio de proposta)
-2. **`breaks-archive.md`:** entrada completa
-3. **`breaks-active.md`:** resumo 3-5 linhas
-4. **Observações:** `edge-scratch add "resultado da execução"` (status via meta-report, ver `state-protocol.md`)
-5. **Blog:** comment final com resultado + link ao report
+1. **`propostas.md`:** mark as `[COMPLETED]` or `[PARTIAL]` (if it came from a proposal)
+2. **`breaks-archive.md`:** full entry
+3. **`breaks-active.md`:** summary 3-5 lines
+4. **Observations:** `edge-scratch add "execution result"` (status via meta-report, see `state-protocol.md`)
+5. **Blog:** final comment with result + link to report
 
-### Passo 10: Relatorio ao Usuario
+### Step 10: Report to User
 
-Mensagem final com:
-- Resumo do que foi feito
-- Diff principal (arquivos criados/modificados)
-- Resultado dos testes (baseline vs final)
-- Link ao report HTML
-- Proximos passos sugeridos
-
----
-
-## Pós-execução
-
-**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
+Final message with:
+- Summary of what was done
+- Main diff (files created/modified)
+- Test results (baseline vs final)
+- Link to HTML report
+- Suggested next steps
 
 ---
 
-## Regras Criticas
+## Post-execution
 
-1. **So o usuario invoca** — heartbeat NUNCA despacha /ed-execute
-2. **Preferir Ralph** — sempre que conveniente, decompor via [Ralph](https://github.com/snarktank/ralph). Mudanças simples podem ser diretas
-3. **Direto quando simples** — mudanças triviais (1-2 arquivos, sem dependências) não precisam de PRD
-4. **Testes antes E depois** — baseline obrigatorio para perfil projeto. Perfil sistema: verificar que funciona apos mudanca
-5. **Blog + Relatorio SEMPRE** — sem excecao, independente do perfil, mesmo para mudancas pequenas
-6. **Feynman: derivar ANTES, comparar DEPOIS** — expectativas antes, gaps depois
-7. **Parcial e OK** — documentar e parar. Nao forcar completude
-8. **Snapshot de rollback** — branch + commit salvos antes de qualquer mudanca (perfil projeto)
-9. **Git limpo obrigatorio** — nao execute com working tree suja (perfil projeto)
+**Follow `~/edge/config/post-skill.md` for post-publication actions.**
 
 ---
 
-## Tratamento de Falhas
+## Critical Rules
 
-| Cenario | Acao |
-|---------|------|
-| Testes quebraram | Documentar, NAO fazer push, alertar usuario |
-| Conflito de merge | Parar, documentar, usuario resolve |
-| Context exhaustion | Blog ja salvo (Passo 7), report na proxima sessao |
-| Proposta nao encontrada | Listar propostas, pedir escolha |
-| Git sujo | Parar no Passo 4, reportar |
-| Task agent falhou em uma story | Documentar, avaliar dependencias, prosseguir ou parar |
-| Testes baseline falhando | Reportar antes de prosseguir |
+1. **Only the user invokes** — heartbeat NEVER dispatches /ed-execute
+2. **Prefer Ralph** — whenever convenient, decompose via [Ralph](https://github.com/snarktank/ralph). Simple changes can be direct
+3. **Direct when simple** — trivial changes (1-2 files, no dependencies) don't need a PRD
+4. **Tests before AND after** — baseline mandatory for project profile. System profile: verify it works after the change
+5. **Blog + Report ALWAYS** — no exception, regardless of profile, even for small changes
+6. **Feynman: derive BEFORE, compare AFTER** — expectations before, gaps after
+7. **Partial is OK** — document and stop. Don't force completeness
+8. **Rollback snapshot** — branch + commit saved before any change (project profile)
+9. **Clean git mandatory** — don't execute with dirty working tree (project profile)
 
 ---
 
-## Notas
+## Failure Handling
 
-- `/ed-execute` e o caminho para modificar projetos (`~/work/`) e sistema (`~/edge/`, `~/.claude/`). Qualquer mudanca pedida pelo usuario passa por aqui.
-- O fluxo pode ser simples (instrucao direta → implementar → verificar → report) ou completo (proposta → PRD → Ralph → testes → report).
-- Usar `ultrathink` (thinkmax) nos passos de derivacao (Passo 3) e analise (Passo 6/8).
-- Se o projeto tem CLAUDE.md proprio, seguir suas conventions.
+| Scenario | Action |
+|----------|--------|
+| Tests broke | Document, DO NOT push, alert user |
+| Merge conflict | Stop, document, user resolves |
+| Context exhaustion | Blog already saved (Step 7), report in next session |
+| Proposal not found | List proposals, ask for choice |
+| Dirty git | Stop at Step 4, report |
+| Task agent failed on a story | Document, assess dependencies, proceed or stop |
+| Baseline tests failing | Report before proceeding |
+
+---
+
+## Notes
+
+- `/ed-execute` is the path for modifying projects (`~/work/`) and system (`~/edge/`, `~/.claude/`). Any change requested by the user goes through here.
+- The flow can be simple (direct instruction -> implement -> verify -> report) or complete (proposal -> PRD -> Ralph -> tests -> report).
+- Use `ultrathink` (thinkmax) in derivation steps (Step 3) and analysis (Step 6/8).
+- If the project has its own CLAUDE.md, follow its conventions.

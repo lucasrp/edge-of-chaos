@@ -1,113 +1,113 @@
 ---
 name: ed-reflection
-description: "Self-review and feedback loop. Review recent sessions, process user feedback, identify patterns, update own files. Triggers on: reflection, reflect, review sessions, process feedback, self-review."
+description: "Self-review and feedback loop. Review recent sessions, process user feedback, identify patterns, update own files. Triggers on: reflection, reflect, reflexao, review sessions, process feedback, self-review."
 user-invocable: true
 ---
 
-# Reflexao v2 — Auto-Revisao com Telemetria Operacional
+# Reflection v2 — Self-Review with Operational Telemetry
 
-Revisao autonoma com 3 sources de sinal: **git archaeology** (git_signals.py), **execution ledger** (edge-ledger + ledger_rollup.py), e **corpus curation** (curadoria_compute.py). Opera em 2.5 modos conforme context.
-
----
-
-## Ativação de Contexto
-
-**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
-
-> Nota: /ed-reflection é responsável por MANTER o pre-skill.md atualizado (ver seção "Responsabilidade: pre-skill.md" abaixo).
+Autonomous review with 3 signal sources: **git archaeology** (git_signals.py), **execution ledger** (edge-ledger + ledger_rollup.py), and **corpus curation** (curadoria_compute.py). Operates in 2.5 modes depending on context.
 
 ---
 
-## Modos de Operacao
+## Context Activation
 
-| Modo | Duracao | Quando | Output |
-|------|---------|--------|--------|
-| **heartbeat-normal** | < 90s | Chamado pelo /ed-heartbeat (rotina) | Max 3 insights acionaveis |
-| **heartbeat-escalated** | ate 5min | Anomalia detectada durante heartbeat-normal | Insights + transcript sampling + 1 entrada em debugging.md |
-| **manual** | 15-20min | `/ed-reflection` invocado pelo usuario | Analise completa + curadoria + blog + report HTML |
+**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
 
-### Triggers de Escalacao (normal → escalado)
-
-Escalar para heartbeat-escalated se QUALQUER condicao:
-- `pipeline_failures` repetido (2+ em 12h) em git-signals.json
-- `retry_rate` > 40% em ops-hotspots.json
-- Feedback critico pendente (usuario marcou como urgente)
-- `state_violations` > 0 em git-signals.json
+> Note: /ed-reflection is responsible for MAINTAINING pre-skill.md up to date (see "Responsibility: pre-skill.md" section below).
 
 ---
 
-## Arquivos que /ed-reflection Atualiza
+## Operating Modes
 
-| Arquivo | Quando |
-|---------|--------|
-| `~/edge/config/pre-skill.md` | **Contexto mudou** — projetos novos/encerrados, arquivos a absorver, prioridades do operador mudaram |
-| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/reflection-log.md` | **SEMPRE** — log de execucao |
-| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md` | Erros novos ou recorrentes (passo de crossref) |
-| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/MEMORY.md` | Conhecimento consolidado (manual mode) |
-| `~/edge/state/ops-hotspots.json` | Regenerado por ledger_rollup.py |
-| `~/edge/logs/yaml-render.jsonl` | Log persistente de validação do yaml_to_html.py (synonym_used, unknown_fields, empty_render) |
-| `~/edge/logs/skill-steps.jsonl` | Log de passos executados/pulados por skill (edge-skill-step) |
-| `~/edge/logs/state-lint.jsonl` | Log de achados de consistência entre arquivos de status (edge-state-lint) |
-| `~/edge/state/git-signals.json` | Regenerado por git_signals.py |
-| `~/edge/state/curadoria-candidates.json` | Regenerado por curadoria_compute.py (manual mode) |
-| `~/work/CLAUDE.md` | Prioridades, feedback processado (ownership exclusivo) |
-| `~/.claude/skills/*/SKILL.md` | Se protocolo precisa ajuste |
-| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/personality.md` | Descobertas adotadas |
-| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md` | Marcar como ADOTADA/ARQUIVADA |
+| Mode | Duration | When | Output |
+|------|----------|------|--------|
+| **heartbeat-normal** | < 90s | Called by /ed-heartbeat (routine) | Max 3 actionable insights |
+| **heartbeat-escalated** | up to 5min | Anomaly detected during heartbeat-normal | Insights + transcript sampling + 1 entry in debugging.md |
+| **manual** | 15-20min | `/ed-reflection` invoked by user | Full analysis + curation + blog + HTML report |
 
-### Responsabilidade: pre-skill.md
+### Escalation Triggers (normal → escalated)
 
-O `~/edge/config/pre-skill.md` é a carta de ativação do agente — define quem ele é, o que está fazendo, e o que absorver. A `/ed-reflection` é responsável por mantê-lo atualizado:
-
-- **Projeto novo apareceu** → adicionar na seção de context
-- **Projeto encerrou** → remover
-- **Operador deu feedback "não está vendo X"** → adicionar na lista de absorção
-- **Arquivo não serve mais** → remover
-- **Prioridades mudaram** → refletir na seção "O que estou fazendo"
-
-Template base: `~/edge/config/pre-skill.md.tpl`. A reflexão instancia e mantém o `pre-skill.md` vivo.
+Escalate to heartbeat-escalated if ANY condition:
+- `pipeline_failures` repeated (2+ in 12h) in git-signals.json
+- `retry_rate` > 40% in ops-hotspots.json
+- Critical pending feedback (user marked as urgent)
+- `state_violations` > 0 in git-signals.json
 
 ---
 
-## Log de Reflexao
+## Files that /ed-reflection Updates
 
-Arquivo: `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/reflection-log.md`
+| File | When |
+|------|------|
+| `~/edge/config/pre-skill.md` | **Context changed** — new/closed projects, files to absorb, operator priorities changed |
+| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/reflection-log.md` | **ALWAYS** — execution log |
+| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md` | New or recurring errors (crossref step) |
+| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/MEMORY.md` | Consolidated knowledge (manual mode) |
+| `~/edge/state/ops-hotspots.json` | Regenerated by ledger_rollup.py |
+| `~/edge/logs/yaml-render.jsonl` | Persistent validation log from yaml_to_html.py (synonym_used, unknown_fields, empty_render) |
+| `~/edge/logs/skill-steps.jsonl` | Log of steps executed/skipped per skill (edge-skill-step) |
+| `~/edge/logs/state-lint.jsonl` | Log of consistency findings between status files (edge-state-lint) |
+| `~/edge/state/git-signals.json` | Regenerated by git_signals.py |
+| `~/edge/state/curadoria-candidates.json` | Regenerated by curadoria_compute.py (manual mode) |
+| `~/work/CLAUDE.md` | Priorities, processed feedback (exclusive ownership) |
+| `~/.claude/skills/*/SKILL.md` | If protocol needs adjustment |
+| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/personality.md` | Adopted discoveries |
+| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md` | Mark as ADOPTED/ARCHIVED |
 
-Cada execucao adiciona uma entrada. Se o arquivo nao existir, criar com header:
+### Responsibility: pre-skill.md
+
+The `~/edge/config/pre-skill.md` is the agent's activation letter — it defines who it is, what it's doing, and what to absorb. `/ed-reflection` is responsible for keeping it up to date:
+
+- **New project appeared** → add to the context section
+- **Project closed** → remove
+- **Operator gave feedback "not seeing X"** → add to the absorption list
+- **File no longer needed** → remove
+- **Priorities changed** → reflect in the "What I'm doing" section
+
+Base template: `~/edge/config/pre-skill.md.tpl`. The reflection instantiates and keeps `pre-skill.md` alive.
+
+---
+
+## Reflection Log
+
+File: `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/reflection-log.md`
+
+Each execution adds an entry. If the file does not exist, create it with header:
 ```markdown
-# Reflexao — Log de Execucoes
+# Reflection — Execution Log
 ```
 
-Formato da entrada (adicionar no topo, abaixo do header):
+Entry format (add at the top, below the header):
 ```markdown
 ---
 
-## [YYYY-MM-DD HH:MM] Reflexao #N
+## [YYYY-MM-DD HH:MM] Reflection #N
 
 **Trigger:** [heartbeat-normal | heartbeat-escalated | manual]
-**Status:** em andamento...
+**Status:** in progress...
 ```
 
-O numero `#N` e sequencial — contar `## [` existentes + 1. Cada passo registra resultado no log antes de avancar.
+The number `#N` is sequential — count existing `## [` + 1. Each step records its result in the log before advancing.
 
 ---
 
 ## Heartbeat-Normal (< 90s)
 
-Ciclo rapido. Sem leitura de transcripts, sem blog, sem curadoria. Apenas sinais prontos.
+Quick cycle. No transcript reading, no blog, no curation. Only ready signals.
 
-### HN-1: Ler ops-hotspots.json
+### HN-1: Read ops-hotspots.json
 
 ```bash
 cat ~/edge/state/ops-hotspots.json
 ```
 
-Verificar:
-- `codify_now` nao-vazio → ha incidentes prontos para debugging.md
-- `recovered_but_unstable` → operacoes que funcionam mas sofrem
-- `top_pain` → maiores desperdicios de tempo
+Check:
+- `codify_now` non-empty → there are incidents ready for debugging.md
+- `recovered_but_unstable` → operations that work but struggle
+- `top_pain` → biggest time wasters
 
-Se arquivo nao existir, gerar:
+If file does not exist, generate:
 ```bash
 python3 ~/edge/tools/ledger_rollup.py --since 12h
 ```
@@ -115,26 +115,26 @@ python3 ~/edge/tools/ledger_rollup.py --since 12h
 ### HN-1b: Render log (yaml-render.jsonl)
 
 ```bash
-# Últimos 20 eventos (ou todos se <20)
+# Last 20 events (or all if <20)
 tail -20 ~/edge/logs/yaml-render.jsonl 2>/dev/null
-# Contagem por tipo de evento
+# Count by event type
 python3 -c "
 import sys, json, collections
 events = [json.loads(l) for l in open('$HOME/edge/logs/yaml-render.jsonl')]
 by_event = collections.Counter(e['event'] for e in events)
 by_block = collections.Counter(e['block_type'] for e in events)
-print('Por evento:', dict(by_event))
-print('Por block:', dict(by_block))
+print('By event:', dict(by_event))
+print('By block:', dict(by_block))
 if syn := [e for e in events if e['event'] == 'synonym_used']:
-    print(f'Synonyms usados {len(syn)}x — padrão de geração incorreta persiste')
-" 2>/dev/null || echo "Sem log de render"
+    print(f'Synonyms used {len(syn)}x — incorrect generation pattern persists')
+" 2>/dev/null || echo "No render log"
 ```
 
-Verificar:
-- `synonym_used` recorrente → estou gerando field names errados consistentemente (qual block type? qual campo?)
-- `unknown_fields` → campos inventados que nem synonym resolve
-- `empty_render` / `empty_container` → conteúdo silenciosamente perdido
-- Se padrão se repete 3+ vezes para mesmo block_type → candidato a nova entrada em debugging.md ou novo synonym
+Check:
+- `synonym_used` recurring → I'm consistently generating wrong field names (which block type? which field?)
+- `unknown_fields` → invented fields that not even synonyms resolve
+- `empty_render` / `empty_container` → content silently lost
+- If pattern repeats 3+ times for the same block_type → candidate for new debugging.md entry or new synonym
 
 ### HN-2: Git archaeology (12h)
 
@@ -143,39 +143,39 @@ python3 ~/edge/tools/git_signals.py --since 12h
 cat ~/edge/state/git-signals.json
 ```
 
-Verificar:
-- `fix_chains` → slugs que precisaram de fix apos publish (qualidade)
-- `pipeline_failures` → falhas recentes de pipeline
-- `state_violations` → status inconsistente
-- `persistent_gaps` → lacunas que se repetem em 3+ commits
+Check:
+- `fix_chains` → slugs that needed a fix after publish (quality)
+- `pipeline_failures` → recent pipeline failures
+- `state_violations` → inconsistent status
+- `persistent_gaps` → gaps that repeat in 3+ commits
 
 ### HN-3: Crossref debugging.md
 
-Ler `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md`.
+Read `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md`.
 
-Cruzar com achados de HN-1 e HN-2:
-- Incidente em `codify_now` que JA tem entrada → atualizar ocorrencia
-- Incidente em `codify_now` que NAO tem entrada → candidato a nova entrada (promover se escalado)
-- `persistent_gaps` que correlacionam com erros operacionais → sinal de problema sistemico
+Cross-reference with findings from HN-1 and HN-2:
+- Incident in `codify_now` that ALREADY has an entry → update occurrence
+- Incident in `codify_now` that DOES NOT have an entry → candidate for new entry (promote if escalated)
+- `persistent_gaps` that correlate with operational errors → sign of systemic problem
 
-### HN-4: Verificar divida do usuario
+### HN-4: Check user debt
 
 ```bash
-# Feedback pendente em ~/work/CLAUDE.md
-grep -c "PROCESSADO" ~/work/CLAUDE.md 2>/dev/null || echo "0"
+# Pending feedback in ~/work/CLAUDE.md
+grep -c "PROCESSED" ~/work/CLAUDE.md 2>/dev/null || echo "0"
 
-# Chat assincrono
+# Async chat
 curl -s "http://localhost:8766/api/chat?unprocessed=true" 2>/dev/null | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 msgs = [m for m in data.get('messages', []) if m.get('author') == 'user' and not m.get('processed')]
-print(f'{len(msgs)} mensagens pendentes')
+print(f'{len(msgs)} pending messages')
 for m in msgs[:3]:
     print(f'  - {m[\"text\"][:80]}')
-" 2>/dev/null || echo "Chat indisponivel"
+" 2>/dev/null || echo "Chat unavailable"
 ```
 
-Classificar: frustracoes (→ HN-3), direcoes (→ registrar), perguntas (→ pendente). **NAO responder, NAO marcar como processado.**
+Classify: frustrations (→ HN-3), directions (→ record), questions (→ pending). **DO NOT respond, DO NOT mark as processed.**
 
 ### HN-5: State drift check + skill step completion
 
@@ -183,100 +183,100 @@ Classificar: frustracoes (→ HN-3), direcoes (→ registrar), perguntas (→ pe
 # State consistency lint (gaps, threads, refs, breaks)
 edge-state-lint
 
-# Skill step completion report (últimas 20 execuções)
+# Skill step completion report (last 20 executions)
 edge-skill-step report
 ```
 
-Verificar:
+Check:
 - **edge-state-lint:**
-  - `error` → inconsistência real entre arquivos (ex: GAP resolvido no debugging mas aberto no frontier)
-  - `warn` → referência quebrada, thread com resurface vencido, drift menor
-  - `info` → staleness (entries velhos, threads sem update)
-  - Se 3+ erros → escalar para HE ou M
+  - `error` → real inconsistency between files (e.g., GAP resolved in debugging but open in frontier)
+  - `warn` → broken reference, thread with expired resurface, minor drift
+  - `info` → staleness (old entries, threads without updates)
+  - If 3+ errors → escalate to HE or M
 - **edge-skill-step:**
-  - Média de completude <70% → skills estão sendo cortadas demais
-  - Passos mais pulados → quais passos eu consistentemente pulo? (sanity check? sources? break journal?)
-  - Se um passo específico aparece em >50% dos skips → problema sistêmico (tempo? custo? esquecimento?)
+  - Average completeness <70% → skills are being cut too much
+  - Most skipped steps → which steps do I consistently skip? (sanity check? sources? break journal?)
+  - If a specific step appears in >50% of skips → systemic problem (time? cost? forgetfulness?)
 
-Também verificar arquivos de status básicos:
+Also check basic status files:
 ```bash
 ls -la ~/edge/state/ops-hotspots.json ~/edge/state/git-signals.json 2>/dev/null
-grep -c "## Erros Operacionais\|## Regras de Operação\|## Segurança e Política" ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md
+grep -c "## Operational Errors\|## Operating Rules\|## Security and Policy" ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md
 ```
 
 ### HN-6: Corpus smoke-test probe
 
-Uma unica busca semantica para verificar saude do corpus:
+A single semantic search to check corpus health:
 ```bash
-edge-search "problema operacional recorrente" -k 3
+edge-search "recurring operational problem" -k 3
 ```
 
-Se nenhum resultado relevante para um tema que deveria existir → flag para curadoria.
+If no relevant results for a topic that should exist → flag for curation.
 
-### HN-Output: Sintetizar
+### HN-Output: Synthesize
 
-Produzir **max 3 insights acionaveis** no formato:
+Produce **max 3 actionable insights** in the format:
 ```
-1. [ACAO] Descricao (evidencia: fonte)
-2. [ACAO] Descricao (evidencia: fonte)
-3. [ACAO] Descricao (evidencia: fonte)
+1. [ACTION] Description (evidence: source)
+2. [ACTION] Description (evidence: source)
+3. [ACTION] Description (evidence: source)
 ```
 
-Acoes possiveis: CODIFICAR (→ debugging.md), INVESTIGAR (→ escalar), CORRIGIR (→ fix imediato), MONITORAR (→ proximo heartbeat).
+Possible actions: CODIFY (→ debugging.md), INVESTIGATE (→ escalate), FIX (→ immediate fix), MONITOR (→ next heartbeat).
 
-Avaliar triggers de escalacao. Se algum trigger ativo → execute heartbeat-escalated.
+Evaluate escalation triggers. If any trigger is active → execute heartbeat-escalated.
 
-Fechar entrada no log com status e insights.
+Close the log entry with status and insights.
 
 ---
 
-## Heartbeat-Escalated (ate 5min)
+## Heartbeat-Escalated (up to 5min)
 
-Tudo do heartbeat-normal + analise mais profunda dirigida por anomalia.
+Everything from heartbeat-normal + deeper analysis driven by anomaly.
 
-### HE-1: Executar heartbeat-normal completo
+### HE-1: Execute full heartbeat-normal
 
-Seguir HN-1 a HN-6.
+Follow HN-1 through HN-6.
 
-### HE-2: Transcript sampling dirigido por anomalia
+### HE-2: Anomaly-driven transcript sampling
 
-O ledger indica QUAIS runs tiveram problemas. Nao ler transcripts inteiros — ir direto ao ponto.
+The ledger indicates WHICH runs had problems. Do not read entire transcripts — go straight to the point.
 
 ```bash
-# Identificar runs problematicos
+# Identify problematic runs
 edge-ledger query --since 12h --fails-only
 ```
 
-Para os top-3 runs com mais falhas:
-1. Identificar o run_id e a sessao correspondente
-2. Localizar o transcript JSONL da sessao
-3. Extrair +-20 mensagens ao redor de cada erro (nao o transcript inteiro)
-4. Procurar: retries silenciosos, workarounds, erros nao reportados
+For the top-3 runs with the most failures:
+1. Identify the run_id and corresponding session
+2. Locate the session's JSONL transcript
+3. Extract +-20 messages around each error (not the entire transcript)
+4. Look for: silent retries, workarounds, unreported errors
 
-### HE-3: Promover 1 entrada a debugging.md
+### HE-3: Promote 1 entry to debugging.md
 
-Dos achados do heartbeat-normal (HN-3 candidatos) + transcript sampling (HE-2):
-- Selecionar o incidente mais impactante (por wasted_ms ou frequencia)
-- Criar entrada completa em debugging.md:
+From heartbeat-normal findings (HN-3 candidates) + transcript sampling (HE-2):
+- Select the most impactful incident (by wasted_ms or frequency)
+- Create a complete entry in debugging.md:
   ```markdown
-  ### [Titulo descritivo]
-  - **Contexto:** [quando/onde ocorre]
-  - **Sintoma:** [o que se observa]
-  - **Causa:** [causa raiz identificada ou hipotese]
-  - **Solucao:** [workaround ou fix]
-  - **Prevencao:** [como evitar recorrencia]
+  ### [Descriptive title]
+  - **Context:** [when/where it occurs]
+  - **Symptom:** [what is observed]
+  - **Cause:** [identified root cause or hypothesis]
+  - **Solution:** [workaround or fix]
+  - **Prevention:** [how to avoid recurrence]
   ```
-- Classificar na secao correta: Erros Operacionais, Regras de Operacao, ou Seguranca e Politica
+- Classify in the correct section: Operational Errors, Operating Rules, or Security and Policy
 
-### HE-Output: Sintetizar
+### HE-Output: Synthesize
 
-Insights do heartbeat-normal + achados da analise profunda. Fechar log com detalhes da escalacao.
+Insights from heartbeat-normal + findings from deep analysis. Close log with escalation details.
 
 ---
 
 ## Manual (15-20min)
 
-Analise completa invocada via `/ed-reflection`. Inclui curadoria, feedback, discoverys, blog e report HTML.
+Full analysis invoked via `/ed-reflection`. Includes curation, feedback, discoveries, blog, and HTML report.
 
 ### M-1: Full git archaeology (7d)
 
@@ -285,7 +285,7 @@ python3 ~/edge/tools/git_signals.py --since 7d
 cat ~/edge/state/git-signals.json
 ```
 
-Analise completa: fix_chains, duplicate_slugs, pipeline_failures, state_violations, thread_coverage, skill_distribution, claims_summary, persistent_gaps.
+Full analysis: fix_chains, duplicate_slugs, pipeline_failures, state_violations, thread_coverage, skill_distribution, claims_summary, persistent_gaps.
 
 ### M-2: Full ledger rollup (7d)
 
@@ -294,23 +294,23 @@ python3 ~/edge/tools/ledger_rollup.py --since 7d
 cat ~/edge/state/ops-hotspots.json
 ```
 
-Analise completa: incidents, top_pain, recovered_but_unstable, codify_now.
+Full analysis: incidents, top_pain, recovered_but_unstable, codify_now.
 
-### M-3: Debugging.md crossref + reorganizacao
+### M-3: Debugging.md crossref + reorganization
 
-1. Ler debugging.md
-2. Cruzar com ops-hotspots.json (codify_now → novas entradas)
-3. Cruzar com git-signals.json (persistent_gaps → problemas sistemicos)
-4. Verificar taxonomia: entradas nas secoes corretas (Erros Operacionais / Regras de Operacao / Seguranca e Politica)?
-5. Remover entradas resolvidas (mover para Licoes Incorporadas se relevante)
-6. Atualizar entradas existentes com novas ocorrencias
+1. Read debugging.md
+2. Cross-reference with ops-hotspots.json (codify_now → new entries)
+3. Cross-reference with git-signals.json (persistent_gaps → systemic problems)
+4. Check taxonomy: entries in correct sections (Operational Errors / Operating Rules / Security and Policy)?
+5. Remove resolved entries (move to Incorporated Lessons if relevant)
+6. Update existing entries with new occurrences
 
-### M-4: Curadoria de corpus
+### M-4: Corpus curation
 
-Invocar curadoria com context estrategico:
+Invoke curation with strategic context:
 
 ```bash
-# Extrair threads ativos e gaps recentes
+# Extract active threads and recent gaps
 THREADS=$(python3 -c "
 import json
 gs = json.load(open('$HOME/edge/state/git-signals.json'))
@@ -329,207 +329,207 @@ python3 ~/edge/tools/curadoria_compute.py --mode full \
   --recent-gaps "$GAPS"
 ```
 
-### M-5: Decisoes estrategicas de curadoria
+### M-5: Strategic curation decisions
 
-Ler `~/edge/state/curadoria-candidates.json`. Para cada categoria:
+Read `~/edge/state/curadoria-candidates.json`. For each category:
 
-- **archive_auto:** confirmar que veto estrategico foi aplicado. Aprovar ou vetar manualmente.
-- **merge_review:** avaliar clusters. Decidir merge ou manter separados.
-- **strengthen_targets:** identificar docs com alta demanda mas baixa qualidade. Planejar melhoria.
-- **suppressed_due_to_active_thread:** verificar se threads ainda ativos. Revalidar supressao.
+- **archive_auto:** confirm that strategic veto was applied. Approve or veto manually.
+- **merge_review:** evaluate clusters. Decide merge or keep separate.
+- **strengthen_targets:** identify docs with high demand but low quality. Plan improvement.
+- **suppressed_due_to_active_thread:** check if threads are still active. Revalidate suppression.
 
-### M-6: Processar feedback
+### M-6: Process feedback
 
-Procurar em `~/work/CLAUDE.md` feedback NAO marcado como `[PROCESSADO]`.
+Search `~/work/CLAUDE.md` for feedback NOT marked as `[PROCESSED]`.
 
-Se houver:
-- Entender o que o usuario quer
-- Determinar arquivos afetados
-- Executar mudancas
-- Marcar como `[PROCESSADO]`
+If found:
+- Understand what the user wants
+- Determine affected files
+- Execute changes
+- Mark as `[PROCESSED]`
 
-Ler chat assincrono (HN-4) — classificar mas NAO responder.
+Read async chat (HN-4) — classify but DO NOT respond.
 
-### M-7: Avaliar discoverys pendentes
+### M-7: Evaluate pending discoveries
 
-Verificar `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md` por entradas `[PENDENTE]`.
+Check `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md` for `[PENDING]` entries.
 
-Para cada:
-1. Ler notas da discovery (`~/edge/notes/discovery-[tema].md`)
-2. Julgar: expande repertorio? Conexoes com trabalho existente? Qualidade da research?
-3. Decidir: **Adotar** `[ADOTADA]` (atualizar personality.md) | **Explorar mais** (manter PENDENTE) | **Arquivar** `[ARQUIVADA]`
+For each:
+1. Read discovery notes (`~/edge/notes/discovery-[topic].md`)
+2. Judge: does it expand repertoire? Connections with existing work? Research quality?
+3. Decide: **Adopt** `[ADOPTED]` (update personality.md) | **Explore further** (keep PENDING) | **Archive** `[ARCHIVED]`
 
-**Regra:** ser criterioso. Nem toda discovery vira interesse permanente.
+**Rule:** be selective. Not every discovery becomes a permanent interest.
 
-### M-8: Busca semantica cross-corpus
+### M-8: Cross-corpus semantic search
 
-Para cada padrao/frustacao identificado ate aqui:
+For each pattern/frustration identified so far:
 ```bash
-edge-search "[descricao do padrao]" -k 5
+edge-search "[pattern description]" -k 5
 ```
 
-- Padrao em 3+ docs → problema sistemico, escalar prioridade
-- Insight antigo resolve problema novo → reconectar (nao redescobrir)
-- Nada encontrado → padrao novo, registrar como tal
+- Pattern in 3+ docs → systemic problem, escalate priority
+- Old insight solves new problem → reconnect (don't rediscover)
+- Nothing found → new pattern, record as such
 
-### M-9: Sanity check adversarial
+### M-9: Adversarial sanity check
 
-Sintetizar padroes e acoes em 2-3 frases:
+Synthesize patterns and actions in 2-3 sentences:
 ```bash
-edge-consult "Padroes: [lista]. Acoes: [lista]. Estou vendo padrao real ou confirmation bias?"
+edge-consult "Patterns: [list]. Actions: [list]. Am I seeing a real pattern or confirmation bias?"
 ```
 
-Ajustar se encontrar furo valido. Se mantiver posicao, registrar como callout no report.
+Adjust if a valid flaw is found. If position holds, record as callout in the report.
 
-### M-10: Atualizar arquivos
+### M-10: Update files
 
-**Regras de atualizacao:**
-- Explicar O QUE mudou e POR QUE antes de alterar
-- Mudancas pequenas e cirurgicas — nao reescrever arquivos inteiros
-- Se incerto, anotar como sugestao em vez de aplicar
+**Update rules:**
+- Explain WHAT changed and WHY before making changes
+- Small, surgical changes — do not rewrite entire files
+- If uncertain, annotate as suggestion instead of applying
 
-Atualizacoes possiveis:
-- **debugging.md** — entradas novas/atualizadas (M-3)
-- **MEMORY.md** — conhecimento consolidado: "Se eu lesse isso no inicio de uma sessao nova, mudaria alguma decisao?"
-- **personality.md** — discoverys adotadas (M-7)
-- **discoverys.md** — status atualizado (M-7)
-- **~/work/CLAUDE.md** — prioridades, feedback processado (M-6)
-- **skills** — protocolos que precisam de ajuste
+Possible updates:
+- **debugging.md** — new/updated entries (M-3)
+- **MEMORY.md** — consolidated knowledge: "If I read this at the start of a new session, would it change any decision?"
+- **personality.md** — adopted discoveries (M-7)
+- **discoverys.md** — updated status (M-7)
+- **~/work/CLAUDE.md** — priorities, processed feedback (M-6)
+- **skills** — protocols that need adjustment
 
-Consolidacao de memoria (a cada ~5 breaks): se breaks-active.md > 150 linhas → comprimir.
+Memory consolidation (every ~5 breaks): if breaks-active.md > 150 lines → compress.
 
-### M-11: Blog + report HTML
+### M-11: Blog + HTML report
 
-1. Criar entry .md em `~/edge/blog/entries/` com tag `reflection`
+1. Create .md entry in `~/edge/blog/entries/` with tag `reflection`
 
-2. Gerar YAML do report:
+2. Generate report YAML:
 
 ```yaml
-title: "Reflexao #N"
-subtitle: "[Resumo]"
+title: "Reflection #N"
+subtitle: "[Summary]"
 date: "DD/MM/YYYY"
 
 executive_summary:
-  - "**Operacional:** N incidentes, N retries, Nms desperdicados"
-  - "**Corpus:** N docs avaliados, N archive, N merge"
-  - "**Feedback:** N processados"
+  - "**Operational:** N incidents, N retries, Nms wasted"
+  - "**Corpus:** N docs evaluated, N archive, N merge"
+  - "**Feedback:** N processed"
 
 metrics:
   - value: "N"
-    label: "Incidentes"
+    label: "Incidents"
   - value: "N%"
     label: "Retry Rate"
   - value: "N"
     label: "Fix Chains"
   - value: "N"
-    label: "Curadoria Actions"
+    label: "Curation Actions"
 
 sections:
-  - title: "1. Telemetria Operacional"
+  - title: "1. Operational Telemetry"
     blocks:
       # ops-hotspots: top_pain, codify_now, recovered_but_unstable
       # git-signals: fix_chains, pipeline_failures, persistent_gaps
-  - title: "2. Curadoria de Corpus"
+  - title: "2. Corpus Curation"
     blocks:
       # curadoria-candidates: archive, merge, strengthen
-  - title: "3. Feedback Processado"
+  - title: "3. Processed Feedback"
     blocks:
-      # callout para cada feedback + diff-block para mudancas
-  - title: "4. Padroes Identificados"
+      # callout for each feedback + diff-block for changes
+  - title: "4. Identified Patterns"
     blocks:
-      # table padrao x evidencia x acao
-  - title: "5. Mudancas Feitas"
+      # table pattern x evidence x action
+  - title: "5. Changes Made"
     blocks:
-      # diff-block para cada arquivo alterado
-  - title: "6. Proximos Passos"
+      # diff-block for each modified file
+  - title: "6. Next Steps"
     blocks:
-      # next-steps-grid com acoes concretas
+      # next-steps-grid with concrete actions
 
 bibliography:
-  - text: "Descricao da fonte"
+  - text: "Source description"
     url: "https://..."
     source: "WebSearch"
 ```
 
-3. Escrever YAML em `/tmp/spec-reflection-[slug].yaml`
-4. Publicar:
+3. Write YAML to `/tmp/spec-reflection-[slug].yaml`
+4. Publish:
    ```bash
-   consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-reflection-[slug].yaml
+   consolidate-state ~/edge/blog/entries/<file>.md /tmp/spec-reflection-[slug].yaml
    ```
-5. Read do HTML gerado para verificacao
+5. Read the generated HTML for verification
 
-**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
+**Follow `~/.claude/skills/_shared/state-protocol.md` for status management.**
 
-**Regras de ouro do report:**
-- **diff-block** para cada mudanca feita (o leitor ve a mudanca, nao le sobre ela)
-- **table** para padroes (padrao × evidencia × acao)
-- **callout** para feedback processado (texto original + acao tomada)
-- **Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`
+**Report golden rules:**
+- **diff-block** for each change made (the reader sees the change, doesn't read about it)
+- **table** for patterns (pattern x evidence x action)
+- **callout** for processed feedback (original text + action taken)
+- **Block types and rules:** see `~/.claude/skills/_shared/report-template.md`
 
-**Retrospectiva:** se 5+ blog entries desde a ultima retrospectiva E convergem num meta-tema → escrever retrospectiva (ver `/ed-blog` SKILL.md).
+**Retrospective:** if 5+ blog entries since the last retrospective AND they converge on a meta-theme → write a retrospective (see `/ed-blog` SKILL.md).
 
-### M-Output: Fechar log e reportar
+### M-Output: Close log and report
 
-Fechar entrada no log:
+Close the log entry:
 ```markdown
-**Status:** concluida
-**Modo:** manual
-**Operacional:** N incidentes, retry_rate N%, Nms wasted
-**Curadoria:** N archive, N merge, N strengthen
-**Feedback:** N processados
-**Arquivos alterados:** [lista]
-**Padroes:** [resumo]
+**Status:** completed
+**Mode:** manual
+**Operational:** N incidents, retry_rate N%, Nms wasted
+**Curation:** N archive, N merge, N strengthen
+**Feedback:** N processed
+**Files modified:** [list]
+**Patterns:** [summary]
 ```
 
-Relatorio ao usuario:
+Report to user:
 ```markdown
-## Reflexao — [data]
+## Reflection — [date]
 
-### Telemetria Operacional
-[ops-hotspots + git-signals resumo]
+### Operational Telemetry
+[ops-hotspots + git-signals summary]
 
-### Curadoria de Corpus
-[acoes tomadas ou propostas]
+### Corpus Curation
+[actions taken or proposed]
 
-### Feedback Processado
-[o que foi feito — ou "nenhum pendente"]
+### Processed Feedback
+[what was done — or "none pending"]
 
-### Descobertas Avaliadas
-[decisoes — ou "nenhuma pendente"]
+### Discoveries Evaluated
+[decisions — or "none pending"]
 
-### Padroes Identificados
-[o que funcionou, o que nao, o que se repete]
+### Identified Patterns
+[what worked, what didn't, what repeats]
 
-### Mudancas Feitas
-[lista de arquivos com justificativa — ou "nenhuma"]
+### Changes Made
+[list of files with justification — or "none"]
 
-### Notas para Proximo Heartbeat
-[o que acompanhar]
+### Notes for Next Heartbeat
+[what to monitor]
 
-### Relatorio HTML
-~/edge/reports/[arquivo].html
+### HTML Report
+~/edge/reports/[file].html
 ```
 
 ---
 
-## Pós-execução
+## Post-execution
 
-**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
-
----
-
-## Quando Usar
-
-- **heartbeat-normal:** Chamado automaticamente pelo /ed-heartbeat a cada ciclo
-- **heartbeat-escalated:** Escalacao automatica quando anomalia detectada durante heartbeat-normal
-- **manual:** `/ed-reflection` — invocado pelo usuario para revisao profunda
+**Follow `~/edge/config/post-skill.md` for post-publication actions.**
 
 ---
 
-## Notas
+## When to Use
 
-- Reflexao NAO e leisure nem research. E auto-revisao critica
-- **Substituicao chave vs v1:** leitura de transcripts JSONL substituida por git archaeology (git_signals.py) + execution ledger (edge-ledger + ledger_rollup.py). Transcripts so sao lidos no heartbeat-escalated, dirigidos por anomalia do ledger
-- Usar `ultrathink` (thinkmax) para reflexoes manuais profundas
-- Nunca alterar registros historicos (DECISION_LOG, breaks passados)
-- Sempre grep de verificacao apos mudancas — referencias orfas se escondem
+- **heartbeat-normal:** Called automatically by /ed-heartbeat each cycle
+- **heartbeat-escalated:** Automatic escalation when anomaly detected during heartbeat-normal
+- **manual:** `/ed-reflection` — invoked by user for deep review
+
+---
+
+## Notes
+
+- Reflection is NOT leisure nor research. It is critical self-review
+- **Key substitution vs v1:** JSONL transcript reading replaced by git archaeology (git_signals.py) + execution ledger (edge-ledger + ledger_rollup.py). Transcripts are only read in heartbeat-escalated, driven by ledger anomaly
+- Use `ultrathink` (thinkmax) for deep manual reflections
+- Never modify historical records (DECISION_LOG, past breaks)
+- Always verification grep after changes — orphan references hide

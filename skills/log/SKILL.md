@@ -1,207 +1,207 @@
 ---
 name: ed-log
-description: "View unified chronological log of the autonomy system. Aggregates heartbeats, breaks, discoveries, proposals, reflections, notes, and reports. Triggers on: log, log do sistema, activity log, what happened, o que aconteceu."
+description: "View unified chronological log of the autonomy system. Aggregates heartbeats, breaks, discoveries, proposals, reflections, notes, and reports. Triggers on: log, activity log, what happened, o que aconteceu, log do sistema."
 user-invocable: true
 ---
 
-# Log — Log Unificado do Sistema de Autonomia
+# Log — Unified Log of the Autonomy System
 
-Leitura pura (read-only). Agrega dados de todas as sources do sistema de autonomy e apresenta um log cronologico estruturado. Sem modificar nenhum arquivo.
-
----
-
-## O Job
-
-Ler multiplas sources de atividade do sistema de autonomy e produzir um log cronologico com:
-- **Timeline** — eventos ordenados por data/hora
-- **Metricas** — contagens por tipo de atividade
-- **Estado Atual** — heartbeat state
+Read-only. Aggregates data from all autonomy system sources and presents a structured chronological log. Does not modify any files.
 
 ---
 
-## Argumentos
+## The Job
 
-O usuario pode passar argumentos apos `/ed-log`:
-
-- **Sem argumento** (`/ed-log`): ultimas 24h de atividade
-- **Com periodo** (`/ed-log 3d`, `/ed-log 7d`, `/ed-log hoje`): filtrar por periodo
-  - `hoje` = desde 00:00 de hoje
-  - `Nd` = ultimos N dias (ex: `3d` = ultimos 3 dias)
-  - `Nw` = ultimas N semanas
-- **Com tipo** (`/ed-log heartbeat`, `/ed-log breaks`, `/ed-log propostas`, `/ed-log notes`, `/ed-log reports`): filtrar por tipo
+Read multiple activity sources from the autonomy system and produce a chronological log with:
+- **Timeline** — events ordered by date/time
+- **Metrics** — counts by activity type
+- **Current State** — heartbeat state
 
 ---
 
-## Protocolo (seguir na ordem)
+## Arguments
 
-### Passo 1: Determinar filtros
+The user can pass arguments after `/ed-log`:
 
-Parsear o argumento do usuario:
+- **No argument** (`/ed-log`): last 24h of activity
+- **With period** (`/ed-log 3d`, `/ed-log 7d`, `/ed-log today`): filter by period
+  - `today` / `hoje` = since 00:00 today
+  - `Nd` = last N days (e.g., `3d` = last 3 days)
+  - `Nw` = last N weeks
+- **With type** (`/ed-log heartbeat`, `/ed-log breaks`, `/ed-log proposals`, `/ed-log notes`, `/ed-log reports`): filter by type
 
-- **Periodo:** Se nenhum argumento ou tipo, default = 24h. Se `hoje`, usar data de hoje. Se `Nd`, calcular data de corte. Se `Nw`, calcular.
-- **Tipo:** Se o argumento e um tipo conhecido (heartbeat, breaks, propostas, discoverys, reflexoes, notes, reports), filtrar apenas esse tipo.
+---
 
-Guardar a data de corte como variavel para filtrar eventos.
+## Protocol (follow in order)
 
-### Passo 2: Coletar eventos de TODAS as sources
+### Step 1: Determine filters
 
-Executar os comandos abaixo e parsear os resultados. Cada evento deve ter: `[data/hora] tipo — resumo`.
+Parse the user's argument:
+
+- **Period:** If no argument or type, default = 24h. If `today`/`hoje`, use today's date. If `Nd`, calculate cutoff date. If `Nw`, calculate.
+- **Type:** If the argument is a known type (heartbeat, breaks, proposals, discoveries, reflections, notes, reports), filter to that type only.
+
+Store the cutoff date as a variable to filter events.
+
+### Step 2: Collect events from ALL sources
+
+Execute the commands below and parse the results. Each event should have: `[date/time] type — summary`.
 
 #### 2a. Heartbeat log
 
 ```bash
-# Extrair execucoes, skips e erros com timestamps
+# Extract executions, skips, and errors with timestamps
 cat ~/.claude/heartbeat-output.log 2>/dev/null
 ```
 
-Parsear linhas com padroes:
-- `--- heartbeat YYYY-MM-DDTHH:MM:SS` → evento de execucao
-- `--- done YYYY-MM-DDTHH:MM:SS` → fim de execucao
-- `--- skipped YYYY-MM-DDTHH:MM:SS (motivo)` → skip
-- `Error:` → erro
-- `Heartbeat #N complete` → heartbeat concluido
+Parse lines with patterns:
+- `--- heartbeat YYYY-MM-DDTHH:MM:SS` → execution event
+- `--- done YYYY-MM-DDTHH:MM:SS` → end of execution
+- `--- skipped YYYY-MM-DDTHH:MM:SS (reason)` → skip
+- `Error:` → error
+- `Heartbeat #N complete` → heartbeat completed
 
-Para cada heartbeat completo (entre `--- heartbeat` e `--- done`), extrair:
-- Numero do beat (se mencionado)
-- Dispatch (qual skill foi chamada)
-- Resumo (primeira frase significativa)
+For each complete heartbeat (between `--- heartbeat` and `--- done`), extract:
+- Beat number (if mentioned)
+- Dispatch (which skill was called)
+- Summary (first meaningful sentence)
 
 #### 2b. Breaks (archive)
 
 ```bash
-# Extrair entradas com data do breaks-archive.md
+# Extract entries with date from breaks-archive.md
 grep '^\## \[' ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-archive.md 2>/dev/null
 ```
 
-Cada linha `## [YYYY-MM-DD]` e um break. Parsear tipo e titulo.
+Each line `## [YYYY-MM-DD]` is a break. Parse type and title.
 
-#### 2c. Descobertas
+#### 2c. Discoveries
 
 ```bash
-# Extrair entradas com data e status
+# Extract entries with date and status
 grep '^\## \[' ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md 2>/dev/null
 ```
 
-#### 2d. Reflexoes
+#### 2d. Reflections
 
 ```bash
-# Extrair entradas do reflection-log
+# Extract entries from reflection-log
 grep '^\## \[' ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/reflection-log.md 2>/dev/null
 ```
 
-#### 2e. Propostas
+#### 2e. Proposals
 
 ```bash
-# Extrair propostas com data e status
+# Extract proposals with date and status
 grep '^\## \[' ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/propostas.md 2>/dev/null
 ```
 
 #### 2f. Notes
 
 ```bash
-# Listar notes com data de modificacao
+# List notes with modification date
 ls -lt --time-style=full-iso ~/edge/notes/*.md 2>/dev/null | grep -v INDEX.md
 ```
 
 #### 2g. Reports
 
 ```bash
-# Listar reports com data de modificacao
+# List reports with modification date
 ls -lt --time-style=full-iso ~/edge/reports/*.html 2>/dev/null
 ```
 
 #### 2h. Blog
 
 ```bash
-# Extrair datas de entradas do blog
+# Extract dates from blog entries
 grep -E '<h2>|<time|class="entry-date"' ~/edge/blog/index.html 2>/dev/null
 ```
 
-### Passo 3: Filtrar por periodo
+### Step 3: Filter by period
 
-Aplicar a data de corte determinada no Passo 1. Descartar eventos fora do periodo.
+Apply the cutoff date determined in Step 1. Discard events outside the period.
 
-### Passo 4: Filtrar por tipo (se aplicavel)
+### Step 4: Filter by type (if applicable)
 
-Se o usuario pediu um tipo especifico, manter apenas eventos daquele tipo.
+If the user requested a specific type, keep only events of that type.
 
-### Passo 5: Ordenar cronologicamente
+### Step 5: Sort chronologically
 
-Ordenar todos os eventos coletados por data/hora, do mais antigo ao mais recente.
+Sort all collected events by date/time, from oldest to most recent.
 
-### Passo 6: Extrair status atual do heartbeat
+### Step 6: Extract current heartbeat status
 
 ```bash
-grep -A 10 "Estado do Heartbeat" ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-active.md 2>/dev/null
+grep -A 10 "Heartbeat State" ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-active.md 2>/dev/null
 ```
 
-### Passo 7: Calcular metricas
+### Step 7: Calculate metrics
 
-Contar por tipo:
-- Heartbeats: executados, skipped, com erro
-- Breaks: total e por tipo (leisure, research, discovery, strategy, reflection, planejamento, execucao)
-- Propostas: criadas no periodo, por status
-- Descobertas: criadas no periodo, por status
-- Reflexoes: total no periodo
-- Notes: novas no periodo
-- Reports: gerados no periodo
+Count by type:
+- Heartbeats: executed, skipped, with error
+- Breaks: total and by type (leisure, research, discovery, strategy, reflection, planning, execution)
+- Proposals: created in period, by status
+- Discoveries: created in period, by status
+- Reflections: total in period
+- Notes: new in period
+- Reports: generated in period
 
 ---
 
 ## Output
 
-Produzir markdown estruturado direto no terminal:
+Produce structured markdown directly in the terminal:
 
 ```markdown
-## Log do Sistema — [periodo descritivo]
+## System Log — [descriptive period]
 
 ### Timeline
-[YYYY-MM-DD HH:MM] HEARTBEAT — resumo 1 linha
-[YYYY-MM-DD HH:MM] BREAK — tipo: titulo
-[YYYY-MM-DD HH:MM] PROPOSTA — #N titulo [STATUS]
-[YYYY-MM-DD HH:MM] DESCOBERTA — titulo [STATUS]
-[YYYY-MM-DD HH:MM] REFLEXAO — #N resumo
-[YYYY-MM-DD HH:MM] NOTE — titulo do arquivo
-[YYYY-MM-DD HH:MM] REPORT — titulo do arquivo
+[YYYY-MM-DD HH:MM] HEARTBEAT — 1-line summary
+[YYYY-MM-DD HH:MM] BREAK — type: title
+[YYYY-MM-DD HH:MM] PROPOSAL — #N title [STATUS]
+[YYYY-MM-DD HH:MM] DISCOVERY — title [STATUS]
+[YYYY-MM-DD HH:MM] REFLECTION — #N summary
+[YYYY-MM-DD HH:MM] NOTE — filename title
+[YYYY-MM-DD HH:MM] REPORT — filename title
 ...
 
-### Metricas
-- Heartbeats: N executados, N skipped, N erros
+### Metrics
+- Heartbeats: N executed, N skipped, N errors
 - Breaks: N total (N leisure, N research, N discovery...)
-- Propostas: N no periodo (N PROPOSTA, N APROVADA, N CONCLUIDA...)
-- Descobertas: N no periodo (N PENDENTE, N ADOTADA...)
-- Reflexoes: N
-- Notes: N novas
-- Reports: N gerados
+- Proposals: N in period (N PROPOSAL, N APPROVED, N COMPLETED...)
+- Discoveries: N in period (N PENDING, N ADOPTED...)
+- Reflections: N
+- Notes: N new
+- Reports: N generated
 
-### Estado Atual
-- Ultimo beat: #N
-- Dispatch: [tipo]
-- Beats desde strategy: N
-- Beats desde planner: N
-- Proximo heartbeat: [se detectavel do log]
+### Current State
+- Last beat: #N
+- Dispatch: [type]
+- Beats since strategy: N
+- Beats since planner: N
+- Next heartbeat: [if detectable from log]
 ```
 
-**Se nao houver atividade no periodo:** Informar claramente "Nenhuma atividade registrada no periodo [X]."
+**If no activity in the period:** Clearly inform "No activity recorded in period [X]."
 
-**Se filtrado por tipo:** Omitir secoes de metricas para tipos nao solicitados. Manter timeline e metricas apenas do tipo pedido.
-
----
-
-## Regra de Isolamento (OBRIGATORIA)
-
-**Leitura pura.** Esta skill NAO modifica NENHUM arquivo — nem state files, nem projetos, nem nada.
-Todos os comandos sao de leitura (cat, grep, ls, wc, stat).
+**If filtered by type:** Omit metrics sections for unrequested types. Keep timeline and metrics only for the requested type.
 
 ---
 
-## Notas
+## Isolation Rule (MANDATORY)
 
-- Output conciso e factual. Sem interpretacao, sem recomendacoes
-- Se uma fonte nao existe, omitir silenciosamente (nao reportar erro)
-- Timestamps: usar o formato mais preciso disponivel na fonte
-- Para heartbeats: agrupar `--- heartbeat` + conteudo + `--- done` como um unico evento
-- Heartbeats vazios (sem output entre heartbeat e done/proximo) representam execucoes que nao geraram acao — listar como "HEARTBEAT — sem dispatch"
-- Heartbeats com "skipped" nao sao execucoes — listar separadamente nas metricas
-- Para notas e reports: usar data de modificacao do filesystem
-- Nao duplicar eventos que aparecem em multiplas sources (ex: um break aparece no archive E no heartbeat log)
+**Read-only.** This skill does NOT modify ANY files — not state files, not projects, nothing.
+All commands are read-only (cat, grep, ls, wc, stat).
+
+---
+
+## Notes
+
+- Output is concise and factual. No interpretation, no recommendations
+- If a source doesn't exist, omit silently (don't report error)
+- Timestamps: use the most precise format available from the source
+- For heartbeats: group `--- heartbeat` + content + `--- done` as a single event
+- Empty heartbeats (no output between heartbeat and done/next) represent executions that generated no action — list as "HEARTBEAT — no dispatch"
+- Heartbeats with "skipped" are not executions — list separately in metrics
+- For notes and reports: use filesystem modification date
+- Don't duplicate events that appear in multiple sources (e.g., a break appears in both the archive AND the heartbeat log)

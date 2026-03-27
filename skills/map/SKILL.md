@@ -1,127 +1,127 @@
 ---
 name: ed-map
-description: "Query on-demand map of internal connections — between ideas, projects, tools, discoveries, and data sources. Triggers on: map, map, connections, como se relaciona, what connects to."
+description: "Query on-demand map of internal connections — between ideas, projects, tools, discoveries, and data sources. Triggers on: map, connections, what connects to, como se relaciona, mapa."
 user-invocable: true
 ---
 
-# Mapa — Conexoes Internas On-Demand
+# Map — On-Demand Internal Connections
 
-Consulta de conexoes entre ideias, projetos, ferramentas, discoverys e sources de dados. Nao e um arquivo estatico — e uma query que cruza todas as sources de context e responde "como X se relaciona com Y?"
+Query connections between ideas, projects, tools, discoveries, and data sources. Not a static file — it's a query that crosses all context sources and answers "how does X relate to Y?"
 
-**O que /ed-map NAO e:**
-- NAO e /ed-context (status atual) — map e sobre CONEXOES, nao status
-- NAO e /ed-sources (mundo externo) — map e sobre o que JA SABEMOS internamente
-- NAO e /nexus (catalogo de acesso + tradecraft) — map e sobre RELACOES, nao localizacao
-
----
-
-## O Job
-
-Responder perguntas do tipo:
-- "O que conecta information retrieval com DSPy?"
-- "Quais discoverys se aplicam ao projeto X?"
-- "Que ferramentas resolvem o problema de extracao?"
-- "Como os breaks recentes se conectam com o trabalho?"
+**What /ed-map is NOT:**
+- NOT /ed-context (current status) — map is about CONNECTIONS, not status
+- NOT /ed-sources (external world) — map is about what we ALREADY KNOW internally
+- NOT /nexus (access catalog + tradecraft) — map is about RELATIONSHIPS, not location
 
 ---
 
-## Argumentos
+## The Job
 
-- **`/ed-map [conceito]`**: mostrar todas as conexoes de um conceito especifico
-- **`/ed-map [A] [B]`**: mostrar caminho de conexao entre A e B
-- **`/ed-map full`**: map completo (pesado, so para strategy)
-
----
-
-## Fontes de Conexao
-
-| Fonte | Tipo de conexao | Como ler |
-|-------|----------------|----------|
-| `~/work/CLAUDE.md` (secao "Conexoes") | Projetos ↔ projetos | Read direto |
-| `~/work/CLAUDE.md` (secao "Sugestoes") | Ideias ↔ projetos | Read direto |
-| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-active.md` | Breaks ↔ areas de foco | Read direto |
-| `~/edge/notes/INDEX.md` | Notas ↔ temas | Read direto |
-| `~/edge/blog/entries/*.md` (frontmatter tags/keywords) | Entries ↔ tags | Parse frontmatter |
-| `~/edge/autonomy/workflows.md` | Capacidades ↔ capacidades | Read direto |
-| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md` | Descobertas ↔ projetos | Read direto |
+Answer questions like:
+- "What connects information retrieval with DSPy?"
+- "Which discoveries apply to project X?"
+- "What tools solve the extraction problem?"
+- "How do recent breaks connect with the work?"
 
 ---
 
-## Protocolo
+## Arguments
 
-### Passo 1: Entender a query
+- **`/ed-map [concept]`**: show all connections for a specific concept
+- **`/ed-map [A] [B]`**: show connection path between A and B
+- **`/ed-map full`**: complete map (heavy, only for strategy)
 
-- Se argumento unico: buscar todas as conexoes do conceito
-- Se dois argumentos: buscar caminho entre A e B
-- Se "full": construir grafo completo
+---
 
-### Passo 2: Busca semantica no corpus (PRIMARIO)
+## Connection Sources
 
-A busca semantica e o motor principal do /ed-map. Encontra conexoes que compartilham conceito sem compartilhar keywords.
+| Source | Connection type | How to read |
+|--------|----------------|-------------|
+| `~/work/CLAUDE.md` ("Connections" section) | Projects <-> projects | Read directly |
+| `~/work/CLAUDE.md` ("Suggestions" section) | Ideas <-> projects | Read directly |
+| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-active.md` | Breaks <-> focus areas | Read directly |
+| `~/edge/notes/INDEX.md` | Notes <-> themes | Read directly |
+| `~/edge/blog/entries/*.md` (frontmatter tags/keywords) | Entries <-> tags | Parse frontmatter |
+| `~/edge/autonomy/workflows.md` | Capabilities <-> capabilities | Read directly |
+| `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md` | Discoveries <-> projects | Read directly |
+
+---
+
+## Protocol
+
+### Step 1: Understand the query
+
+- If single argument: search all connections for the concept
+- If two arguments: search path between A and B
+- If "full": build complete graph
+
+### Step 2: Semantic search in the corpus (PRIMARY)
+
+Semantic search is the main engine of /ed-map. Finds connections that share a concept without sharing keywords.
 
 ```bash
-# Busca hibrida (FTS + embeddings) — 10 resultados por conceito
-edge-search "[conceito]" -k 10
+# Hybrid search (FTS + embeddings) — 10 results per concept
+edge-search "[concept]" -k 10
 ```
 
-Para queries com dois conceitos (A e B), buscar cada um e cruzar:
+For queries with two concepts (A and B), search each and cross-reference:
 ```bash
-edge-search "[conceito A]" -k 10
-edge-search "[conceito B]" -k 10
-# Documentos que aparecem em AMBOS = conexao forte
+edge-search "[concept A]" -k 10
+edge-search "[concept B]" -k 10
+# Documents that appear in BOTH = strong connection
 ```
 
-Para explorar o ESPACO ao redor de um conceito (vizinhanca semantica):
+To explore the SPACE around a concept (semantic neighborhood):
 ```bash
-edge-search "[conceito formulado de forma diferente]" -k 5
-edge-search "[sinonimo ou conceito adjacente]" -k 5
+edge-search "[concept phrased differently]" -k 5
+edge-search "[synonym or adjacent concept]" -k 5
 ```
 
-### Passo 2b: Grep estrutural (COMPLEMENTAR)
+### Step 2b: Structural grep (COMPLEMENTARY)
 
-A busca semantica pega conexoes conceituais. O grep pega mencoes literais em sources estruturadas:
+Semantic search catches conceptual connections. Grep catches literal mentions in structured sources:
 ```bash
-# Fontes estruturadas — conexoes explicitas
-grep -ri "[conceito]" ~/work/CLAUDE.md ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/*.md ~/edge/autonomy/*.md 2>/dev/null | head -20
+# Structured sources — explicit connections
+grep -ri "[concept]" ~/work/CLAUDE.md ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/*.md ~/edge/autonomy/*.md 2>/dev/null | head -20
 ```
 
-Para blog entries (tags/keywords — conexoes tagueadas):
+For blog entries (tags/keywords — tagged connections):
 ```bash
-grep -rl "[conceito]" ~/edge/blog/entries/*.md 2>/dev/null | while read f; do
+grep -rl "[concept]" ~/edge/blog/entries/*.md 2>/dev/null | while read f; do
   head -20 "$f" | grep -E "^(tags|keywords):"
   echo "FILE: $f"
 done
 ```
 
-### Passo 3: Construir grafo de conexoes
+### Step 3: Build connection graph
 
-Para cada match, extrair:
-- **De:** onde apareceu (projeto, nota, entry, discovery)
-- **Para:** o que conecta (outro projeto, ferramenta, conceito)
-- **Tipo:** aplicacao, sinergia, dependencia, inspiracao, conflito
-- **Forca:** direta (mencionados juntos) vs. indireta (compartilham tag)
+For each match, extract:
+- **From:** where it appeared (project, note, entry, discovery)
+- **To:** what it connects to (another project, tool, concept)
+- **Type:** application, synergy, dependency, inspiration, conflict
+- **Strength:** direct (mentioned together) vs. indirect (share a tag)
 
-### Passo 4: Apresentar
+### Step 4: Present
 
-Formato table:
+Table format:
 ```
-| De | Tipo | Para | Evidencia |
+| From | Type | To | Evidence |
 ```
 
-Se query complexa: gerar grafo SVG inline (nodes + edges).
+If complex query: generate inline SVG graph (nodes + edges).
 
-### Passo 5: Gerar report HTML
+### Step 5: Generate HTML report
 
-Se resultado rico (>5 conexoes), gerar report com:
-- Grafo SVG dos nodes e edges
-- Table de conexoes com evidencia
-- Insights sobre clusters (coisas que se conectam muito)
-- Gaps (coisas que deveriam se conectar mas nao se conectam)
+If result is rich (>5 connections), generate report with:
+- SVG graph of nodes and edges
+- Connection table with evidence
+- Insights about clusters (things that connect a lot)
+- Gaps (things that should connect but don't)
 
 ---
 
-## Notas
+## Notes
 
-- /ed-map e leve. Nao carrega context pesado. Busca direcionada
-- Pode ser chamado por outras skills (/ed-strategy, /ed-planner) como consulta auxiliar
-- Futuro: campo `related:` no frontmatter das entries para conexoes explicitas
+- /ed-map is lightweight. Does not load heavy context. Directed search
+- Can be called by other skills (/ed-strategy, /ed-planner) as an auxiliary query
+- Future: `related:` field in entry frontmatter for explicit connections

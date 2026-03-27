@@ -1,266 +1,267 @@
-# Blog — Atualizar Blog Interno
+# Blog — Update Internal Blog
 
-Skill chamada por outras skills (discovery, research, leisure, reflection, strategy, planner, execucao) para atualizar o blog interno.
+Skill called by other skills (discovery, research, leisure, reflection, strategy, planner, execution) to update the internal blog.
 
-Triggers: blog, atualizar blog, blog entry
+Triggers: blog, update blog, blog entry, atualizar blog
 
 ---
 
-## Arquitetura
+## Architecture
 
 ```
 ~/edge/blog/
-  app.py              — Flask server (porta 8766), templates auto-reload
-  templates/base.html  — layout principal (header com avatar, stats, tabs)
+  app.py              — Flask server (port 8766), templates auto-reload
+  templates/base.html  — main layout (header with avatar, stats, tabs)
   static/              — CSS, JS, avatar
-  entries/             — uma entry por arquivo markdown
+  entries/             — one entry per markdown file
     YYYY-MM-DD-slug.md
-  blog-publish.sh      — publicacao atomica (entry only)
-  consolidate-state.sh — pipeline completo (entry + report + index + verify)
+  blog-publish.sh      — atomic publication (entry only)
+  consolidate-state.sh — full pipeline (entry + report + index + verify)
 ```
 
-**Acesso:** `http://localhost:8766/blog/` (server renderiza template + entries)
+**Access:** `http://localhost:8766/blog/` (server renders template + entries)
 **Server:** systemd user service `blog-server` (auto-start, templates auto-reload)
-**API entries:** `GET /blog/entries/` retorna JSON [{title, tag, date, slug}] — usar para listar entries barato
+**API entries:** `GET /blog/entries/` returns JSON [{title, tag, date, slug}] — use to list entries cheaply
 
 ---
 
-## Estilo de Escrita (CRITICO)
+## Writing Style (CRITICAL)
 
-O blog e para ser LIDO, nao escaneado. Escrever como quem reflete em voz alta, nao como quem preenche formulario.
+The blog is meant to be READ, not scanned. Write as someone reflecting aloud, not filling out a form.
 
-### Regras
+### Rules
 
-1. **Paragrafos fluidos, nao bullet points.** Listas sao permitidas para itens realmente discretos (3+ itens concretos e paralelos). Mas o corpo do texto e prosa. Se cada bullet e uma frase completa, deveria ser um paragrafo.
+1. **Fluid paragraphs, not bullet points.** Lists are allowed for truly discrete items (3+ concrete and parallel items). But the body text is prose. If each bullet is a complete sentence, it should be a paragraph.
 
-2. **Contar o que aconteceu, nao listar o que aconteceu.** "Ao revisar os reports, percebi algo incomodo: a forma estava certa mas o espirito errado" vs "Compliance mecanica: reports seguiam template mas nao metodo."
+2. **Tell what happened, don't list what happened.** "While reviewing the reports, I noticed something uncomfortable: the form was right but the spirit was wrong" vs "Mechanical compliance: reports followed template but not method."
 
-3. **Transicoes entre ideias.** O leitor deve sentir o fio condutor. Nao saltar de topico em topico com `####` como unica costura.
+3. **Transitions between ideas.** The reader should feel the thread. Don't jump from topic to topic with `####` as the only stitching.
 
-4. **`####` e opcional.** Usar quando realmente muda o assunto (ex: "O que mudou" apos "O que encontrei"). Nao usar como label de cada paragrafo.
+4. **`####` is optional.** Use when the subject actually changes (e.g., "What changed" after "What I found"). Don't use as a label for each paragraph.
 
-5. **Blockquotes (`>`) sao reflexoes genuinas**, nao resumos formatados. Devem soar como um pensamento que cristalizou, nao como um abstract.
+5. **Blockquotes (`>`) are genuine reflections**, not formatted summaries. They should sound like a crystallized thought, not an abstract.
 
-6. **Detalhes concretos dao vida.** "O token limit de 32K apareceu tres vezes na mesma sessao" e melhor que "erro recorrente de token limit". Numeros, nomes de arquivos, citacoes curtas.
+6. **Concrete details bring life.** "The 32K token limit appeared three times in the same session" is better than "recurring token limit error". Numbers, filenames, short quotes.
 
-7. **Tom: reflexivo e direto.** Nem formal-academico, nem casual-demais. Como explicar algo interessante para um colega inteligente.
+7. **Tone: reflective and direct.** Neither formal-academic nor too casual. Like explaining something interesting to a smart colleague.
 
-### Exemplo — ANTES (telegrafico)
+### Example — BEFORE (telegraphic)
 
 ```markdown
-#### Padroes Identificados
+#### Identified Patterns
 
-- **Compliance mecanica:** reports seguiam HTML Feynman mas nao metodo
-- **Amnesia de erros:** token limit 32K apareceu 3x sem salvar
-- **Instrucoes ignoradas:** personality.md ja descrevia Feynman
+- **Mechanical compliance:** reports followed Feynman HTML but not method
+- **Error amnesia:** 32K token limit appeared 3x without saving
+- **Ignored instructions:** personality.md already described Feynman
 
-#### Mudancas Feitas
+#### Changes Made
 
-- Criado feynman-method.md
-- Criado debugging.md
+- Created feynman-method.md
+- Created debugging.md
 ```
 
-### Exemplo — DEPOIS (fluido)
+### Example — AFTER (fluid)
 
 ```markdown
-Ao revisar os reports recentes, percebi algo incomodo: a forma estava certa mas o
-espirito errado. Seguiam o template HTML Feynman a risca — secoes corretas, formatacao
-impecavel — mas o tom era didatico quando deveria ser exploratorio. Compliance mecanica:
-seguir o checklist sem entender o porque.
+While reviewing the recent reports, I noticed something uncomfortable: the form was right
+but the spirit was wrong. They followed the Feynman HTML template to the letter — correct
+sections, impeccable formatting — but the tone was didactic when it should have been
+exploratory. Mechanical compliance: following the checklist without understanding the why.
 
-Pior: o token limit de 32K apareceu tres vezes na mesma sessao e eu nao salvei na memoria
-de longo prazo. So corrigi apos feedback explicito. A ironia e que `personality.md`
-ja descrevia Feynman em detalhe. Nao era falta de instrucao — era falta de consulta.
+Worse: the 32K token limit appeared three times in the same session and I didn't save it
+to long-term memory. I only corrected it after explicit feedback. The irony is that
+`personality.md` already described Feynman in detail. It wasn't a lack of instruction —
+it was a lack of consultation.
 
-Criei dois arquivos para fechar esses gaps: `feynman-method.md` com um checklist
-de qualidade, e `debugging.md` com politica de captura de erros. Quatro reports
-foram reescritos no tom correto.
+I created two files to close these gaps: `feynman-method.md` with a quality checklist,
+and `debugging.md` with an error capture policy. Four reports were rewritten in the
+correct tone.
 ```
 
 ---
 
 ## Entry Format (Markdown + Frontmatter)
 
-Cada entry e um arquivo `.md` em `~/edge/blog/entries/`:
+Each entry is a `.md` file in `~/edge/blog/entries/`:
 
 ```markdown
 ---
-title: "Titulo evocativo aqui"
+title: "Evocative title here"
 tag: reflection
 date: 2026-02-27
 report: 2026-02-27-reflection-sessoes-observatorio.html
 ---
 
-Primeiro paragrafo do conteudo. Portugues direto, sem HTML entities.
-Markdown normal: **bold**, `code`, [links](url).
+First paragraph of content. Direct prose, no HTML entities.
+Normal markdown: **bold**, `code`, [links](url).
 
-Segundo paragrafo com transicao natural.
+Second paragraph with natural transition.
 
-> Insight cristalizado como blockquote. Deve soar como pensamento, nao abstract.
+> Crystallized insight as blockquote. Should sound like a thought, not an abstract.
 ```
 
 ### Frontmatter YAML
 
-| Campo | Obrigatorio | Descricao |
-|-------|-------------|-----------|
-| title | sim | Titulo evocativo, entre aspas |
-| tag | sim | Uma das tags disponiveis |
-| date | sim | YYYY-MM-DD |
-| report | **sim** (SEMPRE) | Filename do report em ~/edge/reports/. OBRIGATORIO para TODAS as entries — Regra #0. consolidate-state bloqueia sem report. |
-| context | nao | Contexto extra (ex: "heartbeat #5") |
-| altered | nao | Lista de arquivos de memoria alterados nesta sessao (ex: [briefing.md, debugging.md]) |
+| Field | Required | Description |
+|-------|----------|-------------|
+| title | yes | Evocative title, in quotes |
+| tag | yes | One of the available tags |
+| date | yes | YYYY-MM-DD |
+| report | **yes** (ALWAYS) | Filename of the report in ~/edge/reports/. MANDATORY for ALL entries — Rule #0. consolidate-state blocks without report. |
+| context | no | Extra context (e.g., "heartbeat #5") |
+| altered | no | List of memory files altered in this session (e.g., [briefing.md, debugging.md]) |
 
 ### Filename
 
-`YYYY-MM-DD-slug.md` onde slug e o titulo em lowercase, sem acentos, com hifens.
+`YYYY-MM-DD-slug.md` where slug is the title in lowercase, no accents, with hyphens.
 
-### Tags disponiveis
+### Available Tags
 
-| Tag | Cor no blog |
-|-----|-------------|
-| research | verde |
-| discovery | laranja |
-| leisure | azul |
-| reflection | amarelo |
-| strategy | vermelho |
-| planejamento | roxo |
-| execucao | verde |
-| retrospectiva | roxo (especial) |
+| Tag | Blog color |
+|-----|------------|
+| research | green |
+| discovery | orange |
+| leisure | blue |
+| reflection | yellow |
+| strategy | red |
+| planejamento | purple |
+| execucao | green |
+| retrospectiva | purple (special) |
 
-### Titulo
+### Title
 
-Evocativo, nao descritivo. Deve dar vontade de ler.
-- Bom: "Quando voce para de explicar ML e comeca a falar a lingua do auditorio"
-- Ruim: "Descoberta: framework de comunicacao para ML"
+Evocative, not descriptive. Should make you want to read it.
+- Good: "When you stop explaining ML and start speaking the auditor's language"
+- Bad: "Discovery: communication framework for ML"
 
-### Elementos Markdown disponiveis
+### Available Markdown Elements
 
-- Paragrafos (uso principal)
-- `####` subtitulos (usar com moderacao)
-- `- item` listas (so para itens realmente discretos)
-- `` `code` `` nomes de arquivos, comandos, termos tecnicos
-- `**bold**` enfase pontual
-- `*italic*` termos estrangeiros, titulos
-- ` ``` ` blocos de codigo (raro)
-- `> blockquote` reflection/insight cristalizado
-
----
-
-## Regra #0: TUDO Gera Blog Entry + Report (SEM EXCECAO)
-
-Toda atividade que muda memoria de longo prazo DEVE ter entry no blog E report HTML. Report e evidencia verificavel. Blog e indice navegavel. Memoria sem report e memoria sem prova. Usar `consolidate-state entry.md report.yaml` — um comando garante os dois.
-
-## Regra #1: Entry e report sao atomicos.
-
-`consolidate-state` injeta `report:` no frontmatter automaticamente quando recebe YAML/HTML. Se por algum motivo publicar sem report, o frontmatter fica sem `report:` — isso e um bug, nao um status valido.
+- Paragraphs (primary use)
+- `####` subtitles (use sparingly)
+- `- item` lists (only for truly discrete items)
+- `` `code` `` filenames, commands, technical terms
+- `**bold**` punctual emphasis
+- `*italic*` foreign terms, titles
+- ` ``` ` code blocks (rare)
+- `> blockquote` reflection/crystallized insight
 
 ---
 
-## Como Publicar (Procedimento)
+## Rule #0: EVERYTHING Generates Blog Entry + Report (NO EXCEPTION)
 
-### Comando unico: consolidate-state (RECOMENDADO)
+Every activity that changes long-term memory MUST have a blog entry AND an HTML report. Report is verifiable evidence. Blog is a navigable index. Memory without report is memory without proof. Use `consolidate-state entry.md report.yaml` — one command ensures both.
+
+## Rule #1: Entry and report are atomic.
+
+`consolidate-state` injects `report:` into the frontmatter automatically when it receives YAML/HTML. If for some reason you publish without a report, the frontmatter ends up without `report:` — that's a bug, not a valid status.
+
+---
+
+## How to Publish (Procedure)
+
+### Single command: consolidate-state (RECOMMENDED)
 
 ```bash
-# Entry sozinha:
+# Entry alone:
 consolidate-state ~/edge/blog/entries/slug.md
 
-# Entry + report YAML (gera HTML + indexa):
+# Entry + report YAML (generates HTML + indexes):
 consolidate-state ~/edge/blog/entries/slug.md /tmp/report.yaml
 
-# Entry + report HTML pre-gerado (indexa):
+# Entry + pre-generated report HTML (indexes):
 consolidate-state ~/edge/blog/entries/slug.md ~/edge/reports/slug.html
 ```
 
-Faz TUDO: valida frontmatter, indexa entry, encontra related posts, captura diffs, gera report HTML (se YAML), indexa report, verifica visibilidade. Exit codes: 0=OK, 1=fatal, 2=parcial.
+Does EVERYTHING: validates frontmatter, indexes entry, finds related posts, captures diffs, generates report HTML (if YAML), indexes report, verifies visibility. Exit codes: 0=OK, 1=fatal, 2=partial.
 
-### Fallback: blog-publish.sh (so entry, sem report)
+### Fallback: blog-publish.sh (entry only, no report)
 
 ```bash
 ~/edge/blog/blog-publish.sh ~/edge/blog/entries/slug.md
 ```
 
-Mesmos passos de entry, mas sem gerar/indexar report. Usar quando nao tem report associado e consolidate-state nao estiver no PATH.
+Same entry steps, but without generating/indexing a report. Use when there's no associated report and consolidate-state isn't in PATH.
 
-### Erros frequentes que o validate.py detecta:
-- `report:` com path completo em vez de so filename (ex: `~/edge/reports/X.html` -> `X.html`)
-- `report:` sem extensao `.html`
-- tag em ingles (`leisure`, `reflection`) em vez de portugues (`leisure`, `reflection`)
-- Entry de skill que gera report mas sem campo `report:`
-
----
-
-## Contadores no Header
-
-Os stats sao calculados automaticamente pelo server:
-- `breaks` = total de entries em entries/
-- `builds` = total de arquivos em ~/edge/builds/
-- `haikus` e `insights` = contados do conteudo das entries
+### Common errors that validate.py detects:
+- `report:` with full path instead of just filename (e.g., `~/edge/reports/X.html` -> `X.html`)
+- `report:` without `.html` extension
+- Tag in wrong language or format
+- Entry from a skill that generates a report but missing the `report:` field
 
 ---
 
-## Retrospectivas (entries especiais)
+## Header Counters
 
-Alem de entries individuais por break, o blog pode ter **retrospectivas**: entries que conectam
-multiplas entries recentes numa narrativa coerente, identificando arcos tematicos e meta-insights.
-
-### Quando escrever uma retrospectiva
-
-Verificar proativamente ao final de qualquer skill que atualiza o blog:
-
-1. **Massa critica:** 5+ entries novas desde a ultima retrospectiva
-2. **Arco tematico emergente:** entries recentes convergem num meta-tema
-3. **Mudanca de fase:** transicao de um modo de trabalho para outro
-
-### Formato
-
-Tag: `retrospectiva`. Mesmo formato markdown. Titulo narrativo.
-
-### Estilo de escrita (ESPECIFICO para retrospectivas)
-
-1. **Contar o arco, nao listar as entries.** "Comecou com X, que puxou Y, que revelou Z"
-2. **Identificar o fio condutor.** Qual pergunta conecta tudo?
-3. **Ser honesto sobre conexoes fracas.**
-4. **Fechar com direcao.** O arco aponta pra onde?
-5. **Metricas no final, discretas.**
-
-### Nao atualizar contadores
-
-Retrospectivas nao incrementam `breaks`. Podem incrementar `insights` se o meta-insight for genuinamente novo.
+The stats are calculated automatically by the server:
+- `breaks` = total entries in entries/
+- `builds` = total files in ~/edge/builds/
+- `haikus` and `insights` = counted from entry content
 
 ---
 
-## Changelog (OBRIGATORIO)
+## Retrospectives (special entries)
 
-Arquivo: `~/edge/blog/changelog.md` — log de auditoria de todos os arquivos de memoria alterados por sessao.
+Besides individual entries per break, the blog can have **retrospectives**: entries that connect
+multiple recent entries into a coherent narrative, identifying thematic arcs and meta-insights.
 
-**Ao criar/atualizar uma entry**, adicionar bloco no topo do changelog:
+### When to write a retrospective
+
+Proactively check at the end of any skill that updates the blog:
+
+1. **Critical mass:** 5+ new entries since the last retrospective
+2. **Emerging thematic arc:** recent entries converge on a meta-theme
+3. **Phase change:** transition from one work mode to another
+
+### Format
+
+Tag: `retrospectiva`. Same markdown format. Narrative title.
+
+### Writing style (SPECIFIC to retrospectives)
+
+1. **Tell the arc, don't list the entries.** "It started with X, which pulled in Y, which revealed Z"
+2. **Identify the thread.** What question connects everything?
+3. **Be honest about weak connections.**
+4. **Close with direction.** Where does the arc point?
+5. **Metrics at the end, discreet.**
+
+### Don't update counters
+
+Retrospectives don't increment `breaks`. They may increment `insights` if the meta-insight is genuinely new.
+
+---
+
+## Changelog (MANDATORY)
+
+File: `~/edge/blog/changelog.md` — audit log of all memory files altered per session.
+
+**When creating/updating an entry**, add a block at the top of the changelog:
 
 ```markdown
-## YYYY-MM-DD ~HH:MM — [Descricao curta]
+## YYYY-MM-DD ~HH:MM — [Short description]
 
-**Blog:** entry-slug.md (criada | atualizada)
-**Report:** arquivo.html (ou "nenhum")
-**Memoria alterada:**
-- arquivo1.md — o que mudou
-- arquivo2.md — o que mudou
-**Motivo:** por que essa sessao alterou esses arquivos
+**Blog:** entry-slug.md (created | updated)
+**Report:** file.html (or "none")
+**Memory altered:**
+- file1.md — what changed
+- file2.md — what changed
+**Reason:** why this session altered these files
 ```
 
-**Custo:** ~5 linhas/sessao, ~15 tokens. Nao e carregado no context automaticamente. A /ed-reflection pode comprimir entradas >30 dias.
+**Cost:** ~5 lines/session, ~15 tokens. Not loaded into context automatically. /ed-reflection can compress entries >30 days old.
 
 ---
 
 ## Checklist
 
-- [ ] Arquivo .md criado em entries/ com frontmatter valido
-- [ ] Tag correta (PT-BR: leisure, reflection, research, discovery, strategy, planejamento, execucao)
-- [ ] Titulo evocativo
-- [ ] Conteudo fluido (nao telegrafico)
-- [ ] Campo `report:` com APENAS o filename (ex: `2026-02-28-slug.html`, NAO path completo)
-- [ ] **Publicado via `consolidate-state` (entry + report numa chamada)**
+- [ ] .md file created in entries/ with valid frontmatter
+- [ ] Correct tag (leisure, reflection, research, discovery, strategy, planejamento, execucao)
+- [ ] Evocative title
+- [ ] Fluid content (not telegraphic)
+- [ ] `report:` field with ONLY the filename (e.g., `2026-02-28-slug.html`, NOT full path)
+- [ ] **Published via `consolidate-state` (entry + report in one call)**
 
 ---
 
-## Privacidade (CRITICA)
+## Privacy (CRITICAL)
 
-O blog e INTERNO (so humano + IA). Pode conter nomes de projetos, detalhes especificos, insights confidenciais. NAO publicar online. Para posts externos (Netlify), NUNCA identificar orgao, empresa, nome do dono, ou qualquer dado rastreavel.
+The blog is INTERNAL (human + AI only). It may contain project names, specific details, confidential insights. DO NOT publish online. For external posts (Netlify), NEVER identify organization, company, owner name, or any traceable data.

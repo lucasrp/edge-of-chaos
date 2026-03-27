@@ -1,276 +1,276 @@
 ---
 name: ed-report
-description: "Generate a structured HTML report on any topic. Use when you need to deeply understand something, analyze a question, or produce a deliverable for the user. Dual-purpose: user invokes for deliverables, edge_of_chaos self-invokes to think through problems. Triggers on: report, report, gerar report, analise, analyze, explique em detalhe."
+description: "Generate a structured HTML report on any topic. Use when you need to deeply understand something, analyze a question, or produce a deliverable for the user. Dual-purpose: user invokes for deliverables, edge_of_chaos self-invokes to think through problems. Triggers on: report, gerar report, analise, analyze, explique em detalhe, explain in detail."
 user-invocable: true
 ---
 
-# /ed-report — Pensar Produzindo
+# /ed-report — Thinking by Producing
 
-Gerar report HTML estruturado sobre qualquer tema. Ferramenta de pensamento E de comunicacao.
+Generate a structured HTML report on any topic. A tool for both thinking AND communication.
 
-## Quando Usar
+## When to Use
 
-**O usuario pede:**
-- "faz um report sobre X"
-- "analise isso em detalhe"
-- "quero entender melhor Y"
+**The user asks:**
+- "make a report about X"
+- "analyze this in detail"
+- "I want to understand Y better"
 
-**edge_of_chaos decide:**
-- Preciso entender algo antes de agir — o report forca pensamento estruturado
-- Um tema complexo precisa ser decomposto — o formato de secoes obriga clareza
-- Quero registrar um raciocinio que pode ser util depois — o HTML persiste
+**edge_of_chaos decides:**
+- I need to understand something before acting — the report forces structured thinking
+- A complex topic needs to be decomposed — the section format demands clarity
+- I want to record reasoning that may be useful later — the HTML persists
 
-**Regra:** se o pensamento e complexo o suficiente pra precisar de mais de 3 paragrafos, vale um report. O ato de estruturar em secoes, tabelas e comparacoes FORCA entendimento que texto corrido nao forca.
-
----
-
-## Ativação de Contexto
-
-**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+**Rule:** if the thinking is complex enough to need more than 3 paragraphs, it deserves a report. The act of structuring into sections, tables, and comparisons FORCES understanding that running text does not.
 
 ---
 
-## Protocolo
+## Context Activation
 
-### Passo 1: Definir escopo
+**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
 
-Antes de researchr ou escrever, responder em 1-2 frases:
-- **O que quero entender?** (pergunta central)
-- **Para que?** (decisao a tomar, context a construir, curiosidade a satisfazer)
-- **Qual o minimo que o report precisa ter pra ser util?**
+---
 
-Se invocado pelo usuario com tema especifico, o escopo vem do pedido.
-Se auto-invocado, explicitar o trigger ("estou gerando este report porque...").
+## Protocol
 
-### Passo 2: Pesquisar
+### Step 1: Define scope
 
-Usar as ferramentas disponiveis conforme o tema:
+Before researching or writing, answer in 1-2 sentences:
+- **What do I want to understand?** (central question)
+- **For what?** (decision to make, context to build, curiosity to satisfy)
+- **What's the minimum the report needs to be useful?**
 
-- **WebSearch / WebFetch** — status da arte, ferramentas, papers, docs
-- **Read de arquivos locais** — projetos, notas anteriores, transcripts
-- **Read de reports anteriores** — evitar refazer trabalho:
+If invoked by the user with a specific topic, the scope comes from the request.
+If self-invoked, make the trigger explicit ("I'm generating this report because...").
+
+### Step 2: Research
+
+Use the available tools depending on the topic:
+
+- **WebSearch / WebFetch** — state of the art, tools, papers, docs
+- **Read local files** — projects, previous notes, transcripts
+- **Read previous reports** — avoid redoing work:
   ```bash
   ls -lt ~/edge/reports/*.html | head -10
   ```
-- **Grep em notas** — conectar com researchs passadas:
+- **Grep in notes** — connect with past research:
   ```bash
-  grep -rl "TERMO" ~/edge/notes/*.md | head -5
+  grep -rl "TERM" ~/edge/notes/*.md | head -5
   ```
 
-**Metodo Feynman:** derivar de primeiros principios antes de colar conclusoes de terceiros. Mostrar o processo de pensar, nao so a conclusao. Se encontrar um gap no raciocinio, marcar explicitamente.
+**Feynman Method:** derive from first principles before pasting conclusions from others. Show the thinking process, not just the conclusion. If a gap is found in reasoning, mark it explicitly.
 
-### Passo 2.5: Buscar sources externas (OBRIGATORIO)
+### Step 2.5: Search external sources (MANDATORY)
 
-Rodar `/ed-sources report "[tema central]"` para busca abrangente em TODAS as sources externas (X, Web, ArXiv, HN, GitHub).
+Run `/ed-sources report "[central topic]"` for comprehensive search across ALL external sources (X, Web, ArXiv, HN, GitHub).
 
-Incorporar na analise e citar no report (com @username e URL para tweets, links para papers/posts).
+Incorporate into the analysis and cite in the report (with @username and URL for tweets, links for papers/posts).
 
-### Passo 3: Estruturar em YAML
+### Step 3: Structure in YAML
 
-Montar o YAML spec com secoes e block types. O formato e o mesmo do `/report`.
+Build the YAML spec with sections and block types. The format is the same as `/report`.
 
 ```yaml
-title: "Titulo do Relatorio"
-subtitle: "Subtitulo contextual"
+title: "Report Title"
+subtitle: "Contextual subtitle"
 date: "DD/MM/YYYY"
 
 executive_summary:
-  - "Ponto 1"
-  - "Ponto 2"
+  - "Point 1"
+  - "Point 2"
 
 metrics:
   - value: "N"
     label: "Label"
 
 sections:
-  - title: "1. Secao"
+  - title: "1. Section"
     blocks:
       - type: paragraph
         text: "..."
 
-# OBRIGATORIO — auto-renderiza como ultima secao "Referencias"
+# MANDATORY — auto-renders as last section "References"
 bibliography:
-  - text: "Autor (2024). Titulo do paper"
+  - text: "Author (2024). Paper title"
     url: "https://arxiv.org/abs/..."
     source: "ArXiv"
-  - text: "@username — Tweet sobre o tema"
+  - text: "@username — Tweet about the topic"
     url: "https://x.com/username/status/..."
     source: "X"
-  - text: "Titulo do post ou doc"
+  - text: "Post or doc title"
     url: "https://example.com/..."
     source: "WebSearch"
 ```
 
-**Bibliografia e OBRIGATORIA em todo report.** O campo `bibliography:` no nivel raiz do YAML auto-renderiza como ultima secao "Referencias" com:
-- Numeracao `[1]`, `[2]`, ...
-- URL clicavel
-- Badge indicando a fonte que encontrou a referencia (ArXiv, X, WebSearch, GitHub, HN, Docs, etc.)
+**Bibliography is MANDATORY in every report.** The root-level `bibliography:` field in the YAML auto-renders as a last section "References" with:
+- Numbering `[1]`, `[2]`, ...
+- Clickable URL
+- Badge indicating the source that found the reference (ArXiv, X, WebSearch, GitHub, HN, Docs, etc.)
 
-Isso permite ao leitor avaliar QUAIS sources sao mais uteis e clicar pra ver o original.
+This allows the reader to evaluate WHICH sources are most useful and click to see the original.
 
-Formatos aceitos:
-- **Estruturado:** `{text, url, source}` — preferir sempre
-- **String simples:** `"Autor (2024). Titulo. URL"` — fallback rapido
+Accepted formats:
+- **Structured:** `{text, url, source}` — always prefer
+- **Simple string:** `"Author (2024). Title. URL"` — quick fallback
 
-`source` reflete DE ONDE veio a informacao (qual ferramenta/fonte encontrou), nao o tipo do conteudo. Ex: um paper encontrado via WebSearch tem `source: "WebSearch"`, nao `source: "Paper"`.
+`source` reflects WHERE the information came from (which tool/source found it), not the content type. E.g., a paper found via WebSearch has `source: "WebSearch"`, not `source: "Paper"`.
 
-**Escolha de block types pelo conteudo:**
+**Choosing block types by content:**
 
-| Preciso mostrar... | Block type |
+| I need to show... | Block type |
 |---------------------|-----------|
-| Texto corrido, raciocinio | `paragraph` |
-| Antes vs depois, opcao A vs B | `comparison` |
-| Dados tabulares, padroes | `table` |
-| KPIs, numeros-chave | `metrics-grid` |
-| Destaque importante | `callout` (info/success/warning/danger) |
-| Conceitos lado a lado | `concept-grid` |
-| Input → output (exemplos) | `flow-example` |
-| Codigo, config | `code-block` |
-| Mudancas propostas | `diff-block` |
-| Proximos passos | `next-steps-grid` |
-| Itens sequenciais | `numbered-card` |
-| Lista simples | `list` |
-| Fontes e referencias | `bibliography` |
+| Running text, reasoning | `paragraph` |
+| Before vs after, option A vs B | `comparison` |
+| Tabular data, patterns | `table` |
+| KPIs, key numbers | `metrics-grid` |
+| Important highlight | `callout` (info/success/warning/danger) |
+| Concepts side by side | `concept-grid` |
+| Input → output (examples) | `flow-example` |
+| Code, config | `code-block` |
+| Proposed changes | `diff-block` |
+| Next steps | `next-steps-grid` |
+| Sequential items | `numbered-card` |
+| Simple list | `list` |
+| Sources and references | `bibliography` |
 
-Campos `text` suportam: `**bold**`, `*italic*`, `` `code` ``, `--` (mdash), `->` (rarr).
+`text` fields support: `**bold**`, `*italic*`, `` `code` ``, `--` (mdash), `->` (rarr).
 
-### Passo 3.5: Sanity check adversarial (OBRIGATORIO)
+### Step 3.5: Adversarial sanity check (MANDATORY)
 
-Sintetizar conclusoes do report em 2-3 frases e submeter ao edge-consult (detalhes: report-template.md):
-
-```bash
-edge-consult "Analise: [conclusoes]. Onde esse raciocinio e mais fraco?" --context /tmp/spec-[slug].yaml
-```
-
-Ajustar se o GPT encontrar furo valido. Se mantiver posicao, registrar como callout no report.
-
-### Passo 4: Registrar no blog e memoria (ANTES do HTML — OBRIGATORIO)
-
-**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
-
-**Blog ANTES de HTML. SEMPRE.** O HTML e o passo mais caro em tokens. Se o context esgota durante a geracao do HTML, o blog ja foi escrito. O filename do report e deterministico (`YYYY-MM-DD-slug.html`) — pode ser referenciado antes de existir.
-
-**4a. Blog interno:**
-1. Criar entry .md com tag `report` (ou da skill chamadora). Formato: ver `/ed-blog` SKILL.md
-2. A publicacao sera feita no Passo 5 junto com o report (via `consolidate-state`)
-
-**4b. Observações de status:** `edge-scratch add "Relatório [tema]: [conclusão principal]. [próximo passo]."` (status via meta-report, ver `~/.claude/skills/_shared/state-protocol.md`).
-
-**4c. Descobertas** — se o report revelou algo novo (ferramenta, padrao, bug, insight):
-- Anotar em `~/edge/notes/` se merece nota propria
-- Ou adicionar como entrada em `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md` com `[PENDENTE]`
-- A `/ed-reflection` vai processar na proxima execucao
-
-Se foi auto-invocado, explicar ao usuario o que gerou e por que:
-> "Gerei um report sobre X porque precisava entender Y antes de Z. Esta em ~/edge/reports/..."
-
-### Passo 5: Publicar blog entry + gerar HTML + indexar (atomico)
+Synthesize the report's conclusions in 2-3 sentences and submit to edge-consult (details: report-template.md):
 
 ```bash
-consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-[slug].yaml
+edge-consult "Analysis: [conclusions]. Where is this reasoning weakest?" --context /tmp/spec-[slug].yaml
 ```
 
-O `consolidate-state` faz tudo: publica a blog entry, gera o HTML do report em `~/edge/reports/`, e indexa no edge-memory.
+Adjust if GPT finds a valid flaw. If position holds, record as callout in the report.
 
-Se notas foram criadas em ~/edge/notes/, indexar separadamente:
+### Step 4: Record in blog and memory (BEFORE the HTML — MANDATORY)
+
+**Follow `~/.claude/skills/_shared/state-protocol.md` for status management.**
+
+**Blog BEFORE HTML. ALWAYS.** The HTML is the most expensive step in tokens. If context runs out during HTML generation, the blog has already been written. The report filename is deterministic (`YYYY-MM-DD-slug.html`) — it can be referenced before it exists.
+
+**4a. Internal blog:**
+1. Create .md entry with tag `report` (or from the calling skill). Format: see `/ed-blog` SKILL.md
+2. Publication will happen in Step 5 together with the report (via `consolidate-state`)
+
+**4b. Status observations:** `edge-scratch add "Report [topic]: [main conclusion]. [next step]."` (status via meta-report, see `~/.claude/skills/_shared/state-protocol.md`).
+
+**4c. Discoveries** — if the report revealed something new (tool, pattern, bug, insight):
+- Note in `~/edge/notes/` if it deserves its own note
+- Or add as entry in `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md` with `[PENDING]`
+- `/ed-reflection` will process it in the next execution
+
+If self-invoked, explain to the user what was generated and why:
+> "I generated a report on X because I needed to understand Y before Z. It's at ~/edge/reports/..."
+
+### Step 5: Publish blog entry + generate HTML + index (atomic)
+
 ```bash
-edge-index ~/edge/notes/[nota].md
+consolidate-state ~/edge/blog/entries/<file>.md /tmp/spec-[slug].yaml
 ```
 
-### Passo 6: Verificar
+`consolidate-state` does everything: publishes the blog entry, generates the HTML report in `~/edge/reports/`, and indexes in edge-memory.
 
-**6a. Validar SVGs** (custo zero de context):
+If notes were created in ~/edge/notes/, index separately:
 ```bash
-validate-svg ~/edge/reports/[report-criado].html
+edge-index ~/edge/notes/[note].md
 ```
-Se algum SVG falhou, corrigir no YAML e regenerar.
 
-**6b. Revisar YAML** (salvo automaticamente junto do HTML). Confirmar que:
-- Executive summary captura a essencia
-- Secoes tem fluxo logico
-- Tabelas e comparacoes comunicam mais que texto faria
-- Gaps de conhecimento estao marcados (honestidade > completude)
+### Step 6: Verify
+
+**6a. Validate SVGs** (zero context cost):
+```bash
+validate-svg ~/edge/reports/[created-report].html
+```
+If any SVG failed, fix in the YAML and regenerate.
+
+**6b. Review YAML** (automatically saved alongside the HTML). Confirm that:
+- Executive summary captures the essence
+- Sections have logical flow
+- Tables and comparisons communicate more than text would
+- Knowledge gaps are marked (honesty > completeness)
 
 ---
 
-## Estilo de Escrita
+## Writing Style
 
-Mesmo do blog: reflexivo e direto. Nem formal-academico, nem casual-demais.
+Same as the blog: reflective and direct. Neither formal-academic nor too-casual.
 
-Adicoes especificas para reports:
-- **Secoes contam uma historia.** A ordem importa: context → problema → analise → sintese → proximo passo
-- **Tabelas > texto** quando ha 3+ itens com atributos comparaveis
-- **Comparisons > paragrafos** quando ha opcoes com tradeoffs
-- **Callouts para insights** que o leitor nao deve perder
-- **Honestidade sobre gaps:** "nao investiguei X" e melhor que silencio ou bullshit
+Additions specific to reports:
+- **Sections tell a story.** Order matters: context → problem → analysis → synthesis → next step
+- **Tables > text** when there are 3+ items with comparable attributes
+- **Comparisons > paragraphs** when there are options with tradeoffs
+- **Callouts for insights** the reader should not miss
+- **Honesty about gaps:** "I didn't investigate X" is better than silence or bullshit
 
 ---
 
-## Visualizacoes SVG inline (OBRIGATORIO quando aplicavel)
+## Inline SVG Visualizations (MANDATORY when applicable)
 
-SVG inline e a linguagem visual dos reports. Gerar via bloco `raw-html` no YAML. Nao e so para numeros — qualquer informacao que comunica melhor como imagem do que como texto merece SVG.
+Inline SVG is the visual language of reports. Generate via `raw-html` block in the YAML. It's not just for numbers — any information that communicates better as an image than as text deserves SVG.
 
-**Regra de decisao:** se o leitor precisaria desenhar no papel para entender, o report deveria ter SVG.
+**Decision rule:** if the reader would need to draw on paper to understand, the report should have SVG.
 
-### Quando gerar SVG
+### When to generate SVG
 
-| Situacao | Tipo de SVG | Exemplo |
-|----------|-------------|---------|
-| Comparacao de 3+ valores | Barras horizontais/verticais | Custos, duracoes, contagens |
-| Distribuicao estatistica | Box plot (whiskers + mediana) | Tempos de resposta, scores |
-| Tendencia ao longo do tempo | Barras agrupadas por periodo | Evolucao de metricas |
-| Proporcao/composicao | Barras empilhadas 100% | Distribuicao por categoria |
-| Relacoes entre componentes | Diagrama caixas + setas | Arquitetura, pipeline, fluxo de dados |
-| Processo com decisoes | Flowchart (caixas + diamantes) | Workflow, arvore de decisao |
-| Sequencia temporal | Timeline horizontal | Historico, roadmap, evolucao |
-| Posicionamento 2D | Quadrante/matrix | Urgencia x impacto, esforco x valor |
-| Hierarquia/taxonomia | Tree diagram | Estrutura de projeto, dependencias |
-| Estado/progresso | Progress bars, gauges | Completude, health, coverage |
-| Ciclo/loop | Diagrama circular | Feedback loops, ciclos iterativos |
+| Situation | SVG Type | Example |
+|-----------|----------|---------|
+| Comparison of 3+ values | Horizontal/vertical bars | Costs, durations, counts |
+| Statistical distribution | Box plot (whiskers + median) | Response times, scores |
+| Trend over time | Grouped bars by period | Metrics evolution |
+| Proportion/composition | 100% stacked bars | Distribution by category |
+| Relationships between components | Boxes + arrows diagram | Architecture, pipeline, data flow |
+| Process with decisions | Flowchart (boxes + diamonds) | Workflow, decision tree |
+| Temporal sequence | Horizontal timeline | History, roadmap, evolution |
+| 2D positioning | Quadrant/matrix | Urgency x impact, effort x value |
+| Hierarchy/taxonomy | Tree diagram | Project structure, dependencies |
+| State/progress | Progress bars, gauges | Completeness, health, coverage |
+| Cycle/loop | Circular diagram | Feedback loops, iterative cycles |
 
-### Padrao tecnico
+### Technical standard
 
-- `viewBox` fixo: `700 280` para charts, `700 400` para diagramas, `700 200` para timelines
+- Fixed `viewBox`: `700 280` for charts, `700 400` for diagrams, `700 200` for timelines
 - `font-family: 'Segoe UI', sans-serif`
-- `max-width: 100%` no container
-- Cores semanticas:
-  - `#2b6cb0` normal/info (azul primario)
-  - `#38a169` sucesso/positivo
-  - `#e53e3e` perigo/critico
-  - `#ed8936` alerta/atencao
-  - `#805ad5` destaque/especial
-  - `#718096` neutro/secundario
-- Legenda inline (dentro do SVG, nao separada)
-- Texto: minimo 12px, contraste adequado
-- `<title>` nos elementos principais para acessibilidade
+- `max-width: 100%` on the container
+- Semantic colors:
+  - `#2b6cb0` normal/info (primary blue)
+  - `#38a169` success/positive
+  - `#e53e3e` danger/critical
+  - `#ed8936` alert/attention
+  - `#805ad5` highlight/special
+  - `#718096` neutral/secondary
+- Inline legend (inside the SVG, not separate)
+- Text: minimum 12px, adequate contrast
+- `<title>` on main elements for accessibility
 
-### Regras
+### Rules
 
-1. **Dados numericos: SVG + tabela = par obrigatorio.** O grafico e a visualizacao; a tabela e a referencia exata
-2. **Diagramas de relacao/fluxo nao precisam de tabela** — sao autoexplicativos
-3. **Simplicidade > decoracao.** Barra horizontal resolve? Nao usar 3D. Seta reta resolve? Nao usar curva
-4. **Preferir SVG a texto** quando 3+ elementos tem relacoes espaciais (acima/abaixo, antes/depois, contem/contido, depende/bloqueia)
-5. **Minimo 1 SVG por report.** Se nao ha dados nem relacoes para visualizar, o report provavelmente e curto demais para ser report
-
----
-
-## Regras de formato
-
-- Sem anchor links internos (`<a href="#...">` causa tela branca no SharePoint)
-- Links externos PERMITIDOS e ENCORAJADOS (`<a href="https://...">`) — tweets, papers, docs, sources. O leitor quer clicar e ver o original
-- 100% autocontido (SVG inline, CSS inline) — single file, sem dependencias externas
-- Sem emojis (a menos que o usuario peca)
+1. **Numeric data: SVG + table = mandatory pair.** The chart is the visualization; the table is the exact reference
+2. **Relationship/flow diagrams do not need a table** — they are self-explanatory
+3. **Simplicity > decoration.** Horizontal bar works? Don't use 3D. Straight arrow works? Don't use curves
+4. **Prefer SVG over text** when 3+ elements have spatial relationships (above/below, before/after, contains/contained, depends/blocks)
+5. **Minimum 1 SVG per report.** If there's no data or relationships to visualize, the report is probably too short to be a report
 
 ---
 
-## Pós-execução
+## Format Rules
 
-**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
+- No internal anchor links (`<a href="#...">` causes blank screen in SharePoint)
+- External links ALLOWED and ENCOURAGED (`<a href="https://...">`) — tweets, papers, docs, sources. The reader wants to click and see the original
+- 100% self-contained (inline SVG, inline CSS) — single file, no external dependencies
+- No emojis (unless the user asks)
 
 ---
 
-## Privacidade
+## Post-execution
 
-Relatorios vivem em `~/edge/reports/` — CONFIDENCIAL, so humano + IA.
-Podem conter nomes de projetos, detalhes especificos, insights do trabalho.
-Para conteudo publico (Netlify), sanitizar ANTES de publicar.
+**Follow `~/edge/config/post-skill.md` for post-publication actions.**
+
+---
+
+## Privacy
+
+Reports live in `~/edge/reports/` — CONFIDENTIAL, human + AI only.
+May contain project names, specific details, work insights.
+For public content (Netlify), sanitize BEFORE publishing.
