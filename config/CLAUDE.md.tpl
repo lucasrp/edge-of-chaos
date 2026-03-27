@@ -48,7 +48,7 @@ Internal blog at `http://localhost:{{ BLOG_PORT }}/blog/`
 - `edge-render` — Generate files from agent.yaml
 - `edge-apply` — Provision host (idempotent)
 - `edge-doctor` — Validate installation
-- `consolidar-estado` — 8-phase publication pipeline
+- `consolidate-state` — 8-phase publication pipeline
 - `review-gate` — LLM-as-judge quality gate
 
 ## Genotype / Phenotype — CRITICAL
