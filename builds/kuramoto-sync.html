@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kuramoto Model — Spontaneous Synchronization</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0f;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    overflow-x: hidden;
+  }
+  .header {
+    text-align: center;
+    padding: 24px 16px 8px;
+  }
+  .header h1 {
+    font-size: 1.8em;
+    font-weight: 300;
+    color: #c8d6e5;
+    letter-spacing: 2px;
+  }
+  .header p {
+    font-size: 0.9em;
+    color: #6c7a89;
+    margin-top: 4px;
+  }
+  .main {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 16px;
+    padding: 16px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .panel {
+    background: #12121a;
+    border: 1px solid #1e1e2e;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .panel h2 {
+    font-size: 0.85em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #6c7a89;
+    margin-bottom: 12px;
+  }
+  .circle-panel { width: 420px; height: 460px; }
+  .plots-panel { width: 420px; display: flex; flex-direction: column; gap: 12px; }
+  .controls-panel { width: 860px; }
+
+  canvas { display: block; }
+  #circleCanvas { margin: 0 auto; }
+
+  .slider-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 8px 0;
+  }
+  .slider-group label {
+    font-size: 0.82em;
+    color: #8e99a4;
+    min-width: 140px;
+  }
+  .slider-group input[type="range"] {
+    flex: 1;
+    accent-color: #5b8def;
+    height: 6px;
+  }
+  .slider-group .value {
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
+    color: #5b8def;
+    min-width: 60px;
+    text-align: right;
+  }
+  .btn-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    background: #1e1e2e;
+    border: 1px solid #2e2e3e;
+    color: #c8d6e5;
+    padding: 6px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8em;
+    transition: background 0.2s;
+  }
+  .btn:hover { background: #2e2e3e; }
+  .btn.active { background: #5b8def33; border-color: #5b8def; }
+
+  .metrics-bar {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    padding: 8px 0 4px;
+    flex-wrap: wrap;
+  }
+  .metric {
+    text-align: center;
+  }
+  .metric .val {
+    font-family: 'Courier New', monospace;
+    font-size: 1.6em;
+    font-weight: 300;
+    color: #5b8def;
+  }
+  .metric .lbl {
+    font-size: 0.7em;
+    color: #6c7a89;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .info-box {
+    background: #0a0a12;
+    border: 1px solid #1e1e2e;
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 0.78em;
+    color: #8e99a4;
+    line-height: 1.5;
+    margin-top: 8px;
+  }
+  .info-box code {
+    color: #5b8def;
+    font-family: 'Courier New', monospace;
+  }
+  .eq {
+    text-align: center;
+    font-family: 'Courier New', monospace;
+    color: #c8d6e5;
+    padding: 8px;
+    font-size: 0.9em;
+  }
+
+  .phase-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 8px;
+    margin-top: 4px;
+    border-radius: 4px;
+    transition: background 0.5s;
+  }
+  .phase-indicator .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    transition: background 0.5s;
+  }
+  .phase-indicator .text {
+    font-size: 0.8em;
+    font-weight: 500;
+    letter-spacing: 1px;
+    transition: color 0.5s;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Kuramoto Model</h1>
+  <p>How independent oscillators spontaneously synchronize</p>
+</div>
+
+<div class="metrics-bar">
+  <div class="metric"><div class="val" id="mR">0.00</div><div class="lbl">Order r</div></div>
+  <div class="metric"><div class="val" id="mK">0.00</div><div class="lbl">Coupling K</div></div>
+  <div class="metric"><div class="val" id="mKc">0.00</div><div class="lbl">Critical K_c</div></div>
+  <div class="metric"><div class="val" id="mN">50</div><div class="lbl">Oscillators</div></div>
+  <div class="metric">
+    <div class="phase-indicator" id="phaseInd">
+      <div class="dot" id="phaseDot"></div>
+      <div class="text" id="phaseText">INCOHERENT</div>
+    </div>
+    <div class="lbl">Phase</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="panel circle-panel">
+    <h2>Unit Circle</h2>
+    <canvas id="circleCanvas" width="388" height="388"></canvas>
+  </div>
+
+  <div class="plots-panel">
+    <div class="panel" style="flex:1">
+      <h2>Order Parameter r(t)</h2>
+      <canvas id="rCanvas" width="388" height="140"></canvas>
+    </div>
+    <div class="panel" style="flex:1">
+      <h2>Phase Transition: r vs K</h2>
+      <canvas id="transCanvas" width="388" height="140"></canvas>
+    </div>
+    <div class="panel" style="flex:0 0 auto">
+      <h2>Phase Histogram</h2>
+      <canvas id="histCanvas" width="388" height="100"></canvas>
+    </div>
+  </div>
+
+  <div class="panel controls-panel">
+    <h2>Controls</h2>
+    <div class="slider-group">
+      <label>Coupling K</label>
+      <input type="range" id="sliderK" min="0" max="10" step="0.05" value="0">
+      <span class="value" id="valK">0.00</span>
+    </div>
+    <div class="slider-group">
+      <label>Spread gamma (width)</label>
+      <input type="range" id="sliderGamma" min="0.1" max="3" step="0.05" value="1">
+      <span class="value" id="valGamma">1.00</span>
+    </div>
+    <div class="slider-group">
+      <label>Oscillators N</label>
+      <input type="range" id="sliderN" min="10" max="300" step="5" value="50">
+      <span class="value" id="valN">50</span>
+    </div>
+    <div class="slider-group">
+      <label>Speed</label>
+      <input type="range" id="sliderSpeed" min="0.5" max="5" step="0.25" value="1">
+      <span class="value" id="valSpeed">1.0x</span>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="btnReset">Reset</button>
+      <button class="btn" id="btnSweep">Sweep K (0 to 8)</button>
+      <button class="btn" id="btnPause">Pause</button>
+      <button class="btn active" id="btnTrail">Trails</button>
+    </div>
+
+    <div class="info-box">
+      <div class="eq">dtheta_i/dt = omega_i + (K/N) * sum_j sin(theta_j - theta_i)</div>
+      <p style="margin-top:8px">
+        Each oscillator has its own natural frequency <code>omega_i</code> drawn from a Lorentzian distribution
+        with spread <code>gamma</code>. When coupling <code>K</code> exceeds the critical value
+        <code>K_c = 2*gamma</code>, oscillators spontaneously synchronize — a phase transition emerges
+        from purely local interactions. The order parameter <code>r</code> measures coherence:
+        0 = fully incoherent, 1 = perfect sync. Above K_c, theory predicts <code>r = sqrt(1 - K_c/K)</code>.
+      </p>
+      <p style="margin-top:6px">
+        <strong>Try it:</strong> Start with K=0 (chaos), then slowly increase K past the critical value
+        and watch order emerge from nothing. Or hit "Sweep" to see the full phase transition unfold.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- State ---
+let N = 50;
+let K = 0;
+let gamma = 1;
+let speed = 1;
+let paused = false;
+let showTrails = true;
+let sweeping = false;
+let sweepK = 0;
+
+let thetas = [];   // phases
+let omegas = [];   // natural frequencies
+let colors = [];   // oscillator colors
+
+let rHistory = [];
+const R_HISTORY_MAX = 300;
+
+let transitionData = []; // {K, r} measurements for the r vs K plot
+let lastTransitionK = -1;
+
+// --- Init oscillators ---
+function lorentzianSample(gamma) {
+  // Inverse CDF of Cauchy/Lorentz: omega = gamma * tan(pi * (U - 0.5))
+  const u = Math.random();
+  return gamma * Math.tan(Math.PI * (u - 0.5));
+}
+
+function freqToColor(omega, gamma) {
+  // Map frequency to hue: center=blue, fast=red, slow=green
+  const norm = Math.atan(omega / gamma) / (Math.PI / 2); // [-1, 1]
+  const hue = 210 + norm * 120; // 90..330
+  return `hsl(${hue}, 70%, 55%)`;
+}
+
+function initOscillators() {
+  thetas = [];
+  omegas = [];
+  colors = [];
+  for (let i = 0; i < N; i++) {
+    thetas.push(Math.random() * 2 * Math.PI);
+    const w = lorentzianSample(gamma);
+    omegas.push(w);
+    colors.push(freqToColor(w, gamma));
+  }
+  rHistory = [];
+  transitionData = [];
+  lastTransitionK = -1;
+}
+
+// --- Physics ---
+function computeOrderParameter() {
+  let sx = 0, sy = 0;
+  for (let i = 0; i < N; i++) {
+    sx += Math.cos(thetas[i]);
+    sy += Math.sin(thetas[i]);
+  }
+  sx /= N; sy /= N;
+  const r = Math.sqrt(sx * sx + sy * sy);
+  const psi = Math.atan2(sy, sx);
+  return { r, psi };
+}
+
+function step(dt) {
+  const { r, psi } = computeOrderParameter();
+
+  // Mean-field form: dtheta_i/dt = omega_i + K*r*sin(psi - theta_i)
+  for (let i = 0; i < N; i++) {
+    const dtheta = omegas[i] + K * r * Math.sin(psi - thetas[i]);
+    thetas[i] += dtheta * dt;
+    // Wrap to [0, 2pi)
+    thetas[i] = ((thetas[i] % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  }
+
+  return { r, psi };
+}
+
+// --- Drawing ---
+const circleCanvas = document.getElementById('circleCanvas');
+const circleCtx = circleCanvas.getContext('2d');
+const rCanvas = document.getElementById('rCanvas');
+const rCtx = rCanvas.getContext('2d');
+const transCanvas = document.getElementById('transCanvas');
+const transCtx = transCanvas.getContext('2d');
+const histCanvas = document.getElementById('histCanvas');
+const histCtx = histCanvas.getContext('2d');
+
+function drawCircle(r, psi) {
+  const W = circleCanvas.width;
+  const H = circleCanvas.height;
+  const cx = W / 2;
+  const cy = H / 2;
+  const radius = Math.min(cx, cy) - 30;
+
+  if (showTrails) {
+    circleCtx.fillStyle = 'rgba(10, 10, 15, 0.15)';
+  } else {
+    circleCtx.fillStyle = '#0a0a0f';
+  }
+  circleCtx.fillRect(0, 0, W, H);
+
+  // Unit circle
+  circleCtx.beginPath();
+  circleCtx.arc(cx, cy, radius, 0, 2 * Math.PI);
+  circleCtx.strokeStyle = '#1e1e2e';
+  circleCtx.lineWidth = 1;
+  circleCtx.stroke();
+
+  // Crosshairs
+  circleCtx.strokeStyle = '#14141e';
+  circleCtx.beginPath();
+  circleCtx.moveTo(cx - radius, cy); circleCtx.lineTo(cx + radius, cy);
+  circleCtx.moveTo(cx, cy - radius); circleCtx.lineTo(cx, cy + radius);
+  circleCtx.stroke();
+
+  // Order parameter arrow
+  const arrowLen = r * radius;
+  const ax = cx + arrowLen * Math.cos(psi);
+  const ay = cy - arrowLen * Math.sin(psi);
+
+  circleCtx.beginPath();
+  circleCtx.moveTo(cx, cy);
+  circleCtx.lineTo(ax, ay);
+  circleCtx.strokeStyle = `rgba(91, 141, 239, ${0.3 + r * 0.7})`;
+  circleCtx.lineWidth = 3;
+  circleCtx.stroke();
+
+  // Arrow head
+  if (r > 0.05) {
+    const headLen = 8;
+    const angle = Math.atan2(-(ay - cy), ax - cx);
+    circleCtx.beginPath();
+    circleCtx.moveTo(ax, ay);
+    circleCtx.lineTo(ax - headLen * Math.cos(angle - 0.4), ay + headLen * Math.sin(angle - 0.4));
+    circleCtx.moveTo(ax, ay);
+    circleCtx.lineTo(ax - headLen * Math.cos(angle + 0.4), ay + headLen * Math.sin(angle + 0.4));
+    circleCtx.stroke();
+  }
+
+  // Order parameter circle (radius = r)
+  circleCtx.beginPath();
+  circleCtx.arc(cx, cy, r * radius, 0, 2 * Math.PI);
+  circleCtx.strokeStyle = `rgba(91, 141, 239, 0.15)`;
+  circleCtx.lineWidth = 1;
+  circleCtx.stroke();
+
+  // Oscillators
+  const dotSize = N > 150 ? 3 : N > 80 ? 4 : 5;
+  for (let i = 0; i < N; i++) {
+    const x = cx + radius * Math.cos(thetas[i]);
+    const y = cy - radius * Math.sin(thetas[i]);
+    circleCtx.beginPath();
+    circleCtx.arc(x, y, dotSize, 0, 2 * Math.PI);
+    circleCtx.fillStyle = colors[i];
+    circleCtx.fill();
+  }
+
+  // r value in center
+  circleCtx.fillStyle = '#5b8def';
+  circleCtx.font = '24px Courier New';
+  circleCtx.textAlign = 'center';
+  circleCtx.fillText(`r = ${r.toFixed(3)}`, cx, cy + 8);
+}
+
+function drawRHistory() {
+  const W = rCanvas.width;
+  const H = rCanvas.height;
+  rCtx.fillStyle = '#12121a';
+  rCtx.fillRect(0, 0, W, H);
+
+  // Grid
+  rCtx.strokeStyle = '#1a1a2a';
+  rCtx.lineWidth = 0.5;
+  for (let y = 0; y <= 1; y += 0.25) {
+    const py = H - 10 - y * (H - 20);
+    rCtx.beginPath();
+    rCtx.moveTo(40, py);
+    rCtx.lineTo(W - 5, py);
+    rCtx.stroke();
+    rCtx.fillStyle = '#4a4a5a';
+    rCtx.font = '10px Courier New';
+    rCtx.textAlign = 'right';
+    rCtx.fillText(y.toFixed(2), 36, py + 3);
+  }
+
+  if (rHistory.length < 2) return;
+
+  // K_c/K theoretical line
+  const Kc = 2 * gamma;
+  const rTheory = K > Kc ? Math.sqrt(1 - Kc / K) : 0;
+  if (rTheory > 0) {
+    const ty = H - 10 - rTheory * (H - 20);
+    rCtx.setLineDash([4, 4]);
+    rCtx.strokeStyle = '#5b8def44';
+    rCtx.beginPath();
+    rCtx.moveTo(40, ty);
+    rCtx.lineTo(W - 5, ty);
+    rCtx.stroke();
+    rCtx.setLineDash([]);
+    rCtx.fillStyle = '#5b8def66';
+    rCtx.font = '9px Courier New';
+    rCtx.textAlign = 'left';
+    rCtx.fillText('theory', W - 45, ty - 3);
+  }
+
+  // r(t) curve
+  const step = (W - 45) / R_HISTORY_MAX;
+  rCtx.beginPath();
+  for (let i = 0; i < rHistory.length; i++) {
+    const x = 40 + i * step;
+    const y = H - 10 - rHistory[i] * (H - 20);
+    if (i === 0) rCtx.moveTo(x, y);
+    else rCtx.lineTo(x, y);
+  }
+  rCtx.strokeStyle = '#5b8def';
+  rCtx.lineWidth = 1.5;
+  rCtx.stroke();
+}
+
+function drawTransition() {
+  const W = transCanvas.width;
+  const H = transCanvas.height;
+  transCtx.fillStyle = '#12121a';
+  transCtx.fillRect(0, 0, W, H);
+
+  const Kc = 2 * gamma;
+  const maxK = 10;
+  const pad = { l: 40, r: 5, t: 10, b: 15 };
+  const pw = W - pad.l - pad.r;
+  const ph = H - pad.t - pad.b;
+
+  // Grid
+  transCtx.strokeStyle = '#1a1a2a';
+  transCtx.lineWidth = 0.5;
+  for (let y = 0; y <= 1; y += 0.25) {
+    const py = pad.t + (1 - y) * ph;
+    transCtx.beginPath();
+    transCtx.moveTo(pad.l, py);
+    transCtx.lineTo(W - pad.r, py);
+    transCtx.stroke();
+    transCtx.fillStyle = '#4a4a5a';
+    transCtx.font = '10px Courier New';
+    transCtx.textAlign = 'right';
+    transCtx.fillText(y.toFixed(2), pad.l - 4, py + 3);
+  }
+
+  // Kc vertical line
+  const kcX = pad.l + (Kc / maxK) * pw;
+  transCtx.setLineDash([4, 4]);
+  transCtx.strokeStyle = '#ed893666';
+  transCtx.beginPath();
+  transCtx.moveTo(kcX, pad.t);
+  transCtx.lineTo(kcX, pad.t + ph);
+  transCtx.stroke();
+  transCtx.setLineDash([]);
+  transCtx.fillStyle = '#ed8936';
+  transCtx.font = '9px Courier New';
+  transCtx.textAlign = 'center';
+  transCtx.fillText(`K_c=${Kc.toFixed(1)}`, kcX, H - 2);
+
+  // Theoretical curve: r = sqrt(1 - Kc/K) for K > Kc
+  transCtx.beginPath();
+  let started = false;
+  for (let ki = 0; ki <= maxK; ki += 0.05) {
+    const x = pad.l + (ki / maxK) * pw;
+    const rTh = ki > Kc ? Math.sqrt(1 - Kc / ki) : 0;
+    const y = pad.t + (1 - rTh) * ph;
+    if (!started) { transCtx.moveTo(x, y); started = true; }
+    else transCtx.lineTo(x, y);
+  }
+  transCtx.strokeStyle = '#5b8def55';
+  transCtx.lineWidth = 2;
+  transCtx.stroke();
+
+  // Measured data points
+  for (const d of transitionData) {
+    const x = pad.l + (d.K / maxK) * pw;
+    const y = pad.t + (1 - d.r) * ph;
+    transCtx.beginPath();
+    transCtx.arc(x, y, 2.5, 0, 2 * Math.PI);
+    transCtx.fillStyle = '#5b8def';
+    transCtx.fill();
+  }
+
+  // Current K marker
+  const curX = pad.l + (K / maxK) * pw;
+  transCtx.beginPath();
+  transCtx.moveTo(curX, pad.t);
+  transCtx.lineTo(curX, pad.t + ph);
+  transCtx.strokeStyle = '#5b8def44';
+  transCtx.lineWidth = 1;
+  transCtx.stroke();
+}
+
+function drawHistogram() {
+  const W = histCanvas.width;
+  const H = histCanvas.height;
+  histCtx.fillStyle = '#12121a';
+  histCtx.fillRect(0, 0, W, H);
+
+  const nBins = 36;
+  const bins = new Array(nBins).fill(0);
+  for (let i = 0; i < N; i++) {
+    const bin = Math.floor((thetas[i] / (2 * Math.PI)) * nBins) % nBins;
+    bins[bin]++;
+  }
+  const maxBin = Math.max(...bins, 1);
+
+  const barW = (W - 20) / nBins;
+  for (let b = 0; b < nBins; b++) {
+    const barH = (bins[b] / maxBin) * (H - 20);
+    const x = 10 + b * barW;
+    const y = H - 10 - barH;
+
+    const hue = (b / nBins) * 360;
+    histCtx.fillStyle = `hsla(${hue}, 60%, 50%, 0.7)`;
+    histCtx.fillRect(x, y, barW - 1, barH);
+  }
+
+  // Labels
+  histCtx.fillStyle = '#4a4a5a';
+  histCtx.font = '9px Courier New';
+  histCtx.textAlign = 'center';
+  histCtx.fillText('0', 10, H - 1);
+  histCtx.fillText('pi', W / 2, H - 1);
+  histCtx.fillText('2pi', W - 10, H - 1);
+}
+
+// --- Phase indicator ---
+function updatePhaseIndicator(r) {
+  const Kc = 2 * gamma;
+  const dot = document.getElementById('phaseDot');
+  const text = document.getElementById('phaseText');
+  const ind = document.getElementById('phaseInd');
+
+  if (K < Kc * 0.8 || r < 0.15) {
+    dot.style.background = '#e53e3e';
+    text.style.color = '#e53e3e';
+    text.textContent = 'INCOHERENT';
+    ind.style.background = '#e53e3e11';
+  } else if (r < 0.5) {
+    dot.style.background = '#ed8936';
+    text.style.color = '#ed8936';
+    text.textContent = 'PARTIAL SYNC';
+    ind.style.background = '#ed893611';
+  } else {
+    dot.style.background = '#38a169';
+    text.style.color = '#38a169';
+    text.textContent = 'SYNCHRONIZED';
+    ind.style.background = '#38a16911';
+  }
+}
+
+// --- Animation loop ---
+let lastTime = null;
+let frameCount = 0;
+
+function animate(timestamp) {
+  if (!lastTime) lastTime = timestamp;
+  const rawDt = (timestamp - lastTime) / 1000;
+  lastTime = timestamp;
+
+  if (!paused) {
+    // Sweep mode
+    if (sweeping) {
+      sweepK += rawDt * 0.8; // sweep speed
+      if (sweepK > 8) {
+        sweeping = false;
+        document.getElementById('btnSweep').classList.remove('active');
+      } else {
+        K = sweepK;
+        document.getElementById('sliderK').value = K;
+        document.getElementById('valK').textContent = K.toFixed(2);
+        document.getElementById('mK').textContent = K.toFixed(2);
+      }
+    }
+
+    // Physics steps (fixed dt for stability, multiple substeps)
+    const dt = 0.016 * speed;
+    const substeps = 4;
+    let lastR, lastPsi;
+    for (let s = 0; s < substeps; s++) {
+      const result = step(dt / substeps);
+      lastR = result.r;
+      lastPsi = result.psi;
+    }
+
+    // Record r history
+    frameCount++;
+    if (frameCount % 2 === 0) {
+      rHistory.push(lastR);
+      if (rHistory.length > R_HISTORY_MAX) rHistory.shift();
+    }
+
+    // Record transition data (every 0.2 K)
+    const roundK = Math.round(K * 5) / 5;
+    if (roundK !== lastTransitionK && roundK >= 0) {
+      // Average r over a few frames for smoother data
+      transitionData.push({ K: roundK, r: lastR });
+      lastTransitionK = roundK;
+    }
+
+    // Draw
+    drawCircle(lastR, lastPsi);
+    drawRHistory();
+    drawTransition();
+    drawHistogram();
+    updatePhaseIndicator(lastR);
+
+    document.getElementById('mR').textContent = lastR.toFixed(3);
+  }
+
+  requestAnimationFrame(animate);
+}
+
+// --- Controls ---
+document.getElementById('sliderK').addEventListener('input', e => {
+  K = parseFloat(e.target.value);
+  document.getElementById('valK').textContent = K.toFixed(2);
+  document.getElementById('mK').textContent = K.toFixed(2);
+  sweeping = false;
+  document.getElementById('btnSweep').classList.remove('active');
+});
+
+document.getElementById('sliderGamma').addEventListener('input', e => {
+  gamma = parseFloat(e.target.value);
+  document.getElementById('valGamma').textContent = gamma.toFixed(2);
+  document.getElementById('mKc').textContent = (2 * gamma).toFixed(2);
+  // Regenerate frequencies with new gamma
+  for (let i = 0; i < N; i++) {
+    omegas[i] = lorentzianSample(gamma);
+    colors[i] = freqToColor(omegas[i], gamma);
+  }
+  transitionData = [];
+  lastTransitionK = -1;
+});
+
+document.getElementById('sliderN').addEventListener('input', e => {
+  N = parseInt(e.target.value);
+  document.getElementById('valN').textContent = N;
+  document.getElementById('mN').textContent = N;
+  initOscillators();
+});
+
+document.getElementById('sliderSpeed').addEventListener('input', e => {
+  speed = parseFloat(e.target.value);
+  document.getElementById('valSpeed').textContent = speed.toFixed(1) + 'x';
+});
+
+document.getElementById('btnReset').addEventListener('click', () => {
+  sweeping = false;
+  document.getElementById('btnSweep').classList.remove('active');
+  initOscillators();
+});
+
+document.getElementById('btnSweep').addEventListener('click', () => {
+  sweeping = true;
+  sweepK = 0;
+  K = 0;
+  transitionData = [];
+  lastTransitionK = -1;
+  document.getElementById('sliderK').value = 0;
+  document.getElementById('valK').textContent = '0.00';
+  document.getElementById('mK').textContent = '0.00';
+  document.getElementById('btnSweep').classList.add('active');
+});
+
+document.getElementById('btnPause').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('btnPause').textContent = paused ? 'Play' : 'Pause';
+  document.getElementById('btnPause').classList.toggle('active', paused);
+});
+
+document.getElementById('btnTrail').addEventListener('click', () => {
+  showTrails = !showTrails;
+  document.getElementById('btnTrail').classList.toggle('active', showTrails);
+});
+
+// --- Start ---
+document.getElementById('mKc').textContent = (2 * gamma).toFixed(2);
+initOscillators();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
