@@ -803,10 +803,16 @@ Generate EXACTLY this JSON structure (no markdown, no explanation, just valid JS
   "autonomy": ["2-4 specific capabilities or access the agent needs to fulfill its mission, based on what keys are missing and what the domain requires"],
   "friction": ["1-2 anticipated friction points for this specific domain and mission"],
   "serendipity": ["1 genuine insight about what makes this agent's position unique or promising"],
-  "reflection": ["1 honest observation about the starting conditions"]
+  "reflection": ["1 honest observation about the starting conditions"],
+  "threads": [
+    {{"id": "slug-name", "title": "Thread Title", "description": "What this workstream is about — 1 sentence", "status": "active"}},
+    "... 2-3 concrete workstreams derived from the short-term goal, NOT from interests (interests are too broad)"
+  ],
+  "briefing": "A day-1 briefing in markdown: what the agent knows, what it doesn't, where to start. 5-10 lines. End with: '<!-- SYNTHETIC — replace on first /ed-strategy run -->'"
 }}
 
-Each signal should be a short sentence (under 120 chars). Use ! prefix for open gaps, ? for speculative ideas."""
+Each signal should be a short sentence (under 120 chars). Use ! prefix for open gaps, ? for speculative ideas.
+Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioning-wedge'), not interest areas."""
 
         llm_seed = None
         if openai_key:
@@ -851,6 +857,45 @@ Each signal should be a short sentence (under 120 chars). Use ! prefix for open 
                 lines = [f"- [{now} | seed] {item}" for item in items]
                 sf.write_text("\n".join(lines) + "\n")
                 seeded += 1
+
+    # --- threads/ ---
+    threads_dir = edge / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    existing_threads = list(threads_dir.glob("*.md"))
+    if not existing_threads and llm_seed and "threads" in llm_seed:
+        for t in llm_seed["threads"]:
+            if not isinstance(t, dict):
+                continue
+            tid = t.get("id", "").strip()
+            if not tid:
+                continue
+            tfile = threads_dir / f"{tid}.md"
+            tfile.write_text(
+                f"---\n"
+                f"id: {tid}\n"
+                f"title: {t.get('title', tid)}\n"
+                f"status: {t.get('status', 'active')}\n"
+                f"created: {today}\n"
+                f"updated: {today}\n"
+                f"---\n\n"
+                f"{t.get('description', '')}\n"
+            )
+            seeded += 1
+
+    # --- briefing.md ---
+    briefing_file = edge / "briefing.md"
+    if not briefing_file.exists() or briefing_file.stat().st_size == 0:
+        if llm_seed and "briefing" in llm_seed:
+            briefing_file.write_text(llm_seed["briefing"] + "\n")
+        else:
+            briefing_file.write_text(
+                f"# Briefing — {today}\n\n"
+                f"Day 1. Mission: {mission}\n\n"
+                f"Goal: {goal}\n\n"
+                f"No data yet. First heartbeat will populate this.\n\n"
+                f"<!-- SYNTHETIC — replace on first /ed-strategy run -->\n"
+            )
+        seeded += 1
 
     # --- config/interests.md ---
     interests_file = edge / "config" / "interests.md"
