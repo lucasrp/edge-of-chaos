@@ -86,7 +86,7 @@ fi
 echo "=== PREFLIGHT $(date +%H:%M) ==="
 if [ ${#SIGNALS[@]} -eq 0 ]; then
   echo "PREFLIGHT_CLEAN"
-  echo "No signals detected. Suggestion: /${SKILL_PREFIX}-leisure or /${SKILL_PREFIX}-discovery."
+  echo "No signals detected. Use round-robin rotation (2 content + 1 meta every 3rd beat)."
 else
   echo "PREFLIGHT_WORK (${#SIGNALS[@]} signals)"
   for s in "${SIGNALS[@]}"; do
