@@ -32,16 +32,16 @@ short_term_goal: "Map the competitive landscape and find edge-of-chaos's positio
 # refine, add, and drop interests as it learns through actual work.
 # Think "what should it Google on day 1" — not a research agenda.
 interests:
-  - area: "Developer tools adoption"
-    connection: "How OSS devtools gain traction — Terraform, dbt, LangChain patterns"
-  - area: "AI agent frameworks"
-    connection: "Direct competition — CrewAI, AutoGen, LangGraph, Agent Zero"
-  - area: "Community-led growth"
-    connection: "How OSS projects build community before monetizing"
-  - area: "Technical content marketing"
-    connection: "Blog posts that convert developers, not corporate white papers"
-  - area: "Positioning & narrative"
-    connection: "Finding the wedge — what problem ONLY this architecture solves"
+  - area: "Autonomous agent architectures"
+    connection: "How people are building persistent, self-improving agents — what works, what doesn't"
+  - area: "Agent-as-colleague paradigm"
+    connection: "Agents that maintain state, publish findings, and grow with the team — not one-shot chatbots"
+  - area: "Cognitive frameworks for AI"
+    connection: "Heartbeat loops, adversarial review, typed signals — patterns that give agents structure"
+  - area: "Open-source developer experience"
+    connection: "One yaml, one command, agent running — how to make onboarding frictionless"
+  - area: "AI content that converts"
+    connection: "Blog posts and demos that show what the agent actually does, not what it theoretically could"
 
 # --- Defaults (smart defaults — override if needed) ---
 language: en
