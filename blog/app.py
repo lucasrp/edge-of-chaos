@@ -83,11 +83,6 @@ def enforce_auth():
         if not auth or auth.username != _auth_user or auth.password != _auth_pass:
             return ("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="Blog"'})
 
-@app.before_request
-def enforce_read_only():
-    if BLOG_READ_ONLY and request.method in ("POST", "PUT", "DELETE", "PATCH"):
-        return jsonify({"error": "read-only mode"}), 403
-
 @app.context_processor
 def inject_read_only():
     return {"read_only": BLOG_READ_ONLY}
