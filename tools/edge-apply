@@ -134,7 +134,10 @@ def phase_skills(cfg, dry_run):
             if not dry_run:
                 dst.mkdir(parents=True, exist_ok=True)
                 for f in skill_dir.glob("*.md"):
-                    shutil.copy2(f, dst / f.name)
+                    target_f = dst / f.name
+                    if target_f.exists() and os.path.samefile(f, target_f):
+                        continue
+                    shutil.copy2(f, target_f)
             ok(f"_shared/ ({len(list(skill_dir.glob('*.md')))} files)")
             continue
 
@@ -346,9 +349,14 @@ def phase_tools_venv(cfg, dry_run, skip_venv=False):
         fail(f"pip install falhou: {result.stderr.strip()}")
         return False
 
-    # Update shebangs in Python tools to use venv
-    for tool in tools_dir.glob("*.py"):
-        content = tool.read_text()
+    # Update shebangs in ALL Python tools to use venv (not just *.py)
+    for tool in tools_dir.iterdir():
+        if not tool.is_file() or tool.name.startswith("."):
+            continue
+        try:
+            content = tool.read_text()
+        except (UnicodeDecodeError, PermissionError):
+            continue
         if content.startswith("#!/usr/bin/env python3"):
             content = content.replace(
                 "#!/usr/bin/env python3",
