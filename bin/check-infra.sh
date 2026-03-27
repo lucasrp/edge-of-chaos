@@ -175,6 +175,27 @@ check_heartbeat() {
   fi
 }
 
+# --- mini-repos (skills, memory) ---
+check_mini_repos() {
+  local claude_dir="$HOME/.claude"
+
+  if [[ ! -d "$claude_dir/.git" ]]; then
+    emit_component mini_repos unknown "no git repo at $claude_dir"
+    return
+  fi
+
+  local dirty
+  dirty=$(cd "$claude_dir" && git status --porcelain 2>/dev/null | wc -l)
+
+  if [[ "$dirty" -eq 0 ]]; then
+    emit_component mini_repos ok "claude config repo clean"
+  elif [[ "$dirty" -lt 10 ]]; then
+    emit_component mini_repos degraded "${dirty} uncommitted in .claude — meta-report noise"
+  else
+    emit_component mini_repos fail "${dirty} uncommitted in .claude — heavy meta-report noise"
+  fi
+}
+
 # --- run all ---
 log_health "check-infra starting"
 check_disk
@@ -185,4 +206,5 @@ check_index
 check_consolidate
 check_git
 check_heartbeat
+check_mini_repos
 log_health "check-infra done"
