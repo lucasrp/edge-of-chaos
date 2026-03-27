@@ -1,34 +1,34 @@
-# Estratégia
+# Strategy
 
-> Última atualização: {{DATE}}
+> Last updated: {{DATE}}
 
 ---
 
-## Direção (operador)
+## Direction (operator)
 
-<!-- O humano define. O agente lê. -->
+<!-- Operator defines. Agent reads. -->
 
-- **Fase atual:** {{PHASE}}
-- **Horizonte:** {{HORIZON}}
-- **Foco:** {{FOCUS}}
-- **Restrições:** {{CONSTRAINTS}}
+- **Current phase:** {{PHASE}}
+- **Horizon:** {{HORIZON}}
+- **Focus:** {{FOCUS}}
+- **Constraints:** {{CONSTRAINTS}}
 
-## Prioridades (operador)
+## Priorities (operator)
 
-<!-- Ordenadas. O agente segue essa ordem. -->
+<!-- Ordered. Agent follows this order. -->
 
 1. {{PRIORITY_1}}
 2. {{PRIORITY_2}}
 3. {{PRIORITY_3}}
 
-## Propostas (agente — pendente aprovação)
+## Proposals (agent — pending approval)
 
-<!-- ed-strategy escreve aqui. Operador aceita/rejeita. -->
+<!-- ed-strategy writes here. Operator accepts/rejects. -->
 
-_Nenhuma proposta pendente._
+_No proposals pending._
 
-## Contexto (agente — informativo)
+## Context (agent — informational)
 
-<!-- Dados que informam a estratégia. Atualizado por ed-strategy. -->
+<!-- Data that informs strategy. Updated by ed-strategy. -->
 
-_Aguardando primeiro ciclo estratégico._
+_Awaiting first strategy cycle._
