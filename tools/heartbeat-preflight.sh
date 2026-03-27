@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# heartbeat-preflight.sh — checagem determinística antes de invocar LLM
-# Custo: ~2-3 segundos, zero tokens
-# Exit 0 + sinais no stdout = tem trabalho → heartbeat normal
-# Exit 0 + "PREFLIGHT_CLEAN" = nada urgente → explorar
+# heartbeat-preflight.sh — deterministic check before invoking LLM
+# Cost: ~2-3 seconds, zero tokens
+# Exit 0 + signals on stdout = there's work → normal heartbeat
+# Exit 0 + "PREFLIGHT_CLEAN" = nothing urgent → explore
 
 set -uo pipefail
 
@@ -34,7 +34,7 @@ if [ -f "$HEALTH_FILE" ]; then
   fi
 fi
 
-# 1. Chat pendente?
+# 1. Pending chat?
 chat_pending=$(curl -s --max-time 3 $CURL_AUTH "http://localhost:${BLOG_PORT}/api/chat?unprocessed=true" 2>/dev/null | \
   python3 -c "
 import json, sys
@@ -46,10 +46,10 @@ except: print(0)
 " 2>/dev/null || echo 0)
 
 if [ "$chat_pending" -gt 0 ] 2>/dev/null; then
-  SIGNALS+=("CHAT:${chat_pending} mensagens pendentes")
+  SIGNALS+=("CHAT:${chat_pending} pending messages")
 fi
 
-# 2. Fios com resurface <= hoje?
+# 2. Threads with resurface <= today?
 for f in "$THREADS_DIR"/*.md; do
   [ -f "$f" ] || continue
   status=$(grep '^status:' "$f" 2>/dev/null | head -1 | awk '{print $2}')
@@ -63,43 +63,32 @@ for f in "$THREADS_DIR"/*.md; do
   fi
 done
 
-# 3. Insight novo (sem [LIDO])?
-insights_file="${MEMORY_BASE}/insights.md"
-if [ -f "$insights_file" ]; then
-  new_insights=$(grep -c '^\-' "$insights_file" 2>/dev/null || echo 0)
-  read_insights=$(grep -c '\[LIDO' "$insights_file" 2>/dev/null || echo 0)
-  unread=$((new_insights - read_insights))
-  if [ "$unread" -gt 0 ] 2>/dev/null; then
-    SIGNALS+=("INSIGHT:${unread} insights novos")
-  fi
-fi
-
-# 4. Erro pendente no debugging.md?
+# 3. Pending errors in debugging.md?
 debug_file="${MEMORY_BASE}/debugging.md"
 if [ -f "$debug_file" ]; then
   open_errors=$(grep -ci 'status:.*aberto\|status:.*open\|\[ \]' "$debug_file" 2>/dev/null || echo 0)
   if [ "$open_errors" -gt 0 ] 2>/dev/null; then
-    SIGNALS+=("ERRO:${open_errors} erros pendentes")
+    SIGNALS+=("ERROR:${open_errors} pending errors")
   fi
 fi
 
-# 5. Sessão recente do operador (última 2h)?
+# 4. Recent operator session (last 2h)?
 # PROJECT_DIR already set by paths.sh
 latest_session=$(ls -t "${PROJECT_DIR}"/*.jsonl 2>/dev/null | head -1)
 if [ -n "$latest_session" ]; then
   session_age=$(( $(date +%s) - $(stat -c %Y "$latest_session" 2>/dev/null || echo 0) ))
   if [ "$session_age" -lt 7200 ] 2>/dev/null; then
-    SIGNALS+=("SESSAO:sessão interativa recente ($(( session_age / 60 ))min atrás)")
+    SIGNALS+=("SESSION:recent interactive session ($(( session_age / 60 ))min ago)")
   fi
 fi
 
-# Resultado
+# Result
 echo "=== PREFLIGHT $(date +%H:%M) ==="
 if [ ${#SIGNALS[@]} -eq 0 ]; then
   echo "PREFLIGHT_CLEAN"
-  echo "Nenhum sinal detectado. Sugestão: /${SKILL_PREFIX}-lazer ou /${SKILL_PREFIX}-descoberta."
+  echo "No signals detected. Suggestion: /${SKILL_PREFIX}-leisure or /${SKILL_PREFIX}-discovery."
 else
-  echo "PREFLIGHT_WORK (${#SIGNALS[@]} sinais)"
+  echo "PREFLIGHT_WORK (${#SIGNALS[@]} signals)"
   for s in "${SIGNALS[@]}"; do
     echo "  → $s"
   done
