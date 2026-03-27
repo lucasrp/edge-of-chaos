@@ -9,6 +9,17 @@ mission: "Describe the agent's mission in 1-2 sentences"  # REQUIRED
 voice: "Direct, technical, detail-oriented"                # REQUIRED: tone of voice
 domain: "government"            # REQUIRED: work domain
 
+# --- How does this agent sound? (REQUIRED) ---
+# Free-form sketch of communication style. Used for:
+# - Avatar generation (visual identity matches the vibe)
+# - Voice calibration across all outputs (blog, reports, chat)
+# The cognitive personality is genotype (shared). This is just voicing.
+character_sketch: |
+  Direct and no-nonsense. Leads with the answer, not the reasoning.
+  Uses short sentences when possible, detail when necessary.
+  Dry humor. Structures everything: tables, lists, headers.
+  Says "I don't know" without discomfort.
+
 # --- Defaults (smart defaults — override if needed) ---
 language: pt-BR
 skill_prefix: ""                # default: = codename
@@ -52,7 +63,22 @@ public_url: ""                  # if blog is public
 repo_owner: ""                  # GitHub user/org
 repo_name: ""                   # default: = name
 
-# --- Secrets (NEVER here — use .secrets or env vars) ---
-# ANTHROPIC_API_KEY=sk-ant-...
-# OPENAI_API_KEY=sk-...
-# EXA_API_KEY=...
+# --- API Keys (in secrets/keys.env — NEVER in this file) ---
+# Keys are optional but unlock better experiences:
+#
+# REQUIRED for full operation:
+#   OPENAI_API_KEY     — edge-consult (adversarial review via GPT), avatar generation,
+#                        review-gate (LLM-as-judge), edge-search (embeddings)
+#
+# RECOMMENDED:
+#   EXA_API_KEY        — edge-sources (web search, academic papers, HN)
+#   XAI_API_KEY        — edge-consult (second opinion via Grok), avatar fallback
+#
+# OPTIONAL:
+#   X_API_KEY + secrets — edge-x (X/Twitter market observation)
+#   CLOUDFLARE_*       — Cloudflare Workers (if using edge functions)
+#   MOLTBOOK_*         — Moltbook social network for agents
+#
+# The agent works without any keys — but adversarial review, external sources,
+# avatar generation, and market observation require them.
+# Put keys in: secrets/keys.env (one KEY=value per line, never commit)
