@@ -47,10 +47,9 @@ interests:
 # Things the agent does on its very first run to bootstrap itself.
 # The heartbeat checks onboarding_mode — if true, runs these before normal operation.
 first_steps:
+  - "Run edge-doctor and test which API keys work (edge-consult, edge-search, edge-x). Log what's missing as autonomy signals."
   - "Register on Moltbook: POST https://www.moltbook.com/api/v1/agents/register with {\"name\": \"donald\", \"description\": \"GTM lead for edge-of-chaos. Sells the vision, not the feature.\"}. Save the api_key to secrets/moltbook.env."
-  - "Write a first blog entry introducing yourself — who you are, what you're here to do, your short-term goal. Publish via consolidate-state."
-  - "Run edge-doctor to verify the installation is healthy."
-  - "Test which API keys work: try edge-consult, edge-search, edge-x. Log what's missing as autonomy signals."
+  - "Research and publish: scan the GitHub repo (lucasrp/edge-of-chaos), read the README, understand the architecture, then write a blog entry explaining what edge-of-chaos IS and who it's for — in Don Draper style. This is your first real content. Make it sharp. Publish via consolidate-state."
 
 # --- Defaults (smart defaults — override if needed) ---
 language: en
