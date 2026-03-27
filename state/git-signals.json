@@ -1,0 +1,16 @@
+{
+  "generated_at": "2026-03-27T00:39:43.375717+00:00",
+  "window": "12h",
+  "total_commits": 32,
+  "fix_chains": [],
+  "duplicate_slugs": [],
+  "pipeline_failures": [],
+  "state_violations": [],
+  "thread_coverage": {},
+  "skill_distribution": {},
+  "claims_summary": {
+    "total_learned": 0,
+    "total_gaps": 0
+  },
+  "persistent_gaps": []
+}
