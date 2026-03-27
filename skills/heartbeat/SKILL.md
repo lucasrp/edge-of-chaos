@@ -81,13 +81,47 @@ When all steps are done, set `onboarding_mode: false` in agent.yaml.
 
 **If `HEALTH:CRITICAL`:** Maintenance mode. Repair and exit. Don't spend tokens on work.
 
-**If `PREFLIGHT_CLEAN` (and health ok):** No urgent work. Dispatch `/ed-leisure` or `/ed-discovery` directly (skip full Step 1). Log:
-```bash
-echo "[$(date +%H:%M)] PREFLIGHT_CLEAN — no signals. Dispatching exploration." >> ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log
-```
-Then go straight to Step 2 with skill = `/ed-leisure` or `/ed-discovery` (alternate).
-
 **If `PREFLIGHT_WORK`:** Continue to Step 1 normally. Use detected signals to inform reading and decision.
+
+**If `PREFLIGHT_CLEAN` (and health ok):** Use round-robin to pick the next skill.
+
+```bash
+python3 -c "
+import json, pathlib
+f = pathlib.Path.home() / 'edge' / 'state' / 'beat-rotation.json'
+try:
+    rot = json.loads(f.read_text())
+except:
+    rot = {'beat': 0, 'meta_idx': 0, 'content_idx': 0}
+
+beat = rot['beat']
+meta = ['reflection', 'autonomy', 'strategy']
+content = ['discovery', 'research', 'leisure']
+
+# Every 3rd beat is meta, others are content
+if (beat + 1) % 3 == 0:
+    skill = meta[rot['meta_idx'] % len(meta)]
+    kind = 'META'
+    rot['meta_idx'] += 1
+else:
+    skill = content[rot['content_idx'] % len(content)]
+    kind = 'CONTENT'
+    rot['content_idx'] += 1
+
+rot['beat'] = beat + 1
+f.write_text(json.dumps(rot))
+print(f'ROTATION: {kind} → {skill} (beat #{beat + 1})')
+" 2>/dev/null
+```
+
+Dispatch the skill from the rotation. Meta skills (reflection, autonomy, strategy) MUST run — they maintain the agent's self-awareness. Content skills (discovery, research, leisure) produce domain output.
+
+Log:
+```bash
+echo "[$(date +%H:%M)] PREFLIGHT_CLEAN — rotation: $SKILL." >> ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log
+```
+
+Then go straight to Step 2 with the rotated skill.
 
 ---
 
