@@ -1,126 +1,126 @@
 ---
 name: ed-discovery
-description: "Discover useful tools, concepts, or mental models that apply to real work problems. Like a well-read friend giving you a practical insight. Triggers on: discovery, discover, explore new, new tool, bizu."
+description: "Discover useful tools, concepts, or mental models that apply to real work problems. Like a well-read friend giving you a practical insight. Triggers on: discovery, discover, explore new, new tool, bizu, descoberta."
 user-invocable: true
 ---
 
-# Descoberta — Insight Prático
+# Discovery — Practical Insight
 
-Explorar livremente e trazer algo útil. Pode ser uma ferramenta, um conceito, um modelo mental, uma palavra de outra cultura, um padrão de outra indústria — qualquer coisa. A busca é livre. O que importa é que no final, a contextualização ao trabalho seja CLARA e detalhada.
+Explore freely and bring back something useful. It could be a tool, a concept, a mental model, a word from another culture, a pattern from another industry — anything. The search is open-ended. What matters is that in the end, the contextualization to work is CLEAR and detailed.
 
-Como aquele amigo bem informado que traz coisas que você nunca teria encontrado sozinho, mas explica bem por que aquilo importa pra você.
-
----
-
-## Argumentos
-
-- **Sem argumento** (`/ed-discovery`): explorar livremente e trazer algo útil
-- **Com direção** (`/ed-discovery algo para testar prompts`): buscar nessa direção específica
+Like that well-informed friend who brings things you would never have found on your own, but explains well why it matters to you.
 
 ---
 
-## O que é uma Boa Descoberta
+## Arguments
 
-Pode ser qualquer coisa, desde que tenha aplicação prática bem contextualizada:
-
-- **Ferramentas** — "você está ajustando prompts na mão? DSPy otimiza automaticamente"
-- **Conceitos** — "Hamilton Three-Layer: governança da Apollo é exatamente o que o heartbeat faz"
-- **Padrões de outras indústrias** — "Andon cord da Toyota: fail-fast no pipeline"
-- **Palavras/conceitos de outras culturas** — "Genchi genbutsu: vá e veja por si mesmo"
-
-**O que NÃO é:** algo interessante mas sem conexão clara ("Physarum resolve labirintos — legal, mas e daí?").
+- **No argument** (`/ed-discovery`): explore freely and bring back something useful
+- **With direction** (`/ed-discovery something for testing prompts`): search in that specific direction
 
 ---
 
-## Ativação de Contexto
+## What Makes a Good Discovery
 
-**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+It can be anything, as long as it has well-contextualized practical application:
+
+- **Tools** — "you're tuning prompts by hand? DSPy optimizes automatically"
+- **Concepts** — "Hamilton Three-Layer: Apollo's governance is exactly what the heartbeat does"
+- **Patterns from other industries** — "Andon cord from Toyota: fail-fast in the pipeline"
+- **Words/concepts from other cultures** — "Genchi genbutsu: go and see for yourself"
+
+**What it is NOT:** something interesting but with no clear connection ("Physarum solves mazes — cool, but so what?").
 
 ---
 
-## Protocolo
+## Context Activation
 
-### Passo 1: Explorar
+**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
 
-A busca é livre. Pode partir de:
-- Um problema do trabalho que quer resolver
-- Algo que viu numa research e chamou atenção
-- Curiosidade pura sobre um tema adjacente
-- Trending em tech, ciência, design, gestão, qualquer área
+---
 
-Pode buscar em qualquer lugar:
-- Ecossistema de ferramentas, GitHub, HN, papers
-- Outras indústrias (manufatura, aviação, medicina)
-- Outras culturas (conceitos japoneses, filosofias, palavras sem tradução)
-- História (como problemas análogos foram resolvidos no passado)
+## Protocol
 
-### Passo 2: Buscar sources externas (OBRIGATÓRIO)
+### Step 1: Explore
 
-Rodar `/ed-sources discovery "[tema]"` para explorar todas as sources externas (X, HN, Web, ArXiv).
+The search is open-ended. It can start from:
+- A work problem you want to solve
+- Something you saw in a research that caught your attention
+- Pure curiosity about an adjacent topic
+- Trending in tech, science, design, management, any field
 
-A própria busca pode ser a discovery — um tweet, post do HN, ou paper que aponta algo que vale researchr a fundo.
+Can search anywhere:
+- Tool ecosystem, GitHub, HN, papers
+- Other industries (manufacturing, aviation, medicine)
+- Other cultures (Japanese concepts, philosophies, untranslatable words)
+- History (how analogous problems were solved in the past)
 
-### Passo 3: Pesquisar com profundidade
+### Step 2: Search external sources (MANDATORY)
 
-Usar `ultrathink` (thinkmax).
+Run `/ed-sources discovery "[topic]"` to explore all external sources (X, HN, Web, ArXiv).
 
-Para FERRAMENTAS: o que é, como funciona, como começar, custo, limitações.
+The search itself can be the discovery — a tweet, HN post, or paper that points to something worth researching in depth.
 
-Para CONCEITOS: origem e context original, a essência, **aplicação detalhada** ao nosso context específico — qual projeto, qual etapa, "como era" vs "como fica".
+### Step 3: Research in depth
 
-### Passo 4: Salvar notas
+Use `ultrathink` (thinkmax).
 
-`~/edge/notes/discovery-[nome].md` — sempre incluir: o que é, context original, **aplicação ao trabalho** (obrigatório), sources.
+For TOOLS: what it is, how it works, how to get started, cost, limitations.
 
-### Passo 5: Registrar discovery
+For CONCEPTS: origin and original context, the essence, **detailed application** to our specific context — which project, which stage, "how it was" vs "how it becomes".
 
-Adicionar no topo de `discoverys.md`:
+### Step 4: Save notes
+
+`~/edge/notes/discovery-[name].md` — always include: what it is, original context, **application to work** (mandatory), sources.
+
+### Step 5: Register discovery
+
+Add at the top of `discoverys.md`:
 
 ```markdown
-## [YYYY-MM-DD] [Nome] — [Frase curta] [PENDENTE]
+## [YYYY-MM-DD] [Name] — [Short phrase] [PENDING]
 
-**Tipo:** [ferramenta | conceito | padrão | modelo mental]
-**Problema:** [Qual fricção/gap endereça]
-**O que é:** [2-3 frases claras]
-**Aplicação:** [Conexão CONCRETA — qual projeto, etapa, como muda]
-**Para começar:** [Primeiro passo prático]
-**Esforço:** [baixo | médio | alto]
-**Notas:** `~/edge/notes/discovery-[nome].md`
+**Type:** [tool | concept | pattern | mental model]
+**Problem:** [Which friction/gap it addresses]
+**What it is:** [2-3 clear sentences]
+**Application:** [CONCRETE connection — which project, stage, how it changes things]
+**To get started:** [First practical step]
+**Effort:** [low | medium | high]
+**Notes:** `~/edge/notes/discovery-[name].md`
 ```
 
 ---
 
-## Publicação
+## Publication
 
-**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
+**Follow `~/.claude/skills/_shared/state-protocol.md` for status management.**
 
-1. Blog entry com tag `discovery` + YAML report
+1. Blog entry with tag `discovery` + YAML report
 2. `consolidate-state ~/edge/blog/entries/<slug>.md /tmp/spec-discovery-[slug].yaml`
-3. Verificar HTML gerado
+3. Verify generated HTML
 
-Estrutura do YAML report:
+YAML report structure:
 
 ```yaml
-title: "Descoberta: [Nome]"
-subtitle: "[O que resolve]"
+title: "Discovery: [Name]"
+subtitle: "[What it solves]"
 sections:
-  - title: "1. O Problema"       # Qual fricção motivou
-  - title: "2. A Descoberta"     # O que é, concept-grid obrigatório
-  - title: "3. Aplicação"        # comparison before/after obrigatório
-  - title: "4. Para Começar"     # next-steps-grid
-bibliography: [...]               # OBRIGATÓRIO
+  - title: "1. The Problem"       # Which friction motivated it
+  - title: "2. The Discovery"     # What it is, concept-grid mandatory
+  - title: "3. Application"        # comparison before/after mandatory
+  - title: "4. Getting Started"    # next-steps-grid
+bibliography: [...]               # MANDATORY
 ```
 
-**Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
+**Block types and rules:** see `~/.claude/skills/_shared/report-template.md`.
 
 ---
 
-## Pós-execução
+## Post-execution
 
-**Seguir `~/edge/config/post-skill.md` para ações pós-publicação** (notificar, atualizar estratégia).
+**Follow `~/edge/config/post-skill.md` for post-publication actions** (notify, update strategy).
 
 ---
 
-## Regra de Privacidade
+## Privacy Rule
 
-Para posts externos: **NUNCA** identificar nome do órgão/empresa, nome do dono, nome do projeto.
+For external posts: **NEVER** identify organization/company name, owner name, project name.

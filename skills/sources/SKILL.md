@@ -1,105 +1,105 @@
 ---
 name: ed-sources
-description: "Acesso unificado a sources externas e internas. Busca, routing, tradecraft. Triggers on: sources, onde acho, where is, como acessar, buscar, search, sources, tradecraft."
+description: "Unified access to external and internal sources. Search, routing, tradecraft. Triggers on: sources, onde acho, where is, como acessar, buscar, search, sources, tradecraft."
 user-invocable: true
 ---
 
-# /ed-sources — Acesso Unificado a Fontes Externas e Internas
+# /ed-sources — Unified Access to External and Internal Sources
 
-**REGRA: Para buscas externas, SEMPRE usar `edge-sources` (script executável) em vez de WebSearch direto.** Agentes e subagentes chamam via Bash. WebSearch só como complemento quando edge-sources não cobrir.
+**RULE: For external searches, ALWAYS use `edge-sources` (executable script) instead of WebSearch directly.** Agents and subagents call via Bash. WebSearch only as a complement when edge-sources doesn't cover.
 
-Camada centralizada de acesso ao mundo externo. Como `/ed-context` e o status interno, `/ed-sources` e o mundo de fora — X, Web, ArXiv, GitHub, backend, bookmarks.
+Centralized layer for accessing the external world. Like `/ed-context` is for internal status, `/ed-sources` is for the outside world — X, Web, ArXiv, GitHub, backend, bookmarks.
 
-## Script Executável: edge-sources
+## Executable Script: edge-sources
 
 ```bash
 edge-sources "topic"                          # default: research
-edge-sources "topic" --intent strategy      # roteamento por intent
+edge-sources "topic" --intent strategy      # routing by intent
 edge-sources "topic" --sources x,hn,arxiv     # override sources
 edge-sources --front-page                     # headlines (heartbeat)
-edge-sources "topic" --json                   # output JSON
+edge-sources "topic" --json                   # JSON output
 ```
 
-O script roda sources em paralelo (X, HN, ArXiv, Semantic Scholar, Reddit, GitHub, HF Papers), filtra por sinal, e retorna markdown estruturado. Código: `~/edge/tools/edge-sources`.
+The script runs sources in parallel (X, HN, ArXiv, Semantic Scholar, Reddit, GitHub, HF Papers), filters by signal, and returns structured markdown. Code: `~/edge/tools/edge-sources`.
 
-Qualquer skill chama `/ed-sources` com um intent e topico. `/ed-sources` roda edge-sources, adiciona curadoria LLM, e retorna.
+Any skill calls `/ed-sources` with an intent and topic. `/ed-sources` runs edge-sources, adds LLM curation, and returns.
 
 ---
 
-## Uso
+## Usage
 
 ```
-/ed-sources [intent] [topico]
+/ed-sources [intent] [topic]
 ```
 
-**Intents disponiveis:**
+**Available intents:**
 
-| Intent | Descricao | Exemplo |
-|--------|-----------|---------|
-| `research` | Deep dive dirigido num tema | `/ed-sources research "DSPy vs SPL"` |
-| `discovery` | Exploracao livre, encontrar coisas novas | `/ed-sources discovery "AI agents"` |
-| `leisure` | Inspiracao criativa | `/ed-sources leisure "entropy information theory"` |
-| `strategy` | Tendencias e sinais estrategicos | `/ed-sources strategy "multi-agent production"` |
-| `heartbeat` | Scan leve de headlines | `/ed-sources heartbeat` |
-| `reflection` | Busca orientada a problema | `/ed-sources reflection "como reduzir alucinacao em RAG"` |
-| `planner` | Implementacao e best practices | `/ed-sources planner "eval framework LLM"` |
-| `execute` | Gotchas e padroes de producao | `/ed-sources execute "circuit breaker python"` |
-| `report` | Busca abrangente para report | `/ed-sources report "prompt optimization"` |
+| Intent | Description | Example |
+|--------|-------------|---------|
+| `research` | Directed deep dive on a topic | `/ed-sources research "DSPy vs SPL"` |
+| `discovery` | Free exploration, find new things | `/ed-sources discovery "AI agents"` |
+| `leisure` | Creative inspiration | `/ed-sources leisure "entropy information theory"` |
+| `strategy` | Trends and strategic signals | `/ed-sources strategy "multi-agent production"` |
+| `heartbeat` | Lightweight headline scan | `/ed-sources heartbeat` |
+| `reflection` | Problem-oriented search | `/ed-sources reflection "how to reduce hallucination in RAG"` |
+| `planner` | Implementation and best practices | `/ed-sources planner "eval framework LLM"` |
+| `execute` | Gotchas and production patterns | `/ed-sources execute "circuit breaker python"` |
+| `report` | Comprehensive search for report | `/ed-sources report "prompt optimization"` |
 
-Quando chamado sem intent, inferir do context da skill chamadora.
+When called without intent, infer from the context of the calling skill.
 
 ---
 
-## Registry de Fontes
+## Source Registry
 
 ### 1. X (Twitter)
 
-- **O que fornece:** Insights de practitioners, tendencias emergentes, experiencias reais, o que a web tradicional ainda nao indexou
-- **Acesso:** tweepy (API v2)
-- **Credenciais:** `~/edge/secrets/x-api.env`
-- **Custo:** Pay-per-use (~$0.02-0.05/search, ~$0.005/read, ~$0.01/profile)
+- **What it provides:** Practitioner insights, emerging trends, real-world experiences, what the traditional web hasn't indexed yet
+- **Access:** tweepy (API v2)
+- **Credentials:** `~/edge/secrets/x-api.env`
+- **Cost:** Pay-per-use (~$0.02-0.05/search, ~$0.005/read, ~$0.01/profile)
 - **Rate limits:** 60 searches/15min, 15 timeline/15min, 300 user lookups/15min
 - **Username:** `@edge_of_chaos__` | **User ID:** `2025643124668993536`
 
-**Comando rapido (PREFERIDO):**
+**Quick command (PREFERRED):**
 
 ```bash
-edge-x "topic"                       # busca inteligente multi-strategy
-edge-x "topic" --from karpathy swyx  # buscar contas especificas
-edge-x "topic" --min-followers 500   # filtro mais agressivo
-edge-x "topic" --json                # output JSON para processamento
+edge-x "topic"                       # smart multi-strategy search
+edge-x "topic" --from karpathy swyx  # search specific accounts
+edge-x "topic" --min-followers 500   # more aggressive filter
+edge-x "topic" --json                # JSON output for processing
 ```
 
-O `edge-x` faz busca multi-strategy (broad + practitioner terms + trusted accounts), filtra por qualidade (followers >= 100 OR engagement >= 2), e ordena por sinal.
+`edge-x` does multi-strategy search (broad + practitioner terms + trusted accounts), filters by quality (followers >= 100 OR engagement >= 2), and sorts by signal.
 
-**Trusted accounts hardcoded:** karpathy, swyx, simonw, jxnlco, hwchase17, AnthropicAI, OpenAI, alexalbert__, DrJimFan, eugeneyan, shreyar, jerryjliu0, GregKamradt e outros. Editaveis em `~/edge/tools/edge-x`.
+**Hardcoded trusted accounts:** karpathy, swyx, simonw, jxnlco, hwchase17, AnthropicAI, OpenAI, alexalbert__, DrJimFan, eugeneyan, shreyar, jerryjliu0, GregKamradt and others. Editable in `~/edge/tools/edge-x`.
 
-**Operadores de query:** `-is:retweet`, `lang:en`, `has:links`, `has:media`
-**NAO usar:** `min_faves`, `min_retweets`, `sample:` (requerem Pro tier $5000/mo)
+**Query operators:** `-is:retweet`, `lang:en`, `has:links`, `has:media`
+**DO NOT use:** `min_faves`, `min_retweets`, `sample:` (require Pro tier $5000/mo)
 
 ---
 
 ### 2. Web (WebSearch + WebFetch)
 
-- **O que fornece:** Papers, docs, tutoriais, benchmarks, artigos de blog, Stack Overflow
-- **Acesso:** Tools built-in (WebSearch, WebFetch)
-- **Credenciais:** nenhuma
-- **Custo:** free
-- **Limite:** WebFetch falha em URLs autenticadas (Google Docs, Confluence, Jira)
+- **What it provides:** Papers, docs, tutorials, benchmarks, blog posts, Stack Overflow
+- **Access:** Built-in tools (WebSearch, WebFetch)
+- **Credentials:** none
+- **Cost:** free
+- **Limitation:** WebFetch fails on authenticated URLs (Google Docs, Confluence, Jira)
 
-**Como usar:**
-- `WebSearch` para queries amplas
-- `WebFetch` para ler URLs especificas (papers, docs, blog posts)
+**How to use:**
+- `WebSearch` for broad queries
+- `WebFetch` to read specific URLs (papers, docs, blog posts)
 
 ---
 
 ### 3. ArXiv
 
-- **O que fornece:** Papers academicos, research de ponta, pre-prints
-- **Acesso:** API REST (free, sem auth)
-- **Credenciais:** nenhuma
-- **Custo:** free
-- **Areas relevantes:** cs.CL (Computation and Language), cs.IR (Information Retrieval), cs.AI, cs.SE (Software Engineering)
+- **What it provides:** Academic papers, cutting-edge research, pre-prints
+- **Access:** REST API (free, no auth)
+- **Credentials:** none
+- **Cost:** free
+- **Relevant areas:** cs.CL (Computation and Language), cs.IR (Information Retrieval), cs.AI, cs.SE (Software Engineering)
 
 **Helper — ArXiv Search:**
 
@@ -107,7 +107,7 @@ O `edge-x` faz busca multi-strategy (broad + practitioner terms + trusted accoun
 python3 << 'PYEOF'
 import urllib.request, urllib.parse, xml.etree.ElementTree as ET
 
-QUERY = 'all:"TOPIC"'  # ou cat:cs.CL AND all:"TOPIC"
+QUERY = 'all:"TOPIC"'  # or cat:cs.CL AND all:"TOPIC"
 url = f"http://export.arxiv.org/api/query?search_query={urllib.parse.quote(QUERY)}&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending"
 
 resp = urllib.request.urlopen(url)
@@ -121,7 +121,7 @@ for entry in root.findall('a:entry', ns):
     link = entry.find('a:id', ns).text
     authors = [a.find('a:name', ns).text for a in entry.findall('a:author', ns)]
     print(f"\n[{published}] {title}")
-    print(f"  Autores: {', '.join(authors[:3])}{'...' if len(authors) > 3 else ''}")
+    print(f"  Authors: {', '.join(authors[:3])}{'...' if len(authors) > 3 else ''}")
     print(f"  {summary}...")
     print(f"  URL: {link}")
 PYEOF
@@ -131,48 +131,48 @@ PYEOF
 
 ### 4. Hacker News
 
-- **O que fornece:** Sentimento da comunidade tech, lancamentos, discussoes tecnicas profundas, insights de practitioners em comments
-- **Acesso:** Algolia API + Firebase API (free, sem auth)
-- **Credenciais:** nenhuma
-- **Custo:** free
+- **What it provides:** Tech community sentiment, launches, deep technical discussions, practitioner insights in comments
+- **Access:** Algolia API + Firebase API (free, no auth)
+- **Credentials:** none
+- **Cost:** free
 
-**Comando rapido (PREFERIDO):**
+**Quick command (PREFERRED):**
 
 ```bash
-edge-hn "topic"                       # busca stories por relevancia
-edge-hn "topic" --comments            # busca comments tambem (insights buried in threads)
-edge-hn "topic" --min-points 50       # so stories com alto sinal
-edge-hn "topic" --days 7              # ultimos 7 dias
-edge-hn "topic" --front-page          # tambem mostra front page atual
-edge-hn "topic" --json                # output JSON para processamento
+edge-hn "topic"                       # search stories by relevance
+edge-hn "topic" --comments            # search comments too (insights buried in threads)
+edge-hn "topic" --min-points 50       # only high-signal stories
+edge-hn "topic" --days 7              # last 7 days
+edge-hn "topic" --front-page          # also show current front page
+edge-hn "topic" --json                # JSON output for processing
 ```
 
-O `edge-hn` busca via Algolia (stories + comments), filtra por pontos e data, ordena por sinal (points + comments), e mostra URLs do HN e do artigo original. Comments sao limpos de HTML e truncados.
+`edge-hn` searches via Algolia (stories + comments), filters by points and date, sorts by signal (points + comments), and shows HN URLs and original article URLs. Comments are cleaned of HTML and truncated.
 
-**Front page standalone:** `edge-hn --front-page` (sem topico — so top 10 atual)
+**Standalone front page:** `edge-hn --front-page` (no topic — just current top 10)
 
 ---
 
 ### 5. GitHub
 
-- **O que fornece:** Releases de projetos, issues, code search, trending repos
-- **Acesso:** `gh` CLI (authenticated)
-- **Credenciais:** keyring (configured via `gh auth login`)
-- **Custo:** free
+- **What it provides:** Project releases, issues, code search, trending repos
+- **Access:** `gh` CLI (authenticated)
+- **Credentials:** keyring (configured via `gh auth login`)
+- **Cost:** free
 
-**Operacoes uteis:**
+**Useful operations:**
 
 ```bash
-# Releases recentes de um projeto
+# Recent releases of a project
 gh release list --repo stanfordnlp/dspy --limit 5
 
-# Search repos por tema
+# Search repos by topic
 gh search repos "prompt evaluation" --sort stars --limit 10
 
 # Search code
 gh search code "RAG pipeline" --language python --limit 10
 
-# Issues/PRs de um repo
+# Issues/PRs of a repo
 gh issue list --repo stanfordnlp/dspy --state open --sort updated --limit 10
 
 # Trending (via web)
@@ -183,32 +183,32 @@ gh issue list --repo stanfordnlp/dspy --state open --sort updated --limit 10
 
 ### 6. Database / Backend (EXAMPLE — customize for your project)
 
-- **O que fornece:** Dados de uso da plataforma — sessoes, mensagens, documentos, feedback dos usuarios, estatisticas
-- **Acesso:** SSH para VM (`$YOUR_VM`) + admin scripts
-- **Credenciais:** SSH key configurada
-- **Custo:** free
-- **Pre-requisitos:** Backend rodando, admin scripts deployados
+- **What it provides:** Platform usage data — sessions, messages, documents, user feedback, statistics
+- **Access:** SSH to VM (`$YOUR_VM`) + admin scripts
+- **Credentials:** SSH key configured
+- **Cost:** free
+- **Prerequisites:** Backend running, admin scripts deployed
 
-**Exemplo de acesso (adaptar ao seu projeto):**
+**Access example (adapt to your project):**
 
 ```bash
-ssh $YOUR_VM 'python3 ~/admin/query.py overview' 2>/dev/null || echo "VM_INACESSIVEL"
+ssh $YOUR_VM 'python3 ~/admin/query.py overview' 2>/dev/null || echo "VM_UNREACHABLE"
 ```
 
-**Output:** JSON com campos anonimizados quando necessario. **NUNCA** acessar banco diretamente — sempre via scripts admin na VM. PII nunca transita pela rede.
+**Output:** JSON with anonymized fields when necessary. **NEVER** access the database directly — always via admin scripts on the VM. PII never transits through the network.
 
 ---
 
-### 8. Bookmarks (sources curadas)
+### 8. Bookmarks (curated sources)
 
-- **O que fornece:** Scan periodico de sources confiadas — headlines, releases, novidades
-- **Acesso:** Arquivo `~/edge/bookmarks.md` + WebFetch/WebSearch
-- **Custo:** varies (free para maioria)
+- **What it provides:** Periodic scan of trusted sources — headlines, releases, news
+- **Access:** File `~/edge/bookmarks.md` + WebFetch/WebSearch
+- **Cost:** varies (free for most)
 
-O arquivo `~/edge/bookmarks.md` contem a lista curada. Formato:
+The file `~/edge/bookmarks.md` contains the curated list. Format:
 
 ```markdown
-# Bookmarks — Fontes Curadas
+# Bookmarks — Curated Sources
 
 ## Papers & Research
 - ArXiv cs.CL: https://arxiv.org/list/cs.CL/recent
@@ -219,30 +219,30 @@ O arquivo `~/edge/bookmarks.md` contem a lista curada. Formato:
 - HN front page: https://news.ycombinator.com/
 - HN "Show HN": https://news.ycombinator.com/show
 
-## Releases (projetos acompanhados)
+## Releases (tracked projects)
 - DSPy: stanfordnlp/dspy
 - LangGraph: langchain-ai/langgraph
 - promptfoo: promptfoo/promptfoo
 - CrewAI: crewAIInc/crewAI
 
-## X Accounts (perfis builder)
-[Descobertos via /redes — adicionados conforme seguimos]
+## X Accounts (builder profiles)
+[Discovered via /redes — added as we follow]
 
 ## Blogs
-[Adicionados conforme descobrimos sources confiadas]
+[Added as we discover trusted sources]
 ```
 
-Usar `gh release list` para repos, `WebFetch` para paginas, ArXiv helper para papers.
+Use `gh release list` for repos, `WebFetch` for pages, ArXiv helper for papers.
 
 ---
 
 ### 9. Reddit (JSON API)
 
-- **O que fornece:** Discussoes tecnicas profundas, experiencias reais, debates entre practitioners
-- **Acesso:** JSON API publica (append `.json` a qualquer URL Reddit)
-- **Credenciais:** nenhuma
-- **Custo:** free
-- **Subreddits relevantes:** r/MachineLearning, r/LocalLLaMA, r/ClaudeAI, r/LangChain, r/ArtificialIntelligence
+- **What it provides:** Deep technical discussions, real-world experiences, practitioner debates
+- **Access:** Public JSON API (append `.json` to any Reddit URL)
+- **Credentials:** none
+- **Cost:** free
+- **Relevant subreddits:** r/MachineLearning, r/LocalLLaMA, r/ClaudeAI, r/LangChain, r/ArtificialIntelligence
 
 **Helper — Reddit Search:**
 
@@ -250,7 +250,7 @@ Usar `gh release list` para repos, `WebFetch` para paginas, ArXiv helper para pa
 python3 << 'PYEOF'
 import urllib.request, json, urllib.parse
 
-SUBREDDIT = 'MachineLearning'  # ou LocalLLaMA, ClaudeAI, LangChain
+SUBREDDIT = 'MachineLearning'  # or LocalLLaMA, ClaudeAI, LangChain
 QUERY = 'TOPIC'
 url = f"https://www.reddit.com/r/{SUBREDDIT}/search.json?q={urllib.parse.quote(QUERY)}&restrict_sr=1&sort=relevance&t=month&limit=10"
 
@@ -269,9 +269,9 @@ for post in data.get('data', {}).get('children', []):
 PYEOF
 ```
 
-**Variante — Hot posts (sem query):**
+**Variant — Hot posts (no query):**
 ```bash
-# Substituir search.json por hot.json:
+# Replace search.json with hot.json:
 # https://www.reddit.com/r/MachineLearning/hot.json?limit=10
 ```
 
@@ -279,10 +279,10 @@ PYEOF
 
 ### 10. Semantic Scholar
 
-- **O que fornece:** Papers com citation graph, influencia, areas correlatas, busca semantica
-- **Acesso:** Free REST API (api.semanticscholar.org)
-- **Credenciais:** nenhuma (rate limit generoso: 100 req/5min sem key)
-- **Custo:** free
+- **What it provides:** Papers with citation graph, influence, related areas, semantic search
+- **Access:** Free REST API (api.semanticscholar.org)
+- **Credentials:** none (generous rate limit: 100 req/5min without key)
+- **Cost:** free
 
 **Helper — Semantic Scholar Search:**
 
@@ -307,66 +307,66 @@ for paper in data.get('data', []):
     tldr = (paper.get('tldr') or {}).get('text', '')[:150]
     url = paper.get('url', '')
     print(f"\n[{year}, {cites} cites, {influential} influential] {title}")
-    print(f"  Autores: {authors}")
+    print(f"  Authors: {authors}")
     if tldr: print(f"  TL;DR: {tldr}")
     print(f"  URL: {url}")
 PYEOF
 ```
 
-**Vantagem sobre ArXiv:** busca semantica (nao so keyword), citation graph, campo `tldr` gerado por IA, `influentialCitationCount` filtra papers que realmente impactaram o campo.
+**Advantage over ArXiv:** semantic search (not just keyword), citation graph, AI-generated `tldr` field, `influentialCitationCount` filters papers that actually impacted the field.
 
 ---
 
 ### 11. Product Hunt
 
-- **O que fornece:** Ferramentas novas, trends de mercado, o que builders estao lancando
-- **Acesso:** WebFetch (API requer OAuth — usar scraping leve)
-- **Credenciais:** nenhuma
-- **Custo:** free
+- **What it provides:** New tools, market trends, what builders are launching
+- **Access:** WebFetch (API requires OAuth — use lightweight scraping)
+- **Credentials:** none
+- **Cost:** free
 
-**Como usar:**
+**How to use:**
 
 ```bash
-# Via WebSearch (mais confiavel que scraping direto)
+# Via WebSearch (more reliable than direct scraping)
 # WebSearch "site:producthunt.com [TOPIC] 2026"
 ```
 
-Ou WebFetch em paginas de topico especifico. Nao tem helper script porque a API publica foi deprecada — WebSearch e suficiente para encontrar lancamentos relevantes.
+Or WebFetch on specific topic pages. No helper script because the public API was deprecated — WebSearch is sufficient to find relevant launches.
 
 ---
 
-### 12. Blogs Primarios (Anthropic, OpenAI, Google DeepMind)
+### 12. Primary Blogs (Anthropic, OpenAI, Google DeepMind)
 
-- **O que fornece:** Fontes primarias de research, lancamentos, mudancas de API, visao estrategica
-- **Acesso:** WebFetch nas URLs dos blogs
-- **Credenciais:** nenhuma
-- **Custo:** free
+- **What it provides:** Primary research sources, launches, API changes, strategic vision
+- **Access:** WebFetch on blog URLs
+- **Credentials:** none
+- **Cost:** free
 - **URLs:**
   - Anthropic: `https://www.anthropic.com/research`
   - OpenAI: `https://openai.com/ed-blog`
   - Google DeepMind: `https://deepmind.google/discover/blog/`
 
-**Como usar:**
+**How to use:**
 
 ```bash
-# Via WebSearch para novidades recentes
+# Via WebSearch for recent news
 # WebSearch "site:anthropic.com/research [TOPIC]"
 # WebSearch "site:openai.com/ed-blog [TOPIC]"
 
-# Ou WebFetch direto no blog para scan de headlines
-# WebFetch https://www.anthropic.com/research "listar titulos e datas dos ultimos 10 posts"
+# Or WebFetch directly on the blog for headline scanning
+# WebFetch https://www.anthropic.com/research "list titles and dates of last 10 posts"
 ```
 
-**Quando consultar:** research (sources primarias), strategy (sinais de mudanca), heartbeat (releases).
+**When to consult:** research (primary sources), strategy (signals of change), heartbeat (releases).
 
 ---
 
 ### 13. Papers With Code
 
-- **O que fornece:** Papers com implementacao, benchmarks, state-of-the-art por task, trending papers
-- **Acesso:** Free REST API (paperswithcode.com/api/v1)
-- **Credenciais:** nenhuma
-- **Custo:** free
+- **What it provides:** Papers with implementation, benchmarks, state-of-the-art by task, trending papers
+- **Access:** Free REST API (paperswithcode.com/api/v1)
+- **Credentials:** none
+- **Cost:** free
 
 **Helper — Papers With Code Search:**
 
@@ -392,207 +392,207 @@ for item in data.get('results', [])[:10]:
 PYEOF
 ```
 
-**Variante — Trending:**
+**Variant — Trending:**
 ```bash
-# WebFetch https://paperswithcode.com/trending "listar os 10 papers trending com links e stars"
+# WebFetch https://paperswithcode.com/trending "list the 10 trending papers with links and stars"
 ```
 
-**Vantagem sobre ArXiv/Semantic Scholar:** cada paper tem link direto ao codigo, benchmarks comparativos, e ranking por task. Ideal para `/ed-research` e `/ed-discovery` quando preciso de papers COM implementacao.
+**Advantage over ArXiv/Semantic Scholar:** each paper has a direct link to code, comparative benchmarks, and ranking by task. Ideal for `/ed-research` and `/ed-discovery` when needing papers WITH implementation.
 
 ---
 
-## Roteamento e Preferencias
+## Routing and Preferences
 
-O roteamento por intent está hardcoded no `edge-sources` (variável ROUTING). Cada intent mapeia para sources primárias e secundárias. O script também adiciona um wildcard automático (fonte aleatória fora do roteamento, para serendipidade).
-
----
-
-## Criterios de Curadoria (unificados)
-
-### Sinais de qualidade (aplicam-se a TODAS as sources)
-
-| Sinal | O que indica | Peso |
-|-------|-------------|------|
-| Builder compartilhando experiencia real | Bizu pratico, tstatus em producao | ALTO |
-| Thread/discussao com muitas respostas | Multiplas perspectivas, debate real | ALTO |
-| Dado concreto (benchmark, metrica, numero) | Evidencia, nao opiniao | ALTO |
-| Ferramenta/conceito emergente | Web tradicional ainda nao indexou | MEDIO |
-| Insight contra-intuitivo | Desafia suposicoes — vale investigar | MEDIO |
-| Paper com codigo disponivel | Reproduzivel, nao so teoria | MEDIO |
-| Release recente de projeto acompanhado | Pode mudar trade-offs | MEDIO |
-
-### Filtros (descartar)
-
-- Engagement bait, hot takes sem substancia
-- Reposts sem adicao de valor
-- Conteudo generico ("10 tips for better prompts")
-- Papers sem resultados empiricos (quando buscando solucoes praticas)
-- Noticias requentadas de press release
+Routing by intent is hardcoded in `edge-sources` (ROUTING variable). Each intent maps to primary and secondary sources. The script also adds an automatic wildcard (random source outside the routing, for serendipity).
 
 ---
 
-## Protocolo
+## Curation Criteria (unified)
 
-### Passo 1: Rodar edge-sources (OBRIGATORIO)
+### Quality signals (apply to ALL sources)
+
+| Signal | What it indicates | Weight |
+|--------|-------------------|--------|
+| Builder sharing real experience | Practical tip, tested in production | HIGH |
+| Thread/discussion with many replies | Multiple perspectives, real debate | HIGH |
+| Concrete data (benchmark, metric, number) | Evidence, not opinion | HIGH |
+| Emerging tool/concept | Traditional web hasn't indexed yet | MEDIUM |
+| Counter-intuitive insight | Challenges assumptions — worth investigating | MEDIUM |
+| Paper with available code | Reproducible, not just theory | MEDIUM |
+| Recent release of tracked project | May change trade-offs | MEDIUM |
+
+### Filters (discard)
+
+- Engagement bait, hot takes without substance
+- Reposts without added value
+- Generic content ("10 tips for better prompts")
+- Papers without empirical results (when seeking practical solutions)
+- Reheated news from press releases
+
+---
+
+## Protocol
+
+### Step 1: Run edge-sources (MANDATORY)
 
 ```bash
-edge-sources "topico" --intent [intent]
+edge-sources "topic" --intent [intent]
 ```
 
-O script já faz: roteamento por intent, execução paralela de todas as sources scriptáveis (X, HN, ArXiv, Semantic Scholar, Reddit, GitHub, HF Papers), wildcard automático, e output markdown estruturado.
+The script already handles: routing by intent, parallel execution of all scriptable sources (X, HN, ArXiv, Semantic Scholar, Reddit, GitHub, HF Papers), automatic wildcard, and structured markdown output.
 
-**Se chamado por outra skill:** inferir intent do nome da skill chamadora, topico do trabalho em andamento.
+**If called by another skill:** infer intent from the calling skill's name, topic from the work in progress.
 
-### Passo 2: Complementar com WebSearch (quando necessário)
+### Step 2: Complement with WebSearch (when necessary)
 
-edge-sources cobre APIs mas **não cobre WebSearch/WebFetch** (tools do Claude, não scriptáveis). Usar WebSearch para:
-- Documentação oficial (Anthropic, OpenAI, Google)
-- Blogs/artigos específicos
+edge-sources covers APIs but **does not cover WebSearch/WebFetch** (Claude tools, not scriptable). Use WebSearch for:
+- Official documentation (Anthropic, OpenAI, Google)
+- Specific blogs/articles
 - Product Hunt
-- Qualquer URL que precisa de fetch direto
+- Any URL that needs direct fetch
 
-**NAO usar WebSearch para X ou HN** — edge-sources já usa as APIs reais (tweepy, Algolia).
+**DO NOT use WebSearch for X or HN** — edge-sources already uses the real APIs (tweepy, Algolia).
 
-### Passo 3: Curar resultados (LLM)
+### Step 3: Curate results (LLM)
 
-Aplicar criterios de curadoria ao output do edge-sources:
-1. Passa nos criterios de qualidade? Se nao, descartar.
-2. E relevante ao topico? Se tangencial, marcar como "tangencial mas interessante".
-3. Fonte confiavel? Builder > comentarista. Paper > blog. Dado > opiniao.
+Apply curation criteria to the edge-sources output:
+1. Passes quality criteria? If not, discard.
+2. Is it relevant to the topic? If tangential, mark as "tangential but interesting".
+3. Reliable source? Builder > commenter. Paper > blog. Data > opinion.
 
-### Passo 4: Sintetizar e retornar
+### Step 4: Synthesize and return
 
-Organizar por relevancia (nao por fonte). Formato de retorno:
+Organize by relevance (not by source). Return format:
 
 ```markdown
-## Fontes Externas — [topico]
+## External Sources — [topic]
 
-### Insights de Alta Relevancia
-[Os melhores resultados, independente da fonte]
-- **[fonte]** @autor/titulo: [insight em 1-2 linhas]
+### High Relevance Insights
+[Best results, regardless of source]
+- **[source]** @author/title: [insight in 1-2 lines]
   URL: [link]
 
-### Complementares
-[Resultados bons mas nao essenciais]
+### Complementary
+[Good results but not essential]
 
-### Tangenciais (para referencia futura)
-[Encontrados mas nao diretamente relevantes — podem alimentar /ed-discovery]
+### Tangential (for future reference)
+[Found but not directly relevant — may feed /ed-discovery]
 
-### Fontes Consultadas
-- X: N queries, N resultados uteis (~$X.XX)
+### Sources Consulted
+- X: N queries, N useful results (~$X.XX)
 - Web: N queries
-- ArXiv: N papers encontrados
+- ArXiv: N papers found
 - [etc.]
 ```
 
 ---
 
-## Curadoria Algoritmica (AUTOMATICO)
+## Algorithmic Curation (AUTOMATIC)
 
-Ao buscar no X, `/ed-sources` automaticamente engaja com conteudo de qualidade para treinar o algoritmo do feed. O objetivo: ver mais do que importa, menos ruido.
+When searching X, `/ed-sources` automatically engages with quality content to train the feed algorithm. The goal: see more of what matters, less noise.
 
-### Auto-engajamento (durante qualquer X Search)
+### Auto-engagement (during any X Search)
 
-Apos curar os resultados, para cada tweet que passou nos criterios de qualidade:
+After curating results, for each tweet that passed quality criteria:
 
 ```python
-# Auto-like de conteudo relevante (treina o algoritmo)
+# Auto-like relevant content (trains the algorithm)
 for tweet_id in quality_tweet_ids:
     try:
         client.like(tweet_id)
     except Exception:
-        pass  # rate limit ou ja curtido — seguir
+        pass  # rate limit or already liked — continue
 ```
 
-**Criterio para auto-like:** tweet que atende 2+ sinais de qualidade da tabela de curadoria (builder + dado concreto, insight + reply_count alto, etc.). Nao curtir tudo — so o que genuinamente melhora o feed.
+**Criteria for auto-like:** tweet that meets 2+ quality signals from the curation table (builder + concrete data, insight + high reply_count, etc.). Don't like everything — only what genuinely improves the feed.
 
-**Criterio para auto-bookmark:** tweet excepcional que merece releitura. Salvar via API se disponivel.
+**Criteria for auto-bookmark:** exceptional tweet that deserves re-reading. Save via API if available.
 
-### Pesos de engajamento (referencia do algoritmo X)
+### Engagement weights (X algorithm reference)
 
-| Acao | Peso no algoritmo | Quando usar |
-|------|-------------------|-------------|
-| Bookmark | 10x | Tweet excepcional, referencia futura |
-| Like | 1x | Baseline — todo tweet de qualidade |
+| Action | Algorithm weight | When to use |
+|--------|-----------------|-------------|
+| Bookmark | 10x | Exceptional tweet, future reference |
+| Like | 1x | Baseline — every quality tweet |
 
-**Regra:** Like e bookmark sao automaticos (baixo custo, alto impacto no algoritmo). Reply, retweet e follow NAO sao permitidos (restricao desde 2026-03-03).
+**Rule:** Like and bookmark are automatic (low cost, high impact on algorithm). Reply, retweet, and follow are NOT allowed (restriction since 2026-03-03).
 
-### Output de engajamento
+### Engagement output
 
-Ao final dos resultados, reportar:
+At the end of results, report:
 
 ```markdown
-### Curadoria Algoritmica
-- Auto-liked: N tweets (URLs listadas)
+### Algorithmic Curation
+- Auto-liked: N tweets (URLs listed)
 - Auto-bookmarked: N tweets
 ```
 
 ---
 
-## Tradecraft — O que Funciona pra Que (absorvido do /nexus)
+## Tradecraft — What Works for What (absorbed from /nexus)
 
-Tradecraft e o conhecimento acumulado sobre COMO buscar, nao O QUE buscar. Vive em `~/edge/autonomy/tradecraft.md` e cresce com uso.
+Tradecraft is accumulated knowledge about HOW to search, not WHAT to search. Lives in `~/edge/autonomy/tradecraft.md` and grows with use.
 
-### Arquivo: `~/edge/autonomy/tradecraft.md`
+### File: `~/edge/autonomy/tradecraft.md`
 
-Estrutura:
+Structure:
 
 ```markdown
-# Tradecraft — Heuristicas de Busca
+# Tradecraft — Search Heuristics
 
-## Por Tipo de Informacao
+## By Information Type
 
-| Preciso de... | Melhor fonte | Query que funciona | O que NAO funciona |
-|---------------|-------------|--------------------|--------------------|
-| Paper recente com codigo | Papers With Code > ArXiv | search por task name | buscar por autor |
-| Experiencia real de producao | X (practitioners) > HN comments | edge-x "topic" --from [builders] | queries genericas |
-| Debate tecnico profundo | Reddit r/MachineLearning > HN | subreddit search, sort by top | front page (muito broad) |
-| Estado da arte por task | Semantic Scholar | query com task name, sort by citations | queries muito especificas |
-| Ferramenta emergente | HN Show > GitHub trending | edge-hn "topic" --min-points 20 | buscar por nome (nao sabe o nome ainda) |
-| Documentacao oficial | WebFetch direto na URL | site:docs.anthropic.com | WebSearch generico |
+| I need... | Best source | Query that works | What does NOT work |
+|-----------|------------|------------------|--------------------|
+| Recent paper with code | Papers With Code > ArXiv | search by task name | search by author |
+| Real production experience | X (practitioners) > HN comments | edge-x "topic" --from [builders] | generic queries |
+| Deep technical debate | Reddit r/MachineLearning > HN | subreddit search, sort by top | front page (too broad) |
+| State of the art by task | Semantic Scholar | query with task name, sort by citations | overly specific queries |
+| Emerging tool | HN Show > GitHub trending | edge-hn "topic" --min-points 20 | search by name (don't know the name yet) |
+| Official documentation | WebFetch directly on URL | site:docs.anthropic.com | generic WebSearch |
 
-## Log de Surpresas (append-only)
+## Surprise Log (append-only)
 
-Quando uma fonte surpreende (achou algo inesperado, falhou onde deveria funcionar, ou uma query incomum deu resultado), registrar:
+When a source surprises (found something unexpected, failed where it should work, or an unusual query yielded results), record:
 
-- **[YYYY-MM-DD]** [fonte] query "[query]": [o que surpreendeu]. Implicacao: [heuristica nova].
+- **[YYYY-MM-DD]** [source] query "[query]": [what was surprising]. Implication: [new heuristic].
 ```
 
-### Protocolo de Tradecraft
+### Tradecraft Protocol
 
-1. **Ao final de cada busca:** Se uma fonte surpreendeu (positiva ou negativamente), append no log de surpresas
-2. **Na /ed-reflection:** Consolidar surpresas em heuristicas na tabela principal
-3. **Qualquer skill pode consultar:** `cat ~/edge/autonomy/tradecraft.md` antes de decidir query/fonte
+1. **At the end of each search:** If a source surprised (positively or negatively), append to the surprise log
+2. **During /ed-reflection:** Consolidate surprises into heuristics in the main table
+3. **Any skill can consult:** `cat ~/edge/autonomy/tradecraft.md` before deciding query/source
 
-### "Onde acho X?" (routing interno)
+### "Where do I find X?" (internal routing)
 
-`/ed-sources` tambem responde "onde acho X?" para sources INTERNAS — nao so externas:
+`/ed-sources` also answers "where do I find X?" for INTERNAL sources — not just external:
 
-| Tipo | Onde | Como acessar |
-|------|------|-------------|
-| Memorias persistentes | `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/*.md` | Read direto |
-| Blog entries | `~/edge/blog/entries/*.md` ou `http://localhost:8766/blog/entries/` (JSON) | Read / curl |
-| Reports HTML | `~/edge/reports/*.html` | Read / browser |
-| Notes avulsas | `~/edge/notes/*.md` | Read / grep |
-| Fios de investigacao | `~/edge/threads/*.md` | Read (YAML frontmatter + markdown) |
-| Sessoes anteriores | `~/.claude/projects/$MEMORY_PROJECT_DIR/*.jsonl` | grep (pesado, ultimo recurso) |
-| Busca semantica | `edge-search "query"` | Busca hibrida FTS + embeddings |
-| Projetos de trabalho | `~/work/CLAUDE.md` (map de projetos) | Read |
-| Autonomia | `~/edge/autonomy/*.md` | Read |
+| Type | Where | How to access |
+|------|-------|---------------|
+| Persistent memories | `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/*.md` | Read directly |
+| Blog entries | `~/edge/blog/entries/*.md` or `http://localhost:8766/blog/entries/` (JSON) | Read / curl |
+| HTML reports | `~/edge/reports/*.html` | Read / browser |
+| Loose notes | `~/edge/notes/*.md` | Read / grep |
+| Investigation threads | `~/edge/threads/*.md` | Read (YAML frontmatter + markdown) |
+| Previous sessions | `~/.claude/projects/$MEMORY_PROJECT_DIR/*.jsonl` | grep (heavy, last resort) |
+| Semantic search | `edge-search "query"` | Hybrid FTS + embeddings search |
+| Work projects | `~/work/CLAUDE.md` (project map) | Read |
+| Autonomy | `~/edge/autonomy/*.md` | Read |
 | Heartbeat logs | `~/edge/logs/heartbeat-YYYY-MM-DD.log` | Read / grep |
 | Consult logs | `~/edge/logs/consult/*.json` | Read |
-| Eventos | `~/edge/logs/events.jsonl` | grep |
+| Events | `~/edge/logs/events.jsonl` | grep |
 
-Quando uma skill pergunta "onde acho dados sobre X?", `/ed-sources` primeiro verifica se a resposta e interna (routing table acima) antes de buscar externamente.
+When a skill asks "where do I find data about X?", `/ed-sources` first checks if the answer is internal (routing table above) before searching externally.
 
 ---
 
-## Notas
+## Notes
 
-- `/ed-sources` LE e ENGAJA automaticamente (like/bookmark) para curar o algoritmo. NAO posta, comenta, retweeta ou segue (restricao desde 2026-03-03)
-- Database/Backend (se configurado) requer SSH funcional — se falhar, seguir sem. Nao e critico exceto para intent `strategy`
-- Bookmarks (`~/edge/bookmarks.md`) sao curados manualmente — adicionar sources quando descobrir boas
-- Custo X e pay-per-use — conferir saldo no Developer Console periodicamente
-- Executar queries em paralelo quando possivel para minimizar tempo
-- Tradecraft (`~/edge/autonomy/tradecraft.md`) cresce com uso — append surpresas, consolidar na reflection
-- /nexus foi absorvido aqui (2026-03-11). Routing + tradecraft + "onde acho?" agora vivem no /ed-sources
+- `/ed-sources` READS and ENGAGES automatically (like/bookmark) to curate the algorithm. Does NOT post, comment, retweet, or follow (restriction since 2026-03-03)
+- Database/Backend (if configured) requires working SSH — if it fails, continue without. Not critical except for intent `strategy`
+- Bookmarks (`~/edge/bookmarks.md`) are manually curated — add sources when good ones are discovered
+- X cost is pay-per-use — check balance on Developer Console periodically
+- Run queries in parallel when possible to minimize time
+- Tradecraft (`~/edge/autonomy/tradecraft.md`) grows with use — append surprises, consolidate during reflection
+- /nexus was absorbed here (2026-03-11). Routing + tradecraft + "where do I find?" now live in /ed-sources

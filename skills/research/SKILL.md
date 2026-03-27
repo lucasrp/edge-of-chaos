@@ -1,338 +1,338 @@
 ---
 name: ed-research
-description: "Deep dive research on a specific topic or problem. Directed study with actionable output. Triggers on: research, pesquise, estude, research, deep dive, aprofunde, feynman, entenda, derive, first principles, explique de verdade."
+description: "Deep dive research on a specific topic or problem. Directed study with actionable output. Triggers on: research, pesquise, estude, deep dive, aprofunde, feynman, entenda, derive, first principles, explique de verdade, explain for real."
 user-invocable: true
 ---
 
-# Pesquisa — Deep Dive Dirigido
+# Research — Directed Deep Dive
 
-Sei O QUE quero aprender — preciso aprofundar. Pesquisa focada num tema, ferramenta, ou problema especifico. Diferente da /ed-discovery (que explora livremente), a /ed-research parte de um alvo claro.
+I know WHAT I want to learn — I need to go deeper. Focused research on a specific topic, tool, or problem. Unlike /ed-discovery (which explores freely), /ed-research starts from a clear target.
 
-Exemplos: "/ed-research DSPy", "/ed-research como reduzir custo de tokens", "/ed-research padroes de pipeline".
-
----
-
-## Argumentos Opcionais
-
-- **Sem argumento** (`/ed-research`): identificar alvo automaticamente a partir de friction points do context
-- **Com tema** (`/ed-research DSPy`): researchr esse tema em profundidade
-- **Com problema** (`/ed-research como otimizar o fluxo do pipeline`): researchr solucao para esse problema
-- **Modo Feynman** (`/ed-research feynman backpropagation` ou `/feynman X`): entendimento profundo — derivar antes de researchr, ensinar para testar entendimento, rastrear gaps
-
-Quando ha argumento, **pular a etapa de identificacao de alvo** e ir direto ao que foi pedido.
-
-### Modo Feynman
-
-Ativado quando o argumento contem "feynman", ou quando o trigger e `/feynman`, `entenda`, `derive`, `explique de verdade`.
-
-Muda o Passo 3: em vez de researchr direto, segue o ciclo:
-
-1. **Derivar primeiro** — antes de buscar qualquer fonte, tentar reconstruir o conceito do zero. Onde trava? Anotar como `[GAP: ...]`
-2. **Pesquisar so os gaps** — nao fazer survey geral. Buscar exatamente o que faltou na derivacao
-3. **Ensinar** — escrever a explicacao como se ensinasse a alguem inteligente sem context. Sem jargao. Com analogias. Com mecanica. Com limites
-4. **Verificar gaps** — reler com olho critico. Onde ficou vago? Marcar `[AINDA NAO ENTENDI: ...]`. Se houver gaps, voltar ao passo 2 (max 2 iteracoes)
-
-O output do modo Feynman e uma **explicacao autocontida** em vez de recomendacoes acionaveis. O report usa `comparison` antes/depois (entendimento superficial → profundo) e a explicacao e a secao central.
+Examples: "/ed-research DSPy", "/ed-research how to reduce token cost", "/ed-research pipeline patterns".
 
 ---
 
-## O Job
+## Optional Arguments
 
-Aprofundar num tema especifico e produzir recomendacoes acionaveis (modo padrao) ou entendimento profundo (modo Feynman).
+- **No argument** (`/ed-research`): automatically identify target from context friction points
+- **With topic** (`/ed-research DSPy`): research that topic in depth
+- **With problem** (`/ed-research how to optimize the pipeline flow`): research a solution for that problem
+- **Feynman mode** (`/ed-research feynman backpropagation` or `/feynman X`): deep understanding — derive before researching, teach to test understanding, track gaps
 
-| | /ed-research (padrao) | /ed-research feynman | /ed-discovery |
+When an argument is provided, **skip the target identification step** and go straight to what was requested.
+
+### Feynman Mode
+
+Activated when the argument contains "feynman", or when the trigger is `/feynman`, `entenda`, `derive`, `explique de verdade`.
+
+Changes Step 3: instead of researching directly, follows the cycle:
+
+1. **Derive first** — before searching any source, try to reconstruct the concept from scratch. Where does it stall? Note as `[GAP: ...]`
+2. **Research only the gaps** — don't do a general survey. Search exactly what was missing from the derivation
+3. **Teach** — write the explanation as if teaching someone intelligent without context. No jargon. With analogies. With mechanics. With limits
+4. **Verify gaps** — reread with a critical eye. Where did it stay vague? Mark `[STILL DON'T UNDERSTAND: ...]`. If there are gaps, go back to step 2 (max 2 iterations)
+
+The Feynman mode output is a **self-contained explanation** instead of actionable recommendations. The report uses `comparison` before/after (superficial understanding → deep) and the explanation is the central section.
+
+---
+
+## The Job
+
+Go deep on a specific topic and produce actionable recommendations (default mode) or deep understanding (Feynman mode).
+
+| | /ed-research (default) | /ed-research feynman | /ed-discovery |
 |---|---|---|---|
-| **Pergunta** | "O que fazer sobre X?" | "Entendo X de verdade?" | "O que nao sei que nao sei?" |
-| **Metodo** | Buscar, comparar, recomendar | Derivar, ensinar, rastrear gaps | Explorar livremente |
-| **Output** | Recomendacoes acionaveis | Explicacao autocontida + gaps | Ferramenta/conceito novo |
-| **Teste** | "Sei o que fazer?" | "Consigo reconstruir?" | "Encontrei algo util?" |
+| **Question** | "What to do about X?" | "Do I truly understand X?" | "What don't I know I don't know?" |
+| **Method** | Search, compare, recommend | Derive, teach, track gaps | Explore freely |
+| **Output** | Actionable recommendations | Self-contained explanation + gaps | New tool/concept |
+| **Test** | "Do I know what to do?" | "Can I reconstruct it?" | "Did I find something useful?" |
 
 ---
 
-## Ativação de Contexto
+## Context Activation
 
-**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
 
 ---
 
-## Protocolo (seguir na ordem)
+## Protocol (follow in order)
 
-### Passo 1: Busca semantica no corpus (o que ja sei?)
+### Step 1: Semantic search in corpus (what do I already know?)
 
-Antes de researchr, verificar o que ja existe no corpus (~1060 docs) sobre o tema:
-
-```bash
-# Busca hibrida (FTS + embeddings) — 8 resultados
-edge-search "[tema da research]" -k 8
-```
-
-Se o tema tem multiplas facetas, usar queries complementares:
-```bash
-edge-search "[faceta tecnica]" -k 5 --type note
-edge-search "[faceta conceitual]" -k 5 --type report
-```
-
-Para cada resultado relevante, ler o original:
-```bash
-cat ~/edge/notes/[arquivo].md | head -60    # Notas — mais detalhado
-head -30 ~/edge/reports/[arquivo].yaml       # Reports — title, summary
-```
-
-**O que buscar:**
-- Descobertas ja feitas — nao redescobrir
-- Recomendacoes ja dadas — construir sobre, nao repetir
-- Gaps abertos em researchs anteriores — priorizar esses
-- Evolucao — o que mudou desde o ultimo trabalho sobre o tema
-
-**Decisao:**
-- Se ja cobri com profundidade → focar nos gaps abertos ou na evolucao desde entao
-- Se cobri superficialmente → aprofundar, citando o antecedente
-- Se nao aparece → terreno novo, research full
-
-**No output:** mencionar o que a busca retornou e como influenciou o escopo.
-
-### Passo 2: Identificar alvo de research
-
-Baseado no context absorvido, escolher 1-3 alvos de research concretos:
-
-Areas de foco (priorizadas por impacto):
-
-1. **Prompt Engineering** — melhorias nos prompts, few-shot, chain-of-thought, avaliacao de qualidade
-2. **Qualidade de Codigo** — ferramentas (ruff, mypy, bandit), patterns Python, refactoring seguro
-3. **Ferramentas e Ecossistema** — MCPs uteis, plugins, automacoes (CI/CD, pre-commit hooks, linters)
-4. **Arquitetura e Patterns** — pipelines de documentos, status, fallback e resiliencia
-5. **Dominio Aplicado** — context do dominio de trabalho, terminologia, automacao de processos
-
-### Passo 3: Pesquisar (usar ultrathink)
-
-**Usar `ultrathink` (thinkmax)** — pensar profundamente antes de agir.
-
-- Pesquisar com profundidade, nao amplitude
-- Buscar papers recentes, tools, exemplos concretos
-- Comparar abordagens com trade-offs claros
-- Produzir recomendacoes acionaveis (nao "considere usar X", mas "instale X, configure Y, resultado esperado Z")
-
-#### Passo 3.5: Buscar sources externas (OBRIGATORIO)
-
-Rodar `/ed-sources research "[tema]"` para obter insights de todas as sources externas relevantes (X, Web, ArXiv, HN, GitHub).
-
-Citar no report como fonte (com @username e URL para tweets, link para papers/posts).
-Se houver likes sugeridos pelo /ed-sources, execute via `/redes engajar`.
-
-
-### Passo 3.7: Sanity check adversarial (OBRIGATORIO)
-
-Sintetizar conclusoes e recomendacoes em 2-3 frases e submeter ao edge-consult (detalhes: report-template.md):
+Before researching, check what already exists in the corpus (~1060 docs) about the topic:
 
 ```bash
-edge-consult "Resumo: [conclusoes da research]. Onde esta mais fraco?" --context /tmp/spec-research-[slug].yaml
+# Hybrid search (FTS + embeddings) — 8 results
+edge-search "[research topic]" -k 8
 ```
 
-Ajustar se o GPT encontrar furo valido. Se mantiver posicao, registrar como callout no report.
+If the topic has multiple facets, use complementary queries:
+```bash
+edge-search "[technical facet]" -k 5 --type note
+edge-search "[conceptual facet]" -k 5 --type report
+```
 
-### Passo 4: Salvar
+For each relevant result, read the original:
+```bash
+cat ~/edge/notes/[file].md | head -60    # Notes — more detailed
+head -30 ~/edge/reports/[file].yaml       # Reports — title, summary
+```
 
-- Notas: `~/edge/notes/`
-- Prototipos: `~/edge/lab/`
-- Se construiu algo funcional: `~/edge/builds/`
+**What to look for:**
+- Discoveries already made — don't rediscover
+- Recommendations already given — build on, don't repeat
+- Open gaps in previous research — prioritize these
+- Evolution — what changed since the last work on the topic
 
-### Passo 5: Registrar no break journal
+**Decision:**
+- If already covered in depth → focus on open gaps or evolution since then
+- If covered superficially → go deeper, citing the antecedent
+- If it doesn't appear → new territory, full research
 
-Registrar em TRES arquivos:
+**In the output:** mention what the search returned and how it influenced the scope.
 
-1. **`breaks-archive.md`** — entrada completa (data, tipo, alvos, discoverys, recomendacoes, aplicacoes)
-2. **`breaks-active.md`** — resumo de 3-5 linhas na secao "Ultimos 5 Breaks" (remover o mais antigo se > 5)
-3. **Observações de status:** `edge-scratch add "o que aconteceu"` durante execução. Estado processado na publicação via meta-report (ver `~/.claude/skills/_shared/state-protocol.md`).
+### Step 2: Identify research target
 
-Se a discovery e significativa, atualizar a secao "Descobertas Praticas" do `breaks-active.md`.
+Based on absorbed context, choose 1-3 concrete research targets:
 
-### Passo 6: Atualizar blog interno + gerar report HTML
+Focus areas (prioritized by impact):
 
-**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
+1. **Prompt Engineering** — prompt improvements, few-shot, chain-of-thought, quality evaluation
+2. **Code Quality** — tools (ruff, mypy, bandit), Python patterns, safe refactoring
+3. **Tools and Ecosystem** — useful MCPs, plugins, automations (CI/CD, pre-commit hooks, linters)
+4. **Architecture and Patterns** — document pipelines, status, fallback and resilience
+5. **Applied Domain** — work domain context, terminology, process automation
 
-1. Criar entry .md em `~/edge/blog/entries/` com tag `research` (formato: ver `/ed-blog` SKILL.md)
-2. **Gerar YAML** do report com as secoes obrigatorias abaixo, usando block types do conversor
-3. **Escrever YAML** em `/tmp/spec-research-[slug].yaml`
-4. Publicar tudo atomicamente (blog entry + report HTML + indexacao):
+### Step 3: Research (use ultrathink)
+
+**Use `ultrathink` (thinkmax)** — think deeply before acting.
+
+- Research with depth, not breadth
+- Search for recent papers, tools, concrete examples
+- Compare approaches with clear trade-offs
+- Produce actionable recommendations (not "consider using X", but "install X, configure Y, expected result Z")
+
+#### Step 3.5: Search external sources (MANDATORY)
+
+Run `/ed-sources research "[topic]"` to get insights from all relevant external sources (X, Web, ArXiv, HN, GitHub).
+
+Cite in the report as source (with @username and URL for tweets, link for papers/posts).
+If there are suggested likes from /ed-sources, execute via `/redes engajar`.
+
+
+### Step 3.7: Adversarial sanity check (MANDATORY)
+
+Synthesize conclusions and recommendations in 2-3 sentences and submit to edge-consult (details: report-template.md):
+
+```bash
+edge-consult "Summary: [research conclusions]. Where is this weakest?" --context /tmp/spec-research-[slug].yaml
+```
+
+Adjust if GPT finds a valid flaw. If position holds, record as callout in the report.
+
+### Step 4: Save
+
+- Notes: `~/edge/notes/`
+- Prototypes: `~/edge/lab/`
+- If something functional was built: `~/edge/builds/`
+
+### Step 5: Record in break journal
+
+Record in THREE files:
+
+1. **`breaks-archive.md`** — full entry (date, type, targets, discoveries, recommendations, applications)
+2. **`breaks-active.md`** — 3-5 line summary in the "Last 5 Breaks" section (remove the oldest if > 5)
+3. **Status observations:** `edge-scratch add "what happened"` during execution. State processed at publication via meta-report (see `~/.claude/skills/_shared/state-protocol.md`).
+
+If the discovery is significant, update the "Practical Discoveries" section of `breaks-active.md`.
+
+### Step 6: Update internal blog + generate HTML report
+
+**Follow `~/.claude/skills/_shared/state-protocol.md` for status management.**
+
+1. Create .md entry in `~/edge/blog/entries/` with tag `research` (format: see `/ed-blog` SKILL.md)
+2. **Generate YAML** of the report with the mandatory sections below, using converter block types
+3. **Write YAML** to `/tmp/spec-research-[slug].yaml`
+4. Publish everything atomically (blog entry + report HTML + indexing):
    ```bash
-   consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-research-[slug].yaml
+   consolidate-state ~/edge/blog/entries/<file>.md /tmp/spec-research-[slug].yaml
    ```
-5. **Read do HTML gerado** (`~/edge/reports/<arquivo>.html`) para verificacao
+5. **Read the generated HTML** (`~/edge/reports/<file>.html`) for verification
 
-#### Estrutura do YAML
+#### YAML Structure
 
 ```yaml
-title: "Pesquisa: [Tema]"
-subtitle: "[Subtitulo descritivo]"
+title: "Research: [Topic]"
+subtitle: "[Descriptive subtitle]"
 date: "DD/MM/YYYY"
 
 executive_summary:
-  - "**Problema:** ..."
-  - "**Insight principal:** ..."
+  - "**Problem:** ..."
+  - "**Main insight:** ..."
 
 metrics:
   - value: "N"
-    label: "Descricao"
+    label: "Description"
 
-sections:            # 5 secoes (padrao) ou 8 secoes (Feynman)
-  - title: "1. Alvo de Pesquisa"
+sections:            # 5 sections (default) or 8 sections (Feynman)
+  - title: "1. Research Target"
     blocks: [...]
-  # --- Secoes Feynman (so no modo Feynman) ---
-  - title: "2. Derivacao"               # FEYNMAN: o que derivei do zero
+  # --- Feynman Sections (Feynman mode only) ---
+  - title: "2. Derivation"               # FEYNMAN: what I derived from scratch
     blocks: [...]
-  - title: "3. Gaps Identificados"       # FEYNMAN: tabela de gaps
+  - title: "3. Identified Gaps"           # FEYNMAN: gap table
     blocks: [...]
-  - title: "4. Resolucao dos Gaps"       # FEYNMAN: gap → resposta
+  - title: "4. Gap Resolution"            # FEYNMAN: gap → answer
     blocks: [...]
-  # --- Secoes comuns ---
-  - title: "5. Descobertas"             # (ou "2." no modo padrao)
+  # --- Common Sections ---
+  - title: "5. Discoveries"              # (or "2." in default mode)
     blocks: [...]
-  - title: "6. Recomendacoes Acionaveis" # (ou "3." no modo padrao)
+  - title: "6. Actionable Recommendations" # (or "3." in default mode)
     blocks: [...]
-  - title: "7. Aplicacoes ao Trabalho"   # (ou "4." no modo padrao)
+  - title: "7. Applications to Work"      # (or "4." in default mode)
     blocks: [...]
-  - title: "8. Proximos Passos"          # (ou "5." no modo padrao)
+  - title: "8. Next Steps"               # (or "5." in default mode)
     blocks: [...]
 
-# OBRIGATORIO — auto-renderiza como ultima secao "Referencias"
+# MANDATORY — auto-renders as last section "References"
 bibliography:
-  - text: "Descricao da fonte"
+  - text: "Source description"
     url: "https://..."
-    source: "ArXiv"   # De onde veio: ArXiv, X, WebSearch, GitHub, HN, Docs, etc.
+    source: "ArXiv"   # Where it came from: ArXiv, X, WebSearch, GitHub, HN, Docs, etc.
 ```
 
-#### Estrutura Feynman (secoes 2-4)
+#### Feynman Structure (sections 2-4)
 
-No modo Feynman, as secoes 2-4 capturam o processo de derivacao:
+In Feynman mode, sections 2-4 capture the derivation process:
 
-**2. Derivacao** — o que eu derivei do zero antes de researchr:
-- `derivation` blocks para cada raciocinio (title, text, bullets, code)
-- `gap-marker` para cada `[GAP: ...]` identificado durante a derivacao
-- `concept-grid` para conceitos que reconstrui
+**2. Derivation** — what I derived from scratch before researching:
+- `derivation` blocks for each reasoning (title, text, bullets, code)
+- `gap-marker` for each `[GAP: ...]` identified during derivation
+- `concept-grid` for concepts I reconstructed
 
-**3. Gaps Identificados** — tabela resumo de todos os gaps:
-- `gap-table` com gaps[{id, description, need, status(resolvido/parcial/aberto)}]
-- O leitor ve de relance: onde o conhecimento falhava e o que foi resolvido
+**3. Identified Gaps** — summary table of all gaps:
+- `gap-table` with gaps[{id, description, need, status(resolved/partial/open)}]
+- The reader sees at a glance: where knowledge failed and what was resolved
 
-**4. Resolucao dos Gaps** — cada gap vinculado a sua resposta:
-- `gap-resolution` para cada gap resolvido (gap_id, gap, text, answer)
-- O leitor ve a cadeia: gap → research → discovery
-- Gaps abertos ficam sem `answer` ou com callout variant=danger
+**4. Gap Resolution** — each gap linked to its answer:
+- `gap-resolution` for each resolved gap (gap_id, gap, text, answer)
+- The reader sees the chain: gap → research → discovery
+- Open gaps remain without `answer` or with callout variant=danger
 
-**Block types, regra de ouro 0, regra de ouro 4, secoes finais, formato, validacao e indexacao:** ver ~/.claude/skills/_shared/report-template.md.
+**Block types, golden rule 0, golden rule 4, final sections, format, validation, and indexing:** see ~/.claude/skills/_shared/report-template.md.
 
-#### Regra de ouro 1: concept-box para cada conceito
+#### Golden rule 1: concept-box for each concept
 
-Para CADA conceito, ferramenta, tecnica ou termo tecnico descoberto na research, usar `concept-grid` com:
-- **Nome** do conceito
-- **Analogia** ("X e como Y, mas para Z")
-- **Definicao pratica** (o que faz, em 2-3 frases simples)
+For EACH concept, tool, technique, or technical term discovered in the research, use `concept-grid` with:
+- **Name** of the concept
+- **Analogy** ("X is like Y, but for Z")
+- **Practical definition** (what it does, in 2-3 simple sentences)
 
-Pesquisa descobre coisas novas — o report deve ensinar cada uma. Nao existe conceito "obvio demais".
+Research discovers new things — the report must teach each one. No concept is "too obvious".
 
-#### Regra de ouro 2: "Como e / Como ficaria" para cada recomendacao
+#### Golden rule 2: "How it is / How it would be" for each recommendation
 
-TODA recomendacao acionavel DEVE incluir uma comparacao visual mostrando o status atual vs o status proposto. NAO descricoes abstratas — conteudo real:
+EVERY actionable recommendation MUST include a visual comparison showing current status vs proposed status. NOT abstract descriptions — real content:
 
-- **Para mudancas em codigo:** usar `diff-block` ou `comparison` com snippets literais
-- **Para mudancas de workflow:** usar `comparison` (before/after com pre + bullets)
-- **Para ferramentas novas:** usar `flow-example` (input amarelo → output verde)
-- **Para configs:** usar `code-block` mostrando o arquivo real que seria criado/modificado
+- **For code changes:** use `diff-block` or `comparison` with literal snippets
+- **For workflow changes:** use `comparison` (before/after with pre + bullets)
+- **For new tools:** use `flow-example` (yellow input → green output)
+- **For configs:** use `code-block` showing the actual file that would be created/modified
 
-O leitor deve ver EXATAMENTE o que mudaria se seguir a recomendacao.
+The reader must see EXACTLY what would change if they follow the recommendation.
 
-#### Regra de ouro 3: flow-example para cada discovery tecnica
+#### Golden rule 3: flow-example for each technical discovery
 
-Para CADA discovery significativa (arquitetura, pipeline, mecanismo interno), incluir pelo menos um `flow-example` mostrando dados concretos fluindo:
+For EACH significant discovery (architecture, pipeline, internal mechanism), include at least one `flow-example` showing concrete data flowing:
 
-1. **label:** "Exemplo: [nome] — [o que demonstra]"
-2. **input:** dados de entrada reais ou realistas (fundo amarelado automatico)
-3. **output:** resultado produzido (fundo esverdeado automatico)
-4. **code:** (opcional) codigo/config que faz a transformacao (fundo cinza)
+1. **label:** "Example: [name] — [what it demonstrates]"
+2. **input:** real or realistic input data (automatic yellowish background)
+3. **output:** produced result (automatic greenish background)
+4. **code:** (optional) code/config that performs the transformation (gray background)
 
-O leitor deve "ver" a discovery operando com dados reais, nao apenas ler sobre ela.
-
-
-#### Secoes obrigatorias (nesta ordem):
-
-**1. Alvo de Pesquisa**
-- Qual problema ou gap motivou a research (concreto, nao abstrato)
-- Contexto de trabalho: onde isso se encaixa nos projetos atuais
-- **concept-box** para cada conceito novo mencionado (ver regra 1)
-- O que o leitor deveria saber antes de continuar lendo
-
-**2. Descobertas**
-- Organizar por insight, nao por fonte. Cada discovery e uma subsecao
-- **concept-box** para ferramentas/tecnicas encontradas
-- **flow-example** para cada mecanismo descoberto (ver regra 3)
-- Comparacoes entre alternativas: usar `comparison` ou `table`
-- Trade-offs explicitos: usar `callout` para limitacoes e ressalvas
-- Dados concretos: numeros, benchmarks, exemplos reais quando disponiveis
-
-**3. Recomendacoes Acionaveis**
-- Cards numerados (`numbered-card`) para cada recomendacao
-- **"Como e / Como ficaria"** obrigatorio para cada uma (ver regra 2)
-- Cada recomendacao deve ter: o que fazer, como fazer, resultado esperado
-- Nao "considere usar X" — sim "instale X, configure Y, resultado esperado Z"
-- Prioridade por impacto: usar `badge` (ALTO IMPACTO / MEDIO / INCREMENTAL)
-
-**4. Aplicacoes ao Trabalho**
-- Conexoes concretas e especificas com projetos atuais
-- Para cada aplicacao: qual projeto, qual arquivo/componente, qual mudanca
-- Usar `table` para mapear discovery → projeto → acao concreta
-- `callout` para dependencias ou pre-requisitos
-
-**5. Proximos Passos**
-- Usar `next-steps-grid` para roadmap visual
-- Diferenciar: o que fazer agora vs o que investigar depois vs ideias para /ed-planner
-- Se alguma discovery justifica uma proposta de ciclo: mencionar explicitamente
+The reader should "see" the discovery operating with real data, not just read about it.
 
 
-### Passo 7: Relatorio ao usuario
+#### Mandatory sections (in this order):
 
-Formato:
+**1. Research Target**
+- What problem or gap motivated the research (concrete, not abstract)
+- Work context: where this fits in current projects
+- **concept-box** for each new concept mentioned (see rule 1)
+- What the reader should know before continuing
+
+**2. Discoveries**
+- Organize by insight, not by source. Each discovery is a subsection
+- **concept-box** for found tools/techniques
+- **flow-example** for each discovered mechanism (see rule 3)
+- Comparisons between alternatives: use `comparison` or `table`
+- Explicit trade-offs: use `callout` for limitations and caveats
+- Concrete data: numbers, benchmarks, real examples when available
+
+**3. Actionable Recommendations**
+- Numbered cards (`numbered-card`) for each recommendation
+- **"How it is / How it would be"** mandatory for each (see rule 2)
+- Each recommendation must have: what to do, how to do it, expected result
+- Not "consider using X" — rather "install X, configure Y, expected result Z"
+- Priority by impact: use `badge` (HIGH IMPACT / MEDIUM / INCREMENTAL)
+
+**4. Applications to Work**
+- Concrete and specific connections to current projects
+- For each application: which project, which file/component, which change
+- Use `table` to map discovery → project → concrete action
+- `callout` for dependencies or prerequisites
+
+**5. Next Steps**
+- Use `next-steps-grid` for visual roadmap
+- Differentiate: what to do now vs what to investigate later vs ideas for /ed-planner
+- If any discovery justifies a cycle proposal: mention explicitly
+
+
+### Step 7: Report to user
+
+Format:
 
 ```
-## Pesquisa — [Tema] — [Data]
+## Research — [Topic] — [Date]
 
-### Alvo
-[O que pesquisei e por que — qual problema ou gap motivou]
+### Target
+[What I researched and why — what problem or gap motivated it]
 
-### Descobertas
-[O que encontrei, com detalhes, sources, e comparacoes]
+### Discoveries
+[What I found, with details, sources, and comparisons]
 
-### Recomendacoes
-[O que fazer concretamente — instalacao, configuracao, mudanca de workflow]
+### Recommendations
+[What to do concretely — installation, configuration, workflow change]
 
-### Aplicacoes ao Trabalho
-[Como aplicar nos problemas atuais — conexoes concretas e especificas]
+### Applications to Work
+[How to apply to current problems — concrete and specific connections]
 
-### Proximos Passos
-[O que retomar, testar, ou implementar]
+### Next Steps
+[What to resume, test, or implement]
 
-### Relatorio HTML
-~/edge/reports/[arquivo].html
+### HTML Report
+~/edge/reports/[file].html
 ```
 
 ---
 
-## Pós-execução
+## Post-execution
 
-**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
-
----
-
-## Regra de Privacidade (CRITICA)
-
-Para posts externos (Netlify, qualquer comunicacao publica):
-
-**NUNCA** identificar: nome do orgao/empresa, nome do dono, nome do projeto, ou qualquer dado que permita rastrear o humano.
+**Follow `~/edge/config/post-skill.md` for post-publication actions.**
 
 ---
 
-## Notas
+## Privacy Rule (CRITICAL)
 
-- Pesquisa e DIRIGIDA — parte de um alvo conhecido. Para exploracao livre, usar /ed-discovery
-- Priorizar problemas que aparecem em multiplas sessoes CLI (sessoes maiores = mais iteracao)
-- Produzir recomendacoes acionaveis, nao resumos teoricos
-- Usar `ultrathink` (thinkmax) na research
+For external posts (Netlify, any public communication):
+
+**NEVER** identify: organization/company name, owner's name, project name, or any data that allows tracing the human.
+
+---
+
+## Notes
+
+- Research is DIRECTED — it starts from a known target. For free exploration, use /ed-discovery
+- Prioritize problems that appear in multiple CLI sessions (larger sessions = more iteration)
+- Produce actionable recommendations, not theoretical summaries
+- Use `ultrathink` (thinkmax) for research

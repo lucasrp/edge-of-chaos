@@ -4,26 +4,26 @@ description: "Concrete state inspection of all managed artifacts. Counts, catego
 user-invocable: true
 ---
 
-# Estado — Inventario Factual dos Artefatos
+# State — Factual Inventory of Artifacts
 
-Inspeciona o status concreto de todos os artefatos gerenciados (state files, propostas, discoverys, breaks, notes, labs, projetos git). Produz um snapshot quantitativo e factual — numeros, contagens, timestamps, saude.
+Inspects the concrete status of all managed artifacts (state files, proposals, discoveries, breaks, notes, labs, git projects). Produces a quantitative and factual snapshot — numbers, counts, timestamps, health.
 
-NAO e context (qualitativo, orientacao). NAO e strategy (prioridades, decisoes). E inventario puro.
-
----
-
-## O Job
-
-1. Contar e categorizar cada tipo de artefato
-2. Checar saude (tamanhos, timestamps, consistencia)
-3. Detectar anomalias (arquivos orfaos, statuss inconsistentes, acumulos)
-4. Produzir snapshot estruturado — factual, sem recomendacoes
+NOT context (qualitative, orientation). NOT strategy (priorities, decisions). It is pure inventory.
 
 ---
 
-## Protocolo (seguir na ordem)
+## The Job
 
-### Passo 1: State Files (memoria do sistema de autonomy)
+1. Count and categorize each artifact type
+2. Check health (sizes, timestamps, consistency)
+3. Detect anomalies (orphan files, inconsistent statuses, accumulations)
+4. Produce structured snapshot — factual, no recommendations
+
+---
+
+## Protocol (follow in order)
+
+### Step 1: State Files (autonomy system memory)
 
 ```bash
 echo "=== STATE FILES ==="
@@ -34,25 +34,25 @@ for f in breaks-active.md breaks-archive.md propostas.md discoverys.md personali
     size=$(du -h "$path" | cut -f1)
     mod=$(stat -c %Y "$path" 2>/dev/null)
     age=$(( ($(date +%s) - mod) / 86400 ))
-    echo "$f: ${lines} linhas, ${size}, modificado ha ${age} dias"
+    echo "$f: ${lines} lines, ${size}, modified ${age} days ago"
   else
-    echo "$f: NAO EXISTE"
+    echo "$f: DOES NOT EXIST"
   fi
 done
 ```
 
-**Saude de breaks-active.md:**
-- <150 linhas → saudavel
-- 150-200 → crescendo (reflection deveria consolidar)
-- >200 → critico (consolidacao urgente)
+**Health of breaks-active.md:**
+- <150 lines → healthy
+- 150-200 → growing (reflection should consolidate)
+- >200 → critical (urgent consolidation)
 
-### Passo 2: Propostas
+### Step 2: Proposals
 
 ```bash
-echo "=== PROPOSTAS ==="
+echo "=== PROPOSALS ==="
 file="$HOME/.claude/projects/$MEMORY_PROJECT_DIR/memory/propostas.md"
 if [ -f "$file" ]; then
-  echo "Total de propostas: $(grep -c '^\## \[' "$file" 2>/dev/null || echo 0)"
+  echo "Total proposals: $(grep -c '^\## \[' "$file" 2>/dev/null || echo 0)"
   for status in PROPOSTA APROVADA "EM EXECUCAO" CONCLUIDA REJEITADA SUPERSEDED; do
     count=$(grep -c "\[$status\]" "$file" 2>/dev/null || echo 0)
     [ "$count" -gt 0 ] && echo "  [$status]: $count"
@@ -60,12 +60,12 @@ if [ -f "$file" ]; then
 fi
 ```
 
-Listar cada proposta com: numero, titulo resumido, status, data.
+List each proposal with: number, summarized title, status, date.
 
-### Passo 3: Descobertas
+### Step 3: Discoveries
 
 ```bash
-echo "=== DESCOBERTAS ==="
+echo "=== DISCOVERIES ==="
 file="$HOME/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md"
 if [ -f "$file" ]; then
   echo "Total: $(grep -c '^\## \[' "$file" 2>/dev/null || echo 0)"
@@ -76,11 +76,11 @@ if [ -f "$file" ]; then
 fi
 ```
 
-### Passo 4: Breaks e Heartbeat
+### Step 4: Breaks and Heartbeat
 
 ```bash
 echo "=== HEARTBEAT ==="
-# Extrair status do heartbeat de breaks-active.md
+# Extract heartbeat status from breaks-active.md
 grep -A 5 "Estado do Heartbeat" ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-active.md 2>/dev/null
 
 echo ""
@@ -88,18 +88,18 @@ echo "=== BREAKS (archive) ==="
 file="$HOME/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-archive.md"
 if [ -f "$file" ]; then
   total=$(grep -c '^\## \[' "$file" 2>/dev/null || echo 0)
-  echo "Total de breaks: $total"
+  echo "Total breaks: $total"
   for tipo in leisure research discovery strategy reflection planejamento execucao; do
     count=$(grep -ci "tipo.*$tipo\|$tipo —" "$file" 2>/dev/null || echo 0)
     [ "$count" -gt 0 ] && echo "  $tipo: $count"
   done
   echo ""
-  echo "Ultimo break:"
+  echo "Last break:"
   grep '^\## \[' "$file" | tail -1
 fi
 ```
 
-### Passo 5: Skills
+### Step 5: Skills
 
 ```bash
 echo "=== SKILLS ==="
@@ -112,15 +112,15 @@ ls -1 ~/.claude/skills/ 2>/dev/null | while read dir; do
 done
 ```
 
-### Passo 6: Artefatos de output (edge/)
+### Step 6: Output Artifacts (edge/)
 
 ```bash
-echo "=== ARTEFATOS (~/edge/) ==="
+echo "=== ARTIFACTS (~/edge/) ==="
 
 echo "Notes:"
 notes_count=$(ls ~/edge/notes/*.md 2>/dev/null | wc -l)
-echo "  $notes_count notas"
-[ -f ~/edge/notes/INDEX.md ] && echo "  INDEX.md existe" || echo "  INDEX.md NAO EXISTE"
+echo "  $notes_count notes"
+[ -f ~/edge/notes/INDEX.md ] && echo "  INDEX.md exists" || echo "  INDEX.md DOES NOT EXIST"
 
 echo "Labs:"
 labs=$(ls -d ~/edge/labs/*/ 2>/dev/null | wc -l)
@@ -138,155 +138,155 @@ echo "Builds:"
 ls -d ~/edge/builds/*/ 2>/dev/null | wc -l | xargs -I{} echo "  {} builds"
 
 echo "Blog:"
-[ -f ~/edge/blog/index.html ] && echo "  existe" || echo "  NAO EXISTE"
+[ -f ~/edge/blog/index.html ] && echo "  exists" || echo "  DOES NOT EXIST"
 
 echo "Netlify pages:"
 ls -d ~/edge/netlify/*/ 2>/dev/null | wc -l | xargs -I{} echo "  {} pages"
 ```
 
-### Passo 7: Projetos git
+### Step 7: Git Projects
 
 ```bash
-echo "=== PROJETOS GIT ==="
+echo "=== GIT PROJECTS ==="
 for proj in project-a project-b project-c; do  # customize with your project names
   dir="$HOME/work/$proj"
   if [ -d "$dir/.git" ]; then
     branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null)
     last_commit=$(git -C "$dir" log -1 --format="%ar" 2>/dev/null)
     dirty=$(git -C "$dir" status --porcelain 2>/dev/null | wc -l)
-    echo "$proj: branch=$branch, ultimo_commit=$last_commit, dirty_files=$dirty"
+    echo "$proj: branch=$branch, last_commit=$last_commit, dirty_files=$dirty"
   else
-    echo "$proj: NAO ENCONTRADO"
+    echo "$proj: NOT FOUND"
   fi
 done
 ```
 
-### Passo 8: Feedback do usuario
+### Step 8: User Feedback
 
 ```bash
 echo "=== FEEDBACK ==="
-# Contar feedback pendente vs processado em ~/work/CLAUDE.md
+# Count pending vs processed feedback in ~/work/CLAUDE.md
 pending=$(grep -c '^\d\.' ~/work/CLAUDE.md 2>/dev/null || echo 0)
 processed=$(grep -c '\[PROCESSADO\]' ~/work/CLAUDE.md 2>/dev/null || echo 0)
 unprocessed=$(grep '^\d\.' ~/work/CLAUDE.md 2>/dev/null | grep -v '\[PROCESSADO\]' | wc -l)
-echo "Feedback total: $pending (processados: $processed, pendentes: $unprocessed)"
+echo "Total feedback: $pending (processed: $processed, pending: $unprocessed)"
 if [ "$unprocessed" -gt 0 ]; then
-  echo "PENDENTES:"
+  echo "PENDING:"
   grep '^\d\.' ~/work/CLAUDE.md 2>/dev/null | grep -v '\[PROCESSADO\]'
 fi
 ```
 
-### Passo 9: Anomalias
+### Step 9: Anomalies
 
-Apos coletar todos os dados, verificar:
+After collecting all data, check:
 
-1. **Consistencia propostas ↔ arquivos:** Cada proposta referencia um arquivo de proposta — o arquivo existe?
-2. **Descobertas estagnadas:** Alguma [PENDENTE] ha mais de 3 heartbeats?
-3. **Notes orfas:** Notes em `~/edge/notes/` que nao estao no INDEX.md?
-4. **Labs abandonados:** Labs sem commits recentes?
-5. **breaks-active.md inchado:** >150 linhas = flag
-6. **Reflexao-log crescendo:** >300 linhas sem consolidacao?
-7. **Feedback pendente:** Qualquer item sem [PROCESSADO] = flag
+1. **Proposal-file consistency:** Each proposal references a proposal file — does the file exist?
+2. **Stagnant discoveries:** Any [PENDENTE] for more than 3 heartbeats?
+3. **Orphan notes:** Notes in `~/edge/notes/` that are not in INDEX.md?
+4. **Abandoned labs:** Labs without recent commits?
+5. **Bloated breaks-active.md:** >150 lines = flag
+6. **Growing reflection-log:** >300 lines without consolidation?
+7. **Pending feedback:** Any item without [PROCESSADO] = flag
 
 ---
 
 ## Output
 
-Produzir o snapshot no formato abaixo. Numeros exatos, sem narrativa.
+Produce the snapshot in the format below. Exact numbers, no narrative.
 
 ```markdown
-# Estado — [YYYY-MM-DD HH:MM]
+# State — [YYYY-MM-DD HH:MM]
 
 ## State Files
-| Arquivo | Linhas | Tamanho | Modificado | Saude |
-|---------|--------|---------|------------|-------|
-| breaks-active.md | N | Xk | N dias | ok/crescendo/critico |
-| breaks-archive.md | N | Xk | N dias | — |
-| propostas.md | N | Xk | N dias | — |
-| discoverys.md | N | Xk | N dias | — |
-| personality.md | N | Xk | N dias | — |
-| reflection-log.md | N | Xk | N dias | — |
+| File | Lines | Size | Modified | Health |
+|------|-------|------|----------|--------|
+| breaks-active.md | N | Xk | N days | ok/growing/critical |
+| breaks-archive.md | N | Xk | N days | — |
+| propostas.md | N | Xk | N days | — |
+| discoverys.md | N | Xk | N days | — |
+| personality.md | N | Xk | N days | — |
+| reflection-log.md | N | Xk | N days | — |
 
-## Propostas
-| # | Titulo | Status | Data |
-|---|--------|--------|------|
+## Proposals
+| # | Title | Status | Date |
+|---|-------|--------|------|
 | N | ... | [STATUS] | YYYY-MM-DD |
 
-## Descobertas
-| Titulo | Status | Data |
-|--------|--------|------|
+## Discoveries
+| Title | Status | Date |
+|-------|--------|------|
 | ... | [STATUS] | YYYY-MM-DD |
 
 ## Heartbeat
-- Ultimo beat: #N
-- Tipo: ...
-- Beats desde strategy: N
-- Beats desde planner: N
+- Last beat: #N
+- Type: ...
+- Beats since strategy: N
+- Beats since planner: N
 
 ## Skills: N total
-[lista simples]
+[simple list]
 
-## Artefatos
-- Notes: N (INDEX: sim/nao)
-- Labs: N [nomes]
+## Artifacts
+- Notes: N (INDEX: yes/no)
+- Labs: N [names]
 - Reports: N
 - Builds: N
-- Blog: sim/nao
+- Blog: yes/no
 - Netlify pages: N
 
-## Projetos Git
-| Projeto | Branch | Ultimo Commit | Dirty |
-|---------|--------|---------------|-------|
+## Git Projects
+| Project | Branch | Last Commit | Dirty |
+|---------|--------|-------------|-------|
 | ... | ... | ... | N |
 
 ## Feedback
-- Processados: N
-- Pendentes: N
-[lista dos pendentes se houver]
+- Processed: N
+- Pending: N
+[list of pending if any]
 
-## Anomalias
-- [lista factual de inconsistencias detectadas, ou "Nenhuma"]
+## Anomalies
+- [factual list of detected inconsistencies, or "None"]
 ```
 
 ---
 
-## Argumentos
+## Arguments
 
-- `/ed-status` — snapshot completo (default)
-- `/ed-status propostas` — apenas secao de propostas
-- `/ed-status saude` — apenas state files + anomalias (rapido)
-
----
-
-## Quando Usar
-
-- **Standalone:** `/ed-status` — quando quiser um dashboard factual
-- **Antes de /ed-heartbeat:** para informar o dispatch com dados concretos
-- **Apos /ed-reflection:** para verificar se o status foi atualizado corretamente
-- **Debug:** quando algo parece inconsistente — `/ed-status saude`
+- `/ed-status` — complete snapshot (default)
+- `/ed-status proposals` — proposals section only
+- `/ed-status health` — state files + anomalies only (quick)
 
 ---
 
-## O que /ed-status NAO faz
+## When to Use
 
-- NAO interpreta (isso e /ed-context)
-- NAO recomenda acoes (isso e /ed-strategy)
-- NAO modifica nenhum arquivo (leitura pura)
-- NAO le sessoes CLI ou logs de conversa (isso e /ed-context)
-- NAO faz git log detalhado (so branch, ultimo commit, dirty count)
-
----
-
-## Regra de Isolamento (OBRIGATORIA)
-
-**Leitura pura.** Esta skill NAO modifica NENHUM arquivo — nem state files, nem projetos, nem nada.
-Todos os comandos sao de leitura (cat, wc, ls, grep, git status, stat).
+- **Standalone:** `/ed-status` — when you want a factual dashboard
+- **Before /ed-heartbeat:** to inform dispatch with concrete data
+- **After /ed-reflection:** to verify the state was updated correctly
+- **Debug:** when something seems inconsistent — `/ed-status health`
 
 ---
 
-## Notas
+## What /ed-status Does NOT Do
 
-- Output factual e conciso. Sem "eu acho", sem "talvez". Numeros ou "NAO EXISTE"
-- Anomalias sao factuais, nao recomendacoes. Ex: "proposta #3 referencia arquivo inexistente" — nao "deveria criar o arquivo"
-- Se um state file nao existe, reportar como anomalia — nao criar
-- Tempo de execucao esperado: <30 segundos (tudo local, sem rede)
+- Does NOT interpret (that's /ed-context)
+- Does NOT recommend actions (that's /ed-strategy)
+- Does NOT modify any files (read-only)
+- Does NOT read CLI sessions or conversation logs (that's /ed-context)
+- Does NOT do detailed git log (only branch, last commit, dirty count)
+
+---
+
+## Isolation Rule (MANDATORY)
+
+**Read-only.** This skill does NOT modify ANY files — not state files, not projects, nothing.
+All commands are read-only (cat, wc, ls, grep, git status, stat).
+
+---
+
+## Notes
+
+- Output is factual and concise. No "I think", no "maybe". Numbers or "DOES NOT EXIST"
+- Anomalies are factual, not recommendations. E.g.: "proposal #3 references nonexistent file" — not "should create the file"
+- If a state file doesn't exist, report as anomaly — don't create it
+- Expected execution time: <30 seconds (all local, no network)

@@ -21,9 +21,9 @@ Create detailed Product Requirements Documents that are clear, actionable, and s
 
 ---
 
-## Step 0.5: Buscar context externo (opcional)
+## Step 0.5: Search external context (optional)
 
-Se a feature envolve tecnologias ou padroes que valem research, rodar `/ed-sources planner "[tema da feature]"` para encontrar exemplos, padroes, e gotchas antes de escrever o PRD.
+If the feature involves technologies or patterns that are worth researching, run `/ed-sources planner "[feature topic]"` to find examples, patterns, and gotchas before writing the PRD.
 
 ## Step 1: Clarifying Questions
 
@@ -90,7 +90,7 @@ Each story should be small enough to implement in one focused session.
 - [ ] **[UI stories only]** Verify in browser using dev-browser skill
 ```
 
-**Important:** 
+**Important:**
 - Acceptance criteria must be verifiable, not vague. "Works correctly" is bad. "Button shows confirmation dialog before deleting" is good.
 - **For any story with UI changes:** Always include "Verify in browser using dev-browser skill" as acceptance criteria. This ensures visual verification of frontend work.
 

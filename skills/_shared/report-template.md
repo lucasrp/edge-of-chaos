@@ -1,229 +1,229 @@
-# Template de Relatorio — Referencia Compartilhada
+# Report Template — Shared Reference
 
-Usado por: /ed-research, /ed-discovery, /ed-leisure, /ed-strategy, /ed-planner, /ed-reflection.
-Cada skill define suas proprias secoes obrigatorias e regras de ouro 1-3. Este arquivo define o que e COMUM a todas.
+Used by: /ed-research, /ed-discovery, /ed-leisure, /ed-strategy, /ed-planner, /ed-reflection.
+Each skill defines its own mandatory sections and golden rules 1-3. This file defines what is COMMON to all.
 
 ---
 
-## Como Gerar
+## How to Generate
 
-1. **Gerar YAML** com as secoes da skill chamadora, usando os block types abaixo
-2. **Escrever YAML** em `/tmp/spec-[skill]-[slug].yaml`
-3. **Incluir claims no frontmatter da blog entry** (compactação — OBRIGATÓRIO):
+1. **Generate YAML** with the sections from the calling skill, using the block types below
+2. **Write YAML** to `/tmp/spec-[skill]-[slug].yaml`
+3. **Include claims in the blog entry frontmatter** (compaction — MANDATORY):
    ```yaml
    claims:
-     - "Fato verificado que aprendi"
-     - "!Coisa que ainda não sei — gap de conhecimento"
-   threads: [fio-relacionado-1, fio-relacionado-2]
+     - "Verified fact I learned"
+     - "!Thing I still don't know — knowledge gap"
+   threads: [related-thread-1, related-thread-2]
    ```
-   - Claims = conhecimento durável extraído do entry. O que sobrevive sem reler o texto inteiro.
-   - Prefixo `!` = "não sei" — gap aberto, candidato a research futura.
-   - `threads:` = fios de investigação relacionados (ver `~/edge/threads/`).
-   - O `consolidate-state` avisa se claims estão ausentes.
-4. **Publicar atomicamente** (blog entry + report HTML + meta-report + state commit):
+   - Claims = durable knowledge extracted from the entry. What survives without rereading the full text.
+   - `!` prefix = "I don't know" — open gap, candidate for future research.
+   - `threads:` = related investigation threads (see `~/edge/threads/`).
+   - `consolidate-state` warns if claims are missing.
+4. **Publish atomically** (blog entry + report HTML + meta-report + state commit):
    ```bash
-   consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-[skill]-[slug].yaml
+   consolidate-state ~/edge/blog/entries/<file>.md /tmp/spec-[skill]-[slug].yaml
    ```
-   O `consolidate-state` faz tudo em 7 fases:
+   `consolidate-state` handles everything in 7 phases:
    - Phase 0/0.5: Frontmatter + review gate
    - Phase 1: Blog entry (blog-publish.sh)
    - Phase 2: Content report (generate_report.py → ~/edge/reports/)
-   - Phase 3/3.4: Verificação + LLM cost
+   - Phase 3/3.4: Verification + LLM cost
    - **Phase 4: Meta-report** (state delta + scratchpad + adversarial → ~/edge/meta-reports/)
    - Phase 5: State commit (claims, threads, events, digest)
    - Phase 6: Diffs + git commit
 
-   Content report é opcional — publicar sem YAML gera apenas meta-report:
+   Content report is optional — publishing without YAML generates only the meta-report:
    ```bash
-   consolidate-state ~/edge/blog/entries/<arquivo>.md
+   consolidate-state ~/edge/blog/entries/<file>.md
    ```
 
-   Flags úteis: `--scratchpad PATH`, `--no-adversarial`, `--no-meta`, `--skip-review`
-5. **Ler meta-report** (`~/edge/meta-reports/<slug>-meta.md`) ANTES de editar status
-6. **Read do HTML gerado** (`~/edge/reports/<arquivo>.html`) para verificacao
+   Useful flags: `--scratchpad PATH`, `--no-adversarial`, `--no-meta`, `--skip-review`
+5. **Read meta-report** (`~/edge/meta-reports/<slug>-meta.md`) BEFORE editing status
+6. **Read the generated HTML** (`~/edge/reports/<file>.html`) for verification
 
 ---
 
-## YAML Base
+## Base YAML
 
 ```yaml
-title: "[Skill]: [Tema]"
-subtitle: "[Subtitulo descritivo]"
+title: "[Skill]: [Topic]"
+subtitle: "[Descriptive subtitle]"
 date: "DD/MM/YYYY"
 
 executive_summary:
-  - "**[Campo 1]:** ..."
-  - "**[Campo 2]:** ..."
+  - "**[Field 1]:** ..."
+  - "**[Field 2]:** ..."
 
 metrics:
   - value: "N"
-    label: "Descricao"
+    label: "Description"
 
 sections:
-  - title: "1. [Secao da skill]"
+  - title: "1. [Skill section]"
     blocks: [...]
 
-# OBRIGATORIO — auto-renderiza como ultima secao "Referencias"
+# MANDATORY — auto-renders as the last section "References"
 bibliography:
-  - text: "Descricao da fonte"
+  - text: "Source description"
     url: "https://..."
     source: "ArXiv"   # ArXiv, X, WebSearch, GitHub, HN, Docs, etc.
 ```
 
 ---
 
-## Block Types Disponiveis
+## Available Block Types
 
-| Tipo | Uso | Campos principais |
-|------|-----|-------------------|
-| `paragraph` | Texto corrido | text, style? |
-| `subsection` | Sub-titulo h3 | title |
+| Type | Usage | Main fields |
+|------|-------|-------------|
+| `paragraph` | Running text | text, style? |
+| `subsection` | h3 sub-heading | title |
 | `concept-grid` | Concept-boxes 2-col | items[{name, text}] |
-| `callout` | Destaque colorido | variant(info/success/warning/danger), text |
-| `card` | Bloco com titulo | title?, badge?, badge_class?, text? |
-| `numbered-card` | Card numerado | number, title, badge?, badge_class?, text, card_class? |
+| `callout` | Colored highlight | variant(info/success/warning/danger), text |
+| `card` | Block with title | title?, badge?, badge_class?, text? |
+| `numbered-card` | Numbered card | number, title, badge?, badge_class?, text, card_class? |
 | `flow-example` | Input→Output | label, input, output, input_label?, output_label?, code? |
-| `comparison` | Antes/Depois 2-col | before{title,badge?,pre?,bullets?}, after{...} |
-| `table` | Tabela simples | headers, rows, highlight_rows?, score_row? |
-| `comparison-table` | Tabela com status | headers, rows[{cells,classes}], score_row?, note? |
-| `risk-table` | Riscos | rows[{risk,probability,mitigation}] |
-| `code-block` | Codigo/config | label?, badge?, content |
-| `ascii-diagram` | Diagrama ASCII | title?, content |
-| `template-block` | Template exemplo | title, description?, content, note? |
-| `next-steps-grid` | Roadmap visual | steps[{number,title,description}] |
-| `metrics-grid` | KPIs inline | items[{value,label}] |
-| `list` | Lista ul/ol | items, ordered? |
-| `diff-block` | Antes/depois diff | header?, lines[{type(insert/delete/context),text}] |
+| `comparison` | Before/After 2-col | before{title,badge?,pre?,bullets?}, after{...} |
+| `table` | Simple table | headers, rows, highlight_rows?, score_row? |
+| `comparison-table` | Table with status | headers, rows[{cells,classes}], score_row?, note? |
+| `risk-table` | Risks | rows[{risk,probability,mitigation}] |
+| `code-block` | Code/config | label?, badge?, content |
+| `ascii-diagram` | ASCII diagram | title?, content |
+| `template-block` | Example template | title, description?, content, note? |
+| `next-steps-grid` | Visual roadmap | steps[{number,title,description}] |
+| `metrics-grid` | Inline KPIs | items[{value,label}] |
+| `list` | ul/ol list | items, ordered? |
+| `diff-block` | Before/after diff | header?, lines[{type(insert/delete/context),text}] |
 | `raw-html` | HTML passthrough | content |
-| `derivation` | Feynman: derivacao | title?, text?, bullets?, code? |
-| `gap-marker` | Feynman: gap individual | id?, text |
-| `gap-table` | Feynman: tabela de gaps | gaps[{id, description, need, status}] |
-| `gap-resolution` | Feynman: gap → resposta | gap_id?, gap, text?, answer |
-| `glossary` | Glossario + context | context?, terms[{term, definition}] |
+| `derivation` | Feynman: derivation | title?, text?, bullets?, code? |
+| `gap-marker` | Feynman: individual gap | id?, text |
+| `gap-table` | Feynman: gap table | gaps[{id, description, need, status}] |
+| `gap-resolution` | Feynman: gap → answer | gap_id?, gap, text?, answer |
+| `glossary` | Glossary + context | context?, terms[{term, definition}] |
 
-Campos `text` suportam `**bold**`, `*italic*`, `` `code` ``, `--` (mdash), `->` (rarr).
-
----
-
-## Regra de Ouro 0: Linhagem Obrigatoria (TODAS as skills)
-
-A PRIMEIRA secao de todo report DEVE incluir um bloco mostrando a cadeia de raciocinio que levou ate aqui. Usar `table` com colunas: **Acao Anterior** | **O que Trouxe** | **Conexao com Este Trabalho**.
-
-Incluir: reports anteriores, breaks, discoverys, propostas, researchs, execucoes, conversas com o usuario — qualquer acao que informou este trabalho. Citar pelo nome/numero (ex: "Break #26 — tradecraft", "Pesquisa pipeline-minimo-viavel").
-
-Se nao ha trabalho anterior relevante, dizer explicitamente: "Primeiro trabalho sobre este tema."
+`text` fields support `**bold**`, `*italic*`, `` `code` ``, `--` (mdash), `->` (rarr).
 
 ---
 
-## Regra de Ouro 4: Visualizacoes SVG Inline (OBRIGATORIO quando aplicavel)
+## Golden Rule 0: Mandatory Lineage (ALL skills)
 
-SVG nao e so para numeros — qualquer informacao que comunica melhor como imagem merece SVG. Regra: se o leitor precisaria desenhar no papel para entender, gerar SVG.
+The FIRST section of every report MUST include a block showing the chain of reasoning that led here. Use `table` with columns: **Previous Action** | **What It Brought** | **Connection to This Work**.
 
-**Quando gerar SVG:**
-- Comparacao de 3+ valores: barras horizontais/verticais
-- Distribuicao estatistica: box plot (whiskers + mediana + media)
-- Tendencia ao longo do tempo: barras agrupadas por periodo
-- Proporcao/composicao: barras empilhadas 100%
-- Relacoes entre componentes: diagrama caixas + setas (arquitetura, pipeline, fluxo de dados)
-- Processo com decisoes: flowchart (caixas + diamantes)
-- Sequencia temporal: timeline horizontal
-- Posicionamento 2D: quadrante/matrix (urgencia x impacto, esforco x valor)
-- Hierarquia/taxonomia: tree diagram
-- Ciclo/loop: diagrama circular (feedback loops, ciclos iterativos)
+Include: previous reports, breaks, discoveries, proposals, research, executions, conversations with the user — any action that informed this work. Cite by name/number (e.g.: "Break #26 — tradecraft", "Research pipeline-minimo-viavel").
 
-**Padrao SVG:** viewBox fixo (`700 280` charts, `700 400` diagramas), `font-family:'Segoe UI',sans-serif`, cores semanticas (`#e53e3e` perigo, `#2b6cb0` normal, `#38a169` sucesso, `#ed8936` alerta, `#805ad5` destaque, `#718096` neutro), legenda inline, `max-width:100%`, `<title>` para acessibilidade. Dados numericos: SVG + tabela = par obrigatorio. Diagramas de relacao/fluxo nao precisam de tabela. Minimo 1 SVG por report.
+If there is no relevant prior work, state explicitly: "First work on this topic."
 
 ---
 
-## Secoes Finais Obrigatorias
+## Golden Rule 4: Inline SVG Visualizations (MANDATORY when applicable)
 
-### Penultima Secao: "O que Nao Sei" (OBRIGATORIA — exceto /ed-leisure)
+SVG is not just for numbers — any information that communicates better as an image deserves SVG. Rule: if the reader would need to draw on paper to understand, generate SVG.
 
-- `gap-table` com gaps abertos (status: aberto/parcial)
-- `callout` variant=danger para incertezas criticas (que podem invalidar uma recomendacao)
-- `callout` variant=warning para suposicoes nao testadas
-- NAO minimizar — "Nao sei" e informacao valiosa
-- Inclui: dados que faltaram, hipoteses nao testadas, alternativas nao exploradas, riscos de estar errado
+**When to generate SVG:**
+- Comparison of 3+ values: horizontal/vertical bars
+- Statistical distribution: box plot (whiskers + median + mean)
+- Trend over time: bars grouped by period
+- Proportion/composition: 100% stacked bars
+- Relationships between components: box + arrow diagram (architecture, pipeline, data flow)
+- Process with decisions: flowchart (boxes + diamonds)
+- Temporal sequence: horizontal timeline
+- 2D positioning: quadrant/matrix (urgency x impact, effort x value)
+- Hierarchy/taxonomy: tree diagram
+- Cycle/loop: circular diagram (feedback loops, iterative cycles)
 
-### Ultima Secao: "Contextualizacao e Glossario" (OBRIGATORIA)
-
-- `paragraph` com 2-3 frases contextualizando: para quem, em que momento, que conhecimento previo ajuda
-- `glossary` com campo `context` e campo `terms` listando TODOS os termos tecnicos com definicao pratica
-- Permite densidade alta no corpo sem perder acessibilidade
-
----
-
-## Regras de Formato (OBRIGATORIAS)
-
-- Sem anchor links internos (`<a href="#...">` causa tela branca no SharePoint)
-- Links externos PERMITIDOS e ENCORAJADOS (`<a href="https://...">`)
-- 100% autocontido (SVG inline, CSS inline) — single file, sem dependencias externas
-- Sem emojis (a menos que o usuario peca)
-- Densidade de sinal alta — cada bloco deve adicionar informacao, nao decoracao
-- Preferir exemplos concretos a descricoes abstratas
+**SVG standard:** fixed viewBox (`700 280` charts, `700 400` diagrams), `font-family:'Segoe UI',sans-serif`, semantic colors (`#e53e3e` danger, `#2b6cb0` normal, `#38a169` success, `#ed8936` warning, `#805ad5` highlight, `#718096` neutral), inline legend, `max-width:100%`, `<title>` for accessibility. Numerical data: SVG + table = mandatory pair. Relationship/flow diagrams do not need a table. Minimum 1 SVG per report.
 
 ---
 
-## Sanity Check Adversarial (edge-consult — OBRIGATORIO em TODA skill)
+## Mandatory Final Sections
 
-ANTES de gerar o YAML do report, submeter as conclusoes/recomendacoes ao `edge-consult` para deliberacao cross-model. GPT-5.4 (modelo diferente do autor) encontra furos, biases, premissas fracas.
+### Second-to-last Section: "What I Don't Know" (MANDATORY — except /ed-leisure)
+
+- `gap-table` with open gaps (status: open/partial)
+- `callout` variant=danger for critical uncertainties (that could invalidate a recommendation)
+- `callout` variant=warning for untested assumptions
+- DO NOT minimize — "I don't know" is valuable information
+- Includes: missing data, untested hypotheses, unexplored alternatives, risks of being wrong
+
+### Last Section: "Contextualization and Glossary" (MANDATORY)
+
+- `paragraph` with 2-3 sentences providing context: for whom, at what moment, what prior knowledge helps
+- `glossary` with `context` field and `terms` field listing ALL technical terms with practical definitions
+- Allows high density in the body without losing accessibility
+
+---
+
+## Format Rules (MANDATORY)
+
+- No internal anchor links (`<a href="#...">` causes blank screen on SharePoint)
+- External links ALLOWED and ENCOURAGED (`<a href="https://...">`)
+- 100% self-contained (inline SVG, inline CSS) — single file, no external dependencies
+- No emojis (unless the user asks)
+- High signal density — every block must add information, not decoration
+- Prefer concrete examples over abstract descriptions
+
+---
+
+## Adversarial Sanity Check (edge-consult — MANDATORY in EVERY skill)
+
+BEFORE generating the report YAML, submit the conclusions/recommendations to `edge-consult` for cross-model deliberation. GPT-5.4 (different model from the author) finds flaws, biases, weak premises.
 
 ```bash
-# Adversarial (default) — sintetizar conclusoes em 2-3 frases
-edge-consult "Resumo: [conclusoes]. Onde esse raciocinio e mais fraco?" --context /tmp/spec.yaml
+# Adversarial (default) — synthesize conclusions in 2-3 sentences
+edge-consult "Summary: [conclusions]. Where is this reasoning weakest?" --context /tmp/spec.yaml
 
-# Colaborativo (quando travado em direcao)
-edge-consult --mode collab "Estou travado em X, que angulos explorar?"
+# Collaborative (when stuck on direction)
+edge-consult --mode collab "I'm stuck on X, what angles to explore?"
 ```
 
-**Protocolo de resposta:**
-1. Ler a critica com honestidade
-2. Se o argumento e valido → ajustar conclusoes/YAML
-3. Se mantiver posicao → registrar no report como `callout` variant=info: "Sanity check GPT-5.4: [objecao]. Resposta: [por que mantenho]."
+**Response protocol:**
+1. Read the critique honestly
+2. If the argument is valid → adjust conclusions/YAML
+3. If maintaining position → record in the report as `callout` variant=info: "Sanity check GPT-5.4: [objection]. Response: [why I maintain my position]."
 
-**No report:** incluir bloco mostrando o que foi desafiado e como respondeu. Conviccao testada > conviccao nao desafiada.
+**In the report:** include a block showing what was challenged and how you responded. Tested conviction > unchallenged conviction.
 
-**Custo:** ~$0.02/consulta. **Log:** ~/edge/logs/consult/ (para /ed-reflection revisar).
+**Cost:** ~$0.02/query. **Log:** ~/edge/logs/consult/ (for /ed-reflection to review).
 
 ---
 
-## Passos Pos-Relatorio (OBRIGATORIOS)
+## Post-Report Steps (MANDATORY)
 
-### Review Gate (LLM-as-judge — RODAR ANTES de publicar)
+### Review Gate (LLM-as-judge — RUN BEFORE publishing)
 
-Antes de chamar `consolidate-state`, rodar o review gate para validacao semantica:
+Before calling `consolidate-state`, run the review gate for semantic validation:
 
 ```bash
-# Review standalone (loop de refinamento)
+# Standalone review (refinement loop)
 review-gate /tmp/spec-[skill]-[slug].yaml --skill [skill]
 
-# Se FAIL: ajustar YAML com base no feedback, re-rodar ate PASS
-# Se PASS: publicar
+# If FAIL: adjust YAML based on feedback, re-run until PASS
+# If PASS: publish
 ```
 
-O review gate avalia 6 dimensoes (structural_completeness, content_depth, writing_quality, visualization, intellectual_honesty, internal_consistency) via GPT-4o-mini. Custo: ~$0.002/review. Threshold: 3.5/5.
+The review gate evaluates 6 dimensions (structural_completeness, content_depth, writing_quality, visualization, intellectual_honesty, internal_consistency) via GPT-4o-mini. Cost: ~$0.002/review. Threshold: 3.5/5.
 
-**IMPORTANTE:** O `consolidate-state` tambem roda o review gate automaticamente (Phase 0.5). Se o YAML nao passar, a publicacao e bloqueada. Use `--skip-review` para forcar (so quando ja revisou manualmente).
+**IMPORTANT:** `consolidate-state` also runs the review gate automatically (Phase 0.5). If the YAML doesn't pass, publication is blocked. Use `--skip-review` to force (only when you've already reviewed manually).
 
-### Validation Gate (NAO PULAR)
+### Validation Gate (DO NOT SKIP)
 
-O `consolidate-state` ja executa a publicacao, geracao de HTML e indexacao do report. Apos ele, validar:
+`consolidate-state` already handles publication, HTML generation, and report indexing. After it, validate:
 
 ```bash
 python3 ~/edge/blog/validate.py --recent
 ```
 
-Issues comuns:
-- `report:` com path completo em vez de filename → usar so o filename
-- Tag em ingles → usar PT-BR (leisure, reflection, research, discovery, strategy, planejamento)
-- Report orfao → criar blog entry referenciando-o
+Common issues:
+- `report:` with full path instead of filename → use just the filename
+- Tag in English → use PT-BR (leisure, reflection, research, discovery, strategy, planejamento)
+- Orphan report → create a blog entry referencing it
 
-### Auto-indexar artefatos adicionais
+### Auto-index additional artifacts
 
-Se notas adicionais foram criadas em ~/edge/notes/ (alem do report e blog entry ja indexados pelo consolidate-state):
+If additional notes were created in ~/edge/notes/ (besides the report and blog entry already indexed by consolidate-state):
 
 ```bash
-edge-index ~/edge/notes/[nota].md
+edge-index ~/edge/notes/[note].md
 ```
 
-Comando silencioso — erros nao interrompem o fluxo.
+Silent command — errors do not interrupt the flow.
