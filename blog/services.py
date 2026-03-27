@@ -61,7 +61,7 @@ def get_publish_commits(limit=10):
     """Get last N git commits matching 'publish:' pattern."""
     try:
         result = subprocess.run(
-            ["git", "-C", str(ROOT), "log", "--all", "--oneline",
+            ["git", "-C", str(ROOT), "log", "--oneline",
              "--grep=publish:", f"-{limit}", "--format=%H|%s|%aI"],
             capture_output=True, text=True, timeout=5
         )
