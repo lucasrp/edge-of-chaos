@@ -1,0 +1,61 @@
+{
+  "branching": {
+    "sigma": 2.6666666666666665,
+    "ci_95": [
+      2.2222222222222223,
+      3
+    ],
+    "values": [
+      3,
+      3,
+      3,
+      3,
+      3,
+      2,
+      1,
+      3,
+      3
+    ],
+    "null_mean": 2.6535555555555557,
+    "null_std": 0.22641130027387435,
+    "cohens_d": 0.05790837778525733
+  },
+  "compression": {
+    "real_skill": 0.7792207792207793,
+    "null_skill_mean": 0.784948051948052,
+    "real_topic": 0.8063380281690141,
+    "null_topic_mean": 0.8041549295774648,
+    "cohens_d": -0.3501233632184873,
+    "sequence": [
+      "discovery",
+      "report",
+      "research",
+      "research",
+      "report",
+      "leisure",
+      "leisure",
+      "discovery",
+      "discovery"
+    ]
+  },
+  "regularity": {
+    "cv": 1.352726823036363,
+    "mean_interval_min": 30.515541,
+    "std_interval_min": 41.279190830165874,
+    "null_cv_mean": 0.8982378586038943,
+    "cohens_d": 1.682972047682359,
+    "intervals_min": [
+      1.3524253833333333,
+      16.2018546,
+      3.6918829333333334,
+      26.525839833333336,
+      17.063505516666666,
+      27.467930449999997,
+      121.30534828333333
+    ]
+  },
+  "verdict": "INCONCLUSIVA \u2014 only 1/3 metrics distinguish (need \u22652)",
+  "distinguishable": 1,
+  "n_beats": 9,
+  "n_events": 14
+}
