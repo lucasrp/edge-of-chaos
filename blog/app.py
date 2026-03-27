@@ -65,12 +65,23 @@ app.register_blueprint(setup_bp)
 
 PAGE_SIZE = 20
 
-# ─── Read-only mode ───
-# When enabled, all POST/PUT/DELETE requests return 403.
-# GET/HEAD/OPTIONS pass through. For public-facing blogs.
+# ─── Auth + Read-only mode ───
+_blog_cfg = BRANDING.get("blog", {})
+_auth_enabled = str(_blog_cfg.get("auth_enabled", False)).lower() in ("true", "1", "yes")
+_auth_user = _blog_cfg.get("auth_user", "")
+_auth_pass = _blog_cfg.get("auth_pass", "")
 _read_only_env = os.environ.get("BLOG_READ_ONLY", "").lower()
-_read_only_branding = str(BRANDING.get("blog", {}).get("read_only", False)).lower()
+_read_only_branding = str(_blog_cfg.get("read_only", False)).lower()
 BLOG_READ_ONLY = (_read_only_env or _read_only_branding) in ("true", "1", "yes")
+
+@app.before_request
+def enforce_auth():
+    if _auth_enabled and _auth_user:
+        if request.path.startswith("/static"):
+            return None
+        auth = request.authorization
+        if not auth or auth.username != _auth_user or auth.password != _auth_pass:
+            return ("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="Blog"'})
 
 @app.before_request
 def enforce_read_only():
