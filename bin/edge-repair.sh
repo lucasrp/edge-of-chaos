@@ -150,10 +150,9 @@ if [[ "$mini_status" == "degraded" || "$mini_status" == "fail" ]]; then
     repair_log "Mini-repos: in cooldown, skipping"
   else
     repair_log "Mini-repos: auto-committing dirty .claude state"
-    local claude_dir="$HOME/.claude"
+    claude_dir="$HOME/.claude"
 
     if [[ -d "$claude_dir/.git" ]]; then
-      local dirty
       dirty=$(cd "$claude_dir" && git status --porcelain 2>/dev/null | wc -l)
       if [[ "$dirty" -gt 0 ]]; then
         if cd "$claude_dir" && git add -A 2>/dev/null && git commit -m "chore: auto-commit ${dirty} pending changes (edge-repair)" 2>/dev/null; then
