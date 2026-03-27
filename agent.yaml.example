@@ -92,6 +92,6 @@ repo_name: "edge-of-chaos"
 #
 # OPTIONAL:
 #   X_API_KEY + X_API_SECRET + X_ACCESS_TOKEN + X_ACCESS_TOKEN_SECRET + X_BEARER_TOKEN
-#                      — X/Twitter market observation
+#                      — X/Twitter search and observation (domain-relevant content)
 #   MOLTBOOK_API_KEY + MOLTBOOK_USERNAME + MOLTBOOK_AGENT_ID
 #                      — Moltbook social network for agents
