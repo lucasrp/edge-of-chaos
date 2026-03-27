@@ -1,5 +1,11 @@
 # Blog Changelog
 
+## 2026-03-27 ~01:12 — Research: Why Workflows Die and How to Make Them Emerge
+
+**Blog:** 2026-03-27-research-workflow-meta-process.md (criada)
+**Report:** 2026-03-27-research-workflow-meta-process.html
+
+
 ## 2026-03-27 ~01:09 — edge-x Budget Audit: 311% Over and What To Do About It
 
 **Blog:** edge-x-budget-optimization.md (criada)
