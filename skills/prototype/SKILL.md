@@ -4,154 +4,154 @@ description: "Quick prototype to illustrate an idea — 'let me show you what I 
 user-invocable: true
 ---
 
-# Prototipo — Mostrar em Vez de Explicar
+# Prototype — Show Instead of Explain
 
-Prototipo rapido como ferramenta de comunicacao. Quando uma ideia e mais facil de MOSTRAR do que de descrever, construir algo pequeno e funcional que demonstre o conceito.
+Quick prototype as a communication tool. When an idea is easier to SHOW than to describe, build something small and functional that demonstrates the concept.
 
-Nao e execucao de projeto. Nao e implementacao de proposta. E ilustracao — "deixa eu te mostrar o que quero dizer."
-
----
-
-## Por que existe (e por que /execucao nao existe mais)
-
-`/execucao` tentava implementar codigo nos repos de projeto. Falhou por 3 razoes:
-1. O usuario tem equipe que executa — nao precisa de IA implementando
-2. A qualidade do output nao atingia o padrao (unico teste real foi deletado)
-3. Criava ansiedade de "execution gap" incompativel com o papel de mentor
-
-`/ed-prototype` e diferente: o artefato e COMUNICACAO, nao entrega. Como Feynman desenhando diagramas no quadro — o diagrama nao e o reator, mas quem viu entendeu fissao nuclear.
+This is not project execution. This is not proposal implementation. It's illustration — "let me show you what I mean."
 
 ---
 
-## Quando usar
+## Why it exists (and why /execute no longer exists)
 
-- Uma proposta do `/ed-planner` ficaria mais clara com demo visual
-- Uma discovery do `/ed-research` ou `/ed-discovery` e mais facil de mostrar que explicar
-- O usuario pede "mostra", "demonstra", "faz um poc", "como ficaria"
-- Durante qualquer conversa, quando construir algo rapido esclarece mais que 3 paragrafos
+`/execute` tried to implement code in project repos. It failed for 3 reasons:
+1. The user has a team that executes — doesn't need AI implementing
+2. The output quality didn't meet the standard (the only real test was deleted)
+3. It created "execution gap" anxiety incompatible with the mentor role
 
-**Quando NAO usar:**
-- Para implementar features nos projetos (`~/work/*`) — isso e trabalho da equipe
-- Para substituir research/planejamento — prototype sem fundamento e lixo bonito
-- Quando uma explicacao textual e suficiente — YAGNI
+`/ed-prototype` is different: the artifact is COMMUNICATION, not delivery. Like Feynman drawing diagrams on the blackboard — the diagram isn't the reactor, but whoever saw it understood nuclear fission.
 
 ---
 
-## Argumentos
+## When to use
 
-- **Com ideia** (`/ed-prototype visualize o fluxo do pipeline`): construir isso
-- **Com referencia** (`/ed-prototype proposta #16`): construir demo que ilustre a proposta
-- **Sem argumento** (`/ed-prototype`): identificar a partir do context recente o que se beneficiaria de demo
+- A `/ed-planner` proposal would be clearer with a visual demo
+- A `/ed-research` or `/ed-discovery` finding is easier to show than explain
+- The user asks to "show", "demonstrate", "do a poc", "how would it look"
+- During any conversation, when building something quick clarifies more than 3 paragraphs
+
+**When NOT to use:**
+- To implement features in projects (`~/work/*`) — that's the team's job
+- To replace research/planning — prototype without foundation is pretty garbage
+- When a text explanation is sufficient — YAGNI
 
 ---
 
-## Protocolo
+## Arguments
 
-### Passo 1: Definir o que mostrar
+- **With idea** (`/ed-prototype visualize the pipeline flow`): build that
+- **With reference** (`/ed-prototype proposal #16`): build a demo that illustrates the proposal
+- **No argument** (`/ed-prototype`): identify from recent context what would benefit from a demo
 
-Em 2-3 frases:
-- **O que:** qual conceito/ideia/proposta sera ilustrada
-- **Para que:** qual pergunta do usuario o prototype responde
-- **Escopo:** o MINIMO que demonstra o ponto (menos e mais)
+---
 
-Se a ideia veio de uma proposta ou research, referenciar: "Proposta #16 — Wizard Reliability Sprint. Demo: como o Zod retry corrige structured output."
+## Protocol
 
-### Passo 2: Construir
+### Step 1: Define what to show
 
-**Stack preferido:** HTML + CSS + JS autocontido (1 arquivo). Abre em qualquer browser, deploy facil no Netlify.
+In 2-3 sentences:
+- **What:** which concept/idea/proposal will be illustrated
+- **Why:** which user question the prototype answers
+- **Scope:** the MINIMUM that demonstrates the point (less is more)
 
-**Alternativas quando fizer sentido:**
-- Python script (se o conceito e backend/data)
-- Jupyter notebook (se precisa mostrar dados)
-- Shell script (se e automacao)
-- Qualquer coisa que rode localmente sem setup
+If the idea came from a proposal or research, reference it: "Proposal #16 — Wizard Reliability Sprint. Demo: how the Zod retry fixes structured output."
 
-**Onde salvar:**
-- `~/edge/lab/` — prototypes experimentais (padrao)
-- `~/edge/builds/` — se ficou bom o suficiente para manter
-- Nomenclatura: `proto-[slug]-[YYYY-MM-DD].[ext]`
+### Step 2: Build
 
-**Regras:**
-- **Rapido.** Se esta levando mais de 20 minutos, o escopo esta errado. Cortar
-- **Funcional.** Deve RODAR e MOSTRAR algo. Mockup estatico nao e prototype
-- **Descartavel.** O valor e a ideia comunicada, nao o codigo. Se o usuario deletar, zero perda
-- **Autocontido.** Zero dependencias externas. Abrir o arquivo = ver o demo
+**Preferred stack:** Self-contained HTML + CSS + JS (1 file). Opens in any browser, easy Netlify deploy.
 
-### Passo 3: Verificar
+**Alternatives when they make sense:**
+- Python script (if the concept is backend/data)
+- Jupyter notebook (if it needs to show data)
+- Shell script (if it's automation)
+- Anything that runs locally without setup
 
-- Abrir/rodar o prototype
-- Funciona? Mostra o que prometeu?
-- Se nao, corrigir ou reduzir escopo
+**Where to save:**
+- `~/edge/lab/` — experimental prototypes (default)
+- `~/edge/builds/` — if it turned out good enough to keep
+- Naming: `proto-[slug]-[YYYY-MM-DD].[ext]`
 
-### Passo 4: Apresentar ao usuario
+**Rules:**
+- **Fast.** If it's taking more than 20 minutes, the scope is wrong. Cut down
+- **Functional.** It must RUN and SHOW something. A static mockup is not a prototype
+- **Disposable.** The value is the communicated idea, not the code. If the user deletes it, zero loss
+- **Self-contained.** Zero external dependencies. Open the file = see the demo
 
-Formato direto:
+### Step 3: Verify
+
+- Open/run the prototype
+- Does it work? Does it show what it promised?
+- If not, fix or reduce scope
+
+### Step 4: Present to user
+
+Direct format:
 
 ```
-## Prototipo — [Nome]
+## Prototype — [Name]
 
-**Ideia:** [o que ilustra, em 1 frase]
-**Referencia:** [proposta/research/ed-discovery que motivou, se houver]
-**Arquivo:** ~/edge/lab/proto-[slug].html
+**Idea:** [what it illustrates, in 1 sentence]
+**Reference:** [proposal/research/discovery that motivated it, if any]
+**File:** ~/edge/lab/proto-[slug].html
 
-[2-3 frases explicando o que o demo mostra e como interagir]
-[Screenshot ou descricao visual se relevante]
+[2-3 sentences explaining what the demo shows and how to interact]
+[Screenshot or visual description if relevant]
 
-**Limitacoes:** [o que o prototype NAO mostra / simplificou]
+**Limitations:** [what the prototype does NOT show / simplified]
 ```
 
-Sem report HTML formal. Sem blog entry. O prototype E o output.
+No formal HTML report. No blog entry. The prototype IS the output.
 
-### Passo 5: Registrar (leve)
+### Step 5: Record (lightweight)
 
-Adicionar 1-2 linhas no `breaks-archive.md`:
+Add 1-2 lines in `breaks-archive.md`:
 
 ```markdown
-## [YYYY-MM-DD] Prototipo — [Nome]
-- **Arquivo:** ~/edge/lab/proto-[slug].[ext]
-- **Ilustra:** [o que demonstra]
-- **Referencia:** [proposta/ed-research que motivou]
+## [YYYY-MM-DD] Prototype — [Name]
+- **File:** ~/edge/lab/proto-[slug].[ext]
+- **Illustrates:** [what it demonstrates]
+- **Reference:** [proposal/research that motivated it]
 ```
 
-NAO atualizar breaks-active.md (prototype nao e break). NAO gerar report. NAO atualizar blog.
+DO NOT update breaks-active.md (prototype is not a break). DO NOT generate report. DO NOT update blog.
 
 ---
 
-## Regra de Isolamento (herdada do heartbeat)
+## Isolation Rule (inherited from heartbeat)
 
-**NUNCA** criar, editar ou modificar arquivos em `~/work/*/`. Prototipos ficam em `~/edge/`.
+**NEVER** create, edit, or modify files in `~/work/*/`. Prototypes go in `~/edge/`.
 
-Se o prototype precisa de dados de um projeto:
-- Copiar o minimo necessario para `~/edge/lab/`
-- Ou usar dados sinteticos que ilustrem o ponto
-
----
-
-## Netlify (opcional)
-
-Se o prototype e interativo (HTML/Canvas/JS) e ficou bom:
-- Mover para `~/edge/builds/`
-- Deploy no Netlify (edge-of-chaos.netlify.app)
-- Perguntar ao usuario antes de fazer deploy
+If the prototype needs data from a project:
+- Copy the minimum necessary to `~/edge/lab/`
+- Or use synthetic data that illustrates the point
 
 ---
 
-## Relacao com outras skills
+## Netlify (optional)
 
-| Skill | Relacao |
-|-------|---------|
-| /ed-research | Prototipo pode ilustrar uma discovery. Pesquisa fundamenta, prototype mostra |
-| /ed-discovery | Ferramenta discovery pode virar demo rapido |
-| /ed-planner | Proposta pode ganhar demo para tornar concreto o que propoe |
-| /ed-leisure | Builds de leisure sao primos — mas leisure e curiosidade livre, prototype e comunicacao dirigida |
-| /ed-heartbeat | Prototipo NAO faz parte do ciclo do heartbeat. E on-demand |
+If the prototype is interactive (HTML/Canvas/JS) and turned out well:
+- Move to `~/edge/builds/`
+- Deploy to Netlify (edge-of-chaos.netlify.app)
+- Ask the user before deploying
 
 ---
 
-## Notas
+## Relationship with other skills
 
-- Prototipo e verbo, nao substantivo. O valor e o ato de mostrar, nao o artefato
-- Menos e mais. Se o prototype precisa de README pra explicar, esta complexo demais
-- Disposable by design. Se ninguem olhar de novo, OK — a ideia ja foi comunicada
-- Sem ansiedade de qualidade. Nao e produto, nao e codigo de producao. E rascunho funcional
-- Pode ser invocado dentro de outras skills (ex: durante /ed-research, "vou fazer um prototype rapido pra mostrar")
+| Skill | Relationship |
+|-------|-------------|
+| /ed-research | Prototype can illustrate a discovery. Research provides foundation, prototype shows |
+| /ed-discovery | A discovered tool can become a quick demo |
+| /ed-planner | A proposal can gain a demo to make concrete what it proposes |
+| /ed-leisure | Leisure builds are cousins — but leisure is free curiosity, prototype is directed communication |
+| /ed-heartbeat | Prototype is NOT part of the heartbeat cycle. It's on-demand |
+
+---
+
+## Notes
+
+- Prototype is a verb, not a noun. The value is the act of showing, not the artifact
+- Less is more. If the prototype needs a README to explain, it's too complex
+- Disposable by design. If nobody looks at it again, OK — the idea was already communicated
+- No quality anxiety. It's not a product, it's not production code. It's a functional sketch
+- Can be invoked within other skills (e.g., during /ed-research, "I'll do a quick prototype to show")

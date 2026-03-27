@@ -1,251 +1,251 @@
 ---
 name: ed-experiment
-description: "Run a self-contained experiment: hypothesis, derivation, build, measure, conclude. Feynman method strictly. Triggers on: experiment, experiment, teste, testar hipotese, validar, lab, medir."
+description: "Run a self-contained experiment: hypothesis, derivation, build, measure, conclude. Feynman method strictly. Triggers on: experiment, experimento, teste, testar hipotese, validar, lab, medir, test hypothesis, validate, measure."
 user-invocable: true
 ---
 
-# /ed-experiment — Laboratório de Hipóteses
+# /ed-experiment — Hypothesis Laboratory
 
-Pega uma ideia autocontida, cria um repositório, roda um experiment real, mede um resultado, e escreve um relatório. Método Feynman à risca: derivar antes de researchr, experimentar antes de opinar, ensinar para testar se entendeu.
+Takes a self-contained idea, creates a repository, runs a real experiment, measures a result, and writes a report. Feynman method to the letter: derive before researching, experiment before opining, teach to test understanding.
 
-Diferente de /ed-research (lê e recomenda), /ed-discovery (explora e traz), /ed-prototype (constrói descartável). /ed-experiment tem HIPÓTESE → TESTE → RESULTADO → CONCLUSÃO. O experiment pode falhar — resultado negativo é resultado.
-
----
-
-## Argumentos
-
-- **Com hipótese** (`/ed-experiment "gpt-4.1-mini classifica perdas com >80% agreement"`) — ir direto
-- **Com tema** (`/ed-experiment hedging no extrator`) — formular hipótese antes de começar
-- **Sem argumento** (`/ed-experiment`) — identificar hipótese testável a partir do context de trabalho
+Different from /ed-research (reads and recommends), /ed-discovery (explores and brings), /ed-prototype (builds disposable). /ed-experiment has HYPOTHESIS -> TEST -> RESULT -> CONCLUSION. The experiment can fail — a negative result is still a result.
 
 ---
 
-## O Job
+## Arguments
 
-Produzir EVIDÊNCIA, não opinião. Cada experiment gera: código funcional num repositório autocontido (`~/edge/lab/exp-[slug]/`), dados de resultado mensuráveis, e um relatório que ensina o que foi aprendido.
+- **With hypothesis** (`/ed-experiment "gpt-4.1-mini classifies losses with >80% agreement"`) — go directly
+- **With topic** (`/ed-experiment hedging in the extractor`) — formulate hypothesis before starting
+- **No argument** (`/ed-experiment`) — identify testable hypothesis from the work context
+
+---
+
+## The Job
+
+Produce EVIDENCE, not opinion. Each experiment generates: functional code in a self-contained repository (`~/edge/lab/exp-[slug]/`), measurable result data, and a report that teaches what was learned.
 
 | | /ed-experiment | /ed-research | /ed-prototype |
 |---|---|---|---|
-| **Pergunta** | "Isso é verdade?" | "O que fazer sobre X?" | "Como ficaria?" |
-| **Método** | Derivar → construir → medir → concluir | Buscar → comparar → recomendar | Construir rápido → mostrar |
-| **Output** | Evidência + relatório | Recomendações | Demo descartável |
-| **Teste de qualidade** | "Qual foi o resultado?" | "Sei o que fazer?" | "Dá pra ver?" |
-| **Falha aceita?** | SIM — resultado negativo é resultado | Não aplicável | Não aplicável |
+| **Question** | "Is this true?" | "What to do about X?" | "What would it look like?" |
+| **Method** | Derive -> build -> measure -> conclude | Search -> compare -> recommend | Build fast -> show |
+| **Output** | Evidence + report | Recommendations | Disposable demo |
+| **Quality test** | "What was the result?" | "Do I know what to do?" | "Can I see it?" |
+| **Failure accepted?** | YES — negative result is a result | Not applicable | Not applicable |
 
 ---
 
-## Ativação de Contexto
+## Context Activation
 
-**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
 
 ---
 
-## Protocolo (seguir na ordem, sem pular)
+## Protocol (follow in order, no skipping)
 
-### Passo 1: Formular hipótese (EXPLÍCITA e FALSIFICÁVEL)
+### Step 1: Formulate hypothesis (EXPLICIT and FALSIFIABLE)
 
-Antes de qualquer código, escrever:
+Before any code, write:
 
 ```
-HIPÓTESE: [afirmação falsificável]
-MÉTRICA: [como vou medir — número, percentual, comparação]
-CRITÉRIO DE SUCESSO: [threshold — "sucesso se X > Y"]
-CRITÉRIO DE FALHA: [quando considerar que falhou — "falha se X < Z"]
+HYPOTHESIS: [falsifiable statement]
+METRIC: [how I will measure — number, percentage, comparison]
+SUCCESS CRITERION: [threshold — "success if X > Y"]
+FAILURE CRITERION: [when to consider it failed — "failure if X < Z"]
 ```
 
-**Regras:**
-- A hipótese DEVE ser falsificável. "X é melhor que Y" não basta — "X atinge >80% recall" é falsificável.
-- O critério de sucesso DEVE ser definido ANTES de rodar. Sem post-hoc rationalization.
-- Se o argumento do usuário já é uma hipótese, usá-la. Se é um tema, derivar a hipótese do context.
-- Se não há argumento, escolher a hipótese mais valiosa a partir dos gaps abertos (breaks.md, debugging.md, relatórios recentes).
+**Rules:**
+- The hypothesis MUST be falsifiable. "X is better than Y" is not enough — "X achieves >80% recall" is falsifiable.
+- The success criterion MUST be defined BEFORE running. No post-hoc rationalization.
+- If the user's argument is already a hypothesis, use it. If it's a topic, derive the hypothesis from context.
+- If there's no argument, choose the most valuable hypothesis from open gaps (breaks.md, debugging.md, recent reports).
 
-### Passo 2: Derivar ANTES de experimentar (Feynman — OBRIGATÓRIO)
+### Step 2: Derive BEFORE experimenting (Feynman — MANDATORY)
 
-**Usar `ultrathink` (thinkmax).**
+**Use `ultrathink` (thinkmax).**
 
-Antes de researchr ou construir qualquer coisa, tentar reconstruir o conhecimento do zero:
+Before researching or building anything, try to reconstruct the knowledge from scratch:
 
-1. **O que SEI sobre isso?** — escrever o que acredito ser verdade, com justificativa
-2. **Onde trava?** — marcar `[GAP: ...]` em cada ponto onde o raciocínio para
-3. **Que resultado ESPERO?** — prever o resultado ANTES de medir. Registrar a predição
+1. **What do I KNOW about this?** — write what I believe to be true, with justification
+2. **Where does it get stuck?** — mark `[GAP: ...]` at each point where reasoning stops
+3. **What result do I EXPECT?** — predict the result BEFORE measuring. Record the prediction
 
-**Registrar a derivação por escrito** (vai para o relatório). A derivação honesta é a parte mais valiosa — mostra onde o conhecimento real para e a suposição começa.
+**Record the derivation in writing** (goes into the report). The honest derivation is the most valuable part — it shows where real knowledge stops and assumption begins.
 
-O que NÃO fazer:
-- NÃO researchr antes de derivar (a research vem depois, nos gaps)
-- NÃO pular a derivação dizendo "vou direto ao experiment" — a derivação É o experiment tanto quanto o código
-- NÃO omitir gaps por vergonha — gap explícito > ignorância silenciosa
+What NOT to do:
+- Do NOT research before deriving (research comes after, for the gaps)
+- Do NOT skip derivation saying "I'll go straight to the experiment" — derivation IS the experiment as much as the code
+- Do NOT omit gaps out of embarrassment — explicit gap > silent ignorance
 
-### Passo 3: Pesquisar APENAS os gaps
+### Step 3: Research ONLY the gaps
 
-Só agora researchr — e SÓ o que a derivação não resolveu.
+Only now research — and ONLY what the derivation didn't resolve.
 
-Para cada `[GAP]` do Passo 4:
-1. Buscar resposta específica (sources, docs, papers)
-2. Se o gap é testável, não researchr — experimentar (ir pro Passo 6)
-3. Registrar: gap → fonte → resolução (ou "precisa de experiment")
+For each `[GAP]` from Step 4:
+1. Search for specific answer (sources, docs, papers)
+2. If the gap is testable, don't research — experiment (go to Step 6)
+3. Record: gap -> source -> resolution (or "needs experiment")
 
-Rodar `/ed-sources research "[tema do gap]"` quando necessário. Não fazer survey genérico.
+Run `/ed-sources research "[gap topic]"` when needed. Don't do a generic survey.
 
-### Passo 4: Montar o experiment
+### Step 4: Set up the experiment
 
-Criar repositório autocontido:
+Create self-contained repository:
 
 ```
 ~/edge/lab/exp-[slug]/
-  README.md          # Hipótese, setup, como reproduzir
-  run.py             # Script principal (ou .sh, .js, etc.)
-  data/              # Inputs (ou symlinks para dados existentes)
-  results/           # Output gerado pelo experiment
-  .env               # API keys se necessário (gitignored)
+  README.md          # Hypothesis, setup, how to reproduce
+  run.py             # Main script (or .sh, .js, etc.)
+  data/              # Inputs (or symlinks to existing data)
+  results/           # Output generated by the experiment
+  .env               # API keys if needed (gitignored)
 ```
 
-**Regras de montagem:**
-- **Autocontido** — qualquer pessoa com o README deve conseguir reproduzir
-- **Determinístico** — seed fixa, temperatura 0 quando possível, versão do modelo registrada
-- **Barato** — estimar custo ANTES de rodar. Se > $5, pedir confirmação ao usuário
-- **Pequeno** — amostra mínima que dá significância. Não rodar 1.330 processos se 20 bastam
-- **Prompt fora do código** — arquivo .md separado (preferência do usuário)
-- **Mensurável** — o script DEVE produzir números, não apenas outputs qualitativos
+**Setup rules:**
+- **Self-contained** — anyone with the README should be able to reproduce
+- **Deterministic** — fixed seed, temperature 0 when possible, model version recorded
+- **Cheap** — estimate cost BEFORE running. If > $5, ask for user confirmation
+- **Small** — minimum sample that gives significance. Don't run 1,330 processes if 20 suffice
+- **Prompt outside code** — separate .md file (user preference)
+- **Measurable** — the script MUST produce numbers, not just qualitative outputs
 
-### Passo 5: Rodar e coletar dados
+### Step 5: Run and collect data
 
-Executar o experiment. Registrar:
-
-```
-EXECUÇÃO:
-  Início: [timestamp]
-  Fim: [timestamp]
-  Custo: $X.XX
-  Modelo: [qual modelo, versão]
-  Amostra: N = [tamanho]
-  Erros: [qualquer falha durante execução]
-```
-
-Se falhar: diagnosticar, ajustar, documentar a falha, re-rodar. A falha de execução não é resultado — é bug.
-
-### Passo 6: Analisar resultados vs predição
-
-Comparar resultado com a predição do Passo 4 e o critério do Passo 3:
+Execute the experiment. Record:
 
 ```
-RESULTADO:
-  Métrica: [valor observado]
-  Predição: [o que eu esperava]
-  Delta: [diferença]
-  Veredicto: CONFIRMADA / REFUTADA / INCONCLUSIVA
+EXECUTION:
+  Start: [timestamp]
+  End: [timestamp]
+  Cost: $X.XX
+  Model: [which model, version]
+  Sample: N = [size]
+  Errors: [any failures during execution]
 ```
 
-**Regras de análise:**
-- **Honestidade radical** — se o resultado refuta a hipótese, dizer claramente. Não racionalizar.
-- **Sem cherry-picking** — reportar TODOS os resultados, não só os que confirmam
-- **Intervalo de confiança** — se a amostra é pequena, dizer. Não tratar N=5 como conclusivo.
-- **Resultado negativo é resultado** — "X não funciona" é tão valioso quanto "X funciona", desde que saibamos POR QUE
+If it fails: diagnose, adjust, document the failure, re-run. Execution failure is not a result — it's a bug.
 
-Se INCONCLUSIVO: explicar o que faltou (amostra maior? métrica diferente? setup errado?) e propor experiment follow-up.
+### Step 6: Analyze results vs prediction
 
-### Passo 6.5: Sanity check adversarial (OBRIGATORIO)
+Compare result with the prediction from Step 4 and the criterion from Step 3:
 
-Sintetizar resultado e analise em 2-3 frases e submeter ao edge-consult (detalhes: report-template.md):
+```
+RESULT:
+  Metric: [observed value]
+  Prediction: [what I expected]
+  Delta: [difference]
+  Verdict: CONFIRMED / REFUTED / INCONCLUSIVE
+```
+
+**Analysis rules:**
+- **Radical honesty** — if the result refutes the hypothesis, say so clearly. Don't rationalize.
+- **No cherry-picking** — report ALL results, not just those that confirm
+- **Confidence interval** — if the sample is small, say so. Don't treat N=5 as conclusive.
+- **Negative result is a result** — "X doesn't work" is as valuable as "X works", as long as we know WHY
+
+If INCONCLUSIVE: explain what was missing (larger sample? different metric? wrong setup?) and propose follow-up experiment.
+
+### Step 6.5: Adversarial sanity check (MANDATORY)
+
+Synthesize result and analysis in 2-3 sentences and submit to edge-consult (details: report-template.md):
 
 ```bash
-edge-consult "Hipotese: [X]. Resultado: [Y]. Analise: [Z]. Estou racionalizando ou o dado sustenta?" --context ~/edge/lab/exp-[slug]/
+edge-consult "Hypothesis: [X]. Result: [Y]. Analysis: [Z]. Am I rationalizing or does the data support it?" --context ~/edge/lab/exp-[slug]/
 ```
 
-Ajustar se o GPT encontrar furo valido (ex: cherry-picking, amostra insuficiente, variavel confundidora). Se mantiver posicao, registrar como callout no report.
+Adjust if GPT finds a valid flaw (e.g.: cherry-picking, insufficient sample, confounding variable). If maintaining position, record as callout in the report.
 
-### Passo 7: Ensinar (Feynman — OBRIGATÓRIO)
+### Step 7: Teach (Feynman — MANDATORY)
 
-Escrever a explicação como se ensinasse a alguém inteligente sem context:
+Write the explanation as if teaching someone intelligent without context:
 
-1. **O que eu achava antes** (derivação do Passo 4)
-2. **O que o experiment mostrou** (resultado do Passo 8)
-3. **Onde meu modelo mental estava errado** (ou certo — e por quê)
-4. **O que ainda não sei** (gaps remanescentes, próximos experiments)
+1. **What I thought before** (derivation from Step 4)
+2. **What the experiment showed** (result from Step 8)
+3. **Where my mental model was wrong** (or right — and why)
+4. **What I still don't know** (remaining gaps, next experiments)
 
-Sem jargão desnecessário. Com analogias. Com limites ("isso vale para X mas não necessariamente para Y").
+No unnecessary jargon. With analogies. With limits ("this applies to X but not necessarily to Y").
 
-Verificar gaps: reler com olho crítico. Onde ficou vago? Marcar `[AINDA NÃO ENTENDI: ...]`.
+Check for gaps: re-read with a critical eye. Where did it get vague? Mark `[STILL DON'T UNDERSTAND: ...]`.
 
-### Passo 8: Salvar
+### Step 8: Save
 
-- Repositório do experiment: `~/edge/lab/exp-[slug]/`
-- Nota: `~/edge/notes/exp-[slug].md`
-- Se o resultado for conclusivo e útil para produção: mover para `~/edge/builds/`
+- Experiment repository: `~/edge/lab/exp-[slug]/`
+- Note: `~/edge/notes/exp-[slug].md`
+- If the result is conclusive and useful for production: move to `~/edge/builds/`
 
-### Passo 9: Registrar no break journal
+### Step 9: Record in break journal
 
-Registrar em `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks.md`:
+Record in `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks.md`:
 
 ```
-### [YYYY-MM-DD] Experimento — [Título]
-Hipótese: [1 linha]. Resultado: [CONFIRMADA/REFUTADA/INCONCLUSIVA].
-[Descoberta principal em 1-2 frases].
+### [YYYY-MM-DD] Experiment — [Title]
+Hypothesis: [1 line]. Result: [CONFIRMED/REFUTED/INCONCLUSIVE].
+[Main finding in 1-2 sentences].
 Lab: ~/edge/lab/exp-[slug]/ | Blog: [entry] | Report: [html]
 ```
 
-### Passo 10: Atualizar blog interno + gerar relatório HTML
+### Step 10: Update internal blog + generate HTML report
 
-**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
+**Follow `~/.claude/skills/_shared/state-protocol.md` for status management.**
 
-1. Criar entry .md em `~/edge/blog/entries/` com tag `experiment`
+1. Create .md entry in `~/edge/blog/entries/` with tag `experiment`
 
-O blog entry do experiment segue o arco narrativo: **o que eu achava → o que testei → o que descobri → o que mudou no meu entendimento**. Não é resumo de relatório — é a história do experiment.
+The experiment blog entry follows the narrative arc: **what I thought -> what I tested -> what I discovered -> what changed in my understanding**. It's not a report summary — it's the story of the experiment.
 
-2. **Gerar YAML** do relatório com as seções obrigatórias abaixo
-3. **Escrever** em `/tmp/spec-experiment-[slug].yaml`
-4. Publicar tudo atomicamente (blog entry + report HTML + indexação):
+2. **Generate YAML** for the report with the mandatory sections below
+3. **Write** to `/tmp/spec-experiment-[slug].yaml`
+4. Publish everything atomically (blog entry + HTML report + indexing):
    ```bash
-   consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-experiment-[slug].yaml
+   consolidate-state ~/edge/blog/entries/<file>.md /tmp/spec-experiment-[slug].yaml
    ```
-5. **Read do HTML gerado** (`~/edge/reports/<arquivo>.html`) para verificação
+5. **Read the generated HTML** (`~/edge/reports/<file>.html`) for verification
 
-#### Estrutura do YAML
+#### YAML Structure
 
 ```yaml
-title: "Experimento: [Título]"
-subtitle: "[Hipótese em uma frase]"
+title: "Experiment: [Title]"
+subtitle: "[Hypothesis in one sentence]"
 date: "DD/MM/YYYY"
 
 executive_summary:
-  - "**Hipótese:** [falsificável]"
-  - "**Resultado:** [CONFIRMADA / REFUTADA / INCONCLUSIVA] — [métrica = valor]"
-  - "**Implicação:** [o que muda no trabalho a partir deste resultado]"
+  - "**Hypothesis:** [falsifiable]"
+  - "**Result:** [CONFIRMED / REFUTED / INCONCLUSIVE] — [metric = value]"
+  - "**Implication:** [what changes in the work from this result]"
 
 metrics:
-  - value: "[valor]"
-    label: "Métrica principal"
+  - value: "[value]"
+    label: "Main metric"
   - value: "[N]"
-    label: "Tamanho da amostra"
+    label: "Sample size"
   - value: "$X.XX"
-    label: "Custo do experiment"
-  - value: "[modelo]"
-    label: "Modelo usado"
+    label: "Experiment cost"
+  - value: "[model]"
+    label: "Model used"
 
 sections:
-  # --- Feynman: Derivação ---
-  - title: "1. Hipótese e Predição"
+  # --- Feynman: Derivation ---
+  - title: "1. Hypothesis and Prediction"
     blocks: [...]
-  - title: "2. Derivação (antes do experiment)"
+  - title: "2. Derivation (before the experiment)"
     blocks: [...]
-  - title: "3. Gaps Identificados"
+  - title: "3. Identified Gaps"
     blocks: [...]
-  # --- Experimento ---
-  - title: "4. Setup do Experimento"
+  # --- Experiment ---
+  - title: "4. Experiment Setup"
     blocks: [...]
-  - title: "5. Resultados"
+  - title: "5. Results"
     blocks: [...]
-  - title: "6. Análise: Predição vs Realidade"
+  - title: "6. Analysis: Prediction vs Reality"
     blocks: [...]
-  # --- Feynman: Ensinar ---
-  - title: "7. O que Aprendi (explicação Feynman)"
+  # --- Feynman: Teach ---
+  - title: "7. What I Learned (Feynman explanation)"
     blocks: [...]
-  - title: "8. Próximos Experimentos"
+  - title: "8. Next Experiments"
     blocks: [...]
-  # --- Obrigatórias ---
-  - title: "9. O que Não Sei"
+  # --- Mandatory ---
+  - title: "9. What I Don't Know"
     blocks: [...]
-  - title: "10. Contextualização e Glossário"
+  - title: "10. Contextualization and Glossary"
     blocks: [...]
 
 bibliography:
@@ -254,139 +254,139 @@ bibliography:
     source: "..."
 ```
 
-#### Seções obrigatórias (nesta ordem):
+#### Mandatory sections (in this order):
 
-**1. Hipótese e Predição**
-- `callout` variant=info com hipótese, métrica, critério de sucesso/falha
-- `table` de linhagem (Regra de Ouro 0): o que levou a este experiment
-- Contexto: por que esta hipótese importa agora
+**1. Hypothesis and Prediction**
+- `callout` variant=info with hypothesis, metric, success/failure criterion
+- `table` of lineage (Golden Rule 0): what led to this experiment
+- Context: why this hypothesis matters now
 
-**2. Derivação (antes do experiment)**
-- `derivation` blocks para cada raciocínio tentado do zero
-- `gap-marker` para cada `[GAP]` encontrado durante derivação
-- Mostrar o processo de pensar, não a conclusão
-- O leitor deve ver ONDE o conhecimento prévio parou
+**2. Derivation (before the experiment)**
+- `derivation` blocks for each reasoning attempted from scratch
+- `gap-marker` for each `[GAP]` found during derivation
+- Show the thinking process, not the conclusion
+- The reader should see WHERE prior knowledge stopped
 
-**3. Gaps Identificados**
-- `gap-table` com todos os gaps da derivação
-- Status: resolvido (research), testável (vai pro experiment), aberto
-- Gaps testáveis são os que motivam o experiment — mostrar a conexão
+**3. Identified Gaps**
+- `gap-table` with all gaps from the derivation
+- Status: resolved (research), testable (goes to experiment), open
+- Testable gaps are the ones that motivate the experiment — show the connection
 
-**4. Setup do Experimento**
-- `code-block` com o código principal (ou trecho representativo)
-- `table` com parâmetros: modelo, temperatura, seed, amostra, custo estimado
-- `flow-example` mostrando input → processamento → output esperado
-- Link para o repositório: `~/edge/lab/exp-[slug]/`
-- Como reproduzir (README do repo)
+**4. Experiment Setup**
+- `code-block` with the main code (or representative snippet)
+- `table` with parameters: model, temperature, seed, sample, estimated cost
+- `flow-example` showing input -> processing -> expected output
+- Link to the repository: `~/edge/lab/exp-[slug]/`
+- How to reproduce (repo README)
 
-**5. Resultados**
-- **SVG obrigatório** (Regra de Ouro 4) — visualizar o resultado principal
-- `table` com dados brutos (ou amostra representativa)
-- `metrics-grid` com métricas-chave
-- Sem interpretação nesta seção — só dados
+**5. Results**
+- **Mandatory SVG** (Golden Rule 4) — visualize the main result
+- `table` with raw data (or representative sample)
+- `metrics-grid` with key metrics
+- No interpretation in this section — data only
 
-**6. Análise: Predição vs Realidade**
-- `comparison` entre predição (before) e resultado real (after)
-- `callout` variant=success se confirmada, variant=danger se refutada, variant=warning se inconclusiva
-- `gap-resolution` para cada gap testável que o experiment resolveu
-- Honest accounting: onde o modelo mental estava errado e por quê
-- Se resultado negativo: o que o resultado negativo ENSINA
+**6. Analysis: Prediction vs Reality**
+- `comparison` between prediction (before) and actual result (after)
+- `callout` variant=success if confirmed, variant=danger if refuted, variant=warning if inconclusive
+- `gap-resolution` for each testable gap the experiment resolved
+- Honest accounting: where the mental model was wrong and why
+- If negative result: what the negative result TEACHES
 
-**7. O que Aprendi (explicação Feynman)**
-- Explicação autocontida como se ensinasse a alguém inteligente
-- `concept-grid` para cada conceito que ficou mais claro
-- `comparison` antes/depois do entendimento (superficial → profundo)
-- Marcar `[AINDA NÃO ENTENDI: ...]` onde gaps persistem
-- Tom: explorador, honesto, sem jargão desnecessário
+**7. What I Learned (Feynman explanation)**
+- Self-contained explanation as if teaching someone intelligent
+- `concept-grid` for each concept that became clearer
+- `comparison` before/after understanding (shallow -> deep)
+- Mark `[STILL DON'T UNDERSTAND: ...]` where gaps persist
+- Tone: explorer, honest, no unnecessary jargon
 
-**8. Próximos Experimentos**
-- `next-steps-grid` com follow-ups que emergem dos resultados
-- Diferenciar: confirmação (repetir com N maior), extensão (testar variante), novo (hipótese diferente)
-- Para cada próximo experiment: hipótese provisória + métrica
+**8. Next Experiments**
+- `next-steps-grid` with follow-ups that emerge from the results
+- Differentiate: confirmation (repeat with larger N), extension (test variant), new (different hypothesis)
+- For each next experiment: provisional hypothesis + metric
 
-**Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
+**Block types and rules:** see `~/.claude/skills/_shared/report-template.md`.
 
-#### Regra de Ouro 1: Dados antes de narrativa
+#### Golden Rule 1: Data before narrative
 
-O relatório de experiment prioriza DADOS. Toda afirmação deve ter um número, uma tabela, ou um exemplo concreto que a sustenta. Se não tem dado, é hipótese — marcar como tal.
+The experiment report prioritizes DATA. Every claim must have a number, a table, or a concrete example to support it. If there's no data, it's a hypothesis — mark it as such.
 
-- Resultado numérico → SVG + tabela (par obrigatório)
-- Comparação → `comparison` com valores reais, não descrições
-- Exemplo → `flow-example` com input/output literais do experiment
-- Claim sem dado → `callout` variant=warning marcando como hipótese não testada
+- Numerical result -> SVG + table (mandatory pair)
+- Comparison -> `comparison` with actual values, not descriptions
+- Example -> `flow-example` with literal input/output from the experiment
+- Claim without data -> `callout` variant=warning marking it as untested hypothesis
 
-#### Regra de Ouro 2: Predição registrada e confrontada
+#### Golden Rule 2: Prediction recorded and confronted
 
-TODA métrica no resultado DEVE ser confrontada com a predição feita ANTES do experiment. Usar `comparison` ou `diff-block`:
+EVERY metric in the result MUST be confronted with the prediction made BEFORE the experiment. Use `comparison` or `diff-block`:
 
-- before = predição (com justificativa do raciocínio)
-- after = resultado real (com dados)
-- Se não houve predição para alguma métrica, dizer explicitamente
+- before = prediction (with reasoning justification)
+- after = actual result (with data)
+- If there was no prediction for some metric, say so explicitly
 
-#### Regra de Ouro 3: Reprodutibilidade
+#### Golden Rule 3: Reproducibility
 
-O relatório deve conter TUDO para reproduzir o experiment:
+The report must contain EVERYTHING to reproduce the experiment:
 
-- `code-block` com comando exato para rodar
-- `table` com todas as configurações (modelo, temp, seed, N)
-- Link para repositório com README
-- Custo real (não estimado)
+- `code-block` with exact command to run
+- `table` with all configurations (model, temp, seed, N)
+- Link to repository with README
+- Actual cost (not estimated)
 
-### Passo 11: Relatório ao usuário
+### Step 11: Report to user
 
-Formato:
+Format:
 
 ```
-## Experimento — [Título] — [Data]
+## Experiment — [Title] — [Date]
 
-### Hipótese
-[Afirmação falsificável + critério de sucesso/falha]
+### Hypothesis
+[Falsifiable statement + success/failure criterion]
 
-### O que eu achava (derivação)
-[Resumo da derivação + gaps encontrados]
+### What I thought (derivation)
+[Summary of derivation + gaps found]
 
-### O que testei
-[Setup: modelo, amostra, métrica, custo]
+### What I tested
+[Setup: model, sample, metric, cost]
 
-### Resultado
-[CONFIRMADA / REFUTADA / INCONCLUSIVA]
-[Métrica = valor vs predição = valor]
+### Result
+[CONFIRMED / REFUTED / INCONCLUSIVE]
+[Metric = value vs prediction = value]
 
-### O que aprendi
-[Insight principal — o que mudou no entendimento]
+### What I learned
+[Main insight — what changed in understanding]
 
-### Próximos experiments
-[Follow-ups que emergem]
+### Next experiments
+[Follow-ups that emerge]
 
-### Artefatos
+### Artifacts
 - Lab: ~/edge/lab/exp-[slug]/
 - Blog: ~/edge/blog/entries/[entry].md
-- Relatório: ~/edge/reports/[report].html
+- Report: ~/edge/reports/[report].html
 ```
 
 ---
 
-## Pós-execução
+## Post-execution
 
-**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
-
----
-
-## Regra de Privacidade (CRÍTICA)
-
-Para posts externos (Netlify, qualquer comunicação pública):
-
-**NUNCA** identificar: nome do órgão/empresa, nome do dono, nome do projeto, ou qualquer dado que permita rastrear o humano.
+**Follow `~/edge/config/post-skill.md` for post-publication actions.**
 
 ---
 
-## Notas
+## Privacy Rule (CRITICAL)
 
-- Resultado negativo é resultado. Não forçar narrativa de sucesso quando o dado diz o contrário.
-- Custo > $5 → perguntar ao usuário antes de rodar. Estimar custo ANTES.
-- Amostra mínima que dá significância. Não desperdiçar tokens com N grande quando N=20 basta.
-- Seed fixa e temperatura 0 para reprodutibilidade (exceto quando o experiment testa variabilidade).
-- Prompt fora do código — sempre .md separado.
-- `ultrathink` (thinkmax) nos Passos 4, 8 e 9 (derivação, análise, ensino).
-- Se o experiment gera um artefato útil para produção, mover para ~/edge/builds/ e atualizar o blog.
-- Cada experiment é atômico — se falhar no meio, o status parcial fica documentado no README do repo.
+For external posts (Netlify, any public communication):
+
+**NEVER** identify: organization/company name, owner name, project name, or any data that could trace back to the human.
+
+---
+
+## Notes
+
+- Negative result is a result. Don't force a success narrative when the data says otherwise.
+- Cost > $5 -> ask the user before running. Estimate cost BEFORE.
+- Minimum sample that gives significance. Don't waste tokens with large N when N=20 suffices.
+- Fixed seed and temperature 0 for reproducibility (except when the experiment tests variability).
+- Prompt outside code — always separate .md.
+- `ultrathink` (thinkmax) in Steps 4, 8, and 9 (derivation, analysis, teaching).
+- If the experiment generates a useful artifact for production, move to ~/edge/builds/ and update the blog.
+- Each experiment is atomic — if it fails midway, the partial status is documented in the repo README.

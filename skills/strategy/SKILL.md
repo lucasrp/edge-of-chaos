@@ -1,266 +1,266 @@
 ---
 name: ed-strategy
-description: "Strategic planning across all projects. Analyze state, identify connections, set priorities, suggest next steps. Triggers on: strategy, strategy, planeje, plan ahead, big picture, quadro geral."
+description: "Strategic planning across all projects. Analyze state, identify connections, set priorities, suggest next steps. Triggers on: strategy, estrategia, planeje, plan ahead, big picture, quadro geral."
 user-invocable: true
 ---
 
-# Estrategia — Planejamento Estrategico Cross-Project
+# Strategy — Cross-Project Strategic Planning
 
-Olhar para o quadro geral de todos os projetos. Analisar onde cada um esta, o que esta bloqueado, o que precisa de atencao, e como se conectam. Definir direcoes e proximos passos.
-
----
-
-## O Job
-
-1. Absorver status cross-project (via `/ed-context`)
-2. Analisar cada projeto: onde esta, o que precisa, o que bloqueia
-3. Identificar conexoes entre projetos
-4. Definir direcoes: prioridades, threads a aprofundar, habilidades a desenvolver
-5. Sugerir proximos passos concretos ao usuario
-6. **Atualizar `~/edge/config/strategy.md`** — seções "Propostas" e "Contexto" (agente escreve, operador revisa)
-7. Propor atualizacoes para `~/work/CLAUDE.md` (no report — quem aplica e a `/ed-reflection`)
+Look at the big picture across all projects. Analyze where each one stands, what's blocked, what needs attention, and how they connect. Define directions and next steps.
 
 ---
 
-## Ativação de Contexto
+## The Job
 
-**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+1. Absorb cross-project status (via `/ed-context`)
+2. Analyze each project: where it stands, what it needs, what blocks it
+3. Identify connections between projects
+4. Define directions: priorities, threads to deepen, skills to develop
+5. Suggest concrete next steps to the user
+6. **Update `~/edge/config/strategy.md`** — sections "Proposals" and "Context" (agent writes, operator reviews)
+7. Propose updates for `~/work/CLAUDE.md` (in the report — the one who applies is `/ed-reflection`)
 
 ---
 
-## Protocolo (seguir na ordem)
+## Context Activation
 
-### Passo 1: Absorver context de projetos
+**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
 
-Rodar `/ed-context` para obter status cross-project completo (git, boards, issues, digests).
+---
 
-Se `/ed-context` ja foi rodado nesta sessao, reler o output — nao repetir.
+## Protocol (follow in order)
 
-### Passo 1.5: Consultar reports anteriores
+### Step 1: Absorb project context
 
-Verificar reports anteriores de strategy e outros relevantes:
+Run `/ed-context` to obtain complete cross-project status (git, boards, issues, digests).
+
+If `/ed-context` was already run in this session, re-read the output — don't repeat.
+
+### Step 1.5: Consult previous reports
+
+Check previous strategy and other relevant reports:
 
 ```bash
 ls -lt ~/edge/reports/*.yaml 2>/dev/null | head -20
 ```
 
-Para cada YAML de strategy ou com nome relevante, ler as primeiras ~30 linhas (title, subtitle, executive_summary). Para a strategy mais recente, ler secoes de prioridades e riscos.
+For each strategy YAML or with a relevant name, read the first ~30 lines (title, subtitle, executive_summary). For the most recent strategy, read the priorities and risks sections.
 
-**O que buscar:**
-- Estrategia anterior — prioridades que foram definidas, o que mudou desde entao
-- Pesquisas e execucoes recentes — informam o status real dos projetos
-- Propostas pendentes — se foram executadas ou nao
-- Evolucao dos riscos — quais se concretizaram, quais foram mitigados
+**What to look for:**
+- Previous strategy — priorities that were defined, what changed since then
+- Recent research and executions — inform the real status of projects
+- Pending proposals — whether they were executed or not
+- Risk evolution — which materialized, which were mitigated
 
-**No output:** comparar com ultima strategy: o que mudou, o que permanece.
+**In the output:** compare with the last strategy: what changed, what remains.
 
-### Passo 2: Analise por projeto
+### Step 2: Per-project analysis
 
-Para cada projeto, avaliar:
+For each project, evaluate:
 
-| Dimensao | Pergunta |
-|----------|----------|
-| **Momentum** | Esta sendo trabalhado ativamente? Qual o ritmo? |
-| **Bloqueios** | Algo esta parado? O que desbloqueia? |
-| **Divida tecnica** | Ha tech debt acumulando? Refactors pendentes? |
-| **Proxima milestone** | Qual o proximo marco concreto? |
-| **Dependencias** | Depende de outro projeto? Outro depende dele? |
+| Dimension | Question |
+|-----------|----------|
+| **Momentum** | Is it being actively worked on? What's the pace? |
+| **Blockers** | Is anything stalled? What unblocks it? |
+| **Tech debt** | Is tech debt accumulating? Pending refactors? |
+| **Next milestone** | What's the next concrete milestone? |
+| **Dependencies** | Does it depend on another project? Does another depend on it? |
 
-### Passo 3: Conexoes entre projetos
+### Step 3: Connections between projects
 
-Mapear:
-- **Dependencias diretas** — ex: frontend precisa de endpoints do backend
-- **Oportunidades** — ralph pode automatizar tarefas em outros projetos
-- **Conflitos** — mudancas em um projeto que afetam outro
-- **Sinergias** — trabalho em um projeto que beneficia outro
+Map:
+- **Direct dependencies** — e.g., frontend needs backend endpoints
+- **Opportunities** — ralph can automate tasks in other projects
+- **Conflicts** — changes in one project that affect another
+- **Synergies** — work in one project that benefits another
 
-### Passo 3.5: Buscar sources externas (OBRIGATORIO)
+### Step 3.5: Search external sources (MANDATORY)
 
-Rodar `/ed-sources strategy` para obter tendencias e insights estrategicos de todas as sources relevantes (X, HN, Web, GitHub releases, platform usage).
+Run `/ed-sources strategy` to obtain trends and strategic insights from all relevant sources (X, HN, Web, GitHub releases, platform usage).
 
-Incluir na analise estrategica e citar no report (com URL).
+Include in the strategic analysis and cite in the report (with URL).
 
-### Passo 4: Definir direcoes
+### Step 4: Define directions
 
-Com base na analise, definir:
-- **Prioridade 1-3** — o que atacar primeiro e por que
-- **Threads a aprofundar** — areas que merecem mais investigacao
-- **Habilidades a desenvolver** — o que me capacitar para ser mais util (alimenta `/ed-research`)
-- **Riscos** — o que pode dar errado se ignorado
+Based on the analysis, define:
+- **Priority 1-3** — what to tackle first and why
+- **Threads to deepen** — areas that deserve further investigation
+- **Skills to develop** — what to learn to be more useful (feeds `/ed-research`)
+- **Risks** — what can go wrong if ignored
 
-### Passo 4.5: Sanity check adversarial (OBRIGATORIO)
+### Step 4.5: Adversarial sanity check (MANDATORY)
 
-Sintetizar prioridades e direcoes definidas em 2-3 frases e submeter ao edge-consult (detalhes: report-template.md):
+Synthesize priorities and defined directions in 2-3 sentences and submit to edge-consult (details: report-template.md):
 
 ```bash
-edge-consult "Prioridades: [lista]. Justificativa: [razoes]. Que risco estou subestimando?" --context /tmp/spec-strategy-[slug].yaml
+edge-consult "Priorities: [list]. Justification: [reasons]. What risk am I underestimating?" --context /tmp/spec-strategy-[slug].yaml
 ```
 
-Ajustar se o GPT encontrar furo valido (ex: dependency nao vista, risco ignorado). Se mantiver posicao, registrar como callout no report.
+Adjust if GPT finds a valid flaw (e.g., unseen dependency, ignored risk). If maintaining position, record as callout in the report.
 
-### Passo 5: Atualizar strategy.md
+### Step 5: Update strategy.md
 
-Editar `~/edge/config/strategy.md`:
+Edit `~/edge/config/strategy.md`:
 
-- **Seção "Propostas (agente)"** — adicionar propostas novas com data, ou marcar anteriores como [ACEITA]/[REJEITADA] se o operador decidiu
-- **Seção "Contexto (agente)"** — atualizar com dados da análise (métricas, padrões detectados, mudanças de cenário)
-- **NÃO editar** seções "Direção" e "Prioridades" — essas são do operador
+- **"Proposals (agent)" section** — add new proposals with date, or mark previous ones as [ACCEPTED]/[REJECTED] if the operator decided
+- **"Context (agent)" section** — update with analysis data (metrics, detected patterns, scenario changes)
+- **DO NOT edit** "Direction" and "Priorities" sections — those belong to the operator
 
-Se `strategy.md` não existir, instanciar de `~/edge/config/strategy.md.tpl`.
+If `strategy.md` doesn't exist, instantiate from `~/edge/config/strategy.md.tpl`.
 
-### Passo 5b: Propor atualizacoes para ~/work/CLAUDE.md
+### Step 5b: Propose updates for ~/work/CLAUDE.md
 
-**NAO editar o arquivo diretamente.** Incluir no report (passo 6) as mudancas propostas para:
-- **Mapa de Projetos** — status atualizado de cada projeto
-- **Prioridades Atuais** — reordenar conforme analise
-- **Sugestoes** — proximos passos concretos
-- **Conexoes Entre Projetos** — se mudaram
+**DO NOT edit the file directly.** Include in the report (step 6) the proposed changes for:
+- **Project Map** — updated status of each project
+- **Current Priorities** — reorder according to analysis
+- **Suggestions** — concrete next steps
+- **Inter-Project Connections** — if they changed
 
-A `/ed-reflection` e a unica skill que aplica mudancas no `~/work/CLAUDE.md`.
+`/ed-reflection` is the only skill that applies changes to `~/work/CLAUDE.md`.
 
-### Passo 6: Atualizar blog interno + gerar report HTML
+### Step 6: Update internal blog + generate HTML report
 
-**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
+**Follow `~/.claude/skills/_shared/state-protocol.md` for state management.**
 
-1. Criar entry .md em `~/edge/blog/entries/` com tag `strategy` (formato: ver `/ed-blog` SKILL.md)
-2. **Gerar YAML** do report com as secoes abaixo, usando block types do conversor
-3. **Escrever YAML** em `/tmp/spec-strategy-[slug].yaml`
-4. Publicar tudo atomicamente (blog entry + report HTML + indexacao):
+1. Create .md entry in `~/edge/blog/entries/` with tag `strategy` (format: see `/ed-blog` SKILL.md)
+2. **Generate YAML** for the report with the sections below, using converter block types
+3. **Write YAML** to `/tmp/spec-strategy-[slug].yaml`
+4. Publish everything atomically (blog entry + HTML report + indexing):
    ```bash
-   consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-strategy-[slug].yaml
+   consolidate-state ~/edge/blog/entries/<file>.md /tmp/spec-strategy-[slug].yaml
    ```
-5. **Read do HTML gerado** (`~/edge/reports/<arquivo>.html`) para verificacao
+5. **Read the generated HTML** (`~/edge/reports/<file>.html`) for verification
 
-**Verificar retrospectiva:** Apos adicionar a entry, checar se ha massa critica para uma
-retrospectiva (ver secao "Retrospectivas" no `/ed-blog` SKILL.md). A strategy e o momento
-natural para isso — ja fez o survey de tudo. Se 5+ entries desde a ultima retrospectiva
-E um arco tematico emergiu, escrever a retrospectiva no mesmo passo.
+**Check for retrospective:** After adding the entry, check if there's critical mass for a
+retrospective (see "Retrospectives" section in `/ed-blog` SKILL.md). Strategy is the natural
+moment for this — you've already surveyed everything. If 5+ entries since the last retrospective
+AND a thematic arc emerged, write the retrospective in the same step.
 
-#### Estrutura do YAML
+#### YAML Structure
 
 ```yaml
-title: "Estrategia — [data]"
-subtitle: "[Visao de 1 frase do status]"
+title: "Strategy — [date]"
+subtitle: "[1-sentence status vision]"
 date: "DD/MM/YYYY"
 
 executive_summary:
-  - "**Estado:** ..."
-  - "**Prioridade #1:** ..."
+  - "**State:** ..."
+  - "**Priority #1:** ..."
 
 metrics:
   - value: "N"
-    label: "Projetos"
+    label: "Projects"
   - value: "N"
-    label: "Bloqueios"
+    label: "Blockers"
   - value: "N"
-    label: "Propostas"
+    label: "Proposals"
 
 sections:
-  - title: "1. Quadro Geral"
+  - title: "1. Big Picture"
     blocks: [...]
-  - title: "2. Por Projeto"
+  - title: "2. Per Project"
     blocks: [...]
-  - title: "3. Conexoes e Dependencias"
+  - title: "3. Connections and Dependencies"
     blocks: [...]
-  - title: "4. Prioridades"
+  - title: "4. Priorities"
     blocks: [...]
-  - title: "5. Riscos e Proximos Passos"
+  - title: "5. Risks and Next Steps"
     blocks: [...]
 
-# OBRIGATORIO — auto-renderiza como ultima secao "Referencias"
+# MANDATORY — auto-renders as last section "References"
 bibliography:
-  - text: "Descricao da fonte"
+  - text: "Source description"
     url: "https://..."
-    source: "WebSearch"   # De onde veio: ArXiv, X, WebSearch, GitHub, HN, Docs, etc.
+    source: "WebSearch"   # Where it came from: ArXiv, X, WebSearch, GitHub, HN, Docs, etc.
 ```
 
-**Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
+**Block types and rules:** see `~/.claude/skills/_shared/report-template.md`.
 
-#### Regra de ouro 1: card com badge de status por projeto
+#### Golden rule 1: card with status badge per project
 
-Cada projeto ganha um `card` com badge de momentum (ATIVO / DORMANT / BLOQUEADO). Dentro: proximo marco, bloqueios, dependencias. O leitor deve ver o status de cada projeto num relance.
+Each project gets a `card` with a momentum badge (ACTIVE / DORMANT / BLOCKED). Inside: next milestone, blockers, dependencies. The reader should see each project's status at a glance.
 
-#### Regra de ouro 2: ascii-diagram para conexoes
+#### Golden rule 2: ascii-diagram for connections
 
-Conexoes entre projetos devem incluir um `ascii-diagram` mostrando o grafo de dependencias. Complementar com `table` de dependencias especificas.
+Connections between projects should include an `ascii-diagram` showing the dependency graph. Complement with a `table` of specific dependencies.
 
-#### Regra de ouro 3: risk-table obrigatorio
+#### Golden rule 3: risk-table mandatory
 
-Riscos devem usar `risk-table` com probabilidade e mitigacao. Sem risco abstrato — cada um deve ter acao concreta de mitigacao.
-
-
-#### Secoes obrigatorias:
-
-**1. Quadro Geral** — `paragraph` com visao de 2-3 frases; `metrics-grid` com KPIs (projetos ativos, bloqueios, propostas pendentes)
-**2. Por Projeto** — `card` com badge de status para cada projeto (regra 1); `callout` para bloqueios criticos
-**3. Conexoes e Dependencias** — `ascii-diagram` do grafo (regra 2); `table` de dependencias especificas
-**4. Prioridades** — `numbered-card` para cada prioridade com justificativa; `comparison` when reordenando (antes/depois da analise)
-**5. Riscos e Proximos Passos** — `risk-table` (regra 3); `next-steps-grid` com acoes concretas
+Risks should use `risk-table` with probability and mitigation. No abstract risk — each one must have a concrete mitigation action.
 
 
-### Passo 7b: Registrar observações
-`edge-scratch add "Estratégia: [conclusão principal]. [mudança de prioridade]. [direção definida]."`
-Estado processado na publicação via meta-report (ver `~/.claude/skills/_shared/state-protocol.md`).
+#### Mandatory sections:
 
-### Passo 8: Relatorio ao usuario
+**1. Big Picture** — `paragraph` with 2-3 sentence vision; `metrics-grid` with KPIs (active projects, blockers, pending proposals)
+**2. Per Project** — `card` with status badge for each project (rule 1); `callout` for critical blockers
+**3. Connections and Dependencies** — `ascii-diagram` of the graph (rule 2); `table` of specific dependencies
+**4. Priorities** — `numbered-card` for each priority with justification; `comparison` when reordering (before/after analysis)
+**5. Risks and Next Steps** — `risk-table` (rule 3); `next-steps-grid` with concrete actions
 
-Formato:
+
+### Step 7b: Record observations
+`edge-scratch add "Strategy: [main conclusion]. [priority change]. [defined direction]."`
+State processed during publication via meta-report (see `~/.claude/skills/_shared/state-protocol.md`).
+
+### Step 8: Report to user
+
+Format:
 
 ```markdown
-## Estrategia — [data]
+## Strategy — [date]
 
-### Quadro Geral
-[Visao de 2-3 frases do status do ecossistema]
+### Big Picture
+[2-3 sentence vision of the ecosystem status]
 
-### Por Projeto
-#### [Projeto A]
+### Per Project
+#### [Project A]
 - Status: [momentum]
-- Proximo marco: [o que]
-- Atencao: [bloqueios ou riscos]
+- Next milestone: [what]
+- Attention: [blockers or risks]
 
-#### [Projeto B]
-[idem]
+#### [Project B]
+[same]
 
-#### [... repita para cada projeto gerenciado]
+#### [... repeat for each managed project]
 
-### Conexoes e Dependencias
-[O que conecta os projetos, o que bloqueia o que]
+### Connections and Dependencies
+[What connects the projects, what blocks what]
 
-### Prioridades Sugeridas
-1. [Prioridade com justificativa]
-2. [Prioridade com justificativa]
-3. [Prioridade com justificativa]
+### Suggested Priorities
+1. [Priority with justification]
+2. [Priority with justification]
+3. [Priority with justification]
 
-### Proximos Passos
-[Acoes concretas sugeridas ao usuario]
+### Next Steps
+[Concrete actions suggested to the user]
 
-### Riscos
-[O que pode dar errado se ignorado]
+### Risks
+[What can go wrong if ignored]
 
-### Relatorio HTML
-~/edge/reports/[arquivo].html
+### HTML Report
+~/edge/reports/[file].html
 ```
 
 ---
 
-## Pós-execução
+## Post-execution
 
-**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
-
----
-
-## Quando Usar
-
-- **Manualmente:** `/ed-strategy` — "olhe para o quadro geral e planeje"
-- **Via /ed-heartbeat:** Periodicamente (quando strategy esta desatualizada)
-- **Apos mudancas significativas** — refactor grande, novo projeto, mudanca de direcao
+**Follow `~/edge/config/post-skill.md` for post-publication actions.**
 
 ---
 
-## Notas
+## When to Use
 
-- Estrategia NAO e operacional. Nao execute tarefas — analisar e planner
-- Prioridades sao sugestoes ao usuario, nao ordens. O usuario decide
-- Usar `ultrathink` (thinkmax) para analise profunda
-- Nao inflar a analise — se um projeto esta estavel e nao precisa de atencao, dizer isso em 1 linha
-- Foco em conexoes que desbloqueiam trabalho, nao em conexoes teoricas
+- **Manually:** `/ed-strategy` — "look at the big picture and plan"
+- **Via /ed-heartbeat:** Periodically (when strategy is outdated)
+- **After significant changes** — large refactor, new project, change of direction
+
+---
+
+## Notes
+
+- Strategy is NOT operational. Don't execute tasks — analyze and plan
+- Priorities are suggestions to the user, not orders. The user decides
+- Use `ultrathink` (thinkmax) for deep analysis
+- Don't inflate the analysis — if a project is stable and doesn't need attention, say so in 1 line
+- Focus on connections that unblock work, not theoretical connections

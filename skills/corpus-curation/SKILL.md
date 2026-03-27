@@ -1,145 +1,145 @@
 ---
-name: ed-curadoria-corpus
-description: "Corpus curation skill. Computes document health metrics, identifies redundancy clusters, proposes merge/archive/strengthen actions. Triggers on: curadoria, curadoria corpus, corpus health, document curation, corpus cleanup."
+name: ed-corpus-curation
+description: "Corpus curation skill. Computes document health metrics, identifies redundancy clusters, proposes merge/archive/strengthen actions. Triggers on: curation, curadoria, corpus curation, corpus health, document curation, corpus cleanup, curadoria corpus."
 user-invocable: true
 ---
 
-# Curadoria de Corpus
+# Corpus Curation
 
-Avaliar saude do corpus de documentos, identificar redundancias, propor acoes (KEEP/ARCHIVE/MERGE/STRENGTHEN), e manter o corpus curado ao longo do tempo.
+Evaluate corpus document health, identify redundancies, propose actions (KEEP/ARCHIVE/MERGE/STRENGTHEN), and maintain the corpus curated over time.
 
-Pode ser invocado standalone ou pelo /ed-reflexao (que passa contexto de threads ativas e gaps recentes).
-
----
-
-## Modos de Operacao
-
-| Modo | Invocacao | Tempo | O que faz |
-|------|-----------|-------|-----------|
-| **stats** | `/ed-curadoria-corpus stats` | ~10s | Metricas por documento (retrieval count, top3, diversidade de queries) |
-| **lite** | `/ed-curadoria-corpus lite` | ~30s | Stats + identificacao de candidatos stale (age>45d, sem retrieval recente) |
-| **full** | `/ed-curadoria-corpus` | ~3min | Lite + self-probes + clustering nearest-neighbor + classificacao + veto estrategico |
+Can be invoked standalone or by /ed-reflection (which passes context of active threads and recent gaps).
 
 ---
 
-## Argumentos
+## Operation Modes
 
-- **modo**: `full` (default), `lite`, `stats`
-- **active_threads**: lista de threads ativas (passada pelo /ed-reflexao ou informada manualmente). Suprime archive de docs relacionados.
-- **recent_gaps**: lista de gaps recentes (passada pelo /ed-reflexao). Docs que cobrem gaps nao sao arquivados.
+| Mode | Invocation | Time | What it does |
+|------|------------|------|--------------|
+| **stats** | `/ed-corpus-curation stats` | ~10s | Per-document metrics (retrieval count, top3, query diversity) |
+| **lite** | `/ed-corpus-curation lite` | ~30s | Stats + identification of stale candidates (age>45d, no recent retrieval) |
+| **full** | `/ed-corpus-curation` | ~3min | Lite + self-probes + nearest-neighbor clustering + classification + strategic veto |
 
 ---
 
-## Protocolo
+## Arguments
 
-### Passo 1: Determinar modo
+- **mode**: `full` (default), `lite`, `stats`
+- **active_threads**: list of active threads (passed by /ed-reflection or provided manually). Suppresses archive of related docs.
+- **recent_gaps**: list of recent gaps (passed by /ed-reflection). Docs that cover gaps are not archived.
 
-Verificar argumento passado pelo usuario:
-- Sem argumento ou `full` → modo full
-- `lite` → modo lite
-- `stats` → modo stats
+---
 
-### Passo 2: Coletar metricas (todos os modos)
+## Protocol
 
-Executar curadoria_compute.py no modo correspondente:
+### Step 1: Determine mode
+
+Check argument passed by the user:
+- No argument or `full` → full mode
+- `lite` → lite mode
+- `stats` → stats mode
+
+### Step 2: Collect metrics (all modes)
+
+Run curadoria_compute.py in the corresponding mode:
 
 ```bash
 python3 ~/edge/tools/curadoria_compute.py --mode stats
 ```
 
-Isso consulta a tabela `search_events` em `~/edge/search/edge-memory.db` e computa por documento:
-- **retrieved_count**: total de vezes que o doc apareceu em resultados de busca
-- **top3_count**: vezes que apareceu no top-3
-- **last_retrieved**: data da ultima recuperacao
-- **query_diversity**: numero de queries distintas que recuperaram o doc
-- **age_days**: idade do documento em dias
+This queries the `search_events` table in `~/edge/search/edge-memory.db` and computes per document:
+- **retrieved_count**: total times the doc appeared in search results
+- **top3_count**: times it appeared in the top-3
+- **last_retrieved**: date of last retrieval
+- **query_diversity**: number of distinct queries that retrieved the doc
+- **age_days**: document age in days
 
-Apresentar resumo ao usuario: total de docs, docs com 0 retrievals, doc mais acessado, doc mais antigo sem acesso.
+Present summary to the user: total docs, docs with 0 retrievals, most accessed doc, oldest doc without access.
 
-**Se modo = stats, parar aqui.**
+**If mode = stats, stop here.**
 
-### Passo 3: Identificar candidatos stale (lite e full)
+### Step 3: Identify stale candidates (lite and full)
 
 ```bash
 python3 ~/edge/tools/curadoria_compute.py --mode lite
 ```
 
-Criterios de stale:
-- **age > 45 dias** E **retrieved_30d = 0** (ninguem buscou nos ultimos 30 dias)
-- OU **age > 45 dias** E **top3_30d = 0** (apareceu em buscas mas nunca no top-3)
+Stale criteria:
+- **age > 45 days** AND **retrieved_30d = 0** (nobody searched in the last 30 days)
+- OR **age > 45 days** AND **top3_30d = 0** (appeared in searches but never in the top-3)
 
-Listar candidatos stale com suas metricas.
+List stale candidates with their metrics.
 
-**Se modo = lite, parar aqui.**
+**If mode = lite, stop here.**
 
-### Passo 4: Self-probes (full only)
+### Step 4: Self-probes (full only)
 
-Para cada candidato stale, o script executa uma self-probe:
-- Constroi uma query a partir do titulo + 2 termos raros do conteudo
-- Executa `edge-search --no-telemetry "query"`
-- Registra o **self_rank** (posicao do doc nos resultados)
+For each stale candidate, the script executes a self-probe:
+- Constructs a query from the title + 2 rare terms from the content
+- Executes `edge-search --no-telemetry "query"`
+- Records the **self_rank** (position of the doc in results)
 
 ```bash
 python3 ~/edge/tools/curadoria_compute.py --mode full --active-threads "thread1,thread2" --recent-gaps "gap1,gap2"
 ```
 
-Interpretacao:
-- self_rank <= 3: doc e relevante para seu proprio conteudo → KEEP
-- self_rank 4-5: doc e encontravel mas nao dominante → avaliar contexto
-- self_rank > 5 ou ausente: doc esta enterrado → candidato a ARCHIVE/MERGE
+Interpretation:
+- self_rank <= 3: doc is relevant for its own content → KEEP
+- self_rank 4-5: doc is findable but not dominant → evaluate context
+- self_rank > 5 or absent: doc is buried → candidate for ARCHIVE/MERGE
 
-### Passo 5: Clustering por nearest-neighbor (full only)
+### Step 5: Nearest-neighbor clustering (full only)
 
-O script agrupa candidatos stale por similaridade semantica:
+The script groups stale candidates by semantic similarity:
 
-**Algoritmo (union-find):**
-1. Para cada candidato stale, buscar top-3 vizinhos do mesmo tipo no corpus
-2. Adicionar aresta se: `nn_sim >= 0.90` OU (`nn_sim >= 0.83` E `title_overlap >= 0.5`)
-3. Formar clusters via union-find
+**Algorithm (union-find):**
+1. For each stale candidate, search top-3 neighbors of the same type in the corpus
+2. Add edge if: `nn_sim >= 0.90` OR (`nn_sim >= 0.83` AND `title_overlap >= 0.5`)
+3. Form clusters via union-find
 
-### Passo 6: Classificacao (full only)
+### Step 6: Classification (full only)
 
-O script classifica cada documento/cluster em uma das 4 categorias:
+The script classifies each document/cluster into one of 4 categories:
 
 #### ARCHIVE (auto)
-Criterios (TODOS devem ser verdadeiros):
-- age > 120 dias
-- rrf_30d = 0 (nenhuma recuperacao nos ultimos 30 dias)
-- self_rank > 5 (nao e encontrado nem por self-probe)
-- Tem vizinho forte (nn_sim >= 0.90) que cobre o conteudo
+Criteria (ALL must be true):
+- age > 120 days
+- rrf_30d = 0 (no retrieval in the last 30 days)
+- self_rank > 5 (not found even by self-probe)
+- Has a strong neighbor (nn_sim >= 0.90) that covers the content
 
 #### MERGE (review)
-Criterios:
-- Cluster com >= 3 documentos
-- Similaridade mediana no cluster >= 0.83
-- Requer revisao humana antes de executar
+Criteria:
+- Cluster with >= 3 documents
+- Median similarity in cluster >= 0.83
+- Requires human review before executing
 
 #### STRENGTHEN
-Criterios:
-- Cluster com alta demanda (rrf acima do p75 do corpus)
-- Mas nenhum doc consistente no top-3
-- Acao: melhorar titulo/conteudo do doc mais relevante
+Criteria:
+- Cluster with high demand (rrf above corpus p75)
+- But no doc consistently in top-3
+- Action: improve title/content of the most relevant doc
 
 #### KEEP
-- Todos os demais documentos
+- All remaining documents
 
-### Passo 7: Veto estrategico (full only)
+### Step 7: Strategic veto (full only)
 
-Mecanismo de supressao para proteger docs ativos:
-- Se o titulo ou conteudo de um doc candidato a ARCHIVE menciona alguma **active_thread** → suprimir (mover para `suppressed_due_to_active_thread`)
-- Se o conteudo cobre algum **recent_gap** → suprimir
+Suppression mechanism to protect active docs:
+- If the title or content of a doc candidate for ARCHIVE mentions any **active_thread** → suppress (move to `suppressed_due_to_active_thread`)
+- If the content covers any **recent_gap** → suppress
 
-Isso impede que /ed-reflexao archive documentos que sao relevantes para trabalho em andamento.
+This prevents /ed-reflection from archiving documents that are relevant to ongoing work.
 
-### Passo 8: Persistir resultados
+### Step 8: Persist results
 
-O script salva automaticamente em:
+The script automatically saves to:
 
 ```
 ~/edge/state/curadoria-candidates.json
 ```
 
-Estrutura do JSON:
+JSON structure:
 ```json
 {
   "generated_at": "ISO timestamp",
@@ -161,74 +161,74 @@ Estrutura do JSON:
 }
 ```
 
-### Passo 9: Apresentar resultados
+### Step 9: Present results
 
-Resumir para o usuario:
-1. Quantos docs analisados, quantos stale
-2. **Archive auto**: listar docs que serao arquivados (acao automatica, mas confirmar se > 3)
-3. **Merge review**: listar clusters que precisam de revisao humana
-4. **Strengthen**: listar docs que precisam de melhoria
-5. **Suprimidos**: listar docs protegidos por veto estrategico e o motivo
+Summarize for the user:
+1. How many docs analyzed, how many stale
+2. **Archive auto**: list docs that will be archived (automatic action, but confirm if > 3)
+3. **Merge review**: list clusters that need human review
+4. **Strengthen**: list docs that need improvement
+5. **Suppressed**: list docs protected by strategic veto and the reason
 
 ---
 
-## Claims Lifecycle (curadoria de claims)
+## Claims Lifecycle (claims curation)
 
-Além de documentos, esta skill cuida do ciclo de vida das claims — consolidando memória de curto prazo (claims no frontmatter) em memória de longo prazo (topics/*.md).
+Beyond documents, this skill manages the claims lifecycle — consolidating short-term memory (claims in frontmatter) into long-term memory (topics/*.md).
 
-### Modo claims
+### Claims mode
 
-Invocação: `/ed-curadoria-corpus claims` ou `/ed-curadoria-corpus claims --thread THREAD_ID`
+Invocation: `/ed-corpus-curation claims` or `/ed-corpus-curation claims --thread THREAD_ID`
 
-### Passo C1: Coleta
+### Step C1: Collection
 
-Para o thread especificado (ou todos os threads ativos):
-1. Puxar todas as claims que tocam o thread (claims são 1:N com threads — uma claim pode pertencer a múltiplos threads via entry)
-2. Separar verificadas (✓) e abertas (!)
+For the specified thread (or all active threads):
+1. Pull all claims that touch the thread (claims are 1:N with threads — a claim can belong to multiple threads via entry)
+2. Separate verified ones and open ones (!)
 
 ```bash
 edge-claims -t THREAD_ID
 ```
 
-### Passo C2: Triagem automática (sem LLM)
+### Step C2: Automatic triage (no LLM)
 
-Para o conjunto de claims coletadas:
+For the collected set of claims:
 
-**Duplicatas** — embedding similarity > 0.92 entre claims do mesmo thread. Agrupar candidatas.
+**Duplicates** — embedding similarity > 0.92 between claims of the same thread. Group candidates.
 
-**Factuais stale** — claims contendo números, datas ou contagens cuja entry tem mais de 30 dias E entries mais recentes existem no thread. Marcar como `stale_candidate`.
+**Stale factuals** — claims containing numbers, dates, or counts whose entry is older than 30 days AND more recent entries exist in the thread. Mark as `stale_candidate`.
 
-**Gaps potencialmente respondidos** — claim aberta (`!`) com embedding similar (> 0.85) a claim verificada posterior (data mais recente) no mesmo thread. Marcar como `answered_candidate`.
+**Potentially answered gaps** — open claim (`!`) with similar embedding (> 0.85) to a later verified claim (more recent date) in the same thread. Mark as `answered_candidate`.
 
-### Passo C3: Consolidação (LLM)
+### Step C3: Consolidation (LLM)
 
-Mandar o batch de claims para `edge-consult` com prompt estruturado:
+Send the batch of claims to `edge-consult` with a structured prompt:
 
 ```bash
-edge-consult "Claims do thread [ID]:
-[lista de claims]
+edge-consult "Claims for thread [ID]:
+[list of claims]
 
-Classifique cada claim:
-- keep: conhecimento independente que sobrevive
-- merge(claim_ids): duplicatas que dizem a mesma coisa
-- superseded_by(claim_text): foi atualizada por versão mais recente
-- answered_by(claim_text): gap que foi respondido
-- stale: factual com dados desatualizados
-- keep_as_is: conceitual/atemporal, não tocar
+Classify each claim:
+- keep: independent knowledge that survives
+- merge(claim_ids): duplicates that say the same thing
+- superseded_by(claim_text): was updated by a more recent version
+- answered_by(claim_text): gap that was answered
+- stale: factual with outdated data
+- keep_as_is: conceptual/timeless, do not touch
 
-Output: JSON array com {claim_text, action, target, reason}" --context ~/edge/threads/THREAD_ID.md
+Output: JSON array with {claim_text, action, target, reason}" --context ~/edge/threads/THREAD_ID.md
 ```
 
-### Passo C4: Proposta de consolidação no topic
+### Step C4: Consolidation proposal for the topic
 
-Com base no output do C3:
-1. Claims `keep` que formam cluster (3+ sobre mesmo subtema) → propor parágrafo consolidado para o topic
-2. Cada parágrafo inclui provenance: `← entry-slug-1, entry-slug-2`
-3. Gaps `answered_by` → listar como resolvidos
-4. Claims `stale` → listar para revisão
-5. Claims `merge` → identificar canônica
+Based on C3 output:
+1. `keep` claims that form a cluster (3+ on the same subtopic) → propose consolidated paragraph for the topic
+2. Each paragraph includes provenance: `← entry-slug-1, entry-slug-2`
+3. `answered_by` gaps → list as resolved
+4. `stale` claims → list for review
+5. `merge` claims → identify canonical one
 
-Salvar proposta em `~/edge/state/claims-curation-{thread_id}.json`:
+Save proposal to `~/edge/state/claims-curation-{thread_id}.json`:
 ```json
 {
   "thread_id": "...",
@@ -238,7 +238,7 @@ Salvar proposta em `~/edge/state/claims-curation-{thread_id}.json`:
     {"claim": "...", "action": "keep|merge|superseded|answered|stale", "target": "...", "reason": "..."}
   ],
   "topic_patches": [
-    {"section": "Extração de nuggets", "content": "...", "sources": ["entry-1", "entry-2"]}
+    {"section": "Nugget extraction", "content": "...", "sources": ["entry-1", "entry-2"]}
   ],
   "gaps_resolved": [
     {"gap": "!...", "answered_by": "...", "evidence_entry": "..."}
@@ -246,30 +246,30 @@ Salvar proposta em `~/edge/state/claims-curation-{thread_id}.json`:
 }
 ```
 
-### Passo C5: Aplicação
+### Step C5: Application
 
-- Em sessão interativa: apresentar proposta ao Lucas, aplicar com confirmação
-- Em sessão autônoma: aplicar automaticamente se todas as ações são low-risk (merge, answered, stale factual). Segurar high-risk (conceituais, decisões) para revisão humana.
+- In interactive session: present proposal to Lucas, apply with confirmation
+- In autonomous session: apply automatically if all actions are low-risk (merge, answered, stale factual). Hold high-risk (conceptual, decisions) for human review.
 
-Aplicar significa:
-1. Atualizar o topic correspondente (adicionar parágrafos com provenance)
-2. Gaps resolvidos permanecem no frontmatter original mas o topic reflete o estado atual
-
----
-
-## Integracao com /ed-reflexao
-
-Quando invocado pelo /ed-reflexao em modo manual:
-1. /ed-reflexao passa `active_threads` (de git_signals thread_coverage) e `recent_gaps` (de claims_summary persistent_gaps)
-2. /ed-curadoria-corpus roda em modo full com esses parametros
-3. /ed-reflexao le o resultado em `curadoria-candidates.json` e toma decisoes estrategicas
+Applying means:
+1. Update the corresponding topic (add paragraphs with provenance)
+2. Resolved gaps remain in the original frontmatter but the topic reflects the current state
 
 ---
 
-## Arquivos
+## Integration with /ed-reflection
 
-| Arquivo | Leitura/Escrita | Descricao |
-|---------|----------------|-----------|
-| `~/edge/search/edge-memory.db` | Leitura | Tabelas documents e search_events |
-| `~/edge/state/curadoria-candidates.json` | Escrita | Resultado da curadoria |
-| `~/edge/tools/curadoria_compute.py` | Execucao | Engine de computacao |
+When invoked by /ed-reflection in manual mode:
+1. /ed-reflection passes `active_threads` (from git_signals thread_coverage) and `recent_gaps` (from claims_summary persistent_gaps)
+2. /ed-corpus-curation runs in full mode with those parameters
+3. /ed-reflection reads the result from `curadoria-candidates.json` and makes strategic decisions
+
+---
+
+## Files
+
+| File | Read/Write | Description |
+|------|------------|-------------|
+| `~/edge/search/edge-memory.db` | Read | documents and search_events tables |
+| `~/edge/state/curadoria-candidates.json` | Write | Curation result |
+| `~/edge/tools/curadoria_compute.py` | Execute | Computation engine |

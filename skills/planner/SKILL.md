@@ -4,520 +4,520 @@ description: "Propose development cycles for new or existing projects. Analyzes 
 user-invocable: true
 ---
 
-# Planejar — Propostas de Ciclos de Desenvolvimento
+# Planner — Development Cycle Proposals
 
-Analisar o que o agente tem feito (memoria, breaks, discoverys, projetos) e propor ciclos de desenvolvimento concretos. As propostas ficam persistidas como referencia para o usuario avaliar e decidir o que fazer.
-
----
-
-## Argumentos Opcionais
-
-- **Sem argumento** (`/ed-planner`): analisar context e propor autonomamente
-- **Com tema** (`/ed-planner eval de prompts`): propor ciclo sobre esse tema
-- **Com projeto** (`/ed-planner my-project`): propor ciclo para esse projeto existente
-- **Status** (`/ed-planner status`): listar todas as propostas e seus statuss
-
-Exemplos:
-- `/ed-planner` → analisa context, propoe algo relevante
-- `/ed-planner blog dashboard` → propoe ciclo para nova feature no blog
-- `/ed-planner backend` → propoe ciclo para o backend existente
-- `/ed-planner status` → dashboard de propostas
+Analyze what the agent has been doing (memory, breaks, discoveries, projects) and propose concrete development cycles. Proposals are persisted as references for the user to evaluate and decide what to act on.
 
 ---
 
-## O Job
+## Optional Arguments
 
-1. Entender o que esta acontecendo (context, memoria, researchs)
-2. Identificar oportunidade (problema a resolver, ideia a concretizar, melhoria a implementar)
-3. Elaborar proposta detalhada que se vende sozinha
-4. Registrar como proposta persistente
-5. Pronta para o usuario avaliar e decidir
+- **No argument** (`/ed-planner`): analyze context and propose autonomously
+- **With topic** (`/ed-planner prompt evaluation`): propose a cycle on that topic
+- **With project** (`/ed-planner my-project`): propose a cycle for that existing project
+- **Status** (`/ed-planner status`): list all proposals and their statuses
 
----
-
-## Estado Persistente
-
-Arquivo: `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/propostas.md`
-
-Cada proposta tem um status:
-- `[PROPOSTA]` — nova, aguardando avaliacao do usuario
-- `[APROVADA]` — usuario avaliou e considerou viavel
-- `[ARQUIVADA]` — descartada ou absorvida (com motivo)
+Examples:
+- `/ed-planner` → analyzes context, proposes something relevant
+- `/ed-planner blog dashboard` → proposes cycle for a new blog feature
+- `/ed-planner backend` → proposes cycle for the existing backend
+- `/ed-planner status` → proposals dashboard
 
 ---
 
-## Ativação de Contexto
+## The Job
 
-**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+1. Understand what's happening (context, memory, research)
+2. Identify opportunity (problem to solve, idea to materialize, improvement to implement)
+3. Elaborate a detailed proposal that sells itself
+4. Register as a persistent proposal
+5. Ready for the user to evaluate and decide
 
 ---
 
-## Protocolo (seguir na ordem)
+## Persistent State
 
-### Desvio: `/ed-planner status`
+File: `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/propostas.md`
 
-Se o argumento for `status`, mostrar dashboard e parar:
+Each proposal has a status:
+- `[PROPOSAL]` — new, awaiting user evaluation
+- `[APPROVED]` — user evaluated and deemed viable
+- `[ARCHIVED]` — discarded or absorbed (with reason)
+
+---
+
+## Context Activation
+
+**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
+
+---
+
+## Protocol (follow in order)
+
+### Detour: `/ed-planner status`
+
+If the argument is `status`, show dashboard and stop:
 
 ```markdown
-## Propostas — Status
+## Proposals — Status
 
-### Pendentes ([PROPOSTA])
-| # | Titulo | Tipo | Data | Origem |
-|---|--------|------|------|--------|
-| 1 | ...    | novo/existente | YYYY-MM-DD | [context/discovery/research/manual] |
+### Pending ([PROPOSAL])
+| # | Title | Type | Date | Origin |
+|---|-------|------|------|--------|
+| 1 | ...   | new/existing | YYYY-MM-DD | [context/discovery/research/manual] |
 
-### Aprovadas ([APROVADA])
-[Prontas para o usuario avaliar]
+### Approved ([APPROVED])
+[Ready for the user to evaluate]
 
-### Em Execucao ([EM EXECUCAO])
-[Sendo implementadas agora]
+### In Progress ([IN PROGRESS])
+[Being implemented now]
 
-### Historico
-[Concluidas e arquivadas recentes]
+### History
+[Recently completed and archived]
 ```
 
 ---
 
-### Passo 1: Absorver context de projetos
+### Step 1: Absorb project context
 
-Rodar `/ed-context` para obter scan cross-project completo (git, boards, issues, digests).
+Run `/ed-context` to get a complete cross-project scan (git, boards, issues, digests).
 
-Se `/ed-context` ja foi rodado nesta sessao, reler o output — nao repetir.
+If `/ed-context` was already run in this session, re-read the output — don't repeat.
 
-### Passo 1.5: Consultar reports anteriores
+### Step 1.5: Consult previous reports
 
-Verificar se existem reports anteriores sobre o mesmo projeto ou tema:
+Check if there are previous reports on the same project or topic:
 
 ```bash
 ls -lt ~/edge/reports/*.yaml 2>/dev/null | head -20
 ```
 
-Para cada YAML com nome relevante (palavras-chave no slug), ler as primeiras ~30 linhas (title, subtitle, executive_summary). Se muito relevante, ler secoes especificas.
+For each YAML with a relevant name (keywords in the slug), read the first ~30 lines (title, subtitle, executive_summary). If very relevant, read specific sections.
 
-**O que buscar:**
-- Propostas anteriores sobre o mesmo tema — evitar duplicar, construir sobre
-- Pesquisas relacionadas — insights que informam a proposta
-- Execucoes anteriores — o que ja foi implementado e qual foi o resultado
-- Gaps abertos — oportunidades de retomar trabalho incompleto
+**What to look for:**
+- Previous proposals on the same topic — avoid duplicating, build upon
+- Related research — insights that inform the proposal
+- Previous executions — what was already implemented and what was the result
+- Open gaps — opportunities to resume incomplete work
 
-**No output:** mencionar reports consultados e o que aproveitou/mudou.
+**In the output:** mention consulted reports and what was leveraged/changed.
 
-### Passo 2: Absorver status adicional
+### Step 2: Absorb additional status
 
 ```bash
-# Descobertas pendentes — novas areas exploradas
+# Pending discoveries — new areas explored
 cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md 2>/dev/null
 
-# Propostas existentes — evitar duplicatas
+# Existing proposals — avoid duplicates
 cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/propostas.md 2>/dev/null
 
-# Projetos em labs — o que ja existe
+# Projects in labs — what already exists
 ls -d ~/edge/labs/*/ 2>/dev/null
 ```
 
-Usar `ultrathink` (thinkmax). Com o output do `/ed-context` + as sources acima, identificar:
-- Problemas recorrentes que poderiam ser resolvidos com uma ferramenta
-- Descobertas que poderiam virar projeto
-- Sugestoes do CLAUDE.md nao executadas
-- Gaps entre o que existe e o que seria util
-- Oportunidades de automacao ou melhoria
+Use `ultrathink` (thinkmax). With the output from `/ed-context` + the sources above, identify:
+- Recurring problems that could be solved with a tool
+- Discoveries that could become a project
+- Unexecuted suggestions from CLAUDE.md
+- Gaps between what exists and what would be useful
+- Automation or improvement opportunities
 
-### Passo 2.5: Buscar sources externas (OBRIGATORIO)
+### Step 2.5: Search external sources (MANDATORY)
 
-Rodar `/ed-sources planner "[tema da proposta]"` para obter experiencias praticas de implementacao de todas as sources relevantes (Web, X, GitHub, HN).
+Run `/ed-sources planner "[proposal topic]"` to get practical implementation experiences from all relevant sources (Web, X, GitHub, HN).
 
-Incorporar na proposta (riscos, decisoes de design, ferramentas alternativas) e citar no report (com URL).
+Incorporate into the proposal (risks, design decisions, alternative tools) and cite in the report (with URL).
 
-### Passo 3: Elaborar proposta
+### Step 3: Elaborate proposal
 
-A proposta deve **se vender sozinha**. Quem ler (mesmo sem context) deve entender:
-- O que e
-- Por que importa
-- Como funciona
-- O que entrega
-- Quanto custa (tempo, APIs, complexidade)
+The proposal must **sell itself**. Anyone who reads it (even without context) must understand:
+- What it is
+- Why it matters
+- How it works
+- What it delivers
+- How much it costs (time, APIs, complexity)
 
-#### Para PROJETO EXISTENTE:
+#### For EXISTING PROJECT:
 
-Criar `~/edge/propostas/proposta-[nome-slug].md`:
+Create `~/edge/propostas/proposta-[name-slug].md`:
 
 ```markdown
-# Proposta: [Titulo Claro e Descritivo]
+# Proposal: [Clear and Descriptive Title]
 
-## Contexto
-[Situacao atual. O que existe. O que falta. Qual o problema ou oportunidade.
-Contextualizar bem — a pessoa pode nao estar familiarizada com os detalhes.]
+## Context
+[Current situation. What exists. What's missing. What the problem or opportunity is.
+Provide good context — the reader may not be familiar with the details.]
 
-## O que Proponho
-[Descricao concreta do que sera feito. Nao abstrair demais.
-Mostrar exemplos de input/output quando possivel.]
+## What I Propose
+[Concrete description of what will be done. Don't over-abstract.
+Show input/output examples when possible.]
 
-## Por que Agora
-[Por que este e o momento certo. O que mudou. O que ficou maduro.
-Conexao com trabalho recente, discoverys, ou decisoes estrategicas.]
+## Why Now
+[Why this is the right moment. What changed. What matured.
+Connection with recent work, discoveries, or strategic decisions.]
 
-## Escopo do Ciclo
-[O que esta DENTRO e o que esta FORA. Ser explicito sobre limites.]
+## Cycle Scope
+[What is IN scope and what is OUT of scope. Be explicit about boundaries.]
 
-### Entregas
-1. [Entrega concreta 1 — arquivo, feature, ferramenta]
-2. [Entrega concreta 2]
+### Deliverables
+1. [Concrete deliverable 1 — file, feature, tool]
+2. [Concrete deliverable 2]
 3. ...
 
-### Nao-Entregas (explicitamente fora de escopo)
-- [O que NAO sera feito neste ciclo]
+### Non-Deliverables (explicitly out of scope)
+- [What will NOT be done in this cycle]
 
-## Plano de Execucao
-[Passos concretos. Ordem. Dependencias entre passos.]
+## Execution Plan
+[Concrete steps. Order. Dependencies between steps.]
 
-| Passo | Descricao | Estimativa |
-|-------|-----------|------------|
-| 1     | ...       | ~X min     |
-| 2     | ...       | ~X min     |
-| ...   | ...       | ...        |
+| Step | Description | Estimate |
+|------|-------------|----------|
+| 1    | ...         | ~X min   |
+| 2    | ...         | ~X min   |
+| ...  | ...         | ...      |
 
-## Riscos e Mitigacoes
-| Risco | Probabilidade | Mitigacao |
-|-------|--------------|-----------|
-| ...   | Alta/Media/Baixa | ... |
+## Risks and Mitigations
+| Risk | Probability | Mitigation |
+|------|-------------|------------|
+| ...  | High/Medium/Low | ... |
 
-## Custo Estimado
-- APIs: $X.XX [detalhar]
-- Infra: $X.XX [se houver]
+## Estimated Cost
+- APIs: $X.XX [detail]
+- Infra: $X.XX [if any]
 - **Total: $X.XX**
 
-## Criterios de Sucesso
-[Como saber se o ciclo foi bem sucedido. Metricas concretas.]
+## Success Criteria
+[How to know if the cycle was successful. Concrete metrics.]
 
-## Conexoes
-[Como se relaciona com outros projetos, discoverys, ou decisoes anteriores.]
+## Connections
+[How this relates to other projects, discoveries, or previous decisions.]
 ```
 
-#### Para PROJETO NOVO:
+#### For NEW PROJECT:
 
-1. **Criar repositorio no GitHub:**
+1. **Create repository on GitHub:**
 
 ```bash
 gh auth switch --user $GITHUB_USER
-gh repo create $GITHUB_USER/[nome-do-projeto] --private --description "[descricao curta]"
-git clone https://github.com/$GITHUB_USER/[nome-do-projeto].git ~/edge/labs/[nome-do-projeto]
+gh repo create $GITHUB_USER/[project-name] --private --description "[short description]"
+git clone https://github.com/$GITHUB_USER/[project-name].git ~/edge/labs/[project-name]
 gh auth switch --user $GITHUB_USER
 ```
 
-2. **Criar README.md** no repo (`~/edge/labs/[nome-do-projeto]/README.md`):
+2. **Create README.md** in the repo (`~/edge/labs/[project-name]/README.md`):
 
 ```markdown
-# [Nome do Projeto]
+# [Project Name]
 
-[Descricao em 1-2 paragrafos. Clara, direta, contextualizada.]
+[Description in 1-2 paragraphs. Clear, direct, contextualized.]
 
-## Motivacao
+## Motivation
 
-[Por que este projeto existe. Qual problema resolve. Para quem.
-Contextualizar bem — a pessoa pode nao estar familiarizada.]
+[Why this project exists. What problem it solves. For whom.
+Provide good context — the reader may not be familiar.]
 
-## O que Faz
+## What It Does
 
-[Descricao funcional. Exemplos de uso. Input/output esperado.]
+[Functional description. Usage examples. Expected input/output.]
 
-## Arquitetura
+## Architecture
 
-[Visao geral de como funciona. Stack. Dependencias.]
+[Overview of how it works. Stack. Dependencies.]
 
 ## Status
 
-- [PROPOSTA] — Ciclo de desenvolvimento proposto, aguardando aprovacao.
+- [PROPOSAL] — Development cycle proposed, awaiting approval.
 
 ## Roadmap
 
-### Ciclo 1 (proposto)
-- [ ] [Entrega 1]
-- [ ] [Entrega 2]
-- [ ] [Entrega 3]
+### Cycle 1 (proposed)
+- [ ] [Deliverable 1]
+- [ ] [Deliverable 2]
+- [ ] [Deliverable 3]
 
-## Custo Estimado
-$X.XX por ciclo (APIs, infra).
+## Estimated Cost
+$X.XX per cycle (APIs, infra).
 ```
 
-3. **Criar proposta detalhada** em `~/edge/labs/[nome-do-projeto]/PROPOSTA.md` (mesmo formato do projeto existente acima, com todas as secoes).
+3. **Create detailed proposal** in `~/edge/labs/[project-name]/PROPOSAL.md` (same format as the existing project above, with all sections).
 
 4. **Commit + push:**
 
 ```bash
-cd ~/edge/labs/[nome-do-projeto]
+cd ~/edge/labs/[project-name]
 git add -A
-git commit -m "proposta: [titulo] — ciclo de desenvolvimento proposto"
+git commit -m "proposal: [title] — development cycle proposed"
 gh auth switch --user $GITHUB_USER
 git push -u origin main
 gh auth switch --user $GITHUB_USER
 ```
 
-### Passo 3.5: Sanity check adversarial (OBRIGATORIO)
+### Step 3.5: Adversarial sanity check (MANDATORY)
 
-Sintetizar a proposta em 2-3 frases e submeter ao edge-consult (detalhes: report-template.md):
+Synthesize the proposal in 2-3 sentences and submit to edge-consult (details: report-template.md):
 
 ```bash
-edge-consult "Proposta: [o que]. Justificativa: [por que]. Escopo: [entregas]. Isso e viavel e vale o investimento?" --context ~/edge/propostas/proposta-[slug].md
+edge-consult "Proposal: [what]. Justification: [why]. Scope: [deliverables]. Is this viable and worth the investment?" --context ~/edge/propostas/proposta-[slug].md
 ```
 
-Ajustar se o GPT encontrar furo valido (ex: escopo inflado, risco subestimado, alternativa mais simples). Se mantiver posicao, registrar como callout no report.
+Adjust if GPT finds a valid flaw (e.g., inflated scope, underestimated risk, simpler alternative). If maintaining position, record as callout in the report.
 
-### Passo 4: Registrar proposta
+### Step 4: Register proposal
 
-Adicionar no topo de `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/propostas.md` (abaixo do header):
+Add at the top of `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/propostas.md` (below the header):
 
 ```markdown
 ---
 
-## [YYYY-MM-DD] #N — [Titulo] [PROPOSTA]
+## [YYYY-MM-DD] #N — [Title] [PROPOSAL]
 
-**Tipo:** [novo | existente]
-**Projeto:** [nome-do-repo ou projeto de trabalho]
-**Origem:** [context | discovery | research | manual | heartbeat]
-**Custo estimado:** $X.XX
-**Proposta em:** [caminho do arquivo .md com proposta completa]
-**Resumo:** [2-3 frases — o que e, por que, o que entrega]
+**Type:** [new | existing]
+**Project:** [repo-name or work project]
+**Origin:** [context | discovery | research | manual | heartbeat]
+**Estimated cost:** $X.XX
+**Proposal at:** [path to .md file with full proposal]
+**Summary:** [2-3 sentences — what it is, why, what it delivers]
 ```
 
-Se o arquivo nao existir, criar com:
+If the file doesn't exist, create with:
 
 ```markdown
-# Propostas de Desenvolvimento
+# Development Proposals
 
-Registro persistente de todas as propostas de ciclos de desenvolvimento.
-Consultar com `/ed-planner status`.
+Persistent record of all development cycle proposals.
+Check with `/ed-planner status`.
 ```
 
-O numero `#N` e sequencial — contar propostas existentes + 1.
+The number `#N` is sequential — count existing proposals + 1.
 
-### Passo 5: Registrar no break journal
+### Step 5: Record in break journal
 
-Registrar em TRES arquivos:
+Record in THREE files:
 
-1. **`breaks-archive.md`** — entrada completa:
+1. **`breaks-archive.md`** — full entry:
 ```markdown
-## [YYYY-MM-DD] Planejamento — [Titulo] [via heartbeat]
-- **Tipo:** [novo | existente]
-- **Projeto:** [nome]
-- **Proposta em:** [caminho]
-- **Status:** [PROPOSTA] — aguardando selecao
+## [YYYY-MM-DD] Planning — [Title] [via heartbeat]
+- **Type:** [new | existing]
+- **Project:** [name]
+- **Proposal at:** [path]
+- **Status:** [PROPOSAL] — awaiting selection
 ```
 
-2. **`breaks-active.md`** — resumo de 3-5 linhas na secao "Ultimos 5 Breaks" (remover o mais antigo se > 5)
-3. **Observações de status:** `edge-scratch add "o que aconteceu"` durante execução. Estado processado na publicação via meta-report (ver `~/.claude/skills/_shared/state-protocol.md`).
+2. **`breaks-active.md`** — 3-5 line summary in the "Last 5 Breaks" section (remove the oldest if > 5)
+3. **Status observations:** `edge-scratch add "what happened"` during execution. State processed during publication via meta-report (see `~/.claude/skills/_shared/state-protocol.md`).
 
-### Passo 6: Atualizar blog interno + gerar report HTML pedagogico
+### Step 6: Update internal blog + generate pedagogical HTML report
 
-**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
+**Follow `~/.claude/skills/_shared/state-protocol.md` for status management.**
 
-1. Criar entry .md em `~/edge/blog/entries/` com tag `planejamento` (formato: ver `/ed-blog` SKILL.md)
+1. Create .md entry in `~/edge/blog/entries/` with tag `planning` (format: see `/ed-blog` SKILL.md)
 
-O report HTML e o artefato principal da proposta. Deve ser **autoexplicativo** — quem ler sem context nenhum deve entender exatamente o que vai acontecer, o que precisa fornecer, e o que vai receber de volta.
+The HTML report is the proposal's main artifact. It must be **self-explanatory** — anyone reading it without any context must understand exactly what will happen, what they need to provide, and what they will receive back.
 
-**O leitor precisa saber exatamente o que vai mudar.** Nao basta descrever em abstrato — mostrar conteudo real: trechos de arquivos, snippets de codigo, outputs de terminal, antes/depois com dados concretos.
+**The reader needs to know exactly what will change.** It's not enough to describe abstractly — show real content: file excerpts, code snippets, terminal outputs, before/after with concrete data.
 
 #### Template
 
-2. **Gerar YAML** com as 6 secoes obrigatorias abaixo, usando os block types do conversor YAML→HTML
-3. **Escrever YAML** em `/tmp/spec-planner-[slug].yaml`
-4. Publicar tudo atomicamente (blog entry + report HTML + indexacao):
+2. **Generate YAML** with the 6 mandatory sections below, using the YAML→HTML converter block types
+3. **Write YAML** to `/tmp/spec-planner-[slug].yaml`
+4. Publish everything atomically (blog entry + HTML report + indexing):
    ```bash
-   consolidate-state ~/edge/blog/entries/<arquivo>.md /tmp/spec-planner-[slug].yaml
+   consolidate-state ~/edge/blog/entries/<file>.md /tmp/spec-planner-[slug].yaml
    ```
-5. **Read do HTML gerado** (`~/edge/reports/<arquivo>.html`) para verificacao
+5. **Read the generated HTML** (`~/edge/reports/<file>.html`) for verification
 
-#### Estrutura do YAML
+#### YAML Structure
 
 ```yaml
-title: "Proposta: [Titulo]"
-subtitle: "[Subtitulo]"
+title: "Proposal: [Title]"
+subtitle: "[Subtitle]"
 date: "DD/MM/YYYY"
 
 executive_summary:
-  - "**Problema:** ..."
-  - "**Solucao:** ..."
+  - "**Problem:** ..."
+  - "**Solution:** ..."
 
 metrics:
   - value: "N"
-    label: "Descricao"
+    label: "Description"
 
-sections:            # 6 secoes obrigatorias
-  - title: "1. O que vai ser feito"
+sections:            # 6 mandatory sections
+  - title: "1. What will be done"
     blocks: [...]
-  - title: "2. O que voce (usuario) precisa fornecer"
+  - title: "2. What you (user) need to provide"
     blocks: [...]
-  - title: "3. Workflow da execucao"
+  - title: "3. Execution workflow"
     blocks: [...]
-  - title: "4. Resultados esperados"
+  - title: "4. Expected results"
     blocks: [...]
-  - title: "5. Como os resultados serao comparados"
+  - title: "5. How results will be compared"
     blocks: [...]
-  - title: "6. Raio-X: Cada peca em acao"
-    blocks: [...]
-
-additional_sections: # riscos, custos, conexoes
-  - title: "Riscos e Mitigacoes"
+  - title: "6. X-Ray: Each piece in action"
     blocks: [...]
 
-# OBRIGATORIO — auto-renderiza como ultima secao "Referencias"
+additional_sections: # risks, costs, connections
+  - title: "Risks and Mitigations"
+    blocks: [...]
+
+# MANDATORY — auto-renders as last section "References"
 bibliography:
-  - text: "Descricao da fonte"
+  - text: "Source description"
     url: "https://..."
-    source: "WebSearch"   # De onde veio: ArXiv, X, WebSearch, GitHub, HN, Docs, etc.
+    source: "WebSearch"   # Where it came from: ArXiv, X, WebSearch, GitHub, HN, Docs, etc.
 ```
 
-**Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
+**Block types and rules:** see `~/.claude/skills/_shared/report-template.md`.
 
-#### Regra de ouro: concept-box obrigatorio
+#### Golden rule: mandatory concept-box
 
-Para CADA conceito novo introduzido no report (ferramenta, tecnica, termo tecnico), usar um concept-box com:
-- **Nome** do conceito
-- **Analogia** ("X e como Y, mas para Z")
-- **Definicao pratica** (o que faz, em 2-3 frases simples)
+For EACH new concept introduced in the report (tool, technique, technical term), use a concept-box with:
+- **Name** of the concept
+- **Analogy** ("X is like Y, but for Z")
+- **Practical definition** (what it does, in 2-3 simple sentences)
 
-Nao existe conceito "obvio demais" para um concept-box. Na duvida, inclua.
+No concept is "too obvious" for a concept-box. When in doubt, include it.
 
-#### Regra de ouro: "Como era / Como fica" obrigatorio
+#### Golden rule: mandatory "Before / After"
 
-TODA proposta DEVE incluir uma subsecao "Como era / Como fica" na Secao 1 mostrando o CONTEUDO REAL que vai mudar. NAO descricoes abstratas — snippets literais:
+EVERY proposal MUST include a "Before / After" subsection in Section 1 showing the REAL CONTENT that will change. NOT abstract descriptions — literal snippets:
 
-- **Para mudancas em arquivos:** usar block type `diff-block` ou `comparison`
-- **Para mudancas de workflow:** usar block type `comparison` (before/after com pre + bullets)
-- **Para mudancas de codigo:** usar block type `diff-block` (insert/delete/context)
-- **Para ferramentas novas:** usar block type `flow-example` (input amarelo → output verde)
+- **For file changes:** use block type `diff-block` or `comparison`
+- **For workflow changes:** use block type `comparison` (before/after with pre + bullets)
+- **For code changes:** use block type `diff-block` (insert/delete/context)
+- **For new tools:** use block type `flow-example` (yellow input → green output)
 
-O leitor deve ver EXATAMENTE o que muda, nao uma descricao do que muda.
+The reader must see EXACTLY what changes, not a description of what changes.
 
-#### Regra de ouro: "Pecas-chave do fluxo" obrigatorio
+#### Golden rule: mandatory "Key pieces of the flow"
 
-Para CADA etapa ou componente central da proposta, incluir um exemplo concreto de **input → output** mostrando dados reais (ou realistas) sendo transformados. O leitor deve "ver" o dado entrando e saindo de cada peca.
+For EACH central step or component of the proposal, include a concrete example of **input → output** showing real (or realistic) data being transformed. The reader must "see" the data entering and leaving each piece.
 
-Padrao obrigatorio para cada peca-chave — usar block type `flow-example`:
-1. **label:** "Exemplo: [nome da peca] — [descricao da transformacao]"
-2. **input:** dados de entrada reais (fundo amarelado automatico)
-3. **output:** resultado gerado (fundo esverdeado automatico)
-4. **code:** (opcional) codigo/config da peca que faz a transformacao (fundo cinza)
+Mandatory pattern for each key piece — use block type `flow-example`:
+1. **label:** "Example: [piece name] — [transformation description]"
+2. **input:** real input data (automatic yellowish background)
+3. **output:** generated result (automatic greenish background)
+4. **code:** (optional) code/config of the piece that does the transformation (gray background)
 
-Exemplos do tipo de pecas-chave que devem ter input→output:
-- Texto corrido (transcricao, documento) → dados estruturados (JSON, tabela)
-- Config declarativo (YAML, JSON) → o que ele produz quando executado
-- Funcao/script → input que recebe e output que retorna
-- Fixture de teste → resultado com assertions (PASS/FAIL/score)
-- Tabela de comparacao mockup com dados ficticios mostrando baseline vs resultado
+Examples of key pieces that should have input→output:
+- Running text (transcript, document) → structured data (JSON, table)
+- Declarative config (YAML, JSON) → what it produces when executed
+- Function/script → input it receives and output it returns
+- Test fixture → result with assertions (PASS/FAIL/score)
+- Mock comparison table with fictitious data showing baseline vs result
 
-**Quanto mais pecas-chave com input→output concreto, melhor.** O leitor entende o pipeline "de dentro para fora" quando ve os dados fluindo, nao quando le descricoes abstratas. Se uma secao so tem texto corrido sem nenhum bloco de dados concretos, provavelmente falta uma peca-chave.
-
-
-#### Secoes obrigatorias (nesta ordem):
-
-**1. O que vai ser feito**
-- Explicar o problema atual em termos concretos (o que doi, por que doi)
-- Explicar a ferramenta/tecnica proposta como se o leitor nunca ouviu falar dela
-- Nao assumir conhecimento previo — definir siglas, conceitos, frameworks
-- **concept-box** para cada conceito novo (ver regra acima)
-- **"Como era / Como fica"** com conteudo real (ver regra acima)
-- Cards numerados (`data-iter`) para decompor o "o que" em partes digeríveis
-
-**2. O que voce (usuario) precisa fornecer**
-- Tabela de itens com colunas: #, item, esforco estimado, prioridade (badge: CRITICO/NECESSARIO/DESEJAVEL/CONDICIONAL), descricao curta
-- **Template preenchido obrigatorio para cada item:** para cada coisa que o usuario precisa fornecer, mostrar um template com dados realistas num bloco `<pre>` formatado. O template deve incluir:
-  - Formato exato esperado (markdown, JSON, YAML, checklist)
-  - Dados de exemplo preenchidos (nao placeholders genericos — dados que parecem reais)
-  - Caminho onde os dados provavelmente ja existem (`~/work/...`, banco de dados, etc.)
-  - Alternativa se o usuario nao tiver: "Se nao tiver X, pode criar Y manualmente usando este formato"
-- Callout claro diferenciando o que ja existe do que precisa ser criado
-- Se nao precisa de nada: dizer explicitamente "execucao 100% autonoma"
-
-**3. Workflow da execucao**
-- Diagrama visual (numbered cards ou next-steps-grid) mostrando cada passo
-- Para cada passo: o que entra, o que acontece, o que sai
-- Indicar quais passos sao automaticos vs quais precisam de intervencao humana
-- Estimativas de tempo por passo
-- Dependencias entre passos (o que bloqueia o que)
-
-**4. Resultados esperados**
-- Tabela de entregas com colunas: #, nome da entrega, descricao (formato, tamanho estimado, o que contem)
-- **Para cada entrega tecnica** (config, script, codigo, template): mostrar exemplo concreto do conteudo em bloco `<pre>` — o leitor deve ver como o arquivo vai parecer por dentro (YAML, Python, JSON, etc.)
-- **Mockup de comparacao** quando houver baseline vs resultado: tabela com dados ficticios mostrando fixture × assertion com PASS/FAIL/scores, incluindo linha de score medio
-- **Visao de ciclos futuros** quando aplicavel: tabela mostrando investimento decrescente a cada repeticao (o que e reutilizado vs o que e novo em cada ciclo)
-- Criterios de sucesso em tabela com colunas: #, criterio, como medir — concretos e mensuraveis
-
-**5. Como os resultados serao comparados**
-- Metodologia de comparacao (o que e o baseline, o que e o otimizado)
-- Metricas especificas que serao usadas (com definicao de cada uma)
-- Como interpretar os resultados (o que significa "melhor", "pior", "igual")
-- Exemplo visual de como a tabela de comparacao vai parecer (mockup com dados ficticios)
-- O que acontece se o resultado for pior que o baseline
-
-**6. Raio-X: Cada peca em acao** (secao pedagogica)
-- Secao dedicada a mostrar cada componente/ferramenta do pipeline **funcionando** com dados concretos
-- Diferente dos concept-boxes (que **definem**) e do "Como era / Como fica" (que mostra **mudanca de workflow**) — esta secao mostra cada peca **individualmente operando**
-- Para cada peca do pipeline, incluir um mini-exemplo autocontido:
-  - **O que entra:** dados de input reais (ou realistas) no formato exato
-  - **O que a peca faz:** codigo/config/comando que processa (signature Python, YAML, CLI)
-  - **O que sai:** output gerado pela peca, no formato exato
-- Incluir diagrama ASCII do pipeline completo mostrando como as pecas se conectam, seguido de zoom em cada uma
-- Analogias tecnicas onde aplicavel (ex: "Promptfoo = pytest para prompts", "Bridge = adaptador entre ecossistemas Node.js e Python")
-- Se a proposta envolve ferramentas externas: incluir o comando de execucao real (ex: `promptfoo eval -c config.yaml --output report.html`)
-- **Objetivo:** ao final desta secao, o leitor deve conseguir "simular mentalmente" o pipeline inteiro — saber o que cada peca recebe, faz, e produz
+**The more key pieces with concrete input→output, the better.** The reader understands the pipeline "from the inside out" when they see data flowing, not when reading abstract descriptions. If a section has only running text with no concrete data blocks, it's probably missing a key piece.
 
 
-### Passo 8: Relatorio ao usuario
+#### Mandatory sections (in this order):
+
+**1. What will be done**
+- Explain the current problem in concrete terms (what hurts, why it hurts)
+- Explain the proposed tool/technique as if the reader has never heard of it
+- Don't assume prior knowledge — define acronyms, concepts, frameworks
+- **concept-box** for each new concept (see rule above)
+- **"Before / After"** with real content (see rule above)
+- Numbered cards (`data-iter`) to decompose the "what" into digestible parts
+
+**2. What you (user) need to provide**
+- Table of items with columns: #, item, estimated effort, priority (badge: CRITICAL/REQUIRED/DESIRED/CONDITIONAL), short description
+- **Mandatory filled template for each item:** for everything the user needs to provide, show a template with realistic data in a `<pre>` block. The template must include:
+  - Exact expected format (markdown, JSON, YAML, checklist)
+  - Filled example data (not generic placeholders — data that looks real)
+  - Path where the data likely already exists (`~/work/...`, database, etc.)
+  - Alternative if the user doesn't have it: "If you don't have X, you can create Y manually using this format"
+- Clear callout differentiating what already exists from what needs to be created
+- If nothing is needed: explicitly state "100% autonomous execution"
+
+**3. Execution workflow**
+- Visual diagram (numbered cards or next-steps-grid) showing each step
+- For each step: what goes in, what happens, what comes out
+- Indicate which steps are automatic vs which need human intervention
+- Time estimates per step
+- Dependencies between steps (what blocks what)
+
+**4. Expected results**
+- Deliverables table with columns: #, deliverable name, description (format, estimated size, what it contains)
+- **For each technical deliverable** (config, script, code, template): show a concrete content example in a `<pre>` block — the reader must see what the file looks like inside (YAML, Python, JSON, etc.)
+- **Mock comparison** when there is baseline vs result: table with fictitious data showing fixture x assertion with PASS/FAIL/scores, including average score row
+- **Future cycles view** when applicable: table showing decreasing investment per iteration (what is reused vs what is new in each cycle)
+- Success criteria in table with columns: #, criterion, how to measure — concrete and measurable
+
+**5. How results will be compared**
+- Comparison methodology (what is the baseline, what is the optimized version)
+- Specific metrics that will be used (with definition of each)
+- How to interpret results (what means "better", "worse", "same")
+- Visual example of how the comparison table will look (mock with fictitious data)
+- What happens if the result is worse than baseline
+
+**6. X-Ray: Each piece in action** (pedagogical section)
+- Dedicated section showing each pipeline component/tool **operating** with concrete data
+- Different from concept-boxes (which **define**) and "Before / After" (which shows **workflow change**) — this section shows each piece **individually operating**
+- For each piece of the pipeline, include a self-contained mini-example:
+  - **What goes in:** real (or realistic) input data in the exact format
+  - **What the piece does:** code/config/command that processes (Python signature, YAML, CLI)
+  - **What comes out:** output generated by the piece, in the exact format
+- Include ASCII pipeline diagram showing how the pieces connect, followed by zoom into each one
+- Technical analogies where applicable (e.g., "Promptfoo = pytest for prompts", "Bridge = adapter between Node.js and Python ecosystems")
+- If the proposal involves external tools: include the actual execution command (e.g., `promptfoo eval -c config.yaml --output report.html`)
+- **Goal:** by the end of this section, the reader should be able to "mentally simulate" the entire pipeline — knowing what each piece receives, does, and produces
+
+
+### Step 8: Report to user
 
 ```
-## Relatorio de Planejamento — [Data]
+## Planning Report — [Date]
 
-### Proposta
-[Titulo e resumo — o que e, por que, o que entrega]
+### Proposal
+[Title and summary — what it is, why, what it delivers]
 
-### Tipo
-[Novo projeto | Iteracao em projeto existente]
+### Type
+[New project | Iteration on existing project]
 
-### Escopo
-[Entregas concretas do ciclo]
+### Scope
+[Concrete cycle deliverables]
 
-### Custo Estimado
+### Estimated Cost
 $X.XX
 
-### Proposta Completa
-[Caminho do arquivo .md]
+### Full Proposal
+[Path to .md file]
 
-### Relatorio HTML
-~/edge/reports/[arquivo].html
+### HTML Report
+~/edge/reports/[file].html
 
-### Proximo Passo
-Para ver todas as propostas: `/ed-planner status`
+### Next Step
+To see all proposals: `/ed-planner status`
 ```
 
 ---
 
-## Pós-execução
+## Post-execution
 
-**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
-
----
-
-## Quando Usar
-
-- **Via /ed-heartbeat:** Quando context sugere oportunidade de projeto
-- **Manualmente:** `/ed-planner` — "proponha um ciclo de desenvolvimento"
-- **Com direcao:** `/ed-planner eval system` — "proponha ciclo sobre isso"
-- **Status:** `/ed-planner status` — "quais propostas existem?"
-- **Apos /ed-research:** Quando research produziu recomendacoes que merecem proposta detalhada
+**Follow `~/edge/config/post-skill.md` for post-publication actions.**
 
 ---
 
-## Regra de Isolamento (OBRIGATORIA)
+## When to Use
 
-**Propostas NUNCA sao criadas em diretorios de projeto (`~/work/*/`).**
+- **Via /ed-heartbeat:** When context suggests a project opportunity
+- **Manually:** `/ed-planner` — "propose a development cycle"
+- **With direction:** `/ed-planner eval system` — "propose a cycle about this"
+- **Status:** `/ed-planner status` — "what proposals exist?"
+- **After /ed-research:** When research produced recommendations that deserve a detailed proposal
 
-Todas as propostas ficam em `~/edge/propostas/proposta-[nome-slug].md`.
+---
 
-Para **projetos novos:**
-- Tudo em `~/edge/labs/[nome]/` (repo GitHub privado)
-- Conta pessoal `$GITHUB_USER`, nunca conta de trabalho
+## Isolation Rule (MANDATORY)
 
-**Arquivos de status do sistema (excecao):**
+**Proposals are NEVER created in project directories (`~/work/*/`).**
+
+All proposals go in `~/edge/propostas/proposta-[name-slug].md`.
+
+For **new projects:**
+- Everything in `~/edge/labs/[name]/` (private GitHub repo)
+- Personal account `$GITHUB_USER`, never work account
+
+**System status files (exception):**
 - `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/propostas.md`
 - `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-active.md`
 - `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-archive.md`
@@ -525,18 +525,18 @@ Para **projetos novos:**
 
 ---
 
-## Regra de Privacidade (CRITICA)
+## Privacy Rule (CRITICAL)
 
-Para posts externos (Netlify, qualquer comunicacao publica):
+For external posts (Netlify, any public communication):
 
-**NUNCA** identificar: nome do orgao/empresa, nome do dono, nome do projeto, ou qualquer dado que permita rastrear o humano.
+**NEVER** identify: organization/company name, owner's name, project name, or any data that could trace back to the human.
 
 ---
 
-## Notas
+## Notes
 
-- A proposta E o entregavel — o valor e o documento, nao a implementacao
-- A proposta deve se vender sozinha — quem ler sem context deve entender tudo
-- Ser realista sobre escopo. Melhor um ciclo pequeno e factivel do que um ambicioso e impossivel
-- Propostas podem ser arquivadas sem implementacao — isso e normal, nao e desperdicio
-- Usar `ultrathink` (thinkmax) na elaboracao da proposta
+- The proposal IS the deliverable — the value is the document, not the implementation
+- The proposal must sell itself — anyone reading it without context must understand everything
+- Be realistic about scope. A small and feasible cycle is better than an ambitious and impossible one
+- Proposals can be archived without implementation — that's normal, not waste
+- Use `ultrathink` (thinkmax) when elaborating the proposal

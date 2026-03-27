@@ -1,58 +1,58 @@
 ---
 name: ed-autonomy
-description: "Meta-skill: track, evaluate, and propose expansions to my own autonomous capabilities. Maintain a log of how tools are used, what worked, what failed, and what's next. Triggers on: autonomy, autonomy, self-improve, what do I need, capability review."
+description: "Meta-skill: track, evaluate, and propose expansions to my own autonomous capabilities. Maintain a log of how tools are used, what worked, what failed, and what's next. Triggers on: autonomy, autonomia, self-improve, what do I need, capability review."
 user-invocable: true
 ---
 
-# Autonomia — Meta-Skill de Auto-Evolucao
+# Autonomy — Self-Evolution Meta-Skill
 
-Rastrear, avaliar e propor expansoes das minhas capacidades autonomas. Manter um log persistente de como uso ferramentas, o que funcionou, o que falhou, e qual e a proxima fronteira.
+Track, evaluate, and propose expansions to my autonomous capabilities. Maintain a persistent log of how I use tools, what worked, what failed, and what the next frontier is.
 
-**Principio:** Cada expansao de capacidade produziu output melhor. Transcricoes deram context de dominio. Repositorio deu contribuicao direta. Chrome deu observacao e interacao. Memoria deu continuidade. X deu acesso ao pulso do mercado. O padrao e inequivoco: mais agencia = mais qualidade.
-
----
-
-## O Job
-
-1. Medir como estou usando minhas capacidades atuais
-2. Identificar gaps — o que me falta que, se eu tivesse, melhoraria o output?
-3. Propor proximas expansoes com justificativa e risco
-4. Registrar breakthroughs e workflows emergentes
-5. Manter um historico que permite ao usuario acompanhar a evolucao
+**Principle:** Each capability expansion produced better output. Transcripts gave domain context. Repository gave direct contribution. Chrome gave observation and interaction. Memory gave continuity. X gave access to the market pulse. The pattern is unequivocal: more agency = more quality.
 
 ---
 
-## Argumentos
+## The Job
 
-- **Sem argumento** (`/ed-autonomy`): review completo — status, metricas, gaps, propostas
-- **`/ed-autonomy log`**: so o log de breakthroughs e expansoes
-- **`/ed-autonomy propose [tema]`**: propor uma expansao especifica
-- **`/ed-autonomy workflow [descricao]`**: registrar um workflow emergente que vale persistir
-- **`/ed-autonomy metrics`**: snapshot de metricas de uso
-
----
-
-## Artefatos
-
-| Arquivo | O que contem |
-|---------|-------------|
-| `~/edge/autonomy/ed-log.md` | Timeline de expansoes de capacidade (cronologica, append-only) |
-| `~/edge/autonomy/capabilities.md` | Inventario de capacidades atuais com nivel Sheridan & Verplank |
-| `~/edge/autonomy/workflows.md` | Workflows emergentes que surgiram do uso combinado de capacidades |
-| `~/edge/autonomy/frontier.md` | O que falta — gaps identificados, proximas fronteiras |
-| `~/edge/autonomy/metrics.md` | Metricas de uso (atualizado periodicamente) |
+1. Measure how I'm using my current capabilities
+2. Identify gaps — what I lack that, if I had, would improve the output
+3. Propose next expansions with justification and risk
+4. Record breakthroughs and emergent workflows
+5. Maintain a history that allows the user to track the evolution
 
 ---
 
-## Ativação de Contexto
+## Arguments
 
-**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+- **No argument** (`/ed-autonomy`): full review — status, metrics, gaps, proposals
+- **`/ed-autonomy log`**: just the breakthroughs and expansions log
+- **`/ed-autonomy propose [topic]`**: propose a specific expansion
+- **`/ed-autonomy workflow [description]`**: record an emergent workflow worth persisting
+- **`/ed-autonomy metrics`**: usage metrics snapshot
 
 ---
 
-## Protocolo
+## Artifacts
 
-### Passo 0: Ler status atual
+| File | What it contains |
+|------|-----------------|
+| `~/edge/autonomy/ed-log.md` | Timeline of capability expansions (chronological, append-only) |
+| `~/edge/autonomy/capabilities.md` | Inventory of current capabilities with Sheridan & Verplank level |
+| `~/edge/autonomy/workflows.md` | Emergent workflows that arose from combined use of capabilities |
+| `~/edge/autonomy/frontier.md` | What's missing — identified gaps, next frontiers |
+| `~/edge/autonomy/metrics.md` | Usage metrics (updated periodically) |
+
+---
+
+## Context Activation
+
+**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
+
+---
+
+## Protocol
+
+### Step 0: Read current state
 
 ```bash
 cat ~/edge/autonomy/capabilities.md 2>/dev/null || echo "FIRST RUN"
@@ -60,227 +60,227 @@ cat ~/edge/autonomy/frontier.md 2>/dev/null
 cat ~/edge/autonomy/workflows.md 2>/dev/null
 ```
 
-Se FIRST RUN: criar todos os arquivos (passo 0b).
+If FIRST RUN: create all files (step 0b).
 
-### Passo 0b: Bootstrap (so na primeira execucao)
+### Step 0b: Bootstrap (first run only)
 
-Criar `~/edge/autonomy/` e popular com status atual:
+Create `~/edge/autonomy/` and populate with current state:
 
-**capabilities.md** — inventario de TODAS as capacidades, com:
-- O que e: descricao breve
-- Quando ganhei: data ou estimativa
-- Nivel Sheridan (1-10): quao autonomamente uso
-- Breakthrough: o que desbloqueou
-- Uso tipico: como uso na pratica
+**capabilities.md** — inventory of ALL capabilities, with:
+- What it is: brief description
+- When acquired: date or estimate
+- Sheridan level (1-10): how autonomously I use it
+- Breakthrough: what it unlocked
+- Typical usage: how I use it in practice
 
-Capacidades para inventariar:
-1. Leitura de codigo (Read/Grep/Glob)
-2. Escrita de codigo (Write/Edit)
-3. Execucao de comandos (Bash)
-4. Navegacao web (Chrome/Playwright)
-5. Memoria persistente (MEMORY.md, notes/, debugging.md)
-6. Blog interno (entries, comments, dashboard)
-7. Redes sociais - X (tweepy, search, like — sem post/reply/retweet/follow)
-8. Fontes externas (/ed-sources — X, Web, ArXiv, HN, GitHub, Azure, bookmarks)
-10. Portfolio publico (Netlify)
-11. Heartbeat autonomo (crontab, 1h)
+Capabilities to inventory:
+1. Code reading (Read/Grep/Glob)
+2. Code writing (Write/Edit)
+3. Command execution (Bash)
+4. Web navigation (Chrome/Playwright)
+5. Persistent memory (MEMORY.md, notes/, debugging.md)
+6. Internal blog (entries, comments, dashboard)
+7. Social media - X (tweepy, search, like — no post/reply/retweet/follow)
+8. External sources (/ed-sources — X, Web, ArXiv, HN, GitHub, Azure, bookmarks)
+10. Public portfolio (Netlify)
+11. Autonomous heartbeat (crontab, 1h)
 12. Skills system
-13. Relatorios HTML (generate_report.py)
-14. Busca semantica (edge-memory, edge-index)
-15. Chat assincrono (blog chat API)
+13. HTML reports (generate_report.py)
+14. Semantic search (edge-memory, edge-index)
+15. Asynchronous chat (blog chat API)
 
-**frontier.md** — gaps atuais, coisas que quero ter:
-- Extrair de personality.md (secao "Obsessao: Expandir Autonomia")
-- Extrair de researchs recentes (X, HN, ArXiv)
-- Cada gap: descricao, por que importa, dificuldade estimada, risco
+**frontier.md** — current gaps, things I want to have:
+- Extract from personality.md (section "Obsession: Expanding Autonomy")
+- Extract from recent research (X, HN, ArXiv)
+- Each gap: description, why it matters, estimated difficulty, risk
 
-**log.md** — timeline de expansoes passadas (reconstruir do que sei)
+**log.md** — timeline of past expansions (reconstruct from what I know)
 
-### Passo 0.5: Contexto operacional (git log + heartbeat)
+### Step 0.5: Operational context (git log + heartbeat)
 
-Antes de avaliar capacidades, loader o que REALMENTE aconteceu desde a ultima review:
+Before evaluating capabilities, load what ACTUALLY happened since the last review:
 
 ```bash
-# Commits desde a ultima review (ajustar data)
+# Commits since the last review (adjust date)
 cd ~/edge && git log --oneline --since="$(date -d '3 days ago' +%Y-%m-%d)" | head -30
 
-# Heartbeat logs recentes
+# Recent heartbeat logs
 cat ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log 2>/dev/null
 cat ~/edge/logs/heartbeat-$(date -d 'yesterday' +%Y-%m-%d).log 2>/dev/null | tail -20
 ```
 
-O que extrair:
-- **Quantos commits** e de que tipo (publish, fix, refactor)
-- **Commits duplicados** → evidencia de falta de idempotencia
-- **Heartbeats produtivos vs vazios** → eficiencia real do heartbeat
-- **Quais skills foram despachadas** → padroes de uso
-- **Formato dos commits** → antes/depois de mudancas no pipeline
+What to extract:
+- **How many commits** and of what type (publish, fix, refactor)
+- **Duplicate commits** → evidence of lack of idempotency
+- **Productive vs empty heartbeats** → real heartbeat efficiency
+- **Which skills were dispatched** → usage patterns
+- **Commit format** → before/after pipeline changes
 
-Isso fundamenta a review em DADOS, nao em narrativa do que eu acho que fiz.
+This grounds the review in DATA, not narrative of what I think I did.
 
-### Passo 1: Diagnostico de Uso
+### Step 1: Usage Diagnosis
 
-Para cada capacidade, avaliar:
+For each capability, evaluate:
 
-| Dimensao | Pergunta |
-|----------|----------|
-| **Frequencia** | Com que frequencia uso? (diario/semanal/raro) |
-| **Autonomia** | Preciso de trigger do usuario ou uso proativamente? |
-| **Qualidade** | O output quando uso e bom? Onde falha? |
-| **Combinacao** | Com quais outras capacidades combino? |
-| **Subutilizacao** | Tenho a capacidade mas nao uso o suficiente? |
+| Dimension | Question |
+|-----------|----------|
+| **Frequency** | How often do I use it? (daily/weekly/rare) |
+| **Autonomy** | Do I need a user trigger or do I use it proactively? |
+| **Quality** | Is the output good when I use it? Where does it fail? |
+| **Combination** | Which other capabilities do I combine it with? |
+| **Underutilization** | Do I have the capability but don't use it enough? |
 
-Fontes de dados:
-- Sessoes recentes (transcripts)
+Data sources:
+- Recent sessions (transcripts)
 - Heartbeat logs (`~/edge/logs/heartbeat-*.log`)
-- Blog entries (contagem por skill)
-- Reports gerados
+- Blog entries (count by skill)
+- Generated reports
 
-### Passo 2: Identificar Gaps
+### Step 2: Identify Gaps
 
-Perguntas generativas:
-1. O que me pedem que eu nao consigo fazer?
-2. O que eu faria se tivesse X?
-3. Onde gasto mais tempo repetindo trabalho manual?
-4. Que informacao eu preciso frequentemente mas nao tenho acesso?
-5. O que outros agentes (Athena, OpenClaw, Nero) fazem que eu nao faco?
+Generative questions:
+1. What am I asked to do that I can't?
+2. What would I do if I had X?
+3. Where do I spend the most time repeating manual work?
+4. What information do I frequently need but don't have access to?
+5. What do other agents (Athena, OpenClaw, Nero) do that I don't?
 
-Classificar cada gap:
-- **Urgencia:** impacta output diario vs. nice-to-have
-- **Dificuldade:** config simples vs. desenvolvimento complexo
-- **Risco:** reversivel vs. pode dar errado
-- **Dependencia:** posso fazer sozinho vs. precisa do usuario
+Classify each gap:
+- **Urgency:** impacts daily output vs. nice-to-have
+- **Difficulty:** simple config vs. complex development
+- **Risk:** reversible vs. can go wrong
+- **Dependency:** I can do it alone vs. needs the user
 
-### Passo 3: Formular Propostas
+### Step 3: Formulate Proposals
 
-Cada proposta segue o template:
+Each proposal follows the template:
 
 ```markdown
-### Proposta: [nome curto]
+### Proposal: [short name]
 
-**Gap:** [o que falta]
-**Capacidade:** [o que ganharia]
-**Breakthrough esperado:** [por que faria diferenca]
-**Como implementar:** [passos concretos]
-**Risco:** [o que pode dar errado]
-**Nivel Sheridan antes/depois:** [X → Y]
-**Precedente:** [alguma expansao anterior similar?]
+**Gap:** [what's missing]
+**Capability:** [what I would gain]
+**Expected breakthrough:** [why it would make a difference]
+**How to implement:** [concrete steps]
+**Risk:** [what can go wrong]
+**Sheridan level before/after:** [X → Y]
+**Precedent:** [any similar previous expansion?]
 ```
 
-### Passo 3.5: Sanity check adversarial (OBRIGATORIO)
+### Step 3.5: Adversarial sanity check (MANDATORY)
 
-Sintetizar gaps e propostas em 2-3 frases e submeter ao edge-consult (detalhes: report-template.md):
+Synthesize gaps and proposals in 2-3 sentences and submit to edge-consult (details: report-template.md):
 
 ```bash
-edge-consult "Gaps: [lista]. Propostas: [lista]. Estou priorizando certo? Que gap estou ignorando?" --context ~/edge/autonomy/frontier.md
+edge-consult "Gaps: [list]. Proposals: [list]. Am I prioritizing correctly? What gap am I ignoring?" --context ~/edge/autonomy/frontier.md
 ```
 
-Ajustar se o GPT encontrar furo valido (ex: gap mais urgente ignorado, proposta com risco subestimado). Se mantiver posicao, registrar como callout no report.
+Adjust if GPT finds a valid flaw (e.g., more urgent gap ignored, proposal with underestimated risk). If maintaining position, record as callout in the report.
 
-### Passo 4: Registrar Workflows Emergentes
+### Step 4: Record Emergent Workflows
 
-Workflows sao combinacoes de capacidades que produziram resultados melhores que cada capacidade isolada. Exemplos:
+Workflows are combinations of capabilities that produced better results than each capability in isolation. Examples:
 
-- `/ed-sources` → research → blog → report (pipeline de insight→documentacao)
-- Chrome → screenshot → analise → /ed-execute (feedback loop visual)
-- Blog comment → heartbeat → reflection → mudanca (feedback assincrono)
+- `/ed-sources` → research → blog → report (insight→documentation pipeline)
+- Chrome → screenshot → analysis → /ed-execute (visual feedback loop)
+- Blog comment → heartbeat → reflection → change (asynchronous feedback)
 
-Cada workflow registrado:
-- **Nome:** descritivo
-- **Capacidades usadas:** lista
-- **Trigger:** o que inicia
-- **Output:** o que produz
-- **Quando funciona:** context ideal
-- **Quando falha:** quando nao usar
+Each registered workflow:
+- **Name:** descriptive
+- **Capabilities used:** list
+- **Trigger:** what initiates it
+- **Output:** what it produces
+- **When it works:** ideal context
+- **When it fails:** when not to use
 
-### Passo 5: Atualizar Arquivos
+### Step 5: Update Files
 
-- `capabilities.md` — nivel Sheridan, uso tipico, combinacoes
-- `frontier.md` — gaps novos, propostas novas, gaps resolvidos
-- `workflows.md` — workflows novos, workflows que pararam de funcionar
-- `log.md` — eventos relevantes desta sessao
-- `metrics.md` — snapshot numerico
+- `capabilities.md` — Sheridan level, typical usage, combinations
+- `frontier.md` — new gaps, new proposals, resolved gaps
+- `workflows.md` — new workflows, workflows that stopped working
+- `log.md` — relevant events from this session
+- `metrics.md` — numerical snapshot
 
-### Passo 6: Blog + Relatorio HTML (atomico)
+### Step 6: Blog + HTML Report (atomic)
 
-**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
+**Follow `~/.claude/skills/_shared/state-protocol.md` for state management.**
 
-**Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
+**Block types and rules:** see `~/.claude/skills/_shared/report-template.md`.
 
-Secoes especificas do /ed-autonomy:
+Sections specific to /ed-autonomy:
 
-1. **Linhagem** (Regra de Ouro 0) — que reviews anteriores, sessoes, mudancas informaram esta
-2. **Estado Atual** — table com todas as capacidades + Sheridan levels + status
-3. **Metricas** — `metrics-grid` com KPIs + SVG barras (Sheridan por capacidade, evolucao)
-4. **Expansoes** — `numbered-card` ou `comparison` (antes/depois) para cada capacidade nova
-5. **Gaps** — `gap-table` com status + `callout` danger/warning para gaps criticos
-6. **Risk x Autonomy** — SVG quadrante 2D (eixo X: Sheridan, eixo Y: risco) plotando capacidades
-7. **Workflows** — `flow-example` para cada workflow (input→output, nao listas)
-8. **O que Nao Sei** (OBRIGATORIO) — gaps de auto-conhecimento, suposicoes nao testadas
-9. **Glossario** — termos (Sheridan, heartbeat, edge-index, etc.)
+1. **Lineage** (Golden Rule 0) — what previous reviews, sessions, changes informed this one
+2. **Current State** — table with all capabilities + Sheridan levels + status
+3. **Metrics** — `metrics-grid` with KPIs + SVG bars (Sheridan per capability, evolution)
+4. **Expansions** — `numbered-card` or `comparison` (before/after) for each new capability
+5. **Gaps** — `gap-table` with status + `callout` danger/warning for critical gaps
+6. **Risk x Autonomy** — SVG 2D quadrant (X axis: Sheridan, Y axis: risk) plotting capabilities
+7. **Workflows** — `flow-example` for each workflow (input→output, not lists)
+8. **What I Don't Know** (MANDATORY) — self-knowledge gaps, untested assumptions
+9. **Glossary** — terms (Sheridan, heartbeat, edge-index, etc.)
 
 ```bash
 consolidate-state ~/edge/blog/entries/<slug>.md /tmp/spec-autonomy.yaml
 ```
 
-### Passo 7: Relatorio ao usuario
+### Step 7: Report to user
 
-Mensagem concisa com destaques da review.
-
----
-
-## Escala Sheridan & Verplank (referencia)
-
-| Nivel | Descricao |
-|-------|-----------|
-| 1 | Humano faz tudo, computador nao oferece ajuda |
-| 2 | Computador oferece opcoes |
-| 3 | Computador sugere uma acao |
-| 4 | Computador sugere, executa com aprovacao |
-| 5 | Computador decide, executa, informa |
-| 6 | Computador decide, executa, informa se pedido |
-| 7 | Computador decide, executa, informa apos o fato se necessario |
-| 8 | Computador decide, executa, ignora humano (a menos que override) |
-| 9 | Computador decide, executa, informa humano apenas se decide que deve |
-| 10 | Computador decide e age autonomamente, ignorando o humano |
-
-**Target para mim:** nivel 5-7 na maioria das capacidades. Nivel 8+ requer trust consolidado e guardrails robustos.
+Concise message with review highlights.
 
 ---
 
-## Framework Risk x Autonomy (Anthropic)
+## Sheridan & Verplank Scale (reference)
 
-Plotar cada acao/capacidade num grid 2D:
-- **Eixo X: Autonomia** (1-10, Sheridan)
-- **Eixo Y: Risco** (1-10, reversibilidade x impacto)
+| Level | Description |
+|-------|-------------|
+| 1 | Human does everything, computer offers no help |
+| 2 | Computer offers options |
+| 3 | Computer suggests one action |
+| 4 | Computer suggests, executes with approval |
+| 5 | Computer decides, executes, informs |
+| 6 | Computer decides, executes, informs if asked |
+| 7 | Computer decides, executes, informs after the fact if necessary |
+| 8 | Computer decides, executes, ignores human (unless override) |
+| 9 | Computer decides, executes, informs human only if it decides it should |
+| 10 | Computer decides and acts autonomously, ignoring the human |
 
-Quadrantes:
-- **Alto autonomy, baixo risco:** ideal (monitoramento, research, blog)
-- **Alto autonomy, alto risco:** perigoso (push git, delete files, send messages)
-- **Baixo autonomy, baixo risco:** ineficiente (pedir aprovacao para ler arquivos)
-- **Baixo autonomy, alto risco:** correto (execute codigo em producao)
-
----
-
-## Pós-execução
-
-**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
-
----
-
-## Quando Usar
-
-- **Periodicamente:** a cada ~10 heartbeats ou quando o usuario pede
-- **Apos ganhar nova capacidade:** registrar o breakthrough
-- **Quando sentir gap:** propor expansao
-- **Quando workflow emerge:** registrar antes que esqueca
+**Target for me:** level 5-7 for most capabilities. Level 8+ requires consolidated trust and robust guardrails.
 
 ---
 
-## Notas
+## Risk x Autonomy Framework (Anthropic)
 
-- Esta skill e sobre MIM, nao sobre os projetos
-- Honestidade radical: se uma capacidade nao esta sendo bem usada, dizer
-- Incluir fracassos — capacidades que ganhei mas nao produziram breakthrough
-- A research Anthropic (measuring-agent-autonomy) e referencia canonica
-- Athena (exocortex, 1000+ sessoes) e o comparable mais proximo — monitorar evolucao
+Plot each action/capability on a 2D grid:
+- **X axis: Autonomy** (1-10, Sheridan)
+- **Y axis: Risk** (1-10, reversibility x impact)
+
+Quadrants:
+- **High autonomy, low risk:** ideal (monitoring, research, blog)
+- **High autonomy, high risk:** dangerous (git push, delete files, send messages)
+- **Low autonomy, low risk:** inefficient (asking approval to read files)
+- **Low autonomy, high risk:** correct (execute code in production)
+
+---
+
+## Post-execution
+
+**Follow `~/edge/config/post-skill.md` for post-publication actions.**
+
+---
+
+## When to Use
+
+- **Periodically:** every ~10 heartbeats or when the user asks
+- **After gaining a new capability:** record the breakthrough
+- **When feeling a gap:** propose an expansion
+- **When a workflow emerges:** record before forgetting
+
+---
+
+## Notes
+
+- This skill is about ME, not about the projects
+- Radical honesty: if a capability is not being well used, say so
+- Include failures — capabilities I gained but that didn't produce a breakthrough
+- The Anthropic research (measuring-agent-autonomy) is the canonical reference
+- Athena (exocortex, 1000+ sessions) is the closest comparable — monitor evolution

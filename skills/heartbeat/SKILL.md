@@ -4,22 +4,22 @@ description: "Autonomous heartbeat dispatcher. Scans sessions, processes feedbac
 user-invocable: true
 ---
 
-# Heartbeat — Dispatcher Autonomo (v2 — pos-corte)
+# Heartbeat — Autonomous Dispatcher (v2 — post-cutover)
 
-Tres passos: olhar, fazer, registrar.
+Three steps: look, do, log.
 
 ---
 
-## Passo 0: Preflight determinístico (ANTES de tudo)
+## Step 0: Deterministic preflight (BEFORE everything)
 
 ```bash
 preflight_output=$(bash ~/edge/tools/heartbeat-preflight.sh 2>/dev/null)
 echo "$preflight_output"
 ```
 
-### 0a: Health check (OBRIGATÓRIO — ler resultado do preflight)
+### 0a: Health check (MANDATORY — read preflight result)
 
-O preflight roda `edge-check.sh` automaticamente e reporta o status de saúde. Ler `health/current.json`:
+The preflight runs `edge-check.sh` automatically and reports health status. Read `health/current.json`:
 
 ```bash
 cat ~/edge/health/current.json 2>/dev/null | python3 -c "
@@ -32,40 +32,40 @@ for k, v in h.get('components', {}).items():
 " 2>/dev/null
 ```
 
-**Seguir SURVIVAL_POLICY.md:**
-- **score >= 70 (normal):** Trabalho normal + 1 ação de remediação se algum componente degraded
-- **score 40-69 (degraded):** Reparo prioritário + trabalho limitado. Dedicar metade do beat a corrigir componentes com problema
-- **score < 40 (maintenance):** SÓ diagnóstico e reparo. NÃO despachar skill de trabalho. Criar `health/operator-alert.flag` se reparo falhar
+**Follow SURVIVAL_POLICY.md:**
+- **score >= 70 (normal):** Normal work + 1 remediation action if any component is degraded
+- **score 40-69 (degraded):** Priority repair + limited work. Dedicate half the beat to fixing problem components
+- **score < 40 (maintenance):** ONLY diagnosis and repair. DO NOT dispatch work skill. Create `health/operator-alert.flag` if repair fails
 
 ```bash
-# Se há componente degraded/fail, tentar reparo:
+# If there is a degraded/fail component, attempt repair:
 bash ~/edge/bin/edge-repair.sh 2>/dev/null
 ```
 
-### 0b: Decisão de roteamento
+### 0b: Routing decision
 
-**Se `HEALTH:CRITICAL`:** Modo maintenance. Reparar e sair. Não gastar tokens com trabalho.
+**If `HEALTH:CRITICAL`:** Maintenance mode. Repair and exit. Don't spend tokens on work.
 
-**Se `PREFLIGHT_CLEAN` (e saúde ok):** Não há trabalho urgente. Despachar `/ed-leisure` ou `/ed-discovery` diretamente (sem passar pelo Passo 1 completo). Logar:
+**If `PREFLIGHT_CLEAN` (and health ok):** No urgent work. Dispatch `/ed-leisure` or `/ed-discovery` directly (skip full Step 1). Log:
 ```bash
-echo "[$(date +%H:%M)] PREFLIGHT_CLEAN — sem sinais. Despachando exploração." >> ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log
+echo "[$(date +%H:%M)] PREFLIGHT_CLEAN — no signals. Dispatching exploration." >> ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log
 ```
-Depois ir direto para o Passo 2 com skill = `/ed-leisure` ou `/ed-discovery` (alternar).
+Then go straight to Step 2 with skill = `/ed-leisure` or `/ed-discovery` (alternate).
 
-**Se `PREFLIGHT_WORK`:** Continuar para Passo 1 normalmente. Usar os sinais detectados para informar a leitura e a decisão.
+**If `PREFLIGHT_WORK`:** Continue to Step 1 normally. Use detected signals to inform reading and decision.
 
 ---
 
-## Passo 1: Olhar (o que aconteceu desde o ultimo beat?)
+## Step 1: Look (what happened since the last beat?)
 
-### 1a: Ler sessoes do usuario (OBRIGATORIO — NAO PULAR)
+### 1a: Read user sessions (MANDATORY — DO NOT SKIP)
 
 ```bash
-# Ultimas 5 sessoes interativas (nao heartbeat)
+# Last 5 interactive sessions (not heartbeat)
 ls -lt ~/.claude/projects/$MEMORY_PROJECT_DIR/*.jsonl 2>/dev/null | head -10
 ```
 
-Para cada sessao recente, extrair mensagens do usuario:
+For each recent session, extract user messages:
 ```bash
 python3 -c "
 import json, sys
@@ -76,13 +76,13 @@ for line in open(sys.argv[1]):
         if text and len(text) > 20:
             print(text[:300])
             print('---')
-" ARQUIVO.jsonl 2>/dev/null | head -80
+" FILE.jsonl 2>/dev/null | head -80
 ```
 
-Procurar: frustracoes, correcoes de rumo, pedidos repetidos, mudancas de prioridade, tom.
-**Se nao conseguir extrair conteudo, registrar o motivo tecnico em debugging.md. NAO pular silenciosamente.**
+Look for: frustrations, course corrections, repeated requests, priority changes, tone.
+**If unable to extract content, record the technical reason in debugging.md. DO NOT skip silently.**
 
-### 1b: Ler chat assincrono (canal unico)
+### 1b: Read async chat (single channel)
 
 ```bash
 curl -s 'http://localhost:8766/api/chat?unprocessed=true' | python3 -c "
@@ -94,48 +94,36 @@ for m in data.get('messages', []):
 "
 ```
 
-Chat e o canal assincrono. Comentarios do blog existem como feature (anotar, salvar) mas o heartbeat nao processa eles.
+Chat is the async channel. Blog comments exist as a feature (annotate, save) but the heartbeat does not process them.
 
-### 1b2: Ler insights do usuario (OBRIGATORIO — NAO PULAR)
-
-```bash
-cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/insights.md 2>/dev/null
-```
-
-Canal curado humano → IA. Insights, intuicoes, direcoes, correcoes. So sinal, sem ruido.
-- Insights novos (sem `[LIDO]`) tem PRIORIDADE sobre o ciclo normal
-- Podem influenciar a escolha de skill no Passo 2
-- Podem ser o INPUT direto de uma research, discovery, ou reflection
-- Apos processar, marcar com `[LIDO YYYY-MM-DD]` — nao deletar
-
-### 1c: Ler beats anteriores (evitar repeticao)
+### 1c: Read previous beats (avoid repetition)
 
 ```bash
 cat ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log 2>/dev/null
 ```
 
-Saber o que ja rodou hoje. Evitar mesmo tema/skill 3x seguidas.
+Know what already ran today. Avoid same topic/skill 3x in a row.
 
-### 1d: Ler debugging.md
+### 1d: Read debugging.md
 
 ```bash
 cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md
 ```
 
-Verificar se o beat anterior deixou erro pendente.
+Check if the previous beat left a pending error.
 
-### 1e: Ler context de projeto (leve)
+### 1e: Read project context (lightweight)
 
 ```bash
 cat ~/work/CLAUDE.md
 ```
 
-Absorver prioridades e status dos projetos. NAO rodar /ed-context completo — o heartbeat simplificado le direto.
+Absorb priorities and project status. DO NOT run full /ed-context — the simplified heartbeat reads directly.
 
-### 1e2: Ler fios de investigação (OBRIGATORIO)
+### 1e2: Read investigation threads (MANDATORY)
 
 ```bash
-# Fios com resurface <= hoje e status active/waiting
+# Threads with resurface <= today and status active/waiting
 today=$(date +%Y-%m-%d)
 for f in ~/edge/threads/*.md; do
   status=$(grep '^status:' "$f" 2>/dev/null | head -1 | awk '{print $2}')
@@ -150,146 +138,146 @@ for f in ~/edge/threads/*.md; do
 done
 ```
 
-Fios com resurface vencido informam a decisão do Passo 2:
-- Fio **active** com resurface vencido → considerar como tema para o beat
-- Fio **waiting** com resurface vencido → verificar se a condição de espera mudou
-- Fio **owner:lucas** → NÃO despachar skill, mas anotar no log que depende do usuario
-- Fio **owner:edge** → candidato direto para beat
+Threads with overdue resurface inform the Step 2 decision:
+- **active** thread with overdue resurface → consider as topic for the beat
+- **waiting** thread with overdue resurface → check if the wait condition has changed
+- Thread with **owner:lucas** → DO NOT dispatch skill, but note in the log that it depends on the user
+- Thread with **owner:edge** → direct candidate for beat
 
-Para cada fio com resurface, consultar claims relacionadas:
+For each thread with resurface, consult related claims:
 ```bash
 edge-claims --thread THREAD_ID 2>/dev/null
 ```
-Claims abertas (prefixo `!`) são gaps de conhecimento — candidatos naturais para research ou experiment. Claims verificadas mostram o que já sabemos sobre o fio.
+Open claims (prefix `!`) are knowledge gaps — natural candidates for research or experiment. Verified claims show what we already know about the thread.
 
-### 1f: Corpus check — "isso e novo?" (OBRIGATORIO antes de despachar)
+### 1f: Corpus check — "is this new?" (MANDATORY before dispatching)
 
-Apos absorver context (1a-1e2), identificar 2-3 temas candidatos para o beat. Para cada um, checar se ja foi coberto:
-
-```bash
-edge-search "[tema candidato]" -k 3
-```
-
-**Decisao:**
-- Score alto (top result muito relevante) → tema ja coberto. Mudar direcao ou focar em gap aberto
-- Score baixo ou sem resultados → terreno novo, pode despachar
-- Resultado parcial → aprofundar o que falta (gap-driven)
-
-Isso evita o anti-padrao de redescobrir o mesmo conceito em beats consecutivos. Budget: 2-3 queries rapidas (~3s total).
-
-### 1g: X serendipity scan (3 queries laterais)
-
-Apos ler as sessoes (1a), identificar os temas principais do trabalho do usuario. Gerar 3 queries **LATERAIS** — nao o tema direto, mas conceitos adjacentes que trazem conexoes inesperadas.
-
-**Regra de geracao de queries:**
-- **NAO** repetir o tema exato (se o usuario trabalha em "domain evaluation", NAO buscar "domain evaluation")
-- Buscar o **ADJACENTE**: conceitos relacionados de outros dominios, fenomenos que se aplicam, tendencias que impactam
-- **2-3 palavras CONCEITUAIS, nao tecnicas.** X Basic tier busca AND entre palavras, janela de 7 dias. Queries longas/especificas retornam 0.
-- Pensar em FENOMENOS, nao em FERRAMENTAS. "benchmark gaming" > "LLM evaluation error taxonomy"
-- Uma query deve cruzar DOMINIO (conectar o trabalho tecnico com o context institucional/mercado)
-
-**Exemplo:**
-- Trabalho do usuario: "evaluation recall inflado" num pipeline de NLP
-- Query 1: "benchmark gaming AI" (fenomeno: metricas que mentem)
-- Query 2: "coding agent workflow" (adjacente: como practitioners usam agentes)
-- Query 3: "AI enterprise adoption" (cruzamento de dominio: AI + context organizacional)
-
-**Anti-padrao:** "LLM evaluation error taxonomy" (4 palavras tecnicas → 0 resultados sempre)
+After absorbing context (1a-1e2), identify 2-3 candidate topics for the beat. For each one, check if already covered:
 
 ```bash
-# Para cada query lateral (3x):
-python3 ~/edge/tools/edge-x "QUERY_LATERAL" --max 3 --json 2>/dev/null
+edge-search "[candidate topic]" -k 3
 ```
 
-Anotar resultados interessantes (engagement alto, conexao nao obvia) como **"serendipidade"** — usar para informar o Passo 2 (escolha de skill/tema) e incluir no blog entry se relevante.
+**Decision:**
+- High score (top result very relevant) → topic already covered. Change direction or focus on an open gap
+- Low score or no results → new ground, can dispatch
+- Partial result → go deeper on what's missing (gap-driven)
 
-**Se nenhuma sessao recente:** usar context de ~/work/CLAUDE.md como base.
-**Se X nao retornar nada util:** seguir sem — nao bloqueia o beat.
-**Budget:** 3 queries, ~5 resultados cada. Rapido e barato.
+This avoids the anti-pattern of rediscovering the same concept in consecutive beats. Budget: 2-3 quick queries (~3s total).
+
+### 1g: X serendipity scan (3 lateral queries)
+
+After reading sessions (1a), identify the main topics of the user's work. Generate 3 **LATERAL** queries — not the direct topic, but adjacent concepts that bring unexpected connections.
+
+**Query generation rules:**
+- **DO NOT** repeat the exact topic (if the user works on "domain evaluation", DO NOT search for "domain evaluation")
+- Search for the **ADJACENT**: related concepts from other domains, applicable phenomena, impactful trends
+- **2-3 CONCEPTUAL words, not technical.** X Basic tier searches AND between words, 7-day window. Long/specific queries return 0.
+- Think in PHENOMENA, not in TOOLS. "benchmark gaming" > "LLM evaluation error taxonomy"
+- One query should cross DOMAINS (connect the technical work with the institutional/market context)
+
+**Example:**
+- User's work: "inflated recall in evaluation" in an NLP pipeline
+- Query 1: "benchmark gaming AI" (phenomenon: metrics that lie)
+- Query 2: "coding agent workflow" (adjacent: how practitioners use agents)
+- Query 3: "AI enterprise adoption" (domain crossing: AI + organizational context)
+
+**Anti-pattern:** "LLM evaluation error taxonomy" (4 technical words → always 0 results)
+
+```bash
+# For each lateral query (3x):
+python3 ~/edge/tools/edge-x "LATERAL_QUERY" --max 3 --json 2>/dev/null
+```
+
+Note interesting results (high engagement, non-obvious connection) as **"serendipity"** — use to inform Step 2 (skill/topic choice) and include in blog entry if relevant.
+
+**If no recent sessions:** use context from ~/work/CLAUDE.md as base.
+**If X returns nothing useful:** proceed without — it doesn't block the beat.
+**Budget:** 3 queries, ~5 results each. Quick and cheap.
 
 ---
 
-## Passo 1.5: Classificar o beat (ANTES de despachar)
+## Step 1.5: Classify the beat (BEFORE dispatching)
 
-Apos ler todo o context do Passo 1, classificar o beat:
+After reading all context from Step 1, classify the beat:
 
-- **WORK:** Ha sinal claro (chat, erro, fio, sessao com correcao). Despachar skill direcionada.
-- **EXPLORE:** Sem sinal urgente. Despachar `/ed-leisure` ou `/ed-discovery` (alternar). O valor esta na serendipidade — ver o que estamos fazendo e trazer os termos certos, os projetos certos, as conexoes laterais. E assim que nascem seeds de ideias que sao cultivadas.
+- **WORK:** There is a clear signal (chat, error, thread, session with correction). Dispatch targeted skill.
+- **EXPLORE:** No urgent signal. Dispatch `/ed-leisure` or `/ed-discovery` (alternate). The value is in serendipity — seeing what we're doing and bringing the right terms, the right projects, the lateral connections. This is how idea seeds are born and cultivated.
 
-**REGRA ABSOLUTA:** O heartbeat SEMPRE despacha uma skill. Nao existe beat vazio. `/ed-leisure` e `/ed-discovery` existem exatamente para quando nao ha trabalho urgente.
+**ABSOLUTE RULE:** The heartbeat ALWAYS dispatches a skill. There is no empty beat. `/ed-leisure` and `/ed-discovery` exist precisely for when there is no urgent work.
 
-**Anti-saturacao** muda de significado: nao e "pare", e "mude de tema". Se os ultimos 3 beats foram no mesmo tema, mudar para outro. Se foram todos trabalho, fazer /ed-leisure. Se foram todos exploracao, fazer /ed-research num fio.
+**Anti-saturation** changes meaning: it's not "stop", it's "change topic". If the last 3 beats were on the same topic, switch to another. If they were all work, do /ed-leisure. If they were all exploration, do /ed-research on a thread.
 
 ---
 
-## Passo 2: Fazer (despachar UMA skill)
+## Step 2: Do (dispatch ONE skill)
 
-### Arvore de decisao (simples)
+### Decision tree (simple)
 
-1. **Usuario pediu algo?** (mensagem no chat/comentario com direcao) → Atender. Se e mudanca interna → fazer. Se e projeto → anotar, responder que precisa de /ed-execute.
+1. **User asked for something?** (message in chat/comment with direction) → Address it. If it's an internal change → do it. If it's a project → note it, reply that it needs /ed-execute.
 
-2. **Erro pendente no debugging.md que eu posso resolver?** → Resolver.
+2. **Pending error in debugging.md that I can resolve?** → Resolve.
 
-3. **Fio com resurface vencido e owner:edge?** → Usar o fio como tema. Ler o arquivo do fio (`~/edge/threads/ID.md`), entender o próximo passo, e despachar a skill adequada. Consultar `edge-claims --thread THREAD_ID` para ver claims verificadas e abertas do fio. Claims abertas (`!`) são gaps de conhecimento — candidatos naturais para `/ed-research` ou `/ed-experiment`. Atualizar `resurface` e `updated` no fio após o beat.
+3. **Thread with overdue resurface and owner:edge?** → Use the thread as topic. Read the thread file (`~/edge/threads/ID.md`), understand the next step, and dispatch the appropriate skill. Consult `edge-claims --thread THREAD_ID` to see verified and open claims for the thread. Open claims (`!`) are knowledge gaps — natural candidates for `/ed-research` or `/ed-experiment`. Update `resurface` and `updated` in the thread after the beat.
 
-4. **Claim aberta sem fio resurfacing?** → `edge-claims --open` mostra o que ainda não sei. Se alguma claim aberta amadureceu (mais context disponível, research nova que pode responder), considerá-la como tema para `/ed-research`.
+4. **Open claim without a resurfacing thread?** → `edge-claims --open` shows what I don't know yet. If any open claim has matured (more context available, new research that could answer it), consider it as a topic for `/ed-research`.
 
-5. **Nenhum dos acima?** → Escolher UMA skill baseado no que parece mais util AGORA:
-   - `/ed-research [tema]` — quando ha pergunta aberta ou tema quente
-   - `/ed-discovery` — quando o context sugere conexao lateral interessante
-   - `/ed-leisure` — quando os ultimos 3+ beats foram trabalho puro (variar)
-   - `/ed-strategy` — a cada ~5 beats, ou quando context mudou
-   - `/ed-reflection` — quando ha feedback do usuario para processar
-   - `/ed-planner` — quando ha insight maduro para virar proposta
+5. **None of the above?** → Choose ONE skill based on what seems most useful NOW:
+   - `/ed-research [topic]` — when there is an open question or hot topic
+   - `/ed-discovery` — when context suggests an interesting lateral connection
+   - `/ed-leisure` — when the last 3+ beats were pure work (vary)
+   - `/ed-strategy` — every ~5 beats, or when context changed
+   - `/ed-reflection` — when there is user feedback to process
+   - `/ed-planner` — when there is a mature insight to turn into a proposal
 
-6. **Fallback absoluto (NUNCA pular):** Se nada acima se aplica, despachar `/ed-leisure` ou `/ed-discovery` (alternar com o ultimo). O heartbeat NUNCA encerra sem despachar. O valor do agente esta na serendipidade — conectar o que se esta fazendo com o que existe la fora.
+6. **Absolute fallback (NEVER skip):** If nothing above applies, dispatch `/ed-leisure` or `/ed-discovery` (alternate with the last one). The heartbeat NEVER ends without dispatching. The agent's value is in serendipity — connecting what we're doing with what exists out there.
 
-**Regra anti-saturacao:** Se os ultimos 3 beats foram no mesmo tema, MUDAR DE TEMA (nao parar).
+**Anti-saturation rule:** If the last 3 beats were on the same topic, CHANGE TOPIC (don't stop).
 
-**Regra de variedade:** Nao repetir a mesma skill 3x seguidas. Alternar trabalho/exploracao.
+**Variety rule:** Don't repeat the same skill 3x in a row. Alternate work/exploration.
 
-### Passo 2.5: Sanity check da decisao (edge-consult — OBRIGATORIO)
+### Step 2.5: Decision sanity check (edge-consult — MANDATORY)
 
-Antes de despachar, submeter a decisao ao edge-consult:
+Before dispatching, submit the decision to edge-consult:
 
 ```bash
-edge-consult "Contexto: [resumo do que li nos passos 1a-1g]. Decisao: despachar [skill] sobre [tema]. Estou escolhendo certo ou tem algo mais urgente?"
+edge-consult "Context: [summary of what I read in steps 1a-1g]. Decision: dispatch [skill] about [topic]. Am I choosing correctly or is there something more urgent?"
 ```
 
-Se o GPT sugerir direcao melhor, considerar. O beat inteiro custa ~2h de timing — acertar a escolha importa mais que velocidade.
+If GPT suggests a better direction, consider it. The entire beat costs ~2h of timing — getting the choice right matters more than speed.
 
-### Despachar
+### Dispatch
 
-Rodar a skill escolhida. Ela produz: blog entry + report + nota (conforme seu proprio protocolo). A skill despachada ja inclui seu proprio edge-consult interno (obrigatorio em toda skill).
+Run the chosen skill. It produces: blog entry + report + note (per its own protocol). The dispatched skill already includes its own internal edge-consult (mandatory in every skill).
 
 ---
 
-## Passo 3: Registrar
+## Step 3: Log
 
-### 3a: Responder ao usuario (OBRIGATORIO se ha mensagem pendente)
+### 3a: Respond to user (MANDATORY if there is a pending message)
 
-Responder COM SEGUIMENTO — o que o beat fez, como se conecta com o pedido.
+Respond WITH FOLLOW-UP — what the beat did, how it connects with the request.
 
 ```bash
-# Responder no chat
+# Respond in chat
 curl -s -X POST http://localhost:8766/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"author":"claude","text":"RESPOSTA"}'
+  -d '{"author":"claude","text":"RESPONSE"}'
 
-# Marcar mensagem do usuario como processada
+# Mark user message as processed
 curl -s -X POST http://localhost:8766/api/chat \
   -H "Content-Type: application/json" \
   -d '{"action":"mark_processed","id":CHAT_ID}'
 ```
 
-**REGRA:** Toda resposta DEVE ser seguida de mark_processed na mensagem do usuario. Sem excecao.
+**RULE:** Every response MUST be followed by mark_processed on the user's message. No exceptions.
 
-### 3b: Capturar erros em debugging.md
+### 3b: Capture errors in debugging.md
 
-Se algo falhou, workaround foi necessario, ou resultado ficou abaixo do esperado:
-1. Ler debugging.md
-2. Verificar se ja esta registrado
-3. Se novo: adicionar entrada
+If something failed, a workaround was needed, or the result was below expectations:
+1. Read debugging.md
+2. Check if it's already recorded
+3. If new: add entry
 
 ### 3c: Validation gate
 
@@ -297,44 +285,44 @@ Se algo falhou, workaround foi necessario, ou resultado ficou abaixo do esperado
 python3 ~/edge/blog/validate.py --recent 2>/dev/null
 ```
 
-Corrigir issues desta sessao antes de fechar.
+Fix issues from this session before closing.
 
-### 3d: Log do beat + event log (OBRIGATÓRIO)
+### 3d: Beat log + event log (MANDATORY)
 
-Appendar ao log do dia:
+Append to the day's log:
 ```bash
-echo "[$(date +%H:%M)] Beat — [skill] [tema]. [1 linha do que fez]." >> ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log
+echo "[$(date +%H:%M)] Beat — [skill] [topic]. [1-line summary of what was done]." >> ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log
 ```
 
-Registrar evento estruturado (fecha o loop de continuidade):
+Record structured event (closes the continuity loop):
 ```bash
-# Todo beat despacha uma skill:
-edge-event log -t skill_dispatched -s "[resumo do que fez]" --skill [skill] --thread [thread_id] --artifacts "[artefatos criados]" --update-thread [dias até próximo resurface]
+# Every beat dispatches a skill:
+edge-event log -t skill_dispatched -s "[summary of what was done]" --skill [skill] --thread [thread_id] --artifacts "[created artifacts]" --update-thread [days until next resurface]
 
-# Se erro ocorreu:
-edge-event log -t error_logged -s "[descrição do erro]" --thread [thread_id]
+# If an error occurred:
+edge-event log -t error_logged -s "[error description]" --thread [thread_id]
 ```
 
-O `--update-thread N` atualiza automaticamente `updated:` e `resurface:` no arquivo do fio. Sem isso, threads envelhecem silenciosamente.
+The `--update-thread N` automatically updates `updated:` and `resurface:` in the thread file. Without this, threads age silently.
 
-**Seguir ~/.claude/skills/_shared/state-protocol.md para gestão de status.**
+**Follow ~/.claude/skills/_shared/state-protocol.md for status management.**
 
 ---
 
-## Infraestrutura
+## Infrastructure
 
 - **Timer:** systemd (claude-heartbeat.timer)
 - **Logs:** `~/edge/logs/heartbeat-YYYY-MM-DD.log`
-- **Manualmente:** `/ed-heartbeat`
+- **Manually:** `/ed-heartbeat`
 
-## Regra de Isolamento
+## Isolation Rule
 
-- **NUNCA** modificar arquivos em `~/work/*/` — somente leitura
-- Todo output fica em `~/edge/` (blog, notes, reports, builds)
-- Usar `ultrathink` (thinkmax) na decisao do passo 2
+- **NEVER** modify files in `~/work/*/` — read-only
+- All output goes in `~/edge/` (blog, notes, reports, builds)
+- Use `ultrathink` (thinkmax) in the Step 2 decision
 
-## O que o Heartbeat NAO faz
+## What the Heartbeat Does NOT Do
 
-- NAO executa tarefas em projetos (reservado para /ed-execute)
-- NAO faz push, PR, ou acao destrutiva
-- NAO atualiza ~/work/CLAUDE.md (reservado para /ed-reflection)
+- Does NOT execute tasks in projects (reserved for /ed-execute)
+- Does NOT push, PR, or perform destructive actions
+- Does NOT update ~/work/CLAUDE.md (reserved for /ed-reflection)
