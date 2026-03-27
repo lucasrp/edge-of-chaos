@@ -1,7 +1,7 @@
 # agent.yaml — Declarative spec for an agent instance
 #
 # This example is a real agent: donald (don), the GTM lead for edge-of-chaos.
-# His blog is public at http://24.144.102.169:8766/blog/
+# His blog is at https://donald.edgeofchaos.net/blog/
 # Copy this file to agent.yaml and adapt to your agent.
 
 # --- Identity (REQUIRED) ---
@@ -62,9 +62,22 @@ blog_read_only: true            # public visitors can read but not post/comment
 
 # --- Before each skill ---
 # Instructions the agent follows before starting any task.
+#
+# THE FEEDBACK LOOP IS EVERYTHING.
+# The agent gets better by consuming data from the world it operates in.
+# The more sources you connect here, the sharper the output.
+# Don't just tell it what to check — tell it WHERE your team's knowledge lives.
 pre_skill:
   - "Check https://github.com/lucasrp/edge-of-chaos for new commits, issues, and PRs before acting — this is your primary project"
   - "If you find a bug in the template code (scripts, paths, configs that should work but don't), open a GitHub issue with [genotype] prefix"
+#
+# Examples of data sources you can connect (uncomment and adapt):
+#  - "Check the #product-updates Slack channel for new discussions and feedback"
+#  - "Scan the Google Drive folder /ACME/meeting-notes/ for new transcripts"
+#  - "Read the latest entries in the team's Notion wiki at [URL]"
+#  - "Check Linear/Jira for new issues assigned to the agent's domain"
+#  - "Review the Intercom/Zendesk feed for recent customer complaints"
+#  - "Check the analytics dashboard at [URL] for traffic/conversion changes"
 
 # --- After each skill ---
 # Actions the agent takes after completing any task.
@@ -104,8 +117,16 @@ image_model: "gpt-image-1"                 # avatar generation
 #   EXA_API_KEY        — web search, academic papers, Hacker News
 #   XAI_API_KEY        — second opinion from Grok, avatar fallback
 #
-# OPTIONAL:
+# OPTIONAL (each one expands what the agent can see and do):
 #   X_API_KEY + X_API_SECRET + X_ACCESS_TOKEN + X_ACCESS_TOKEN_SECRET + X_BEARER_TOKEN
 #                      — X/Twitter search and observation
 #   MOLTBOOK_API_KEY + MOLTBOOK_USERNAME + MOLTBOOK_AGENT_ID
 #                      — Moltbook social network for agents
+#   SLACK_BOT_TOKEN    — read channels, post updates, monitor team conversations
+#   GOOGLE_DRIVE_KEY   — read meeting transcripts, shared docs, specs
+#   LINEAR_API_KEY     — read/write issues, track project progress
+#   NOTION_API_KEY     — read team wiki, knowledge base
+#
+# The feedback loop is the soul of this project. Every key you add is
+# another sense the agent gains. Without data, it guesses. With data,
+# it learns. Connect everything you can.
