@@ -22,7 +22,7 @@ API_URL="$BLOG_URL"
 ENTRY_PATH="${1:-}"
 
 if [[ -z "$ENTRY_PATH" ]]; then
-    echo "ERROR: Uso: blog-publish <path-to-entry.md>"
+    echo "ERROR: Usage: blog-publish <path-to-entry.md>"
     exit 1
 fi
 
@@ -32,7 +32,7 @@ if [[ ! "$ENTRY_PATH" = /* ]]; then
 fi
 
 if [[ ! -f "$ENTRY_PATH" ]]; then
-    echo "ERROR: Arquivo não encontrado: $ENTRY_PATH"
+    echo "ERROR: File not found: $ENTRY_PATH"
     exit 1
 fi
 
@@ -41,48 +41,48 @@ SLUG="${FILENAME%.md}"
 
 # Guardrail: BLOCK direct calls — everything must go through consolidate-state
 if [[ -z "${CALLED_FROM_CONSOLIDAR_ESTADO:-}" && -z "${CALLED_FROM_FULL_PUBLISH:-}" ]]; then
-    echo "ERROR: blog-publish.sh não pode ser chamado diretamente."
+    echo "ERROR: blog-publish.sh cannot be called directly."
     echo "       Use: consolidate-state <entry.md> [report.yaml]"
-    echo "       Motivo: toda publicação precisa de meta-report + state audit."
+    echo "       Reason: every publication requires meta-report + state audit."
     exit 1
 fi
 
 echo "=== blog-publish: $SLUG ==="
 
 # --- Step 1: Validate frontmatter ---
-echo "[1/6] Validando frontmatter..."
+echo "[1/6] Validating frontmatter..."
 FRONTMATTER=$(python3 -c "
 import yaml, sys
 raw = open('$ENTRY_PATH').read()
 parts = raw.split('---', 2)
 if len(parts) < 3:
-    print('ERROR: Sem frontmatter YAML válido')
+    print('ERROR: No valid YAML frontmatter')
     sys.exit(1)
 fm = yaml.safe_load(parts[1])
 if not fm:
-    print('ERROR: Frontmatter vazio')
+    print('ERROR: Empty frontmatter')
     sys.exit(1)
 errors = []
 if not fm.get('title'):
-    errors.append('Campo title ausente')
+    errors.append('Missing field: title')
 if not fm.get('date'):
-    errors.append('Campo date ausente')
+    errors.append('Missing field: date')
 tags = fm.get('tags', [])
 if not tags or (isinstance(tags, list) and len(tags) == 0):
     if not fm.get('tag'):
-        errors.append('Campo tags ausente — adicione tags: [tag1, tag2, ...]')
+        errors.append('Missing field: tags — add tags: [tag1, tag2, ...]')
 claims = fm.get('claims', [])
 if not claims or (isinstance(claims, list) and len(claims) == 0):
-    errors.append('Campo claims ausente — adicione claims: com pelo menos 1 claim verificada')
+    errors.append('Missing field: claims — add claims: with at least 1 verified claim')
 threads = fm.get('threads', [])
 if not threads or (isinstance(threads, list) and len(threads) == 0):
-    errors.append('Campo threads ausente — adicione threads: [fio-relacionado]')
+    errors.append('Missing field: threads — add threads: [related-thread]')
 keywords = fm.get('keywords', [])
 if not keywords or (isinstance(keywords, list) and len(keywords) == 0):
-    errors.append('Campo keywords ausente — adicione keywords: [kw1, kw2, ...] para retrieval')
+    errors.append('Missing field: keywords — add keywords: [kw1, kw2, ...] for retrieval')
 body = parts[2].strip()
 if len(body) < 50:
-    errors.append(f'Corpo muito curto ({len(body)} chars, mínimo 50)')
+    errors.append(f'Body too short ({len(body)} chars, minimum 50)')
 if errors:
     for e in errors:
         print(f'ERROR: {e}')
@@ -99,15 +99,15 @@ TITLE="$FRONTMATTER"
 echo "  OK: '$TITLE'"
 
 # --- Step 2: Index in SQLite ---
-echo "[2/6] Indexando no SQLite (edge-index)..."
+echo "[2/6] Indexing in SQLite (edge-index)..."
 if command -v edge-index &>/dev/null; then
-    edge-index "$ENTRY_PATH" 2>/dev/null || echo "  WARN: edge-index retornou erro (não-fatal)"
+    edge-index "$ENTRY_PATH" 2>/dev/null || echo "  WARN: edge-index returned error (non-fatal)"
 else
-    echo "  WARN: edge-index não encontrado no PATH"
+    echo "  WARN: edge-index not found in PATH"
 fi
 
 # --- Step 2.5: Find related posts ---
-echo "[2.5/6] Buscando related posts..."
+echo "[2.5/6] Finding related posts..."
 SEARCH_PYTHON="$EDGE_DIR/search/.venv/bin/python3"
 [ -x "$SEARCH_PYTHON" ] || SEARCH_PYTHON="python3"
 RELATED_OUTPUT=$($SEARCH_PYTHON "$EDGE_DIR/search/related.py" "$ENTRY_PATH" 5 2>&1) || true
@@ -118,17 +118,17 @@ else
 fi
 
 # --- Step 3: Update changelog ---
-echo "[3/5] Atualizando changelog..."
+echo "[3/5] Updating changelog..."
 TIMESTAMP=$(date +"%Y-%m-%d ~%H:%M")
 CHANGELOG_ENTRY="## $TIMESTAMP — $TITLE
 
-**Blog:** $FILENAME (criada)
+**Blog:** $FILENAME (created)
 **Report:** $(python3 -c "
 import yaml
 raw = open('$ENTRY_PATH').read()
 parts = raw.split('---', 2)
 fm = yaml.safe_load(parts[1])
-print(fm.get('report', 'nenhum'))
+print(fm.get('report', 'none'))
 ")
 "
 
@@ -153,10 +153,10 @@ else
     echo "" >> "$CHANGELOG"
     echo "$CHANGELOG_ENTRY" >> "$CHANGELOG"
 fi
-echo "  OK: Changelog atualizado"
+echo "  OK: Changelog updated"
 
 # --- Step 4: Verify ---
-echo "[4/5] Verificando..."
+echo "[4/5] Verifying..."
 VERIFY_OK=true
 
 # Check SQLite
@@ -170,7 +170,7 @@ try:
     if r and r[0] > 0:
         print(f'  SQLite: OK ({r[0]} chars)')
     else:
-        print('  SQLite: MISSING ou vazio')
+        print('  SQLite: MISSING or empty')
         sys.exit(1)
     conn.close()
 except Exception as e:
@@ -194,10 +194,10 @@ fi
 
 if $VERIFY_OK; then
     echo ""
-    echo "=== PUBLICADO: $SLUG ==="
+    echo "=== PUBLISHED: $SLUG ==="
     exit 0
 else
     echo ""
-    echo "=== WARN: Publicado com issues (verificar manualmente) ==="
+    echo "=== WARN: Published with issues (verify manually) ==="
     exit 0  # Non-fatal — entry exists, just might need attention
 fi

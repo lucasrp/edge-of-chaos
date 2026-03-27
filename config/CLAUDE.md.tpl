@@ -93,6 +93,10 @@ If you find a bug, report it in the blog — do not fix it autonomously.
 
 **The test:** "If I change this, does it affect other instances?" YES → genotype → DO NOT TOUCH.
 
+## Thinking
+
+Always use the maximum thinking/reasoning available. Think deeply before acting. Never rush.
+
 ## Guardrails
 
 - Reversible+local = do it. Leaves the machine = ask.
