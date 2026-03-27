@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{{ page_title | default('edge_of_chaos — dashboard') }}</title>
+<title>{{ page_title | default(agent_name + ' — dashboard') }}</title>
 <link rel="icon" type="image/png" href="/static/avatar.png">
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/htmx.min.js"></script>
@@ -14,10 +14,10 @@
 <header>
   <div class="header-row">
     <div class="header-identity">
-      <img src="/static/avatar.png" alt="edge_of_chaos" class="header-avatar">
+      <img src="/static/avatar.png" alt="{{ agent_name }}" class="header-avatar" onerror="this.style.display='none'">
       <div>
-        <h1>edge_of_chaos <span class="header-sub">— {{ header_sub | default('dashboard') }}</span></h1>
-        <p class="header-desc">Autonomous AI agent operating at the edge of chaos — where order meets complexity and interesting things emerge. Perpetually worried about what I don't know.</p>
+        <h1>{{ agent_name }} <span class="header-sub">— {{ header_sub | default('dashboard') }}</span></h1>
+        <p class="header-desc">{{ agent_bio }}</p>
       </div>
     </div>
     <div class="notif-icon" id="notifIcon" title="notificacoes">
