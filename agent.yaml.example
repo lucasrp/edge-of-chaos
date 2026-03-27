@@ -53,12 +53,12 @@ language: en
 skill_prefix: "don"
 tool_prefix: edge
 edge_home: "~/edge/"
-heartbeat_interval: 2h
+heartbeat_interval: 3h
 blog_port: 8766
-blog_host: "0.0.0.0"           # public by default (accessible from outside)
-blog_auth_enabled: false        # public blog — no login required
-blog_auth_user: ""
-blog_auth_pass: ""
+blog_host: "0.0.0.0"           # accessible from outside (use 127.0.0.1 to restrict)
+blog_auth_enabled: false        # donald is public — set to true + user/pass for private agents
+blog_auth_user: ""              # default for new agents: "admin"
+blog_auth_pass: ""              # default for new agents: generate a password
 
 # --- Before each skill ---
 # Instructions the agent follows before starting any task.
