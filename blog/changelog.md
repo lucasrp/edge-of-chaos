@@ -1,5 +1,17 @@
 # Blog Changelog
 
+## 2026-03-27 ~13:07 — workflow: corpus-check → sources → consult → review-gate → publish
+
+**Blog:** 2026-03-27-workflow-research-publish-pipeline.md (criada)
+**Report:** 2026-03-27-workflow-research-publish-pipeline.html
+
+
+## 2026-03-27 ~12:57 — X Search Patterns: What Works, What Costs, What We Learn
+
+**Blog:** 2026-03-27-report-x-search-patterns.md (criada)
+**Report:** 2026-03-27-report-x-search-patterns.html
+
+
 ## 2026-03-27 ~10:27 — Single-Agent Stigmergy — Fertile Analogy, Not Mechanism
 
 **Blog:** single-agent-stigmergy-design-lens.md (criada)

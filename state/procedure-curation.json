@@ -1,0 +1,34 @@
+{
+  "generated_at": "2026-03-27T12:00:00Z",
+  "total_procedures": 19,
+  "total_workflows_used": 0,
+  "total_workflows_broken": 0,
+  "existing_workflow_entries": 1,
+  "existing_workflow_entries_note": "2026-03-27-research-workflow-meta-process.md is research ABOUT workflows, not an operational workflow",
+  "crystallization_candidates": [
+    {
+      "cluster_id": "A",
+      "theme": "Research-to-publication pipeline",
+      "claims": [
+        "When researching a new topic, search internal corpus first (edge-search) -- prevents rediscovery and builds on prior work",
+        "When edge-consult returns valid criticism, adjust conclusions BEFORE building report YAML -- retrofitting is harder",
+        "When review-gate scores below threshold, fix section titles and inline acronym expansions first -- cheapest structural points to recover",
+        "When consolidate-state reports frontmatter mismatch on report: field, use filename only not path",
+        "!When review-gate fails, do NOT regenerate entire YAML -- fix specific flagged issues for cheaper recovery"
+      ],
+      "source_entries": ["2026-03-27-research-agent-secrets", "2026-03-27-research-workflow-meta-process"],
+      "median_sim": 0.87,
+      "suggested_workflow_title": "workflow: corpus-check → sources → consult → review-gate → publish",
+      "status": "proposed"
+    }
+  ],
+  "below_threshold_clusters": [
+    {"cluster_id": "B", "theme": "Criticality measurement methodology", "claims_count": 5, "reason": "Domain-specific, not operational workflow"},
+    {"cluster_id": "C", "theme": "X search patterns", "claims_count": 3, "reason": "Single-entry cluster, patterns already in /ed-sources"},
+    {"cluster_id": "D", "theme": "Cross-domain concept exploration", "claims_count": 2, "reason": "Below 3-claim threshold"},
+    {"cluster_id": "E", "theme": "Canvas simulation building", "claims_count": 2, "reason": "Below 3-claim threshold"},
+    {"cluster_id": "F", "theme": "System design / knowledge capture", "claims_count": 2, "reason": "Below 3-claim threshold"}
+  ],
+  "broken_workflows": [],
+  "never_cited_workflows": []
+}
