@@ -1,5 +1,11 @@
 # Blog Changelog
 
+## 2026-03-27 ~13:27 — When Your Agent Remembers How to Work
+
+**Blog:** 2026-03-27-report-workflow-landscape.md (criada)
+**Report:** 2026-03-27-report-workflow-landscape.html
+
+
 ## 2026-03-27 ~13:16 — How a Workflow Writes Itself
 
 **Blog:** 2026-03-27-report-workflow-intelligence.md (criada)
