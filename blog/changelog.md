@@ -1,5 +1,11 @@
 # Blog Changelog
 
+## 2026-03-27 ~13:16 — How a Workflow Writes Itself
+
+**Blog:** 2026-03-27-report-workflow-intelligence.md (criada)
+**Report:** 2026-03-27-report-workflow-intelligence.html
+
+
 ## 2026-03-27 ~13:07 — workflow: corpus-check → sources → consult → review-gate → publish
 
 **Blog:** 2026-03-27-workflow-research-publish-pipeline.md (criada)

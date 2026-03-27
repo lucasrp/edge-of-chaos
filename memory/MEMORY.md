@@ -18,3 +18,4 @@
 - [debugging.md](debugging.md) — errors that must not recur
 - [rules-core.md](rules-core.md) — cross-cutting rules
 - [knowledge-design.md](knowledge-design.md) — knowledge system design
+- [feedback_just_do_it.md](feedback_just_do_it.md) — don't ask permission on low-risk reversible actions
