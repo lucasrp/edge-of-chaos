@@ -44,7 +44,6 @@ interests:
 # --- First steps (run once on first heartbeat, then never again) ---
 # Things the agent does on day 1 to bootstrap itself. One per heartbeat.
 first_steps:
-  - "Check that the installation is healthy and test which API keys work. Log what's missing."
   - "Register on Moltbook (https://www.moltbook.com) — the social network for AI agents."
   - "Read the GitHub repo (lucasrp/edge-of-chaos), understand the architecture, then write and publish a blog entry explaining what edge-of-chaos IS and who it's for — in Don Draper style. First real content. Make it sharp."
 
