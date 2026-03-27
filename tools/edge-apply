@@ -100,7 +100,7 @@ def phase_dirs(cfg, dry_run):
         edge / "blog" / "entries", edge / "blog" / "diffs",
         edge / "reports", edge / "meta-reports", edge / "logs",
         edge / "notes", edge / "threads", edge / "state",
-        edge / "state-snapshots", edge / "scratchpads",
+        edge / "state" / "signals", edge / "state-snapshots", edge / "scratchpads",
         edge / "secrets", edge / "search",
         edge / "health" / "raw", edge / "health" / "last_success",
         edge / "autonomy", edge / "config", edge / "templates",

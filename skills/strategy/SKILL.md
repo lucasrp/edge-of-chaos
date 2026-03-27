@@ -30,6 +30,22 @@ Look at the big picture across all projects. Analyze where each one stands, what
 
 ## Protocol (follow in order)
 
+### Step 0: Read operational signals
+
+```bash
+# Primary signals
+cat ~/edge/state/signals/strategy.md 2>/dev/null || echo "(empty)"
+
+# Cross-cutting signals
+cat ~/edge/state/signals/friction.md 2>/dev/null     # where it hurts → what to deprioritize or fix
+cat ~/edge/state/signals/decision.md 2>/dev/null     # what was approved/rejected → constraints
+cat ~/edge/state/signals/serendipity.md 2>/dev/null  # what's working → where to double down
+cat ~/edge/state/signals/autonomy.md 2>/dev/null     # what's missing → factor into roadmap
+cat ~/edge/state/signals/reflection.md 2>/dev/null   # how work went + cost → efficiency signals
+```
+
+These signals are atoms accumulated across all skills. Use them to ground strategy in operational reality, not narrative.
+
 ### Step 1: Absorb project context
 
 Run `/ed-context` to obtain complete cross-project status (git, boards, issues, digests).
