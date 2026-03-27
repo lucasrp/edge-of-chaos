@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# edge-signal — Single writer for typed operational signals.
+#
+# Usage:
+#   edge-signal <type> "<message>"              # from CLI (runtime)
+#   edge-signal <type> "<message>" --source <slug>  # from consolidate-state
+#
+# Types: autonomy, strategy, reflection, friction, decision, serendipity
+#
+# Prefixes:
+#   (none) = verified/confirmed
+#   !      = open gap / unresolved
+#   ?      = speculative / hypothesis
+#
+# Examples:
+#   edge-signal friction "consolidate-state failed on Phase 4"
+#   edge-signal decision "Operator approved pip install" --source runtime
+#   edge-signal serendipity "Corpus search found a perfect 3-week-old note"
+#   edge-signal autonomy "?Slack MCP would enable direct notification" --source pace-layering
+
+set -uo pipefail
+
+VALID_TYPES="autonomy strategy reflection friction decision serendipity"
+SIGNALS_DIR="${EDGE_DIR:-$HOME/edge}/state/signals"
+
+# --- Args ---
+if [[ $# -lt 2 ]]; then
+    echo "Usage: edge-signal <type> \"<message>\" [--source <slug>]"
+    echo "Types: $VALID_TYPES"
+    exit 1
+fi
+
+TYPE="$1"
+MESSAGE="$2"
+SOURCE="runtime"
+shift 2
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --source) SOURCE="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+
+# --- Validate type ---
+if ! echo "$VALID_TYPES" | grep -qw "$TYPE"; then
+    echo "ERROR: Invalid type '$TYPE'. Valid: $VALID_TYPES"
+    exit 1
+fi
+
+# --- Write ---
+mkdir -p "$SIGNALS_DIR"
+FILE="$SIGNALS_DIR/${TYPE}.md"
+TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M")
+
+echo "- [${TIMESTAMP} | ${SOURCE}] ${MESSAGE}" >> "$FILE"
+
+# --- Compress check ---
+if [[ -f "$FILE" ]]; then
+    LINES=$(wc -l < "$FILE")
+    if [[ "$LINES" -gt 100 ]]; then
+        echo "WARN: $TYPE.md has $LINES lines (>100). Run /ed-reflection to compress."
+    fi
+fi

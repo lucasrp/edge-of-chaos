@@ -789,6 +789,27 @@ except Exception as e:
     log_failure("5", "procedure_workflow", e, traceback.format_exc())
     warn(f"Procedure/workflow processing falhou: {e}")
 
+# ── 2c. Typed signals (edge-signal) ──
+try:
+    signal_types = ["autonomy", "strategy", "reflection", "friction", "decision", "serendipity"]
+    signal_count = 0
+    for stype in signal_types:
+        items = fm.get(stype, [])
+        if not items:
+            continue
+        for item in items:
+            if isinstance(item, str) and item.strip():
+                subprocess.run(
+                    ["edge-signal", stype, item.strip(), "--source", slug],
+                    capture_output=True, timeout=5
+                )
+                signal_count += 1
+    if signal_count > 0:
+        ok(f"Signals: {signal_count} emitted to state/signals/")
+except Exception as e:
+    log_failure("5", "typed_signals", e, traceback.format_exc())
+    warn(f"Typed signals falhou: {e}")
+
 # ── 3. Event log (idempotent) ──
 try:
     events_file = Path.home() / "edge" / "logs" / "events.jsonl"
