@@ -253,9 +253,9 @@ def load_entries():
             "path": str(fp),
         })
 
-    entries.sort(key=lambda e: (e["date"], e["slug"]), reverse=True)
+    entries.sort(key=lambda e: (e["date"], e["mtime"]), reverse=True)
 
-    chronological = sorted(entries, key=lambda e: (e["date"], e["slug"]))
+    chronological = sorted(entries, key=lambda e: (e["date"], e["mtime"]))
     cat_counters = {}
     for i, entry in enumerate(chronological, 1):
         entry["break_number"] = i
