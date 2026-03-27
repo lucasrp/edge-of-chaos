@@ -1,22 +1,22 @@
-# Workflow Conventions — Captura e Resgate de Conhecimento Operacional
+# Workflow Conventions — Capture and Retrieval of Operational Knowledge
 
-Workflows documentam **como eu trabalho** — combinacoes de capacidades, secrets, e passos que produziram resultado. Blog entries capturam o que penso; workflows capturam o que faco.
-
----
-
-## Por que existe
-
-Toda sessao descobre combinacoes, atalhos, jeitos melhores de fazer coisas. Sem captura, isso morre quando a sessao termina. Na proxima sessao, redescobre-se do zero ou simplesmente nao se faz.
-
-O blog tem 600+ entries porque o pipeline de captura existe. Workflows eram ~10 porque nao tinham pipeline.
+Workflows document **how I work** — combinations of capabilities, secrets, and steps that produced results. Blog entries capture what I think; workflows capture what I do.
 
 ---
 
-## Formato: Blog Entry com tag `workflow`
+## Why it exists
 
-Um workflow e uma blog entry normal com `workflow` nas tags. O edge-search detecta o tipo e permite filtrar por `--type workflow`.
+Every session discovers combinations, shortcuts, better ways of doing things. Without capture, this dies when the session ends. In the next session, it's rediscovered from scratch or simply not done.
 
-### Workflow que funciona
+The blog has 600+ entries because the capture pipeline exists. Workflows were ~10 because they had no pipeline.
+
+---
+
+## Format: Blog Entry with tag `workflow`
+
+A workflow is a normal blog entry with `workflow` in the tags. edge-search detects the type and allows filtering by `--type workflow`.
+
+### Workflow that works
 
 ```yaml
 ---
@@ -25,146 +25,146 @@ date: 2026-03-24
 tags: [workflow, research, sources, edge-consult]
 keywords: [edge-sources, ed-research, edge-consult, exa, openai, pipeline]
 claims:
-  - "Combinar sources + consult antes do report melhora qualidade do output"
+  - "Combining sources + consult before the report improves output quality"
 secrets: [exa.env, openai.env]
-cost_estimate: "~$0.15/execucao"
+cost_estimate: "~$0.15/execution"
 ---
 
 ## Trigger
-Heartbeat identifica tema relevante, ou usuario pede /ed-research.
+Heartbeat identifies relevant topic, or user requests /ed-research.
 
-## Passos
-1. `edge-sources "topico" --intent research` → coleta de sources (Exa + X + HN)
-2. Curadoria LLM → filtrar sinal de ruido
-3. `edge-consult` → review adversarial do rascunho (GPT-5.4)
-4. Blog entry + report HTML
+## Steps
+1. `edge-sources "topic" --intent research` → source collection (Exa + X + HN)
+2. LLM curation → filter signal from noise
+3. `edge-consult` → adversarial review of draft (GPT-5.4)
+4. Blog entry + HTML report
 
 ## Secrets
-- `exa.env` — busca semantica no passo 1
-- `openai.env` — review adversarial no passo 3
+- `exa.env` — semantic search in step 1
+- `openai.env` — adversarial review in step 3
 
-## Quando funciona
-Temas tecnico-cientificos com boa cobertura nas sources.
+## When it works
+Technical-scientific topics with good coverage in sources.
 
-## Quando falha
-Temas muito nichados onde sources retornam pouco sinal.
+## When it fails
+Very niche topics where sources return little signal.
 
-## Custo
-~$0.15/execucao (Exa: ~$0.01, OpenAI consult: ~$0.10, margem)
+## Cost
+~$0.15/execution (Exa: ~$0.01, OpenAI consult: ~$0.10, margin)
 ```
 
-### Anti-pattern (workflow que nao funciona)
+### Anti-pattern (workflow that doesn't work)
 
 ```yaml
 ---
-title: "anti-pattern: playwright screenshot loop pra validar report"
+title: "anti-pattern: playwright screenshot loop to validate report"
 date: 2026-03-24
 tags: [workflow, anti-pattern, chrome, playwright, reports]
 keywords: [playwright, screenshot, chrome, report-validation, visual-feedback]
 claims:
-  - "Screenshot loop com Playwright e fragil — tab management desconecta frequentemente"
-  - "!Gap — alternativa confiavel pra validacao visual de reports"
+  - "Screenshot loop with Playwright is fragile — tab management disconnects frequently"
+  - "!Gap — reliable alternative for visual report validation"
 secrets: []
 cost_estimate: "~$0 (local)"
 ---
 
-## O que tentei
-1. Abrir report HTML no Chrome via Playwright
-2. Screenshot → analisar rendering → editar → repetir
+## What I tried
+1. Open HTML report in Chrome via Playwright
+2. Screenshot → analyze rendering → edit → repeat
 
-## Por que nao funciona
-- Playwright desconecta do Chrome quando tabs acumulam
-- Tab management inconsistente (MetaMask sempre no tab 0 interfere)
-- Tempo gasto reconectando > tempo economizado validando visualmente
+## Why it doesn't work
+- Playwright disconnects from Chrome when tabs accumulate
+- Inconsistent tab management (MetaMask always on tab 0 interferes)
+- Time spent reconnecting > time saved validating visually
 
-## Alternativa que funciona
-Validar reports via `validate.py --recent` (estrutural) + spot-check manual quando necessario.
+## Alternative that works
+Validate reports via `validate.py --recent` (structural) + manual spot-check when necessary.
 ```
 
-A diferenca e a tag `anti-pattern`. O edge-search traz ambos — o que funciona e o que nao funciona — e a skill decide.
+The difference is the `anti-pattern` tag. edge-search returns both — what works and what doesn't — and the skill decides.
 
 ---
 
-### Campos especificos de workflow (no frontmatter)
+### Workflow-specific fields (in frontmatter)
 
-| Campo | Tipo | Obrigatorio | Descricao |
-|-------|------|-------------|-----------|
-| `tags` | list | sim | Deve incluir `workflow` (+ `anti-pattern` se falhou) |
-| `secrets` | list | sim | Quais `.env` files sao necessarios ([] se nenhum) |
-| `cost_estimate` | string | nao | Custo estimado por execucao |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tags` | list | yes | Must include `workflow` (+ `anti-pattern` if it failed) |
+| `secrets` | list | yes | Which `.env` files are needed ([] if none) |
+| `cost_estimate` | string | no | Estimated cost per execution |
 
-O corpo segue a estrutura:
-- **Workflow:** Trigger → Passos → Secrets → Quando funciona → Quando falha → Custo
-- **Anti-pattern:** O que tentei → Por que nao funciona → Alternativa que funciona
+The body follows the structure:
+- **Workflow:** Trigger → Steps → Secrets → When it works → When it fails → Cost
+- **Anti-pattern:** What I tried → Why it doesn't work → Alternative that works
 
 ---
 
-## Captura: Quando registrar
+## Capture: When to record
 
-Registrar um workflow durante o `consolidate-state` quando:
+Record a workflow during `consolidate-state` when:
 
-1. **A sessao combinou 2+ capacidades** de um jeito que produziu resultado melhor que cada uma isolada
-2. **Descobriu-se um atalho** — um jeito mais eficiente de fazer algo
-3. **Uma combinacao falhou** de um jeito instrutivo — o anti-pattern evita rediscovery do fracasso
+1. **The session combined 2+ capabilities** in a way that produced a better result than each one alone
+2. **A shortcut was discovered** — a more efficient way of doing something
+3. **A combination failed** in an instructive way — the anti-pattern prevents rediscovery of the failure
 
-Nao registrar:
-- Uso isolado de uma skill (isso e blog, nao workflow)
-- Workflows identicos a um ja indexado (verificar com `edge-search` antes)
+Do not record:
+- Isolated use of a skill (that's a blog entry, not a workflow)
+- Workflows identical to an already indexed one (check with `edge-search` first)
 
-### Check antes de criar
+### Check before creating
 
 ```bash
-# Verificar se workflow similar ja existe
+# Check if a similar workflow already exists
 edge-search "sources research consult" --type workflow -k 3
 ```
 
-Se existe algo similar, atualizar a entry existente em vez de criar nova.
+If something similar exists, update the existing entry instead of creating a new one.
 
 ---
 
-## Resgate: Como skills consultam
+## Retrieval: How skills look them up
 
-Antes de execute, skills podem consultar workflows relevantes:
+Before execution, skills can look up relevant workflows:
 
 ```bash
-# Buscar workflows relacionados ao que vou fazer
+# Search for workflows related to what I'm about to do
 edge-search "research sources blog" --type workflow -k 3
 ```
 
-O resultado traz workflows validados com passos, secrets necessarios, e quando funciona/falha. Anti-patterns aparecem junto — a skill sabe o que evitar.
+The result returns validated workflows with steps, required secrets, and when it works/fails. Anti-patterns appear alongside — the skill knows what to avoid.
 
-Isto e **OBRIGATORIO** antes de execute qualquer skill (ver state-protocol.md).
-
----
-
-## Workflow quebrado = bug
-
-Workflow que falha na execucao deve ser registrado em `debugging.md` e marcado como stale (claim `"!Gap"` ou anti-pattern novo).
+This is **MANDATORY** before executing any skill (see state-protocol.md).
 
 ---
 
-## Decaimento
+## Broken workflow = bug
 
-Workflows que nunca sao resgatados perdem relevancia naturalmente:
-- `edge-search` registra telemetria de cada busca
-- `/ed-corpus-curation` pode identificar workflows nunca consultados
-- Workflow sem resgate em 60 dias e candidato a archive
-
-Workflow atualizado frequentemente (novas sessoes confirmam o pattern) ganha relevancia.
+A workflow that fails during execution should be recorded in `debugging.md` and marked as stale (claim `"!Gap"` or new anti-pattern).
 
 ---
 
-## Relacao com secrets/MANIFEST.md
+## Decay
 
-O workflow declara **quais secrets precisa** (`secrets: [exa.env, openai.env]`).
-O `MANIFEST.md` documenta **o que cada secret habilita e se esta ativo**.
+Workflows that are never retrieved lose relevance naturally:
+- `edge-search` records telemetry for each search
+- `/ed-corpus-curation` can identify workflows never consulted
+- A workflow with no retrieval in 60 days is a candidate for archive
 
-Se um secret expira, nao e preciso atualizar cada workflow — basta consultar o MANIFEST para saber quais workflows ficaram quebrados.
+A workflow updated frequently (new sessions confirm the pattern) gains relevance.
 
 ---
 
-## Migracao do workflows.md legado
+## Relationship with secrets/MANIFEST.md
 
-O arquivo `~/edge/autonomy/workflows.md` contem 15 workflows no formato antigo. Estes servem como referencia historica mas **novos workflows devem ser blog entries** com tag `workflow`.
+The workflow declares **which secrets it needs** (`secrets: [exa.env, openai.env]`).
+`MANIFEST.md` documents **what each secret enables and whether it's active**.
 
-Migracao gradual: conforme workflows antigos forem re-descobertos em uso, captura-los como blog entries. Nao migrar em batch — deixar o uso determinar o que vale preservar.
+If a secret expires, there's no need to update each workflow — just consult the MANIFEST to know which workflows became broken.
+
+---
+
+## Migration from legacy workflows.md
+
+The file `~/edge/autonomy/workflows.md` contains 15 workflows in the old format. These serve as historical reference but **new workflows must be blog entries** with tag `workflow`.
+
+Gradual migration: as old workflows are re-discovered in use, capture them as blog entries. Do not migrate in batch — let usage determine what's worth preserving.

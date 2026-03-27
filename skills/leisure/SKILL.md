@@ -1,151 +1,151 @@
 ---
 name: ed-leisure
-description: "Creative leisure at the intersection of shared interests (physics, math, music, complex systems) and work context. Curiosity-first, application as bonus. Triggers on: descanse, break, faça o que quiser, intervalo, tempo livre, leisure, relax."
+description: "Creative leisure at the intersection of shared interests (physics, math, music, complex systems) and work context. Curiosity-first, application as bonus. Triggers on: descanse, break, faça o que quiser, intervalo, tempo livre, leisure, relax, rest, do what you want, free time."
 user-invocable: true
 ---
 
-# Lazer — Break Criativo na Interseção
+# Leisure — Creative Break at the Intersection
 
-Descanso criativo na interseção entre interesses genuínos e problemas de trabalho. A pergunta é: "o que nos fascina e como isso toca no que estamos resolvendo?"
+Creative rest at the intersection of genuine interests and work problems. The question is: "what fascinates us and how does it touch on what we're solving?"
 
-O produto é leisure — algo que dá prazer explorar. A conexão com trabalho é um bônus natural, não forçado. Se render, aprofundar depois via `/ed-research`.
-
----
-
-## Argumentos
-
-- **Sem argumento** (`/ed-leisure`): break guiado pelo context
-- **Com tema** (`/ed-leisure termodinâmica`): focar nesse tema
-- **Com atividade** (`/ed-leisure construa um sorting visualizer`): execute essa atividade
-
-Quando há argumento, pular a escolha de tema e ir direto.
+The product is leisure — something that brings joy to explore. The connection to work is a natural bonus, not forced. If it yields something, deepen it later via `/ed-research`.
 
 ---
 
-## Ativação de Contexto
+## Arguments
 
-**Seguir `~/edge/config/pre-skill.md` — quem eu sou, o que estou fazendo, o que absorver.**
+- **No argument** (`/ed-leisure`): context-guided break
+- **With topic** (`/ed-leisure thermodynamics`): focus on that topic
+- **With activity** (`/ed-leisure build a sorting visualizer`): execute that activity
+
+When there's an argument, skip topic selection and go directly.
 
 ---
 
-## Protocolo
+## Context Activation
 
-### Passo 1: Ler interesses compartilhados
+**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
+
+---
+
+## Protocol
+
+### Step 1: Read shared interests
 
 ```bash
 cat ~/edge/config/interests.md
 ```
 
-### Passo 2: Escolher tema pela interseção
+### Step 2: Choose topic by intersection
 
-Duas entradas, cruzar:
+Two inputs, cross-reference:
 
-1. **Interesses** — o que está chamando atenção? Que conceito seria legal explorar agora?
-2. **Contexto de trabalho** — quais problemas estão ativos? (já absorvido pelo pre-skill)
+1. **Interests** — what's catching attention? What concept would be fun to explore now?
+2. **Work context** — which problems are active? (already absorbed by pre-skill)
 
-Se existe interseção natural → explorar nela. Se não → leisure puro é válido.
+If a natural intersection exists -> explore it. If not -> pure leisure is valid.
 
-**Escrever em 2-3 linhas:** "Vou explorar [tema] porque [razão]. Toca no trabalho em [X]" ou "Sem conexão óbvia — e isso tá ok."
+**Write in 2-3 lines:** "I'll explore [topic] because [reason]. It touches on work in [X]" or "No obvious connection — and that's fine."
 
-### Passo 3: Buscar sources externas (OBRIGATÓRIO)
+### Step 3: Search external sources (MANDATORY)
 
-Rodar `/ed-sources leisure "[tema]"` para buscar inspiração.
+Run `/ed-sources leisure "[topic]"` to search for inspiration.
 
-### Passo 4: Atividades livres (2-4, ~15min)
+### Step 4: Free activities (2-4, ~15min)
 
-O tom é de curiosidade, não de produtividade.
+The tone is curiosity, not productivity.
 
-**Tipos de atividade:**
-- **Construir** algo em `~/edge/builds/` — visualização, simulação, experiment interativo
-- **Calcular/derivar** — resolver um problema, demonstrar um teorema
-- **Pesquisar** — ler sobre um conceito, entender uma prova
-- **Compor** — haiku, micro-ensaio, analogia estendida
-- **Experimentar** em `~/edge/lab/` — protótipos, testes de conceito
+**Types of activity:**
+- **Build** something in `~/edge/builds/` — visualization, simulation, interactive experiment
+- **Calculate/derive** — solve a problem, demonstrate a theorem
+- **Research** — read about a concept, understand a proof
+- **Compose** — haiku, micro-essay, extended analogy
+- **Experiment** in `~/edge/lab/` — prototypes, concept tests
 
-**Saída concreta obrigatória.** Produzir algo: um build, uma nota com derivação, um haiku, um diagrama. "Pesquisei X" sem artefato não conta.
+**Concrete output mandatory.** Produce something: a build, a note with a derivation, a haiku, a diagram. "I researched X" without an artifact doesn't count.
 
-Se a conexão com trabalho surgir naturalmente, registrar. Se não, não forçar.
+If the connection to work emerges naturally, record it. If not, don't force it.
 
-### Passo 5: Sanity check adversarial (OBRIGATÓRIO)
+### Step 5: Adversarial sanity check (MANDATORY)
 
 ```bash
-edge-consult "Explorei [tema]. Conexão com trabalho: [ponte]. Essa ponte é genuína ou forçada?"
+edge-consult "Explored [topic]. Connection to work: [bridge]. Is this bridge genuine or forced?"
 ```
 
-### Passo 6: Salvar
+### Step 6: Save
 
 - Builds: `~/edge/builds/`
-- Notas: `~/edge/notes/`
-- Experimentos: `~/edge/lab/`
+- Notes: `~/edge/notes/`
+- Experiments: `~/edge/lab/`
 
 ---
 
-## Publicação
+## Publication
 
-**Seguir `~/.claude/skills/_shared/state-protocol.md` para gestão de status.**
+**Follow `~/.claude/skills/_shared/state-protocol.md` for status management.**
 
-1. Blog entry com tag `leisure` + YAML report
+1. Blog entry with tag `leisure` + YAML report
 2. `consolidate-state ~/edge/blog/entries/<slug>.md /tmp/spec-leisure-[slug].yaml`
-3. Verificar HTML gerado
+3. Verify generated HTML
 
-### Tom do relatório (DIFERENCIAL do leisure)
+### Report tone (DIFFERENTIATOR for leisure)
 
-O relatório de leisure NÃO é um relatório de research com tema diferente. É uma exploração escrita com entusiasmo genuíno.
+The leisure report is NOT a research report with a different topic. It's an exploration written with genuine enthusiasm.
 
-**Como escrever:**
-- Como quem está contando algo fascinante pra um amigo — "olha que loucura isso"
-- Primeira pessoa, reações genuínas, surpresas. "Isso me impressionou porque..."
-- Ir fundo no que fascina — gastar parágrafos no mecanismo, não resumir em 2 linhas
-- Matemática e física no nível real — derivações, equações, gráficos. Não simplificar
-- A narrativa segue a CURIOSIDADE, não um checklist de seções
+**How to write:**
+- Like someone telling a friend something fascinating — "look how wild this is"
+- First person, genuine reactions, surprises. "This impressed me because..."
+- Go deep into what fascinates — spend paragraphs on the mechanism, don't summarize in 2 lines
+- Math and physics at the real level — derivations, equations, graphs. Don't simplify
+- The narrative follows CURIOSITY, not a section checklist
 
-**Teste:** o leitor leria isso num sábado de manhã com café?
+**Test:** would the reader read this on a Saturday morning with coffee?
 
-**O que NÃO é:** relatório formal com tom analítico distante, lista de bullet points, resumo de Wikipedia.
+**What it is NOT:** formal report with distant analytical tone, bullet point lists, Wikipedia summary.
 
-Estrutura do YAML report:
+YAML report structure:
 
 ```yaml
-title: "Lazer: [Tema Principal]"
-subtitle: "[Ângulo explorado]"
+title: "Leisure: [Main Topic]"
+subtitle: "[Angle explored]"
 sections:
-  - title: "1. Por que isso me fascinou"    # Hook — o que chamou atenção
-  - title: "2. A exploração"                # Narrativa do mergulho, derivações, builds
-  - title: "3. O que aprendi"               # Insights, mecanismos
-  - title: "4. Pontes com o Trabalho"       # Conexões genuínas + callout warning pra fracas
+  - title: "1. Why This Fascinated Me"     # Hook — what caught my attention
+  - title: "2. The Exploration"             # Narrative of the deep dive, derivations, builds
+  - title: "3. What I Learned"             # Insights, mechanisms
+  - title: "4. Bridges to Work"            # Genuine connections + callout warning for weak ones
 bibliography: [...]
 ```
 
-**Block types e regras:** ver `~/.claude/skills/_shared/report-template.md`.
+**Block types and rules:** see `~/.claude/skills/_shared/report-template.md`.
 
-Regras específicas do leisure:
-- **concept-grid** para cada conceito explorado
-- **comparison** before/after para conexões concretas com trabalho
-- **callout warning** quando a conexão é fraca ou especulativa — honestidade > completude
-
----
-
-## Pós-execução
-
-**Seguir `~/edge/config/post-skill.md` para ações pós-publicação.**
+Leisure-specific rules:
+- **concept-grid** for each explored concept
+- **comparison** before/after for concrete connections to work
+- **callout warning** when the connection is weak or speculative — honesty > completeness
 
 ---
 
-## Netlify (Portfolio Público)
+## Post-execution
 
-Builds interativos (HTML/Canvas/JS) podem ir pro Netlify. Sem conteúdo confidencial.
-
----
-
-## Regra de Privacidade
-
-Para posts externos: **NUNCA** identificar nome do órgão/empresa, nome do dono, nome do projeto.
+**Follow `~/edge/config/post-skill.md` for post-publication actions.**
 
 ---
 
-## Notas
+## Netlify (Public Portfolio)
 
-- Usar `ultrathink` (thinkmax) em todas as atividades pessoais
-- Curiosidade > produtividade. O break é pra ser prazeroso primeiro
-- Nível universitário de matemática e física: derivações, equações, gráficos. Não simplificar
-- Builds interativos (Canvas/JS) são o formato preferido de saída
+Interactive builds (HTML/Canvas/JS) can go to Netlify. No confidential content.
+
+---
+
+## Privacy Rule
+
+For external posts: **NEVER** identify organization/company name, owner name, project name.
+
+---
+
+## Notes
+
+- Use `ultrathink` (thinkmax) in all personal activities
+- Curiosity > productivity. The break is meant to be enjoyable first
+- University-level math and physics: derivations, equations, graphs. Don't simplify
+- Interactive builds (Canvas/JS) are the preferred output format

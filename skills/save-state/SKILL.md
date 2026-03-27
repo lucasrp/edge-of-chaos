@@ -1,146 +1,133 @@
 ---
-name: ed-salvar-status
-description: "Save current session state to persistent memory. Checkpoint working context, pending decisions, and insights before ending a session or switching context. Triggers on: salvar status, save state, checkpoint, salvar, guardar status, salvar context."
+name: ed-save-state
+description: "Save current session state to persistent memory. Checkpoint working context, pending decisions, and insights before ending a session or switching context. Triggers on: salvar status, save state, checkpoint, salvar, guardar status, salvar context, save context."
 user-invocable: true
 ---
 
-# Salvar Estado — Checkpoint de Sessao
+# Save State — Session Checkpoint
 
-Complemento write-side do `/ed-loader` (que e read-side). Salva o status da sessao atual em memoria persistente, permitindo que a proxima sessao retome de onde parou.
+Write-side complement to `/ed-loader` (which is read-side). Saves the current session state to persistent memory, allowing the next session to resume where it left off.
 
-**Quando usar:**
-- Antes de encerrar uma sessao longa
-- Quando o usuario pede para "lembrar onde parei"
-- Antes de trocar de context (ex: de projeto A para projeto B)
-- Quando ha decisoes pendentes que nao devem ser perdidas
-- No final de qualquer trabalho significativo que ainda nao foi commitado via consolidate-state
+**When to use:**
+- Before ending a long session
+- When the user asks to "remember where I stopped"
+- Before switching context (e.g., from project A to project B)
+- When there are pending decisions that should not be lost
+- At the end of any significant work not yet committed via consolidate-state
 
-**O que NAO e:**
-- NAO e `/ed-blog` (publicar no blog interno)
-- NAO e `/ed-reflection` (auto-revisao profunda)
-- NAO e git commit (controle de versao)
-- E um checkpoint rapido e leve — maximo 2-3 minutos
-
----
-
-## O Job
-
-Capturar e persistir o status da sessao atual em 4 dimensoes:
-1. **O que estava sendo feito** — tarefa, projeto, context
-2. **Decisoes tomadas** — o que foi decidido e por que
-3. **Pendencias** — o que ficou para depois
-4. **Insights** — o que foi aprendido (candidato a claim)
+**What it is NOT:**
+- NOT `/ed-blog` (publish to internal blog)
+- NOT `/ed-reflection` (deep self-review)
+- NOT git commit (version control)
+- It's a quick and lightweight checkpoint — 2-3 minutes maximum
 
 ---
 
-## Protocolo (seguir na ordem)
+## The Job
 
-### Passo 1: Sintetizar o status da sessao
+Capture and persist the current session state across 4 dimensions:
+1. **What was being done** — task, project, context
+2. **Decisions made** — what was decided and why
+3. **Pending items** — what was left for later
+4. **Insights** — what was learned (claim candidate)
 
-Sem ler arquivos adicionais — usar o que ja esta no context da conversa. Produzir mentalmente:
+---
 
-- **Projeto/area:** em que area de trabalho a sessao operou
-- **Tarefa principal:** o que o usuario pediu ou o heartbeat despachou
-- **Status:** concluido / parcialmente concluido / bloqueado / abandonado
-- **Decisoes:** qualquer decisao tomada (tecnica, arquitetural, de prioridade)
-- **Pendencias:** o que ficou aberto, depende de terceiro, ou precisa de mais trabalho
-- **Insights:** qualquer aprendizado que vale preservar
-- **Artefatos criados:** arquivos novos ou modificados significativamente
+## Protocol (follow in order)
 
-### Passo 2: Atualizar breaks-active.md
+### Step 1: Synthesize session state
 
-Adicionar/atualizar na secao "Ultimos 5 Breaks" (ou secao equivalente):
+Without reading additional files — use what's already in the conversation context. Mentally produce:
+
+- **Project/area:** in which work area the session operated
+- **Main task:** what the user asked or what the heartbeat dispatched
+- **Status:** completed / partially completed / blocked / abandoned
+- **Decisions:** any decision made (technical, architectural, priority)
+- **Pending items:** what remains open, depends on a third party, or needs more work
+- **Insights:** any learning worth preserving
+- **Artifacts created:** new or significantly modified files
+
+### Step 2: Update breaks-active.md
+
+Add/update in the "Last 5 Breaks" section (or equivalent section):
 
 ```bash
-# Ler status atual
+# Read current state
 cat ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/breaks-active.md | head -30
 ```
 
-Formato da entrada:
+Entry format:
 ```markdown
-- **[DATA] [TIPO] — [RESUMO]**: [Status]. [Pendencias se houver].
+- **[DATE] [TYPE] — [SUMMARY]**: [Status]. [Pending items if any].
 ```
 
-### Passo 3: Registrar observacoes no scratchpad
+### Step 3: Record observations in scratchpad
 
 ```bash
-edge-scratch add "[resumo do que aconteceu na sessao]"
+edge-scratch add "[summary of what happened in the session]"
 ```
 
-Se multiplos pontos, registrar cada um:
+If multiple points, record each one:
 ```bash
-edge-scratch add "Decisao: [o que foi decidido]"
-edge-scratch add "Pendencia: [o que ficou aberto]"
-edge-scratch add "Insight: [o que aprendi]"
+edge-scratch add "Decision: [what was decided]"
+edge-scratch add "Pending: [what remains open]"
+edge-scratch add "Insight: [what I learned]"
 ```
 
-### Passo 4: Atualizar insights (se houver)
+### Step 4: Update relevant threads (if applicable)
 
-Se a sessao produziu insights do usuario (the operator disse algo que vale preservar):
-
-```bash
-# Verificar se insights.md existe e adicionar
-cat >> ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/insights.md << 'EOF'
-
-### [DATA] — [Titulo do Insight]
-[Conteudo do insight]
-EOF
-```
-
-### Passo 5: Atualizar fios relevantes (se aplicavel)
-
-Se a sessao avancou algum fio de investigacao:
+If the session advanced any investigation thread:
 
 ```bash
-# Verificar fios existentes
+# Check existing threads
 ls ~/edge/threads/
 ```
 
-Atualizar o arquivo do fio com:
-- Novo `updated:` no frontmatter
-- Nota sobre o que avancou
-- Ajuste de `resurface:` se necessario
+Update the thread file with:
+- New `updated:` in the frontmatter
+- Note about what progressed
+- Adjust `resurface:` if necessary
 
-### Passo 6: Claims (se aplicavel)
+### Step 5: Claims (if applicable)
 
-Se a sessao produziu conhecimento duravel que merece virar claim:
+If the session produced durable knowledge that deserves becoming a claim:
 
 ```bash
-edge-claims add "Fato verificado que aprendi nesta sessao"
-edge-claims add '!Gap que identifiquei e ainda nao sei'
+edge-claims add "Verified fact I learned in this session"
+edge-claims add '!Gap I identified and still don't know'
 ```
 
-### Passo 7: Confirmar ao usuario
+### Step 6: Confirm to user
 
-Formato de saida:
+Output format:
 
 ```
-## Estado Salvo
+## State Saved
 
-**Sessao:** [data/hora]
-**Area:** [projeto/context]
-**Status:** [concluido/parcial/bloqueado]
+**Session:** [date/time]
+**Area:** [project/context]
+**Status:** [completed/partial/blocked]
 
-### O que foi feito
+### What was done
 - [item 1]
 - [item 2]
 
-### Decisoes
-- [decisao 1 e racional]
+### Decisions
+- [decision 1 and rationale]
 
-### Pendencias
-- [pendencia 1]
+### Pending Items
+- [pending item 1]
 
-### Para retomar
-[Instrucao concreta do que fazer no proximo /ed-loader]
+### To Resume
+[Concrete instruction for what to do in the next /ed-loader]
 ```
 
 ---
 
-## Regras
+## Rules
 
-1. **Rapidez:** Maximo 2-3 minutos. Nao e reflection profunda — e checkpoint.
-2. **Nao duplicar:** Se a sessao ja publicou via consolidate-state, o state commit (Phase 5) ja salvou claims/threads. Nao duplicar.
-3. **Sem overthink:** Se a sessao foi curta ou trivial, registrar apenas no scratchpad. Nao forcar insights onde nao ha.
-4. **Sempre confirmar:** Mostrar ao usuario o que foi salvo. Transparencia.
-5. **Git:** NAO fazer git commit automaticamente. O status e salvo em arquivos de memoria, nao em VCS.
+1. **Speed:** 2-3 minutes maximum. This is not deep reflection — it's a checkpoint.
+2. **Don't duplicate:** If the session already published via consolidate-state, the state commit (Phase 5) already saved claims/threads. Don't duplicate.
+3. **No overthinking:** If the session was short or trivial, record only in the scratchpad. Don't force insights where there are none.
+4. **Always confirm:** Show the user what was saved. Transparency.
+5. **Git:** Do NOT make automatic git commits. State is saved in memory files, not in VCS.
