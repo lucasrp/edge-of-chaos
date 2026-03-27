@@ -65,6 +65,22 @@ app.register_blueprint(setup_bp)
 
 PAGE_SIZE = 20
 
+# ─── Read-only mode ───
+# When enabled, all POST/PUT/DELETE requests return 403.
+# GET/HEAD/OPTIONS pass through. For public-facing blogs.
+_read_only_env = os.environ.get("BLOG_READ_ONLY", "").lower()
+_read_only_branding = str(BRANDING.get("blog", {}).get("read_only", False)).lower()
+BLOG_READ_ONLY = (_read_only_env or _read_only_branding) in ("true", "1", "yes")
+
+@app.before_request
+def enforce_read_only():
+    if BLOG_READ_ONLY and request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        return jsonify({"error": "read-only mode"}), 403
+
+@app.context_processor
+def inject_read_only():
+    return {"read_only": BLOG_READ_ONLY}
+
 # ─── Tag normalization ───
 TAG_MAP = {
     "leisure": "lazer", "reflection": "reflexao", "research": "pesquisa",
