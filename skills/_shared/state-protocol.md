@@ -149,7 +149,10 @@ keywords: [kw1, kw2]
 
 Claims are durable knowledge. What survives without rereading the full text.
 
-### Step 6: Publish via consolidate-state
+### Step 6: Publish via consolidate-state (MANDATORY)
+
+**NEVER publish entries or reports manually.** Always use consolidate-state.
+Without it: no meta-report, no state commit, no adversarial review, no git audit trail.
 
 ```bash
 # With content report
