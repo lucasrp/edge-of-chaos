@@ -330,28 +330,29 @@ def phase_tools_venv(cfg, dry_run, skip_venv=False):
         warn("tools/requirements.txt not found — skipping tools venv")
         return True
 
-    if venv_dir.exists() and (venv_dir / "bin" / "python3").exists():
-        ok("tools venv already exists")
-        return True
+    venv_existed = venv_dir.exists() and (venv_dir / "bin" / "python3").exists()
 
-    if dry_run:
-        print(f"  [DRY] python3 -m venv {venv_dir}")
-        print(f"  [DRY] pip install -r {reqs}")
-        return True
+    if not venv_existed:
+        if dry_run:
+            print(f"  [DRY] python3 -m venv {venv_dir}")
+            print(f"  [DRY] pip install -r {reqs}")
+            return True
 
-    result = run(f"python3 -m venv {venv_dir}")
-    if result.returncode != 0:
-        fail(f"python3 -m venv failed: {result.stderr.strip()}")
-        warn("Try: sudo apt install python3-venv")
-        return False
+        result = run(f"python3 -m venv {venv_dir}")
+        if result.returncode != 0:
+            fail(f"python3 -m venv failed: {result.stderr.strip()}")
+            warn("Try: sudo apt install python3-venv")
+            return False
 
-    pip = venv_dir / "bin" / "pip"
-    result = run(f"{pip} install -q -r {reqs}")
-    if result.returncode != 0:
-        fail(f"pip install failed: {result.stderr.strip()}")
-        return False
+        pip = venv_dir / "bin" / "pip"
+        result = run(f"{pip} install -q -r {reqs}")
+        if result.returncode != 0:
+            fail(f"pip install failed: {result.stderr.strip()}")
+            return False
 
-    # Update shebangs in ALL Python tools to use venv (not just *.py)
+    # Update shebangs in ALL Python tools to use venv (ALWAYS — not just on first create)
+    shebang_target = f"#!{venv_dir}/bin/python3"
+    updated = 0
     for tool in tools_dir.iterdir():
         if not tool.is_file() or tool.name.startswith("."):
             continue
@@ -360,14 +361,14 @@ def phase_tools_venv(cfg, dry_run, skip_venv=False):
         except (UnicodeDecodeError, PermissionError):
             continue
         if content.startswith("#!/usr/bin/env python3"):
-            content = content.replace(
-                "#!/usr/bin/env python3",
-                f"#!{venv_dir}/bin/python3",
-                1
-            )
+            content = content.replace("#!/usr/bin/env python3", shebang_target, 1)
             tool.write_text(content)
+            updated += 1
 
-    ok("tools venv created + deps installed + shebangs updated")
+    if venv_existed:
+        ok(f"tools venv already exists + {updated} shebangs updated")
+    else:
+        ok(f"tools venv created + deps installed + {updated} shebangs updated")
     return True
 
 
