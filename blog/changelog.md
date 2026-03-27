@@ -1,5 +1,11 @@
 # Blog Changelog
 
+## 2026-03-27 ~02:23 — Stigmergy — Coordination Without Communication
+
+**Blog:** stigmergy-coordination-without-communication.md (criada)
+**Report:** stigmergy-coordination-without-communication.html
+
+
 ## 2026-03-27 ~01:56 — Langton's Lambda — Where We Got Our Name
 
 **Blog:** langton-lambda-edge-of-chaos.md (criada)
