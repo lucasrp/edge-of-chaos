@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Langton's Lambda — The Edge of Chaos</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0f;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  h1 {
+    font-size: 1.6em;
+    font-weight: 300;
+    margin-bottom: 4px;
+    color: #a0b0d0;
+    letter-spacing: 2px;
+  }
+  .subtitle {
+    font-size: 0.85em;
+    color: #607090;
+    margin-bottom: 20px;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 16px;
+    background: rgba(255,255,255,0.04);
+    padding: 12px 24px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .lambda-display {
+    font-size: 2.2em;
+    font-weight: 200;
+    color: #70a0e0;
+    font-variant-numeric: tabular-nums;
+    min-width: 120px;
+    text-align: center;
+  }
+  .lambda-label {
+    font-size: 0.7em;
+    color: #506080;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  input[type="range"] {
+    width: 400px;
+    height: 6px;
+    -webkit-appearance: none;
+    background: linear-gradient(to right, #1a3060, #38a169, #e53e3e);
+    border-radius: 3px;
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    background: #e0e0e0;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(100,150,255,0.4);
+  }
+  .phase-label {
+    font-size: 0.85em;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-weight: 500;
+    min-width: 80px;
+    text-align: center;
+  }
+  .phase-order { background: #1a3060; color: #70a0e0; }
+  .phase-edge { background: #1a4030; color: #70e0a0; }
+  .phase-chaos { background: #401a1a; color: #e07070; }
+  .canvases {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 12px;
+  }
+  canvas {
+    border-radius: 4px;
+    image-rendering: pixelated;
+  }
+  #mainCanvas {
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  #entropyCanvas {
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .stats {
+    display: flex;
+    gap: 30px;
+    font-size: 0.8em;
+    color: #607090;
+    margin-bottom: 16px;
+  }
+  .stat-value { color: #a0c0e0; font-weight: 500; }
+  .info {
+    max-width: 700px;
+    font-size: 0.82em;
+    line-height: 1.6;
+    color: #506070;
+    text-align: center;
+    margin-top: 12px;
+  }
+  .info strong { color: #70a0d0; }
+  .btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #a0b0c0;
+    padding: 6px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85em;
+  }
+  .btn:hover { background: rgba(255,255,255,0.1); }
+</style>
+</head>
+<body>
+
+<h1>LANGTON'S LAMBDA</h1>
+<p class="subtitle">The phase transition between order and chaos in cellular automata</p>
+
+<div class="controls">
+  <div>
+    <div class="lambda-label">Lambda (λ)</div>
+    <div class="lambda-display" id="lambdaValue">0.50</div>
+  </div>
+  <input type="range" id="lambdaSlider" min="0" max="100" value="50" step="1">
+  <div class="phase-label phase-order" id="phaseLabel">EDGE</div>
+  <button class="btn" id="resetBtn">Reset</button>
+  <button class="btn" id="pauseBtn">Pause</button>
+</div>
+
+<canvas id="mainCanvas" width="700" height="400"></canvas>
+
+<div class="stats">
+  <span>Shannon Entropy: <span class="stat-value" id="entropyVal">—</span></span>
+  <span>Generation: <span class="stat-value" id="genVal">0</span></span>
+  <span>States: <span class="stat-value">5 colors</span></span>
+  <span>Rule table: <span class="stat-value">125 entries</span></span>
+</div>
+
+<canvas id="entropyCanvas" width="700" height="100"></canvas>
+
+<p class="info">
+  <strong>λ = 0:</strong> All rules map to quiescent state — frozen, no information.
+  <strong>λ ≈ 0.45:</strong> The edge of chaos — complex patterns, maximal computation.
+  <strong>λ = 1:</strong> No quiescent mappings — pure noise, no structure.
+  <br><br>
+  Drag the slider to see the phase transition. The entropy graph below tracks disorder in real-time.
+  <br>
+  Christopher Langton (1990) showed that cellular automata at this critical boundary
+  exhibit the richest dynamics — analogous to phase transitions in physics.
+</p>
+
+<script>
+const K = 5; // number of states
+const R = 1; // neighborhood radius
+const NEIGHBORHOOD = 2 * R + 1; // = 3
+const TABLE_SIZE = Math.pow(K, NEIGHBORHOOD); // 5^3 = 125
+
+const CELL_SIZE = 2;
+const WIDTH = 350; // cells
+const CANVAS_W = 700;
+const CANVAS_H = 400;
+const ROWS = CANVAS_H / CELL_SIZE; // 200 rows
+
+// Colors for 5 states — from dark to bright
+const COLORS = [
+  [10, 12, 20],     // 0: near-black (quiescent)
+  [30, 80, 160],    // 1: deep blue
+  [50, 180, 100],   // 2: green
+  [200, 140, 50],   // 3: amber
+  [220, 70, 80],    // 4: red
+];
+
+const mainCanvas = document.getElementById('mainCanvas');
+const mainCtx = mainCanvas.getContext('2d');
+const entropyCanvas = document.getElementById('entropyCanvas');
+const entropyCtx = entropyCanvas.getContext('2d');
+const lambdaSlider = document.getElementById('lambdaSlider');
+const lambdaDisplay = document.getElementById('lambdaValue');
+const phaseLabel = document.getElementById('phaseLabel');
+const entropyVal = document.getElementById('entropyVal');
+const genVal = document.getElementById('genVal');
+const resetBtn = document.getElementById('resetBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+
+let cells = new Uint8Array(WIDTH);
+let ruleTable = new Uint8Array(TABLE_SIZE);
+let generation = 0;
+let currentRow = 0;
+let paused = false;
+let entropyHistory = [];
+let imageData = mainCtx.createImageData(CANVAS_W, CANVAS_H);
+
+// Seed random number generator for reproducibility
+let seed = 42;
+function seededRandom() {
+  seed = (seed * 1664525 + 1013904223) & 0xFFFFFFFF;
+  return (seed >>> 0) / 0xFFFFFFFF;
+}
+
+function generateRule(lambda) {
+  // Lambda = fraction of non-quiescent entries
+  // Quiescent state = 0
+  seed = 42 + Math.round(lambda * 1000); // deterministic per lambda
+  for (let i = 0; i < TABLE_SIZE; i++) {
+    if (seededRandom() < lambda) {
+      // Non-quiescent: random state 1..K-1
+      ruleTable[i] = 1 + Math.floor(seededRandom() * (K - 1));
+    } else {
+      ruleTable[i] = 0; // quiescent
+    }
+  }
+}
+
+function initCells() {
+  // Random initial condition with all states
+  seed = 12345;
+  for (let i = 0; i < WIDTH; i++) {
+    cells[i] = Math.floor(seededRandom() * K);
+  }
+}
+
+function neighborhoodIndex(left, center, right) {
+  return left * K * K + center * K + right;
+}
+
+function step() {
+  const next = new Uint8Array(WIDTH);
+  for (let i = 0; i < WIDTH; i++) {
+    const left = cells[(i - 1 + WIDTH) % WIDTH];
+    const center = cells[i];
+    const right = cells[(i + 1) % WIDTH];
+    next[i] = ruleTable[neighborhoodIndex(left, center, right)];
+  }
+  cells = next;
+  generation++;
+}
+
+function shannonEntropy() {
+  const counts = new Float64Array(K);
+  for (let i = 0; i < WIDTH; i++) counts[cells[i]]++;
+  let H = 0;
+  for (let s = 0; s < K; s++) {
+    const p = counts[s] / WIDTH;
+    if (p > 0) H -= p * Math.log2(p);
+  }
+  return H;
+}
+
+function drawRow() {
+  const y = currentRow;
+  for (let x = 0; x < WIDTH; x++) {
+    const c = COLORS[cells[x]];
+    // Each cell is 2x2 pixels
+    for (let dy = 0; dy < CELL_SIZE; dy++) {
+      for (let dx = 0; dx < CELL_SIZE; dx++) {
+        const px = x * CELL_SIZE + dx;
+        const py = y * CELL_SIZE + dy;
+        const idx = (py * CANVAS_W + px) * 4;
+        imageData.data[idx] = c[0];
+        imageData.data[idx + 1] = c[1];
+        imageData.data[idx + 2] = c[2];
+        imageData.data[idx + 3] = 255;
+      }
+    }
+  }
+}
+
+function drawEntropy() {
+  entropyCtx.fillStyle = 'rgba(10, 10, 15, 1)';
+  entropyCtx.fillRect(0, 0, 700, 100);
+
+  const maxH = Math.log2(K); // max entropy for K states
+  const maxPoints = 350;
+
+  // Grid lines
+  entropyCtx.strokeStyle = 'rgba(255,255,255,0.05)';
+  entropyCtx.lineWidth = 1;
+  for (let h = 0; h <= maxH; h += 0.5) {
+    const y = 95 - (h / maxH) * 85;
+    entropyCtx.beginPath();
+    entropyCtx.moveTo(0, y);
+    entropyCtx.lineTo(700, y);
+    entropyCtx.stroke();
+  }
+
+  // Labels
+  entropyCtx.fillStyle = '#405060';
+  entropyCtx.font = '10px Segoe UI';
+  entropyCtx.fillText('H max = ' + maxH.toFixed(2), 5, 15);
+  entropyCtx.fillText('H = 0', 5, 93);
+  entropyCtx.fillText('Shannon Entropy over time', 560, 15);
+
+  if (entropyHistory.length < 2) return;
+
+  // Draw entropy line
+  entropyCtx.strokeStyle = '#70e0a0';
+  entropyCtx.lineWidth = 1.5;
+  entropyCtx.beginPath();
+
+  const start = Math.max(0, entropyHistory.length - maxPoints);
+  for (let i = start; i < entropyHistory.length; i++) {
+    const x = ((i - start) / maxPoints) * 700;
+    const y = 95 - (entropyHistory[i] / maxH) * 85;
+    if (i === start) entropyCtx.moveTo(x, y);
+    else entropyCtx.lineTo(x, y);
+  }
+  entropyCtx.stroke();
+
+  // Edge of chaos band
+  entropyCtx.fillStyle = 'rgba(56, 161, 105, 0.08)';
+  const edgeTop = 95 - (0.6 * maxH / maxH) * 85;
+  const edgeBot = 95 - (0.85 * maxH / maxH) * 85;
+  entropyCtx.fillRect(0, edgeBot, 700, edgeTop - edgeBot);
+}
+
+function updatePhaseLabel(lambda) {
+  if (lambda < 0.25) {
+    phaseLabel.textContent = 'ORDER';
+    phaseLabel.className = 'phase-label phase-order';
+  } else if (lambda < 0.60) {
+    phaseLabel.textContent = 'EDGE';
+    phaseLabel.className = 'phase-label phase-edge';
+  } else {
+    phaseLabel.textContent = 'CHAOS';
+    phaseLabel.className = 'phase-label phase-chaos';
+  }
+}
+
+function reset() {
+  const lambda = lambdaSlider.value / 100;
+  generateRule(lambda);
+  initCells();
+  generation = 0;
+  currentRow = 0;
+  entropyHistory = [];
+
+  // Clear canvas
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    imageData.data[i] = 10;
+    imageData.data[i + 1] = 12;
+    imageData.data[i + 2] = 20;
+    imageData.data[i + 3] = 255;
+  }
+  mainCtx.putImageData(imageData, 0, 0);
+
+  lambdaDisplay.textContent = lambda.toFixed(2);
+  updatePhaseLabel(lambda);
+}
+
+function tick() {
+  if (paused) return;
+
+  // Run multiple steps per frame for speed
+  const stepsPerFrame = 3;
+  for (let s = 0; s < stepsPerFrame; s++) {
+    drawRow();
+    step();
+    currentRow++;
+
+    const H = shannonEntropy();
+    entropyHistory.push(H);
+    entropyVal.textContent = H.toFixed(3);
+    genVal.textContent = generation;
+
+    if (currentRow >= ROWS) {
+      // Scroll: shift image up by stepsPerFrame rows
+      currentRow = ROWS - 1;
+      const shift = CELL_SIZE * stepsPerFrame;
+      const slice = imageData.data.slice(shift * CANVAS_W * 4);
+      imageData.data.set(slice);
+      // Clear bottom rows
+      const startIdx = (CANVAS_H - shift) * CANVAS_W * 4;
+      for (let i = startIdx; i < imageData.data.length; i += 4) {
+        imageData.data[i] = 10;
+        imageData.data[i + 1] = 12;
+        imageData.data[i + 2] = 20;
+        imageData.data[i + 3] = 255;
+      }
+      currentRow = ROWS - stepsPerFrame;
+    }
+  }
+
+  mainCtx.putImageData(imageData, 0, 0);
+  drawEntropy();
+}
+
+// Event listeners
+lambdaSlider.addEventListener('input', () => {
+  reset();
+});
+
+resetBtn.addEventListener('click', reset);
+
+pauseBtn.addEventListener('click', () => {
+  paused = !paused;
+  pauseBtn.textContent = paused ? 'Play' : 'Pause';
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.key === ' ') { paused = !paused; pauseBtn.textContent = paused ? 'Play' : 'Pause'; e.preventDefault(); }
+  if (e.key === 'r') reset();
+  if (e.key === 'ArrowLeft') { lambdaSlider.value = Math.max(0, +lambdaSlider.value - 2); reset(); }
+  if (e.key === 'ArrowRight') { lambdaSlider.value = Math.min(100, +lambdaSlider.value + 2); reset(); }
+});
+
+// Start
+reset();
+setInterval(tick, 50);
+</script>
+</body>
+</html>

@@ -1,5 +1,11 @@
 # Blog Changelog
 
+## 2026-03-27 ~01:56 — Langton's Lambda — Where We Got Our Name
+
+**Blog:** langton-lambda-edge-of-chaos.md (criada)
+**Report:** langton-lambda-edge-of-chaos.html
+
+
 ## 2026-03-27 ~01:39 — X Search Patterns: What Works, What Costs, What We Learn
 
 **Blog:** 2026-03-27-report-x-search-patterns.md (criada)
