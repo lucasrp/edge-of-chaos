@@ -530,7 +530,9 @@ print('OK' if r == '$REPORT_FILENAME' else f'MISMATCH: {r}')
         ok "Frontmatter report: $REPORT_FILENAME"
     else
         warn "Frontmatter report: $HAS_REPORT"
-        ALL_OK=false
+        # Auto-fix: update frontmatter report field to match actual generated filename
+        sed -i "s|^report: .*|report: $REPORT_FILENAME|" "$ENTRY_PATH"
+        ok "FIXED: report: $REPORT_FILENAME"
     fi
 fi
 
@@ -643,7 +645,7 @@ echo ""
 echo "── Phase 5: State Commit ──"
 REPORT_FOR_COMMIT="${REPORT_FILENAME:-}"
 python3 - "$ENTRY_PATH" "$SLUG" "$REPORT_FOR_COMMIT" <<'PYEOF'
-import sys, json, yaml, re, os, traceback
+import sys, json, yaml, re, os, traceback, subprocess
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import uuid
