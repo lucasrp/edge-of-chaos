@@ -96,6 +96,26 @@ The number `#N` is sequential — count existing `## [` + 1. Each step records i
 
 Quick cycle. No transcript reading, no blog, no curation. Only ready signals.
 
+### HN-0: Read operational signals
+
+```bash
+# Primary signals
+cat ~/edge/state/signals/reflection.md 2>/dev/null || echo "(empty)"
+
+# Cross-cutting signals (read ALL)
+cat ~/edge/state/signals/friction.md 2>/dev/null     # pain points → patterns to investigate
+cat ~/edge/state/signals/serendipity.md 2>/dev/null  # what's working → what NOT to change
+cat ~/edge/state/signals/cost.md 2>/dev/null         # spending patterns → efficiency analysis
+```
+
+Reflection absorbs cost analysis (no separate /ed-cost skill). When reporting, include a cost-benefit section based on cost + friction signals.
+
+**Compression duty:** If any signal file exceeds 100 lines, compress it:
+- Remove resolved items
+- Consolidate recurring patterns into single line
+- Remove items contradicted by newer decisions
+Keep files under 100 lines.
+
 ### HN-1: Read ops-hotspots.json
 
 ```bash

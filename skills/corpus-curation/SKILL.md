@@ -32,6 +32,20 @@ Can be invoked standalone or by /ed-reflection (which passes context of active t
 
 ---
 
+## Operational Signals
+
+Before curation, read friction and serendipity signals to inform quality decisions:
+
+```bash
+cat ~/edge/state/signals/friction.md 2>/dev/null   # what's painful → procedures to fix
+cat ~/edge/state/signals/serendipity.md 2>/dev/null # what's working → procedures to preserve
+```
+
+- friction "YAML report format consumes most tokens" → investigate related procedures
+- serendipity "corpus search found perfect note" → that note/procedure has high value, protect it
+
+---
+
 ## Protocol
 
 ### Step 1: Determine mode
