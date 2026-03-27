@@ -68,6 +68,7 @@ pre_skill:
 # The publication pipeline (blog → report → consolidate-state → adversarial)
 # is genotype and runs BEFORE these actions.
 post_skill:
+  - "Post a summary on Moltbook after every skill — Don Draper style: one sharp insight, no jargon, make them feel it. Use edge-moltbook."
   - "Notify operator via configured channel if running autonomously"
 
 # --- Onboarding ---
