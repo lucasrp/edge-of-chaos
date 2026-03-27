@@ -12,12 +12,14 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import platform
 import re
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -647,32 +649,31 @@ def phase_avatar(cfg, dry_run):
 
     generated = False
 
+    # Write prompt to temp file to avoid shell quoting issues
+    prompt_file = edge / ".avatar-prompt.txt"
+    prompt_file.write_text(prompt)
+
     if openai_key:
         try:
-            result = run(f'''python3 -c "
-import urllib.request, urllib.parse, json, base64, sys
-data = json.dumps({{
-    'model': 'gpt-image-1',
-    'prompt': {repr(prompt)},
-    'n': 1,
-    'size': '1024x1024',
-    'quality': 'low'
-}}).encode()
-req = urllib.request.Request('https://api.openai.com/v1/images/generations',
-    data=data,
-    headers={{'Authorization': 'Bearer {openai_key}', 'Content-Type': 'application/json'}})
+            script = f'''
+import urllib.request, json, base64, sys, pathlib
+prompt = pathlib.Path("{prompt_file}").read_text().strip()
+data = json.dumps({{"model": "gpt-image-1", "prompt": prompt, "n": 1, "size": "1024x1024", "quality": "low"}}).encode()
+req = urllib.request.Request("https://api.openai.com/v1/images/generations",
+    data=data, headers={{"Authorization": "Bearer {openai_key}", "Content-Type": "application/json"}})
 resp = urllib.request.urlopen(req, timeout=60)
 result = json.loads(resp.read())
-img_data = result['data'][0]
-if 'b64_json' in img_data:
-    img_bytes = base64.b64decode(img_data['b64_json'])
-elif 'url' in img_data:
-    img_bytes = urllib.request.urlopen(img_data['url'], timeout=30).read()
+img_data = result["data"][0]
+if "b64_json" in img_data:
+    img_bytes = base64.b64decode(img_data["b64_json"])
+elif "url" in img_data:
+    img_bytes = urllib.request.urlopen(img_data["url"], timeout=30).read()
 else:
-    sys.exit('No image data')
-open('{avatar_path}', 'wb').write(img_bytes)
-print('OK')
-"''')
+    sys.exit("No image data")
+pathlib.Path("{avatar_path}").write_bytes(img_bytes)
+print("OK")
+'''
+            result = run(f'python3 -c {repr(script)}')
             if result.returncode == 0 and avatar_path.exists():
                 ok(f"Avatar generated via OpenAI ({avatar_path.stat().st_size // 1024}K)")
                 generated = True
@@ -683,28 +684,25 @@ print('OK')
 
     if not generated and xai_key:
         try:
-            result = run(f'''python3 -c "
-import urllib.request, json, base64, sys
-data = json.dumps({{
-    'model': 'grok-2-image',
-    'prompt': {repr(prompt)},
-    'n': 1
-}}).encode()
-req = urllib.request.Request('https://api.x.ai/v1/images/generations',
-    data=data,
-    headers={{'Authorization': 'Bearer {xai_key}', 'Content-Type': 'application/json'}})
+            script = f'''
+import urllib.request, json, base64, sys, pathlib
+prompt = pathlib.Path("{prompt_file}").read_text().strip()
+data = json.dumps({{"model": "grok-2-image", "prompt": prompt, "n": 1}}).encode()
+req = urllib.request.Request("https://api.x.ai/v1/images/generations",
+    data=data, headers={{"Authorization": "Bearer {xai_key}", "Content-Type": "application/json"}})
 resp = urllib.request.urlopen(req, timeout=60)
 result = json.loads(resp.read())
-img_data = result['data'][0]
-if 'b64_json' in img_data:
-    img_bytes = base64.b64decode(img_data['b64_json'])
-elif 'url' in img_data:
-    img_bytes = urllib.request.urlopen(img_data['url'], timeout=30).read()
+img_data = result["data"][0]
+if "b64_json" in img_data:
+    img_bytes = base64.b64decode(img_data["b64_json"])
+elif "url" in img_data:
+    img_bytes = urllib.request.urlopen(img_data["url"], timeout=30).read()
 else:
-    sys.exit('No image data')
-open('{avatar_path}', 'wb').write(img_bytes)
-print('OK')
-"''')
+    sys.exit("No image data")
+pathlib.Path("{avatar_path}").write_bytes(img_bytes)
+print("OK")
+'''
+            result = run(f'python3 -c {repr(script)}')
             if result.returncode == 0 and avatar_path.exists():
                 ok(f"Avatar generated via xAI ({avatar_path.stat().st_size // 1024}K)")
                 generated = True
@@ -726,6 +724,7 @@ print('OK')
     if not generated:
         warn("No avatar generated (no API keys and DiceBear unavailable)")
 
+    prompt_file.unlink(missing_ok=True)
     return True
 
 
