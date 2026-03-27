@@ -1,5 +1,11 @@
 # Blog Changelog
 
+## 2026-03-27 ~10:27 — Single-Agent Stigmergy — Fertile Analogy, Not Mechanism
+
+**Blog:** single-agent-stigmergy-design-lens.md (criada)
+**Report:** single-agent-stigmergy-design-lens.html
+
+
 ## 2026-03-27 ~04:25 — Kuramoto Synchronization — When Chaos Finds Its Rhythm
 
 **Blog:** kuramoto-synchronization.md (criada)
