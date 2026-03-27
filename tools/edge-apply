@@ -729,6 +729,123 @@ print('OK')
     return True
 
 
+# ─── Phase 9: Seed content ───
+
+def phase_seed(cfg, dry_run):
+    header("9/10  Seed content")
+    edge = Path(cfg["edge_home_expanded"])
+    signals_dir = edge / "state" / "signals"
+    name = cfg.get("name", "agent")
+    mission = cfg.get("mission", "")
+    goal = cfg.get("short_term_goal", "")
+    interests = cfg.get("interests", [])
+    sketch = cfg.get("character_sketch", cfg.get("voice", ""))
+    today = datetime.now().strftime("%Y-%m-%d")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    if dry_run:
+        print(f"  [DRY] Would generate seed content for {name}")
+        return True
+
+    seeded = 0
+
+    # --- signals/strategy.md ---
+    sf = signals_dir / "strategy.md"
+    if not sf.exists() or sf.stat().st_size == 0:
+        lines = []
+        if goal:
+            lines.append(f"- [{now} | seed] Short-term goal: {goal}")
+        for i in interests:
+            area = i.get("area", "") if isinstance(i, dict) else str(i)
+            conn = i.get("connection", "") if isinstance(i, dict) else ""
+            if area:
+                lines.append(f"- [{now} | seed] Interest: {area}" + (f" — {conn}" if conn else ""))
+        if lines:
+            sf.write_text("\n".join(lines) + "\n")
+            seeded += 1
+
+    # --- signals/autonomy.md ---
+    af = signals_dir / "autonomy.md"
+    if not af.exists() or af.stat().st_size == 0:
+        lines = []
+        keys_env = edge / "secrets" / "keys.env"
+        if keys_env.exists():
+            content = keys_env.read_text()
+            if "OPENAI_API_KEY=" not in content or content.split("OPENAI_API_KEY=")[1].split("\n")[0].strip() == "":
+                lines.append(f"- [{now} | seed] !OPENAI_API_KEY missing — adversarial review, avatar, embeddings unavailable")
+            if "EXA_API_KEY=" not in content or content.split("EXA_API_KEY=")[1].split("\n")[0].strip() == "":
+                lines.append(f"- [{now} | seed] ?EXA_API_KEY missing — external source search limited")
+            if "XAI_API_KEY=" not in content:
+                lines.append(f"- [{now} | seed] ?XAI_API_KEY missing — no second adversarial opinion (Grok)")
+        else:
+            lines.append(f"- [{now} | seed] !No keys.env found — all external integrations unavailable")
+        if lines:
+            af.write_text("\n".join(lines) + "\n")
+            seeded += 1
+
+    # --- signals/serendipity.md ---
+    sf2 = signals_dir / "serendipity.md"
+    if not sf2.exists() or sf2.stat().st_size == 0:
+        sf2.write_text(f"- [{now} | seed] Fresh install — clean slate, all possibilities open\n")
+        seeded += 1
+
+    # --- signals/friction.md ---
+    ff = signals_dir / "friction.md"
+    if not ff.exists() or ff.stat().st_size == 0:
+        ff.write_text(f"- [{now} | seed] No friction observed yet — first heartbeat will surface real issues\n")
+        seeded += 1
+
+    # --- config/interests.md ---
+    interests_file = edge / "config" / "interests.md"
+    if interests and (not interests_file.exists() or "TBD" in interests_file.read_text()):
+        lines = [
+            "# Interests",
+            "",
+            f"> Seed interests for {name}. Updated by the agent as it learns.",
+            "",
+            "| Area | Connection |",
+            "|------|-----------|",
+        ]
+        for i in interests:
+            area = i.get("area", "") if isinstance(i, dict) else str(i)
+            conn = i.get("connection", "") if isinstance(i, dict) else ""
+            lines.append(f"| {area} | {conn} |")
+        lines.append("")
+        interests_file.write_text("\n".join(lines))
+        seeded += 1
+
+    # --- memory/reflection-log.md ---
+    rl = Path.home() / ".claude" / "projects"
+    # Find the memory dir
+    mem_dir = None
+    for d in rl.iterdir() if rl.exists() else []:
+        mem_candidate = d / "memory"
+        if mem_candidate.exists():
+            mem_dir = mem_candidate
+            break
+    if mem_dir is None:
+        mem_dir = edge / "memory"
+
+    ref_log = mem_dir / "reflection-log.md"
+    if not ref_log.exists() or ref_log.stat().st_size == 0:
+        ref_log.write_text("# Reflection — Execution Log\n\n---\n\n_Initialized on install. First reflection will populate this._\n")
+        seeded += 1
+
+    # --- discoverys.md ---
+    disc = edge / "discoverys.md" if (edge / "discoverys.md").exists() else edge / "memory" / "discoverys.md"
+    if not disc.exists() or disc.stat().st_size < 20:
+        disc = edge / "discoverys.md"
+        disc.write_text(f"# Discoveries — Registry\n\n---\n\n_No discoveries yet. First heartbeat will start exploring._\n")
+        seeded += 1
+
+    if seeded > 0:
+        ok(f"{seeded} seed files generated from agent.yaml")
+    else:
+        ok("Seed files already exist — skipping")
+
+    return True
+
+
 # ─── Main ───
 
 def main():
@@ -766,6 +883,7 @@ def main():
     results.append(("Systemd", phase_systemd(cfg, args.dry_run)))
     results.append(("Tools", phase_tools(cfg, args.dry_run)))
     results.append(("Avatar", phase_avatar(cfg, args.dry_run)))
+    results.append(("Seed", phase_seed(cfg, args.dry_run)))
 
     passed = sum(1 for _, r in results if r)
     failed = sum(1 for _, r in results if not r)

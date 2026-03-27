@@ -73,6 +73,8 @@ def load_agent_yaml(path: Path) -> dict:
     cfg.setdefault("character_sketch", cfg.get("voice", "Direct, technical."))
     cfg.setdefault("knowledge_base", "")
     cfg.setdefault("context_dir", "")
+    cfg.setdefault("short_term_goal", cfg["mission"])
+    cfg.setdefault("interests", [])
     cfg.setdefault("public_url", "")
     cfg.setdefault("repo_owner", "")
     cfg.setdefault("repo_name", cfg["name"])
@@ -174,10 +176,10 @@ def build_placeholder_map(cfg: dict) -> dict:
         "INTERSECTION_EXAMPLES": "- (TBD after domain reconnaissance)",
         "PHASE": "Onboarding" if cfg.get("onboarding_mode") else "Operational",
         "HORIZON": "2 weeks",
-        "FOCUS": cfg["mission"],
+        "FOCUS": cfg.get("short_term_goal", cfg["mission"]),
         "CONSTRAINTS": "(none defined)",
-        "PRIORITY_1": cfg["mission"],
-        "PRIORITY_2": "Understand the domain",
+        "PRIORITY_1": cfg.get("short_term_goal", cfg["mission"]),
+        "PRIORITY_2": cfg["mission"],
         "PRIORITY_3": "Deliver first quick win",
     }
 
