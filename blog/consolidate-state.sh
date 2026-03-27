@@ -693,6 +693,9 @@ except Exception as e:
 
 claims = fm.get("claims", [])
 threads = fm.get("threads", [])
+procedures = fm.get("procedure", [])
+workflows_used = fm.get("workflows_used", [])
+workflows_broken = fm.get("workflows_broken", [])
 title = fm.get("title", slug)
 today = datetime.now().strftime("%Y-%m-%d")
 
@@ -731,6 +734,61 @@ except Exception as e:
     log_failure("5", "thread_update", e, traceback.format_exc())
     warn(f"Thread update falhou: {e}")
 
+# ── 2b. Procedure & workflow signals ──
+try:
+    state_dir = Path.home() / "edge" / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    health_file = state_dir / "workflow-health.json"
+
+    # Load existing health data
+    health = {}
+    if health_file.exists():
+        try:
+            health = json.loads(health_file.read_text())
+        except Exception:
+            health = {}
+
+    citations = health.get("citations", {})
+    updated = False
+
+    # Process workflows_used (reinforcement)
+    for wslug in workflows_used:
+        if wslug not in citations:
+            citations[wslug] = {"used": 0, "broken": 0, "last_cited": ""}
+        citations[wslug]["used"] += 1
+        citations[wslug]["last_cited"] = today
+        updated = True
+
+    # Process workflows_broken (healing signal)
+    for wslug in workflows_broken:
+        if wslug not in citations:
+            citations[wslug] = {"used": 0, "broken": 0, "last_cited": ""}
+        citations[wslug]["broken"] += 1
+        citations[wslug]["last_cited"] = today
+        updated = True
+
+    if updated:
+        health["citations"] = citations
+        health["updated_at"] = datetime.now(timezone.utc).isoformat()
+        health_file.write_text(json.dumps(health, indent=2, ensure_ascii=False))
+
+    # Report
+    proc_anti = sum(1 for p in procedures if isinstance(p, str) and p.startswith("!"))
+    parts = []
+    if procedures:
+        parts.append(f"Procedures: {len(procedures)} ({proc_anti} anti-patterns)")
+    if workflows_used:
+        parts.append(f"Workflows used: {', '.join(workflows_used)}")
+    if workflows_broken:
+        parts.append(f"Workflows broken: {', '.join(workflows_broken)}")
+    if parts:
+        ok("; ".join(parts))
+    # No warning if empty — procedures are delta-only, not mandatory every time
+
+except Exception as e:
+    log_failure("5", "procedure_workflow", e, traceback.format_exc())
+    warn(f"Procedure/workflow processing falhou: {e}")
+
 # ── 3. Event log (idempotent) ──
 try:
     events_file = Path.home() / "edge" / "logs" / "events.jsonl"
@@ -766,6 +824,12 @@ try:
         if len(claims) > 0:
             event["claims_count"] = len(claims)
             event["open_claims"] = sum(1 for c in claims if _is_open(c))
+        if procedures:
+            event["procedures_count"] = len(procedures)
+        if workflows_used:
+            event["workflows_used"] = workflows_used
+        if workflows_broken:
+            event["workflows_broken"] = workflows_broken
 
         events_file.parent.mkdir(parents=True, exist_ok=True)
         with open(events_file, "a") as f:
@@ -1123,6 +1187,29 @@ if open_claims:
         lines.append(f"  - {_claim_text(c)}")
     lines.append("")
 
+procedures = fm.get("procedure", [])
+wf_used = fm.get("workflows_used", [])
+wf_broken = fm.get("workflows_broken", [])
+
+if procedures:
+    proc_new = [p for p in procedures if isinstance(p, str) and not p.startswith("!")]
+    proc_anti = [p for p in procedures if isinstance(p, str) and p.startswith("!")]
+    if proc_new:
+        lines.append(f"procedures ({len(proc_new)}):")
+        for p in proc_new:
+            lines.append(f"  - {p}")
+        lines.append("")
+    if proc_anti:
+        lines.append(f"anti-patterns ({len(proc_anti)}):")
+        for p in proc_anti:
+            lines.append(f"  - {p.lstrip('! ')}")
+        lines.append("")
+
+if wf_used:
+    lines.append(f"workflows-used: {', '.join(wf_used)}")
+if wf_broken:
+    lines.append(f"workflows-broken: {', '.join(wf_broken)}")
+
 if threads:
     lines.append(f"threads: {', '.join(threads)}")
 if tags:
@@ -1161,6 +1248,9 @@ meta = {
     "title": title,
     "claims": len(claims),
     "open": len(open_claims),
+    "procedures": len(procedures),
+    "workflows_used": wf_used,
+    "workflows_broken": wf_broken,
     "threads": threads,
     "tags": tags,
     "state": state_label,
