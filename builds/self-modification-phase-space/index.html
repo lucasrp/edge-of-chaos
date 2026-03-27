@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase Space of a Self-Modifying Agent</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --blue: #58a6ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px;
+  }
+  h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+  .subtitle {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 24px;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 24px;
+    max-width: 1200px;
+  }
+  .canvases {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  canvas {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 100%;
+  }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    height: fit-content;
+  }
+  .panel h2 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--blue);
+  }
+  .param-group {
+    margin-bottom: 16px;
+  }
+  .param-group h3 {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    letter-spacing: 0.05em;
+  }
+  .param {
+    margin-bottom: 10px;
+  }
+  .param label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    margin-bottom: 3px;
+  }
+  .param label span.val {
+    color: var(--blue);
+    font-weight: 600;
+  }
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--blue);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .regime-indicator {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 16px;
+    transition: all 0.3s;
+  }
+  .regime-convergent { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+  .regime-periodic { background: rgba(88,166,255,0.15); color: var(--blue); border: 1px solid rgba(88,166,255,0.3); }
+  .regime-chaotic { background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid rgba(248,81,73,0.3); }
+  .legend {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .btn {
+    background: var(--border);
+    color: var(--text);
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+    margin-right: 6px;
+    margin-bottom: 6px;
+  }
+  .btn:hover { background: var(--text-muted); color: var(--bg); }
+  .btn-active { background: var(--blue); color: var(--bg); }
+  .presets { margin-bottom: 16px; }
+  .eq {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    background: var(--bg);
+    padding: 8px 10px;
+    border-radius: 4px;
+    margin-bottom: 16px;
+    line-height: 1.5;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+
+<h1>Phase Space of a Self-Modifying Agent</h1>
+<p class="subtitle">Modified Lotka-Volterra dynamics: accumulated order vs exploratory novelty</p>
+
+<div class="layout">
+  <div class="canvases">
+    <canvas id="phase" width="700" height="500"></canvas>
+    <canvas id="time" width="700" height="200"></canvas>
+  </div>
+  <div class="panel">
+    <div class="regime-indicator" id="regime">Analyzing...</div>
+
+    <div class="eq">
+      dx/dt = a·x·(1 − x/K) − b·x·y + F<br>
+      dy/dt = −c·y + d·x·y − γ·y²
+    </div>
+
+    <div class="presets">
+      <h3 style="font-size:0.75rem;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;letter-spacing:0.05em;">Presets</h3>
+      <button class="btn" onclick="setPreset('healthy')">Healthy Rhythm</button>
+      <button class="btn" onclick="setPreset('rigid')">Over-Governed</button>
+      <button class="btn" onclick="setPreset('chaotic')">Runaway Drift</button>
+      <button class="btn" onclick="setPreset('edge')">Edge of Chaos</button>
+    </div>
+
+    <div class="param-group">
+      <h3>Agent Dynamics</h3>
+      <div class="param">
+        <label>Knowledge growth (a) <span class="val" id="v-a">0.8</span></label>
+        <input type="range" id="p-a" min="0.1" max="2.0" step="0.05" value="0.8">
+      </div>
+      <div class="param">
+        <label>Exploration impact (b) <span class="val" id="v-b">0.4</span></label>
+        <input type="range" id="p-b" min="0.05" max="1.5" step="0.05" value="0.4">
+      </div>
+      <div class="param">
+        <label>Exploration decay (c) <span class="val" id="v-c">0.3</span></label>
+        <input type="range" id="p-c" min="0.05" max="1.5" step="0.05" value="0.3">
+      </div>
+      <div class="param">
+        <label>Knowledge → exploration (d) <span class="val" id="v-d">0.2</span></label>
+        <input type="range" id="p-d" min="0.01" max="1.0" step="0.01" value="0.2">
+      </div>
+    </div>
+
+    <div class="param-group">
+      <h3>Governance</h3>
+      <div class="param">
+        <label>Carrying capacity (K) <span class="val" id="v-K">5.0</span></label>
+        <input type="range" id="p-K" min="1.0" max="15.0" step="0.5" value="5.0">
+      </div>
+      <div class="param">
+        <label>Anti-saturation (γ) <span class="val" id="v-g">0.1</span></label>
+        <input type="range" id="p-g" min="0.0" max="1.0" step="0.02" value="0.1">
+      </div>
+      <div class="param">
+        <label>Operator forcing (F) <span class="val" id="v-F">0.0</span></label>
+        <input type="range" id="p-F" min="-0.5" max="1.0" step="0.05" value="0.0">
+      </div>
+    </div>
+
+    <div class="param-group">
+      <h3>Simulation</h3>
+      <div class="param">
+        <label>Trail length <span class="val" id="v-trail">800</span></label>
+        <input type="range" id="p-trail" min="100" max="2000" step="50" value="800">
+      </div>
+      <button class="btn" onclick="resetSim()">Reset</button>
+      <button class="btn" id="btn-pause" onclick="togglePause()">Pause</button>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div> Trajectory (phase space)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div> Current position</div>
+      <div class="legend-item"><div class="legend-dot" style="background:rgba(63,185,80,0.5)"></div> Fixed point(s)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> x(t) — accumulated order</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--purple)"></div> y(t) — exploratory novelty</div>
+      <div style="margin-top:8px;">
+        <strong>x</strong> = accumulated knowledge, rules, patterns<br>
+        <strong>y</strong> = exploratory drive, novelty generation<br>
+        <strong>K</strong> = max knowledge capacity (bounded state)<br>
+        <strong>γ</strong> = anti-saturation damping<br>
+        <strong>F</strong> = operator intervention (strategy change)
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const phaseCanvas = document.getElementById('phase');
+const timeCanvas = document.getElementById('time');
+const phaseCtx = phaseCanvas.getContext('2d');
+const timeCtx = timeCanvas.getContext('2d');
+
+// State
+let params = { a: 0.8, b: 0.4, c: 0.3, d: 0.2, K: 5.0, g: 0.1, F: 0.0 };
+let x = 2.0, y = 1.0;
+let trail = [];
+let timeX = [], timeY = [];
+let maxTrail = 800;
+let paused = false;
+let t = 0;
+const dt = 0.02;
+const stepsPerFrame = 4;
+
+// Scaling
+const phaseW = 700, phaseH = 500;
+const timeW = 700, timeH = 200;
+let xRange = [0, 8], yRange = [0, 6];
+
+function scalePhase(px, py) {
+  return [
+    40 + (px - xRange[0]) / (xRange[1] - xRange[0]) * (phaseW - 60),
+    phaseH - 30 - (py - yRange[0]) / (yRange[1] - yRange[0]) * (phaseH - 50)
+  ];
+}
+
+function scaleTime(idx, val, maxVal) {
+  const pad = 40;
+  const w = timeW - pad - 10;
+  const h = timeH - 40;
+  return [
+    pad + (idx / maxTrail) * w,
+    timeH - 20 - (val / maxVal) * h
+  ];
+}
+
+// Dynamics (modified Lotka-Volterra)
+function dxdt(x, y) {
+  return params.a * x * (1 - x / params.K) - params.b * x * y + params.F;
+}
+function dydt(x, y) {
+  return -params.c * y + params.d * x * y - params.g * y * y;
+}
+
+// RK4 integrator
+function step() {
+  const k1x = dxdt(x, y);
+  const k1y = dydt(x, y);
+  const k2x = dxdt(x + 0.5 * dt * k1x, y + 0.5 * dt * k1y);
+  const k2y = dydt(x + 0.5 * dt * k1x, y + 0.5 * dt * k1y);
+  const k3x = dxdt(x + 0.5 * dt * k2x, y + 0.5 * dt * k2y);
+  const k3y = dydt(x + 0.5 * dt * k2x, y + 0.5 * dt * k2y);
+  const k4x = dxdt(x + dt * k3x, y + dt * k3y);
+  const k4y = dydt(x + dt * k3x, y + dt * k3y);
+
+  x += (dt / 6) * (k1x + 2*k2x + 2*k3x + k4x);
+  y += (dt / 6) * (k1y + 2*k2y + 2*k3y + k4y);
+
+  // Clamp to prevent divergence
+  x = Math.max(0.001, Math.min(x, 20));
+  y = Math.max(0.001, Math.min(y, 20));
+  t += dt;
+}
+
+// Fixed points
+function getFixedPoints() {
+  const fp = [];
+  // Trivial: (0, 0) — but with F > 0, not a fixed point
+  // Non-trivial: solve dx/dt = 0, dy/dt = 0
+  // From dy/dt = 0: y(-c + dx - gy) = 0 → y = 0 or y = (dx - c) / g
+  // If y = 0: dx/dt = ax(1-x/K) + F = 0
+  // If g > 0 and y > 0: y = (dx - c)/g, substitute into dx/dt = 0
+
+  // y=0 branch: x = 0 or x = K (if F=0)
+  if (Math.abs(params.F) < 0.01) {
+    fp.push([0, 0]);
+    fp.push([params.K, 0]);
+  }
+
+  // Interior fixed point (both > 0)
+  if (params.g > 0.001) {
+    const xStar = params.c / params.d; // from dy/dt interior
+    if (xStar > 0 && xStar < params.K) {
+      // From dx/dt = 0 with this x:
+      // a*xStar*(1 - xStar/K) - b*xStar*yStar + F = 0
+      const yStar = (params.a * (1 - xStar / params.K) + params.F / Math.max(xStar, 0.01)) / params.b;
+      if (yStar > 0) {
+        // Verify with dy/dt
+        const yCheck = (params.d * xStar - params.c) / params.g;
+        if (Math.abs(yStar - yCheck) < 2.0) {
+          fp.push([xStar, (yStar + yCheck) / 2]);
+        }
+      }
+    }
+  }
+  return fp;
+}
+
+// Regime detection
+function detectRegime() {
+  if (trail.length < 200) return 'analyzing';
+
+  const recent = trail.slice(-200);
+  const xs = recent.map(p => p[0]);
+  const ys = recent.map(p => p[1]);
+
+  const xMean = xs.reduce((a, b) => a + b) / xs.length;
+  const yMean = ys.reduce((a, b) => a + b) / ys.length;
+  const xVar = xs.reduce((a, b) => a + (b - xMean) ** 2, 0) / xs.length;
+  const yVar = ys.reduce((a, b) => a + (b - yMean) ** 2, 0) / ys.length;
+
+  const totalVar = Math.sqrt(xVar + yVar);
+
+  // Check for convergence (low variance in recent points)
+  if (totalVar < 0.05) return 'convergent';
+
+  // Check for periodicity vs chaos using variance of distances from mean
+  const dists = recent.map(p => Math.sqrt((p[0] - xMean) ** 2 + (p[1] - yMean) ** 2));
+  const distMean = dists.reduce((a, b) => a + b) / dists.length;
+  const distVar = dists.reduce((a, b) => a + (b - distMean) ** 2, 0) / dists.length;
+
+  // Periodic: consistent distance from center (low distVar relative to distMean)
+  const cv = Math.sqrt(distVar) / Math.max(distMean, 0.01);
+
+  if (cv < 0.25) return 'periodic';
+  if (cv < 0.5) return 'edge';
+  return 'chaotic';
+}
+
+function updateRegimeIndicator() {
+  const el = document.getElementById('regime');
+  const regime = detectRegime();
+  const labels = {
+    analyzing: ['Analyzing...', ''],
+    convergent: ['Convergent — Over-Governed', 'regime-convergent'],
+    periodic: ['Limit Cycle — Healthy Rhythm', 'regime-periodic'],
+    edge: ['Near Bifurcation — Edge of Chaos', 'regime-chaotic'],
+    chaotic: ['Chaotic — Runaway Drift', 'regime-chaotic']
+  };
+  const [text, cls] = labels[regime] || labels.analyzing;
+  el.textContent = text;
+  el.className = 'regime-indicator ' + cls;
+}
+
+// Drawing
+function drawPhase() {
+  phaseCtx.fillStyle = '#161b22';
+  phaseCtx.fillRect(0, 0, phaseW, phaseH);
+
+  // Auto-scale
+  if (trail.length > 10) {
+    const xs = trail.map(p => p[0]);
+    const ys = trail.map(p => p[1]);
+    const xMin = Math.min(...xs, 0);
+    const xMax = Math.max(...xs, 1);
+    const yMin = Math.min(...ys, 0);
+    const yMax = Math.max(...ys, 1);
+    const pad = 0.5;
+    xRange = [Math.max(0, xMin - pad), xMax + pad];
+    yRange = [Math.max(0, yMin - pad), yMax + pad];
+  }
+
+  // Grid
+  phaseCtx.strokeStyle = '#21262d';
+  phaseCtx.lineWidth = 1;
+  for (let gx = Math.ceil(xRange[0]); gx <= xRange[1]; gx++) {
+    const [sx] = scalePhase(gx, 0);
+    phaseCtx.beginPath();
+    phaseCtx.moveTo(sx, 20);
+    phaseCtx.lineTo(sx, phaseH - 30);
+    phaseCtx.stroke();
+  }
+  for (let gy = Math.ceil(yRange[0]); gy <= yRange[1]; gy++) {
+    const [, sy] = scalePhase(0, gy);
+    phaseCtx.beginPath();
+    phaseCtx.moveTo(40, sy);
+    phaseCtx.lineTo(phaseW - 10, sy);
+    phaseCtx.stroke();
+  }
+
+  // Axes labels
+  phaseCtx.fillStyle = '#8b949e';
+  phaseCtx.font = '11px SF Mono, monospace';
+  phaseCtx.textAlign = 'center';
+  phaseCtx.fillText('x — accumulated order', phaseW / 2, phaseH - 5);
+  phaseCtx.save();
+  phaseCtx.translate(12, phaseH / 2);
+  phaseCtx.rotate(-Math.PI / 2);
+  phaseCtx.fillText('y — exploratory novelty', 0, 0);
+  phaseCtx.restore();
+
+  // Tick labels
+  phaseCtx.font = '9px SF Mono, monospace';
+  for (let gx = Math.ceil(xRange[0]); gx <= xRange[1]; gx++) {
+    const [sx] = scalePhase(gx, 0);
+    phaseCtx.fillText(gx.toFixed(0), sx, phaseH - 18);
+  }
+  for (let gy = Math.ceil(yRange[0]); gy <= yRange[1]; gy++) {
+    const [, sy] = scalePhase(0, gy);
+    phaseCtx.textAlign = 'right';
+    phaseCtx.fillText(gy.toFixed(0), 35, sy + 3);
+  }
+
+  // Vector field (sparse)
+  const nArrows = 12;
+  const dx = (xRange[1] - xRange[0]) / nArrows;
+  const dy = (yRange[1] - yRange[0]) / nArrows;
+  phaseCtx.strokeStyle = 'rgba(139,148,158,0.2)';
+  phaseCtx.lineWidth = 1;
+  for (let i = 1; i < nArrows; i++) {
+    for (let j = 1; j < nArrows; j++) {
+      const px = xRange[0] + i * dx;
+      const py = yRange[0] + j * dy;
+      if (px <= 0 || py <= 0) continue;
+      const vx = dxdt(px, py);
+      const vy = dydt(px, py);
+      const mag = Math.sqrt(vx*vx + vy*vy);
+      if (mag < 0.001) continue;
+      const scale = Math.min(dx * 0.3, 0.4) / Math.max(mag, 0.1);
+      const [sx, sy] = scalePhase(px, py);
+      const [ex, ey] = scalePhase(px + vx * scale, py + vy * scale);
+      phaseCtx.beginPath();
+      phaseCtx.moveTo(sx, sy);
+      phaseCtx.lineTo(ex, ey);
+      phaseCtx.stroke();
+    }
+  }
+
+  // Fixed points
+  const fps = getFixedPoints();
+  for (const [fpx, fpy] of fps) {
+    if (fpx >= xRange[0] && fpx <= xRange[1] && fpy >= yRange[0] && fpy <= yRange[1]) {
+      const [sx, sy] = scalePhase(fpx, fpy);
+      phaseCtx.beginPath();
+      phaseCtx.arc(sx, sy, 5, 0, Math.PI * 2);
+      phaseCtx.fillStyle = 'rgba(63,185,80,0.5)';
+      phaseCtx.fill();
+      phaseCtx.strokeStyle = 'rgba(63,185,80,0.8)';
+      phaseCtx.lineWidth = 1.5;
+      phaseCtx.stroke();
+    }
+  }
+
+  // Trail
+  if (trail.length > 1) {
+    phaseCtx.beginPath();
+    const [sx0, sy0] = scalePhase(trail[0][0], trail[0][1]);
+    phaseCtx.moveTo(sx0, sy0);
+    for (let i = 1; i < trail.length; i++) {
+      const [sx, sy] = scalePhase(trail[i][0], trail[i][1]);
+      phaseCtx.lineTo(sx, sy);
+    }
+    phaseCtx.strokeStyle = 'rgba(88,166,255,0.6)';
+    phaseCtx.lineWidth = 1.5;
+    phaseCtx.stroke();
+
+    // Fade older parts
+    if (trail.length > 100) {
+      phaseCtx.beginPath();
+      const [ox0, oy0] = scalePhase(trail[0][0], trail[0][1]);
+      phaseCtx.moveTo(ox0, oy0);
+      const fadeLen = Math.min(100, trail.length);
+      for (let i = 1; i < fadeLen; i++) {
+        const [ox, oy] = scalePhase(trail[i][0], trail[i][1]);
+        phaseCtx.lineTo(ox, oy);
+      }
+      phaseCtx.strokeStyle = 'rgba(88,166,255,0.15)';
+      phaseCtx.lineWidth = 1;
+      phaseCtx.stroke();
+    }
+  }
+
+  // Current position
+  const [cx, cy] = scalePhase(x, y);
+  phaseCtx.beginPath();
+  phaseCtx.arc(cx, cy, 5, 0, Math.PI * 2);
+  phaseCtx.fillStyle = '#d29922';
+  phaseCtx.fill();
+  phaseCtx.strokeStyle = '#f0c040';
+  phaseCtx.lineWidth = 2;
+  phaseCtx.stroke();
+
+  // State readout
+  phaseCtx.fillStyle = '#8b949e';
+  phaseCtx.font = '10px SF Mono, monospace';
+  phaseCtx.textAlign = 'left';
+  phaseCtx.fillText(`x=${x.toFixed(2)}  y=${y.toFixed(2)}  t=${t.toFixed(1)}`, 45, 15);
+}
+
+function drawTime() {
+  timeCtx.fillStyle = '#161b22';
+  timeCtx.fillRect(0, 0, timeW, timeH);
+
+  if (timeX.length < 2) return;
+
+  const allVals = [...timeX, ...timeY];
+  const maxVal = Math.max(...allVals, 1) * 1.1;
+
+  // Grid
+  timeCtx.strokeStyle = '#21262d';
+  timeCtx.lineWidth = 1;
+  for (let g = 1; g <= Math.floor(maxVal); g++) {
+    const [, gy] = scaleTime(0, g, maxVal);
+    timeCtx.beginPath();
+    timeCtx.moveTo(40, gy);
+    timeCtx.lineTo(timeW - 10, gy);
+    timeCtx.stroke();
+    timeCtx.fillStyle = '#8b949e';
+    timeCtx.font = '9px SF Mono, monospace';
+    timeCtx.textAlign = 'right';
+    timeCtx.fillText(g.toFixed(0), 35, gy + 3);
+  }
+
+  // x(t)
+  timeCtx.beginPath();
+  for (let i = 0; i < timeX.length; i++) {
+    const [sx, sy] = scaleTime(i, timeX[i], maxVal);
+    if (i === 0) timeCtx.moveTo(sx, sy);
+    else timeCtx.lineTo(sx, sy);
+  }
+  timeCtx.strokeStyle = 'rgba(63,185,80,0.8)';
+  timeCtx.lineWidth = 1.5;
+  timeCtx.stroke();
+
+  // y(t)
+  timeCtx.beginPath();
+  for (let i = 0; i < timeY.length; i++) {
+    const [sx, sy] = scaleTime(i, timeY[i], maxVal);
+    if (i === 0) timeCtx.moveTo(sx, sy);
+    else timeCtx.lineTo(sx, sy);
+  }
+  timeCtx.strokeStyle = 'rgba(188,140,255,0.8)';
+  timeCtx.lineWidth = 1.5;
+  timeCtx.stroke();
+
+  // Labels
+  timeCtx.fillStyle = '#3fb950';
+  timeCtx.font = '10px SF Mono, monospace';
+  timeCtx.textAlign = 'left';
+  timeCtx.fillText('x(t) order', 45, 15);
+  timeCtx.fillStyle = '#bc8cff';
+  timeCtx.fillText('y(t) novelty', 130, 15);
+  timeCtx.fillStyle = '#8b949e';
+  timeCtx.textAlign = 'center';
+  timeCtx.fillText('time →', timeW / 2, timeH - 3);
+}
+
+// Parameter binding
+const paramKeys = ['a', 'b', 'c', 'd', 'K', 'g', 'F', 'trail'];
+paramKeys.forEach(k => {
+  const el = document.getElementById('p-' + k);
+  if (!el) return;
+  el.addEventListener('input', () => {
+    const val = parseFloat(el.value);
+    document.getElementById('v-' + k).textContent = val.toFixed(k === 'd' ? 2 : 1);
+    if (k === 'trail') {
+      maxTrail = val;
+    } else {
+      params[k] = val;
+    }
+  });
+});
+
+// Presets
+function setPreset(name) {
+  const presets = {
+    healthy:  { a: 0.8,  b: 0.4,  c: 0.3,  d: 0.2,  K: 5.0,  g: 0.1,  F: 0.0 },
+    rigid:    { a: 0.4,  b: 0.1,  c: 0.8,  d: 0.05, K: 3.0,  g: 0.5,  F: 0.0 },
+    chaotic:  { a: 1.8,  b: 0.3,  c: 0.1,  d: 0.5,  K: 12.0, g: 0.02, F: 0.0 },
+    edge:     { a: 1.2,  b: 0.5,  c: 0.2,  d: 0.35, K: 8.0,  g: 0.06, F: 0.15 }
+  };
+  const p = presets[name];
+  if (!p) return;
+  Object.assign(params, p);
+  Object.keys(p).forEach(k => {
+    const el = document.getElementById('p-' + k);
+    if (el) {
+      el.value = p[k];
+      document.getElementById('v-' + k).textContent = p[k].toFixed(k === 'd' ? 2 : 1);
+    }
+  });
+  resetSim();
+}
+
+function resetSim() {
+  x = 2.0;
+  y = 1.0;
+  t = 0;
+  trail = [];
+  timeX = [];
+  timeY = [];
+}
+
+function togglePause() {
+  paused = !paused;
+  document.getElementById('btn-pause').textContent = paused ? 'Resume' : 'Pause';
+  document.getElementById('btn-pause').classList.toggle('btn-active', paused);
+}
+
+// Main loop
+function animate() {
+  if (!paused) {
+    for (let i = 0; i < stepsPerFrame; i++) {
+      step();
+      trail.push([x, y]);
+      timeX.push(x);
+      timeY.push(y);
+      if (trail.length > maxTrail) {
+        trail.shift();
+        timeX.shift();
+        timeY.shift();
+      }
+    }
+  }
+
+  drawPhase();
+  drawTime();
+  updateRegimeIndicator();
+  requestAnimationFrame(animate);
+}
+
+animate();
+</script>
+</body>
+</html>
