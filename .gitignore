@@ -47,6 +47,7 @@ blog/entries/*.md
 blog/diffs/
 !blog/diffs/.gitkeep
 blog/blog_fts.db
+blog/changelog.md
 meta-reports/
 state-snapshots/
 scratchpads/
@@ -55,6 +56,18 @@ health/
 reports/*.html
 reports/*.yaml
 !reports/.gitkeep
+notes/*.md
+!notes/.gitkeep
+threads/*.md
+!threads/.gitkeep
+state/*.md
+state/*.json
+state/signals/
+!state/.gitkeep
+autonomy/*.md
+!autonomy/.gitkeep
+discoverys.md
+edge-memory.db
 
 # Logs
 logs/
