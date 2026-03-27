@@ -301,7 +301,7 @@ def phase_venv(cfg, dry_run, skip_venv=False):
         return False
 
     pip = venv_dir / "bin" / "pip"
-    result = run(f"{pip} install -q flask flask-compress markdown pyyaml sqlite-vec")
+    result = run(f"{pip} install -q flask flask-compress markdown pyyaml sqlite-vec openai")
     if result.returncode != 0:
         fail(f"pip install failed: {result.stderr.strip()}")
         return False
@@ -419,7 +419,8 @@ def phase_systemd(cfg, dry_run):
         run("systemctl --user daemon-reload")
         run("systemctl --user enable blog-server.service")
         run("systemctl --user restart blog-server.service")
-    ok("systemd daemon-reload + blog-server enabled + started")
+        run("systemctl --user enable --now agent-heartbeat.timer")
+    ok("systemd daemon-reload + blog-server enabled + started + heartbeat timer active")
     return True
 
 
