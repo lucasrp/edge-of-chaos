@@ -57,7 +57,6 @@ onboarding_mode: true           # false after graduated
 
 # --- Optional ---
 bio: ""                         # default: = mission
-cognitive_profile: "Analytical. Decomposes problems, seeks structure."
 knowledge_base: ""              # local path, git URL, or https URL
 public_url: ""                  # if blog is public
 repo_owner: ""                  # GitHub user/org
