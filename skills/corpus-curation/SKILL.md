@@ -19,6 +19,8 @@ Can be invoked standalone or by /ed-reflection (which passes context of active t
 | **stats** | `/ed-corpus-curation stats` | ~10s | Per-document metrics (retrieval count, top3, query diversity) |
 | **lite** | `/ed-corpus-curation lite` | ~30s | Stats + identification of stale candidates (age>45d, no recent retrieval) |
 | **full** | `/ed-corpus-curation` | ~3min | Lite + self-probes + nearest-neighbor clustering + classification + strategic veto |
+| **claims** | `/ed-corpus-curation claims` | ~2min | Consolidate claims into topics (duplicates, stale, answered gaps) |
+| **procedures** | `/ed-corpus-curation procedures` | ~2min | Process procedure-claims, reinforce/heal workflows, crystallize new workflows |
 
 ---
 
@@ -254,6 +256,90 @@ Save proposal to `~/edge/state/claims-curation-{thread_id}.json`:
 Applying means:
 1. Update the corresponding topic (add paragraphs with provenance)
 2. Resolved gaps remain in the original frontmatter but the topic reflects the current state
+
+---
+
+## Procedures Lifecycle (workflow curation)
+
+Third curation mode: process procedure-claims, workflows_used and workflows_broken from frontmatters to maintain a healthy workflow lifecycle.
+
+### Mode: procedures
+
+Invocation: `/ed-corpus-curation procedures`
+
+### Step P1: Collection
+
+Read frontmatter from all recent entries (last 60 days) and extract:
+- `procedure:` — procedure-claims (atoms)
+- `workflows_used:` — reinforcement citations
+- `workflows_broken:` — healing citations
+
+```bash
+# Extract procedure fields from recent entries
+grep -rl "procedure:\|workflows_used:\|workflows_broken:" ~/edge/blog/entries/ | head -50
+```
+
+### Step P2: Reinforcement (workflows_used)
+
+Count citations per workflow slug:
+- Frequently cited workflows → boost relevance (confirmed_useful)
+- Never-cited workflows (0 citations, age > 60 days) → candidate for decay/archive
+
+Save counts to `~/edge/state/workflow-health.json`:
+```json
+{
+  "generated_at": "ISO",
+  "citations": {
+    "sources-research-consult-report": {"used": 5, "broken": 0, "last_cited": "2026-03-27"},
+    "playwright-screenshot-validation": {"used": 0, "broken": 3, "last_cited": "2026-03-25"}
+  }
+}
+```
+
+### Step P3: Healing (workflows_broken)
+
+Workflows cited as broken:
+- 1 citation → flag for review
+- 2+ citations → high priority: update or convert to anti-pattern
+- Action: present to user with context (which entries cited, what was the problem)
+
+### Step P4: Crystallization (procedure-claims)
+
+Cluster procedure-claims by semantic similarity:
+1. Extract embeddings for all procedure-claims
+2. Group by similarity (threshold: 0.85)
+3. Clusters with 3+ claims → candidate for crystallization into workflow entry
+
+For each candidate cluster:
+- Synthesize claims into a full workflow (format: Trigger, Steps, Secrets, When works, When fails, Cost)
+- Present proposal to user
+- If approved → create workflow blog entry with tag `workflow`
+
+### Step P5: Persist and report
+
+Save to `~/edge/state/procedure-curation.json`:
+```json
+{
+  "generated_at": "ISO",
+  "total_procedures": N,
+  "total_workflows_used": N,
+  "total_workflows_broken": N,
+  "crystallization_candidates": [
+    {
+      "cluster_id": 1,
+      "claims": ["When X...", "When Y...", "When Z..."],
+      "median_sim": 0.89,
+      "suggested_workflow_title": "workflow: X pattern"
+    }
+  ],
+  "broken_workflows": [
+    {"slug": "...", "broken_count": N, "citing_entries": ["entry-1", "entry-2"]}
+  ],
+  "never_cited_workflows": [
+    {"slug": "...", "age_days": N}
+  ]
+}
+```
 
 ---
 

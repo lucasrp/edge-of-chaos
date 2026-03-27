@@ -85,7 +85,7 @@ The difference is the `anti-pattern` tag. edge-search returns both — what work
 
 ---
 
-### Workflow-specific fields (in frontmatter)
+### Workflow-specific fields (in frontmatter of workflow entries)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -99,17 +99,90 @@ The body follows the structure:
 
 ---
 
-## Capture: When to record
+## Procedure Capture: Fields in EVERY blog entry
 
-Record a workflow during `consolidate-state` when:
+Beyond workflow-specific fields, **every blog entry** (research, discovery, strategy, etc.) can contain procedure capture fields. These feed the workflow lifecycle.
 
-1. **The session combined 2+ capabilities** in a way that produced a better result than each one alone
-2. **A shortcut was discovered** — a more efficient way of doing something
+### Three fields, three signals
+
+| Field | Type | When to use | Signal for corpus |
+|-------|------|-------------|-------------------|
+| `procedure:` | list of strings | NEW procedure discovered that was NOT covered by workflows recalled from RAG | Atom for crystallization into future workflow |
+| `workflows_used:` | list of slugs | Workflow recalled from RAG that was followed AND produced good results | Reinforcement — boost relevance in RAG |
+| `workflows_broken:` | list of slugs | Workflow recalled from RAG that was followed but FAILED or is outdated | Healing — flag for /ed-corpus-curation to fix/archive |
+
+### Capture rule
+
+1. Before executing, the skill consults workflows via `edge-search --type workflow -k 3`
+2. During execution, the agent follows (or not) the recalled workflows
+3. In the blog entry frontmatter:
+   - If used a workflow and it worked → `workflows_used: [workflow-slug]`
+   - If used a workflow and it failed → `workflows_broken: [workflow-slug]`
+   - If discovered a new procedure (NOT covered by recall) → `procedure:` with format "When [context], do/avoid [action] because [result]"
+
+### procedure: format
+
+```yaml
+procedure:
+  - "When researching a new topic, run edge-sources BEFORE edge-consult -- external context strengthens adversarial review"
+  - "When review-gate scores below threshold, fix section titles and inline acronyms first -- cheapest structural points"
+  - "!When edge-search returns empty for workflows, log it as evidence the system needs seeding"
+```
+
+- `!` prefix marks anti-patterns (procedures to AVOID), same convention as claims
+- Format: "When [context], do/avoid [action] -- [reason/result]"
+- Each procedure is an atom — a single observation, not a full workflow
+
+### How the corpus processes these signals
+
+**`workflows_used:`** — `/ed-corpus-curation` counts citations per workflow. Frequently cited workflows gain relevance in RAG (confirmed_useful signal). Never-cited workflows are candidates for decay.
+
+**`workflows_broken:`** — `/ed-corpus-curation` flags workflows cited as broken. Possible actions:
+- Update the workflow (if the problem is fixable)
+- Mark as anti-pattern (if the workflow is fundamentally broken)
+- Archive (if the workflow is obsolete)
+
+**`procedure:`** — `/ed-corpus-curation` (mode `procedures`) clusters procedure-claims by similarity. When 3+ claims converge on the same topic, proposes crystallization into a full workflow entry.
+
+### Full example
+
+```yaml
+---
+title: "Research: Secret Management for Agents"
+date: 2026-03-27
+tags: [research, security]
+claims:
+  - "Zero-knowledge proxy prevents credential exfiltration"
+threads: [agent-security]
+procedure:
+  - "When researching a new topic, search internal corpus first (edge-search) -- prevents rediscovery"
+  - "When edge-consult returns valid criticism, adjust conclusions BEFORE building report YAML -- retrofitting is harder"
+  - "!When review-gate fails, do NOT regenerate entire YAML -- fix specific issues for cheaper recovery"
+workflows_used: [sources-research-consult-report]
+workflows_broken: [playwright-screenshot-validation]
+---
+```
+
+---
+
+## Capture: Two levels
+
+### Level 1: Procedure-claims (atoms — in EVERY entry)
+
+Capture in the `procedure:` field when:
+- Used a combination of tools/steps that was NOT covered by workflows recalled from RAG
+- Discovered a shortcut or a new anti-pattern
+
+Do NOT capture:
+- Procedures already covered by a recalled workflow (use `workflows_used:` to reinforce)
+- Trivial single-tool usage
+
+### Level 2: Workflow entries (molecules — when atoms crystallize)
+
+Create a full workflow entry when:
+1. **3+ similar procedure-claims** already exist in the corpus (detected by /ed-corpus-curation)
+2. **The session combined 2+ capabilities** in a significant way that justifies immediate documentation
 3. **A combination failed** in an instructive way — the anti-pattern prevents rediscovery of the failure
-
-Do not record:
-- Isolated use of a skill (that's a blog entry, not a workflow)
-- Workflows identical to an already indexed one (check with `edge-search` first)
 
 ### Check before creating
 
@@ -118,7 +191,7 @@ Do not record:
 edge-search "sources research consult" --type workflow -k 3
 ```
 
-If something similar exists, update the existing entry instead of creating a new one.
+If something similar exists, use `workflows_used:` to reinforce instead of creating a duplicate.
 
 ---
 
@@ -143,14 +216,25 @@ A workflow that fails during execution should be recorded in `debugging.md` and 
 
 ---
 
-## Decay
+## Lifecycle: Reinforcement, Decay and Healing
 
-Workflows that are never retrieved lose relevance naturally:
+### Reinforcement (workflows_used:)
+
+Workflows cited in `workflows_used:` accumulate a **confirmed_useful** signal. `/ed-corpus-curation` counts citations per workflow entry. The more cited, the more relevant in RAG.
+
+### Decay (absence of citation)
+
+Workflows never cited in `workflows_used:` lose relevance naturally:
 - `edge-search` records telemetry for each search
-- `/ed-corpus-curation` can identify workflows never consulted
-- A workflow with no retrieval in 60 days is a candidate for archive
+- `/ed-corpus-curation` identifies workflows with no recent citation
+- A workflow with no citation in 60 days is a candidate for archive
 
-A workflow updated frequently (new sessions confirm the pattern) gains relevance.
+### Healing (workflows_broken:)
+
+Workflows cited in `workflows_broken:` receive a **needs_attention** signal. `/ed-corpus-curation` flags these for action:
+- If fixable → update the workflow
+- If obsolete → mark as anti-pattern or archive
+- If multiple entries cite the same workflow as broken → high priority
 
 ---
 
