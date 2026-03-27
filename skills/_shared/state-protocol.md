@@ -74,7 +74,28 @@ edge-search "terms relevant to what I'm about to do" --type workflow -k 3
 
 Returns validated workflows (steps, secrets, when it works/fails) and anti-patterns (what didn't work and why). Use the results to inform execution — follow workflows that work, avoid documented anti-patterns.
 
-At the end of the session, if a new combination of capabilities produced a result (or failed in an instructive way), capture as a blog entry with tag `workflow` (or `workflow` + `anti-pattern`). See `~/.claude/skills/_shared/workflow-conventions.md`.
+**Note the slugs of recalled workflows** — they will be used in the entry frontmatter:
+
+### Procedure capture in frontmatter (MANDATORY in every entry)
+
+When creating the blog entry, include procedure capture fields:
+
+```yaml
+# Recalled workflows that were followed and worked:
+workflows_used: [workflow-slug-1, workflow-slug-2]
+
+# Recalled workflows that failed or are outdated:
+workflows_broken: [broken-workflow-slug]
+
+# NEW procedures (not covered by recalled workflows):
+procedure:
+  - "When [context], do [action] -- [result/reason]"
+  - "!When [context], avoid [action] -- [failure reason]"
+```
+
+**Rule:** `procedure:` only captures the DELTA — procedures NOT covered by the recall. If the procedure already exists as a workflow, cite in `workflows_used:` (reinforcement) or `workflows_broken:` (healing).
+
+See `~/.claude/skills/_shared/workflow-conventions.md` for lifecycle details.
 
 ---
 
@@ -137,7 +158,7 @@ If during editing you realize you need to change a file NOT proposed:
 - **Stop.** Update the proposal with `edge-state-audit propose` again.
 - Or accept that the audit will record it as a violation.
 
-### Step 5: Create blog entry + claims
+### Step 5: Create blog entry + claims + procedures
 
 ```yaml
 claims:
@@ -145,9 +166,17 @@ claims:
   - "!Gap — thing I still don't know"
 threads: [related-thread]
 keywords: [kw1, kw2]
+
+# Procedure capture (see workflow-conventions.md)
+workflows_used: [slug-of-workflow-that-worked]
+workflows_broken: [slug-of-workflow-that-failed]
+procedure:
+  - "When [context], do [action] -- [result]"
+  - "!When [context], avoid [action] -- [reason]"
 ```
 
-Claims are durable knowledge. What survives without rereading the full text.
+Claims are durable knowledge (the WHAT). Procedures are operational knowledge (the HOW).
+`procedure:` only captures the delta — procedures NOT covered by recalled workflows.
 
 ### Step 6: Publish via consolidate-state (MANDATORY)
 
