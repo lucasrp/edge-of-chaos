@@ -255,7 +255,7 @@ After reading sessions (1a), identify the main topics of the user's work. Genera
 
 ```bash
 # For each lateral query (3x):
-python3 ~/edge/tools/edge-x "LATERAL_QUERY" --max 3 --json 2>/dev/null
+edge-x "LATERAL_QUERY" --max 3 --json 2>/dev/null
 ```
 
 Note interesting results (high engagement, non-obvious connection) as **"serendipity"** — use to inform Step 2 (skill/topic choice) and include in blog entry if relevant.
