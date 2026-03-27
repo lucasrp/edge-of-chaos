@@ -178,6 +178,29 @@ procedure:
 Claims are durable knowledge (the WHAT). Procedures are operational knowledge (the HOW).
 `procedure:` only captures the delta — procedures NOT covered by recalled workflows.
 
+### Step 5b: Emit operational signals (MANDATORY — minimum 2)
+
+Every entry MUST include at least **2 signals** from the typed fields below. Agent chooses which types are relevant — but must emit at least 2. This ensures operational memory accumulates.
+
+```yaml
+# Typed signals — pick the ones that apply (minimum 2 total)
+autonomy:    # what's missing — capabilities, access, tools needed
+  - "edge-consult needs openai in venv"
+strategy:    # direction — market, positioning, priorities, external changes
+  - "Boring wedge > category narrative"
+reflection:  # meta-cognition — how the work went, cost, efficiency
+  - "3 review gate iterations for 1 point — diminishing returns"
+friction:    # pain points — what broke, what's slow, what's hard
+  - "YAML report format consumes most tokens"
+decision:    # governance — what operator approved/rejected
+  - "Operator approved pip install"
+serendipity: # positive surprises — what worked unexpectedly well
+  - "Corpus search found a 3-week-old note that connected 3 threads"
+```
+
+Prefixes: (none)=verified, `!`=open gap, `?`=speculative.
+consolidate-state extracts these automatically via `edge-signal`.
+
 ### Step 6: Publish via consolidate-state (MANDATORY)
 
 **NEVER publish entries or reports manually.** Always use consolidate-state.
