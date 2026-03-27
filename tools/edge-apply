@@ -934,6 +934,28 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
         disc.write_text(f"# Discoveries — Registry\n\n---\n\n_No discoveries yet. First heartbeat will start exploring._\n")
         seeded += 1
 
+    # --- welcome blog entry ---
+    entries_dir = edge / "blog" / "entries"
+    entries_dir.mkdir(parents=True, exist_ok=True)
+    existing_entries = list(entries_dir.glob("*.md"))
+    if not existing_entries:
+        welcome = entries_dir / f"{today}-welcome.md"
+        welcome.write_text(
+            f"---\n"
+            f"title: \"{name} is setting up\"\n"
+            f"date: {today}\n"
+            f"tags: [meta]\n"
+            f"threads: []\n"
+            f"claims:\n"
+            f"  - \"First boot — installation complete, waiting for first heartbeat\"\n"
+            f"keywords: [welcome, setup, first-boot]\n"
+            f"---\n\n"
+            f"I just came online. My mission: {mission}\n\n"
+            f"The first heartbeat will run soon — or you can trigger it manually with `claude -p '/{cfg.get('skill_prefix', 'ed')}-heartbeat'`.\n\n"
+            f"Until then, I'm here. Waiting.\n"
+        )
+        seeded += 1
+
     # --- state/first-steps.json ---
     first_steps = cfg.get("first_steps", [])
     fs_file = edge / "state" / "first-steps.json"
