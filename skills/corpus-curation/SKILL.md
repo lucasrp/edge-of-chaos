@@ -60,7 +60,7 @@ Check argument passed by the user:
 Run curadoria_compute.py in the corresponding mode:
 
 ```bash
-python3 ~/edge/tools/curadoria_compute.py --mode stats
+curadoria_compute --mode stats
 ```
 
 This queries the `search_events` table in `~/edge/search/edge-memory.db` and computes per document:
@@ -77,7 +77,7 @@ Present summary to the user: total docs, docs with 0 retrievals, most accessed d
 ### Step 3: Identify stale candidates (lite and full)
 
 ```bash
-python3 ~/edge/tools/curadoria_compute.py --mode lite
+curadoria_compute --mode lite
 ```
 
 Stale criteria:
@@ -96,7 +96,7 @@ For each stale candidate, the script executes a self-probe:
 - Records the **self_rank** (position of the doc in results)
 
 ```bash
-python3 ~/edge/tools/curadoria_compute.py --mode full --active-threads "thread1,thread2" --recent-gaps "gap1,gap2"
+curadoria_compute --mode full --active-threads "thread1,thread2" --recent-gaps "gap1,gap2"
 ```
 
 Interpretation:
