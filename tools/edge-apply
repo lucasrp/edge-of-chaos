@@ -465,10 +465,10 @@ def phase_tools(cfg, dry_run):
             link.unlink(missing_ok=True)
             link.symlink_to(tool.resolve())
             linked += 1
-    # Also link consolidar-estado from blog/
-    cs = edge / "blog" / "consolidar-estado.sh"
+    # Also link consolidate-state from blog/
+    cs = edge / "blog" / "consolidate-state.sh"
     if cs.exists() and not dry_run:
-        link = local_bin / "consolidar-estado"
+        link = local_bin / "consolidate-state"
         link.unlink(missing_ok=True)
         link.symlink_to(cs.resolve())
         linked += 1
@@ -515,7 +515,16 @@ def phase_tools(cfg, dry_run):
             wrapper.chmod(0o755)
         ok("edge-index + edge-search wrappers criados (com secrets)")
 
-    # Configure git identity (needed for consolidar-status commits)
+    # Create SQLite database if missing
+    sqlite_db = edge / "edge-memory.db"
+    if not sqlite_db.exists() and not dry_run:
+        result = run(f'sqlite3 "{sqlite_db}" "CREATE TABLE IF NOT EXISTS _init(ts TEXT); INSERT INTO _init VALUES(datetime(\'now\')); DROP TABLE _init;"')
+        if result.returncode == 0:
+            ok("SQLite database created")
+        else:
+            warn("SQLite database creation failed")
+
+    # Configure git identity (needed for consolidate-state commits)
     if not dry_run:
         name = cfg.get("name", "agent")
         run(f'git config --global user.name "{name}"')
