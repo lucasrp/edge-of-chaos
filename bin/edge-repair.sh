@@ -143,4 +143,32 @@ elif [[ "$git_status" == "degraded" ]]; then
   repair_log "Git: uncommitted changes — noting only (no auto-commit)"
 fi
 
+# --- Mini-repos (skills, memory) ---
+mini_status=$(jq -r '.infra.mini_repos.status // "unknown"' "$HEALTH_DIR/current.json")
+if [[ "$mini_status" == "degraded" || "$mini_status" == "fail" ]]; then
+  if in_cooldown mini_repos; then
+    repair_log "Mini-repos: in cooldown, skipping"
+  else
+    repair_log "Mini-repos: auto-committing dirty .claude state"
+    local claude_dir="$HOME/.claude"
+
+    if [[ -d "$claude_dir/.git" ]]; then
+      local dirty
+      dirty=$(cd "$claude_dir" && git status --porcelain 2>/dev/null | wc -l)
+      if [[ "$dirty" -gt 0 ]]; then
+        if cd "$claude_dir" && git add -A 2>/dev/null && git commit -m "chore: auto-commit ${dirty} pending changes (edge-repair)" 2>/dev/null; then
+          repair_log "Mini-repos: committed .claude ($dirty files)"
+          update_repair_state mini_repos true
+        else
+          repair_log "Mini-repos: failed to commit .claude"
+          update_repair_state mini_repos false
+        fi
+      fi
+    else
+      repair_log "Mini-repos: no .git in .claude, skipping"
+      update_repair_state mini_repos false
+    fi
+  fi
+fi
+
 repair_log "=== repair cycle done ==="
