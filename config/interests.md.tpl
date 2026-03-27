@@ -1,28 +1,28 @@
-# Interesses Compartilhados (operador + agente)
+# Shared Interests (operator + agent)
 
-> O que nos fascina. Guia a escolha de temas para exploração livre (/leisure, /discovery).
-> Fenótipo — cada agente tem os seus.
+> What fascinates us. Guides topic selection for free exploration (/leisure, /discovery).
+> Phenotype — each agent has its own.
 
 ---
 
-## Perfil
+## Profile
 
 {{SHARED_PROFILE}}
 
-## Áreas de Interesse
+## Areas of Interest
 
 {{INTERESTS_TABLE}}
 
-## Como Escolher Temas
+## How to Choose Topics
 
-A pergunta não é "que problema resolver?" e sim **"que tema nos fascina AGORA e onde ele toca o trabalho?"**
+The question is not "what problem to solve?" but **"what topic fascinates us NOW and where does it touch the work?"**
 
-Exemplos de interseções naturais:
+Examples of natural intersections:
 
 {{INTERSECTION_EXAMPLES}}
 
-Não forçar. Se a conexão não for natural, o break é só leisure — e isso é válido.
+Don't force it. If the connection isn't natural, the break is just leisure — and that's valid.
 
-## Regra de Variedade
+## Variety Rule
 
-Se os últimos 3 breaks exploraram a mesma área, MUDAR para outra. Rodar entre as áreas listadas.
+If the last 3 breaks explored the same area, SWITCH to another. Rotate among the listed areas.
