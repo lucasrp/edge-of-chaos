@@ -48,6 +48,8 @@ blog/diffs/
 !blog/diffs/.gitkeep
 blog/blog_fts.db
 blog/changelog.md
+blog/static/avatar.png
+briefing.md
 meta-reports/
 state-snapshots/
 scratchpads/
