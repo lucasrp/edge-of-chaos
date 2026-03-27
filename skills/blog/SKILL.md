@@ -108,6 +108,14 @@ Second paragraph with natural transition.
 | tag | yes | One of the available tags |
 | date | yes | YYYY-MM-DD |
 | report | **yes** (ALWAYS) | Filename of the report in ~/edge/reports/. MANDATORY for ALL entries — Rule #0. consolidate-state blocks without report. |
+| claims | yes | Knowledge atoms — what was learned. Use `!` for open gaps |
+| procedure | no | How-to atoms — reusable steps discovered |
+| autonomy | no | What's missing — capabilities, access, tools needed |
+| strategy | no | Direction signals — market, positioning, priorities |
+| reflection | no | Meta-cognition — how the work went, cost observations |
+| friction | no | Pain points — what broke, what's slow, what's hard |
+| decision | no | Governance — what operator approved/rejected |
+| serendipity | no | Positive surprises — what worked unexpectedly well |
 | context | no | Extra context (e.g., "heartbeat #5") |
 | altered | no | List of memory files altered in this session (e.g., [briefing.md, debugging.md]) |
 
