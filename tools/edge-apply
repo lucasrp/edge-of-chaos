@@ -748,6 +748,7 @@ def phase_seed(cfg, dry_run):
         (signals_dir / f"{t}.md").exists() and (signals_dir / f"{t}.md").stat().st_size > 0
         for t in ["strategy", "autonomy", "friction", "serendipity"]
     )
+    llm_seed = None  # default — set by LLM block if it runs
     if any_signal_exists:
         ok("Seed signals already exist — skipping LLM generation")
     else:
@@ -809,7 +810,6 @@ Generate EXACTLY this JSON structure (no markdown, no explanation, just valid JS
 Each signal should be a short sentence (under 120 chars). Use ! prefix for open gaps, ? for speculative ideas.
 Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioning-wedge'), not interest areas."""
 
-        llm_seed = None
         if openai_key:
             try:
                 import urllib.request
