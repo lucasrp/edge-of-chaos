@@ -36,7 +36,7 @@ except ImportError:
 # Paths
 # ---------------------------------------------------------------------------
 
-SCRIPT_DIR = Path(__file__).parent
+SCRIPT_DIR = Path(__file__).resolve().parent
 
 # Load paths from shared config
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
