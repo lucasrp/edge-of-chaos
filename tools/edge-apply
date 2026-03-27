@@ -838,6 +838,16 @@ def phase_seed(cfg, dry_run):
         disc.write_text(f"# Discoveries — Registry\n\n---\n\n_No discoveries yet. First heartbeat will start exploring._\n")
         seeded += 1
 
+    # --- state/first-steps.json ---
+    first_steps = cfg.get("first_steps", [])
+    fs_file = edge / "state" / "first-steps.json"
+    if first_steps and not fs_file.exists():
+        steps = []
+        for i, step in enumerate(first_steps):
+            steps.append({"id": i + 1, "task": step.strip(), "status": "pending"})
+        fs_file.write_text(json.dumps(steps, indent=2, ensure_ascii=False) + "\n")
+        seeded += 1
+
     if seeded > 0:
         ok(f"{seeded} seed files generated from agent.yaml")
     else:

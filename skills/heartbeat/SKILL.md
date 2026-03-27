@@ -42,7 +42,42 @@ for k, v in h.get('components', {}).items():
 bash ~/edge/bin/edge-repair.sh 2>/dev/null
 ```
 
-### 0b: Routing decision
+### 0b: First steps check (onboarding)
+
+```bash
+cat ~/edge/state/first-steps.json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    steps = json.load(sys.stdin)
+    pending = [s for s in steps if s.get('status') == 'pending']
+    if pending:
+        print(f'ONBOARDING: {len(pending)} first steps pending')
+        for s in pending:
+            print(f'  [{s[\"id\"]}] {s[\"task\"][:120]}')
+    else:
+        print('ONBOARDING_COMPLETE')
+except: print('NO_FIRST_STEPS')
+" 2>/dev/null
+```
+
+**If ONBOARDING with pending steps:** Execute the FIRST pending step. After completion, mark it as done:
+```bash
+python3 -c "
+import json
+steps = json.load(open('$HOME/edge/state/first-steps.json'))
+for s in steps:
+    if s['status'] == 'pending':
+        s['status'] = 'done'
+        break
+json.dump(steps, open('$HOME/edge/state/first-steps.json', 'w'), indent=2)
+" 2>/dev/null
+```
+
+Then continue to normal routing. One first step per heartbeat — don't rush them all at once.
+
+When all steps are done, set `onboarding_mode: false` in agent.yaml.
+
+### 0c: Routing decision
 
 **If `HEALTH:CRITICAL`:** Maintenance mode. Repair and exit. Don't spend tokens on work.
 
