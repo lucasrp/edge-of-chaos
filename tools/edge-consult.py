@@ -125,9 +125,7 @@ def load_api_key(model: str) -> tuple[str, str | None]:
             if line.startswith(f"{env_var}="):
                 return line.split("=", 1)[1].strip(), base_url
 
-    print(f"ERROR: {env_var} not found (needed for {model}).", file=sys.stderr)
-    print(f"Set env var or create {secrets_file}", file=sys.stderr)
-    sys.exit(1)
+    raise RuntimeError(f"{env_var} not found (needed for {model}). Set env var or create {secrets_file}")
 
 
 def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> str:
