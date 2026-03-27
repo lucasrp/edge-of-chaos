@@ -3,6 +3,7 @@
 # Se não encontrar, usa defaults neutros.
 
 agent_name: "{{AGENT_NAME}}"
+agent_bio: "{{AGENT_BIO}}"
 org_name: "{{ORG_NAME}}"
 org_short: "{{ORG_SHORT}}"
 logo_filename: "logo.svg"

@@ -71,6 +71,7 @@ def load_agent_yaml(path: Path) -> dict:
     cfg.setdefault("onboarding_mode", True)
     cfg.setdefault("bio", cfg["mission"])
     cfg.setdefault("cognitive_profile", "Analytical. Decomposes problems, seeks structure.")
+    cfg.setdefault("character_sketch", cfg.get("voice", "Direct, technical."))
     cfg.setdefault("knowledge_base", "")
     cfg.setdefault("public_url", "")
     cfg.setdefault("repo_owner", "")
@@ -123,6 +124,7 @@ def build_placeholder_map(cfg: dict) -> dict:
         "AGENT_DOMAIN": cfg["domain"],
         "AGENT_BIO": cfg["bio"],
         "AGENT_COGNITIVE_PROFILE": cfg["cognitive_profile"],
+        "CHARACTER_SKETCH": cfg["character_sketch"],
         "LANGUAGE": cfg["language"],
         # Org
         "ORG_NAME": cfg["org_name"],

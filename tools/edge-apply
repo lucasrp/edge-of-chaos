@@ -600,6 +600,135 @@ def phase_tools(cfg, dry_run):
     return True
 
 
+# ─── Phase 8b: Avatar generation ───
+
+def phase_avatar(cfg, dry_run):
+    header("8b/9  Avatar")
+    edge = Path(cfg["edge_home_expanded"])
+    avatar_path = edge / "blog" / "static" / "avatar.png"
+
+    if avatar_path.exists() and avatar_path.stat().st_size > 0:
+        ok(f"Avatar already exists ({avatar_path.stat().st_size // 1024}K)")
+        return True
+
+    if dry_run:
+        print(f"  [DRY] Would generate avatar for {cfg.get('name', 'agent')}")
+        return True
+
+    name = cfg.get("name", "agent")
+    mission = cfg.get("mission", "")
+    sketch = cfg.get("character_sketch", cfg.get("voice", ""))
+    prompt = f"Create a minimalist, professional avatar icon for an AI agent named '{name}'. Mission: {mission}. Character: {sketch}. Clean vector-style illustration suitable as a 256x256 profile picture. No text, no letters, no words in the image."
+
+    # Try OpenAI first
+    keys_env = edge / "secrets" / "keys.env"
+    openai_key = ""
+    xai_key = ""
+    if keys_env.exists():
+        for line in keys_env.read_text().splitlines():
+            if line.startswith("OPENAI_API_KEY=") and "=" in line:
+                openai_key = line.split("=", 1)[1].strip()
+            if line.startswith("XAI_API_KEY=") and "=" in line:
+                xai_key = line.split("=", 1)[1].strip()
+
+    # Also check env files
+    if not openai_key:
+        oai_env = edge / "secrets" / "openai.env"
+        if oai_env.exists():
+            for line in oai_env.read_text().splitlines():
+                if line.startswith("OPENAI_API_KEY="):
+                    openai_key = line.split("=", 1)[1].strip()
+    if not xai_key:
+        xai_env = edge / "secrets" / "xai.env"
+        if xai_env.exists():
+            for line in xai_env.read_text().splitlines():
+                if line.startswith("XAI_API_KEY="):
+                    xai_key = line.split("=", 1)[1].strip()
+
+    generated = False
+
+    if openai_key:
+        try:
+            result = run(f'''python3 -c "
+import urllib.request, urllib.parse, json, base64, sys
+data = json.dumps({{
+    'model': 'gpt-image-1',
+    'prompt': {repr(prompt)},
+    'n': 1,
+    'size': '1024x1024',
+    'quality': 'low'
+}}).encode()
+req = urllib.request.Request('https://api.openai.com/v1/images/generations',
+    data=data,
+    headers={{'Authorization': 'Bearer {openai_key}', 'Content-Type': 'application/json'}})
+resp = urllib.request.urlopen(req, timeout=60)
+result = json.loads(resp.read())
+img_data = result['data'][0]
+if 'b64_json' in img_data:
+    img_bytes = base64.b64decode(img_data['b64_json'])
+elif 'url' in img_data:
+    img_bytes = urllib.request.urlopen(img_data['url'], timeout=30).read()
+else:
+    sys.exit('No image data')
+open('{avatar_path}', 'wb').write(img_bytes)
+print('OK')
+"''')
+            if result.returncode == 0 and avatar_path.exists():
+                ok(f"Avatar generated via OpenAI ({avatar_path.stat().st_size // 1024}K)")
+                generated = True
+            else:
+                warn(f"OpenAI avatar generation failed: {result.stderr.strip()[:100]}")
+        except Exception as e:
+            warn(f"OpenAI avatar failed: {e}")
+
+    if not generated and xai_key:
+        try:
+            result = run(f'''python3 -c "
+import urllib.request, json, base64, sys
+data = json.dumps({{
+    'model': 'grok-2-image',
+    'prompt': {repr(prompt)},
+    'n': 1
+}}).encode()
+req = urllib.request.Request('https://api.x.ai/v1/images/generations',
+    data=data,
+    headers={{'Authorization': 'Bearer {xai_key}', 'Content-Type': 'application/json'}})
+resp = urllib.request.urlopen(req, timeout=60)
+result = json.loads(resp.read())
+img_data = result['data'][0]
+if 'b64_json' in img_data:
+    img_bytes = base64.b64decode(img_data['b64_json'])
+elif 'url' in img_data:
+    img_bytes = urllib.request.urlopen(img_data['url'], timeout=30).read()
+else:
+    sys.exit('No image data')
+open('{avatar_path}', 'wb').write(img_bytes)
+print('OK')
+"''')
+            if result.returncode == 0 and avatar_path.exists():
+                ok(f"Avatar generated via xAI ({avatar_path.stat().st_size // 1024}K)")
+                generated = True
+            else:
+                warn(f"xAI avatar generation failed: {result.stderr.strip()[:100]}")
+        except Exception as e:
+            warn(f"xAI avatar failed: {e}")
+
+    if not generated:
+        # Fallback: DiceBear API (free, no key needed)
+        try:
+            result = run(f'curl -sL -o "{avatar_path}" "https://api.dicebear.com/9.x/bottts/png?seed={name}&size=256"')
+            if result.returncode == 0 and avatar_path.exists() and avatar_path.stat().st_size > 0:
+                ok(f"Avatar generated via DiceBear fallback ({avatar_path.stat().st_size // 1024}K)")
+                generated = True
+        except Exception:
+            pass
+
+    if not generated:
+        warn("No avatar generated (no API keys and DiceBear unavailable)")
+
+    return True
+
+
 # ─── Main ───
 
 def main():
@@ -636,6 +765,7 @@ def main():
     results.append(("Tools venv", phase_tools_venv(cfg, args.dry_run, args.skip_venv)))
     results.append(("Systemd", phase_systemd(cfg, args.dry_run)))
     results.append(("Tools", phase_tools(cfg, args.dry_run)))
+    results.append(("Avatar", phase_avatar(cfg, args.dry_run)))
 
     passed = sum(1 for _, r in results if r)
     failed = sum(1 for _, r in results if not r)

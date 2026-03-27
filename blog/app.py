@@ -33,7 +33,20 @@ SEARCH_DIR = ROOT / "search"
 sys.path.insert(0, str(SEARCH_DIR))
 sys.path.insert(0, str(ROOT))
 
+import yaml as _yaml
+
 from blog.api_dashboard import dashboard_bp, _build_status_strip_data, _build_alerts_data, _build_pipeline_data, _build_hotspots_data, _build_corpus_data, _build_briefing_data
+
+# ─── Branding ───
+_branding_path = ROOT / "config" / "branding.yaml"
+BRANDING = {}
+if _branding_path.exists():
+    try:
+        BRANDING = _yaml.safe_load(_branding_path.read_text()) or {}
+    except Exception:
+        pass
+AGENT_NAME = BRANDING.get("agent_name", "agent")
+AGENT_BIO = BRANDING.get("agent_bio", "")
 from blog.api_actions import actions_bp
 from blog.api_setup import setup_bp
 
@@ -424,6 +437,8 @@ def inject_globals():
         "format_date": format_date,
         "short_date": short_date,
         "skill_groups": SKILL_GROUPS,
+        "agent_name": AGENT_NAME,
+        "agent_bio": AGENT_BIO,
     }
 
 
