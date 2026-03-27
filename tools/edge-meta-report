@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/donald/edge/tools/.venv/bin/python3
 """edge-meta-report — Generate meta-report for publication state changes.
 
 Part 1 (pre-state): Captures state delta, reads scratchpad, runs adversarial challenge.

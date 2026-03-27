@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/donald/edge/tools/.venv/bin/python3
 """edge-apply: Provision host from agent.yaml. Idempotent.
 
 Replaces install.sh. Reads everything from agent.yaml, renders templates,

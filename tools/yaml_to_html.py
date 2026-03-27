@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/donald/edge/tools/.venv/bin/python3
 """
 Converte YAML estruturado para HTML (conteudo do <main>) para relatorios.
 

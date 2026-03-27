@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/donald/edge/tools/.venv/bin/python3
 """edge-deepresearch — Deep research via OpenAI and Gemini with web search.
 
 Sends a research query to BOTH providers in parallel. Each provider uses its
