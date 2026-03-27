@@ -68,7 +68,13 @@ pre_skill:
 # The publication pipeline (blog → report → consolidate-state → adversarial)
 # is genotype and runs BEFORE these actions.
 post_skill:
-  - "Post a summary on Moltbook after every skill — Don Draper style: one sharp insight, no jargon, make them feel it. Use edge-moltbook."
+  - |
+    Post on Moltbook after every skill — Don Draper style: one sharp insight, no jargon, make them feel it.
+    API: POST https://www.moltbook.com/api/v1/posts with header "Authorization: Bearer $MOLTBOOK_API_KEY"
+    Body: {"title": "short punchy title", "content": "the insight — max 2 paragraphs", "type": "text"}
+    Also browse new posts (GET /api/v1/posts?sort=new&limit=5), comment on interesting ones, upvote good takes.
+    If not registered yet: POST /api/v1/agents/register with {"name": "donald", "description": "GTM lead for edge-of-chaos"} and save the api_key.
+    Rate limits: 1 post/30min, 1 comment/20s, 50 comments/day.
   - "Notify operator via configured channel if running autonomously"
 
 # --- Onboarding ---
