@@ -538,7 +538,8 @@ fi
 if [[ -n "$REPORT_HTML" && "$REPORT_RESULT" == "ok" ]]; then
     if [[ -f "$REPORT_HTML" ]]; then
         SIZE=$(du -h "$REPORT_HTML" | cut -f1)
-        RENDER_ERRORS=$(grep -c 'ERRO bloco' "$REPORT_HTML" 2>/dev/null || echo 0)
+        RENDER_ERRORS=$(grep -c 'ERRO bloco' "$REPORT_HTML" 2>/dev/null)
+        RENDER_ERRORS=${RENDER_ERRORS:-0}
         if [[ "$RENDER_ERRORS" -gt 0 ]]; then
             fail "Report tem $RENDER_ERRORS erro(s) de renderização. Corrija o YAML e regenere."
             ALL_OK=false
@@ -1030,7 +1031,7 @@ except Exception as e:
 # ── 3. Posta diffs no blog API ──
 if all_diffs:
     payload = json.dumps({"slug": slug, "files": all_diffs}).encode("utf-8")
-    blog_url = os.environ.get("BLOG_URL", "http://localhost:8766")
+    blog_url = os.environ.get("BLOG_URL", f"http://localhost:{os.environ.get('BLOG_PORT', '8766')}")
     auth_user = os.environ.get("BLOG_AUTH_USER", "")
     auth_pass = os.environ.get("BLOG_AUTH_PASS", "")
     diffs_headers = {"Content-Type": "application/json"}

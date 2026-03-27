@@ -161,7 +161,7 @@ VERIFY_OK=true
 
 # Check SQLite
 python3 -c "
-import sys
+import sys, os
 sys.path.insert(0, os.path.join(os.environ.get('EDGE_DIR', os.path.expanduser('~/edge')), 'search'))
 try:
     from db import ensure_db
