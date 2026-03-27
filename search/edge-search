@@ -1,0 +1,5 @@
+#!/bin/bash
+EDGE_DIR="/home/vboxuser/edge"
+cd "$EDGE_DIR"
+[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a
+"/home/vboxuser/edge/search/.venv/bin/python3" "/home/vboxuser/edge/search/search.py" "$@"
