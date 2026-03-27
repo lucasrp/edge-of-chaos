@@ -87,6 +87,12 @@ public_url: ""                  # public URL of the blog (if exposed)
 repo_owner: "lucasrp"           # GitHub user/org
 repo_name: "edge-of-chaos"     # GitHub repo name
 
+# --- LLM Models (used by tools — override if needed) ---
+openai_model: "gpt-5.4"                    # edge-consult primary, review-gate
+openai_model_mini: "gpt-4.1-mini"          # seed generation, cheap tasks
+grok_model: "grok-4.20-multi-agent-beta-0309"  # edge-consult secondary
+image_model: "gpt-image-1"                 # avatar generation
+
 # --- API Keys (secrets/keys.env — NEVER commit values here) ---
 # Copy secrets/keys.env.example → secrets/keys.env and fill in.
 # The agent works without keys, but full operation requires them.

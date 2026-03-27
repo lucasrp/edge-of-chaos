@@ -653,27 +653,25 @@ def phase_avatar(cfg, dry_run):
     prompt_file = edge / ".avatar-prompt.txt"
     prompt_file.write_text(prompt)
 
+    # Write avatar generation script to temp file (avoids shell quoting issues)
+    avatar_script = edge / ".avatar-gen.py"
+
     if openai_key:
         try:
-            script = f'''
-import urllib.request, json, base64, sys, pathlib
-prompt = pathlib.Path("{prompt_file}").read_text().strip()
-data = json.dumps({{"model": "gpt-image-1", "prompt": prompt, "n": 1, "size": "1024x1024", "quality": "low"}}).encode()
-req = urllib.request.Request("https://api.openai.com/v1/images/generations",
-    data=data, headers={{"Authorization": "Bearer {openai_key}", "Content-Type": "application/json"}})
-resp = urllib.request.urlopen(req, timeout=60)
-result = json.loads(resp.read())
-img_data = result["data"][0]
-if "b64_json" in img_data:
-    img_bytes = base64.b64decode(img_data["b64_json"])
-elif "url" in img_data:
-    img_bytes = urllib.request.urlopen(img_data["url"], timeout=30).read()
-else:
-    sys.exit("No image data")
-pathlib.Path("{avatar_path}").write_bytes(img_bytes)
-print("OK")
-'''
-            result = run(f'python3 -c {repr(script)}')
+            avatar_script.write_text(
+                f'import urllib.request, json, base64, pathlib\n'
+                f'prompt = pathlib.Path("{prompt_file}").read_text().strip()\n'
+                f'data = json.dumps({{"model": "gpt-image-1", "prompt": prompt, "n": 1, "size": "1024x1024", "quality": "low"}}).encode()\n'
+                f'req = urllib.request.Request("https://api.openai.com/v1/images/generations",\n'
+                f'    data=data, headers={{"Authorization": "Bearer {openai_key}", "Content-Type": "application/json"}})\n'
+                f'resp = urllib.request.urlopen(req, timeout=60)\n'
+                f'result = json.loads(resp.read())\n'
+                f'img = result["data"][0]\n'
+                f'img_bytes = base64.b64decode(img["b64_json"]) if "b64_json" in img else urllib.request.urlopen(img["url"], timeout=30).read()\n'
+                f'pathlib.Path("{avatar_path}").write_bytes(img_bytes)\n'
+                f'print(f"OK: {{len(img_bytes)}} bytes")\n'
+            )
+            result = run(f'python3 "{avatar_script}"')
             if result.returncode == 0 and avatar_path.exists():
                 ok(f"Avatar generated via OpenAI ({avatar_path.stat().st_size // 1024}K)")
                 generated = True
@@ -684,25 +682,20 @@ print("OK")
 
     if not generated and xai_key:
         try:
-            script = f'''
-import urllib.request, json, base64, sys, pathlib
-prompt = pathlib.Path("{prompt_file}").read_text().strip()
-data = json.dumps({{"model": "grok-2-image", "prompt": prompt, "n": 1}}).encode()
-req = urllib.request.Request("https://api.x.ai/v1/images/generations",
-    data=data, headers={{"Authorization": "Bearer {xai_key}", "Content-Type": "application/json"}})
-resp = urllib.request.urlopen(req, timeout=60)
-result = json.loads(resp.read())
-img_data = result["data"][0]
-if "b64_json" in img_data:
-    img_bytes = base64.b64decode(img_data["b64_json"])
-elif "url" in img_data:
-    img_bytes = urllib.request.urlopen(img_data["url"], timeout=30).read()
-else:
-    sys.exit("No image data")
-pathlib.Path("{avatar_path}").write_bytes(img_bytes)
-print("OK")
-'''
-            result = run(f'python3 -c {repr(script)}')
+            avatar_script.write_text(
+                f'import urllib.request, json, base64, pathlib\n'
+                f'prompt = pathlib.Path("{prompt_file}").read_text().strip()\n'
+                f'data = json.dumps({{"model": "grok-2-image", "prompt": prompt, "n": 1}}).encode()\n'
+                f'req = urllib.request.Request("https://api.x.ai/v1/images/generations",\n'
+                f'    data=data, headers={{"Authorization": "Bearer {xai_key}", "Content-Type": "application/json"}})\n'
+                f'resp = urllib.request.urlopen(req, timeout=60)\n'
+                f'result = json.loads(resp.read())\n'
+                f'img = result["data"][0]\n'
+                f'img_bytes = base64.b64decode(img["b64_json"]) if "b64_json" in img else urllib.request.urlopen(img["url"], timeout=30).read()\n'
+                f'pathlib.Path("{avatar_path}").write_bytes(img_bytes)\n'
+                f'print(f"OK: {{len(img_bytes)}} bytes")\n'
+            )
+            result = run(f'python3 "{avatar_script}"')
             if result.returncode == 0 and avatar_path.exists():
                 ok(f"Avatar generated via xAI ({avatar_path.stat().st_size // 1024}K)")
                 generated = True
@@ -725,6 +718,7 @@ print("OK")
         warn("No avatar generated (no API keys and DiceBear unavailable)")
 
     prompt_file.unlink(missing_ok=True)
+    avatar_script.unlink(missing_ok=True)
     return True
 
 
