@@ -432,7 +432,7 @@ def inject_globals():
 @app.route("/blog")
 def blog_index():
     tab = request.args.get("tab", "feed")
-    if tab not in ("feed", "chat"):
+    if tab not in ("feed", "chat", "workflows"):
         tab = "feed"
 
     entries = get_entries()
@@ -498,9 +498,28 @@ def blog_index():
                                view=view,
                                is_htmx=request.headers.get("HX-Request") == "true")
 
+    elif tab == "workflows":
+        workflow_entries = [e for e in entries if "workflow" in e.get("tags", []) or "anti-pattern" in e.get("tags", [])]
+        sort_by = request.args.get("sort", "date")
+        if sort_by == "views":
+            workflow_entries.sort(key=lambda e: e.get("view_count", 0), reverse=True)
+        return render_template("workflows.html", tab=tab, entries=workflow_entries,
+                               sort_by=sort_by, stats=stats,
+                               is_htmx=request.headers.get("HX-Request") == "true")
+
     elif tab == "chat":
         return render_template("chat.html", tab=tab, stats=stats,
                                is_htmx=request.headers.get("HX-Request") == "true")
+
+
+@app.route("/htmx/workflow/<slug>")
+def htmx_workflow_detail(slug):
+    entries = get_entries()
+    entry = next((e for e in entries if e.get("slug") == slug), None)
+    if not entry:
+        return "<p>Workflow not found.</p>", 404
+    render_page_html([entry])
+    return render_template("partials/workflow_detail.html", entry=entry)
 
 
 # ─── Routes: htmx partials ───
