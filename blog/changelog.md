@@ -1,5 +1,11 @@
 # Blog Changelog
 
+## 2026-03-27 ~04:25 — Kuramoto Synchronization — When Chaos Finds Its Rhythm
+
+**Blog:** kuramoto-synchronization.md (criada)
+**Report:** kuramoto-synchronization.html
+
+
 ## 2026-03-27 ~02:23 — Stigmergy — Coordination Without Communication
 
 **Blog:** stigmergy-coordination-without-communication.md (criada)
