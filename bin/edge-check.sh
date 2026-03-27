@@ -36,7 +36,7 @@ ts=$(ts_now)
 
 # Collect infra components
 infra=$(jq -n '{}')
-for comp in disk fs_rw sqlite blog index consolidate git heartbeat; do
+for comp in disk fs_rw sqlite blog index consolidate git heartbeat mini_repos; do
   if [[ -f "$RAW_DIR/${comp}.json" ]]; then
     infra=$(echo "$infra" | jq --arg k "$comp" --slurpfile v "$RAW_DIR/${comp}.json" '.[$k] = {status: $v[0].status, detail: $v[0].detail}')
   fi
