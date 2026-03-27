@@ -28,7 +28,6 @@ Concretely:
 
 ## Communication
 
-# PLACEHOLDER: Estilo de comunicação (adaptar ou usar padrão)
 {{ AGENT_VOICE }}
 
 - Direct. Short sentences when possible. Detailed when necessary.
