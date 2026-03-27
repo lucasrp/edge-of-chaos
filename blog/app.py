@@ -1432,5 +1432,7 @@ if __name__ == "__main__":
     # Warm up cache on startup
     print("Warming up entry cache and FTS index...")
     get_entries()
-    print(f"Blog server (Flask) on http://localhost:8766/blog/")
-    app.run(host="127.0.0.1", port=8766, debug=False, threaded=True)
+    port = int(os.environ.get("BLOG_PORT", 8766))
+    host = os.environ.get("BLOG_HOST", "127.0.0.1")
+    print(f"Blog server (Flask) on http://localhost:{port}/blog/")
+    app.run(host=host, port=port, debug=False, threaded=True)
