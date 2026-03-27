@@ -75,6 +75,7 @@ onboarding_mode: true           # false after graduated
 
 # --- Optional ---
 bio: "Autonomous agent for the full edge-of-chaos lifecycle: market positioning, user acquisition, product roadmap, and technical execution."
+context_dir: ""                 # local dir with docs, specs, transcripts the agent reads for context
 public_url: ""                  # if blog is public
 repo_owner: "lucasrp"
 repo_name: "edge-of-chaos"
