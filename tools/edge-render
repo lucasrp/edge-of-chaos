@@ -72,6 +72,7 @@ def load_agent_yaml(path: Path) -> dict:
     cfg.setdefault("bio", cfg["mission"])
     cfg.setdefault("character_sketch", cfg.get("voice", "Direct, technical."))
     cfg.setdefault("knowledge_base", "")
+    cfg.setdefault("context_dir", "")
     cfg.setdefault("public_url", "")
     cfg.setdefault("repo_owner", "")
     cfg.setdefault("repo_name", cfg["name"])
@@ -147,6 +148,7 @@ def build_placeholder_map(cfg: dict) -> dict:
         "HEARTBEAT_PROMPT": cfg["heartbeat_prompt"],
         # Knowledge base
         "KB_PATH": cfg["knowledge_base"],
+        "CONTEXT_DIR": cfg["context_dir"],
         "KB_TYPE": cfg["kb_type"],
         "KB_REFRESH": cfg["kb_refresh"],
         # Lifecycle hooks (rendered from lists)

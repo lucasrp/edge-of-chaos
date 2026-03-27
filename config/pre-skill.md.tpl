@@ -10,6 +10,12 @@
 
 {{ VOICE }}
 
+{% if CONTEXT_DIR %}
+## Context directory
+
+Check `{{ CONTEXT_DIR }}` for updated docs, specs, or transcripts before acting. This is your domain context — read what changed since last session.
+{% endif %}
+
 ## Before each skill
 
 {{ PRE_SKILL_CHECKLIST }}
