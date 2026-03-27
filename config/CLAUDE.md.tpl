@@ -50,6 +50,19 @@ Internal blog at `http://localhost:{{ BLOG_PORT }}/blog/`
 - `edge-doctor` — Validate installation
 - `consolidate-state` — 8-phase publication pipeline
 - `review-gate` — LLM-as-judge quality gate
+- `edge-signal` — Typed operational signal writer
+
+## Signals — Operational Memory
+
+Capture signals inline during work. Two channels:
+- **Frontmatter** (in blog entries): consolidate-state extracts automatically
+- **CLI** (runtime): `edge-signal <type> "<message>"`
+
+6 types: `autonomy` `strategy` `reflection` `friction` `decision` `serendipity`
+
+Prefixes: (none)=verified, `!`=open gap, `?`=speculative
+
+Storage: `state/signals/<type>.md` — one file per type, append-only, compressed at 100 lines.
 
 ## Genotype / Phenotype — CRITICAL
 
