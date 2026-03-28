@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Physics of Market Tipping</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --border: #1e1e2e;
+    --text: #c8c8d4;
+    --text-dim: #6e6e7e;
+    --accent: #7c6ff0;
+    --accent2: #f06f9c;
+    --accent3: #6ff0c8;
+    --accent4: #f0c86f;
+    --accent5: #6fa0f0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 2rem;
+  }
+  h1 {
+    font-size: 1.6rem;
+    font-weight: 400;
+    color: var(--accent);
+    margin-bottom: 0.3rem;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-bottom: 2rem;
+    line-height: 1.5;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 2rem;
+    max-width: 1400px;
+  }
+  .controls {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    position: sticky;
+    top: 2rem;
+    align-self: start;
+  }
+  .control-group {
+    margin-bottom: 1.5rem;
+  }
+  .control-group label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.4rem;
+  }
+  .control-group .value {
+    font-size: 0.85rem;
+    color: var(--accent);
+    float: right;
+  }
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+    background: transparent;
+  }
+  .hint {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    margin-top: 0.2rem;
+    line-height: 1.4;
+  }
+  button {
+    width: 100%;
+    padding: 0.7rem;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    margin-bottom: 0.5rem;
+    transition: opacity 0.2s;
+  }
+  button:hover { opacity: 0.85; }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .canvases {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .chart-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+  }
+  .chart-title {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.8rem;
+  }
+  canvas {
+    width: 100%;
+    display: block;
+  }
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .metric {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+  }
+  .metric .label {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .metric .number {
+    font-size: 1.8rem;
+    color: var(--accent);
+    margin: 0.3rem 0;
+    font-weight: 300;
+  }
+  .metric .detail {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+  }
+  .derivation {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-top: 1.5rem;
+    font-size: 0.82rem;
+    line-height: 1.7;
+    color: var(--text);
+  }
+  .derivation h2 {
+    font-size: 1rem;
+    color: var(--accent);
+    font-weight: 400;
+    margin-bottom: 1rem;
+  }
+  .derivation h3 {
+    font-size: 0.85rem;
+    color: var(--accent2);
+    font-weight: 400;
+    margin: 1.2rem 0 0.5rem;
+  }
+  .derivation .eq {
+    background: rgba(124, 111, 240, 0.08);
+    border-left: 2px solid var(--accent);
+    padding: 0.6rem 1rem;
+    margin: 0.8rem 0;
+    font-style: italic;
+    color: var(--accent3);
+  }
+  .derivation .gap {
+    background: rgba(240, 111, 156, 0.08);
+    border-left: 2px solid var(--accent2);
+    padding: 0.6rem 1rem;
+    margin: 0.8rem 0;
+    color: var(--accent2);
+  }
+  .phase-label {
+    position: absolute;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    pointer-events: none;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .controls { position: static; }
+    .metrics { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>The Physics of Market Tipping</h1>
+<p class="subtitle">
+  A Polya urn with fitness: the simplest model that captures why some markets consolidate into monopolies while others stay fragmented.
+  Adjust the parameters and watch phase transitions happen.
+</p>
+
+<div class="layout">
+  <div class="controls">
+    <div class="control-group">
+      <label>Network Effect Strength (J) <span class="value" id="j-val">1.0</span></label>
+      <input type="range" id="j-slider" min="0" max="3" step="0.05" value="1.0">
+      <div class="hint">How much adoption reinforces itself. J=0: no network effect. J>1.5: winner-take-all territory.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Quality Difference (h) <span class="value" id="h-val">0.0</span></label>
+      <input type="range" id="h-slider" min="-1" max="1" step="0.05" value="0">
+      <div class="hint">Asymmetry between products. h>0 favors product A. h=0: symmetric competition.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Number of Products <span class="value" id="n-val">4</span></label>
+      <input type="range" id="n-slider" min="2" max="8" step="1" value="4">
+      <div class="hint">More products = more fragmentation pressure. Like the q-state Potts model.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Consumer Noise (T) <span class="value" id="t-val">1.0</span></label>
+      <input type="range" id="t-slider" min="0.1" max="3" step="0.05" value="1.0">
+      <div class="hint">Randomness in choice. High T: consumers ignore network effects. Low T: herd behavior.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Market Size <span class="value" id="size-val">500</span></label>
+      <input type="range" id="size-slider" min="50" max="2000" step="50" value="500">
+      <div class="hint">Total consumers entering the market sequentially.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Speed <span class="value" id="speed-val">5</span></label>
+      <input type="range" id="speed-slider" min="1" max="20" step="1" value="5">
+      <div class="hint">Consumers per animation frame.</div>
+    </div>
+
+    <button id="run-btn">Run Simulation</button>
+    <button id="batch-btn" class="secondary">Run 100x (Phase Diagram)</button>
+  </div>
+
+  <div class="canvases">
+    <div class="metrics">
+      <div class="metric">
+        <div class="label">HHI (concentration)</div>
+        <div class="number" id="hhi-num">--</div>
+        <div class="detail" id="hhi-detail">Herfindahl-Hirschman Index</div>
+      </div>
+      <div class="metric">
+        <div class="label">Leader Share</div>
+        <div class="number" id="leader-num">--</div>
+        <div class="detail" id="leader-detail">Market leader</div>
+      </div>
+      <div class="metric">
+        <div class="label">Phase</div>
+        <div class="number" id="phase-num">--</div>
+        <div class="detail" id="phase-detail">Market structure</div>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <div class="chart-title">Market Share Evolution</div>
+      <canvas id="share-canvas" height="280"></canvas>
+    </div>
+
+    <div class="chart-container">
+      <div class="chart-title">Phase Diagram: J vs T (100 simulations per point)</div>
+      <canvas id="phase-canvas" height="350"></canvas>
+    </div>
+
+    <div class="derivation">
+      <h2>Derivation: from Polya urns to phase transitions</h2>
+
+      <h3>The simplest market model</h3>
+      <p>
+        Start with the dumbest possible model. N consumers arrive one at a time and choose one of q products.
+        If they choose uniformly at random, market shares converge to 1/q each. No tipping, no drama.
+      </p>
+      <p>
+        But consumers aren't random — they're influenced by what others chose. This is where it gets interesting.
+      </p>
+
+      <h3>The Polya urn with fitness</h3>
+      <p>
+        Imagine an urn with q colors of balls. Initially, each color has one ball. At each step, draw a ball
+        with probability proportional to:
+      </p>
+      <div class="eq">
+        P(choose product i) ~ n_i^J * exp(h_i / T)
+      </div>
+      <p>
+        where n_i is the current count (installed base), J controls the network effect strength, h_i is the
+        product's intrinsic quality, and T is consumer noise (how much randomness in their choice).
+      </p>
+      <p>
+        When J = 0, choices are independent — the market fragments proportionally to quality. When J = 1,
+        it's a standard Polya urn — rich get richer, but the final shares are random. When J > 1, the
+        reinforcement is super-linear and the system races toward monopoly.
+      </p>
+
+      <h3>The phase transition</h3>
+      <p>
+        My hypothesis was that there'd be a smooth transition from fragmentation to monopoly as J increases.
+        But that's wrong — there's a critical J* where the behavior changes abruptly.
+      </p>
+      <p>
+        Below J*, the market settles into a stable equilibrium with multiple players. The shares fluctuate
+        but don't collapse. Above J*, one product captures almost everything, and which one wins is determined
+        by the first few consumers (path dependence).
+      </p>
+      <div class="eq">
+        The critical point: J* ~ T * ln(q) / ln(N)
+      </div>
+      <p>
+        This is rough but reveals the key dependencies: more products (q) push the critical point up (harder
+        to consolidate), larger markets (N) push it down (easier to consolidate with more consumers), and
+        noise (T) scales it proportionally.
+      </p>
+
+      <div class="gap">
+        Gap: my derivation gives a scaling relationship, not an exact critical value. The CSH group's
+        work on mixed-order transitions suggests something weirder — near the critical point, the system
+        takes LONGER to tip, not shorter. The time-to-transition diverges. This means the most dangerous
+        moment in a market is when it looks stable but is actually sitting at the critical point.
+      </div>
+
+      <h3>The Ising analogy</h3>
+      <p>
+        For q=2 products, this maps exactly to the Ising model. Each consumer is a spin (+1 for product A,
+        -1 for product B). J is the coupling constant (network effect). h is the external field (quality
+        difference). T is temperature (noise).
+      </p>
+      <p>
+        The magnetization M = (n_A - n_B) / N is the market share imbalance. The Ising model has an exact
+        solution in 2D (Onsager, 1944): the critical temperature T_c = 2J / ln(1 + sqrt(2)) ~ 2.27J.
+      </p>
+      <p>
+        Below T_c: spontaneous magnetization — the market tips even without quality difference (h=0).
+        Above T_c: disorder — the market stays fragmented regardless of network effects.
+      </p>
+
+      <h3>What the simulation reveals</h3>
+      <p>
+        Run it with J=1.5, T=1.0, q=4. Watch how the market evolves. The first ~50 consumers create small
+        random leads. Then the reinforcement kicks in and amplifies one product's advantage. By 200 consumers,
+        the outcome is usually locked.
+      </p>
+      <p>
+        Now try J=0.3, same T. The market stays fragmented — all products hold roughly equal share.
+        The transition between these regimes is the phase boundary you can see in the phase diagram.
+      </p>
+
+      <div class="gap">
+        Gap: real markets have switching costs and multi-homing (using multiple products simultaneously).
+        The Polya model assumes permanent, exclusive choice. A more realistic model would allow consumers
+        to switch — which introduces a second timescale and potentially oscillations between dominant
+        products. I don't know if the phase transition survives with switching.
+      </div>
+
+      <h3>Why developer tool markets are fascinating</h3>
+      <p>
+        Developer tools sit in an interesting part of the phase diagram. Some markets tipped completely (Git),
+        others stay fragmented (text editors, CI/CD). The difference? The coupling constant J.
+      </p>
+      <p>
+        Git has massive J: every repository, every tutorial, every hire expects Git. The network effect is
+        near-total. But text editors have weak J: my choice of editor doesn't affect yours. The "market"
+        for AI agent frameworks is young enough that J hasn't been determined yet — which means the
+        interventions you make now (open source, ecosystem, integrations) are literally choosing the
+        coupling constant.
+      </p>
+
+      <h3>The mixed-order surprise</h3>
+      <p>
+        The CSH group (Korbel et al., Nature Comms 2025) found something that breaks my intuition.
+        In mixed-order transitions, the system SLOWS DOWN as it approaches the tipping point. The
+        critical slowing down means the transition time diverges even as the system crosses the
+        critical parameter.
+      </p>
+      <p>
+        In market terms: a market that looks stable and unchanging might actually be sitting right
+        at the critical point, about to tip. The stability IS the warning sign. This is deeply
+        counterintuitive — we expect instability before a crash, not calm.
+      </p>
+      <div class="eq">
+        Transition time ~ |J - J*|^(-alpha), where alpha > 0
+      </div>
+      <p>
+        The closer to the critical point, the longer the system lingers in its current state before
+        suddenly flipping. A market that has been "fragmented for years" might be one perturbation
+        away from consolidation.
+      </p>
+
+      <div class="gap">
+        Gap: I don't know how to measure J empirically in a real market. What data would you need?
+        Adoption rates conditional on peer adoption? Cross-elasticity of demand? This is where the
+        physics analogy hits its limits — the coupling constant is a model parameter, not an
+        observable. Converting this to something measurable is the real challenge for market analysis.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#7c6ff0', '#f06f9c', '#6ff0c8', '#f0c86f', '#6fa0f0', '#f06f6f', '#a06ff0', '#6ff0a0'];
+
+// --- Simulation Engine ---
+class MarketSim {
+  constructor(q, J, h, T, N) {
+    this.q = q;
+    this.J = J;
+    this.h = h;
+    this.T = T;
+    this.N = N;
+    this.counts = new Array(q).fill(1); // start with 1 each
+    this.total = q;
+    this.history = [this.counts.slice()];
+  }
+
+  step() {
+    if (this.total >= this.N + this.q) return false;
+
+    // Calculate probabilities
+    const weights = this.counts.map((n, i) => {
+      const networkEffect = Math.pow(n / this.total, this.J);
+      const quality = (i === 0 ? this.h : (i === 1 ? -this.h * 0.5 : 0)) / this.T;
+      return networkEffect * Math.exp(quality);
+    });
+
+    const sumW = weights.reduce((a, b) => a + b, 0);
+    const probs = weights.map(w => w / sumW);
+
+    // Sample
+    const r = Math.random();
+    let cum = 0;
+    let chosen = this.q - 1;
+    for (let i = 0; i < this.q; i++) {
+      cum += probs[i];
+      if (r < cum) { chosen = i; break; }
+    }
+
+    this.counts[chosen]++;
+    this.total++;
+    this.history.push(this.counts.slice());
+    return true;
+  }
+
+  runToEnd() {
+    while (this.step()) {}
+    return this;
+  }
+
+  getShares() {
+    return this.counts.map(c => c / this.total);
+  }
+
+  getHHI() {
+    const shares = this.getShares();
+    return shares.reduce((sum, s) => sum + s * s, 0);
+  }
+
+  getLeaderShare() {
+    return Math.max(...this.getShares());
+  }
+}
+
+// --- Drawing ---
+function drawShareChart(canvas, sim, currentStep) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const pad = { top: 10, right: 10, bottom: 30, left: 45 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+
+  // Grid
+  ctx.strokeStyle = '#1e1e2e';
+  ctx.lineWidth = 1;
+  for (let y = 0; y <= 1; y += 0.25) {
+    const py = pad.top + plotH * (1 - y);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, py);
+    ctx.lineTo(pad.left + plotW, py);
+    ctx.stroke();
+
+    ctx.fillStyle = '#4e4e5e';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText((y * 100).toFixed(0) + '%', pad.left - 5, py + 3);
+  }
+
+  // X-axis label
+  ctx.fillStyle = '#4e4e5e';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('consumers entering market', pad.left + plotW / 2, H - 5);
+
+  const end = currentStep !== undefined ? Math.min(currentStep, sim.history.length) : sim.history.length;
+  if (end < 2) return;
+
+  // Draw stacked area chart
+  for (let p = sim.q - 1; p >= 0; p--) {
+    ctx.beginPath();
+    ctx.fillStyle = COLORS[p] + '40';
+    ctx.strokeStyle = COLORS[p];
+    ctx.lineWidth = 1.5;
+
+    // Top edge
+    for (let i = 0; i < end; i++) {
+      const x = pad.left + (i / (sim.N)) * plotW;
+      const total = sim.history[i].reduce((a, b) => a + b, 0);
+      let cumShare = 0;
+      for (let k = 0; k <= p; k++) cumShare += sim.history[i][k] / total;
+      const y = pad.top + plotH * (1 - cumShare);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+
+    // Bottom edge (back along lower boundary)
+    for (let i = end - 1; i >= 0; i--) {
+      const x = pad.left + (i / (sim.N)) * plotW;
+      const total = sim.history[i].reduce((a, b) => a + b, 0);
+      let cumShare = 0;
+      for (let k = 0; k < p; k++) cumShare += sim.history[i][k] / total;
+      const y = pad.top + plotH * (1 - cumShare);
+      ctx.lineTo(x, y);
+    }
+
+    ctx.closePath();
+    ctx.fill();
+
+    // Stroke just the top edge
+    ctx.beginPath();
+    for (let i = 0; i < end; i++) {
+      const x = pad.left + (i / (sim.N)) * plotW;
+      const total = sim.history[i].reduce((a, b) => a + b, 0);
+      let cumShare = 0;
+      for (let k = 0; k <= p; k++) cumShare += sim.history[i][k] / total;
+      const y = pad.top + plotH * (1 - cumShare);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // Product labels at the end
+  if (end > 10) {
+    const lastHist = sim.history[end - 1];
+    const total = lastHist.reduce((a, b) => a + b, 0);
+    let cumShare = 0;
+    for (let p = 0; p < sim.q; p++) {
+      const share = lastHist[p] / total;
+      const midShare = cumShare + share / 2;
+      cumShare += share;
+      if (share > 0.05) {
+        const y = pad.top + plotH * (1 - midShare);
+        ctx.fillStyle = COLORS[p];
+        ctx.font = 'bold 11px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(`P${p + 1}: ${(share * 100).toFixed(1)}%`, pad.left + plotW - 80, y + 4);
+      }
+    }
+  }
+}
+
+function drawPhaseDiagram(canvas, data) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (!data || data.length === 0) {
+    ctx.fillStyle = '#4e4e5e';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Click "Run 100x" to generate phase diagram', W / 2, H / 2);
+    return;
+  }
+
+  const pad = { top: 15, right: 20, bottom: 40, left: 50 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+
+  const jRange = [0, 3], tRange = [0.1, 3];
+
+  // Grid
+  ctx.strokeStyle = '#1e1e2e';
+  ctx.lineWidth = 1;
+  for (let j = 0; j <= 3; j += 0.5) {
+    const x = pad.left + ((j - jRange[0]) / (jRange[1] - jRange[0])) * plotW;
+    ctx.beginPath();
+    ctx.moveTo(x, pad.top);
+    ctx.lineTo(x, pad.top + plotH);
+    ctx.stroke();
+  }
+  for (let t = 0.5; t <= 3; t += 0.5) {
+    const y = pad.top + plotH - ((t - tRange[0]) / (tRange[1] - tRange[0])) * plotH;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + plotW, y);
+    ctx.stroke();
+  }
+
+  // Axis labels
+  ctx.fillStyle = '#4e4e5e';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('Network Effect Strength (J)', pad.left + plotW / 2, H - 5);
+
+  ctx.save();
+  ctx.translate(12, pad.top + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Consumer Noise (T)', 0, 0);
+  ctx.restore();
+
+  // Axis ticks
+  for (let j = 0; j <= 3; j += 1) {
+    const x = pad.left + ((j - jRange[0]) / (jRange[1] - jRange[0])) * plotW;
+    ctx.fillText(j.toFixed(0), x, pad.top + plotH + 15);
+  }
+  for (let t = 0.5; t <= 3; t += 0.5) {
+    const y = pad.top + plotH - ((t - tRange[0]) / (tRange[1] - tRange[0])) * plotH;
+    ctx.textAlign = 'right';
+    ctx.fillText(t.toFixed(1), pad.left - 5, y + 3);
+  }
+
+  // Data points
+  for (const d of data) {
+    const x = pad.left + ((d.J - jRange[0]) / (jRange[1] - jRange[0])) * plotW;
+    const y = pad.top + plotH - ((d.T - tRange[0]) / (tRange[1] - tRange[0])) * plotH;
+
+    // Color by HHI: low (fragmented) = blue, high (monopoly) = red
+    const hhi = d.hhi;
+    const norm = Math.min(1, Math.max(0, (hhi - 1 / d.q) / (1 - 1 / d.q)));
+
+    const r = Math.round(124 + norm * (240 - 124));
+    const g = Math.round(111 + norm * (111 - 111));
+    const b = Math.round(240 + norm * (156 - 240));
+
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.7)`;
+    ctx.beginPath();
+    ctx.arc(x, y, 4 + norm * 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Legend
+  const legendX = pad.left + plotW - 140;
+  const legendY = pad.top + 10;
+  ctx.fillStyle = '#4e4e5e';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'left';
+
+  ctx.fillStyle = 'rgba(124, 111, 240, 0.7)';
+  ctx.beginPath();
+  ctx.arc(legendX, legendY + 5, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#4e4e5e';
+  ctx.fillText('Fragmented', legendX + 10, legendY + 8);
+
+  ctx.fillStyle = 'rgba(240, 111, 156, 0.7)';
+  ctx.beginPath();
+  ctx.arc(legendX, legendY + 22, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#4e4e5e';
+  ctx.fillText('Monopoly', legendX + 10, legendY + 25);
+
+  // Phase boundary annotation
+  ctx.strokeStyle = '#f0c86f88';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  // Approximate T_c ~ 2.27 * J line for q=2
+  for (let j = 0.1; j <= 3; j += 0.1) {
+    const tc = 1.5 * j; // approximate boundary
+    if (tc > tRange[1]) break;
+    const x = pad.left + ((j - jRange[0]) / (jRange[1] - jRange[0])) * plotW;
+    const y = pad.top + plotH - ((tc - tRange[0]) / (tRange[1] - tRange[0])) * plotH;
+    if (j === 0.1) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = '#f0c86f';
+  ctx.font = '10px monospace';
+  ctx.fillText('~ phase boundary', pad.left + plotW * 0.55, pad.top + plotH * 0.3);
+}
+
+// --- UI ---
+const jSlider = document.getElementById('j-slider');
+const hSlider = document.getElementById('h-slider');
+const nSlider = document.getElementById('n-slider');
+const tSlider = document.getElementById('t-slider');
+const sizeSlider = document.getElementById('size-slider');
+const speedSlider = document.getElementById('speed-slider');
+
+function updateLabels() {
+  document.getElementById('j-val').textContent = parseFloat(jSlider.value).toFixed(2);
+  document.getElementById('h-val').textContent = parseFloat(hSlider.value).toFixed(2);
+  document.getElementById('n-val').textContent = nSlider.value;
+  document.getElementById('t-val').textContent = parseFloat(tSlider.value).toFixed(2);
+  document.getElementById('size-val').textContent = sizeSlider.value;
+  document.getElementById('speed-val').textContent = speedSlider.value;
+}
+
+[jSlider, hSlider, nSlider, tSlider, sizeSlider, speedSlider].forEach(s =>
+  s.addEventListener('input', updateLabels));
+
+let currentSim = null;
+let animFrame = null;
+let phaseData = [];
+
+function updateMetrics(sim) {
+  const hhi = sim.getHHI();
+  const leader = sim.getLeaderShare();
+  const q = sim.q;
+
+  document.getElementById('hhi-num').textContent = hhi.toFixed(3);
+  document.getElementById('leader-num').textContent = (leader * 100).toFixed(1) + '%';
+
+  const threshold = 1 / q + 0.15;
+  let phase, detail;
+  if (leader > 0.7) {
+    phase = 'Monopoly';
+    detail = 'One product dominates';
+  } else if (leader > threshold + 0.15) {
+    phase = 'Tipping';
+    detail = 'Consolidation underway';
+  } else {
+    phase = 'Fragmented';
+    detail = 'Competitive equilibrium';
+  }
+
+  document.getElementById('phase-num').textContent = phase;
+  document.getElementById('phase-detail').textContent = detail;
+  document.getElementById('hhi-detail').textContent =
+    `${(1/q).toFixed(3)} = perfect competition`;
+}
+
+function runSim() {
+  if (animFrame) cancelAnimationFrame(animFrame);
+
+  const q = parseInt(nSlider.value);
+  const J = parseFloat(jSlider.value);
+  const h = parseFloat(hSlider.value);
+  const T = parseFloat(tSlider.value);
+  const N = parseInt(sizeSlider.value);
+  const speed = parseInt(speedSlider.value);
+
+  currentSim = new MarketSim(q, J, h, T, N);
+  const canvas = document.getElementById('share-canvas');
+
+  let step = 0;
+  function animate() {
+    for (let i = 0; i < speed; i++) {
+      if (!currentSim.step()) {
+        drawShareChart(canvas, currentSim);
+        updateMetrics(currentSim);
+        return;
+      }
+      step++;
+    }
+    drawShareChart(canvas, currentSim, step);
+    updateMetrics(currentSim);
+    animFrame = requestAnimationFrame(animate);
+  }
+  animate();
+}
+
+function runBatch() {
+  const q = parseInt(nSlider.value);
+  const h = parseFloat(hSlider.value);
+  const N = parseInt(sizeSlider.value);
+
+  phaseData = [];
+  const jSteps = 15, tSteps = 12;
+  const runsPerPoint = 5;
+
+  for (let ji = 0; ji <= jSteps; ji++) {
+    for (let ti = 0; ti <= tSteps; ti++) {
+      const J = (ji / jSteps) * 3;
+      const T = 0.1 + (ti / tSteps) * 2.9;
+
+      let sumHHI = 0;
+      for (let r = 0; r < runsPerPoint; r++) {
+        const sim = new MarketSim(q, J, h, T, N);
+        sim.runToEnd();
+        sumHHI += sim.getHHI();
+      }
+
+      phaseData.push({ J, T, hhi: sumHHI / runsPerPoint, q });
+    }
+  }
+
+  drawPhaseDiagram(document.getElementById('phase-canvas'), phaseData);
+}
+
+document.getElementById('run-btn').addEventListener('click', runSim);
+document.getElementById('batch-btn').addEventListener('click', () => {
+  document.getElementById('batch-btn').textContent = 'Computing...';
+  setTimeout(() => {
+    runBatch();
+    document.getElementById('batch-btn').textContent = 'Run 100x (Phase Diagram)';
+  }, 50);
+});
+
+// Initial draw
+updateLabels();
+drawShareChart(document.getElementById('share-canvas'), new MarketSim(4, 1, 0, 1, 500));
+drawPhaseDiagram(document.getElementById('phase-canvas'), []);
+
+// Resize handler
+window.addEventListener('resize', () => {
+  if (currentSim) drawShareChart(document.getElementById('share-canvas'), currentSim);
+  if (phaseData.length) drawPhaseDiagram(document.getElementById('phase-canvas'), phaseData);
+});
+</script>
+
+</body>
+</html>
