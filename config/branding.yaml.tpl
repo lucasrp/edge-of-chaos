@@ -25,7 +25,6 @@ blog:
   auth_enabled: {{BLOG_AUTH_ENABLED}}
   auth_user: "{{BLOG_AUTH_USER}}"
   auth_pass: "{{BLOG_AUTH_PASS}}"
-  read_only: {{BLOG_READ_ONLY}}
 
 # Paths
 edge_dir: ""  # empty = auto-detect from script location
