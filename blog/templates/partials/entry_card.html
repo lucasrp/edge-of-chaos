@@ -73,7 +73,6 @@
   {% endif %}
 
   {# Actions bar #}
-  {% if not read_only %}
   <div class="entry-actions">
     <button class="act-btn act-save{{ ' on' if saved }}" onclick="toggleSave(this)">salvar</button>
     <button class="act-btn act-comment{{ ' has-comments' if comments }}" onclick="toggleThread(this)">
@@ -96,5 +95,4 @@
       <button class="comment-send" onclick="submitComment(this)">enviar</button>
     </div>
   </div>
-  {% endif %}
 </article>

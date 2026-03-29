@@ -3,8 +3,8 @@
 {% block content %}
 <div id="workflowResults">
   <div class="workflow-header">
-    <h2>Workflows & Anti-Patterns</h2>
-    <p class="workflow-subtitle">{{ entries | length }} operational procedures documented</p>
+    <h2>Workflows</h2>
+    <p class="workflow-subtitle">{{ (pending|length) + (entries|length) }} total{% if pending %} — {{ pending|length }} pending approval{% endif %}</p>
     <div class="workflow-sort-toggle">
       <a href="/blog/?tab=workflows&sort=date"
          class="workflow-sort-btn {{ 'active' if sort_by|default('date') == 'date' }}"
@@ -19,6 +19,55 @@
     </div>
   </div>
 
-  {% include 'partials/workflow_list.html' %}
+  {% if pending %}
+  <div class="workflow-section">
+    <h3 class="workflow-section-title pending-title">Pending Approval</h3>
+    <div class="workflow-list">
+      {% for e in pending %}
+      <article class="workflow-card draft" data-slug="{{ e.slug }}"
+               hx-get="/htmx/workflow/{{ e.slug }}"
+               hx-target="#workflowResults"
+               hx-swap="innerHTML"
+               style="cursor: pointer;">
+        <div class="workflow-card-header">
+          <span class="workflow-badge badge-draft">draft</span>
+          <span class="workflow-date">{{ e.date }}</span>
+        </div>
+        <h3 class="workflow-title">{{ e.title }}</h3>
+        {% if e.trigger %}
+        <p class="workflow-trigger">{{ e.trigger | truncate(120) }}</p>
+        {% endif %}
+        <div class="workflow-meta">
+          {% for t in e.tags if t not in ('workflow', 'workflow-draft', 'anti-pattern') %}
+          <span class="workflow-tag">{{ t }}</span>
+          {% endfor %}
+        </div>
+        <div class="workflow-actions" onclick="event.stopPropagation()">
+          <button class="wf-btn wf-approve" onclick="workflowAction('{{ e.slug }}', 'approve')">approve</button>
+          <button class="wf-btn wf-reject" onclick="workflowAction('{{ e.slug }}', 'reject')">delete</button>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if entries %}
+  <div class="workflow-section">
+    {% if pending %}<h3 class="workflow-section-title">Approved</h3>{% endif %}
+    {% include 'partials/workflow_list.html' %}
+  </div>
+  {% endif %}
+
+  {% if not pending and not entries %}
+  <p class="empty-state">No workflows documented yet.</p>
+  {% endif %}
 </div>
+
+<script>
+function workflowAction(slug, action) {
+  fetch('/workflows/' + slug + '/' + action, { method: 'POST' })
+    .then(function() { htmx.ajax('GET', '/blog/?tab=workflows', '#tabContent'); });
+}
+</script>
 {% endblock %}

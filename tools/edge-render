@@ -68,7 +68,6 @@ def load_agent_yaml(path: Path) -> dict:
     cfg.setdefault("blog_auth_enabled", True)
     cfg.setdefault("blog_auth_user", "admin")
     cfg.setdefault("blog_auth_pass", "change-me")
-    cfg.setdefault("blog_read_only", False)
     cfg.setdefault("onboarding_mode", True)
     cfg.setdefault("bio", cfg["mission"])
     cfg.setdefault("character_sketch", cfg.get("voice", "Direct, technical."))
@@ -144,7 +143,6 @@ def build_placeholder_map(cfg: dict) -> dict:
         "BLOG_AUTH_ENABLED": str(cfg["blog_auth_enabled"]).lower(),
         "BLOG_AUTH_USER": cfg["blog_auth_user"],
         "BLOG_AUTH_PASS": cfg["blog_auth_pass"],
-        "BLOG_READ_ONLY": str(cfg["blog_read_only"]).lower(),
         # Heartbeat
         "HEARTBEAT_INTERVAL": cfg["heartbeat_interval"],
         "HEARTBEAT_SECONDS": str(cfg["heartbeat_seconds"]),

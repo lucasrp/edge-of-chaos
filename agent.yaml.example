@@ -58,7 +58,6 @@ blog_host: "0.0.0.0"           # accessible from outside (use 127.0.0.1 to restr
 blog_auth_enabled: false        # donald is public — set to true + user/pass for private agents
 blog_auth_user: ""              # default for new agents: "admin"
 blog_auth_pass: ""              # default for new agents: generate a password
-blog_read_only: true            # public visitors can read but not post/comment
 
 # --- Before each skill ---
 # Instructions the agent follows before starting any task.

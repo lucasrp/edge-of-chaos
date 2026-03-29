@@ -70,10 +70,6 @@ _blog_cfg = BRANDING.get("blog", {})
 _auth_enabled = str(_blog_cfg.get("auth_enabled", False)).lower() in ("true", "1", "yes")
 _auth_user = _blog_cfg.get("auth_user", "")
 _auth_pass = _blog_cfg.get("auth_pass", "")
-_read_only_env = os.environ.get("BLOG_READ_ONLY", "").lower()
-_read_only_branding = str(_blog_cfg.get("read_only", False)).lower()
-BLOG_READ_ONLY = (_read_only_env or _read_only_branding) in ("true", "1", "yes")
-
 @app.before_request
 def enforce_auth():
     if _auth_enabled and _auth_user:
@@ -82,10 +78,6 @@ def enforce_auth():
         auth = request.authorization
         if not auth or auth.username != _auth_user or auth.password != _auth_pass:
             return ("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="Blog"'})
-
-@app.context_processor
-def inject_read_only():
-    return {"read_only": BLOG_READ_ONLY}
 
 # ─── Tag normalization ───
 TAG_MAP = {
@@ -536,12 +528,14 @@ def blog_index():
                                is_htmx=request.headers.get("HX-Request") == "true")
 
     elif tab == "workflows":
-        workflow_entries = [e for e in entries if "workflow" in e.get("tags", []) or "anti-pattern" in e.get("tags", [])]
+        all_wf = [e for e in entries if any(t in e.get("tags", []) for t in ("workflow", "anti-pattern", "workflow-draft"))]
+        pending = [e for e in all_wf if "workflow-draft" in e.get("tags", [])]
+        approved = [e for e in all_wf if "workflow-draft" not in e.get("tags", [])]
         sort_by = request.args.get("sort", "date")
         if sort_by == "views":
-            workflow_entries.sort(key=lambda e: e.get("view_count", 0), reverse=True)
-        return render_template("workflows.html", tab=tab, entries=workflow_entries,
-                               sort_by=sort_by, stats=stats,
+            approved.sort(key=lambda e: e.get("view_count", 0), reverse=True)
+        return render_template("workflows.html", tab=tab, pending=pending,
+                               entries=approved, sort_by=sort_by, stats=stats,
                                is_htmx=request.headers.get("HX-Request") == "true")
 
     elif tab == "chat":
@@ -557,6 +551,38 @@ def htmx_workflow_detail(slug):
         return "<p>Workflow not found.</p>", 404
     render_page_html([entry])
     return render_template("partials/workflow_detail.html", entry=entry)
+
+
+@app.route("/workflows/<slug>/approve", methods=["POST"])
+def workflow_approve(slug):
+    """Approve a workflow draft: change tag from workflow-draft to workflow."""
+    entries_dir = ENTRIES_DIR
+    path = next(entries_dir.glob(f"*{slug}*"), None)
+    if not path:
+        return jsonify({"error": "not found"}), 404
+    text = path.read_text()
+    parts = text.split("---", 2)
+    if len(parts) >= 3:
+        parts[1] = parts[1].replace("workflow-draft", "workflow")
+        path.write_text("---".join(parts))
+    invalidate_cache()
+    return "", 204
+
+
+@app.route("/workflows/<slug>/reject", methods=["POST"])
+def workflow_reject(slug):
+    """Reject a workflow draft: change tag to workflow-rejected."""
+    entries_dir = ENTRIES_DIR
+    path = next(entries_dir.glob(f"*{slug}*"), None)
+    if not path:
+        return jsonify({"error": "not found"}), 404
+    text = path.read_text()
+    parts = text.split("---", 2)
+    if len(parts) >= 3:
+        parts[1] = parts[1].replace("workflow-draft", "workflow-rejected")
+        path.write_text("---".join(parts))
+    invalidate_cache()
+    return "", 204
 
 
 # ─── Routes: htmx partials ───
