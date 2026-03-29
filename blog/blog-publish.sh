@@ -178,7 +178,7 @@ except Exception as e:
 " 2>&1 || VERIFY_OK=false
 
 # Check API visibility (use slug endpoint to avoid loading all entries)
-VISIBLE=$(curl -s -m 10 "$API_URL/blog/entries/" 2>/dev/null | python3 -c "
+VISIBLE=$(curl -s -m 10 $CURL_AUTH "$API_URL/blog/entries/" 2>/dev/null | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
