@@ -46,6 +46,20 @@ COMMIT_REASON=""
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --help|-h)
+            echo "Usage: consolidate-state <entry.md> [report.yaml|report.html]"
+            echo ""
+            echo "Flags:"
+            echo "  --skip-review      Skip review gate (LLM-as-judge)"
+            echo "  --review-only      Run only the review gate, without publishing"
+            echo "  --recover          Detect and re-run Phase 5/6 for incomplete publications"
+            echo "  --scratchpad PATH  Scratchpad for meta-report (default: /tmp/edge-scratch-active.md)"
+            echo "  --no-adversarial   Skip edge-consult in meta-report"
+            echo "  --no-meta          Skip meta-report (Phase 4)"
+            echo "  --reason TEXT      Custom commit message reason"
+            echo "  --help, -h         Show this help"
+            exit 0
+            ;;
         --skip-review) SKIP_REVIEW=true; shift ;;
         --review-only) REVIEW_ONLY=true; shift ;;
         --recover) RECOVER=true; shift ;;

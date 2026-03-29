@@ -241,6 +241,16 @@ def phase_identity(cfg, dry_run):
                 shutil.copy2(src, dst)
     ok("Onboarding templates copied")
 
+    # Health config → edge_home/health/config.yaml (from rendered template)
+    health_config_src = REPO_ROOT / "config" / "health-config.yaml"
+    health_config_dst = edge / "health" / "config.yaml"
+    if health_config_src.exists() and not dry_run:
+        (edge / "health").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(health_config_src, health_config_dst)
+        ok(f"Health config → {health_config_dst}")
+    elif not health_config_src.exists():
+        warn("health-config.yaml not found — run edge-render first")
+
     # Autonomy files
     auto_src = REPO_ROOT / "autonomy"
     auto_dst = edge / "autonomy"
@@ -250,6 +260,20 @@ def phase_identity(cfg, dry_run):
             for f in auto_src.glob("*.md"):
                 shutil.copy2(f, auto_dst / f.name)
         ok("Autonomy files copied")
+
+    # Seed missing state files (frontier.md, breaks-active.md)
+    seed_files = {
+        edge / "autonomy" / "frontier.md": "# Autonomy Frontier\n\nCapability expansions being explored.\n\n---\n",
+        edge / "state" / "breaks-active.md": "# Active Breaks\n\nBreaks being tracked in current cycle.\n\n---\n",
+    }
+    seeded = 0
+    for path, content in seed_files.items():
+        if not path.exists() and not dry_run:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+            seeded += 1
+    if seeded:
+        ok(f"{seeded} state files seeded (frontier.md, breaks-active.md)")
 
     return True
 
@@ -477,6 +501,15 @@ def phase_tools(cfg, dry_run):
             link.unlink(missing_ok=True)
             link.symlink_to(tool.resolve())
             linked += 1
+    # Create hyphenated aliases for tools with underscores (validate_svg → validate-svg)
+    for tool in tools_dst.iterdir():
+        if tool.is_file() and "_" in tool.stem and tool.suffix == ".py":
+            alias_name = tool.stem.replace("_", "-")
+            alias = local_bin / alias_name
+            if not alias.exists() and not dry_run:
+                alias.symlink_to(tool.resolve())
+                linked += 1
+
     # Also link consolidate-state from blog/
     cs = edge / "blog" / "consolidate-state.sh"
     if cs.exists() and not dry_run:
@@ -514,18 +547,26 @@ def phase_tools(cfg, dry_run):
         ok("Search venv already exists")
 
     # Create edge-index and edge-search wrappers (load secrets for API keys)
+    # Wrappers resolve paths dynamically via readlink so they survive user migrations
     if not dry_run:
         for wrapper_name, script in [("edge-index", "ingest.py"), ("edge-search", "search.py")]:
-            wrapper = local_bin / wrapper_name
-            wrapper.write_text(
-                f'#!/bin/bash\n'
-                f'EDGE_DIR="{edge}"\n'
-                f'cd "$EDGE_DIR"\n'
-                f'[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a\n'
-                f'"{search_dst / ".venv" / "bin" / "python3"}" "{search_dst / script}" "$@"\n'
+            wrapper = search_dst / wrapper_name.replace("edge-", "edge-")
+            # Write portable source wrapper in search/ (the canonical copy)
+            src_wrapper = search_dst / wrapper_name
+            src_wrapper.write_text(
+                '#!/bin/bash\n'
+                'SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"\n'
+                'EDGE_DIR="$(dirname "$SCRIPT_DIR")"\n'
+                'cd "$EDGE_DIR"\n'
+                '[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a\n'
+                f'"$SCRIPT_DIR/.venv/bin/python3" "$SCRIPT_DIR/{script}" "$@"\n'
             )
-            wrapper.chmod(0o755)
-        ok("edge-index + edge-search wrappers created (with secrets)")
+            src_wrapper.chmod(0o755)
+            # Symlink from ~/.local/bin/ to the source wrapper
+            link = local_bin / wrapper_name
+            link.unlink(missing_ok=True)
+            link.symlink_to(src_wrapper.resolve())
+        ok("edge-index + edge-search wrappers created (portable, with secrets)")
 
     # Create SQLite database if missing
     sqlite_db = edge / "edge-memory.db"

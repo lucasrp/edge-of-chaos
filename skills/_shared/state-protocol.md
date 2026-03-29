@@ -43,10 +43,10 @@ An unproposed change to a protected file = **fatal violation** = pipeline aborte
 
 Any change to these files is monitored by `edge-state-audit`:
 
-**Memory:**
-- `~/.claude/projects/-home-vboxuser/memory/MEMORY.md`
-- `~/.claude/projects/-home-vboxuser/memory/debugging.md`
-- `~/.claude/projects/-home-vboxuser/memory/personality.md`
+**Memory** (paths use Claude Code project dir — resolve via `~/.claude/projects/-home-$USER/memory/`):
+- `~/.claude/projects/-home-$USER/memory/MEMORY.md`
+- `~/.claude/projects/-home-$USER/memory/debugging.md`
+- `~/.claude/projects/-home-$USER/memory/personality.md`
 
 **Autonomy:**
 - `~/edge/autonomy/capabilities.md`
@@ -128,7 +128,7 @@ Declare EXACTLY which protected files will be modified and why:
 # Create YAML with proposed changes
 cat > /tmp/state-changes-<SLUG>.yaml <<'EOF'
 changes:
-  - path: "~/.claude/projects/-home-vboxuser/memory/MEMORY.md"
+  - path: "~/.claude/projects/-home-$USER/memory/MEMORY.md"
     action: modify
     reason: "Add insight about X confirmed this session"
     sections: ["Consolidated Knowledge"]
