@@ -1,6 +1,7 @@
 ---
 name: ed-corpus-curation
 description: "Corpus curation skill. Computes document health metrics, identifies redundancy clusters, proposes merge/archive/strengthen actions. Triggers on: curation, curadoria, corpus curation, corpus health, document curation, corpus cleanup, curadoria corpus."
+invocation: internal
 user-invocable: true
 ---
 
@@ -326,8 +327,26 @@ Cluster procedure-claims by semantic similarity:
 
 For each candidate cluster:
 - Synthesize claims into a full workflow (format: Trigger, Steps, Secrets, When works, When fails, Cost)
-- Present proposal to user
-- If approved → create workflow blog entry with tag `workflow`
+- Create blog entry with tag `workflow-draft` (NOT `workflow`)
+- Publish via `consolidate-state` normally
+
+**Workflow drafts appear in the dashboard (Workflows tab → Pending Approval) for the operator to approve or reject.** While not approved, drafts do NOT enter edge-search recall as active workflows.
+
+Draft frontmatter:
+```yaml
+---
+title: "workflow: [descriptive title]"
+date: YYYY-MM-DD
+tags: [workflow-draft, procedure-claims]
+trigger: "[when this workflow applies]"
+source_claims:
+  - entry: "entry-slug-1"
+    claim: "When X, do Y"
+  - entry: "entry-slug-2"
+    claim: "When X, do Z"
+cluster_similarity: 0.89
+---
+```
 
 ### Step P5: Persist and report
 

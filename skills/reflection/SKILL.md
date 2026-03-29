@@ -233,6 +233,40 @@ edge-search "recurring operational problem" -k 3
 
 If no relevant results for a topic that should exist → flag for curation.
 
+### HN-7: Procedure accumulation check
+
+Check if procedures are accumulating without crystallization:
+
+```bash
+# Count entries with procedures from last 60 days
+PROC_COUNT=$(grep -rl "^procedure:" ~/edge/blog/entries/ 2>/dev/null | \
+  xargs -I{} sh -c 'find "{}" -mtime -60 -print' 2>/dev/null | wc -l)
+
+# Check last procedure curation
+LAST_CURATION=$(python3 -c "
+import json, os
+f = os.path.expanduser('~/edge/state/procedure-curation.json')
+if os.path.exists(f):
+    d = json.load(open(f))
+    print(d.get('generated_at', 'never')[:10])
+else:
+    print('never')
+" 2>/dev/null)
+
+echo "Procedures: $PROC_COUNT entries with procedures, last curation: $LAST_CURATION"
+```
+
+**Trigger to dispatch `/ed-corpus-curation procedures`:**
+- More than 10 entries with procedures without recent curation, OR
+- Last procedure curation was more than 14 days ago
+
+If trigger active → one of the HN-Output insights should be:
+```
+[DISPATCH] Procedure accumulation detected (N entries, last curation: DATE) → /ed-corpus-curation procedures
+```
+
+The heartbeat receiving this insight dispatches corpus-curation instead of the skill it would normally dispatch.
+
 ### HN-Output: Synthesize
 
 Produce **max 3 actionable insights** in the format:
