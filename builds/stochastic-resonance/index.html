@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stochastic Resonance — When Noise Helps</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 14px;
+    overflow-x: hidden;
+  }
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  h1 {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-bottom: 24px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .panel-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+  }
+  canvas {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 4px;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .control-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  label {
+    font-size: 12px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 160px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .value-display {
+    font-size: 13px;
+    color: var(--accent);
+    min-width: 48px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .full-width {
+    grid-column: 1 / -1;
+  }
+  .btn {
+    padding: 6px 14px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .btn:hover { background: #21262d; }
+  .btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .stat {
+    text-align: center;
+  }
+  .stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--green);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+  }
+  .derivation {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 16px;
+    line-height: 1.7;
+    font-size: 13px;
+  }
+  .derivation h2 {
+    color: var(--accent);
+    font-size: 16px;
+    margin-bottom: 12px;
+  }
+  .derivation h3 {
+    color: var(--purple);
+    font-size: 14px;
+    margin: 16px 0 8px;
+  }
+  .math {
+    font-family: 'Cambria Math', 'Latin Modern Math', serif;
+    font-style: italic;
+    color: var(--orange);
+  }
+  .eq {
+    display: block;
+    text-align: center;
+    padding: 12px;
+    margin: 8px 0;
+    background: rgba(88, 166, 255, 0.05);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    font-family: 'Cambria Math', 'Latin Modern Math', serif;
+    font-size: 15px;
+    color: var(--orange);
+  }
+  .insight {
+    padding: 10px 14px;
+    margin: 12px 0;
+    border-left: 3px solid var(--green);
+    background: rgba(63, 185, 80, 0.05);
+    border-radius: 0 4px 4px 0;
+  }
+  .legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .legend-swatch {
+    width: 12px;
+    height: 3px;
+    border-radius: 1px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Stochastic Resonance</h1>
+  <p class="subtitle">The counterintuitive phenomenon where noise enhances signal detection in nonlinear systems</p>
+
+  <div class="panel full-width" style="margin-bottom: 16px;">
+    <div class="controls">
+      <div class="control-group">
+        <label>Noise intensity D:</label>
+        <input type="range" id="noiseSlider" min="0.01" max="0.8" step="0.005" value="0.15">
+        <span class="value-display" id="noiseValue">0.15</span>
+      </div>
+      <div class="control-group">
+        <label>Signal amplitude A:</label>
+        <input type="range" id="ampSlider" min="0" max="0.3" step="0.005" value="0.12">
+        <span class="value-display" id="ampValue">0.12</span>
+      </div>
+      <div class="control-group">
+        <label>Signal frequency:</label>
+        <input type="range" id="freqSlider" min="0.01" max="0.15" step="0.005" value="0.05">
+        <span class="value-display" id="freqValue">0.05</span>
+      </div>
+      <div class="control-group">
+        <button class="btn" id="pauseBtn">Pause</button>
+        <button class="btn" id="resetBtn">Reset</button>
+        <button class="btn" id="sweepBtn">Auto-sweep D</button>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-value" id="statSNR">--</div>
+        <div class="stat-label">SNR (measured)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="statKramers">--</div>
+        <div class="stat-label">Kramers rate r_K</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="statSwitches">0</div>
+        <div class="stat-label">Well switches</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="statCorr">--</div>
+        <div class="stat-label">Signal correlation</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-title">Double-well potential + particle</div>
+      <canvas id="potentialCanvas" width="560" height="320"></canvas>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#58a6ff"></div>U(x) potential</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#f85149;width:10px;height:10px;border-radius:50%"></div>Particle</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#d29922"></div>Tilted potential (signal)</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Trajectory x(t) vs input signal</div>
+      <canvas id="trajectoryCanvas" width="560" height="320"></canvas>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#3fb950"></div>Particle position x(t)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#d29922"></div>Input signal (scaled)</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:rgba(88,166,255,0.3);width:12px;height:12px"></div>Well +-1</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">SNR vs noise intensity (the resonance curve)</div>
+      <canvas id="snrCanvas" width="560" height="320"></canvas>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#bc8cff"></div>Theoretical SNR</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#f85149;width:8px;height:8px;border-radius:50%"></div>Current D</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:rgba(63,185,80,0.5)"></div>Optimal zone</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Output power spectrum</div>
+      <canvas id="spectrumCanvas" width="560" height="320"></canvas>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#58a6ff"></div>Power at signal freq</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:rgba(139,148,158,0.5)"></div>Noise floor</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="derivation">
+    <h2>Derivation from First Principles</h2>
+
+    <h3>1. The setup: a particle in a double-well</h3>
+    <p>Consider a particle with overdamped dynamics in a quartic potential:</p>
+    <div class="eq">U(x) = -x<sup>2</sup>/2 + x<sup>4</sup>/4</div>
+    <p>This has two stable minima at <span class="math">x = +/-1</span> and an unstable maximum at <span class="math">x = 0</span>. The barrier height is <span class="math">Delta U = 1/4</span>.</p>
+    <p>We drive this system with a weak periodic signal and noise:</p>
+    <div class="eq">dx/dt = x - x<sup>3</sup> + A<sub>0</sub>cos(omega t) + sqrt(2D) xi(t)</div>
+    <p>where <span class="math">xi(t)</span> is Gaussian white noise and <span class="math">D</span> is the noise intensity. The signal amplitude <span class="math">A<sub>0</sub></span> is weak: too small to push the particle over the barrier alone.</p>
+
+    <h3>2. Kramers escape rate: how noise moves the particle</h3>
+    <p>Without the signal, the particle sits in one well. Noise occasionally kicks it over the barrier. Kramers (1940) showed the mean escape rate is:</p>
+    <div class="eq">r<sub>K</sub> = (1/2pi) sqrt(|U''(x<sub>min</sub>)| x |U''(x<sub>max</sub>)|) x exp(-Delta U / D)</div>
+    <p>For our potential: <span class="math">U''(+/-1) = 2</span>, <span class="math">|U''(0)| = 1</span>, <span class="math">Delta U = 1/4</span>. So:</p>
+    <div class="eq">r<sub>K</sub> = sqrt(2) / (2pi) x exp(-1/(4D))</div>
+
+    <div class="insight">
+      <strong>Key insight:</strong> The escape rate is exponentially sensitive to noise. A small increase in D can dramatically change switching frequency. This exponential lever is what makes resonance possible.
+    </div>
+
+    <h3>3. The resonance condition: when noise and signal synchronize</h3>
+    <p>The signal periodically tilts the potential, making one well shallower and the other deeper. If noise-driven switching happens at roughly the same rate as the signal frequency, the particle "surfs" the signal — switching wells in time with each half-cycle.</p>
+    <p>The matching condition is:</p>
+    <div class="eq">2 r<sub>K</sub> ~ omega / (2pi)</div>
+    <p>Solving for the optimal noise:</p>
+    <div class="eq">D<sub>opt</sub> ~ 1 / (4 ln(2 sqrt(2) / omega))</div>
+
+    <h3>4. Signal-to-noise ratio: the peak</h3>
+    <p>The output SNR (power at frequency omega divided by background noise power) is:</p>
+    <div class="eq">SNR proportional to (A<sub>0</sub><sup>2</sup> / D<sup>2</sup>) x r<sub>K</sub></div>
+    <p>Two competing effects:</p>
+    <ul style="margin: 8px 0 8px 24px; line-height: 2;">
+      <li><span class="math">D -> 0</span>: <span class="math">r<sub>K</sub> -> 0</span> exponentially. No switching, no output at all. <strong>Too quiet.</strong></li>
+      <li><span class="math">D -> infinity</span>: <span class="math">1/D<sup>2</sup> -> 0</span>. Random switching drowns the signal. <strong>Too loud.</strong></li>
+      <li>At <span class="math">D = D<sub>opt</sub></span>: the sweet spot. Noise-driven transitions are phase-locked to the signal. <strong>Just right.</strong></li>
+    </ul>
+
+    <div class="insight">
+      <strong>This is stochastic resonance:</strong> There exists an optimal noise intensity — not zero! — that maximizes the system's ability to detect a weak signal. The noise is not a nuisance to be eliminated. It's a resource to be tuned.
+    </div>
+
+    <h3>5. Why it's wild: from ice ages to stink bugs</h3>
+    <p>Benzi, Parisi, Sutera, and Vulpiani (1981) invented this framework to explain a mystery of paleoclimatology: the Earth's ice ages have a ~100,000-year periodicity, yet the Milankovitch cycles (orbital variations) that drive them are far too weak to force such large climate transitions alone. SR says: the climate system is bistable (glacial/interglacial), the orbital forcing is sub-threshold, and internal climate noise provides the stochastic boost.</p>
+    <p>Forty-five years later, a 2026 paper found <em>double</em> stochastic resonance in stink bug mating communication — environmental noise helping both the sender's signal and the receiver's detection simultaneously.</p>
+    <p>The mechanism is the same everywhere: nonlinearity + threshold + noise = amplification. A neuron firing, an ice age beginning, a bug finding a mate.</p>
+  </div>
+</div>
+
+<script>
+// ===== SIMULATION ENGINE =====
+const state = {
+  x: -1.0,
+  t: 0,
+  dt: 0.02,
+  D: 0.15,
+  A0: 0.12,
+  omega: 0.05,
+  paused: false,
+  sweeping: false,
+  sweepDir: 1,
+  trajectory: [],
+  maxTraj: 800,
+  switchCount: 0,
+  lastWell: -1,
+  signalCorr: 0,
+  corrSamples: 0,
+  corrSum: 0,
+  // For spectrum
+  outputBuffer: new Float64Array(512),
+  bufferIdx: 0,
+  snrMeasurements: [],
+};
+
+// Potential and its derivative
+function U(x) { return -x*x/2 + x*x*x*x/4; }
+function dUdx(x) { return -x + x*x*x; }
+
+// Kramers rate
+function kramersRate(D) {
+  if (D < 0.001) return 0;
+  return Math.sqrt(2)/(2*Math.PI) * Math.exp(-0.25/D);
+}
+
+// Theoretical SNR (unnormalized)
+function theoreticalSNR(D, A0) {
+  if (D < 0.01) return 0;
+  const rk = kramersRate(D);
+  return (A0*A0 / (D*D)) * rk;
+}
+
+// Box-Muller
+function randn() {
+  let u1 = Math.random(), u2 = Math.random();
+  while (u1 === 0) u1 = Math.random();
+  return Math.sqrt(-2*Math.log(u1)) * Math.cos(2*Math.PI*u2);
+}
+
+// Euler-Maruyama step
+function step() {
+  const signal = state.A0 * Math.cos(state.omega * state.t);
+  const drift = -dUdx(state.x) + signal;
+  const noise = Math.sqrt(2*state.D*state.dt) * randn();
+  state.x += drift * state.dt + noise;
+  // Clamp to prevent blowup
+  state.x = Math.max(-3, Math.min(3, state.x));
+  state.t += state.dt;
+
+  // Track trajectory
+  state.trajectory.push({ x: state.x, t: state.t, signal: signal });
+  if (state.trajectory.length > state.maxTraj) state.trajectory.shift();
+
+  // Track well switches
+  const currentWell = state.x > 0 ? 1 : -1;
+  if (currentWell !== state.lastWell) {
+    state.switchCount++;
+    state.lastWell = currentWell;
+  }
+
+  // Running correlation between x and signal
+  const signalSign = Math.sign(signal);
+  const xSign = Math.sign(state.x);
+  state.corrSum += signalSign * xSign;
+  state.corrSamples++;
+
+  // Output buffer for spectrum
+  state.outputBuffer[state.bufferIdx % 512] = state.x;
+  state.bufferIdx++;
+}
+
+// Compute power spectrum via DFT at specific frequency
+function computeSpectrum() {
+  const N = 512;
+  const buf = state.outputBuffer;
+  const freqs = [];
+  for (let k = 1; k < N/2; k++) {
+    let re = 0, im = 0;
+    for (let n = 0; n < N; n++) {
+      const angle = 2*Math.PI*k*n/N;
+      re += buf[n] * Math.cos(angle);
+      im -= buf[n] * Math.sin(angle);
+    }
+    const power = (re*re + im*im) / (N*N);
+    const freq = k / (N * state.dt);
+    freqs.push({ freq, power });
+  }
+  return freqs;
+}
+
+// ===== RENDERING =====
+function getCtx(id) {
+  const canvas = document.getElementById(id);
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  return { ctx, w: rect.width, h: rect.height };
+}
+
+function drawPotential() {
+  const { ctx, w, h } = getCtx('potentialCanvas');
+  ctx.clearRect(0, 0, w, h);
+
+  const pad = { l: 40, r: 20, t: 20, b: 30 };
+  const pw = w - pad.l - pad.r;
+  const ph = h - pad.t - pad.b;
+
+  // Map x to pixel
+  const xMin = -2, xMax = 2;
+  const uMin = -0.3, uMax = 0.6;
+  const xToP = x => pad.l + (x - xMin)/(xMax - xMin) * pw;
+  const uToP = u => pad.t + (1 - (u - uMin)/(uMax - uMin)) * ph;
+
+  // Axes
+  ctx.strokeStyle = '#30363d';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, h - pad.b);
+  ctx.lineTo(w - pad.r, h - pad.b);
+  ctx.stroke();
+
+  // Static potential
+  ctx.strokeStyle = '#58a6ff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let px = 0; px <= pw; px++) {
+    const x = xMin + px/pw * (xMax - xMin);
+    const u = U(x);
+    const py = uToP(u);
+    px === 0 ? ctx.moveTo(xToP(x), py) : ctx.lineTo(xToP(x), py);
+  }
+  ctx.stroke();
+
+  // Tilted potential (with signal)
+  const signal = state.A0 * Math.cos(state.omega * state.t);
+  ctx.strokeStyle = '#d29922';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  for (let px = 0; px <= pw; px++) {
+    const x = xMin + px/pw * (xMax - xMin);
+    const u = U(x) - signal * x;
+    const py = uToP(u);
+    px === 0 ? ctx.moveTo(xToP(x), py) : ctx.lineTo(xToP(x), py);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Particle
+  const px = xToP(state.x);
+  const py = uToP(U(state.x));
+  ctx.fillStyle = '#f85149';
+  ctx.shadowColor = '#f85149';
+  ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.arc(px, py, 7, 0, 2*Math.PI);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Barrier line
+  ctx.strokeStyle = 'rgba(248,81,73,0.3)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 4]);
+  ctx.beginPath();
+  ctx.moveTo(xToP(0), uToP(uMin)); ctx.lineTo(xToP(0), uToP(uMax));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Labels
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('x', w - pad.r + 10, h - pad.b + 4);
+  ctx.fillText('-1', xToP(-1), h - pad.b + 14);
+  ctx.fillText('+1', xToP(1), h - pad.b + 14);
+  ctx.fillText('0', xToP(0), h - pad.b + 14);
+
+  // Barrier height annotation
+  ctx.fillStyle = '#58a6ff';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('Delta U = 1/4', xToP(0.1), uToP(0.25) - 4);
+}
+
+function drawTrajectory() {
+  const { ctx, w, h } = getCtx('trajectoryCanvas');
+  ctx.clearRect(0, 0, w, h);
+
+  const pad = { l: 40, r: 20, t: 20, b: 30 };
+  const pw = w - pad.l - pad.r;
+  const ph = h - pad.t - pad.b;
+
+  const traj = state.trajectory;
+  if (traj.length < 2) return;
+
+  const tMin = traj[0].t, tMax = traj[traj.length - 1].t;
+  const xRange = 2.5;
+  const tToP = t => pad.l + (t - tMin)/(tMax - tMin) * pw;
+  const xToP = x => pad.t + (1 - (x + xRange)/(2*xRange)) * ph;
+
+  // Background well zones
+  ctx.fillStyle = 'rgba(88, 166, 255, 0.04)';
+  ctx.fillRect(pad.l, xToP(xRange), pw, xToP(0) - xToP(xRange));
+  ctx.fillStyle = 'rgba(188, 140, 255, 0.04)';
+  ctx.fillRect(pad.l, xToP(0), pw, xToP(-xRange) - xToP(0));
+
+  // Zero line
+  ctx.strokeStyle = 'rgba(139,148,158,0.2)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 4]);
+  ctx.beginPath();
+  ctx.moveTo(pad.l, xToP(0)); ctx.lineTo(w - pad.r, xToP(0));
+  ctx.stroke();
+
+  // Well lines at +/-1
+  ctx.strokeStyle = 'rgba(88,166,255,0.15)';
+  ctx.beginPath();
+  ctx.moveTo(pad.l, xToP(1)); ctx.lineTo(w - pad.r, xToP(1));
+  ctx.moveTo(pad.l, xToP(-1)); ctx.lineTo(w - pad.r, xToP(-1));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Input signal (scaled to show well positions)
+  ctx.strokeStyle = '#d29922';
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.6;
+  ctx.beginPath();
+  for (let i = 0; i < traj.length; i++) {
+    const px = tToP(traj[i].t);
+    const py = xToP(traj[i].signal * 5); // Scale for visibility
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1.0;
+
+  // Trajectory
+  ctx.strokeStyle = '#3fb950';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < traj.length; i++) {
+    const px = tToP(traj[i].t);
+    const py = xToP(traj[i].x);
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  // Labels
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText('+1', pad.l - 4, xToP(1) + 4);
+  ctx.fillText('-1', pad.l - 4, xToP(-1) + 4);
+  ctx.fillText('0', pad.l - 4, xToP(0) + 4);
+}
+
+function drawSNRCurve() {
+  const { ctx, w, h } = getCtx('snrCanvas');
+  ctx.clearRect(0, 0, w, h);
+
+  const pad = { l: 50, r: 20, t: 20, b: 30 };
+  const pw = w - pad.l - pad.r;
+  const ph = h - pad.t - pad.b;
+
+  const dMin = 0.01, dMax = 0.8;
+  const A0 = state.A0;
+
+  // Compute theoretical SNR curve
+  const points = [];
+  let maxSNR = 0;
+  let optD = 0;
+  for (let i = 0; i <= 200; i++) {
+    const D = dMin + i/200 * (dMax - dMin);
+    const snr = theoreticalSNR(D, A0);
+    points.push({ D, snr });
+    if (snr > maxSNR) { maxSNR = snr; optD = D; }
+  }
+
+  if (maxSNR === 0) maxSNR = 1;
+  const dToP = d => pad.l + (d - dMin)/(dMax - dMin) * pw;
+  const sToP = s => pad.t + (1 - s/maxSNR) * ph * 0.9;
+
+  // Optimal zone highlight
+  const optWidth = 0.08;
+  ctx.fillStyle = 'rgba(63,185,80,0.08)';
+  ctx.fillRect(dToP(optD - optWidth), pad.t, dToP(optD + optWidth) - dToP(optD - optWidth), ph);
+
+  // Axes
+  ctx.strokeStyle = '#30363d';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, h - pad.b);
+  ctx.lineTo(w - pad.r, h - pad.b);
+  ctx.stroke();
+
+  // Curve
+  ctx.strokeStyle = '#bc8cff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < points.length; i++) {
+    const px = dToP(points[i].D);
+    const py = sToP(points[i].snr);
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  // Current D marker
+  const curSNR = theoreticalSNR(state.D, A0);
+  const curPx = dToP(state.D);
+  const curPy = sToP(curSNR);
+
+  // Vertical line at current D
+  ctx.strokeStyle = 'rgba(248,81,73,0.4)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(curPx, pad.t); ctx.lineTo(curPx, h - pad.b);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Point
+  ctx.fillStyle = '#f85149';
+  ctx.shadowColor = '#f85149';
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.arc(curPx, curPy, 5, 0, 2*Math.PI);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Optimal D marker
+  ctx.fillStyle = '#3fb950';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('D_opt=' + optD.toFixed(3), dToP(optD), h - pad.b + 14);
+
+  // Labels
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('Noise intensity D', w/2, h - 4);
+  ctx.save();
+  ctx.translate(12, h/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText('SNR', 0, 0);
+  ctx.restore();
+
+  // Annotations
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('too quiet', pad.l + 4, pad.t + ph - 8);
+  ctx.textAlign = 'right';
+  ctx.fillText('too loud', w - pad.r - 4, pad.t + ph - 8);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#3fb950';
+  ctx.fillText('just right', dToP(optD), pad.t + 14);
+}
+
+function drawSpectrum() {
+  const { ctx, w, h } = getCtx('spectrumCanvas');
+  ctx.clearRect(0, 0, w, h);
+
+  const pad = { l: 50, r: 20, t: 20, b: 30 };
+  const pw = w - pad.l - pad.r;
+  const ph = h - pad.t - pad.b;
+
+  if (state.bufferIdx < 512) {
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Accumulating data... ' + Math.floor(state.bufferIdx/512*100) + '%', w/2, h/2);
+    return;
+  }
+
+  const spectrum = computeSpectrum();
+  if (spectrum.length === 0) return;
+
+  // Find max power for scaling
+  let maxPow = 0;
+  for (const s of spectrum) if (s.power > maxPow) maxPow = s.power;
+  if (maxPow === 0) maxPow = 1;
+
+  // Use log scale
+  const logMin = -6;
+  const logMax = Math.log10(maxPow) + 0.5;
+
+  const fMin = 0, fMax = spectrum[spectrum.length - 1].freq;
+  const fToP = f => pad.l + (f - fMin)/(fMax - fMin) * pw;
+  const pToP = p => {
+    const lp = p > 0 ? Math.log10(p) : logMin;
+    return pad.t + (1 - (lp - logMin)/(logMax - logMin)) * ph;
+  };
+
+  // Axes
+  ctx.strokeStyle = '#30363d';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, h - pad.b);
+  ctx.lineTo(w - pad.r, h - pad.b);
+  ctx.stroke();
+
+  // Signal frequency marker
+  const sigFreq = state.omega / (2 * Math.PI);
+  ctx.strokeStyle = 'rgba(88,166,255,0.3)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(fToP(sigFreq), pad.t);
+  ctx.lineTo(fToP(sigFreq), h - pad.b);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Spectrum bars
+  const barW = Math.max(1, pw / spectrum.length - 0.5);
+  for (const s of spectrum) {
+    const px = fToP(s.freq);
+    const py = pToP(s.power);
+    const isSignal = Math.abs(s.freq - sigFreq) < (fMax / spectrum.length);
+    ctx.fillStyle = isSignal ? '#58a6ff' : 'rgba(139,148,158,0.3)';
+    ctx.fillRect(px - barW/2, py, barW, (h - pad.b) - py);
+  }
+
+  // Labels
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('Frequency', w/2, h - 4);
+  ctx.fillStyle = '#58a6ff';
+  ctx.font = '10px monospace';
+  ctx.fillText('signal freq', fToP(sigFreq), pad.t + 14);
+  ctx.save();
+  ctx.translate(12, h/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '11px monospace';
+  ctx.fillText('log Power', 0, 0);
+  ctx.restore();
+}
+
+// ===== STATS =====
+function updateStats() {
+  const rk = kramersRate(state.D);
+  document.getElementById('statKramers').textContent = rk.toFixed(4);
+
+  const snr = theoreticalSNR(state.D, state.A0);
+  document.getElementById('statSNR').textContent = snr.toFixed(4);
+  // Color by resonance proximity
+  const maxSNR = (() => {
+    let m = 0;
+    for (let d = 0.01; d < 0.8; d += 0.005) {
+      const s = theoreticalSNR(d, state.A0);
+      if (s > m) m = s;
+    }
+    return m;
+  })();
+  const ratio = maxSNR > 0 ? snr / maxSNR : 0;
+  const snrEl = document.getElementById('statSNR');
+  snrEl.style.color = ratio > 0.8 ? '#3fb950' : ratio > 0.4 ? '#d29922' : '#f85149';
+
+  document.getElementById('statSwitches').textContent = state.switchCount;
+
+  if (state.corrSamples > 0) {
+    const corr = state.corrSum / state.corrSamples;
+    document.getElementById('statCorr').textContent = corr.toFixed(3);
+    const corrEl = document.getElementById('statCorr');
+    corrEl.style.color = Math.abs(corr) > 0.5 ? '#3fb950' : Math.abs(corr) > 0.2 ? '#d29922' : '#f85149';
+  }
+}
+
+// ===== CONTROLS =====
+const noiseSlider = document.getElementById('noiseSlider');
+const ampSlider = document.getElementById('ampSlider');
+const freqSlider = document.getElementById('freqSlider');
+
+noiseSlider.addEventListener('input', e => {
+  state.D = parseFloat(e.target.value);
+  document.getElementById('noiseValue').textContent = state.D.toFixed(3);
+  resetCorrelation();
+});
+ampSlider.addEventListener('input', e => {
+  state.A0 = parseFloat(e.target.value);
+  document.getElementById('ampValue').textContent = state.A0.toFixed(3);
+  resetCorrelation();
+});
+freqSlider.addEventListener('input', e => {
+  state.omega = parseFloat(e.target.value);
+  document.getElementById('freqValue').textContent = state.omega.toFixed(3);
+  resetCorrelation();
+});
+
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  state.paused = !state.paused;
+  document.getElementById('pauseBtn').textContent = state.paused ? 'Resume' : 'Pause';
+  document.getElementById('pauseBtn').classList.toggle('active', state.paused);
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  state.x = -1;
+  state.t = 0;
+  state.trajectory = [];
+  state.switchCount = 0;
+  state.lastWell = -1;
+  state.outputBuffer = new Float64Array(512);
+  state.bufferIdx = 0;
+  resetCorrelation();
+});
+
+document.getElementById('sweepBtn').addEventListener('click', function() {
+  state.sweeping = !state.sweeping;
+  this.classList.toggle('active', state.sweeping);
+  this.textContent = state.sweeping ? 'Stop sweep' : 'Auto-sweep D';
+  if (state.sweeping) {
+    state.D = 0.01;
+    noiseSlider.value = state.D;
+    document.getElementById('noiseValue').textContent = state.D.toFixed(3);
+  }
+});
+
+function resetCorrelation() {
+  state.corrSum = 0;
+  state.corrSamples = 0;
+}
+
+// ===== MAIN LOOP =====
+let frameCount = 0;
+function loop() {
+  if (!state.paused) {
+    // Multiple simulation steps per frame for speed
+    for (let i = 0; i < 8; i++) step();
+
+    // Auto-sweep
+    if (state.sweeping) {
+      state.D += 0.0008 * state.sweepDir;
+      if (state.D >= 0.8) state.sweepDir = -1;
+      if (state.D <= 0.01) { state.sweepDir = 1; state.sweeping = false;
+        document.getElementById('sweepBtn').classList.remove('active');
+        document.getElementById('sweepBtn').textContent = 'Auto-sweep D';
+      }
+      noiseSlider.value = state.D;
+      document.getElementById('noiseValue').textContent = state.D.toFixed(3);
+    }
+  }
+
+  // Draw every frame
+  drawPotential();
+  drawTrajectory();
+
+  // Draw these less frequently
+  if (frameCount % 4 === 0) {
+    drawSNRCurve();
+    drawSpectrum();
+    updateStats();
+  }
+
+  frameCount++;
+  requestAnimationFrame(loop);
+}
+
+// Initialize displays
+document.getElementById('noiseValue').textContent = state.D.toFixed(3);
+document.getElementById('ampValue').textContent = state.A0.toFixed(3);
+document.getElementById('freqValue').textContent = state.omega.toFixed(3);
+
+loop();
+</script>
+</body>
+</html>
