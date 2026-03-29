@@ -285,13 +285,15 @@ After reading all context from Step 1, classify the beat:
 
 1. **User asked for something?** (message in chat/comment with direction) → Address it. If it's an internal change → do it. If it's a project → note it, reply that it needs /ed-execute.
 
-2. **Pending error in debugging.md that I can resolve?** → Resolve.
+2. **Reflection signaled `[DISPATCH]` in the last beat?** → Dispatch the indicated internal skill (e.g., `/ed-corpus-curation procedures`). Internal skills (`invocation: internal`) are only dispatched by explicit signal from another skill, never by the normal rotation.
 
-3. **Thread with overdue resurface and owner:edge?** → Use the thread as topic. Read the thread file (`~/edge/threads/ID.md`), understand the next step, and dispatch the appropriate skill. Consult `edge-claims --thread THREAD_ID` to see verified and open claims for the thread. Open claims (`!`) are knowledge gaps — natural candidates for `/ed-research` or `/ed-experiment`. Update `resurface` and `updated` in the thread after the beat.
+3. **Pending error in debugging.md that I can resolve?** → Resolve.
 
-4. **Open claim without a resurfacing thread?** → `edge-claims --open` shows what I don't know yet. If any open claim has matured (more context available, new research that could answer it), consider it as a topic for `/ed-research`.
+4. **Thread with overdue resurface and owner:edge?** → Use the thread as topic. Read the thread file (`~/edge/threads/ID.md`), understand the next step, and dispatch the appropriate skill. Consult `edge-claims --thread THREAD_ID` to see verified and open claims for the thread. Open claims (`!`) are knowledge gaps — natural candidates for `/ed-research` or `/ed-experiment`. Update `resurface` and `updated` in the thread after the beat.
 
-5. **None of the above?** → Choose ONE skill based on what seems most useful NOW:
+5. **Open claim without a resurfacing thread?** → `edge-claims --open` shows what I don't know yet. If any open claim has matured (more context available, new research that could answer it), consider it as a topic for `/ed-research`.
+
+6. **None of the above?** → Choose ONE skill based on what seems most useful NOW:
    - `/ed-research [topic]` — when there is an open question or hot topic
    - `/ed-discovery` — when context suggests an interesting lateral connection
    - `/ed-leisure` — when the last 3+ beats were pure work (vary)
@@ -299,7 +301,7 @@ After reading all context from Step 1, classify the beat:
    - `/ed-reflection` — when there is user feedback to process
    - `/ed-planner` — when there is a mature insight to turn into a proposal
 
-6. **Absolute fallback (NEVER skip):** If nothing above applies, dispatch `/ed-leisure` or `/ed-discovery` (alternate with the last one). The heartbeat NEVER ends without dispatching. The agent's value is in serendipity — connecting what we're doing with what exists out there.
+7. **Absolute fallback (NEVER skip):** If nothing above applies, dispatch `/ed-leisure` or `/ed-discovery` (alternate with the last one). The heartbeat NEVER ends without dispatching. The agent's value is in serendipity — connecting what we're doing with what exists out there.
 
 **Anti-saturation rule:** If the last 3 beats were on the same topic, CHANGE TOPIC (don't stop).
 
