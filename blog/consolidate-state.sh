@@ -645,6 +645,17 @@ except Exception as e:
                 ARCHIVED=$(echo "$META_OUTPUT" | grep "Scratchpad:" | sed 's/.*Scratchpad: //')
                 ok "Scratchpad archived: $(basename "$ARCHIVED")"
             fi
+            # Inject review-gate results into meta-report (so check-quality can find them)
+            if [[ -n "${REVIEW_SCORE:-}" && -f "$META_REPORT_PATH" ]]; then
+                cat >> "$META_REPORT_PATH" <<REVIEW_EOF
+
+## Review Gate
+
+- overall review score: ${REVIEW_SCORE}/5.0
+- review cost: \$${REVIEW_COST}
+REVIEW_EOF
+                ok "Review gate results injected into meta-report"
+            fi
         else
             warn "edge-meta-report failed (exit $META_EXIT)"
         fi
