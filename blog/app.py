@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import (
-    Flask, jsonify, render_template, request, send_from_directory, abort
+    Flask, jsonify, redirect, render_template, request, send_from_directory, abort
 )
 from flask_compress import Compress
 import markdown
@@ -457,6 +457,11 @@ def inject_globals():
 
 
 # ─── Routes: Main pages ───
+@app.route("/")
+def root_redirect():
+    return redirect("/blog/")
+
+
 @app.route("/blog/")
 @app.route("/blog")
 def blog_index():
