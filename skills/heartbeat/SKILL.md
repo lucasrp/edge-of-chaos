@@ -96,7 +96,7 @@ except:
 
 beat = rot['beat']
 meta = ['reflection', 'autonomy', 'strategy']
-content = ['discovery', 'research', 'leisure']
+content = ['discovery', 'research']
 
 # Every 3rd beat is meta, others are content
 if (beat + 1) % 3 == 0:
@@ -114,7 +114,7 @@ print(f'ROTATION: {kind} → {skill} (beat #{beat + 1})')
 " 2>/dev/null
 ```
 
-Dispatch the skill from the rotation. Meta skills (reflection, autonomy, strategy) MUST run — they maintain the agent's self-awareness. Content skills (discovery, research, leisure) produce domain output.
+Dispatch the skill from the rotation. Meta skills (reflection, autonomy, strategy) MUST run — they maintain the agent's self-awareness. Content skills (discovery, research) produce domain output.
 
 Log:
 ```bash
@@ -271,11 +271,11 @@ Note interesting results (high engagement, non-obvious connection) as **"serendi
 After reading all context from Step 1, classify the beat:
 
 - **WORK:** There is a clear signal (chat, error, thread, session with correction). Dispatch targeted skill.
-- **EXPLORE:** No urgent signal. Dispatch `/ed-leisure` or `/ed-discovery` (alternate). The value is in serendipity — seeing what we're doing and bringing the right terms, the right projects, the lateral connections. This is how idea seeds are born and cultivated.
+- **EXPLORE:** No urgent signal. Dispatch `/ed-discovery` or `/ed-research` (alternate). The value is in serendipity — seeing what we're doing and bringing the right terms, the right projects, the lateral connections.
 
-**ABSOLUTE RULE:** The heartbeat ALWAYS dispatches a skill. There is no empty beat. `/ed-leisure` and `/ed-discovery` exist precisely for when there is no urgent work.
+**ABSOLUTE RULE:** The heartbeat ALWAYS dispatches a skill. There is no empty beat.
 
-**Anti-saturation** changes meaning: it's not "stop", it's "change topic". If the last 3 beats were on the same topic, switch to another. If they were all work, do /ed-leisure. If they were all exploration, do /ed-research on a thread.
+**Anti-saturation** changes meaning: it's not "stop", it's "change topic". If the last 3 beats were on the same topic, switch to another. If they were all exploration, do /ed-research on a thread.
 
 ---
 
@@ -296,12 +296,11 @@ After reading all context from Step 1, classify the beat:
 6. **None of the above?** → Choose ONE skill based on what seems most useful NOW:
    - `/ed-research [topic]` — when there is an open question or hot topic
    - `/ed-discovery` — when context suggests an interesting lateral connection
-   - `/ed-leisure` — when the last 3+ beats were pure work (vary)
    - `/ed-strategy` — every ~5 beats, or when context changed
    - `/ed-reflection` — when there is user feedback to process
    - `/ed-planner` — when there is a mature insight to turn into a proposal
 
-7. **Absolute fallback (NEVER skip):** If nothing above applies, dispatch `/ed-leisure` or `/ed-discovery` (alternate with the last one). The heartbeat NEVER ends without dispatching. The agent's value is in serendipity — connecting what we're doing with what exists out there.
+7. **Absolute fallback (NEVER skip):** If nothing above applies, dispatch `/ed-discovery` or `/ed-research` (alternate with the last one). The heartbeat NEVER ends without dispatching.
 
 **Anti-saturation rule:** If the last 3 beats were on the same topic, CHANGE TOPIC (don't stop).
 
