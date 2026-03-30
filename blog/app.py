@@ -1277,6 +1277,116 @@ def _human_size(size_bytes):
 _SETUP_MAX_CONTENT = 50_000  # truncate files larger than this in the setup view
 
 
+def _load_notification_config():
+    """Load notification settings from features.yaml + keys.env."""
+    features_path = ROOT / "config" / "features.yaml"
+    keys_path = ROOT / "secrets" / "keys.env"
+    config = {"channel": "none", "telegram": {}, "whatsapp": {}, "slack": {},
+              "events": {"approval": True, "health": True, "heartbeat": False, "reports": False}}
+    try:
+        import yaml as _y
+        feat = _y.safe_load(features_path.read_text()) or {}
+        notif = feat.get("notifications", {})
+        # Detect active channel
+        for ch in ("telegram", "slack", "whatsapp"):
+            ch_cfg = notif.get(ch, {})
+            if str(ch_cfg.get("enabled", "")).lower() in ("true", "auto"):
+                config["channel"] = ch
+                break
+        # Load slack channels
+        slack_cfg = notif.get("slack", {})
+        config["slack"]["channels"] = slack_cfg.get("channels", {})
+    except Exception:
+        pass
+    # Load keys (mask values)
+    try:
+        for line in keys_path.read_text().splitlines():
+            if "=" not in line or line.startswith("#"):
+                continue
+            k, v = line.split("=", 1)
+            k, v = k.strip(), v.strip().strip("'\"")
+            if k == "TELEGRAM_BOT_TOKEN":
+                config["telegram"]["bot_token"] = bool(v)
+            if k == "TELEGRAM_CHAT_ID":
+                config["telegram"]["chat_id"] = v
+            if k == "SLACK_BOT_TOKEN":
+                config["slack"]["bot_token"] = bool(v)
+            if k == "SLACK_WEBHOOK_URL":
+                config["slack"]["webhook"] = bool(v)
+            if k == "WHATSAPP_PHONE":
+                config["whatsapp"]["phone"] = v
+            if k == "WHATSAPP_API_URL":
+                config["whatsapp"]["api_url"] = bool(v)
+    except Exception:
+        pass
+    return config
+
+
+@app.route("/api/setup/notifications", methods=["POST"])
+def save_notifications():
+    """Save notification channel config to keys.env and features.yaml."""
+    data = request.get_json() or {}
+    channel = data.get("channel", "none")
+    keys_path = ROOT / "secrets" / "keys.env"
+    features_path = ROOT / "config" / "features.yaml"
+
+    # Update keys.env (append/replace notification keys)
+    key_updates = {}
+    if channel == "telegram":
+        if data.get("telegram_bot_token"):
+            key_updates["TELEGRAM_BOT_TOKEN"] = data["telegram_bot_token"]
+        if data.get("telegram_chat_id"):
+            key_updates["TELEGRAM_CHAT_ID"] = data["telegram_chat_id"]
+    elif channel == "whatsapp":
+        if data.get("whatsapp_phone"):
+            key_updates["WHATSAPP_PHONE"] = data["whatsapp_phone"]
+        if data.get("whatsapp_api_url"):
+            key_updates["WHATSAPP_API_URL"] = data["whatsapp_api_url"]
+    elif channel == "slack":
+        if data.get("slack_bot_token"):
+            key_updates["SLACK_BOT_TOKEN"] = data["slack_bot_token"]
+        if data.get("slack_webhook"):
+            key_updates["SLACK_WEBHOOK_URL"] = data["slack_webhook"]
+
+    if key_updates:
+        existing = {}
+        try:
+            for line in keys_path.read_text().splitlines():
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    existing[k.strip()] = v.strip()
+        except FileNotFoundError:
+            pass
+        existing.update(key_updates)
+        keys_path.write_text("\n".join(f"{k}={v}" for k, v in existing.items()) + "\n")
+
+    # Update features.yaml notification enabled flags
+    try:
+        import yaml as _y
+        feat = _y.safe_load(features_path.read_text()) or {}
+        notif = feat.setdefault("notifications", {})
+        for ch in ("telegram", "slack", "whatsapp"):
+            ch_cfg = notif.setdefault(ch, {})
+            ch_cfg["enabled"] = True if ch == channel else False
+        features_path.write_text(_y.dump(feat, default_flow_style=False, allow_unicode=True))
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "channel": channel})
+
+
+@app.route("/api/setup/notifications/test", methods=["POST"])
+def test_notifications():
+    """Send a test notification through the configured channel."""
+    import subprocess
+    result = subprocess.run(
+        ["bash", "-c", f'{ROOT / "tools" / "notify.sh"} --level info "Test notification from dashboard"'],
+        capture_output=True, text=True, timeout=10,
+    )
+    ok = result.returncode == 0
+    return jsonify({"ok": ok, "output": result.stdout[:200] if ok else result.stderr[:200]})
+
+
 @app.route("/setup")
 def setup_page():
     """Setup tab — configure agent files, view system state."""
@@ -1355,6 +1465,9 @@ def setup_page():
             "files": enriched,
         })
 
+    # Load notification config for setup UI
+    notif_config = _load_notification_config()
+
     return render_template(
         "setup.html",
         tab="setup",
@@ -1363,6 +1476,7 @@ def setup_page():
         stats=get_stats_data(),
         health=get_health_data(get_entries()),
         groups=groups,
+        notif=notif_config,
     )
 
 
