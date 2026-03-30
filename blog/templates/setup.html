@@ -2,6 +2,94 @@
 {% block content %}
 <div class="setup">
 
+  {# ── Notifications ── #}
+  <div class="setup-group">
+    <h2 class="setup-group-title" onclick="this.parentElement.classList.toggle('collapsed')">
+      <span class="setup-chevron">&#9660;</span>
+      Notifications
+      <span class="setup-group-badge badge-human">humano</span>
+      <span class="setup-group-count">
+        {% if notif.channel != 'none' %}
+        <span class="notif-status-dot notif-active"></span> {{ notif.channel }}
+        {% else %}
+        <span class="notif-status-dot notif-off"></span> off
+        {% endif %}
+      </span>
+    </h2>
+    <div class="setup-group-body">
+      <div class="notif-section">
+        <div class="notif-row">
+          <label class="notif-label">Canal</label>
+          <select id="notif-channel" class="notif-select" onchange="notifChannelChanged()">
+            <option value="none" {{ 'selected' if notif.channel == 'none' }}>Nenhum</option>
+            <option value="telegram" {{ 'selected' if notif.channel == 'telegram' }}>Telegram</option>
+            <option value="whatsapp" {{ 'selected' if notif.channel == 'whatsapp' }}>WhatsApp</option>
+            <option value="slack" {{ 'selected' if notif.channel == 'slack' }}>Slack</option>
+          </select>
+        </div>
+
+        <div id="notif-telegram" class="notif-fields" style="display:{{ '' if notif.channel == 'telegram' else 'none' }}">
+          <div class="notif-row">
+            <label class="notif-label">Bot Token</label>
+            <input type="password" id="notif-tg-token" class="notif-input"
+                   placeholder="123456:ABC-DEF..."
+                   value="{{ '••••••••' if notif.telegram.bot_token else '' }}">
+          </div>
+          <div class="notif-row">
+            <label class="notif-label">Chat ID</label>
+            <input type="text" id="notif-tg-chatid" class="notif-input"
+                   placeholder="123456789"
+                   value="{{ notif.telegram.chat_id or '' }}">
+          </div>
+        </div>
+
+        <div id="notif-whatsapp" class="notif-fields" style="display:{{ '' if notif.channel == 'whatsapp' else 'none' }}">
+          <div class="notif-row">
+            <label class="notif-label">Telefone</label>
+            <input type="text" id="notif-wa-phone" class="notif-input"
+                   placeholder="+5511999999999"
+                   value="{{ notif.whatsapp.phone or '' }}">
+          </div>
+          <div class="notif-row">
+            <label class="notif-label">API URL (Evolution/Meta)</label>
+            <input type="text" id="notif-wa-api" class="notif-input"
+                   placeholder="https://api.evolution..."
+                   value="{{ '••••••••' if notif.whatsapp.api_url else '' }}">
+          </div>
+        </div>
+
+        <div id="notif-slack" class="notif-fields" style="display:{{ '' if notif.channel == 'slack' else 'none' }}">
+          <div class="notif-row">
+            <label class="notif-label">Bot Token</label>
+            <input type="password" id="notif-sl-token" class="notif-input"
+                   placeholder="xoxb-..."
+                   value="{{ '••••••••' if notif.slack.bot_token else '' }}">
+          </div>
+          <div class="notif-row">
+            <label class="notif-label">Webhook URL</label>
+            <input type="text" id="notif-sl-webhook" class="notif-input"
+                   placeholder="https://hooks.slack.com/..."
+                   value="{{ '••••••••' if notif.slack.webhook else '' }}">
+          </div>
+        </div>
+
+        <div class="notif-events">
+          <span class="notif-events-label">Quando notificar:</span>
+          <label class="notif-check"><input type="checkbox" id="notif-evt-approval" checked> Aprovacao pendente (workflows)</label>
+          <label class="notif-check"><input type="checkbox" id="notif-evt-health" checked> Health degradado</label>
+          <label class="notif-check"><input type="checkbox" id="notif-evt-reports"> Report publicado</label>
+          <label class="notif-check"><input type="checkbox" id="notif-evt-heartbeat"> Cada heartbeat</label>
+        </div>
+
+        <div class="notif-actions">
+          <button class="action-btn action-save" onclick="saveNotifications(this)">save</button>
+          <button class="action-btn notif-test-btn" onclick="testNotification(this)">test</button>
+          <span class="notif-save-status"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   {% for group in groups %}
   <div class="setup-group">
     <h2 class="setup-group-title" onclick="this.parentElement.classList.toggle('collapsed')">
@@ -265,6 +353,77 @@
   padding: 0.1rem 0.3rem;
   border-radius: 2px;
 }
+
+/* ── Notifications ── */
+.notif-section { padding: 0.75rem 1rem; }
+.notif-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.notif-label {
+  font-size: 0.75rem;
+  color: var(--muted, #888);
+  min-width: 100px;
+  text-align: right;
+}
+.notif-select, .notif-input {
+  background: var(--bg, #0d0d1a);
+  color: var(--fg, #e0e0e0);
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+.notif-select { cursor: pointer; min-width: 140px; }
+.notif-input { flex: 1; max-width: 400px; }
+.notif-fields { margin: 0.25rem 0 0.5rem; }
+.notif-events {
+  margin: 0.75rem 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border, #333);
+}
+.notif-events-label {
+  font-size: 0.75rem;
+  color: var(--muted, #888);
+  display: block;
+  margin-bottom: 0.4rem;
+}
+.notif-check {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--fg, #e0e0e0);
+  margin: 0.25rem 0;
+  cursor: pointer;
+}
+.notif-check input { margin-right: 0.4rem; }
+.notif-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.notif-test-btn {
+  background: transparent;
+  color: var(--muted, #888);
+  border: 1px solid var(--border, #333);
+  padding: 0.3rem 0.8rem;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+.notif-test-btn:hover { color: var(--fg, #e0e0e0); border-color: var(--fg, #e0e0e0); }
+.notif-save-status { font-size: 0.7rem; }
+.notif-status-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  margin-right: 2px;
+}
+.notif-active { background: #10b981; }
+.notif-off { background: #6b7280; }
 </style>
 
 <script>
@@ -310,5 +469,74 @@ document.addEventListener('keydown', function(e) {
     e.target.selectionStart = e.target.selectionEnd = s + 2;
   }
 });
+
+function notifChannelChanged() {
+  var ch = document.getElementById('notif-channel').value;
+  ['telegram', 'whatsapp', 'slack'].forEach(function(c) {
+    var el = document.getElementById('notif-' + c);
+    if (el) el.style.display = (c === ch) ? '' : 'none';
+  });
+}
+
+function saveNotifications(btn) {
+  var ch = document.getElementById('notif-channel').value;
+  var statusEl = btn.parentElement.querySelector('.notif-save-status');
+  var data = {channel: ch};
+
+  if (ch === 'telegram') {
+    var tok = document.getElementById('notif-tg-token').value;
+    if (tok && tok !== '••••••••') data.telegram_bot_token = tok;
+    data.telegram_chat_id = document.getElementById('notif-tg-chatid').value;
+  } else if (ch === 'whatsapp') {
+    data.whatsapp_phone = document.getElementById('notif-wa-phone').value;
+    var api = document.getElementById('notif-wa-api').value;
+    if (api && api !== '••••••••') data.whatsapp_api_url = api;
+  } else if (ch === 'slack') {
+    var tok = document.getElementById('notif-sl-token').value;
+    if (tok && tok !== '••••••••') data.slack_bot_token = tok;
+    var wh = document.getElementById('notif-sl-webhook').value;
+    if (wh && wh !== '••••••••') data.slack_webhook = wh;
+  }
+
+  data.events = {
+    approval: document.getElementById('notif-evt-approval').checked,
+    health: document.getElementById('notif-evt-health').checked,
+    reports: document.getElementById('notif-evt-reports').checked,
+    heartbeat: document.getElementById('notif-evt-heartbeat').checked,
+  };
+
+  btn.disabled = true; btn.textContent = '...';
+  fetch('/api/setup/notifications', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data)
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    btn.disabled = false; btn.textContent = 'save';
+    statusEl.textContent = d.ok ? 'saved' : (d.error || 'error');
+    statusEl.style.color = d.ok ? '#10b981' : '#ef4444';
+    setTimeout(function() { statusEl.textContent = ''; }, 3000);
+  }).catch(function() {
+    btn.disabled = false; btn.textContent = 'save';
+    statusEl.textContent = 'network error';
+    statusEl.style.color = '#ef4444';
+  });
+}
+
+function testNotification(btn) {
+  var statusEl = btn.parentElement.querySelector('.notif-save-status');
+  btn.disabled = true; btn.textContent = '...';
+  fetch('/api/setup/notifications/test', {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      btn.disabled = false; btn.textContent = 'test';
+      statusEl.textContent = d.ok ? 'sent!' : 'failed';
+      statusEl.style.color = d.ok ? '#10b981' : '#ef4444';
+      setTimeout(function() { statusEl.textContent = ''; }, 3000);
+    }).catch(function() {
+      btn.disabled = false; btn.textContent = 'test';
+      statusEl.textContent = 'error';
+      statusEl.style.color = '#ef4444';
+    });
+}
 </script>
 {% endblock %}
