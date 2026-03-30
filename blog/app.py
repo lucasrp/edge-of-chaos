@@ -539,8 +539,11 @@ def blog_index():
         sort_by = request.args.get("sort", "date")
         if sort_by == "views":
             approved.sort(key=lambda e: e.get("view_count", 0), reverse=True)
+        # Load proposals
+        proposals = _load_proposals()
         return render_template("workflows.html", tab=tab, pending=pending,
-                               entries=approved, sort_by=sort_by, stats=stats,
+                               entries=approved, proposals=proposals,
+                               sort_by=sort_by, stats=stats,
                                is_htmx=request.headers.get("HX-Request") == "true")
 
     elif tab == "chat":
@@ -587,6 +590,51 @@ def workflow_reject(slug):
         parts[1] = parts[1].replace("workflow-draft", "workflow-rejected")
         path.write_text("---".join(parts))
     invalidate_cache()
+    return "", 204
+
+
+@app.route("/proposals/<proposal_id>/approve", methods=["POST"])
+def proposal_approve(proposal_id):
+    """Approve a proposal: set status to approved."""
+    import json as _j
+    proposals_path = ROOT / "state" / "proposals.json"
+    try:
+        proposals = _j.loads(proposals_path.read_text())
+    except Exception:
+        return jsonify({"error": "no proposals file"}), 404
+    for p in proposals:
+        if p.get("id") == proposal_id:
+            p["status"] = "approved"
+            break
+    else:
+        return jsonify({"error": "not found"}), 404
+    proposals_path.write_text(_j.dumps(proposals, indent=2, ensure_ascii=False))
+    return "", 204
+
+
+@app.route("/proposals/<proposal_id>/reject", methods=["POST"])
+def proposal_reject(proposal_id):
+    """Reject a proposal: set status to rejected, log in decision.md."""
+    import json as _j
+    proposals_path = ROOT / "state" / "proposals.json"
+    try:
+        proposals = _j.loads(proposals_path.read_text())
+    except Exception:
+        return jsonify({"error": "no proposals file"}), 404
+    for p in proposals:
+        if p.get("id") == proposal_id:
+            p["status"] = "rejected"
+            # Log rejection in decision signals
+            signals_path = ROOT / "state" / "signals" / "decision.md"
+            try:
+                existing = signals_path.read_text() if signals_path.exists() else ""
+                signals_path.write_text(existing + f"\n- Rejected proposal: {p.get('title', proposal_id)}\n")
+            except Exception:
+                pass
+            break
+    else:
+        return jsonify({"error": "not found"}), 404
+    proposals_path.write_text(_j.dumps(proposals, indent=2, ensure_ascii=False))
     return "", 204
 
 
@@ -1280,6 +1328,16 @@ def _human_size(size_bytes):
 
 
 _SETUP_MAX_CONTENT = 50_000  # truncate files larger than this in the setup view
+
+
+def _load_proposals():
+    """Load active proposals from state/proposals.json."""
+    proposals_path = ROOT / "state" / "proposals.json"
+    try:
+        import json as _j
+        return [p for p in _j.loads(proposals_path.read_text()) if p.get("status") == "active"]
+    except Exception:
+        return []
 
 
 def _load_notification_config():

@@ -1,126 +1,178 @@
 ---
 name: ed-autonomy
-description: "Meta-skill: track, evaluate, and propose expansions to autonomous capabilities. Reads operational signals, identifies gaps, proposes access to data/services/SaaS with operator approval. Triggers on: autonomy, autonomia, self-improve, what do I need, capability review."
+description: "Active proposal manager. Inventories capabilities, proposes experiments and executions based on what the agent already has access to. Manages a pool of max 3 live proposals — edits, removes stale, proposes new. Triggers on: autonomy, autonomia, self-improve, what do I need, capability review."
 user-invocable: true
 ---
 
-# Autonomy — Self-Evolution Meta-Skill
+# Autonomy — Active Proposal Manager
 
-Track, evaluate, and propose expansions to autonomous capabilities. The primary function is to **request more access** to data, services, and SaaS — always with operator approval. The skill proposes, the operator decides.
+Two jobs: **request access** to what's missing, and **propose action** with what's already available. Manages a live pool of max 3 proposals — each one curated, evidence-backed, and ready for operator approval.
 
-**Principle:** Each capability expansion produced better output. The pattern is unequivocal: more agency = more quality. The direction is always forward.
+**Principle:** More agency = more quality. But agency without initiative is just a bigger toolbox. The value is in seeing combinations that nobody asked for.
 
 ---
 
 ## The Job
 
-1. Read operational signals — what's been observed across all skills
-2. Measure how current capabilities are being used
-3. Identify gaps — what's missing that would improve output
-4. Propose expansions with justification and risk
-5. Record what was decided (approved/rejected)
+1. Inventory what I have (APIs, dirs, DBs, SSH, tools, data)
+2. Review live proposals — edit, strengthen, or remove
+3. Identify what I can do with current access that nobody asked for
+4. Propose 1 new action if a slot is free (max 3 active proposals)
+5. Request access to what's missing (secondary — only if a proposal needs it)
 
 ---
 
 ## Arguments
 
-- **No argument** (`/ed-autonomy`): full review — signals, status, gaps, proposals
-- **`/ed-autonomy propose [topic]`**: propose a specific expansion
-- **`/ed-autonomy status`**: quick snapshot of capability levels
+- **No argument** (`/ed-autonomy`): full cycle — inventory, review proposals, propose/edit
+- **`/ed-autonomy status`**: quick snapshot of capabilities + active proposals
 
 ---
 
-## Signals — Primary Input
+## Proposal Pool
 
-Read ALL signal files before starting. Each type provides a different lens:
+File: `~/edge/state/proposals.json`
 
-```bash
-# Primary signals
-cat ~/edge/state/signals/autonomy.md 2>/dev/null || echo "(empty)"
-
-# Cross-cutting signals (read ALL of these)
-cat ~/edge/state/signals/friction.md 2>/dev/null    # where it hurts → what to fix
-cat ~/edge/state/signals/decision.md 2>/dev/null    # what was approved/rejected → don't re-propose
-cat ~/edge/state/signals/serendipity.md 2>/dev/null # what's working well → what capability to reinforce
-cat ~/edge/state/signals/strategy.md 2>/dev/null    # where we're going → align proposals
-cat ~/edge/state/signals/reflection.md 2>/dev/null  # how we worked → what capability is underused
+```json
+[
+  {
+    "id": "slug-identifier",
+    "type": "experiment|execution",
+    "title": "Short descriptive title",
+    "hypothesis": "If X then Y, measured by Z (experiments only)",
+    "action": "Concrete steps to execute (executions only)",
+    "cost": "Estimated cost (tokens, API calls, time)",
+    "evidence": ["Data point 1", "Data point 2"],
+    "created": "2026-03-30",
+    "updated": "2026-03-30",
+    "revisions": 0,
+    "status": "active"
+  }
+]
 ```
 
-**Critical:** Read `decision.md` BEFORE proposing. Never re-propose what was already rejected without new evidence.
-
----
-
-## Context Activation
-
-**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
+**Rules:**
+- Max 3 active proposals at any time
+- Each execution of /ed-autonomy can: edit existing, remove stale, add 1 new
+- A proposal that survives 3+ revisions with growing evidence is strong signal
+- A proposal the agent itself removes is weak signal — no operator action needed
+- Proposals appear in the dashboard for operator approve/reject
 
 ---
 
 ## Protocol
 
-### Step 0: Read signals + operational context
+### Step 0: Read signals + context
 
 ```bash
-# Signals (primary input)
+# Signals
 for f in ~/edge/state/signals/*.md; do echo "=== $(basename $f) ==="; cat "$f" 2>/dev/null; done
 
-# Git activity (what actually happened)
-cd ~/edge && git log --oneline --since="$(date -d '3 days ago' +%Y-%m-%d)" | head -30
+# Current proposals
+cat ~/edge/state/proposals.json 2>/dev/null || echo "[]"
 
-# Recent heartbeat logs
+# Recent activity
 cat ~/edge/logs/heartbeat-$(date +%Y-%m-%d).log 2>/dev/null
+cd ~/edge && git log --oneline --since="$(date -d '3 days ago' +%Y-%m-%d)" | head -20
 ```
 
-### Step 1: Capability Assessment
+### Step 1: Inventory
 
-For each capability, evaluate frequency, autonomy level (Sheridan 1-10), quality, and gaps. Ground in data from signals and git log, not narrative.
-
-### Step 2: Identify Gaps
-
-From signals, extract:
-- `autonomy.md` items → direct gap requests
-- `friction.md` items → where pain points suggest missing capabilities
-- `serendipity.md` items → what type of capability generates the most value
-
-Generative questions:
-1. What am I asked to do that I can't?
-2. What would I do if I had X?
-3. Where do I spend the most time repeating manual work?
-4. What information do I frequently need but don't have access to?
-
-### Step 3: Formulate Proposals
-
-Check `decision.md` first — filter out already-rejected proposals.
-
-Each proposal:
-```markdown
-### Proposal: [short name]
-**Gap:** [what's missing]
-**Capability:** [what I would gain]
-**How to implement:** [concrete steps]
-**Risk:** [what can go wrong]
-**Sheridan level before/after:** [X → Y]
-```
-
-### Step 3.5: Adversarial sanity check (MANDATORY)
+What do I have access to right now?
 
 ```bash
-edge-consult "Gaps: [list]. Proposals: [list]. Am I prioritizing correctly?" --context ~/edge/state/signals/autonomy.md
+# SSH hosts
+grep "^Host " ~/.ssh/config 2>/dev/null | awk '{print $2}' | grep -v '*'
+
+# API keys configured
+grep -c "." ~/edge/secrets/keys.env 2>/dev/null || echo "0 keys"
+
+# Directories with data
+ls ~/edge/blog/entries/ ~/edge/reports/ ~/edge/notes/ ~/edge/threads/ 2>/dev/null | head -5
+
+# Tools available
+ls ~/.local/bin/edge-* 2>/dev/null | wc -l
+
+# Databases
+ls ~/edge/*.db ~/edge/search/*.db 2>/dev/null
 ```
 
-### Step 4: Emit signals
+Don't just list — **think about combinations**. API X + data Y = possibility Z that nobody asked for.
 
-Capture observations as signals for future runs:
+### Step 2: Review existing proposals
+
+For each proposal in the pool:
+- **Has new evidence appeared?** (New data, research from another beat, operator feedback) → Edit: add evidence, sharpen hypothesis
+- **Context changed and invalidated it?** (Priority shifted, access lost, already done by another skill) → Remove: free the slot
+- **Operator ignored for 3+ cycles?** → Either strengthen with better evidence or remove. Don't keep weak proposals alive.
 
 ```bash
-edge-signal autonomy "description of gap or need" --source autonomy-review
-edge-signal decision "Proposed: X — awaiting operator approval" --source autonomy-review
+# Update proposals.json after review
+python3 -c "
+import json, os
+f = os.path.expanduser('~/edge/state/proposals.json')
+proposals = json.load(open(f)) if os.path.exists(f) else []
+# ... edit/remove logic ...
+json.dump(proposals, open(f, 'w'), indent=2, ensure_ascii=False)
+"
 ```
 
-### Step 5: Blog + HTML Report
+### Step 3: Propose new (if slot free)
 
-**Follow `~/.claude/skills/_shared/state-protocol.md` for state management.**
-**Follow `~/.claude/skills/_shared/report-template.md` for report format.**
+Only if len(proposals) < 3. The proposal must meet ALL criteria:
+
+- **Feasible now.** Uses only access the agent already has. If it needs new access, that's a separate request — the proposal itself must be executable.
+- **Falsifiable hypothesis** (experiments) or **concrete deliverable** (executions). "It would be interesting to explore X" is not a proposal.
+- **Estimated cost.** Tokens, API calls, time. The operator needs to know what they're approving.
+- **Not already rejected.** Check `~/edge/state/signals/decision.md` for prior rejections.
+
+Proposal types:
+
+**Experiment** (`/ed-experiment`) — **does NOT change external state.** Read-only: measures, compares, analyzes. Produces a report with results. No deploys, no publishes, no API writes. Safe to auto-approve if cost is low.
+```
+"Hypothesis: articles with self-rank <= 3 have 2x more organic traffic.
+ Method: correlate GA4 pageviews with edge-search self-rank for 8 GEO articles.
+ Cost: 0 (all data local). Success metric: r² > 0.5."
+```
+
+**Execution** (`/ed-execute`) — **changes external state.** Deploys, publishes, creates, modifies. Always requires operator approval. Never auto-approve.
+```
+"Action: create automated weekly corpus health report and post to Slack.
+ Uses: curadoria_compute + edge-signal + Slack webhook (already configured).
+ Cost: ~5k tokens/week. Deliverable: recurring report in #alerts channel."
+```
+
+### Step 3.5: Adversarial sanity check
+
+```bash
+edge-consult "Current proposals: [list]. New proposal: [description]. Is this worth the operator's attention or am I gaming the system?" --context ~/edge/state/proposals.json
+```
+
+If adversarial review says the proposal is padding → don't add it. Wait for a better idea.
+
+### Step 4: Access requests (secondary)
+
+If a proposal would be much stronger with access the agent doesn't have:
+
+```bash
+edge-signal autonomy "Proposal [X] would benefit from access to [Y] — currently blocked"
+```
+
+This goes to the signals file, not the proposal pool. The operator sees it in the setup tab signals or in the next autonomy report.
+
+### Step 5: Persist and publish
+
+```bash
+# Save updated proposals
+python3 -c "
+import json
+proposals = [...]  # updated pool
+with open(os.path.expanduser('~/edge/state/proposals.json'), 'w') as f:
+    json.dump(proposals, f, indent=2, ensure_ascii=False)
+"
+```
+
+Blog entry + report via consolidate-state:
 
 ```bash
 consolidate-state ~/edge/blog/entries/<slug>.md /tmp/spec-autonomy.yaml
@@ -128,36 +180,32 @@ consolidate-state ~/edge/blog/entries/<slug>.md /tmp/spec-autonomy.yaml
 
 ---
 
-## Sheridan & Verplank Scale (reference)
+## Dashboard Integration
 
-| Level | Description |
-|-------|-------------|
-| 1 | Human does everything |
-| 2 | Computer offers options |
-| 3 | Computer suggests one action |
-| 4 | Computer suggests, executes with approval |
-| 5 | Computer decides, executes, informs |
-| 6 | Computer decides, executes, informs if asked |
-| 7 | Computer decides, executes, informs after the fact |
-| 8 | Computer decides, executes, ignores human (unless override) |
-| 9 | Computer decides, informs only if it decides it should |
-| 10 | Computer decides and acts autonomously |
+Proposals appear in the dashboard alongside workflow drafts. The operator sees:
 
-**Target:** level 5-7 for most capabilities. Level 8+ requires consolidated trust and robust guardrails.
+- **Title** and type (experiment/execution)
+- **Evidence** accumulated so far
+- **Revisions** count (signal of maturity)
+- **Approve** → heartbeat dispatches /ed-experiment or /ed-execute with the proposal context
+- **Reject** → recorded in decision.md, proposal removed, autonomy won't re-propose without new evidence
+
+**Auto-approve rule:** Experiments with cost = 0 and no external writes can be auto-approved (Sheridan level 5). Executions always require human approval.
 
 ---
 
-## When to Use
+## When to Run
 
-- **Periodically:** every ~10 heartbeats or when the user asks
-- **After gaining a new capability:** record the breakthrough
-- **When signals accumulate:** friction + autonomy signals pile up
+- **In heartbeat meta rotation** (every ~9 beats alongside reflection, strategy)
+- **After gaining new access** — new API key, new SSH host, new data
+- **When friction signals accumulate** — pain points often suggest actionable proposals
 
 ---
 
-## Notes
+## Anti-Gaming
 
-- This skill is about ME, not about the projects
-- Radical honesty: if a capability is not being well used, say so
-- Include failures — capabilities that didn't produce a breakthrough
-- The primary output is PROPOSALS that the operator approves or rejects
+- Max 1 new proposal per execution
+- Adversarial review before adding
+- Proposals the agent removes count as self-correction (positive signal)
+- Proposals that survive 3+ revisions with growing evidence are strong
+- Ratio of proposed:approved is tracked — if operator rejects >70%, autonomy is miscalibrated
