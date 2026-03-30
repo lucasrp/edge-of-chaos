@@ -85,6 +85,17 @@ ts_now() {
   date -u +%Y-%m-%dT%H:%M:%SZ
 }
 
+# Validate that a path exists. Returns 0 if ok, 1 if missing.
+# Usage: check_path_exists "/some/path" "component_name" || return
+check_path_exists() {
+  local path="$1" context="${2:-unknown}"
+  if [[ ! -e "$path" ]]; then
+    log_health "WARN: path does not exist: $path (context: $context)"
+    return 1
+  fi
+  return 0
+}
+
 days_since_mtime() {
   local file="$1"
   if [[ ! -e "$file" ]]; then

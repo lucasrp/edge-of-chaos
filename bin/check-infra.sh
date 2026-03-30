@@ -196,6 +196,58 @@ check_mini_repos() {
   fi
 }
 
+# --- config path validation ---
+# Verify that paths referenced in health config actually exist on the filesystem.
+# A config pointing to a non-existent path silently breaks monitoring — the system
+# reports "healthy" because it can't see any files (absence ≠ health).
+check_config_paths() {
+  local missing=0 checked=0 missing_list=""
+
+  # Check monitored_files paths from config
+  local paths_json
+  paths_json=$(python3 -c "
+import yaml, json, os, sys
+config = '$CONFIG_FILE'
+if not os.path.exists(config):
+    print('[]')
+    sys.exit(0)
+d = yaml.safe_load(open(config))
+paths = [f['path'] for f in d.get('monitored_files', []) if 'path' in f]
+print(json.dumps(paths))
+" 2>/dev/null)
+
+  if [[ -n "$paths_json" ]] && [[ "$paths_json" != "[]" ]]; then
+    local count
+    count=$(echo "$paths_json" | jq 'length')
+    for i in $(seq 0 $((count - 1))); do
+      local p
+      p=$(echo "$paths_json" | jq -r ".[$i]")
+      checked=$((checked + 1))
+      if [[ ! -e "$p" ]]; then
+        missing=$((missing + 1))
+        missing_list+="${p##*/},"
+      fi
+    done
+  fi
+
+  # Also check critical infrastructure paths
+  for p in "$HEALTH_DIR" "$REPO_ROOT" "$SQLITE_DB"; do
+    checked=$((checked + 1))
+    if [[ ! -e "$p" ]]; then
+      missing=$((missing + 1))
+      missing_list+="${p##*/},"
+    fi
+  done
+
+  if [[ "$missing" -eq 0 ]]; then
+    emit_component config_paths ok "all ${checked} monitored paths exist"
+  elif [[ "$missing" -le 1 ]]; then
+    emit_component config_paths degraded "${missing}/${checked} paths missing: ${missing_list%,}"
+  else
+    emit_component config_paths fail "${missing}/${checked} paths missing: ${missing_list%,}"
+  fi
+}
+
 # --- run all ---
 log_health "check-infra starting"
 check_disk
@@ -207,4 +259,5 @@ check_consolidate
 check_git
 check_heartbeat
 check_mini_repos
+check_config_paths
 log_health "check-infra done"
