@@ -265,7 +265,7 @@ If trigger active → one of the HN-Output insights should be:
 [DISPATCH] Procedure accumulation detected (N entries, last curation: DATE) → /ed-corpus-curation procedures
 ```
 
-The heartbeat receiving this insight dispatches corpus-curation instead of the skill it would normally dispatch.
+The heartbeat receiving this insight dispatches corpus-curation instead of the skill it would normally dispatch. **Corpus-curation generates an HTML report** (via YAML spec + consolidate-state) as its main deliverable — the report is what the operator will see.
 
 ### HN-Output: Synthesize
 

@@ -376,12 +376,112 @@ Save to `~/edge/state/procedure-curation.json`:
 
 ---
 
+## Report Generation (ALL modes)
+
+After computation completes and state JSONs are written, generate a YAML spec for an HTML report. This is the **primary visible output** of corpus-curation — the operator should be able to understand the corpus state at a glance.
+
+### Report YAML Structure
+
+Save to `/tmp/spec-corpus-curation.yaml`:
+
+```yaml
+title: "Corpus Curation Report"
+subtitle: "[mode] mode — [date]"
+date: "DD/MM/YYYY"
+
+executive_summary:
+  - "Total documents: N, stale: N, archive candidates: N"
+  - "[claims mode] N gaps triaged across M topics, N new threads created"
+  - "[procedures mode] N procedures collected, N clusters formed, N workflow drafts created"
+
+metrics:
+  - value: "N"
+    label: "Documents"
+  - value: "N"
+    label: "Stale"
+  - value: "N"
+    label: "Archive"
+  - value: "N"
+    label: "Merge clusters"
+
+sections:
+  # Section 1: Claims dashboard (claims mode)
+  - title: "1. Claims Dashboard"
+    blocks:
+      - type: table
+        headers: ["Gap", "Classification", "Topic", "Age (days)", "Action"]
+        rows: [[...]]  # One row per gap, color-coded by classification
+
+  # Section 2: Thread health (claims mode)
+  - title: "2. Thread Health"
+    blocks:
+      - type: table
+        headers: ["Thread", "Claims", "Open Gaps", "Last Resurface", "Status"]
+        rows: [[...]]
+
+  # Section 3: Procedure clusters (procedures mode)
+  - title: "3. Procedure Clusters"
+    blocks:
+      - type: concept-grid
+        items:
+          - name: "Cluster: [title]"
+            text: "N claims, median similarity: 0.89. Sources: entry-1, entry-2, entry-3. → workflow-draft created"
+
+  # Section 4: Workflow health (procedures mode)
+  - title: "4. Workflow Health"
+    blocks:
+      - type: table
+        headers: ["Workflow", "Citations (used)", "Citations (broken)", "Age", "Status"]
+        rows: [[...]]
+
+  # Section 5: Corpus retrieval heatmap (stats/full mode)
+  - title: "5. Corpus Retrieval"
+    blocks:
+      - type: table
+        headers: ["Document", "Retrieved (30d)", "Top-3 (30d)", "Self-rank", "Action"]
+        rows: [[...]]  # Top 10 most/least accessed
+
+  # Section 6: Signal dedup (full mode)
+  - title: "6. Signal Deduplication"
+    blocks:
+      - type: table
+        headers: ["Signal", "Type", "Occurrences", "Entries"]
+        rows: [[...]]
+
+bibliography: []
+```
+
+**Include only sections relevant to the mode run.** Stats mode: sections 5 only. Lite mode: 5. Full mode: 5, 6. Claims mode: 1, 2. Procedures mode: 3, 4. When dispatched by reflection (all modes), include all sections.
+
+### Publishing the Report
+
+After generating the YAML spec:
+
+1. Write blog entry to `~/edge/blog/entries/YYYY-MM-DD-corpus-curation-[mode].md`
+2. Call `consolidate-state` with BOTH entry and spec:
+   ```bash
+   consolidate-state ~/edge/blog/entries/YYYY-MM-DD-corpus-curation-[mode].md /tmp/spec-corpus-curation.yaml
+   ```
+
+The pipeline generates the HTML, publishes the entry with `report:` frontmatter, and indexes everything.
+
+**When dispatched by reflection via `[DISPATCH]`, the report is the main deliverable.** The blog entry is a summary; the report is the full picture.
+
+---
+
 ## Integration with /ed-reflection
 
 When invoked by /ed-reflection in manual mode:
 1. /ed-reflection passes `active_threads` (from git_signals thread_coverage) and `recent_gaps` (from claims_summary persistent_gaps)
 2. /ed-corpus-curation runs in full mode with those parameters
-3. /ed-reflection reads the result from `curadoria-candidates.json` and makes strategic decisions
+3. /ed-corpus-curation generates the HTML report via YAML spec + consolidate-state
+4. /ed-reflection reads the result from `curadoria-candidates.json` and makes strategic decisions
+
+When dispatched by reflection via `[DISPATCH]` signal (heartbeat-normal):
+1. /ed-corpus-curation runs in procedures mode
+2. Generates report with sections 3 and 4 (procedure clusters + workflow health)
+3. Publishes via consolidate-state with the report
+4. The report appears in the blog and reports directory for operator review
 
 ---
 
@@ -390,5 +490,8 @@ When invoked by /ed-reflection in manual mode:
 | File | Read/Write | Description |
 |------|------------|-------------|
 | `~/edge/search/edge-memory.db` | Read | documents and search_events tables |
-| `~/edge/state/curadoria-candidates.json` | Write | Curation result |
+| `~/edge/state/curadoria-candidates.json` | Write | Curation result (full/lite/stats) |
+| `~/edge/state/procedure-curation.json` | Write | Procedure curation result |
+| `~/edge/state/workflow-health.json` | Write | Workflow citation counts |
 | `~/edge/tools/curadoria_compute.py` | Execute | Computation engine |
+| `/tmp/spec-corpus-curation.yaml` | Write | Report YAML spec (temporary) |
