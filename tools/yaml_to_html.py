@@ -96,10 +96,18 @@ def render_concept_grid(b):
     items = b.get("items", []) or b.get("concepts", [])
     cells = []
     for item in items:
+        title = render_text(item.get("name", item.get("title", "(sem nome)")))
+        body = ""
+        sub_items = item.get("items", [])
+        if sub_items and isinstance(sub_items, list):
+            li = "".join(f"<li>{render_text(str(si))}</li>" for si in sub_items)
+            body = f'<ul style="font-size: 14px; padding-left: 20px; margin-top: 8px;">{li}</ul>'
+        else:
+            body = render_text(item.get("text") or item.get("description") or item.get("definition") or "")
         cells.append(
             f'<div class="callout callout-info">'
-            f'<strong>{render_text(item.get("name", item.get("title", "(sem nome)")))}</strong><br>'
-            f'{render_text(item.get("text") or item.get("description") or item.get("definition") or "")}'
+            f'<strong>{title}</strong><br>'
+            f'{body}'
             f'</div>'
         )
     # Pair items in 2-column grids
