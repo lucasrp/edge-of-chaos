@@ -66,26 +66,35 @@ Any change to these files is monitored by `edge-state-audit`:
 
 ## Workflow Lookup (MANDATORY, before execution)
 
-Before starting any skill, look up relevant workflows:
+Before starting any skill, look up relevant workflows and save the results:
 
 ```bash
-edge-search "terms relevant to what I'm about to do" --type workflow -k 3
+edge-search "terms relevant to what I'm about to do" --type workflow -k 3 | tee /tmp/edge-recalled-workflows.txt
 ```
 
-Returns validated workflows (steps, secrets, when it works/fails) and anti-patterns (what didn't work and why). Use the results to inform execution — follow workflows that work, avoid documented anti-patterns.
-
-**Note the slugs of recalled workflows** — they will be used in the entry frontmatter:
+Returns validated workflows (steps, secrets, when it works/fails) and anti-patterns (what didn't work and why). The results are saved to `/tmp/edge-recalled-workflows.txt` so they're available at entry-creation time (recall happens early, entry is written late).
 
 ### Procedure capture in frontmatter (MANDATORY in every entry)
 
-When creating the blog entry, include procedure capture fields:
+When creating the blog entry, **read `/tmp/edge-recalled-workflows.txt`** to fill in citations:
+
+```bash
+# Recall what workflows were returned at the start of the skill
+cat /tmp/edge-recalled-workflows.txt 2>/dev/null
+```
+
+Then include procedure capture fields in frontmatter:
 
 ```yaml
-# Recalled workflows that were followed and worked:
+# Recalled workflows that were followed and worked (MANDATORY if workflows were recalled):
 workflows_used: [workflow-slug-1, workflow-slug-2]
 
 # Recalled workflows that failed or are outdated:
 workflows_broken: [broken-workflow-slug]
+
+# If no workflows were recalled, use empty lists:
+workflows_used: []
+workflows_broken: []
 
 # NEW procedures (not covered by recalled workflows):
 procedure:
@@ -94,6 +103,8 @@ procedure:
 ```
 
 **Rule:** `procedure:` only captures the DELTA — procedures NOT covered by the recall. If the procedure already exists as a workflow, cite in `workflows_used:` (reinforcement) or `workflows_broken:` (healing).
+
+**Note:** `consolidate-state` warns if `procedure:` is present but `workflows_used:` is missing — the pipeline expects both.
 
 See `~/.claude/skills/_shared/workflow-conventions.md` for lifecycle details.
 

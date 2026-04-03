@@ -569,6 +569,32 @@ if [[ -n "$REPORT_HTML" && "$REPORT_RESULT" == "ok" ]]; then
     fi
 fi
 
+# ─── PHASE 3.3: Workflow citation check ───
+python3 -c "
+import yaml, sys
+try:
+    raw = open('$ENTRY_PATH').read()
+    parts = raw.split('---', 2)
+    if len(parts) >= 3:
+        fm = yaml.safe_load(parts[1]) or {}
+        has_procedure = bool(fm.get('procedure'))
+        has_wf_used = 'workflows_used' in fm
+        has_wf_broken = 'workflows_broken' in fm
+        if has_procedure and not has_wf_used and not has_wf_broken:
+            print('MISSING_CITATIONS')
+        else:
+            print('OK')
+    else:
+        print('OK')
+except:
+    print('OK')
+" 2>/dev/null | {
+    read WF_CHECK
+    if [[ "$WF_CHECK" == "MISSING_CITATIONS" ]]; then
+        warn "Entry has procedure: but no workflows_used:/workflows_broken: — check /tmp/edge-recalled-workflows.txt and add citations"
+    fi
+}
+
 # ─── PHASE 3.4: Inject llm_cost into frontmatter ───
 if [[ "$TOTAL_LLM_COST" != "0" && "$TOTAL_LLM_COST" != "" ]]; then
     if python3 -c "
