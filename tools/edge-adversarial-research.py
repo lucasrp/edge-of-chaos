@@ -1,4 +1,4 @@
-#!/home/donald/edge/tools/.venv/bin/python3
+#!/usr/bin/env python3
 """edge-adversarial-research — Adversarial validation via cross-provider deep research.
 
 Takes a research report or claim, sends it to a DIFFERENT provider that uses

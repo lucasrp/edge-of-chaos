@@ -1,4 +1,4 @@
-#!/home/donald/edge/tools/.venv/bin/python3
+#!/usr/bin/env python3
 """
 edge-consult — Cross-model deliberation tool.
 

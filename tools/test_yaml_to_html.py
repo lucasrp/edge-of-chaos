@@ -1,4 +1,4 @@
-#!/home/donald/edge/tools/.venv/bin/python3
+#!/usr/bin/env python3
 """Tests for yaml_to_html.py — block renderers + schema validation.
 
 60 tests:

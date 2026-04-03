@@ -1,4 +1,4 @@
-#!/home/donald/edge/tools/.venv/bin/python3
+#!/usr/bin/env python3
 """edge-apply: Provision host from agent.yaml. Idempotent.
 
 Replaces install.sh. Reads everything from agent.yaml, renders templates,
@@ -49,6 +49,15 @@ def _reprefix(content: str, prefix: str) -> str:
 def ok(msg): print(f"  {GREEN}✓{RESET} {msg}")
 def warn(msg): print(f"  {YELLOW}⚠{RESET} {msg}")
 def fail(msg): print(f"  {RED}✗{RESET} {msg}")
+
+
+def _file_starts_with(path, prefix):
+    """Check if a file starts with a given string (first line)."""
+    try:
+        with open(path) as f:
+            return f.readline().startswith(prefix)
+    except Exception:
+        return False
 def header(msg): print(f"\n{BOLD}━━━  {msg}  ━━━{RESET}\n")
 
 
@@ -374,25 +383,14 @@ def phase_tools_venv(cfg, dry_run, skip_venv=False):
             fail(f"pip install failed: {result.stderr.strip()}")
             return False
 
-    # Update shebangs in ALL Python tools to use venv (ALWAYS — not just on first create)
-    shebang_target = f"#!{venv_dir}/bin/python3"
-    updated = 0
-    for tool in tools_dir.iterdir():
-        if not tool.is_file() or tool.name.startswith("."):
-            continue
-        try:
-            content = tool.read_text()
-        except (UnicodeDecodeError, PermissionError):
-            continue
-        if content.startswith("#!/usr/bin/env python3"):
-            content = content.replace("#!/usr/bin/env python3", shebang_target, 1)
-            tool.write_text(content)
-            updated += 1
+    # Shebangs stay as #!/usr/bin/env python3 (portable).
+    # The ~/.local/bin/ wrappers handle venv activation per instance.
+    # Do NOT rewrite shebangs — they are genotype and contaminate other instances on push.
 
     if venv_existed:
-        ok(f"tools venv already exists + {updated} shebangs updated")
+        ok("tools venv already exists")
     else:
-        ok(f"tools venv created + deps installed + {updated} shebangs updated")
+        ok("tools venv created + deps installed")
     return True
 
 
@@ -499,15 +497,30 @@ def phase_tools(cfg, dry_run):
             link_name = tool.stem if tool.suffix == ".py" else tool.name
             link = local_bin / link_name
             link.unlink(missing_ok=True)
-            link.symlink_to(tool.resolve())
+            # Python tools get a wrapper that activates the venv.
+            # Bash/other tools get a plain symlink.
+            venv_python = tools_dst / ".venv" / "bin" / "python3"
+            if tool.suffix == ".py" or _file_starts_with(tool, "#!/usr/bin/env python3"):
+                link.write_text(
+                    '#!/bin/bash\n'
+                    f'exec "{venv_python}" "{tool.resolve()}" "$@"\n'
+                )
+                link.chmod(0o755)
+            else:
+                link.symlink_to(tool.resolve())
             linked += 1
     # Create hyphenated aliases for tools with underscores (validate_svg → validate-svg)
+    venv_python = tools_dst / ".venv" / "bin" / "python3"
     for tool in tools_dst.iterdir():
         if tool.is_file() and "_" in tool.stem and tool.suffix == ".py":
             alias_name = tool.stem.replace("_", "-")
             alias = local_bin / alias_name
             if not alias.exists() and not dry_run:
-                alias.symlink_to(tool.resolve())
+                alias.write_text(
+                    '#!/bin/bash\n'
+                    f'exec "{venv_python}" "{tool.resolve()}" "$@"\n'
+                )
+                alias.chmod(0o755)
                 linked += 1
 
     # Also link consolidate-state from blog/

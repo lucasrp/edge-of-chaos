@@ -1,4 +1,4 @@
-#!/home/donald/edge/tools/.venv/bin/python3
+#!/usr/bin/env python3
 """git_signals.py — Extract structured signals from git log for reflexao.
 
 Usage:

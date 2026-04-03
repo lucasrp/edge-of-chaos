@@ -1,4 +1,4 @@
-#!/home/donald/edge/tools/.venv/bin/python3
+#!/usr/bin/env python3
 """edge-dialogue — Multi-turn dialogue with GPT models via OpenAI Responses API.
 
 Supports gpt-5.4-pro and other models that require the Responses API.

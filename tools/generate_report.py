@@ -1,4 +1,4 @@
-#!/home/donald/edge/tools/.venv/bin/python3
+#!/usr/bin/env python3
 """
 Gera relatorio HTML autocontido com branding do agente (lido de branding.yaml).
 

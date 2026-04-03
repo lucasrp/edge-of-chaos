@@ -1,4 +1,4 @@
-#!/home/donald/edge/tools/.venv/bin/python3
+#!/usr/bin/env python3
 """ledger_rollup.py — Aggregate execution ledger into ops-hotspots.json.
 
 Usage:
