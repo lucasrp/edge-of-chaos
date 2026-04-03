@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""edge-crystallize: Create workflow-draft blog entries from procedure-curation.json.
+
+Reads crystallization candidates from state/procedure-curation.json and creates
+blog entries with tag workflow-draft for each candidate above the claim threshold.
+
+Usage:
+    edge-crystallize                    # drafts for candidates >= 3 claims
+    edge-crystallize --min-claims 5     # only strong clusters
+    edge-crystallize --approve          # create as workflow (skip draft stage)
+    edge-crystallize --dry-run          # show what would be created
+    edge-crystallize --cluster 1        # only specific cluster
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+
+def slugify(text):
+    """Convert title to a URL-friendly slug."""
+    text = text.lower()
+    text = re.sub(r"workflow:\s*", "", text)
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    return text.strip("-")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Crystallize procedure clusters into workflow-draft entries")
+    parser.add_argument("--min-claims", type=int, default=3, help="Minimum claims for crystallization (default: 3)")
+    parser.add_argument("--approve", action="store_true", help="Create as 'workflow' instead of 'workflow-draft'")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be created without writing")
+    parser.add_argument("--cluster", type=int, help="Only crystallize a specific cluster ID")
+    args = parser.parse_args()
+
+    # Resolve paths
+    edge = Path(os.environ.get("EDGE_DIR", Path.home() / "edge"))
+    curation_file = edge / "state" / "procedure-curation.json"
+    entries_dir = edge / "blog" / "entries"
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    if not curation_file.exists():
+        print("No procedure-curation.json found. Run /ed-corpus-curation procedures first.")
+        sys.exit(1)
+
+    data = json.load(open(curation_file))
+    candidates = data.get("crystallization_candidates", [])
+
+    if not candidates:
+        print("No crystallization candidates found.")
+        sys.exit(0)
+
+    tag = "workflow" if args.approve else "workflow-draft"
+    created = 0
+    skipped = 0
+
+    for cand in candidates:
+        cluster_id = cand.get("cluster_id", 0)
+        claim_count = cand.get("claim_count", len(cand.get("claims", [])))
+        title = cand.get("suggested_workflow_title", f"workflow: cluster-{cluster_id}")
+        claims = cand.get("claims", [])
+        source_entries = cand.get("source_entries", [])
+        steps = cand.get("suggested_steps", "")
+        theme = cand.get("theme", "")
+        sim = cand.get("median_sim_estimate", "?")
+
+        # Filters
+        if args.cluster is not None and cluster_id != args.cluster:
+            continue
+        if claim_count < args.min_claims:
+            skipped += 1
+            continue
+
+        slug = slugify(title)
+        filename = f"{today}-{slug}.md"
+        filepath = entries_dir / filename
+
+        # Skip if already exists
+        if filepath.exists():
+            print(f"  SKIP {filename} (already exists)")
+            skipped += 1
+            continue
+
+        # Also skip if a workflow with same slug already exists (any date)
+        existing = list(entries_dir.glob(f"*{slug}*.md"))
+        if existing:
+            print(f"  SKIP {slug} (similar entry exists: {existing[0].name})")
+            skipped += 1
+            continue
+
+        # Build the entry
+        claims_yaml = "\n".join(f'  - "{c}"' for c in claims)
+        sources_yaml = "\n".join(f"  - {s}" for s in source_entries)
+
+        # Build body from steps
+        if steps:
+            # Steps might be a single string with numbered items
+            step_lines = steps.split(". ")
+            steps_md = "\n".join(f"{s.strip()}" if s[0].isdigit() else f"- {s.strip()}" for s in step_lines if s.strip())
+        else:
+            steps_md = "_To be defined based on practice._"
+
+        body = (
+            f"## Theme\n\n{theme}\n\n"
+            f"## Steps\n\n{steps_md}\n\n"
+            f"## Source claims\n\n"
+        )
+        for c in claims:
+            body += f"- {c}\n"
+        body += f"\n## Source entries\n\n"
+        for s in source_entries:
+            body += f"- {s}\n"
+
+        content = (
+            f"---\n"
+            f"title: \"{title}\"\n"
+            f"date: {today}\n"
+            f"tags: [{tag}, procedure-claims]\n"
+            f"trigger: \"{theme}\"\n"
+            f"source_claims:\n{claims_yaml}\n"
+            f"source_entries:\n{sources_yaml}\n"
+            f"cluster_similarity: {sim}\n"
+            f"claims:\n"
+            f"  - \"Crystallized from {claim_count} procedure-claims across {len(source_entries)} entries\"\n"
+            f"threads: []\n"
+            f"keywords: [{slug.replace('-', ', ')}]\n"
+            f"workflows_used: []\n"
+            f"workflows_broken: []\n"
+            f"---\n\n"
+            f"{body}"
+        )
+
+        if args.dry_run:
+            print(f"  WOULD CREATE {filename} ({claim_count} claims, tag={tag})")
+        else:
+            filepath.write_text(content)
+            print(f"  CREATED {filename} ({claim_count} claims, tag={tag})")
+
+            # Index if edge-index is available
+            try:
+                subprocess.run(
+                    ["edge-index", str(filepath)],
+                    capture_output=True, timeout=30
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+
+        created += 1
+
+    print()
+    if args.dry_run:
+        print(f"Dry run: {created} would be created, {skipped} skipped")
+    else:
+        print(f"Done: {created} created, {skipped} skipped")
+        if created > 0 and not args.approve:
+            print(f"\nDrafts appear in the blog with tag '{tag}'.")
+            print("Approve with: edge-crystallize --approve --cluster N")
+
+
+if __name__ == "__main__":
+    main()

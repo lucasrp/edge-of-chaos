@@ -325,28 +325,21 @@ Cluster procedure-claims by semantic similarity:
 2. Group by similarity (threshold: 0.85)
 3. Clusters with 3+ claims → candidate for crystallization into workflow entry
 
-For each candidate cluster:
-- Synthesize claims into a full workflow (format: Trigger, Steps, Secrets, When works, When fails, Cost)
-- Create blog entry with tag `workflow-draft` (NOT `workflow`)
-- Publish via `consolidate-state` normally
+Write candidates to `procedure-curation.json` (Step P5), then run `edge-crystallize` to create the draft entries:
+
+```bash
+# Create workflow-draft entries for all candidates >= 3 claims
+edge-crystallize
+
+# Or with filters:
+# edge-crystallize --min-claims 5     # only strong clusters
+# edge-crystallize --dry-run          # preview without creating
+# edge-crystallize --cluster 1        # specific cluster only
+```
+
+This is **deterministic** — it reads `procedure-curation.json` and creates blog entries with tag `workflow-draft`. The agent's job is clustering and writing the JSON; the tool handles entry creation.
 
 **Workflow drafts appear in the dashboard (Workflows tab → Pending Approval) for the operator to approve or reject.** While not approved, drafts do NOT enter edge-search recall as active workflows.
-
-Draft frontmatter:
-```yaml
----
-title: "workflow: [descriptive title]"
-date: YYYY-MM-DD
-tags: [workflow-draft, procedure-claims]
-trigger: "[when this workflow applies]"
-source_claims:
-  - entry: "entry-slug-1"
-    claim: "When X, do Y"
-  - entry: "entry-slug-2"
-    claim: "When X, do Z"
-cluster_similarity: 0.89
----
-```
 
 ### Step P5: Persist and report
 

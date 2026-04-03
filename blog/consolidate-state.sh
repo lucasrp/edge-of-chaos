@@ -595,6 +595,48 @@ except:
     fi
 }
 
+# ─── PHASE 3.35: Crystallization gate (curation entries only) ───
+CRYST_CHECK=$(python3 -c "
+import yaml, json, os, glob, sys
+try:
+    raw = open('$ENTRY_PATH').read()
+    parts = raw.split('---', 2)
+    fm = yaml.safe_load(parts[1]) or {}
+    tags = fm.get('tags', [])
+    if not ('curation' in tags or 'procedures' in tags):
+        print('SKIP')
+        sys.exit(0)
+    pc = os.path.expanduser('~/edge/state/procedure-curation.json')
+    if not os.path.exists(pc):
+        print('SKIP')
+        sys.exit(0)
+    data = json.load(open(pc))
+    candidates = [c for c in data.get('crystallization_candidates', []) if c.get('claim_count', len(c.get('claims', []))) >= 3]
+    if not candidates:
+        print('SKIP')
+        sys.exit(0)
+    entries = glob.glob(os.path.expanduser('~/edge/blog/entries/*workflow*.md'))
+    drafts = 0
+    for e in entries:
+        head = open(e).read()[:500]
+        if 'workflow-draft' in head or 'workflow' in head.split('tags:')[1].split(chr(10))[0] if 'tags:' in head else False:
+            drafts += 1
+    if drafts < len(candidates):
+        print(f'MISSING:{len(candidates) - drafts}')
+    else:
+        print('OK')
+except Exception as e:
+    print('SKIP')
+" 2>/dev/null)
+case "$CRYST_CHECK" in
+    MISSING:*)
+        N="${CRYST_CHECK#MISSING:}"
+        warn "Curation has $N uncrystallized candidates — run 'edge-crystallize' to create workflow-draft entries"
+        ;;
+    OK) ;;
+    *) ;;
+esac
+
 # ─── PHASE 3.4: Inject llm_cost into frontmatter ───
 if [[ "$TOTAL_LLM_COST" != "0" && "$TOTAL_LLM_COST" != "" ]]; then
     if python3 -c "
