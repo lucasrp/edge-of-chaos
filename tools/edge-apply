@@ -621,6 +621,9 @@ def phase_tools(cfg, dry_run):
         additions = []
         if ".local/bin" not in bashrc_content:
             additions.append('export PATH="$HOME/.local/bin:$PATH"')
+        tools_dir = f"{edge}/tools"
+        if tools_dir not in bashrc_content and "edge/tools" not in bashrc_content:
+            additions.append(f'export PATH="{tools_dir}:$PATH"')
         if "EDGE_DIR" not in bashrc_content:
             additions.append(f'export EDGE_DIR="{edge}"')
         if additions:

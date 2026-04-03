@@ -134,7 +134,11 @@ def main():
 
     config_path = Path(args.config)
     if not config_path.exists():
-        print(f"Procurando agent.yaml em: {config_path.resolve()}")
+        # Fallback: look relative to the script's repo root (tools/..)
+        repo_root = Path(__file__).resolve().parent.parent
+        config_path = repo_root / args.config
+    if not config_path.exists():
+        print(f"Procurando agent.yaml em: {Path(args.config).resolve()}, {config_path.resolve()}")
         fail("agent.yaml não encontrado")
         print(f"\nResultado: 0 ok, 0 warn, 1 fail")
         sys.exit(1)
