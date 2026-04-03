@@ -614,24 +614,26 @@ def phase_tools(cfg, dry_run):
         if generated:
             ok(f"{generated} per-tool .env files generated from keys.env")
 
-    # Ensure .bashrc has PATH
-    bashrc = Path.home() / ".bashrc"
+    # Ensure .profile has PATH (not .bashrc — non-interactive shells skip .bashrc guard)
+    # .profile is sourced by login shells and inherited by systemd user sessions,
+    # which is what matters for autonomous agents (SSH commands, heartbeat timers).
+    profile = Path.home() / ".profile"
     if not dry_run:
-        bashrc_content = bashrc.read_text() if bashrc.exists() else ""
+        profile_content = profile.read_text() if profile.exists() else ""
         additions = []
-        if ".local/bin" not in bashrc_content:
+        if ".local/bin" not in profile_content:
             additions.append('export PATH="$HOME/.local/bin:$PATH"')
         tools_dir = f"{edge}/tools"
-        if tools_dir not in bashrc_content and "edge/tools" not in bashrc_content:
+        if tools_dir not in profile_content and "edge/tools" not in profile_content:
             additions.append(f'export PATH="{tools_dir}:$PATH"')
-        if "EDGE_DIR" not in bashrc_content:
+        if "EDGE_DIR" not in profile_content:
             additions.append(f'export EDGE_DIR="{edge}"')
         if additions:
-            with open(bashrc, "a") as f:
+            with open(profile, "a") as f:
                 f.write("\n" + "\n".join(additions) + "\n")
-            ok(f".bashrc updated ({len(additions)} lines)")
+            ok(f".profile updated ({len(additions)} lines)")
         else:
-            ok(".bashrc already configured")
+            ok(".profile already configured")
 
     # Copy bin/ (health scripts)
     bin_src = REPO_ROOT / "bin"
