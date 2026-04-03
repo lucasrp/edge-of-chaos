@@ -285,7 +285,29 @@ After reading all context from Step 1, classify the beat:
 
 1. **User asked for something?** (message in chat/comment with direction) → Address it. If it's an internal change → do it. If it's a project → note it, reply that it needs /ed-execute.
 
-2. **Reflection signaled `[DISPATCH]` in the last beat?** → Dispatch the indicated internal skill (e.g., `/ed-corpus-curation procedures`). Internal skills (`invocation: internal`) are only dispatched by explicit signal from another skill, never by the normal rotation.
+2. **Dispatch queue has pending items?** → Check `state/dispatch-queue.json` for queued dispatches from reflection or other skills:
+
+```bash
+python3 -c "
+import json, os
+f = os.path.expanduser('~/edge/state/dispatch-queue.json')
+if os.path.exists(f):
+    queue = json.load(open(f))
+    if queue:
+        item = queue[0]
+        print(f'DISPATCH_PENDING: {item[\"skill\"]} (from {item[\"source\"]}: {item[\"reason\"]})')
+        # Consume the item
+        queue.pop(0)
+        with open(f, 'w') as fh:
+            json.dump(queue, fh, indent=2)
+    else:
+        print('DISPATCH_QUEUE_EMPTY')
+else:
+    print('DISPATCH_QUEUE_EMPTY')
+" 2>/dev/null
+```
+
+If `DISPATCH_PENDING` → dispatch the indicated internal skill (e.g., `/ed-corpus-curation procedures`). Internal skills (`invocation: internal`) are only dispatched by explicit signal from another skill, never by the normal rotation.
 
 3. **Pending error in debugging.md that I can resolve?** → Resolve.
 

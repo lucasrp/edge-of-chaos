@@ -1028,6 +1028,96 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
         fs_file.write_text(json.dumps(steps, indent=2, ensure_ascii=False) + "\n")
         seeded += 1
 
+    # --- state/dispatch-queue.json (empty queue for inter-beat signaling) ---
+    dq_file = edge / "state" / "dispatch-queue.json"
+    if not dq_file.exists():
+        dq_file.write_text("[]\n")
+        seeded += 1
+
+    # --- seed workflow blog entries (static, no LLM cost) ---
+    prefix = cfg.get("skill_prefix", cfg.get("codename", "ed"))
+    workflow_entries = [
+        {
+            "slug": "workflow-research-pipeline",
+            "title": "workflow: sources → consult → report",
+            "tags": ["workflow", "research", "sources", "edge-consult"],
+            "keywords": ["edge-sources", "edge-consult", "research", "pipeline"],
+            "secrets": ["openai.env"],
+            "cost_estimate": "~$0.15/execution",
+            "body": (
+                "## Trigger\n"
+                f"Heartbeat identifies relevant topic, or user requests /{prefix}-research.\n\n"
+                "## Steps\n"
+                '1. `edge-sources "topic" --intent research` → source collection\n'
+                "2. LLM curation → filter signal from noise\n"
+                "3. `edge-consult` → adversarial review of draft\n"
+                "4. Blog entry + HTML report via `consolidate-state`\n\n"
+                "## Secrets\n"
+                "- `openai.env` — adversarial review in step 3\n\n"
+                "## When it works\n"
+                "Technical-scientific topics with good coverage in sources.\n\n"
+                "## When it fails\n"
+                "Very niche topics where sources return little signal.\n\n"
+                "## Cost\n"
+                "~$0.15/execution (OpenAI consult: ~$0.10, margin)\n"
+            ),
+        },
+        {
+            "slug": "workflow-adversarial-review",
+            "title": "workflow: adversarial review before publishing",
+            "tags": ["workflow", "quality", "edge-consult", "review-gate"],
+            "keywords": ["edge-consult", "review-gate", "adversarial", "quality"],
+            "secrets": ["openai.env"],
+            "cost_estimate": "~$0.10/execution",
+            "body": (
+                "## Trigger\n"
+                "Every blog entry and report before publication.\n\n"
+                "## Steps\n"
+                "1. Draft blog entry with claims, threads, procedures\n"
+                "2. `edge-consult` with entry content → adversarial critique\n"
+                "3. If valid criticism found → adjust conclusions before building report\n"
+                "4. Build report YAML → `consolidate-state` publishes\n\n"
+                "## Secrets\n"
+                "- `openai.env` — adversarial model (GPT)\n\n"
+                "## When it works\n"
+                "Always. The adversarial catch rate justifies the cost.\n\n"
+                "## When it fails\n"
+                "When the adversarial prompt is too generic — task-specific prompts improve precision.\n\n"
+                "## Cost\n"
+                "~$0.10/execution (OpenAI consult)\n"
+            ),
+        },
+    ]
+
+    wf_created = 0
+    for wf in workflow_entries:
+        wf_file = entries_dir / f"{today}-{wf['slug']}.md"
+        # Don't create if any workflow entry already exists in corpus
+        existing_wf = [f for f in entries_dir.glob("*workflow*.md")]
+        if existing_wf:
+            break
+        tags_str = ", ".join(wf["tags"])
+        kw_str = ", ".join(wf["keywords"])
+        secrets_str = ", ".join(wf["secrets"])
+        wf_file.write_text(
+            f"---\n"
+            f"title: \"{wf['title']}\"\n"
+            f"date: {today}\n"
+            f"tags: [{tags_str}]\n"
+            f"keywords: [{kw_str}]\n"
+            f"claims:\n"
+            f"  - \"Seed workflow — to be validated and reinforced through use\"\n"
+            f"threads: []\n"
+            f"secrets: [{secrets_str}]\n"
+            f"cost_estimate: \"{wf['cost_estimate']}\"\n"
+            f"---\n\n"
+            f"{wf['body']}"
+        )
+        wf_created += 1
+    if wf_created:
+        ok(f"{wf_created} seed workflow entries created")
+        seeded += wf_created
+
     if seeded > 0:
         ok(f"{seeded} seed files generated from agent.yaml")
     else:
