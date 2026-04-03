@@ -614,26 +614,41 @@ def phase_tools(cfg, dry_run):
         if generated:
             ok(f"{generated} per-tool .env files generated from keys.env")
 
-    # Ensure .profile has PATH (not .bashrc — non-interactive shells skip .bashrc guard)
-    # .profile is sourced by login shells and inherited by systemd user sessions,
-    # which is what matters for autonomous agents (SSH commands, heartbeat timers).
+    # Write ~/.edge-env with PATH exports, then source it from .bashrc (before
+    # the non-interactive guard) and .profile (for login shells). This covers:
+    #   - ssh user "command"  (non-interactive, sources .bashrc top)
+    #   - systemd timers      (inherit from .profile via PAM)
+    #   - interactive shells   (source .bashrc which sources .edge-env)
+    edge_env = Path.home() / ".edge-env"
+    bashrc = Path.home() / ".bashrc"
     profile = Path.home() / ".profile"
     if not dry_run:
-        profile_content = profile.read_text() if profile.exists() else ""
-        additions = []
-        if ".local/bin" not in profile_content:
-            additions.append('export PATH="$HOME/.local/bin:$PATH"')
+        # Build the env file content
         tools_dir = f"{edge}/tools"
-        if tools_dir not in profile_content and "edge/tools" not in profile_content:
-            additions.append(f'export PATH="{tools_dir}:$PATH"')
-        if "EDGE_DIR" not in profile_content:
-            additions.append(f'export EDGE_DIR="{edge}"')
-        if additions:
-            with open(profile, "a") as f:
-                f.write("\n" + "\n".join(additions) + "\n")
-            ok(f".profile updated ({len(additions)} lines)")
+        env_lines = [
+            f'export PATH="$HOME/.local/bin:{tools_dir}:$PATH"',
+            f'export EDGE_DIR="{edge}"',
+        ]
+        edge_env.write_text("\n".join(env_lines) + "\n")
+        ok(f".edge-env written ({len(env_lines)} exports)")
+
+        # Prepend sourcing to .bashrc (before non-interactive guard)
+        source_line = '[ -f "$HOME/.edge-env" ] && . "$HOME/.edge-env"'
+        bashrc_content = bashrc.read_text() if bashrc.exists() else ""
+        if ".edge-env" not in bashrc_content:
+            bashrc.write_text(source_line + "\n" + bashrc_content)
+            ok(".bashrc: .edge-env sourced (prepended before guard)")
         else:
-            ok(".profile already configured")
+            ok(".bashrc: .edge-env already sourced")
+
+        # Also append to .profile for login shells
+        profile_content = profile.read_text() if profile.exists() else ""
+        if ".edge-env" not in profile_content:
+            with open(profile, "a") as f:
+                f.write("\n" + source_line + "\n")
+            ok(".profile: .edge-env sourced (appended)")
+        else:
+            ok(".profile: .edge-env already sourced")
 
     # Copy bin/ (health scripts)
     bin_src = REPO_ROOT / "bin"
