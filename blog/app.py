@@ -312,7 +312,7 @@ def get_entries():
 def render_page_html(entries):
     """Render markdown->HTML only for entries that need it (lazy)."""
     for e in entries:
-        if not e.get("content_html") and not e["body_html"] and e.get("body_md"):
+        if not e["body_html"] and e.get("body_md"):
             e["body_html"] = markdown.markdown(e["body_md"], extensions=["extra"])
 
 
@@ -563,7 +563,11 @@ def htmx_workflow_detail(slug):
 
 @app.route("/workflows/<slug>/approve", methods=["POST"])
 def workflow_approve(slug):
-    """Approve a workflow draft: change tag from workflow-draft to workflow."""
+    """Approve a workflow draft: change tag from workflow-draft to workflow.
+
+    Accepts optional JSON body with edited content:
+      {"body_md": "new markdown content"}
+    """
     entries_dir = ENTRIES_DIR
     path = next(entries_dir.glob(f"*{slug}*"), None)
     if not path:
@@ -572,6 +576,14 @@ def workflow_approve(slug):
     parts = text.split("---", 2)
     if len(parts) >= 3:
         parts[1] = parts[1].replace("workflow-draft", "workflow")
+        # Apply edited body if provided
+        try:
+            data = request.get_json(silent=True) or {}
+            new_body = data.get("body_md")
+            if new_body is not None:
+                parts[2] = "\n\n" + new_body.strip() + "\n"
+        except Exception:
+            pass
         path.write_text("---".join(parts))
     invalidate_cache()
     return "", 204

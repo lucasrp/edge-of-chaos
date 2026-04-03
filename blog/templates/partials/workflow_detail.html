@@ -13,6 +13,8 @@
     <div class="workflow-detail-header">
       {% if 'anti-pattern' in entry.tags %}
       <span class="workflow-badge badge-antipattern">anti-pattern</span>
+      {% elif 'workflow-draft' in entry.tags %}
+      <span class="workflow-badge badge-draft">draft</span>
       {% else %}
       <span class="workflow-badge badge-workflow">workflow</span>
       {% endif %}
@@ -30,13 +32,55 @@
     </div>
     {% endif %}
 
-    <div class="workflow-detail-body">
+    <div class="workflow-detail-body" id="wf-body-view">
       {{ entry.body_html | safe }}
     </div>
+
+    <textarea id="wf-body-edit"
+              style="display:none; width:100%; min-height:400px; font-family:monospace; font-size:14px; padding:12px; border:1px solid #444; border-radius:6px; background:#1a1a2e; color:#e0e0e0; resize:vertical;">{{ entry.body_md }}</textarea>
+
+    {% if 'workflow-draft' in entry.tags %}
+    <div style="margin-top:16px; display:flex; gap:8px;">
+      <button class="wf-btn" id="wf-edit-btn" onclick="toggleEdit()">edit</button>
+      <button class="wf-btn wf-approve" id="wf-save-approve-btn" onclick="saveAndApprove('{{ entry.slug }}')">approve</button>
+      <button class="wf-btn wf-reject" onclick="workflowAction('{{ entry.slug }}', 'reject')">reject</button>
+    </div>
+    {% endif %}
   </article>
 </div>
 
 <script>
+// Toggle edit/preview mode
+function toggleEdit() {
+  var view = document.getElementById('wf-body-view');
+  var edit = document.getElementById('wf-body-edit');
+  var btn = document.getElementById('wf-edit-btn');
+  if (edit.style.display === 'none') {
+    edit.style.display = 'block';
+    view.style.display = 'none';
+    btn.textContent = 'preview';
+  } else {
+    edit.style.display = 'none';
+    view.style.display = 'block';
+    btn.textContent = 'edit';
+  }
+}
+
+// Save edits and approve
+function saveAndApprove(slug) {
+  var edit = document.getElementById('wf-body-edit');
+  var body = edit ? edit.value : null;
+  fetch('/workflows/' + slug + '/approve', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({body_md: body})
+  }).then(function(r) {
+    if (r.ok) {
+      htmx.ajax('GET', '/blog/?tab=workflows', {target: '#tabContent', pushUrl: true});
+    }
+  });
+}
+
 // Copy-to-clipboard for code blocks in workflow detail
 (function() {
   var blocks = document.querySelectorAll('.workflow-detail-body pre');
