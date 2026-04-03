@@ -1090,11 +1090,19 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
     ]
 
     wf_created = 0
+    # Check if any entry already has tags: [workflow] (not just "workflow" in filename)
+    has_workflow_entries = False
+    for f in entries_dir.glob("*.md"):
+        try:
+            head = f.read_text()[:500]
+            if "tags:" in head and "workflow" in head.split("tags:")[1].split("\n")[0]:
+                has_workflow_entries = True
+                break
+        except Exception:
+            pass
     for wf in workflow_entries:
         wf_file = entries_dir / f"{today}-{wf['slug']}.md"
-        # Don't create if any workflow entry already exists in corpus
-        existing_wf = [f for f in entries_dir.glob("*workflow*.md")]
-        if existing_wf:
+        if has_workflow_entries or wf_file.exists():
             break
         tags_str = ", ".join(wf["tags"])
         kw_str = ", ".join(wf["keywords"])
