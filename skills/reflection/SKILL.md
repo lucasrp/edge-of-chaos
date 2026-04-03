@@ -195,7 +195,19 @@ for m in msgs[:3]:
 " 2>/dev/null || echo "Chat unavailable"
 ```
 
-Classify: frustrations (→ HN-3), directions (→ record), questions (→ pending). **DO NOT respond, DO NOT mark as processed.**
+Classify each message:
+- **Frustrations** → HN-3 (debugging.md candidate)
+- **Questions** → pending (don't answer yet)
+- **Directions/directives** → record. If the message contains an operational directive (patterns: "always", "from now on", "whenever", "never do X", "make sure to", "every time"), create an approved workflow:
+
+```bash
+# Operator directive detected — create approved workflow (no draft stage)
+edge-crystallize --from-operator "the directive text here"
+```
+
+This creates a `workflow` entry immediately (operator authority = approval). The workflow enters `edge-search --type workflow` recall so skills follow it from the next beat.
+
+**DO NOT respond, DO NOT mark as processed** — the heartbeat handles responses (Step 3a).
 
 ### HN-5: State drift check + skill step completion
 

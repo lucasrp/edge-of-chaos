@@ -148,7 +148,16 @@ for line in open(sys.argv[1]):
 " FILE.jsonl 2>/dev/null | head -80
 ```
 
-Look for: frustrations, course corrections, repeated requests, priority changes, tone.
+Look for: frustrations, course corrections, repeated requests, priority changes, tone, **operational directives**.
+
+**Operator directives** — messages with patterns like "always", "from now on", "whenever", "never do X", "make sure to", "every time" that define how the agent should work. These are workflow-level instructions. Create an approved workflow immediately:
+
+```bash
+edge-crystallize --from-operator "the directive text"
+```
+
+This creates a `workflow` entry (operator authority = instant approval) that enters recall for all future skills.
+
 **If unable to extract content, record the technical reason in debugging.md. DO NOT skip silently.**
 
 ### 1b: Read async chat (single channel)
