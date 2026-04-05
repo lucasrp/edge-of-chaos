@@ -20,6 +20,7 @@ Exit codes: 0 = success, 1 = error
 import argparse
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +34,77 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import SECRETS_DIR, LOGS_DIR
 LOG_DIR = LOGS_DIR / "consult"
+
+# Hard timeouts to avoid silent hangs (#92). These are client-side limits on
+# the HTTP call — the server may still be processing when we time out, but
+# the user gets a clear exit instead of an indefinite wait.
+PER_MODEL_TIMEOUT = 300  # seconds, per model call
+TOTAL_TIMEOUT = 600      # seconds, total for consult() (enforced in consult())
+
+
+def _progress(msg: str) -> None:
+    """Emit a timestamped progress line to stderr with explicit flush.
+
+    Writes to stderr (not stdout) so callers using `| tail` still see progress
+    in real time — tail buffers stdout until EOF, stderr is unbuffered through
+    pipes. Explicit flush ensures no libc line buffering under any condition.
+    """
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[edge-consult] {ts} {msg}", file=sys.stderr, flush=True)
+
+
+_EDGE_CONSULT_TOKEN_RE = None  # Lazy-compiled below
+
+
+def _check_contention() -> list[tuple[int, str]]:
+    """Return list of (pid, cmdline) for other edge-consult processes running.
+
+    Detects the case where the fleet has multiple heartbeats calling
+    edge-consult in parallel, which historically correlated with silent hangs
+    (possibly rate limits or internal contention). Warns the user, does not
+    block.
+
+    Only matches processes where `edge-consult` appears as an executable token
+    (argv[0] or a filesystem path ending in edge-consult/edge-consult.py) —
+    not when the string merely appears inside a script passed via `python -c`.
+    """
+    global _EDGE_CONSULT_TOKEN_RE
+    if _EDGE_CONSULT_TOKEN_RE is None:
+        import re
+        _EDGE_CONSULT_TOKEN_RE = re.compile(
+            r'(^|\s)(?:\S*/)?edge-consult(\.py)?(\s|$)'
+        )
+
+    my_pid = os.getpid()
+    try:
+        result = subprocess.run(
+            ["pgrep", "-af", "edge-consult"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        others = []
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split(None, 1)
+            if not parts or not parts[0].isdigit():
+                continue
+            pid = int(parts[0])
+            if pid == my_pid:
+                continue
+            cmd = parts[1] if len(parts) > 1 else ""
+            # Filter pgrep itself and shell wrappers
+            if "pgrep" in cmd or cmd.strip().startswith("sh -c"):
+                continue
+            # Only count if edge-consult is a real executable token in the
+            # command line, not a substring inside a -c "..." payload
+            if not _EDGE_CONSULT_TOKEN_RE.search(cmd):
+                continue
+            others.append((pid, cmd))
+        return others
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return []
 
 # Provider configs: model prefix -> (secrets_file, env_var, base_url)
 PROVIDERS = {
@@ -147,23 +219,65 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> str
     return f"${cost:.4f}"
 
 
-def log_consultation(mode: str, question: str, context_files: list,
-                     response: str, model: str, cost: str, tokens: dict):
-    """Log consultation for audit trail (/ed-reflexao can review these)."""
+def log_start(mode: str, question: str, context_files: list, model: str) -> Path:
+    """Write a preliminary log entry with status:in_progress BEFORE the API call.
+
+    This makes post-incident debugging possible even if the process is killed,
+    the network hangs, or the LLM never responds (#92 — the original failure
+    mode was invocations that left no trace at all)."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    log_entry = {
-        "timestamp": datetime.now().isoformat(),
+    safe_model = model.replace("/", "-").replace(".", "-")
+    log_file = LOG_DIR / f"{timestamp}_{safe_model}.json"
+    entry = {
+        "status": "in_progress",
+        "started_at": datetime.now().isoformat(),
+        "timestamp": datetime.now().isoformat(),  # back-compat with old readers
         "mode": mode,
         "model": model,
         "question": question[:500],
         "context_files": context_files,
+    }
+    log_file.write_text(json.dumps(entry, indent=2, ensure_ascii=False))
+    return log_file
+
+
+def log_finish(log_file: Path, response: str, cost: str, tokens: dict) -> None:
+    """Update the in-progress log with final response, cost, tokens."""
+    try:
+        entry = json.loads(log_file.read_text())
+    except (OSError, json.JSONDecodeError):
+        entry = {}
+    entry.update({
+        "status": "done",
+        "finished_at": datetime.now().isoformat(),
         "response": response[:2000],
         "cost": cost,
         "tokens": tokens,
-    }
-    log_file = LOG_DIR / f"{timestamp}.json"
-    log_file.write_text(json.dumps(log_entry, indent=2, ensure_ascii=False))
+    })
+    log_file.write_text(json.dumps(entry, indent=2, ensure_ascii=False))
+
+
+def log_error(log_file: Path, error_msg: str) -> None:
+    """Mark an in-progress log as failed with the error message."""
+    try:
+        entry = json.loads(log_file.read_text())
+    except (OSError, json.JSONDecodeError):
+        entry = {}
+    entry.update({
+        "status": "failed",
+        "finished_at": datetime.now().isoformat(),
+        "error": error_msg[:1000],
+    })
+    log_file.write_text(json.dumps(entry, indent=2, ensure_ascii=False))
+
+
+# Back-compat alias — any external caller of the old name keeps working.
+def log_consultation(mode: str, question: str, context_files: list,
+                     response: str, model: str, cost: str, tokens: dict):
+    """Deprecated: use log_start + log_finish for write-early semantics."""
+    log_file = log_start(mode, question, context_files, model)
+    log_finish(log_file, response, cost, tokens)
 
 
 # ---------------------------------------------------------------------------
@@ -202,10 +316,15 @@ def _build_user_msg(question: str, context_files: list = None,
 RESPONSES_API_MODELS = {"grok-4.20-multi-agent-beta-0309", "gpt-5.4-pro"}
 
 
-def _call_model(model: str, system: str, user_msg: str) -> tuple[str, dict, str]:
-    """Call a single model. Returns (response_text, tokens_dict, cost_str)."""
+def _call_model(model: str, system: str, user_msg: str,
+                timeout: int = PER_MODEL_TIMEOUT) -> tuple[str, dict, str]:
+    """Call a single model. Returns (response_text, tokens_dict, cost_str).
+
+    The timeout parameter is passed to the OpenAI client constructor — any
+    single HTTP call exceeding it raises APITimeoutError, which the caller
+    converts to a logged failure (#92 fix 2: hard timeout default)."""
     api_key, base_url = load_api_key(model)
-    client_kwargs = {"api_key": api_key}
+    client_kwargs = {"api_key": api_key, "timeout": timeout}
     if base_url:
         client_kwargs["base_url"] = base_url
     client = OpenAI(**client_kwargs)
@@ -250,44 +369,76 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
 
     If gate_spec is provided, saves review as {spec}.review.json for
     consolidate-state to enforce resolution before publishing.
+
+    Progress is emitted to stderr throughout (not stdout) so callers using
+    `| tail` still see live updates. Each model call has a hard timeout and
+    a write-early log entry for post-incident debugging (#92).
     """
+    import time
+    started = time.time()
+
     system = ADVERSARIAL_SYSTEM if mode == "adversarial" else COLLABORATIVE_SYSTEM
+
+    _progress(f"Building prompt (question={len(question)} chars, "
+              f"context_files={len(context_files or [])}, "
+              f"stdin={'yes' if stdin_content else 'no'})")
+    if context_files:
+        for f in context_files:
+            p = Path(f)
+            if p.exists():
+                size = p.stat().st_size
+                _progress(f"  loading context: {p.name} ({size} bytes)")
     user_msg = _build_user_msg(question, context_files, stdin_content)
+    _progress(f"Prompt ready ({len(user_msg)} chars)")
 
     models = list(DUAL_MODELS)
+    _progress(f"Calling {len(models)} models in sequence: {', '.join(models)}")
 
     results = []
     all_tokens = []
     all_costs = []
 
+    context_file_strs = [str(f) for f in (context_files or [])]
+
     for m in models:
+        # Enforce total-timeout budget across the whole consult
+        elapsed = time.time() - started
+        if elapsed > TOTAL_TIMEOUT:
+            _progress(f"TOTAL_TIMEOUT ({TOTAL_TIMEOUT}s) reached, skipping remaining models")
+            results.append((m, f"[{m} skipped: total timeout of {TOTAL_TIMEOUT}s reached]"))
+            continue
+
+        # Write-early log BEFORE the API call — if the process hangs or is
+        # killed, the log still exists with status:in_progress for post-mortem.
+        log_file = log_start(mode, question, context_file_strs, m)
+
+        _progress(f"Calling {m}... (timeout {PER_MODEL_TIMEOUT}s, log: {log_file.name})")
+        model_started = time.time()
         try:
-            result, tokens, cost = _call_model(m, system, user_msg)
+            result, tokens, cost = _call_model(m, system, user_msg,
+                                               timeout=PER_MODEL_TIMEOUT)
+            dur = time.time() - model_started
+            log_finish(log_file, result, cost, tokens)
+            _progress(f"{m} ✓ {dur:.1f}s  tokens={tokens['total']}  cost={cost}")
+
             results.append((m, result))
             all_tokens.append(tokens)
             all_costs.append(cost)
 
-            # Log each model separately
-            log_consultation(
-                mode=mode,
-                question=question,
-                context_files=[str(f) for f in (context_files or [])],
-                response=result,
-                model=m,
-                cost=cost,
-                tokens=tokens,
-            )
-
-            # Metadata to stderr
+            # Metadata block to stderr (preserved for compatibility with
+            # existing callers that scrape this format)
             mode_label = "\033[31mADVERSARIAL\033[0m" if mode == "adversarial" else "\033[36mCOLLABORATIVE\033[0m"
-            print(f"\n{'='*55}", file=sys.stderr)
-            print(f"  edge-consult [{mode_label}]  ({m})", file=sys.stderr)
-            print(f"  Tokens: {tokens['total']} | Cost: {cost}", file=sys.stderr)
-            print(f"{'='*55}", file=sys.stderr)
+            print(f"\n{'='*55}", file=sys.stderr, flush=True)
+            print(f"  edge-consult [{mode_label}]  ({m})", file=sys.stderr, flush=True)
+            print(f"  Tokens: {tokens['total']} | Cost: {cost}", file=sys.stderr, flush=True)
+            print(f"{'='*55}", file=sys.stderr, flush=True)
 
         except Exception as e:
-            print(f"  WARN: {m} failed: {e}", file=sys.stderr)
-            results.append((m, f"[{m} error: {e}]"))
+            dur = time.time() - model_started
+            err_msg = f"{type(e).__name__}: {e}"
+            log_error(log_file, err_msg)
+            _progress(f"{m} ✗ {dur:.1f}s  {err_msg}")
+            results.append((m, f"[{m} error: {err_msg}]"))
 
     # Combine outputs from both models
     combined = "\n\n".join(
@@ -327,7 +478,21 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Cross-model deliberation: adversarial (default) or collaborative"
+        description="Cross-model deliberation: adversarial (default) or collaborative",
+        epilog=(
+            "Timing expectations: short prompts complete in ~15-45s; large --context "
+            f"(>10k tokens) can take up to {PER_MODEL_TIMEOUT}s per model. Total hard "
+            f"timeout is {TOTAL_TIMEOUT}s.\n\n"
+            "Troubleshooting: if a call seems stuck, progress is always emitted to "
+            "stderr — check the [edge-consult] HH:MM:SS lines. For piped usage, "
+            "stdout is buffered until completion, but stderr is not. Use "
+            "`edge-consult \"...\" 2>&1 | tee /tmp/consult.log` to see progress AND "
+            "capture the full output.\n\n"
+            "Post-incident debug: each model call writes an in_progress log to "
+            "~/edge/logs/consult/ BEFORE the API call. If killed or hung, the log "
+            "tells you what was being attempted."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("question", nargs="?", default=None,
                         help="Question or reasoning to challenge/explore")
@@ -347,6 +512,28 @@ def main():
 
     if not args.question and not stdin_content:
         parser.error("Provide a question as argument or pipe content via stdin")
+
+    # Pipe-to-tail warning (#92 fix 5): if stdout is a pipe, the user won't see
+    # progress on stdout until the process completes. Progress goes to stderr
+    # regardless, but flag this to avoid the "why is it hanging?" confusion.
+    if not sys.stdout.isatty():
+        print(
+            "[edge-consult] NOTE: stdout is piped. Progress messages go to stderr. "
+            "Use `edge-consult \"...\" 2>&1 | tee /tmp/consult.log` to see progress "
+            "in real time.",
+            file=sys.stderr, flush=True,
+        )
+
+    # Contention detection (#92 fix 4): warn if other edge-consult instances are
+    # running. Historically correlates with silent hangs via rate limits.
+    others = _check_contention()
+    if others:
+        _progress(
+            f"WARNING: {len(others)} other edge-consult instance(s) running concurrently. "
+            f"Rate limits may cause delays."
+        )
+        for pid, cmd in others[:3]:
+            _progress(f"  pid={pid}: {cmd[:100]}")
 
     question = args.question or "Analyze this:"
 
