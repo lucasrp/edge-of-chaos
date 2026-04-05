@@ -1,0 +1,43 @@
+name: semscholar
+description: "Search Semantic Scholar's paper database"
+mode: read
+needs: []                         # public API, key is optional for higher limits
+
+input_schema:
+  type: object
+  properties:
+    query: { type: string }
+    limit: { type: integer, default: 20, minimum: 1, maximum: 100 }
+    fields: { type: array, items: { type: string } }
+  required: [query]
+
+output_schema:
+  type: object
+  properties:
+    ok: { type: boolean }
+    query: { type: string }
+    count: { type: integer }
+    results:
+      type: array
+      items:
+        type: object
+        properties:
+          paperId: { type: string }
+          title: { type: string }
+          authors: { type: array }
+          year: { type: integer }
+          abstract: { type: string }
+          citationCount: { type: integer }
+          url: { type: string }
+
+annotations:
+  read_only_hint: true
+  idempotent_hint: true
+  destructive_hint: false
+
+version: "1.0.0"
+
+notes: |
+  Uses api.semanticscholar.org/graph/v1/paper/search. Public endpoint
+  with rate limit of 100 req/5min unauthenticated. If SEMSCHOLAR_API_KEY
+  is set in env, higher limits apply but not required.

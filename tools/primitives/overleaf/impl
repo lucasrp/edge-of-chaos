@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""overleaf primitive — STUB.
+
+Current status: returns placeholder JSON for all operations except
+--operation clone (which performs a basic git clone if OVERLEAF_GIT_TOKEN
+is set). Other operations return not_implemented.
+
+This is the minimum viable slice. Gauss will drive the fleshing-out
+based on actual use. See meta.yaml `notes:` for planned operations.
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from usage_log import log_invocation
+except ImportError:
+    def log_invocation(*args, **kwargs):
+        pass
+
+
+def op_clone(project_id: str, local_path: str, token: str) -> dict:
+    if not project_id or not local_path:
+        return {"ok": False, "error": "clone requires project_id and local_path", "code": 2}
+    url = f"https://git:{token}@git.overleaf.com/{project_id}"
+    try:
+        subprocess.run(
+            ["git", "clone", "--depth", "1", url, local_path],
+            check=True,
+            capture_output=True,
+        )
+        return {"ok": True, "operation": "clone", "project_id": project_id, "local_path": local_path}
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""
+        return {"ok": False, "error": f"git clone failed: {stderr.strip()}", "code": 1}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Overleaf primitive (stub)")
+    parser.add_argument("--operation", required=True, choices=["clone", "read-file", "commit-and-push"])
+    parser.add_argument("--project-id", default="")
+    parser.add_argument("--local-path", default="")
+    parser.add_argument("--file-path", default="")
+    parser.add_argument("--content", default="")
+    parser.add_argument("--commit-message", default="")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+
+    start_ts = time.time()
+    log_invocation(
+        "overleaf", "start",
+        input_summary=f"op={args.operation} project={args.project_id}",
+    )
+
+    token = os.environ.get("OVERLEAF_GIT_TOKEN", "")
+    if not token:
+        payload = {"ok": False, "error": "OVERLEAF_GIT_TOKEN not set in env", "code": 1}
+        print(json.dumps(payload))
+        print("Error: OVERLEAF_GIT_TOKEN required", file=sys.stderr)
+        log_invocation("overleaf", "end", ok=False, error="missing_token")
+        return 1
+
+    if args.operation == "clone":
+        result = op_clone(args.project_id, args.local_path, token)
+    elif args.operation in ("read-file", "commit-and-push"):
+        result = {
+            "ok": False,
+            "error": f"operation {args.operation!r} not yet implemented (stub primitive)",
+            "code": 501,
+            "stub": True,
+        }
+    else:
+        result = {"ok": False, "error": f"unknown operation {args.operation!r}", "code": 2}
+
+    duration_ms = int((time.time() - start_ts) * 1000)
+    print(json.dumps(result, ensure_ascii=False))
+    if not result.get("ok"):
+        print(f"Error: {result.get('error', 'unknown')}", file=sys.stderr)
+    log_invocation(
+        "overleaf", "end",
+        duration_ms=duration_ms, ok=result.get("ok", False),
+        error=result.get("error") if not result.get("ok") else None,
+    )
+    return 0 if result.get("ok") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

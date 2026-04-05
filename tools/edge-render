@@ -94,6 +94,49 @@ def load_agent_yaml(path: Path) -> dict:
         r for r in _normalize_list(cfg.get("routines")) if r and r.strip()
     ]
 
+    # Normalize `sources:` (capability manifest of external read primitives,
+    # #94). Each entry is a simple name (e.g. "arxiv") that resolves against
+    # tools/primitives/<name>/meta.yaml in the genotype catalog. Validation
+    # here is warning-only — unknown names don't block rendering (the agent
+    # can still install), but we surface the gap so operator can fix it.
+    #
+    # edge-native tools (edge-consult, edge-signal, etc) MUST NOT appear in
+    # sources: — they are framework infra, always available. Operator doesn't
+    # declare them.
+    raw_sources = _normalize_list(cfg.get("sources"))
+    cfg["sources"] = []
+    cfg["sources_resolved"] = []  # list of {name, meta} for downstream materializer
+    catalog_dir = REPO_ROOT / "tools" / "primitives"
+    for src in raw_sources:
+        if not isinstance(src, str) or not src.strip():
+            continue
+        name = src.strip()
+        if name.startswith("edge-"):
+            print(
+                f"WARNING: 'sources:' entry '{name}' looks like an edge-native tool. "
+                f"Edge-native tools are framework infra and should not be declared in sources.",
+                file=sys.stderr,
+            )
+            continue
+        cfg["sources"].append(name)
+        meta_path = catalog_dir / name / "meta.yaml"
+        if not meta_path.exists():
+            print(
+                f"WARNING: 'sources:' entry '{name}' has no catalog entry at "
+                f"tools/primitives/{name}/meta.yaml — primitive will not be materialized.",
+                file=sys.stderr,
+            )
+            continue
+        try:
+            with open(meta_path) as mf:
+                meta = yaml.safe_load(mf) or {}
+            cfg["sources_resolved"].append({"name": name, "meta": meta})
+        except Exception as exc:
+            print(
+                f"WARNING: failed to load catalog meta for '{name}': {exc}",
+                file=sys.stderr,
+            )
+
     # Legacy compat: if only `pre_skill` is set, map it into procedure.
     if pre_legacy and not pre_context and not pre_procedure:
         pre_procedure = pre_legacy

@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""edge-materialize-primitives: Copy primitives from the genotype catalog
+to an agent's libexec/ directory, based on the `sources:` field of its
+agent.yaml.
+
+Usage:
+    edge-materialize-primitives                          # uses ./agent.yaml, ./libexec/<codename>/
+    edge-materialize-primitives --config path/to/agent.yaml
+    edge-materialize-primitives --dry-run                # show what would happen
+    edge-materialize-primitives --target /path/to/libexec  # custom target root
+
+Output:
+    - Copies each resolved primitive's `impl` to <target>/<codename>/<name>
+    - Copies each primitive's `meta.yaml` as <target>/<codename>/<name>.meta.yaml
+      (MCP-compatible descriptor, metadata only — no server runs)
+    - Collects union of `needs:` env vars from all materialized primitives
+    - Cross-references against secrets/keys.env and emits a gap report
+    - Exit 0 on success, 1 if any materialization failed, 2 on misuse
+
+Part of issue #94 — primitives catalog + sources: field in agent.yaml.
+"""
+
+import argparse
+import json
+import os
+import shutil
+import stat
+import sys
+from pathlib import Path
+
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CATALOG_DIR = REPO_ROOT / "tools" / "primitives"
+
+
+def _load_yaml(path: Path) -> dict:
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def _load_keys_env(keys_env_path: Path) -> dict:
+    """Parse secrets/keys.env into a dict of var_name → is_set (bool).
+    A var is 'set' if its line has a non-empty value to the right of '='."""
+    keys: dict[str, bool] = {}
+    if not keys_env_path.exists():
+        return keys
+    with open(keys_env_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export "):]
+            if "=" not in line:
+                continue
+            name, _, value = line.partition("=")
+            name = name.strip()
+            value = value.strip().strip('"').strip("'")
+            if name:
+                keys[name] = bool(value)
+    return keys
+
+
+def resolve_sources(cfg: dict) -> list[dict]:
+    """Return list of {name, meta_path, impl_path, meta} for declared sources.
+    Skips entries that don't exist in catalog (warns to stderr)."""
+    raw = cfg.get("sources") or []
+    resolved: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, str) or not entry.strip():
+            continue
+        name = entry.strip()
+        if name.startswith("edge-"):
+            print(
+                f"SKIP: '{name}' looks like an edge-native tool; not declared in sources.",
+                file=sys.stderr,
+            )
+            continue
+        meta_path = CATALOG_DIR / name / "meta.yaml"
+        impl_path = CATALOG_DIR / name / "impl"
+        if not meta_path.exists():
+            print(
+                f"SKIP: no catalog entry for '{name}' at {meta_path.relative_to(REPO_ROOT)}",
+                file=sys.stderr,
+            )
+            continue
+        if not impl_path.exists():
+            print(
+                f"SKIP: no executable for '{name}' at {impl_path.relative_to(REPO_ROOT)}",
+                file=sys.stderr,
+            )
+            continue
+        try:
+            meta = _load_yaml(meta_path)
+        except Exception as exc:
+            print(f"SKIP: could not load meta for '{name}': {exc}", file=sys.stderr)
+            continue
+        resolved.append({
+            "name": name,
+            "meta_path": meta_path,
+            "impl_path": impl_path,
+            "meta": meta,
+        })
+    return resolved
+
+
+def materialize(
+    primitive: dict,
+    target_dir: Path,
+    *,
+    dry_run: bool = False,
+) -> tuple[bool, str]:
+    """Copy one primitive (impl + meta) into target_dir. Returns (ok, message)."""
+    name = primitive["name"]
+    impl_src = primitive["impl_path"]
+    meta_src = primitive["meta_path"]
+    impl_dst = target_dir / name
+    meta_dst = target_dir / f"{name}.meta.yaml"
+
+    if dry_run:
+        return True, f"DRY-RUN: would copy {impl_src.name} → {impl_dst}"
+
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(impl_src, impl_dst)
+        # Ensure executable bit is set (copy2 preserves mode, but belt-and-suspenders)
+        mode = impl_dst.stat().st_mode
+        impl_dst.chmod(mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        shutil.copy2(meta_src, meta_dst)
+        return True, f"materialized {name} → {impl_dst}"
+    except Exception as exc:
+        return False, f"FAILED {name}: {exc}"
+
+
+def collect_needs(primitives: list[dict]) -> dict[str, list[str]]:
+    """Return {env_var: [primitive_names_that_need_it]}."""
+    needs_map: dict[str, list[str]] = {}
+    for p in primitives:
+        for var in p["meta"].get("needs") or []:
+            if isinstance(var, str) and var.strip():
+                needs_map.setdefault(var.strip(), []).append(p["name"])
+    return needs_map
+
+
+def gap_audit(
+    needs_map: dict[str, list[str]],
+    keys_env_path: Path,
+) -> list[dict]:
+    """Return list of gaps: {var, required_by, present_in_keys_env}."""
+    present = _load_keys_env(keys_env_path)
+    gaps: list[dict] = []
+    for var, callers in sorted(needs_map.items()):
+        is_present = present.get(var, False)
+        if not is_present:
+            gaps.append({
+                "var": var,
+                "required_by": callers,
+                "present_in_keys_env": False,
+            })
+    return gaps
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Materialize primitives from catalog")
+    parser.add_argument("--config", default="agent.yaml", help="Path to agent.yaml")
+    parser.add_argument("--target", default=None, help="Libexec target root (default: ./libexec)")
+    parser.add_argument("--keys-env", default=None, help="Path to secrets/keys.env for gap audit")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+
+    cfg_path = Path(args.config).expanduser().resolve()
+    if not cfg_path.exists():
+        print(f"ERROR: config not found: {cfg_path}", file=sys.stderr)
+        return 2
+
+    cfg = _load_yaml(cfg_path)
+    codename = cfg.get("codename") or cfg.get("name")
+    if not codename:
+        print("ERROR: agent.yaml missing 'codename' or 'name' field", file=sys.stderr)
+        return 2
+
+    target_root = (
+        Path(args.target).expanduser().resolve()
+        if args.target
+        else cfg_path.parent / "libexec"
+    )
+    target_dir = target_root / codename
+
+    keys_env_path = (
+        Path(args.keys_env).expanduser().resolve()
+        if args.keys_env
+        else cfg_path.parent / "secrets" / "keys.env"
+    )
+
+    primitives = resolve_sources(cfg)
+    if not primitives:
+        print("No sources to materialize (empty or unresolved list).", file=sys.stderr)
+        return 0
+
+    print(f"Materializing {len(primitives)} primitives for codename='{codename}' → {target_dir}")
+    all_ok = True
+    for p in primitives:
+        ok, msg = materialize(p, target_dir, dry_run=args.dry_run)
+        print(("  OK " if ok else "  ERR") + ": " + msg)
+        if not ok:
+            all_ok = False
+
+    needs_map = collect_needs(primitives)
+    gaps = gap_audit(needs_map, keys_env_path)
+
+    report = {
+        "codename": codename,
+        "target_dir": str(target_dir),
+        "materialized": [p["name"] for p in primitives],
+        "needs": needs_map,
+        "gaps": gaps,
+        "keys_env_path": str(keys_env_path),
+        "keys_env_exists": keys_env_path.exists(),
+    }
+    print("\n--- MATERIALIZATION REPORT ---")
+    print(json.dumps(report, indent=2, ensure_ascii=False))
+
+    if gaps:
+        print(f"\nWARNING: {len(gaps)} env var(s) required by primitives but not set in keys.env:")
+        for g in gaps:
+            print(f"  - {g['var']}  (required by: {', '.join(g['required_by'])})")
+        print("Primitives will still be copied but may fail at runtime without these keys.")
+
+    return 0 if all_ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

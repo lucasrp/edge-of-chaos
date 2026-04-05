@@ -1,0 +1,52 @@
+name: overleaf
+description: "Read (clone) and write (commit-and-push) Overleaf git-backed LaTeX projects"
+mode: bidirectional
+needs: [OVERLEAF_GIT_TOKEN]       # required for any operation
+
+input_schema:
+  type: object
+  properties:
+    operation:
+      type: string
+      enum: [clone, read-file, commit-and-push]
+      description: "Which sub-operation to perform"
+    project_id: { type: string, description: "Overleaf project ID from URL" }
+    local_path: { type: string, description: "Local filesystem path for clone/operations" }
+    file_path: { type: string, description: "File path within project (for read-file, commit-and-push)" }
+    content: { type: string, description: "Content to write (commit-and-push only)" }
+    commit_message: { type: string }
+    dry_run: { type: boolean, default: false, description: "Preview write without executing" }
+  required: [operation]
+
+output_schema:
+  type: object
+  properties:
+    ok: { type: boolean }
+    operation: { type: string }
+    project_id: { type: string }
+    commit_sha: { type: string, description: "Populated on successful commit-and-push" }
+    file_content: { type: string, description: "Populated on successful read-file" }
+
+annotations:
+  read_only_hint: false           # has write operations
+  idempotent_hint: false          # writes need idempotency keys (not yet implemented)
+  destructive_hint: false         # git commits are reversible via revert
+
+version: "0.1.0"                  # STUB — stabilize to 1.0 after real usage in gauss
+
+notes: |
+  STUB implementation. This primitive defines the contract but the impl
+  currently returns a placeholder JSON with "not_implemented" for write
+  operations. Read-file via git clone works minimally.
+
+  Overleaf git integration uses token-based auth:
+    https://git:<OVERLEAF_GIT_TOKEN>@git.overleaf.com/<project_id>
+
+  Planned operations:
+    - clone: shallow git clone to local_path
+    - read-file: return file content as text
+    - commit-and-push: write content, git commit, git push (with dry_run support)
+
+  Idempotency keys for commit-and-push are NOT yet implemented. First pass:
+  operator responsible for not calling commit-and-push twice with same
+  content. Real idempotency: follow-up work (see docs/TOOL_CONTRACT.md).

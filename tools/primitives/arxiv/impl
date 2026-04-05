@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""arxiv primitive — search papers via arxiv.org public API.
+
+Contract: JSON-over-stdout. See docs/TOOL_CONTRACT.md.
+
+Usage:
+    arxiv --query "Q-curvature" --max-results 10
+    arxiv --query "conformal geometry" --categories math.DG math.AP
+"""
+
+import argparse
+import json
+import sys
+import time
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+# Make _shared importable whether we run from catalog or from libexec.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # libexec layout sibling
+try:
+    from usage_log import log_invocation
+except ImportError:
+    # Running from libexec without sibling _shared — stub it out.
+    def log_invocation(*args, **kwargs):
+        pass
+
+
+ARXIV_API = "http://export.arxiv.org/api/query"
+ATOM_NS = "{http://www.w3.org/2005/Atom}"
+
+
+def build_query(query: str, categories: list[str] | None) -> str:
+    parts = [f"all:{query}"]
+    if categories:
+        cat_expr = "+OR+".join(f"cat:{c}" for c in categories)
+        parts.append(f"({cat_expr})")
+    return "+AND+".join(parts)
+
+
+def parse_entry(entry: ET.Element) -> dict:
+    def text(tag: str) -> str:
+        el = entry.find(f"{ATOM_NS}{tag}")
+        return el.text.strip() if el is not None and el.text else ""
+
+    authors = [
+        a.find(f"{ATOM_NS}name").text.strip()
+        for a in entry.findall(f"{ATOM_NS}author")
+        if a.find(f"{ATOM_NS}name") is not None
+    ]
+    categories = [
+        c.get("term", "")
+        for c in entry.findall("{http://arxiv.org/schemas/atom}primary_category")
+    ]
+    # Also gather secondary categories
+    for c in entry.findall(f"{ATOM_NS}category"):
+        term = c.get("term", "")
+        if term and term not in categories:
+            categories.append(term)
+
+    pdf_url = ""
+    for link in entry.findall(f"{ATOM_NS}link"):
+        if link.get("type") == "application/pdf":
+            pdf_url = link.get("href", "")
+            break
+
+    arxiv_id = text("id").split("/abs/")[-1] if text("id") else ""
+
+    return {
+        "id": arxiv_id,
+        "title": text("title").replace("\n", " ").strip(),
+        "authors": authors,
+        "abstract": text("summary").replace("\n", " ").strip(),
+        "pdf_url": pdf_url,
+        "published": text("published"),
+        "categories": categories,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Search arxiv.org papers")
+    parser.add_argument("--query", required=True)
+    parser.add_argument("--max-results", type=int, default=20)
+    parser.add_argument("--categories", nargs="*", default=[])
+    args = parser.parse_args()
+
+    start_ts = time.time()
+    log_invocation(
+        "arxiv",
+        "start",
+        input_summary=f"query={args.query!r} max={args.max_results}",
+    )
+
+    search_query = build_query(args.query, args.categories)
+    params = urllib.parse.urlencode({
+        "search_query": search_query,
+        "max_results": args.max_results,
+        "sortBy": "relevance",
+        "sortOrder": "descending",
+    })
+    url = f"{ARXIV_API}?{params}"
+
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            data = resp.read()
+    except Exception as exc:
+        duration_ms = int((time.time() - start_ts) * 1000)
+        error_payload = {
+            "ok": False,
+            "error": f"http fetch failed: {exc}",
+            "code": 503,
+        }
+        print(json.dumps(error_payload))
+        print(f"Error: arxiv fetch failed: {exc}", file=sys.stderr)
+        log_invocation(
+            "arxiv", "end",
+            duration_ms=duration_ms, ok=False, error=str(exc),
+        )
+        return 1
+
+    try:
+        root = ET.fromstring(data)
+        entries = root.findall(f"{ATOM_NS}entry")
+        results = [parse_entry(e) for e in entries]
+    except Exception as exc:
+        duration_ms = int((time.time() - start_ts) * 1000)
+        error_payload = {
+            "ok": False,
+            "error": f"xml parse failed: {exc}",
+            "code": 502,
+        }
+        print(json.dumps(error_payload))
+        print(f"Error: arxiv response parse failed: {exc}", file=sys.stderr)
+        log_invocation(
+            "arxiv", "end",
+            duration_ms=duration_ms, ok=False, error=str(exc),
+        )
+        return 1
+
+    duration_ms = int((time.time() - start_ts) * 1000)
+    payload = {
+        "ok": True,
+        "query": args.query,
+        "count": len(results),
+        "results": results,
+    }
+    print(json.dumps(payload, ensure_ascii=False))
+    log_invocation(
+        "arxiv", "end",
+        duration_ms=duration_ms, ok=True, result_count=len(results),
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
