@@ -1,39 +1,35 @@
-# Vocabulário de Tags e Keywords
+# Vocabulario de Tags e Keywords
 
-Esquema de metadados para reports, blog entries, notas e artefatos de memória.
+Esquema de metadados para reports, blog entries, notas e artefatos de memoria.
 Evolui com o tempo — adicionar termos conforme surgem, consolidar na /reflexao.
 
 ## Esquema
 
 ```yaml
-tags: [tipo, dominio, conceito]     # 3-5, vocabulário controlado, pra FILTRAR
+tags: [tipo, dominio, conceito]     # 3-5, vocabulario controlado, pra FILTRAR
 keywords: [tech, concept, ref, ...]  # 5-15, semi-livre, pra RETRIEVAL
 ```
 
 **tags** = poucos, normalizados, respondem "que tipo? sobre qual projeto? qual tema?"
-**keywords** = granulares, respondem "quais tecnologias? quais conceitos? quais referências?"
+**keywords** = granulares, respondem "quais tecnologias? quais conceitos? quais referencias?"
 
-## Tags — Vocabulário Controlado
-
-As próprias tags permanecem em ASCII (convenção de slug, igual a filenames
-de blog entries — `reflexao`, não `reflexão`). As seções abaixo usam os
-slugs canônicos; o texto explicativo usa acentuação normal.
+## Tags — Vocabulario Controlado
 
 ### Tipo (herdado da skill que gerou)
 pesquisa, reflexao, planejamento, descoberta, estrategia,
 lazer, capacitacao, relatorio, retrospectiva, executar
 
-### Domínio (projeto/área)
+### Dominio (projeto/area)
 project, autonomia, blog, ralph
 
 ### Conceito (tema amplo)
 multi-agente, prompt-engineering, calibracao, pipeline,
 eval, applied-domain, observabilidade, ux, memoria
 
-## Keywords — Vocabulário de Retrieval
+## Keywords — Vocabulario de Retrieval
 
-Keyword canônica primeiro, aliases entre parênteses.
-Consultar antes de criar keyword nova — se o conceito já existe, usar a canônica.
+Keyword canonica primeiro, aliases entre parenteses.
+Consultar antes de criar keyword nova — se o conceito ja existe, usar a canonica.
 
 ### Tecnologias
 - dspy (DSPy, prompt-compilation, compiled-prompts, prompt-optimizer)
@@ -52,7 +48,7 @@ Consultar antes de criar keyword nova — se o conceito já existe, usar a canô
 - vetiver (vetiver-model-cards)
 - arize-phoenix (phoenix-observability)
 
-### Conceitos Técnicos
+### Conceitos Tecnicos
 - structured-extraction (extracao-estruturada, json-extraction)
 - semantic-compression (compressao-semantica)
 - prompt-specialization (multi-persona, persona-prompts)
@@ -77,12 +73,12 @@ Consultar antes de criar keyword nova — se o conceito já existe, usar a canô
 - wip-limits (lean, kanban-limits)
 - chain-of-density (summarization-technique)
 
-### Domínio Aplicado (EXAMPLE — customize for your domain)
+### Dominio Aplicado (EXAMPLE — customize for your domain)
 - domain-knowledge (domain-specific, precedents)
 - document-metadata (metadados, document-classification)
 - anonymization (anonimizacao, privacy)
 
-### Referências (pessoas, teorias)
+### Referencias (pessoas, teorias)
 - feynman (metodo-feynman, richard-feynman, first-principles)
 - turing (alan-turing, turing-patterns, turing-machine)
 - arrow (arrow-impossibility, kenneth-arrow, voting-paradox)
@@ -124,8 +120,8 @@ keywords: [dspy, promptfoo, eval-pipeline]
 ## Regras
 
 1. **Consultar este arquivo** antes de criar keyword nova
-2. **Tag de tipo é obrigatória** — todo artefato tem pelo menos uma
-3. **Keywords são case-insensitive** — sempre minúsculo, hifenizado
-4. **Não retroagir** — aplicar daqui pra frente, não voltar nos 161 existentes
+2. **Tag de tipo e obrigatoria** — todo artefato tem pelo menos uma
+3. **Keywords sao case-insensitive** — sempre minusculo, hifenizado
+4. **Nao retroagir** — aplicar daqui pra frente, nao voltar nos 161 existentes
 5. **Evoluir** — adicionar termos quando surgem, consolidar duplicatas na /reflexao
-6. **Índice centralizado** — futuro (INDEX.json), quando volume justificar
+6. **Indice centralizado** — futuro (INDEX.json), quando volume justificar

@@ -35,7 +35,6 @@ Specific topics go in `memory/topics/`. Core should not exceed 15 rules.
 - When writing an insight to persist: **rule format: "when [context], [action]"**. If it doesn't fit, it's a claim, not a rule.
 - When deciding where to save: **read titles of memory/topics/ and decide: append or create new**. Reflection curates when it grows too large.
 - When loading topics: **list filenames of topics/, choose 2-3 relevant to context**. Core is always loaded.
-- When writing Portuguese body text (reports, blog entries, memory entries, YAML spec descriptions, prose in genotype files): **use correct diacritics**. "memória", not "memoria"; "análise", not "analise"; "você", not "voce"; "também", not "tambem"; "não", not "nao"; "autônomo", not "autonomo". ASCII Portuguese is acceptable ONLY for URL slugs, filenames, tag names (controlled vocabulary like `reflexao`, `execucao`) and code identifiers — never in body text. Heartbeat-generated content imitates the style of the SKILL.md files it reads; writing ASCII Portuguese in genotype prose propagates the error into every downstream artifact.
 
 ## Notification
 
