@@ -8,7 +8,6 @@ review:
 
 search:
   exa: auto                 # busca semântica via Exa (precisa: EXA_API_KEY)
-  serper: auto              # busca web via Serper/Google (precisa: SERPER_API_KEY)
 
 research:
   deep: auto                # edge-deepresearch — research profunda com web (precisa: OPENAI + GOOGLE)

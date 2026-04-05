@@ -329,7 +329,6 @@ review:
 
 search:
   exa: auto                 # busca via Exa (precisa: EXA_API_KEY)
-  serper: auto              # busca web via Serper (precisa: SERPER_API_KEY)
 
 research:
   deep: auto                # edge-deepresearch (precisa: OPENAI + GOOGLE)
