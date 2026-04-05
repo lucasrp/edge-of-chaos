@@ -1,6 +1,6 @@
 ---
 name: ed-heartbeat
-description: "Autonomous heartbeat dispatcher. Scans sessions, processes feedback, dispatches skill, logs errors. Triggers on: heartbeat, pulse autonomo, autonomous cycle."
+description: "Autonomous heartbeat dispatcher. Scans sessions, processes feedback, dispatches skill, logs errors. Triggers on: heartbeat, pulse autônomo, autonomous cycle."
 user-invocable: true
 ---
 
