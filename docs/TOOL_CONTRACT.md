@@ -1,22 +1,61 @@
 # Tool Contract — JSON-over-stdout for Agent Primitives
 
-> Canonical contract for CLI primitives in `tools/primitives/`. Applies to
-> any executable that an agent (LLM running under Claude Code or similar)
-> invokes via `Bash()` and parses the output from.
+> Canonical contract for CLI primitives that agents create on demand.
+> Read this before writing any primitive. This is the HOW — the WHAT
+> comes from the source description in agent.yaml `sources:`.
 
-Part of issue #94 — primitives catalog + `sources:` field in agent.yaml.
+Part of issue #94 — `sources:` field + on-demand primitive creation.
 
 ## TL;DR
 
 | Aspect | Rule |
 |---|---|
-| **Exit codes** | 0 = success, 1 = error, 2 = misuse (bad args) |
+| **Exit 0** | Success — JSON result in stdout |
+| **Exit 1** | Runtime error — `{ok:false,error,code}` in stdout + human text in stderr |
+| **Exit 2** | Misuse — bad arguments |
+| **Exit 77** | Operation not implemented — primitive exists but this operation isn't built yet |
+| **Exit 127** | Primitive not found — trigger creation (see Lifecycle below) |
 | **Stdout** | Single JSON object OR NDJSON (one JSON per line) for streaming |
 | **Stderr** | Human-readable text only. NEVER JSON. |
-| **Errors** | Both channels: `{ok:false,error,code}` in stdout + human text in stderr |
 | **Binaries** | Write to path, return path in JSON. Base64 inline only if < 1 MB |
-| **Progress** | NDJSON events in stdout when piped; stderr human text if TTY |
 | **Logging** | Call `_shared/usage_log.log_invocation()` on entry and exit |
+
+## Lifecycle — How primitives are born
+
+Primitives are NOT pre-built. They are created on demand by the agent.
+
+### Phase 1 — Pre-materialization (contract)
+
+Agent hits exit 127 (primitive doesn't exist). Before writing code:
+
+1. Read the source's `description` from `agent.yaml` `sources:` — this is the SPEC
+2. Read this document (TOOL_CONTRACT.md) — this is the HOW
+3. Write the contract: `<edge_home>/libexec/<codename>/<name>.meta.yaml`
+   (name, description, input/output schema, needs, annotations)
+4. Register in `state/sources-manifest.yaml` with `status: contract-only`
+
+### Phase 2 — Materialization (code)
+
+1. Write the executable following the contract + this document
+2. Import `_shared/usage_log.py` for invocation logging
+3. Test: run with a probe query, verify JSON output, verify exit 0
+4. Save to `<edge_home>/libexec/<codename>/<name>`, chmod +x
+5. Update manifest: `status: active`
+6. Blog entry documenting what was created, why, and gaps
+
+### Phase 3 — Use + evolution
+
+1. Invoke normally — usage logged to `state/source-usage.jsonl`
+2. If an operation isn't implemented: return exit 77 — agent extends the impl
+3. Autonomy reviews periodically: improve, optimize, add operations, or remove
+
+### Bootstrap vs steady-state
+
+- **Bootstrap** (first heartbeats): primitives are created as rough side-effects
+  of the work. Minimal viable — just enough to unblock the task. No full
+  adversarial review, just TOOL_CONTRACT compliance + quick test.
+- **Steady-state**: autonomy reviews existing primitives with usage evidence,
+  proposes deep improvements via full adversarial review + blog entry.
 
 ## Rationale
 

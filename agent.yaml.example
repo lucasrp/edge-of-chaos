@@ -60,30 +60,31 @@ blog_auth_user: ""              # default for new agents: "admin"
 blog_auth_pass: ""              # default for new agents: generate a password
 
 # --- Sources (capability manifest) — issue #94 ---
-# Declarative list of READ capabilities the agent can tap into. Each entry
-# resolves against tools/primitives/<name>/ in the genotype catalog. The
-# agent decides at runtime which source to use for each task — this is NOT
-# a routine prescription.
+# External read capabilities this agent can tap into. Each entry has a name
+# and a description. The description is the SPEC: when the agent first tries
+# to use a source and the primitive doesn't exist yet (exit 127), it reads
+# the description + docs/TOOL_CONTRACT.md and creates the primitive on the
+# spot. Autonomy reviews and deepens it later based on usage evidence.
 #
 # Edge-native tools (edge-consult, edge-signal, edge-search, review-gate,
-# etc) are framework infrastructure — they are ALWAYS available to every
-# agent and MUST NOT be listed here.
+# etc) are framework infrastructure — always available, NEVER listed here.
 #
-# PHASE 1 (bootstrap, first ~10 heartbeats): pre_skill_procedure MAY
-# prescribe breadth explicitly ("query 3+ sources per task") to accelerate
-# learning. Breadth > premature convergence. This is NOT the anti-pattern.
+# BOOTSTRAP: first heartbeats, primitives are created as side-effect of
+# the work. Rough and minimal — just enough to unblock the task.
 #
-# PHASE 2 (steady-state, after ~30 invocations logged): remove source
-# names from pre_skill_procedure. Usage is logged to state/source-usage.jsonl
-# automatically — use it to evaluate diversity and avoid discovery death.
+# STEADY-STATE: autonomy reviews primitives, proposes improvements,
+# workflows, removals — all based on state/source-usage.jsonl evidence.
 #
 # ANTI-PATTERN: pre_skill_procedure as a mechanical cookbook listing every
-# source. Inflates context, fires blindly, kills discovery. See rules-core.md.
+# source ("query arxiv, check hn, search reddit"). Inflates context, fires
+# blindly, kills discovery. See rules-core.md.
 sources:
-  - arxiv           # example — uncomment/add the ones this agent needs
-  # - semscholar
-  # - overleaf      # bidirectional: declared here for READ capability; writes live in prose
-  # - exa
+  - name: arxiv
+    description: "Search for recent preprints — describe what this source does for YOUR agent"
+  # - name: semscholar
+  #   description: "Citation tracking and paper metadata"
+  # - name: overleaf
+  #   description: "Read LaTeX projects via git clone; writes live in prose, not here"
 
 # --- Before each skill ---
 # Two distinct kinds of material, split into two fields (see issue #83):
