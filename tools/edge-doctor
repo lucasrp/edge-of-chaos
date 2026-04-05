@@ -188,7 +188,9 @@ def main():
     # 4. Secrets
     print("\033[1m[4/6] Secrets\033[0m")
     keys_env = edge_home / "secrets" / "keys.env"
-    check_secret(keys_env, "ANTHROPIC_API_KEY", required=False)  # OAuth works without it
+    # ANTHROPIC_API_KEY is NOT checked: Claude Code subscription is the expected auth path,
+    # and MANIFEST.md / SETUP_GUIDE.md declare "empty is the expected state in most deploys".
+    # Checking it emitted a warning that contradicted the docs and confused new users (see #84).
     check_secret(keys_env, "OPENAI_API_KEY", required=False)    # degrades: no review-gate/consult
     print()
 
