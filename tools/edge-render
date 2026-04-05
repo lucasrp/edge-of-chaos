@@ -87,6 +87,13 @@ def load_agent_yaml(path: Path) -> dict:
     pre_procedure = _normalize_list(cfg.get("pre_skill_procedure"))
     pre_legacy = _normalize_list(cfg.get("pre_skill"))
 
+    # Normalize `routines:` (free-form operator-authored workflows, #90).
+    # Rendered later by edge-apply's phase_routines — here we just preserve
+    # the list for downstream reads.
+    cfg["routines"] = [
+        r for r in _normalize_list(cfg.get("routines")) if r and r.strip()
+    ]
+
     # Legacy compat: if only `pre_skill` is set, map it into procedure.
     if pre_legacy and not pre_context and not pre_procedure:
         pre_procedure = pre_legacy
