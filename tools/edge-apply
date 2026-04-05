@@ -24,6 +24,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "_shared"))
+from intervals import parse_interval  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
@@ -75,8 +78,10 @@ def load_config(path: Path) -> dict:
     cfg.setdefault("heartbeat_interval", "2h")
     cfg.setdefault("onboarding_mode", True)
     cfg["edge_home_expanded"] = os.path.expanduser(cfg["edge_home"])
-    interval_map = {"30min": "30min", "1h": "1h", "2h": "2h", "24h": "24h"}
-    cfg["systemd_interval"] = interval_map.get(cfg["heartbeat_interval"], "2h")
+    # Validate and pass through — parse_interval raises ValueError on garbage
+    # instead of silently rebaixando pra 2h like the old hardcoded map did.
+    parse_interval(cfg["heartbeat_interval"])
+    cfg["systemd_interval"] = cfg["heartbeat_interval"]
     cfg["memory_project_dir"] = cfg["edge_home_expanded"].rstrip("/").replace("/", "-").lstrip("-")
     return cfg
 

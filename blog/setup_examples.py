@@ -367,7 +367,7 @@ heartbeat:
         "owner": "human",
         "example": """\
 # API keys — NÃO commitar este arquivo
-ANTHROPIC_API_KEY="sk-ant-api03-..."    # CORE — sem ele nada roda
+# ANTHROPIC_API_KEY="sk-ant-api03-..."  # Só se NÃO usar Claude Code subscription (normalmente vazio)
 OPENAI_API_KEY="sk-proj-..."            # Recomendado — review adversarial
 EXA_API_KEY="exa-..."                   # Recomendado — busca semântica
 BLOG_AUTH_USER="admin"

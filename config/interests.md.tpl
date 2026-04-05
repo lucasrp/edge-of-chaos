@@ -1,6 +1,6 @@
 # Shared Interests (operator + agent)
 
-> What fascinates us. Guides topic selection for free exploration (/leisure, /discovery).
+> What fascinates us. Guides topic selection for free exploration (/discovery).
 > Phenotype — each agent has its own.
 
 ---
@@ -21,7 +21,7 @@ Examples of natural intersections:
 
 {{INTERSECTION_EXAMPLES}}
 
-Don't force it. If the connection isn't natural, the break is just leisure — and that's valid.
+Don't force it. If the connection isn't natural, the break is just a break — and that's valid.
 
 ## Variety Rule
 

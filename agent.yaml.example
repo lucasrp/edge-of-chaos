@@ -60,17 +60,33 @@ blog_auth_user: ""              # default for new agents: "admin"
 blog_auth_pass: ""              # default for new agents: generate a password
 
 # --- Before each skill ---
-# Instructions the agent follows before starting any task.
+# Two distinct kinds of material, split into two fields (see issue #83):
+#
+#   pre_skill_context    Knowledge/facts/rules — DECLARATIVE, loaded as
+#                        injected context for every skill. Stable over time.
+#                        Examples: stakeholders, epistemology, domain boundaries.
+#
+#   pre_skill_procedure  Actions to execute before each beat — IMPERATIVE.
+#                        Examples: refresh briefing, delta-load sources, query watches.
 #
 # THE FEEDBACK LOOP IS EVERYTHING.
 # The agent gets better by consuming data from the world it operates in.
-# The more sources you connect here, the sharper the output.
-# Don't just tell it what to check — tell it WHERE your team's knowledge lives.
-pre_skill:
-  - "Check https://github.com/lucasrp/edge-of-chaos for new commits, issues, and PRs before acting — this is your primary project"
-  - "If you find a bug in the template code (scripts, paths, configs that should work but don't), open a GitHub issue with [genotype] prefix"
+# The more sources you connect, the sharper the output. Procedure is where
+# you wire them in.
 #
-# Examples of data sources you can connect (uncomment and adapt):
+# Legacy: `pre_skill` (single list) is still accepted. When present alone, it
+# is treated as procedure. Prefer the split fields for new agents.
+
+pre_skill_context:
+  - |
+    GUARDRAIL: never modify genotype files autonomously. If you find a bug in
+    the template code (scripts, paths, configs that should work but don't),
+    open a GitHub issue with [genotype] prefix instead of fixing it.
+
+pre_skill_procedure:
+  - "Check https://github.com/lucasrp/edge-of-chaos for new commits, issues, and PRs before acting — this is your primary project"
+#
+# Examples of data sources to add under pre_skill_procedure:
 #  - "Check the #product-updates Slack channel for new discussions and feedback"
 #  - "Scan the Google Drive folder /ACME/meeting-notes/ for new transcripts"
 #  - "Read the latest entries in the team's Notion wiki at [URL]"

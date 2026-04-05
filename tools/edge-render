@@ -16,6 +16,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "_shared"))
+from intervals import parse_interval  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -23,6 +26,29 @@ def _render_checklist(items: list[str], fallback: str) -> str:
     """Render a list of strings into a markdown checklist."""
     if not items:
         return fallback
+    return "\n".join(f"- {item}" for item in items)
+
+
+def _render_pre_skill(context: list[str], procedure: list[str]) -> str:
+    """Render pre-skill split into context (injected knowledge) and procedure
+    (pre-beat actions) subsections. When only one is populated, render a flat
+    list — matches legacy behavior for agents that haven't migrated to #83.
+    """
+    if not context and not procedure:
+        return "_(no pre-skill actions configured — add items to `pre_skill_context` or `pre_skill_procedure` in agent.yaml)_"
+    if context and procedure:
+        parts = [
+            "### Context (injected knowledge)",
+            "",
+            "\n".join(f"- {item}" for item in context),
+            "",
+            "### Procedure (before each skill)",
+            "",
+            "\n".join(f"- {item}" for item in procedure),
+        ]
+        return "\n".join(parts)
+    # Only one populated — flat list (legacy-compatible output).
+    items = context or procedure
     return "\n".join(f"- {item}" for item in items)
 
 
@@ -45,11 +71,32 @@ def load_agent_yaml(path: Path) -> dict:
         print(f"ERROR: Missing required fields: {', '.join(missing)}")
         sys.exit(1)
 
-    # Normalize pre_skill/post_skill: accept string (legacy), list, or missing
-    pre = cfg.get("pre_skill", [])
-    if isinstance(pre, str):
-        pre = [pre] if pre.strip() else []
-    cfg["pre_skill"] = pre
+    # Normalize pre_skill_context / pre_skill_procedure / pre_skill.
+    #
+    # Schema (#83): prefer the split fields. Legacy `pre_skill` still works —
+    # when it's the only one set, its items are treated as procedure by default,
+    # preserving the rendered output for agents that haven't migrated.
+    def _normalize_list(val):
+        if val is None:
+            return []
+        if isinstance(val, str):
+            return [val] if val.strip() else []
+        return list(val)
+
+    pre_context = _normalize_list(cfg.get("pre_skill_context"))
+    pre_procedure = _normalize_list(cfg.get("pre_skill_procedure"))
+    pre_legacy = _normalize_list(cfg.get("pre_skill"))
+
+    # Legacy compat: if only `pre_skill` is set, map it into procedure.
+    if pre_legacy and not pre_context and not pre_procedure:
+        pre_procedure = pre_legacy
+        pre_legacy = []
+
+    cfg["pre_skill_context"] = pre_context
+    cfg["pre_skill_procedure"] = pre_procedure
+    # `pre_skill` kept as the combined list for any downstream consumer that
+    # still reads it as a flat sequence (docs, old tooling, etc.).
+    cfg["pre_skill"] = list(pre_context) + list(pre_procedure) + list(pre_legacy)
 
     post = cfg.get("post_skill", [])
     if isinstance(post, str):
@@ -98,11 +145,10 @@ def load_agent_yaml(path: Path) -> dict:
     cfg["edge_home_expanded"] = os.path.expanduser(cfg["edge_home"])
     cfg["user_home"] = str(Path.home())
 
-    interval_map = {"30min": 1800, "1h": 3600, "2h": 7200, "24h": 86400}
-    cfg["heartbeat_seconds"] = interval_map.get(cfg["heartbeat_interval"], 7200)
-
-    systemd_map = {"30min": "30min", "1h": "1h", "2h": "2h", "24h": "24h"}
-    cfg["systemd_interval"] = systemd_map.get(cfg["heartbeat_interval"], "2h")
+    # Parse yaml as source of truth — any systemd.time(7) spec is valid,
+    # invalid specs hard-fail instead of silently rebaixando pra 2h.
+    cfg["heartbeat_seconds"] = parse_interval(cfg["heartbeat_interval"])
+    cfg["systemd_interval"] = cfg["heartbeat_interval"]
 
     # Memory project dir (Claude Code convention)
     edge_abs = os.path.expanduser(cfg["edge_home"]).rstrip("/")
@@ -153,10 +199,12 @@ def build_placeholder_map(cfg: dict) -> dict:
         "CONTEXT_DIR": cfg["context_dir"],
         "KB_TYPE": cfg["kb_type"],
         "KB_REFRESH": cfg["kb_refresh"],
-        # Lifecycle hooks (rendered from lists)
-        "PRE_SKILL_CHECKLIST": _render_checklist(
-            cfg["pre_skill"],
-            "_(no pre-skill actions configured — add items to `pre_skill` in agent.yaml)_",
+        # Lifecycle hooks (rendered from lists). PRE_SKILL_CHECKLIST renders
+        # the split (context + procedure) when context is present; otherwise
+        # it falls back to a flat list for backward compat with legacy yamls.
+        "PRE_SKILL_CHECKLIST": _render_pre_skill(
+            cfg["pre_skill_context"],
+            cfg["pre_skill_procedure"],
         ),
         "POST_SKILL_CHECKLIST": _render_checklist(
             cfg["post_skill"],

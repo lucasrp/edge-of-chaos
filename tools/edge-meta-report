@@ -226,6 +226,23 @@ def generate_meta_report(slug, fm, diffs, scratchpad_content, adversarial_output
         lines.append("*Nenhuma mudança de estado detectada.*")
         lines.append("")
 
+    # ── Quality warnings ──
+    # Soft warnings detected in frontmatter that the agent should notice.
+    # Reflection picks these up via meta-report reads across sessions.
+    warnings = []
+    if fm.get("procedure"):
+        if "workflows_used" not in fm and "workflows_broken" not in fm:
+            warnings.append(
+                "Entry declara `procedure:` mas não cita `workflows_used:` nem "
+                "`workflows_broken:`. Workflow citation loop quebrado — "
+                "verifique /tmp/edge-recalled-workflows.txt e adicione as citações."
+            )
+    if warnings:
+        lines.append("## Avisos de pipeline")
+        for w in warnings:
+            lines.append(f"- {w}")
+        lines.append("")
+
     # ── Adversarial ──
     lines.append("## Desafio adversarial")
     if adversarial_output:

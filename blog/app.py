@@ -73,6 +73,12 @@ _auth_pass = _blog_cfg.get("auth_pass", "")
 @app.before_request
 def enforce_auth():
     if _auth_enabled and _auth_user:
+        # Loopback bypass: local callers (agent, skills, same-machine browser)
+        # are trusted by the kernel — packets claiming source 127.0.0.1/::1
+        # cannot originate off-host. Keeps internal tooling free of credentials
+        # while preserving Basic Auth for remote browsers.
+        if request.remote_addr in ("127.0.0.1", "::1"):
+            return None
         if request.path.startswith("/static"):
             return None
         auth = request.authorization

@@ -592,6 +592,10 @@ except:
     read WF_CHECK
     if [[ "$WF_CHECK" == "MISSING_CITATIONS" ]]; then
         warn "Entry has procedure: but no workflows_used:/workflows_broken: — check /tmp/edge-recalled-workflows.txt and add citations"
+        # Record as friction signal so reflection catches it across sessions
+        if command -v edge-signal &>/dev/null; then
+            edge-signal friction "Entry $SLUG: procedure without workflows_used/broken citations" --source consolidate-state 2>/dev/null || true
+        fi
     fi
 }
 

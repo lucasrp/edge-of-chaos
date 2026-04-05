@@ -27,7 +27,6 @@ from paths import TOOLS_DIR, SECRETS_DIR
 ROUTING = {
     'research':   {'primary': ['hn', 'arxiv', 'semantic_scholar', 'exa'], 'secondary': ['x', 'reddit', 'github', 'hf_papers']},
     'discovery':  {'primary': ['x', 'hn', 'reddit', 'exa'],              'secondary': ['hf_papers', 'arxiv']},
-    'leisure':    {'primary': ['hn', 'reddit'],                           'secondary': ['hf_papers', 'exa']},
     'strategy':   {'primary': ['x', 'hn', 'github', 'exa'],              'secondary': ['reddit', 'semantic_scholar']},
     'heartbeat':  {'primary': ['hn', 'reddit'],                           'secondary': ['x', 'github', 'exa']},
     'reflection': {'primary': ['hn', 'reddit'],                           'secondary': ['semantic_scholar', 'exa']},
@@ -412,7 +411,7 @@ def front_page():
 def main():
     parser = argparse.ArgumentParser(
         description="Unified external source search",
-        epilog="Intents: research, discovery, leisure, strategy, heartbeat, reflection, planner, execute, report"
+        epilog="Intents: research, discovery, strategy, heartbeat, reflection, planner, execute, report"
     )
     parser.add_argument("topic", nargs="?", default="", help="Search topic")
     parser.add_argument("--intent", "-i", default="research", choices=list(ROUTING.keys()),

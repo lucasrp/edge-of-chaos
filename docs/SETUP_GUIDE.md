@@ -34,7 +34,7 @@
 
 | Variable | Service | Required? | Where to get |
 |----------|---------|-----------|-------------|
-| `ANTHROPIC_API_KEY` | Anthropic | Yes | console.anthropic.com |
+| `ANTHROPIC_API_KEY` | Anthropic | **No** (if using Claude Code subscription) | Only needed for direct SDK calls outside skills |
 | `OPENAI_API_KEY` | OpenAI | Yes | platform.openai.com |
 | `EXA_API_KEY` | Exa.ai | Optional | exa.ai |
 | `XAI_API_KEY` | xAI (Grok) | Optional | x.ai |
