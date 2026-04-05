@@ -8,7 +8,7 @@ user-invocable: true
 
 **RULE: For external searches, ALWAYS use `edge-sources` (executable script) instead of WebSearch directly.** Agents and subagents call via Bash. WebSearch only as a complement when edge-sources doesn't cover.
 
-Centralized layer for accessing the external world. Like `/ed-context` is for internal status, `/ed-sources` is for the outside world — X, Web, ArXiv, GitHub, backend, bookmarks.
+Centralized layer for accessing the external world. Like `/ed-context` is for internal status, `/ed-sources` is for the outside world — X, Web, ArXiv, GitHub, backend.
 
 ## Executable Script: edge-sources
 
@@ -196,43 +196,6 @@ ssh $YOUR_VM 'python3 ~/admin/query.py overview' 2>/dev/null || echo "VM_UNREACH
 ```
 
 **Output:** JSON with anonymized fields when necessary. **NEVER** access the database directly — always via admin scripts on the VM. PII never transits through the network.
-
----
-
-### 8. Bookmarks (curated sources)
-
-- **What it provides:** Periodic scan of trusted sources — headlines, releases, news
-- **Access:** File `~/edge/bookmarks.md` + WebFetch/WebSearch
-- **Cost:** varies (free for most)
-
-The file `~/edge/bookmarks.md` contains the curated list. Format:
-
-```markdown
-# Bookmarks — Curated Sources
-
-## Papers & Research
-- ArXiv cs.CL: https://arxiv.org/list/cs.CL/recent
-- ArXiv cs.IR: https://arxiv.org/list/cs.IR/recent
-- Semantic Scholar: https://www.semanticscholar.org/
-
-## Tech News
-- HN front page: https://news.ycombinator.com/
-- HN "Show HN": https://news.ycombinator.com/show
-
-## Releases (tracked projects)
-- DSPy: stanfordnlp/dspy
-- LangGraph: langchain-ai/langgraph
-- promptfoo: promptfoo/promptfoo
-- CrewAI: crewAIInc/crewAI
-
-## X Accounts (builder profiles)
-[Discovered via /redes — added as we follow]
-
-## Blogs
-[Added as we discover trusted sources]
-```
-
-Use `gh release list` for repos, `WebFetch` for pages, ArXiv helper for papers.
 
 ---
 
@@ -591,7 +554,6 @@ When a skill asks "where do I find data about X?", `/ed-sources` first checks if
 
 - `/ed-sources` READS and ENGAGES automatically (like/bookmark) to curate the algorithm. Does NOT post, comment, retweet, or follow (restriction since 2026-03-03)
 - Database/Backend (if configured) requires working SSH — if it fails, continue without. Not critical except for intent `strategy`
-- Bookmarks (`~/edge/bookmarks.md`) are manually curated — add sources when good ones are discovered
 - X cost is pay-per-use — check balance on Developer Console periodically
 - Run queries in parallel when possible to minimize time
 - Tradecraft (`~/edge/autonomy/tradecraft.md`) grows with use — append surprises, consolidate during reflection
