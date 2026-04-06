@@ -1388,8 +1388,21 @@ def main():
                         print(f"  {YELLOW}[DRY RUN] would execute via claude -p{RESET}")
                         continue
                     try:
+                        prompt = (
+                            f"You are running a first_step during bootstrap. "
+                            f"Follow the FULL standard pipeline:\n"
+                            f"1. Read required context (memory/rules-core.md, memory/personality.md, "
+                            f"memory/metodo.md, memory/debugging.md, config/pre-skill.md, config/strategy.md)\n"
+                            f"2. Execute the step\n"
+                            f"3. If the step produces a report or blog entry, it MUST go through "
+                            f"edge-consult (adversarial review) AND review-gate before publishing. "
+                            f"No exceptions — this is the first output the operator will see.\n"
+                            f"4. Run post-skill.md procedures after completion\n"
+                            f"5. Mark as done when complete, or blocked if you cannot proceed.\n\n"
+                            f"Step: {task}"
+                        )
                         result = subprocess.run(
-                            ["claude", "-p", f"Execute this first_step and report the result. Mark as done when complete, or blocked if you cannot proceed. Step: {task}"],
+                            ["claude", "-p", prompt],
                             capture_output=True, text=True, timeout=1800,
                             cwd=str(edge),
                         )
