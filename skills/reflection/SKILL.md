@@ -4,9 +4,13 @@ description: "Self-review and feedback loop. Review recent sessions, process use
 user-invocable: true
 ---
 
-# Reflection v2 — Self-Review with Operational Telemetry
+# Reflection v3 — Fix First, Report Second
 
-Autonomous review with 3 signal sources: **git archaeology** (git_signals.py), **execution ledger** (edge-ledger + ledger_rollup.py), and **corpus curation** (curadoria_compute.py). Operates in 2.5 modes depending on context.
+Reflection exists to **fix things**, not describe them. A reflection that catalogs 6 problems and fixes zero is a failure. The skill's value is measured by what changed, not what was observed.
+
+**Core loop: detect → fix → verify → log.** Reporting comes after remediation, not instead of it.
+
+Signal sources: **git archaeology** (git_signals.py), **execution ledger** (edge-ledger + ledger_rollup.py), and **corpus curation** (curadoria_compute.py). Operates in 2.5 modes depending on context.
 
 ---
 
@@ -94,9 +98,43 @@ The number `#N` is sequential — count existing `## [` + 1. Each step records i
 
 ## Heartbeat-Normal (< 90s)
 
-Quick cycle. No transcript reading, no blog, no curation. Only ready signals.
+Quick cycle. **Priority: fix what's broken, then observe.** No transcript reading, no blog, no curation.
 
-### HN-0: Read operational signals
+### HN-0: Fix what's broken (BEFORE any analysis)
+
+Scan for recurring failures and fix them. This runs first — analysis is useless if the same tools keep failing.
+
+```bash
+# Collect repeated failures from post-skill log
+python3 -c "
+import re, collections
+try:
+    lines = open('$HOME/edge/logs/post-skill.log').readlines()
+    skips = [re.search(r'reason: (.+)', l).group(1) for l in lines
+             if '| status: SKIP |' in l or '| status: FAIL |' in l
+             if re.search(r'reason: (.+)', l)]
+    for reason, count in collections.Counter(skips).items():
+        if count >= 2:
+            print(f'FIX_NEEDED ({count}x): {reason}')
+except: print('No post-skill log')
+" 2>/dev/null
+
+# Collect unresolved entries from debugging.md
+cat ~/.claude/projects/\$MEMORY_PROJECT_DIR/memory/debugging.md 2>/dev/null | grep -A3 'UNRESOLVED\|BLOCKED\|OPEN'
+```
+
+**For each FIX_NEEDED:** read the failure reason, determine what's missing, and attempt to install or configure it. Use the agent's venvs (`~/edge/tools/.venv/`, `~/edge/blog/.venv/`) or `~/.local/bin/` — these are phenotype, local and reversible.
+
+If the fix requires root or external credentials the agent doesn't have — log to debugging.md as BLOCKED with the exact command the operator needs to run.
+
+**After each attempt:** verify the fix, log the result:
+```bash
+echo "[$(date +%Y-%m-%dT%H:%M:%S)] remediation: <what> | status: OK/FAIL | method: <how>" >> ~/edge/logs/post-skill.log
+```
+
+**The rule:** a problem that persists across 2+ beats and is within the agent's autonomy to fix is a reflection failure, not an observation.
+
+### HN-0b: Read operational signals
 
 ```bash
 # Primary signals
@@ -155,37 +193,6 @@ Check:
 - `unknown_fields` → invented fields that not even synonyms resolve
 - `empty_render` / `empty_container` → content silently lost
 - If pattern repeats 3+ times for the same block_type → candidate for new debugging.md entry or new synonym
-
-### HN-1c: Post-skill dependency remediation
-
-```bash
-# Repeated SKIPs in post-skill.log (same reason, 2+ occurrences)
-python3 -c "
-import re, collections
-lines = open('$HOME/edge/logs/post-skill.log').readlines()
-skips = [re.search(r'reason: (.+)', l).group(1) for l in lines
-         if '| status: SKIP |' in l or '| status: FAIL |' in l
-         if re.search(r'reason: (.+)', l)]
-for reason, count in collections.Counter(skips).items():
-    if count >= 2:
-        print(f'REPEATED ({count}x): {reason}')
-" 2>/dev/null || echo "No post-skill log"
-```
-
-If a SKIP repeats 2+ times with the same reason and the reason is a **missing tool/binary**:
-
-1. Check if the tool can be installed into the agent's venv (`~/edge/blog/.venv/` or `~/edge/.venv/`):
-   - Python packages: `~/edge/blog/.venv/bin/pip install <package>`
-   - Static binaries (e.g. pandoc): download into `~/edge/blog/.venv/bin/`
-   - System packages requiring root: **cannot self-provision** — log to debugging.md as blocked, note requires operator
-2. Install and verify: `~/edge/blog/.venv/bin/<tool> --version`
-3. Log remediation to `logs/post-skill.log`:
-   ```
-   [TIMESTAMP] remediation: <tool> | status: OK | method: pip install / binary download
-   ```
-
-**Scope:** only tools referenced by `config/post-skill.md` or `libexec/` primitives.
-The agent's venv is phenotype — installing into it is local, reversible, and within autonomy.
 
 ### HN-2: Git archaeology (12h)
 
@@ -337,8 +344,11 @@ The next heartbeat reads `dispatch-queue.json` before the round-robin and dispat
 
 ### HN-Output: Synthesize
 
-Produce **max 3 actionable insights** in the format:
+**First:** report what was FIXED in HN-0 (tools installed, configs corrected, paths repaired). This is the primary output.
+
+**Then:** produce **max 3 actionable insights** in the format:
 ```
+FIXED: [what was broken] → [what was done] (verified: yes/no)
 1. [ACTION] Description (evidence: source)
 2. [ACTION] Description (evidence: source)
 3. [ACTION] Description (evidence: source)
@@ -346,9 +356,11 @@ Produce **max 3 actionable insights** in the format:
 
 Possible actions: CODIFY (→ debugging.md), INVESTIGATE (→ escalate), FIX (→ immediate fix), MONITOR (→ next heartbeat).
 
+**If nothing was fixed and there were known problems:** explain why (needs root, needs operator, needs API key). "I observed the problem" is not an acceptable output when the fix is within autonomy.
+
 Evaluate escalation triggers. If any trigger is active → execute heartbeat-escalated.
 
-Close the log entry with status and insights.
+Close the log entry with status, remediations, and insights.
 
 ---
 
