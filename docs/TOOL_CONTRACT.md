@@ -77,9 +77,15 @@ See also: research report
 - **2** — misuse. The tool was called with bad arguments (missing required
   flag, invalid enum value). Stderr contains the usage error; stdout may
   contain JSON error object but is not required.
+- **77** — operation not implemented. The primitive exists but this specific
+  operation isn't built yet. Agent should extend the implementation
+  (Phase 2 of the lifecycle below).
+- **127** — primitive not found (shell "command not found"). The primitive
+  doesn't exist at all. Agent should create it from scratch using the
+  source description + this contract (Phase 1 of the lifecycle below).
 
-Do NOT use other exit codes unless you have a specific reason. Consumers
-check `exit == 0` for success, everything else for error.
+Consumers check: `exit == 0` for success, `77` for unimplemented operation,
+`127` for missing primitive, everything else for error.
 
 ## Stdout format
 

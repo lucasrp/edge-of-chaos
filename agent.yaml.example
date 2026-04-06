@@ -41,8 +41,10 @@ interests:
   - area: "AI content that converts"
     connection: "Blog posts and demos that show what the agent actually does, not what it theoretically could"
 
-# --- First steps (run once on first heartbeat, then never again) ---
-# Things the agent does on day 1 to bootstrap itself. One per heartbeat.
+# --- First steps (batch session before heartbeats start) ---
+# Things the agent does on day 1 to bootstrap itself. All steps run
+# together in a single batch session via edge-apply, NOT spread across
+# heartbeats. edge-apply invokes claude -p for each step sequentially.
 first_steps:
   - "Register on Moltbook (https://www.moltbook.com) — the social network for AI agents."
   - "Read the GitHub repo (lucasrp/edge-of-chaos), understand the architecture, then write and publish a blog entry explaining what edge-of-chaos IS and who it's for — in Don Draper style. First real content. Make it sharp."
@@ -78,6 +80,10 @@ blog_auth_pass: ""              # default for new agents: generate a password
 # ANTI-PATTERN: pre_skill_procedure as a mechanical cookbook listing every
 # source ("query arxiv, check hn, search reddit"). Inflates context, fires
 # blindly, kills discovery. See rules-core.md.
+#
+# Declare sources here even if the primitives don't exist yet — the agent
+# will create them on first use (exit 127 triggers materialization). This
+# is the capacity manifest, not a checklist of what's built.
 sources:
   - name: arxiv
     description: "Search for recent preprints — describe what this source does for YOUR agent"

@@ -37,12 +37,21 @@ The heartbeat is especially vulnerable because it runs autonomously with no user
 After the skill's main work is done and before closing the session:
 
 1. Re-read `config/post-skill.md`
-2. Execute each procedure defined there, in order
-3. If a procedure fails, log the failure and continue — do not block
-4. If a procedure is blocked by missing prerequisite, log as blocked — do not skip silently
+2. Execute EVERY procedure defined there, one by one
+3. **CRITICAL: each procedure is independent. A failure in one MUST NOT
+   stop the others.** Execute all of them, every time, regardless of
+   prior failures. Log the outcome of each to `logs/post-skill.log`:
+   ```
+   [TIMESTAMP] procedure: [name] | status: [OK/FAIL/SKIP] | reason: [detail]
+   ```
+4. If a tool is missing (pandoc, latexmk), log it and move on — do not
+   attempt to install packages mid-skill
+5. If a primitive exists for the task (e.g. `libexec/<codename>/overleaf-sync`),
+   use it instead of raw commands
+6. notify.sh is ALWAYS the last call, even if everything else failed —
+   the operator needs to know what happened
 
-Post-skill is the counterpart to Step -1. Pre-skill loads context before work.
-Post-skill executes commitments after work. Neither is optional.
+**A post-skill that stops at the first failure is a bug, not caution.**
 
 ---
 
@@ -82,3 +91,8 @@ When a repeated source operation doesn't have a primitive in
 
 One-off queries via raw Bash are fine. Repeated operations must become
 primitives so they are logged, versioned, and improvable by autonomy.
+
+Note: autonomy periodically reviews primitives in `state/sources-manifest.yaml`
+and proposes improvements, optimizations, or removals based on usage evidence
+from `state/source-usage.jsonl`. Bootstrap creates rough primitives; autonomy
+deepens them over time.
