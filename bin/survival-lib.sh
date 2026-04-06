@@ -70,14 +70,21 @@ atomic_write() {
 
 read_yaml_key() {
   local key="$1"
+  local agent_yaml="${REPO_ROOT:-$HOME/edge}/agent.yaml"
   python3 -c "
 import yaml, sys
-d = yaml.safe_load(open('$CONFIG_FILE'))
-keys = '$key'.split('.')
-v = d
-for k in keys:
-    v = v[k]
-print(v)
+for path in ['$CONFIG_FILE', '$agent_yaml']:
+    try:
+        d = yaml.safe_load(open(path))
+        keys = '$key'.split('.')
+        v = d
+        for k in keys:
+            v = v[k]
+        print(v)
+        sys.exit(0)
+    except Exception:
+        continue
+sys.exit(1)
 " 2>/dev/null
 }
 
