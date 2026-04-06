@@ -1527,7 +1527,7 @@ def main():
                     step_id = step.get("id", "?")
                     task = step.get("task", "")
                     print(f"\n  [{step_id}] {task[:80]}...")
-                    if dry_run:
+                    if args.dry_run:
                         print(f"  {YELLOW}[DRY RUN] would execute via claude -p{RESET}")
                         continue
                     try:
