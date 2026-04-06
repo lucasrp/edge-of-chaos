@@ -11,8 +11,9 @@ Without it, the agent operates without identity, rules, or strategy — producin
 
 1. Read: `memory/rules-core.md`, `memory/personality.md`, `memory/metodo.md`, `memory/debugging.md`
 2. Read: `config/pre-skill.md`, `config/post-skill.md`, `config/strategy.md`
-3. Execute the Boot Ritual defined in `pre-skill.md` procedure section
-4. Only then proceed to Step 0.
+3. Read: `state/sources-manifest.yaml` — these are your tools for external data (see "Source primitives" below)
+4. Execute the Boot Ritual defined in `pre-skill.md` procedure section
+5. Only then proceed to Step 0.
 
 **Paths are relative to `~/edge/`.** Memory files use the Claude Code project directory (`~/.claude/projects/-home-$USER/memory/`) when they live there.
 
@@ -108,26 +109,35 @@ into it does not affect other agents or the host system.
 
 ---
 
-## Source primitives (when using declared sources)
+## Source primitives — LOAD BEFORE WORKING
 
-**Prefer `libexec/<codename>/<source>` for declared sources.** If the
-primitive exists, use it. If it's a stub (exit 127), implement it per
-`docs/TOOL_CONTRACT.md` before proceeding. This ensures usage is logged,
-versioned, and improvable by autonomy.
+Before starting any work that involves external data, read the manifest:
 
-One-off queries via raw Bash are acceptable for simple operations. But
-when a source operation is repeated across beats with similar parameters,
-it must become a primitive. The trigger is repetition + complexity, not
-first invocation.
+```bash
+cat ~/edge/state/sources-manifest.yaml
+```
 
-Creating or upgrading a primitive:
+For each source with `status: active`, the primitive at
+`~/edge/libexec/<codename>/<name>` is **your tool for that source**.
+Use it — not WebSearch, not curl, not raw Bash.
+
+**Why this matters:** primitives log usage to `state/source-usage.jsonl`,
+follow `TOOL_CONTRACT.md` (JSON stdout, proper exit codes), and are
+improvable by autonomy. WebSearch/curl bypass all of that — no usage
+tracking, no versioning, no improvement loop.
+
+**Rules:**
+1. If a primitive exists and is `active` → **use it**
+2. If a primitive is a `stub` (exit 127) → implement it per
+   `docs/TOOL_CONTRACT.md`, then use it
+3. If no primitive exists for the source → create one if you'll use
+   it more than once; raw Bash is OK for true one-offs
+4. If a primitive fails → log the failure and fix it. Do NOT silently
+   fall back to WebSearch/curl — that hides the problem
+
+**Creating or upgrading a primitive:**
 
 1. Write contract: `libexec/<codename>/<name>.meta.yaml`
 2. Write impl: `libexec/<codename>/<name>` (chmod +x, venv shebang)
 3. Register in `state/sources-manifest.yaml`
 4. Log usage to `state/source-usage.jsonl` via `_shared/usage_log.py`
-
-Note: autonomy periodically reviews primitives in `state/sources-manifest.yaml`
-and proposes improvements, optimizations, or removals based on usage evidence
-from `state/source-usage.jsonl`. Bootstrap creates rough primitives; autonomy
-deepens them over time.
