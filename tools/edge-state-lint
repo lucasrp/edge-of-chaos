@@ -123,7 +123,16 @@ def check_threads():
 
     required_fields = {"id", "title", "status", "owner", "created", "updated", "resurface"}
     valid_statuses = {"active", "dormant", "waiting", "done"}
-    valid_owners = {"edge", "lucas", "bob"}
+    # Read agent name from agent.yaml to allow fleet instance owners
+    agent_name = "edge"
+    try:
+        agent_yaml = Path(os.environ.get("EDGE_DIR", ".")) / "agent.yaml"
+        if agent_yaml.exists():
+            agent_cfg = yaml.safe_load(agent_yaml.read_text())
+            agent_name = agent_cfg.get("codename", agent_cfg.get("name", "edge"))
+    except Exception:
+        pass
+    valid_owners = {"edge", "lucas", agent_name}
 
     for tf in thread_files:
         text = tf.read_text()

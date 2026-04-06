@@ -14,15 +14,11 @@ research:
   adversarial: auto         # cross-provider validation com convergência (precisa: 2+ LLM providers)
 
 notifications:
-  slack:
-    enabled: auto           # auto = enabled if bot_token or webhook_url in secrets
-    channels:
-      heartbeat: ""         # Channel ID — onde o heartbeat reporta cada ciclo
-      alerts: ""            # Channel ID — erros, health degraded, alertas críticos
-      reports: ""           # Channel ID — entrega de relatórios HTML
-      default: ""           # Channel ID — fallback para tudo que não tem canal específico
-  telegram:
-    enabled: auto           # auto = enabled if bot_token in secrets
+  # Notification channels are NOT hardcoded here. Agents that need
+  # Slack, Telegram, or other messaging create their own primitives
+  # via libexec/ — same as any other external source. The install
+  # is indifferent to which channels the operator chooses.
+  # See: docs/TOOL_CONTRACT.md, skills/_shared/required-context.md
 
 git:
   auto_push: false          # push autônomo após commits — opt-in explícito (precisa: GITHUB_PAT)

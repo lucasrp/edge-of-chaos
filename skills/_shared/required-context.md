@@ -110,16 +110,22 @@ into it does not affect other agents or the host system.
 
 ## Source primitives (when using declared sources)
 
-When a repeated source operation doesn't have a primitive in
-`libexec/<codename>/`, create one per `docs/TOOL_CONTRACT.md`:
+**Prefer `libexec/<codename>/<source>` for declared sources.** If the
+primitive exists, use it. If it's a stub (exit 127), implement it per
+`docs/TOOL_CONTRACT.md` before proceeding. This ensures usage is logged,
+versioned, and improvable by autonomy.
+
+One-off queries via raw Bash are acceptable for simple operations. But
+when a source operation is repeated across beats with similar parameters,
+it must become a primitive. The trigger is repetition + complexity, not
+first invocation.
+
+Creating or upgrading a primitive:
 
 1. Write contract: `libexec/<codename>/<name>.meta.yaml`
-2. Write impl: `libexec/<codename>/<name>` (chmod +x)
+2. Write impl: `libexec/<codename>/<name>` (chmod +x, venv shebang)
 3. Register in `state/sources-manifest.yaml`
 4. Log usage to `state/source-usage.jsonl` via `_shared/usage_log.py`
-
-One-off queries via raw Bash are fine. Repeated operations must become
-primitives so they are logged, versioned, and improvable by autonomy.
 
 Note: autonomy periodically reviews primitives in `state/sources-manifest.yaml`
 and proposes improvements, optimizations, or removals based on usage evidence

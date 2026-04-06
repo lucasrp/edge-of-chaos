@@ -88,7 +88,8 @@ def load_config(path: Path) -> dict:
     # instead of silently rebaixando pra 2h like the old hardcoded map did.
     parse_interval(cfg["heartbeat_interval"])
     cfg["systemd_interval"] = cfg["heartbeat_interval"]
-    cfg["memory_project_dir"] = cfg["edge_home_expanded"].rstrip("/").replace("/", "-").lstrip("-")
+    user_home = str(Path(cfg["edge_home_expanded"]).parent)
+    cfg["memory_project_dir"] = user_home.rstrip("/").replace("/", "-")
     return cfg
 
 
@@ -652,6 +653,7 @@ def phase_tools(cfg, dry_run):
         env_lines = [
             f'export PATH="$HOME/.local/bin:{tools_dir}:$PATH"',
             f'export EDGE_DIR="{edge}"',
+            f'export MEMORY_PROJECT_DIR="{cfg["memory_project_dir"]}"',
         ]
         edge_env.write_text("\n".join(env_lines) + "\n")
         ok(f".edge-env written ({len(env_lines)} exports)")
@@ -1058,6 +1060,51 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
         dq_file.write_text("[]\n")
         seeded += 1
 
+    # --- seed source primitives from agent.yaml sources: (#115) ---
+    sources = cfg.get("sources", [])
+    codename_local = cfg.get("codename", cfg.get("name", "ed"))
+    libexec_dir = edge / "libexec" / codename_local
+    manifest_file = edge / "state" / "sources-manifest.yaml"
+    if sources:
+        libexec_dir.mkdir(parents=True, exist_ok=True)
+        manifest_entries = []
+        for src in sources:
+            name = src.get("name", "")
+            desc = src.get("description", "")
+            if not name:
+                continue
+            # Create stub executable
+            stub_path = libexec_dir / name
+            if not stub_path.exists():
+                stub_path.write_text(
+                    f'#!/usr/bin/env bash\n'
+                    f'# Auto-generated stub for source: {name}\n'
+                    f'# Description: {desc[:120]}\n'
+                    f'# This stub exits 127 to trigger on-demand creation per TOOL_CONTRACT.md\n'
+                    f'echo "{{\\\"error\\\": \\\"not implemented\\\", \\\"source\\\": \\\"{name}\\\", '
+                    f'\\\"hint\\\": \\\"Read docs/TOOL_CONTRACT.md and implement this primitive\\\"}}" >&2\n'
+                    f'exit 127\n'
+                )
+                stub_path.chmod(0o755)
+            # Create meta.yaml
+            meta_path = libexec_dir / f"{name}.meta.yaml"
+            if not meta_path.exists():
+                meta_path.write_text(
+                    f'name: {name}\n'
+                    f'description: "{desc}"\n'
+                    f'read_only_hint: true\n'
+                    f'idempotent_hint: true\n'
+                    f'destructive_hint: false\n'
+                    f'created_by: edge-apply\n'
+                    f'created_at: "{datetime.now().isoformat()}"\n'
+                )
+            manifest_entries.append({"name": name, "description": desc, "status": "stub"})
+        # Write sources-manifest.yaml
+        if manifest_entries and not manifest_file.exists():
+            manifest_file.write_text(yaml.dump(manifest_entries, default_flow_style=False, allow_unicode=True))
+        seeded += 1
+        ok(f"Source primitives: {len(sources)} stubs in libexec/{codename_local}/")
+
     # --- seed workflow blog entries (static, no LLM cost) ---
     prefix = cfg.get("skill_prefix", cfg.get("codename", "ed"))
     workflow_entries = [
@@ -1362,9 +1409,32 @@ def main():
         print(f"\n{RED}✗{RESET} {failed} phase(s) failed.")
         sys.exit(1)
 
-    # --- Final phase: run first_steps as batch + enable heartbeat (#103 #104) ---
+    # --- Run edge-doctor as infrastructure baseline (#111) ---
     prefix = cfg.get("skill_prefix", codename)
     edge = Path(cfg["edge_home_expanded"])
+
+    header("Health baseline: edge-doctor")
+    if not args.dry_run:
+        doctor_result = subprocess.run(
+            ["bash", str(edge / "bin" / "edge-check.sh")],
+            capture_output=True, text=True, timeout=60,
+            cwd=str(edge),
+            env={**os.environ, "EDGE_DIR": str(edge), "HEALTH_DIR": str(edge / "health")},
+        )
+        if (edge / "health" / "current.json").exists():
+            try:
+                health = json.load(open(edge / "health" / "current.json"))
+                score = health.get("score", "?")
+                status = health.get("status", "?")
+                ok(f"Health baseline: score={score} status={status}")
+            except Exception:
+                ok("Health baseline: current.json written")
+        else:
+            warn("edge-check.sh ran but current.json not created")
+    else:
+        print(f"  {YELLOW}[DRY RUN] would run edge-check.sh{RESET}")
+
+    # --- Final phase: run first_steps as batch + enable heartbeat (#103 #104) ---
     fs_file = edge / "state" / "first-steps.json"
 
     if fs_file.exists():

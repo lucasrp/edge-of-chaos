@@ -348,7 +348,20 @@ If GPT suggests a better direction, consider it. The entire beat costs ~2h of ti
 
 ### Dispatch
 
-Run the chosen skill. It produces: blog entry + report + note (per its own protocol). The dispatched skill already includes its own internal edge-consult (mandatory in every skill).
+Run the chosen skill with step tracking (#113):
+
+```bash
+# Before dispatching
+edge-skill-step <skill> start
+
+# The skill runs — it produces blog entry + report + note per its own protocol.
+# The dispatched skill already includes its own internal edge-consult (mandatory).
+
+# After skill completes
+edge-skill-step <skill> end
+```
+
+Individual steps within the skill should call `edge-skill-step <skill> <step_id>` as they execute. Silent skips (steps not logged as executed or skipped) are flagged by reflection.
 
 ---
 
