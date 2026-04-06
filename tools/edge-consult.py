@@ -20,6 +20,7 @@ Exit codes: 0 = success, 1 = error
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -29,6 +30,10 @@ try:
     from openai import OpenAI
 except ImportError:
     sys.exit("openai package required: pip install openai")
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _shared.openai_client import make_openai_client, load_openai_env
+load_openai_env()
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
@@ -284,7 +289,10 @@ def log_consultation(mode: str, question: str, context_files: list,
 # Dual-model consultation (always both GPT + Grok)
 # ---------------------------------------------------------------------------
 
-DUAL_MODELS = ["gpt-5.4", "grok-4.20-multi-agent-beta-0309"]
+DUAL_MODELS = [
+    os.environ.get("EDGE_MODEL_CONSULT_OPENAI", "gpt-5.4"),
+    "grok-4.20-multi-agent-beta-0309",
+]
 
 
 def _build_user_msg(question: str, context_files: list = None,
@@ -324,10 +332,7 @@ def _call_model(model: str, system: str, user_msg: str,
     single HTTP call exceeding it raises APITimeoutError, which the caller
     converts to a logged failure (#92 fix 2: hard timeout default)."""
     api_key, base_url = load_api_key(model)
-    client_kwargs = {"api_key": api_key, "timeout": timeout}
-    if base_url:
-        client_kwargs["base_url"] = base_url
-    client = OpenAI(**client_kwargs)
+    client = make_openai_client(api_key=api_key, timeout=timeout, base_url=base_url)
 
     if model in RESPONSES_API_MODELS:
         response = client.responses.create(
@@ -440,7 +445,37 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
             _progress(f"{m} ✗ {dur:.1f}s  {err_msg}")
             results.append((m, f"[{m} error: {err_msg}]"))
 
-    # Combine outputs from both models
+    # Check if ALL external models failed — fallback to self-review via Claude Code (#128)
+    all_failed = all("[error:" in text or "[skipped:" in text for _, text in results)
+    if all_failed and shutil.which("claude"):
+        _progress("All external providers failed — falling back to self-review via Claude Code")
+        try:
+            fallback_prompt = (
+                f"{system}\n\n"
+                f"--- CONTENT TO REVIEW ---\n\n"
+                f"{user_msg[:8000]}"
+            )
+            fb_result = subprocess.run(
+                ["claude", "-p", "--output-format", "text", fallback_prompt],
+                capture_output=True, text=True, timeout=PER_MODEL_TIMEOUT,
+            )
+            if fb_result.returncode == 0 and fb_result.stdout.strip():
+                fb_text = fb_result.stdout.strip()
+                results.append(("claude-self-review", fb_text))
+                all_tokens.append({"prompt": 0, "completion": 0, "total": 0})
+                all_costs.append("$0.0000")
+                _progress("Self-review ✓ (fallback — weaker than cross-model, but better than unreviewed)")
+
+                print(f"\n{'='*55}", file=sys.stderr, flush=True)
+                print(f"  edge-consult [\033[33mSELF-REVIEW FALLBACK\033[0m]  (claude)", file=sys.stderr, flush=True)
+                print(f"  ⚠ Not cross-model — same model family, possible blind spots", file=sys.stderr, flush=True)
+                print(f"{'='*55}", file=sys.stderr, flush=True)
+            else:
+                _progress("Self-review also failed")
+        except Exception as e:
+            _progress(f"Self-review error: {e}")
+
+    # Combine outputs from all models (including fallback if used)
     combined = "\n\n".join(
         f"── {m} ──\n{text}" for m, text in results
     )
