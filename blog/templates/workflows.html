@@ -105,11 +105,11 @@
 
 <script>
 function workflowAction(slug, action) {
-  fetch('/workflows/' + slug + '/' + action, { method: 'POST' })
+  fetch('/workflows/' + slug + '/' + action, { method: 'POST', credentials: 'same-origin' })
     .then(function() { htmx.ajax('GET', '/blog/?tab=workflows', '#tabContent'); });
 }
 function proposalAction(id, action) {
-  fetch('/proposals/' + id + '/' + action, { method: 'POST' })
+  fetch('/proposals/' + id + '/' + action, { method: 'POST', credentials: 'same-origin' })
     .then(function() { htmx.ajax('GET', '/blog/?tab=workflows', '#tabContent'); });
 }
 </script>

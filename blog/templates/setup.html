@@ -435,6 +435,7 @@ function saveFile(path, editorId, btn) {
 
   fetch('/api/setup/save', {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({path: path, content: editor.value})
   }).then(function(r) {
@@ -508,6 +509,7 @@ function saveNotifications(btn) {
   btn.disabled = true; btn.textContent = '...';
   fetch('/api/setup/notifications', {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(data)
   }).then(function(r) { return r.json(); }).then(function(d) {
@@ -525,7 +527,7 @@ function saveNotifications(btn) {
 function testNotification(btn) {
   var statusEl = btn.parentElement.querySelector('.notif-save-status');
   btn.disabled = true; btn.textContent = '...';
-  fetch('/api/setup/notifications/test', {method: 'POST'})
+  fetch('/api/setup/notifications/test', {method: 'POST', credentials: 'same-origin'})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       btn.disabled = false; btn.textContent = 'test';
