@@ -1390,7 +1390,7 @@ def main():
                     try:
                         result = subprocess.run(
                             ["claude", "-p", f"Execute this first_step and report the result. Mark as done when complete, or blocked if you cannot proceed. Step: {task}"],
-                            capture_output=True, text=True, timeout=600,
+                            capture_output=True, text=True, timeout=1800,
                             cwd=str(edge),
                         )
                         # Mark as done
