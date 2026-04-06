@@ -1358,18 +1358,80 @@ def main():
 
     print(f"\n{color}━━━  {passed}/{len(results)} phases OK  ━━━{RESET}")
 
-    if failed == 0:
-        prefix = cfg.get("skill_prefix", codename)
-        print(f"\n{GREEN}✓{RESET} Installation complete. Next steps:")
-        print(f"  1. Verify:     python3 tools/edge-doctor --config agent.yaml")
-        print(f"  2. Blog:       systemctl --user enable --now blog-server")
-        print(f"  3. Heartbeat:  systemctl --user enable --now agent-heartbeat.timer")
-        print(f"  4. Test:       claude -p '/{prefix}-heartbeat'")
-        print(f"  5. Doctor:     python3 tools/edge-doctor --config agent.yaml")
-    else:
+    if failed > 0:
         print(f"\n{RED}✗{RESET} {failed} phase(s) failed.")
+        sys.exit(1)
 
-    sys.exit(0 if failed == 0 else 1)
+    # --- Final phase: run first_steps as batch + enable heartbeat (#103 #104) ---
+    prefix = cfg.get("skill_prefix", codename)
+    edge = Path(cfg["edge_home_expanded"])
+    fs_file = edge / "state" / "first-steps.json"
+
+    if fs_file.exists():
+        try:
+            steps = json.load(open(fs_file))
+            pending = [s for s in steps if s.get("status") == "pending"]
+        except Exception:
+            pending = []
+
+        if pending:
+            header("Bootstrap: first_steps")
+            # Check if claude CLI is available (running inside Claude Code)
+            claude_available = shutil.which("claude") is not None
+            if claude_available:
+                print(f"  Running {len(pending)} first_steps as batch (claude CLI detected)...")
+                for step in pending:
+                    step_id = step.get("id", "?")
+                    task = step.get("task", "")
+                    print(f"\n  [{step_id}] {task[:80]}...")
+                    if args.dry_run:
+                        print(f"  {YELLOW}[DRY RUN] would execute via claude -p{RESET}")
+                        continue
+                    try:
+                        result = subprocess.run(
+                            ["claude", "-p", f"Execute this first_step and report the result. Mark as done when complete, or blocked if you cannot proceed. Step: {task}"],
+                            capture_output=True, text=True, timeout=600,
+                            cwd=str(edge),
+                        )
+                        # Mark as done
+                        step["status"] = "done"
+                        step["completed_at"] = datetime.now().isoformat()
+                        if result.returncode != 0:
+                            step["status"] = "blocked"
+                            step["blocked_reason"] = result.stderr[:200] if result.stderr else "non-zero exit"
+                            print(f"  {YELLOW}⚠ blocked: {step.get('blocked_reason', '?')[:80]}{RESET}")
+                        else:
+                            print(f"  {GREEN}✓{RESET} done")
+                    except subprocess.TimeoutExpired:
+                        step["status"] = "blocked"
+                        step["blocked_reason"] = "timeout (10min)"
+                        print(f"  {YELLOW}⚠ blocked: timeout{RESET}")
+                    except Exception as exc:
+                        step["status"] = "blocked"
+                        step["blocked_reason"] = str(exc)[:200]
+                        print(f"  {YELLOW}⚠ blocked: {exc}{RESET}")
+
+                # Save updated steps
+                if not args.dry_run:
+                    fs_file.write_text(json.dumps(steps, indent=2, ensure_ascii=False) + "\n")
+                done = sum(1 for s in steps if s.get("status") == "done")
+                blocked = sum(1 for s in steps if s.get("status") == "blocked")
+                print(f"\n  Bootstrap: {done} done, {blocked} blocked, {len(pending)} total")
+            else:
+                print(f"\n  {YELLOW}⚠ claude CLI not found — first_steps deferred to first heartbeat{RESET}")
+                print(f"  Run manually: claude -p '/{prefix}-heartbeat'")
+
+    # Enable heartbeat timer
+    print(f"\n{GREEN}✓{RESET} Installation complete.")
+    print(f"  Heartbeat timer enabling...")
+    if not args.dry_run:
+        subprocess.run(
+            ["systemctl", "--user", "enable", "--now", "agent-heartbeat.timer"],
+            capture_output=True,
+        )
+    print(f"  {GREEN}✓{RESET} Heartbeat timer active — autonomous operation started.")
+
+    sys.exit(0)
 
 
 if __name__ == "__main__":
