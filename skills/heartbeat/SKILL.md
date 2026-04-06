@@ -371,7 +371,8 @@ After the skill's main work is done (Step 2) and before logging (Step 3):
    [TIMESTAMP] procedure: notify | status: SKIP | reason: no notification channel configured
    ```
 5. If a tool is missing (pandoc, latexmk), log it and move on — do not
-   attempt to install packages mid-beat
+   attempt to install packages mid-beat. **Dependency remediation
+   happens during reflection, not mid-beat** (see reflection HN-1c)
 6. If a primitive exists for the task (e.g. `libexec/<codename>/overleaf-sync`),
    use it instead of raw git commands
 7. notify.sh is ALWAYS the last call, even if everything else failed —

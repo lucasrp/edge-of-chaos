@@ -156,6 +156,37 @@ Check:
 - `empty_render` / `empty_container` → content silently lost
 - If pattern repeats 3+ times for the same block_type → candidate for new debugging.md entry or new synonym
 
+### HN-1c: Post-skill dependency remediation
+
+```bash
+# Repeated SKIPs in post-skill.log (same reason, 2+ occurrences)
+python3 -c "
+import re, collections
+lines = open('$HOME/edge/logs/post-skill.log').readlines()
+skips = [re.search(r'reason: (.+)', l).group(1) for l in lines
+         if '| status: SKIP |' in l or '| status: FAIL |' in l
+         if re.search(r'reason: (.+)', l)]
+for reason, count in collections.Counter(skips).items():
+    if count >= 2:
+        print(f'REPEATED ({count}x): {reason}')
+" 2>/dev/null || echo "No post-skill log"
+```
+
+If a SKIP repeats 2+ times with the same reason and the reason is a **missing tool/binary**:
+
+1. Check if the tool can be installed into the agent's venv (`~/edge/blog/.venv/` or `~/edge/.venv/`):
+   - Python packages: `~/edge/blog/.venv/bin/pip install <package>`
+   - Static binaries (e.g. pandoc): download into `~/edge/blog/.venv/bin/`
+   - System packages requiring root: **cannot self-provision** — log to debugging.md as blocked, note requires operator
+2. Install and verify: `~/edge/blog/.venv/bin/<tool> --version`
+3. Log remediation to `logs/post-skill.log`:
+   ```
+   [TIMESTAMP] remediation: <tool> | status: OK | method: pip install / binary download
+   ```
+
+**Scope:** only tools referenced by `config/post-skill.md` or `libexec/` primitives.
+The agent's venv is phenotype — installing into it is local, reversible, and within autonomy.
+
 ### HN-2: Git archaeology (12h)
 
 ```bash

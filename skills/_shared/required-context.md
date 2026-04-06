@@ -45,7 +45,10 @@ After the skill's main work is done and before closing the session:
    [TIMESTAMP] procedure: [name] | status: [OK/FAIL/SKIP] | reason: [detail]
    ```
 4. If a tool is missing (pandoc, latexmk), log it and move on — do not
-   attempt to install packages mid-skill
+   attempt to install packages mid-skill. **Dependency remediation
+   happens during reflection, not mid-beat** — reflection reads
+   post-skill.log, detects repeated SKIPs, and self-provisions
+   missing tools into the agent's venv (see reflection HN-1c)
 5. If a primitive exists for the task (e.g. `libexec/<codename>/overleaf-sync`),
    use it instead of raw commands
 6. notify.sh is ALWAYS the last call, even if everything else failed —
