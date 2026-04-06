@@ -77,6 +77,7 @@ function cycleTemp(el) {
   el.textContent = next || '\u25CB';
   fetch('/api/signals', {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path: path, signal: 'temperature', value: next })
   }).catch(function() {});
@@ -111,6 +112,7 @@ function submitComment(btn) {
   if (!text) return;
   fetch('/api/comments', {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entryKey: key, action: 'comment', text: text, author: 'user' })
   }).then(function() {
@@ -127,6 +129,7 @@ function toggleSave(btn) {
   var action = isSaved ? 'unsave' : 'save';
   fetch('/api/comments', {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entryKey: key, action: action })
   }).then(function() {

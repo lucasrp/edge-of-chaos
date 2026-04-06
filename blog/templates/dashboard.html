@@ -68,6 +68,7 @@
 function threadSnooze(threadId, mode) {
   fetch('/api/threads/' + threadId + '/snooze', {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({mode: mode})
   }).then(function(r) {
@@ -79,6 +80,7 @@ function threadSnooze(threadId, mode) {
 function promoteCandidate(tag) {
   fetch('/api/thread-candidates/' + tag + '/promote', {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'}
   }).then(function(r) {
     if (r.ok) { location.reload(); }
@@ -91,6 +93,7 @@ function triggerHeartbeat(btn) {
   btn.textContent = '...';
   fetch('/api/heartbeat/trigger', {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'}
   }).then(function(r) {
     if (r.ok) {
@@ -109,6 +112,7 @@ function threadAction(threadId, action) {
   if (!action) return;
   fetch('/api/threads/' + threadId + '/action', {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: action})
   }).then(function(r) {
@@ -123,6 +127,7 @@ function sendDashChat() {
   if (!text) return;
   fetch('/api/chat', {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'add', author: 'operator', text: text})
   }).then(function(r) {

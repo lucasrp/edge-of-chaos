@@ -10,6 +10,24 @@ Three steps: look, do, log.
 
 ---
 
+## Step -1: Required reading (MANDATORY — before anything else)
+
+Read these files before any other action. They define identity, rules, and operator direction. Skipping them causes personality drift, rule violations, and missed constraints.
+
+```bash
+cat ~/edge/memory/rules-core.md
+cat ~/edge/memory/personality.md
+cat ~/edge/memory/metodo.md
+cat ~/edge/memory/debugging.md
+cat ~/edge/config/pre-skill.md
+cat ~/edge/config/strategy.md
+cat ~/edge/config/post-skill.md
+```
+
+Absorb — do not dump. These shape every decision in the beat.
+
+---
+
 ## Step 0: Deterministic preflight (BEFORE everything)
 
 ```bash
@@ -421,6 +439,40 @@ The `--update-thread N` automatically updates `updated:` and `resurface:` in the
 - **NEVER** modify files in `~/work/*/` — read-only
 - All output goes in `~/edge/` (blog, notes, reports, builds)
 - Use `ultrathink` (thinkmax) in the Step 2 decision
+
+## Step 3.5: Post-skill execution (MANDATORY after Step 3)
+
+After logging, execute post-skill procedures. Each procedure has a **60-second timeout** — if it hangs, kill and log the failure. Do not let post-skill block the beat.
+
+```bash
+cat ~/edge/config/post-skill.md
+```
+
+Execute each procedure listed. Log results:
+```bash
+echo "[$(date +%Y-%m-%dT%H:%M:%S)] procedure: NAME | status: STATUS | reason: DETAIL" >> ~/edge/logs/post-skill.log
+```
+
+Common post-skill procedures and their timeouts:
+- **LaTeX render** (pandoc): 60s. If pandoc not installed, log `SKIP` and continue.
+- **Overleaf mirror** (git commit + push): 60s. If repo not cloned, log `SKIP`.
+- **Notify** (notify.sh): 30s. If not configured, log `SKIP`.
+
+A post-skill failure is NOT a beat failure — log it and move on.
+
+---
+
+## Source primitives (data access rule)
+
+When accessing external data sources (Overleaf, arXiv, Exa, MathSciNet, etc.), use registered primitives from `~/edge/libexec/` when they exist:
+
+```bash
+cat ~/edge/state/sources-manifest.yaml 2>/dev/null
+```
+
+If a primitive exists for the source, use it instead of raw Bash/curl. Primitives log usage to `source-usage.jsonl` and maintain the sources feedback loop. If no primitive exists and you need repeated access, create one via the on-demand protocol (see `TOOL_CONTRACT.md`).
+
+---
 
 ## What the Heartbeat Does NOT Do
 
