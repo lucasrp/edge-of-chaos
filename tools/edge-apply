@@ -1104,7 +1104,7 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
             status = "stub"
 
             if not prim_path.exists():
-                if claude_available and not args.dry_run:
+                if claude_available and not dry_run:
                     # Generate functional primitive via LLM (#126)
                     prompt = (
                         f"Create a working CLI primitive for the source '{name}'.\n\n"
@@ -1146,7 +1146,7 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
                         warn(f"  {name}: generation error ({exc}), wrote stub")
                 else:
                     _write_stub(prim_path, name, desc)
-                    if args.dry_run:
+                    if dry_run:
                         print(f"  {YELLOW}[DRY RUN] would generate primitive: {name}{RESET}")
 
             else:
@@ -1524,7 +1524,7 @@ def main():
                     step_id = step.get("id", "?")
                     task = step.get("task", "")
                     print(f"\n  [{step_id}] {task[:80]}...")
-                    if args.dry_run:
+                    if dry_run:
                         print(f"  {YELLOW}[DRY RUN] would execute via claude -p{RESET}")
                         continue
                     try:
