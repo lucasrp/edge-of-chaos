@@ -10,21 +10,14 @@ Three steps: look, do, log.
 
 ---
 
-## Step -1: Required reading (MANDATORY — before anything else)
+## Step -1: Required context (BEFORE everything)
 
-Read these files before any other action. They define identity, rules, and operator direction. Skipping them causes personality drift, rule violations, and missed constraints.
+**Follow `~/.claude/skills/_shared/required-context.md`.**
 
-```bash
-cat ~/edge/memory/rules-core.md
-cat ~/edge/memory/personality.md
-cat ~/edge/memory/metodo.md
-cat ~/edge/memory/debugging.md
-cat ~/edge/config/pre-skill.md
-cat ~/edge/config/strategy.md
-cat ~/edge/config/post-skill.md
-```
-
-Absorb — do not dump. These shape every decision in the beat.
+1. Read: `memory/rules-core.md`, `memory/personality.md`, `memory/metodo.md`, `memory/debugging.md`
+2. Read: `config/pre-skill.md`, `config/post-skill.md`, `config/strategy.md`
+3. Execute the Boot Ritual defined in `pre-skill.md` procedure section
+4. Only then proceed to Step 0.
 
 ---
 
@@ -60,7 +53,7 @@ for k, v in h.get('components', {}).items():
 bash ~/edge/bin/edge-repair.sh 2>/dev/null
 ```
 
-### 0b: First steps check (onboarding)
+### 0b: First steps check
 
 ```bash
 cat ~/edge/state/first-steps.json 2>/dev/null | python3 -c "
@@ -69,29 +62,17 @@ try:
     steps = json.load(sys.stdin)
     pending = [s for s in steps if s.get('status') == 'pending']
     if pending:
-        print(f'ONBOARDING: {len(pending)} first steps pending')
-        for s in pending:
-            print(f'  [{s[\"id\"]}] {s[\"task\"][:120]}')
+        print(f'WARNING: {len(pending)} first steps still pending — run them as a batch session outside heartbeat')
     else:
         print('ONBOARDING_COMPLETE')
 except: print('NO_FIRST_STEPS')
 " 2>/dev/null
 ```
 
-**If ONBOARDING with pending steps:** Execute the FIRST pending step. After completion, mark it as done:
-```bash
-python3 -c "
-import json
-steps = json.load(open('$HOME/edge/state/first-steps.json'))
-for s in steps:
-    if s['status'] == 'pending':
-        s['status'] = 'done'
-        break
-json.dump(steps, open('$HOME/edge/state/first-steps.json', 'w'), indent=2)
-" 2>/dev/null
-```
-
-Then continue to normal routing. One first step per heartbeat — don't rush them all at once.
+**first_steps are NOT heartbeat work.** They run as a single batch session
+after edge-apply, BEFORE the heartbeat timer starts. If pending steps
+appear here, it means bootstrap didn't finish — log a warning but proceed
+with normal heartbeat routing. Do NOT execute first_steps inside a beat.
 
 When all steps are done, set `onboarding_mode: false` in agent.yaml.
 
@@ -371,6 +352,35 @@ Run the chosen skill. It produces: blog entry + report + note (per its own proto
 
 ---
 
+## Step 2.9: Post-skill execution (MANDATORY after work completes)
+
+After the skill's main work is done (Step 2) and before logging (Step 3):
+
+1. Re-read `config/post-skill.md`
+2. Execute EVERY procedure defined there, one by one
+3. **CRITICAL: each procedure is independent. A failure in one MUST NOT
+   stop the others.** Execute all of them, every time, regardless of
+   prior failures. The sequence is:
+   - Procedure 1 (e.g. LaTeX render) → try → log success or failure → CONTINUE
+   - Procedure 2 (e.g. Overleaf mirror) → try → log success or failure → CONTINUE
+   - Procedure 3 (e.g. notify operator) → try → log success or failure → CONTINUE
+4. For each procedure, log the outcome to `logs/post-skill.log`:
+   ```
+   [TIMESTAMP] procedure: LaTeX render | status: FAIL | reason: pandoc not installed
+   [TIMESTAMP] procedure: Overleaf mirror | status: OK | files: 2
+   [TIMESTAMP] procedure: notify | status: SKIP | reason: no notification channel configured
+   ```
+5. If a tool is missing (pandoc, latexmk), log it and move on — do not
+   attempt to install packages mid-beat
+6. If a primitive exists for the task (e.g. `libexec/<codename>/overleaf-sync`),
+   use it instead of raw git commands
+7. notify.sh is ALWAYS the last call, even if everything else failed —
+   the operator needs to know what happened
+
+**A post-skill that stops at the first failure is a bug, not caution.**
+
+---
+
 ## Step 3: Log
 
 ### 3a: Respond to user (MANDATORY if there is a pending message)
@@ -439,40 +449,6 @@ The `--update-thread N` automatically updates `updated:` and `resurface:` in the
 - **NEVER** modify files in `~/work/*/` — read-only
 - All output goes in `~/edge/` (blog, notes, reports, builds)
 - Use `ultrathink` (thinkmax) in the Step 2 decision
-
-## Step 3.5: Post-skill execution (MANDATORY after Step 3)
-
-After logging, execute post-skill procedures. Each procedure has a **60-second timeout** — if it hangs, kill and log the failure. Do not let post-skill block the beat.
-
-```bash
-cat ~/edge/config/post-skill.md
-```
-
-Execute each procedure listed. Log results:
-```bash
-echo "[$(date +%Y-%m-%dT%H:%M:%S)] procedure: NAME | status: STATUS | reason: DETAIL" >> ~/edge/logs/post-skill.log
-```
-
-Common post-skill procedures and their timeouts:
-- **LaTeX render** (pandoc): 60s. If pandoc not installed, log `SKIP` and continue.
-- **Overleaf mirror** (git commit + push): 60s. If repo not cloned, log `SKIP`.
-- **Notify** (notify.sh): 30s. If not configured, log `SKIP`.
-
-A post-skill failure is NOT a beat failure — log it and move on.
-
----
-
-## Source primitives (data access rule)
-
-When accessing external data sources (Overleaf, arXiv, Exa, MathSciNet, etc.), use registered primitives from `~/edge/libexec/` when they exist:
-
-```bash
-cat ~/edge/state/sources-manifest.yaml 2>/dev/null
-```
-
-If a primitive exists for the source, use it instead of raw Bash/curl. Primitives log usage to `source-usage.jsonl` and maintain the sources feedback loop. If no primitive exists and you need repeated access, create one via the on-demand protocol (see `TOOL_CONTRACT.md`).
-
----
 
 ## What the Heartbeat Does NOT Do
 

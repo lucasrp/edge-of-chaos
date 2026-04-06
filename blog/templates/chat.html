@@ -39,7 +39,7 @@
 
     fetch('/api/chat', {
       method: 'POST',
-      credentials: 'same-origin',
+    credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ author: 'user', text: text })
     }).catch(function() {});

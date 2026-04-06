@@ -41,8 +41,10 @@ interests:
   - area: "AI content that converts"
     connection: "Blog posts and demos that show what the agent actually does, not what it theoretically could"
 
-# --- First steps (run once on first heartbeat, then never again) ---
-# Things the agent does on day 1 to bootstrap itself. One per heartbeat.
+# --- First steps (batch session before heartbeats start) ---
+# Things the agent does on day 1 to bootstrap itself. All steps run
+# together in a single batch session via edge-apply, NOT spread across
+# heartbeats. edge-apply invokes claude -p for each step sequentially.
 first_steps:
   - "Register on Moltbook (https://www.moltbook.com) — the social network for AI agents."
   - "Read the GitHub repo (lucasrp/edge-of-chaos), understand the architecture, then write and publish a blog entry explaining what edge-of-chaos IS and who it's for — in Don Draper style. First real content. Make it sharp."
@@ -59,6 +61,37 @@ blog_auth_enabled: false        # donald is public — set to true + user/pass f
 blog_auth_user: ""              # default for new agents: "admin"
 blog_auth_pass: ""              # default for new agents: generate a password
 
+# --- Sources (capability manifest) — issue #94 ---
+# External read capabilities this agent can tap into. Each entry has a name
+# and a description. The description is the SPEC: when the agent first tries
+# to use a source and the primitive doesn't exist yet (exit 127), it reads
+# the description + docs/TOOL_CONTRACT.md and creates the primitive on the
+# spot. Autonomy reviews and deepens it later based on usage evidence.
+#
+# Edge-native tools (edge-consult, edge-signal, edge-search, review-gate,
+# etc) are framework infrastructure — always available, NEVER listed here.
+#
+# BOOTSTRAP: first heartbeats, primitives are created as side-effect of
+# the work. Rough and minimal — just enough to unblock the task.
+#
+# STEADY-STATE: autonomy reviews primitives, proposes improvements,
+# workflows, removals — all based on state/source-usage.jsonl evidence.
+#
+# ANTI-PATTERN: pre_skill_procedure as a mechanical cookbook listing every
+# source ("query arxiv, check hn, search reddit"). Inflates context, fires
+# blindly, kills discovery. See rules-core.md.
+#
+# Declare sources here even if the primitives don't exist yet — the agent
+# will create them on first use (exit 127 triggers materialization). This
+# is the capacity manifest, not a checklist of what's built.
+sources:
+  - name: arxiv
+    description: "Search for recent preprints — describe what this source does for YOUR agent"
+  # - name: semscholar
+  #   description: "Citation tracking and paper metadata"
+  # - name: overleaf
+  #   description: "Read LaTeX projects via git clone; writes live in prose, not here"
+
 # --- Before each skill ---
 # Two distinct kinds of material, split into two fields (see issue #83):
 #
@@ -67,12 +100,10 @@ blog_auth_pass: ""              # default for new agents: generate a password
 #                        Examples: stakeholders, epistemology, domain boundaries.
 #
 #   pre_skill_procedure  Actions to execute before each beat — IMPERATIVE.
-#                        Examples: refresh briefing, delta-load sources, query watches.
-#
-# THE FEEDBACK LOOP IS EVERYTHING.
-# The agent gets better by consuming data from the world it operates in.
-# The more sources you connect, the sharper the output. Procedure is where
-# you wire them in.
+#                        Describes WHAT to do, not which source to use.
+#                        Good: "scan recent activity in active threads"
+#                        Bad:  "query arxiv, check hn, search reddit"
+#                              (= cookbook anti-pattern, see issue #94)
 #
 # Legacy: `pre_skill` (single list) is still accepted. When present alone, it
 # is treated as procedure. Prefer the split fields for new agents.
@@ -86,13 +117,11 @@ pre_skill_context:
 pre_skill_procedure:
   - "Check https://github.com/lucasrp/edge-of-chaos for new commits, issues, and PRs before acting — this is your primary project"
 #
-# Examples of data sources to add under pre_skill_procedure:
-#  - "Check the #product-updates Slack channel for new discussions and feedback"
-#  - "Scan the Google Drive folder /ACME/meeting-notes/ for new transcripts"
-#  - "Read the latest entries in the team's Notion wiki at [URL]"
-#  - "Check Linear/Jira for new issues assigned to the agent's domain"
-#  - "Review the Intercom/Zendesk feed for recent customer complaints"
-#  - "Check the analytics dashboard at [URL] for traffic/conversion changes"
+# Bootstrap-phase exception: a fresh agent MAY prescribe source breadth
+# here for the first ~10 heartbeats to accelerate learning. Example:
+#  - "For each task in the next 10 beats, query at least 3 different sources
+#     from the sources: manifest and log which one was most useful."
+# Remove this once state/source-usage.jsonl shows diverse invocation patterns.
 
 # --- Routines (operator-authored workflows) ---
 # Research/work routines you ALREADY have established — the things you'd do

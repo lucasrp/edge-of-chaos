@@ -83,11 +83,15 @@ check_blog() {
     svc_active=true
   fi
 
-  local code
-  code=$(safe_timeout 5 curl -fsS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${BLOG_PORT}/api/entries" 2>/dev/null || echo 000)
-  if [[ "$code" == "200" ]]; then
-    http_ok=true
-  fi
+  local code attempt
+  for attempt in 1 2 3; do
+    code=$(safe_timeout 5 curl -fsS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${BLOG_PORT}/api/entries" 2>/dev/null || echo 000)
+    if [[ "$code" == "200" ]]; then
+      http_ok=true
+      break
+    fi
+    [[ "$attempt" -lt 3 ]] && sleep 1
+  done
 
   if $svc_active && $http_ok; then
     emit_component blog ok "service=active http=$code"

@@ -94,6 +94,35 @@ def load_agent_yaml(path: Path) -> dict:
         r for r in _normalize_list(cfg.get("routines")) if r and r.strip()
     ]
 
+    # Normalize `sources:` (capability manifest of external read primitives,
+    # #94). Each entry is {name, description} — the description is the spec
+    # the agent uses to create the primitive on first invocation (exit 127).
+    # No install-time resolution against a catalog. Primitives are born from
+    # demand, not speculation.
+    #
+    # Also accepts plain strings for backward compat (name only, no description).
+    raw_sources = cfg.get("sources") or []
+    if not isinstance(raw_sources, list):
+        raw_sources = [raw_sources]
+    cfg["sources"] = []
+    for src in raw_sources:
+        if isinstance(src, dict) and src.get("name"):
+            name = src["name"].strip()
+            desc = src.get("description", "").strip()
+        elif isinstance(src, str) and src.strip():
+            name = src.strip()
+            desc = ""
+        else:
+            continue
+        if name.startswith("edge-"):
+            print(
+                f"WARNING: 'sources:' entry '{name}' looks like an edge-native tool. "
+                f"Edge-native tools are framework infra and should not be declared in sources.",
+                file=sys.stderr,
+            )
+            continue
+        cfg["sources"].append({"name": name, "description": desc})
+
     # Legacy compat: if only `pre_skill` is set, map it into procedure.
     if pre_legacy and not pre_context and not pre_procedure:
         pre_procedure = pre_legacy
