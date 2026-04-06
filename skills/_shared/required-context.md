@@ -43,3 +43,42 @@ After the skill's main work is done and before closing the session:
 
 Post-skill is the counterpart to Step -1. Pre-skill loads context before work.
 Post-skill executes commitments after work. Neither is optional.
+
+---
+
+## Blog entry frontmatter (EVERY entry, no exception)
+
+Every blog entry published via consolidate-state MUST include these fields
+in the YAML frontmatter (per `state-protocol.md`):
+
+```yaml
+claims:
+  - "Verified fact learned"
+  - "!Open gap — thing I don't know"
+threads: [related-thread-id]
+keywords: [kw1, kw2]
+workflows_used: [slug-of-workflow-that-worked]
+workflows_broken: [slug-of-workflow-that-failed]
+procedure:
+  - "When [context], do [action] -- [result]"
+  - "!When [context], avoid [action] -- [reason]"
+```
+
+`procedure:` captures the DELTA — new operational knowledge not already
+covered by recalled workflows. Without it, the crystallize → workflow
+loop is broken at the first step.
+
+---
+
+## Source primitives (when using declared sources)
+
+When a repeated source operation doesn't have a primitive in
+`libexec/<codename>/`, create one per `docs/TOOL_CONTRACT.md`:
+
+1. Write contract: `libexec/<codename>/<name>.meta.yaml`
+2. Write impl: `libexec/<codename>/<name>` (chmod +x)
+3. Register in `state/sources-manifest.yaml`
+4. Log usage to `state/source-usage.jsonl` via `_shared/usage_log.py`
+
+One-off queries via raw Bash are fine. Repeated operations must become
+primitives so they are logged, versioned, and improvable by autonomy.
