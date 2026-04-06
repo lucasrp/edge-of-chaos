@@ -43,6 +43,9 @@ systemd/agent-heartbeat.timer
 systemd/blog-server.service
 
 # Runtime state (epigenetics — never replicate)
+libexec/
+state/sources-manifest.yaml
+state/source-usage.jsonl
 blog/entries/*.md
 !blog/entries/.gitkeep
 blog/diffs/
