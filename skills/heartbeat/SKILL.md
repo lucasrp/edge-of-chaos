@@ -10,6 +10,17 @@ Three steps: look, do, log.
 
 ---
 
+## Step -1: Required context (BEFORE everything)
+
+**Follow `~/.claude/skills/_shared/required-context.md`.**
+
+1. Read: `memory/rules-core.md`, `memory/personality.md`, `memory/metodo.md`, `memory/debugging.md`
+2. Read: `config/pre-skill.md`, `config/post-skill.md`, `config/strategy.md`
+3. Execute the Boot Ritual defined in `pre-skill.md` procedure section
+4. Only then proceed to Step 0.
+
+---
+
 ## Step 0: Deterministic preflight (BEFORE everything)
 
 ```bash

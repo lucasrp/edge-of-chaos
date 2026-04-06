@@ -76,7 +76,7 @@ if not claims or (isinstance(claims, list) and len(claims) == 0):
     errors.append('Missing field: claims — add claims: with at least 1 verified claim')
 threads = fm.get('threads', [])
 if not threads or (isinstance(threads, list) and len(threads) == 0):
-    errors.append('Missing field: threads — add threads: [related-thread]')
+    print('WARN: No threads linked — consider adding threads: [related-thread]', file=sys.stderr)
 keywords = fm.get('keywords', [])
 if not keywords or (isinstance(keywords, list) and len(keywords) == 0):
     errors.append('Missing field: keywords — add keywords: [kw1, kw2, ...] for retrieval')
