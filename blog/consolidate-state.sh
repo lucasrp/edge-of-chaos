@@ -818,10 +818,19 @@ except Exception as e:
 try:
     threads_dir = Path.home() / "edge" / "threads"
     updated_threads = []
+    threads_dir.mkdir(parents=True, exist_ok=True)
     for tid in threads:
         tfile = threads_dir / f"{tid}.md"
         if not tfile.exists():
-            continue
+            # Auto-create thread referenced by blog entry (#121)
+            resurface = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+            tfile.write_text(
+                f"---\nid: {tid}\ntitle: {tid.replace('-', ' ').title()}\n"
+                f"status: active\nowner: edge\n"
+                f"created: {today}\nupdated: {today}\nresurface: {resurface}\n---\n\n"
+                f"Thread auto-created from blog entry reference.\n"
+            )
+            warn(f"Thread '{tid}' auto-created (referenced but didn't exist)")
         content = tfile.read_text()
         content = re.sub(r"^updated:.*$", f"updated: {today}", content, flags=re.MULTILINE)
         tfile.write_text(content)

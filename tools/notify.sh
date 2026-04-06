@@ -141,6 +141,7 @@ curl -s -X POST "http://localhost:${BLOG_PORT}/api/chat" \
   -d "{\"author\": \"system\", \"text\": \"[$TYPE] $MESSAGE\"}" 2>/dev/null >/dev/null || true
 
 # Log
+mkdir -p "$EDGE_DIR/logs" 2>/dev/null
 echo "[$(date '+%Y-%m-%d %H:%M')] notify $TYPE: $MESSAGE (slack=$SENT)" >> "$EDGE_DIR/logs/notify.log" 2>/dev/null || true
 
 if [[ "$SENT" == "true" ]]; then
