@@ -53,7 +53,7 @@ for k, v in h.get('components', {}).items():
 bash ~/edge/bin/edge-repair.sh 2>/dev/null
 ```
 
-### 0b: First steps check (onboarding)
+### 0b: First steps check
 
 ```bash
 cat ~/edge/state/first-steps.json 2>/dev/null | python3 -c "
@@ -62,41 +62,17 @@ try:
     steps = json.load(sys.stdin)
     pending = [s for s in steps if s.get('status') == 'pending']
     if pending:
-        print(f'ONBOARDING: {len(pending)} first steps pending')
-        for s in pending:
-            print(f'  [{s[\"id\"]}] {s[\"task\"][:120]}')
+        print(f'WARNING: {len(pending)} first steps still pending — run them as a batch session outside heartbeat')
     else:
         print('ONBOARDING_COMPLETE')
 except: print('NO_FIRST_STEPS')
 " 2>/dev/null
 ```
 
-**If ONBOARDING with pending steps — MANDATORY, BLOCKING:**
-
-The FIRST pending step (lowest index) is the ONLY work for this beat.
-Do NOT dispatch a content skill. Do NOT skip to a later step.
-Do NOT cherry-pick a "more interesting" step. Execute in order.
-
-If the step is blocked (missing credential, missing dependency), mark
-it as `blocked` with a reason — do NOT silently skip it. Move to the
-NEXT pending step only if the current one is explicitly blocked.
-
-After completing (or blocking) the step, mark it and go directly to
-Step 2.9 (post-skill) then Step 3 (log). No rotation dispatch.
-
-```bash
-python3 -c "
-import json
-steps = json.load(open('$HOME/edge/state/first-steps.json'))
-for s in steps:
-    if s['status'] == 'pending':
-        s['status'] = 'done'  # or 'blocked' with s['blocked_reason'] = '...'
-        break
-json.dump(steps, open('$HOME/edge/state/first-steps.json', 'w'), indent=2)
-" 2>/dev/null
-```
-
-One first step per heartbeat. Order is mandatory. Cherry-picking is forbidden.
+**first_steps are NOT heartbeat work.** They run as a single batch session
+after edge-apply, BEFORE the heartbeat timer starts. If pending steps
+appear here, it means bootstrap didn't finish — log a warning but proceed
+with normal heartbeat routing. Do NOT execute first_steps inside a beat.
 
 When all steps are done, set `onboarding_mode: false` in agent.yaml.
 
