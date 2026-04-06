@@ -29,3 +29,17 @@ CLAUDE.md declares required reading for every session. Skills that skip it lose:
 - **Strategy** (strategy.md) — current phase and priorities
 
 The heartbeat is especially vulnerable because it runs autonomously with no user present to course-correct.
+
+---
+
+## Step Final: Post-skill execution (AFTER work completes)
+
+After the skill's main work is done and before closing the session:
+
+1. Re-read `config/post-skill.md`
+2. Execute each procedure defined there, in order
+3. If a procedure fails, log the failure and continue — do not block
+4. If a procedure is blocked by missing prerequisite, log as blocked — do not skip silently
+
+Post-skill is the counterpart to Step -1. Pre-skill loads context before work.
+Post-skill executes commitments after work. Neither is optional.

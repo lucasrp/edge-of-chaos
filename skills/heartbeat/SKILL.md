@@ -71,20 +71,32 @@ except: print('NO_FIRST_STEPS')
 " 2>/dev/null
 ```
 
-**If ONBOARDING with pending steps:** Execute the FIRST pending step. After completion, mark it as done:
+**If ONBOARDING with pending steps — MANDATORY, BLOCKING:**
+
+The FIRST pending step (lowest index) is the ONLY work for this beat.
+Do NOT dispatch a content skill. Do NOT skip to a later step.
+Do NOT cherry-pick a "more interesting" step. Execute in order.
+
+If the step is blocked (missing credential, missing dependency), mark
+it as `blocked` with a reason — do NOT silently skip it. Move to the
+NEXT pending step only if the current one is explicitly blocked.
+
+After completing (or blocking) the step, mark it and go directly to
+Step 2.9 (post-skill) then Step 3 (log). No rotation dispatch.
+
 ```bash
 python3 -c "
 import json
 steps = json.load(open('$HOME/edge/state/first-steps.json'))
 for s in steps:
     if s['status'] == 'pending':
-        s['status'] = 'done'
+        s['status'] = 'done'  # or 'blocked' with s['blocked_reason'] = '...'
         break
 json.dump(steps, open('$HOME/edge/state/first-steps.json', 'w'), indent=2)
 " 2>/dev/null
 ```
 
-Then continue to normal routing. One first step per heartbeat — don't rush them all at once.
+One first step per heartbeat. Order is mandatory. Cherry-picking is forbidden.
 
 When all steps are done, set `onboarding_mode: false` in agent.yaml.
 
@@ -361,6 +373,23 @@ If GPT suggests a better direction, consider it. The entire beat costs ~2h of ti
 ### Dispatch
 
 Run the chosen skill. It produces: blog entry + report + note (per its own protocol). The dispatched skill already includes its own internal edge-consult (mandatory in every skill).
+
+---
+
+## Step 2.9: Post-skill execution (MANDATORY after work completes)
+
+After the skill's main work is done (Step 2) and before logging (Step 3):
+
+1. Re-read `config/post-skill.md`
+2. Execute each procedure defined there, in order
+3. If a procedure fails (e.g., LaTeX compile error), log the failure
+   and continue — do not block the publish
+4. If a procedure is blocked by a missing prerequisite (e.g., overleaf-
+   reports project not yet created), log as blocked with the reason —
+   do not skip silently, do not use the absence as an excuse
+
+**This step is NOT optional.** Post-skill procedures are operator-defined
+commitments. Skipping them silently is a protocol violation.
 
 ---
 
