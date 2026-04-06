@@ -1107,40 +1107,43 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
                 if claude_available and not dry_run:
                     # Generate functional primitive via LLM (#126)
                     prompt = (
-                        f"Create a working CLI primitive for the source '{name}'.\n\n"
-                        f"Source description: {desc}\n\n"
-                        f"Available environment variables (from keys.env):\n{available_keys}\n\n"
-                        f"Tool contract (follow this exactly):\n{contract_text[:3000]}\n\n"
-                        f"Requirements:\n"
-                        f"- Write a single executable script (bash or python3)\n"
-                        f"- Use #!/usr/bin/env bash or #!/usr/bin/env python3\n"
-                        f"- Source secrets from $EDGE_DIR/secrets/keys.env if needed\n"
-                        f"- Accept subcommands or query as $1\n"
-                        f"- Output JSON to stdout per TOOL_CONTRACT.md\n"
-                        f"- Exit 0 on success, 1 on error, 77 for unimplemented operations\n"
-                        f"- Keep it simple — 20-50 lines, minimal dependencies\n"
-                        f"- Use curl for HTTP APIs, no pip installs required\n\n"
-                        f"Output ONLY the script content, no markdown fences, no explanation."
+                        f"You are a code generator. Output ONLY executable code. "
+                        f"No prose, no markdown, no explanation, no commentary. "
+                        f"Your entire response must be a valid script that starts with a shebang line.\n\n"
+                        f"Write a CLI script for the source '{name}'.\n"
+                        f"Description: {desc}\n"
+                        f"Env vars available: {available_keys}\n\n"
+                        f"Contract: exit 0 + JSON stdout on success, exit 1 + JSON error on failure, "
+                        f"exit 77 for unimplemented ops. Source secrets from $EDGE_DIR/secrets/keys.env.\n"
+                        f"Accept query or subcommand as $1. Use curl for HTTP. Keep it under 60 lines."
                     )
                     try:
                         result = subprocess.run(
-                            ["claude", "-p", prompt],
+                            ["claude", "-p", "--output-format", "text", prompt],
                             capture_output=True, text=True, timeout=120,
                             cwd=str(edge),
                         )
-                        if result.returncode == 0 and result.stdout.strip():
-                            script = result.stdout.strip()
-                            # Ensure shebang
-                            if not script.startswith("#!"):
-                                script = "#!/usr/bin/env bash\n" + script
+                        script = result.stdout.strip()
+                        # Strip markdown fences if LLM wrapped them
+                        if script.startswith("```"):
+                            lines = script.split("\n")
+                            lines = [l for l in lines if not l.startswith("```")]
+                            script = "\n".join(lines).strip()
+                        # Validate: must start with shebang and be >5 lines
+                        is_valid = (
+                            result.returncode == 0
+                            and script.startswith("#!")
+                            and len(script.split("\n")) >= 5
+                            and not any(w in script[:200] for w in ["Here's", "**", "Created", "This script"])
+                        )
+                        if is_valid:
                             prim_path.write_text(script + "\n")
                             prim_path.chmod(0o755)
                             status = "active"
                             ok(f"  {name}: generated functional primitive")
                         else:
-                            # Fallback to stub
                             _write_stub(prim_path, name, desc)
-                            warn(f"  {name}: LLM generation failed, wrote stub")
+                            warn(f"  {name}: LLM output not valid code, wrote stub")
                     except (subprocess.TimeoutExpired, Exception) as exc:
                         _write_stub(prim_path, name, desc)
                         warn(f"  {name}: generation error ({exc}), wrote stub")
