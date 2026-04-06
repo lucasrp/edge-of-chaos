@@ -989,7 +989,21 @@ def render_block(block: dict) -> str:
             + '</div>'
         )
 
-    result = fn(block)
+    try:
+        result = fn(block)
+    except (KeyError, TypeError) as exc:
+        _validation_error_count += 1
+        msg = f"ERRO bloco [{block_type}]: renderer raised {type(exc).__name__}: {exc}"
+        print(msg, file=sys.stderr)
+        _log_render_event(block_type, "render_exception", msg,
+                          fields=sorted(k for k in block if k != "type"))
+        result = (
+            f'<div style="border:2px solid #DC2626;background:#FEF2F2;padding:8px;'
+            f'border-radius:6px;margin:8px 0;font-size:13px;color:#991B1B;">'
+            f'ERRO bloco [{html.escape(block_type)}]: {html.escape(str(exc))}. '
+            f'Campos: {html.escape(str(sorted(k for k in block if k != "type")))}'
+            f'</div>'
+        )
 
     # Post-render empty check (catch-all for bugs schema didn't predict)
     if not warnings and _is_empty_render(block_type, result):
