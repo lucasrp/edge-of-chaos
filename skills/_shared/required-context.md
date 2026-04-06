@@ -82,6 +82,32 @@ loop is broken at the first step.
 
 ---
 
+## Agent venv (tool execution environment)
+
+Every agent has a virtual environment at `~/edge/blog/.venv/`. This is the
+agent's **own** tool environment — phenotype, not genotype.
+
+**Rules:**
+1. **All Python tool execution uses the venv.** Run scripts with
+   `~/edge/blog/.venv/bin/python3`, not system `python3`.
+2. **All pip installs go into the venv.** `~/edge/blog/.venv/bin/pip install <pkg>`.
+   Never `sudo pip install` or install into system Python.
+3. **Binary tools go into `~/edge/blog/.venv/bin/`.** Static binaries
+   (pandoc, tectonic, etc.) downloaded or extracted there are on PATH
+   for all venv-invoked scripts.
+4. **Primitives in `libexec/` should use the venv shebang:**
+   `#!/usr/bin/env -S ~/edge/blog/.venv/bin/python3` or invoke the
+   venv python explicitly.
+5. **The venv is the remediation target.** When reflection detects a
+   missing dependency (HN-1c), it installs into this venv. When
+   `edge-apply` provisions an instance, it seeds this venv with
+   dependencies from `agent.yaml`.
+
+The venv is local, reversible, and isolated per instance. Installing
+into it does not affect other agents or the host system.
+
+---
+
 ## Source primitives (when using declared sources)
 
 When a repeated source operation doesn't have a primitive in
