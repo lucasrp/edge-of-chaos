@@ -97,6 +97,20 @@ def run(cmd, **kwargs):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True, **kwargs)
 
 
+def _write_stub(path, name, desc):
+    """Write a stub primitive that exits 127 (fallback when LLM unavailable)."""
+    path.write_text(
+        f'#!/usr/bin/env bash\n'
+        f'# Stub for source: {name}\n'
+        f'# Description: {desc[:120]}\n'
+        f'# LLM was not available at install time. Run edge-apply again or\n'
+        f'# implement this primitive manually per docs/TOOL_CONTRACT.md\n'
+        f'echo "{{\\\"error\\\": \\\"not implemented\\\", \\\"source\\\": \\\"{name}\\\"}}" >&2\n'
+        f'exit 127\n'
+    )
+    path.chmod(0o755)
+
+
 # ─── Phase 1: Render ───
 
 def phase_render(config_path, dry_run):
@@ -1060,34 +1074,87 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
         dq_file.write_text("[]\n")
         seeded += 1
 
-    # --- seed source primitives from agent.yaml sources: (#115) ---
+    # --- seed source primitives from agent.yaml sources: (#115, #126) ---
     sources = cfg.get("sources", [])
     codename_local = cfg.get("codename", cfg.get("name", "ed"))
     libexec_dir = edge / "libexec" / codename_local
     manifest_file = edge / "state" / "sources-manifest.yaml"
+    tool_contract = REPO_ROOT / "docs" / "TOOL_CONTRACT.md"
     if sources:
         libexec_dir.mkdir(parents=True, exist_ok=True)
         manifest_entries = []
+        claude_available = shutil.which("claude") is not None
+        contract_text = tool_contract.read_text() if tool_contract.exists() else ""
+        # Load keys.env to know which env vars are available
+        keys_env = edge / "secrets" / "keys.env"
+        available_keys = ""
+        if keys_env.exists():
+            available_keys = "\n".join(
+                line.split("=")[0] for line in keys_env.read_text().splitlines()
+                if "=" in line and not line.strip().startswith("#")
+            )
+
         for src in sources:
             name = src.get("name", "")
             desc = src.get("description", "")
             if not name:
                 continue
-            # Create stub executable
-            stub_path = libexec_dir / name
-            if not stub_path.exists():
-                stub_path.write_text(
-                    f'#!/usr/bin/env bash\n'
-                    f'# Auto-generated stub for source: {name}\n'
-                    f'# Description: {desc[:120]}\n'
-                    f'# This stub exits 127 to trigger on-demand creation per TOOL_CONTRACT.md\n'
-                    f'echo "{{\\\"error\\\": \\\"not implemented\\\", \\\"source\\\": \\\"{name}\\\", '
-                    f'\\\"hint\\\": \\\"Read docs/TOOL_CONTRACT.md and implement this primitive\\\"}}" >&2\n'
-                    f'exit 127\n'
-                )
-                stub_path.chmod(0o755)
-            # Create meta.yaml
+            prim_path = libexec_dir / name
             meta_path = libexec_dir / f"{name}.meta.yaml"
+            status = "stub"
+
+            if not prim_path.exists():
+                if claude_available and not args.dry_run:
+                    # Generate functional primitive via LLM (#126)
+                    prompt = (
+                        f"Create a working CLI primitive for the source '{name}'.\n\n"
+                        f"Source description: {desc}\n\n"
+                        f"Available environment variables (from keys.env):\n{available_keys}\n\n"
+                        f"Tool contract (follow this exactly):\n{contract_text[:3000]}\n\n"
+                        f"Requirements:\n"
+                        f"- Write a single executable script (bash or python3)\n"
+                        f"- Use #!/usr/bin/env bash or #!/usr/bin/env python3\n"
+                        f"- Source secrets from $EDGE_DIR/secrets/keys.env if needed\n"
+                        f"- Accept subcommands or query as $1\n"
+                        f"- Output JSON to stdout per TOOL_CONTRACT.md\n"
+                        f"- Exit 0 on success, 1 on error, 77 for unimplemented operations\n"
+                        f"- Keep it simple — 20-50 lines, minimal dependencies\n"
+                        f"- Use curl for HTTP APIs, no pip installs required\n\n"
+                        f"Output ONLY the script content, no markdown fences, no explanation."
+                    )
+                    try:
+                        result = subprocess.run(
+                            ["claude", "-p", prompt],
+                            capture_output=True, text=True, timeout=120,
+                            cwd=str(edge),
+                        )
+                        if result.returncode == 0 and result.stdout.strip():
+                            script = result.stdout.strip()
+                            # Ensure shebang
+                            if not script.startswith("#!"):
+                                script = "#!/usr/bin/env bash\n" + script
+                            prim_path.write_text(script + "\n")
+                            prim_path.chmod(0o755)
+                            status = "active"
+                            ok(f"  {name}: generated functional primitive")
+                        else:
+                            # Fallback to stub
+                            _write_stub(prim_path, name, desc)
+                            warn(f"  {name}: LLM generation failed, wrote stub")
+                    except (subprocess.TimeoutExpired, Exception) as exc:
+                        _write_stub(prim_path, name, desc)
+                        warn(f"  {name}: generation error ({exc}), wrote stub")
+                else:
+                    _write_stub(prim_path, name, desc)
+                    if args.dry_run:
+                        print(f"  {YELLOW}[DRY RUN] would generate primitive: {name}{RESET}")
+
+            else:
+                # Primitive already exists — check if it's a stub or functional
+                content = prim_path.read_text()
+                status = "stub" if "exit 127" in content else "active"
+
+            # Create meta.yaml
             if not meta_path.exists():
                 meta_path.write_text(
                     f'name: {name}\n'
@@ -1098,12 +1165,15 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
                     f'created_by: edge-apply\n'
                     f'created_at: "{datetime.now().isoformat()}"\n'
                 )
-            manifest_entries.append({"name": name, "description": desc, "status": "stub"})
+            manifest_entries.append({"name": name, "description": desc, "status": status})
+
         # Write sources-manifest.yaml
         if manifest_entries and not manifest_file.exists():
             manifest_file.write_text(yaml.dump(manifest_entries, default_flow_style=False, allow_unicode=True))
         seeded += 1
-        ok(f"Source primitives: {len(sources)} stubs in libexec/{codename_local}/")
+        active = sum(1 for e in manifest_entries if e["status"] == "active")
+        stubs = sum(1 for e in manifest_entries if e["status"] == "stub")
+        ok(f"Source primitives: {active} functional + {stubs} stubs in libexec/{codename_local}/")
 
     # --- seed workflow blog entries (static, no LLM cost) ---
     prefix = cfg.get("skill_prefix", cfg.get("codename", "ed"))
