@@ -357,15 +357,27 @@ Run the chosen skill. It produces: blog entry + report + note (per its own proto
 After the skill's main work is done (Step 2) and before logging (Step 3):
 
 1. Re-read `config/post-skill.md`
-2. Execute each procedure defined there, in order
-3. If a procedure fails (e.g., LaTeX compile error), log the failure
-   and continue — do not block the publish
-4. If a procedure is blocked by a missing prerequisite (e.g., overleaf-
-   reports project not yet created), log as blocked with the reason —
-   do not skip silently, do not use the absence as an excuse
+2. Execute EVERY procedure defined there, one by one
+3. **CRITICAL: each procedure is independent. A failure in one MUST NOT
+   stop the others.** Execute all of them, every time, regardless of
+   prior failures. The sequence is:
+   - Procedure 1 (e.g. LaTeX render) → try → log success or failure → CONTINUE
+   - Procedure 2 (e.g. Overleaf mirror) → try → log success or failure → CONTINUE
+   - Procedure 3 (e.g. notify operator) → try → log success or failure → CONTINUE
+4. For each procedure, log the outcome to `logs/post-skill.log`:
+   ```
+   [TIMESTAMP] procedure: LaTeX render | status: FAIL | reason: pandoc not installed
+   [TIMESTAMP] procedure: Overleaf mirror | status: OK | files: 2
+   [TIMESTAMP] procedure: notify | status: SKIP | reason: no notification channel configured
+   ```
+5. If a tool is missing (pandoc, latexmk), log it and move on — do not
+   attempt to install packages mid-beat
+6. If a primitive exists for the task (e.g. `libexec/<codename>/overleaf-sync`),
+   use it instead of raw git commands
+7. notify.sh is ALWAYS the last call, even if everything else failed —
+   the operator needs to know what happened
 
-**This step is NOT optional.** Post-skill procedures are operator-defined
-commitments. Skipping them silently is a protocol violation.
+**A post-skill that stops at the first failure is a bug, not caution.**
 
 ---
 
