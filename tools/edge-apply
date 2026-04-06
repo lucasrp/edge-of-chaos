@@ -1123,18 +1123,22 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
                             capture_output=True, text=True, timeout=300,
                             cwd=str(edge),
                         )
-                        script = result.stdout.strip()
-                        # Strip markdown fences if LLM wrapped them
-                        if script.startswith("```"):
-                            lines = script.split("\n")
+                        raw = result.stdout.strip()
+                        # Extract script: find first shebang line, take everything from there
+                        script = ""
+                        if result.returncode == 0 and raw:
+                            lines = raw.split("\n")
+                            # Strip markdown fences
                             lines = [l for l in lines if not l.startswith("```")]
-                            script = "\n".join(lines).strip()
-                        # Validate: must start with shebang and be >5 lines
+                            # Find first shebang
+                            start = next((i for i, l in enumerate(lines) if l.startswith("#!")), -1)
+                            if start >= 0:
+                                script = "\n".join(lines[start:]).strip()
+                        # Validate: has shebang, has substance, no exit 127 (stub pattern)
                         is_valid = (
-                            result.returncode == 0
-                            and script.startswith("#!")
+                            script.startswith("#!")
                             and len(script.split("\n")) >= 5
-                            and not any(w in script[:200] for w in ["Here's", "**", "Created", "This script"])
+                            and "exit 127" not in script
                         )
                         if is_valid:
                             prim_path.write_text(script + "\n")
