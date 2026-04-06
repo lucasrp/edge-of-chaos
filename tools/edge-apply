@@ -111,6 +111,76 @@ def _write_stub(path, name, desc):
     path.chmod(0o755)
 
 
+def _extract_script(raw):
+    """Extract executable script from LLM output (strip prose, fences)."""
+    lines = raw.strip().split("\n")
+    lines = [l for l in lines if not l.startswith("```")]
+    start = next((i for i, l in enumerate(lines) if l.startswith("#!")), -1)
+    if start < 0:
+        return ""
+    return "\n".join(lines[start:]).strip()
+
+
+def _test_primitive(path, edge_dir):
+    """Run primitive with 'test' arg — exit 0 + JSON stdout = success."""
+    try:
+        env = os.environ.copy()
+        env["EDGE_DIR"] = str(edge_dir)
+        r = subprocess.run(
+            [str(path), "test"],
+            capture_output=True, text=True, timeout=30, env=env,
+        )
+        if r.returncode == 0 and r.stdout.strip().startswith("{"):
+            return True, ""
+        return False, f"exit={r.returncode} stdout={r.stdout[:100]} stderr={r.stderr[:100]}"
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _generate_primitive(name, desc, available_keys, prim_path, edge_dir):
+    """Generate, test, retry once on failure. Returns 'active' or 'stub'."""
+    base_prompt = (
+        f"You are a code generator. Output ONLY executable code. "
+        f"No prose, no markdown, no explanation.\n\n"
+        f"Write a CLI script for source '{name}'.\n"
+        f"Description: {desc}\n"
+        f"Env vars: {available_keys}\n\n"
+        f"Contract: exit 0 + JSON stdout on success, exit 1 + JSON error on failure. "
+        f"Source secrets from $EDGE_DIR/secrets/keys.env. "
+        f"Accept subcommand as $1. When $1 is 'test', return {{\"ok\":true,\"source\":\"{name}\"}}. "
+        f"Use curl for HTTP. Keep under 60 lines."
+    )
+
+    for attempt in range(2):
+        prompt = base_prompt
+        if attempt == 1:
+            prompt += f"\n\nPrevious attempt failed: {error_msg}\nFix the issue."
+        try:
+            result = subprocess.run(
+                ["claude", "-p", "--output-format", "text", prompt],
+                capture_output=True, text=True, timeout=300,
+                cwd=str(edge_dir),
+            )
+            script = _extract_script(result.stdout)
+            if not script or len(script.split("\n")) < 5:
+                error_msg = "extraction failed — no shebang or too short"
+                continue
+
+            prim_path.write_text(script + "\n")
+            prim_path.chmod(0o755)
+
+            ok_test, error_msg = _test_primitive(prim_path, edge_dir)
+            if ok_test:
+                return "active"
+            # Failed test — retry
+        except subprocess.TimeoutExpired:
+            error_msg = "LLM timeout (300s)"
+        except Exception as exc:
+            error_msg = str(exc)
+
+    return "stub"
+
+
 # ─── Phase 1: Render ───
 
 def phase_render(config_path, dry_run):
@@ -1105,52 +1175,14 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
 
             if not prim_path.exists():
                 if claude_available and not dry_run:
-                    # Generate functional primitive via LLM (#126)
-                    prompt = (
-                        f"You are a code generator. Output ONLY executable code. "
-                        f"No prose, no markdown, no explanation, no commentary. "
-                        f"Your entire response must be a valid script that starts with a shebang line.\n\n"
-                        f"Write a CLI script for the source '{name}'.\n"
-                        f"Description: {desc}\n"
-                        f"Env vars available: {available_keys}\n\n"
-                        f"Contract: exit 0 + JSON stdout on success, exit 1 + JSON error on failure, "
-                        f"exit 77 for unimplemented ops. Source secrets from $EDGE_DIR/secrets/keys.env.\n"
-                        f"Accept query or subcommand as $1. Use curl for HTTP. Keep it under 60 lines."
+                    status = _generate_primitive(
+                        name, desc, available_keys, prim_path, edge
                     )
-                    try:
-                        result = subprocess.run(
-                            ["claude", "-p", "--output-format", "text", prompt],
-                            capture_output=True, text=True, timeout=300,
-                            cwd=str(edge),
-                        )
-                        raw = result.stdout.strip()
-                        # Extract script: find first shebang line, take everything from there
-                        script = ""
-                        if result.returncode == 0 and raw:
-                            lines = raw.split("\n")
-                            # Strip markdown fences
-                            lines = [l for l in lines if not l.startswith("```")]
-                            # Find first shebang
-                            start = next((i for i, l in enumerate(lines) if l.startswith("#!")), -1)
-                            if start >= 0:
-                                script = "\n".join(lines[start:]).strip()
-                        # Validate: has shebang, has substance, no exit 127 (stub pattern)
-                        is_valid = (
-                            script.startswith("#!")
-                            and len(script.split("\n")) >= 5
-                            and "exit 127" not in script
-                        )
-                        if is_valid:
-                            prim_path.write_text(script + "\n")
-                            prim_path.chmod(0o755)
-                            status = "active"
-                            ok(f"  {name}: generated functional primitive")
-                        else:
-                            _write_stub(prim_path, name, desc)
-                            warn(f"  {name}: LLM output not valid code, wrote stub")
-                    except (subprocess.TimeoutExpired, Exception) as exc:
+                    if status != "active":
                         _write_stub(prim_path, name, desc)
-                        warn(f"  {name}: generation error ({exc}), wrote stub")
+                        warn(f"  {name}: wrote stub")
+                    else:
+                        ok(f"  {name}: functional primitive (tested)")
                 else:
                     _write_stub(prim_path, name, desc)
                     if dry_run:
