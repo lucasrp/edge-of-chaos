@@ -87,7 +87,7 @@ def _run_primitive(primitive_path: str, args: list[str], env: dict) -> str:
 
 def _register_tool(mcp_server, name: str, description: str, prim_path: str, env: dict):
     """Register a single primitive as an MCP tool."""
-    async def handler(query: str, operation: str = "search") -> str:
+    async def handler(query: str, operation: str = "") -> str:
         args = [operation, query] if operation else [query]
         return _run_primitive(prim_path, args, env)
     handler.__name__ = name.replace("-", "_")
