@@ -328,12 +328,39 @@ def doc_stats(conn=None) -> list[dict]:
             conn.close()
 
 
+def _read_workflow_body(path: str) -> str | None:
+    """Read a workflow entry and extract the body (after frontmatter)."""
+    try:
+        filepath = EDGE_HOME / path
+        if not filepath.is_file():
+            return None
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+        if text.startswith("---"):
+            end = text.index("---", 3)
+            body = text[end + 3:].strip()
+        else:
+            body = text.strip()
+        # Cap at 2000 chars to avoid flooding terminal
+        if len(body) > 2000:
+            body = body[:2000] + "\n[...truncated]"
+        return body
+    except Exception:
+        return None
+
+
 def format_results(
     results: list[dict],
     mode: str = "hybrid",
     workflows: list[dict] | None = None,
 ) -> str:
-    """Format search results for terminal output."""
+    """Format search results for terminal output.
+
+    Workflow sidecar results are expanded inline — the full body of the
+    workflow entry is included so the agent sees procedure steps without
+    needing a separate read. This is the mechanism that closes the
+    workflow-adoption gap: any search that finds a relevant workflow
+    surfaces the procedure in context automatically.
+    """
     if not results and not workflows:
         return "No results found."
 
@@ -357,15 +384,20 @@ def format_results(
             lines.append("")
 
     if workflows:
-        lines.append(f"  Workflows relevantes ({len(workflows)}):\n")
-        for i, r in enumerate(workflows, 1):
-            path = Path(r["path"])
-            name = path.name
-            score = r.get("score", 0)
+        sep = "\u2501" * 45
+        for r in workflows:
             title = r.get("title", "")
-            lines.append(f"  #{i:<3} {score:>8.4f}  workflow {name}")
-            if title and title != path.stem:
-                lines.append(f"       {' ' * 8}  {' ' * 8} {title[:80]}")
+            score = r.get("score", 0)
+            body = _read_workflow_body(r["path"])
+
+            lines.append(f"\u2501\u2501 WORKFLOW FOUND {sep}")
+            lines.append(f"{title}  (score: {score:.4f})")
+            lines.append("")
+            if body:
+                lines.append(body)
+            else:
+                lines.append(f"  [could not read: {r['path']}]")
+            lines.append(sep + "\u2501\u2501")
             lines.append("")
 
     return "\n".join(lines)
