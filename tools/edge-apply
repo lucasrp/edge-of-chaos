@@ -797,6 +797,22 @@ def phase_tools(cfg, dry_run):
                 }
             }
             mcp_json_path.write_text(json.dumps(mcp_config, indent=2) + "\n")
+            # Also merge into ~/.claude/settings.json so claude -p sees it (#137)
+            claude_settings = Path.home() / ".claude" / "settings.json"
+            if claude_settings.exists():
+                try:
+                    settings = json.loads(claude_settings.read_text())
+                    settings["mcpServers"] = mcp_config["mcpServers"]
+                    # Auto-allow the MCP tools
+                    perms = settings.setdefault("permissions", {})
+                    allow = perms.setdefault("allow", [])
+                    mcp_perm = "mcp__edge-agent__*"
+                    if mcp_perm not in allow:
+                        allow.append(mcp_perm)
+                    claude_settings.write_text(json.dumps(settings, indent=2) + "\n")
+                    ok(f"MCP config merged into {claude_settings}")
+                except Exception as exc:
+                    warn(f"Could not merge MCP into settings.json: {exc}")
         ok(f"MCP config: {mcp_json_path}")
     else:
         warn("mcp-agent-server.py not found — skipping MCP registration")
