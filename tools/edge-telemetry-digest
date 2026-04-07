@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+"""edge-telemetry-digest: Compact telemetry files and produce a unified snapshot.
+
+Reads raw telemetry from multiple sources, produces a compact JSON digest,
+and implements ringbuffer compaction on JSONL files (digest header + last N entries).
+
+Also inserts a snapshot row into telemetry_snapshots in edge-memory.db for
+historical trend analysis.
+
+Usage:
+    edge-telemetry-digest                  # compact + digest + store
+    edge-telemetry-digest --dry-run        # show what would happen
+    edge-telemetry-digest --max-lines 500  # compact threshold (default: 500)
+    edge-telemetry-digest --keep-lines 100 # entries to keep after compaction (default: 100)
+"""
+
+import argparse
+import json
+import os
+import re
+import sqlite3
+import sys
+from collections import Counter, defaultdict
+from datetime import datetime
+from pathlib import Path
+
+
+EDGE_DIR = Path(os.environ.get("EDGE_DIR", Path.home() / "edge"))
+DIGEST_HEADER_START = "=== DIGEST ("
+DIGEST_HEADER_END = "=== END DIGEST ==="
+
+
+def parse_jsonl_with_digest(filepath: Path) -> tuple[dict | None, list[dict]]:
+    """Read a JSONL file that may have an inline digest header.
+
+    Returns (existing_digest, entries). The digest is the parsed header
+    block if present, entries are the JSONL lines after the header.
+    """
+    if not filepath.exists():
+        return None, []
+
+    lines = filepath.read_text(encoding="utf-8", errors="replace").splitlines()
+    digest = None
+    entries = []
+    in_digest = False
+    digest_lines = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(DIGEST_HEADER_START):
+            in_digest = True
+            digest_lines = [line]
+            continue
+        if line == DIGEST_HEADER_END:
+            in_digest = False
+            digest = _parse_digest_block(digest_lines)
+            continue
+        if in_digest:
+            digest_lines.append(line)
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+
+    return digest, entries
+
+
+def _parse_digest_block(lines: list[str]) -> dict:
+    """Parse a digest header block into a dict."""
+    result = {}
+    for line in lines:
+        if ":" in line and not line.startswith("==="):
+            key, _, val = line.partition(":")
+            result[key.strip()] = val.strip()
+    return result
+
+
+def compact_jsonl(
+    filepath: Path,
+    max_lines: int,
+    keep_lines: int,
+    dry_run: bool = False,
+) -> dict | None:
+    """Compact a JSONL file: merge old entries into digest header, keep recent.
+
+    Returns the computed digest stats or None if no compaction needed.
+    """
+    old_digest, entries = parse_jsonl_with_digest(filepath)
+
+    if len(entries) < max_lines:
+        return None  # No compaction needed
+
+    # Split: entries to digest vs entries to keep
+    to_digest = entries[:-keep_lines] if keep_lines < len(entries) else []
+    to_keep = entries[-keep_lines:]
+
+    if not to_digest:
+        return None
+
+    # Compute stats from entries being digested
+    stats = _compute_entry_stats(to_digest)
+
+    # Merge with existing digest if present
+    if old_digest:
+        stats = _merge_digest(old_digest, stats)
+
+    if dry_run:
+        print(f"  WOULD compact {filepath.name}: {len(entries)} → {len(to_keep)} entries")
+        print(f"  Digest: {stats}")
+        return stats
+
+    # Write compacted file
+    digest_block = _format_digest_header(stats)
+    jsonl_lines = [json.dumps(e, ensure_ascii=False) for e in to_keep]
+
+    filepath.write_text(
+        digest_block + "\n" + "\n".join(jsonl_lines) + "\n",
+        encoding="utf-8",
+    )
+    print(f"  Compacted {filepath.name}: {len(entries)} → {len(to_keep)} entries")
+
+    return stats
+
+
+def _compute_entry_stats(entries: list[dict]) -> dict:
+    """Compute aggregate stats from a list of telemetry entries."""
+    total = len(entries)
+    ok = sum(1 for e in entries if e.get("ok", e.get("status") == "OK"))
+    fail = total - ok
+    durations = [e.get("ms", e.get("duration_ms", 0)) for e in entries if e.get("ms") or e.get("duration_ms")]
+    avg_ms = int(sum(durations) / len(durations)) if durations else 0
+
+    # Top failures by error/reason
+    failures = [
+        e.get("error", e.get("reason", "unknown"))
+        for e in entries
+        if not e.get("ok", e.get("status") == "OK")
+    ]
+    top_failures = Counter(failures).most_common(5)
+
+    # Source breakdown
+    sources = Counter(e.get("source", e.get("tool", "unknown")) for e in entries)
+
+    # Date range
+    dates = [e.get("ts", e.get("timestamp", "")) for e in entries if e.get("ts") or e.get("timestamp")]
+    period_start = min(dates)[:10] if dates else "?"
+    period_end = max(dates)[:10] if dates else "?"
+
+    return {
+        "total_calls": total,
+        "ok": ok,
+        "fail": fail,
+        "ok_pct": round(ok * 100 / total, 1) if total else 0,
+        "avg_ms": avg_ms,
+        "top_failures": ", ".join(f"{r} ({c})" for r, c in top_failures) if top_failures else "none",
+        "sources": dict(sources),
+        "period": f"{period_start} to {period_end}",
+    }
+
+
+def _merge_digest(old: dict, new: dict) -> dict:
+    """Merge an existing digest with new stats."""
+    try:
+        old_total = int(old.get("total_calls", 0))
+        old_ok = int(old.get("ok", 0))
+    except (ValueError, TypeError):
+        old_total = 0
+        old_ok = 0
+
+    total = old_total + new["total_calls"]
+    ok = old_ok + new["ok"]
+    fail = total - ok
+
+    return {
+        "total_calls": total,
+        "ok": ok,
+        "fail": fail,
+        "ok_pct": round(ok * 100 / total, 1) if total else 0,
+        "avg_ms": new["avg_ms"],  # Use recent avg, not historical
+        "top_failures": new["top_failures"],  # Use recent failures
+        "period": f"{old.get('period', '?').split(' to ')[0]} to {new['period'].split(' to ')[-1]}",
+    }
+
+
+def _format_digest_header(stats: dict) -> str:
+    """Format stats as inline digest header block."""
+    now = datetime.now().strftime("%Y-%m-%d")
+    lines = [
+        f"=== DIGEST (compacted: {now}) ===",
+        f"total_calls: {stats['total_calls']}, ok: {stats['ok']} ({stats['ok_pct']}%), fail: {stats['fail']}",
+        f"avg_duration_ms: {stats['avg_ms']}",
+        f"top_failures: {stats['top_failures']}",
+        f"period: {stats['period']}",
+        DIGEST_HEADER_END,
+    ]
+    return "\n".join(lines)
+
+
+def read_search_telemetry(edge_dir: Path) -> dict:
+    """Read search telemetry from edge-memory.db."""
+    db_path = edge_dir / "search" / "edge-memory.db"
+    if not db_path.exists():
+        return {}
+
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+
+        total = conn.execute("SELECT COUNT(*) FROM search_events").fetchone()[0]
+        unique = conn.execute("SELECT COUNT(DISTINCT query_norm) FROM search_events").fetchone()[0]
+
+        # Workflows found in search (documents of type workflow that appeared in results)
+        wf_found = conn.execute("""
+            SELECT COUNT(*) FROM search_events se
+            JOIN documents d ON d.id = se.doc_id
+            WHERE d.type = 'workflow'
+        """).fetchone()[0]
+
+        conn.close()
+        return {
+            "total_queries": total,
+            "unique_queries": unique,
+            "workflows_found": wf_found,
+        }
+    except Exception:
+        return {}
+
+
+def produce_digest(
+    edge_dir: Path,
+    max_lines: int,
+    keep_lines: int,
+    dry_run: bool,
+) -> dict:
+    """Produce the unified telemetry digest."""
+    digest = {
+        "generated_at": datetime.now().isoformat(),
+        "sources": {},
+        "tools": {},
+        "search": {},
+        "anomalies": [],
+    }
+
+    # 1. Source usage
+    source_file = edge_dir / "state" / "source-usage.jsonl"
+    if source_file.exists():
+        stats = compact_jsonl(source_file, max_lines, keep_lines, dry_run)
+        _, entries = parse_jsonl_with_digest(source_file)
+
+        # Per-source breakdown from recent entries
+        by_source = defaultdict(lambda: {"calls": 0, "ok": 0, "fail": 0, "ms_sum": 0})
+        for e in entries:
+            src = e.get("source", "unknown")
+            by_source[src]["calls"] += 1
+            if e.get("ok"):
+                by_source[src]["ok"] += 1
+            else:
+                by_source[src]["fail"] += 1
+            by_source[src]["ms_sum"] += e.get("ms", 0)
+
+        for src, s in by_source.items():
+            total = s["calls"]
+            digest["sources"][src] = {
+                "calls": total,
+                "ok": s["ok"],
+                "fail": s["fail"],
+                "rate_pct": round(s["ok"] * 100 / total, 1) if total else 0,
+                "avg_ms": int(s["ms_sum"] / total) if total else 0,
+            }
+            # Anomaly detection
+            if total >= 5 and s["fail"] / total > 0.3:
+                digest["anomalies"].append(
+                    f"{src}: {round(s['fail']*100/total)}% fail rate ({s['fail']}/{total})"
+                )
+    else:
+        print("  source-usage.jsonl not found, skipping")
+
+    # 2. Tool execution (ledger)
+    ledger_file = edge_dir / "logs" / "ledger.jsonl"
+    if ledger_file.exists():
+        compact_jsonl(ledger_file, max_lines, keep_lines, dry_run)
+        _, entries = parse_jsonl_with_digest(ledger_file)
+
+        by_tool = defaultdict(lambda: {"calls": 0, "ok": 0, "fail": 0, "ms_sum": 0})
+        for e in entries:
+            tool = e.get("tool", "unknown")
+            by_tool[tool]["calls"] += 1
+            if e.get("ok", e.get("status") == "OK"):
+                by_tool[tool]["ok"] += 1
+            else:
+                by_tool[tool]["fail"] += 1
+            by_tool[tool]["ms_sum"] += e.get("duration_ms", e.get("ms", 0))
+
+        for tool, s in by_tool.items():
+            total = s["calls"]
+            digest["tools"][tool] = {
+                "calls": total,
+                "ok": s["ok"],
+                "fail_rate_pct": round(s["fail"] * 100 / total, 1) if total else 0,
+                "p50_ms": int(s["ms_sum"] / total) if total else 0,
+            }
+            if total >= 5 and s["fail"] / total > 0.3:
+                digest["anomalies"].append(
+                    f"{tool}: {round(s['fail']*100/total)}% fail rate ({s['fail']}/{total})"
+                )
+    else:
+        print("  ledger.jsonl not found, skipping")
+
+    # 3. Search telemetry
+    digest["search"] = read_search_telemetry(edge_dir)
+
+    return digest
+
+
+def store_snapshot(edge_dir: Path, digest: dict) -> None:
+    """Insert digest snapshot into telemetry_snapshots table."""
+    db_path = edge_dir / "search" / "edge-memory.db"
+    if not db_path.exists():
+        return
+
+    try:
+        conn = sqlite3.connect(str(db_path))
+
+        # Ensure table exists
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS telemetry_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
+                source TEXT NOT NULL,
+                calls INTEGER DEFAULT 0,
+                ok INTEGER DEFAULT 0,
+                fail INTEGER DEFAULT 0,
+                avg_ms INTEGER DEFAULT 0,
+                cost_usd REAL DEFAULT 0,
+                notes TEXT DEFAULT '{}'
+            );
+        """)
+
+        now = datetime.now().isoformat()
+
+        # One row per source
+        for src, stats in digest.get("sources", {}).items():
+            conn.execute(
+                "INSERT INTO telemetry_snapshots (ts, source, calls, ok, fail, avg_ms, notes) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (now, src, stats["calls"], stats["ok"], stats["fail"],
+                 stats["avg_ms"], json.dumps(stats)),
+            )
+
+        # One row per tool
+        for tool, stats in digest.get("tools", {}).items():
+            conn.execute(
+                "INSERT INTO telemetry_snapshots (ts, source, calls, ok, fail, avg_ms, notes) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (now, f"tool:{tool}", stats["calls"], stats["ok"],
+                 stats.get("fail", 0), stats.get("p50_ms", 0), json.dumps(stats)),
+            )
+
+        # One global row
+        total_calls = sum(s["calls"] for s in digest.get("sources", {}).values())
+        total_ok = sum(s["ok"] for s in digest.get("sources", {}).values())
+        conn.execute(
+            "INSERT INTO telemetry_snapshots (ts, source, calls, ok, fail, notes) "
+            "VALUES (?, '_global', ?, ?, ?, ?)",
+            (now, total_calls, total_ok, total_calls - total_ok,
+             json.dumps({"anomalies": digest.get("anomalies", [])})),
+        )
+
+        conn.commit()
+        conn.close()
+        print(f"  Stored snapshot in edge-memory.db ({total_calls} calls)")
+    except Exception as e:
+        print(f"  Warning: could not store snapshot: {e}", file=sys.stderr)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Compact telemetry files and produce unified digest"
+    )
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Show what would happen without writing")
+    parser.add_argument("--max-lines", type=int, default=500,
+                        help="Compact JSONL files exceeding this many entries (default: 500)")
+    parser.add_argument("--keep-lines", type=int, default=100,
+                        help="Keep this many recent entries after compaction (default: 100)")
+    args = parser.parse_args()
+
+    edge_dir = EDGE_DIR
+    print(f"edge-telemetry-digest — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"  EDGE_DIR: {edge_dir}")
+
+    digest = produce_digest(edge_dir, args.max_lines, args.keep_lines, args.dry_run)
+
+    # Write digest JSON
+    digest_path = edge_dir / "state" / "telemetry-digest.json"
+    if not args.dry_run:
+        digest_path.parent.mkdir(parents=True, exist_ok=True)
+        digest_path.write_text(json.dumps(digest, indent=2, ensure_ascii=False) + "\n")
+        print(f"  Wrote {digest_path}")
+
+        # Store in DB
+        store_snapshot(edge_dir, digest)
+    else:
+        print(f"  WOULD write {digest_path}")
+        print(json.dumps(digest, indent=2))
+
+    # Summary
+    n_sources = len(digest.get("sources", {}))
+    n_tools = len(digest.get("tools", {}))
+    n_anomalies = len(digest.get("anomalies", []))
+    print(f"\n  Sources: {n_sources}, Tools: {n_tools}, Anomalies: {n_anomalies}")
+    for a in digest.get("anomalies", []):
+        print(f"  !! {a}")
+
+
+if __name__ == "__main__":
+    main()

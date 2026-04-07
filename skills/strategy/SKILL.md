@@ -30,9 +30,41 @@ Look at the big picture across all projects. Analyze where each one stands, what
 
 ## Protocol (follow in order)
 
+### Step -1: Read dispatch queue
+
+Before analysis, check what other meta-skills need from strategy:
+
+```bash
+python3 -c "
+import json, os
+f = os.path.expanduser('~/edge/state/dispatch-queue.json')
+if os.path.exists(f):
+    queue = json.load(open(f))
+    mine = [q for q in queue if q.get('skill') == 'strategy']
+    if mine:
+        for item in mine:
+            print(f'DISPATCH from {item.get(\"source\",\"?\")}: {item.get(\"reason\",\"\")}')
+        remaining = [q for q in queue if q.get('skill') != 'strategy']
+        with open(f, 'w') as fh:
+            json.dump(remaining, fh, indent=2)
+    else:
+        print('No pending dispatches.')
+else:
+    print('No dispatch queue.')
+" 2>/dev/null
+```
+
+Dispatches from autonomy or reflection represent operational reality that strategy must incorporate.
+
 ### Step 0: Read operational signals
 
 ```bash
+# Telemetry digest — quantitative operational facts
+cat ~/edge/state/telemetry-digest.json 2>/dev/null || echo "(no telemetry digest)"
+
+# Active proposals (shared backlog with autonomy and reflection)
+cat ~/edge/state/proposals.json 2>/dev/null || echo "[]"
+
 # Primary signals
 cat ~/edge/state/signals/strategy.md 2>/dev/null || echo "(empty)"
 
@@ -43,6 +75,8 @@ cat ~/edge/state/signals/serendipity.md 2>/dev/null  # what's working → where 
 cat ~/edge/state/signals/autonomy.md 2>/dev/null     # what's missing → factor into roadmap
 cat ~/edge/state/signals/reflection.md 2>/dev/null   # how work went + cost → efficiency signals
 ```
+
+Telemetry grounds strategy in operational reality: cost trends, source reliability, tool effectiveness. Proposals show what's already been identified by other meta-skills and how strong the evidence is.
 
 These signals are atoms accumulated across all skills. Use them to ground strategy in operational reality, not narrative.
 
@@ -259,7 +293,15 @@ Format:
 
 ---
 
-## Post-execution
+## Post-execution: Dispatch to other meta-skills + proposals
+
+After analysis, queue dispatches and create/strengthen proposals:
+
+- **Capability gap or high-priority materialization** → queue for autonomy
+- **Something that needs immediate remediation** → queue for reflection
+- **Strategic insight that should become a proposal** → add to `state/proposals.json` (see `~/.claude/skills/_shared/proposals-protocol.md`)
+
+Strategy is a **producer** of proposals, not a curator. Autonomy curates and executes.
 
 **Follow `~/edge/config/post-skill.md` for post-publication actions.**
 
