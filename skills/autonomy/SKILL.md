@@ -51,21 +51,26 @@ is just a bigger toolbox. The value is in seeing what nobody asked for.
    
    Dispatches from reflection ("edge-x broken, can't fix") and strategy ("source X is priority") inform which proposals to act on first. Telemetry provides quantitative evidence.
 
-2. **Curate proposals** — autonomy is the curator of `state/proposals.json`, the shared backlog:
+2. **Curate and EXECUTE proposals** — autonomy is the curator of `state/proposals.json` AND the executor:
 
    ```bash
    cat ~/edge/state/proposals.json 2>/dev/null || echo "[]"
    ```
 
-   - Proposal with evidence from 2+ distinct skills → **strong**, execute this beat
-   - Proposal with evidence from 1 skill for 3+ beats → **mature**, execute
+   **Curation rules:**
+   - Proposal with evidence from 2+ distinct skills → **strong**, execute NOW
+   - Proposal with evidence from 1 skill for 3+ beats → **mature**, execute NOW
    - Proposal without new evidence in 5 beats → **stale**, remove with note
    - Max 3 active proposals — if a 4th arrives, the weakest exits
-   - Max 1 NEW proposal per beat (from autonomy itself)
+   
+   **Execution rules — be aggressive:**
+   - **Execute everything auto-approved that fits in the beat.** Do not defer to the next beat what can be done now. A primitive that takes 10 minutes should be materialized immediately, not proposed and left for 27 hours.
+   - If 3 primitives are auto-approved and each takes 10 minutes, **do all 3**. The limit is the beat's time budget, not an arbitrary "max 1" rule.
+   - The cycle is **evaluate → curate → execute → verify** in a SINGLE beat. Proposing without executing when execution is auto-approved and feasible is a failure mode, not caution.
+   - Adversarial review (edge-consult) before adding genuinely new, unvalidated proposals. But acting on existing proposals with strong evidence does NOT need another round of review.
    
    Strategy and reflection add proposals and evidence. Autonomy prioritizes, executes, and removes stale ones. See `~/.claude/skills/_shared/proposals-protocol.md`.
    
-   - Adversarial review before adding new proposals (edge-consult)
    - Proposal the agent removes = self-correction (positive)
 
 3. **Act** — approval depends on scope:
@@ -87,20 +92,25 @@ is just a bigger toolbox. The value is in seeing what nobody asked for.
 When the agent tries to use a source and the primitive doesn't exist
 (exit 127) or an operation isn't built yet (exit 77):
 
-**Bootstrap** (first heartbeats, during first_steps):
-- Create rough primitive as side-effect of the work
+**The rule: if the key exists and the contract is documented, materialize NOW.**
+Do not propose what you can build. A stub primitive with a working API key
+is a bug, not a proposal. Fix it in the same beat you discover it.
+
+**Bootstrap** (first heartbeats):
+- Create rough primitives as side-effect of the work
 - Follow `docs/TOOL_CONTRACT.md` — contract + impl + test + register
 - Blog entry (light): "created X, minimal, functional"
-- No pool overhead — demand comes from the work itself
+- Multiple primitives per beat is expected — batch them
 
 **Steady-state** (after bootstrap):
-- Autonomy detects the gap in its evaluate phase
-- Proposes materialization via the pool
-- Creates with full discipline: contract, impl, test, adversarial, blog+report
+- Autonomy detects gaps in evaluate phase and **executes immediately**
+- If auto-approved and key is available → build, test, register, log
+- Full discipline: contract, impl, test, adversarial, blog+report
+- If 5 primitives need building and the beat has time → build 5
 
 **Deepening** (ongoing):
 - Autonomy reviews existing primitives with usage evidence
-- Proposes improvements: rate limiting, caching, slimmer output, new operations
+- Improves: rate limiting, caching, slimmer output, new operations
 - Full adversarial + consolidar pipeline
 
 ---
@@ -149,7 +159,7 @@ After acting, queue dispatches for what autonomy cannot resolve alone:
 
 ## Anti-gaming
 
-- Max 1 new proposal per execution
-- Adversarial before adding
+- Adversarial review before adding genuinely new proposals (not before executing existing ones)
 - If operator rejects >70% of proposals, autonomy is miscalibrated — recalibrate
 - Consolidar pipeline (blog + report + claims) for every action — no silent changes
+- The failure mode to guard against is **proposing without executing**, not executing too much. Volume of proposals is waste. Volume of shipped primitives is progress.
