@@ -366,26 +366,42 @@ def format_results(
 
     lines = []
 
+    # Collect all workflows to expand (from main results + sidecar)
+    wf_expanded_ids = set()
+    all_workflows_to_expand = list(workflows or [])
+
     if results:
-        lines.append(f"Results ({mode}, {len(results)} matches):\n")
-        for i, r in enumerate(results, 1):
-            path = Path(r["path"])
-            name = path.name
-            score = r.get("score", 0)
-            doc_type = r.get("type", "?")
-            title = r.get("title", "")
+        # Separate workflows from non-workflows in main results
+        regular = [r for r in results if r.get("type") != "workflow"]
+        main_workflows = [r for r in results if r.get("type") == "workflow"]
+        all_workflows_to_expand = main_workflows + all_workflows_to_expand
 
-            lines.append(f"  #{i:<3} {score:>8.4f}  {doc_type:<8} {name}")
-            if title and title != path.stem:
-                lines.append(f"       {' ' * 8}  {' ' * 8} {title[:80]}")
-            if r.get("snippet"):
-                snippet = r["snippet"].replace("\n", " ")[:120]
-                lines.append(f"       {' ' * 8}  {' ' * 8} ...{snippet}...")
-            lines.append("")
+        if regular:
+            lines.append(f"Results ({mode}, {len(regular)} matches):\n")
+            for i, r in enumerate(regular, 1):
+                path = Path(r["path"])
+                name = path.name
+                score = r.get("score", 0)
+                doc_type = r.get("type", "?")
+                title = r.get("title", "")
 
-    if workflows:
+                lines.append(f"  #{i:<3} {score:>8.4f}  {doc_type:<8} {name}")
+                if title and title != path.stem:
+                    lines.append(f"       {' ' * 8}  {' ' * 8} {title[:80]}")
+                if r.get("snippet"):
+                    snippet = r["snippet"].replace("\n", " ")[:120]
+                    lines.append(f"       {' ' * 8}  {' ' * 8} ...{snippet}...")
+                lines.append("")
+
+    # Expand all workflows (from main results and sidecar) with full body
+    if all_workflows_to_expand:
         sep = "\u2501" * 45
-        for r in workflows:
+        for r in all_workflows_to_expand:
+            wf_id = r.get("id")
+            if wf_id in wf_expanded_ids:
+                continue
+            wf_expanded_ids.add(wf_id)
+
             title = r.get("title", "")
             score = r.get("score", 0)
             body = _read_workflow_body(r["path"])
