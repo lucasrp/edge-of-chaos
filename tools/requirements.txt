@@ -23,3 +23,6 @@ google-genai>=1.0
 
 # Semantic Scholar (edge-fontes)
 # semanticscholar>=0.8
+
+# MCP server (mcp-agent-server — expose primitives as MCP tools, #133)
+mcp>=1.0
