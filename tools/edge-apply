@@ -772,6 +772,27 @@ def phase_tools(cfg, dry_run):
                 dst.chmod(0o755)
         ok("Health scripts copied")
 
+    # Register MCP agent server (project-scope .mcp.json) — #133
+    mcp_server_script = tools_dst / "mcp-agent-server.py"
+    mcp_json_path = edge / ".mcp.json"
+    if mcp_server_script.exists():
+        if not dry_run:
+            mcp_config = {
+                "mcpServers": {
+                    "edge-agent": {
+                        "command": str(tools_dst / ".venv" / "bin" / "python3"),
+                        "args": [str(mcp_server_script)],
+                        "env": {
+                            "EDGE_DIR": str(edge),
+                        },
+                    }
+                }
+            }
+            mcp_json_path.write_text(json.dumps(mcp_config, indent=2) + "\n")
+        ok(f"MCP config: {mcp_json_path}")
+    else:
+        warn("mcp-agent-server.py not found — skipping MCP registration")
+
     return True
 
 
