@@ -87,6 +87,23 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_search_events_ts ON search_events(ts);
     """)
 
+    # Telemetry snapshots — historical digests for trend analysis
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS telemetry_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
+            source TEXT NOT NULL,
+            calls INTEGER DEFAULT 0,
+            ok INTEGER DEFAULT 0,
+            fail INTEGER DEFAULT 0,
+            avg_ms INTEGER DEFAULT 0,
+            cost_usd REAL DEFAULT 0,
+            notes TEXT DEFAULT '{}'
+        );
+        CREATE INDEX IF NOT EXISTS idx_telemetry_ts ON telemetry_snapshots(ts);
+        CREATE INDEX IF NOT EXISTS idx_telemetry_source ON telemetry_snapshots(source);
+    """)
+
     # Dashboard: signals and chat
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS signals (

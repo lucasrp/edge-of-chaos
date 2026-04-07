@@ -18,15 +18,54 @@ is just a bigger toolbox. The value is in seeing what nobody asked for.
 ## The Job
 
 1. **Evaluate** — read, don't discover. Everything is declarative now:
+   - `state/dispatch-queue.json` → pending requests from other meta-skills (read FIRST)
+   - `state/telemetry-digest.json` → quantitative operational facts (fail rates, cost, anomalies)
    - `sources:` (yaml) vs `state/sources-manifest.yaml` → what's declared but not materialized?
    - `state/source-usage.jsonl` → what works? what's wasted? diversity?
    - `state/signals/` → friction, serendipity, strategy shifts?
-   - `state/proposals.json` → active proposals: strengthen, remove stale, or add new
+   - `state/proposals.json` → shared backlog: proposals from strategy, reflection, and autonomy
 
-2. **Propose** (max 3 active, max 1 new per beat):
-   - Each proposal: what, why, evidence, cost
-   - Adversarial review before adding (edge-consult)
-   - Proposal that survives 3+ revisions with growing evidence = strong signal
+   **Read dispatch queue first:**
+   ```bash
+   python3 -c "
+   import json, os
+   f = os.path.expanduser('~/edge/state/dispatch-queue.json')
+   if os.path.exists(f):
+       queue = json.load(open(f))
+       mine = [q for q in queue if q.get('skill') == 'autonomy']
+       if mine:
+           for item in mine:
+               print(f'DISPATCH from {item.get(\"source\",\"?\")}: {item.get(\"reason\",\"\")}')
+           remaining = [q for q in queue if q.get('skill') != 'autonomy']
+           with open(f, 'w') as fh:
+               json.dump(remaining, fh, indent=2)
+       else:
+           print('No pending dispatches.')
+   else:
+       print('No dispatch queue.')
+   " 2>/dev/null
+   
+   # Telemetry digest
+   cat ~/edge/state/telemetry-digest.json 2>/dev/null || echo "(no telemetry digest)"
+   ```
+   
+   Dispatches from reflection ("edge-x broken, can't fix") and strategy ("source X is priority") inform which proposals to act on first. Telemetry provides quantitative evidence.
+
+2. **Curate proposals** — autonomy is the curator of `state/proposals.json`, the shared backlog:
+
+   ```bash
+   cat ~/edge/state/proposals.json 2>/dev/null || echo "[]"
+   ```
+
+   - Proposal with evidence from 2+ distinct skills → **strong**, execute this beat
+   - Proposal with evidence from 1 skill for 3+ beats → **mature**, execute
+   - Proposal without new evidence in 5 beats → **stale**, remove with note
+   - Max 3 active proposals — if a 4th arrives, the weakest exits
+   - Max 1 NEW proposal per beat (from autonomy itself)
+   
+   Strategy and reflection add proposals and evidence. Autonomy prioritizes, executes, and removes stale ones. See `~/.claude/skills/_shared/proposals-protocol.md`.
+   
+   - Adversarial review before adding new proposals (edge-consult)
    - Proposal the agent removes = self-correction (positive)
 
 3. **Act** — approval depends on scope:
@@ -89,11 +128,22 @@ autonomy proposes removal. Blog documents why.
 
 ---
 
+## Post-execution: Dispatch to other meta-skills
+
+After acting, queue dispatches for what autonomy cannot resolve alone:
+
+- **Created a new primitive** → queue for reflection (to validate in next beat)
+- **Source not worth the cost** → queue for strategy (to reprioritize)
+- **Proposal executed** → update `proposals.json` status to `done`
+
+---
+
 ## When to run
 
 - Heartbeat meta rotation (every ~9 beats, alongside reflection/strategy)
 - After gaining new access (new key, new host, new data)
 - When friction signals accumulate
+- When dispatch queue has items addressed to autonomy
 
 ---
 
