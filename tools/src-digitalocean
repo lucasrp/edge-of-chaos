@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# src-digitalocean — Droplet management for fleet (ed, donald, drucker, nailton, maia)
+set -euo pipefail
+EDGE_DIR="${EDGE_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a
+API="https://api.digitalocean.com/v2"
+TOKEN="${DIGITALOCEAN_TOKEN:-}"
+die() { echo "{\"ok\":false,\"error\":\"$1\"}"; exit 1; }
+[ -z "$TOKEN" ] && die "DIGITALOCEAN_TOKEN not set"
+doget() { curl -sf -H "Authorization: Bearer $TOKEN" "$1" || die "request failed: $1"; }
+dopost() { curl -sf -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$2" "$1" || die "request failed: $1"; }
+dodel() { curl -sf -X DELETE -H "Authorization: Bearer $TOKEN" "$1" || die "request failed: $1"; }
+FLEET="ed donald drucker nailton maia"
+cmd="${1:-test}"
+case "$cmd" in
+  test)
+    echo '{"ok":true,"source":"digitalocean"}'
+    ;;
+  list)
+    doget "$API/droplets?per_page=100" | python3 -c "
+import sys,json; data=json.load(sys.stdin)
+out=[{'id':d['id'],'name':d.get('name',''),'status':d.get('status',''),
+  'ip':next((n['ip_address'] for n in d.get('networks',{}).get('v4',[]) if n['type']=='public'),''),
+  'region':d.get('region',{}).get('slug',''),
+  'size':d.get('size_slug',''),'image':d.get('image',{}).get('slug','')} for d in data.get('droplets',[])]
+print(json.dumps({'ok':True,'source':'digitalocean','droplets':out}))"
+    ;;
+  get)
+    [ -z "${2:-}" ] && die "usage: src-digitalocean get <droplet-id>"
+    doget "$API/droplets/$2" | python3 -c "
+import sys,json; d=json.load(sys.stdin).get('droplet',{})
+ip=next((n['ip_address'] for n in d.get('networks',{}).get('v4',[]) if n['type']=='public'),'')
+print(json.dumps({'ok':True,'source':'digitalocean','droplet':{'id':d.get('id',''),'name':d.get('name',''),
+  'ip':ip,'status':d.get('status',''),'region':d.get('region',{}).get('slug',''),
+  'size':d.get('size_slug',''),'vcpus':d.get('vcpus',''),'memory':d.get('memory',''),'disk':d.get('disk','')}}))"
+    ;;
+  snapshots)
+    doget "$API/snapshots?resource_type=droplet&per_page=100" | python3 -c "
+import sys,json; s=json.load(sys.stdin).get('snapshots',[])
+print(json.dumps({'ok':True,'source':'digitalocean','snapshots':[{'id':x['id'],'name':x.get('name',''),
+  'size':x.get('size_gigabytes',0),'created':x.get('created_at','')} for x in s]}))"
+    ;;
+  snapshot)
+    [ -z "${2:-}" ] && die "usage: src-digitalocean snapshot <droplet-id> [name]"
+    NAME="${3:-fleet-snapshot}"
+    dopost "$API/droplets/$2/actions" "{\"type\":\"snapshot\",\"name\":\"$NAME\"}" | python3 -c "
+import sys,json; a=json.load(sys.stdin).get('action',{})
+print(json.dumps({'ok':True,'source':'digitalocean','action':{'id':a.get('id',''),'status':a.get('status','')}}))"
+    ;;
+  destroy)
+    [ -z "${2:-}" ] && die "usage: src-digitalocean destroy <droplet-id>"
+    dodel "$API/droplets/$2" && echo "{\"ok\":true,\"source\":\"digitalocean\",\"destroyed\":\"$2\"}"
+    ;;
+  fleet)
+    echo "{\"ok\":true,\"source\":\"digitalocean\",\"fleet\":[$(for h in $FLEET; do printf '"%s",' "$h"; done | sed 's/,$//')]}"
+    ;;
+  *)
+    die "unknown subcommand: $cmd. Available: test, list, get, snapshots, snapshot, destroy, fleet"
+    ;;
+esac

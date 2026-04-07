@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "edge-agent": {
+      "command": "/home/vboxuser/edge/tools/.venv/bin/python3",
+      "args": [
+        "/home/vboxuser/edge/tools/mcp-agent-server.py"
+      ],
+      "env": {
+        "EDGE_DIR": "/home/vboxuser/edge"
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# src-netlify — CLI source for Netlify site deployments
+# Contract: exit 0 + JSON stdout on success, exit 1 + JSON error on failure
+set -euo pipefail
+EDGE_DIR="${EDGE_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a
+API="https://api.netlify.com/api/v1"
+SITE="edge-of-chaos.netlify.app"
+TOKEN="${NETLIFY_API_KEY:-}"
+die() { echo "{\"ok\":false,\"error\":\"$1\"}"; exit 1; }
+[ -z "$TOKEN" ] && die "NETLIFY_API_KEY not set"
+nget() { curl -sf -H "Authorization: Bearer $TOKEN" "$1" || die "request failed: $1"; }
+cmd="${1:-test}"
+case "$cmd" in
+  test)
+    echo '{"ok":true,"source":"netlify"}'
+    ;;
+  site)
+    nget "$API/sites/$SITE" | python3 -c "
+import sys,json; s=json.load(sys.stdin); p=s.get('published_deploy') or {}
+print(json.dumps({'ok':True,'source':'netlify','site':{
+  'id':s.get('id',''),'name':s.get('name',''),
+  'url':s.get('ssl_url',s.get('url','')),
+  'state':p.get('state',''),'updated_at':s.get('updated_at',''),
+  'deploy_id':p.get('id','')}}))"
+    ;;
+  deploys)
+    nget "$API/sites/$SITE/deploys?per_page=${2:-5}" | python3 -c "
+import sys,json; ds=json.load(sys.stdin)
+out=[{'id':d.get('id',''),'state':d.get('state',''),
+  'created_at':d.get('created_at',''),'branch':d.get('branch',''),
+  'title':d.get('title',''),'deploy_time':d.get('deploy_time',0),
+  'error':d.get('error_message','')} for d in ds]
+print(json.dumps({'ok':True,'source':'netlify','deploys':out}))"
+    ;;
+  status)
+    nget "$API/sites/$SITE/deploys?per_page=1" | python3 -c "
+import sys,json; ds=json.load(sys.stdin); d=ds[0] if ds else {}
+print(json.dumps({'ok':True,'source':'netlify','latest':{
+  'id':d.get('id',''),'state':d.get('state',''),
+  'created_at':d.get('created_at',''),'error':d.get('error_message',''),
+  'ssl_url':d.get('ssl_url',''),'deploy_time':d.get('deploy_time',0)}}))"
+    ;;
+  *)
+    die "unknown subcommand: $cmd. Available: test, site, deploys, status"
+    ;;
+esac

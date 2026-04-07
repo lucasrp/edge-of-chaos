@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# src-fleet-ssh - SSH access to fleet members for health checks, installs, log reads
+set -euo pipefail
+EDGE_DIR="${EDGE_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a
+KEY="${SSH_KEY:-$HOME/.ssh/edge-of-chaos}"
+SSH_OPTS="-o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes -i $KEY"
+die() { echo "{\"ok\":false,\"error\":\"$1\"}"; exit 1; }
+[ ! -f "$KEY" ] && die "SSH key not found: $KEY"
+FLEET=$(awk '/^Host / && !/\*/{printf "%s ",  $2}' ~/.ssh/config 2>/dev/null)
+[ -z "$FLEET" ] && die "no hosts found in ~/.ssh/config"
+sshrun() { ssh $SSH_OPTS "$1" "$2" 2>/dev/null || echo "FAIL"; }
+cmd="${1:-test}"
+case "$cmd" in
+  test)
+    echo '{"ok":true,"source":"fleet-ssh"}'
+    ;;
+  fleet)
+    echo "{\"ok\":true,\"source\":\"fleet-ssh\",\"hosts\":[$(for h in $FLEET; do printf '"%s",' "$h"; done | sed 's/,$//')]}"
+    ;;
+  ping)
+    [ -z "${2:-}" ] && die "usage: src-fleet-ssh ping <host>"
+    r=$(sshrun "$2" "echo ok")
+    [ "$r" = "ok" ] && echo "{\"ok\":true,\"source\":\"fleet-ssh\",\"host\":\"$2\",\"reachable\":true}" \
+      || echo "{\"ok\":true,\"source\":\"fleet-ssh\",\"host\":\"$2\",\"reachable\":false}"
+    ;;
+  health)
+    out=""
+    for h in $FLEET; do
+      r=$(sshrun "$h" "uptime -s 2>/dev/null && df -h / --output=pcent 2>/dev/null | tail -1")
+      up=$(echo "$r" | head -1); disk=$(echo "$r" | tail -1 | tr -d ' %')
+      [ "$r" = "FAIL" ] && up="unreachable" && disk="-1"
+      out="$out{\"host\":\"$h\",\"boot\":\"$up\",\"disk_pct\":\"$disk\"},"
+    done
+    echo "{\"ok\":true,\"source\":\"fleet-ssh\",\"health\":[${out%,}]}"
+    ;;
+  exec)
+    [ -z "${2:-}" ] || [ -z "${3:-}" ] && die "usage: src-fleet-ssh exec <host> <command>"
+    r=$(sshrun "$2" "$3")
+    [ "$r" = "FAIL" ] && die "ssh to $2 failed"
+    echo "{\"ok\":true,\"source\":\"fleet-ssh\",\"host\":\"$2\",\"output\":$(echo "$r" | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))')}"
+    ;;
+  logs)
+    [ -z "${2:-}" ] && die "usage: src-fleet-ssh logs <host> [unit] [lines]"
+    unit="${3:-edge}"; lines="${4:-50}"
+    r=$(sshrun "$2" "journalctl -u $unit -n $lines --no-pager 2>/dev/null || tail -n $lines /var/log/syslog 2>/dev/null")
+    [ "$r" = "FAIL" ] && die "ssh to $2 failed"
+    echo "{\"ok\":true,\"source\":\"fleet-ssh\",\"host\":\"$2\",\"unit\":\"$unit\",\"output\":$(echo "$r" | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))')}"
+    ;;
+  install)
+    [ -z "${2:-}" ] || [ -z "${3:-}" ] && die "usage: src-fleet-ssh install <host> <script-path>"
+    [ ! -f "$3" ] && die "script not found: $3"
+    scp $SSH_OPTS "$3" "$2:/tmp/_fleet_install.sh" 2>/dev/null || die "scp to $2 failed"
+    r=$(sshrun "$2" "bash /tmp/_fleet_install.sh && rm -f /tmp/_fleet_install.sh")
+    [ "$r" = "FAIL" ] && die "install on $2 failed"
+    echo "{\"ok\":true,\"source\":\"fleet-ssh\",\"host\":\"$2\",\"installed\":\"$3\"}"
+    ;;
+  *)
+    die "unknown subcommand: $cmd. Available: test, fleet, ping, health, exec, logs, install"
+    ;;
+esac
