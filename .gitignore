@@ -8,6 +8,7 @@ agent.env
 # Sistema de secrets
 secrets/_shared.yaml
 secrets/keys.env
+secrets/fleet-kits/
 experiments/*/secrets.yaml
 !secrets/_shared.template.yaml
 !secrets/secrets.template.yaml
