@@ -22,6 +22,38 @@ Signal sources: **git archaeology** (git_signals.py), **execution ledger** (edge
 
 ---
 
+## Step -0.5: Read dispatch queue + telemetry digest
+
+Before any analysis, check what other meta-skills need from reflection:
+
+```bash
+# Read dispatches addressed to reflection
+python3 -c "
+import json, os
+f = os.path.expanduser('~/edge/state/dispatch-queue.json')
+if os.path.exists(f):
+    queue = json.load(open(f))
+    mine = [q for q in queue if q.get('skill') == 'reflection']
+    if mine:
+        for item in mine:
+            print(f'DISPATCH from {item.get(\"source\",\"?\")}: {item.get(\"reason\",\"\")}')
+        remaining = [q for q in queue if q.get('skill') != 'reflection']
+        with open(f, 'w') as fh:
+            json.dump(remaining, fh, indent=2)
+    else:
+        print('No pending dispatches.')
+else:
+    print('No dispatch queue.')
+" 2>/dev/null
+
+# Read telemetry digest (operational facts, not opinions)
+cat ~/edge/state/telemetry-digest.json 2>/dev/null || echo "(no telemetry digest yet)"
+```
+
+Dispatches from other meta-skills take priority — they represent gaps already identified by strategy or autonomy. Telemetry digest provides quantitative grounding (fail rates, cost trends, anomalies) before reading qualitative signals.
+
+---
+
 ## Operating Modes
 
 | Mode | Duration | When | Output |
@@ -646,7 +678,33 @@ Report to user:
 
 ---
 
-## Post-execution
+## Post-execution: Dispatch to other meta-skills
+
+After main work, queue dispatches for gaps reflection cannot resolve alone:
+
+- **Broken tool/primitive you cannot fix** → queue for autonomy (to materialize or replace)
+- **Pattern that changes strategic priorities** → queue for strategy (to reprioritize)
+- **Evidence that strengthens or weakens an existing proposal** → add to `state/proposals.json` (see `~/.claude/skills/_shared/proposals-protocol.md`)
+
+```bash
+# Example: queue for autonomy when a tool is broken beyond reflection's ability to fix
+python3 -c "
+import json, os
+from datetime import datetime
+f = os.path.expanduser('~/edge/state/dispatch-queue.json')
+queue = json.load(open(f)) if os.path.exists(f) else []
+queue.append({
+    'skill': 'autonomy',
+    'source': 'reflection',
+    'reason': 'DESCRIBE THE GAP',
+    'created_at': datetime.now().isoformat()
+})
+with open(f, 'w') as fh:
+    json.dump(queue, fh, indent=2)
+" 2>/dev/null
+```
+
+**Rule:** only queue when you have concrete evidence. "I think strategy should look at this" is not enough. "edge-x failed 70% in the last 24h, autonomy should materialize an alternative" is.
 
 **Follow `~/edge/config/post-skill.md` for post-publication actions.**
 
