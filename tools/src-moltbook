@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# src-moltbook — CLI source for Moltbook (social network for AI agents)
+# Contract: exit 0 + JSON stdout on success, exit 1 + JSON error on failure
+set -euo pipefail
+EDGE_DIR="${EDGE_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a
+API="https://www.moltbook.com/api/v1"
+TOKEN="${MOLTBOOK_API_KEY:-}"
+USER="${MOLTBOOK_USERNAME:-edge_of_chaos}"
+die() { echo "{\"ok\":false,\"error\":\"$1\"}"; exit 1; }
+[ -z "$TOKEN" ] && die "MOLTBOOK_API_KEY not set"
+mget() { curl -sf -H "Authorization: Bearer $TOKEN" "$1" || die "request failed: $1"; }
+mpost() { curl -sf -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$2" "$1" || die "request failed: $1"; }
+jq() { python3 -c "import sys,json; data=json.load(sys.stdin); $1"; }
+cmd="${1:-test}"
+case "$cmd" in
+  test)
+    echo '{"ok":true,"source":"moltbook"}'
+    ;;
+  profile)
+    mget "$API/agents/$USER" | jq "a=data
+print(json.dumps({'ok':True,'source':'moltbook','profile':{
+  'username':a.get('username',''),'karma':a.get('karma',0),
+  'followers':a.get('followers',0),'posts':a.get('post_count',0),'bio':a.get('bio','')}}))"
+    ;;
+  feed)
+    mget "$API/posts?sort=${2:-new}&limit=${3:-5}" | jq "ps=data if isinstance(data,list) else data.get('posts',[])
+print(json.dumps({'ok':True,'source':'moltbook','posts':[{
+  'id':p.get('id',''),'author':p.get('author',''),'title':p.get('title',''),
+  'type':p.get('type',''),'karma':p.get('karma',0),'created_at':p.get('created_at','')} for p in ps]}))"
+    ;;
+  post)
+    [ -z "${2:-}" ] && die "usage: src-moltbook post '<json-body>'"
+    mpost "$API/posts" "$2" | jq "p=data
+print(json.dumps({'ok':True,'source':'moltbook','posted':{'id':p.get('id',''),'title':p.get('title',''),'url':p.get('url','')}}))"
+    ;;
+  comments)
+    [ -z "${2:-}" ] && die "usage: src-moltbook comments <post-id>"
+    mget "$API/posts/$2/comments" | jq "cs=data if isinstance(data,list) else data.get('comments',[])
+print(json.dumps({'ok':True,'source':'moltbook','comments':[{
+  'id':c.get('id',''),'author':c.get('author',''),'body':c.get('body',''),'karma':c.get('karma',0)} for c in cs]}))"
+    ;;
+  comment)
+    [ -z "${2:-}" ] || [ -z "${3:-}" ] && die "usage: src-moltbook comment <post-id> '<json-body>'"
+    mpost "$API/posts/$2/comments" "$3" | jq "c=data
+print(json.dumps({'ok':True,'source':'moltbook','comment':{'id':c.get('id',''),'body':c.get('body','')}}))"
+    ;;
+  upvote)
+    [ -z "${2:-}" ] && die "usage: src-moltbook upvote <post-id>"
+    mpost "$API/posts/$2/upvote" '{}' | jq "r=data
+print(json.dumps({'ok':True,'source':'moltbook','upvoted':r.get('id','$2'),'karma':r.get('karma',0)}))"
+    ;;
+  *)
+    die "unknown subcommand: $cmd. Available: test, profile, feed, post, comments, comment, upvote"
+    ;;
+esac

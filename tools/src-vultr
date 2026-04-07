@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# src-vultr — VPS management for fleet instances
+# Contract: exit 0 + JSON stdout on success, exit 1 + JSON error on failure
+set -euo pipefail
+EDGE_DIR="${EDGE_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a
+API="https://api.vultr.com/v2"
+TOKEN="${VULTR_API_KEY:-}"
+die() { echo "{\"ok\":false,\"error\":\"$1\"}"; exit 1; }
+[ -z "$TOKEN" ] && die "VULTR_API_KEY not set"
+vget() { curl -sf -H "Authorization: Bearer $TOKEN" "$1" || die "request failed: $1"; }
+vpost() { curl -sf -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$2" "$1" || die "request failed: $1"; }
+vdel() { curl -sf -X DELETE -H "Authorization: Bearer $TOKEN" "$1" || die "request failed: $1"; }
+FLEET="bob gauss rui hermes aeita roberto"
+cmd="${1:-test}"
+case "$cmd" in
+  test)
+    echo '{"ok":true,"source":"vultr"}'
+    ;;
+  list)
+    vget "$API/instances" | python3 -c "
+import sys,json; data=json.load(sys.stdin)
+out=[{'id':i['id'],'label':i.get('label',''),'ip':i.get('main_ip',''),
+  'status':i.get('status',''),'region':i.get('region',''),
+  'plan':i.get('plan',''),'os':i.get('os','')} for i in data.get('instances',[])]
+print(json.dumps({'ok':True,'source':'vultr','instances':out}))"
+    ;;
+  get)
+    [ -z "${2:-}" ] && die "usage: src-vultr get <instance-id>"
+    vget "$API/instances/$2" | python3 -c "
+import sys,json; i=json.load(sys.stdin).get('instance',{})
+print(json.dumps({'ok':True,'source':'vultr','instance':{k:i.get(k,'') for k in
+  ['id','label','main_ip','status','region','plan','os','vcpu_count','ram','disk']}}))"
+    ;;
+  snapshots)
+    vget "$API/snapshots" | python3 -c "
+import sys,json; data=json.load(sys.stdin)
+out=[{'id':s['id'],'description':s.get('description',''),
+  'size':s.get('size',0),'status':s.get('status',''),
+  'created':s.get('date_created','')} for s in data.get('snapshots',[])]
+print(json.dumps({'ok':True,'source':'vultr','snapshots':out}))"
+    ;;
+  snapshot)
+    [ -z "${2:-}" ] && die "usage: src-vultr snapshot <instance-id> [description]"
+    DESC="${3:-fleet-snapshot}"
+    vpost "$API/snapshots" "{\"instance_id\":\"$2\",\"description\":\"$DESC\"}" | python3 -c "
+import sys,json; s=json.load(sys.stdin).get('snapshot',{})
+print(json.dumps({'ok':True,'source':'vultr','snapshot':{'id':s.get('id',''),'status':s.get('status','')}}))"
+    ;;
+  destroy)
+    [ -z "${2:-}" ] && die "usage: src-vultr destroy <instance-id>"
+    vdel "$API/instances/$2" && echo "{\"ok\":true,\"source\":\"vultr\",\"destroyed\":\"$2\"}"
+    ;;
+  fleet)
+    echo "{\"ok\":true,\"source\":\"vultr\",\"fleet\":[$(for h in $FLEET; do printf '"%s",' "$h"; done | sed 's/,$//')]}"
+    ;;
+  *)
+    die "unknown subcommand: $cmd. Available: test, list, get, snapshots, snapshot, destroy, fleet"
+    ;;
+esac
