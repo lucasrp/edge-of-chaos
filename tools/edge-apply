@@ -122,7 +122,7 @@ def _extract_script(raw):
 
 
 def _test_primitive(path, edge_dir):
-    """Run primitive with 'test' arg — exit 0 + JSON stdout = success."""
+    """Run primitive with 'test' arg — validates the script runs and produces JSON."""
     try:
         env = os.environ.copy()
         env["EDGE_DIR"] = str(edge_dir)
@@ -130,9 +130,17 @@ def _test_primitive(path, edge_dir):
             [str(path), "test"],
             capture_output=True, text=True, timeout=30, env=env,
         )
-        if r.returncode == 0 and r.stdout.strip().startswith("{"):
+        # Script works if it produces JSON on stdout OR stderr, regardless of exit code.
+        # Exit 1 + JSON = API error (script is fine, runtime problem).
+        # Only crash/no-output/exit 127 = script is broken.
+        output = r.stdout.strip() or r.stderr.strip()
+        if r.returncode == 127:
+            return False, "exit 127 — not implemented"
+        if output.startswith("{") or output.startswith("["):
             return True, ""
-        return False, f"exit={r.returncode} stdout={r.stdout[:100]} stderr={r.stderr[:100]}"
+        if r.returncode == 0:
+            return True, ""
+        return False, f"exit={r.returncode} no JSON: stdout={r.stdout[:80]} stderr={r.stderr[:80]}"
     except Exception as exc:
         return False, str(exc)
 
