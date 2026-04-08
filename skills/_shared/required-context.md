@@ -163,19 +163,34 @@ into it does not affect other agents or the host system.
 
 ---
 
-## Source primitives — available as MCP tools
+## Source primitives and MCP tools
 
-Source primitives are registered as MCP tools via `mcp-agent-server.py`
-and appear alongside native tools (WebSearch, Bash, etc.). Use them
-directly — no need to manually read the manifest or invoke via Bash.
+### Primitives in `libexec/<codename>/` (ALWAYS available — preferred)
 
-**Why this matters:** primitives log usage to `state/source-usage.jsonl`,
+Shell/Python scripts in `libexec/` are the **primary** mechanism for
+external API access. They work in ALL modes (interactive, pipe, cron)
+because the agent calls them via the Bash tool. MCP tools are a
+convenience layer — primitives are the foundation.
+
+**When to use what:**
+- **Primitive exists** → use it (via Bash). Always works.
+- **MCP tool exists but no primitive** → create a primitive if you
+  need it in heartbeats. MCP may not load in pipe mode.
+- **Neither exists** → create a primitive per `docs/TOOL_CONTRACT.md`.
+
+### MCP tools (secondary — interactive sessions)
+
+MCP servers in `~/.claude/settings.json` load in interactive mode.
+The heartbeat template passes `--mcp-config` to attempt loading them
+in pipe mode (#145), but this is best-effort — primitives are reliable.
+
+**Why primitives over MCP:** primitives log usage to `state/source-usage.jsonl`,
 follow `TOOL_CONTRACT.md` (JSON stdout, proper exit codes), and are
-improvable by autonomy. WebSearch/curl bypass all of that — no usage
-tracking, no versioning, no improvement loop.
+improvable by autonomy. They survive MCP server failures and always
+work in pipe mode.
 
 **Rules:**
-1. If an MCP tool exists for the source → **use it**
+1. If a primitive exists for the source → **use it**
 2. If a primitive is a `stub` (exit 127) → implement it per
    `docs/TOOL_CONTRACT.md`, then use it
 3. If no primitive exists for the source → create one if you'll use
