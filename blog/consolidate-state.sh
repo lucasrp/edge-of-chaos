@@ -9,7 +9,7 @@
 # Pipeline (8 fases):
 #   0.  Frontmatter injection (report: field)
 #   0b. Note link injection (note: field, if matching note exists)
-#   0.3 Adversarial review enforcement (edge-consult --gate)
+#   0.3 Adversarial review enforcement (active: runs edge-consult; passive: blocks on .review.json)
 #   0.5 Review gate (LLM-as-judge, content report only)
 #   1.  Blog entry (blog-publish.sh)
 #   2.  Content report (generate_report.py, optional)
@@ -316,20 +316,49 @@ else
 fi
 
 # ─── PHASE 0.3: Adversarial Review Enforcement ───
-# If edge-consult was run with --gate against this YAML spec,
-# a .review.json exists. Block publication until .resolved marker is created.
-if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) && "$SKIP_REVIEW" == "false" ]]; then
-    REVIEW_JSON_FILE="${REPORT_INPUT%.yaml}.review.json"
-    [[ "$REPORT_INPUT" == *.yml ]] && REVIEW_JSON_FILE="${REPORT_INPUT%.yml}.review.json"
-    RESOLVED_FILE="${REVIEW_JSON_FILE%.review.json}.resolved"
+# Active: runs edge-consult if no prior review exists for the content.
+# Passive: blocks if .review.json exists without .resolved marker.
+# Covers ALL flows: YAML, HTML, and entry-only.
+if [[ "$SKIP_REVIEW" == "false" ]]; then
+    # Determine review target: report if provided, otherwise entry
+    if [[ -n "$REPORT_INPUT" ]]; then
+        REVIEW_TARGET="$REPORT_INPUT"
+    else
+        REVIEW_TARGET="$ENTRY_PATH"
+    fi
 
+    # Derive review/resolved file paths (replace extension with .review.json)
+    REVIEW_JSON_FILE="${REVIEW_TARGET%.*}.review.json"
+    RESOLVED_FILE="${REVIEW_TARGET%.*}.resolved"
+
+    # Active gate: run edge-consult if no review exists yet
+    if [[ ! -f "$REVIEW_JSON_FILE" ]]; then
+        if command -v edge-consult &>/dev/null; then
+            echo "── Phase 0.3: Adversarial Review ──"
+            echo "  Running edge-consult against $(basename "$REVIEW_TARGET")..."
+            if edge-consult "Review this content critically. Flag any shallow analysis, unsupported claims, missing evidence, or logical gaps." \
+                --context "$REVIEW_TARGET" \
+                --gate "$REVIEW_TARGET" \
+                --mode adversarial 2>&1; then
+                echo ""
+            else
+                warn "edge-consult failed (exit $?) — continuing without adversarial review"
+                echo ""
+            fi
+        else
+            warn "edge-consult not found in PATH — skipping adversarial review"
+            echo ""
+        fi
+    fi
+
+    # Passive gate: block if review exists without resolution
     if [[ -f "$REVIEW_JSON_FILE" && ! -f "$RESOLVED_FILE" ]]; then
         echo "── Phase 0.3: Adversarial Review ──"
         fail "Adversarial review pending: $(basename "$REVIEW_JSON_FILE")"
         echo ""
         echo "  edge-consult generated feedback that has not been addressed."
         echo "  Options:"
-        echo "    1. Address the feedback in YAML and create the marker:"
+        echo "    1. Address the feedback and create the marker:"
         echo "       touch $RESOLVED_FILE"
         echo "    2. Force publication:"
         echo "       consolidate-state --skip-review ..."
