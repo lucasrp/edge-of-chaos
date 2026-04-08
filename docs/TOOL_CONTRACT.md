@@ -14,7 +14,7 @@ Part of issue #94 — `sources:` field + on-demand primitive creation.
 | **Exit 1** | Runtime error — `{ok:false,error,code}` in stdout + human text in stderr |
 | **Exit 2** | Misuse — bad arguments |
 | **Exit 77** | Operation not implemented — primitive exists but this operation isn't built yet |
-| **Exit 127** | Primitive not found — trigger creation (see Lifecycle below) |
+| **Exit 127** | Primitive not found — **STOP and create it before continuing the beat** (see Lifecycle below) |
 | **Stdout** | Single JSON object OR NDJSON (one JSON per line) for streaming |
 | **Stderr** | Human-readable text only. NEVER JSON. |
 | **Binaries** | Write to path, return path in JSON. Base64 inline only if < 1 MB |
@@ -23,6 +23,16 @@ Part of issue #94 — `sources:` field + on-demand primitive creation.
 ## Lifecycle — How primitives are born
 
 Primitives are NOT pre-built. They are created on demand by the agent.
+
+### Exit 127 Rule (CRITICAL)
+
+**When a primitive returns exit 127, the beat STOPS until the primitive
+is created.** Do not skip it, do not work around it, do not continue
+with degraded capability. Create the primitive (Phase 1 + 2 below),
+verify it works (exit 0), then resume the beat.
+
+This is not a suggestion — it is a blocking requirement. The pre-skill
+proof file must show the primitive was created and tested.
 
 ### Phase 1 — Pre-materialization (contract)
 
@@ -48,6 +58,11 @@ Agent hits exit 127 (primitive doesn't exist). Before writing code:
 1. Invoke normally — usage logged to `state/source-usage.jsonl`
 2. If an operation isn't implemented: return exit 77 — agent extends the impl
 3. Autonomy reviews periodically: improve, optimize, add operations, or remove
+4. **Evolution via friction**: when the agent repeatedly post-processes a
+   primitive's output (e.g., filtering by date, parsing a field), record
+   the pattern as a `friction:` signal or `procedure:`. Autonomy detects
+   the pattern in source-usage.jsonl and proposes a primitive upgrade
+   (new parameter, new operation). Bump minor version, same file.
 
 ### Bootstrap vs steady-state
 
