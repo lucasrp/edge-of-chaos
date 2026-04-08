@@ -25,6 +25,14 @@ is just a bigger toolbox. The value is in seeing what nobody asked for.
    - `state/signals/` → friction, serendipity, strategy shifts?
    - `state/proposals.json` → shared backlog: proposals from strategy, reflection, and autonomy
 
+   **Smoke test active primitives** (every autonomy beat):
+   For each primitive with `status: active` in `sources-manifest.yaml`,
+   run it with a minimal probe query and verify exit 0. Log results.
+   If a primitive that was active now fails (exit 1, timeout, auth error),
+   mark as `status: broken` in the manifest and add to the remediation
+   list for this beat. This catches: expired API keys, changed endpoints,
+   broken dependencies — before they silently degrade a content beat.
+
    **Read dispatch queue first:**
    ```bash
    python3 -c "
