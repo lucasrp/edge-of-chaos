@@ -20,16 +20,28 @@ Without it, the agent operates without identity, rules, or strategy — producin
    - `config/post-skill.md`
    - `config/strategy.md`
 
-2. **Execute the Boot Ritual** defined in the "Procedure" section of `pre-skill.md`.
+2. **Load relevant workflows** for what you're about to do:
+   ```bash
+   edge-search "<topic of this beat>" --type workflow -k 3
+   ```
+   Record which workflows were found and whether you'll follow them.
+   If none found, record "no relevant workflows." This step feeds
+   the `workflows_used:` field in the blog entry frontmatter.
+
+3. **Execute the Boot Ritual** defined in the "Procedure" section of `pre-skill.md`.
    Each numbered step in the procedure MUST be executed individually,
    producing visible output (command results, API responses, messages read).
    Do NOT paraphrase or summarize the steps — run them.
 
-3. **PUBLISH PRE-SKILL REPORT** — After executing ALL boot ritual steps,
+4. **PUBLISH PRE-SKILL REPORT** — After executing ALL boot ritual steps,
    write a file to `logs/pre-skill-<date>.md` with the following format:
 
    ```markdown
    # Pre-skill report — <YYYY-MM-DD HH:MM>
+
+   ## Workflows loaded
+   - [workflow slug] — [will follow / not relevant / broken]
+   (or "No relevant workflows found")
 
    ## Boot ritual execution
 
@@ -96,7 +108,17 @@ After the skill's main work is done and before closing the session:
 6. notify.sh is ALWAYS the last call, even if everything else failed —
    the operator needs to know what happened
 
-7. **PUBLISH POST-SKILL REPORT** — Append to `logs/post-skill.log`:
+7. **INLINE CRYSTALLIZATION** — If the blog entry you just published has
+   `procedure:` fields, check whether similar procedures already exist:
+   ```bash
+   edge-search "<procedure topic>" --type workflow -k 3
+   ```
+   If 3+ similar procedure-claims exist across the corpus (including this
+   entry's), create a workflow blog entry that consolidates them. Use the
+   format in `skills/_shared/workflow-conventions.md`. This closes the
+   learning loop — no separate curation pass needed.
+
+8. **PUBLISH POST-SKILL REPORT** — Append to `logs/post-skill.log`:
 
    ```
    ── <YYYY-MM-DD HH:MM> ──
