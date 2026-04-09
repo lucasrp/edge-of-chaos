@@ -20,3 +20,19 @@ Errors that must not recur. READ at start of autonomous sessions. WRITE when err
 **Action:** Check `secrets/keys.env` for the OpenAI key. Refresh if expired.
 **Status:** RESOLVED 2026-04-09. Operator provided new key via Drive. Updated in secrets/keys.env, tested OK, backed up to Drive.
 
+## 2026-04-09: heartbeat.sh — claude command not found
+
+**Error:** `heartbeat.sh: line 30: claude: command not found` in systemd timer log.
+**Impact:** Automated heartbeat timer fails silently. Only manual `/ed-heartbeat` works.
+**Root cause:** The systemd service runs in a restricted environment without the user's PATH. `claude` CLI is likely in a directory not in systemd's PATH.
+**Action:** Genotype issue — heartbeat.sh needs full path to claude binary or PATH setup. File GitHub issue.
+**Status:** Open.
+
+## 2026-04-09: arXiv API rate limiting (429)
+
+**Error:** `HTTP Error 429: Too Many Requests` when calling arXiv Atom API.
+**Impact:** arxiv primitive works but gets rate-limited during heavy use. Multiple calls in quick succession fail.
+**Root cause:** arXiv API enforces aggressive rate limits. Need 3-5 second delays between calls.
+**Action:** Add exponential backoff to the arxiv primitive. Not blocking — will self-resolve with spacing.
+**Status:** Open — primitive is functional, just needs backoff logic.
+
