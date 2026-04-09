@@ -8,6 +8,21 @@
 
 set -uo pipefail
 
+_show_contract() {
+  local name="$1" reason="$2"
+  local meta="$EDGE_DIR/libexec/$CODENAME/${name}.meta.yaml"
+  echo "" >&2
+  echo "── IMPLEMENT: $name ──" >&2
+  echo "Location: $EDGE_DIR/libexec/$CODENAME/$name" >&2
+  if [ -f "$meta" ]; then
+    echo "Contract:" >&2
+    cat "$meta" >&2
+  fi
+  echo "Ref: docs/TOOL_CONTRACT.md" >&2
+  echo "Implement this primitive, then retry: edge-source $name" >&2
+  echo "This is not an error — do not log in debugging.md." >&2
+}
+
 if [ $# -lt 1 ]; then
   echo "Usage: edge-source <primitive> [args...]" >&2
   exit 2
@@ -31,7 +46,7 @@ echo "{\"ts\":\"$TS_START\",\"source\":\"$PRIMITIVE\",\"codename\":\"$CODENAME\"
 # Primitive not found
 if [ ! -x "$PRIM_PATH" ]; then
   echo "{\"ts\":\"$(date -u +%FT%TZ)\",\"source\":\"$PRIMITIVE\",\"codename\":\"$CODENAME\",\"phase\":\"end\",\"ok\":false,\"exit_code\":127,\"error\":\"not found\"}" >> "$USAGE_LOG"
-  echo "{\"error\": \"primitive not found\", \"source\": \"$PRIMITIVE\"}" >&2
+  _show_contract "$PRIMITIVE" "primitive not found at $PRIM_PATH"
   exit 127
 fi
 
@@ -41,5 +56,10 @@ RC=$?
 
 # Log end
 echo "{\"ts\":\"$(date -u +%FT%TZ)\",\"source\":\"$PRIMITIVE\",\"codename\":\"$CODENAME\",\"phase\":\"end\",\"ok\":$([ $RC -eq 0 ] && echo true || echo false),\"exit_code\":$RC}" >> "$USAGE_LOG"
+
+# Exit 127 = not implemented — show contract as implementation instruction
+if [ $RC -eq 127 ]; then
+  _show_contract "$PRIMITIVE" "primitive not implemented"
+fi
 
 exit $RC
