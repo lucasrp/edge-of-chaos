@@ -490,8 +490,17 @@ except:
 " 2>/dev/null)
         TOTAL_LLM_COST="$REVIEW_COST"
 
-        # Review gate now returns advisory feedback (exit 0 always)
-        # Feedback saved in .feedback.json alongside YAML
+        # Review gate is MANDATORY — blocks below threshold (score < 2.0)
+        REVIEW_THRESHOLD="2.0"
+        BELOW_THRESHOLD=$(python3 -c "print('yes' if float('${REVIEW_SCORE}' or 0) < float('${REVIEW_THRESHOLD}') else 'no')" 2>/dev/null)
+        if [[ "$BELOW_THRESHOLD" == "yes" && "$REVIEW_EXIT" -ne 2 ]]; then
+            fail "Review gate BLOCKED: score ${REVIEW_SCORE}/5.0 below threshold ${REVIEW_THRESHOLD}"
+            fail "Address quality issues before publishing."
+            if command -v edge-signal &>/dev/null; then
+                edge-signal friction "Publication blocked: review-gate score ${REVIEW_SCORE} below ${REVIEW_THRESHOLD}" --source consolidate-state 2>/dev/null || true
+            fi
+            exit 1
+        fi
         ok "Review gate: score ${REVIEW_SCORE}/5.0, cost \$${REVIEW_COST}"
         FEEDBACK_FILE="${REPORT_INPUT%.yaml}.feedback.json"
         [[ ! -f "$FEEDBACK_FILE" ]] && FEEDBACK_FILE="${REPORT_INPUT%.yml}.feedback.json"
