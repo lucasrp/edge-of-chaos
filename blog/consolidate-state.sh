@@ -9,6 +9,7 @@
 # Pipeline (8 fases):
 #   0.  Frontmatter injection (report: field)
 #   0b. Note link injection (note: field, if matching note exists)
+#   0.2 Source usage check (primitives must have been called via edge-source)
 #   0.3 Adversarial review enforcement (active: runs edge-consult; passive: blocks on .review.json)
 #   0.5 Review gate (LLM-as-judge, content report only)
 #   1.  Blog entry (blog-publish.sh)
@@ -317,6 +318,31 @@ except Exception as e:
 else
     :  # No matching note — skip silently
 fi
+
+# ─── PHASE 0.2: Source Usage Check ───
+# Verify that source primitives were called via edge-source during this beat.
+# Blocks publication if no primitive usage detected — forces agent to use
+# edge-source <primitive> instead of raw WebSearch/Bash.
+echo "── Phase 0.2: Source Usage Check ──"
+SOURCE_CHECK="${EDGE_DIR}/tools/post-beat-source-check.sh"
+if [[ -x "$SOURCE_CHECK" ]]; then
+    SOURCE_RESULT=$("$SOURCE_CHECK" 120 2>&1)
+    SOURCE_RC=$?
+    if [[ $SOURCE_RC -ne 0 ]]; then
+        fail "$SOURCE_RESULT"
+        fail "Publication blocked: no source primitives used."
+        fail "Use: edge-source <primitive> [args...] for all source operations."
+        if command -v edge-signal &>/dev/null; then
+            edge-signal friction "Publication blocked: no primitive usage detected — source operations must go through edge-source" --source consolidate-state 2>/dev/null || true
+        fi
+        exit 1
+    else
+        ok "$SOURCE_RESULT"
+    fi
+else
+    warn "post-beat-source-check.sh not found — skipping source usage check"
+fi
+echo ""
 
 # ─── PHASE 0.3: Adversarial Review Enforcement ───
 # Active: runs edge-consult if no prior review exists for the content.
