@@ -344,6 +344,31 @@ else
 fi
 echo ""
 
+# ─── PHASE 0.2b: Workflow Search Check ───
+# Verify that workflow recall (edge-search --type workflow) was performed.
+# Blocks publication if no workflow search detected — forces agent to check
+# existing workflows before producing new content. Usage is NOT enforced.
+echo "── Phase 0.2b: Workflow Search Check ──"
+WORKFLOW_CHECK="${EDGE_DIR}/tools/post-beat-workflow-check.sh"
+if [[ -x "$WORKFLOW_CHECK" ]]; then
+    WORKFLOW_RESULT=$("$WORKFLOW_CHECK" 120 2>&1)
+    WORKFLOW_RC=$?
+    if [[ $WORKFLOW_RC -ne 0 ]]; then
+        fail "$WORKFLOW_RESULT"
+        fail "Publication blocked: no workflow search performed."
+        fail "Run: edge-search \"<topic>\" --type workflow -k 3"
+        if command -v edge-signal &>/dev/null; then
+            edge-signal friction "Publication blocked: no workflow search — must recall workflows before publishing" --source consolidate-state 2>/dev/null || true
+        fi
+        exit 1
+    else
+        ok "$WORKFLOW_RESULT"
+    fi
+else
+    warn "post-beat-workflow-check.sh not found — skipping workflow search check"
+fi
+echo ""
+
 # ─── PHASE 0.3: Adversarial Review Enforcement ───
 # Active: runs edge-consult if no prior review exists for the content.
 # Passive: blocks if .review.json exists without .resolved marker.
