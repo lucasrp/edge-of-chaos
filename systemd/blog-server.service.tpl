@@ -9,6 +9,7 @@ Restart=always
 RestartSec=3
 WorkingDirectory={{ WORK_DIR }}
 Environment="HOME=%h"
+Environment="PYTHONPATH={{ WORK_DIR }}"
 Environment="BLOG_PORT={{ BLOG_PORT }}"
 Environment="BLOG_HOST={{ BLOG_HOST }}"
 EnvironmentFile=-{{ WORK_DIR }}/secrets/keys.env
