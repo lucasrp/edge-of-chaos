@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# edge-source — invoke a source primitive with usage logging
+# Usage: edge-source <primitive> [args...]
+#
+# Wraps libexec/<codename>/<primitive> with mandatory logging to
+# state/source-usage.jsonl. All source operations go through here
+# so the post-beat check can verify primitive usage.
+
+set -uo pipefail
+
+if [ $# -lt 1 ]; then
+  echo "Usage: edge-source <primitive> [args...]" >&2
+  exit 2
+fi
+
+PRIMITIVE="$1"
+shift
+
+EDGE_DIR="${EDGE_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+CODENAME="${EDGE_CODENAME:-ed}"
+PRIM_PATH="$EDGE_DIR/libexec/$CODENAME/$PRIMITIVE"
+USAGE_LOG="$EDGE_DIR/state/source-usage.jsonl"
+
+mkdir -p "$(dirname "$USAGE_LOG")"
+
+TS_START=$(date -u +%FT%TZ)
+
+# Log start
+echo "{\"ts\":\"$TS_START\",\"source\":\"$PRIMITIVE\",\"codename\":\"$CODENAME\",\"phase\":\"start\"}" >> "$USAGE_LOG"
+
+# Primitive not found
+if [ ! -x "$PRIM_PATH" ]; then
+  echo "{\"ts\":\"$(date -u +%FT%TZ)\",\"source\":\"$PRIMITIVE\",\"codename\":\"$CODENAME\",\"phase\":\"end\",\"ok\":false,\"exit_code\":127,\"error\":\"not found\"}" >> "$USAGE_LOG"
+  echo "{\"error\": \"primitive not found\", \"source\": \"$PRIMITIVE\"}" >&2
+  exit 127
+fi
+
+# Call the primitive — stdout/stderr pass through
+"$PRIM_PATH" "$@"
+RC=$?
+
+# Log end
+echo "{\"ts\":\"$(date -u +%FT%TZ)\",\"source\":\"$PRIMITIVE\",\"codename\":\"$CODENAME\",\"phase\":\"end\",\"ok\":$([ $RC -eq 0 ] && echo true || echo false),\"exit_code\":$RC}" >> "$USAGE_LOG"
+
+exit $RC

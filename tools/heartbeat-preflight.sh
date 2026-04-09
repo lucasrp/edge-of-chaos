@@ -93,7 +93,30 @@ if command -v edge-crystallize &>/dev/null; then
   fi
 fi
 
-# 5. Recent operator session (last 2h)?
+# 5. Source primitive usage — check last beat
+USAGE_LOG="$EDGE_DIR/state/source-usage.jsonl"
+if [ -f "$USAGE_LOG" ]; then
+  recent_usage=$(python3 -c "
+import json
+from datetime import datetime, timedelta, timezone
+cutoff = datetime.now(timezone.utc) - timedelta(minutes=120)
+count = 0
+with open('$USAGE_LOG') as f:
+    for line in f:
+        try:
+            e = json.loads(line.strip())
+            ts = datetime.fromisoformat(e['ts'].replace('Z', '+00:00'))
+            if ts >= cutoff and e.get('phase') == 'end': count += 1
+        except: pass
+print(count)" 2>/dev/null || echo 0)
+  if [ "${recent_usage:-0}" -eq 0 ]; then
+    SIGNALS+=("SOURCE:no primitive usage last beat — use edge-source <primitive> for all source operations")
+  fi
+else
+  SIGNALS+=("SOURCE:source-usage.jsonl missing — no primitives have ever been called")
+fi
+
+# 6. Recent operator session (last 2h)?
 # PROJECT_DIR already set by paths.sh
 latest_session=$(ls -t "${PROJECT_DIR}"/*.jsonl 2>/dev/null | head -1)
 if [ -n "$latest_session" ]; then
