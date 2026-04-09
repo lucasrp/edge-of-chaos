@@ -27,17 +27,9 @@ cd "$EDGE_DIR"
 # No budget limit — subscription covers Claude tokens.
 # Real API costs (OpenAI, Exa) are cents per heartbeat.
 # Timeout controlled by systemd TimeoutStartSec (1h).
-# --mcp-config loads MCP servers (Slack, custom) that are otherwise
-# unavailable in pipe mode (#145).
-MCP_ARGS=""
-SETTINGS="$HOME/.claude/settings.json"
-if [ -f "$SETTINGS" ]; then
-    MCP_ARGS="--mcp-config $SETTINGS"
-fi
-
+# External access uses primitives in libexec/ (work in any mode).
 claude -p "$SKILL" \
     --dangerously-skip-permissions \
-    $MCP_ARGS \
     >> "$LOGFILE" 2>&1
 
 # Index new content after heartbeat
