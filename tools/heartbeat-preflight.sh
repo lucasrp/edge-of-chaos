@@ -72,7 +72,28 @@ if [ -f "$debug_file" ]; then
   fi
 fi
 
-# 4. Recent operator session (last 2h)?
+# 4. Corpus curation — run every beat, lightweight
+CURATION_FILE="$EDGE_DIR/state/procedure-curation.json"
+if command -v edge-crystallize &>/dev/null; then
+  # Regenerate curation if stale (>2h) or missing
+  curation_stale=false
+  if [ ! -f "$CURATION_FILE" ]; then
+    curation_stale=true
+  else
+    curation_age=$(( $(date +%s) - $(stat -c %Y "$CURATION_FILE" 2>/dev/null || echo 0) ))
+    if [ "$curation_age" -gt 7200 ] 2>/dev/null; then
+      curation_stale=true
+    fi
+  fi
+
+  if [ "$curation_stale" = true ]; then
+    # Run corpus-curation in procedures mode (silent, no LLM)
+    edge-crystallize --dry-run 2>/dev/null | grep -q "candidate" && \
+      SIGNALS+=("CURATION:crystallization candidates detected")
+  fi
+fi
+
+# 5. Recent operator session (last 2h)?
 # PROJECT_DIR already set by paths.sh
 latest_session=$(ls -t "${PROJECT_DIR}"/*.jsonl 2>/dev/null | head -1)
 if [ -n "$latest_session" ]; then

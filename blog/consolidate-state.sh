@@ -39,6 +39,7 @@ source "$(dirname "$REAL_SCRIPT")/../config/paths.sh"
 SKIP_REVIEW=false
 REVIEW_ONLY=false
 RECOVER=false
+FORCE=false
 NO_META=false
 NO_ADVERSARIAL=false
 SCRATCHPAD=""
@@ -56,6 +57,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --scratchpad PATH  Scratchpad for meta-report (default: /tmp/edge-scratch-active.md)"
             echo "  --no-adversarial   Skip edge-consult in meta-report"
             echo "  --no-meta          Skip meta-report (Phase 4)"
+            echo "  --force            Bypass workflow citation check (procedure without workflows_used)"
             echo "  --reason TEXT      Custom commit message reason"
             echo "  --help, -h         Show this help"
             exit 0
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
         --skip-review) SKIP_REVIEW=true; shift ;;
         --review-only) REVIEW_ONLY=true; shift ;;
         --recover) RECOVER=true; shift ;;
+        --force) FORCE=true; shift ;;
         --no-meta) NO_META=true; shift ;;
         --no-adversarial) NO_ADVERSARIAL=true; shift ;;
         --scratchpad) SCRATCHPAD="$2"; shift 2 ;;
@@ -620,10 +623,18 @@ except:
 " 2>/dev/null | {
     read WF_CHECK
     if [[ "$WF_CHECK" == "MISSING_CITATIONS" ]]; then
-        warn "Entry has procedure: but no workflows_used:/workflows_broken: — check /tmp/edge-recalled-workflows.txt and add citations"
-        # Record as friction signal so reflection catches it across sessions
-        if command -v edge-signal &>/dev/null; then
-            edge-signal friction "Entry $SLUG: procedure without workflows_used/broken citations" --source consolidate-state 2>/dev/null || true
+        if [[ "$FORCE" == "true" ]]; then
+            warn "Entry has procedure: but no workflows_used:/workflows_broken: (bypassed with --force)"
+        else
+            err "Entry has procedure: but no workflows_used:/workflows_broken:"
+            err "Fix: add 'workflows_used: []' (if none recalled) or 'workflows_used: [slug]' to frontmatter"
+            err "Hint: check /tmp/edge-recalled-workflows.txt for recalled workflows"
+            err "Use --force to bypass this check"
+            # Record as friction signal so reflection catches it across sessions
+            if command -v edge-signal &>/dev/null; then
+                edge-signal friction "Entry $SLUG: procedure without workflows_used/broken citations — BLOCKED" --source consolidate-state 2>/dev/null || true
+            fi
+            exit 1
         fi
     fi
 }
