@@ -55,6 +55,20 @@ def _reprefix(content: str, prefix: str) -> str:
     return content
 
 
+def _repath(content: str, edge_home: str) -> str:
+    """Replace hardcoded ~/edge/ paths with the configured edge_home.
+
+    Skill genotype historically hardcodes ~/edge/ as the install location
+    (~222 references across 20 SKILL.md files). This substitution makes
+    them work for any edge_home value without modifying the genotype.
+    No-op when edge_home is the default ~/edge/.
+    """
+    target = edge_home.rstrip("/") + "/"
+    if target == "~/edge/":
+        return content
+    return content.replace("~/edge/", target)
+
+
 def ok(msg): print(f"  {GREEN}✓{RESET} {msg}")
 def warn(msg): print(f"  {YELLOW}⚠{RESET} {msg}")
 def fail(msg): print(f"  {RED}✗{RESET} {msg}")
@@ -267,6 +281,7 @@ def phase_skills(cfg, dry_run):
             target.mkdir(parents=True, exist_ok=True)
             content = skill_file.read_text()
             content = _reprefix(content, prefix)
+            content = _repath(content, cfg["edge_home"])
             (target / "SKILL.md").write_text(content)
         installed += 1
 
@@ -280,6 +295,7 @@ def phase_skills(cfg, dry_run):
             hb_dst.parent.mkdir(parents=True, exist_ok=True)
             content = hb_rendered.read_text()
             content = _reprefix(content, prefix)
+            content = _repath(content, cfg["edge_home"])
             hb_dst.write_text(content)
         ok(f"Heartbeat skill (rendered) → {prefix}-heartbeat")
 
@@ -614,12 +630,15 @@ def phase_tools(cfg, dry_run):
                 link.symlink_to(tool.resolve())
             linked += 1
     # Create hyphenated aliases for tools with underscores (validate_svg → validate-svg)
+    # Mirror the wrapper loop above: unlink first, then write, so stale aliases
+    # pointing at a previous edge_home get re-pointed on every edge-apply.
     venv_python = tools_dst / ".venv" / "bin" / "python3"
     for tool in tools_dst.iterdir():
         if tool.is_file() and "_" in tool.stem and tool.suffix == ".py":
             alias_name = tool.stem.replace("_", "-")
             alias = local_bin / alias_name
-            if not alias.exists() and not dry_run:
+            if not dry_run:
+                alias.unlink(missing_ok=True)
                 alias.write_text(
                     '#!/bin/bash\n'
                     f'exec "{venv_python}" "{tool.resolve()}" "$@"\n'
