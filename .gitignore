@@ -102,3 +102,6 @@ tools/ralph/prd.json
 tools/ralph/.last-branch
 tools/ralph/archive/
 prd.json
+
+# Epigenetic state files (no extension)
+state/feedback-watermark
