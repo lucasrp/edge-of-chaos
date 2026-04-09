@@ -18,7 +18,7 @@ Errors that must not recur. READ at start of autonomous sessions. WRITE when err
 **Impact:** Documents indexed in FTS5 (full-text search works) but without vector embeddings. Hybrid search degrades to FTS-only.
 **Root cause:** `AGENT_OPENAI_API_KEY` or configured key is expired/invalid.
 **Action:** Check `secrets/keys.env` for the OpenAI key. Refresh if expired.
-**Status:** Open.
+**Status:** RESOLVED 2026-04-09. Operator provided new key via Drive. Updated in secrets/keys.env, tested OK, backed up to Drive.
 
 ## 2026-04-07: MCP source primitives not implemented (code 127)
 
