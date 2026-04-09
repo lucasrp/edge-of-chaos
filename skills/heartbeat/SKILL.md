@@ -242,14 +242,14 @@ edge-search "[candidate topic]" -k 3
 
 This avoids the anti-pattern of rediscovering the same concept in consecutive beats. Budget: 2-3 quick queries (~3s total).
 
-### 1g: X serendipity scan (3 lateral queries)
+### 1g: Serendipity scan (3 lateral queries × all sources)
 
 After reading sessions (1a), identify the main topics of the user's work. Generate 3 **LATERAL** queries — not the direct topic, but adjacent concepts that bring unexpected connections.
 
 **Query generation rules:**
 - **DO NOT** repeat the exact topic (if the user works on "domain evaluation", DO NOT search for "domain evaluation")
 - Search for the **ADJACENT**: related concepts from other domains, applicable phenomena, impactful trends
-- **2-3 CONCEPTUAL words, not technical.** X Basic tier searches AND between words, 7-day window. Long/specific queries return 0.
+- **2-3 CONCEPTUAL words, not technical.** Short, conceptual queries work best across all sources. Long/specific queries return 0.
 - Think in PHENOMENA, not in TOOLS. "benchmark gaming" > "LLM evaluation error taxonomy"
 - One query should cross DOMAINS (connect the technical work with the institutional/market context)
 
@@ -262,15 +262,18 @@ After reading sessions (1a), identify the main topics of the user's work. Genera
 **Anti-pattern:** "LLM evaluation error taxonomy" (4 technical words → always 0 results)
 
 ```bash
-# For each lateral query (3x):
-edge-x "LATERAL_QUERY" --max 3 --json 2>/dev/null
+# List available primitives:
+ls ~/edge/libexec/$(whoami)/ | grep -v '\.meta\.yaml$'
+
+# For each lateral query (3x), fan out across available sources:
+edge-source <primitive> "$QUERY"
 ```
 
 Note interesting results (high engagement, non-obvious connection) as **"serendipity"** — use to inform Step 2 (skill/topic choice) and include in blog entry if relevant.
 
 **If no recent sessions:** use context from ~/work/CLAUDE.md as base.
-**If X returns nothing useful:** proceed without — it doesn't block the beat.
-**Budget:** 3 queries, ~5 results each. Quick and cheap.
+**If a source returns nothing useful or fails:** proceed with the others — no single source blocks the beat.
+**Budget:** 3 queries × available sources. Quick and cheap.
 
 ---
 
