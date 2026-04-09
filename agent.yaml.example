@@ -93,8 +93,6 @@ sources:
     description: Access paywalled papers by DOI. Fallback when institutional access doesn't cover it.
   - name: exa
     description: Semantic search for connections beyond keyword match — finds what arXiv misses.
-  - name: grok
-    description: Second opinion in adversarial review.
   - name: gdrive
     description: Google Drive for sharing reports and backups.
 
