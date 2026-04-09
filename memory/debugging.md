@@ -28,6 +28,14 @@ Errors that must not recur. READ at start of autonomous sessions. WRITE when err
 **Action:** Genotype issue — heartbeat.sh needs full path to claude binary or PATH setup. File GitHub issue.
 **Status:** Open.
 
+## 2026-04-09: Grok API credits exhausted
+
+**Error:** `429 - Your team has either used all available credits or reached its monthly spending limit` on grok-4.20-multi-agent-beta-0309.
+**Impact:** edge-consult runs GPT-only. Adversarial review loses the second perspective.
+**Root cause:** Heavy use during this session (multiple edge-consult calls). Monthly credit limit reached.
+**Action:** Operator needs to purchase more Grok credits or wait for monthly reset.
+**Status:** Open — notify operator.
+
 ## 2026-04-09: arXiv API rate limiting (429)
 
 **Error:** `HTTP Error 429: Too Many Requests` when calling arXiv Atom API.
