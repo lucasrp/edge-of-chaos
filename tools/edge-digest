@@ -158,6 +158,61 @@ def count_blog_entries():
     return total, with_claims
 
 
+def read_workflows(threads):
+    """Busca workflows relevantes para os threads ativos."""
+    workflows = []
+    # Collect thread topics for search
+    topics = set()
+    for t in threads:
+        title = t.get("title", "")
+        if title:
+            # Use first 3 meaningful words from title
+            words = [w for w in title.split() if len(w) > 3][:3]
+            if words:
+                topics.add(" ".join(words))
+    if not topics:
+        topics.add("workflow")
+
+    seen = set()
+    for topic in list(topics)[:3]:
+        try:
+            result = subprocess.run(
+                ["edge-search", topic, "--type", "workflow", "-k", "2"],
+                capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.split("\n"):
+                line = line.strip()
+                if line.startswith("workflow:"):
+                    name = line.split("workflow:", 1)[1].strip().split("(")[0].strip()
+                    if name and name not in seen:
+                        seen.add(name)
+                        workflows.append(name)
+        except Exception:
+            continue
+    return workflows[:6]
+
+
+def read_primitives():
+    """Lista primitives disponíveis em libexec/ed/."""
+    primitives = []
+    libexec = HOME / "edge" / "libexec" / "ed"
+    if not libexec.exists():
+        return primitives
+    for f in sorted(libexec.iterdir()):
+        if f.is_file() and not f.name.endswith(".yaml"):
+            desc = ""
+            try:
+                first_lines = f.read_text().split("\n")[:5]
+                for line in first_lines:
+                    if line.startswith("#") and not line.startswith("#!"):
+                        desc = line.lstrip("# ").strip()
+                        break
+            except Exception:
+                pass
+            primitives.append({"name": f.name, "desc": desc})
+    return primitives
+
+
 def generate_briefing():
     """Gera o briefing completo."""
     threads = read_threads()
@@ -254,6 +309,24 @@ def generate_briefing():
         lines.append(f"## Insights novos ({len(insights)})")
         for i in insights:
             lines.append(f"- {i}")
+        lines.append("")
+
+    # ── Workflows disponíveis ──
+    active = [t for t in threads if t.get("status") == "active"]
+    workflows = read_workflows(active)
+    if workflows:
+        lines.append(f"## Workflows disponíveis ({len(workflows)})")
+        for w in workflows:
+            lines.append(f"- {w}")
+        lines.append("")
+
+    # ── Primitives disponíveis ──
+    primitives = read_primitives()
+    if primitives:
+        lines.append(f"## Primitives disponíveis ({len(primitives)})")
+        for p in primitives:
+            desc = f" — {p['desc']}" if p['desc'] else ""
+            lines.append(f"- `{p['name']}`{desc}")
         lines.append("")
 
     # ── Métricas ──
