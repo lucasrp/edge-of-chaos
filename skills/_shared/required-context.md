@@ -28,8 +28,6 @@ Without it, the agent operates without identity, rules, or strategy — producin
    (interactive, pipe, cron). When you need to access an external
    service, check here FIRST. If a primitive exists, use it. If not
    and you need it, create it (exit 127 rule in TOOL_CONTRACT.md).
-   Never rely on MCP as the only path — MCP is convenience, primitives
-   are the canonical mechanism.
 
 3. **Load relevant workflows** for what you're about to do:
    ```bash
@@ -83,7 +81,7 @@ Without it, the agent operates without identity, rules, or strategy — producin
 
 4. Only then proceed to Step 0.
 
-**Note:** Source primitives are available as MCP tools (registered via `.mcp.json`). No need to manually read `state/sources-manifest.yaml` — the primitives appear alongside native tools.
+**Note:** Source primitives are in `libexec/<codename>/`. Use them via the Bash tool.
 
 **Paths are relative to `~/edge/`.** Memory files use the Claude Code project directory (`~/.claude/projects/-home-$USER/memory/`) when they live there.
 
@@ -200,52 +198,28 @@ into it does not affect other agents or the host system.
 
 ---
 
-## Source primitives and MCP tools
+## Source primitives
 
-### Primitives in `libexec/<codename>/` (ALWAYS available — preferred)
+Shell/Python scripts in `libexec/<codename>/` are the **only** mechanism
+for external API access. They work in ALL modes (interactive, pipe, cron)
+because the agent calls them via the Bash tool.
 
-Shell/Python scripts in `libexec/` are the **primary** mechanism for
-external API access. They work in ALL modes (interactive, pipe, cron)
-because the agent calls them via the Bash tool. MCP tools are a
-convenience layer — primitives are the foundation.
-
-**Mode indifference rule:** the system must behave identically whether
-launched via `claude -p` (pipe/heartbeat) or interactive session. This
-means: never depend on MCP as the ONLY path to an external service.
-If an MCP tool exists without a primitive backing it, that's a gap.
-
-**When to use what:**
-- **Primitive exists** → use it (via Bash). Always works in any mode.
-- **MCP tool exists but no primitive** → this is a gap. Create the
-  primitive. MCP may wrap the primitive for interactive convenience,
-  but the primitive is the source of truth.
-- **Neither exists** → create a primitive per `docs/TOOL_CONTRACT.md`.
-  Exit 127 blocks the beat until created.
-
-### MCP tools (convenience layer — wraps primitives)
-
-MCP servers in `~/.claude/settings.json` are a convenience for
-interactive sessions. They should wrap primitives, not replace them.
-The heartbeat template passes `--mcp-config` as best-effort (#145).
-
-**Why primitives over MCP:** primitives log usage to `state/source-usage.jsonl`,
-follow `TOOL_CONTRACT.md` (JSON stdout, proper exit codes), and are
-improvable by autonomy. They survive MCP server failures and always
-work in pipe mode.
+**Mode indifference:** the system behaves identically whether launched
+via `claude -p` (pipe/heartbeat) or interactive session. Primitives
+guarantee this — they are plain executables, no server dependency.
 
 **Rules:**
-1. If a primitive exists for the source → **use it**
-2. If a primitive is a `stub` (exit 127) → implement it per
-   `docs/TOOL_CONTRACT.md`, then use it
-3. If no primitive exists for the source → create one if you'll use
-   it more than once; raw Bash is OK for true one-offs
+1. If a primitive exists → **use it** (via Bash)
+2. If a primitive returns exit 127 → **create it before continuing**
+   the beat (see `docs/TOOL_CONTRACT.md`)
+3. If no primitive exists → create one per TOOL_CONTRACT.md if you'll
+   use it more than once; raw Bash is OK for true one-offs
 4. If a primitive fails → log the failure and fix it. Do NOT silently
    fall back to WebSearch/curl — that hides the problem
 
-**Creating or upgrading a primitive:**
+**Creating a primitive:**
 
 1. Write contract: `libexec/<codename>/<name>.meta.yaml`
 2. Write impl: `libexec/<codename>/<name>` (chmod +x, venv shebang)
 3. Register in `state/sources-manifest.yaml`
 4. Log usage to `state/source-usage.jsonl` via `_shared/usage_log.py`
-5. Restart MCP server to pick up new tools (or wait for next session)
