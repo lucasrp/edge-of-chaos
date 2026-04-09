@@ -780,42 +780,6 @@ def phase_tools(cfg, dry_run):
                 dst.chmod(0o755)
         ok("Health scripts copied")
 
-    # Register MCP agent server (project-scope .mcp.json) — #133
-    mcp_server_script = tools_dst / "mcp-agent-server.py"
-    mcp_json_path = edge / ".mcp.json"
-    if mcp_server_script.exists():
-        if not dry_run:
-            mcp_config = {
-                "mcpServers": {
-                    "edge-agent": {
-                        "command": str(tools_dst / ".venv" / "bin" / "python3"),
-                        "args": [str(mcp_server_script)],
-                        "env": {
-                            "EDGE_DIR": str(edge),
-                        },
-                    }
-                }
-            }
-            mcp_json_path.write_text(json.dumps(mcp_config, indent=2) + "\n")
-            # Also merge into ~/.claude/settings.json so claude -p sees it (#137)
-            claude_settings = Path.home() / ".claude" / "settings.json"
-            if claude_settings.exists():
-                try:
-                    settings = json.loads(claude_settings.read_text())
-                    settings["mcpServers"] = mcp_config["mcpServers"]
-                    # Auto-allow the MCP tools
-                    perms = settings.setdefault("permissions", {})
-                    allow = perms.setdefault("allow", [])
-                    mcp_perm = "mcp__edge-agent__*"
-                    if mcp_perm not in allow:
-                        allow.append(mcp_perm)
-                    claude_settings.write_text(json.dumps(settings, indent=2) + "\n")
-                    ok(f"MCP config merged into {claude_settings}")
-                except Exception as exc:
-                    warn(f"Could not merge MCP into settings.json: {exc}")
-        ok(f"MCP config: {mcp_json_path}")
-    else:
-        warn("mcp-agent-server.py not found — skipping MCP registration")
 
     return True
 
