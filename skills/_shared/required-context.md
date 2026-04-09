@@ -20,7 +20,18 @@ Without it, the agent operates without identity, rules, or strategy — producin
    - `config/post-skill.md`
    - `config/strategy.md`
 
-2. **Load relevant workflows** for what you're about to do:
+2. **Discover available primitives:**
+   ```bash
+   ls ~/edge/libexec/$(cat ~/edge/agent.yaml | grep codename | head -1 | awk '{print $2}')/ 2>/dev/null
+   ```
+   These are your tools for external access — they work in ALL modes
+   (interactive, pipe, cron). When you need to access an external
+   service, check here FIRST. If a primitive exists, use it. If not
+   and you need it, create it (exit 127 rule in TOOL_CONTRACT.md).
+   Never rely on MCP as the only path — MCP is convenience, primitives
+   are the canonical mechanism.
+
+3. **Load relevant workflows** for what you're about to do:
    ```bash
    edge-search "<topic of this beat>" --type workflow -k 3
    ```
@@ -28,7 +39,7 @@ Without it, the agent operates without identity, rules, or strategy — producin
    If none found, record "no relevant workflows." This step feeds
    the `workflows_used:` field in the blog entry frontmatter.
 
-3. **Execute the Boot Ritual** defined in the "Procedure" section of `pre-skill.md`.
+4. **Execute the Boot Ritual** defined in the "Procedure" section of `pre-skill.md`.
    Each numbered step in the procedure MUST be executed individually,
    producing visible output (command results, API responses, messages read).
    Do NOT paraphrase or summarize the steps — run them.
@@ -38,6 +49,10 @@ Without it, the agent operates without identity, rules, or strategy — producin
 
    ```markdown
    # Pre-skill report — <YYYY-MM-DD HH:MM>
+
+   ## Available primitives
+   - [primitive name] (from ls libexec/<codename>/)
+   (or "No primitives found — will create as needed")
 
    ## Workflows loaded
    - [workflow slug] — [will follow / not relevant / broken]
@@ -194,17 +209,24 @@ external API access. They work in ALL modes (interactive, pipe, cron)
 because the agent calls them via the Bash tool. MCP tools are a
 convenience layer — primitives are the foundation.
 
+**Mode indifference rule:** the system must behave identically whether
+launched via `claude -p` (pipe/heartbeat) or interactive session. This
+means: never depend on MCP as the ONLY path to an external service.
+If an MCP tool exists without a primitive backing it, that's a gap.
+
 **When to use what:**
-- **Primitive exists** → use it (via Bash). Always works.
-- **MCP tool exists but no primitive** → create a primitive if you
-  need it in heartbeats. MCP may not load in pipe mode.
+- **Primitive exists** → use it (via Bash). Always works in any mode.
+- **MCP tool exists but no primitive** → this is a gap. Create the
+  primitive. MCP may wrap the primitive for interactive convenience,
+  but the primitive is the source of truth.
 - **Neither exists** → create a primitive per `docs/TOOL_CONTRACT.md`.
+  Exit 127 blocks the beat until created.
 
-### MCP tools (secondary — interactive sessions)
+### MCP tools (convenience layer — wraps primitives)
 
-MCP servers in `~/.claude/settings.json` load in interactive mode.
-The heartbeat template passes `--mcp-config` to attempt loading them
-in pipe mode (#145), but this is best-effort — primitives are reliable.
+MCP servers in `~/.claude/settings.json` are a convenience for
+interactive sessions. They should wrap primitives, not replace them.
+The heartbeat template passes `--mcp-config` as best-effort (#145).
 
 **Why primitives over MCP:** primitives log usage to `state/source-usage.jsonl`,
 follow `TOOL_CONTRACT.md` (JSON stdout, proper exit codes), and are
