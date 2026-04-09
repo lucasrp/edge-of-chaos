@@ -70,6 +70,8 @@ BRIEFING_FILE = EDGE_DIR / "briefing.md"
 DEBUGGING_FILE = MEMORY_DIR / "debugging.md"
 INSIGHTS_FILE = MEMORY_DIR / "insights.md"
 BREAKS_ACTIVE = MEMORY_DIR / "breaks-active.md"
+FEEDBACK_DIGEST_FILE = STATE_DIR / "feedback-digest.md"
+FEEDBACK_WATERMARK = STATE_DIR / "feedback-watermark"
 FRONTIER_FILE = AUTONOMY_DIR / "frontier.md"
 OPS_HOTSPOTS = STATE_DIR / "ops-hotspots.json"
 

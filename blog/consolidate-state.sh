@@ -967,6 +967,8 @@ except Exception as e:
 try:
     signal_types = ["autonomy", "strategy", "reflection", "friction", "decision", "serendipity"]
     signal_count = 0
+
+    # 1. Dedicated frontmatter fields (autonomy:, friction:, etc.)
     for stype in signal_types:
         items = fm.get(stype, [])
         if not items:
@@ -978,6 +980,33 @@ try:
                     capture_output=True, timeout=5
                 )
                 signal_count += 1
+
+    # 2. Generic signals: field with type prefixes (#165)
+    generic_signals = fm.get("signals", [])
+    for item in generic_signals:
+        if not isinstance(item, str) or not item.strip():
+            continue
+        routed = False
+        for stype in signal_types:
+            prefix = f"{stype}:"
+            if item.strip().lower().startswith(prefix):
+                msg = item.strip()[len(prefix):].strip()
+                if msg:
+                    subprocess.run(
+                        ["edge-signal", stype, msg, "--source", slug],
+                        capture_output=True, timeout=5
+                    )
+                    signal_count += 1
+                    routed = True
+                break
+        if not routed and item.strip():
+            # No recognized prefix — emit as reflection
+            subprocess.run(
+                ["edge-signal", "reflection", item.strip(), "--source", slug],
+                capture_output=True, timeout=5
+            )
+            signal_count += 1
+
     if signal_count > 0:
         ok(f"Signals: {signal_count} emitted to state/signals/")
 except Exception as e:
