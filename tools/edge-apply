@@ -904,6 +904,36 @@ def phase_avatar(cfg, dry_run):
     return True
 
 
+# ─── Phase 8c: Branding assets ───
+
+def phase_branding(cfg, dry_run):
+    header("8c/9  Branding assets")
+    edge = Path(cfg["edge_home_expanded"])
+    branding_dir = cfg.get("branding_dir", "")
+    if not branding_dir:
+        ok("No branding_dir specified — skipping")
+        return True
+
+    src = Path(os.path.expanduser(branding_dir))
+    if not src.exists():
+        warn(f"branding_dir {src} does not exist — skipping")
+        return True
+
+    dst = edge / "blog" / "static" / "branding"
+    if dry_run:
+        print(f"  [DRY] Would copy {src} → {dst}")
+        return True
+
+    dst.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for f in src.iterdir():
+        if f.is_file() and not f.name.startswith("."):
+            shutil.copy2(f, dst / f.name)
+            copied += 1
+    ok(f"{copied} branding assets copied from {src} → {dst}")
+    return True
+
+
 # ─── Phase 9: Seed content ───
 
 def phase_seed(cfg, dry_run):
@@ -1514,6 +1544,7 @@ def main():
     results.append(("Systemd", phase_systemd(cfg, args.dry_run)))
     results.append(("Tools", phase_tools(cfg, args.dry_run)))
     results.append(("Avatar", phase_avatar(cfg, args.dry_run)))
+    results.append(("Branding", phase_branding(cfg, args.dry_run)))
     results.append(("Seed", phase_seed(cfg, args.dry_run)))
     results.append(("Routines", phase_routines(cfg, args.dry_run)))
 
