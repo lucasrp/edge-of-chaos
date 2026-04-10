@@ -11,7 +11,8 @@ import yaml
 from db import EMBEDDING_DIM, ensure_db
 from embed import embed_text
 
-EDGE_HOME = Path.home() / "edge"
+# Derive EDGE_HOME from this file's location: <edge_home>/search/search.py → <edge_home>
+EDGE_HOME = Path(__file__).resolve().parent.parent
 NOTES_DIR = EDGE_HOME / "notes"
 
 
