@@ -58,9 +58,9 @@ Dispatches from other meta-skills take priority — they represent gaps already 
 
 | Mode | Duration | When | Output |
 |------|----------|------|--------|
-| **heartbeat-normal** | < 90s | Called by /ed-heartbeat (routine) | Max 3 actionable insights |
-| **heartbeat-escalated** | up to 5min | Anomaly detected during heartbeat-normal | Insights + transcript sampling + 1 entry in debugging.md |
-| **manual** | 15-20min | `/ed-reflection` invoked by user | Full analysis + curation + blog + HTML report |
+| **heartbeat-normal** | < 90s | Called by /ed-heartbeat (routine) | Blog entry + max 3 actionable insights |
+| **heartbeat-escalated** | up to 5min | Anomaly detected during heartbeat-normal | Blog entry + insights + transcript sampling + 1 entry in debugging.md |
+| **manual** | 15-20min | `/ed-reflection` invoked by user | Blog entry + full analysis + curation + HTML report |
 
 ### Escalation Triggers (normal → escalated)
 
@@ -130,7 +130,7 @@ The number `#N` is sequential — count existing `## [` + 1. Each step records i
 
 ## Heartbeat-Normal (< 90s)
 
-Quick cycle. **Priority: fix what's broken, then observe.** No transcript reading, no blog, no curation.
+Quick cycle. **Priority: fix what's broken, then observe.** No transcript reading, no curation. Always produces a blog entry via consolidate-state.
 
 ### HN-0: Fix what's broken (BEFORE any analysis)
 

@@ -23,11 +23,9 @@
 # Exit codes: 0 = tudo OK, 1 = erro fatal, 2 = parcial, 3 = review gate falhou
 #
 # Flags:
-#   --skip-review      Pular o review gate (LLM-as-judge)
 #   --review-only      Rodar so o review gate, sem publicar
 #   --scratchpad PATH  Scratchpad para meta-report (default: /tmp/edge-scratch-active.md)
 #   --no-adversarial   Pular edge-consult no meta-report
-#   --no-meta          Pular meta-report (Phase 4)
 
 set -uo pipefail
 
@@ -37,11 +35,8 @@ REAL_SCRIPT="$(readlink -f "$0")"
 source "$(dirname "$REAL_SCRIPT")/../config/paths.sh"
 
 # Parse flags
-SKIP_REVIEW=false
 REVIEW_ONLY=false
 RECOVER=false
-FORCE=false
-NO_META=false
 NO_ADVERSARIAL=false
 SCRATCHPAD=""
 COMMIT_REASON=""
@@ -49,43 +44,29 @@ POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --help|-h)
-            echo "Usage: consolidate-state <entry.md> <report.yaml|report.html>"
+            echo "Usage: consolidate-state <entry.md> [report.yaml|report.html]"
             echo ""
-            echo "Note: <report> is MANDATORY (Rule #0, issue #189). To publish without"
-            echo "a report, set ALLOW_NO_REPORT_REASON=\"<reason>\" — opt-out is logged."
+            echo "Blog entry is MANDATORY. Report is optional."
+            echo "Every skill produces a blog entry, processed through this pipeline."
             echo ""
             echo "Flags:"
-            echo "  --skip-review      Skip review gate (requires SKIP_REVIEW_REASON)"
             echo "  --review-only      Run only the review gate, without publishing"
             echo "  --recover          Detect and re-run Phase 5/6 for incomplete publications"
             echo "  --scratchpad PATH  Scratchpad for meta-report (default: /tmp/edge-scratch-active.md)"
             echo "  --no-adversarial   Skip edge-consult in meta-report"
-            echo "  --no-meta          Skip meta-report Phase 4 (requires NO_META_REASON)"
-            echo "  --force            Bypass workflow citation check (requires FORCE_REASON)"
             echo "  --reason TEXT      Custom commit message reason"
             echo "  --help, -h         Show this help"
-            echo ""
-            echo "Bypass env vars (issue #189 — every escape hatch requires a reason):"
-            echo "  ALLOW_NO_REPORT_REASON     — publish without <report.yaml|html>"
-            echo "  NO_META_REASON             — required if --no-meta is used"
-            echo "  SKIP_REVIEW_REASON         — required if --skip-review is used"
-            echo "  FORCE_REASON               — required if --force is used"
-            echo "  ALLOW_UNCRYSTALLIZED_REASON — required to bypass Phase 3.35 crystallization gate"
             echo ""
             echo "Exit codes:"
             echo "  0  success"
             echo "  1  fatal error (most blocks)"
             echo "  2  partial success"
             echo "  3  adversarial review pending / review-gate below threshold"
-            echo "  4  missing required enforcement / reason (Rule #0)"
             echo "  5  state audit detected unproposed/divergent change"
             exit 0
             ;;
-        --skip-review) SKIP_REVIEW=true; shift ;;
         --review-only) REVIEW_ONLY=true; shift ;;
         --recover) RECOVER=true; shift ;;
-        --force) FORCE=true; shift ;;
-        --no-meta) NO_META=true; shift ;;
         --no-adversarial) NO_ADVERSARIAL=true; shift ;;
         --scratchpad) SCRATCHPAD="$2"; shift 2 ;;
         --reason) COMMIT_REASON="$2"; shift 2 ;;
@@ -104,50 +85,6 @@ NC='\033[0m'
 ok()   { echo -e "  ${GREEN}OK${NC}: $1"; }
 warn() { echo -e "  ${YELLOW}WARN${NC}: $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}: $1"; }
-
-# ─── Rule #0 Enforcement (issue #189) ───
-# Documented invariants compiled into checks. Every escape hatch from a
-# documented bypass requires an env var with a justification string, logged
-# to state/signals/friction.md. Exit code 4 = missing required reason.
-#
-# Bypasses governed:
-#   - no REPORT_INPUT (Phase 2 + Phase 0.5 collateral) → ALLOW_NO_REPORT_REASON
-#   - --no-meta (Phase 4)                              → NO_META_REASON
-#   - --skip-review (Phase 0.5)                        → SKIP_REVIEW_REASON
-#   - --force (Phase 3.3)                              → FORCE_REASON
-#
-# Phase 3.35 crystallization gate has its own block downstream.
-
-require_reason() {
-    local label="$1"
-    local var_name="$2"
-    local var_value="${!var_name:-}"
-    if [[ -z "$var_value" ]]; then
-        fail "$label requires $var_name=\"<justification>\" env var"
-        fail "See genotype issue #189 for the enforcement policy."
-        exit 4
-    fi
-    if command -v edge-signal &>/dev/null; then
-        edge-signal friction "$label opt-out: $var_value" --source consolidate-state 2>/dev/null || true
-    fi
-    warn "$label opt-out logged: $var_value"
-}
-
-# Phase 2 (+ Phase 0.5 collateral): report YAML/HTML mandatory
-if [[ -z "$REPORT_INPUT" ]]; then
-    if [[ -z "${ALLOW_NO_REPORT_REASON:-}" ]]; then
-        fail "Rule #0: report YAML/HTML is MANDATORY for all entries."
-        fail "Pass spec as 2nd arg, OR set ALLOW_NO_REPORT_REASON=\"<justification>\""
-        fail "See genotype issue #189."
-        exit 4
-    fi
-    require_reason "Rule #0 (no report)" "ALLOW_NO_REPORT_REASON"
-fi
-
-# Flag-based bypass paths require reasons
-[[ "$NO_META"     == "true" ]] && require_reason "--no-meta"     "NO_META_REASON"
-[[ "$SKIP_REVIEW" == "true" ]] && require_reason "--skip-review" "SKIP_REVIEW_REASON"
-[[ "$FORCE"       == "true" ]] && require_reason "--force"       "FORCE_REASON"
 
 # Log pipeline failure to JSONL (bash phases)
 FAILURES_LOG="$LOGS_DIR/pipeline-failures.jsonl"
@@ -171,11 +108,9 @@ with open('$FAILURES_LOG', 'a') as f:
 
 if [[ -z "$ENTRY_PATH" && "$RECOVER" == "false" ]]; then
     echo "Usage: consolidate-state <entry.md> [report.yaml|report.html]"
-    echo "  --skip-review      Skip review gate"
     echo "  --recover          Detect and re-run Phase 5/6 for incomplete publications"
     echo "  --scratchpad PATH  Scratchpad for meta-report"
     echo "  --no-adversarial   Skip edge-consult in meta-report"
-    echo "  --no-meta          Skip meta-report (Phase 4)"
     exit 1
 fi
 
@@ -219,8 +154,8 @@ fm = yaml.safe_load(parts[1]) if len(parts) >= 3 else {}
 print(fm.get('report', '') if fm else '')
 " 2>/dev/null)
 
-                # Run Phase 5+6 only (reuse this script with --no-meta --skip-review)
-                bash "$0" --skip-review --no-meta --reason "recover: Phase 5/6 re-run" "$entry_file" ${REPORT_FN:+"$REPORT_FN"} 2>&1 | tail -5
+                # Run Phase 5+6 only (reuse this script — review + meta run normally)
+                bash "$0" --reason "recover: Phase 5/6 re-run" "$entry_file" ${REPORT_FN:+"$REPORT_FN"} 2>&1 | tail -5
                 RECOVERED=$((RECOVERED + 1))
             else
                 echo "    Entry NOT visible — needs full republish (run without --recover)"
@@ -248,11 +183,7 @@ REPORT_RESULT="skip"
 TOTAL_LLM_COST="0"
 META_REPORT_PATH=""
 
-# ─── GUARDRAIL: Regra #0 — toda publicação gera meta-report ───
-# Content report (YAML/HTML) é opcional. Meta-report é sempre gerado (Phase 4).
-if [[ -z "$REPORT_INPUT" ]]; then
-    echo -e "  ${YELLOW}INFO${NC}: No content report. Meta-report will be generated (Phase 4)."
-fi
+# Content report is optional. Blog entry + meta-report are always generated.
 
 STATE_AUDIT_EXIT=0
 
@@ -435,7 +366,6 @@ echo ""
 # Active: runs edge-consult if no prior review exists for the content.
 # Passive: blocks if .review.json exists without .resolved marker.
 # Covers ALL flows: YAML, HTML, and entry-only.
-if [[ "$SKIP_REVIEW" == "false" ]]; then
     # Determine review target: report if provided, otherwise entry
     if [[ -n "$REPORT_INPUT" ]]; then
         REVIEW_TARGET="$REPORT_INPUT"
@@ -476,8 +406,6 @@ if [[ "$SKIP_REVIEW" == "false" ]]; then
         echo "  Options:"
         echo "    1. Address the feedback and create the marker:"
         echo "       touch $RESOLVED_FILE"
-        echo "    2. Force publication:"
-        echo "       consolidate-state --skip-review ..."
         echo ""
         # Show the review summary
         python3 -c "
@@ -499,10 +427,10 @@ except: pass
         ok "Adversarial review resolved ($(basename "$RESOLVED_FILE") present)"
         echo ""
     fi
-fi
 
 # ─── PHASE 0.5: Review Gate (LLM-as-judge) ───
-if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) && "$SKIP_REVIEW" == "false" ]]; then
+# Runs on YAML report if provided. Review is mandatory — no skip option.
+if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) ]]; then
     if command -v review-gate &>/dev/null; then
         echo "── Phase 0.5: Review Gate ──"
         # Detect skill from YAML filename (spec-SKILL-slug.yaml)
@@ -745,19 +673,14 @@ except:
 " 2>/dev/null | {
     read WF_CHECK
     if [[ "$WF_CHECK" == "MISSING_CITATIONS" ]]; then
-        if [[ "$FORCE" == "true" ]]; then
-            warn "Entry has procedure: but no workflows_used:/workflows_broken: (bypassed with --force)"
-        else
-            err "Entry has procedure: but no workflows_used:/workflows_broken:"
-            err "Fix: add 'workflows_used: []' (if none recalled) or 'workflows_used: [slug]' to frontmatter"
-            err "Hint: check /tmp/edge-recalled-workflows.txt for recalled workflows"
-            err "Use --force to bypass this check"
-            # Record as friction signal so reflection catches it across sessions
-            if command -v edge-signal &>/dev/null; then
-                edge-signal friction "Entry $SLUG: procedure without workflows_used/broken citations — BLOCKED" --source consolidate-state 2>/dev/null || true
-            fi
-            exit 1
+        err "Entry has procedure: but no workflows_used:/workflows_broken:"
+        err "Fix: add 'workflows_used: []' (if none recalled) or 'workflows_used: [slug]' to frontmatter"
+        err "Hint: check /tmp/edge-recalled-workflows.txt for recalled workflows"
+        # Record as friction signal so reflection catches it across sessions
+        if command -v edge-signal &>/dev/null; then
+            edge-signal friction "Entry $SLUG: procedure without workflows_used/broken citations — BLOCKED" --source consolidate-state 2>/dev/null || true
         fi
+        exit 1
     fi
 }
 
@@ -797,22 +720,12 @@ except Exception as e:
 case "$CRYST_CHECK" in
     MISSING:*)
         N="${CRYST_CHECK#MISSING:}"
-        # Phase 3.35 hard block (issue #189): curation entries with uncrystallized
-        # candidates must crystallize before publishing OR opt out with a reason.
-        if [[ -z "${ALLOW_UNCRYSTALLIZED_REASON:-}" ]]; then
-            fail "Curation has $N uncrystallized candidates"
-            fail "Run 'edge-crystallize' to create workflow-draft entries"
-            fail "Or set ALLOW_UNCRYSTALLIZED_REASON=\"<justification>\" to bypass"
-            fail "See genotype issue #189."
-            if command -v edge-signal &>/dev/null; then
-                edge-signal friction "Phase 3.35 BLOCKED: $N uncrystallized candidates" --source consolidate-state 2>/dev/null || true
-            fi
-            exit 4
-        fi
-        warn "Publishing with $N uncrystallized candidates (opt-out): $ALLOW_UNCRYSTALLIZED_REASON"
+        fail "Curation has $N uncrystallized candidates"
+        fail "Run 'edge-crystallize' to create workflow-draft entries before publishing."
         if command -v edge-signal &>/dev/null; then
-            edge-signal friction "Phase 3.35 opt-out ($N uncrystallized): $ALLOW_UNCRYSTALLIZED_REASON" --source consolidate-state 2>/dev/null || true
+            edge-signal friction "Phase 3.35 BLOCKED: $N uncrystallized candidates" --source consolidate-state 2>/dev/null || true
         fi
+        exit 1
         ;;
     OK) ;;
     *) ;;
@@ -848,27 +761,26 @@ fi
 # ─── PHASE 4: Meta-report (cognitive mirror) ───
 # Captures state delta + scratchpad + adversarial BEFORE state commit.
 # Agent reads this before making manual state changes (MEMORY.md, debugging.md, etc.)
-if [[ "$NO_META" == "false" ]]; then
-    echo ""
-    echo "── Phase 4: Meta-report ──"
-    if command -v edge-meta-report &>/dev/null || [[ -x "$TOOLS_DIR/edge-meta-report" ]]; then
-        META_CMD="edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
-        # Use tools dir if not in PATH
-        command -v edge-meta-report &>/dev/null || META_CMD="$TOOLS_DIR/edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
+echo ""
+echo "── Phase 4: Meta-report ──"
+if command -v edge-meta-report &>/dev/null || [[ -x "$TOOLS_DIR/edge-meta-report" ]]; then
+    META_CMD="edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
+    # Use tools dir if not in PATH
+    command -v edge-meta-report &>/dev/null || META_CMD="$TOOLS_DIR/edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
 
-        [[ -n "$SCRATCHPAD" ]] && META_CMD="$META_CMD --scratchpad $SCRATCHPAD"
-        [[ "$NO_ADVERSARIAL" == "true" ]] && META_CMD="$META_CMD --no-adversarial"
+    [[ -n "$SCRATCHPAD" ]] && META_CMD="$META_CMD --scratchpad $SCRATCHPAD"
+    [[ "$NO_ADVERSARIAL" == "true" ]] && META_CMD="$META_CMD --no-adversarial"
 
-        META_OUTPUT=$($META_CMD 2>&1)
-        META_EXIT=$?
+    META_OUTPUT=$($META_CMD 2>&1)
+    META_EXIT=$?
 
-        if [[ $META_EXIT -eq 0 ]]; then
-            META_REPORT_PATH=$(echo "$META_OUTPUT" | head -1 | sed 's/^OK: //')
-            META_BASENAME=$(basename "$META_REPORT_PATH")
-            ok "Meta-report: $META_BASENAME"
-            # Inject meta_report field into entry frontmatter
-            if ! grep -q "^meta_report:" "$ENTRY_PATH" 2>/dev/null; then
-                if python3 -c "
+    if [[ $META_EXIT -eq 0 ]]; then
+        META_REPORT_PATH=$(echo "$META_OUTPUT" | head -1 | sed 's/^OK: //')
+        META_BASENAME=$(basename "$META_REPORT_PATH")
+        ok "Meta-report: $META_BASENAME"
+        # Inject meta_report field into entry frontmatter
+        if ! grep -q "^meta_report:" "$ENTRY_PATH" 2>/dev/null; then
+            if python3 -c "
 import sys
 try:
     path, meta = sys.argv[1], sys.argv[2]
@@ -884,33 +796,32 @@ except Exception as e:
     print(f'FAIL: {e}', file=sys.stderr)
     sys.exit(1)
 " "$ENTRY_PATH" "$META_BASENAME" 2>/dev/null; then
-                    ok "Added meta_report: $META_BASENAME to entry frontmatter"
-                else
-                    warn "meta_report injection failed"
-                    log_failure "4" "meta_report_injection" "Failed to inject meta_report into frontmatter"
-                fi
+                ok "Added meta_report: $META_BASENAME to entry frontmatter"
+            else
+                warn "meta_report injection failed"
+                log_failure "4" "meta_report_injection" "Failed to inject meta_report into frontmatter"
             fi
-            if echo "$META_OUTPUT" | grep -q "Scratchpad:"; then
-                ARCHIVED=$(echo "$META_OUTPUT" | grep "Scratchpad:" | sed 's/.*Scratchpad: //')
-                ok "Scratchpad archived: $(basename "$ARCHIVED")"
-            fi
-            # Inject review-gate results into meta-report (so check-quality can find them)
-            if [[ -n "${REVIEW_SCORE:-}" && -f "$META_REPORT_PATH" ]]; then
-                cat >> "$META_REPORT_PATH" <<REVIEW_EOF
+        fi
+        if echo "$META_OUTPUT" | grep -q "Scratchpad:"; then
+            ARCHIVED=$(echo "$META_OUTPUT" | grep "Scratchpad:" | sed 's/.*Scratchpad: //')
+            ok "Scratchpad archived: $(basename "$ARCHIVED")"
+        fi
+        # Inject review-gate results into meta-report (so check-quality can find them)
+        if [[ -n "${REVIEW_SCORE:-}" && -f "$META_REPORT_PATH" ]]; then
+            cat >> "$META_REPORT_PATH" <<REVIEW_EOF
 
 ## Review Gate
 
 - overall review score: ${REVIEW_SCORE}/5.0
 - review cost: \$${REVIEW_COST}
 REVIEW_EOF
-                ok "Review gate results injected into meta-report"
-            fi
-        else
-            warn "edge-meta-report failed (exit $META_EXIT)"
+            ok "Review gate results injected into meta-report"
         fi
     else
-        warn "edge-meta-report not found — skipping"
+        warn "edge-meta-report failed (exit $META_EXIT)"
     fi
+else
+    warn "edge-meta-report not found — skipping"
 fi
 echo ""
 
