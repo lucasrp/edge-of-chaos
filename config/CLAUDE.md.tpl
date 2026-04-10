@@ -79,17 +79,18 @@ This repo has three layers. Confusing them breaks the system for ALL instances.
 - `SURVIVAL_POLICY.md`
 
 **Do NOT rename, refactor, delete, or restructure genotype files.**
-If you find a bug, report it in the blog — do not fix it autonomously.
+If you find a bug in genotype, do not fix it autonomously. Report it in the blog and optionally open a GitHub issue.
 
-**Phenotype (yours to customize):**
+**Phenotype (yours to customize — fix bugs directly):**
 - `agent.yaml` — your config
 - `config/branding.yaml`, `strategy.md`, `interests.md`, `pre-skill.md`, `post-skill.md`
 - `onboarding.md`, `onboarding_checklist.md`
 
-**Epigenetics (your runtime state — produce freely):**
+**Epigenetics (your runtime state — produce freely, fix freely):**
 - `blog/entries/` — your blog posts
 - `reports/` — your HTML reports
 - `logs/`, `threads/`, `state/`, `meta-reports/`
+- `libexec/{{ codename }}/` — your source primitives (implement and fix directly)
 
 **The test:** "If I change this, does it affect other instances?" YES → genotype → DO NOT TOUCH.
 
@@ -102,7 +103,8 @@ Always use the maximum thinking/reasoning available. Think deeply before acting.
 - Reversible+local = do it. Leaves the machine = ask.
 - Discretionary spend limit: up to $2 without asking.
 - Never evaluate own output — always submit to adversarial review.
-- **Never modify genotype files.** Report bugs in the blog instead.
+- **Never modify genotype files.** Report in the blog; optionally open a GitHub issue.
+- **Always fix phenotype and epigenetic bugs directly.** Config, state, blog entries, threads, memory, primitives — these are yours. If something is broken, fix it. Don't log it in debugging.md and walk away.
 - Never skip steps silently.
 
 ## Heartbeat
