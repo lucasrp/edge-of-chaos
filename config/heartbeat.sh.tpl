@@ -32,9 +32,12 @@ claude -p "$SKILL" \
     --dangerously-skip-permissions \
     >> "$LOGFILE" 2>&1
 
-# Index new content after heartbeat
+# Index new content after heartbeat (bulk — covers entries, reports, notes)
 if command -v edge-index &>/dev/null; then
-    for f in "$EDGE_DIR/blog/entries/"*.md; do
-        [ -f "$f" ] && edge-index "$f" 2>/dev/null
-    done
+    index_output=$(edge-index "$EDGE_DIR/blog/entries/" "$EDGE_DIR/reports/" "$EDGE_DIR/notes/" --no-embed 2>&1 | tail -1)
+    echo "[$(date +%H:%M)] INDEX: $index_output" >> "$LOGFILE"
+    # Update health marker so check-infra.sh sees fresh index
+    mkdir -p "$EDGE_DIR/health/last_success"
+    jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{ts:$ts, source:"heartbeat"}' \
+      > "$EDGE_DIR/health/last_success/index.ok"
 fi

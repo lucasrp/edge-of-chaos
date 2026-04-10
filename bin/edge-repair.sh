@@ -119,7 +119,7 @@ fi
 
 # --- Index ---
 index_status=$(jq -r '.infra.index.status // "unknown"' "$HEALTH_DIR/current.json")
-if [[ "$index_status" == "fail" || "$index_status" == "unknown" ]]; then
+if [[ "$index_status" == "fail" || "$index_status" == "degraded" || "$index_status" == "unknown" ]]; then
   if in_cooldown index; then
     repair_log "Index: in cooldown, skipping"
   else
