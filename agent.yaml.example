@@ -180,6 +180,14 @@ public_url: ""
 repo_owner: lucasrp
 repo_name: edge-of-chaos
 
+# --- LLM Provider (optional) ---
+# Only set this if NOT using standard OpenAI (sk-*) or Grok (xAI).
+# When set, edge-apply generates a llm-provider primitive in libexec/
+# that the agent owns and can fix directly.
+# Values: azure, openrouter, bedrock (omit for standard OpenAI/Grok)
+# llm_provider: azure
+
+# --- LLM Models ---
 openai_model: gpt-5.4
 openai_model_mini: gpt-4.1-mini
 grok_model: grok-4.20-multi-agent-beta-0309

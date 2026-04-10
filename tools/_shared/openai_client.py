@@ -18,13 +18,16 @@ Usage:
     # Works identically whether OpenAI or AzureOpenAI
 """
 
+import json
 import os
+import subprocess
 from pathlib import Path
 
 _SECRETS_DIR = None
 AZURE_API_VERSION_DEFAULT = "2025-03-01-preview"
 
 _env_loaded = False
+_provider_config = None
 
 
 def _get_secrets_dir() -> Path:
@@ -80,12 +83,40 @@ def _is_azure_key(api_key: str) -> bool:
     return bool(api_key) and not api_key.startswith("sk-")
 
 
-def make_openai_client(api_key=None, timeout=120, base_url=None):
-    """Create OpenAI or AzureOpenAI client based on key type.
+def _load_provider_config():
+    """Check for llm-provider primitive and load its config (#194)."""
+    global _provider_config
+    if _provider_config is not None:
+        return _provider_config
 
-    - If base_url is given (e.g. xAI), always standard OpenAI client.
-    - If key is Azure-style and endpoint available, AzureOpenAI.
-    - Otherwise, standard OpenAI.
+    edge_dir = Path(os.environ.get("EDGE_DIR", os.path.expanduser("~/edge")))
+    codename = os.environ.get("EDGE_CODENAME", "ed")
+    prim_path = edge_dir / "libexec" / codename / "llm-provider"
+
+    if prim_path.exists() and os.access(prim_path, os.X_OK):
+        try:
+            result = subprocess.run(
+                [str(prim_path)], capture_output=True, text=True, timeout=10,
+                env={**os.environ, "EDGE_DIR": str(edge_dir)}
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                _provider_config = json.loads(result.stdout.strip())
+                return _provider_config
+        except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+            pass
+
+    _provider_config = {}
+    return _provider_config
+
+
+def make_openai_client(api_key=None, timeout=120, base_url=None):
+    """Create OpenAI or AzureOpenAI client based on key type or llm-provider primitive.
+
+    Priority:
+    1. Explicit base_url (e.g. xAI) → standard OpenAI client
+    2. llm-provider primitive exists → use its config
+    3. Azure auto-detection (non-sk- key + endpoint)
+    4. Standard OpenAI
     """
     from openai import OpenAI
 
@@ -99,7 +130,30 @@ def make_openai_client(api_key=None, timeout=120, base_url=None):
             kwargs["timeout"] = timeout
         return OpenAI(**kwargs)
 
-    # Azure detection
+    # Check llm-provider primitive (#194)
+    provider_cfg = _load_provider_config()
+    if provider_cfg.get("provider") == "azure":
+        from openai import AzureOpenAI
+        kwargs = {
+            "api_key": provider_cfg.get("api_key", api_key),
+            "azure_endpoint": provider_cfg.get("endpoint", ""),
+            "api_version": provider_cfg.get("api_version", AZURE_API_VERSION_DEFAULT),
+        }
+        if timeout:
+            kwargs["timeout"] = timeout
+        return AzureOpenAI(**kwargs)
+    elif provider_cfg.get("provider") == "openrouter":
+        kwargs = {
+            "api_key": provider_cfg.get("api_key", api_key),
+            "base_url": provider_cfg.get("endpoint", "https://openrouter.ai/api/v1"),
+            "timeout": timeout,
+        }
+        return OpenAI(**kwargs)
+    elif provider_cfg.get("provider") == "bedrock":
+        # Bedrock uses its own SDK — fallback to standard for now
+        pass
+
+    # Azure auto-detection (legacy — kept for instances without llm-provider)
     if _is_azure_key(api_key):
         azure_endpoint = _load_azure_endpoint()
         if azure_endpoint:
