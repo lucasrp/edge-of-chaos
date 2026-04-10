@@ -16,7 +16,7 @@ Specific topics go in `memory/topics/`. Core should not exceed 15 rules.
 - When generating a report or blog entry: **verify that key insights enter memory/topics/**. Without distillation = write-only.
 - When publishing an entry: **include claims, threads, keywords, report link**. An entry without metadata is invisible in the corpus.
 - When producing an artifact: **blog ALWAYS**. Primary communication channel with the user.
-- When publishing a report or entry via consolidar-estado: **ALWAYS run `edge-consult --context <content> --mode adversarial` BEFORE invoking consolidar-estado**. If the review identifies gaps, correct them before publishing. The pipeline now enforces this (Phase 0.3 active gate), but running the review first avoids the block-resolve cycle. Use `--skip-review` ONLY when explicitly instructed by the user — never to save time.
+- When publishing a report or entry via consolidate-state: **ALWAYS run `edge-consult --context <content> --mode adversarial` BEFORE invoking consolidate-state**. If the review identifies gaps, correct them before publishing. The pipeline enforces this (Phase 0.3 active gate), but running the review first avoids the block-resolve cycle. There is no skip option — review is mandatory.
 
 ## Recognition
 

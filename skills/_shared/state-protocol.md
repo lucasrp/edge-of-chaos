@@ -214,14 +214,15 @@ consolidate-state extracts these automatically via `edge-signal`.
 
 ### Step 6: Publish via consolidate-state (MANDATORY)
 
+**Every skill produces a blog entry.** This is the universal invariant. Report (YAML/HTML) is optional. There are no bypass flags and no skip options — every entry goes through the full pipeline: adversarial review, review gate (if YAML report), meta-report, state commit, git audit trail.
+
 **NEVER publish entries or reports manually.** Always use consolidate-state.
-Without it: no meta-report, no state commit, no adversarial review, no git audit trail.
 
 ```bash
-# With content report
+# Entry + report (recommended when skill produces a report YAML)
 consolidate-state ~/edge/blog/entries/<slug>.md /tmp/spec-<skill>.yaml
 
-# Without content report (meta-only)
+# Entry only (report is optional — pipeline runs normally)
 consolidate-state ~/edge/blog/entries/<slug>.md
 ```
 
