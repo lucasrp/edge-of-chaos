@@ -7,8 +7,8 @@ source "$SCRIPT_DIR/survival-lib.sh"
 
 BLOG_PORT=$(read_yaml_key blog_port 2>/dev/null || echo 8766)
 BLOG_SERVICE=$(read_yaml_key blog_service 2>/dev/null || echo blog-server.service)
-SQLITE_DB=$(read_yaml_key sqlite_db 2>/dev/null || echo "$HOME/edge/edge-memory.db")
-REPO_ROOT=$(read_yaml_key repo_root 2>/dev/null || echo "$HOME/edge")
+SQLITE_DB=$(read_yaml_key sqlite_db 2>/dev/null || echo "$EDGE_DIR/edge-memory.db")
+REPO_ROOT=$(read_yaml_key repo_root 2>/dev/null || echo "$EDGE_DIR")
 
 # --- disk ---
 check_disk() {

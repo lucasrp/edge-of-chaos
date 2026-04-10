@@ -702,6 +702,7 @@ except:
 # ─── PHASE 3.35: Crystallization gate (curation entries only) ───
 CRYST_CHECK=$(python3 -c "
 import yaml, json, os, glob, sys
+edge_dir = os.environ.get('EDGE_DIR', os.path.expanduser('~/edge'))
 try:
     raw = open('$ENTRY_PATH').read()
     parts = raw.split('---', 2)
@@ -710,7 +711,7 @@ try:
     if not ('curation' in tags or 'procedures' in tags):
         print('SKIP')
         sys.exit(0)
-    pc = os.path.expanduser('~/edge/state/procedure-curation.json')
+    pc = os.path.join(edge_dir, 'state', 'procedure-curation.json')
     if not os.path.exists(pc):
         print('SKIP')
         sys.exit(0)
@@ -719,7 +720,7 @@ try:
     if not candidates:
         print('SKIP')
         sys.exit(0)
-    entries = glob.glob(os.path.expanduser('~/edge/blog/entries/*workflow*.md'))
+    entries = glob.glob(os.path.join(edge_dir, 'blog', 'entries', '*workflow*.md'))
     drafts = 0
     for e in entries:
         head = open(e).read()[:500]
@@ -847,6 +848,9 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import uuid
 
+# Resolve install location: prefer EDGE_DIR env, fall back to legacy ~/edge.
+EDGE_DIR = Path(os.environ.get("EDGE_DIR", os.path.expanduser("~/edge")))
+
 entry_path = sys.argv[1]
 slug = sys.argv[2]
 report_filename = sys.argv[3] if len(sys.argv) > 3 else ""
@@ -859,7 +863,7 @@ def ok(msg): print(f"  {GREEN}OK{NC}: {msg}")
 def warn(msg): print(f"  {YELLOW}WARN{NC}: {msg}")
 def fail(msg): print(f"  {RED}FAIL{NC}: {msg}")
 
-FAILURES_FILE = Path.home() / "edge" / "logs" / "pipeline-failures.jsonl"
+FAILURES_FILE = EDGE_DIR / "logs" / "pipeline-failures.jsonl"
 FAILURES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 def log_failure(phase, operation, error, tb=None):
@@ -916,7 +920,7 @@ except Exception as e:
 
 # ── 2. Thread update ──
 try:
-    threads_dir = Path.home() / "edge" / "threads"
+    threads_dir = EDGE_DIR / "threads"
     updated_threads = []
     threads_dir.mkdir(parents=True, exist_ok=True)
     for tid in threads:
@@ -944,7 +948,7 @@ except Exception as e:
 
 # ── 2b. Procedure & workflow signals ──
 try:
-    state_dir = Path.home() / "edge" / "state"
+    state_dir = EDGE_DIR / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
     health_file = state_dir / "workflow-health.json"
 
@@ -1049,7 +1053,7 @@ except Exception as e:
 
 # ── 3. Event log (idempotent) ──
 try:
-    events_file = Path.home() / "edge" / "logs" / "events.jsonl"
+    events_file = EDGE_DIR / "logs" / "events.jsonl"
     artifacts = [f"blog/entries/{slug}.md"]
     if report_filename:
         artifacts.append(f"reports/{report_filename}")
@@ -1207,6 +1211,9 @@ import sys, yaml, json, os, subprocess, urllib.request, traceback
 from pathlib import Path
 from datetime import datetime, timezone
 
+# Resolve install location: prefer EDGE_DIR env, fall back to legacy ~/edge.
+EDGE_DIR = Path(os.environ.get("EDGE_DIR", os.path.expanduser("~/edge")))
+
 entry_path, slug, report, reason = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 state_audit_exit = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5].isdigit() else -1
 report_result = sys.argv[6] if len(sys.argv) > 6 else "skip"
@@ -1219,7 +1226,7 @@ def ok(msg): print(f"  {GREEN}OK{NC}: {msg}")
 def warn(msg): print(f"  {YELLOW}WARN{NC}: {msg}")
 def fail(msg): print(f"  {RED}FAIL{NC}: {msg}")
 
-FAILURES_FILE = Path.home() / "edge" / "logs" / "pipeline-failures.jsonl"
+FAILURES_FILE = EDGE_DIR / "logs" / "pipeline-failures.jsonl"
 FAILURES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 def log_failure(phase, operation, error, tb=None):
@@ -1454,8 +1461,8 @@ if failures:
 lines.append("")
 
 # State audit summary (if audit ran)
-proposal_path = Path.home() / "edge" / "meta-reports" / f"{slug}.state-proposal.yaml"
-audit_path = Path.home() / "edge" / "meta-reports" / f"{slug}.state-audit.yaml"
+proposal_path = EDGE_DIR / "meta-reports" / f"{slug}.state-proposal.yaml"
+audit_path = EDGE_DIR / "meta-reports" / f"{slug}.state-audit.yaml"
 if audit_path.exists():
     try:
         audit_data = yaml.safe_load(audit_path.read_text())
@@ -1520,7 +1527,7 @@ if audit_path.exists():
 
 # ── Execution summary from ops-hotspots.json ──
 try:
-    hotspots_path = Path.home() / "edge" / "state" / "ops-hotspots.json"
+    hotspots_path = EDGE_DIR / "state" / "ops-hotspots.json"
     if hotspots_path.exists():
         hotspots = json.loads(hotspots_path.read_text())
         incidents = hotspots.get("incidents", [])

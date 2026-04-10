@@ -92,7 +92,7 @@ else
       log_health "supervisor: MAINTENANCE MODE — diagnostics only"
       touch "$HEALTH_DIR/operator-alert.flag"
       cd "$HOME"
-      claude -p "Leia ~/edge/health/current.json e ~/edge/SURVIVAL_POLICY.md. Status: $status, score: $score_after. Diagnostique os problemas e tente reparar o que puder. NÃO execute missão normal." \
+      claude -p "Leia $EDGE_DIR/health/current.json e $EDGE_DIR/SURVIVAL_POLICY.md. Status: $status, score: $score_after. Diagnostique os problemas e tente reparar o que puder. NÃO execute missão normal." \
         --max-turns 10 \
         --allowedTools "Bash(*),Read(*),Write(*),Edit(*),Glob(*),Grep(*)" \
         2>&1 || true

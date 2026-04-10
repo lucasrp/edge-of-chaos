@@ -86,8 +86,8 @@ When all steps are done, set `onboarding_mode: false` in agent.yaml.
 
 ```bash
 python3 -c "
-import json, pathlib
-f = pathlib.Path.home() / 'edge' / 'state' / 'beat-rotation.json'
+import json, os, pathlib
+f = pathlib.Path(os.environ.get('EDGE_DIR', os.path.expanduser('~/edge'))) / 'state' / 'beat-rotation.json'
 try:
     rot = json.loads(f.read_text())
 except:

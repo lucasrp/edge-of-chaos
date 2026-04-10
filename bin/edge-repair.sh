@@ -9,7 +9,7 @@ REPAIR_STATE="$HEALTH_DIR/repair-state.json"
 REPAIR_LOG="$HEALTH_DIR/repair.log"
 BLOG_SERVICE=$(read_yaml_key blog_service 2>/dev/null || echo blog-server.service)
 BLOG_PORT=$(read_yaml_key blog_port 2>/dev/null || echo 8766)
-SQLITE_DB=$(read_yaml_key sqlite_db 2>/dev/null || echo "$HOME/edge/edge-memory.db")
+SQLITE_DB=$(read_yaml_key sqlite_db 2>/dev/null || echo "$EDGE_DIR/edge-memory.db")
 
 # Initialize repair state if missing
 if [[ ! -f "$REPAIR_STATE" ]]; then
@@ -124,7 +124,7 @@ if [[ "$index_status" == "fail" || "$index_status" == "unknown" ]]; then
     repair_log "Index: in cooldown, skipping"
   else
     repair_log "Index: attempting reindex"
-    if safe_timeout 60 edge-index "$HOME/edge/blog/entries/" "$HOME/edge/reports/" "$HOME/edge/notes/" 2>/dev/null; then
+    if safe_timeout 60 edge-index "$EDGE_DIR/blog/entries/" "$EDGE_DIR/reports/" "$EDGE_DIR/notes/" 2>/dev/null; then
       repair_log "Index: reindex SUCCESS"
       update_repair_state index true
       jq -n --arg ts "$(ts_now)" '{ts:$ts, source:"repair"}' > "$HEALTH_DIR/last_success/index.ok"

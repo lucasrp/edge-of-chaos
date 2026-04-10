@@ -2,7 +2,13 @@
 # survival-lib.sh — shared functions for health checks
 # Part of: Instinto de Sobrevivência (edge_of_chaos)
 
-HEALTH_DIR="${HEALTH_DIR:-$HOME/edge/health}"
+# Derive EDGE_DIR from this script's location: <edge_home>/bin/survival-lib.sh
+# This makes the library work for any edge_home value, not just ~/edge.
+_SURVIVAL_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EDGE_DIR="${EDGE_DIR:-$(dirname "$_SURVIVAL_LIB_DIR")}"
+export EDGE_DIR
+
+HEALTH_DIR="${HEALTH_DIR:-$EDGE_DIR/health}"
 CONFIG_FILE="${CONFIG_FILE:-$HEALTH_DIR/config.yaml}"
 RAW_DIR="$HEALTH_DIR/raw"
 
@@ -70,7 +76,7 @@ atomic_write() {
 
 read_yaml_key() {
   local key="$1"
-  local agent_yaml="${REPO_ROOT:-$HOME/edge}/agent.yaml"
+  local agent_yaml="${REPO_ROOT:-$EDGE_DIR}/agent.yaml"
   python3 -c "
 import yaml, sys
 for path in ['$CONFIG_FILE', '$agent_yaml']:
