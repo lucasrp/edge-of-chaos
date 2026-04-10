@@ -20,7 +20,8 @@ import markdown
 import yaml
 
 # ─── Paths ───
-ROOT = Path.home() / "edge"
+# Derive ROOT from this file's location: <edge_home>/blog/app.py → <edge_home>
+ROOT = Path(__file__).resolve().parent.parent
 BLOG_DIR = ROOT / "blog"
 ENTRIES_DIR = BLOG_DIR / "entries"
 COMMENTS_FILE = BLOG_DIR / "comments.json"
@@ -768,11 +769,11 @@ def entries_json():
 
 
 def get_autonomy_data():
-    """Read ~/edge/autonomy/capabilities.md and compute Sheridan stats."""
+    """Read <edge_home>/autonomy/capabilities.md and compute Sheridan stats."""
     import re
     try:
-        cap_path = Path.home() / "edge" / "autonomy" / "capabilities.md"
-        frontier_path = Path.home() / "edge" / "autonomy" / "frontier.md"
+        cap_path = ROOT / "autonomy" / "capabilities.md"
+        frontier_path = ROOT / "autonomy" / "frontier.md"
         content = cap_path.read_text()
         # Parse table rows: | # | Name | Sheridan | ...
         rows = re.findall(r'^\|\s*\d+\s*\|([^|]+)\|\s*(\d+)\s*\|', content, re.MULTILINE)

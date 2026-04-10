@@ -9,7 +9,8 @@ from pathlib import Path
 import markdown
 import yaml
 
-ROOT = Path.home() / "edge"
+# Derive ROOT from this file's location: <edge_home>/blog/services.py → <edge_home>
+ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / "state"
 THREADS_DIR = ROOT / "threads"
 LOGS_DIR = ROOT / "logs"
