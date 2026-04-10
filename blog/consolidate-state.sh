@@ -49,18 +49,36 @@ POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --help|-h)
-            echo "Usage: consolidate-state <entry.md> [report.yaml|report.html]"
+            echo "Usage: consolidate-state <entry.md> <report.yaml|report.html>"
+            echo ""
+            echo "Note: <report> is MANDATORY (Rule #0, issue #189). To publish without"
+            echo "a report, set ALLOW_NO_REPORT_REASON=\"<reason>\" — opt-out is logged."
             echo ""
             echo "Flags:"
-            echo "  --skip-review      Skip review gate (LLM-as-judge)"
+            echo "  --skip-review      Skip review gate (requires SKIP_REVIEW_REASON)"
             echo "  --review-only      Run only the review gate, without publishing"
             echo "  --recover          Detect and re-run Phase 5/6 for incomplete publications"
             echo "  --scratchpad PATH  Scratchpad for meta-report (default: /tmp/edge-scratch-active.md)"
             echo "  --no-adversarial   Skip edge-consult in meta-report"
-            echo "  --no-meta          Skip meta-report (Phase 4)"
-            echo "  --force            Bypass workflow citation check (procedure without workflows_used)"
+            echo "  --no-meta          Skip meta-report Phase 4 (requires NO_META_REASON)"
+            echo "  --force            Bypass workflow citation check (requires FORCE_REASON)"
             echo "  --reason TEXT      Custom commit message reason"
             echo "  --help, -h         Show this help"
+            echo ""
+            echo "Bypass env vars (issue #189 — every escape hatch requires a reason):"
+            echo "  ALLOW_NO_REPORT_REASON     — publish without <report.yaml|html>"
+            echo "  NO_META_REASON             — required if --no-meta is used"
+            echo "  SKIP_REVIEW_REASON         — required if --skip-review is used"
+            echo "  FORCE_REASON               — required if --force is used"
+            echo "  ALLOW_UNCRYSTALLIZED_REASON — required to bypass Phase 3.35 crystallization gate"
+            echo ""
+            echo "Exit codes:"
+            echo "  0  success"
+            echo "  1  fatal error (most blocks)"
+            echo "  2  partial success"
+            echo "  3  adversarial review pending / review-gate below threshold"
+            echo "  4  missing required enforcement / reason (Rule #0)"
+            echo "  5  state audit detected unproposed/divergent change"
             exit 0
             ;;
         --skip-review) SKIP_REVIEW=true; shift ;;
@@ -86,6 +104,50 @@ NC='\033[0m'
 ok()   { echo -e "  ${GREEN}OK${NC}: $1"; }
 warn() { echo -e "  ${YELLOW}WARN${NC}: $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}: $1"; }
+
+# ─── Rule #0 Enforcement (issue #189) ───
+# Documented invariants compiled into checks. Every escape hatch from a
+# documented bypass requires an env var with a justification string, logged
+# to state/signals/friction.md. Exit code 4 = missing required reason.
+#
+# Bypasses governed:
+#   - no REPORT_INPUT (Phase 2 + Phase 0.5 collateral) → ALLOW_NO_REPORT_REASON
+#   - --no-meta (Phase 4)                              → NO_META_REASON
+#   - --skip-review (Phase 0.5)                        → SKIP_REVIEW_REASON
+#   - --force (Phase 3.3)                              → FORCE_REASON
+#
+# Phase 3.35 crystallization gate has its own block downstream.
+
+require_reason() {
+    local label="$1"
+    local var_name="$2"
+    local var_value="${!var_name:-}"
+    if [[ -z "$var_value" ]]; then
+        fail "$label requires $var_name=\"<justification>\" env var"
+        fail "See genotype issue #189 for the enforcement policy."
+        exit 4
+    fi
+    if command -v edge-signal &>/dev/null; then
+        edge-signal friction "$label opt-out: $var_value" --source consolidate-state 2>/dev/null || true
+    fi
+    warn "$label opt-out logged: $var_value"
+}
+
+# Phase 2 (+ Phase 0.5 collateral): report YAML/HTML mandatory
+if [[ -z "$REPORT_INPUT" ]]; then
+    if [[ -z "${ALLOW_NO_REPORT_REASON:-}" ]]; then
+        fail "Rule #0: report YAML/HTML is MANDATORY for all entries."
+        fail "Pass spec as 2nd arg, OR set ALLOW_NO_REPORT_REASON=\"<justification>\""
+        fail "See genotype issue #189."
+        exit 4
+    fi
+    require_reason "Rule #0 (no report)" "ALLOW_NO_REPORT_REASON"
+fi
+
+# Flag-based bypass paths require reasons
+[[ "$NO_META"     == "true" ]] && require_reason "--no-meta"     "NO_META_REASON"
+[[ "$SKIP_REVIEW" == "true" ]] && require_reason "--skip-review" "SKIP_REVIEW_REASON"
+[[ "$FORCE"       == "true" ]] && require_reason "--force"       "FORCE_REASON"
 
 # Log pipeline failure to JSONL (bash phases)
 FAILURES_LOG="$LOGS_DIR/pipeline-failures.jsonl"
@@ -735,7 +797,22 @@ except Exception as e:
 case "$CRYST_CHECK" in
     MISSING:*)
         N="${CRYST_CHECK#MISSING:}"
-        warn "Curation has $N uncrystallized candidates — run 'edge-crystallize' to create workflow-draft entries"
+        # Phase 3.35 hard block (issue #189): curation entries with uncrystallized
+        # candidates must crystallize before publishing OR opt out with a reason.
+        if [[ -z "${ALLOW_UNCRYSTALLIZED_REASON:-}" ]]; then
+            fail "Curation has $N uncrystallized candidates"
+            fail "Run 'edge-crystallize' to create workflow-draft entries"
+            fail "Or set ALLOW_UNCRYSTALLIZED_REASON=\"<justification>\" to bypass"
+            fail "See genotype issue #189."
+            if command -v edge-signal &>/dev/null; then
+                edge-signal friction "Phase 3.35 BLOCKED: $N uncrystallized candidates" --source consolidate-state 2>/dev/null || true
+            fi
+            exit 4
+        fi
+        warn "Publishing with $N uncrystallized candidates (opt-out): $ALLOW_UNCRYSTALLIZED_REASON"
+        if command -v edge-signal &>/dev/null; then
+            edge-signal friction "Phase 3.35 opt-out ($N uncrystallized): $ALLOW_UNCRYSTALLIZED_REASON" --source consolidate-state 2>/dev/null || true
+        fi
         ;;
     OK) ;;
     *) ;;
