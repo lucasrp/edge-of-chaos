@@ -294,9 +294,11 @@ After reading all context from Step 1, classify the beat:
 
 ### Decision tree (simple)
 
-1. **User asked for something?** (message in chat/comment with direction) → Address it. If it's an internal change → do it. If it's a project → note it, reply that it needs /ed-execute.
+1. **User gave corrections or operational directives?** (session with "always", "never", "from now on", config updates, deadline corrections, workflow instructions) → Dispatch `/ed-reflection`. Reflection processes operator feedback, crystallizes workflows, updates internal state. This is NOT housekeeping — it IS the skill.
 
-2. **Dispatch queue has pending items?** → Check `state/dispatch-queue.json` for queued dispatches from reflection or other skills:
+2. **User asked for something?** (message in chat/comment with direction) → Address it. If it's an internal change → do it. If it's a project → note it, reply that it needs /ed-execute.
+
+3. **Dispatch queue has pending items?** → Check `state/dispatch-queue.json` for queued dispatches from reflection or other skills:
 
 ```bash
 python3 -c "
@@ -320,20 +322,20 @@ else:
 
 If `DISPATCH_PENDING` → dispatch the indicated internal skill (e.g., `/ed-corpus-curation procedures`). Internal skills (`invocation: internal`) are only dispatched by explicit signal from another skill, never by the normal rotation.
 
-3. **Pending error in debugging.md that I can resolve?** → Resolve.
+4. **Pending error in debugging.md that I can resolve?** → Resolve.
 
-4. **Thread with overdue resurface and owner:edge?** → Use the thread as topic. Read the thread file (`~/edge/threads/ID.md`), understand the next step, and dispatch the appropriate skill. Consult `edge-claims --thread THREAD_ID` to see verified and open claims for the thread. Open claims (`!`) are knowledge gaps — natural candidates for `/ed-research` or `/ed-experiment`. Update `resurface` and `updated` in the thread after the beat.
+5. **Thread with overdue resurface and owner:edge?** → Use the thread as topic. Read the thread file (`~/edge/threads/ID.md`), understand the next step, and dispatch the appropriate skill. Consult `edge-claims --thread THREAD_ID` to see verified and open claims for the thread. Open claims (`!`) are knowledge gaps — natural candidates for `/ed-research` or `/ed-experiment`. Update `resurface` and `updated` in the thread after the beat.
 
-5. **Open claim without a resurfacing thread?** → `edge-claims --open` shows what I don't know yet. If any open claim has matured (more context available, new research that could answer it), consider it as a topic for `/ed-research`.
+6. **Open claim without a resurfacing thread?** → `edge-claims --open` shows what I don't know yet. If any open claim has matured (more context available, new research that could answer it), consider it as a topic for `/ed-research`.
 
-6. **None of the above?** → Choose ONE skill based on what seems most useful NOW:
+7. **None of the above?** → Choose ONE skill based on what seems most useful NOW:
    - `/ed-research [topic]` — when there is an open question or hot topic
    - `/ed-discovery` — when context suggests an interesting lateral connection
    - `/ed-strategy` — every ~5 beats, or when context changed
    - `/ed-reflection` — when there is user feedback to process
    - `/ed-planner` — when there is a mature insight to turn into a proposal
 
-7. **Absolute fallback (NEVER skip):** If nothing above applies, dispatch `/ed-discovery` or `/ed-research` (alternate with the last one). The heartbeat NEVER ends without dispatching.
+8. **Absolute fallback (NEVER skip):** If nothing above applies, dispatch `/ed-discovery` or `/ed-research` (alternate with the last one). The heartbeat NEVER ends without dispatching.
 
 **Anti-saturation rule:** If the last 3 beats were on the same topic, CHANGE TOPIC (don't stop).
 
@@ -395,6 +397,38 @@ After the skill's main work is done (Step 2) and before logging (Step 3):
    the operator needs to know what happened
 
 **A post-skill that stops at the first failure is a bug, not caution.**
+
+---
+
+## Step 2.95: Dispatch verification (MANDATORY — mechanical check)
+
+Before logging, verify that a skill was actually dispatched. This is not optional.
+
+```bash
+# Check if edge-skill-step recorded a 'start' for this beat
+today=$(date +%Y-%m-%d)
+DISPATCHED=$(python3 -c "
+import json, sys
+try:
+    steps = [json.loads(l) for l in open('$HOME/edge/logs/skill-steps.jsonl') if l.strip()]
+    today_starts = [s for s in steps if s.get('step') == 'start' and '$today' in s.get('timestamp', '')]
+    if today_starts:
+        last = today_starts[-1]
+        print(f'OK: {last.get(\"skill\", \"unknown\")}')
+    else:
+        print('FAIL: no skill dispatched')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null)
+echo "$DISPATCHED"
+```
+
+**If `FAIL`:** The heartbeat did work without dispatching a skill. This violates the protocol. Do NOT proceed to Step 3. Instead:
+1. Log the violation to `debugging.md`
+2. Log to the heartbeat log: `[HH:MM] Beat #N — VIOLATION: no skill dispatched. Work done inline without tracking.`
+3. The beat is invalid. The work is invisible to reflection.
+
+**If `OK`:** Proceed to Step 3.
 
 ---
 
