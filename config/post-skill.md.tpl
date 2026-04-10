@@ -13,6 +13,6 @@ These actions are **phenotype** — they vary by agent and operator.
 
 ## Notes
 
-- The publication pipeline (blog → report → consolidate-state → adversarial) is **genotype** and lives in skills + `_shared/state-protocol.md`
+- The publication pipeline (blog entry → consolidate-state → adversarial review → meta-report → state commit) is **genotype** and lives in skills + `_shared/state-protocol.md`. Every skill produces a blog entry — report is optional.
 - This file is only for actions **after** everything has been published
 - If the skill aborted on error, skip everything — log in debugging.md

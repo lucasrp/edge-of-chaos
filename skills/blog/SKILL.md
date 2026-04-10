@@ -107,7 +107,7 @@ Second paragraph with natural transition.
 | title | yes | Evocative title, in quotes |
 | tag | yes | One of the available tags |
 | date | yes | YYYY-MM-DD |
-| report | **yes** (ALWAYS) | Filename of the report in ~/edge/reports/. MANDATORY for ALL entries — Rule #0. consolidate-state blocks without report. |
+| report | no | Filename of the report in ~/edge/reports/. Optional — consolidate-state injects this automatically when a report is provided. |
 | claims | yes | Knowledge atoms — what was learned. Use `!` for open gaps |
 | procedure | no | How-to atoms — reusable steps discovered |
 | autonomy | no | What's missing — capabilities, access, tools needed |
@@ -155,13 +155,13 @@ Evocative, not descriptive. Should make you want to read it.
 
 ---
 
-## Rule #0: EVERYTHING Generates Blog Entry + Report (NO EXCEPTION)
+## Rule #0: Every Skill Produces a Blog Entry (NO EXCEPTION)
 
-Every activity that changes long-term memory MUST have a blog entry AND an HTML report. Report is verifiable evidence. Blog is a navigable index. Memory without report is memory without proof. Use `consolidate-state entry.md report.yaml` — one command ensures both.
+Every skill invocation produces a blog entry, published through `consolidate-state`. The blog entry is the universal artifact. Reports (YAML/HTML) are optional additional artifacts. There are no bypass flags — every entry goes through the full pipeline (adversarial review, meta-report, state commit).
 
-## Rule #1: Entry and report are atomic.
+## Rule #1: Entry and report are atomic when both exist.
 
-`consolidate-state` injects `report:` into the frontmatter automatically when it receives YAML/HTML. If for some reason you publish without a report, the frontmatter ends up without `report:` — that's a bug, not a valid status.
+`consolidate-state` injects `report:` into the frontmatter automatically when it receives YAML/HTML. Publishing without a report is valid — the entry still gets full pipeline treatment (meta-report, state commit, adversarial review).
 
 ---
 
@@ -182,13 +182,13 @@ consolidate-state ~/edge/blog/entries/slug.md ~/edge/reports/slug.html
 
 Does EVERYTHING: validates frontmatter, indexes entry, finds related posts, captures diffs, generates report HTML (if YAML), indexes report, verifies visibility. Exit codes: 0=OK, 1=fatal, 2=partial.
 
-### Fallback: blog-publish.sh (entry only, no report)
+### Fallback: blog-publish.sh (entry only, no pipeline)
 
 ```bash
 ~/edge/blog/blog-publish.sh ~/edge/blog/entries/slug.md
 ```
 
-Same entry steps, but without generating/indexing a report. Use when there's no associated report and consolidate-state isn't in PATH.
+Same entry steps, but without meta-report, state commit, or adversarial review. Use ONLY when consolidate-state isn't in PATH. Prefer consolidate-state always.
 
 ### Common errors that validate.py detects:
 - `report:` with full path instead of just filename (e.g., `~/edge/reports/X.html` -> `X.html`)
