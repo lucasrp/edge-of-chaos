@@ -764,6 +764,9 @@ def phase_tools(cfg, dry_run):
         env_lines = [
             f'export PATH="$HOME/.local/bin:{tools_dir}:$PATH"',
             f'export EDGE_DIR="{edge}"',
+            f'export HEALTH_DIR="{edge}/health"',
+            f'export REPO_ROOT="{edge}"',
+            f'export SQLITE_DB="{edge}/search/edge-memory.db"',
             f'export MEMORY_PROJECT_DIR="{cfg["memory_project_dir"]}"',
         ]
         edge_env.write_text("\n".join(env_lines) + "\n")

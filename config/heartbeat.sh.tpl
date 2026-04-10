@@ -4,7 +4,10 @@
 
 set -uo pipefail
 
-EDGE_DIR="{{ WORK_DIR }}"
+# Export so child processes (claude, preflight, edge-check.sh) inherit them
+export EDGE_DIR="{{ WORK_DIR }}"
+export HEALTH_DIR="${EDGE_DIR%/}/health"
+export REPO_ROOT="${EDGE_DIR%/}"
 LOCKFILE="/tmp/edge-heartbeat-{{ CODENAME }}.lock"
 LOGFILE="$EDGE_DIR/logs/heartbeat-$(date +%Y-%m-%d).log"
 SKILL="/{{ SKILL_PREFIX }}-heartbeat"
