@@ -1272,6 +1272,56 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
         stubs = sum(1 for e in manifest_entries if e["status"] == "stub")
         ok(f"Source primitives: {active} functional + {stubs} stubs in libexec/{codename_local}/")
 
+    # --- llm-provider primitive for non-standard providers (#194) ---
+    llm_provider = cfg.get("llm_provider", "").strip().lower()
+    if llm_provider and llm_provider not in ("standard", "openai", "xai", "grok", ""):
+        libexec_dir.mkdir(parents=True, exist_ok=True)
+        prim_path = libexec_dir / "llm-provider"
+        meta_path = libexec_dir / "llm-provider.meta.yaml"
+        if not prim_path.exists():
+            # Generate provider-specific primitive
+            if llm_provider == "azure":
+                prim_path.write_text(
+                    '#!/usr/bin/env bash\n'
+                    '# llm-provider — Azure OpenAI config (epigenetic, fix directly)\n'
+                    '# Called by edge-consult, review-gate, and other LLM tools.\n'
+                    '# Outputs JSON with provider config.\n'
+                    'set -uo pipefail\n'
+                    'EDGE_DIR="${EDGE_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"\n'
+                    'source "$EDGE_DIR/secrets/keys.env" 2>/dev/null\n'
+                    'source "$EDGE_DIR/secrets/openai.env" 2>/dev/null\n'
+                    'source "$EDGE_DIR/secrets/azure-tcu.env" 2>/dev/null\n'
+                    'cat <<EOF\n'
+                    '{"provider":"azure","api_key":"${OPENAI_API_KEY}","endpoint":"${AZURE_OPENAI_ENDPOINT:-${URL_AZ_OPENAI:-}}","api_version":"${AZURE_OPENAI_API_VERSION:-2025-03-01-preview}"}\n'
+                    'EOF\n'
+                )
+            else:
+                # Generic template for openrouter, bedrock, etc.
+                prim_path.write_text(
+                    '#!/usr/bin/env bash\n'
+                    f'# llm-provider — {llm_provider} config (epigenetic, fix directly)\n'
+                    '# Called by edge-consult, review-gate, and other LLM tools.\n'
+                    '# Outputs JSON with provider config. Implement for your provider.\n'
+                    'set -uo pipefail\n'
+                    'EDGE_DIR="${EDGE_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"\n'
+                    'source "$EDGE_DIR/secrets/keys.env" 2>/dev/null\n'
+                    f'echo \'{{"provider":"{llm_provider}","error":"not configured — edit this primitive"}}\'\n'
+                    'exit 127\n'
+                )
+            prim_path.chmod(0o755)
+            ok(f"llm-provider primitive generated ({llm_provider})")
+        else:
+            ok(f"llm-provider primitive already exists")
+
+        if not meta_path.exists():
+            meta_path.write_text(
+                f'name: llm-provider\n'
+                f'description: "LLM provider config for {llm_provider}. Outputs JSON with endpoint, key, api_version. Fix directly if broken."\n'
+                f'provider: {llm_provider}\n'
+                f'created_by: edge-apply\n'
+                f'created_at: "{datetime.now().isoformat()}"\n'
+            )
+
     # --- seed workflow blog entries (static, no LLM cost) ---
     prefix = cfg.get("skill_prefix", cfg.get("codename", "ed"))
     workflow_entries = [
