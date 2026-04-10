@@ -34,6 +34,69 @@ if [ -f "$HEALTH_FILE" ]; then
   fi
 fi
 
+# 0b. Stub primitives — implement ALL before any beat runs (#191)
+LIBEXEC_DIR="$EDGE_DIR/libexec/${SKILL_PREFIX}"
+if [ -d "$LIBEXEC_DIR" ]; then
+  STUBS=()
+  for prim in "$LIBEXEC_DIR"/*; do
+    [ -f "$prim" ] || continue
+    [[ "$prim" == *.meta.yaml ]] && continue
+    if grep -q 'exit 127' "$prim" 2>/dev/null; then
+      STUBS+=("$(basename "$prim")")
+    fi
+  done
+
+  if [ ${#STUBS[@]} -gt 0 ]; then
+    echo "=== PREFLIGHT $(date +%H:%M) ==="
+    echo "PREFLIGHT_STUBS (${#STUBS[@]} unimplemented primitives)"
+    echo "Implementing before heartbeat can start..."
+    for stub_name in "${STUBS[@]}"; do
+      stub_path="$LIBEXEC_DIR/$stub_name"
+      meta_path="$LIBEXEC_DIR/${stub_name}.meta.yaml"
+      desc=""
+      if [ -f "$meta_path" ]; then
+        desc=$(cat "$meta_path")
+      fi
+      echo "  → Implementing: $stub_name"
+      # Generate implementation via claude -p
+      claude -p "You are implementing a source primitive for an autonomous agent.
+
+Primitive name: $stub_name
+Location: $stub_path
+Contract (meta.yaml):
+$desc
+
+Write a bash script that implements this primitive. The script must:
+1. Be a valid bash script with #!/usr/bin/env bash
+2. Accept arguments from the command line
+3. Output JSON to stdout on success
+4. Exit 0 on success, non-zero on error
+5. Use only standard tools (curl, python3, jq) — no pip installs
+6. Source secrets from \$EDGE_DIR/secrets/keys.env if API keys are needed
+7. Be concise — under 80 lines
+
+Output ONLY the script content, no explanation." > "${stub_path}.new" 2>/dev/null
+
+      if [ -s "${stub_path}.new" ]; then
+        mv "${stub_path}.new" "$stub_path"
+        chmod +x "$stub_path"
+        # Test: call with no args, must not exit 127
+        "$stub_path" --help >/dev/null 2>&1 || "$stub_path" >/dev/null 2>&1
+        rc=$?
+        if [ $rc -eq 127 ]; then
+          echo "    FAIL: still returns 127 after implementation"
+        else
+          echo "    OK: implemented (exit $rc)"
+        fi
+      else
+        rm -f "${stub_path}.new"
+        echo "    FAIL: claude -p returned empty"
+      fi
+    done
+    echo ""
+  fi
+fi
+
 # 1. Pending chat?
 chat_pending=$(curl -s --max-time 3 $CURL_AUTH "http://localhost:${BLOG_PORT}/api/chat?unprocessed=true" 2>/dev/null | \
   python3 -c "
