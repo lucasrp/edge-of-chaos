@@ -178,7 +178,7 @@ def get_heartbeat_status():
     """Check heartbeat health: healthy/late/stalled."""
     try:
         result = subprocess.run(
-            ["systemctl", "--user", "is-active", "claude-heartbeat.timer"],
+            ["systemctl", "--user", "is-active", "agent-heartbeat.timer"],
             capture_output=True, text=True, timeout=3
         )
         if result.stdout.strip() == "active":

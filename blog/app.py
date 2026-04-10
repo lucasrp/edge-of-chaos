@@ -1291,7 +1291,7 @@ def get_health_data(entries):
     try:
         import subprocess
         result = subprocess.run(
-            ["systemctl", "--user", "is-active", "claude-heartbeat.timer"],
+            ["systemctl", "--user", "is-active", "agent-heartbeat.timer"],
             capture_output=True, text=True, timeout=3
         )
         if result.stdout.strip() == "active":
