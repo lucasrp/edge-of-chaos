@@ -1085,44 +1085,7 @@ except Exception as e:
     log_failure("5", "event_log", e, traceback.format_exc())
     fail(f"Event log failed: {e}")
 
-# ── 4. Typed signals — extract from frontmatter to state/signals/ (#165) ──
-try:
-    import subprocess as _sp
-    signal_types = ["autonomy", "strategy", "reflection", "friction", "decision", "serendipity"]
-    signal_count = 0
-
-    # Dedicated frontmatter fields (autonomy:, friction:, etc.)
-    for stype in signal_types:
-        items = fm.get(stype, [])
-        if not items:
-            continue
-        for item in items:
-            if isinstance(item, str) and item.strip():
-                _sp.run(["edge-signal", stype, item.strip(), "--source", slug], capture_output=True, timeout=5)
-                signal_count += 1
-
-    # Generic signals: field with type prefixes
-    for item in fm.get("signals", []):
-        if not isinstance(item, str) or not item.strip():
-            continue
-        routed = False
-        for stype in signal_types:
-            if item.strip().lower().startswith(f"{stype}:"):
-                msg = item.strip()[len(stype)+1:].strip()
-                if msg:
-                    _sp.run(["edge-signal", stype, msg, "--source", slug], capture_output=True, timeout=5)
-                    signal_count += 1
-                    routed = True
-                break
-        if not routed and item.strip():
-            _sp.run(["edge-signal", "reflection", item.strip(), "--source", slug], capture_output=True, timeout=5)
-            signal_count += 1
-
-    if signal_count > 0:
-        ok(f"Signals: {signal_count} emitidos para state/signals/")
-except Exception as e:
-    log_failure("5", "typed_signals", e, traceback.format_exc())
-    warn(f"Typed signals failed: {e}")
+# ── 4. (removed — was duplicate of 2c, see #202) ──
 
 # ── 5. Digest (gera briefing.md) ──
 try:
