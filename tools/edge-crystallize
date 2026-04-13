@@ -180,7 +180,7 @@ def create_from_curation(args, edge):
             f"trigger: \"{theme}\"\n"
             f"source_claims:\n{claims_yaml}\n"
             f"source_entries:\n{sources_yaml}\n"
-            f"cluster_similarity: {sim}\n"
+            f'cluster_similarity: "{sim}"\n'
             f"claims:\n"
             f"  - \"Crystallized from {claim_count} procedure-claims across {len(source_entries)} entries\"\n"
             f"threads: []\n"
