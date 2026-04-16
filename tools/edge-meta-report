@@ -23,11 +23,11 @@ import yaml
 from datetime import datetime
 from pathlib import Path
 
-HOME = Path.home()
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (META_DIR, SCRATCHPADS_DIR as SCRATCHPADS_ARCHIVE,
-                   EDGE_DIR, TOOLS_DIR, MEMORY_DIR, SKILLS_DIR, NOTES_DIR)
+                   EDGE_DIR, TOOLS_DIR, MEMORY_DIR, SKILLS_DIR, NOTES_DIR,
+                   THREADS_DIR, EVENTS_FILE, BRIEFING_FILE, ENTRIES_DIR)
 CONSULT_SCRIPT = TOOLS_DIR / "edge-consult.py"
 
 TRACKED_REPOS = {
@@ -290,10 +290,9 @@ def capture_post_state_changes(slug, entry_path):
 
     # ── Threads touched ──
     if threads:
-        threads_dir = HOME / "edge" / "threads"
         lines.append(f"### Threads tocados ({len(threads)})")
         for tid in threads:
-            tfile = threads_dir / f"{tid}.md"
+            tfile = THREADS_DIR / f"{tid}.md"
             if tfile.exists():
                 # Read status and title
                 content = tfile.read_text()
@@ -310,10 +309,9 @@ def capture_post_state_changes(slug, entry_path):
         lines.append("")
 
     # ── Event logged ──
-    events_file = HOME / "edge" / "logs" / "events.jsonl"
-    if events_file.exists():
+    if EVENTS_FILE.exists():
         slug_artifact = f"blog/entries/{slug}.md"
-        for raw_line in reversed(events_file.read_text().splitlines()[-20:]):
+        for raw_line in reversed(EVENTS_FILE.read_text().splitlines()[-20:]):
             try:
                 evt = json.loads(raw_line)
                 if slug_artifact in evt.get("artifacts", []):
@@ -367,14 +365,13 @@ def capture_post_state_changes(slug, entry_path):
     lines.append("")
 
     # ── Briefing updated? ──
-    briefing = HOME / "edge" / "briefing.md"
-    if briefing.exists():
-        mtime = datetime.fromtimestamp(briefing.stat().st_mtime)
+    if BRIEFING_FILE.exists():
+        mtime = datetime.fromtimestamp(BRIEFING_FILE.stat().st_mtime)
         age_seconds = (datetime.now() - mtime).total_seconds()
         if age_seconds < 120:  # Updated in last 2 min = this pipeline
             lines.append("### briefing.md")
             # Show first 10 lines
-            content = briefing.read_text().split("\n")[:10]
+            content = BRIEFING_FILE.read_text().split("\n")[:10]
             lines.append("```")
             lines.append("\n".join(content))
             lines.append("```")
@@ -401,7 +398,7 @@ def main():
         entry_path = args.entry
         # Try to find entry if not provided
         if not entry_path:
-            candidate = HOME / "edge" / "blog" / "entries" / f"{args.slug}.md"
+            candidate = ENTRIES_DIR / f"{args.slug}.md"
             if candidate.exists():
                 entry_path = str(candidate)
 

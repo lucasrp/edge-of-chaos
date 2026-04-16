@@ -20,12 +20,12 @@ import yaml
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-HOME = Path.home()
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (EVENTS_FILE, THREADS_DIR, ENTRIES_DIR as BLOG_DIR,
                    LOGS_DIR, DEBUGGING_FILE as DEBUG_FILE,
-                   INSIGHTS_FILE, BRIEFING_FILE as OUTPUT_FILE)
+                   INSIGHTS_FILE, BRIEFING_FILE as OUTPUT_FILE,
+                   EDGE_DIR)
 HEARTBEAT_LOG = LOGS_DIR / f"heartbeat-{datetime.now().strftime('%Y-%m-%d')}.log"
 
 TODAY = datetime.now().strftime("%Y-%m-%d")
@@ -195,7 +195,7 @@ def read_workflows(threads):
 def read_primitives():
     """Lista primitives disponíveis em libexec/ed/."""
     primitives = []
-    libexec = HOME / "edge" / "libexec" / "ed"
+    libexec = EDGE_DIR / "libexec" / "ed"
     if not libexec.exists():
         return primitives
     for f in sorted(libexec.iterdir()):

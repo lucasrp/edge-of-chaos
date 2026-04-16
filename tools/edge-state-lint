@@ -28,7 +28,8 @@ except ImportError:
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (MEMORY_DIR, FRONTIER_FILE as FRONTIER,
-                   DEBUGGING_FILE as DEBUGGING, THREADS_DIR, BREAKS_ACTIVE)
+                   DEBUGGING_FILE as DEBUGGING, THREADS_DIR, BREAKS_ACTIVE,
+                   LOGS_DIR)
 TODAY = datetime.date.today()
 
 findings = []
@@ -341,7 +342,7 @@ def print_findings(as_json=False):
         print()
 
     # Save to log for /ed-reflexao
-    log_path = Path.home() / "edge/logs/state-lint.jsonl"
+    log_path = LOGS_DIR / "state-lint.jsonl"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "ts": datetime.datetime.now().isoformat(timespec="seconds"),
