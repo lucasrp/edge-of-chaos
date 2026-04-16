@@ -375,6 +375,33 @@ After reading all context from Step 1, classify the beat:
 
 ---
 
+## Step 2.0: Open the guard sentinel (BEFORE dispatch logic)
+
+Write the beat sentinel so the PreToolUse hook
+(`bin/heartbeat-dispatch-guard.sh`, #212) can block artifact writes until
+a skill is dispatched. This is L3 enforcement — the earliest checkpoint.
+
+```bash
+python3 -c "
+import json, datetime, pathlib
+p = pathlib.Path.home() / 'edge' / 'state' / 'current-beat.json'
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(json.dumps({
+    'active': True,
+    'started_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    'skill_dispatched': False,
+    'skill': None,
+}, indent=2))
+"
+```
+
+From this point until `edge-skill-step <skill> start` runs, any Write/Edit
+into `~/edge/blog/entries/**` or `~/edge/reports/**` will be refused by
+the hook. The sentinel auto-expires after 1h (fail-open if the beat is
+abandoned mid-way).
+
+---
+
 ## Step 2: Do (dispatch ONE skill)
 
 ### Decision tree (simple)
@@ -436,7 +463,97 @@ If GPT suggests a better direction, consider it. The entire beat costs ~2h of ti
 
 ### Dispatch
 
-Run the chosen skill. It produces: blog entry + report + note (per its own protocol). The dispatched skill already includes its own internal edge-consult (mandatory in every skill).
+Run the chosen skill with step tracking (#113):
+
+```bash
+# Flip the guard sentinel — authorizes artifact writes (#212)
+python3 -c "
+import json, pathlib, sys
+p = pathlib.Path.home() / 'edge' / 'state' / 'current-beat.json'
+state = json.loads(p.read_text())
+state['skill_dispatched'] = True
+state['skill'] = sys.argv[1]
+p.write_text(json.dumps(state, indent=2))
+" <skill>
+
+# Before dispatching
+edge-skill-step <skill> start
+
+# The skill runs — it produces blog entry + report + note per its own protocol.
+# The dispatched skill already includes its own internal edge-consult (mandatory).
+
+# After skill completes
+edge-skill-step <skill> end
+```
+
+Individual steps within the skill should call `edge-skill-step <skill> <step_id>` as they execute. Silent skips (steps not logged as executed or skipped) are flagged by reflection.
+
+---
+
+## Step 2.9: Post-skill execution (MANDATORY after work completes)
+
+After the skill's main work is done (Step 2) and before logging (Step 3):
+
+1. Re-read `config/post-skill.md`
+2. Execute EVERY procedure defined there, one by one
+3. **CRITICAL: each procedure is independent. A failure in one MUST NOT
+   stop the others.** Execute all of them, every time, regardless of
+   prior failures. The sequence is:
+   - Procedure 1 (e.g. LaTeX render) → try → log success or failure → CONTINUE
+   - Procedure 2 (e.g. Overleaf mirror) → try → log success or failure → CONTINUE
+   - Procedure 3 (e.g. notify operator) → try → log success or failure → CONTINUE
+4. For each procedure, log the outcome to `logs/post-skill.log`:
+   ```
+   [TIMESTAMP] procedure: LaTeX render | status: FAIL | reason: pandoc not installed
+   [TIMESTAMP] procedure: Overleaf mirror | status: OK | files: 2
+   [TIMESTAMP] procedure: notify | status: SKIP | reason: no notification channel configured
+   ```
+5. If a tool is missing (pandoc, latexmk), log it and move on — do not
+   attempt to install packages mid-beat. **Dependency remediation
+   happens during reflection, not mid-beat** (see reflection HN-1c)
+6. If a primitive exists for the task (e.g. `libexec/<codename>/overleaf-sync`),
+   use it instead of raw git commands
+7. notify.sh is ALWAYS the last call, even if everything else failed —
+   the operator needs to know what happened
+
+**A post-skill that stops at the first failure is a bug, not caution.**
+
+---
+
+## Step 2.95: Dispatch verification (MANDATORY — mechanical check)
+
+Before logging, verify that a skill was actually dispatched. This is not optional.
+
+```bash
+# Check if edge-skill-step recorded a 'start' for this beat
+today=$(date +%Y-%m-%d)
+DISPATCHED=$(python3 -c "
+import json, sys
+try:
+    steps = [json.loads(l) for l in open('$HOME/edge/logs/skill-steps.jsonl') if l.strip()]
+    today_starts = [s for s in steps if s.get('step') == 'start' and '$today' in s.get('timestamp', '')]
+    if today_starts:
+        last = today_starts[-1]
+        print(f'OK: {last.get(\"skill\", \"unknown\")}')
+    else:
+        print('FAIL: no skill dispatched')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>/dev/null)
+echo "$DISPATCHED"
+```
+
+**If `FAIL`:** The heartbeat did work without dispatching a skill. This violates the protocol. Do NOT proceed to Step 3. Instead:
+1. Log the violation to `debugging.md`
+2. Log to the heartbeat log: `[HH:MM] Beat #N — VIOLATION: no skill dispatched. Work done inline without tracking.`
+3. The beat is invalid. The work is invisible to reflection.
+
+**If `OK`:** Proceed to Step 3.
+
+**Note:** With `bin/heartbeat-dispatch-guard.sh` wired into `PreToolUse`
+(#212), reaching this step without dispatching a skill is only possible if
+the heartbeat never attempted to write an artifact. The hook is the
+earliest checkpoint; this step is the mechanical double-check.
 
 ---
 
@@ -494,6 +611,22 @@ edge-event log -t error_logged -s "[error description]" --thread [thread_id]
 The `--update-thread N` automatically updates `updated:` and `resurface:` in the thread file. Without this, threads age silently.
 
 **Follow ~/.claude/skills/_shared/state-protocol.md for status management.**
+
+### 3e: Close the guard sentinel (MANDATORY — last step)
+
+Mark the beat as inactive. The hook will stop blocking writes until the
+next beat opens a new sentinel.
+
+```bash
+python3 -c "
+import json, pathlib
+p = pathlib.Path.home() / 'edge' / 'state' / 'current-beat.json'
+if p.exists():
+    state = json.loads(p.read_text())
+    state['active'] = False
+    p.write_text(json.dumps(state, indent=2))
+"
+```
 
 ---
 
