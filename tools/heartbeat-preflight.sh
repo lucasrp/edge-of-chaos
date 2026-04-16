@@ -116,6 +116,59 @@ else
   SIGNALS+=("SOURCE:source-usage.jsonl missing — no primitives have ever been called")
 fi
 
+# 5b. Missing primitives (from #206 edge-source halt-flag)
+# Surface primitives that have been requested but don't exist or aren't
+# implemented. Without this, exit 127 is a hint the agent can ignore;
+# primitives stay broken for days. If anything recent, route next beat to build.
+MISSING_LOG="$EDGE_DIR/state/missing-primitives.jsonl"
+if [ -f "$MISSING_LOG" ]; then
+  missing_summary=$(python3 -c "
+import json
+from datetime import datetime, timedelta, timezone
+cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+counts = {}
+try:
+    with open('$MISSING_LOG') as f:
+        for line in f:
+            try:
+                e = json.loads(line.strip())
+                ts = datetime.fromisoformat(e['ts'].replace('Z', '+00:00'))
+                if ts >= cutoff:
+                    key = f\"{e.get('primitive','?')}({e.get('reason','?')})\"
+                    counts[key] = counts.get(key, 0) + 1
+            except: pass
+    if counts:
+        top = sorted(counts.items(), key=lambda x: -x[1])[:3]
+        print(','.join(f'{k}x{v}' for k,v in top))
+except: pass" 2>/dev/null || echo "")
+  if [ -n "$missing_summary" ]; then
+    SIGNALS+=("PRIMITIVE:missing in last 24h — $missing_summary (next beat should materialize per TOOL_CONTRACT.md)")
+  fi
+fi
+
+# 6. Hold queue (from #206 adversarial review BLOCKED state)
+# Surface artifacts blocked in review so preflight routes to drain before
+# new work. Without this, blocked artifacts age silently in holding/.
+HOLD_INDEX="$EDGE_DIR/holding/index.json"
+if [ -f "$HOLD_INDEX" ]; then
+  hold_summary=$(python3 -c "
+import json, time
+try:
+    idx = json.load(open('$HOLD_INDEX'))
+    count = idx.get('count', 0)
+    if count > 0:
+        now = int(time.time())
+        oldest = min((i.get('first_seen', now) for i in idx.get('items', [])), default=now)
+        age_h = (now - oldest) // 3600
+        by_class = idx.get('by_class', {})
+        cls = ','.join(f'{k}:{v}' for k,v in by_class.items())
+        print(f'{count} artifacts blocked ({cls}) — oldest {age_h}h')
+except: pass" 2>/dev/null || echo "")
+  if [ -n "$hold_summary" ]; then
+    SIGNALS+=("HOLD:$hold_summary — resolve blocking condition, then re-run consolidate-state to drain")
+  fi
+fi
+
 # 6. Recent operator session (last 2h)?
 # PROJECT_DIR already set by paths.sh
 latest_session=$(ls -t "${PROJECT_DIR}"/*.jsonl 2>/dev/null | head -1)
