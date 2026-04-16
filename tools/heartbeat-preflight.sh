@@ -179,6 +179,43 @@ else
   SIGNALS+=("SOURCE:source-usage.jsonl missing — no primitives have ever been called")
 fi
 
+# 5b. Holding queue — artifacts BLOCKED awaiting drain (#206)
+HOLDING_INDEX="$EDGE_DIR/holding/index.json"
+if [ -f "$HOLDING_INDEX" ]; then
+  hold_summary=$(python3 -c "
+import json
+try:
+    d = json.load(open('$HOLDING_INDEX'))
+    count = d.get('count', 0)
+    if count:
+        by_class = d.get('by_class', {})
+        oldest = d.get('oldest', '')
+        parts = [f'{k}={v}' for k, v in sorted(by_class.items())]
+        print(f'{count} ({\" \".join(parts)}) oldest={oldest}')
+except: pass
+" 2>/dev/null)
+  if [ -n "$hold_summary" ]; then
+    SIGNALS+=("HOLD:$hold_summary — drain queue: check state/api keys, re-run consolidate-state")
+  fi
+fi
+
+# 5c. Missing primitives — exit 127 was recorded (#206 + #191)
+MISSING_FLAG="$EDGE_DIR/state/missing-primitives.json"
+if [ -f "$MISSING_FLAG" ]; then
+  missing_names=$(python3 -c "
+import json
+try:
+    d = json.load(open('$MISSING_FLAG'))
+    prims = list(d.get('primitives', {}).keys())
+    if prims:
+        print(','.join(prims[:5]) + (f' (+{len(prims)-5} more)' if len(prims) > 5 else ''))
+except: pass
+" 2>/dev/null)
+  if [ -n "$missing_names" ]; then
+    SIGNALS+=("MISSING_PRIMITIVES:$missing_names — implement before next source-class beat")
+  fi
+fi
+
 # 6. Recent operator session (last 2h)?
 # PROJECT_DIR already set by paths.sh
 latest_session=$(ls -t "${PROJECT_DIR}"/*.jsonl 2>/dev/null | head -1)

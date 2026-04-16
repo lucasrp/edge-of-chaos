@@ -105,3 +105,6 @@ prd.json
 
 # Epigenetic state files (no extension)
 state/feedback-watermark
+
+# #206 runtime: BLOCKED hold queue (epigenetic, per-instance)
+holding/

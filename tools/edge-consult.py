@@ -14,7 +14,12 @@ Usage:
     cat analysis.md | edge-consult "onde está mais fraco?"
     edge-consult --mode collab "que ângulos não estou vendo?"
 
-Exit codes: 0 = success, 1 = error
+Exit codes (#206 error taxonomy):
+    0  success — review completed
+    1  internal error (bug in edge-consult itself)
+    10 BLOCKED: operator_fixable (401, 403, credits exhausted, tool not found)
+    11 BLOCKED: transient (network timeout, 503, 429 without retry-after)
+    12 BLOCKED: permanent (API deprecated, schema change, unknown model)
 """
 
 import argparse
@@ -45,6 +50,65 @@ LOG_DIR = LOGS_DIR / "consult"
 # the user gets a clear exit instead of an indefinite wait.
 PER_MODEL_TIMEOUT = 300  # seconds, per model call
 TOTAL_TIMEOUT = 600      # seconds, total for consult() (enforced in consult())
+
+# BLOCKED exit codes — pipeline distinguishes (#206)
+EXIT_OK = 0
+EXIT_INTERNAL = 1
+EXIT_BLOCKED_OPERATOR = 10
+EXIT_BLOCKED_TRANSIENT = 11
+EXIT_BLOCKED_PERMANENT = 12
+
+
+def classify_error(err_msg: str) -> str:
+    """Map an error string to an error_class per #206 taxonomy.
+
+    - operator_fixable: needs a human touch (rotate key, top up credits,
+      install a tool). Escalate immediately, don't retry silently.
+    - transient: infra hiccup. Safe to retry later.
+    - permanent: upstream contract changed. Needs code, not ops.
+    """
+    m = err_msg.lower()
+    # operator_fixable — human must rotate a key, top up credits, install tool
+    operator_signals = [
+        'authenticationerror', '401', '403', 'invalid_api_key',
+        'invalid api key', 'incorrect api key',
+        'insufficient_quota', 'insufficientquota',
+        'quota exceeded', 'exceeded your', 'quota',
+        'credits exhausted',
+        'billing', 'permissiondeniederror',
+        'filenotfounderror', 'no such file', 'command not found',
+        'not found (needed for',
+    ]
+    # permanent — upstream contract broke, needs code change
+    permanent_signals = [
+        'model_not_found', 'model not found', 'does not exist',
+        'deprecated', 'schema', 'notfounderror',
+    ]
+    # transient — retry will probably work
+    transient_signals = [
+        'timeout', 'apitimeout', 'connectionerror', 'networkerror',
+        '503', '502', '504', 'rate_limit', 'rate limit', '429',
+        'service unavailable', 'temporarily unavailable', 'read timed out',
+    ]
+    for sig in operator_signals:
+        if sig in m:
+            return 'operator_fixable'
+    for sig in permanent_signals:
+        if sig in m:
+            return 'permanent'
+    for sig in transient_signals:
+        if sig in m:
+            return 'transient'
+    # Default to transient: a retry in the next beat is the cheap first guess.
+    return 'transient'
+
+
+def error_class_to_exit_code(cls: str) -> int:
+    return {
+        'operator_fixable': EXIT_BLOCKED_OPERATOR,
+        'transient': EXIT_BLOCKED_TRANSIENT,
+        'permanent': EXIT_BLOCKED_PERMANENT,
+    }.get(cls, EXIT_BLOCKED_TRANSIENT)
 
 
 def _progress(msg: str) -> None:
@@ -369,11 +433,18 @@ def _call_model(model: str, system: str, user_msg: str,
 
 
 def consult(question: str, mode: str = "adversarial", context_files: list = None,
-            stdin_content: str = None, gate_spec: str = None) -> str:
-    """Send consultation to BOTH GPT-5.4 and Grok-4.20 and return combined response.
+            stdin_content: str = None, gate_spec: str = None) -> tuple[str, int]:
+    """Send consultation to BOTH GPT-5.4 and Grok-4.20.
 
-    If gate_spec is provided, saves review as {spec}.review.json for
-    consolidate-state to enforce resolution before publishing.
+    Returns (combined_response, exit_code). Exit code 0 = success; 10/11/12 =
+    BLOCKED per #206 error taxonomy (see module docstring). On BLOCKED with
+    gate_spec set, writes {spec}.blocked.json instead of {spec}.review.json so
+    consolidate-state can route the artifact to holding/ rather than pretend
+    the review happened.
+
+    If gate_spec is provided and review succeeds, saves review as
+    {spec}.review.json for consolidate-state to enforce resolution before
+    publishing.
 
     Progress is emitted to stderr throughout (not stdout) so callers using
     `| tail` still see live updates. Each model call has a hard timeout and
@@ -402,6 +473,7 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
     results = []
     all_tokens = []
     all_costs = []
+    error_classes = []  # classified per-model failure for #206 BLOCKED routing
 
     context_file_strs = [str(f) for f in (context_files or [])]
 
@@ -444,6 +516,9 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
             log_error(log_file, err_msg)
             _progress(f"{m} ✗ {dur:.1f}s  {err_msg}")
             results.append((m, f"[{m} error: {err_msg}]"))
+            cls = classify_error(err_msg)
+            error_classes.append(cls)
+            _progress(f"  classified as: {cls}")
 
     # Check if ALL external models failed — fallback to self-review via Claude Code (#128)
     all_failed = all("[error:" in text or "[skipped:" in text for _, text in results)
@@ -480,31 +555,80 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
         f"── {m} ──\n{text}" for m, text in results
     )
 
-    # Gate: save combined review alongside YAML spec
+    # Determine overall state (#206).
+    # - If at least one model produced a real review, state = OK.
+    # - If every primary call failed AND the claude self-review fallback did
+    #   not produce output, state = BLOCKED and the worst error class wins
+    #   (permanent > operator_fixable > transient).
+    successful = [m for m, text in results
+                  if not text.startswith(f"[{m} error:")
+                  and not text.startswith(f"[{m} skipped:")
+                  and m != "claude-self-review"
+                  or m == "claude-self-review" and text]
+    has_review = any(
+        not (text.startswith(f"[{m} error:") or text.startswith(f"[{m} skipped:"))
+        for m, text in results
+    )
+
+    blocked_class = None
+    exit_code = EXIT_OK
+    if not has_review:
+        priority = {'permanent': 2, 'operator_fixable': 1, 'transient': 0}
+        blocked_class = max(error_classes, key=lambda c: priority.get(c, 0)) if error_classes else 'transient'
+        exit_code = error_class_to_exit_code(blocked_class)
+
+    # Gate: save artifact next to the target spec
     if gate_spec:
         spec_path = Path(gate_spec)
         review_path = spec_path.with_suffix(".review.json")
+        blocked_path = spec_path.with_suffix(".blocked.json")
         resolved_path = spec_path.with_suffix(".resolved")
-        if resolved_path.exists():
-            resolved_path.unlink()
         total_cost = sum(
             float(c.replace("$", "")) for c in all_costs
         )
-        review_data = {
-            "timestamp": datetime.now().isoformat(),
-            "spec": str(spec_path),
-            "mode": mode,
-            "models": [m for m, _ in results],
-            "question": question[:500],
-            "response": combined[:4000],
-            "cost": f"${total_cost:.4f}",
-            "resolved": False,
-        }
-        review_path.write_text(json.dumps(review_data, indent=2, ensure_ascii=False))
-        print(f"\n  Gate review saved: {review_path}", file=sys.stderr)
-        print(f"  To resolve: address feedback, then touch {resolved_path}", file=sys.stderr)
 
-    return combined
+        if blocked_class is None:
+            # Normal path: write .review.json
+            if resolved_path.exists():
+                resolved_path.unlink()
+            # If a stale .blocked.json exists from a previous attempt, drain it
+            if blocked_path.exists():
+                blocked_path.unlink()
+                _progress(f"Cleared stale {blocked_path.name} (review now succeeded)")
+            review_data = {
+                "timestamp": datetime.now().isoformat(),
+                "spec": str(spec_path),
+                "mode": mode,
+                "models": [m for m, _ in results],
+                "question": question[:500],
+                "response": combined[:4000],
+                "cost": f"${total_cost:.4f}",
+                "resolved": False,
+            }
+            review_path.write_text(json.dumps(review_data, indent=2, ensure_ascii=False))
+            print(f"\n  Gate review saved: {review_path}", file=sys.stderr)
+            print(f"  To resolve: address feedback, then touch {resolved_path}", file=sys.stderr)
+        else:
+            # BLOCKED: write .blocked.json, do NOT write .review.json —
+            # we don't want the passive gate to treat an all-failed review as
+            # pending-feedback. consolidate-state reads .blocked.json and
+            # routes the artifact into holding/ (#206).
+            blocked_data = {
+                "timestamp": datetime.now().isoformat(),
+                "spec": str(spec_path),
+                "mode": mode,
+                "models": [m for m, _ in results],
+                "error_class": blocked_class,
+                "error_classes_seen": error_classes,
+                "error_detail": combined[:1000],
+                "cost": f"${total_cost:.4f}",
+                "exit_code": exit_code,
+            }
+            blocked_path.write_text(json.dumps(blocked_data, indent=2, ensure_ascii=False))
+            print(f"\n  Gate BLOCKED ({blocked_class}) — saved: {blocked_path}", file=sys.stderr)
+            print(f"  consolidate-state will route the artifact to holding/.", file=sys.stderr)
+
+    return combined, exit_code
 
 
 # ---------------------------------------------------------------------------
@@ -572,7 +696,7 @@ def main():
 
     question = args.question or "Analyze this:"
 
-    result = consult(
+    result, exit_code = consult(
         question=question,
         mode=args.mode,
         context_files=args.context,
@@ -581,6 +705,7 @@ def main():
     )
 
     print(result)
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
