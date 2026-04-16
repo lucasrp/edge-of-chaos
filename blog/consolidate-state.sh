@@ -25,7 +25,10 @@
 # Flags:
 #   --review-only      Rodar so o review gate, sem publicar
 #   --scratchpad PATH  Scratchpad para meta-report (default: /tmp/edge-scratch-active.md)
-#   --no-adversarial   Pular edge-consult no meta-report
+#
+# Bypass flags removed (#206): --skip-review, --no-adversarial, --force.
+# Adversarial review is a state machine now (PASS/FAIL/BLOCKED). BLOCKED
+# routes to holding/ instead of being skipped silently.
 
 set -uo pipefail
 
@@ -37,7 +40,8 @@ source "$(dirname "$REAL_SCRIPT")/../config/paths.sh"
 # Parse flags
 REVIEW_ONLY=false
 RECOVER=false
-NO_ADVERSARIAL=false
+# NOTE (#206): --no-adversarial removed. Adversarial review is mandatory;
+# BLOCKED is handled via holding/ queue, not by skipping.
 SCRATCHPAD=""
 COMMIT_REASON=""
 POSITIONAL=()
@@ -53,23 +57,31 @@ while [[ $# -gt 0 ]]; do
             echo "  --review-only      Run only the review gate, without publishing"
             echo "  --recover          Detect and re-run Phase 5/6 for incomplete publications"
             echo "  --scratchpad PATH  Scratchpad for meta-report (default: /tmp/edge-scratch-active.md)"
-            echo "  --no-adversarial   Skip edge-consult in meta-report"
             echo "  --reason TEXT      Custom commit message reason"
             echo "  --help, -h         Show this help"
+            echo ""
+            echo "Removed bypass flags (#206): --skip-review, --no-adversarial, --force."
+            echo "Review is mandatory — BLOCKED state routes to holding/."
             echo ""
             echo "Exit codes:"
             echo "  0  success"
             echo "  1  fatal error (most blocks)"
             echo "  2  partial success"
             echo "  3  adversarial review pending / review-gate below threshold"
+            echo "  4  adversarial review BLOCKED — artifact moved to holding/"
             echo "  5  state audit detected unproposed/divergent change"
             exit 0
             ;;
         --review-only) REVIEW_ONLY=true; shift ;;
         --recover) RECOVER=true; shift ;;
-        --no-adversarial) NO_ADVERSARIAL=true; shift ;;
         --scratchpad) SCRATCHPAD="$2"; shift 2 ;;
         --reason) COMMIT_REASON="$2"; shift 2 ;;
+        --no-adversarial|--skip-review|--force)
+            echo "FAIL: bypass flag $1 removed in #206 enforcement — review is mandatory" >&2
+            echo "      If review cannot run (tool missing, key invalid), the pipeline" >&2
+            echo "      routes the artifact to holding/ automatically. No manual bypass." >&2
+            exit 2
+            ;;
         *) POSITIONAL+=("$1"); shift ;;
     esac
 done
@@ -110,7 +122,6 @@ if [[ -z "$ENTRY_PATH" && "$RECOVER" == "false" ]]; then
     echo "Usage: consolidate-state <entry.md> [report.yaml|report.html]"
     echo "  --recover          Detect and re-run Phase 5/6 for incomplete publications"
     echo "  --scratchpad PATH  Scratchpad for meta-report"
-    echo "  --no-adversarial   Skip edge-consult in meta-report"
     exit 1
 fi
 
@@ -362,53 +373,121 @@ else
 fi
 echo ""
 
-# ─── PHASE 0.3: Adversarial Review Enforcement ───
-# Active: runs edge-consult if no prior review exists for the content.
-# Passive: blocks if .review.json exists without .resolved marker.
-# Covers ALL flows: YAML, HTML, and entry-only.
-    # Determine review target: report if provided, otherwise entry
-    if [[ -n "$REPORT_INPUT" ]]; then
-        REVIEW_TARGET="$REPORT_INPUT"
+# ─── PHASE 0.3: Adversarial Review Enforcement (#206) ───
+# State machine:
+#   PASS    — review ran, .review.json + .resolved present → proceed
+#   FAIL    — review ran, found issues, .review.json without .resolved → block (exit 3)
+#   BLOCKED — review couldn't run (tool missing, key invalid, network down) →
+#             route artifact to holding/ and exit 4 (pipeline halts for THIS
+#             artifact only; siblings are handled by caller's own batching).
+#
+# There is no silent skip. --skip-review / --no-adversarial / --force have
+# been removed. If edge-consult cannot produce a verdict, the artifact is
+# HELD, a single notification fires per (error_class, window), and the next
+# beat drains the queue when conditions change.
+echo "── Phase 0.3: Adversarial Review (state machine) ──"
+
+# Determine review target: report if provided, otherwise entry
+if [[ -n "$REPORT_INPUT" ]]; then
+    REVIEW_TARGET="$REPORT_INPUT"
+else
+    REVIEW_TARGET="$ENTRY_PATH"
+fi
+
+REVIEW_JSON_FILE="${REVIEW_TARGET%.*}.review.json"
+BLOCKED_JSON_FILE="${REVIEW_TARGET%.*}.blocked.json"
+RESOLVED_FILE="${REVIEW_TARGET%.*}.resolved"
+
+HOLD_ARTIFACT="${EDGE_DIR}/tools/hold-artifact.sh"
+
+hold_and_exit() {
+    # Args: <step> <error_class> <error_detail> [notify_key]
+    local step="$1" cls="$2" detail="$3" key="${4:-}"
+    if [[ -x "$HOLD_ARTIFACT" ]]; then
+        local args=(--step "$step" --error-class "$cls" --error-detail "$detail")
+        [[ -n "$key" ]] && args+=(--notify-key "$key")
+        "$HOLD_ARTIFACT" "$REVIEW_TARGET" "${args[@]}" || true
     else
-        REVIEW_TARGET="$ENTRY_PATH"
+        warn "hold-artifact.sh missing — BLOCKED artifact cannot be routed"
+    fi
+    fail "Adversarial review BLOCKED ($cls): $detail"
+    fail "Artifact moved to holding/. Other beat work proceeds."
+    log_failure "0.3" "adversarial_review_blocked" "$cls:$detail"
+    if command -v edge-signal &>/dev/null; then
+        edge-signal friction "adversarial review BLOCKED ($cls): $detail" --source consolidate-state 2>/dev/null || true
+    fi
+    exit 4
+}
+
+# Active gate: run edge-consult if no review/blocked artifact exists yet
+if [[ ! -f "$REVIEW_JSON_FILE" && ! -f "$BLOCKED_JSON_FILE" ]]; then
+    if ! command -v edge-consult &>/dev/null; then
+        hold_and_exit "adversarial_review" "operator_fixable" \
+            "edge-consult not found in PATH (install tools venv)" \
+            "edge_consult_missing"
     fi
 
-    # Derive review/resolved file paths (replace extension with .review.json)
-    REVIEW_JSON_FILE="${REVIEW_TARGET%.*}.review.json"
-    RESOLVED_FILE="${REVIEW_TARGET%.*}.resolved"
+    echo "  Running edge-consult against $(basename "$REVIEW_TARGET")..."
+    edge-consult "Review this content critically. Flag any shallow analysis, unsupported claims, missing evidence, or logical gaps." \
+        --context "$REVIEW_TARGET" \
+        --gate "$REVIEW_TARGET" \
+        --mode adversarial 2>&1
+    CONSULT_RC=$?
+    echo ""
 
-    # Active gate: run edge-consult if no review exists yet
-    if [[ ! -f "$REVIEW_JSON_FILE" ]]; then
-        if command -v edge-consult &>/dev/null; then
-            echo "── Phase 0.3: Adversarial Review ──"
-            echo "  Running edge-consult against $(basename "$REVIEW_TARGET")..."
-            if edge-consult "Review this content critically. Flag any shallow analysis, unsupported claims, missing evidence, or logical gaps." \
-                --context "$REVIEW_TARGET" \
-                --gate "$REVIEW_TARGET" \
-                --mode adversarial 2>&1; then
-                echo ""
-            else
-                warn "edge-consult failed (exit $?) — continuing without adversarial review"
-                echo ""
-            fi
-        else
-            warn "edge-consult not found in PATH — skipping adversarial review"
-            echo ""
-        fi
-    fi
+    case "$CONSULT_RC" in
+        0)
+            :  # Review written to .review.json — fall through to passive gate
+            ;;
+        10)
+            hold_and_exit "adversarial_review" "operator_fixable" \
+                "edge-consult exit 10 (key invalid / credits / tool missing)" \
+                "edge_consult_operator"
+            ;;
+        11)
+            hold_and_exit "adversarial_review" "transient" \
+                "edge-consult exit 11 (network/timeout/rate-limit)" \
+                "edge_consult_transient"
+            ;;
+        12)
+            hold_and_exit "adversarial_review" "permanent" \
+                "edge-consult exit 12 (API deprecated / unknown model)" \
+                "edge_consult_permanent"
+            ;;
+        *)
+            # Unknown exit — treat as transient by default, but record raw code
+            hold_and_exit "adversarial_review" "transient" \
+                "edge-consult exit $CONSULT_RC (uncategorized)" \
+                "edge_consult_unknown"
+            ;;
+    esac
+fi
 
-    # Passive gate: block if review exists without resolution
-    if [[ -f "$REVIEW_JSON_FILE" && ! -f "$RESOLVED_FILE" ]]; then
-        echo "── Phase 0.3: Adversarial Review ──"
-        fail "Adversarial review pending: $(basename "$REVIEW_JSON_FILE")"
-        echo ""
-        echo "  edge-consult generated feedback that has not been addressed."
-        echo "  Options:"
-        echo "    1. Address the feedback and create the marker:"
-        echo "       touch $RESOLVED_FILE"
-        echo ""
-        # Show the review summary
-        python3 -c "
+# Pre-existing BLOCKED from an earlier attempt: still blocked until review lands
+if [[ -f "$BLOCKED_JSON_FILE" && ! -f "$REVIEW_JSON_FILE" ]]; then
+    CLS=$(python3 -c "import json; print(json.load(open('$BLOCKED_JSON_FILE')).get('error_class',''))" 2>/dev/null || echo "unknown")
+    DETAIL=$(python3 -c "import json; print(json.load(open('$BLOCKED_JSON_FILE')).get('error_detail','')[:200])" 2>/dev/null || echo "")
+    hold_and_exit "adversarial_review" "${CLS:-transient}" \
+        "prior attempt BLOCKED: $DETAIL" \
+        "edge_consult_${CLS:-unknown}"
+fi
+
+# Passive gate: review ran, block publication until feedback is addressed.
+# .resolved is a stricter marker now (#206): it must be created by the agent
+# after iterating on the content AND re-running edge-consult successfully —
+# not as a manual `touch` escape hatch. The `consolidate-state --review-only`
+# workflow is the supported path to regenerate a review.
+if [[ -f "$REVIEW_JSON_FILE" && ! -f "$RESOLVED_FILE" ]]; then
+    fail "Adversarial review pending: $(basename "$REVIEW_JSON_FILE")"
+    echo ""
+    echo "  edge-consult generated feedback that has not been addressed."
+    echo "  Workflow:"
+    echo "    1. Read $REVIEW_JSON_FILE"
+    echo "    2. Revise the artifact to address each critique"
+    echo "    3. Re-run: consolidate-state --review-only \"$REVIEW_TARGET\""
+    echo "    4. Once the re-review is clean, the pipeline proceeds."
+    echo ""
+    python3 -c "
 import json, sys
 try:
     d = json.load(open('$REVIEW_JSON_FILE'))
@@ -420,13 +499,12 @@ try:
         print('    ...')
 except: pass
 " 2>/dev/null
-        echo ""
-        exit 3
-    elif [[ -f "$REVIEW_JSON_FILE" && -f "$RESOLVED_FILE" ]]; then
-        echo "── Phase 0.3: Adversarial Review ──"
-        ok "Adversarial review resolved ($(basename "$RESOLVED_FILE") present)"
-        echo ""
-    fi
+    echo ""
+    exit 3
+elif [[ -f "$REVIEW_JSON_FILE" && -f "$RESOLVED_FILE" ]]; then
+    ok "Adversarial review resolved ($(basename "$RESOLVED_FILE") present)"
+    echo ""
+fi
 
 # ─── PHASE 0.5: Review Gate (LLM-as-judge) ───
 # Runs on YAML report if provided. Review is mandatory — no skip option.
@@ -769,7 +847,8 @@ if command -v edge-meta-report &>/dev/null || [[ -x "$TOOLS_DIR/edge-meta-report
     command -v edge-meta-report &>/dev/null || META_CMD="$TOOLS_DIR/edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
 
     [[ -n "$SCRATCHPAD" ]] && META_CMD="$META_CMD --scratchpad $SCRATCHPAD"
-    [[ "$NO_ADVERSARIAL" == "true" ]] && META_CMD="$META_CMD --no-adversarial"
+    # #206: --no-adversarial removed. Meta-report adversarial is mandatory;
+    # if edge-consult is blocked, meta-report itself should return BLOCKED.
 
     META_OUTPUT=$($META_CMD 2>&1)
     META_EXIT=$?

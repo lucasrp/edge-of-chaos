@@ -35,8 +35,61 @@ EDGE_DIR="${EDGE_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 CODENAME="${EDGE_CODENAME:-ed}"
 PRIM_PATH="$EDGE_DIR/libexec/$CODENAME/$PRIMITIVE"
 USAGE_LOG="$EDGE_DIR/state/source-usage.jsonl"
+MISSING_FLAG="$EDGE_DIR/state/missing-primitives.json"
 
 mkdir -p "$(dirname "$USAGE_LOG")"
+
+# Record a primitive that failed with exit 127 into state/missing-primitives.json
+# so heartbeat-preflight can surface it as a signal and route the next beat to
+# primitive-building rather than workaround (#206).
+_record_missing() {
+  local name="$1" context="$2"
+  python3 - "$MISSING_FLAG" "$name" "$context" <<'PYEOF'
+import json, os, sys
+from datetime import datetime, timezone
+
+path, name, ctx = sys.argv[1], sys.argv[2], sys.argv[3]
+now = datetime.now(timezone.utc).isoformat()
+try:
+    data = json.load(open(path))
+except Exception:
+    data = {'primitives': {}}
+data.setdefault('primitives', {})
+entry = data['primitives'].get(name, {})
+entry['name'] = name
+entry['context'] = ctx
+entry['attempts'] = int(entry.get('attempts', 0)) + 1
+entry.setdefault('first_seen', now)
+entry['last_seen'] = now
+data['primitives'][name] = entry
+data['updated_at'] = now
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path + '.tmp', 'w') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+os.replace(path + '.tmp', path)
+PYEOF
+}
+
+# Drain: called after a successful run to remove the primitive from the flag
+_drain_missing() {
+  local name="$1"
+  [[ -f "$MISSING_FLAG" ]] || return 0
+  python3 - "$MISSING_FLAG" "$name" <<'PYEOF'
+import json, os, sys
+path, name = sys.argv[1], sys.argv[2]
+try:
+    data = json.load(open(path))
+except Exception:
+    sys.exit(0)
+if name in data.get('primitives', {}):
+    del data['primitives'][name]
+    from datetime import datetime, timezone
+    data['updated_at'] = datetime.now(timezone.utc).isoformat()
+    with open(path + '.tmp', 'w') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    os.replace(path + '.tmp', path)
+PYEOF
+}
 
 TS_START=$(date -u +%FT%TZ)
 
@@ -46,6 +99,7 @@ echo "{\"ts\":\"$TS_START\",\"source\":\"$PRIMITIVE\",\"codename\":\"$CODENAME\"
 # Primitive not found
 if [ ! -x "$PRIM_PATH" ]; then
   echo "{\"ts\":\"$(date -u +%FT%TZ)\",\"source\":\"$PRIMITIVE\",\"codename\":\"$CODENAME\",\"phase\":\"end\",\"ok\":false,\"exit_code\":127,\"error\":\"not found\"}" >> "$USAGE_LOG"
+  _record_missing "$PRIMITIVE" "not found at $PRIM_PATH"
   _show_contract "$PRIMITIVE" "primitive not found at $PRIM_PATH"
   exit 127
 fi
@@ -57,9 +111,13 @@ RC=$?
 # Log end
 echo "{\"ts\":\"$(date -u +%FT%TZ)\",\"source\":\"$PRIMITIVE\",\"codename\":\"$CODENAME\",\"phase\":\"end\",\"ok\":$([ $RC -eq 0 ] && echo true || echo false),\"exit_code\":$RC}" >> "$USAGE_LOG"
 
-# Exit 127 = not implemented — show contract as implementation instruction
+# Exit 127 = not implemented — record halt-flag and show contract (#206)
 if [ $RC -eq 127 ]; then
+  _record_missing "$PRIMITIVE" "primitive exited 127"
   _show_contract "$PRIMITIVE" "primitive not implemented"
+elif [ $RC -eq 0 ]; then
+  # Drain halt-flag on success — the primitive is healthy again
+  _drain_missing "$PRIMITIVE"
 fi
 
 exit $RC
