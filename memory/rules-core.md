@@ -17,6 +17,7 @@ Specific topics go in `memory/topics/`. Core should not exceed 15 rules.
 - When publishing an entry: **include claims, threads, keywords, report link**. An entry without metadata is invisible in the corpus.
 - When producing an artifact: **blog ALWAYS**. Primary communication channel with the user.
 - When publishing a report or entry via consolidate-state: **ALWAYS run `edge-consult --context <content> --mode adversarial` BEFORE invoking consolidate-state**. If the review identifies gaps, correct them before publishing. The pipeline enforces this (Phase 0.3 active gate), but running the review first avoids the block-resolve cycle. There is no skip option — review is mandatory.
+- When a mandatory pipeline step cannot run (tool missing, key invalid, network down): **the pipeline moves the artifact to `holding/<date>/` and fires one notification per `(error_class, window)`**. This is BLOCKED, not PASS — do not re-run with bypass flags (they were removed in #206). Drain the queue by fixing the root cause (rotate key, install tool, wait for network) and the next beat's preflight surfaces the hold so consolidate-state can pick it up again. A `--skip-review` / `--no-adversarial` / `--force` flag reappearing in genotype code is itself a bug — report as an issue, do not re-introduce.
 
 ## Recognition
 

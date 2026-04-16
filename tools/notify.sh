@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 # notify.sh — Unified notification routing
-# Usage: notify <type> <message> [--file <path>]
+# Usage: notify <type> <message> [--file <path>] [--once-per <key> --window <duration>]
 #
 # Types: heartbeat, alert, report, default
 # Routes to the correct Slack channel based on config/features.yaml
 # Falls back gracefully: bot_token > webhook > chat API > silent
 #
+# Idempotency (anti-spam for blackouts / repeated failures — #206):
+#   --once-per <key>     dedup key (e.g. openai_401, pandoc_missing)
+#   --window <duration>  Ns | Nm | Nh | Nd (default: 6h)
+#   Within window, repeated calls with the same key increment a counter in
+#   state/notify-windows.json but are NOT transmitted. Avoids the pattern
+#   of 8 silent failures producing 8 identical alerts.
+#
 # Examples:
 #   notify heartbeat "Beat #5 — /ed-pesquisa sobre DSPy"
 #   notify report "Relatório: IAA Protocol" --file ~/edge/reports/report.html
 #   notify alert "Health degraded: score 45"
+#   notify alert "Adversarial review BLOCKED: openai_401 (3 in hold)" \
+#     --once-per openai_401 --window 6h
 
 set -euo pipefail
 
@@ -19,19 +28,76 @@ EDGE_DIR="$(dirname "$SCRIPT_DIR")"
 TYPE="${1:-default}"
 MESSAGE="${2:-}"
 FILE=""
+ONCE_PER=""
+WINDOW="6h"
 
-# Parse --file argument
+# Parse optional arguments
 shift 2 2>/dev/null || true
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --file) FILE="$2"; shift 2 ;;
+    --once-per) ONCE_PER="$2"; shift 2 ;;
+    --window) WINDOW="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
 
 if [[ -z "$MESSAGE" ]]; then
-  echo "Usage: notify <type> <message> [--file <path>]" >&2
+  echo "Usage: notify <type> <message> [--file <path>] [--once-per <key> --window <duration>]" >&2
   exit 1
+fi
+
+# ─── Idempotency check (--once-per) ──────────────────────────────────────────
+
+window_seconds() {
+  local w="$1"
+  case "$w" in
+    *s) echo "${w%s}" ;;
+    *m) echo "$((${w%m} * 60))" ;;
+    *h) echo "$((${w%h} * 3600))" ;;
+    *d) echo "$((${w%d} * 86400))" ;;
+    *) echo "$w" ;;
+  esac
+}
+
+WINDOW_FILE="$EDGE_DIR/state/notify-windows.json"
+
+if [[ -n "$ONCE_PER" ]]; then
+  WIN_SEC=$(window_seconds "$WINDOW")
+  mkdir -p "$(dirname "$WINDOW_FILE")"
+  RESULT=$(python3 - "$WINDOW_FILE" "$ONCE_PER" "$WIN_SEC" <<'PYEOF'
+import json, os, sys, time
+path, key, win = sys.argv[1], sys.argv[2], int(sys.argv[3])
+now = int(time.time())
+try:
+    with open(path, 'r') as f:
+        state = json.load(f)
+except Exception:
+    state = {}
+entry = state.get(key, {})
+last = entry.get('last_sent', 0)
+in_window = (now - last) < win and last > 0
+if in_window:
+    entry['calls_in_window'] = entry.get('calls_in_window', 1) + 1
+    state[key] = entry
+    print(f"SUPPRESS:{entry['calls_in_window']}")
+else:
+    state[key] = {'last_sent': now, 'window_seconds': win, 'calls_in_window': 1}
+    print("SEND")
+tmp = path + '.tmp'
+with open(tmp, 'w') as f:
+    json.dump(state, f, indent=2)
+os.replace(tmp, path)
+PYEOF
+  )
+  if [[ "$RESULT" == SUPPRESS:* ]]; then
+    COUNT="${RESULT#SUPPRESS:}"
+    mkdir -p "$EDGE_DIR/logs" 2>/dev/null
+    echo "[$(date '+%Y-%m-%d %H:%M')] notify $TYPE: SUPPRESSED key=$ONCE_PER count=$COUNT msg=\"$MESSAGE\"" \
+      >> "$EDGE_DIR/logs/notify.log" 2>/dev/null || true
+    echo "suppressed (within window) — key=$ONCE_PER count=$COUNT"
+    exit 0
+  fi
 fi
 
 # ─── Load config ─────────────────────────────────────────────────────────────
