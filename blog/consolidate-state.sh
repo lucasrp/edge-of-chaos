@@ -345,54 +345,149 @@ fi
 echo ""
 
 # ─── PHASE 0.3: Adversarial Review Enforcement ───
-# Active: runs edge-consult if no prior review exists for the content.
-# Passive: blocks if .review.json exists without .resolved marker.
-# Covers ALL flows: YAML, HTML, and entry-only.
+# Three terminal states per #206:
+#   PASS    — review.json + .resolved present → proceed
+#   FAIL    — review.json present, no .resolved → block (agent addresses)
+#   BLOCKED — edge-consult couldn't run (key invalid, not in PATH, etc.) →
+#             hold queue at holding/<date>/<slug>.blocked.json, exit 4
+# "continuing without adversarial review" is no longer a path.
 if [[ "$SKIP_REVIEW" == "false" ]]; then
-    # Determine review target: report if provided, otherwise entry
     if [[ -n "$REPORT_INPUT" ]]; then
         REVIEW_TARGET="$REPORT_INPUT"
     else
         REVIEW_TARGET="$ENTRY_PATH"
     fi
 
-    # Derive review/resolved file paths (replace extension with .review.json)
     REVIEW_JSON_FILE="${REVIEW_TARGET%.*}.review.json"
     RESOLVED_FILE="${REVIEW_TARGET%.*}.resolved"
 
-    # Active gate: run edge-consult if no review exists yet
+    # ── Active gate: try to obtain a review verdict ──
     if [[ ! -f "$REVIEW_JSON_FILE" ]]; then
+        echo "── Phase 0.3: Adversarial Review ──"
+        REVIEW_STDERR=$(mktemp -t edge-consult-stderr.XXXXXX)
+        REVIEW_EXIT=0
         if command -v edge-consult &>/dev/null; then
-            echo "── Phase 0.3: Adversarial Review ──"
             echo "  Running edge-consult against $(basename "$REVIEW_TARGET")..."
             if edge-consult "Review this content critically. Flag any shallow analysis, unsupported claims, missing evidence, or logical gaps." \
                 --context "$REVIEW_TARGET" \
                 --gate "$REVIEW_TARGET" \
-                --mode adversarial 2>&1; then
-                echo ""
+                --mode adversarial 2> >(tee "$REVIEW_STDERR" >&2); then
+                REVIEW_EXIT=0
             else
-                warn "edge-consult failed (exit $?) — continuing without adversarial review"
-                echo ""
+                REVIEW_EXIT=$?
             fi
         else
-            warn "edge-consult not found in PATH — skipping adversarial review"
-            echo ""
+            REVIEW_EXIT=127
+            echo "edge-consult not found in PATH" > "$REVIEW_STDERR"
         fi
+
+        # If the review failed to produce review.json, this is BLOCKED (not FAIL).
+        # BLOCKED = step couldn't run. FAIL = step ran and said NO.
+        if [[ ! -f "$REVIEW_JSON_FILE" ]]; then
+            # Classify error heuristically from stderr content + exit code
+            ERROR_CLASS="unknown"
+            if [[ $REVIEW_EXIT -eq 127 ]]; then
+                ERROR_CLASS="tool_not_found"
+            elif grep -qE "401|Incorrect API key|invalid.*key|Unauthorized" "$REVIEW_STDERR" 2>/dev/null; then
+                ERROR_CLASS="auth_failed"
+            elif grep -qE "429|rate limit|quota|credits" "$REVIEW_STDERR" 2>/dev/null; then
+                ERROR_CLASS="rate_or_quota"
+            elif grep -qE "timeout|timed out|network|ECONNREFUSED|ConnectionError" "$REVIEW_STDERR" 2>/dev/null; then
+                ERROR_CLASS="transient_network"
+            elif [[ $REVIEW_EXIT -ne 0 ]]; then
+                ERROR_CLASS="unknown_failure"
+            fi
+
+            # Write hold-queue entry
+            HOLD_DATE=$(date -u +%F)
+            HOLD_DIR="$EDGE_DIR/holding/$HOLD_DATE"
+            mkdir -p "$HOLD_DIR"
+            HOLD_FILE="$HOLD_DIR/${SLUG}.blocked.json"
+            STDERR_SUMMARY=$(head -c 2000 "$REVIEW_STDERR" 2>/dev/null | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))" 2>/dev/null || echo '""')
+            python3 - "$HOLD_FILE" "$SLUG" "$REVIEW_TARGET" "$ERROR_CLASS" "$REVIEW_EXIT" "$STDERR_SUMMARY" <<'PYEOF'
+import json, os, sys, time
+hold_file, slug, target, err_class, exit_code, stderr_json = sys.argv[1:7]
+try:
+    stderr_text = json.loads(stderr_json)
+except Exception:
+    stderr_text = stderr_json
+now = int(time.time())
+attempts = 1
+first_seen = now
+if os.path.exists(hold_file):
+    try:
+        prev = json.load(open(hold_file))
+        attempts = prev.get('attempts', 0) + 1
+        first_seen = prev.get('first_seen', now)
+    except Exception:
+        pass
+entry = {
+    'slug': slug,
+    'target': target,
+    'step': 'adversarial_review',
+    'state': 'BLOCKED',
+    'error_class': err_class,
+    'exit_code': int(exit_code),
+    'stderr_excerpt': stderr_text[-500:] if stderr_text else "",
+    'first_seen': first_seen,
+    'last_attempt': now,
+    'attempts': attempts,
+}
+with open(hold_file, 'w') as f:
+    json.dump(entry, f, indent=2)
+
+# Update rollup index
+index_file = os.path.join(os.path.dirname(os.path.dirname(hold_file)), 'index.json')
+try:
+    index = json.load(open(index_file))
+except Exception:
+    index = {'items': [], 'by_class': {}}
+# Remove any prior entry for this slug, then add current
+index['items'] = [i for i in index.get('items', []) if i.get('slug') != slug]
+index['items'].append({'slug': slug, 'file': hold_file, 'error_class': err_class, 'first_seen': first_seen, 'attempts': attempts})
+index['by_class'] = {}
+for i in index['items']:
+    c = i['error_class']
+    index['by_class'][c] = index['by_class'].get(c, 0) + 1
+index['count'] = len(index['items'])
+with open(index_file, 'w') as f:
+    json.dump(index, f, indent=2)
+PYEOF
+
+            # Idempotent escalation — one notify per (error_class, 6h window)
+            if command -v notify.sh &>/dev/null; then
+                notify.sh alert "Adversarial review BLOCKED on ${SLUG} (class=${ERROR_CLASS}, total in hold: see holding/index.json)" \
+                    --once-per "review_blocked_${ERROR_CLASS}" --window 6h >/dev/null 2>&1 || true
+            elif [[ -x "$EDGE_DIR/tools/notify.sh" ]]; then
+                "$EDGE_DIR/tools/notify.sh" alert "Adversarial review BLOCKED on ${SLUG} (class=${ERROR_CLASS})" \
+                    --once-per "review_blocked_${ERROR_CLASS}" --window 6h >/dev/null 2>&1 || true
+            fi
+
+            rm -f "$REVIEW_STDERR"
+            fail "Adversarial review BLOCKED: edge-consult could not complete (class=${ERROR_CLASS}, exit=${REVIEW_EXIT})"
+            echo ""
+            echo "  Artifact held at: $HOLD_FILE"
+            echo "  Index:            $EDGE_DIR/holding/index.json"
+            echo ""
+            echo "  This is NOT a silent skip. Resolve the cause (refresh key,"
+            echo "  install tool, wait for quota) and re-run consolidate-state."
+            echo "  Next beat preflight will surface this hold queue."
+            echo ""
+            exit 4
+        fi
+
+        rm -f "$REVIEW_STDERR"
     fi
 
-    # Passive gate: block if review exists without resolution
+    # ── Evaluate review verdict: PASS or FAIL ──
     if [[ -f "$REVIEW_JSON_FILE" && ! -f "$RESOLVED_FILE" ]]; then
         echo "── Phase 0.3: Adversarial Review ──"
         fail "Adversarial review pending: $(basename "$REVIEW_JSON_FILE")"
         echo ""
         echo "  edge-consult generated feedback that has not been addressed."
-        echo "  Options:"
-        echo "    1. Address the feedback and create the marker:"
-        echo "       touch $RESOLVED_FILE"
-        echo "    2. Force publication:"
-        echo "       consolidate-state --skip-review ..."
+        echo "  Address the feedback, then create the resolution marker:"
+        echo "     touch $RESOLVED_FILE"
         echo ""
-        # Show the review summary
         python3 -c "
 import json, sys
 try:
@@ -410,8 +505,36 @@ except: pass
     elif [[ -f "$REVIEW_JSON_FILE" && -f "$RESOLVED_FILE" ]]; then
         echo "── Phase 0.3: Adversarial Review ──"
         ok "Adversarial review resolved ($(basename "$RESOLVED_FILE") present)"
+        # Drain hold queue entry if present (this slug is now unblocked)
+        HOLD_FILE_DRAIN="$EDGE_DIR/holding/$(date -u +%F)/${SLUG}.blocked.json"
+        if [[ -f "$HOLD_FILE_DRAIN" ]]; then
+            rm -f "$HOLD_FILE_DRAIN"
+            python3 - "$EDGE_DIR/holding/index.json" "$SLUG" <<'PYEOF' 2>/dev/null || true
+import json, sys, os
+path, slug = sys.argv[1], sys.argv[2]
+try:
+    idx = json.load(open(path))
+except Exception:
+    sys.exit(0)
+idx['items'] = [i for i in idx.get('items', []) if i.get('slug') != slug]
+idx['by_class'] = {}
+for i in idx['items']:
+    c = i['error_class']
+    idx['by_class'][c] = idx['by_class'].get(c, 0) + 1
+idx['count'] = len(idx['items'])
+with open(path, 'w') as f:
+    json.dump(idx, f, indent=2)
+PYEOF
+            ok "Drained hold queue entry for ${SLUG}"
+        fi
         echo ""
     fi
+elif [[ "$SKIP_REVIEW" == "true" ]]; then
+    # Loud warn — not silent. --skip-review exists only for specific internal
+    # flows (e.g., --recover). Every use is logged.
+    warn "SKIP_REVIEW=true — adversarial review bypassed. This path is an internal recovery mechanism; usage is logged."
+    mkdir -p "$EDGE_DIR/logs" 2>/dev/null
+    echo "[$(date -u +%FT%TZ)] consolidate-state --skip-review on ${SLUG} reason=${COMMIT_REASON:-none}" >> "$EDGE_DIR/logs/skip-review.log" 2>/dev/null || true
 fi
 
 # ─── PHASE 0.5: Review Gate (LLM-as-judge) ───
