@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """edge-digest — gera briefing.md a partir de dados estruturados.
 
-Determinístico. Zero tokens. Roda após blog-full-publish.
+Determinístico. Zero tokens. Roda após consolidate-state.
 Lê: events.jsonl, threads/*.md, claims abertas, últimos beats, erros ativos.
 Gera: ~/edge/briefing.md — o ÚNICO arquivo que sessões precisam ler.
 
