@@ -187,11 +187,65 @@ public_url: ""                  # public URL of the blog (if exposed)
 repo_owner: "lucasrp"           # GitHub user/org
 repo_name: "edge-of-chaos"     # GitHub repo name
 
-# --- LLM Models (used by tools — override if needed) ---
+# --- LLM Models (legacy flat keys — kept for back-compat) ---
+# router_client.py falls back to these when routers: is missing.
 openai_model: "gpt-5.4"                    # edge-consult primary, review-gate
 openai_model_mini: "gpt-4.1-mini"          # seed generation, cheap tasks
 grok_model: "grok-4.20-multi-agent-beta-0309"  # edge-consult secondary
 image_model: "gpt-image-1"                 # avatar generation
+
+# --- Routers (agnostic LLM handler — issue #222) ---
+# Each router binds a PURPOSE (chat, review, embedding, deepresearch, …) to an
+# OpenAI-compatible v1 endpoint. Code has zero branches on provider kind —
+# anything that speaks the OpenAI contract (Azure, xAI, OpenRouter, LiteLLM,
+# Groq, Together, vLLM, self-hosted) is reachable by declaring it here.
+# Non-OpenAI-compatible providers sit behind a translator (LiteLLM/OpenRouter/
+# portkey); the agent only sees the translator.
+#
+# Fields:
+#   base_url    — full OpenAI-compatible v1 endpoint
+#   secret_ref  — "<file.env>:<VAR_NAME>" → resolved from secrets/ or env
+#   model       — model slug sent in requests
+#   headers     — optional default headers (supports ${key} substitution for
+#                 Azure api-key style)
+#   query       — optional default query params (Azure api-version, etc.)
+#
+# Example — switch 'chat' to Azure OpenAI without touching code:
+#   chat:
+#     base_url: https://oai-eastus2.openai.azure.com/openai/deployments/gpt_4_1
+#     secret_ref: openai.env:AZURE_OPENAI_KEY
+#     headers:
+#       api-key: "${key}"
+#     query:
+#       api-version: "2024-02-15-preview"
+#     model: gpt_4_1
+#
+# Example — route 'review' through OpenRouter:
+#   review:
+#     base_url: https://openrouter.ai/api/v1
+#     secret_ref: openrouter.env:OPENROUTER_API_KEY
+#     model: anthropic/claude-opus-4.7
+routers:
+  chat:
+    base_url: https://api.openai.com/v1
+    secret_ref: openai.env:OPENAI_API_KEY
+    model: gpt-5.4
+  chat_mini:
+    base_url: https://api.openai.com/v1
+    secret_ref: openai.env:OPENAI_API_KEY
+    model: gpt-4.1-mini
+  review:
+    base_url: https://api.x.ai/v1
+    secret_ref: xai.env:XAI_API_KEY
+    model: grok-4.20-multi-agent-beta-0309
+  embedding:
+    base_url: https://api.openai.com/v1
+    secret_ref: openai.env:OPENAI_API_KEY
+    model: text-embedding-3-small
+  deepresearch:
+    base_url: https://api.openai.com/v1
+    secret_ref: openai.env:OPENAI_API_KEY
+    model: gpt-5.4
 
 # --- API Keys (secrets/keys.env — NEVER commit values here) ---
 # Copy secrets/keys.env.example → secrets/keys.env and fill in.
