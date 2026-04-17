@@ -22,11 +22,15 @@
 # Exit codes: 0 = tudo OK, 1 = erro fatal, 2 = parcial, 3 = review gate falhou
 #
 # Flags:
-#   --skip-review      Pular o review gate (LLM-as-judge)
 #   --review-only      Rodar so o review gate, sem publicar
+#   --recover          Detect and re-run pipeline for incomplete publications
 #   --scratchpad PATH  Scratchpad para meta-report (default: /tmp/edge-scratch-active.md)
-#   --no-adversarial   Pular edge-consult no meta-report
-#   --no-meta          Pular meta-report (Phase 4)
+#   --reason TEXT      Custom commit message reason
+#
+# Enforcement #218: bypass flags (--skip-review, --no-adversarial, --no-meta)
+# have been removed. All phases now run unconditionally. Recovery reruns the
+# full pipeline. This file exports EDGE_CONSOLIDATE_ACTIVE=1 so the write-guard
+# hook allows artifact writes only during consolidate-state execution.
 
 set -uo pipefail
 
@@ -35,12 +39,27 @@ REAL_SCRIPT="$(readlink -f "$0")"
 # shellcheck source=../config/paths.sh
 source "$(dirname "$REAL_SCRIPT")/../config/paths.sh"
 
+# Enforcement #218: mark this process as the authoritative artifact-writing path.
+# write-guard hook checks this to allow Write/Edit in artifact paths.
+export EDGE_CONSOLIDATE_ACTIVE=1
+# Unset on exit so subsequent processes lose authorization.
+trap 'unset EDGE_CONSOLIDATE_ACTIVE' EXIT
+
+# Peça 3: telemetry helper — record phase start/end in edge-ledger.
+# Fails silently if edge-ledger is unavailable (telemetry is never blocking).
+ledger_record() {
+    local tool="$1" status="$2" duration="${3:-}"
+    if command -v edge-ledger &>/dev/null; then
+        local args=(record --skill consolidate-state --tool "$tool")
+        if [[ "$status" == "ok" ]]; then args+=(--ok); else args+=(--fail --error-class "$status"); fi
+        [[ -n "$duration" ]] && args+=(--duration-ms "$duration")
+        edge-ledger "${args[@]}" 2>/dev/null || true
+    fi
+}
+
 # Parse flags
-SKIP_REVIEW=false
 REVIEW_ONLY=false
 RECOVER=false
-NO_META=false
-NO_ADVERSARIAL=false
 SCRATCHPAD=""
 COMMIT_REASON=""
 POSITIONAL=()
@@ -50,23 +69,24 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: consolidate-state <entry.md> [report.yaml|report.html]"
             echo ""
             echo "Flags:"
-            echo "  --skip-review      Skip review gate (LLM-as-judge)"
             echo "  --review-only      Run only the review gate, without publishing"
-            echo "  --recover          Detect and re-run Phase 5/6 for incomplete publications"
+            echo "  --recover          Detect and re-run pipeline for incomplete publications"
             echo "  --scratchpad PATH  Scratchpad for meta-report (default: /tmp/edge-scratch-active.md)"
-            echo "  --no-adversarial   Skip edge-consult in meta-report"
-            echo "  --no-meta          Skip meta-report (Phase 4)"
             echo "  --reason TEXT      Custom commit message reason"
             echo "  --help, -h         Show this help"
+            echo ""
+            echo "Enforcement: --skip-review, --no-adversarial, --no-meta REMOVED (#218)."
+            echo "All phases run unconditionally. To recover, run the full pipeline."
             exit 0
             ;;
-        --skip-review) SKIP_REVIEW=true; shift ;;
         --review-only) REVIEW_ONLY=true; shift ;;
         --recover) RECOVER=true; shift ;;
-        --no-meta) NO_META=true; shift ;;
-        --no-adversarial) NO_ADVERSARIAL=true; shift ;;
         --scratchpad) SCRATCHPAD="$2"; shift 2 ;;
         --reason) COMMIT_REASON="$2"; shift 2 ;;
+        --skip-review|--no-adversarial|--no-meta)
+            echo "ERROR: $1 removed by #218 enforcement. All phases are mandatory." >&2
+            exit 64
+            ;;
         *) POSITIONAL+=("$1"); shift ;;
     esac
 done
@@ -105,11 +125,10 @@ with open('$FAILURES_LOG', 'a') as f:
 
 if [[ -z "$ENTRY_PATH" && "$RECOVER" == "false" ]]; then
     echo "Usage: consolidate-state <entry.md> [report.yaml|report.html]"
-    echo "  --skip-review      Skip review gate"
-    echo "  --recover          Detect and re-run Phase 5/6 for incomplete publications"
+    echo "  --recover          Detect and re-run pipeline for incomplete publications"
     echo "  --scratchpad PATH  Scratchpad for meta-report"
-    echo "  --no-adversarial   Skip edge-consult in meta-report"
-    echo "  --no-meta          Skip meta-report (Phase 4)"
+    echo "  --reason TEXT      Custom commit message reason"
+    echo "  (Enforcement #218: --skip-review / --no-adversarial / --no-meta removed.)"
     exit 1
 fi
 
@@ -153,8 +172,8 @@ fm = yaml.safe_load(parts[1]) if len(parts) >= 3 else {}
 print(fm.get('report', '') if fm else '')
 " 2>/dev/null)
 
-                # Run Phase 5+6 only (reuse this script with --no-meta --skip-review)
-                bash "$0" --skip-review --no-meta --reason "recover: Phase 5/6 re-run" "$entry_file" ${REPORT_FN:+"$REPORT_FN"} 2>&1 | tail -5
+                # Run full pipeline (no bypass flags — all phases run)
+                bash "$0" --reason "recover: full re-run" "$entry_file" ${REPORT_FN:+"$REPORT_FN"} 2>&1 | tail -5
                 RECOVERED=$((RECOVERED + 1))
             else
                 echo "    Entry NOT visible — needs full republish (run without --recover)"
@@ -182,6 +201,8 @@ REPORT_RESULT="skip"
 TOTAL_LLM_COST="0"
 META_REPORT_PATH=""
 
+ledger_record "pipeline-start" "ok"
+
 # ─── GUARDRAIL: Regra #0 — toda publicação gera meta-report ───
 # Content report (YAML/HTML) é opcional. Meta-report é sempre gerado (Phase 4).
 if [[ -z "$REPORT_INPUT" ]]; then
@@ -198,6 +219,7 @@ echo ""
 # ─── PHASE 0a: State snapshot (PRE — capture protected files before anything changes) ───
 # If agent already took snapshot (before making state changes), skip.
 echo "── Phase 0a: State Snapshot ──"
+ledger_record "phase-0a" "ok"
 if command -v edge-state-audit &>/dev/null; then
     PRE_SNAPSHOT="$EDGE_DIR/state-snapshots/${SLUG}.pre.yaml"
     if [[ -f "$PRE_SNAPSHOT" ]]; then
@@ -318,7 +340,7 @@ fi
 # ─── PHASE 0.3: Adversarial Review Enforcement ───
 # If edge-consult was run with --gate against this YAML spec,
 # a .review.json exists. Block publication until .resolved marker is created.
-if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) && "$SKIP_REVIEW" == "false" ]]; then
+if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) ]]; then
     REVIEW_JSON_FILE="${REPORT_INPUT%.yaml}.review.json"
     [[ "$REPORT_INPUT" == *.yml ]] && REVIEW_JSON_FILE="${REPORT_INPUT%.yml}.review.json"
     RESOLVED_FILE="${REVIEW_JSON_FILE%.review.json}.resolved"
@@ -328,11 +350,10 @@ if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.y
         fail "Adversarial review pending: $(basename "$REVIEW_JSON_FILE")"
         echo ""
         echo "  edge-consult generated feedback that has not been addressed."
-        echo "  Options:"
-        echo "    1. Address the feedback in YAML and create the marker:"
-        echo "       touch $RESOLVED_FILE"
-        echo "    2. Force publication:"
-        echo "       consolidate-state --skip-review ..."
+        echo "  Address the feedback in YAML and create the marker to proceed:"
+        echo "    touch $RESOLVED_FILE"
+        echo ""
+        echo "  (Enforcement #218: bypass flags removed — adversarial review is mandatory.)"
         echo ""
         # Show the review summary
         python3 -c "
@@ -357,7 +378,7 @@ except: pass
 fi
 
 # ─── PHASE 0.5: Review Gate (LLM-as-judge) ───
-if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) && "$SKIP_REVIEW" == "false" ]]; then
+if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) ]]; then
     if command -v review-gate &>/dev/null; then
         echo "── Phase 0.5: Review Gate ──"
         # Detect skill from YAML filename (spec-SKILL-slug.yaml)
@@ -448,6 +469,7 @@ fi
 
 # ─── PHASE 1: Blog entry ───
 echo "── Phase 1: Blog Entry ──"
+ledger_record "phase-1" "ok"
 if CALLED_FROM_CONSOLIDAR_ESTADO=1 bash "$BLOG_DIR/blog-publish.sh" "$ENTRY_PATH"; then
     ok "Entry published"
 else
@@ -511,6 +533,7 @@ fi
 
 # ─── PHASE 3: Verificacao final ───
 echo "── Phase 3: Verification ──"
+ledger_record "phase-3" "ok"
 ALL_OK=true
 
 # Entry visible?
@@ -671,27 +694,27 @@ fi
 # ─── PHASE 4: Meta-report (cognitive mirror) ───
 # Captures state delta + scratchpad + adversarial BEFORE state commit.
 # Agent reads this before making manual state changes (MEMORY.md, debugging.md, etc.)
-if [[ "$NO_META" == "false" ]]; then
-    echo ""
-    echo "── Phase 4: Meta-report ──"
-    if command -v edge-meta-report &>/dev/null || [[ -x "$TOOLS_DIR/edge-meta-report" ]]; then
-        META_CMD="edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
-        # Use tools dir if not in PATH
-        command -v edge-meta-report &>/dev/null || META_CMD="$TOOLS_DIR/edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
+# Enforcement #218: always runs (bypass flag --no-meta removed).
+echo ""
+echo "── Phase 4: Meta-report ──"
+ledger_record "phase-4" "ok"
+if command -v edge-meta-report &>/dev/null || [[ -x "$TOOLS_DIR/edge-meta-report" ]]; then
+    META_CMD="edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
+    # Use tools dir if not in PATH
+    command -v edge-meta-report &>/dev/null || META_CMD="$TOOLS_DIR/edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
 
-        [[ -n "$SCRATCHPAD" ]] && META_CMD="$META_CMD --scratchpad $SCRATCHPAD"
-        [[ "$NO_ADVERSARIAL" == "true" ]] && META_CMD="$META_CMD --no-adversarial"
+    [[ -n "$SCRATCHPAD" ]] && META_CMD="$META_CMD --scratchpad $SCRATCHPAD"
 
-        META_OUTPUT=$($META_CMD 2>&1)
-        META_EXIT=$?
+    META_OUTPUT=$($META_CMD 2>&1)
+    META_EXIT=$?
 
-        if [[ $META_EXIT -eq 0 ]]; then
-            META_REPORT_PATH=$(echo "$META_OUTPUT" | head -1 | sed 's/^OK: //')
-            META_BASENAME=$(basename "$META_REPORT_PATH")
-            ok "Meta-report: $META_BASENAME"
-            # Inject meta_report field into entry frontmatter
-            if ! grep -q "^meta_report:" "$ENTRY_PATH" 2>/dev/null; then
-                if python3 -c "
+    if [[ $META_EXIT -eq 0 ]]; then
+        META_REPORT_PATH=$(echo "$META_OUTPUT" | head -1 | sed 's/^OK: //')
+        META_BASENAME=$(basename "$META_REPORT_PATH")
+        ok "Meta-report: $META_BASENAME"
+        # Inject meta_report field into entry frontmatter
+        if ! grep -q "^meta_report:" "$ENTRY_PATH" 2>/dev/null; then
+            if python3 -c "
 import sys
 try:
     path, meta = sys.argv[1], sys.argv[2]
@@ -707,39 +730,41 @@ except Exception as e:
     print(f'FAIL: {e}', file=sys.stderr)
     sys.exit(1)
 " "$ENTRY_PATH" "$META_BASENAME" 2>/dev/null; then
-                    ok "Added meta_report: $META_BASENAME to entry frontmatter"
-                else
-                    warn "meta_report injection failed"
-                    log_failure "4" "meta_report_injection" "Failed to inject meta_report into frontmatter"
-                fi
+                ok "Added meta_report: $META_BASENAME to entry frontmatter"
+            else
+                warn "meta_report injection failed"
+                log_failure "4" "meta_report_injection" "Failed to inject meta_report into frontmatter"
             fi
-            if echo "$META_OUTPUT" | grep -q "Scratchpad:"; then
-                ARCHIVED=$(echo "$META_OUTPUT" | grep "Scratchpad:" | sed 's/.*Scratchpad: //')
-                ok "Scratchpad archived: $(basename "$ARCHIVED")"
-            fi
-            # Inject review-gate results into meta-report (so check-quality can find them)
-            if [[ -n "${REVIEW_SCORE:-}" && -f "$META_REPORT_PATH" ]]; then
-                cat >> "$META_REPORT_PATH" <<REVIEW_EOF
+        fi
+        if echo "$META_OUTPUT" | grep -q "Scratchpad:"; then
+            ARCHIVED=$(echo "$META_OUTPUT" | grep "Scratchpad:" | sed 's/.*Scratchpad: //')
+            ok "Scratchpad archived: $(basename "$ARCHIVED")"
+        fi
+        # Inject review-gate results into meta-report (so check-quality can find them)
+        if [[ -n "${REVIEW_SCORE:-}" && -f "$META_REPORT_PATH" ]]; then
+            cat >> "$META_REPORT_PATH" <<REVIEW_EOF
 
 ## Review Gate
 
 - overall review score: ${REVIEW_SCORE}/5.0
 - review cost: \$${REVIEW_COST}
 REVIEW_EOF
-                ok "Review gate results injected into meta-report"
-            fi
-        else
-            warn "edge-meta-report failed (exit $META_EXIT)"
+            ok "Review gate results injected into meta-report"
         fi
     else
-        warn "edge-meta-report not found — skipping"
+        warn "edge-meta-report failed (exit $META_EXIT)"
+        log_failure "4" "meta_report_generation" "edge-meta-report exit $META_EXIT"
     fi
+else
+    warn "edge-meta-report not found — skipping"
+    log_failure "4" "meta_report_missing" "edge-meta-report tool not available"
 fi
 echo ""
 
 # ─── PHASE 5: State commit (claims + threads + event + digest) ───
 # Tudo acontece aqui. Zero LLM. Um script, uma leitura do frontmatter.
 echo "── Phase 5: State Commit ──"
+ledger_record "phase-5" "ok"
 REPORT_FOR_COMMIT="${REPORT_FILENAME:-}"
 python3 - "$ENTRY_PATH" "$SLUG" "$REPORT_FOR_COMMIT" <<'PYEOF'
 import sys, json, yaml, re, os, traceback, subprocess
@@ -977,6 +1002,7 @@ PYEOF
 
 # ─── PHASE 5b: State audit (compare PRE vs POST, validate proposal) ───
 echo "── Phase 5b: State Audit ──"
+ledger_record "phase-5b" "ok"
 if command -v edge-state-audit &>/dev/null; then
     # Check if proposal exists (agent should have written it during the session)
     PROPOSAL_FILE="$EDGE_DIR/meta-reports/${SLUG}.state-proposal.yaml"
@@ -1003,6 +1029,7 @@ echo ""
 
 # ─── PHASE 5c: Post-state meta-report (what actually changed) ───
 echo "── Phase 5c: Post-state meta-report ──"
+ledger_record "phase-5c" "ok"
 if command -v edge-meta-report &>/dev/null || [[ -x "$TOOLS_DIR/edge-meta-report" ]]; then
     POST_CMD="edge-meta-report --slug $SLUG --post-state"
     command -v edge-meta-report &>/dev/null || POST_CMD="$TOOLS_DIR/edge-meta-report --slug $SLUG --post-state"
@@ -1022,6 +1049,7 @@ echo ""
 
 # ─── PHASE 6: Diffs + Git commit (audit trail) ───
 echo "── Phase 6: Diffs + Git Commit ──"
+ledger_record "phase-6" "ok"
 
 # Note: BLOG_PORT, BLOG_AUTH_USER, BLOG_AUTH_PASS already exported by paths.sh
 
@@ -1422,14 +1450,17 @@ if $ALL_OK && [[ "$REPORT_RESULT" != "fail" ]]; then
     HEALTH_OK="$EDGE_DIR/health/last_success"
     mkdir -p "$HEALTH_OK"
     printf '{"ts":"%s","slug":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SLUG" > "$HEALTH_OK/consolidate.ok"
+    ledger_record "pipeline-end" "ok"
     exit 0
 elif $ALL_OK; then
     echo -e " ${YELLOW}PARTIAL${NC}: Entry OK, report with issues"
     [[ -n "$META_REPORT_PATH" ]] && echo " Meta-report: $META_REPORT_PATH"
     echo "========================================="
+    ledger_record "pipeline-end" "partial"
     exit 2
 else
     echo -e " ${RED}ISSUES${NC}: verify manually"
     echo "========================================="
+    ledger_record "pipeline-end" "fail"
     exit 2
 fi

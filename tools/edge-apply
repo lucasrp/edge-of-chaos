@@ -298,6 +298,70 @@ def phase_identity(cfg, dry_run):
     return True
 
 
+# ─── Phase 4b: Hooks (enforcement #218, Peça 2) ───
+
+def phase_hooks(cfg, dry_run):
+    """Install write-guard hook and register it in ~/.claude/settings.json.
+
+    The hook blocks Write/Edit on protected artifact paths unless
+    EDGE_CONSOLIDATE_ACTIVE=1 is set (i.e., consolidate-state is the caller).
+    This enforces the genotype rule: only consolidate-state writes artifacts.
+    """
+    header("4b/8  Hooks (write-guard #218)")
+    hook_src = REPO_ROOT / "hooks" / "write-guard.sh"
+    if not hook_src.exists():
+        warn(f"hooks/write-guard.sh not found at {hook_src} — skipping")
+        return True
+
+    hooks_dst = Path.home() / ".claude" / "hooks"
+    hook_dst = hooks_dst / "write-guard.sh"
+
+    if dry_run:
+        print(f"  [DRY] install {hook_src} → {hook_dst}")
+        print(f"  [DRY] patch ~/.claude/settings.json PreToolUse hook")
+        return True
+
+    hooks_dst.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(hook_src, hook_dst)
+    hook_dst.chmod(0o755)
+    ok(f"Hook installed: {hook_dst}")
+
+    # Patch ~/.claude/settings.json — add PreToolUse hook for Write/Edit/NotebookEdit
+    settings_path = Path.home() / ".claude" / "settings.json"
+    settings = {}
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+        except json.JSONDecodeError:
+            warn("~/.claude/settings.json is invalid JSON — leaving it alone")
+            return True
+
+    hooks_cfg = settings.setdefault("hooks", {})
+    pre_tool = hooks_cfg.setdefault("PreToolUse", [])
+
+    hook_cmd = str(hook_dst)
+    already_registered = any(
+        isinstance(entry, dict)
+        and any(
+            isinstance(h, dict) and h.get("command") == hook_cmd
+            for h in entry.get("hooks", [])
+        )
+        for entry in pre_tool
+    )
+
+    if not already_registered:
+        pre_tool.append({
+            "matcher": "Write|Edit|NotebookEdit",
+            "hooks": [{"type": "command", "command": hook_cmd}],
+        })
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+        ok("PreToolUse hook registered in ~/.claude/settings.json")
+    else:
+        ok("PreToolUse hook already registered — no change")
+
+    return True
+
+
 # ─── Phase 5: Blog venv ───
 
 def phase_venv(cfg, dry_run, skip_venv=False):
@@ -1344,6 +1408,7 @@ def main():
     results.append(("Dirs", phase_dirs(cfg, args.dry_run)))
     results.append(("Skills", phase_skills(cfg, args.dry_run)))
     results.append(("Identity", phase_identity(cfg, args.dry_run)))
+    results.append(("Hooks", phase_hooks(cfg, args.dry_run)))
     results.append(("Blog", phase_venv(cfg, args.dry_run, args.skip_venv)))
     results.append(("Tools venv", phase_tools_venv(cfg, args.dry_run, args.skip_venv)))
     results.append(("Systemd", phase_systemd(cfg, args.dry_run)))

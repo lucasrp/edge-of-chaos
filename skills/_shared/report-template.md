@@ -38,7 +38,8 @@ Each skill defines its own mandatory sections and golden rules 1-3. This file de
    consolidate-state ~/edge/blog/entries/<file>.md
    ```
 
-   Useful flags: `--scratchpad PATH`, `--no-adversarial`, `--no-meta`, `--skip-review`
+   Useful flags: `--scratchpad PATH`, `--reason TEXT`
+   (Enforcement #218: bypass flags `--skip-review`, `--no-adversarial`, `--no-meta` were removed — all phases run unconditionally.)
 5. **Read meta-report** (`~/edge/meta-reports/<slug>-meta.md`) BEFORE editing status
 6. **Read the generated HTML** (`~/edge/reports/<file>.html`) for verification
 
@@ -203,7 +204,7 @@ review-gate /tmp/spec-[skill]-[slug].yaml --skill [skill]
 
 The review gate evaluates 6 dimensions (structural_completeness, content_depth, writing_quality, visualization, intellectual_honesty, internal_consistency) via GPT-4o-mini. Cost: ~$0.002/review. Threshold: 3.5/5.
 
-**IMPORTANT:** `consolidate-state` also runs the review gate automatically (Phase 0.5). If the YAML doesn't pass, publication is blocked. Use `--skip-review` to force (only when you've already reviewed manually).
+**IMPORTANT:** `consolidate-state` runs the review gate automatically (Phase 0.5). If the YAML doesn't pass, publication is blocked — fix the YAML and re-run. (Enforcement #218: there is no bypass flag anymore — address the feedback.)
 
 ### Validation Gate (DO NOT SKIP)
 
