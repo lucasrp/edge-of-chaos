@@ -278,6 +278,51 @@ def _build_user_msg(question: str, context_files: list = None,
 RESPONSES_API_MODELS = {"grok-4.20-multi-agent-beta-0309", "gpt-5.4-pro"}
 
 
+CLAUDE_FALLBACK_MODEL = "claude-cli"
+
+
+def _call_claude_cli(system: str, user_msg: str,
+                     timeout: int = PER_MODEL_TIMEOUT) -> tuple[str, dict, str]:
+    """Invoke the local `claude` CLI as a final adversarial reviewer (#235).
+
+    Uses whatever auth the `claude` binary has configured — API key if the
+    host is signed into Anthropic via ANTHROPIC_API_KEY, subscription (Max /
+    Pro) otherwise. The caller never sees the distinction; cost accounting
+    is handled by Claude itself (subscription: zero marginal cost; API:
+    billed upstream on the Anthropic account).
+
+    No new SDK dependency — this is a subprocess invocation of the same
+    `claude` binary that runs the agent, so if the heartbeat works, this
+    path works.
+    """
+    prompt = f"## System prompt\n\n{system}\n\n## User\n\n{user_msg}"
+    try:
+        result = subprocess.run(
+            ["claude", "-p", prompt, "--dangerously-skip-permissions"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError(f"claude CLI not on PATH: {e}") from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"claude CLI timed out after {timeout}s") from e
+    if result.returncode != 0:
+        stderr_tail = (result.stderr or "").strip()[-500:]
+        raise RuntimeError(
+            f"claude CLI exited {result.returncode}: {stderr_tail or '(no stderr)'}"
+        )
+    text = (result.stdout or "").strip()
+    if not text:
+        raise RuntimeError("claude CLI produced empty output")
+    # Subscription mode: no per-call token accounting surfaced to the caller.
+    # API mode: tokens billed on the Anthropic account, not attributed here.
+    # Keep the shape identical to other providers so callers don't branch.
+    tokens = {"prompt": 0, "completion": 0, "total": 0}
+    cost = "$0.0000"
+    return text, tokens, cost
+
+
 def _call_model(model: str, system: str, user_msg: str,
                 timeout: int = PER_MODEL_TIMEOUT) -> tuple[str, dict, str]:
     """Call a single model. Returns (response_text, tokens_dict, cost_str).
@@ -355,6 +400,8 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
     results = []
     all_tokens = []
     all_costs = []
+    # Track attempt outcomes for provenance in .review.json (#235).
+    attempts = []  # list of {"model": str, "status": "ok"|"error", "error": str|None}
 
     context_file_strs = [str(f) for f in (context_files or [])]
 
@@ -382,6 +429,7 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
             results.append((m, result))
             all_tokens.append(tokens)
             all_costs.append(cost)
+            attempts.append({"model": m, "status": "ok", "error": None})
 
             # Metadata block to stderr (preserved for compatibility with
             # existing callers that scrape this format)
@@ -397,6 +445,48 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
             log_error(log_file, err_msg)
             _progress(f"{m} ✗ {dur:.1f}s  {err_msg}")
             results.append((m, f"[{m} error: {err_msg}]"))
+            attempts.append({"model": m, "status": "error", "error": err_msg[:500]})
+
+    # If every external model failed, fall back to the local `claude` CLI so
+    # the adversarial gate still produces a real review instead of silently
+    # relying on the .resolved bypass marker (#235).
+    fallback_used = None
+    any_ok = any(a["status"] == "ok" for a in attempts)
+    if not any_ok:
+        elapsed = time.time() - started
+        remaining = max(30, TOTAL_TIMEOUT - int(elapsed))
+        _progress(
+            f"All {len(attempts)} external models failed — invoking claude CLI "
+            f"fallback (#235) with {remaining}s budget"
+        )
+        log_file = log_start(mode, question, context_file_strs, CLAUDE_FALLBACK_MODEL)
+        model_started = time.time()
+        try:
+            result, tokens, cost = _call_claude_cli(
+                system, user_msg, timeout=min(PER_MODEL_TIMEOUT, remaining)
+            )
+            dur = time.time() - model_started
+            log_finish(log_file, result, cost, tokens)
+            _progress(f"{CLAUDE_FALLBACK_MODEL} ✓ {dur:.1f}s (fallback)")
+            results.append((CLAUDE_FALLBACK_MODEL, result))
+            all_tokens.append(tokens)
+            all_costs.append(cost)
+            attempts.append({"model": CLAUDE_FALLBACK_MODEL, "status": "ok", "error": None})
+            fallback_used = CLAUDE_FALLBACK_MODEL
+            mode_label = "\033[31mADVERSARIAL\033[0m" if mode == "adversarial" else "\033[36mCOLLABORATIVE\033[0m"
+            print(f"\n{'='*55}", file=sys.stderr, flush=True)
+            print(f"  edge-consult [{mode_label}]  ({CLAUDE_FALLBACK_MODEL}, fallback)",
+                  file=sys.stderr, flush=True)
+            print(f"  Cost: {cost} (subscription) | Upstream models failed",
+                  file=sys.stderr, flush=True)
+            print(f"{'='*55}", file=sys.stderr, flush=True)
+        except Exception as e:
+            dur = time.time() - model_started
+            err_msg = f"{type(e).__name__}: {e}"
+            log_error(log_file, err_msg)
+            _progress(f"{CLAUDE_FALLBACK_MODEL} ✗ {dur:.1f}s  {err_msg}")
+            results.append((CLAUDE_FALLBACK_MODEL, f"[{CLAUDE_FALLBACK_MODEL} fallback error: {err_msg}]"))
+            attempts.append({"model": CLAUDE_FALLBACK_MODEL, "status": "error", "error": err_msg[:500]})
 
     # Combine outputs from both models
     combined = "\n\n".join(
@@ -418,6 +508,8 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
             "spec": str(spec_path),
             "mode": mode,
             "models": [m for m, _ in results],
+            "models_attempted": attempts,
+            "fallback_used": fallback_used,
             "question": question[:500],
             "response": combined[:4000],
             "cost": f"${total_cost:.4f}",
