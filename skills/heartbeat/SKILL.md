@@ -127,15 +127,96 @@ Then go straight to Step 2 with the rotated skill.
 
 ## Step 1: Look (what happened since the last beat?)
 
-### 1a: Read user sessions (MANDATORY — DO NOT SKIP)
+### 1a0: Rolling chat digest (MANDATORY — runs FIRST, every beat)
+
+**Every heartbeat updates a rolling LLM digest of the Claude Code chat.** Previous digest + delta (messages since last beat) → new digest. The digest replaces raw session scanning as the input to 1a.
+
+State files:
+- `~/edge/state/chat-digest.md` — current rolling digest (read this in 1a)
+- `~/edge/state/chat-digest.offset.json` — last-processed message timestamp (ISO)
 
 ```bash
-# Last 5 interactive sessions (not heartbeat)
-ls -lt ~/.claude/projects/$MEMORY_PROJECT_DIR/*.jsonl 2>/dev/null | head -10
+mkdir -p ~/edge/state
+OFFSET_FILE=~/edge/state/chat-digest.offset.json
+DIGEST_FILE=~/edge/state/chat-digest.md
+DELTA_FILE=$(mktemp)
+
+# 1. Collect delta: messages newer than last offset
+python3 - "$OFFSET_FILE" "${MEMORY_PROJECT_DIR:--home-vboxuser}" > "$DELTA_FILE" <<'PY'
+import json, os, glob, sys
+offset_file, proj = sys.argv[1], sys.argv[2]
+last_ts = ''
+if os.path.exists(offset_file):
+    try: last_ts = json.load(open(offset_file)).get('last_ts', '')
+    except: pass
+out, latest = [], last_ts
+for jsonl in sorted(glob.glob(os.path.expanduser(f'~/.claude/projects/{proj}/*.jsonl')), key=os.path.getmtime):
+    try:
+        for line in open(jsonl):
+            msg = json.loads(line)
+            ts = msg.get('timestamp', '') or ''
+            if ts and ts <= last_ts: continue
+            if ts > latest: latest = ts
+            mtype = msg.get('type')
+            if mtype not in ('user', 'assistant'): continue
+            m = msg.get('message', {})
+            content = m.get('content', '') if isinstance(m, dict) else str(m)
+            if isinstance(content, list):
+                content = ' '.join(c.get('text','') for c in content if isinstance(c, dict) and c.get('type') == 'text')
+            content = str(content).strip()
+            if len(content) > 20:
+                out.append(f'[{ts}] [{mtype}] {content[:600]}')
+    except Exception: pass
+print('\n'.join(out[-120:]))  # cap for token budget
+# persist latest timestamp for next beat (written even if delta empty — keeps pointer monotonic)
+if latest:
+    json.dump({'last_ts': latest}, open(offset_file, 'w'))
+PY
+
+# 2. If delta empty → nothing to merge, skip LLM call
+if [ ! -s "$DELTA_FILE" ]; then
+    echo "CHAT_DIGEST: no delta since last beat — digest unchanged"
+else
+    prev=$(cat "$DIGEST_FILE" 2>/dev/null || echo '(no previous digest)')
+    delta=$(cat "$DELTA_FILE")
+    # 3. LLM merge via claude headless — use absolute path so it works under systemd/cron
+    CLAUDE_BIN=$(command -v claude || echo ~/.nvm/versions/node/v24.13.0/bin/claude)
+    new_digest=$("$CLAUDE_BIN" -p --output-format text <<EOF 2>/dev/null
+You are maintaining a rolling digest of an autonomous agent's Claude Code chat.
+
+PREVIOUS DIGEST:
+$prev
+
+NEW DELTA (messages since last beat):
+$delta
+
+Produce an UPDATED rolling digest (<=500 words, markdown). Preserve load-bearing context from the previous digest; integrate new information from the delta; drop stale details. Sections: Operator directives (standing rules), Active threads, Recent decisions/corrections, Pending work, Tone/signals. Output only the digest — no preamble.
+EOF
+)
+    if [ -n "$new_digest" ]; then
+        echo "$new_digest" > "$DIGEST_FILE"
+        echo "CHAT_DIGEST: updated ($(wc -w < "$DIGEST_FILE") words)"
+    else
+        echo "CHAT_DIGEST: LLM returned empty — digest unchanged, offset NOT advanced" >&2
+        # Roll back offset so next beat retries this delta
+        git checkout -- "$OFFSET_FILE" 2>/dev/null || true
+    fi
+fi
+rm -f "$DELTA_FILE"
 ```
 
-For each recent session, extract user messages:
+### 1a: Read user sessions (MANDATORY — DO NOT SKIP)
+
+Primary input: read the rolling digest produced in 1a0.
+
 ```bash
+cat ~/edge/state/chat-digest.md 2>/dev/null || echo '(digest not yet populated)'
+```
+
+Fallback — raw session scan if digest is empty or looks stale (no recent offset):
+
+```bash
+ls -lt ~/.claude/projects/$MEMORY_PROJECT_DIR/*.jsonl 2>/dev/null | head -5
 python3 -c "
 import json, sys
 for line in open(sys.argv[1]):
@@ -143,9 +224,8 @@ for line in open(sys.argv[1]):
     if msg.get('type') == 'user':
         text = msg.get('message', {}).get('content', '') if isinstance(msg.get('message'), dict) else str(msg.get('message', ''))
         if text and len(text) > 20:
-            print(text[:300])
-            print('---')
-" FILE.jsonl 2>/dev/null | head -80
+            print(text[:300]); print('---')
+" FILE.jsonl 2>/dev/null | head -60
 ```
 
 Look for: frustrations, course corrections, repeated requests, priority changes, tone, **operational directives**.
