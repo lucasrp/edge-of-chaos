@@ -26,6 +26,20 @@ if [[ -z "$ENTRY_PATH" ]]; then
     exit 1
 fi
 
+# Arg hygiene — reject inputs that are obviously not an entry .md path.
+# A caller forwarding flags or YAML spec files by mistake will land here
+# instead of producing a cryptic "File not found" (issue #236 root cause A).
+if [[ "$ENTRY_PATH" == -* ]]; then
+    echo "ERROR: blog-publish.sh expects a positional entry.md path — got a flag: '$ENTRY_PATH'"
+    echo "       Usage: blog-publish <path-to-entry.md>"
+    exit 1
+fi
+if [[ "$ENTRY_PATH" != *.md ]]; then
+    echo "ERROR: blog-publish.sh expects a .md entry file — got: '$ENTRY_PATH'"
+    echo "       Usage: blog-publish <path-to-entry.md>"
+    exit 1
+fi
+
 # Resolve to absolute path
 if [[ ! "$ENTRY_PATH" = /* ]]; then
     ENTRY_PATH="$(pwd)/$ENTRY_PATH"
@@ -154,6 +168,21 @@ else
     echo "$CHANGELOG_ENTRY" >> "$CHANGELOG"
 fi
 echo "  OK: Changelog updated"
+
+# --- Step 3.5: Ask blog server to reload its entry cache ---
+# Without this, load_entries() is cached for CACHE_TTL=300s and the freshly
+# written entry returns 404 on /blog/entries/{slug} until the cache expires
+# or the service restarts (issue #236 root cause B).
+echo "[3.5/6] Reloading blog server cache..."
+REINDEX_HTTP=$(curl -s -m 5 -o /dev/null -w "%{http_code}" $CURL_AUTH \
+    -X POST "$API_URL/blog/reindex" 2>/dev/null || echo "000")
+if [[ "$REINDEX_HTTP" == "200" ]]; then
+    echo "  OK: cache invalidated"
+elif [[ "$REINDEX_HTTP" == "404" ]]; then
+    echo "  SKIP: server lacks /blog/reindex (old version, fine for verify fallback)"
+else
+    echo "  WARN: reindex returned HTTP $REINDEX_HTTP (non-fatal — verify may miss the entry)"
+fi
 
 # --- Step 4: Verify ---
 echo "[4/5] Verifying..."
