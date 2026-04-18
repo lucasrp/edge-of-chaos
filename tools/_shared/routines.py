@@ -87,16 +87,14 @@ def _call_claude_cli(prompt: str, timeout: int = 60) -> str | None:
     return None
 
 
-def _call_openai(prompt: str, model: str = "gpt-4o-mini", timeout: int = 60) -> str | None:
-    """Tier 2: OpenAI API via openai SDK. Requires OPENAI_API_KEY."""
-    if not os.environ.get("OPENAI_API_KEY"):
-        return None
+def _call_openai(prompt: str, timeout: int = 60) -> str | None:
+    """Tier 2: OpenAI-compatible chat_mini router. Falls back when claude-cli absent."""
     try:
-        from openai import OpenAI
+        from .router_client import make_client
     except ImportError:
-        return None
+        from router_client import make_client  # type: ignore
     try:
-        client = OpenAI(timeout=timeout)
+        client, model = make_client("chat_mini", timeout=timeout)
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
@@ -117,7 +115,7 @@ def _call_llm(prompt: str) -> tuple[str | None, str | None]:
         return out, "claude-cli"
     out = _call_openai(prompt)
     if out is not None:
-        return out, "openai-gpt-4o-mini"
+        return out, "openai-chat_mini"
     return None, None
 
 

@@ -25,14 +25,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-try:
-    from openai import OpenAI
-except ImportError:
-    sys.exit("openai package required: pip install openai")
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import SECRETS_DIR, LOGS_DIR
+sys.path.insert(0, str(SCRIPT_DIR))
+from paths import SECRETS_DIR, LOGS_DIR  # noqa: E402  (kept for downstream consumers)
+from _shared.router_client import make_client  # noqa: E402
+
 LOG_DIR = LOGS_DIR / "consult"
 
 # Hard timeouts to avoid silent hangs (#92). These are client-side limits on
@@ -106,19 +104,8 @@ def _check_contention() -> list[tuple[int, str]]:
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return []
 
-# Provider configs: model prefix -> (secrets_file, env_var, base_url)
-PROVIDERS = {
-    "gpt": {
-        "secrets_file": SECRETS_DIR / "openai.env",
-        "env_var": "OPENAI_API_KEY",
-        "base_url": None,  # default OpenAI
-    },
-    "grok": {
-        "secrets_file": SECRETS_DIR / "xai.env",
-        "env_var": "XAI_API_KEY",
-        "base_url": "https://api.x.ai/v1",
-    },
-}
+# Provider resolution delegated to _shared/router_client.py (#222). Any new
+# model/endpoint is declared in agent.yaml routers: — no changes here.
 
 # ---------------------------------------------------------------------------
 # System prompts
@@ -170,34 +157,9 @@ game theory, design, psychology that apply here?
 # Infrastructure
 # ---------------------------------------------------------------------------
 
-def get_provider(model: str) -> dict:
-    """Determine provider config from model name prefix."""
-    for prefix, config in PROVIDERS.items():
-        if model.startswith(prefix):
-            return config
-    # Fallback to OpenAI
-    return PROVIDERS["gpt"]
-
-
-def load_api_key(model: str) -> tuple[str, str | None]:
-    """Load API key for the given model. Returns (api_key, base_url)."""
-    provider = get_provider(model)
-    env_var = provider["env_var"]
-    base_url = provider["base_url"]
-
-    # Check environment variable first
-    key = os.environ.get(env_var)
-    if key:
-        return key, base_url
-
-    # Check secrets file
-    secrets_file = provider["secrets_file"]
-    if secrets_file.exists():
-        for line in secrets_file.read_text().strip().split("\n"):
-            if line.startswith(f"{env_var}="):
-                return line.split("=", 1)[1].strip(), base_url
-
-    raise RuntimeError(f"{env_var} not found (needed for {model}). Set env var or create {secrets_file}")
+# Provider/key resolution now lives in _shared/router_client.py (#222). See
+# make_client() — it handles OpenAI-compatible endpoints, Azure, xAI, and
+# anything else that speaks the OpenAI contract.
 
 
 def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> str:
@@ -323,11 +285,7 @@ def _call_model(model: str, system: str, user_msg: str,
     The timeout parameter is passed to the OpenAI client constructor — any
     single HTTP call exceeding it raises APITimeoutError, which the caller
     converts to a logged failure (#92 fix 2: hard timeout default)."""
-    api_key, base_url = load_api_key(model)
-    client_kwargs = {"api_key": api_key, "timeout": timeout}
-    if base_url:
-        client_kwargs["base_url"] = base_url
-    client = OpenAI(**client_kwargs)
+    client, _resolved_model = make_client(model=model, timeout=timeout)
 
     if model in RESPONSES_API_MODELS:
         response = client.responses.create(
