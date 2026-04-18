@@ -45,7 +45,10 @@ _SKILL_PREFIX = load_branding().get("skill_prefix", "agent")
 BLOG_RULES_PATH = SKILLS_DIR / f"{_SKILL_PREFIX}-blog" / "SKILL.md"
 GROK_MODEL = "grok-4.20-multi-agent-beta-0309"
 
-DEFAULT_MODEL = "gpt-5.4"
+# Router purpose used by default. The actual model comes from agent.yaml
+# routers.<purpose>.model — respecting per-agent configuration (Azure, OpenAI,
+# xAI, etc.) instead of hardcoding a model slug.
+DEFAULT_PURPOSE = "chat"
 
 # Models that require the Responses API instead of Chat Completions
 RESPONSES_API_MODELS = {GROK_MODEL, "gpt-5.4-pro"}
@@ -540,10 +543,11 @@ def load_entry(entry_path: str) -> str:
 # Phase 1: Co-author
 # ---------------------------------------------------------------------------
 
-def coauthor(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
+def coauthor(yaml_path: str, skill: str = None, model: str = None,
+             purpose: str = DEFAULT_PURPOSE,
              entry_path: str = None, brief: str = None) -> dict:
     """Run co-author phase with tool use. Returns enrichment suggestions."""
-    client, model = make_client(model=model)
+    client, model = make_client(purpose=purpose, model=model)
 
     yaml_content = Path(yaml_path).read_text(encoding="utf-8")
 
@@ -584,7 +588,6 @@ def coauthor(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
                     model=model,
                     input=messages,
                     tools=resp_tools,
-                    temperature=0.3,
                 )
                 total_prompt_tokens += response.usage.input_tokens
                 total_completion_tokens += response.usage.output_tokens
@@ -619,7 +622,6 @@ def coauthor(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
                     messages=messages,
                     tools=TOOLS,
                     tool_choice="auto",
-                    temperature=0.3,
                 )
                 total_prompt_tokens += response.usage.prompt_tokens
                 total_completion_tokens += response.usage.completion_tokens
@@ -691,13 +693,14 @@ def coauthor(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
 # Phase 2: Reviewer (no tools, evaluates blind)
 # ---------------------------------------------------------------------------
 
-def review(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
+def review(yaml_path: str, skill: str = None, model: str = None,
+           purpose: str = DEFAULT_PURPOSE,
            threshold: float = 3.0, entry_path: str = None) -> dict:
     """Run review phase. Returns structured feedback dict."""
     try:
-        client, model = make_client(model=model)
+        client, model = make_client(purpose=purpose, model=model)
     except Exception as e:
-        raise RuntimeError(f"router setup failed for model {model}: {e}") from e
+        raise RuntimeError(f"router setup failed for purpose={purpose} model={model}: {e}") from e
 
     yaml_content = Path(yaml_path).read_text(encoding="utf-8")
 
@@ -727,7 +730,6 @@ def review(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
                     {"role": "system", "content": system + "\n\nRespond with valid JSON only."},
                     {"role": "user", "content": user_msg},
                 ],
-                temperature=0.2,
             )
             raw_text = response.output_text
             prompt_tokens = response.usage.input_tokens
@@ -740,7 +742,6 @@ def review(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
                     {"role": "system", "content": system},
                     {"role": "user", "content": user_msg},
                 ],
-                temperature=0.2,
             )
             raw_text = response.choices[0].message.content
             prompt_tokens = response.usage.prompt_tokens
@@ -800,9 +801,10 @@ def review(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
 # Phase 3: Refiner (applies reviewer feedback to YAML)
 # ---------------------------------------------------------------------------
 
-def refine(yaml_path: str, review_result: dict, model: str = DEFAULT_MODEL) -> dict:
+def refine(yaml_path: str, review_result: dict, model: str = None,
+           purpose: str = DEFAULT_PURPOSE) -> dict:
     """Apply reviewer feedback to YAML. Rewrites the file in-place. Returns metadata."""
-    client, model = make_client(model=model)
+    client, model = make_client(purpose=purpose, model=model)
 
     yaml_content = Path(yaml_path).read_text(encoding="utf-8")
 
@@ -841,7 +843,6 @@ def refine(yaml_path: str, review_result: dict, model: str = DEFAULT_MODEL) -> d
                     {"role": "system", "content": REFINER_SYSTEM},
                     {"role": "user", "content": user_msg},
                 ],
-                temperature=0.3,
             )
             refined_yaml = response.output_text or ""
         else:
@@ -851,7 +852,6 @@ def refine(yaml_path: str, review_result: dict, model: str = DEFAULT_MODEL) -> d
                     {"role": "system", "content": REFINER_SYSTEM},
                     {"role": "user", "content": user_msg},
                 ],
-                temperature=0.3,
             )
             refined_yaml = response.choices[0].message.content or ""
     except Exception as e:
@@ -1043,8 +1043,11 @@ def main():
     parser.add_argument("yaml", help="YAML spec file to review")
     parser.add_argument("--skill", "-s", default=None,
                         help="Skill name for skill-specific rules")
-    parser.add_argument("--model", "-m", default=DEFAULT_MODEL,
-                        help=f"OpenAI model (default: {DEFAULT_MODEL})")
+    parser.add_argument("--model", "-m", default=None,
+                        help="Override model slug. Default: use the model declared by "
+                             "--purpose in agent.yaml routers.")
+    parser.add_argument("--purpose", "-p", default=DEFAULT_PURPOSE,
+                        help=f"Router purpose from agent.yaml (default: {DEFAULT_PURPOSE})")
     parser.add_argument("--threshold", "-t", type=float, default=3.5,
                         help="Overall score threshold for pass (default: 3.5)")
     parser.add_argument("--entry", "-e", default=None,
@@ -1076,6 +1079,7 @@ def main():
             str(yaml_path),
             skill=args.skill,
             model=args.model,
+            purpose=args.purpose,
             entry_path=args.entry,
             brief=args.brief,
         )
@@ -1097,6 +1101,7 @@ def main():
             str(yaml_path),
             skill=args.skill,
             model=args.model,
+            purpose=args.purpose,
             threshold=args.threshold,
             entry_path=args.entry,
         )
