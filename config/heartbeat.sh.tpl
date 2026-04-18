@@ -9,6 +9,18 @@ LOCKFILE="/tmp/edge-heartbeat-{{ CODENAME }}.lock"
 LOGFILE="$EDGE_DIR/logs/heartbeat-$(date +%Y-%m-%d).log"
 SKILL="/{{ SKILL_PREFIX }}-heartbeat"
 
+# Ensure `claude` is reachable. systemd user timers inherit a minimal PATH
+# that does NOT include nvm's node-version bindir (where `claude` typically
+# lives), so the wrapper silently fails with `command not found` (#240).
+if ! command -v claude >/dev/null 2>&1; then
+    for P in "$HOME"/.nvm/versions/node/*/bin "$HOME/.local/bin" "$HOME/bin"; do
+        if [ -x "$P/claude" ]; then
+            export PATH="$P:$PATH"
+            break
+        fi
+    done
+fi
+
 # Load secrets
 [ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a
 
