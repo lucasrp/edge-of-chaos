@@ -18,9 +18,12 @@ from __future__ import annotations
 import os
 import re
 import sys
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+from .telemetry import log_llm_call
 
 try:
     import yaml  # type: ignore
@@ -244,7 +247,116 @@ def make_client(
         client_kwargs["timeout"] = timeout
     client_kwargs.update(kwargs)
 
-    return OpenAI(**client_kwargs), cfg["model"]
+    client = OpenAI(**client_kwargs)
+    purpose_name = purpose if purpose is not None else _resolve_purpose_name(cfg["model"])
+    return _wrap_with_telemetry(client, purpose_name, cfg["model"]), cfg["model"]
+
+
+def _resolve_purpose_name(model: str) -> str:
+    try:
+        name, _ = find_router_for_model(model)
+        return name
+    except KeyError:
+        return "unknown"
+
+
+class _InstrumentedCreate:
+    """Wrap `resource.create(...)` so every call emits an llm_call event."""
+
+    def __init__(self, inner_create: Any, router: str, default_model: str) -> None:
+        self._inner = inner_create
+        self._router = router
+        self._default_model = default_model
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        model = kwargs.get("model") or self._default_model
+        t0 = time.monotonic()
+        try:
+            resp = self._inner(*args, **kwargs)
+        except Exception:
+            dt_ms = int((time.monotonic() - t0) * 1000)
+            log_llm_call(
+                router=self._router, model=model, tokens_in=0, tokens_out=0,
+                latency_ms=dt_ms, error=True,
+            )
+            raise
+        dt_ms = int((time.monotonic() - t0) * 1000)
+        tokens_in, tokens_out = _extract_tokens(resp)
+        log_llm_call(
+            router=self._router, model=model,
+            tokens_in=tokens_in, tokens_out=tokens_out, latency_ms=dt_ms,
+        )
+        return resp
+
+
+class _InstrumentedResource:
+    """Proxy a resource object (e.g., chat.completions). Wraps `.create` only."""
+
+    def __init__(self, inner: Any, router: str, default_model: str) -> None:
+        self._inner = inner
+        self._router = router
+        self._default_model = default_model
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._inner, name)
+        if name == "create":
+            return _InstrumentedCreate(attr, self._router, self._default_model)
+        return attr
+
+
+class _InstrumentedChat:
+    """Proxy client.chat, wrap client.chat.completions."""
+
+    def __init__(self, inner: Any, router: str, default_model: str) -> None:
+        self._inner = inner
+        self._router = router
+        self._default_model = default_model
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._inner, name)
+        if name == "completions":
+            return _InstrumentedResource(attr, self._router, self._default_model)
+        return attr
+
+
+class _InstrumentedClient:
+    """Thin proxy over the OpenAI SDK client. Wraps `chat.completions.create`,
+    `embeddings.create`, and `responses.create` to emit llm_call telemetry.
+    Every other attribute passes through unchanged."""
+
+    def __init__(self, inner: Any, router: str, default_model: str) -> None:
+        self._inner = inner
+        self._router = router
+        self._default_model = default_model
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._inner, name)
+        if name == "chat":
+            return _InstrumentedChat(attr, self._router, self._default_model)
+        if name in ("embeddings", "responses"):
+            return _InstrumentedResource(attr, self._router, self._default_model)
+        return attr
+
+
+def _wrap_with_telemetry(client: Any, router: str, default_model: str) -> Any:
+    """Opt-out via env: ED_TELEMETRY_DISABLE=1."""
+    if os.environ.get("ED_TELEMETRY_DISABLE") == "1":
+        return client
+    return _InstrumentedClient(client, router, default_model)
+
+
+def _extract_tokens(resp: Any) -> tuple[int, int]:
+    """Pull (prompt, completion) tokens from OpenAI-shaped responses.
+    Returns (0, 0) when usage is missing — don't block on it."""
+    try:
+        usage = getattr(resp, "usage", None)
+        if usage is None:
+            return 0, 0
+        ti = getattr(usage, "prompt_tokens", None) or getattr(usage, "input_tokens", 0) or 0
+        to = getattr(usage, "completion_tokens", None) or getattr(usage, "output_tokens", 0) or 0
+        return int(ti), int(to)
+    except Exception:
+        return 0, 0
 
 
 __all__ = [
