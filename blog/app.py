@@ -738,6 +738,14 @@ def htmx_entry_comments(slug):
 
 
 # ─── Routes: JSON APIs (backward compatible) ───
+@app.route("/blog/reindex", methods=["POST"])
+def reindex():
+    """Invalidate the entries cache so the next request re-reads from disk.
+    Called by blog-publish.sh after writing a new entry (issue #236)."""
+    invalidate_cache()
+    return {"ok": True}, 200
+
+
 @app.route("/blog/entries/")
 @app.route("/blog/entries")
 def entries_json():
