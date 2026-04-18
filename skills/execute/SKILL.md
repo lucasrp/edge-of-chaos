@@ -10,6 +10,8 @@ Direct implementation or via Ralph. Always generates a report. Only runs when th
 
 **Scope:** any modification the user requests — projects (`~/work/`), system (`~/edge/`, `~/.claude/skills/`), or both.
 
+**Architectural role:** this is the ONLY skill that requires human-in-the-loop. Every other skill operates on the agent's own substrate (memory, blog, state, reports, own repo, genotype issues/PRs) and runs to completion without mid-protocol confirmation (see `memory/rules-core.md` → Decision → external-state boundary). `/ed-execute` is where the external-state boundary is crossed, so HITL lives here and only here.
+
 **Two execution profiles:**
 - **Project (`~/work/`):** full protocol — git checks, tests, rollback, branch
 - **System (`~/edge/`, `~/.claude/`):** lightweight protocol — no git/tests, but blog + report ALWAYS
