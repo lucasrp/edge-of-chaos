@@ -12,9 +12,14 @@ No auth needed. Free API. Zero config.
 """
 
 import sys, json, argparse, time
+from pathlib import Path
 from urllib.request import urlopen, Request
 from urllib.parse import quote, urlencode
 from datetime import datetime, timedelta
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_SCRIPT_DIR.parent / "tools"))
+from _shared.telemetry import log_primitive_call
 
 
 HN_SEARCH = "https://hn.algolia.com/api/v1/search"
@@ -134,6 +139,8 @@ def main():
     if not args.topic and not args.front_page:
         parser.error("Provide a topic or use --front-page")
 
+    _t0 = time.monotonic()
+    _ok = True
     all_output = {}
 
     # Front page
@@ -185,6 +192,12 @@ def main():
 
     if args.json:
         print(json.dumps(all_output, indent=2, ensure_ascii=False))
+
+    _n = len(all_output.get("stories", [])) + len(all_output.get("comments", []))
+    log_primitive_call(
+        "hn", ok=_ok, latency_ms=int((time.monotonic() - _t0) * 1000),
+        notes={"topic": (args.topic or "front_page")[:80], "n": _n},
+    )
 
 
 if __name__ == "__main__":

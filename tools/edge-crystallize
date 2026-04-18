@@ -23,6 +23,13 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_SCRIPT_DIR.parent / "tools"))
+try:
+    from _shared.telemetry import log_workflow_transition
+except Exception:
+    def log_workflow_transition(*a, **kw): pass
+
 
 def slugify(text):
     """Convert title to a URL-friendly slug."""
@@ -88,6 +95,8 @@ def create_from_operator(directive, edge, dry_run=False):
     filepath.write_text(content)
     print(f"  CREATED {filename} (operator directive, tag=workflow)")
     index_entry(filepath)
+    log_workflow_transition(slug, from_state="claim", to_state="approved",
+                            approved_by="operator", source="operator-directive")
     return 1
 
 
@@ -197,6 +206,12 @@ def create_from_curation(args, edge):
             filepath.write_text(content)
             print(f"  CREATED {filename} ({claim_count} claims, tag={tag})")
             index_entry(filepath)
+            target_state = "approved" if tag == "workflow" else "draft"
+            log_workflow_transition(
+                slug, from_state="cluster", to_state=target_state,
+                approved_by=("auto" if tag == "workflow" else None),
+                cluster_id=cluster_id, claim_count=claim_count,
+            )
 
         created += 1
 
