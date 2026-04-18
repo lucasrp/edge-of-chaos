@@ -243,14 +243,14 @@ edge-search "[candidate topic]" -k 3
 
 This avoids the anti-pattern of rediscovering the same concept in consecutive beats. Budget: 2-3 quick queries (~3s total).
 
-### 1g: X serendipity scan (3 lateral queries)
+### 1g: Serendipity scan (3 lateral queries, multi-primitive)
 
 After reading sessions (1a), identify the main topics of the user's work. Generate 3 **LATERAL** queries — not the direct topic, but adjacent concepts that bring unexpected connections.
 
 **Query generation rules:**
 - **DO NOT** repeat the exact topic (if the user works on "domain evaluation", DO NOT search for "domain evaluation")
 - Search for the **ADJACENT**: related concepts from other domains, applicable phenomena, impactful trends
-- **2-3 CONCEPTUAL words, not technical.** X Basic tier searches AND between words, 7-day window. Long/specific queries return 0.
+- **2-3 CONCEPTUAL words, not technical.** Many primitives (X in particular) AND-match short windows — long/specific queries return 0.
 - Think in PHENOMENA, not in TOOLS. "benchmark gaming" > "LLM evaluation error taxonomy"
 - One query should cross DOMAINS (connect the technical work with the institutional/market context)
 
@@ -262,16 +262,23 @@ After reading sessions (1a), identify the main topics of the user's work. Genera
 
 **Anti-pattern:** "LLM evaluation error taxonomy" (4 technical words → always 0 results)
 
+**Fan out across primitives — never hardcode a single source.** `edge-sources` already routes to the right mix per intent (heartbeat intent fans out to HN + Reddit primary, X + GitHub + Exa secondary). Use it as the default lateral scan primitive:
+
 ```bash
-# For each lateral query (3x):
-edge-x "LATERAL_QUERY" --max 3 --json 2>/dev/null
+# For each lateral query (3x) — multi-primitive fan-out:
+edge-sources --intent heartbeat "LATERAL_QUERY" --json 2>/dev/null
 ```
+
+**When to drop to a specific primitive:**
+- `edge-x "QUERY"` — only when you specifically want X/Twitter real-time practitioner signal (labs announcements, agent-builder chatter). Not as default lateral scan.
+- `edge-arxiv` / `edge-hn` / `edge-exa` / `edge-reddit` — when a previous lateral query surfaces a thread worth going deeper on.
+
+**Graceful degradation:** edge-sources already handles per-source failures internally (missing API key, rate-limit, 0 results). If the whole fan-out returns nothing useful, proceed without — the beat does not block on lateral signal.
 
 Note interesting results (high engagement, non-obvious connection) as **"serendipity"** — use to inform Step 2 (skill/topic choice) and include in blog entry if relevant.
 
 **If no recent sessions:** use context from ~/work/CLAUDE.md as base.
-**If X returns nothing useful:** proceed without — it doesn't block the beat.
-**Budget:** 3 queries, ~5 results each. Quick and cheap.
+**Budget:** 3 lateral queries, ~5-10 results each. Quick and cheap.
 
 ---
 
