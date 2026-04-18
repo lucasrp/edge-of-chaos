@@ -16,6 +16,7 @@ Specific topics go in `memory/topics/`. Core should not exceed 15 rules.
 - When generating a report or blog entry: **verify that key insights enter memory/topics/**. Without distillation = write-only.
 - When publishing an entry: **include claims, threads, keywords, report link**. An entry without metadata is invisible in the corpus.
 - When producing an artifact: **blog ALWAYS**. Primary communication channel with the user.
+- When dispatching any `/ed-*` skill (round-robin or manual): **produce a full-rite artifact — no carve-outs**. The rite is defined once in `skills/_shared/report-template.md` and applies uniformly to every skill (including `/ed-execute`). No minimal-meta, signal-only, or blackout-degraded mode. If an external adversarial provider is unavailable, fall back to Claude — never skip the rite.
 
 ## Recognition
 

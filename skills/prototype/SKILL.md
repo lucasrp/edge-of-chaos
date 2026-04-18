@@ -100,20 +100,20 @@ Direct format:
 **Limitations:** [what the prototype does NOT show / simplified]
 ```
 
-No formal HTML report. No blog entry. The prototype IS the output.
+The prototype file in `~/edge/lab/proto-[slug].[ext]` is the primary output; the dispatch still produces a full-rite artifact recording it.
 
-### Step 5: Record (lightweight)
+### Step 5: Record + full-rite artifact (MANDATORY)
 
-Add 1-2 lines in `breaks-archive.md`:
+1. Add 1-2 lines in `breaks-archive.md`:
 
-```markdown
-## [YYYY-MM-DD] Prototype — [Name]
-- **File:** ~/edge/lab/proto-[slug].[ext]
-- **Illustrates:** [what it demonstrates]
-- **Reference:** [proposal/research that motivated it]
-```
+   ```markdown
+   ## [YYYY-MM-DD] Prototype — [Name]
+   - **File:** ~/edge/lab/proto-[slug].[ext]
+   - **Illustrates:** [what it demonstrates]
+   - **Reference:** [proposal/research that motivated it]
+   ```
 
-DO NOT update breaks-active.md (prototype is not a break). DO NOT generate report. DO NOT update blog.
+2. **Publish a blog entry + HTML report** following `_shared/report-template.md` — same rite as every other `/ed-*` skill. Prototype-specific section titles: "Lineage", "The Prototype" (with embedded link to the prototype file), "Design Choices", plus the mandatory final sections from the shared protocol. The prototype IS the output; the report IS the record. Both exist. DO NOT update breaks-active.md — a prototype is not a break.
 
 ---
 
