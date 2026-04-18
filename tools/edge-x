@@ -14,8 +14,10 @@ import os, sys, json, argparse
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "tools"))
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import SECRETS_DIR
+from _shared.telemetry import log_primitive_call
 
 # Load credentials
 env_file = SECRETS_DIR / "x-api.env"
@@ -190,14 +192,27 @@ def main():
     parser.add_argument("--light", action="store_true", help="Light mode: 2 API calls instead of 8 (for serendipity/heartbeat)")
     args = parser.parse_args()
 
-    results, total_raw = search_x(
-        args.topic,
-        from_accounts=args.from_accounts,
-        min_followers=args.min_followers,
-        min_engagement=args.min_engagement,
-        verbose=args.verbose,
-        light=args.light
-    )
+    import time as _time
+    _t0 = _time.monotonic()
+    _ok = True
+    _err = None
+    try:
+        results, total_raw = search_x(
+            args.topic,
+            from_accounts=args.from_accounts,
+            min_followers=args.min_followers,
+            min_engagement=args.min_engagement,
+            verbose=args.verbose,
+            light=args.light
+        )
+    except Exception as _e:
+        _ok = False
+        _err = str(_e)[:120]
+        log_primitive_call("x", ok=False, latency_ms=int((_time.monotonic() - _t0) * 1000),
+                           notes={"topic": args.topic[:80], "err": _err})
+        raise
+    log_primitive_call("x", ok=_ok, latency_ms=int((_time.monotonic() - _t0) * 1000),
+                       notes={"topic": args.topic[:80], "n": len(results), "light": args.light})
 
     if args.json:
         print(json.dumps(results[:args.max], indent=2, ensure_ascii=False))

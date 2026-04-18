@@ -21,7 +21,9 @@ import xml.etree.ElementTree as ET
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+sys.path.insert(0, str(SCRIPT_DIR.parent / "tools"))
 from paths import TOOLS_DIR, SECRETS_DIR
+from _shared.telemetry import log_primitive_call
 
 # --- Routing table: intent -> sources ---
 ROUTING = {
@@ -299,19 +301,27 @@ def pick_wildcard(selected_sources):
 
 def run_sources(topic, sources, max_workers=6):
     """Run multiple sources concurrently."""
+    import time as _time
     all_results = {}
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {}
+        start_by_src = {}
         for src in sources:
             fn = SOURCE_FN.get(src)
             if fn:
                 futures[pool.submit(fn, topic)] = src
+                start_by_src[src] = _time.monotonic()
         for future in as_completed(futures):
             src = futures[future]
+            dt_ms = int((_time.monotonic() - start_by_src.get(src, _time.monotonic())) * 1000)
             try:
-                all_results[src] = future.result()
+                items = future.result()
+                all_results[src] = items
+                ok = bool(items) and not (len(items) == 1 and "error" in str(items[0].get("title", "")).lower())
+                log_primitive_call(src, ok=ok, latency_ms=dt_ms, notes={"topic": topic[:80], "n": len(items)})
             except Exception as e:
                 all_results[src] = [{"title": f"{src} error: {e}", "url": "", "source": src, "detail": "", "score": 0}]
+                log_primitive_call(src, ok=False, latency_ms=dt_ms, notes={"topic": topic[:80], "err": str(e)[:120]})
     return all_results
 
 
