@@ -27,11 +27,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-try:
-    from openai import OpenAI
-except ImportError:
-    sys.exit("openai package required: pip install openai")
-
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -40,14 +35,14 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 
 # Load paths from shared config
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from branding import load_branding
-from paths import (MEMORY_DIR, REPORTS_DIR, NOTES_DIR, SKILLS_DIR,
-                   RUBRIC_PATH, OPENAI_ENV as SECRETS_PATH,
-                   XAI_ENV as XAI_SECRETS_PATH)
+sys.path.insert(0, str(SCRIPT_DIR))
+from branding import load_branding  # noqa: E402
+from paths import (MEMORY_DIR, REPORTS_DIR, NOTES_DIR, SKILLS_DIR,  # noqa: E402
+                   RUBRIC_PATH)
+from _shared.router_client import make_client  # noqa: E402
 _AGENT_NAME = load_branding().get("agent_name", "agent")
 _SKILL_PREFIX = load_branding().get("skill_prefix", "agent")
 BLOG_RULES_PATH = SKILLS_DIR / f"{_SKILL_PREFIX}-blog" / "SKILL.md"
-XAI_BASE_URL = "https://api.x.ai/v1"
 GROK_MODEL = "grok-4.20-multi-agent-beta-0309"
 
 DEFAULT_MODEL = "gpt-5.4"
@@ -499,38 +494,6 @@ Language: Portuguese (PT-BR). Output: ONLY the complete, corrected YAML. No mark
 # Loaders
 # ---------------------------------------------------------------------------
 
-def load_api_key() -> str:
-    key = os.environ.get("OPENAI_API_KEY")
-    if key:
-        return key
-    if SECRETS_PATH.exists():
-        for line in SECRETS_PATH.read_text().strip().split("\n"):
-            if line.startswith("OPENAI_API_KEY="):
-                return line.split("=", 1)[1].strip()
-    print("ERROR: OPENAI_API_KEY not found.", file=sys.stderr)
-    sys.exit(2)
-
-
-def load_xai_key() -> str | None:
-    """Load xAI API key. Returns None if not available (non-fatal)."""
-    key = os.environ.get("XAI_API_KEY")
-    if key:
-        return key
-    if XAI_SECRETS_PATH.exists():
-        for line in XAI_SECRETS_PATH.read_text().strip().split("\n"):
-            if line.startswith("XAI_API_KEY="):
-                return line.split("=", 1)[1].strip()
-    return None
-
-
-def get_xai_client() -> OpenAI | None:
-    """Get xAI client. Returns None if key not available."""
-    key = load_xai_key()
-    if not key:
-        return None
-    return OpenAI(api_key=key, base_url=XAI_BASE_URL)
-
-
 def load_rubric() -> str:
     if RUBRIC_PATH.exists():
         return RUBRIC_PATH.read_text(encoding="utf-8")
@@ -580,8 +543,7 @@ def load_entry(entry_path: str) -> str:
 def coauthor(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
              entry_path: str = None, brief: str = None) -> dict:
     """Run co-author phase with tool use. Returns enrichment suggestions."""
-    api_key = load_api_key()
-    client = OpenAI(api_key=api_key)
+    client, model = make_client(model=model)
 
     yaml_content = Path(yaml_path).read_text(encoding="utf-8")
 
@@ -732,13 +694,10 @@ def coauthor(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
 def review(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
            threshold: float = 3.0, entry_path: str = None) -> dict:
     """Run review phase. Returns structured feedback dict."""
-    if model.startswith("grok"):
-        client = get_xai_client()
-        if not client:
-            raise RuntimeError("xAI API key not available for Grok model")
-    else:
-        api_key = load_api_key()
-        client = OpenAI(api_key=api_key)
+    try:
+        client, model = make_client(model=model)
+    except Exception as e:
+        raise RuntimeError(f"router setup failed for model {model}: {e}") from e
 
     yaml_content = Path(yaml_path).read_text(encoding="utf-8")
 
@@ -843,8 +802,7 @@ def review(yaml_path: str, skill: str = None, model: str = DEFAULT_MODEL,
 
 def refine(yaml_path: str, review_result: dict, model: str = DEFAULT_MODEL) -> dict:
     """Apply reviewer feedback to YAML. Rewrites the file in-place. Returns metadata."""
-    api_key = load_api_key()
-    client = OpenAI(api_key=api_key)
+    client, model = make_client(model=model)
 
     yaml_content = Path(yaml_path).read_text(encoding="utf-8")
 

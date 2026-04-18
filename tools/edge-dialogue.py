@@ -18,20 +18,9 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import OPENAI_ENV, LOGS_DIR
-
-def load_api_key():
-    """Load OpenAI API key from env or secrets file."""
-    key = os.environ.get("OPENAI_API_KEY")
-    if key:
-        return key
-    secrets = OPENAI_ENV
-    if secrets.exists():
-        for line in secrets.read_text().splitlines():
-            if line.startswith("OPENAI_API_KEY="):
-                return line.split("=", 1)[1].strip()
-    print("ERROR: No OPENAI_API_KEY found", file=sys.stderr)
-    sys.exit(1)
+sys.path.insert(0, str(SCRIPT_DIR))
+from paths import LOGS_DIR  # noqa: E402
+from _shared.router_client import make_client  # noqa: E402
 
 def dialogue_responses_api(client, model, system_prompt, messages, session_name):
     """Multi-turn dialogue using OpenAI Responses API (for pro models)."""
@@ -139,10 +128,8 @@ def main():
     for mf in args.messages:
         messages.append(Path(mf).read_text().strip())
 
-    # Setup
-    api_key = load_api_key()
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key, timeout=300)  # 5min timeout per request
+    # Setup — resolve router via model slug so --model flag still works.
+    client, _ = make_client(model=args.model, timeout=300)
 
     log_dir = Path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)

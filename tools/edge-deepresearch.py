@@ -38,7 +38,9 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import LOGS_DIR as _LOGS_DIR, SECRETS_DIR
+sys.path.insert(0, str(SCRIPT_DIR))
+from paths import LOGS_DIR as _LOGS_DIR, SECRETS_DIR  # noqa: E402
+from _shared.router_client import make_client  # noqa: E402
 
 LOG_DIR = _LOGS_DIR / "deepresearch"
 
@@ -115,23 +117,6 @@ What couldn't be found? What needs primary research?
 # API Key loading
 # ---------------------------------------------------------------------------
 
-def load_openai_key() -> str:
-    """Load OpenAI API key from env or secrets."""
-    key = os.environ.get("OPENAI_API_KEY")
-    if key:
-        return key
-    secrets_file = SECRETS_DIR / "openai.env"
-    if secrets_file.exists():
-        for line in secrets_file.read_text().strip().split("\n"):
-            if line.startswith("OPENAI_API_KEY="):
-                return line.split("=", 1)[1].strip()
-    # Try agent-specific env var
-    key = os.environ.get("AGENT_OPENAI_API_KEY")
-    if key:
-        return key
-    return ""
-
-
 def load_gemini_key() -> str:
     """Load Gemini API key from env or secrets."""
     key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -177,18 +162,14 @@ def estimate_cost(provider: str, model: str, input_tokens: int, output_tokens: i
 
 def research_openai(query: str, system: str, context: str = "",
                     model: str = None) -> dict:
-    """Run deep research via OpenAI Responses API with web_search tool."""
+    """Run deep research via OpenAI-compatible Responses API with web_search."""
     try:
-        from openai import OpenAI
-    except ImportError:
-        return {"provider": "openai", "error": "openai package not installed: pip install openai"}
-
-    api_key = load_openai_key()
-    if not api_key:
-        return {"provider": "openai", "error": "OPENAI_API_KEY not found"}
-
-    model = model or DEFAULT_OPENAI_MODEL
-    client = OpenAI(api_key=api_key, timeout=180)
+        if model:
+            client, model = make_client(model=model, timeout=180)
+        else:
+            client, model = make_client("deepresearch", timeout=180)
+    except Exception as e:
+        return {"provider": "openai", "error": f"router setup failed: {e}"}
 
     user_msg = query
     if context:
