@@ -279,8 +279,13 @@ Produce the snapshot in the format below. Exact numbers, no narrative.
 
 ## Isolation Rule (MANDATORY)
 
-**Read-only.** This skill does NOT modify ANY files — not state files, not projects, nothing.
-All commands are read-only (cat, wc, ls, grep, git status, stat).
+**Read-only on inspected targets.** This skill does NOT modify ANY inspected files — not state files, not projects, nothing. All inspection commands are read-only (cat, wc, ls, grep, git status, stat). The rite artifact it produces (blog entry + YAML spec + HTML report) is the skill's own output, not a modification of what it inspects.
+
+---
+
+## Artifact (MANDATORY — uniform rite)
+
+Follow `~/.claude/skills/_shared/report-template.md`. Status-specific section titles: "1. Lineage", "2. Inventory" (the factual snapshot — tables + metrics-grid), "3. Anomalies Detected", "4. Health Signals", "5. What I Don't Know", "6. Contextualization and Glossary". Metrics-grid with counts, ≥1 SVG (composition bars / health distribution), bibliography referring back to the state files and docs inspected. Tag: `status`. Adversarial review + review gate + `consolidate-state` — same as every other `/ed-*` skill.
 
 ---
 
@@ -289,4 +294,4 @@ All commands are read-only (cat, wc, ls, grep, git status, stat).
 - Output is factual and concise. No "I think", no "maybe". Numbers or "DOES NOT EXIST"
 - Anomalies are factual, not recommendations. E.g.: "proposal #3 references nonexistent file" — not "should create the file"
 - If a state file doesn't exist, report as anomaly — don't create it
-- Expected execution time: <30 seconds (all local, no network)
+- Expected execution time: inspection <30s; artifact production adds ~1-2 min (adversarial + consolidate-state)

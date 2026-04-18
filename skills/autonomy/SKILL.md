@@ -7,8 +7,9 @@ user-invocable: true
 # Autonomy — Evaluate, Propose, Act
 
 The agent's self-evolution mechanism. Reads declared state vs actual state,
-proposes changes, acts on what's approved. Produces blog + report like
-every skill — plus operational changes (primitives, workflows, config).
+proposes changes, acts on what's approved. **Produces a full-rite artifact
+every dispatch** — follow `_shared/report-template.md` like every other
+`/ed-*` skill. No minimal-meta, signal-only, or blackout-degraded mode.
 
 **Principle:** more agency = more quality. But agency without initiative
 is just a bigger toolbox. The value is in seeing what nobody asked for.

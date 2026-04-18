@@ -369,7 +369,7 @@ After reading all context from Step 1, classify the beat:
 - **WORK:** There is a clear signal (chat, error, thread, session with correction). Dispatch targeted skill.
 - **EXPLORE:** No urgent signal. Dispatch `/ed-discovery` or `/ed-research` (alternate). The value is in serendipity — seeing what we're doing and bringing the right terms, the right projects, the lateral connections.
 
-**ABSOLUTE RULE:** The heartbeat ALWAYS dispatches a skill. There is no empty beat.
+**ABSOLUTE RULE:** The heartbeat ALWAYS dispatches a skill and the dispatched skill ALWAYS produces a full-rite artifact. There is no empty beat and no minimal-meta / voluntary-minimal / signal-only / blackout-degraded variant. Every skill follows the uniform rite in `_shared/report-template.md`. If an external adversarial provider is unavailable, fall back to Claude; never skip the rite.
 
 **Anti-saturation** changes meaning: it's not "stop", it's "change topic". If the last 3 beats were on the same topic, switch to another. If they were all exploration, do /ed-research on a thread.
 

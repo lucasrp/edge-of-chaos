@@ -155,24 +155,22 @@ Create blog entry (`~/edge/blog/entries/`) and generate report in a single call:
 consolidate-state ~/edge/blog/entries/<slug>.md /tmp/<slug>.yaml
 ```
 
-Report YAML spec:
+**Follow the uniform rite — `~/.claude/skills/_shared/report-template.md`.** Execution-specific section titles for the YAML spec:
 
 ```yaml
-title: "Execution: [name]"
-subtitle: "[summary of what was done]"
-date: "DD/MM/YYYY"
-
 sections:
-  - title: "1. Lineage"                    # Where this change came from
-  - title: "2. Pre-Execution Derivation"   # Expectations (Step 3)
-  - title: "3. Execution"                  # What was done, file by file
-  - title: "4. Expectation vs Reality"     # Gaps between predicted and actual
-  - title: "5. Tests"                      # Baseline vs result
-  - title: "6. What I Don't Know"          # Residual risks
+  - title: "1. Lineage"
+  - title: "2. Pre-Execution Derivation"
+  - title: "3. Execution"                  # include ≥1 SVG (architecture, sequence, timeline)
+  - title: "4. Expectation vs Reality"
+  - title: "5. Tests"
+  - title: "6. What I Don't Know"
   - title: "7. Contextualization and Glossary"
+
+bibliography: [...]                        # MANDATORY per shared protocol
 ```
 
-**Block types and rules:** see `~/.claude/skills/_shared/report-template.md`.
+All other rite requirements (adversarial review, review gate, SVG, Lineage, Bibliography) are defined in the shared protocol — same as every other `/ed-*` skill.
 
 ### Step 8: Update State
 
@@ -205,7 +203,7 @@ Final message with:
 2. **Prefer Ralph** — whenever convenient, decompose via [Ralph](https://github.com/snarktank/ralph). Simple changes can be direct
 3. **Direct when simple** — trivial changes (1-2 files, no dependencies) don't need a PRD
 4. **Tests before AND after** — baseline mandatory for project profile. System profile: verify it works after the change
-5. **Blog + Report ALWAYS** — no exception, regardless of profile, even for small changes
+5. **Full rite ALWAYS** — no exception, regardless of profile. See `_shared/report-template.md` for the uniform rite that every `/ed-*` skill follows
 6. **Feynman: derive BEFORE, compare AFTER** — expectations before, gaps after
 7. **Partial is OK** — document and stop. Don't force completeness
 8. **Rollback snapshot** — branch + commit saved before any change (project profile)

@@ -1,7 +1,14 @@
-# Report Template — Shared Reference
+# Uniform Artifact Rite — Shared Protocol
 
-Used by: /ed-research, /ed-discovery, /ed-leisure, /ed-strategy, /ed-planner, /ed-reflection.
-Each skill defines its own mandatory sections and golden rules 1-3. This file defines what is COMMON to all.
+**Applies to every `/ed-*` skill, without exception.** Every skill dispatch
+— round-robin heartbeat or manual — produces a full-rite artifact following
+this protocol. No minimal-meta, signal-only, voluntary-minimal, or
+blackout-degraded variants (see `memory/rules-core.md` → Production).
+
+Each skill contributes its own section titles and domain-specific YAML
+blocks. This file defines the **uniform floor** every skill must meet:
+blog entry + YAML spec + HTML report + meta-report + adversarial review,
+with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
 
 ---
 
@@ -33,10 +40,9 @@ Each skill defines its own mandatory sections and golden rules 1-3. This file de
    - Phase 5: State commit (claims, threads, events, digest)
    - Phase 6: Diffs + git commit
 
-   Content report is optional — publishing without YAML generates only the meta-report:
-   ```bash
-   consolidate-state ~/edge/blog/entries/<file>.md
-   ```
+   **YAML spec is MANDATORY — never publish without it.** Publishing a blog
+   entry without a YAML spec skips Phase 2 (content report), producing no
+   HTML. That path is forbidden by the uniform rite.
 
    Useful flags: `--scratchpad PATH`, `--reason TEXT`
    (Enforcement #218: bypass flags `--skip-review`, `--no-adversarial`, `--no-meta` were removed — all phases run unconditionally.)
@@ -138,7 +144,7 @@ SVG is not just for numbers — any information that communicates better as an i
 
 ## Mandatory Final Sections
 
-### Second-to-last Section: "What I Don't Know" (MANDATORY — except /ed-leisure)
+### Second-to-last Section: "What I Don't Know" (MANDATORY — all skills)
 
 - `gap-table` with open gaps (status: open/partial)
 - `callout` variant=danger for critical uncertainties (that could invalidate a recommendation)
