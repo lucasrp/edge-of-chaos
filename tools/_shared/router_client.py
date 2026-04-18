@@ -143,14 +143,31 @@ def find_router_for_model(model: str) -> tuple[str, dict[str, Any]]:
         for name, cfg in routers.items():
             if cfg and cfg.get("model") == model:
                 return name, load_router_config(name)
-    # Legacy prefix match
+    # Legacy prefix match. When the user *has* declared routers but the
+    # requested model doesn't match any of them, we still fall through here —
+    # warn loudly so a mismatched --model slug doesn't silently hit
+    # api.openai.com with a non-OpenAI key (issue #233).
+    declared = [cfg.get("model") for cfg in routers.values()
+                if isinstance(cfg, dict)] if isinstance(routers, dict) else []
     for purpose, spec in _LEGACY_DEFAULTS.items():
         if model.startswith(spec["model_default"].split("-")[0]):
             cfg = _resolve_legacy(purpose)
             if cfg:
                 cfg["model"] = model  # caller's override wins
+                if declared:
+                    print(
+                        f"WARN router_client: model={model!r} not declared "
+                        f"in agent.yaml routers (declared: {declared}). "
+                        f"Falling back to legacy endpoint {cfg['base_url']} "
+                        f"using {cfg['secret_ref']}. This will fail if your "
+                        f"key is not for that provider.",
+                        file=sys.stderr,
+                    )
                 return purpose, cfg
-    raise KeyError(f"No router declares model={model!r}.")
+    raise KeyError(
+        f"No router declares model={model!r}. "
+        f"Declared in agent.yaml: {declared or '(none)'}."
+    )
 
 
 def load_secret(secret_ref: str) -> str:
