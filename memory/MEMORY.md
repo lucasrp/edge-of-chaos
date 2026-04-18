@@ -1,0 +1,1 @@
+- [Genotype workflow: clone → branch → push → propagate](feedback_genotype_workflow.md) — Never edit live `~/edge/` for genotype changes; user has had sensitive data leaks from in-place edits
