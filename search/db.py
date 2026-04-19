@@ -1,11 +1,16 @@
 """Database schema and connection for edge-memory."""
 
 import sqlite3
+import sys
 from pathlib import Path
 
 import sqlite_vec
 
-DB_PATH = Path(__file__).parent / "edge-memory.db"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import SEARCH_DB_FILE  # noqa: E402
+
+DB_PATH = SEARCH_DB_FILE
 EMBEDDING_DIM = 1536  # text-embedding-3-small
 
 

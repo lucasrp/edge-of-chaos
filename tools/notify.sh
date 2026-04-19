@@ -13,8 +13,9 @@
 
 set -euo pipefail
 
+# shellcheck source=../config/paths.sh
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-EDGE_DIR="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/../config/paths.sh"
 
 TYPE="${1:-default}"
 MESSAGE="${2:-}"
@@ -36,8 +37,8 @@ fi
 
 # ─── Load config ─────────────────────────────────────────────────────────────
 
-FEATURES_FILE="$EDGE_DIR/config/features.yaml"
-SECRETS_FILE="$EDGE_DIR/secrets/_shared.yaml"
+FEATURES_FILE="$EDGE_REPO_DIR/config/features.yaml"
+SECRETS_FILE="$EDGE_REPO_DIR/secrets/_shared.yaml"
 
 # Read a YAML value (simple — no nested arrays)
 yaml_val() {
@@ -135,13 +136,14 @@ if [[ "$SENT" == "false" ]] && [[ -n "$WEBHOOK_URL" ]]; then
 fi
 
 # Method 3: Local chat API (always available)
-BLOG_PORT=$(yaml_val "$EDGE_DIR/config/branding.yaml" "blog.port" 2>/dev/null || echo "8080")
+BLOG_PORT=$(yaml_val "$EDGE_REPO_DIR/config/branding.yaml" "blog.port" 2>/dev/null || echo "8080")
 curl -s -X POST "http://localhost:${BLOG_PORT}/api/chat" \
   -H "Content-Type: application/json" \
   -d "{\"author\": \"system\", \"text\": \"[$TYPE] $MESSAGE\"}" 2>/dev/null >/dev/null || true
 
 # Log
-echo "[$(date '+%Y-%m-%d %H:%M')] notify $TYPE: $MESSAGE (slack=$SENT)" >> "$EDGE_DIR/logs/notify.log" 2>/dev/null || true
+mkdir -p "$LOGS_DIR"
+echo "[$(date '+%Y-%m-%d %H:%M')] notify $TYPE: $MESSAGE (slack=$SENT)" >> "$LOGS_DIR/notify.log" 2>/dev/null || true
 
 if [[ "$SENT" == "true" ]]; then
   echo "sent via slack → $CHANNEL"

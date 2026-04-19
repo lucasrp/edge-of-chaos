@@ -20,16 +20,32 @@ import markdown
 import yaml
 
 # ─── Paths ───
-ROOT = Path.home() / "edge"
-BLOG_DIR = ROOT / "blog"
-ENTRIES_DIR = BLOG_DIR / "entries"
-COMMENTS_FILE = BLOG_DIR / "comments.json"
-DIFFS_DIR = BLOG_DIR / "diffs"
-DIFFS_DIR.mkdir(parents=True, exist_ok=True)
-META_REPORTS_DIR = ROOT / "meta-reports"
-REPORTS_DIR = ROOT / "reports"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import (  # noqa: E402
+    AUTONOMY_CAPABILITIES_FILE,
+    BLOG_COMMENTS_FILE,
+    BLOG_DIFFS_DIR,
+    BLOG_DIR,
+    BLOG_FTS_DB_FILE,
+    BUILDS_DIR,
+    EDGE_REPO_DIR,
+    ENTRIES_DIR,
+    FRONTIER_FILE,
+    META_REPORTS_DIR,
+    NOTES_DIR,
+    PROPOSALS_FILE,
+    REPORTS_DIR,
+    SEARCH_DIR,
+    SIGNALS_DIR,
+    STATE_DIR,
+    THREADS_DIR,
+)
 
-SEARCH_DIR = ROOT / "search"
+ROOT = EDGE_REPO_DIR
+COMMENTS_FILE = BLOG_COMMENTS_FILE
+DIFFS_DIR = BLOG_DIFFS_DIR
+DIFFS_DIR.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(SEARCH_DIR))
 sys.path.insert(0, str(ROOT))
 
@@ -100,7 +116,7 @@ SKILL_GROUPS = [
 
 
 # ─── FTS5 index ───
-FTS_DB_PATH = BLOG_DIR / "blog_fts.db"
+FTS_DB_PATH = BLOG_FTS_DB_FILE
 
 
 def get_fts_conn():
@@ -615,9 +631,8 @@ def workflow_reject(slug):
 def proposal_approve(proposal_id):
     """Approve a proposal: set status to approved."""
     import json as _j
-    proposals_path = ROOT / "state" / "proposals.json"
     try:
-        proposals = _j.loads(proposals_path.read_text())
+        proposals = _j.loads(PROPOSALS_FILE.read_text())
     except Exception:
         return jsonify({"error": "no proposals file"}), 404
     for p in proposals:
@@ -626,7 +641,7 @@ def proposal_approve(proposal_id):
             break
     else:
         return jsonify({"error": "not found"}), 404
-    proposals_path.write_text(_j.dumps(proposals, indent=2, ensure_ascii=False))
+    PROPOSALS_FILE.write_text(_j.dumps(proposals, indent=2, ensure_ascii=False))
     return "", 204
 
 
@@ -634,17 +649,17 @@ def proposal_approve(proposal_id):
 def proposal_reject(proposal_id):
     """Reject a proposal: set status to rejected, log in decision.md."""
     import json as _j
-    proposals_path = ROOT / "state" / "proposals.json"
     try:
-        proposals = _j.loads(proposals_path.read_text())
+        proposals = _j.loads(PROPOSALS_FILE.read_text())
     except Exception:
         return jsonify({"error": "no proposals file"}), 404
     for p in proposals:
         if p.get("id") == proposal_id:
             p["status"] = "rejected"
             # Log rejection in decision signals
-            signals_path = ROOT / "state" / "signals" / "decision.md"
+            signals_path = SIGNALS_DIR / "decision.md"
             try:
+                signals_path.parent.mkdir(parents=True, exist_ok=True)
                 existing = signals_path.read_text() if signals_path.exists() else ""
                 signals_path.write_text(existing + f"\n- Rejected proposal: {p.get('title', proposal_id)}\n")
             except Exception:
@@ -652,7 +667,7 @@ def proposal_reject(proposal_id):
             break
     else:
         return jsonify({"error": "not found"}), 404
-    proposals_path.write_text(_j.dumps(proposals, indent=2, ensure_ascii=False))
+    PROPOSALS_FILE.write_text(_j.dumps(proposals, indent=2, ensure_ascii=False))
     return "", 204
 
 
@@ -779,8 +794,8 @@ def get_autonomy_data():
     """Read ~/edge/autonomy/capabilities.md and compute Sheridan stats."""
     import re
     try:
-        cap_path = Path.home() / "edge" / "autonomy" / "capabilities.md"
-        frontier_path = Path.home() / "edge" / "autonomy" / "frontier.md"
+        cap_path = AUTONOMY_CAPABILITIES_FILE
+        frontier_path = FRONTIER_FILE
         content = cap_path.read_text()
         # Parse table rows: | # | Name | Sheridan | ...
         rows = re.findall(r'^\|\s*\d+\s*\|([^|]+)\|\s*(\d+)\s*\|', content, re.MULTILINE)
@@ -1127,7 +1142,7 @@ def api_thread_candidates():
 def api_promote_candidate(tag):
     """Create a thread from a candidate tag."""
     from datetime import timedelta
-    threads_dir = ROOT / "threads"
+    threads_dir = THREADS_DIR
     thread_path = threads_dir / f"{tag}.md"
     if thread_path.exists():
         return jsonify({"error": f"Thread '{tag}' already exists"}), 409
@@ -1164,7 +1179,7 @@ Thread criado a partir de candidate (tag '{tag}').
 def api_thread_snooze(thread_id):
     """Snooze: update resurface +7d."""
     from datetime import timedelta
-    thread_path = ROOT / "threads" / f"{thread_id}.md"
+    thread_path = THREADS_DIR / f"{thread_id}.md"
     if not thread_path.exists():
         return jsonify({"error": f"Thread {thread_id} not found"}), 404
     data = request.get_json(silent=True) or {}
@@ -1191,17 +1206,17 @@ def comments_json():
 # ─── Static files from ~/edge/ root ───
 @app.route("/reports/<path:filename>")
 def serve_reports(filename):
-    return send_from_directory(str(ROOT / "reports"), filename)
+    return send_from_directory(str(REPORTS_DIR), filename)
 
 
 @app.route("/builds/<path:filename>")
 def serve_builds(filename):
-    return send_from_directory(str(ROOT / "builds"), filename)
+    return send_from_directory(str(BUILDS_DIR), filename)
 
 
 @app.route("/notes/<path:filename>")
 def serve_notes(filename):
-    return send_from_directory(str(ROOT / "notes"), filename)
+    return send_from_directory(str(NOTES_DIR), filename)
 
 
 @app.route("/blog/entries/<path:filename>")
@@ -1220,14 +1235,6 @@ def serve_meta_reports(filename):
 
 
 # ─── Dashboard ───
-STATE_DIR = ROOT / "state"
-THREADS_DIR = ROOT / "threads"
-
-
-
-
-
-
 def _build_threads_data():
     """Build context for threads partial."""
     from blog.services import load_threads_enriched, compute_thread_candidates
@@ -1358,10 +1365,9 @@ _SETUP_MAX_CONTENT = 50_000  # truncate files larger than this in the setup view
 
 def _load_proposals():
     """Load active proposals from state/proposals.json."""
-    proposals_path = ROOT / "state" / "proposals.json"
     try:
         import json as _j
-        return [p for p in _j.loads(proposals_path.read_text()) if p.get("status") == "active"]
+        return [p for p in _j.loads(PROPOSALS_FILE.read_text()) if p.get("status") == "active"]
     except Exception:
         return []
 

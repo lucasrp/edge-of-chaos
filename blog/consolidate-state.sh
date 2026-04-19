@@ -246,7 +246,7 @@ echo ""
 echo "── Phase 0a: State Snapshot ──"
 ledger_record "phase-0a" "ok"
 if command -v edge-state-audit &>/dev/null; then
-    PRE_SNAPSHOT="$EDGE_DIR/state-snapshots/${SLUG}.pre.yaml"
+    PRE_SNAPSHOT="$SNAPSHOT_DIR/${SLUG}.pre.yaml"
     if [[ -f "$PRE_SNAPSHOT" ]]; then
         ok "PRE snapshot already exists (agent captured before changes)"
     else
@@ -658,7 +658,7 @@ try:
     if not ('curation' in tags or 'procedures' in tags):
         print('SKIP')
         sys.exit(0)
-    pc = os.path.expanduser('~/edge/state/procedure-curation.json')
+    pc = os.environ.get('PROCEDURE_CURATION_FILE', os.path.expanduser('~/edge/state/procedure-curation.json'))
     if not os.path.exists(pc):
         print('SKIP')
         sys.exit(0)
@@ -667,7 +667,7 @@ try:
     if not candidates:
         print('SKIP')
         sys.exit(0)
-    entries = glob.glob(os.path.expanduser('~/edge/blog/entries/*workflow*.md'))
+    entries = glob.glob(os.path.join(os.environ.get('ENTRIES_DIR', os.path.expanduser('~/edge/blog/entries')), '*workflow*.md'))
     drafts = 0
     for e in entries:
         head = open(e).read()[:500]
@@ -809,7 +809,7 @@ def ok(msg): print(f"  {GREEN}OK{NC}: {msg}")
 def warn(msg): print(f"  {YELLOW}WARN{NC}: {msg}")
 def fail(msg): print(f"  {RED}FAIL{NC}: {msg}")
 
-FAILURES_FILE = Path.home() / "edge" / "logs" / "pipeline-failures.jsonl"
+FAILURES_FILE = Path(os.environ.get("PIPELINE_FAILURES_FILE", os.path.expanduser("~/edge/logs/pipeline-failures.jsonl")))
 FAILURES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 def log_failure(phase, operation, error, tb=None):
@@ -866,7 +866,7 @@ except Exception as e:
 
 # ── 2. Thread update ──
 try:
-    threads_dir = Path.home() / "edge" / "threads"
+    threads_dir = Path(os.environ.get("THREADS_DIR", os.path.expanduser("~/edge/threads")))
     updated_threads = []
     for tid in threads:
         tfile = threads_dir / f"{tid}.md"
@@ -885,7 +885,7 @@ except Exception as e:
 
 # ── 2b. Procedure & workflow signals ──
 try:
-    state_dir = Path.home() / "edge" / "state"
+    state_dir = Path(os.environ.get("STATE_DIR", os.path.expanduser("~/edge/state")))
     state_dir.mkdir(parents=True, exist_ok=True)
     health_file = state_dir / "workflow-health.json"
 
@@ -961,7 +961,7 @@ except Exception as e:
 
 # ── 3. Event log (idempotent) ──
 try:
-    events_file = Path.home() / "edge" / "logs" / "events.jsonl"
+    events_file = Path(os.environ.get("EVENTS_FILE", os.path.expanduser("~/edge/logs/events.jsonl")))
     artifacts = [f"blog/entries/{slug}.md"]
     if report_filename:
         artifacts.append(f"reports/{report_filename}")
@@ -1030,7 +1030,7 @@ echo "── Phase 5b: State Audit ──"
 ledger_record "phase-5b" "ok"
 if command -v edge-state-audit &>/dev/null; then
     # Check if proposal exists (agent should have written it during the session)
-    PROPOSAL_FILE="$EDGE_DIR/meta-reports/${SLUG}.state-proposal.yaml"
+    PROPOSAL_FILE="$META_DIR/${SLUG}.state-proposal.yaml"
     if [[ -f "$PROPOSAL_FILE" ]]; then
         ok "Proposal found: $(basename "$PROPOSAL_FILE")"
     else
@@ -1045,7 +1045,7 @@ if command -v edge-state-audit &>/dev/null; then
         echo "========================================="
         echo -e " ${RED}ABORTED${NC}: State audit detected violation"
         echo "  Proposal: $PROPOSAL_FILE"
-        echo "  Audit: $EDGE_DIR/meta-reports/${SLUG}.state-audit.yaml"
+        echo "  Audit: $META_DIR/${SLUG}.state-audit.yaml"
         echo "========================================="
         exit 5
     fi
@@ -1095,7 +1095,7 @@ def ok(msg): print(f"  {GREEN}OK{NC}: {msg}")
 def warn(msg): print(f"  {YELLOW}WARN{NC}: {msg}")
 def fail(msg): print(f"  {RED}FAIL{NC}: {msg}")
 
-FAILURES_FILE = Path.home() / "edge" / "logs" / "pipeline-failures.jsonl"
+FAILURES_FILE = Path(os.environ.get("PIPELINE_FAILURES_FILE", os.path.expanduser("~/edge/logs/pipeline-failures.jsonl")))
 FAILURES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 def log_failure(phase, operation, error, tb=None):
@@ -1148,12 +1148,13 @@ def _claim_text(c):
     return str(c).lstrip("! ")
 
 # ── 1. Captura diffs dos mini-repos (memory, skills, notes) ──
-_edge_dir = os.environ.get("EDGE_DIR", os.path.expanduser("~/edge"))
+_edge_repo_dir = os.environ.get("EDGE_REPO_DIR", os.environ.get("EDGE_DIR", os.path.expanduser("~/edge")))
+_notes_dir = os.environ.get("NOTES_DIR", os.path.join(os.environ.get("EDGE_STATE_DIR", os.path.expanduser("~/edge")), "notes"))
 _memory_base = os.environ.get("MEMORY_BASE", os.path.expanduser("~/.claude/projects/memory"))
 TRACKED = {
     _memory_base: "memory",
     os.path.expanduser("~/.claude/skills"): "skills",
-    os.path.join(_edge_dir, "notes"): "notes",
+    _notes_dir: "notes",
 }
 
 all_diffs = []
@@ -1207,7 +1208,7 @@ for dirpath, prefix in TRACKED.items():
 
 # ── 2. Captura diffs do ~/edge/ (repo principal) ──
 try:
-    edge_dir = os.environ.get("EDGE_DIR", os.path.expanduser("~/edge"))
+    edge_dir = os.environ.get("EDGE_REPO_DIR", os.environ.get("EDGE_DIR", os.path.expanduser("~/edge")))
     subprocess.run(["git", "add", "-A"], cwd=edge_dir, capture_output=True, timeout=30)
 
     # ORPHAN GUARD: unstage blog entries/reports/meta-reports that don't belong to this slug.
@@ -1330,8 +1331,9 @@ if failures:
 lines.append("")
 
 # State audit summary (if audit ran)
-proposal_path = Path.home() / "edge" / "meta-reports" / f"{slug}.state-proposal.yaml"
-audit_path = Path.home() / "edge" / "meta-reports" / f"{slug}.state-audit.yaml"
+meta_dir = Path(os.environ.get("META_DIR", os.path.expanduser("~/edge/meta-reports")))
+proposal_path = meta_dir / f"{slug}.state-proposal.yaml"
+audit_path = meta_dir / f"{slug}.state-audit.yaml"
 if audit_path.exists():
     try:
         audit_data = yaml.safe_load(audit_path.read_text())
@@ -1396,7 +1398,7 @@ if audit_path.exists():
 
 # ── Execution summary from ops-hotspots.json ──
 try:
-    hotspots_path = Path.home() / "edge" / "state" / "ops-hotspots.json"
+    hotspots_path = Path(os.environ.get("OPS_HOTSPOTS", os.path.expanduser("~/edge/state/ops-hotspots.json")))
     if hotspots_path.exists():
         hotspots = json.loads(hotspots_path.read_text())
         incidents = hotspots.get("incidents", [])
@@ -1472,7 +1474,7 @@ if $ALL_OK && [[ "$REPORT_RESULT" != "fail" ]]; then
     [[ -n "$META_REPORT_PATH" ]] && echo -e " ${YELLOW}→ Read meta-report BEFORE editing state${NC}"
     echo "========================================="
     # Survival instinct: write success marker
-    HEALTH_OK="$EDGE_DIR/health/last_success"
+    HEALTH_OK="$HEALTH_DIR/last_success"
     mkdir -p "$HEALTH_OK"
     printf '{"ts":"%s","slug":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SLUG" > "$HEALTH_OK/consolidate.ok"
     ledger_record "pipeline-end" "ok"

@@ -20,6 +20,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 TOOLS_DIR = SCRIPT_DIR.parent.parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
+CONFIG_DIR = SCRIPT_DIR.parents[2] / "config"
+if str(CONFIG_DIR) not in sys.path:
+    sys.path.insert(0, str(CONFIG_DIR))
 
 try:
     from _shared.telemetry import current_cycle_id, emit_shadow_event
@@ -27,10 +30,17 @@ except Exception:
     current_cycle_id = None
     emit_shadow_event = None
 
+try:
+    from paths import SOURCE_USAGE_FILE
+except Exception:
+    SOURCE_USAGE_FILE = None
+
 
 def _log_path() -> Path:
-    edge_home = os.environ.get("EDGE_HOME", str(Path.home() / "edge"))
-    return Path(edge_home).expanduser() / "state" / "source-usage.jsonl"
+    if SOURCE_USAGE_FILE is not None:
+        return SOURCE_USAGE_FILE
+    edge_state_dir = os.environ.get("EDGE_STATE_DIR") or os.environ.get("EDGE_HOME") or str(Path.home() / "edge")
+    return Path(edge_state_dir).expanduser() / "state" / "source-usage.jsonl"
 
 
 def log_invocation(

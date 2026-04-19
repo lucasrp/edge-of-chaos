@@ -15,7 +15,7 @@ source "$(dirname "$0")/../config/paths.sh"
 
 # 0. Health check (runs edge-check.sh, updates health/current.json)
 HEALTH_SCRIPT="$(dirname "$0")/../bin/edge-check.sh"
-HEALTH_FILE="$EDGE_DIR/health/current.json"
+HEALTH_FILE="$HEALTH_CURRENT_FILE"
 
 if [ -x "$HEALTH_SCRIPT" ]; then
   bash "$HEALTH_SCRIPT" >/dev/null 2>&1
