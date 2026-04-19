@@ -2,20 +2,91 @@
 
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import sqlite_vec
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+sys.path.insert(0, str(SCRIPT_DIR.parent / "tools"))
 from paths import SEARCH_DB_FILE  # noqa: E402
+
+try:
+    from _shared.telemetry import log_db_query
+except Exception:
+    log_db_query = None
 
 DB_PATH = SEARCH_DB_FILE
 EMBEDDING_DIM = 1536  # text-embedding-3-small
 
 
+class TelemetryConnection(sqlite3.Connection):
+    """sqlite connection that passively emits telemetry for reads/writes."""
+
+    def _log_sql(
+        self,
+        statement: str,
+        started_at: float,
+        *,
+        ok: bool,
+        rowcount: int | None = None,
+        batch_size: int | None = None,
+        error: str | None = None,
+    ) -> None:
+        if log_db_query is None:
+            return
+        log_db_query(
+            db_name=Path(getattr(self, "_edge_db_path", "db")).name,
+            statement=statement,
+            latency_ms=int((time.monotonic() - started_at) * 1000),
+            ok=ok,
+            rows=rowcount,
+            batch_size=batch_size,
+            error=error,
+            caller="search.db",
+        )
+
+    def execute(self, sql, parameters=(), /):
+        started_at = time.monotonic()
+        try:
+            cur = super().execute(sql, parameters)
+            self._log_sql(sql, started_at, ok=True, rowcount=cur.rowcount)
+            return cur
+        except Exception as exc:
+            self._log_sql(sql, started_at, ok=False, error=str(exc))
+            raise
+
+    def executemany(self, sql, seq_of_parameters, /):
+        started_at = time.monotonic()
+        batch_size = None
+        try:
+            if hasattr(seq_of_parameters, "__len__"):
+                batch_size = len(seq_of_parameters)
+        except Exception:
+            batch_size = None
+        try:
+            cur = super().executemany(sql, seq_of_parameters)
+            self._log_sql(sql, started_at, ok=True, rowcount=cur.rowcount, batch_size=batch_size)
+            return cur
+        except Exception as exc:
+            self._log_sql(sql, started_at, ok=False, batch_size=batch_size, error=str(exc))
+            raise
+
+    def executescript(self, sql_script, /):
+        started_at = time.monotonic()
+        try:
+            cur = super().executescript(sql_script)
+            self._log_sql(sql_script, started_at, ok=True)
+            return cur
+        except Exception as exc:
+            self._log_sql(sql_script, started_at, ok=False, error=str(exc))
+            raise
+
+
 def get_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), factory=TelemetryConnection)
+    conn._edge_db_path = str(db_path)
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)

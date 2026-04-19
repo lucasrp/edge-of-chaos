@@ -20,16 +20,28 @@ import yaml
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-HOME = Path.home()
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (EVENTS_FILE, THREADS_DIR, ENTRIES_DIR as BLOG_DIR,
-                   LOGS_DIR, DEBUGGING_FILE as DEBUG_FILE,
+                   LOGS_DIR, STATE_DIR, DEBUGGING_FILE as DEBUG_FILE,
                    INSIGHTS_FILE, BRIEFING_FILE as OUTPUT_FILE)
 HEARTBEAT_LOG = LOGS_DIR / f"heartbeat-{datetime.now().strftime('%Y-%m-%d')}.log"
+OBSERVABILITY_FILE = STATE_DIR / "observability-rollup.json"
 
 TODAY = datetime.now().strftime("%Y-%m-%d")
 NOW = datetime.now().strftime("%H:%M")
+
+
+def refresh_rollups():
+    """Refresh deterministic rollups used by the briefing."""
+    rollups = [
+        SCRIPT_DIR / "rollup-observability.py",
+    ]
+    for rollup in rollups:
+        try:
+            subprocess.run([sys.executable, str(rollup)], check=False, capture_output=True, text=True)
+        except Exception:
+            continue
 
 
 def read_threads():
@@ -158,8 +170,19 @@ def count_blog_entries():
     return total, with_claims
 
 
+def read_observability():
+    """Read consolidated observability rollup if present."""
+    if not OBSERVABILITY_FILE.exists():
+        return {}
+    try:
+        return json.loads(OBSERVABILITY_FILE.read_text())
+    except Exception:
+        return {}
+
+
 def generate_briefing():
     """Gera o briefing completo."""
+    refresh_rollups()
     threads = read_threads()
     events = read_events(20)
     open_claims = read_open_claims()
@@ -167,6 +190,7 @@ def generate_briefing():
     errors = read_open_errors()
     insights = read_unread_insights()
     total_entries, entries_with_claims = count_blog_entries()
+    observability = read_observability()
 
     lines = []
     lines.append(f"# Briefing — {TODAY} {NOW}")
@@ -263,6 +287,41 @@ def generate_briefing():
     lines.append(f"- Gaps abertos: {len(open_claims)}")
     lines.append(f"- Erros ativos: {len(errors)}")
     lines.append("")
+
+    if observability:
+        backlog = observability.get("backlog", {})
+        freshness = observability.get("freshness_by_actor", {})
+        stale = [
+            f"{actor} ({data.get('age_minutes', 0)}m)"
+            for actor, data in freshness.items()
+            if float(data.get("age_minutes", 0)) >= 180
+        ][:5]
+        publish = observability.get("blog_publish_failures", {}).get("by_class", {})
+        lifecycle = observability.get("lifecycle", {})
+        failed_steps = []
+        for run_kind, phases in lifecycle.items():
+            for phase, statuses in phases.items():
+                failed = int(statuses.get("failed", 0))
+                if failed:
+                    failed_steps.append((failed, run_kind, phase))
+        failed_steps.sort(reverse=True)
+
+        lines.append("## Observability")
+        lines.append(
+            f"- Backlog: {backlog.get('active_threads', 0)} threads ativos, "
+            f"{backlog.get('waiting_threads', 0)} waiting, "
+            f"{backlog.get('resurface_due', 0)} resurface vencidos, "
+            f"{backlog.get('open_claims', 0)} claims abertas"
+        )
+        if stale:
+            lines.append(f"- Atores stale: {', '.join(stale)}")
+        if publish:
+            top_publish = ", ".join(f"{k}:{v}" for k, v in list(publish.items())[:4])
+            lines.append(f"- blog_publish classes: {top_publish}")
+        if failed_steps:
+            top_failed = ", ".join(f"{rk}/{ph}:{n}" for n, rk, ph in failed_steps[:4])
+            lines.append(f"- Lifecycle failures: {top_failed}")
+        lines.append("")
 
     return "\n".join(lines)
 

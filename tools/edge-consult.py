@@ -22,6 +22,7 @@ import json
 import os
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +31,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 sys.path.insert(0, str(SCRIPT_DIR))
 from paths import SECRETS_DIR, LOGS_DIR  # noqa: E402  (kept for downstream consumers)
 from _shared.router_client import make_client  # noqa: E402
+from _shared.telemetry import log_run_step  # noqa: E402
 
 LOG_DIR = LOGS_DIR / "consult"
 
@@ -379,8 +381,19 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
     """
     import time
     started = time.time()
+    run_id = f"consult:{uuid.uuid4().hex[:8]}"
 
     system = ADVERSARIAL_SYSTEM if mode == "adversarial" else COLLABORATIVE_SYSTEM
+    log_run_step(
+        "edge-consult",
+        "consult",
+        "started",
+        run_id=run_id,
+        mode=mode,
+        context_files=len(context_files or []),
+        stdin=bool(stdin_content),
+        gate_spec=bool(gate_spec),
+    )
 
     _progress(f"Building prompt (question={len(question)} chars, "
               f"context_files={len(context_files or [])}, "
@@ -491,6 +504,19 @@ def consult(question: str, mode: str = "adversarial", context_files: list = None
     # Combine outputs from both models
     combined = "\n\n".join(
         f"── {m} ──\n{text}" for m, text in results
+    )
+    ok_attempts = sum(1 for a in attempts if a["status"] == "ok")
+    failed_attempts = sum(1 for a in attempts if a["status"] == "error")
+    final_status = "completed" if ok_attempts else "failed"
+    log_run_step(
+        "edge-consult",
+        "consult",
+        final_status,
+        run_id=run_id,
+        mode=mode,
+        ok_attempts=ok_attempts,
+        failed_attempts=failed_attempts,
+        fallback_used=bool(fallback_used),
     )
 
     # Gate: save combined review alongside YAML spec
