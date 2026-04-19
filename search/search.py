@@ -4,23 +4,30 @@ import json
 import re
 import struct
 import sys
+import uuid
 from pathlib import Path
 
 import yaml
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+sys.path.insert(0, str(SCRIPT_DIR.parent / "tools"))
 from paths import EDGE_STATE_DIR, NOTES_DIR  # noqa: E402
 
 from db import EMBEDDING_DIM, ensure_db
 from embed import embed_text
-
 
 def _resolve_state_path(raw_path: str) -> Path:
     path = Path(raw_path)
     if path.is_absolute():
         return path
     return EDGE_STATE_DIR / path
+
+try:
+    from _shared.telemetry import log_run_step, log_search_query
+except Exception:
+    log_run_step = None
+    log_search_query = None
 
 
 def _parse_frontmatter_note(filepath: Path) -> str | None:
@@ -459,35 +466,89 @@ def main():
 
     conn = ensure_db()
     workflows = []
+    run_id = f"search:{uuid.uuid4().hex[:8]}"
 
-    if args.fts:
-        results = fts_search(query, limit=args.k, doc_type=args.doc_type, conn=conn)
-        mode = "fts"
-    elif args.semantic:
-        query_embedding = embed_text(query)
-        results = vec_search(
-            query_embedding, limit=args.k, doc_type=args.doc_type, conn=conn
+    if log_run_step is not None:
+        log_run_step(
+            "edge-search",
+            "query",
+            "started",
+            run_id=run_id,
+            query_norm=re.sub(r"\s+", " ", query.lower()).strip()[:160],
+            doc_type=args.doc_type or "",
         )
-        mode = "semantic"
-    elif not args.no_sidecar and args.doc_type != "workflow":
-        results, workflows = search_with_sidecar(
-            query, limit=args.k, doc_type=args.doc_type, conn=conn
-        )
-        mode = "hybrid"
-    else:
-        results = hybrid_search(
-            query, limit=args.k, doc_type=args.doc_type, conn=conn
-        )
-        mode = "hybrid"
 
-    print(format_results(results, mode, workflows=workflows))
+    try:
+        if args.fts:
+            results = fts_search(query, limit=args.k, doc_type=args.doc_type, conn=conn)
+            mode = "fts"
+        elif args.semantic:
+            query_embedding = embed_text(query)
+            results = vec_search(
+                query_embedding, limit=args.k, doc_type=args.doc_type, conn=conn
+            )
+            mode = "semantic"
+        elif not args.no_sidecar and args.doc_type != "workflow":
+            results, workflows = search_with_sidecar(
+                query, limit=args.k, doc_type=args.doc_type, conn=conn
+            )
+            mode = "hybrid"
+        else:
+            results = hybrid_search(
+                query, limit=args.k, doc_type=args.doc_type, conn=conn
+            )
+            mode = "hybrid"
 
-    # Log telemetry (includes workflow hits)
-    all_results = results + workflows
-    if not args.no_telemetry and all_results:
-        log_search_telemetry(query, all_results, conn=conn)
+        print(format_results(results, mode, workflows=workflows))
 
-    conn.close()
+        all_results = results + workflows
+        if not args.no_telemetry and all_results:
+            log_search_telemetry(query, all_results, conn=conn)
+
+        if log_search_query is not None:
+            log_search_query(
+                query,
+                mode=mode,
+                status="completed",
+                result_count=len(results),
+                workflow_count=len(workflows),
+                doc_type=args.doc_type,
+                run_id=run_id,
+                no_sidecar=bool(args.no_sidecar),
+            )
+        if log_run_step is not None:
+            log_run_step(
+                "edge-search",
+                "query",
+                "completed",
+                run_id=run_id,
+                mode=mode,
+                result_count=len(results),
+                workflow_count=len(workflows),
+            )
+    except Exception as exc:
+        if log_search_query is not None:
+            log_search_query(
+                query,
+                mode="unknown",
+                status="failed",
+                result_count=0,
+                workflow_count=0,
+                doc_type=args.doc_type,
+                run_id=run_id,
+                error=str(exc),
+            )
+        if log_run_step is not None:
+            log_run_step(
+                "edge-search",
+                "query",
+                "failed",
+                run_id=run_id,
+                error=str(exc),
+            )
+        raise
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

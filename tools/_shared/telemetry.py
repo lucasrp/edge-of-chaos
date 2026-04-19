@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -140,7 +141,11 @@ def emit_shadow_event(
 
 def log_event(event_type: str, **fields: Any) -> None:
     """Append a typed event to events.jsonl. Always includes ts + type."""
-    event = {"ts": datetime.now(timezone.utc).isoformat(), "type": event_type}
+    event = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "type": event_type,
+        "actor": fields.pop("actor", current_actor()),
+    }
     event.update(fields)
     _append_event(event)
     emit_shadow_event(
@@ -181,12 +186,183 @@ def log_llm_call(
     )
 
 
+def log_run_step(
+    run_kind: str,
+    phase: str,
+    status: str,
+    *,
+    run_id: str | None = None,
+    **extra: Any,
+) -> None:
+    """Generic lifecycle event for deterministic runs and pipeline phases."""
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    log_event(
+        "run_step",
+        run_kind=run_kind,
+        phase=phase,
+        status=status,
+        run_id=run_id or current_cycle_id(),
+        **extra,
+    )
+
+
+def log_search_query(
+    query: str,
+    *,
+    mode: str,
+    status: str,
+    result_count: int = 0,
+    workflow_count: int = 0,
+    doc_type: str | None = None,
+    **extra: Any,
+) -> None:
+    """Structured search/workflow-recall event."""
+    query_norm = re.sub(r"\s+", " ", query.lower()).strip()
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    log_event(
+        "search_query",
+        query_norm=query_norm[:160],
+        query_len=len(query.strip()),
+        mode=mode,
+        status=status,
+        result_count=result_count,
+        workflow_count=workflow_count,
+        doc_type=doc_type or "",
+        **extra,
+    )
+
+
+def log_source_query(
+    query: str,
+    *,
+    intent: str,
+    status: str,
+    sources: list[str],
+    total_results: int = 0,
+    ok_sources: int = 0,
+    failed_sources: int = 0,
+    wildcard_source: str | None = None,
+    **extra: Any,
+) -> None:
+    """Structured edge-sources query event."""
+    query_norm = re.sub(r"\s+", " ", query.lower()).strip()
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    log_event(
+        "source_query",
+        query_norm=query_norm[:160],
+        query_len=len(query.strip()),
+        intent=intent,
+        status=status,
+        sources=sources,
+        source_count=len(sources),
+        total_results=total_results,
+        ok_sources=ok_sources,
+        failed_sources=failed_sources,
+        wildcard_source=wildcard_source,
+        **extra,
+    )
+
+
 def _detect_caller() -> str:
     """Best-effort caller detection from sys.argv[0]."""
     try:
         return Path(sys.argv[0]).name
     except Exception:
         return "unknown"
+
+
+def _classify_sql(statement: str) -> dict[str, Any]:
+    """Classify SQL into a compact, low-cardinality telemetry shape."""
+    cleaned = re.sub(r"\s+", " ", (statement or "").strip())
+    if not cleaned:
+        return {"should_log": False}
+
+    upper = cleaned.upper()
+    op = upper.split(" ", 1)[0]
+    write = False
+
+    if op == "WITH":
+        if " INSERT INTO " in upper:
+            op = "INSERT"
+            write = True
+        elif " UPDATE " in upper:
+            op = "UPDATE"
+            write = True
+        elif " DELETE FROM " in upper:
+            op = "DELETE"
+            write = True
+        elif " REPLACE INTO " in upper:
+            op = "REPLACE"
+            write = True
+        else:
+            op = "SELECT"
+    elif op in {"INSERT", "UPDATE", "DELETE", "REPLACE"}:
+        write = True
+    elif op != "SELECT":
+        return {"should_log": False}
+
+    table = ""
+    patterns = {
+        "SELECT": r"\bFROM\s+([A-Za-z_][\w.]*)",
+        "INSERT": r"\bINTO\s+([A-Za-z_][\w.]*)",
+        "REPLACE": r"\bINTO\s+([A-Za-z_][\w.]*)",
+        "UPDATE": r"\bUPDATE\s+([A-Za-z_][\w.]*)",
+        "DELETE": r"\bFROM\s+([A-Za-z_][\w.]*)",
+    }
+    pattern = patterns.get(op)
+    if pattern:
+        match = re.search(pattern, cleaned, flags=re.IGNORECASE)
+        if match:
+            table = match.group(1)
+
+    return {
+        "should_log": True,
+        "op": op,
+        "table": table,
+        "write": write,
+        "statement": cleaned[:160],
+    }
+
+
+def log_db_query(
+    *,
+    db_name: str,
+    statement: str,
+    latency_ms: int,
+    ok: bool = True,
+    rows: int | None = None,
+    batch_size: int | None = None,
+    error: str | None = None,
+    caller: str | None = None,
+    **extra: Any,
+) -> None:
+    """Telemetry for DB reads/writes. Ignores non-query/non-DML statements."""
+    meta = _classify_sql(statement)
+    if not meta.get("should_log"):
+        return
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    event = {
+        "db": db_name,
+        "op": meta["op"],
+        "table": meta["table"],
+        "write": meta["write"],
+        "latency_ms": latency_ms,
+        "ok": ok,
+        "statement": meta["statement"],
+        "caller": caller or _detect_caller(),
+    }
+    if rows is not None and rows >= 0:
+        event["rows"] = rows
+    if batch_size is not None:
+        event["batch_size"] = batch_size
+    if error:
+        event["error"] = error[:240]
+    event.update(extra)
+    log_event("db_query", **event)
 
 
 def _ensure_telemetry_table(conn: sqlite3.Connection) -> None:
@@ -221,6 +397,16 @@ def log_primitive_call(
     swallowed — telemetry never breaks the primitive.
     """
     try:
+        log_event(
+            "primitive_call",
+            source=source,
+            ok=ok,
+            latency_ms=int(latency_ms),
+            cost_usd=float(cost_usd),
+            notes=notes or {},
+            skill=current_skill(),
+            beat=current_beat(),
+        )
         if not DB_PATH.exists():
             return
         conn = sqlite3.connect(str(DB_PATH), timeout=2.0)

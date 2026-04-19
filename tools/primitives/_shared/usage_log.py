@@ -25,10 +25,11 @@ if str(CONFIG_DIR) not in sys.path:
     sys.path.insert(0, str(CONFIG_DIR))
 
 try:
-    from _shared.telemetry import current_cycle_id, emit_shadow_event
+    from _shared.telemetry import current_cycle_id, emit_shadow_event, log_event
 except Exception:
     current_cycle_id = None
     emit_shadow_event = None
+    log_event = None
 
 try:
     from paths import SOURCE_USAGE_FILE
@@ -78,6 +79,9 @@ def log_invocation(
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+        if log_event is not None:
+            log_event("primitive_usage", **entry)
 
         if emit_shadow_event is not None:
             payload = {

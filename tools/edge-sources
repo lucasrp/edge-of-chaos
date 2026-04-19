@@ -12,7 +12,7 @@ Runs all sources concurrently, curates by signal, outputs structured markdown.
 Sources that can't be scripted (WebSearch/WebFetch) are noted in output.
 """
 
-import sys, os, json, argparse, subprocess, random
+import sys, os, json, argparse, subprocess, random, uuid
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.request import urlopen, Request
@@ -23,7 +23,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 sys.path.insert(0, str(SCRIPT_DIR.parent / "tools"))
 from paths import TOOLS_DIR, SECRETS_DIR
-from _shared.telemetry import log_primitive_call
+from _shared.telemetry import log_primitive_call, log_run_step, log_source_query
 
 # --- Routing table: intent -> sources ---
 ROUTING = {
@@ -459,15 +459,84 @@ def main():
         if wildcard_src:
             sources.append(wildcard_src)
 
-    # Execute
-    print(f"Querying {len(sources)} sources for \"{args.topic}\" (intent: {args.intent})...", file=sys.stderr)
-    results = run_sources(args.topic, sources)
+    run_id = f"sources:{uuid.uuid4().hex[:8]}"
+    log_run_step(
+        "edge-sources",
+        "fanout",
+        "started",
+        run_id=run_id,
+        intent=args.intent,
+        source_count=len(sources),
+    )
+    log_source_query(
+        args.topic,
+        intent=args.intent,
+        status="started",
+        sources=sources,
+        wildcard_source=wildcard_src,
+        run_id=run_id,
+    )
 
-    # Output
-    if args.json:
-        print(format_json(results, wildcard_src))
-    else:
-        print(format_markdown(args.topic, args.intent, results, wildcard_src))
+    try:
+        # Execute
+        print(f"Querying {len(sources)} sources for \"{args.topic}\" (intent: {args.intent})...", file=sys.stderr)
+        results = run_sources(args.topic, sources)
+
+        ok_sources = 0
+        total_results = 0
+        for items in results.values():
+            has_error = any('error' in item.get('title', '').lower() for item in items)
+            if not has_error:
+                ok_sources += 1
+            total_results += len([
+                item for item in items
+                if item.get("url") or "error" not in item.get("title", "").lower()
+            ])
+
+        log_source_query(
+            args.topic,
+            intent=args.intent,
+            status="completed",
+            sources=sources,
+            total_results=total_results,
+            ok_sources=ok_sources,
+            failed_sources=max(0, len(sources) - ok_sources),
+            wildcard_source=wildcard_src,
+            run_id=run_id,
+        )
+        log_run_step(
+            "edge-sources",
+            "fanout",
+            "completed",
+            run_id=run_id,
+            total_results=total_results,
+            ok_sources=ok_sources,
+            failed_sources=max(0, len(sources) - ok_sources),
+        )
+
+        # Output
+        if args.json:
+            print(format_json(results, wildcard_src))
+        else:
+            print(format_markdown(args.topic, args.intent, results, wildcard_src))
+    except Exception as exc:
+        log_source_query(
+            args.topic,
+            intent=args.intent,
+            status="failed",
+            sources=sources,
+            wildcard_source=wildcard_src,
+            run_id=run_id,
+            error=str(exc),
+        )
+        log_run_step(
+            "edge-sources",
+            "fanout",
+            "failed",
+            run_id=run_id,
+            error=str(exc),
+        )
+        raise
 
 
 if __name__ == "__main__":
