@@ -43,6 +43,7 @@ Every event in `state/events/log.jsonl` uses this outer structure:
 - `actor` identifies the emitter, not the human explanation.
 - `payload` may evolve, but outer envelope names must stay stable.
 - readers must ignore unknown payload keys.
+- during the initial shadow rollout, `prev_hash` is best-effort per emitter process; full cross-process chaining is not required yet.
 
 ## Initial Event Set
 

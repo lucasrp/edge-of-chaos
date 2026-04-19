@@ -2,6 +2,8 @@
 
 This document defines how the event-sourced enforcement substrate proposed in [issue #248](https://github.com/lucasrp/edge-of-chaos/issues/248) coexists with the current state-oriented system and how the legacy enforcement ladder is retired without a big-bang rewrite.
 
+The first concrete rollout slice is documented in [docs/phase1-shadow-observability.md](./phase1-shadow-observability.md).
+
 ## Problem
 
 `edge-of-chaos` currently mixes three different authority layers:
