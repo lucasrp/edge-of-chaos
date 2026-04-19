@@ -20,8 +20,13 @@
 
 set -uo pipefail
 
+# --- Load shared paths ---
+# shellcheck source=../config/paths.sh
+REAL_SCRIPT="$(readlink -f "$0")"
+source "$(dirname "$REAL_SCRIPT")/../config/paths.sh"
+
 VALID_TYPES="autonomy strategy reflection friction decision serendipity"
-SIGNALS_DIR="${EDGE_DIR:-$HOME/edge}/state/signals"
+SIGNALS_DIR="${SIGNALS_DIR:-$STATE_DIR/signals}"
 
 # --- Args ---
 if [[ $# -lt 2 ]]; then
@@ -60,8 +65,18 @@ import os
 import sys
 from pathlib import Path
 
-edge_dir = Path(os.environ.get("EDGE_DIR", str(Path.home() / "edge"))).expanduser()
-tools_dir = edge_dir / "tools"
+tools_dir = Path(
+    os.environ.get("TOOLS_DIR")
+    or (
+        Path(
+            os.environ.get(
+                "EDGE_REPO_DIR",
+                os.environ.get("EDGE_DIR", str(Path.home() / "edge")),
+            )
+        ).expanduser()
+        / "tools"
+    )
+)
 if str(tools_dir) not in sys.path:
     sys.path.insert(0, str(tools_dir))
 

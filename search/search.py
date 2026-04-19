@@ -8,11 +8,19 @@ from pathlib import Path
 
 import yaml
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import EDGE_STATE_DIR, NOTES_DIR  # noqa: E402
+
 from db import EMBEDDING_DIM, ensure_db
 from embed import embed_text
 
-EDGE_HOME = Path.home() / "edge"
-NOTES_DIR = EDGE_HOME / "notes"
+
+def _resolve_state_path(raw_path: str) -> Path:
+    path = Path(raw_path)
+    if path.is_absolute():
+        return path
+    return EDGE_STATE_DIR / path
 
 
 def _parse_frontmatter_note(filepath: Path) -> str | None:
@@ -35,7 +43,7 @@ def _enrich_with_notes(results: list[dict]) -> list[dict]:
 
     For each result where type == "blog", reads the entry file, parses its
     frontmatter for a ``note:`` field, and if present reads the note file
-    from ~/edge/notes/{note_filename}.  Adds ``note_path`` (str) and
+    from the instance-local notes root. Adds ``note_path`` (str) and
     ``note_content`` (first 2000 chars) to the result dict.
 
     Fault-tolerant: any failure is silently skipped.
@@ -44,7 +52,7 @@ def _enrich_with_notes(results: list[dict]) -> list[dict]:
         if result.get("type") != "blog":
             continue
         try:
-            entry_path = EDGE_HOME / result["path"]
+            entry_path = _resolve_state_path(result["path"])
             note_filename = _parse_frontmatter_note(entry_path)
             if not note_filename:
                 continue
