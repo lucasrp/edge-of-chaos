@@ -2,9 +2,13 @@
 # consolidate-state — Pipeline completo: entry + report + meta-report + state commit
 #
 # Uso:
-#   consolidate-state <entry.md>                       # entry + meta-report (content report opcional)
 #   consolidate-state <entry.md> <report.yaml>         # entry + content report + meta-report
 #   consolidate-state <entry.md> <report.html>         # entry + content report pre-gerado + meta-report
+#
+# Enforcement #245: content report (YAML ou HTML pre-gerado) é MANDATÓRIO.
+# Publicar sem content report viola o rito uniforme em
+# skills/_shared/report-template.md. Se o provedor adversarial externo estiver
+# indisponível, use o fallback Claude (#235) — não pule o rito.
 #
 # Pipeline (8 fases):
 #   0.  Frontmatter injection (report: field)
@@ -12,7 +16,7 @@
 #   0.3 Adversarial review enforcement (edge-consult --gate)
 #   0.5 Review gate (LLM-as-judge, content report only)
 #   1.  Blog entry (blog-publish.sh)
-#   2.  Content report (generate_report.py, optional)
+#   2.  Content report (generate_report.py, mandatory — #245)
 #   3.  Verificação (API, frontmatter, files)
 #   3.4 LLM cost injection
 #   4.  Meta-report (state delta + scratchpad + adversarial → cognitive mirror)
@@ -66,7 +70,11 @@ POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --help|-h)
-            echo "Usage: consolidate-state <entry.md> [report.yaml|report.html]"
+            echo "Usage: consolidate-state <entry.md> <report.yaml|report.html>"
+            echo ""
+            echo "Both arguments are MANDATORY (#245). Publishing an entry without"
+            echo "a content report violates the uniform rite in"
+            echo "skills/_shared/report-template.md."
             echo ""
             echo "Flags:"
             echo "  --review-only      Run only the review gate, without publishing"
@@ -123,13 +131,32 @@ with open('$FAILURES_LOG', 'a') as f:
 " "$phase" "$operation" "$error" 2>/dev/null
 }
 
-if [[ -z "$ENTRY_PATH" && "$RECOVER" == "false" ]]; then
-    echo "Usage: consolidate-state <entry.md> [report.yaml|report.html]"
-    echo "  --recover          Detect and re-run pipeline for incomplete publications"
-    echo "  --scratchpad PATH  Scratchpad for meta-report"
-    echo "  --reason TEXT      Custom commit message reason"
-    echo "  (Enforcement #218: --skip-review / --no-adversarial / --no-meta removed.)"
-    exit 1
+if [[ "$RECOVER" == "false" ]]; then
+    if [[ -z "$ENTRY_PATH" ]]; then
+        echo "Usage: consolidate-state <entry.md> <report.yaml|report.html>" >&2
+        echo "  --recover          Detect and re-run pipeline for incomplete publications" >&2
+        echo "  --scratchpad PATH  Scratchpad for meta-report" >&2
+        echo "  --reason TEXT      Custom commit message reason" >&2
+        echo "  (Enforcement #218: --skip-review / --no-adversarial / --no-meta removed.)" >&2
+        exit 1
+    fi
+    # Enforcement #245: content report is MANDATORY. Publishing an entry-only
+    # artifact violates the uniform rite (skills/_shared/report-template.md).
+    # The old "entry-only" path silently produced no HTML — it was the
+    # mechanical bypass the minimal-meta beats used. No more.
+    if [[ -z "$REPORT_INPUT" ]]; then
+        echo "ERROR: content report (report.yaml|report.html) is MANDATORY." >&2
+        echo "" >&2
+        echo "  Publishing without a content report violates the uniform rite" >&2
+        echo "  defined in skills/_shared/report-template.md." >&2
+        echo "" >&2
+        echo "  If the external adversarial provider (edge-consult) is down," >&2
+        echo "  use the local Claude fallback (#235) — it does NOT exempt you" >&2
+        echo "  from producing the full-rite artifact." >&2
+        echo "" >&2
+        echo "  Usage: consolidate-state <entry.md> <report.yaml|report.html>" >&2
+        exit 64
+    fi
 fi
 
 # ─── RECOVER MODE: re-run Phase 5/6 for entries that have no git commit ───
@@ -203,11 +230,9 @@ META_REPORT_PATH=""
 
 ledger_record "pipeline-start" "ok"
 
-# ─── GUARDRAIL: Regra #0 — toda publicação gera meta-report ───
-# Content report (YAML/HTML) é opcional. Meta-report é sempre gerado (Phase 4).
-if [[ -z "$REPORT_INPUT" ]]; then
-    echo -e "  ${YELLOW}INFO${NC}: No content report. Meta-report will be generated (Phase 4)."
-fi
+# Enforcement #245: content report (YAML/HTML) is MANDATORY — validated
+# at the top of the script before RECOVER mode branch. By the time we reach
+# here (non-recover path), both ENTRY_PATH and REPORT_INPUT are set.
 
 STATE_AUDIT_EXIT=0
 
