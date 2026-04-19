@@ -21,13 +21,18 @@ Respond in: {{ LANGUAGE }}
 
 ## Required Reading (every session)
 
+Loaded automatically via Claude Code `@import` — edit the source, open a new terminal, changes apply:
+
+@{{ WORK_DIR }}/config/pre-skill.md
+
+Also required (not auto-imported — read on demand):
+
 | File | Contents |
 |------|----------|
 | `memory/rules-core.md` | Cross-cutting rules (max 15) |
 | `memory/personality.md` | Core identity and cognitive profile |
 | `memory/metodo.md` | Feynman method |
 | `memory/debugging.md` | Errors that must not recur |
-| `config/pre-skill.md` | Context activation (identity, strategy, anti-redundancy) |
 | `config/strategy.md` | Operator direction (phase, priorities, constraints) |
 
 ## Skills
