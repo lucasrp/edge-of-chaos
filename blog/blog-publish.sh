@@ -21,6 +21,48 @@ CHANGELOG="$BLOG_CHANGELOG_FILE"
 API_URL="$BLOG_URL"
 ENTRY_PATH="${1:-}"
 
+emit_publish_event() {
+    local status="$1" operation="${2:-}" error_text="${3:-}"
+    python3 - "$status" "$operation" "$error_text" <<'PYEOF' 2>/dev/null || true
+import os, sys
+from pathlib import Path
+
+status, operation, error_text = sys.argv[1:4]
+tools_dir = Path(
+    os.environ.get("TOOLS_DIR")
+    or (
+        Path(
+            os.environ.get(
+                "EDGE_REPO_DIR",
+                os.environ.get("EDGE_DIR", str(Path.home() / "edge")),
+            )
+        ).expanduser()
+        / "tools"
+    )
+)
+sys.path.insert(0, str(tools_dir))
+try:
+    from _shared.telemetry import log_run_step
+except Exception:
+    sys.exit(0)
+
+fields = {
+    "slug": os.environ.get("EDGE_PUBLISH_SLUG", "unknown"),
+}
+if operation:
+    fields["operation"] = operation
+if error_text:
+    fields["error"] = error_text[:240]
+log_run_step(
+    "blog-publish",
+    "publish",
+    status,
+    run_id=os.environ.get("EDGE_BLOG_PUBLISH_RUN_ID"),
+    **fields,
+)
+PYEOF
+}
+
 if [[ -z "$ENTRY_PATH" ]]; then
     echo "ERROR: Usage: blog-publish <path-to-entry.md>"
     exit 1
@@ -52,6 +94,8 @@ fi
 
 FILENAME=$(basename "$ENTRY_PATH")
 SLUG="${FILENAME%.md}"
+export EDGE_PUBLISH_SLUG="$SLUG"
+export EDGE_BLOG_PUBLISH_RUN_ID="${EDGE_BLOG_PUBLISH_RUN_ID:-blog-publish:${SLUG}:$(date -u +%Y%m%dT%H%M%SZ)}"
 
 # Guardrail: BLOCK direct calls — everything must go through consolidate-state
 if [[ -z "${CALLED_FROM_CONSOLIDAR_ESTADO:-}" && -z "${CALLED_FROM_FULL_PUBLISH:-}" ]]; then
@@ -62,6 +106,7 @@ if [[ -z "${CALLED_FROM_CONSOLIDAR_ESTADO:-}" && -z "${CALLED_FROM_FULL_PUBLISH:
 fi
 
 echo "=== blog-publish: $SLUG ==="
+emit_publish_event "started" "publish_start" ""
 
 # --- Step 1: Validate frontmatter ---
 echo "[1/6] Validating frontmatter..."
@@ -107,6 +152,7 @@ print(fm.get('title', '$SLUG'))
 
 if echo "$FRONTMATTER" | grep -q '^ERROR:'; then
     echo "$FRONTMATTER"
+    emit_publish_event "failed" "frontmatter_validation" "$FRONTMATTER"
     exit 1
 fi
 TITLE="$FRONTMATTER"
@@ -231,9 +277,11 @@ fi
 if $VERIFY_OK; then
     echo ""
     echo "=== PUBLISHED: $SLUG ==="
+    emit_publish_event "completed" "publish_complete" ""
     exit 0
 else
     echo ""
     echo "=== WARN: Published with issues (verify manually) ==="
+    emit_publish_event "failed" "publish_verify" "published with verify issues"
     exit 0  # Non-fatal — entry exists, just might need attention
 fi

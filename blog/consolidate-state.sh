@@ -61,6 +61,48 @@ ledger_record() {
     fi
 }
 
+emit_run_step_event() {
+    local phase="$1" status="$2" operation="${3:-}" error_text="${4:-}"
+    python3 - "$phase" "$status" "$operation" "$error_text" <<'PYEOF' 2>/dev/null || true
+import os, sys
+from pathlib import Path
+
+phase, status, operation, error_text = sys.argv[1:5]
+tools_dir = Path(
+    os.environ.get("TOOLS_DIR")
+    or (
+        Path(
+            os.environ.get(
+                "EDGE_REPO_DIR",
+                os.environ.get("EDGE_DIR", str(Path.home() / "edge")),
+            )
+        ).expanduser()
+        / "tools"
+    )
+)
+sys.path.insert(0, str(tools_dir))
+try:
+    from _shared.telemetry import log_run_step
+except Exception:
+    sys.exit(0)
+
+fields = {
+    "slug": os.environ.get("EDGE_PUBLISH_SLUG", "unknown"),
+}
+if operation:
+    fields["operation"] = operation
+if error_text:
+    fields["error"] = error_text[:240]
+log_run_step(
+    "consolidate-state",
+    phase,
+    status,
+    run_id=os.environ.get("EDGE_CONSOLIDATE_RUN_ID"),
+    **fields,
+)
+PYEOF
+}
+
 # Parse flags
 REVIEW_ONLY=false
 RECOVER=false
@@ -129,6 +171,7 @@ entry = {
 with open('$FAILURES_LOG', 'a') as f:
     f.write(json.dumps(entry, ensure_ascii=False) + '\n')
 " "$phase" "$operation" "$error" 2>/dev/null
+    emit_run_step_event "phase-$phase" "failed" "$operation" "$error"
 }
 
 if [[ "$RECOVER" == "false" ]]; then
@@ -222,6 +265,8 @@ fi
 [[ -n "$REPORT_INPUT" && ! "$REPORT_INPUT" = /* ]] && REPORT_INPUT="$(pwd)/$REPORT_INPUT"
 
 SLUG=$(basename "$ENTRY_PATH" .md)
+export EDGE_PUBLISH_SLUG="$SLUG"
+export EDGE_CONSOLIDATE_RUN_ID="${EDGE_CONSOLIDATE_RUN_ID:-consolidate:${SLUG}:$(date -u +%Y%m%dT%H%M%SZ)}"
 REPORT_HTML=""
 REPORT_FILENAME=""
 REPORT_RESULT="skip"
@@ -236,6 +281,8 @@ ledger_record "pipeline-start" "ok"
 
 STATE_AUDIT_EXIT=0
 
+emit_run_step_event "pipeline" "started" "pipeline_start" ""
+
 echo "========================================="
 echo " consolidate-state: $SLUG"
 echo "========================================="
@@ -245,6 +292,7 @@ echo ""
 # If agent already took snapshot (before making state changes), skip.
 echo "── Phase 0a: State Snapshot ──"
 ledger_record "phase-0a" "ok"
+emit_run_step_event "phase-0a" "started" "state_snapshot" ""
 if command -v edge-state-audit &>/dev/null; then
     PRE_SNAPSHOT="$SNAPSHOT_DIR/${SLUG}.pre.yaml"
     if [[ -f "$PRE_SNAPSHOT" ]]; then
@@ -260,6 +308,7 @@ if command -v edge-state-audit &>/dev/null; then
 else
     warn "edge-state-audit not found — skipping state audit"
 fi
+emit_run_step_event "phase-0a" "completed" "state_snapshot" ""
 echo ""
 
 # ─── PHASE 0: Inject report: in frontmatter if needed ───
@@ -286,6 +335,7 @@ else:
 
         if [[ "$HAS_REPORT" == "no" ]]; then
             echo "── Phase 0: Frontmatter ──"
+            emit_run_step_event "phase-0" "started" "frontmatter_injection" ""
             # Inject report: field after the last frontmatter field (before closing ---)
             if python3 -c "
 try:
@@ -308,6 +358,7 @@ except Exception as e:
             else
                 log_failure "0" "frontmatter_injection" "Failed to inject report: field"
             fi
+            emit_run_step_event "phase-0" "completed" "frontmatter_injection" ""
             echo ""
         fi
     fi
@@ -330,6 +381,7 @@ else:
 
     if [[ "$HAS_NOTE" == "no" ]]; then
         echo "── Phase 0b: Note Link ──"
+        emit_run_step_event "phase-0b" "started" "note_link_injection" ""
         NOTE_BASENAME="${NOTE_SLUG}.md"
         if python3 -c "
 try:
@@ -352,6 +404,7 @@ except Exception as e:
         else
             log_failure "0b" "note_link_injection" "Failed to inject note: field"
         fi
+        emit_run_step_event "phase-0b" "completed" "note_link_injection" ""
         echo ""
     else
         echo "── Phase 0b: Note Link ──"
@@ -372,6 +425,7 @@ if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.y
 
     if [[ -f "$REVIEW_JSON_FILE" && ! -f "$RESOLVED_FILE" ]]; then
         echo "── Phase 0.3: Adversarial Review ──"
+        emit_run_step_event "phase-0.3" "started" "adversarial_review" ""
         fail "Adversarial review pending: $(basename "$REVIEW_JSON_FILE")"
         echo ""
         echo "  edge-consult generated feedback that has not been addressed."
@@ -394,10 +448,13 @@ try:
 except: pass
 " 2>/dev/null
         echo ""
+        emit_run_step_event "phase-0.3" "failed" "adversarial_review" "pending unresolved review"
         exit 3
     elif [[ -f "$REVIEW_JSON_FILE" && -f "$RESOLVED_FILE" ]]; then
         echo "── Phase 0.3: Adversarial Review ──"
+        emit_run_step_event "phase-0.3" "started" "adversarial_review" ""
         ok "Adversarial review resolved ($(basename "$RESOLVED_FILE") present)"
+        emit_run_step_event "phase-0.3" "completed" "adversarial_review" ""
         echo ""
     fi
 fi
@@ -406,6 +463,7 @@ fi
 if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) ]]; then
     if command -v review-gate &>/dev/null; then
         echo "── Phase 0.5: Review Gate ──"
+        emit_run_step_event "phase-0.5" "started" "review_gate" ""
         # Detect skill from YAML filename (spec-SKILL-slug.yaml)
         YAML_BASENAME=$(basename "$REPORT_INPUT")
         SKILL_NAME=""
@@ -484,10 +542,12 @@ if suggestions:
         fi
 
         if [[ "$REVIEW_ONLY" == "true" ]]; then
+            emit_run_step_event "phase-0.5" "completed" "review_gate" ""
             echo ""
             echo "Review-only mode. Nothing published."
             exit 0
         fi
+        emit_run_step_event "phase-0.5" "completed" "review_gate" ""
         echo ""
     fi
 fi
@@ -495,8 +555,10 @@ fi
 # ─── PHASE 1: Blog entry ───
 echo "── Phase 1: Blog Entry ──"
 ledger_record "phase-1" "ok"
+emit_run_step_event "phase-1" "started" "blog_publish" ""
 if CALLED_FROM_CONSOLIDAR_ESTADO=1 bash "$BLOG_DIR/blog-publish.sh" "$ENTRY_PATH"; then
     ok "Entry published"
+    emit_run_step_event "phase-1" "completed" "blog_publish" ""
 else
     fail "blog-publish.sh failed"
     log_failure "1" "blog_publish" "blog-publish.sh returned non-zero"
@@ -507,6 +569,7 @@ echo ""
 # ─── PHASE 2: Report (opcional) ───
 if [[ -n "$REPORT_INPUT" ]]; then
     echo "── Phase 2: Report ──"
+    emit_run_step_event "phase-2" "started" "report_generation" ""
 
     if [[ ! -f "$REPORT_INPUT" ]]; then
         fail "Report not found: $REPORT_INPUT"
@@ -553,12 +616,18 @@ if [[ -n "$REPORT_INPUT" ]]; then
             warn "edge-index not found"
         fi
     fi
+    if [[ "$REPORT_RESULT" == "ok" ]]; then
+        emit_run_step_event "phase-2" "completed" "report_generation" ""
+    else
+        emit_run_step_event "phase-2" "failed" "report_generation" "report phase ended in fail"
+    fi
     echo ""
 fi
 
 # ─── PHASE 3: Verificacao final ───
 echo "── Phase 3: Verification ──"
 ledger_record "phase-3" "ok"
+emit_run_step_event "phase-3" "started" "verification" ""
 ALL_OK=true
 
 # Entry visible?
@@ -715,6 +784,11 @@ except Exception as e:
         log_failure "3.4" "llm_cost_injection" "Failed to inject llm_cost into frontmatter"
     fi
 fi
+if $ALL_OK && [[ "$REPORT_RESULT" != "fail" ]]; then
+    emit_run_step_event "phase-3" "completed" "verification" ""
+else
+    emit_run_step_event "phase-3" "failed" "verification" "verification ended with warnings or failures"
+fi
 
 # ─── PHASE 4: Meta-report (cognitive mirror) ───
 # Captures state delta + scratchpad + adversarial BEFORE state commit.
@@ -723,6 +797,8 @@ fi
 echo ""
 echo "── Phase 4: Meta-report ──"
 ledger_record "phase-4" "ok"
+emit_run_step_event "phase-4" "started" "meta_report" ""
+PHASE4_OK=true
 if command -v edge-meta-report &>/dev/null || [[ -x "$TOOLS_DIR/edge-meta-report" ]]; then
     META_CMD="edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
     # Use tools dir if not in PATH
@@ -779,10 +855,15 @@ REVIEW_EOF
     else
         warn "edge-meta-report failed (exit $META_EXIT)"
         log_failure "4" "meta_report_generation" "edge-meta-report exit $META_EXIT"
+        PHASE4_OK=false
     fi
 else
     warn "edge-meta-report not found — skipping"
     log_failure "4" "meta_report_missing" "edge-meta-report tool not available"
+    PHASE4_OK=false
+fi
+if $PHASE4_OK; then
+    emit_run_step_event "phase-4" "completed" "meta_report" ""
 fi
 echo ""
 
@@ -790,6 +871,7 @@ echo ""
 # Tudo acontece aqui. Zero LLM. Um script, uma leitura do frontmatter.
 echo "── Phase 5: State Commit ──"
 ledger_record "phase-5" "ok"
+emit_run_step_event "phase-5" "started" "state_commit" ""
 REPORT_FOR_COMMIT="${REPORT_FILENAME:-}"
 python3 - "$ENTRY_PATH" "$SLUG" "$REPORT_FOR_COMMIT" <<'PYEOF'
 import sys, json, yaml, re, os, traceback, subprocess
@@ -1024,10 +1106,12 @@ except Exception as e:
     log_failure("5", "digest", e, traceback.format_exc())
     warn(f"edge-digest error: {e}")
 PYEOF
+emit_run_step_event "phase-5" "completed" "state_commit" ""
 
 # ─── PHASE 5b: State audit (compare PRE vs POST, validate proposal) ───
 echo "── Phase 5b: State Audit ──"
 ledger_record "phase-5b" "ok"
+emit_run_step_event "phase-5b" "started" "state_audit" ""
 if command -v edge-state-audit &>/dev/null; then
     # Check if proposal exists (agent should have written it during the session)
     PROPOSAL_FILE="$META_DIR/${SLUG}.state-proposal.yaml"
@@ -1047,14 +1131,22 @@ if command -v edge-state-audit &>/dev/null; then
         echo "  Proposal: $PROPOSAL_FILE"
         echo "  Audit: $META_DIR/${SLUG}.state-audit.yaml"
         echo "========================================="
+        emit_run_step_event "phase-5b" "failed" "state_audit" "state audit violation or divergence"
         exit 5
     fi
+fi
+if [[ $STATE_AUDIT_EXIT -eq 2 ]]; then
+    emit_run_step_event "phase-5b" "failed" "state_audit" "state audit partial"
+else
+    emit_run_step_event "phase-5b" "completed" "state_audit" ""
 fi
 echo ""
 
 # ─── PHASE 5c: Post-state meta-report (what actually changed) ───
 echo "── Phase 5c: Post-state meta-report ──"
 ledger_record "phase-5c" "ok"
+emit_run_step_event "phase-5c" "started" "post_state_meta_report" ""
+PHASE5C_OK=true
 if command -v edge-meta-report &>/dev/null || [[ -x "$TOOLS_DIR/edge-meta-report" ]]; then
     POST_CMD="edge-meta-report --slug $SLUG --post-state"
     command -v edge-meta-report &>/dev/null || POST_CMD="$TOOLS_DIR/edge-meta-report --slug $SLUG --post-state"
@@ -1066,15 +1158,23 @@ if command -v edge-meta-report &>/dev/null || [[ -x "$TOOLS_DIR/edge-meta-report
         ok "$(echo "$POST_OUTPUT" | head -1)"
     else
         warn "post-state meta-report failed (exit $POST_EXIT)"
+        PHASE5C_OK=false
     fi
 else
     warn "edge-meta-report not found -- skipping post-state"
+    PHASE5C_OK=false
+fi
+if $PHASE5C_OK; then
+    emit_run_step_event "phase-5c" "completed" "post_state_meta_report" ""
+else
+    emit_run_step_event "phase-5c" "failed" "post_state_meta_report" "post-state meta-report unavailable or failed"
 fi
 echo ""
 
 # ─── PHASE 6: Diffs + Git commit (audit trail) ───
 echo "── Phase 6: Diffs + Git Commit ──"
 ledger_record "phase-6" "ok"
+emit_run_step_event "phase-6" "started" "diffs_and_git_commit" ""
 
 # Note: BLOG_PORT, BLOG_AUTH_USER, BLOG_AUTH_PASS already exported by paths.sh
 
@@ -1463,6 +1563,7 @@ except Exception as e:
     log_failure("6", "commit_edge", e, traceback.format_exc())
     fail(f"Git commit failed: {e}")
 PYPHASE5
+emit_run_step_event "phase-6" "completed" "diffs_and_git_commit" ""
 
 echo ""
 echo "========================================="
@@ -1478,16 +1579,19 @@ if $ALL_OK && [[ "$REPORT_RESULT" != "fail" ]]; then
     mkdir -p "$HEALTH_OK"
     printf '{"ts":"%s","slug":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SLUG" > "$HEALTH_OK/consolidate.ok"
     ledger_record "pipeline-end" "ok"
+    emit_run_step_event "pipeline" "completed" "pipeline_end" ""
     exit 0
 elif $ALL_OK; then
     echo -e " ${YELLOW}PARTIAL${NC}: Entry OK, report with issues"
     [[ -n "$META_REPORT_PATH" ]] && echo " Meta-report: $META_REPORT_PATH"
     echo "========================================="
     ledger_record "pipeline-end" "partial"
+    emit_run_step_event "pipeline" "failed" "pipeline_end" "partial publication"
     exit 2
 else
     echo -e " ${RED}ISSUES${NC}: verify manually"
     echo "========================================="
     ledger_record "pipeline-end" "fail"
+    emit_run_step_event "pipeline" "failed" "pipeline_end" "verification issues"
     exit 2
 fi
