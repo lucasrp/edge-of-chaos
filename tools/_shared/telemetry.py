@@ -25,9 +25,9 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
-from paths import EVENTS_FILE, SEARCH_DIR, STATE_EVENTS_FILE  # noqa: E402
+from paths import EVENTS_FILE, SEARCH_DB_FILE, STATE_EVENTS_FILE  # noqa: E402
 
-DB_PATH = SEARCH_DIR / "edge-memory.db"
+DB_PATH = SEARCH_DB_FILE
 _LAST_SHADOW_HASH: str | None = None
 
 # --- Price table (USD per 1M tokens). Missing models map to 0 cost rather than

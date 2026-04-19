@@ -23,9 +23,9 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import EDGE_DIR, STATE_DIR
+from paths import EDGE_REPO_DIR, GIT_SIGNALS_FILE
 
-OUTPUT_FILE = STATE_DIR / "git-signals.json"
+OUTPUT_FILE = GIT_SIGNALS_FILE
 SEPARATOR = "---SEPARATOR---"
 
 
@@ -47,7 +47,7 @@ def parse_since(since_str):
 def get_commits(since_git):
     """Get commits from git log with full body."""
     cmd = [
-        "git", "-C", str(EDGE_DIR), "log",
+        "git", "-C", str(EDGE_REPO_DIR), "log",
         f"--since={since_git}",
         f"--format=%H%n%aI%n%s%n%b%n{SEPARATOR}",
     ]

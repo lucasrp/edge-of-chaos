@@ -3,22 +3,30 @@
 import json
 import re
 import subprocess
+import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 import markdown
 import yaml
 
-ROOT = Path.home() / "edge"
-STATE_DIR = ROOT / "state"
-THREADS_DIR = ROOT / "threads"
-LOGS_DIR = ROOT / "logs"
-ENTRIES_DIR = ROOT / "blog" / "entries"
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import (  # noqa: E402
+    BRIEFING_FILE,
+    CURADORIA_CANDIDATES_FILE as CURADORIA_CANDIDATES,
+    EDGE_REPO_DIR,
+    ENTRIES_DIR,
+    EXECUTION_LEDGER_FILE as EXECUTION_LEDGER,
+    GIT_SIGNALS_FILE as GIT_SIGNALS,
+    LOGS_DIR,
+    OPS_HOTSPOTS,
+    REPORTS_DIR,
+    STATE_DIR,
+    THREADS_DIR,
+)
 
-OPS_HOTSPOTS = STATE_DIR / "ops-hotspots.json"
-GIT_SIGNALS = STATE_DIR / "git-signals.json"
-CURADORIA_CANDIDATES = STATE_DIR / "curadoria-candidates.json"
-EXECUTION_LEDGER = LOGS_DIR / "execution-ledger.jsonl"
+ROOT = EDGE_REPO_DIR
 
 
 def load_json_safe(path, default=None):
@@ -156,10 +164,6 @@ def get_production_stats():
         "reports_total": total_reports,
         "published_today": published_today,
     }
-
-
-BRIEFING_FILE = ROOT / "briefing.md"
-
 
 def get_briefing_html(max_lines=50):
     """Load first max_lines of briefing.md and render as HTML. Returns None if missing."""
@@ -369,7 +373,7 @@ def load_thread_detail(thread_id):
     # Check which reports exist on disk
     reports = []
     for rf in sorted(reports_set):
-        rpath = ROOT / "reports" / rf
+        rpath = REPORTS_DIR / rf
         reports.append({
             "filename": rf,
             "exists": rpath.exists(),
