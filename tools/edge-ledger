@@ -24,6 +24,8 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import LEDGER_FILE
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.telemetry import emit_shadow_event
 
 
 def parse_since(since_str):
@@ -120,8 +122,34 @@ def cmd_record(args):
     with open(LEDGER_FILE, "a") as f:
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
+    shadow_type = "ExecutionObserved"
+    payload = dict(event)
+    artifact = target_id or None
+    if args.tool.startswith("phase-"):
+        shadow_type = "PhaseObserved"
+        payload = {
+            "pipeline": args.skill,
+            "phase": args.tool.replace("phase-", "", 1),
+            "recorded_status": status_label(ok),
+            "legacy_tool": args.tool,
+            "duration_ms": event["duration_ms"],
+            "exit_code": event["exit_code"],
+            "error_class": event["error_class"],
+        }
+    emit_shadow_event(
+        shadow_type,
+        actor="edge-ledger",
+        artifact=artifact,
+        cycle_id=run_id,
+        payload=payload,
+    )
+
     status = "OK" if ok else "FAIL"
     print(f"RECORDED: [{status}] {event['tool']} ({event['skill']}/{event['phase']}) attempt={event['attempt']} {event['duration_ms']}ms")
+
+
+def status_label(ok: bool) -> str:
+    return "ok" if ok else "fail"
 
 
 def cmd_query(args):
