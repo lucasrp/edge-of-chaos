@@ -31,6 +31,8 @@ import uuid
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import EVENTS_FILE, THREADS_DIR
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.telemetry import current_cycle_id, emit_shadow_event
 
 EVENT_TYPES = [
     "skill_dispatched",
@@ -41,6 +43,16 @@ EVENT_TYPES = [
     "error_logged",
     "maintenance",
 ]
+
+SHADOW_TYPE_MAP = {
+    "skill_dispatched": "SkillDispatched",
+    "artifact_created": "ArtifactPublished",
+    "thread_updated": "ThreadUpdated",
+    "claim_resolved": "ClaimResolved",
+    "user_directive": "CycleStarted",
+    "error_logged": "ErrorLogged",
+    "maintenance": "MaintenancePerformed",
+}
 
 
 def log_event(args):
@@ -69,6 +81,40 @@ def log_event(args):
     EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(EVENTS_FILE, "a") as f:
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    shadow_cycle_id = current_cycle_id()
+    if not shadow_cycle_id and args.session:
+        shadow_cycle_id = f"session:{args.session}"
+
+    payload = {
+        "legacy_event_id": event["event_id"],
+        "legacy_type": args.type,
+        "summary": args.summary,
+    }
+    if args.thread:
+        payload["thread_id"] = args.thread
+    if args.task:
+        payload["task_id"] = args.task
+    if args.skill:
+        payload["skill"] = args.skill
+    if args.session:
+        payload["session_id"] = args.session
+    if args.artifacts:
+        payload["artifacts"] = [a.strip() for a in args.artifacts.split(",")]
+    if args.type == "user_directive":
+        payload["trigger"] = "user"
+
+    artifact = None
+    if payload.get("artifacts"):
+        artifact = payload["artifacts"][0]
+
+    emit_shadow_event(
+        SHADOW_TYPE_MAP.get(args.type, "LegacyEventObserved"),
+        actor="edge-event",
+        artifact=artifact,
+        cycle_id=shadow_cycle_id,
+        payload=payload,
+    )
 
     print(f"OK: {event['event_id']} [{event['type']}] {event['summary']}")
 

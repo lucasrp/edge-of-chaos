@@ -17,6 +17,7 @@ import os
 import sqlite3
 import sys
 import time
+from hashlib import sha256
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,9 +25,10 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
-from paths import EVENTS_FILE, SEARCH_DIR  # noqa: E402
+from paths import EVENTS_FILE, SEARCH_DIR, STATE_EVENTS_FILE  # noqa: E402
 
 DB_PATH = SEARCH_DIR / "edge-memory.db"
+_LAST_SHADOW_HASH: str | None = None
 
 # --- Price table (USD per 1M tokens). Missing models map to 0 cost rather than
 # block the call; rollup flags unknown models separately.
@@ -63,6 +65,37 @@ def current_beat() -> str | None:
     return os.environ.get("ED_BEAT") or None
 
 
+def current_cycle_id() -> str | None:
+    """Best-effort cycle id for heartbeat or user-triggered runs."""
+    cycle_id = (
+        os.environ.get("EDGE_CYCLE_ID")
+        or os.environ.get("ED_CYCLE_ID")
+        or os.environ.get("CLAUDE_CYCLE_ID")
+    )
+    if cycle_id:
+        return cycle_id
+
+    beat = current_beat()
+    if beat:
+        return f"beat:{beat}"
+
+    session_id = os.environ.get("EDGE_SESSION_ID") or os.environ.get("CLAUDE_SESSION_ID")
+    if session_id:
+        return f"session:{session_id}"
+
+    return None
+
+
+def current_actor() -> str:
+    """Best-effort logical emitter identity."""
+    return (
+        os.environ.get("EDGE_CODENAME")
+        or os.environ.get("HOSTNAME")
+        or os.environ.get("EDGE_ACTOR")
+        or _detect_caller()
+    )
+
+
 def _append_event(event: dict[str, Any]) -> None:
     """Append a JSON line to EVENTS_FILE. Swallows all errors."""
     try:
@@ -73,11 +106,50 @@ def _append_event(event: dict[str, Any]) -> None:
         pass
 
 
+def emit_shadow_event(
+    event_type: str,
+    *,
+    actor: str | None = None,
+    artifact: str | None = None,
+    cycle_id: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    """Append a normalized shadow event to state/events/log.jsonl."""
+    global _LAST_SHADOW_HASH
+    try:
+        event = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "type": event_type,
+            "actor": actor or current_actor(),
+            "payload": payload or {},
+            "prev_hash": _LAST_SHADOW_HASH or "sha256:root",
+        }
+        if artifact:
+            event["artifact"] = artifact
+        if cycle_id or current_cycle_id():
+            event["cycle_id"] = cycle_id or current_cycle_id()
+
+        STATE_EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        raw = json.dumps(event, ensure_ascii=False)
+        with open(STATE_EVENTS_FILE, "a", encoding="utf-8") as f:
+            f.write(raw + "\n")
+        _LAST_SHADOW_HASH = f"sha256:{sha256(raw.encode('utf-8')).hexdigest()}"
+    except Exception:
+        pass
+
+
 def log_event(event_type: str, **fields: Any) -> None:
     """Append a typed event to events.jsonl. Always includes ts + type."""
     event = {"ts": datetime.now(timezone.utc).isoformat(), "type": event_type}
     event.update(fields)
     _append_event(event)
+    emit_shadow_event(
+        "LegacyTelemetryObserved",
+        actor=_detect_caller(),
+        cycle_id=fields.get("cycle_id"),
+        artifact=fields.get("artifact"),
+        payload={"legacy_type": event_type, **fields},
+    )
 
 
 def log_llm_call(

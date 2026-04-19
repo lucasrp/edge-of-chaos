@@ -16,6 +16,17 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+TOOLS_DIR = SCRIPT_DIR.parent.parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+try:
+    from _shared.telemetry import current_cycle_id, emit_shadow_event
+except Exception:
+    current_cycle_id = None
+    emit_shadow_event = None
+
 
 def _log_path() -> Path:
     edge_home = os.environ.get("EDGE_HOME", str(Path.home() / "edge"))
@@ -57,6 +68,23 @@ def log_invocation(
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+        if emit_shadow_event is not None:
+            payload = {
+                "source": source_name,
+                "phase": phase,
+                "codename": entry["codename"],
+                "task_context": entry["task_context"],
+            }
+            for key in ("input_summary", "duration_ms", "ok", "result_count", "error"):
+                if key in entry:
+                    payload[key] = entry[key]
+            emit_shadow_event(
+                "PrimitiveInvocationObserved",
+                actor="usage_log",
+                cycle_id=current_cycle_id() if current_cycle_id else None,
+                payload=payload,
+            )
     except Exception as exc:
         # Logging failure must not break the tool. Emit to stderr as a hint.
         print(f"[usage_log] warning: could not write log entry: {exc}", file=sys.stderr)
