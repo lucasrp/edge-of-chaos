@@ -111,6 +111,14 @@ New agents produce from the first heartbeat. A checklist tracks progress (identi
 
 8-phase atomic publication: state snapshot → adversarial review → quality gate → blog publish → HTML report → meta-report → state commit → git commit.
 
+**Runtime-Agnostic Core**
+
+Core behavior should prefer runtime-agnostic CLI tools and portable state formats over host-specific agent integrations.
+
+- Move essential logic into deterministic CLIs, shell/Python tools, and portable state (`files`, `JSON`, `SQLite`, `systemd`, `git`).
+- Treat Claude/Codex/other agent runtimes as thin adapters around that core, not as the core itself.
+- Avoid introducing new hard dependencies on `~/.claude`, runtime-specific hooks, or hardcoded host paths when a shared CLI/path layer can express the same behavior.
+
 ## Tools
 
 | Tool | Purpose |
