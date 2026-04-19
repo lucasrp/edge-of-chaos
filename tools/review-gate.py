@@ -37,7 +37,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 sys.path.insert(0, str(SCRIPT_DIR))
 from branding import load_branding  # noqa: E402
-from paths import (MEMORY_DIR, REPORTS_DIR, NOTES_DIR, SKILLS_DIR,  # noqa: E402
+from paths import (ENTRIES_DIR, MEMORY_DIR, REPORTS_DIR, NOTES_DIR, SKILLS_DIR,  # noqa: E402
                    RUBRIC_PATH)
 from _shared.router_client import make_client  # noqa: E402
 _AGENT_NAME = load_branding().get("agent_name", "agent")
@@ -216,11 +216,10 @@ def _tool_search_corpus(query: str, k: int = 5) -> str:
 def _tool_read_blog_entries(tag: str = "", n: int = 3) -> str:
     """Read recent blog entries."""
     n = min(n, 5)
-    entries_dir = Path.home() / "edge/blog/entries"
-    if not entries_dir.exists():
+    if not ENTRIES_DIR.exists():
         return "Blog entries directory not found"
 
-    files = sorted(entries_dir.glob("*.md"), key=lambda p: p.name, reverse=True)
+    files = sorted(ENTRIES_DIR.glob("*.md"), key=lambda p: p.name, reverse=True)
     results = []
     for f in files:
         if len(results) >= n:

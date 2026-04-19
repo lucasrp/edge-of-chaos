@@ -2,13 +2,17 @@
 # paths.sh — Shared path resolution for shell scripts.
 # Source this from any script: source "$(dirname "$0")/../config/paths.sh"
 
-# --- EDGE_DIR: derive from this script's location (repo root) ---
-if [ -z "${EDGE_DIR:-}" ]; then
-  EDGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-fi
+set -u
 
-# --- Load branding.yaml ---
-BRANDING_FILE="$EDGE_DIR/config/branding.yaml"
+_PATHS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_PATHS_REPO_DEFAULT="$(cd "${_PATHS_SCRIPT_DIR}/.." && pwd)"
+
+# --- Shared genotype root (repo checkout) ---
+EDGE_REPO_DIR="${EDGE_REPO_DIR:-${EDGE_DIR:-${_PATHS_REPO_DEFAULT}}}"
+EDGE_DIR="$EDGE_REPO_DIR"   # Legacy alias kept during migration.
+
+# --- Load branding.yaml from genotype root ---
+BRANDING_FILE="$EDGE_REPO_DIR/config/branding.yaml"
 if [ -f "$BRANDING_FILE" ]; then
   BLOG_PORT=$(grep '^  port:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}')
   BLOG_AUTH_ENABLED=$(grep '^  auth_enabled:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}')
@@ -16,6 +20,8 @@ if [ -f "$BRANDING_FILE" ]; then
   BLOG_AUTH_PASS=$(grep '^  auth_pass:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
   MEMORY_PROJECT_DIR=$(grep '^memory_project_dir:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
   SKILL_PREFIX=$(grep '^skill_prefix:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
+  EDGE_INSTANCE_FROM_BRANDING=$(grep '^codename:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
+  EDGE_STATE_DIR_FROM_BRANDING=$(grep '^edge_state_dir:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
 else
   BLOG_PORT=8766
   BLOG_AUTH_ENABLED=false
@@ -23,7 +29,13 @@ else
   BLOG_AUTH_PASS=""
   MEMORY_PROJECT_DIR=""
   SKILL_PREFIX="agent"
+  EDGE_INSTANCE_FROM_BRANDING=""
+  EDGE_STATE_DIR_FROM_BRANDING=""
 fi
+
+EDGE_INSTANCE="${EDGE_INSTANCE:-${EDGE_CODENAME:-${EDGE_INSTANCE_FROM_BRANDING:-}}}"
+EDGE_STATE_DIR="${EDGE_STATE_DIR:-${EDGE_STATE_DIR_FROM_BRANDING:-${EDGE_REPO_DIR}}}"
+EDGE_HOME="$EDGE_STATE_DIR"  # Legacy mutable-root alias used by some tools.
 
 # Defaults
 BLOG_PORT=${BLOG_PORT:-8766}
@@ -46,15 +58,64 @@ else
   PROJECT_DIR="$HOME/.claude/projects/${_first_proj}"
 fi
 
-# Export key variables for embedded Python heredocs
-export EDGE_DIR MEMORY_BASE MEMORY_PROJECT_DIR BLOG_URL PROJECT_DIR BLOG_AUTH_USER BLOG_AUTH_PASS BLOG_AUTH_ENABLED BLOG_PORT
+# --- Genotype paths ---
+BLOG_DIR="$EDGE_REPO_DIR/blog"
+TOOLS_DIR="$EDGE_REPO_DIR/tools"
+SECRETS_DIR="$EDGE_REPO_DIR/secrets"
+CONFIG_DIR="$EDGE_REPO_DIR/config"
+SEARCH_DIR="$EDGE_REPO_DIR/search"
+AUTONOMY_DIR="$EDGE_REPO_DIR/autonomy"
 
-# --- Derived paths ---
-BLOG_DIR="$EDGE_DIR/blog"
-ENTRIES_DIR="$BLOG_DIR/entries"
-REPORTS_DIR="$EDGE_DIR/reports"
-NOTES_DIR="$EDGE_DIR/notes"
-TOOLS_DIR="$EDGE_DIR/tools"
-LOGS_DIR="$EDGE_DIR/logs"
-THREADS_DIR="$EDGE_DIR/threads"
-SECRETS_DIR="$EDGE_DIR/secrets"
+# --- Phenotype paths ---
+BLOG_STATE_DIR="$EDGE_STATE_DIR/blog"
+ENTRIES_DIR="$BLOG_STATE_DIR/entries"
+BLOG_DIFFS_DIR="$BLOG_STATE_DIR/diffs"
+COMMENTS_FILE="$BLOG_STATE_DIR/comments.json"
+BLOG_CHANGELOG_FILE="$BLOG_STATE_DIR/changelog.md"
+REPORTS_DIR="$EDGE_STATE_DIR/reports"
+NOTES_DIR="$EDGE_STATE_DIR/notes"
+BUILDS_DIR="$EDGE_STATE_DIR/builds"
+LOGS_DIR="$EDGE_STATE_DIR/logs"
+THREADS_DIR="$EDGE_STATE_DIR/threads"
+HEALTH_DIR="$EDGE_STATE_DIR/health"
+META_DIR="$EDGE_STATE_DIR/meta-reports"
+SNAPSHOT_DIR="$EDGE_STATE_DIR/state-snapshots"
+SCRATCHPADS_DIR="$EDGE_STATE_DIR/scratchpads"
+STATE_DIR="$EDGE_STATE_DIR/state"
+STATE_EVENTS_DIR="$STATE_DIR/events"
+SIGNALS_DIR="$STATE_DIR/signals"
+SEARCH_STATE_DIR="$EDGE_STATE_DIR/search"
+DB_DIR="$EDGE_STATE_DIR/db"
+SEARCH_DB_FILE="$SEARCH_STATE_DIR/edge-memory.db"
+BLOG_FTS_DB_FILE="$BLOG_STATE_DIR/blog_fts.db"
+BRIEFING_FILE="$EDGE_STATE_DIR/briefing.md"
+EVENTS_FILE="$LOGS_DIR/events.jsonl"
+GIT_SIGNALS_FILE="$STATE_DIR/git-signals.json"
+CURADORIA_CANDIDATES_FILE="$STATE_DIR/curadoria-candidates.json"
+PROPOSALS_FILE="$STATE_DIR/proposals.json"
+PROCEDURE_CURATION_FILE="$STATE_DIR/procedure-curation.json"
+SOURCE_USAGE_FILE="$STATE_DIR/source-usage.jsonl"
+OPS_HOTSPOTS="$STATE_DIR/ops-hotspots.json"
+EXECUTION_LEDGER_FILE="$LOGS_DIR/execution-ledger.jsonl"
+PIPELINE_FAILURES_FILE="$LOGS_DIR/pipeline-failures.jsonl"
+SKILL_STEPS_FILE="$LOGS_DIR/skill-steps.jsonl"
+STATE_LINT_FILE="$LOGS_DIR/state-lint.jsonl"
+YAML_RENDER_FILE="$LOGS_DIR/yaml-render.jsonl"
+HEALTH_CURRENT_FILE="$HEALTH_DIR/current.json"
+HEALTH_HISTORY_FILE="$HEALTH_DIR/history.jsonl"
+HEALTH_LAST_SUCCESS_FILE="$HEALTH_DIR/last_success"
+AUTONOMY_CAPABILITIES_FILE="$AUTONOMY_DIR/capabilities.md"
+AUTONOMY_FRONTIER_FILE="$AUTONOMY_DIR/frontier.md"
+
+# Export key variables for shell + embedded Python heredocs
+export \
+  EDGE_REPO_DIR EDGE_DIR EDGE_STATE_DIR EDGE_HOME EDGE_INSTANCE MEMORY_BASE MEMORY_PROJECT_DIR PROJECT_DIR \
+  BLOG_URL BLOG_AUTH_USER BLOG_AUTH_PASS BLOG_AUTH_ENABLED BLOG_PORT SKILL_PREFIX CURL_AUTH \
+  BLOG_DIR TOOLS_DIR SECRETS_DIR CONFIG_DIR SEARCH_DIR AUTONOMY_DIR \
+  BLOG_STATE_DIR ENTRIES_DIR BLOG_DIFFS_DIR COMMENTS_FILE BLOG_CHANGELOG_FILE REPORTS_DIR NOTES_DIR LOGS_DIR THREADS_DIR \
+  BUILDS_DIR HEALTH_DIR META_DIR SNAPSHOT_DIR SCRATCHPADS_DIR STATE_DIR STATE_EVENTS_DIR SIGNALS_DIR \
+  SEARCH_STATE_DIR DB_DIR SEARCH_DB_FILE BLOG_FTS_DB_FILE BRIEFING_FILE EVENTS_FILE GIT_SIGNALS_FILE \
+  CURADORIA_CANDIDATES_FILE PROPOSALS_FILE PROCEDURE_CURATION_FILE SOURCE_USAGE_FILE OPS_HOTSPOTS \
+  EXECUTION_LEDGER_FILE PIPELINE_FAILURES_FILE SKILL_STEPS_FILE STATE_LINT_FILE YAML_RENDER_FILE \
+  HEALTH_CURRENT_FILE HEALTH_HISTORY_FILE HEALTH_LAST_SUCCESS_FILE AUTONOMY_CAPABILITIES_FILE \
+  AUTONOMY_FRONTIER_FILE

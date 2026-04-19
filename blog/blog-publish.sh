@@ -17,7 +17,7 @@ set -euo pipefail
 # shellcheck source=../config/paths.sh
 REAL_SCRIPT="$(readlink -f "$0")"
 source "$(dirname "$REAL_SCRIPT")/../config/paths.sh"
-CHANGELOG="$BLOG_DIR/changelog.md"
+CHANGELOG="$BLOG_CHANGELOG_FILE"
 API_URL="$BLOG_URL"
 ENTRY_PATH="${1:-}"
 
@@ -122,9 +122,9 @@ fi
 
 # --- Step 2.5: Find related posts ---
 echo "[2.5/6] Finding related posts..."
-SEARCH_PYTHON="$EDGE_DIR/search/.venv/bin/python3"
+SEARCH_PYTHON="$SEARCH_DIR/.venv/bin/python3"
 [ -x "$SEARCH_PYTHON" ] || SEARCH_PYTHON="python3"
-RELATED_OUTPUT=$($SEARCH_PYTHON "$EDGE_DIR/search/related.py" "$ENTRY_PATH" 5 2>&1) || true
+RELATED_OUTPUT=$($SEARCH_PYTHON "$SEARCH_DIR/related.py" "$ENTRY_PATH" 5 2>&1) || true
 if echo "$RELATED_OUTPUT" | grep -q "^Related"; then
     echo "  $RELATED_OUTPUT" | head -6
 else
@@ -191,7 +191,14 @@ VERIFY_OK=true
 # Check SQLite
 python3 -c "
 import sys, os
-sys.path.insert(0, os.path.join(os.environ.get('EDGE_DIR', os.path.expanduser('~/edge')), 'search'))
+search_dir = os.environ.get(
+    'SEARCH_DIR',
+    os.path.join(
+        os.environ.get('EDGE_REPO_DIR', os.environ.get('EDGE_DIR', os.path.expanduser('~/edge'))),
+        'search',
+    ),
+)
+sys.path.insert(0, search_dir)
 try:
     from db import ensure_db
     conn = ensure_db()

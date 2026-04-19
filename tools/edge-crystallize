@@ -25,10 +25,12 @@ from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPT_DIR.parent / "tools"))
+sys.path.insert(0, str(_SCRIPT_DIR.parent / "config"))
 try:
     from _shared.telemetry import log_workflow_transition
 except Exception:
     def log_workflow_transition(*a, **kw): pass
+from paths import ENTRIES_DIR, PROCEDURE_CURATION_FILE  # noqa: E402
 
 
 def slugify(text):
@@ -50,9 +52,9 @@ def index_entry(filepath):
         pass
 
 
-def create_from_operator(directive, edge, dry_run=False):
+def create_from_operator(directive, dry_run=False):
     """Create an approved workflow directly from an operator directive."""
-    entries_dir = edge / "blog" / "entries"
+    entries_dir = ENTRIES_DIR
     entries_dir.mkdir(parents=True, exist_ok=True)
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -100,10 +102,10 @@ def create_from_operator(directive, edge, dry_run=False):
     return 1
 
 
-def create_from_curation(args, edge):
+def create_from_curation(args):
     """Create workflow-draft entries from procedure-curation.json candidates."""
-    curation_file = edge / "state" / "procedure-curation.json"
-    entries_dir = edge / "blog" / "entries"
+    curation_file = PROCEDURE_CURATION_FILE
+    entries_dir = ENTRIES_DIR
     entries_dir.mkdir(parents=True, exist_ok=True)
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -241,15 +243,13 @@ def main():
                         help="Create approved workflow from operator instruction (skips draft)")
     args = parser.parse_args()
 
-    edge = Path(os.environ.get("EDGE_DIR", Path.home() / "edge"))
-
     if args.from_operator:
-        n = create_from_operator(args.from_operator, edge, args.dry_run)
+        n = create_from_operator(args.from_operator, args.dry_run)
         if n and not args.dry_run:
             print(f"\nWorkflow created with tag 'workflow' (approved — operator authority).")
             print("Enters edge-search recall immediately.")
     else:
-        create_from_curation(args, edge)
+        create_from_curation(args)
 
 
 if __name__ == "__main__":

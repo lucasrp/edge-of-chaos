@@ -16,9 +16,9 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import SEARCH_DIR, STATE_DIR  # noqa: E402
+from paths import SEARCH_DB_FILE, STATE_DIR  # noqa: E402
 
-DB_PATH = SEARCH_DIR / "edge-memory.db"
+DB_PATH = SEARCH_DB_FILE
 OUT_PATH = STATE_DIR / "primitive-usage-rollup.json"
 WINDOW_DAYS = 30
 

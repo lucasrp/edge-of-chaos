@@ -23,11 +23,22 @@ import yaml
 from datetime import datetime
 from pathlib import Path
 
-HOME = Path.home()
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import (META_DIR, SCRATCHPADS_DIR as SCRATCHPADS_ARCHIVE,
-                   EDGE_DIR, TOOLS_DIR, MEMORY_DIR, SKILLS_DIR, NOTES_DIR)
+from paths import (  # noqa: E402
+    BRIEFING_FILE,
+    EDGE_REPO_DIR,
+    EDGE_STATE_DIR,
+    ENTRIES_DIR,
+    EVENTS_FILE,
+    MEMORY_DIR,
+    META_DIR,
+    NOTES_DIR,
+    SCRATCHPADS_DIR as SCRATCHPADS_ARCHIVE,
+    SKILLS_DIR,
+    THREADS_DIR,
+    TOOLS_DIR,
+)
 CONSULT_SCRIPT = TOOLS_DIR / "edge-consult.py"
 
 TRACKED_REPOS = {
@@ -75,11 +86,11 @@ def capture_diffs_preview():
     # Edge repo
     result = subprocess.run(
         ["git", "diff", "HEAD", "--stat"],
-        cwd=str(EDGE_DIR), capture_output=True, text=True
+        cwd=str(EDGE_REPO_DIR), capture_output=True, text=True
     )
     result2 = subprocess.run(
         ["git", "status", "--short"],
-        cwd=str(EDGE_DIR), capture_output=True, text=True
+        cwd=str(EDGE_REPO_DIR), capture_output=True, text=True
     )
     stat = result.stdout.strip()
     status = result2.stdout.strip()
@@ -290,10 +301,9 @@ def capture_post_state_changes(slug, entry_path):
 
     # ── Threads touched ──
     if threads:
-        threads_dir = HOME / "edge" / "threads"
         lines.append(f"### Threads tocados ({len(threads)})")
         for tid in threads:
-            tfile = threads_dir / f"{tid}.md"
+            tfile = THREADS_DIR / f"{tid}.md"
             if tfile.exists():
                 # Read status and title
                 content = tfile.read_text()
@@ -310,10 +320,9 @@ def capture_post_state_changes(slug, entry_path):
         lines.append("")
 
     # ── Event logged ──
-    events_file = HOME / "edge" / "logs" / "events.jsonl"
-    if events_file.exists():
+    if EVENTS_FILE.exists():
         slug_artifact = f"blog/entries/{slug}.md"
-        for raw_line in reversed(events_file.read_text().splitlines()[-20:]):
+        for raw_line in reversed(EVENTS_FILE.read_text().splitlines()[-20:]):
             try:
                 evt = json.loads(raw_line)
                 if slug_artifact in evt.get("artifacts", []):
@@ -350,31 +359,39 @@ def capture_post_state_changes(slug, entry_path):
             lines.append("```")
 
     # Edge repo state files specifically
-    state_files = ["briefing.md", "threads/", "logs/events.jsonl"]
-    result = subprocess.run(
-        ["git", "diff", "HEAD", "--stat", "--", *state_files],
-        cwd=str(EDGE_DIR), capture_output=True, text=True
-    )
-    if result.stdout.strip():
-        found_diffs = True
-        lines.append("**edge/ (state files)**")
-        lines.append("```")
-        lines.append(result.stdout.strip())
-        lines.append("```")
+    state_git_root = None
+    if EDGE_STATE_DIR == EDGE_REPO_DIR:
+        state_git_root = EDGE_REPO_DIR
+    elif (EDGE_STATE_DIR / ".git").is_dir():
+        state_git_root = EDGE_STATE_DIR
+
+    if state_git_root is not None:
+        state_files = ["briefing.md", "threads/", "logs/events.jsonl"]
+        result = subprocess.run(
+            ["git", "diff", "HEAD", "--stat", "--", *state_files],
+            cwd=str(state_git_root), capture_output=True, text=True
+        )
+        if result.stdout.strip():
+            found_diffs = True
+            lines.append("**state/ (git-backed)**")
+            lines.append("```")
+            lines.append(result.stdout.strip())
+            lines.append("```")
+    else:
+        lines.append("*State root is outside git; showing only filesystem checks above.*")
 
     if not found_diffs:
         lines.append("*Nenhuma mudança detectada nos arquivos de estado.*")
     lines.append("")
 
     # ── Briefing updated? ──
-    briefing = HOME / "edge" / "briefing.md"
-    if briefing.exists():
-        mtime = datetime.fromtimestamp(briefing.stat().st_mtime)
+    if BRIEFING_FILE.exists():
+        mtime = datetime.fromtimestamp(BRIEFING_FILE.stat().st_mtime)
         age_seconds = (datetime.now() - mtime).total_seconds()
         if age_seconds < 120:  # Updated in last 2 min = this pipeline
             lines.append("### briefing.md")
             # Show first 10 lines
-            content = briefing.read_text().split("\n")[:10]
+            content = BRIEFING_FILE.read_text().split("\n")[:10]
             lines.append("```")
             lines.append("\n".join(content))
             lines.append("```")
@@ -401,7 +418,7 @@ def main():
         entry_path = args.entry
         # Try to find entry if not provided
         if not entry_path:
-            candidate = HOME / "edge" / "blog" / "entries" / f"{args.slug}.md"
+            candidate = ENTRIES_DIR / f"{args.slug}.md"
             if candidate.exists():
                 entry_path = str(candidate)
 

@@ -22,20 +22,30 @@ source "$(dirname "$REAL_SCRIPT")/../config/paths.sh"
 
 # Use Python for all diff processing (bash is unreliable with special chars in diffs)
 export CAPTURE_SLUG="$SLUG"
-export MEMORY_BASE EDGE_DIR BLOG_URL
+export MEMORY_BASE NOTES_DIR AUTONOMY_DIR BLOG_URL
 python3 << 'PYEOF'
 import subprocess, json, os, sys
 
 slug = os.environ.get("CAPTURE_SLUG", "")
 memory_base = os.environ.get("MEMORY_BASE", os.path.expanduser("~/.claude/projects/memory"))
-edge_dir = os.environ.get("EDGE_DIR", os.path.expanduser("~/edge"))
+notes_dir = os.environ.get(
+    "NOTES_DIR",
+    os.path.join(os.environ.get("EDGE_STATE_DIR", os.path.expanduser("~/edge")), "notes"),
+)
+autonomy_dir = os.environ.get(
+    "AUTONOMY_DIR",
+    os.path.join(
+        os.environ.get("EDGE_REPO_DIR", os.environ.get("EDGE_DIR", os.path.expanduser("~/edge"))),
+        "autonomy",
+    ),
+)
 blog_url = os.environ.get("BLOG_URL", "http://localhost:8766")
 
 TRACKED = {
     memory_base: "memory",
     os.path.expanduser("~/.claude/skills"): "skills",
-    os.path.join(edge_dir, "notes"): "notes",
-    os.path.join(edge_dir, "autonomy"): "autonomy",
+    notes_dir: "notes",
+    autonomy_dir: "autonomy",
 }
 
 BLOG_API = f"{blog_url}/api/diffs"
