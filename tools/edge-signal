@@ -55,6 +55,34 @@ TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M")
 
 echo "- [${TIMESTAMP} | ${SOURCE}] ${MESSAGE}" >> "$FILE"
 
+python3 - "$TYPE" "$MESSAGE" "$SOURCE" "$FILE" <<'PYEOF' 2>/dev/null || true
+import os
+import sys
+from pathlib import Path
+
+edge_dir = Path(os.environ.get("EDGE_DIR", str(Path.home() / "edge"))).expanduser()
+tools_dir = edge_dir / "tools"
+if str(tools_dir) not in sys.path:
+    sys.path.insert(0, str(tools_dir))
+
+try:
+    from _shared.telemetry import emit_shadow_event
+except Exception:
+    raise SystemExit(0)
+
+signal_type, message, source, file_path = sys.argv[1:5]
+emit_shadow_event(
+    "SignalEmitted",
+    actor="edge-signal",
+    artifact=str(Path(file_path).expanduser()),
+    payload={
+        "signal_type": signal_type,
+        "message": message,
+        "source": source,
+    },
+)
+PYEOF
+
 # --- Compress check ---
 if [[ -f "$FILE" ]]; then
     LINES=$(wc -l < "$FILE")
