@@ -51,7 +51,7 @@ sys.path.insert(0, str(ROOT))
 
 import yaml as _yaml
 
-from blog.api_dashboard import dashboard_bp, _build_status_strip_data, _build_alerts_data, _build_pipeline_data, _build_hotspots_data, _build_corpus_data, _build_briefing_data, _build_runtime_data
+from blog.api_dashboard import dashboard_bp, _build_status_strip_data, _build_alerts_data, _build_pipeline_data, _build_hotspots_data, _build_corpus_data, _build_briefing_data, _build_epistemic_data, _build_runtime_data
 
 # ─── Branding ───
 _branding_path = ROOT / "config" / "branding.yaml"
@@ -1333,6 +1333,7 @@ def dashboard_page():
     hotspots_data = _build_hotspots_data()
     corpus_data = _build_corpus_data()
     briefing_data = _build_briefing_data()
+    epistemic_data = _build_epistemic_data()
     runtime_data = _build_runtime_data()
     threads_data = _build_threads_data()
 
@@ -1350,6 +1351,7 @@ def dashboard_page():
         **hotspots_data,
         **corpus_data,
         **briefing_data,
+        **epistemic_data,
         **runtime_data,
         **threads_data,
     )

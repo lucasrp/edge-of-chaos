@@ -1,0 +1,149 @@
+<div class="dash-section">
+  <h2 class="dash-section-title">epistemic & steering</h2>
+
+  <div class="runtime-grid">
+    <div class="runtime-card">
+      <div class="runtime-card-title">claims</div>
+      <div class="runtime-row">
+        <strong>verified</strong>
+        <span class="runtime-meta">{{ ep_claims.verified_total }}</span>
+      </div>
+      <div class="runtime-row">
+        <strong>open / disputed</strong>
+        <span class="runtime-meta">{{ ep_claims.open_total }}</span>
+      </div>
+      {% if ep_claims.recent %}
+      <div class="runtime-subtitle">recent claims</div>
+      <div class="runtime-list">
+        {% for item in ep_claims.recent %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ item.text }}</strong>
+            <span class="runtime-pill runtime-pill-{{ item.kind_color }}">{{ item.kind }}</span>
+          </div>
+          <div class="runtime-meta"><a href="/blog/entries/{{ item.artifact_filename }}" style="color:inherit">{{ item.artifact_title }}</a>{% if item.threads %} · {{ item.threads|join(', ') }}{% endif %}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no claims indexed from entries yet</div>
+      {% endif %}
+    </div>
+
+    <div class="runtime-card">
+      <div class="runtime-card-title">strategy, topics, objectives</div>
+      {% if ep_strategy.available %}
+      <div class="runtime-note">{{ ep_strategy.summary or 'strategy file present but no summary text extracted yet' }}</div>
+      {% if ep_strategy.priorities %}
+      <div class="runtime-subtitle">priorities</div>
+      <div class="runtime-list">
+        {% for item in ep_strategy.priorities %}
+        <div class="runtime-list-item"><div class="runtime-primary">{{ item }}</div></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% else %}
+      <div class="runtime-empty">no strategy.md yet</div>
+      {% endif %}
+
+      <div class="runtime-subtitle">topics ({{ ep_strategy.topics_total }})</div>
+      {% if ep_strategy.topics %}
+      <div class="runtime-list">
+        {% for topic in ep_strategy.topics %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ topic.name }}</strong>
+          </div>
+          <div class="runtime-meta">{{ topic.title }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no topic files loaded yet</div>
+      {% endif %}
+
+      <div class="runtime-subtitle">active objectives</div>
+      {% if ep_strategy.objectives %}
+      <div class="runtime-list">
+        {% for objective in ep_strategy.objectives %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong><a href="/thread/{{ objective.thread_id }}" style="color:inherit">{{ objective.title }}</a></strong>
+            <span class="runtime-meta">{{ objective.status }}</span>
+          </div>
+          <div class="runtime-meta">{{ objective.goal }}</div>
+          {% if objective.next_step %}
+          <div class="runtime-meta">next: {{ objective.next_step }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no active thread objectives yet</div>
+      {% endif %}
+    </div>
+
+    <div class="runtime-card">
+      <div class="runtime-card-title">proposals & decisions</div>
+      <div class="runtime-row">
+        <strong>active proposals</strong>
+        <span class="runtime-meta">{{ ep_proposals.active_count }}</span>
+      </div>
+      {% if ep_proposals.active %}
+      <div class="runtime-list">
+        {% for proposal in ep_proposals.active %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ proposal.title }}</strong>
+            <span class="runtime-meta">{{ proposal.type }}</span>
+          </div>
+          <div class="runtime-meta">{{ proposal.updated_short }} · evidence {{ proposal.evidence_count }}{% if proposal.cost %} · {{ proposal.cost }}{% endif %}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no active proposals</div>
+      {% endif %}
+
+      <div class="runtime-subtitle">recent decisions</div>
+      {% if ep_proposals.decisions %}
+      <div class="runtime-list">
+        {% for item in ep_proposals.decisions %}
+        <div class="runtime-list-item"><div class="runtime-primary">{{ item }}</div></div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no decision log entries yet</div>
+      {% endif %}
+    </div>
+
+    <div class="runtime-card">
+      <div class="runtime-card-title">lineage</div>
+      {% if ep_lineage %}
+      <div class="runtime-list">
+        {% for item in ep_lineage %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ item.claim }}</strong>
+            <span class="runtime-pill runtime-pill-{{ item.claim_color }}">{{ item.claim_status }}</span>
+          </div>
+          <div class="runtime-meta">
+            {% if item.threads %}
+              {% for tid in item.threads %}
+                <a href="/thread/{{ tid }}" style="color:inherit">{{ tid }}</a>{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            {% else %}
+              no thread
+            {% endif %}
+            → <a href="/blog/entries/{{ item.artifact_filename }}" style="color:inherit">{{ item.artifact_title }}</a>
+            {% if item.report %} · <a href="/reports/{{ item.report }}" style="color:inherit">report</a>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no claim/thread/artifact lineage yet</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
