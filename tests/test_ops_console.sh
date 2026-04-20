@@ -6,6 +6,7 @@ set -euo pipefail
 
 EDGE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BLOG_DIR="$EDGE_DIR/blog"
+export EDGE_REPO_DIR="$EDGE_DIR"
 VENV_PY="${EDGE_BLOG_VENV:-$BLOG_DIR/.venv/bin/python3}"
 if [ ! -x "$VENV_PY" ]; then
     echo "Missing blog venv python: $VENV_PY" >&2
@@ -51,7 +52,20 @@ fi
 echo ""
 echo "[2/3] Flask app starts"
 
-if cd "$BLOG_DIR" && "$VENV_PY" -c "from app import app; print('OK')" >/dev/null 2>&1; then
+if cd "$EDGE_DIR" && "$VENV_PY" - <<'PYEOF' "$EDGE_DIR" >/dev/null 2>&1
+import os
+import sys
+
+edge_dir = sys.argv[1]
+sys.path.insert(0, edge_dir)
+sys.path.insert(0, os.path.join(edge_dir, "blog"))
+os.chdir(os.path.join(edge_dir, "blog"))
+
+from app import app
+
+print("OK")
+PYEOF
+then
     pass_test "Flask app creates successfully"
 else
     fail_test "Flask app creates successfully"
@@ -93,6 +107,7 @@ def check_redirect(name, response, expect_location, expect_status=302):
 check("GET /api/dashboard/overview", client.get("/api/dashboard/overview"))
 check("GET /api/dashboard/alerts", client.get("/api/dashboard/alerts"))
 check("GET /api/dashboard/pipeline", client.get("/api/dashboard/pipeline"))
+check("GET /api/dashboard/runtime", client.get("/api/dashboard/runtime"))
 check("GET /api/dashboard/hotspots", client.get("/api/dashboard/hotspots"))
 check("GET /api/dashboard/corpus", client.get("/api/dashboard/corpus"))
 check_redirect("GET / -> /dashboard", client.get("/"), "/dashboard")
@@ -109,6 +124,7 @@ mark = "PASS" if ok else "FAIL"
 print(f'{mark}|POST /api/heartbeat/trigger|{r.status_code}|200 or 429')
 
 check("GET /partials/status-strip", client.get("/partials/status-strip"))
+check("GET /partials/runtime", client.get("/partials/runtime"))
 check("GET /dashboard", client.get("/dashboard"))
 PYEOF
 
