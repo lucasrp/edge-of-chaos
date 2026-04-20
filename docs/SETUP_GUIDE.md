@@ -103,8 +103,11 @@ systemctl --user start claude-heartbeat.service
 # Via launchd (macOS)
 launchctl start com.OWNER.AGENT.heartbeat
 
-# Via Claude Code directly
-cd ~/your-agent && claude -p "/PREFIX-heartbeat" --max-turns 30
+# Via the installed wrapper (preferred)
+~/.local/bin/heartbeat.sh
+
+# Or via the runner with lifecycle management
+cd ~/your-agent && ./tools/edge-runner skill --skill "/PREFIX-heartbeat"
 ```
 
 ### Check State

@@ -60,7 +60,11 @@ except: print('NO_FIRST_STEPS')
 " 2>/dev/null
 ```
 
-**If ONBOARDING with pending steps:** Execute the FIRST pending step. After completion, mark it as done:
+**If ONBOARDING with pending steps:** Execute the FIRST pending step. This is not a decision point. Do **not** ask the operator whether to batch-run `first_steps`, whether to continue, or whether dispatch should be deferred. Complete one pending step autonomously, then continue to normal routing in the **same beat**.
+
+Only mark a step as done after it was actually completed. If a step is blocked on explicit external approval or unavailable external state, leave it pending, log the blockage, and still continue to the normal heartbeat routing. Pending `first_steps` are never a reason to pause mid-beat for human confirmation.
+
+After actual completion, mark it as done:
 ```bash
 python3 -c "
 import json
@@ -371,11 +375,13 @@ After reading all context from Step 1, classify the beat:
 
 **ABSOLUTE RULE:** The heartbeat ALWAYS dispatches a skill and the dispatched skill ALWAYS produces a full-rite artifact. There is no empty beat and no minimal-meta / voluntary-minimal / signal-only / blackout-degraded variant. Every skill follows the uniform rite in `_shared/report-template.md`. If an external adversarial provider is unavailable, fall back to Claude; never skip the rite.
 
+This applies equally to systemd, `edge-runner`, and direct slash-command invocation. There is no "decision-only interactive heartbeat" mode. Once `/ed-heartbeat` starts, it either dispatches one internal skill and runs the rite, or it fails mechanically.
+
 **Anti-saturation** changes meaning: it's not "stop", it's "change topic". If the last 3 beats were on the same topic, switch to another. If they were all exploration, do /ed-research on a thread.
 
 ---
 
-## Step 2.0: Lifecycle is already open (DO NOT reopen manually)
+## Step 2.0: Lifecycle is already open or must be opened now
 
 The heartbeat entrypoint opens the shadow dispatch cycle mechanically before
 this skill body starts. That cycle keeps the PreToolUse guard
@@ -387,12 +393,38 @@ into `~/edge/blog/entries/**` or `~/edge/reports/**` will be refused by
 the hook. During rollout, the runtime still mirrors the legacy
 `state/current-beat.json` sentinel so older checks keep working.
 
-Do **not** run `edge-dispatch open` again from inside the heartbeat skill.
-Use `edge-dispatch status` only if debugging the lifecycle.
+If `EDGE_CYCLE_ID` is already set, the skill was launched through
+`edge-runner`/systemd and the lifecycle is already open. Do **not** reopen it.
+
+If `EDGE_CYCLE_ID` is empty, this heartbeat was invoked directly as a slash
+command. Direct slash-command invocation is still a full heartbeat, not a
+"decide now, dispatch later" preview. Open the fallback lifecycle immediately:
+
+```bash
+if [ -z "${EDGE_CYCLE_ID:-}" ]; then
+  echo "HEARTBEAT_ENTRYPOINT: direct skill invocation — opening fallback heartbeat cycle"
+  edge-dispatch open \
+    --trigger heartbeat \
+    --policy autonomous \
+    --routing-mode auto \
+    --preflight-profile heartbeat_default \
+    --postflight-profile standard \
+    --force
+else
+  echo "HEARTBEAT_ENTRYPOINT: edge-runner cycle $EDGE_CYCLE_ID already open"
+fi
+```
+
+From here on, treat both entrypoints the same way: one beat, one dispatch, full rite.
 
 ---
 
 ## Step 2: Do (dispatch ONE skill)
+
+**Never prompt the operator mid-beat.** Heartbeat operates entirely on the
+agent's own substrate. If a branch would ask "should I continue?" or "should I
+dispatch now or later?", that branch is invalid. Choose the best internal
+skill, dispatch it, and continue. Only `/ed-execute` may stop for human sign-off.
 
 ### Decision tree (simple)
 
@@ -451,7 +483,15 @@ edge-consult "Context: [summary of what I read in steps 1a-1g]. Decision: dispat
 
 If GPT suggests a better direction, consider it. The entire beat costs ~2h of timing — getting the choice right matters more than speed.
 
+`edge-consult` may help change the **chosen skill/topic**, but it does not get
+to convert the beat into "ask the operator", "wait for the next timer", or
+"stop at the decision". If a suggestion implies deferring dispatch, ignore that
+part and choose a better internal skill instead.
+
 ### Dispatch
+
+There is no "decision recorded, sub-skill deferred" endpoint. After choosing
+the skill, dispatch it immediately:
 
 Run the chosen skill with step tracking (#113):
 
@@ -595,18 +635,31 @@ The `--update-thread N` automatically updates `updated:` and `resurface:` in the
 
 **Follow ~/.claude/skills/_shared/state-protocol.md for status management.**
 
-### 3e: Do not close the lifecycle manually
+### 3e: Close only the lifecycle you own
 
 The heartbeat entrypoint closes the shadow dispatch cycle through
-`edge-close` after this skill exits. `completed` is only accepted when the
-runtime has evidence that:
+`edge-close` after this skill exits **when it was launched through
+`edge-runner`**. `completed` is only accepted when the runtime has evidence
+that:
 
 - a skill was actually dispatched
 - `edge-skill-step <skill> end` happened
 - the postflight profile ran
 
-The hook will stop blocking writes there; do **not** run `edge-dispatch close`
-from inside the heartbeat skill body.
+If `EDGE_CYCLE_ID` was empty in Step 2.0, this skill opened the fallback
+lifecycle itself. In that direct slash-command case, close it now through
+`edge-close`:
+
+```bash
+if [ -z "${EDGE_CYCLE_ID:-}" ]; then
+  edge-close --status completed
+fi
+```
+
+If the beat fails or is aborted before normal completion and you opened the
+fallback lifecycle in Step 2.0, close it with the matching status (`failed` or
+`aborted`). Do **not** run `edge-dispatch close` directly from the skill body;
+always use `edge-close`.
 
 ---
 
@@ -614,7 +667,8 @@ from inside the heartbeat skill body.
 
 - **Timer:** systemd (claude-heartbeat.timer)
 - **Logs:** `~/edge/logs/heartbeat-YYYY-MM-DD.log`
-- **Manually:** `/ed-heartbeat`
+- **Manual entrypoint (preferred):** `~/.local/bin/heartbeat.sh`
+- **Direct slash invocation:** `/ed-heartbeat` is allowed, but it still runs a full beat and must use the fallback lifecycle above
 
 ## Isolation Rule
 
