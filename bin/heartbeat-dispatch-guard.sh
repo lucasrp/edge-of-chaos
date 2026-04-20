@@ -15,12 +15,19 @@
 #       write target is outside guarded paths)
 #   2 — block tool call (message on stderr)
 #
-# Sentinel file: $EDGE_ROOT/state/current-beat.json
+# Sentinel file (legacy): $EDGE_ROOT/state/current-beat.json
 #   {
 #     "active": bool,              # set true at Step 2 entry
 #     "started_at": ISO8601,       # auto-expires after 1h
 #     "skill_dispatched": bool,    # flipped to true immediately before dispatch
 #     "skill": string|null
+#   }
+#
+# Dispatch-cycle file (shadow rollout): $EDGE_ROOT/state/current-dispatch.json
+#   {
+#     "cycle_id": "...",
+#     "request": {"trigger": "heartbeat", ...},
+#     "state": {"active": true, "skill_dispatched": false, ...}
 #   }
 #
 # Wire-up: add to ~/.claude/settings.json:
@@ -34,23 +41,28 @@
 
 set -euo pipefail
 
-STATE_FILE="${EDGE_ROOT:-$HOME/edge}/state/current-beat.json"
+EDGE_ROOT="${EDGE_ROOT:-$HOME/edge}"
+STATE_FILE="${EDGE_ROOT}/state/current-beat.json"
+DISPATCH_FILE="${EDGE_ROOT}/state/current-dispatch.json"
 
 # Read PreToolUse payload from stdin
 TOOL_INPUT=$(cat)
 
-# Fast path: if no sentinel file, not in heartbeat → allow immediately
-[ -f "$STATE_FILE" ] || exit 0
+# Fast path: if neither state file exists, not in heartbeat → allow immediately
+if [ ! -f "$STATE_FILE" ] && [ ! -f "$DISPATCH_FILE" ]; then
+  exit 0
+fi
 
-python3 - <<'PY' "$STATE_FILE" "$TOOL_INPUT"
+python3 - <<'PY' "$STATE_FILE" "$DISPATCH_FILE" "$TOOL_INPUT"
 import json
 import sys
 import datetime
 import pathlib
 
-state_path = pathlib.Path(sys.argv[1])
+legacy_path = pathlib.Path(sys.argv[1])
+dispatch_path = pathlib.Path(sys.argv[2])
 try:
-    payload = json.loads(sys.argv[2])
+    payload = json.loads(sys.argv[3])
 except Exception:
     sys.exit(0)  # malformed payload, do not block
 
@@ -62,10 +74,36 @@ GUARDED = ("/edge/blog/entries/", "/edge/reports/")
 if not any(seg in file_path for seg in GUARDED):
     sys.exit(0)
 
-try:
-    state = json.loads(state_path.read_text())
-except Exception:
-    sys.exit(0)  # unreadable sentinel, fail open
+state = None
+state_source = None
+
+if dispatch_path.exists():
+    try:
+        dispatch = json.loads(dispatch_path.read_text())
+        request = dispatch.get("request", {}) or {}
+        state_block = dispatch.get("state", {}) or {}
+        if state_block.get("active") and request.get("trigger") != "heartbeat":
+            sys.exit(0)
+        if request.get("trigger") == "heartbeat":
+            state = {
+                "active": state_block.get("active"),
+                "started_at": state_block.get("opened_at"),
+                "skill_dispatched": state_block.get("skill_dispatched"),
+                "skill": request.get("skill"),
+            }
+            state_source = "current-dispatch.json"
+    except Exception:
+        state = None
+
+if state is None and legacy_path.exists():
+    try:
+        state = json.loads(legacy_path.read_text())
+        state_source = "current-beat.json"
+    except Exception:
+        sys.exit(0)  # unreadable sentinel, fail open
+
+if state is None:
+    sys.exit(0)
 
 # Stale sentinel (>1h) — not a live beat
 started_at = state.get("started_at")
@@ -89,9 +127,9 @@ sys.stderr.write(
     "BLOCK(heartbeat-dispatch-guard): heartbeat is active but no skill "
     "has been dispatched yet.\n"
     f"  target: {file_path}\n"
-    "  fix: run `edge-skill-step <skill> start` and flip "
-    "state/current-beat.json:skill_dispatched to true before writing "
-    "artifacts.\n"
+    f"  state: {state_source}\n"
+    "  fix: run `edge-dispatch dispatch --skill <skill>` and then "
+    "`edge-skill-step <skill> start` before writing artifacts.\n"
     "  See /ed-heartbeat Step 2 and issue #212.\n"
 )
 sys.exit(2)

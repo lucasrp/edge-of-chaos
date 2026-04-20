@@ -382,23 +382,20 @@ Write the beat sentinel so the PreToolUse hook
 a skill is dispatched. This is L3 enforcement — the earliest checkpoint.
 
 ```bash
-python3 -c "
-import json, datetime, pathlib
-p = pathlib.Path.home() / 'edge' / 'state' / 'current-beat.json'
-p.parent.mkdir(parents=True, exist_ok=True)
-p.write_text(json.dumps({
-    'active': True,
-    'started_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    'skill_dispatched': False,
-    'skill': None,
-}, indent=2))
-"
+edge-dispatch open \
+  --trigger heartbeat \
+  --policy autonomous \
+  --routing-mode auto \
+  --preflight-profile heartbeat_default \
+  --postflight-profile standard
 ```
 
 From this point until `edge-skill-step <skill> start` runs, any Write/Edit
 into `~/edge/blog/entries/**` or `~/edge/reports/**` will be refused by
-the hook. The sentinel auto-expires after 1h (fail-open if the beat is
-abandoned mid-way).
+the hook. During rollout, `edge-dispatch` mirrors the legacy
+`state/current-beat.json` sentinel so the existing guard keeps working.
+The sentinel auto-expires after 1h (fail-open if the beat is abandoned
+mid-way).
 
 ---
 
@@ -466,15 +463,8 @@ If GPT suggests a better direction, consider it. The entire beat costs ~2h of ti
 Run the chosen skill with step tracking (#113):
 
 ```bash
-# Flip the guard sentinel — authorizes artifact writes (#212)
-python3 -c "
-import json, pathlib, sys
-p = pathlib.Path.home() / 'edge' / 'state' / 'current-beat.json'
-state = json.loads(p.read_text())
-state['skill_dispatched'] = True
-state['skill'] = sys.argv[1]
-p.write_text(json.dumps(state, indent=2))
-" <skill>
+# Flip the dispatch-cycle state — authorizes artifact writes (#212)
+edge-dispatch dispatch --skill <skill>
 
 # Before dispatching
 edge-skill-step <skill> start
@@ -618,14 +608,7 @@ Mark the beat as inactive. The hook will stop blocking writes until the
 next beat opens a new sentinel.
 
 ```bash
-python3 -c "
-import json, pathlib
-p = pathlib.Path.home() / 'edge' / 'state' / 'current-beat.json'
-if p.exists():
-    state = json.loads(p.read_text())
-    state['active'] = False
-    p.write_text(json.dumps(state, indent=2))
-"
+edge-dispatch close --status completed
 ```
 
 ---

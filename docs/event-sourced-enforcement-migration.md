@@ -146,7 +146,7 @@ This is the best first enforcement target because it is binary, frequent, and al
 A dispatch cycle may be triggered by:
 
 - heartbeat
-- direct operator / user invocation
+- direct operator invocation
 
 The process is the same after the trigger. The trigger source changes, but the cycle semantics do not.
 
