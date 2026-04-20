@@ -1445,6 +1445,104 @@
   .dash-section-title.dash-warn { color: var(--orange); }
   .dash-section-title.dash-muted { color: var(--text-muted); }
 
+  .runtime-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 0.8rem;
+  }
+
+  .runtime-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    background: var(--bg);
+  }
+
+  .runtime-card-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 0.6rem;
+  }
+
+  .runtime-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+    font-size: 0.8rem;
+  }
+
+  .runtime-row strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .runtime-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.66rem;
+    color: var(--text-muted);
+  }
+
+  .runtime-note {
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    margin: 0.15rem 0 0.45rem 0;
+  }
+
+  .runtime-subtitle {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 0.7rem 0 0.35rem 0;
+  }
+
+  .runtime-pill {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    padding: 0.1rem 0.35rem;
+    border-radius: 999px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .runtime-pill-green { background: var(--green); color: #000; }
+  .runtime-pill-yellow { background: var(--yellow); color: #000; }
+  .runtime-pill-red { background: var(--red); color: #fff; }
+  .runtime-pill-muted { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+
+  .runtime-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .runtime-list-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.45rem 0.5rem;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+  }
+
+  .runtime-primary {
+    font-size: 0.8rem;
+    color: var(--text);
+  }
+
+  .runtime-empty {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
   .dash-task {
     padding: 0.5rem 0;
     border-bottom: 1px solid var(--border);

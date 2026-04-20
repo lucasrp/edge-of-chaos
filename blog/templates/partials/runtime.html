@@ -1,0 +1,174 @@
+<div class="dash-section">
+  <h2 class="dash-section-title">runtime transparency</h2>
+
+  <div class="runtime-grid">
+    <div class="runtime-card">
+      <div class="runtime-card-title">dispatch cycle</div>
+      {% if runtime_current_cycle.available %}
+      <div class="runtime-row">
+        <strong>{{ runtime_current_cycle.skill or 'no skill yet' }}</strong>
+        <span class="runtime-pill runtime-pill-{{ runtime_current_cycle.phase_color }}">{{ runtime_current_cycle.phase_label }}</span>
+      </div>
+      <div class="runtime-meta">{{ runtime_current_cycle.trigger or '?' }} · {{ runtime_current_cycle.cycle_id }}</div>
+      <div class="runtime-subtitle">protocol slots</div>
+      <div class="runtime-row"><span>preflight</span><span class="runtime-meta">{{ runtime_current_cycle.preflight_status }}</span></div>
+      <div class="runtime-row"><span>skill</span><span class="runtime-meta">{{ runtime_current_cycle.skill_status }}</span></div>
+      <div class="runtime-row"><span>postflight</span><span class="runtime-meta">{{ runtime_current_cycle.postflight_status }}</span></div>
+      {% if runtime_current_cycle.opened_at_short %}
+      <div class="runtime-note">opened {{ runtime_current_cycle.opened_at_short }}{% if runtime_current_cycle.dispatched_at_short %} · dispatched {{ runtime_current_cycle.dispatched_at_short }}{% endif %}{% if runtime_current_cycle.closed_at_short %} · closed {{ runtime_current_cycle.closed_at_short }}{% endif %}</div>
+      {% endif %}
+      {% else %}
+      <div class="runtime-empty">no current dispatch file</div>
+      {% endif %}
+
+      {% if runtime_recent_cycles %}
+      <div class="runtime-subtitle">recent cycles</div>
+      <div class="runtime-list">
+        {% for cycle in runtime_recent_cycles %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ cycle.skill or 'no skill' }}</strong>
+            <span class="runtime-pill runtime-pill-{{ cycle.health_color }}">{{ cycle.health_label }}</span>
+          </div>
+          <div class="runtime-meta">{{ cycle.trigger or '?' }} · {{ cycle.cycle_id }}</div>
+          <div class="runtime-meta">{{ cycle.last_ts_short }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="runtime-card">
+      <div class="runtime-card-title">lifecycle evidence</div>
+      <div class="runtime-row">
+        <strong>pre-skill</strong>
+        <span class="runtime-pill runtime-pill-{{ runtime_skill_evidence.pre_skill.color }}">{{ runtime_skill_evidence.pre_skill.status }}</span>
+      </div>
+      <div class="runtime-note">{{ runtime_skill_evidence.pre_skill.detail }} · protocol={{ runtime_skill_evidence.pre_skill.protocol_status }}</div>
+      <div class="runtime-row">
+        <strong>post-skill</strong>
+        <span class="runtime-pill runtime-pill-{{ runtime_skill_evidence.post_skill.color }}">{{ runtime_skill_evidence.post_skill.status }}</span>
+      </div>
+      <div class="runtime-note">{{ runtime_skill_evidence.post_skill.detail }} · protocol={{ runtime_skill_evidence.post_skill.protocol_status }}</div>
+
+      <div class="runtime-subtitle">skill-step runs</div>
+      <div class="runtime-row">
+        <span>recent runs</span>
+        <span class="runtime-meta">{{ runtime_skill_evidence.skill_runs_total }}</span>
+      </div>
+      <div class="runtime-row">
+        <span>silent skips</span>
+        <span class="runtime-meta">{{ runtime_skill_evidence.silent_skips_total }}</span>
+      </div>
+      <div class="runtime-row">
+        <span>explicit skips</span>
+        <span class="runtime-meta">{{ runtime_skill_evidence.explicit_skips_total }}</span>
+      </div>
+      {% if runtime_skill_evidence.skill_runs %}
+      <div class="runtime-list">
+        {% for run in runtime_skill_evidence.skill_runs %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ run.skill }}</strong>
+            <span class="runtime-meta">{{ run.completion_pct }}%</span>
+          </div>
+          <div class="runtime-meta">{{ run.ts_short }} · silent {{ run.silent_skips }} · explicit {{ run.explicit_skips }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no skill-step runs recorded yet</div>
+      {% endif %}
+    </div>
+
+    <div class="runtime-card">
+      <div class="runtime-card-title">primitives & sources</div>
+      <div class="runtime-row">
+        <strong>calls ({{ runtime_primitives.window_days }}d)</strong>
+        <span class="runtime-meta">{{ runtime_primitives.total_calls }}</span>
+      </div>
+      <div class="runtime-row">
+        <span>manifested sources</span>
+        <span class="runtime-meta">{{ runtime_primitives.sources_total }}</span>
+      </div>
+      <div class="runtime-row">
+        <span>active</span>
+        <span class="runtime-meta">{{ runtime_primitives.status_counts.get('active', 0) }}</span>
+      </div>
+      <div class="runtime-row">
+        <span>contract-only</span>
+        <span class="runtime-meta">{{ runtime_primitives.status_counts.get('contract-only', 0) }}</span>
+      </div>
+
+      {% if runtime_primitives.top_used %}
+      <div class="runtime-subtitle">top used</div>
+      <div class="runtime-list">
+        {% for item in runtime_primitives.top_used %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ item.source }}</strong>
+            <span class="runtime-meta">{{ item.calls }} calls</span>
+          </div>
+          <div class="runtime-meta">fail={{ item.fail }} · avg={{ item.avg_ms }}ms · ok={{ item.ok_rate }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no primitive usage rollup yet</div>
+      {% endif %}
+
+      {% if runtime_primitives.lifecycle %}
+      <div class="runtime-subtitle">recent lifecycle</div>
+      <div class="runtime-list">
+        {% for item in runtime_primitives.lifecycle %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ item.source or 'unknown' }}</strong>
+            <span class="runtime-meta">{{ item.type }}</span>
+          </div>
+          <div class="runtime-meta">{{ item.ts_short }}{% if item.status %} · {{ item.status }}{% endif %}{% if item.exit_code is not none %} · exit {{ item.exit_code }}{% endif %}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="runtime-card">
+      <div class="runtime-card-title">autonomy</div>
+      {% if runtime_autonomy.available %}
+      <div class="runtime-row">
+        <strong>sheridan</strong>
+        <span class="runtime-meta">{{ runtime_autonomy.avg }}/10 across {{ runtime_autonomy.total }} caps</span>
+      </div>
+      {% if runtime_autonomy.gaps %}
+      <div class="runtime-subtitle">lowest caps</div>
+      <div class="runtime-list">
+        {% for gap in runtime_autonomy.gaps %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ gap.name }}</strong>
+            <span class="runtime-meta">{{ gap.level }}/10</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if runtime_autonomy.next_steps %}
+      <div class="runtime-subtitle">frontier</div>
+      <div class="runtime-list">
+        {% for step in runtime_autonomy.next_steps %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ step.id }}</strong>
+          </div>
+          <div class="runtime-meta">{{ step.title }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% else %}
+      <div class="runtime-empty">no autonomy capability file yet</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
