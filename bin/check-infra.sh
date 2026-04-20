@@ -196,6 +196,43 @@ check_mini_repos() {
   fi
 }
 
+# --- primitives status ---
+check_primitives() {
+  local tool="$REPO_ROOT/tools/edge-primitives"
+  if [[ ! -f "$tool" ]]; then
+    emit_component primitives unknown "edge-primitives not found"
+    return
+  fi
+
+  local payload
+  payload=$(safe_timeout 10 python3 "$tool" status --json 2>/dev/null || echo "")
+  if [[ -z "$payload" ]]; then
+    emit_component primitives unknown "status unavailable"
+    return
+  fi
+
+  local declared contract_only active probed broken drifted
+  declared=$(echo "$payload" | jq -r '.summary.declared_total // 0' 2>/dev/null || echo 0)
+  contract_only=$(echo "$payload" | jq -r '.summary.contract_only_total // 0' 2>/dev/null || echo 0)
+  active=$(echo "$payload" | jq -r '.summary.active_total // 0' 2>/dev/null || echo 0)
+  probed=$(echo "$payload" | jq -r '.summary.probed_total // 0' 2>/dev/null || echo 0)
+  broken=$(echo "$payload" | jq -r '.summary.broken_total // 0' 2>/dev/null || echo 0)
+  drifted=$(echo "$payload" | jq -r '.summary.drifted_total // 0' 2>/dev/null || echo 0)
+
+  local detail
+  detail="declared=${declared} contract_only=${contract_only} active=${active} probed=${probed} broken=${broken} drifted=${drifted}"
+
+  if [[ "$declared" -eq 0 ]] && [[ "$contract_only" -eq 0 ]] && [[ "$active" -eq 0 ]] && [[ "$probed" -eq 0 ]] && [[ "$broken" -eq 0 ]] && [[ "$drifted" -eq 0 ]]; then
+    emit_component primitives unknown "no primitives declared yet"
+  elif [[ "$broken" -gt 0 ]]; then
+    emit_component primitives fail "$detail"
+  elif [[ "$drifted" -gt 0 ]]; then
+    emit_component primitives degraded "$detail"
+  else
+    emit_component primitives ok "$detail"
+  fi
+}
+
 # --- run all ---
 log_health "check-infra starting"
 check_disk
@@ -207,4 +244,5 @@ check_consolidate
 check_git
 check_heartbeat
 check_mini_repos
+check_primitives
 log_health "check-infra done"

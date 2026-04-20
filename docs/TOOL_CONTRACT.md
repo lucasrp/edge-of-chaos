@@ -26,6 +26,9 @@ Primitives are NOT pre-built. They are created on demand by the agent.
 
 ### Phase 1 — Pre-materialization (contract)
 
+Install-time seeding may register declared sources in `state/sources-manifest.yaml`
+with `status: declared`. That is intent only, not a built primitive.
+
 Agent hits exit 127 (primitive doesn't exist). Before writing code:
 
 1. Read the source's `description` from `agent.yaml` `sources:` — this is the SPEC
@@ -37,6 +40,9 @@ Agent hits exit 127 (primitive doesn't exist). Before writing code:
 Canonical path now: use `tools/edge-primitive-lifecycle contract <name> --description ...`
 instead of manually mutating the manifest by hand. This emits lifecycle telemetry
 and keeps the manifest shape stable.
+
+Read model: use `tools/edge-primitives status --json` to compare declared intent,
+manifest state, local files, probe history, and recent usage in one place.
 
 ### Phase 2 — Materialization (code)
 
