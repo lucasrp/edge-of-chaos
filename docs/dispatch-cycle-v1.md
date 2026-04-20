@@ -90,6 +90,7 @@ Default profiles:
 
 ## Shadow Rollout
 
+- `edge-runner` owns mechanical `edge-dispatch open` / `close` for heartbeat entrypoints
 - `edge-dispatch open` emits `CycleStarted`
 - `edge-dispatch dispatch` emits `SkillDispatched`
 - `edge-dispatch close` emits `CycleClosed`

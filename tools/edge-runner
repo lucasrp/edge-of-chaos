@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""edge-runner — backend-neutral CLI boundary for skill and prompt execution.
+
+Usage:
+  edge-runner skill --skill /ed-heartbeat
+  edge-runner skill --skill /ed-heartbeat --dispatch-trigger heartbeat
+  edge-runner prompt --prompt "Diagnose the current health state"
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import EDGE_REPO_DIR  # noqa: E402
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.telemetry import log_run_step  # noqa: E402
+
+
+def now_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def make_cycle_id() -> str:
+    return f"cycle-runner-{now_stamp()}-{uuid.uuid4().hex[:6]}"
+
+
+def resolve_cwd(value: str | None) -> str:
+    if value:
+        return str(Path(value).expanduser().resolve())
+    return str(EDGE_REPO_DIR)
+
+
+def resolve_claude_bin() -> str:
+    env_override = os.environ.get("EDGE_CLAUDE_BIN") or os.environ.get("CLAUDE_BIN")
+    candidates = []
+    if env_override:
+        candidates.append(env_override)
+
+    path_hit = shutil.which("claude")
+    if path_hit:
+        candidates.append(path_hit)
+
+    home = Path.home()
+    candidates.extend(
+        [
+            str(home / ".local" / "bin" / "claude"),
+            str(home / "bin" / "claude"),
+        ]
+    )
+    for glob_hit in sorted((home / ".nvm" / "versions" / "node").glob("*/bin/claude"), reverse=True):
+        candidates.append(str(glob_hit))
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    raise FileNotFoundError("claude CLI not found on PATH or common install locations")
+
+
+def build_backend_command(args: argparse.Namespace) -> list[str]:
+    if args.backend != "claude":
+        raise ValueError(f"unsupported backend: {args.backend}")
+
+    content = args.skill if args.cmd == "skill" else args.prompt
+    cmd = [resolve_claude_bin(), "-p", content]
+    if args.max_turns is not None:
+        cmd.extend(["--max-turns", str(args.max_turns)])
+    if args.allowed_tools:
+        cmd.extend(["--allowedTools", args.allowed_tools])
+    if args.output_format:
+        cmd.extend(["--output-format", args.output_format])
+    if args.dangerously_skip_permissions:
+        cmd.append("--dangerously-skip-permissions")
+    return cmd
+
+
+def run_edge_dispatch(args: list[str], env: dict[str, str]) -> dict:
+    cmd = [str(SCRIPT_DIR / "edge-dispatch"), *args]
+    result = subprocess.run(
+        cmd,
+        env=env,
+        cwd=str(EDGE_REPO_DIR),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        raise RuntimeError(f"{' '.join(cmd)} failed: {detail}")
+    payload = result.stdout.strip()
+    if not payload:
+        return {}
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError:
+        return {}
+
+
+def maybe_open_cycle(args: argparse.Namespace, env: dict[str, str]) -> str | None:
+    if not args.dispatch_trigger:
+        return None
+
+    cycle_id = args.cycle_id or make_cycle_id()
+    dispatch_args = [
+        "open",
+        "--trigger",
+        args.dispatch_trigger,
+        "--cycle-id",
+        cycle_id,
+    ]
+    if args.dispatch_policy:
+        dispatch_args.extend(["--policy", args.dispatch_policy])
+    if args.dispatch_routing_mode:
+        dispatch_args.extend(["--routing-mode", args.dispatch_routing_mode])
+    if args.dispatch_preflight_profile:
+        dispatch_args.extend(["--preflight-profile", args.dispatch_preflight_profile])
+    if args.dispatch_postflight_profile:
+        dispatch_args.extend(["--postflight-profile", args.dispatch_postflight_profile])
+    if args.dispatch_force:
+        dispatch_args.append("--force")
+
+    env["EDGE_CYCLE_ID"] = cycle_id
+    run_edge_dispatch(dispatch_args, env)
+    return cycle_id
+
+
+def maybe_close_cycle(
+    args: argparse.Namespace,
+    env: dict[str, str],
+    cycle_id: str | None,
+    *,
+    status: str,
+    reason: str | None,
+) -> None:
+    if not cycle_id:
+        return
+    close_args = ["close", "--status", status]
+    if reason:
+        close_args.extend(["--reason", reason])
+    run_edge_dispatch(close_args, env)
+
+
+def invoke_backend(args: argparse.Namespace, env: dict[str, str]) -> int:
+    cmd = build_backend_command(args)
+    result = subprocess.run(cmd, env=env, cwd=resolve_cwd(args.cwd))
+    return result.returncode
+
+
+def add_common_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--backend", default="claude", choices=["claude"])
+    parser.add_argument("--cwd", help="Working directory for the backend invocation")
+    parser.add_argument("--max-turns", type=int, help="Backend max turns")
+    parser.add_argument("--allowed-tools", help="Backend allowed tools payload")
+    parser.add_argument("--output-format", help="Backend output format")
+    parser.add_argument(
+        "--dangerously-skip-permissions",
+        action="store_true",
+        help="Pass through the Claude permissions bypass flag",
+    )
+    parser.add_argument("--dispatch-trigger", choices=["heartbeat", "operator", "user"])
+    parser.add_argument("--dispatch-policy", choices=["autonomous", "operator"])
+    parser.add_argument("--dispatch-routing-mode", choices=["auto", "explicit"])
+    parser.add_argument("--dispatch-preflight-profile")
+    parser.add_argument("--dispatch-postflight-profile")
+    parser.add_argument("--dispatch-force", action="store_true")
+    parser.add_argument("--cycle-id", help="Override the generated dispatch cycle id")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Backend-neutral boundary for edge skill and prompt execution")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    p_skill = sub.add_parser("skill", help="Invoke one skill through the configured backend")
+    add_common_arguments(p_skill)
+    p_skill.add_argument("--skill", required=True)
+    p_prompt = sub.add_parser("prompt", help="Invoke one free-form prompt through the configured backend")
+    add_common_arguments(p_prompt)
+    p_prompt.add_argument("--prompt", required=True)
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    env = os.environ.copy()
+    env.setdefault("EDGE_REPO_DIR", str(EDGE_REPO_DIR))
+    env["EDGE_RUNNER_BACKEND"] = args.backend
+    env["EDGE_RUNNER_MODE"] = args.cmd
+
+    cycle_id = None
+    exit_code = 0
+    close_status = "completed"
+    close_reason = None
+
+    try:
+        cycle_id = maybe_open_cycle(args, env)
+        if cycle_id:
+            log_run_step(
+                "edge-runner",
+                "invoke",
+                "started",
+                run_id=cycle_id,
+                backend=args.backend,
+                mode=args.cmd,
+                target=args.skill if args.cmd == "skill" else "prompt",
+            )
+
+        exit_code = invoke_backend(args, env)
+        if exit_code != 0:
+            close_status = "failed"
+            close_reason = f"backend_exit_{exit_code}"
+        return exit_code
+    except KeyboardInterrupt:
+        close_status = "aborted"
+        close_reason = "keyboard_interrupt"
+        return 130
+    except Exception as exc:
+        close_status = "failed"
+        close_reason = type(exc).__name__.lower()
+        print(f"edge-runner: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        if cycle_id:
+            try:
+                maybe_close_cycle(args, env, cycle_id, status=close_status, reason=close_reason)
+            except Exception as exc:
+                print(f"edge-runner: failed to close cycle {cycle_id}: {exc}", file=sys.stderr)
+            final_status = "completed" if close_status == "completed" and exit_code == 0 else close_status
+            log_run_step(
+                "edge-runner",
+                "invoke",
+                final_status,
+                run_id=cycle_id,
+                backend=args.backend,
+                mode=args.cmd,
+                target=args.skill if args.cmd == "skill" else "prompt",
+                exit_code=exit_code,
+                close_status=close_status,
+                close_reason=close_reason or "",
+            )
+
+
+if __name__ == "__main__":
+    sys.exit(main())
