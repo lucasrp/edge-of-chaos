@@ -34,6 +34,10 @@ Agent hits exit 127 (primitive doesn't exist). Before writing code:
    (name, description, input/output schema, needs, annotations)
 4. Register in `state/sources-manifest.yaml` with `status: contract-only`
 
+Canonical path now: use `tools/edge-primitive-lifecycle contract <name> --description ...`
+instead of manually mutating the manifest by hand. This emits lifecycle telemetry
+and keeps the manifest shape stable.
+
 ### Phase 2 — Materialization (code)
 
 1. Write the executable following the contract + this document
@@ -42,6 +46,10 @@ Agent hits exit 127 (primitive doesn't exist). Before writing code:
 4. Save to `<edge_home>/libexec/<codename>/<name>`, chmod +x
 5. Update manifest: `status: active`
 6. Blog entry documenting what was created, why, and gaps
+
+Canonical path now: use `tools/edge-primitive-lifecycle materialize <name>`
+after the executable exists, then `tools/edge-primitive-lifecycle probe <name> -- ...`
+to record the validation step.
 
 ### Phase 3 — Use + evolution
 
