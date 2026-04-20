@@ -30,6 +30,11 @@ cat >"$TMP_HOME/.local/bin/claude" <<'SH'
 set -euo pipefail
 printf '%s\n' "$EDGE_CYCLE_ID" > "${MOCK_CLAUDE_ENV_OUT:?}"
 printf '%s\n' "$*" > "${MOCK_CLAUDE_ARGS_OUT:?}"
+if [ "${MOCK_CLAUDE_HEARTBEAT_FLOW:-0}" = "1" ]; then
+  "${EDGE_REPO_DIR:?}/tools/edge-dispatch" dispatch --skill discovery >/dev/null
+  "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery start >/dev/null
+  "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery end >/dev/null
+fi
 exit "${MOCK_CLAUDE_EXIT_CODE:-0}"
 SH
 chmod +x "$TMP_HOME/.local/bin/claude"
@@ -43,6 +48,7 @@ echo "--- Test 1: heartbeat skill run opens and closes cycle mechanically ---"
 export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id.txt"
 export MOCK_CLAUDE_ARGS_OUT="$TMP_BASE/args.txt"
 unset MOCK_CLAUDE_EXIT_CODE || true
+export MOCK_CLAUDE_HEARTBEAT_FLOW=1
 "$RUNNER_TOOL" skill \
     --skill /ed-heartbeat \
     --dispatch-trigger heartbeat \
@@ -77,7 +83,39 @@ else
     fail "heartbeat run exports cycle id and closes the shadow cycle"
 fi
 
-echo "--- Test 2: failed backend closes cycle as failed ---"
+echo "--- Test 2: success without skill completion evidence closes as failed ---"
+unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
+set +e
+"$RUNNER_TOOL" skill \
+    --skill /ed-heartbeat \
+    --dispatch-trigger heartbeat \
+    --dispatch-policy autonomous \
+    --dispatch-routing-mode auto \
+    --dispatch-preflight-profile heartbeat_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force >/dev/null
+STATUS=$?
+set -e
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$STATUS"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+status = int(sys.argv[2])
+
+assert status == 1
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "failed"
+assert dispatch["state"]["close_reason"] == "missing_dispatch"
+PY
+then
+    pass "runner downgrades heartbeat success to failed when the skill never completes"
+else
+    fail "runner downgrades heartbeat success to failed when the skill never completes"
+fi
+
+echo "--- Test 3: failed backend closes cycle as failed ---"
 export MOCK_CLAUDE_EXIT_CODE=7
 set +e
 "$RUNNER_TOOL" prompt \
