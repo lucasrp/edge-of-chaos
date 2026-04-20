@@ -156,9 +156,9 @@ cleanup_path() {
 }
 
 cleanup_path "state/tasks.snapshot.json"
-cleanup_path "state/tasks.jsonl"
 cleanup_path "state/heartbeat-trigger.json"
 cleanup_path "logs/operator-actions.jsonl"
+rm -f search/edge-memory.db search/edge-memory.db-shm search/edge-memory.db-wal 2>/dev/null || true
 
 # -------------------------------------------------------------------
 # Summary

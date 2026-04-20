@@ -3,7 +3,7 @@
 
   <div class="runtime-grid">
     <div class="runtime-card">
-      <div class="runtime-card-title">active tasks</div>
+      <div class="runtime-card-title">current task state</div>
       <div class="runtime-row">
         <span>tasks in snapshot</span>
         <span class="runtime-meta">{{ tasks_total }}</span>
@@ -12,6 +12,7 @@
         <span>attention now</span>
         <span class="runtime-meta">{{ task_attention_count }}</span>
       </div>
+      <div class="runtime-note">operator actions are queued for the next dispatch; this card is read-only task state.</div>
 
       {% if tasks %}
       <div class="runtime-list">
@@ -56,7 +57,37 @@
         {% endfor %}
       </div>
       {% else %}
-      <div class="runtime-empty">no operator tasks yet</div>
+      <div class="runtime-empty">no task snapshot yet</div>
+      {% endif %}
+    </div>
+
+    <div class="runtime-card">
+      <div class="runtime-card-title">queued for next dispatch</div>
+      <div class="runtime-row">
+        <span>pending task intents</span>
+        <span class="runtime-meta">{{ queued_task_count }}</span>
+      </div>
+
+      {% if queued_task_intents %}
+      <div class="runtime-list">
+        {% for item in queued_task_intents %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ item.task_id }}</strong>
+            <span class="runtime-pill runtime-pill-muted">{{ item.action }}</span>
+          </div>
+          <div class="runtime-meta">{{ item.ts_short }}{% if item.apply %} · {{ item.apply }}{% endif %}</div>
+          {% if item.reason %}
+          <div class="runtime-note">{{ item.reason }}</div>
+          {% endif %}
+          {% if item.value %}
+          <div class="runtime-note">{{ item.value }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no queued task intents</div>
       {% endif %}
     </div>
 

@@ -1,4 +1,4 @@
-"""Action endpoints for heartbeat, threads, and task interventions."""
+"""Action endpoints for heartbeat, threads, and queued task interventions."""
 
 import json
 from datetime import datetime, timezone
@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import yaml
 from flask import Blueprint, jsonify, request
 
-from blog.services import LOGS_DIR, STATE_DIR, TASKS_LOG_FILE, TASKS_SNAPSHOT_FILE, THREADS_DIR
+from blog.services import LOGS_DIR, STATE_DIR, THREADS_DIR
 
 actions_bp = Blueprint('actions', __name__)
 
@@ -46,127 +46,64 @@ def _log_operator_action(target_id, action, reason=None, value=None):
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _append_jsonl(path, entry):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-
-def _load_task_snapshot():
-    if not TASKS_SNAPSHOT_FILE.exists():
-        return {"version": 1, "tasks": []}
-    try:
-        raw = json.loads(TASKS_SNAPSHOT_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {"version": 1, "tasks": []}
-
-    if isinstance(raw, list):
-        return {"version": 1, "tasks": raw}
-    if isinstance(raw, dict):
-        tasks = raw.get("tasks")
-        if tasks is None and isinstance(raw.get("items"), list):
-            tasks = raw["items"]
-        if not isinstance(tasks, list):
-            tasks = []
-        return {"version": raw.get("version", 1), "tasks": tasks}
-    return {"version": 1, "tasks": []}
-
-
-def _write_task_snapshot(snapshot):
-    TASKS_SNAPSHOT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TASKS_SNAPSHOT_FILE.write_text(
-        json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
-def _default_task(task_id):
-    return {
-        "id": task_id,
-        "title": task_id,
-        "summary": "",
-        "status": "todo",
-        "priority": "P2",
-        "owner": "operator",
-        "blocked": False,
-        "criteria": [],
-        "history": [],
-    }
-
-
-def _priority_shift(priority, direction):
-    ladder = ["P0", "P1", "P2", "P3"]
-    current = str(priority or "P2").upper()
-    if current not in ladder:
-        current = "P2"
-    index = ladder.index(current)
-    if direction == "up":
-        index = max(0, index - 1)
-    elif direction == "down":
-        index = min(len(ladder) - 1, index + 1)
-    return ladder[index]
-
-
-def _apply_task_action(task, action, reason=None, value=None):
-    ts = _now_str()
-    old_status = str(task.get("status") or "todo")
-    old_priority = str(task.get("priority") or "P2").upper()
-
-    if action == "acknowledge":
-        task["status"] = "acknowledged" if old_status in {"", "todo", "deferred"} else old_status
-        task["acknowledged_at"] = ts
-    elif action == "block":
-        task["blocked"] = True
-        task["status"] = "blocked"
-        if reason:
-            task["block_reason"] = reason
-    elif action == "unblock":
-        task["blocked"] = False
-        task.pop("block_reason", None)
-        if old_status == "blocked":
-            task["status"] = "ready"
-    elif action == "prioritize":
-        task["priority"] = _priority_shift(task.get("priority"), "up")
-    elif action == "deprioritize":
-        task["priority"] = _priority_shift(task.get("priority"), "down")
-    elif action == "ready":
-        task["blocked"] = False
-        task.pop("block_reason", None)
-        task["status"] = "ready"
-    elif action == "done":
-        task["blocked"] = False
-        task.pop("block_reason", None)
-        task["status"] = "done"
-        task["completed_at"] = ts
-    elif action == "defer":
-        task["blocked"] = False
-        task["status"] = "deferred"
-
-    task["updated_at"] = ts
-
-    history = task.get("history")
-    if not isinstance(history, list):
-        history = []
-    history_entry = {
-        "ts": ts,
-        "actor": "operator",
-        "action": action,
-    }
+def _build_task_intent_text(task_id, action, reason=None, value=None):
+    lines = [
+        "[task-intent]",
+        f"task: {task_id}",
+        f"action: {action}",
+        "apply: next-dispatch",
+    ]
     if reason:
-        history_entry["reason"] = reason
+        lines.append(f"reason: {reason}")
     if value is not None:
-        history_entry["value"] = value
-    history.append(history_entry)
-    task["history"] = history
+        lines.append(f"value: {value}")
+    lines.append("note: queue this operator task intervention for the next dispatch; do not apply it immediately")
+    return "\n".join(lines)
 
+
+def _parse_task_intent_text(text):
+    if not text or not str(text).startswith("[task-intent]"):
+        return None
+    data = {}
+    for line in str(text).splitlines()[1:]:
+        if ":" not in line:
+            continue
+        key, raw_value = line.split(":", 1)
+        key = key.strip().lower()
+        value = raw_value.strip()
+        if key:
+            data[key] = value
+    task_id = data.get("task")
+    action = data.get("action")
+    if not task_id or not action:
+        return None
     return {
-        "ts": ts,
-        "old_status": old_status,
-        "new_status": task.get("status"),
-        "old_priority": old_priority,
-        "new_priority": task.get("priority"),
-        "blocked": bool(task.get("blocked")),
+        "task_id": task_id,
+        "action": action,
+        "reason": data.get("reason"),
+        "value": data.get("value"),
+        "apply": data.get("apply"),
+        "note": data.get("note"),
     }
+
+
+def _find_pending_task_intent(task_id, action, reason=None, value=None):
+    from dashboard_db import get_chats
+
+    for message in get_chats(unprocessed_only=True, limit=200):
+        if message.get("author") != "user":
+            continue
+        parsed = _parse_task_intent_text(message.get("text", ""))
+        if not parsed:
+            continue
+        if parsed["task_id"] != task_id or parsed["action"] != action:
+            continue
+        if (parsed.get("reason") or None) != reason:
+            continue
+        if (parsed.get("value") or None) != (None if value is None else str(value)):
+            continue
+        return message
+    return None
 
 
 @actions_bp.route('/api/heartbeat/trigger', methods=['POST'])
@@ -228,42 +165,26 @@ def task_action(task_id):
     if action not in VALID_TASK_ACTIONS:
         return jsonify({"error": f"Invalid action. Must be one of: {', '.join(sorted(VALID_TASK_ACTIONS))}"}), 400
 
-    snapshot = _load_task_snapshot()
-    tasks = snapshot["tasks"]
+    existing = _find_pending_task_intent(task_id, action, reason=reason, value=value)
+    if existing:
+        return jsonify({
+            "ok": True,
+            "queued": True,
+            "duplicate": True,
+            "task_id": task_id,
+            "chat_id": existing.get("id"),
+        }), 200
 
-    task = None
-    for item in tasks:
-        if isinstance(item, dict) and str(item.get("id") or item.get("task_id") or "") == task_id:
-            task = item
-            break
-    if task is None:
-        task = _default_task(task_id)
-        tasks.append(task)
+    from dashboard_db import add_chat
 
-    mutation = _apply_task_action(task, action, reason=reason, value=value)
-    snapshot["tasks"] = tasks
-    _write_task_snapshot(snapshot)
-
-    event = {
-        "ts": mutation["ts"],
-        "actor": "operator",
-        "task_id": task_id,
-        "action": action,
-        "status": task.get("status"),
-        "priority": task.get("priority"),
-        "blocked": bool(task.get("blocked")),
-    }
-    if reason:
-        event["reason"] = reason
-    if value is not None:
-        event["value"] = value
-
-    _append_jsonl(TASKS_LOG_FILE, event)
-    _log_operator_action(task_id, f"task:{action}", reason=reason, value=value)
-
+    intent_text = _build_task_intent_text(task_id, action, reason=reason, value=None if value is None else str(value))
+    chat_id = add_chat("user", intent_text)
+    _log_operator_action(task_id, f"task-intent:{action}", reason=reason, value=value)
     return jsonify({
         "ok": True,
+        "queued": True,
+        "duplicate": False,
         "task_id": task_id,
-        "task": task,
-        **mutation,
+        "chat_id": chat_id,
+        "dispatch_mode": "next-dispatch",
     }), 200

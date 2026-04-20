@@ -82,26 +82,54 @@
     </div>
 
     <div class="runtime-card">
-      <div class="runtime-card-title">primitives & sources</div>
+      <div class="runtime-card-title">primitives status</div>
       <div class="runtime-row">
-        <strong>calls ({{ runtime_primitives.window_days }}d)</strong>
-        <span class="runtime-meta">{{ runtime_primitives.total_calls }}</span>
+        <strong>health</strong>
+        <span class="runtime-pill runtime-pill-{{ runtime_primitives.health_color }}">{{ runtime_primitives.health_status }}</span>
       </div>
       <div class="runtime-row">
-        <span>manifested sources</span>
-        <span class="runtime-meta">{{ runtime_primitives.sources_total }}</span>
-      </div>
-      <div class="runtime-row">
-        <span>active</span>
-        <span class="runtime-meta">{{ runtime_primitives.status_counts.get('active', 0) }}</span>
+        <span>declared</span>
+        <span class="runtime-meta">{{ runtime_primitives.declared_total }}</span>
       </div>
       <div class="runtime-row">
         <span>contract-only</span>
-        <span class="runtime-meta">{{ runtime_primitives.status_counts.get('contract-only', 0) }}</span>
+        <span class="runtime-meta">{{ runtime_primitives.contract_only_total }}</span>
+      </div>
+      <div class="runtime-row">
+        <span>active</span>
+        <span class="runtime-meta">{{ runtime_primitives.active_total }}</span>
+      </div>
+      <div class="runtime-row">
+        <span>probed</span>
+        <span class="runtime-meta">{{ runtime_primitives.probed_total }}</span>
+      </div>
+      <div class="runtime-row">
+        <span>drifted / broken</span>
+        <span class="runtime-meta">{{ runtime_primitives.drifted_total }} / {{ runtime_primitives.broken_total }}</span>
+      </div>
+      <div class="runtime-row">
+        <span>usage ({{ runtime_primitives.window_days }}d)</span>
+        <span class="runtime-meta">{{ runtime_primitives.usage_30d_total }}</span>
       </div>
 
-      {% if runtime_primitives.top_used %}
-      <div class="runtime-subtitle">top used</div>
+      {% if runtime_primitives.top_sources %}
+      <div class="runtime-subtitle">status read model</div>
+      <div class="runtime-list">
+        {% for item in runtime_primitives.top_sources %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ item.name }}</strong>
+            <span class="runtime-pill runtime-pill-muted">{{ item.effective_status }}</span>
+          </div>
+          <div class="runtime-meta">probe={{ item.probe_status }} · usage30d={{ item.usage_30d }} · manifest={{ item.manifest_status or '-' }}</div>
+          {% if item.problems %}
+          <div class="runtime-note">{{ item.problems | join(' · ') }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% elif runtime_primitives.top_used %}
+      <div class="runtime-subtitle">legacy usage fallback</div>
       <div class="runtime-list">
         {% for item in runtime_primitives.top_used %}
         <div class="runtime-list-item">
@@ -114,22 +142,7 @@
         {% endfor %}
       </div>
       {% else %}
-      <div class="runtime-empty">no primitive usage rollup yet</div>
-      {% endif %}
-
-      {% if runtime_primitives.lifecycle %}
-      <div class="runtime-subtitle">recent lifecycle</div>
-      <div class="runtime-list">
-        {% for item in runtime_primitives.lifecycle %}
-        <div class="runtime-list-item">
-          <div class="runtime-row">
-            <strong>{{ item.source or 'unknown' }}</strong>
-            <span class="runtime-meta">{{ item.type }}</span>
-          </div>
-          <div class="runtime-meta">{{ item.ts_short }}{% if item.status %} · {{ item.status }}{% endif %}{% if item.exit_code is not none %} · exit {{ item.exit_code }}{% endif %}</div>
-        </div>
-        {% endfor %}
-      </div>
+      <div class="runtime-empty">no primitives status snapshot yet</div>
       {% endif %}
     </div>
 
