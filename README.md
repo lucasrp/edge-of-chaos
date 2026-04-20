@@ -1,6 +1,6 @@
 # edge-of-chaos — Autonomous AI Agent Framework
 
-Framework for deploying autonomous AI agents based on Claude Code. Each agent has its own identity, blog, skills, and heartbeat cycle.
+Framework for deploying autonomous AI agents based on Claude Code. Each agent has its own identity, dashboard, skills, and heartbeat cycle.
 
 ## Quick Start (5 min)
 
@@ -21,7 +21,7 @@ python3 tools/edge-apply
 python3 tools/edge-doctor --config agent.yaml
 ```
 
-Done. Blog running, 22 skills installed, heartbeat ready.
+Done. Dashboard running, 22 skills installed, heartbeat ready.
 
 ## agent.yaml
 
@@ -40,18 +40,18 @@ Everything else has smart defaults. See `agent.yaml.example` for all options.
 ## What edge-apply Does (8 phases)
 
 1. **Render** — generates all files from agent.yaml + templates
-2. **Directories** — creates blog/, reports/, logs/, etc.
+2. **Directories** — creates content dirs (`blog/`, `reports/`, `logs/`, etc.)
 3. **Skills** — installs 22 skills with your prefix to ~/.claude/skills/
 4. **Identity** — CLAUDE.md, memory files, config, onboarding templates
-5. **Blog venv** — Flask server with FTS5 search
+5. **Dashboard venv** — Flask operator surface with FTS5 search
 6. **Tools venv** — edge-consult, review-gate, edge-deepresearch
-7. **Systemd** — heartbeat timer + blog server service
+7. **Systemd** — heartbeat timer + dashboard server service (`blog-server` name kept for compatibility)
 8. **Tools** — CLI tools + symlinks to ~/.local/bin/
 
 ## After Install
 
 ```bash
-# Start blog
+# Start dashboard (service name kept as blog-server for compatibility)
 systemctl --user enable --now blog-server
 
 # Start autonomous heartbeat (every 2h)
@@ -74,10 +74,10 @@ my-agent/
 │   ├── post-skill.md       ← runs after every skill (notify, update strategy)
 │   ├── strategy.md         ← operator direction (agent reads, proposes)
 │   ├── interests.md        ← shared interests (guides exploration)
-│   └── branding.yaml       ← agent phenotype (name, colors, blog config)
+│   └── branding.yaml       ← agent phenotype (name, colors, dashboard config via legacy `blog` key)
 ├── skills/                 ← 22 core skills (genotype)
 ├── tools/                  ← CLI tools (edge-consult, edge-fontes, etc.)
-├── blog/                   ← Flask + htmx blog server
+├── blog/                   ← Flask + htmx dashboard server (legacy package name)
 ├── search/                 ← FTS5 + vector search engine
 ├── templates/              ← .tpl files rendered by edge-render
 ├── memory/                 ← personality, rules, method (genotype)
@@ -91,9 +91,9 @@ my-agent/
 
 Every change goes through one question: is this genotype or phenotype?
 
-- **Genotype** — shared code (skills, tools, blog server). Lives in the repo. Propagates via git pull.
+- **Genotype** — shared code (skills, tools, dashboard server). Lives in the repo. Propagates via git pull.
 - **Phenotype** — instance config (agent.yaml, branding, strategy). Per-agent. Generated at install.
-- **Epigenetics** — runtime state (blog entries, reports, memory). Never replicates.
+- **Epigenetics** — runtime state (feed entries, reports, memory). Never replicates.
 
 **Heartbeat**
 
@@ -109,7 +109,7 @@ New agents produce from the first heartbeat. A checklist tracks progress (identi
 
 **Publication Pipeline (consolidate-state)**
 
-8-phase atomic publication: state snapshot → adversarial review → quality gate → blog publish → HTML report → meta-report → state commit → git commit.
+8-phase atomic publication: state snapshot → adversarial review → quality gate → entry publish → HTML report → meta-report → state commit → git commit.
 
 ## Tools
 

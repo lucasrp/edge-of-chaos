@@ -30,12 +30,12 @@
 </header>
 
 <div class="view-tabs">
+  <a class="view-tab {{ 'active' if tab == 'dashboard' }}" href="/dashboard">dashboard</a>
   <a class="view-tab {{ 'active' if tab == 'feed' }}" href="/blog/?tab=feed">feed</a>
   <a class="view-tab {{ 'active' if tab == 'workflows' }}" href="/blog/?tab=workflows">workflows</a>
-  <a class="view-tab {{ 'active' if tab == 'chat' }}" href="/blog/?tab=chat">chat</a>
-  <a class="view-tab {{ 'active' if tab == 'dashboard' }}" href="/dashboard">ops</a>
-  <a class="view-tab {{ 'active' if tab == 'setup' }}" href="/setup">setup</a>
   <a class="view-tab {{ 'active' if tab == 'knowledge' }}" href="/knowledge">knowledge</a>
+  <a class="view-tab {{ 'active' if tab == 'chat' }}" href="/blog/?tab=chat">chat</a>
+  <a class="view-tab {{ 'active' if tab == 'setup' }}" href="/setup">setup</a>
 </div>
 
 <div id="tabContent">
