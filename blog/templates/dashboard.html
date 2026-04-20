@@ -22,6 +22,11 @@
     {% include 'partials/runtime.html' %}
   </div>
 
+  <!-- Task interventions + operator action feed -->
+  <div id="dashboard-interventions" hx-get="/partials/interventions" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/interventions.html' %}
+  </div>
+
   <!-- Epistemic + steering (claims/strategy/proposals/lineage) -->
   <div hx-get="/partials/epistemics" hx-trigger="every 120s" hx-swap="innerHTML">
     {% include 'partials/epistemics.html' %}
@@ -125,6 +130,47 @@ function threadAction(threadId, action) {
     if (r.ok) { location.reload(); }
     else { r.json().then(function(d) { alert(d.error || 'Action failed'); }); }
   }).catch(function() { alert('Network error'); });
+}
+
+function refreshDashboardInterventions() {
+  if (window.htmx) {
+    htmx.ajax('GET', '/partials/interventions', {target: '#dashboard-interventions', swap: 'innerHTML'});
+  } else {
+    location.reload();
+  }
+}
+
+function taskAction(taskId, action, btn) {
+  if (!action) return;
+
+  var payload = {action: action};
+  if (action === 'note') {
+    var note = window.prompt('note for ' + taskId + '?');
+    if (note === null || !note.trim()) return;
+    payload.value = note.trim();
+  }
+  if (action === 'block' || action === 'defer') {
+    var reason = window.prompt('reason for ' + action + ' ' + taskId + '?');
+    if (reason === null) return;
+    if (reason.trim()) payload.reason = reason.trim();
+  }
+
+  if (btn) btn.disabled = true;
+  fetch('/api/tasks/' + taskId + '/action', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(r) {
+    if (r.ok) {
+      refreshDashboardInterventions();
+    } else {
+      r.json().then(function(d) { alert(d.error || 'Task action failed'); });
+    }
+  }).catch(function() {
+    alert('Network error');
+  }).finally(function() {
+    if (btn) btn.disabled = false;
+  });
 }
 
 function sendDashChat() {
