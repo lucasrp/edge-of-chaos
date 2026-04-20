@@ -73,13 +73,13 @@ Examples:
 ```bash
 edge-dispatch open --trigger heartbeat --policy autonomous --routing-mode auto
 edge-dispatch dispatch --skill research
-edge-dispatch close --status completed
+edge-close --status completed
 ```
 
 ```bash
 edge-dispatch open --trigger operator --skill reflection --arg topic=enforcement
 edge-dispatch dispatch --skill reflection
-edge-dispatch close --status completed
+edge-close --status completed
 ```
 
 Default profiles:
@@ -93,7 +93,7 @@ Default profiles:
 - `edge-runner` owns mechanical `edge-dispatch open` / `close` for heartbeat entrypoints
 - `edge-dispatch open` emits `CycleStarted`
 - `edge-dispatch dispatch` emits `SkillDispatched`
-- `edge-dispatch close` emits `CycleClosed`
+- `edge-close` runs postflight and then emits `CycleClosed` via `edge-dispatch close`
 - heartbeat cycles still mirror `state/current-beat.json`
 - `bin/heartbeat-dispatch-guard.sh` prefers `current-dispatch.json` and falls
   back to the legacy beat sentinel only when needed
