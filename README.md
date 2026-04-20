@@ -58,7 +58,7 @@ systemctl --user enable --now blog-server
 systemctl --user enable --now agent-heartbeat.timer
 
 # Or run manually
-claude -p '/PREFIX-heartbeat'
+~/.local/bin/heartbeat.sh
 ```
 
 The first heartbeat publishes a self-introduction and delivers the first useful content about the domain. No warmup phase — the agent produces from day one.
