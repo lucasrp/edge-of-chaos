@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 from datetime import date, datetime, timezone
+from hashlib import sha1
 from pathlib import Path
 
 import markdown
@@ -89,6 +90,22 @@ def _short_ts(value):
     if not value:
         return ""
     return str(value).replace("T", " ")[:16]
+
+
+def _claim_id(artifact_filename, text):
+    seed = f"{artifact_filename}:{text}".encode("utf-8", errors="ignore")
+    return f"claim-{sha1(seed).hexdigest()[:12]}"
+
+
+def _surface_href(target_type, reference=None):
+    reference = str(reference or "").strip()
+    if not target_type or not reference:
+        return None
+    if target_type == "claim" and reference.endswith(".md"):
+        return f"/blog/entries/{reference}"
+    if target_type in {"objective", "thread"}:
+        return f"/thread/{reference}"
+    return None
 
 
 def _find_shadow_markers(*markers):
@@ -548,9 +565,18 @@ def load_operator_actions(limit=8):
         action = str(entry.get("action") or "").strip()
         if not target_id or not action:
             continue
+        target_type = str(entry.get("target_type") or "").strip() or None
+        reference = str(entry.get("reference") or "").strip() or None
         actions.append({
             "target_id": target_id,
             "action": action,
+            "display_action": action.split(":", 1)[1] if ":" in action else action,
+            "target_type": target_type,
+            "label": entry.get("label") or target_id,
+            "reference": reference,
+            "href": entry.get("href") or _surface_href(target_type, reference=reference),
+            "resulting_state": entry.get("resulting_state"),
+            "apply": entry.get("apply"),
             "reason": entry.get("reason"),
             "value": entry.get("value"),
             "ts": entry.get("ts"),
@@ -591,11 +617,12 @@ def load_queued_task_intents(limit=8):
     """Read queued task interventions from the async chat inbox."""
     try:
         from dashboard_db import get_chats
+        messages = get_chats(unprocessed_only=True, limit=200)
     except Exception:
         return []
 
     intents = []
-    for message in get_chats(unprocessed_only=True, limit=200):
+    for message in messages:
         if message.get("author") != "user":
             continue
         parsed = _parse_task_intent_message(message.get("text", ""))
@@ -612,6 +639,82 @@ def load_queued_task_intents(limit=8):
         if len(intents) >= limit:
             break
     return intents
+
+
+def _parse_steering_intent_message(text):
+    if not text or not str(text).startswith("[steering-intent]"):
+        return None
+    payload = {}
+    for line in str(text).splitlines()[1:]:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip().lower()
+        value = value.strip()
+        if key:
+            payload[key] = value
+    target_type = payload.get("target_type")
+    target_id = payload.get("target_id")
+    action = payload.get("action")
+    if not target_type or not target_id or not action:
+        return None
+    reference = payload.get("reference")
+    return {
+        "target_type": target_type,
+        "target_id": target_id,
+        "action": action,
+        "label": payload.get("label") or target_id,
+        "reference": reference,
+        "href": _surface_href(target_type, reference=reference),
+        "resulting_state": payload.get("resulting_state"),
+        "apply": payload.get("apply"),
+        "reason": payload.get("reason"),
+        "value": payload.get("value"),
+        "note": payload.get("note"),
+    }
+
+
+def load_queued_steering_intents(limit=8):
+    """Read queued epistemic steering intents from the async chat inbox."""
+    try:
+        from dashboard_db import get_chats
+        messages = get_chats(unprocessed_only=True, limit=200)
+    except Exception:
+        return []
+
+    intents = []
+    for message in messages:
+        if message.get("author") != "user":
+            continue
+        parsed = _parse_steering_intent_message(message.get("text", ""))
+        if not parsed:
+            continue
+        intents.append({
+            **parsed,
+            "chat_id": message.get("id"),
+            "processed": bool(message.get("processed")),
+            "pinned": bool(message.get("pinned")),
+            "ts": message.get("ts"),
+            "ts_short": _short_ts(message.get("ts")),
+        })
+        if len(intents) >= limit:
+            break
+    return intents
+
+
+def load_epistemic_steering(limit_actions=8):
+    """Build queued steering and steering trace read models."""
+    queued = load_queued_steering_intents(limit=limit_actions)
+    trace = [
+        item for item in load_operator_actions(limit=200)
+        if item["action"].startswith("steering:")
+    ][:limit_actions]
+    return {
+        "queued": queued,
+        "queued_count": len(queued),
+        "trace": trace,
+        "trace_count": len(trace),
+    }
 
 
 def load_task_interventions(limit_tasks=6, limit_actions=8):
@@ -671,11 +774,8 @@ def _entry_records():
     return records
 
 
-def load_claims_dashboard(limit=6):
-    """Summarize claim state from entry frontmatter."""
-    verified_total = 0
-    open_total = 0
-    recent = []
+def _claim_records():
+    records = []
     for entry in _entry_records():
         for raw_claim in entry["claims"]:
             text = raw_claim.get("claim", "") if isinstance(raw_claim, dict) else str(raw_claim)
@@ -684,25 +784,32 @@ def load_claims_dashboard(limit=6):
             clean_text = str(text).lstrip("! ").strip()
             if not clean_text:
                 continue
-            if is_gap:
-                open_total += 1
-            else:
-                verified_total += 1
-            if len(recent) < limit:
-                recent.append({
-                    "text": clean_text,
-                    "kind": "gap" if is_gap else "verified",
-                    "kind_color": "red" if is_gap else "green",
-                    "artifact_title": entry["title"],
-                    "artifact_filename": entry["filename"],
-                    "threads": entry["threads"],
-                    "date": entry["date"],
-                })
+            records.append({
+                "claim_id": _claim_id(entry["filename"], clean_text),
+                "text": clean_text,
+                "kind": "gap" if is_gap else "verified",
+                "kind_color": "red" if is_gap else "green",
+                "artifact_title": entry["title"],
+                "artifact_filename": entry["filename"],
+                "artifact_href": f"/blog/entries/{entry['filename']}",
+                "threads": entry["threads"],
+                "reference": entry["filename"],
+                "report": entry["report"],
+                "date": entry["date"],
+            })
+    return records
+
+
+def load_claims_dashboard(limit=6):
+    """Summarize claim state from entry frontmatter."""
+    claims = _claim_records()
+    verified_total = len([item for item in claims if item["kind"] == "verified"])
+    open_total = len([item for item in claims if item["kind"] == "gap"])
     return {
         "total": verified_total + open_total,
         "verified_total": verified_total,
         "open_total": open_total,
-        "recent": recent,
+        "recent": claims[:limit],
     }
 
 
@@ -729,7 +836,12 @@ def load_strategy_dashboard(limit_topics=5, limit_objectives=5):
             try:
                 raw = fp.read_text(encoding="utf-8", errors="replace")
                 heading = next((line.lstrip("# ").strip() for line in raw.splitlines() if line.startswith("# ")), fp.stem)
-                topics.append({"name": fp.stem, "title": heading})
+                topics.append({
+                    "id": fp.stem,
+                    "name": fp.stem,
+                    "title": heading,
+                    "reference": fp.name,
+                })
             except Exception:
                 continue
 
@@ -739,15 +851,20 @@ def load_strategy_dashboard(limit_topics=5, limit_objectives=5):
         if thread.get("status") not in {"active", "proposed"}:
             continue
         objectives.append({
+            "id": thread["id"],
             "thread_id": thread["id"],
             "title": thread["title"],
             "goal": thread.get("goal") or thread["title"],
             "status": thread.get("status"),
             "next_step": thread.get("next_step"),
+            "reference": thread["id"],
+            "href": f"/thread/{thread['id']}",
         })
 
     return {
         "available": STRATEGY_FILE.exists(),
+        "strategy_id": "global",
+        "strategy_reference": "config/strategy.md",
         "summary": " ".join(summary_lines[:2]).strip(),
         "priorities": priorities[:4],
         "topics": topics[:limit_topics],
@@ -768,6 +885,8 @@ def load_proposals_dashboard(limit=5):
             "type": proposal.get("type", "proposal"),
             "updated_short": _short_ts(proposal.get("updated") or proposal.get("created")),
             "evidence_count": len(proposal.get("evidence", []) or []),
+            "evidence_preview": list(proposal.get("evidence", []) or [])[:2],
+            "reference": (proposal.get("evidence", []) or [None])[0],
             "cost": proposal.get("cost"),
         })
     active.sort(key=lambda item: item.get("updated_short", ""), reverse=True)
@@ -795,26 +914,21 @@ def load_proposals_dashboard(limit=5):
 def load_lineage_dashboard(limit=6):
     """Build recent claim -> thread -> artifact lineage rows."""
     lineage = []
-    for entry in _entry_records():
-        for raw_claim in entry["claims"]:
-            text = raw_claim.get("claim", "") if isinstance(raw_claim, dict) else str(raw_claim)
-            status = raw_claim.get("status") if isinstance(raw_claim, dict) else None
-            clean_text = str(text).lstrip("! ").strip()
-            if not clean_text:
-                continue
-            is_gap = str(text).startswith("!") or status in {"open", "disputed", "stale"}
-            lineage.append({
-                "claim": clean_text,
-                "claim_status": "gap" if is_gap else "verified",
-                "claim_color": "red" if is_gap else "green",
-                "threads": entry["threads"],
-                "artifact_title": entry["title"],
-                "artifact_filename": entry["filename"],
-                "report": entry["report"],
-                "date": entry["date"],
-            })
-            if len(lineage) >= limit:
-                return lineage
+    for item in _claim_records():
+        lineage.append({
+            "claim_id": item["claim_id"],
+            "claim": item["text"],
+            "claim_status": item["kind"],
+            "claim_color": item["kind_color"],
+            "threads": item["threads"],
+            "artifact_title": item["artifact_title"],
+            "artifact_filename": item["artifact_filename"],
+            "artifact_href": item["artifact_href"],
+            "report": item["report"],
+            "date": item["date"],
+        })
+        if len(lineage) >= limit:
+            return lineage
     return lineage
 
 
