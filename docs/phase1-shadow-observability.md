@@ -154,6 +154,7 @@ Legend:
 | render output facts | done | `edge-render` now dual-writes rendered artifacts as `RenderProduced` |
 | install materialization | done | `edge-apply` now emits `InstallApplied` across fresh-install writes |
 | install verification checks | done | `edge-doctor` emits one fact per check as `InstallCheckObserved` |
+| render/install drift projection | partial | `rollup-render-install-drift.py` + `edge-doctor` advisory readout now exist, but no gate consumes the projection yet |
 | publication phase semantics | partial | current `edge-ledger` phase records are start-biased, not authoritative completion facts |
 | artifact published | partial | strong legacy signal exists, but canonical publish fact still needs tightening |
 | pre-skill executed | gap | currently prose-based; needs runtime evidence point |

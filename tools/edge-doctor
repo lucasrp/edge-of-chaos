@@ -7,6 +7,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import shutil
 import socket
@@ -215,6 +216,56 @@ def check_systemd_timer():
         _record_check("systemd:agent-heartbeat.timer", "warn", "systemctl não disponível — verificar heartbeat manualmente", artifact="agent-heartbeat.timer")
 
 
+def check_render_install_drift():
+    """Build and summarize the render/install drift projection."""
+    tool = Path(__file__).resolve().parent / "rollup-render-install-drift.py"
+    if not tool.exists():
+        warn("render/install drift projection tool não encontrado")
+        _record_check("projection:render-install-drift", "warn", "render/install drift projection tool não encontrado", artifact=tool)
+        return
+    try:
+        result = subprocess.run(
+            [sys.executable, str(tool), "--json"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        warn(f"render/install drift projection indisponível: {exc}")
+        _record_check("projection:render-install-drift", "warn", f"render/install drift projection indisponível: {exc}", artifact=tool)
+        return
+
+    if result.returncode != 0:
+        warn(f"render/install drift projection falhou: {result.stderr.strip() or result.stdout.strip()}")
+        _record_check(
+            "projection:render-install-drift",
+            "warn",
+            f"render/install drift projection falhou: {result.stderr.strip() or result.stdout.strip()}",
+            artifact=tool,
+        )
+        return
+
+    payload = json.loads(result.stdout) if result.stdout.strip() else {}
+    summary = payload.get("summary", {}) or {}
+    detail = (
+        "render-install-drift: "
+        f"rendered_without_install={summary.get('rendered_without_install', 0)}, "
+        f"hash_mismatches={summary.get('hash_mismatches', 0)}, "
+        f"missing_on_disk={summary.get('missing_on_disk', 0)}, "
+        f"doctor_fail={summary.get('doctor_fail', 0)}"
+    )
+    artifact = payload.get("output_path") or tool
+    if summary.get("hash_mismatches", 0) or summary.get("missing_on_disk", 0):
+        fail(detail)
+        _record_check("projection:render-install-drift", "fail", detail, artifact=artifact)
+    elif summary.get("rendered_without_install", 0) or summary.get("doctor_fail", 0):
+        warn(detail)
+        _record_check("projection:render-install-drift", "warn", detail, artifact=artifact)
+    else:
+        ok(detail)
+        _record_check("projection:render-install-drift", "ok", detail, artifact=artifact)
+
+
 def main():
     global CURRENT_SECTION
 
@@ -300,7 +351,7 @@ def main():
 
     # 5. Venvs
     CURRENT_SECTION = "venvs"
-    print("\033[1m[5/7] Python venvs\033[0m")
+    print("\033[1m[5/8] Python venvs\033[0m")
     blog_venv = edge_home / "blog" / ".venv" / "bin" / "python3"
     if blog_venv.exists():
         ok("Blog venv: instalado")
@@ -319,14 +370,14 @@ def main():
 
     # 6. Services
     CURRENT_SECTION = "services"
-    print("\033[1m[6/7] Serviços\033[0m")
+    print("\033[1m[6/8] Serviços\033[0m")
     check_port(blog_port, "127.0.0.1")
     check_systemd_timer()
     print()
 
     # 7. Skills
     CURRENT_SECTION = "skills"
-    print("\033[1m[7/7] Skills\033[0m")
+    print("\033[1m[7/8] Skills\033[0m")
     skills_dir = Path.home() / ".claude" / "skills"
     prefix = cfg.get("skill_prefix", codename)
     expected_skills = ["heartbeat", "research", "discovery", "reflection", "report"]
@@ -338,6 +389,12 @@ def main():
         else:
             warn(f"/{prefix}-{skill} — não encontrado em {skills_dir}")
             _record_check(f"skill:{prefix}-{skill}", "warn", f"/{prefix}-{skill} — não encontrado em {skills_dir}", artifact=skill_path)
+    print()
+
+    # 8. Projection
+    CURRENT_SECTION = "projection"
+    print("\033[1m[8/8] Projection\033[0m")
+    check_render_install_drift()
     print()
 
     # Summary
