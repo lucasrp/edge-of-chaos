@@ -108,6 +108,7 @@ check("GET /api/dashboard/overview", client.get("/api/dashboard/overview"))
 check("GET /api/dashboard/alerts", client.get("/api/dashboard/alerts"))
 check("GET /api/dashboard/pipeline", client.get("/api/dashboard/pipeline"))
 check("GET /api/dashboard/runtime", client.get("/api/dashboard/runtime"))
+check("GET /api/dashboard/epistemics", client.get("/api/dashboard/epistemics"))
 check("GET /api/dashboard/hotspots", client.get("/api/dashboard/hotspots"))
 check("GET /api/dashboard/corpus", client.get("/api/dashboard/corpus"))
 check_redirect("GET / -> /dashboard", client.get("/"), "/dashboard")
@@ -125,6 +126,7 @@ print(f'{mark}|POST /api/heartbeat/trigger|{r.status_code}|200 or 429')
 
 check("GET /partials/status-strip", client.get("/partials/status-strip"))
 check("GET /partials/runtime", client.get("/partials/runtime"))
+check("GET /partials/epistemics", client.get("/partials/epistemics"))
 check("GET /dashboard", client.get("/dashboard"))
 PYEOF
 

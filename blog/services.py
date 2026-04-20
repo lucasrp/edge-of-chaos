@@ -24,16 +24,20 @@ from paths import (  # noqa: E402
     GIT_SIGNALS_FILE as GIT_SIGNALS,
     LOGS_DIR,
     OPS_HOTSPOTS,
+    PROPOSALS_FILE,
     REPORTS_DIR,
+    SIGNALS_DIR,
     SKILL_STEPS_FILE,
     SOURCES_MANIFEST_FILE,
     STATE_EVENTS_FILE,
     STATE_DIR,
+    TOPICS_DIR,
     THREADS_DIR,
 )
 
 ROOT = EDGE_REPO_DIR
 PRIMITIVE_USAGE_ROLLUP_FILE = STATE_DIR / "primitive-usage-rollup.json"
+STRATEGY_FILE = ROOT / "config" / "strategy.md"
 
 
 def load_json_safe(path, default=None):
@@ -388,6 +392,189 @@ def load_autonomy_summary():
             "gaps": [],
             "next_steps": [],
         }
+
+
+def _entry_records():
+    records = []
+    if not ENTRIES_DIR.exists():
+        return records
+    for fp in sorted(ENTRIES_DIR.glob("*.md"), reverse=True):
+        try:
+            raw = fp.read_text(encoding="utf-8", errors="replace")
+            parts = raw.split("---", 2)
+            if len(parts) < 3:
+                continue
+            fm = yaml.safe_load(parts[1]) or {}
+            claims = fm.get("claims", [])
+            if isinstance(claims, str):
+                claims = [claims]
+            if not isinstance(claims, list):
+                claims = []
+            threads = fm.get("threads", [])
+            if isinstance(threads, str):
+                threads = [t.strip() for t in threads.split(",") if t.strip()]
+            if not isinstance(threads, list):
+                threads = []
+            records.append({
+                "path": fp,
+                "filename": fp.name,
+                "slug": fp.stem,
+                "title": fm.get("title", fp.stem),
+                "date": str(fm.get("date", "")),
+                "claims": claims,
+                "threads": [str(t).strip() for t in threads if str(t).strip()],
+                "report": fm.get("report"),
+            })
+        except Exception:
+            continue
+    return records
+
+
+def load_claims_dashboard(limit=6):
+    """Summarize claim state from entry frontmatter."""
+    verified_total = 0
+    open_total = 0
+    recent = []
+    for entry in _entry_records():
+        for raw_claim in entry["claims"]:
+            text = raw_claim.get("claim", "") if isinstance(raw_claim, dict) else str(raw_claim)
+            status = raw_claim.get("status") if isinstance(raw_claim, dict) else None
+            is_gap = str(text).startswith("!") or status in {"open", "disputed", "stale"}
+            clean_text = str(text).lstrip("! ").strip()
+            if not clean_text:
+                continue
+            if is_gap:
+                open_total += 1
+            else:
+                verified_total += 1
+            if len(recent) < limit:
+                recent.append({
+                    "text": clean_text,
+                    "kind": "gap" if is_gap else "verified",
+                    "kind_color": "red" if is_gap else "green",
+                    "artifact_title": entry["title"],
+                    "artifact_filename": entry["filename"],
+                    "threads": entry["threads"],
+                    "date": entry["date"],
+                })
+    return {
+        "total": verified_total + open_total,
+        "verified_total": verified_total,
+        "open_total": open_total,
+        "recent": recent,
+    }
+
+
+def load_strategy_dashboard(limit_topics=5, limit_objectives=5):
+    """Summarize strategy text, topics, and active objectives."""
+    summary_lines = []
+    priorities = []
+    if STRATEGY_FILE.exists():
+        try:
+            for line in STRATEGY_FILE.read_text(encoding="utf-8", errors="replace").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("<!--"):
+                    continue
+                if stripped.startswith(("- ", "* ")):
+                    priorities.append(stripped[2:].strip())
+                elif not stripped.startswith("#") and len(summary_lines) < 2:
+                    summary_lines.append(stripped)
+        except Exception:
+            pass
+
+    topics = []
+    if TOPICS_DIR.exists():
+        for fp in sorted(TOPICS_DIR.glob("*.md")):
+            try:
+                raw = fp.read_text(encoding="utf-8", errors="replace")
+                heading = next((line.lstrip("# ").strip() for line in raw.splitlines() if line.startswith("# ")), fp.stem)
+                topics.append({"name": fp.stem, "title": heading})
+            except Exception:
+                continue
+
+    thread_data = load_threads_enriched()
+    objectives = []
+    for thread in thread_data.get("threads", []):
+        if thread.get("status") not in {"active", "proposed"}:
+            continue
+        objectives.append({
+            "thread_id": thread["id"],
+            "title": thread["title"],
+            "goal": thread.get("goal") or thread["title"],
+            "status": thread.get("status"),
+            "next_step": thread.get("next_step"),
+        })
+
+    return {
+        "available": STRATEGY_FILE.exists(),
+        "summary": " ".join(summary_lines[:2]).strip(),
+        "priorities": priorities[:4],
+        "topics": topics[:limit_topics],
+        "topics_total": len(topics),
+        "objectives": objectives[:limit_objectives],
+    }
+
+
+def load_proposals_dashboard(limit=5):
+    """Summarize active proposals and recent decisions."""
+    active = []
+    for proposal in load_json_safe(PROPOSALS_FILE, []):
+        if proposal.get("status") != "active":
+            continue
+        active.append({
+            "id": proposal.get("id"),
+            "title": proposal.get("title", "untitled"),
+            "type": proposal.get("type", "proposal"),
+            "updated_short": _short_ts(proposal.get("updated") or proposal.get("created")),
+            "evidence_count": len(proposal.get("evidence", []) or []),
+            "cost": proposal.get("cost"),
+        })
+    active.sort(key=lambda item: item.get("updated_short", ""), reverse=True)
+
+    decisions = []
+    decision_path = SIGNALS_DIR / "decision.md"
+    if decision_path.exists():
+        try:
+            for line in reversed(decision_path.read_text(encoding="utf-8", errors="replace").splitlines()):
+                stripped = line.strip()
+                if stripped.startswith(("- ", "* ")):
+                    decisions.append(stripped[2:].strip())
+                if len(decisions) >= limit:
+                    break
+        except Exception:
+            pass
+
+    return {
+        "active_count": len(active),
+        "active": active[:limit],
+        "decisions": decisions,
+    }
+
+
+def load_lineage_dashboard(limit=6):
+    """Build recent claim -> thread -> artifact lineage rows."""
+    lineage = []
+    for entry in _entry_records():
+        for raw_claim in entry["claims"]:
+            text = raw_claim.get("claim", "") if isinstance(raw_claim, dict) else str(raw_claim)
+            status = raw_claim.get("status") if isinstance(raw_claim, dict) else None
+            clean_text = str(text).lstrip("! ").strip()
+            if not clean_text:
+                continue
+            is_gap = str(text).startswith("!") or status in {"open", "disputed", "stale"}
+            lineage.append({
+                "claim": clean_text,
+                "claim_status": "gap" if is_gap else "verified",
+                "claim_color": "red" if is_gap else "green",
+                "threads": entry["threads"],
+                "artifact_title": entry["title"],
+                "artifact_filename": entry["filename"],
+                "report": entry["report"],
+                "date": entry["date"],
+            })
+            if len(lineage) >= limit:
+                return lineage
+    return lineage
 
 
 def load_hotspots():

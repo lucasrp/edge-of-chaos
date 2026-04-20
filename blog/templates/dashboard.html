@@ -22,6 +22,11 @@
     {% include 'partials/runtime.html' %}
   </div>
 
+  <!-- Epistemic + steering (claims/strategy/proposals/lineage) -->
+  <div hx-get="/partials/epistemics" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/epistemics.html' %}
+  </div>
+
   <!-- Operational Hotspots (collapsible) -->
   <div hx-get="/partials/hotspots" hx-trigger="every 120s" hx-swap="innerHTML">
     {% include 'partials/hotspots.html' %}

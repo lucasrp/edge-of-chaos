@@ -6,8 +6,9 @@ from blog.services import (
     load_hotspots, load_git_signals, load_curadoria, load_threads_enriched,
     get_publish_commits, get_error_pressure_24h,
     get_heartbeat_status, get_production_stats, get_briefing_html,
+    load_claims_dashboard, load_lineage_dashboard, load_proposals_dashboard,
     load_autonomy_summary, load_current_dispatch_state, load_primitive_runtime_summary,
-    load_recent_dispatch_cycles, load_skill_evidence_summary,
+    load_recent_dispatch_cycles, load_skill_evidence_summary, load_strategy_dashboard,
 )
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -447,3 +448,26 @@ def partial_runtime():
     """HTMX partial: runtime transparency section fragment."""
     data = _build_runtime_data()
     return render_template("partials/runtime.html", **data)
+
+
+def _build_epistemic_data():
+    """Build context dict for epistemic and steering surfaces."""
+    return {
+        "ep_claims": load_claims_dashboard(limit=6),
+        "ep_strategy": load_strategy_dashboard(limit_topics=5, limit_objectives=5),
+        "ep_proposals": load_proposals_dashboard(limit=5),
+        "ep_lineage": load_lineage_dashboard(limit=6),
+    }
+
+
+@dashboard_bp.route("/api/dashboard/epistemics")
+def epistemics():
+    """Epistemic and steering read model for claims, strategy, proposals, and lineage."""
+    return jsonify(_build_epistemic_data())
+
+
+@dashboard_bp.route("/partials/epistemics")
+def partial_epistemics():
+    """HTMX partial: epistemic and steering section fragment."""
+    data = _build_epistemic_data()
+    return render_template("partials/epistemics.html", **data)
