@@ -597,9 +597,16 @@ The `--update-thread N` automatically updates `updated:` and `resurface:` in the
 
 ### 3e: Do not close the lifecycle manually
 
-The heartbeat entrypoint closes the shadow dispatch cycle mechanically after
-this skill exits. The hook will stop blocking writes there; do **not**
-run `edge-dispatch close` from inside the heartbeat skill body.
+The heartbeat entrypoint closes the shadow dispatch cycle through
+`edge-close` after this skill exits. `completed` is only accepted when the
+runtime has evidence that:
+
+- a skill was actually dispatched
+- `edge-skill-step <skill> end` happened
+- the postflight profile ran
+
+The hook will stop blocking writes there; do **not** run `edge-dispatch close`
+from inside the heartbeat skill body.
 
 ---
 

@@ -87,8 +87,14 @@ def build_backend_command(args: argparse.Namespace) -> list[str]:
     return cmd
 
 
-def run_edge_dispatch(args: list[str], env: dict[str, str]) -> dict:
-    cmd = [str(SCRIPT_DIR / "edge-dispatch"), *args]
+def run_edge_tool(
+    tool_name: str,
+    args: list[str],
+    env: dict[str, str],
+    *,
+    allow_nonzero: bool = False,
+) -> tuple[int, dict]:
+    cmd = [str(SCRIPT_DIR / tool_name), *args]
     result = subprocess.run(
         cmd,
         env=env,
@@ -96,16 +102,16 @@ def run_edge_dispatch(args: list[str], env: dict[str, str]) -> dict:
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
+    if result.returncode != 0 and not allow_nonzero:
         detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
         raise RuntimeError(f"{' '.join(cmd)} failed: {detail}")
     payload = result.stdout.strip()
     if not payload:
-        return {}
+        return result.returncode, {}
     try:
-        return json.loads(payload)
+        return result.returncode, json.loads(payload)
     except json.JSONDecodeError:
-        return {}
+        return result.returncode, {}
 
 
 def maybe_open_cycle(args: argparse.Namespace, env: dict[str, str]) -> str | None:
@@ -132,7 +138,7 @@ def maybe_open_cycle(args: argparse.Namespace, env: dict[str, str]) -> str | Non
         dispatch_args.append("--force")
 
     env["EDGE_CYCLE_ID"] = cycle_id
-    run_edge_dispatch(dispatch_args, env)
+    run_edge_tool("edge-dispatch", dispatch_args, env)
     return cycle_id
 
 
@@ -143,13 +149,14 @@ def maybe_close_cycle(
     *,
     status: str,
     reason: str | None,
-) -> None:
+) -> dict:
     if not cycle_id:
-        return
-    close_args = ["close", "--status", status]
+        return {}
+    close_args = ["--status", status]
     if reason:
         close_args.extend(["--reason", reason])
-    run_edge_dispatch(close_args, env)
+    _, payload = run_edge_tool("edge-close", close_args, env, allow_nonzero=True)
+    return payload
 
 
 def invoke_backend(args: argparse.Namespace, env: dict[str, str]) -> int:
@@ -221,22 +228,33 @@ def main() -> int:
         if exit_code != 0:
             close_status = "failed"
             close_reason = f"backend_exit_{exit_code}"
-        return exit_code
     except KeyboardInterrupt:
+        exit_code = 130
         close_status = "aborted"
         close_reason = "keyboard_interrupt"
-        return 130
     except Exception as exc:
+        exit_code = 1
         close_status = "failed"
         close_reason = type(exc).__name__.lower()
         print(f"edge-runner: {exc}", file=sys.stderr)
-        return 1
     finally:
         if cycle_id:
             try:
-                maybe_close_cycle(args, env, cycle_id, status=close_status, reason=close_reason)
+                payload = maybe_close_cycle(args, env, cycle_id, status=close_status, reason=close_reason)
+                state_block = (payload or {}).get("state", {}) or {}
+                actual_close_status = state_block.get("close_status") or close_status
+                actual_close_reason = state_block.get("close_reason") or close_reason
+                if close_status == "completed" and actual_close_status != "completed":
+                    close_status = actual_close_status
+                    close_reason = actual_close_reason
+                    if exit_code == 0:
+                        exit_code = 1
             except Exception as exc:
                 print(f"edge-runner: failed to close cycle {cycle_id}: {exc}", file=sys.stderr)
+                if exit_code == 0:
+                    exit_code = 1
+                    close_status = "failed"
+                    close_reason = "close_failure"
             final_status = "completed" if close_status == "completed" and exit_code == 0 else close_status
             log_run_step(
                 "edge-runner",
@@ -250,6 +268,7 @@ def main() -> int:
                 close_status=close_status,
                 close_reason=close_reason or "",
             )
+    return exit_code
 
 
 if __name__ == "__main__":

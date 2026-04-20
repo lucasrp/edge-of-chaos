@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""edge-close — gated cycle finalization for dispatch runs.
+
+Closes the active dispatch cycle, but only allows `completed` when there is
+mechanical evidence that the skill actually finished and the postflight profile
+ran.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import CURRENT_DISPATCH_FILE, EDGE_REPO_DIR, LOGS_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.telemetry import current_actor, emit_shadow_event, log_event  # noqa: E402
+
+POST_SKILL_LOG = LOGS_DIR / "post-skill.log"
+
+
+def now_iso() -> str:
+    return datetime.now().astimezone().isoformat()
+
+
+def read_state() -> dict:
+    if not CURRENT_DISPATCH_FILE.exists():
+        raise FileNotFoundError(f"{CURRENT_DISPATCH_FILE} not found")
+    return json.loads(CURRENT_DISPATCH_FILE.read_text(encoding="utf-8"))
+
+
+def write_state(state: dict) -> None:
+    CURRENT_DISPATCH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = CURRENT_DISPATCH_FILE.with_suffix(CURRENT_DISPATCH_FILE.suffix + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(CURRENT_DISPATCH_FILE)
+
+
+def append_postskill_log(name: str, status: str, detail: str = "") -> None:
+    POST_SKILL_LOG.parent.mkdir(parents=True, exist_ok=True)
+    message = f"[{now_iso()}] procedure: {name} | status: {status}"
+    if detail:
+        message += f" | detail: {detail}"
+    with open(POST_SKILL_LOG, "a", encoding="utf-8") as f:
+        f.write(message + "\n")
+
+
+def iter_jsonl(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return rows
+
+
+def iso_ge(left: str | None, right: str | None) -> bool:
+    if not left or not right:
+        return False
+    try:
+        return datetime.fromisoformat(left) >= datetime.fromisoformat(right)
+    except ValueError:
+        return False
+
+
+def check_skill_completion(state: dict) -> tuple[bool, str, dict]:
+    cycle_id = state.get("cycle_id")
+    request = state.get("request", {}) or {}
+    state_block = state.get("state", {}) or {}
+    skill = request.get("skill")
+    threshold = state_block.get("dispatched_at") or state_block.get("opened_at")
+
+    if not state_block.get("skill_dispatched") or not skill:
+        return False, "missing_dispatch", {"skill": skill or "", "cycle_id": cycle_id}
+
+    for event in reversed(iter_jsonl(STATE_EVENTS_FILE)):
+        if event.get("type") != "SkillRunCompleted":
+            continue
+        if event.get("cycle_id") != cycle_id:
+            continue
+        payload = event.get("payload", {}) or {}
+        event_skill = payload.get("skill") or ""
+        registry_skill = payload.get("registry_skill") or ""
+        if event_skill not in {skill, f"/{skill.lstrip('/')}"} and registry_skill not in {skill, f"/{skill.lstrip('/')}"}:
+            # The registry skill may differ from the runtime skill alias; accept
+            # the cycle-local event as the authoritative proof when it is the
+            # only completion for this cycle after the dispatch timestamp.
+            if threshold and not iso_ge(event.get("ts"), threshold):
+                continue
+        if threshold and not iso_ge(event.get("ts"), threshold):
+            continue
+        return True, "skill_run_completed", {
+            "skill": skill,
+            "event_skill": event_skill,
+            "registry_skill": registry_skill,
+            "ts": event.get("ts"),
+        }
+
+    # Backwards-compatible fallback: allow the step log's end marker if the
+    # shadow event is missing.
+    for row in reversed(iter_jsonl(SKILL_STEPS_FILE)):
+        if row.get("event") != "end":
+            continue
+        row_skill = row.get("skill") or ""
+        registry_skill = row.get("registry_skill") or ""
+        if row_skill not in {skill, f"/{skill.lstrip('/')}"} and registry_skill not in {skill, f"/{skill.lstrip('/')}"}:
+            continue
+        if threshold and not iso_ge(row.get("ts"), threshold):
+            continue
+        return True, "skill_steps_end", {
+            "skill": skill,
+            "event_skill": row_skill,
+            "registry_skill": registry_skill,
+            "ts": row.get("ts"),
+        }
+
+    return False, "missing_skill_run_completed", {"skill": skill, "cycle_id": cycle_id}
+
+
+def run_standard_postflight() -> tuple[bool, str, dict]:
+    validate_script = EDGE_REPO_DIR / "blog" / "validate.py"
+    cmd = [sys.executable, str(validate_script), "--recent"]
+    result = subprocess.run(cmd, cwd=str(EDGE_REPO_DIR), capture_output=True, text=True)
+    output = (result.stdout or "").strip()
+    detail = output.splitlines()[-1] if output else f"exit={result.returncode}"
+    append_postskill_log("validate_recent", "OK" if result.returncode == 0 else "FAIL", detail)
+    return (
+        result.returncode == 0,
+        "validate_recent" if result.returncode == 0 else "validate_recent_failed",
+        {
+            "command": "python3 blog/validate.py --recent",
+            "returncode": result.returncode,
+            "detail": detail,
+        },
+    )
+
+
+def run_postflight(profile: str) -> tuple[bool, str, list[dict]]:
+    if not profile or profile == "none":
+        append_postskill_log("postflight_profile", "SKIP", "profile=none")
+        return True, "postflight_skipped", [{"step": "postflight_profile", "status": "skipped", "detail": "profile=none"}]
+
+    if profile == "standard":
+        ok, reason, detail = run_standard_postflight()
+        return ok, reason, [{"step": "validate_recent", "status": "ok" if ok else "failed", **detail}]
+
+    append_postskill_log("postflight_profile", "FAIL", f"unknown profile {profile}")
+    return False, "unknown_postflight_profile", [{"step": "postflight_profile", "status": "failed", "detail": profile}]
+
+
+def record_postflight(state: dict, *, status: str, profile: str, reason: str, steps: list[dict]) -> None:
+    cycle_id = state.get("cycle_id")
+    state_block = state.setdefault("state", {})
+    state_block["postflight_status"] = status
+    state_block["postflight_checked_at"] = now_iso()
+    state_block["updated_at"] = state_block["postflight_checked_at"]
+    state_block["postflight_reason"] = reason
+    state_block["postflight_steps"] = steps
+    write_state(state)
+    event_type = "PostflightCompleted" if status == "completed" else "PostflightFailed"
+    emit_shadow_event(
+        event_type,
+        actor="edge-close",
+        cycle_id=cycle_id,
+        payload={"profile": profile, "reason": reason, "steps": steps},
+    )
+    log_event(
+        "dispatch_postflight",
+        actor="edge-close",
+        cycle_id=cycle_id,
+        profile=profile,
+        status=status,
+        reason=reason,
+    )
+
+
+def close_dispatch(status: str, reason: str | None) -> tuple[int, dict]:
+    cmd = [str(SCRIPT_DIR / "edge-dispatch"), "close", "--status", status]
+    if reason:
+        cmd.extend(["--reason", reason])
+    result = subprocess.run(cmd, cwd=str(EDGE_REPO_DIR), capture_output=True, text=True)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        raise RuntimeError(f"{' '.join(cmd)} failed: {detail}")
+    payload = json.loads(result.stdout) if result.stdout.strip() else {}
+    return result.returncode, payload
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Gated dispatch-cycle close")
+    parser.add_argument("--status", default="completed", choices=["completed", "failed", "aborted"])
+    parser.add_argument("--reason")
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    state = read_state()
+    request = state.get("request", {}) or {}
+    profile = request.get("postflight_profile") or "standard"
+    requested_status = args.status
+    effective_status = requested_status
+    effective_reason = args.reason
+    exit_code = 0
+
+    if requested_status == "completed":
+        skill_ok, skill_reason, skill_detail = check_skill_completion(state)
+        if not skill_ok:
+            append_postskill_log("skill_run_completed", "FAIL", skill_reason)
+            record_postflight(
+                state,
+                status="failed",
+                profile=profile,
+                reason=skill_reason,
+                steps=[{"step": "skill_run_completed", "status": "failed", **skill_detail}],
+            )
+            effective_status = "failed"
+            effective_reason = effective_reason or skill_reason
+            exit_code = 1
+        else:
+            append_postskill_log("skill_run_completed", "OK", skill_reason)
+            post_ok, post_reason, post_steps = run_postflight(profile)
+            if post_ok:
+                record_postflight(
+                    state,
+                    status="completed",
+                    profile=profile,
+                    reason=post_reason,
+                    steps=[{"step": "skill_run_completed", "status": "ok", **skill_detail}, *post_steps],
+                )
+            else:
+                record_postflight(
+                    state,
+                    status="failed",
+                    profile=profile,
+                    reason=post_reason,
+                    steps=[{"step": "skill_run_completed", "status": "ok", **skill_detail}, *post_steps],
+                )
+                effective_status = "failed"
+                effective_reason = effective_reason or post_reason
+                exit_code = 1
+    else:
+        record_postflight(
+            state,
+            status="skipped",
+            profile=profile,
+            reason=f"close_status_{requested_status}",
+            steps=[{"step": "postflight_profile", "status": "skipped", "detail": requested_status}],
+        )
+
+    _, payload = close_dispatch(effective_status, effective_reason)
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return exit_code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
