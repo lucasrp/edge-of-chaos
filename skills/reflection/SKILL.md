@@ -184,21 +184,29 @@ Cross-reference with findings from HN-1 and HN-2:
 # Pending feedback in ~/work/CLAUDE.md
 grep -c "PROCESSED" ~/work/CLAUDE.md 2>/dev/null || echo "0"
 
-# Async chat
-curl -s "http://localhost:8766/api/chat?unprocessed=true" 2>/dev/null | python3 -c "
+# Structured async inbox
+edge-skill-inbox read --skill reflection 2>/dev/null | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-msgs = [m for m in data.get('messages', []) if m.get('author') == 'user' and not m.get('processed')]
-print(f'{len(msgs)} pending messages')
-for m in msgs[:3]:
-    print(f'  - {m[\"text\"][:80]}')
+counts = {
+    'direct_messages': len(data.get('direct_messages', [])),
+    'task_intents': len(data.get('task_intents', [])),
+    'steering_intents': len(data.get('steering_intents', [])),
+    'runtime_intents': len(data.get('runtime_intents', [])),
+}
+print(f'priority={data.get(\"priority\", \"normal\")}')
+print('counts=' + json.dumps(counts, ensure_ascii=False))
+for bucket in ('direct_messages', 'task_intents', 'steering_intents', 'runtime_intents'):
+    for item in data.get(bucket, [])[:2]:
+        preview = item.get('preview') or item.get('text') or item.get('action') or ''
+        print(f'  [{bucket}] {preview[:80]}')
 " 2>/dev/null || echo "Chat unavailable"
 ```
 
-Classify each message:
-- **Frustrations** → HN-3 (debugging.md candidate)
-- **Questions** → pending (don't answer yet)
-- **Directions/directives** → record. If the message contains an operational directive (patterns: "always", "from now on", "whenever", "never do X", "make sure to", "every time"), create an approved workflow:
+Classify each inbox item:
+- **Frustrations** in `direct_messages` → HN-3 (debugging.md candidate)
+- **Questions** in `direct_messages` → pending (don't answer yet)
+- **Directions/directives** in `direct_messages` or pinned guidance → record. If the message contains an operational directive (patterns: "always", "from now on", "whenever", "never do X", "make sure to", "every time"), create an approved workflow:
 
 ```bash
 # Operator directive detected — create approved workflow (no draft stage)
@@ -206,8 +214,13 @@ edge-crystallize --from-operator "the directive text here"
 ```
 
 This creates a `workflow` entry immediately (operator authority = approval). The workflow enters `edge-search --type workflow` recall so skills follow it from the next beat.
+- **Task / steering / runtime intents** are already structured next-dispatch
+  inputs. Review them as operator priority, but do not apply them immediately
+  from reflection unless reflection itself is the dispatched skill responsible
+  for that action.
 
-**DO NOT respond, DO NOT mark as processed** — the heartbeat handles responses (Step 3a).
+**DO NOT mark as processed manually** — `edge-close` consumes the captured
+message ids only after the cycle completes successfully.
 
 ### HN-5: State drift check + skill step completion
 

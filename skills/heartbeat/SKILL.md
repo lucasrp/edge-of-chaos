@@ -244,19 +244,27 @@ This creates a `workflow` entry (operator authority = instant approval) that ent
 
 **If unable to extract content, record the technical reason in debugging.md. DO NOT skip silently.**
 
-### 1b: Read async chat (single channel)
+### 1b: Check async inbox priority (routing only)
 
 ```bash
-curl -s 'http://localhost:8766/api/chat?unprocessed=true' | python3 -c "
+edge-skill-inbox read 2>/dev/null | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-for m in data.get('messages', []):
-    if m.get('author') == 'user' and not m.get('processed'):
-        print(f'CHAT ID: {m[\"id\"]} | TEXT: {m[\"text\"]}')
+print(f'priority={data.get(\"priority\", \"normal\")}')
+print(f'unprocessed_total={data.get(\"unprocessed_total\", 0)}')
+print(f'pinned_total={data.get(\"pinned_total\", 0)}')
+print(f'direct_messages={len(data.get(\"direct_messages\", []))}')
+print(f'task_intents={len(data.get(\"task_intents\", []))}')
+print(f'steering_intents={len(data.get(\"steering_intents\", []))}')
+print(f'runtime_intents={len(data.get(\"runtime_intents\", []))}')
 "
 ```
 
-Chat is the async channel. Blog comments exist as a feature (annotate, save) but the heartbeat does not process them.
+The async blog chat is the operator channel, but heartbeat should use it only
+for routing pressure and priority. The actual skill-level contract is captured
+at `edge-dispatch dispatch --skill <skill>` and delivered as
+`request.async_inbox`. Do not treat heartbeat as the place that consumes the
+chat payload.
 
 ### 1c: Read previous beats (avoid repetition)
 
@@ -428,7 +436,7 @@ skill, dispatch it, and continue. Only `/ed-execute` may stop for human sign-off
 
 ### Decision tree (simple)
 
-1. **User asked for something?** (message in chat/comment with direction) → Address it. If it's an internal change → do it. If it's a project → note it, reply that it needs /ed-execute.
+1. **Async inbox has operator input?** (`priority: high`, direct message, or queued intent) → This outranks exploration and rotation. Choose the internal skill best suited to handle it, then let that dispatched skill read `request.async_inbox`.
 
 2. **Dispatch queue has pending items?** → Check `state/dispatch-queue.json` for queued dispatches from reflection or other skills:
 
@@ -591,14 +599,11 @@ Respond WITH FOLLOW-UP — what the beat did, how it connects with the request.
 curl -s -X POST http://localhost:8766/api/chat \
   -H "Content-Type: application/json" \
   -d '{"author":"claude","text":"RESPONSE"}'
-
-# Mark user message as processed
-curl -s -X POST http://localhost:8766/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"action":"mark_processed","id":CHAT_ID}'
 ```
 
-**RULE:** Every response MUST be followed by mark_processed on the user's message. No exceptions.
+**RULE:** Do **not** mark chat messages as processed manually here. The
+captured async inbox is consumed by `edge-close` only after successful
+completion of the cycle.
 
 ### 3b: Capture errors in debugging.md
 

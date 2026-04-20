@@ -20,6 +20,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import CURRENT_DISPATCH_FILE, EDGE_REPO_DIR, LOGS_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.telemetry import current_actor, emit_shadow_event, log_event  # noqa: E402
+from _shared.skill_inbox import consume_captured_inbox  # noqa: E402
 
 POST_SKILL_LOG = LOGS_DIR / "post-skill.log"
 
@@ -259,6 +260,44 @@ def main() -> int:
         )
 
     _, payload = close_dispatch(effective_status, effective_reason)
+    if effective_status == "completed":
+        try:
+            consumed = consume_captured_inbox(payload)
+            write_state(payload)
+            emit_shadow_event(
+                "AsyncInboxConsumed",
+                actor="edge-close",
+                cycle_id=payload.get("cycle_id"),
+                payload={
+                    "processed_count": consumed.get("processed_count", 0),
+                    "captured_total": consumed.get("captured_total", 0),
+                    "processed_ids": consumed.get("processed_ids", []),
+                },
+            )
+            log_event(
+                "async_inbox",
+                actor="edge-close",
+                action="consumed",
+                cycle_id=payload.get("cycle_id"),
+                skill=(payload.get("request", {}) or {}).get("skill", ""),
+                processed_count=consumed.get("processed_count", 0),
+                captured_total=consumed.get("captured_total", 0),
+            )
+        except Exception as exc:
+            emit_shadow_event(
+                "AsyncInboxConsumeFailed",
+                actor="edge-close",
+                cycle_id=payload.get("cycle_id"),
+                payload={"error": str(exc)},
+            )
+            log_event(
+                "async_inbox",
+                actor="edge-close",
+                action="consume_failed",
+                cycle_id=payload.get("cycle_id"),
+                skill=(payload.get("request", {}) or {}).get("skill", ""),
+                error=str(exc),
+            )
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return exit_code
 
