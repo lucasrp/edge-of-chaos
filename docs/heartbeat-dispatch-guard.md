@@ -12,10 +12,10 @@ Reported in [issue #212](https://github.com/lucasrp/edge-of-chaos/issues/212).
 
 Three components:
 
-1. **Dispatch-cycle file** (`$EDGE_ROOT/state/current-dispatch.json`) — opened at Step 2 entry, updated at skill dispatch, closed at Step 3 end.
+1. **Dispatch-cycle file** (`$EDGE_ROOT/state/current-dispatch.json`) — opened by the heartbeat entrypoint, updated at skill dispatch, closed after the skill exits.
 2. **Legacy mirror** (`$EDGE_ROOT/state/current-beat.json`) — still written for heartbeat cycles during rollout so older checks keep working.
 3. **PreToolUse hook** (`bin/heartbeat-dispatch-guard.sh`) — refuses `Write`/`Edit` into `~/edge/blog/entries/**` and `~/edge/reports/**` when an active heartbeat cycle has not dispatched a skill yet.
-4. **SKILL.md lifecycle** — Step 2.0 uses `edge-dispatch open`, dispatch uses `edge-dispatch dispatch`, Step 3e uses `edge-dispatch close`.
+4. **Heartbeat skill body** — still performs `edge-dispatch dispatch` when the real work skill is chosen, but no longer opens/closes the cycle itself.
 
 ## Dispatch-cycle schema
 
@@ -43,10 +43,10 @@ Three components:
 
 | Field | When written | Meaning |
 |-------|--------------|---------|
-| `request.trigger` | Step 2.0 | whether the cycle came from heartbeat or operator |
+| `request.trigger` | heartbeat entrypoint / operator entrypoint | whether the cycle came from heartbeat or operator |
 | `request.skill` | open or dispatch | requested/dispatched skill |
-| `state.active` | Step 2.0 → true; Step 3e → false | cycle is in-flight |
-| `state.opened_at` | Step 2.0 | auto-expires heartbeat protection after 1h (fail-open) |
+| `state.active` | entrypoint open → true; entrypoint close → false | cycle is in-flight |
+| `state.opened_at` | entrypoint open | auto-expires heartbeat protection after 1h (fail-open) |
 | `state.skill_dispatched` | immediately before `edge-skill-step start` | unblocks artifact writes |
 
 ## Hook behavior
@@ -117,15 +117,11 @@ If the hook ever fires, Step 2.95 would also flag the same beat — but the hook
 
 1. Open a heartbeat cycle:
    ```bash
-   edge-dispatch open --trigger heartbeat --policy autonomous --routing-mode auto --preflight-profile heartbeat_default
+   edge-runner skill --skill /ed-heartbeat --dispatch-trigger heartbeat --dispatch-policy autonomous --dispatch-routing-mode auto --dispatch-preflight-profile heartbeat_default --dispatch-postflight-profile standard --dispatch-force
    ```
-2. Attempt a Write into `~/edge/blog/entries/test.md` via Claude Code — hook should block.
+2. Attempt a Write into `~/edge/blog/entries/test.md` via Claude Code before the skill dispatches — hook should block.
 3. Mark the skill as dispatched:
    ```bash
    edge-dispatch dispatch --skill research
    ```
 4. Retry Write — hook should allow.
-5. Close the cycle:
-   ```bash
-   edge-dispatch close --status completed
-   ```
