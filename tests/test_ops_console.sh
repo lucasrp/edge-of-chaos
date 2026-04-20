@@ -6,7 +6,12 @@ set -euo pipefail
 
 EDGE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BLOG_DIR="$EDGE_DIR/blog"
-VENV_PY="$BLOG_DIR/.venv/bin/python3"
+VENV_PY="${EDGE_BLOG_VENV:-$BLOG_DIR/.venv/bin/python3}"
+if [ ! -x "$VENV_PY" ]; then
+    echo "Missing blog venv python: $VENV_PY" >&2
+    echo "Set EDGE_BLOG_VENV=/path/to/blog/.venv/bin/python3 when running from a clean worktree." >&2
+    exit 2
+fi
 PASS=0
 FAIL=0
 ERRORS=""
@@ -78,11 +83,20 @@ def check(name, response, expect_status=200):
     mark = "PASS" if ok else "FAIL"
     print(f'{mark}|{name}|{response.status_code}|{expect_status}')
 
+def check_redirect(name, response, expect_location, expect_status=302):
+    ok = response.status_code == expect_status and response.headers.get("Location") == expect_location
+    mark = "PASS" if ok else "FAIL"
+    got = f'{response.status_code} {response.headers.get("Location")}'
+    expected = f'{expect_status} {expect_location}'
+    print(f'{mark}|{name}|{got}|{expected}')
+
 check("GET /api/dashboard/overview", client.get("/api/dashboard/overview"))
 check("GET /api/dashboard/alerts", client.get("/api/dashboard/alerts"))
 check("GET /api/dashboard/pipeline", client.get("/api/dashboard/pipeline"))
 check("GET /api/dashboard/hotspots", client.get("/api/dashboard/hotspots"))
 check("GET /api/dashboard/corpus", client.get("/api/dashboard/corpus"))
+check_redirect("GET / -> /dashboard", client.get("/"), "/dashboard")
+check("GET /blog", client.get("/blog"))
 
 r = client.post("/api/tasks/TASK-20260309-001/action",
                 json={"action": "note", "value": "integration-test-ping"},
