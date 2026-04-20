@@ -117,16 +117,16 @@ improvements to the platform.
 Skills are invoked via `/atlas-{name}` slash commands.
 Shared protocols: `~/.claude/skills/_shared/`
 
-## Blog
+## Dashboard
 
-Internal blog at `http://localhost:8080/blog/`
-Always blog insights — primary communication channel.
+Internal dashboard at `http://localhost:8080/dashboard`
+Publish durable insights into the dashboard feed — primary communication channel.
 
 ## Preferences
 
 - Always use venv for Python packages.
 - Prompts outside code — never embed in .py.
-- Blog ALWAYS — insights must go to the blog.
+- Dashboard feed ALWAYS — insights must go to the dashboard feed.
 """,
     },
     # ── Group 2: Direction ──
@@ -185,8 +185,8 @@ Se os últimos 3 breaks exploraram a mesma área, MUDAR para outra.
 1. **Derive before searching.** Try to reconstruct from first principles
    before looking up. Where does reasoning break? That's the real gap.
 
-2. **Blog ALWAYS.** Every insight, discovery, or analysis goes to the
-   internal blog. It's the primary communication channel.
+2. **Dashboard feed ALWAYS.** Every insight, discovery, or analysis goes
+   to the internal dashboard feed. It's the primary communication channel.
 
 3. **Prompts outside code.** Never embed prompts in .py files. Always .md.
 
@@ -199,7 +199,7 @@ Se os últimos 3 breaks exploraram a mesma área, MUDAR para outra.
    are the #1 source of drift.
 
 7. **Student data is sacred.** Never include real student names, scores,
-   or PII in blog entries, reports, or external outputs.
+   or PII in dashboard feed entries, reports, or external outputs.
 
 8. **Verify after acting.** Grep after refactoring. Test after changes.
    Re-read what was written.
@@ -488,7 +488,7 @@ SYSTEM_FILES = [
         "path": "blog/entries/",
         "group": "production",
         "group_label": "Produção do agente",
-        "purpose": "Entradas do blog (markdown com frontmatter). Uma por skill executada. Canal primário de comunicação",
+        "purpose": "Entradas do feed do dashboard (markdown com frontmatter). Uma por skill executada. Canal primário de comunicação",
         "owner": "agent",
         "managed_by": "consolidate-state",
         "is_dir": True,

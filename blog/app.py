@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Blog server: Flask + Jinja2 + htmx. Replaces server.py."""
+"""Dashboard server in the legacy ``blog`` package: Flask + Jinja2 + htmx."""
 
 import html as html_mod
 import json
@@ -99,7 +99,7 @@ def enforce_auth():
             return None
         auth = request.authorization
         if not auth or auth.username != _auth_user or auth.password != _auth_pass:
-            return ("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="Blog"'})
+            return ("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="Dashboard"'})
 
 # ─── Tag normalization ───
 TAG_MAP = {
@@ -481,12 +481,13 @@ def inject_globals():
 # ─── Routes: Main pages ───
 @app.route("/")
 def root_redirect():
-    return redirect("/blog/")
+    return redirect("/dashboard")
 
 
 @app.route("/blog/")
 @app.route("/blog")
 def blog_index():
+    """Legacy compatibility surface for feed/chat/workflow views."""
     tab = request.args.get("tab", "feed")
     if tab not in ("feed", "chat", "workflows"):
         tab = "feed"
@@ -1318,6 +1319,7 @@ def get_health_data(entries):
 
 
 @app.route("/dashboard")
+@app.route("/dashboard/")
 def dashboard_page():
     """Operational dashboard — 30-second health check for operator."""
     entries = get_entries()
@@ -1336,8 +1338,8 @@ def dashboard_page():
     return render_template(
         "dashboard.html",
         tab="dashboard",
-        page_title="edge_of_chaos — ops console",
-        header_sub="ops console",
+        page_title="edge_of_chaos — dashboard",
+        header_sub="dashboard",
         stats=get_stats_data(),
         health=health,
         knowledge_clusters=kc_summary,
@@ -1725,5 +1727,5 @@ if __name__ == "__main__":
     get_entries()
     port = int(os.environ.get("BLOG_PORT", 8766))
     host = os.environ.get("BLOG_HOST", "127.0.0.1")
-    print(f"Blog server (Flask) on http://localhost:{port}/blog/")
+    print(f"Dashboard server (legacy blog package) on http://localhost:{port}/dashboard")
     app.run(host=host, port=port, debug=False, threaded=True)
