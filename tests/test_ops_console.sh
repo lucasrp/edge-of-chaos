@@ -109,6 +109,7 @@ check("GET /api/dashboard/alerts", client.get("/api/dashboard/alerts"))
 check("GET /api/dashboard/pipeline", client.get("/api/dashboard/pipeline"))
 check("GET /api/dashboard/runtime", client.get("/api/dashboard/runtime"))
 check("GET /api/dashboard/epistemics", client.get("/api/dashboard/epistemics"))
+check("GET /api/dashboard/interventions", client.get("/api/dashboard/interventions"))
 check("GET /api/dashboard/hotspots", client.get("/api/dashboard/hotspots"))
 check("GET /api/dashboard/corpus", client.get("/api/dashboard/corpus"))
 check_redirect("GET / -> /dashboard", client.get("/"), "/dashboard")
@@ -127,6 +128,7 @@ print(f'{mark}|POST /api/heartbeat/trigger|{r.status_code}|200 or 429')
 check("GET /partials/status-strip", client.get("/partials/status-strip"))
 check("GET /partials/runtime", client.get("/partials/runtime"))
 check("GET /partials/epistemics", client.get("/partials/epistemics"))
+check("GET /partials/interventions", client.get("/partials/interventions"))
 check("GET /dashboard", client.get("/dashboard"))
 PYEOF
 
@@ -144,11 +146,19 @@ rm -f "$TMPTEST"
 # Revert test side effects
 # -------------------------------------------------------------------
 cd "$EDGE_DIR"
-git checkout -- state/tasks.snapshot.json state/tasks.jsonl 2>/dev/null || true
-rm -f state/heartbeat-trigger.json 2>/dev/null || true
-if [ -f logs/operator-actions.jsonl ]; then
-    git checkout -- logs/operator-actions.jsonl 2>/dev/null || true
-fi
+cleanup_path() {
+    local path="$1"
+    if git ls-files --error-unmatch "$path" >/dev/null 2>&1; then
+        git checkout -- "$path" 2>/dev/null || true
+    else
+        rm -f "$path" 2>/dev/null || true
+    fi
+}
+
+cleanup_path "state/tasks.snapshot.json"
+cleanup_path "state/heartbeat-trigger.json"
+cleanup_path "logs/operator-actions.jsonl"
+rm -f search/edge-memory.db search/edge-memory.db-shm search/edge-memory.db-wal 2>/dev/null || true
 
 # -------------------------------------------------------------------
 # Summary

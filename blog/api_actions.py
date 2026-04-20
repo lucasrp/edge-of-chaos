@@ -1,4 +1,4 @@
-"""Action endpoints for heartbeat trigger and thread actions."""
+"""Action endpoints for heartbeat, threads, and queued task interventions."""
 
 import json
 from datetime import datetime, timezone
@@ -13,11 +13,26 @@ actions_bp = Blueprint('actions', __name__)
 OPERATOR_LOG = LOGS_DIR / "operator-actions.jsonl"
 HEARTBEAT_TRIGGER_FILE = STATE_DIR / "heartbeat-trigger.json"
 HEARTBEAT_RATE_LIMIT_SECONDS = 600
+VALID_TASK_ACTIONS = {
+    "note",
+    "acknowledge",
+    "block",
+    "unblock",
+    "prioritize",
+    "deprioritize",
+    "ready",
+    "done",
+    "defer",
+}
+
+
+def _now_str():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _log_operator_action(target_id, action, reason=None, value=None):
     entry = {
-        "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "ts": _now_str(),
         "actor": "operator",
         "target_id": target_id,
         "action": action,
@@ -29,6 +44,66 @@ def _log_operator_action(target_id, action, reason=None, value=None):
     OPERATOR_LOG.parent.mkdir(parents=True, exist_ok=True)
     with open(OPERATOR_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _build_task_intent_text(task_id, action, reason=None, value=None):
+    lines = [
+        "[task-intent]",
+        f"task: {task_id}",
+        f"action: {action}",
+        "apply: next-dispatch",
+    ]
+    if reason:
+        lines.append(f"reason: {reason}")
+    if value is not None:
+        lines.append(f"value: {value}")
+    lines.append("note: queue this operator task intervention for the next dispatch; do not apply it immediately")
+    return "\n".join(lines)
+
+
+def _parse_task_intent_text(text):
+    if not text or not str(text).startswith("[task-intent]"):
+        return None
+    data = {}
+    for line in str(text).splitlines()[1:]:
+        if ":" not in line:
+            continue
+        key, raw_value = line.split(":", 1)
+        key = key.strip().lower()
+        value = raw_value.strip()
+        if key:
+            data[key] = value
+    task_id = data.get("task")
+    action = data.get("action")
+    if not task_id or not action:
+        return None
+    return {
+        "task_id": task_id,
+        "action": action,
+        "reason": data.get("reason"),
+        "value": data.get("value"),
+        "apply": data.get("apply"),
+        "note": data.get("note"),
+    }
+
+
+def _find_pending_task_intent(task_id, action, reason=None, value=None):
+    from dashboard_db import get_chats
+
+    for message in get_chats(unprocessed_only=True, limit=200):
+        if message.get("author") != "user":
+            continue
+        parsed = _parse_task_intent_text(message.get("text", ""))
+        if not parsed:
+            continue
+        if parsed["task_id"] != task_id or parsed["action"] != action:
+            continue
+        if (parsed.get("reason") or None) != reason:
+            continue
+        if (parsed.get("value") or None) != (None if value is None else str(value)):
+            continue
+        return message
+    return None
 
 
 @actions_bp.route('/api/heartbeat/trigger', methods=['POST'])
@@ -78,3 +153,38 @@ def thread_action(thread_id):
     thread_path.write_text(f"---\n{new_fm}\n---{parts[2]}", encoding="utf-8")
     _log_operator_action(thread_id, f"thread:{action}", reason=reason)
     return jsonify({"ok": True, "thread_id": thread_id, "old_status": old_status, "new_status": action}), 200
+
+
+@actions_bp.route('/api/tasks/<task_id>/action', methods=['POST'])
+def task_action(task_id):
+    data = request.get_json(silent=True) or {}
+    action = str(data.get("action") or "").strip().lower()
+    reason = str(data.get("reason") or "").strip() or None
+    value = data.get("value")
+
+    if action not in VALID_TASK_ACTIONS:
+        return jsonify({"error": f"Invalid action. Must be one of: {', '.join(sorted(VALID_TASK_ACTIONS))}"}), 400
+
+    existing = _find_pending_task_intent(task_id, action, reason=reason, value=value)
+    if existing:
+        return jsonify({
+            "ok": True,
+            "queued": True,
+            "duplicate": True,
+            "task_id": task_id,
+            "chat_id": existing.get("id"),
+        }), 200
+
+    from dashboard_db import add_chat
+
+    intent_text = _build_task_intent_text(task_id, action, reason=reason, value=None if value is None else str(value))
+    chat_id = add_chat("user", intent_text)
+    _log_operator_action(task_id, f"task-intent:{action}", reason=reason, value=value)
+    return jsonify({
+        "ok": True,
+        "queued": True,
+        "duplicate": False,
+        "task_id": task_id,
+        "chat_id": chat_id,
+        "dispatch_mode": "next-dispatch",
+    }), 200
