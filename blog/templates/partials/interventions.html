@@ -1,0 +1,93 @@
+<div class="dash-section">
+  <h2 class="dash-section-title">task interventions</h2>
+
+  <div class="runtime-grid">
+    <div class="runtime-card">
+      <div class="runtime-card-title">active tasks</div>
+      <div class="runtime-row">
+        <span>tasks in snapshot</span>
+        <span class="runtime-meta">{{ tasks_total }}</span>
+      </div>
+      <div class="runtime-row">
+        <span>attention now</span>
+        <span class="runtime-meta">{{ task_attention_count }}</span>
+      </div>
+
+      {% if tasks %}
+      <div class="runtime-list">
+        {% for task in tasks %}
+        <div class="dash-task {% if task.blocked %}dash-task-blocked{% elif task.status == 'done' %}dash-task-done{% elif task.status in ['ready', 'doing', 'acknowledged'] %}dash-task-doing{% endif %}">
+          <div class="dash-task-header">
+            <span class="dash-task-prio {{ task.priority_class }}">{{ task.priority }}</span>
+            <span class="dash-task-title">{{ task.title }}</span>
+            <span class="dash-task-status {{ task.status_badge }}">{{ task.status }}</span>
+          </div>
+          <div class="dash-task-meta">
+            <span class="dash-task-id">{{ task.id }}</span>
+            <span class="dash-task-owner">{{ task.owner }}</span>
+            {% if task.updated_at_short %}
+            <span class="dash-task-updated">{{ task.updated_at_short }}</span>
+            {% endif %}
+          </div>
+          {% if task.summary %}
+          <div class="runtime-note">{{ task.summary }}</div>
+          {% endif %}
+          {% if task.criteria %}
+          <div class="dash-task-criteria">{{ task.criteria | join(' · ') }}</div>
+          {% endif %}
+          {% if task.latest_reason %}
+          <div class="dash-task-block-reason">{{ task.latest_reason }}</div>
+          {% elif task.note_preview %}
+          <div class="dash-task-next">{{ task.note_preview }}</div>
+          {% endif %}
+          <div class="dash-task-actions">
+            <button class="action-btn" onclick="taskAction('{{ task.id }}', 'note', this)">note</button>
+            <button class="action-btn" onclick="taskAction('{{ task.id }}', 'acknowledge', this)">ack</button>
+            <button class="action-btn action-start" onclick="taskAction('{{ task.id }}', 'ready', this)">ready</button>
+            {% if task.blocked %}
+            <button class="action-btn action-unblock" onclick="taskAction('{{ task.id }}', 'unblock', this)">unblock</button>
+            {% else %}
+            <button class="action-btn action-blocked" onclick="taskAction('{{ task.id }}', 'block', this)">block</button>
+            {% endif %}
+            <button class="action-btn" onclick="taskAction('{{ task.id }}', 'prioritize', this)">prio+</button>
+            <button class="action-btn action-done" onclick="taskAction('{{ task.id }}', 'done', this)">done</button>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no operator tasks yet</div>
+      {% endif %}
+    </div>
+
+    <div class="runtime-card">
+      <div class="runtime-card-title">operator action feed</div>
+      <div class="runtime-row">
+        <span>recent actions</span>
+        <span class="runtime-meta">{{ operator_actions_total }}</span>
+      </div>
+
+      {% if operator_actions %}
+      <div class="runtime-list">
+        {% for item in operator_actions %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{{ item.target_id }}</strong>
+            <span class="runtime-pill runtime-pill-muted">{{ item.action }}</span>
+          </div>
+          <div class="runtime-meta">{{ item.ts_short }}</div>
+          {% if item.reason %}
+          <div class="runtime-note">{{ item.reason }}</div>
+          {% endif %}
+          {% if item.value %}
+          <div class="runtime-note">{{ item.value }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no operator actions logged yet</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
