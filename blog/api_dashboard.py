@@ -6,6 +6,8 @@ from blog.services import (
     load_hotspots, load_git_signals, load_curadoria, load_threads_enriched,
     get_publish_commits, get_error_pressure_24h,
     get_heartbeat_status, get_production_stats, get_briefing_html,
+    load_autonomy_summary, load_current_dispatch_state, load_primitive_runtime_summary,
+    load_recent_dispatch_cycles, load_skill_evidence_summary,
 )
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -421,3 +423,27 @@ def partial_briefing():
     """HTMX partial: daily briefing section fragment."""
     data = _build_briefing_data()
     return render_template("partials/briefing.html", **data)
+
+
+def _build_runtime_data():
+    """Build context dict for runtime transparency surfaces."""
+    return {
+        "runtime_current_cycle": load_current_dispatch_state(),
+        "runtime_recent_cycles": load_recent_dispatch_cycles(limit=6),
+        "runtime_skill_evidence": load_skill_evidence_summary(limit=5),
+        "runtime_primitives": load_primitive_runtime_summary(limit=5),
+        "runtime_autonomy": load_autonomy_summary(),
+    }
+
+
+@dashboard_bp.route("/api/dashboard/runtime")
+def runtime():
+    """Runtime transparency read model for dispatch/evidence/primitives/autonomy."""
+    return jsonify(_build_runtime_data())
+
+
+@dashboard_bp.route("/partials/runtime")
+def partial_runtime():
+    """HTMX partial: runtime transparency section fragment."""
+    data = _build_runtime_data()
+    return render_template("partials/runtime.html", **data)

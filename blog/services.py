@@ -13,20 +13,27 @@ import yaml
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (  # noqa: E402
+    AUTONOMY_CAPABILITIES_FILE,
     BRIEFING_FILE,
+    CURRENT_DISPATCH_FILE,
     CURADORIA_CANDIDATES_FILE as CURADORIA_CANDIDATES,
     EDGE_REPO_DIR,
     ENTRIES_DIR,
     EXECUTION_LEDGER_FILE as EXECUTION_LEDGER,
+    FRONTIER_FILE,
     GIT_SIGNALS_FILE as GIT_SIGNALS,
     LOGS_DIR,
     OPS_HOTSPOTS,
     REPORTS_DIR,
+    SKILL_STEPS_FILE,
+    SOURCES_MANIFEST_FILE,
+    STATE_EVENTS_FILE,
     STATE_DIR,
     THREADS_DIR,
 )
 
 ROOT = EDGE_REPO_DIR
+PRIMITIVE_USAGE_ROLLUP_FILE = STATE_DIR / "primitive-usage-rollup.json"
 
 
 def load_json_safe(path, default=None):
@@ -39,6 +46,348 @@ def load_json_safe(path, default=None):
     except Exception:
         pass
     return default
+
+
+def _load_yaml_safe(path, default=None):
+    if default is None:
+        default = {}
+    try:
+        if path.exists():
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            return data if data is not None else default
+    except Exception:
+        pass
+    return default
+
+
+def _iter_jsonl(path):
+    try:
+        if not path.exists():
+            return []
+        rows = []
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except Exception:
+                continue
+        return rows
+    except Exception:
+        return []
+
+
+def _short_ts(value):
+    if not value:
+        return ""
+    return str(value).replace("T", " ")[:16]
+
+
+def _find_shadow_markers(*markers):
+    matches = []
+    marker_set = tuple(str(marker).lower() for marker in markers)
+    for event in _iter_jsonl(STATE_EVENTS_FILE):
+        blob = json.dumps(event, ensure_ascii=False).lower()
+        if any(marker in blob for marker in marker_set):
+            matches.append(event)
+    return matches
+
+
+def load_current_dispatch_state():
+    """Best-effort current dispatch cycle state."""
+    state = load_json_safe(CURRENT_DISPATCH_FILE, {})
+    request = state.get("request", {}) or {}
+    state_block = state.get("state", {}) or {}
+    if not state:
+        return {
+            "available": False,
+            "active": False,
+            "cycle_id": None,
+            "trigger": None,
+            "skill": None,
+            "phase": "no-dispatch",
+            "phase_label": "no dispatch",
+            "phase_color": "muted",
+            "preflight_status": "unknown",
+            "skill_status": "unknown",
+            "postflight_status": "unknown",
+            "close_status": None,
+            "opened_at_short": "",
+            "dispatched_at_short": "",
+            "closed_at_short": "",
+            "updated_at_short": "",
+        }
+
+    active = bool(state_block.get("active"))
+    close_status = state_block.get("close_status")
+    phase = state_block.get("phase") or ("active" if active else "closed")
+    if active:
+        phase_label = phase.replace("_", " ")
+        phase_color = "green" if state_block.get("skill_dispatched") else "yellow"
+    else:
+        phase_label = close_status or "closed"
+        phase_color = "green" if close_status == "completed" else "yellow"
+
+    return {
+        "available": True,
+        "active": active,
+        "cycle_id": state.get("cycle_id"),
+        "trigger": request.get("trigger"),
+        "skill": request.get("skill"),
+        "phase": phase,
+        "phase_label": phase_label,
+        "phase_color": phase_color,
+        "preflight_status": state_block.get("preflight_status", "unknown"),
+        "skill_status": state_block.get("skill_status", "unknown"),
+        "postflight_status": state_block.get("postflight_status", "unknown"),
+        "close_status": close_status,
+        "opened_at_short": _short_ts(state_block.get("opened_at")),
+        "dispatched_at_short": _short_ts(state_block.get("dispatched_at")),
+        "closed_at_short": _short_ts(state_block.get("closed_at")),
+        "updated_at_short": _short_ts(state_block.get("updated_at")),
+    }
+
+
+def load_recent_dispatch_cycles(limit=6):
+    """Aggregate recent dispatch cycles from the shadow event log."""
+    cycles = {}
+    for event in _iter_jsonl(STATE_EVENTS_FILE)[-400:]:
+        cycle_id = str(event.get("cycle_id") or "").strip()
+        if not cycle_id:
+            continue
+        event_type = event.get("type")
+        if event_type not in {"CycleStarted", "SkillDispatched", "CycleClosed"}:
+            continue
+        payload = event.get("payload", {}) or {}
+        item = cycles.setdefault(cycle_id, {
+            "cycle_id": cycle_id,
+            "trigger": None,
+            "skill": None,
+            "opened_at": None,
+            "dispatched_at": None,
+            "closed_at": None,
+            "close_status": None,
+            "event_count": 0,
+        })
+        item["event_count"] += 1
+        ts = event.get("ts")
+        if event_type == "CycleStarted":
+            item["opened_at"] = item["opened_at"] or ts
+            item["trigger"] = payload.get("trigger") or payload.get("requested_trigger") or item["trigger"]
+        elif event_type == "SkillDispatched":
+            item["dispatched_at"] = ts
+            item["skill"] = payload.get("skill") or item["skill"]
+            item["trigger"] = payload.get("trigger") or item["trigger"]
+        elif event_type == "CycleClosed":
+            item["closed_at"] = ts
+            item["close_status"] = payload.get("close_status")
+            item["skill"] = payload.get("skill") or item["skill"]
+            item["trigger"] = payload.get("trigger") or item["trigger"]
+
+    current = load_current_dispatch_state()
+    if current["available"] and current["cycle_id"] not in cycles:
+        cycles[current["cycle_id"]] = {
+            "cycle_id": current["cycle_id"],
+            "trigger": current["trigger"],
+            "skill": current["skill"],
+            "opened_at": current["opened_at_short"],
+            "dispatched_at": current["dispatched_at_short"],
+            "closed_at": current["closed_at_short"],
+            "close_status": current["close_status"],
+            "event_count": 0,
+            "from_current_dispatch": True,
+            "active": current["active"],
+        }
+
+    items = []
+    for cycle in cycles.values():
+        active = bool(cycle.get("active")) or (cycle.get("opened_at") and not cycle.get("closed_at"))
+        has_dispatch = bool(cycle.get("dispatched_at"))
+        has_close = bool(cycle.get("closed_at"))
+        if has_dispatch and has_close:
+            health_label = cycle.get("close_status") or "complete"
+            health_color = "green" if cycle.get("close_status") == "completed" else "yellow"
+        elif active and has_dispatch:
+            health_label = "in progress"
+            health_color = "yellow"
+        elif active:
+            health_label = "missing dispatch"
+            health_color = "red"
+        else:
+            health_label = "partial"
+            health_color = "red"
+
+        last_ts = cycle.get("closed_at") or cycle.get("dispatched_at") or cycle.get("opened_at") or ""
+        items.append({
+            **cycle,
+            "active": active,
+            "health_label": health_label,
+            "health_color": health_color,
+            "opened_at_short": _short_ts(cycle.get("opened_at")),
+            "dispatched_at_short": _short_ts(cycle.get("dispatched_at")),
+            "closed_at_short": _short_ts(cycle.get("closed_at")),
+            "last_ts": last_ts,
+            "last_ts_short": _short_ts(last_ts),
+        })
+
+    items.sort(key=lambda item: item.get("last_ts") or "", reverse=True)
+    return items[:limit]
+
+
+def load_skill_evidence_summary(limit=5):
+    """Summarize skill-step observability and explicit pre/post gaps."""
+    runs = []
+    total_silent = 0
+    total_explicit = 0
+    for entry in reversed(_iter_jsonl(SKILL_STEPS_FILE)):
+        if entry.get("event") != "end" or "expected" not in entry:
+            continue
+        silent = len(entry.get("silent_skips", []))
+        explicit = int(entry.get("explicit_skips", 0) or 0)
+        total_silent += silent
+        total_explicit += explicit
+        runs.append({
+            "skill": entry.get("skill"),
+            "completion_pct": entry.get("completion_pct", 0),
+            "silent_skips": silent,
+            "explicit_skips": explicit,
+            "ts_short": _short_ts(entry.get("ts")),
+        })
+        if len(runs) >= limit:
+            break
+
+    pre_events = _find_shadow_markers("preskill", "pre_skill")
+    post_events = _find_shadow_markers("postskill", "post_skill")
+    current = load_current_dispatch_state()
+    return {
+        "pre_skill": {
+            "status": "observed" if pre_events else "gap",
+            "color": "green" if pre_events else "red",
+            "detail": f"{len(pre_events)} explicit pre-skill events" if pre_events else "no explicit pre-skill runtime evidence in shadow log yet",
+            "protocol_status": current.get("preflight_status", "unknown"),
+        },
+        "post_skill": {
+            "status": "observed" if post_events else "gap",
+            "color": "green" if post_events else "red",
+            "detail": f"{len(post_events)} explicit post-skill events" if post_events else "no explicit post-skill runtime evidence in shadow log yet",
+            "protocol_status": current.get("postflight_status", "unknown"),
+        },
+        "skill_runs": runs,
+        "skill_runs_total": len(runs),
+        "silent_skips_total": total_silent,
+        "explicit_skips_total": total_explicit,
+    }
+
+
+def load_primitive_runtime_summary(limit=5):
+    """Summarize primitive usage and lifecycle state."""
+    usage = load_json_safe(PRIMITIVE_USAGE_ROLLUP_FILE, {
+        "window_days": 30,
+        "total_calls": 0,
+        "by_source": {},
+    })
+    manifest = _load_yaml_safe(SOURCES_MANIFEST_FILE, {"sources": []})
+    sources = manifest.get("sources", []) or []
+    status_counts = {}
+    for item in sources:
+        status = str(item.get("status", "unknown"))
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    top_used = []
+    top_failing = []
+    for source, data in (usage.get("by_source", {}) or {}).items():
+        row = {
+            "source": source,
+            "calls": int(data.get("calls", 0) or 0),
+            "fail": int(data.get("fail", 0) or 0),
+            "ok_rate": data.get("ok_rate", 0.0),
+            "avg_ms": int(data.get("avg_ms", 0) or 0),
+        }
+        top_used.append(row)
+        if row["fail"] > 0:
+            top_failing.append(row)
+
+    top_used.sort(key=lambda item: (-item["calls"], item["source"]))
+    top_failing.sort(key=lambda item: (-item["fail"], -item["calls"], item["source"]))
+
+    lifecycle_types = {
+        "PrimitiveMissingObserved",
+        "PrimitiveContractWritten",
+        "PrimitiveMaterialized",
+        "PrimitiveProbeCompleted",
+        "PrimitiveManifestUpdated",
+    }
+    lifecycle = []
+    for event in reversed(_iter_jsonl(STATE_EVENTS_FILE)):
+        if event.get("type") not in lifecycle_types:
+            continue
+        payload = event.get("payload", {}) or {}
+        lifecycle.append({
+            "type": event.get("type"),
+            "source": payload.get("source"),
+            "status": payload.get("status"),
+            "exit_code": payload.get("exit_code"),
+            "ts_short": _short_ts(event.get("ts")),
+        })
+        if len(lifecycle) >= limit:
+            break
+
+    return {
+        "window_days": usage.get("window_days", 30),
+        "total_calls": int(usage.get("total_calls", 0) or 0),
+        "sources_total": len(sources),
+        "status_counts": status_counts,
+        "top_used": top_used[:limit],
+        "top_failing": top_failing[:limit],
+        "lifecycle": lifecycle,
+    }
+
+
+def load_autonomy_summary():
+    """Read autonomy capability/frontier files for operator-facing summary."""
+    try:
+        if not AUTONOMY_CAPABILITIES_FILE.exists():
+            return {
+                "available": False,
+                "avg": None,
+                "total": 0,
+                "gaps": [],
+                "next_steps": [],
+            }
+        content = AUTONOMY_CAPABILITIES_FILE.read_text(encoding="utf-8")
+        rows = re.findall(r'^\|\s*\d+\s*\|([^|]+)\|\s*(\d+)\s*\|', content, re.MULTILINE)
+        if not rows:
+            return {
+                "available": False,
+                "avg": None,
+                "total": 0,
+                "gaps": [],
+                "next_steps": [],
+            }
+        caps = [{"name": row[0].strip(), "level": int(row[1])} for row in rows]
+        avg = round(sum(cap["level"] for cap in caps) / len(caps), 1)
+        gaps = sorted(caps, key=lambda cap: cap["level"])[:3]
+        next_steps = []
+        if FRONTIER_FILE.exists():
+            frontier = FRONTIER_FILE.read_text(encoding="utf-8")
+            for match in re.finditer(r'### (?!~~)(GAP-\d+): (.+)', frontier):
+                next_steps.append({"id": match.group(1), "title": match.group(2)})
+        return {
+            "available": True,
+            "avg": avg,
+            "total": len(caps),
+            "gaps": gaps,
+            "next_steps": next_steps[:4],
+        }
+    except Exception:
+        return {
+            "available": False,
+            "avg": None,
+            "total": 0,
+            "gaps": [],
+            "next_steps": [],
+        }
 
 
 def load_hotspots():

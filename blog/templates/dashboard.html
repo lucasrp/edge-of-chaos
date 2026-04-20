@@ -17,6 +17,11 @@
     {% include 'partials/pipeline.html' %}
   </div>
 
+  <!-- Runtime transparency (dispatch/evidence/primitives/autonomy) -->
+  <div hx-get="/partials/runtime" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/runtime.html' %}
+  </div>
+
   <!-- Operational Hotspots (collapsible) -->
   <div hx-get="/partials/hotspots" hx-trigger="every 120s" hx-swap="innerHTML">
     {% include 'partials/hotspots.html' %}
