@@ -31,7 +31,7 @@ Every event in `state/events/log.jsonl` uses this outer structure:
 | `ts` | yes | event creation timestamp in ISO-8601 with offset |
 | `type` | yes | typed fact name |
 | `actor` | yes | tool / script / hook / skill that emitted the event |
-| `cycle_id` | no | correlation id for one dispatch cycle, whether heartbeat-triggered or user-triggered |
+| `cycle_id` | no | correlation id for one dispatch cycle, whether heartbeat-triggered or operator-triggered |
 | `artifact` | no | canonical artifact path or logical target |
 | `payload` | yes | event-specific fields |
 | `prev_hash` | yes | hash of the previous ledger line |
@@ -47,7 +47,7 @@ Every event in `state/events/log.jsonl` uses this outer structure:
 
 ## Initial Event Set
 
-Step 1 only needs five event types.
+Step 1 now tracks six event types.
 
 ### `CycleStarted`
 
@@ -66,7 +66,10 @@ Emitted when a dispatch cycle starts and obtains a `cycle_id`.
 Allowed trigger values in V1:
 
 - `heartbeat`
-- `user`
+- `operator`
+
+Legacy normalization may still surface `user` while older `edge-event user_directive`
+emitters are being migrated.
 
 ### `SkillDispatched`
 
@@ -81,6 +84,23 @@ Allowed trigger values in V1:
 ```
 
 Emitted exactly when a skill is actually dispatched, not when prose says it should be.
+
+### `CycleClosed`
+
+```json
+{
+  "type": "CycleClosed",
+  "payload": {
+    "trigger": "operator",
+    "skill": "reflection",
+    "close_status": "completed",
+    "reason": ""
+  }
+}
+```
+
+Emitted when the dispatch cycle is explicitly closed, regardless of whether the
+trigger came from heartbeat or operator intent.
 
 ### `PhaseCompleted`
 
@@ -133,7 +153,7 @@ Required later for render/install drift, but defined now so the envelope does no
 
 The first projections depend on this subset:
 
-- `dispatch-completeness` reads `CycleStarted` and `SkillDispatched`
+- `dispatch-completeness` reads `CycleStarted`, `SkillDispatched`, and `CycleClosed`
 - `pipeline-state` reads `PhaseCompleted` and `ArtifactPublished`
 - `render-install-drift` reads `InstallApplied` and a later `RenderProduced`
 

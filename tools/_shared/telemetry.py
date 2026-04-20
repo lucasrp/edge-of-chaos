@@ -26,7 +26,7 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
-from paths import EVENTS_FILE, SEARCH_DB_FILE, STATE_EVENTS_FILE  # noqa: E402
+from paths import CURRENT_DISPATCH_FILE, EVENTS_FILE, SEARCH_DB_FILE, STATE_EVENTS_FILE  # noqa: E402
 
 DB_PATH = SEARCH_DB_FILE
 _LAST_SHADOW_HASH: str | None = None
@@ -75,6 +75,17 @@ def current_cycle_id() -> str | None:
     )
     if cycle_id:
         return cycle_id
+
+    try:
+        if CURRENT_DISPATCH_FILE.exists():
+            state = json.loads(CURRENT_DISPATCH_FILE.read_text(encoding="utf-8"))
+            state_block = state.get("state", {}) or {}
+            if state_block.get("active"):
+                file_cycle_id = state.get("cycle_id")
+                if file_cycle_id:
+                    return str(file_cycle_id)
+    except Exception:
+        pass
 
     beat = current_beat()
     if beat:
