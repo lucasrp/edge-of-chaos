@@ -375,27 +375,20 @@ After reading all context from Step 1, classify the beat:
 
 ---
 
-## Step 2.0: Open the guard sentinel (BEFORE dispatch logic)
+## Step 2.0: Lifecycle is already open (DO NOT reopen manually)
 
-Write the beat sentinel so the PreToolUse hook
-(`bin/heartbeat-dispatch-guard.sh`, #212) can block artifact writes until
-a skill is dispatched. This is L3 enforcement — the earliest checkpoint.
-
-```bash
-edge-dispatch open \
-  --trigger heartbeat \
-  --policy autonomous \
-  --routing-mode auto \
-  --preflight-profile heartbeat_default \
-  --postflight-profile standard
-```
+The heartbeat entrypoint opens the shadow dispatch cycle mechanically before
+this skill body starts. That cycle keeps the PreToolUse guard
+(`bin/heartbeat-dispatch-guard.sh`, #212) active until a skill is actually
+dispatched.
 
 From this point until `edge-skill-step <skill> start` runs, any Write/Edit
 into `~/edge/blog/entries/**` or `~/edge/reports/**` will be refused by
-the hook. During rollout, `edge-dispatch` mirrors the legacy
-`state/current-beat.json` sentinel so the existing guard keeps working.
-The sentinel auto-expires after 1h (fail-open if the beat is abandoned
-mid-way).
+the hook. During rollout, the runtime still mirrors the legacy
+`state/current-beat.json` sentinel so older checks keep working.
+
+Do **not** run `edge-dispatch open` again from inside the heartbeat skill.
+Use `edge-dispatch status` only if debugging the lifecycle.
 
 ---
 
@@ -521,7 +514,7 @@ DISPATCHED=$(python3 -c "
 import json, sys
 try:
     steps = [json.loads(l) for l in open('$HOME/edge/logs/skill-steps.jsonl') if l.strip()]
-    today_starts = [s for s in steps if s.get('step') == 'start' and '$today' in s.get('timestamp', '')]
+    today_starts = [s for s in steps if s.get('step') == 'start' and '$today' in (s.get('ts') or s.get('timestamp', ''))]
     if today_starts:
         last = today_starts[-1]
         print(f'OK: {last.get(\"skill\", \"unknown\")}')
@@ -602,14 +595,11 @@ The `--update-thread N` automatically updates `updated:` and `resurface:` in the
 
 **Follow ~/.claude/skills/_shared/state-protocol.md for status management.**
 
-### 3e: Close the guard sentinel (MANDATORY — last step)
+### 3e: Do not close the lifecycle manually
 
-Mark the beat as inactive. The hook will stop blocking writes until the
-next beat opens a new sentinel.
-
-```bash
-edge-dispatch close --status completed
-```
+The heartbeat entrypoint closes the shadow dispatch cycle mechanically after
+this skill exits. The hook will stop blocking writes there; do **not**
+run `edge-dispatch close` from inside the heartbeat skill body.
 
 ---
 

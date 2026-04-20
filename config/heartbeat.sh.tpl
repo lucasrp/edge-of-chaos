@@ -1,28 +1,19 @@
 #!/bin/bash
 # Heartbeat wrapper — called by systemd timer every {{ HEARTBEAT_INTERVAL }}
-# Locks to prevent overlap, invokes Claude Code with the heartbeat skill.
+# Locks to prevent overlap, invokes edge-runner with the heartbeat skill.
 
 set -uo pipefail
 
-EDGE_DIR="{{ WORK_DIR }}"
+EDGE_REPO_DIR="{{ WORK_DIR }}"
+# shellcheck source=../config/paths.sh
+source "$EDGE_REPO_DIR/config/paths.sh"
+
 LOCKFILE="/tmp/edge-heartbeat-{{ CODENAME }}.lock"
-LOGFILE="$EDGE_DIR/logs/heartbeat-$(date +%Y-%m-%d).log"
+LOGFILE="$LOGS_DIR/heartbeat-$(date +%Y-%m-%d).log"
 SKILL="/{{ SKILL_PREFIX }}-heartbeat"
 
-# Ensure `claude` is reachable. systemd user timers inherit a minimal PATH
-# that does NOT include nvm's node-version bindir (where `claude` typically
-# lives), so the wrapper silently fails with `command not found` (#240).
-if ! command -v claude >/dev/null 2>&1; then
-    for P in "$HOME"/.nvm/versions/node/*/bin "$HOME/.local/bin" "$HOME/bin"; do
-        if [ -x "$P/claude" ]; then
-            export PATH="$P:$PATH"
-            break
-        fi
-    done
-fi
-
 # Load secrets
-[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a
+[ -f "$SECRETS_DIR/keys.env" ] && set -a && source "$SECRETS_DIR/keys.env" && set +a
 
 # Prevent overlapping heartbeats
 exec 200>"$LOCKFILE"
@@ -31,21 +22,26 @@ if ! flock -n 200; then
     exit 0
 fi
 
-mkdir -p "$(dirname "$LOGFILE")"
+mkdir -p "$LOGS_DIR"
 
-cd "$EDGE_DIR"
+cd "$EDGE_REPO_DIR"
 
-# Run Claude Code with the heartbeat skill
-# No budget limit — subscription covers Claude tokens.
-# Real API costs (OpenAI, Exa) are cents per heartbeat.
-# Timeout controlled by systemd TimeoutStartSec (1h).
-claude -p "$SKILL" \
+# Run heartbeat through our CLI boundary. The runner owns the shadow
+# dispatch lifecycle so the skill body no longer needs to open/close it.
+"$EDGE_REPO_DIR/tools/edge-runner" skill \
+    --skill "$SKILL" \
+    --dispatch-trigger heartbeat \
+    --dispatch-policy autonomous \
+    --dispatch-routing-mode auto \
+    --dispatch-preflight-profile heartbeat_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force \
     --dangerously-skip-permissions \
     >> "$LOGFILE" 2>&1
 
 # Index new content after heartbeat
 if command -v edge-index &>/dev/null; then
-    for f in "$EDGE_DIR/blog/entries/"*.md; do
+    for f in "$ENTRIES_DIR/"*.md; do
         [ -f "$f" ] && edge-index "$f" 2>/dev/null
     done
 fi
