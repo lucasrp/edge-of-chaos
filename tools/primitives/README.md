@@ -16,6 +16,9 @@ first needs them.
 Use `tools/edge-primitive-lifecycle` for the contract/manifest/probe steps so
 the lifecycle is observable in telemetry and no longer lives only in prose.
 
+Use `tools/edge-primitives status --json` for the canonical read model:
+declared sources, manifest state, local files, probe status, and recent usage.
+
 See `docs/TOOL_CONTRACT.md` for the full contract specification.
 
 ## Where primitives live

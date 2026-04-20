@@ -239,6 +239,27 @@ def _symlink_path(
     )
 
 
+def _normalize_sources(raw_sources) -> list[dict]:
+    if not raw_sources:
+        return []
+    if not isinstance(raw_sources, list):
+        raw_sources = [raw_sources]
+    normalized = []
+    for src in raw_sources:
+        if isinstance(src, dict) and src.get("name"):
+            name = str(src["name"]).strip()
+            description = str(src.get("description", "")).strip()
+        elif isinstance(src, str) and src.strip():
+            name = src.strip()
+            description = ""
+        else:
+            continue
+        if not name or name.startswith("edge-"):
+            continue
+        normalized.append({"name": name, "description": description})
+    return normalized
+
+
 def _reprefix(content: str, prefix: str) -> str:
     """Replace ed- prefix with the target prefix in skill content.
 
@@ -282,6 +303,8 @@ def load_config(path: Path) -> dict:
     cfg.setdefault("heartbeat_interval", "2h")
     cfg.setdefault("onboarding_mode", True)
     cfg["edge_home_expanded"] = os.path.expanduser(cfg["edge_home"])
+    cfg["sources"] = _normalize_sources(cfg.get("sources"))
+    cfg["_config_path"] = str(path.resolve())
     # Validate and pass through — parse_interval raises ValueError on garbage
     # instead of silently rebaixando pra 2h like the old hardcoded map did.
     parse_interval(cfg["heartbeat_interval"])
@@ -292,6 +315,26 @@ def load_config(path: Path) -> dict:
 
 def run(cmd, **kwargs):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True, **kwargs)
+
+
+def _refresh_primitives_status(config_path: str | None = None) -> tuple[bool, str]:
+    tool = REPO_ROOT / "tools" / "edge-primitives"
+    if not tool.exists():
+        return False, "edge-primitives not found"
+    cmd = [sys.executable, str(tool), "status", "--json"]
+    if config_path:
+        cmd.extend(["--config", config_path])
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        return False, str(exc)
+    detail = result.stderr.strip() or result.stdout.strip()
+    return result.returncode == 0, detail
 
 
 # ─── Phase 1: Render ───
@@ -1524,15 +1567,64 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
 
     # --- state/sources-manifest.yaml ---
     sources_manifest = edge / "state" / "sources-manifest.yaml"
-    if not sources_manifest.exists():
+    manifest = {"version": 1, "sources": []}
+    if sources_manifest.exists():
+        try:
+            loaded = yaml.safe_load(sources_manifest.read_text(encoding="utf-8")) or {}
+            if isinstance(loaded, dict):
+                manifest["version"] = loaded.get("version", 1)
+                manifest["sources"] = loaded.get("sources", []) if isinstance(loaded.get("sources", []), list) else []
+        except Exception:
+            pass
+    entry_by_name = {
+        entry.get("name"): entry
+        for entry in manifest["sources"]
+        if isinstance(entry, dict) and entry.get("name")
+    }
+    now_iso = datetime.now(timezone.utc).isoformat()
+    changed = not sources_manifest.exists()
+    for src in cfg.get("sources", []):
+        entry = entry_by_name.get(src["name"])
+        if entry is None:
+            manifest["sources"].append(
+                {
+                    "name": src["name"],
+                    "description": src.get("description", ""),
+                    "status": "declared",
+                    "created_at": now_iso,
+                    "updated_at": now_iso,
+                    "meta_path": "",
+                    "binary_path": "",
+                    "operations": [],
+                }
+            )
+            changed = True
+            continue
+        if src.get("description") and not entry.get("description"):
+            entry["description"] = src["description"]
+            changed = True
+        if not entry.get("status"):
+            entry["status"] = "declared"
+            changed = True
+        if not entry.get("created_at"):
+            entry["created_at"] = now_iso
+            changed = True
+        if not entry.get("updated_at"):
+            entry["updated_at"] = now_iso
+            changed = True
+        entry.setdefault("meta_path", "")
+        entry.setdefault("binary_path", "")
+        entry.setdefault("operations", [])
+    if changed:
         _write_text(
             sources_manifest,
-            yaml.safe_dump({"version": 1, "sources": []}, allow_unicode=True, sort_keys=False),
+            yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False),
             phase="seed",
             source_template="generated:seed:sources-manifest",
             dry_run=False,
         )
         seeded += 1
+    ok(f"sources-manifest: {len(manifest['sources'])} declared source(s)")
 
     # --- seed workflow blog entries (static, no LLM cost) ---
     prefix = cfg.get("skill_prefix", cfg.get("codename", "ed"))
@@ -1630,6 +1722,12 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
     if wf_created:
         ok(f"{wf_created} seed workflow entries created")
         seeded += wf_created
+
+    status_ok, status_detail = _refresh_primitives_status(cfg.get("_config_path"))
+    if status_ok:
+        ok("primitives-status refreshed")
+    else:
+        warn(f"primitives-status refresh failed: {status_detail[:160]}")
 
     if seeded > 0:
         ok(f"{seeded} seed files generated from agent.yaml")

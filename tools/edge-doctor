@@ -266,6 +266,55 @@ def check_render_install_drift():
         _record_check("projection:render-install-drift", "ok", detail, artifact=artifact)
 
 
+def check_primitives_status(config_path: Path):
+    tool = Path(__file__).resolve().parent / "edge-primitives"
+    if not tool.exists():
+        warn("primitive status tool não encontrado")
+        _record_check("projection:primitives-status", "warn", "primitive status tool não encontrado", artifact=tool)
+        return
+    try:
+        result = subprocess.run(
+            [sys.executable, str(tool), "status", "--json", "--config", str(config_path.resolve())],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        warn(f"primitive status indisponível: {exc}")
+        _record_check("projection:primitives-status", "warn", f"primitive status indisponível: {exc}", artifact=tool)
+        return
+    if result.returncode != 0:
+        fail(f"primitive status falhou: {result.stderr.strip() or result.stdout.strip()}")
+        _record_check(
+            "projection:primitives-status",
+            "fail",
+            f"primitive status falhou: {result.stderr.strip() or result.stdout.strip()}",
+            artifact=tool,
+        )
+        return
+    payload = json.loads(result.stdout) if result.stdout.strip() else {}
+    summary = payload.get("summary", {}) or {}
+    detail = (
+        "primitives-status: "
+        f"declared={summary.get('declared_total', 0)}, "
+        f"contract_only={summary.get('contract_only_total', 0)}, "
+        f"active={summary.get('active_total', 0)}, "
+        f"probed={summary.get('probed_total', 0)}, "
+        f"broken={summary.get('broken_total', 0)}, "
+        f"drifted={summary.get('drifted_total', 0)}"
+    )
+    artifact = payload.get("output_path") or tool
+    if summary.get("broken_total", 0):
+        fail(detail)
+        _record_check("projection:primitives-status", "fail", detail, artifact=artifact)
+    elif summary.get("drifted_total", 0):
+        warn(detail)
+        _record_check("projection:primitives-status", "warn", detail, artifact=artifact)
+    else:
+        ok(detail)
+        _record_check("projection:primitives-status", "ok", detail, artifact=artifact)
+
+
 def main():
     global CURRENT_SECTION
 
@@ -394,6 +443,7 @@ def main():
     # 8. Projection
     CURRENT_SECTION = "projection"
     print("\033[1m[8/8] Projection\033[0m")
+    check_primitives_status(config_path)
     check_render_install_drift()
     print()
 
