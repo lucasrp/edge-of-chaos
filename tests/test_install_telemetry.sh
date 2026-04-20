@@ -110,7 +110,7 @@ else
     fail "edge-apply dry-run emits run_step lifecycle"
 fi
 
-echo "--- Test 3: phase_identity emits InstallApplied on real materialization ---"
+echo "--- Test 3: phase_skills emits InstallApplied on real materialization ---"
 python3 - <<'PY' "$EDGE_DIR" "$TMP_CONFIG" "$TMP_HOME" "$TMP_EDGE"
 import importlib.machinery
 import importlib.util
@@ -123,7 +123,7 @@ edge_dir, config_path, home_dir, edge_state = sys.argv[1:]
 os.environ["HOME"] = home_dir
 os.environ["EDGE_STATE_DIR"] = edge_state
 os.environ["EDGE_CODENAME"] = "telemetry-test"
-os.environ["EDGE_CYCLE_ID"] = "install:test-phase-identity"
+os.environ["EDGE_CYCLE_ID"] = "install:test-phase-skills"
 
 loader = importlib.machinery.SourceFileLoader("edge_apply_mod", f"{edge_dir}/tools/edge-apply")
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -131,22 +131,22 @@ mod = importlib.util.module_from_spec(spec)
 loader.exec_module(mod)
 
 cfg = mod.load_config(Path(config_path))
-assert mod.phase_identity(cfg, dry_run=False) is True
+assert mod.phase_skills(cfg, dry_run=False) is True
 
 shadow_log = Path(edge_state) / "state" / "events" / "log.jsonl"
 events = [json.loads(line) for line in shadow_log.read_text(encoding="utf-8").splitlines() if line.strip()]
 matches = [
     event for event in events
-    if event.get("cycle_id") == "install:test-phase-identity" and event.get("type") == "InstallApplied"
+    if event.get("cycle_id") == "install:test-phase-skills" and event.get("type") == "InstallApplied"
 ]
-assert matches, "expected InstallApplied events from phase_identity"
-assert any(event["artifact"].endswith("/.claude/CLAUDE.md") for event in matches)
-assert any(event["payload"].get("phase") == "identity" for event in matches)
+assert matches, "expected InstallApplied events from phase_skills"
+assert any(event["artifact"].endswith("/.claude/skills/telemetry-test-research/SKILL.md") for event in matches)
+assert any(event["payload"].get("phase") == "skills" for event in matches)
 PY
 if [[ $? -eq 0 ]]; then
-    pass "phase_identity emits InstallApplied"
+    pass "phase_skills emits InstallApplied"
 else
-    fail "phase_identity emits InstallApplied"
+    fail "phase_skills emits InstallApplied"
 fi
 
 echo "--- Test 4: edge-doctor emits InstallCheckObserved even on failing install ---"

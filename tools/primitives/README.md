@@ -13,6 +13,9 @@ first needs them.
 5. Saves to `<edge_home>/libexec/<codename>/<name>`, registers in manifest
 6. Autonomy deepens the primitive later with evidence from usage log
 
+Use `tools/edge-primitive-lifecycle` for the contract/manifest/probe steps so
+the lifecycle is observable in telemetry and no longer lives only in prose.
+
 See `docs/TOOL_CONTRACT.md` for the full contract specification.
 
 ## Where primitives live

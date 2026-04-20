@@ -122,6 +122,7 @@ These are the lowest-friction emitters available now.
 | skill step tracking | `tools/edge-skill-step` | `logs/skill-steps.jsonl` | dual-write normalized envelope |
 | typed signals | `tools/edge-signal` | `state/signals/*.md` | dual-write normalized envelope |
 | primitive usage | `tools/primitives/_shared/usage_log.py` | `state/source-usage.jsonl` | dual-write normalized envelope |
+| primitive lifecycle | `tools/edge-primitive-lifecycle` | `state/sources-manifest.yaml` + `state/events/log.jsonl` | canonical helper for missing/contract/materialize/probe facts |
 | workflow transitions | `log_workflow_transition()` | `logs/events.jsonl` | already captured through shared telemetry |
 | llm/router telemetry | `log_llm_call()` | `logs/events.jsonl` | already captured through shared telemetry |
 | state commit artifact fact | `consolidate-state` Phase 5 inline Python | `logs/events.jsonl` | indirectly captured through `edge-event` legacy artifact event |
@@ -144,6 +145,7 @@ Legend:
 | skill dispatch | done | normalized from `edge-event skill_dispatched` |
 | skill steps | done | normalized from `edge-skill-step` |
 | primitive invocation | done | normalized from `usage_log.py` |
+| primitive lifecycle | partial | helper now emits missing/contract/materialized/probe/manifest facts, but runtime still needs broader adoption at the command boundary |
 | typed signals | done | normalized from `edge-signal` |
 | generic telemetry events | done | normalized from `tools/_shared/telemetry.py` |
 | workflow transitions | done | inherited from shared telemetry dual-write |

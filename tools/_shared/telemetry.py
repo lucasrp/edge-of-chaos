@@ -507,6 +507,170 @@ def _ensure_telemetry_table(conn: sqlite3.Connection) -> None:
     """)
 
 
+def log_primitive_missing(
+    source: str,
+    *,
+    operation: str | None = None,
+    exit_code: int = 127,
+    detail: str = "",
+    **extra: Any,
+) -> None:
+    """Record that a declared primitive is missing or an operation is absent."""
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    event_type = "PrimitiveOperationMissingObserved" if exit_code == 77 else "PrimitiveMissingObserved"
+    legacy_type = "primitive_operation_missing" if exit_code == 77 else "primitive_missing"
+    log_event(
+        legacy_type,
+        source=source,
+        operation=operation or "",
+        exit_code=exit_code,
+        detail=detail,
+        **extra,
+    )
+    emit_shadow_event(
+        event_type,
+        actor=_detect_caller(),
+        cycle_id=extra.get("cycle_id"),
+        payload={
+            "source": source,
+            "operation": operation or "",
+            "exit_code": exit_code,
+            "detail": detail,
+            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+        },
+    )
+
+
+def log_primitive_contract_written(
+    source: str,
+    *,
+    meta_path: str | os.PathLike[str],
+    status: str = "contract-only",
+    hash_value: str | None = None,
+    **extra: Any,
+) -> None:
+    """Record the contract-writing step for an on-demand primitive."""
+    meta_path_str = os.fspath(meta_path)
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    log_event(
+        "primitive_contract",
+        source=source,
+        meta_path=meta_path_str,
+        status=status,
+        hash=hash_value or "",
+        **extra,
+    )
+    emit_shadow_event(
+        "PrimitiveContractWritten",
+        actor=_detect_caller(),
+        artifact=meta_path_str,
+        cycle_id=extra.get("cycle_id"),
+        payload={
+            "source": source,
+            "status": status,
+            **({"hash": hash_value} if hash_value else {}),
+            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+        },
+    )
+
+
+def log_primitive_materialized(
+    source: str,
+    *,
+    binary_path: str | os.PathLike[str],
+    hash_value: str | None = None,
+    **extra: Any,
+) -> None:
+    """Record that a primitive executable became materialized and runnable."""
+    binary_path_str = os.fspath(binary_path)
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    log_event(
+        "primitive_materialized",
+        source=source,
+        binary_path=binary_path_str,
+        hash=hash_value or "",
+        **extra,
+    )
+    emit_shadow_event(
+        "PrimitiveMaterialized",
+        actor=_detect_caller(),
+        artifact=binary_path_str,
+        cycle_id=extra.get("cycle_id"),
+        payload={
+            "source": source,
+            **({"hash": hash_value} if hash_value else {}),
+            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+        },
+    )
+
+
+def log_primitive_probe_completed(
+    source: str,
+    *,
+    command: list[str],
+    exit_code: int,
+    ok: bool,
+    **extra: Any,
+) -> None:
+    """Record the probe step that validates a primitive contract or executable."""
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    log_event(
+        "primitive_probe",
+        source=source,
+        command=command,
+        exit_code=exit_code,
+        ok=ok,
+        **extra,
+    )
+    emit_shadow_event(
+        "PrimitiveProbeCompleted",
+        actor=_detect_caller(),
+        cycle_id=extra.get("cycle_id"),
+        payload={
+            "source": source,
+            "command": command,
+            "exit_code": exit_code,
+            "ok": ok,
+            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+        },
+    )
+
+
+def log_primitive_manifest_updated(
+    source: str,
+    *,
+    manifest_path: str | os.PathLike[str],
+    status: str,
+    **extra: Any,
+) -> None:
+    """Record that the primitive lifecycle manifest was updated."""
+    manifest_path_str = os.fspath(manifest_path)
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    log_event(
+        "primitive_manifest",
+        source=source,
+        manifest_path=manifest_path_str,
+        status=status,
+        **extra,
+    )
+    emit_shadow_event(
+        "PrimitiveManifestUpdated",
+        actor=_detect_caller(),
+        artifact=manifest_path_str,
+        cycle_id=extra.get("cycle_id"),
+        payload={
+            "source": source,
+            "status": status,
+            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+        },
+    )
+
+
 def log_primitive_call(
     source: str,
     *,
@@ -648,7 +812,12 @@ def log_operator_correction(
 __all__ = [
     "log_event",
     "log_llm_call",
+    "log_primitive_contract_written",
     "log_primitive_call",
+    "log_primitive_manifest_updated",
+    "log_primitive_materialized",
+    "log_primitive_missing",
+    "log_primitive_probe_completed",
     "time_primitive",
     "log_workflow_transition",
     "log_resolution",

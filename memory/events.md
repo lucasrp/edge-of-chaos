@@ -182,6 +182,100 @@ Represents one rendered artifact produced by `edge-render`.
 
 Represents one `edge-doctor` verification fact during fresh install or post-install validation.
 
+### `PrimitiveMissingObserved`
+
+```json
+{
+  "type": "PrimitiveMissingObserved",
+  "payload": {
+    "source": "overleaf",
+    "operation": "search",
+    "exit_code": 127,
+    "detail": "primitive 'overleaf' returned exit 127"
+  }
+}
+```
+
+Represents the runtime moment where a declared primitive was needed but not yet materialized.
+
+### `PrimitiveOperationMissingObserved`
+
+```json
+{
+  "type": "PrimitiveOperationMissingObserved",
+  "payload": {
+    "source": "overleaf",
+    "operation": "write",
+    "exit_code": 77,
+    "detail": "write operation not implemented yet"
+  }
+}
+```
+
+Represents a partial primitive that exists, but still lacks the requested operation.
+
+### `PrimitiveContractWritten`
+
+```json
+{
+  "type": "PrimitiveContractWritten",
+  "artifact": "~/ed/libexec/ed/overleaf.meta.yaml",
+  "payload": {
+    "source": "overleaf",
+    "status": "contract-only",
+    "hash": "sha256:..."
+  }
+}
+```
+
+Represents the contract-writing step before implementation.
+
+### `PrimitiveMaterialized`
+
+```json
+{
+  "type": "PrimitiveMaterialized",
+  "artifact": "~/ed/libexec/ed/overleaf",
+  "payload": {
+    "source": "overleaf",
+    "hash": "sha256:..."
+  }
+}
+```
+
+Represents the executable becoming real and runnable.
+
+### `PrimitiveProbeCompleted`
+
+```json
+{
+  "type": "PrimitiveProbeCompleted",
+  "payload": {
+    "source": "overleaf",
+    "command": ["~/ed/libexec/ed/overleaf", "--query", "test"],
+    "exit_code": 0,
+    "ok": true
+  }
+}
+```
+
+Represents the validation probe after contract or materialization.
+
+### `PrimitiveManifestUpdated`
+
+```json
+{
+  "type": "PrimitiveManifestUpdated",
+  "artifact": "~/ed/state/sources-manifest.yaml",
+  "payload": {
+    "source": "overleaf",
+    "status": "active"
+  }
+}
+```
+
+Represents the mutation of `state/sources-manifest.yaml`, which is the durable lifecycle index for materialized primitives.
+
 ## Projection Inputs
 
 The first projections depend on this subset:

@@ -321,7 +321,7 @@ def phase_dirs(cfg, dry_run):
         edge / "reports", edge / "meta-reports", edge / "logs",
         edge / "notes", edge / "threads", edge / "state",
         edge / "state" / "signals", edge / "state-snapshots", edge / "scratchpads",
-        edge / "secrets", edge / "search",
+        edge / "secrets", edge / "search", edge / "libexec" / cfg["codename"],
         edge / "health" / "raw", edge / "health" / "last_success",
         edge / "autonomy", edge / "config", edge / "templates",
         Path.home() / ".claude",
@@ -1518,6 +1518,18 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
             "[]\n",
             phase="seed",
             source_template="generated:seed:dispatch-queue",
+            dry_run=False,
+        )
+        seeded += 1
+
+    # --- state/sources-manifest.yaml ---
+    sources_manifest = edge / "state" / "sources-manifest.yaml"
+    if not sources_manifest.exists():
+        _write_text(
+            sources_manifest,
+            yaml.safe_dump({"version": 1, "sources": []}, allow_unicode=True, sort_keys=False),
+            phase="seed",
+            source_template="generated:seed:sources-manifest",
             dry_run=False,
         )
         seeded += 1
