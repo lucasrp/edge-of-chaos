@@ -28,7 +28,7 @@
   </div>
 
   <!-- Epistemic + steering (claims/strategy/proposals/lineage) -->
-  <div hx-get="/partials/epistemics" hx-trigger="every 120s" hx-swap="innerHTML">
+  <div id="dashboard-epistemics" hx-get="/partials/epistemics" hx-trigger="every 120s" hx-swap="innerHTML">
     {% include 'partials/epistemics.html' %}
   </div>
 
@@ -140,6 +140,14 @@ function refreshDashboardInterventions() {
   }
 }
 
+function refreshDashboardEpistemics() {
+  if (window.htmx) {
+    htmx.ajax('GET', '/partials/epistemics', {target: '#dashboard-epistemics', swap: 'innerHTML'});
+  } else {
+    location.reload();
+  }
+}
+
 function taskAction(taskId, action, btn) {
   if (!action) return;
 
@@ -165,6 +173,43 @@ function taskAction(taskId, action, btn) {
       refreshDashboardInterventions();
     } else {
       r.json().then(function(d) { alert(d.error || 'Task action failed'); });
+    }
+  }).catch(function() {
+    alert('Network error');
+  }).finally(function() {
+    if (btn) btn.disabled = false;
+  });
+}
+
+function steeringAction(targetType, targetId, action, label, reference, btn, valuePrompt) {
+  if (!targetType || !targetId || !action) return;
+
+  var reason = window.prompt('rationale for ' + action + ' on ' + label + '?');
+  if (reason === null || !reason.trim()) return;
+
+  var payload = {
+    action: action,
+    reason: reason.trim(),
+    label: label,
+    reference: reference || ''
+  };
+
+  if (valuePrompt) {
+    var value = window.prompt(valuePrompt);
+    if (value === null) return;
+    if (value.trim()) payload.value = value.trim();
+  }
+
+  if (btn) btn.disabled = true;
+  fetch('/api/steering/' + encodeURIComponent(targetType) + '/' + encodeURIComponent(targetId) + '/action', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(r) {
+    if (r.ok) {
+      refreshDashboardEpistemics();
+    } else {
+      r.json().then(function(d) { alert(d.error || 'Steering action failed'); });
     }
   }).catch(function() {
     alert('Network error');
