@@ -180,7 +180,7 @@ function sendDashChat() {
   fetch('/api/chat', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action: 'add', author: 'operator', text: text})
+    body: JSON.stringify({action: 'add', author: 'user', text: text})
   }).then(function(r) {
     if (r.ok) {
       input.value = '';
