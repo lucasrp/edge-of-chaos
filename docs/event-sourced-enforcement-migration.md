@@ -174,7 +174,12 @@ Purpose:
 - replace bespoke checks in `edge-doctor`
 - explain drift instead of merely detecting symptoms
 
-This projection should land after the dispatch and pipeline projections, not before them.
+Current implementation path:
+
+- `tools/rollup-render-install-drift.py` builds `state/render-install-drift.json`
+- `edge-doctor` reads that projection in advisory mode
+
+This remains advisory. It makes drift legible before any install-time gate exists.
 
 ## Rollout Plan
 
