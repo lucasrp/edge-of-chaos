@@ -88,6 +88,22 @@ def default_binary_path(source: str) -> Path:
     return LIBEXEC_DIR / source
 
 
+def refresh_status_snapshot() -> None:
+    tool = SCRIPT_DIR / "edge-primitives"
+    if not tool.exists():
+        return
+    try:
+        subprocess.run(
+            [sys.executable, str(tool), "status", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        return
+
+
 def cmd_missing(args: argparse.Namespace) -> int:
     detail = args.detail or (
         f"primitive '{args.source}' returned exit {args.exit_code}"
@@ -99,6 +115,7 @@ def cmd_missing(args: argparse.Namespace) -> int:
         exit_code=args.exit_code,
         detail=detail,
     )
+    refresh_status_snapshot()
     print(json.dumps({"ok": True, "source": args.source, "exit_code": args.exit_code, "detail": detail}, ensure_ascii=False))
     return 0
 
@@ -148,6 +165,7 @@ def cmd_contract(args: argparse.Namespace) -> int:
         status="contract-only",
         meta_path=str(meta_path),
     )
+    refresh_status_snapshot()
     print(json.dumps({"ok": True, "source": args.source, "meta_path": str(meta_path)}, ensure_ascii=False))
     return 0
 
@@ -189,6 +207,7 @@ def cmd_materialize(args: argparse.Namespace) -> int:
         binary_path=str(binary_path),
         meta_path=str(meta_path) if meta_path.exists() else "",
     )
+    refresh_status_snapshot()
     print(json.dumps({"ok": True, "source": args.source, "binary_path": str(binary_path)}, ensure_ascii=False))
     return 0
 
@@ -217,6 +236,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
             exit_code=result.returncode,
             detail=(result.stderr or result.stdout or "").strip()[:240],
         )
+    refresh_status_snapshot()
 
     if result.stdout:
         print(result.stdout, end="")

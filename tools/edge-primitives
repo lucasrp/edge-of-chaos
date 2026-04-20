@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""edge-primitives — read model for declared and materialized primitives.
+
+Usage:
+  edge-primitives status
+  edge-primitives status --json
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import yaml
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import (  # noqa: E402
+    EDGE_REPO_DIR,
+    LIBEXEC_DIR,
+    PRIMITIVES_STATUS_FILE,
+    SOURCE_USAGE_FILE,
+    SOURCES_MANIFEST_FILE,
+    STATE_EVENTS_FILE,
+)
+
+WINDOW_DAYS = 30
+STATUS_ORDER = {
+    "broken": 0,
+    "drifted": 1,
+    "probed": 2,
+    "active": 3,
+    "contract-only": 4,
+    "declared": 5,
+    "unknown": 6,
+}
+
+
+def _parse_ts(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _iter_jsonl(path: Path):
+    if not path.exists():
+        return
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+
+def _normalize_sources(raw_sources) -> dict[str, dict]:
+    if not raw_sources:
+        return {}
+    if not isinstance(raw_sources, list):
+        raw_sources = [raw_sources]
+    normalized: dict[str, dict] = {}
+    for src in raw_sources:
+        if isinstance(src, dict) and src.get("name"):
+            name = str(src["name"]).strip()
+            description = str(src.get("description", "")).strip()
+        elif isinstance(src, str) and src.strip():
+            name = src.strip()
+            description = ""
+        else:
+            continue
+        if not name or name.startswith("edge-"):
+            continue
+        normalized[name] = {"name": name, "description": description}
+    return normalized
+
+
+def _load_declared_sources(config_path: Path) -> dict[str, dict]:
+    if not config_path.exists():
+        return {}
+    cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    return _normalize_sources(cfg.get("sources") or [])
+
+
+def _load_manifest() -> dict[str, dict]:
+    if not SOURCES_MANIFEST_FILE.exists():
+        return {}
+    try:
+        data = yaml.safe_load(SOURCES_MANIFEST_FILE.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+    items = data.get("sources", []) if isinstance(data, dict) else []
+    manifest: dict[str, dict] = {}
+    for entry in items if isinstance(items, list) else []:
+        if isinstance(entry, dict) and entry.get("name"):
+            manifest[str(entry["name"])] = dict(entry)
+    return manifest
+
+
+def _collect_usage(now: datetime) -> dict[str, dict]:
+    cutoff = now - timedelta(days=WINDOW_DAYS)
+    usage = defaultdict(lambda: {"usage_30d": 0, "usage_ok_30d": 0, "usage_fail_30d": 0, "last_usage_ts": ""})
+    for row in _iter_jsonl(SOURCE_USAGE_FILE) or []:
+        source = row.get("source")
+        if not source:
+            continue
+        ts = _parse_ts(row.get("ts"))
+        if ts is None or ts < cutoff:
+            continue
+        if row.get("phase") != "end":
+            continue
+        bucket = usage[source]
+        bucket["usage_30d"] += 1
+        if row.get("ok") is True:
+            bucket["usage_ok_30d"] += 1
+        elif row.get("ok") is False:
+            bucket["usage_fail_30d"] += 1
+        if row.get("ts", "") > bucket["last_usage_ts"]:
+            bucket["last_usage_ts"] = row.get("ts", "")
+    return usage
+
+
+def _collect_lifecycle(now: datetime) -> dict[str, dict]:
+    cutoff = now - timedelta(days=WINDOW_DAYS)
+    lifecycle = defaultdict(
+        lambda: {
+            "last_probe_ts": "",
+            "last_probe_ok": None,
+            "last_probe_exit_code": None,
+            "last_missing_ts": "",
+            "missing_127_30d": 0,
+            "missing_77_30d": 0,
+        }
+    )
+    for event in _iter_jsonl(STATE_EVENTS_FILE) or []:
+        payload = event.get("payload") or {}
+        source = payload.get("source")
+        if not source:
+            continue
+        ts = _parse_ts(event.get("ts"))
+        bucket = lifecycle[source]
+        etype = event.get("type")
+        if etype == "PrimitiveProbeCompleted":
+            event_ts = event.get("ts", "")
+            if event_ts >= bucket["last_probe_ts"]:
+                bucket["last_probe_ts"] = event_ts
+                bucket["last_probe_ok"] = payload.get("ok")
+                bucket["last_probe_exit_code"] = payload.get("exit_code")
+        elif etype in {"PrimitiveMissingObserved", "PrimitiveOperationMissingObserved"} and ts is not None and ts >= cutoff:
+            bucket["last_missing_ts"] = max(bucket["last_missing_ts"], event.get("ts", ""))
+            if payload.get("exit_code") == 77:
+                bucket["missing_77_30d"] += 1
+            else:
+                bucket["missing_127_30d"] += 1
+    return lifecycle
+
+
+def _source_names_from_libexec() -> set[str]:
+    names: set[str] = set()
+    if not LIBEXEC_DIR.exists():
+        return names
+    for path in LIBEXEC_DIR.iterdir():
+        if path.name.startswith(".") or path.is_dir():
+            continue
+        if path.name.endswith(".meta.yaml"):
+            names.add(path.name[: -len(".meta.yaml")])
+        else:
+            names.add(path.name)
+    return names
+
+
+def _default_meta_path(name: str) -> Path:
+    return LIBEXEC_DIR / f"{name}.meta.yaml"
+
+
+def _default_binary_path(name: str) -> Path:
+    return LIBEXEC_DIR / name
+
+
+def _effective_status(
+    *,
+    declared: bool,
+    manifest_status: str,
+    manifest_exists: bool,
+    meta_exists: bool,
+    binary_exists: bool,
+    probe_ok: bool | None,
+) -> tuple[str, list[str]]:
+    problems: list[str] = []
+    if manifest_exists and manifest_status in {"contract-only", "active", "probed"} and not meta_exists:
+        problems.append("manifest_requires_meta")
+    if manifest_exists and manifest_status in {"active", "probed"} and not binary_exists:
+        problems.append("manifest_requires_binary")
+    if (meta_exists or binary_exists) and not manifest_exists and not declared:
+        problems.append("untracked_local_artifact")
+    if binary_exists and not meta_exists and manifest_exists:
+        problems.append("binary_without_meta")
+
+    if binary_exists and probe_ok is False:
+        return "broken", problems + ["last_probe_failed"]
+    if problems:
+        return "drifted", problems
+    if binary_exists and probe_ok is True:
+        return "probed", problems
+    if binary_exists:
+        return "active", problems
+    if meta_exists or manifest_status == "contract-only":
+        return "contract-only", problems
+    if declared or manifest_status == "declared" or manifest_exists:
+        return "declared", problems
+    return "unknown", problems
+
+
+def build_status(config_path: Path) -> dict:
+    now = datetime.now(timezone.utc)
+    declared = _load_declared_sources(config_path)
+    manifest = _load_manifest()
+    usage = _collect_usage(now)
+    lifecycle = _collect_lifecycle(now)
+    all_names = set(declared) | set(manifest) | _source_names_from_libexec()
+    sources = []
+
+    for name in sorted(all_names):
+        declared_entry = declared.get(name, {})
+        manifest_entry = manifest.get(name, {})
+        manifest_status = str(manifest_entry.get("status") or "").strip()
+        meta_path = Path(manifest_entry.get("meta_path") or _default_meta_path(name))
+        binary_path = Path(manifest_entry.get("binary_path") or _default_binary_path(name))
+        meta_exists = meta_path.exists()
+        binary_exists = binary_path.exists() and not binary_path.name.endswith(".meta.yaml")
+        lifecycle_entry = lifecycle.get(name, {})
+        probe_ok = lifecycle_entry.get("last_probe_ok")
+        effective_status, problems = _effective_status(
+            declared=name in declared,
+            manifest_status=manifest_status,
+            manifest_exists=bool(manifest_entry),
+            meta_exists=meta_exists,
+            binary_exists=binary_exists,
+            probe_ok=probe_ok,
+        )
+        sources.append(
+            {
+                "name": name,
+                "declared": name in declared,
+                "description": declared_entry.get("description") or manifest_entry.get("description", ""),
+                "description_present": bool(declared_entry.get("description") or manifest_entry.get("description")),
+                "manifest_exists": bool(manifest_entry),
+                "manifest_status": manifest_status or ("declared" if name in declared else ""),
+                "meta_path": str(meta_path),
+                "meta_exists": meta_exists,
+                "binary_path": str(binary_path),
+                "binary_exists": binary_exists,
+                "probe_status": "ok" if probe_ok is True else "fail" if probe_ok is False else "unknown",
+                "last_probe_ts": lifecycle_entry.get("last_probe_ts", ""),
+                "last_probe_exit_code": lifecycle_entry.get("last_probe_exit_code"),
+                "usage_30d": usage.get(name, {}).get("usage_30d", 0),
+                "usage_ok_30d": usage.get(name, {}).get("usage_ok_30d", 0),
+                "usage_fail_30d": usage.get(name, {}).get("usage_fail_30d", 0),
+                "last_usage_ts": usage.get(name, {}).get("last_usage_ts", ""),
+                "missing_127_30d": lifecycle_entry.get("missing_127_30d", 0),
+                "missing_77_30d": lifecycle_entry.get("missing_77_30d", 0),
+                "last_missing_ts": lifecycle_entry.get("last_missing_ts", ""),
+                "effective_status": effective_status,
+                "problems": problems,
+            }
+        )
+
+    sources.sort(key=lambda row: (STATUS_ORDER.get(row["effective_status"], 99), row["name"]))
+    counts = Counter(row["effective_status"] for row in sources)
+    broken_total = counts.get("broken", 0)
+    drifted_total = counts.get("drifted", 0)
+    summary = {
+        "generated_at": now.isoformat(),
+        "window_days": WINDOW_DAYS,
+        "declared_total": sum(1 for row in sources if row["declared"]),
+        "description_present_total": sum(1 for row in sources if row["description_present"]),
+        "manifest_total": sum(1 for row in sources if row["manifest_exists"]),
+        "meta_total": sum(1 for row in sources if row["meta_exists"]),
+        "binary_total": sum(1 for row in sources if row["binary_exists"]),
+        "declared_only_total": counts.get("declared", 0),
+        "contract_only_total": counts.get("contract-only", 0),
+        "active_total": counts.get("active", 0),
+        "probed_total": counts.get("probed", 0),
+        "broken_total": broken_total,
+        "drifted_total": drifted_total,
+        "missing_127_30d_total": sum(row["missing_127_30d"] for row in sources),
+        "missing_77_30d_total": sum(row["missing_77_30d"] for row in sources),
+        "usage_30d_total": sum(row["usage_30d"] for row in sources),
+        "counts_by_effective_status": dict(sorted(counts.items(), key=lambda item: (STATUS_ORDER.get(item[0], 99), item[0]))),
+        "health_status": "fail" if broken_total else "degraded" if drifted_total else "ok",
+    }
+    payload = {
+        "generated_at": now.isoformat(),
+        "config_path": str(config_path),
+        "repo_root": str(EDGE_REPO_DIR),
+        "state_root": str(PRIMITIVES_STATUS_FILE.parent.parent),
+        "output_path": str(PRIMITIVES_STATUS_FILE),
+        "summary": summary,
+        "sources": sources,
+    }
+    PRIMITIVES_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PRIMITIVES_STATUS_FILE.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return payload
+
+
+def print_human(payload: dict) -> None:
+    summary = payload["summary"]
+    print(
+        "primitives:"
+        f" declared={summary['declared_total']}"
+        f" contract_only={summary['contract_only_total']}"
+        f" active={summary['active_total']}"
+        f" probed={summary['probed_total']}"
+        f" broken={summary['broken_total']}"
+        f" drifted={summary['drifted_total']}"
+        f" health={summary['health_status']}"
+    )
+    for row in payload["sources"]:
+        print(
+            f"{row['name']:24} "
+            f"{row['effective_status']:14} "
+            f"manifest={row['manifest_status'] or '-':14} "
+            f"meta={'yes' if row['meta_exists'] else 'no':3} "
+            f"bin={'yes' if row['binary_exists'] else 'no':3} "
+            f"probe={row['probe_status']:7} "
+            f"usage30d={row['usage_30d']}"
+        )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Status read model for declared and materialized primitives")
+    parser.add_argument("command", nargs="?", default="status", choices=["status"])
+    parser.add_argument("--config", default=str(EDGE_REPO_DIR / "agent.yaml"))
+    parser.add_argument("--json", action="store_true", help="Print JSON payload instead of a human table")
+    args = parser.parse_args()
+
+    payload = build_status(Path(args.config).expanduser())
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        print_human(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
