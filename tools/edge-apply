@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -19,7 +20,8 @@ import re
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -39,6 +41,202 @@ YELLOW = "\033[33m"
 RED = "\033[31m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
+
+
+def _repo_relative(path: Path | str) -> str:
+    path_obj = Path(path)
+    try:
+        return str(path_obj.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path_obj)
+
+
+def _hash_text(content: str) -> str:
+    return f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
+
+
+def _hash_path(path: Path) -> str | None:
+    try:
+        if path.is_symlink():
+            target = os.readlink(path)
+            return f"sha256:{hashlib.sha256(target.encode('utf-8')).hexdigest()}"
+        if path.is_file():
+            return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+    except OSError:
+        return None
+    return None
+
+
+def _ensure_install_context(cfg: dict) -> str:
+    os.environ.setdefault("EDGE_CODENAME", str(cfg.get("codename", "agent")))
+    os.environ.setdefault("EDGE_STATE_DIR", str(cfg.get("edge_home_expanded", REPO_ROOT)))
+    cycle_id = os.environ.get("EDGE_CYCLE_ID")
+    if cycle_id:
+        return cycle_id
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    cycle_id = f"install:{cfg.get('codename', 'agent')}:{stamp}-{uuid.uuid4().hex[:6]}"
+    os.environ["EDGE_CYCLE_ID"] = cycle_id
+    return cycle_id
+
+
+def _log_install_applied(
+    artifact: Path | str,
+    *,
+    source_template: str,
+    action: str,
+    kind: str,
+    hash_value: str | None = None,
+    phase: str,
+    dry_run: bool,
+    **extra,
+) -> None:
+    from telemetry import log_install_applied
+
+    log_install_applied(
+        str(artifact),
+        source_template=source_template,
+        action=action,
+        kind=kind,
+        hash_value=hash_value,
+        dry_run=dry_run,
+        phase=phase,
+        **extra,
+    )
+
+
+def _ensure_dir(path: Path, *, phase: str, dry_run: bool, source_template: str = "generated:mkdir") -> None:
+    if dry_run:
+        return
+    created = not path.exists()
+    path.mkdir(parents=True, exist_ok=True)
+    _log_install_applied(
+        path,
+        source_template=source_template,
+        action="mkdir",
+        kind="directory",
+        hash_value=None,
+        phase=phase,
+        dry_run=False,
+        created=created,
+    )
+
+
+def _copy_file(
+    src: Path,
+    dst: Path,
+    *,
+    phase: str,
+    dry_run: bool,
+    chmod: int | None = None,
+) -> None:
+    if dry_run:
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    if chmod is not None:
+        dst.chmod(chmod)
+    _log_install_applied(
+        dst,
+        source_template=_repo_relative(src),
+        action="copy",
+        kind="file",
+        hash_value=_hash_path(dst),
+        phase=phase,
+        dry_run=False,
+        executable=bool(chmod),
+    )
+
+
+def _copy_tree(
+    src: Path,
+    dst: Path,
+    *,
+    phase: str,
+    dry_run: bool,
+) -> None:
+    if dry_run:
+        return
+    shutil.copytree(src, dst, dirs_exist_ok=True)
+    _log_install_applied(
+        dst,
+        source_template=_repo_relative(src),
+        action="copytree",
+        kind="directory",
+        hash_value=None,
+        phase=phase,
+        dry_run=False,
+        recursive=True,
+    )
+
+
+def _write_text(
+    dst: Path,
+    content: str,
+    *,
+    phase: str,
+    source_template: str,
+    dry_run: bool,
+    chmod: int | None = None,
+    encoding: str = "utf-8",
+) -> None:
+    if dry_run:
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(content, encoding=encoding)
+    if chmod is not None:
+        dst.chmod(chmod)
+    _log_install_applied(
+        dst,
+        source_template=source_template,
+        action="write",
+        kind="file",
+        hash_value=_hash_text(content),
+        phase=phase,
+        dry_run=False,
+        executable=bool(chmod),
+    )
+
+
+def _write_json(
+    dst: Path,
+    payload: dict | list,
+    *,
+    phase: str,
+    source_template: str,
+    dry_run: bool,
+) -> None:
+    _write_text(
+        dst,
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        phase=phase,
+        source_template=source_template,
+        dry_run=dry_run,
+    )
+
+
+def _symlink_path(
+    link: Path,
+    target: Path,
+    *,
+    phase: str,
+    dry_run: bool,
+    source_template: str,
+) -> None:
+    if dry_run:
+        return
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.unlink(missing_ok=True)
+    link.symlink_to(target)
+    _log_install_applied(
+        link,
+        source_template=source_template,
+        action="symlink",
+        kind="symlink",
+        hash_value=_hash_path(link),
+        phase=phase,
+        dry_run=False,
+        target=str(target),
+    )
 
 
 def _reprefix(content: str, prefix: str) -> str:
@@ -129,8 +327,7 @@ def phase_dirs(cfg, dry_run):
         Path.home() / ".claude",
     ]
     for d in dirs:
-        if not dry_run:
-            d.mkdir(parents=True, exist_ok=True)
+        _ensure_dir(d, phase="dirs", dry_run=dry_run)
     ok(f"{len(dirs)} directories created")
     return True
 
@@ -154,12 +351,12 @@ def phase_skills(cfg, dry_run):
         if skill_dir.name == "_shared":
             dst = skills_dst / "_shared"
             if not dry_run:
-                dst.mkdir(parents=True, exist_ok=True)
+                _ensure_dir(dst, phase="skills", dry_run=False, source_template="skills/_shared")
                 for f in skill_dir.glob("*.md"):
                     target_f = dst / f.name
                     if target_f.exists() and os.path.samefile(f, target_f):
                         continue
-                    shutil.copy2(f, target_f)
+                    _copy_file(f, target_f, phase="skills", dry_run=False)
             ok(f"_shared/ ({len(list(skill_dir.glob('*.md')))} files)")
             continue
 
@@ -171,10 +368,16 @@ def phase_skills(cfg, dry_run):
         if dry_run:
             print(f"  [DRY] {skill_dir.name} → {prefix}-{skill_dir.name}")
         else:
-            target.mkdir(parents=True, exist_ok=True)
+            _ensure_dir(target, phase="skills", dry_run=False, source_template=_repo_relative(skill_dir))
             content = skill_file.read_text()
             content = _reprefix(content, prefix)
-            (target / "SKILL.md").write_text(content)
+            _write_text(
+                target / "SKILL.md",
+                content,
+                phase="skills",
+                source_template=_repo_relative(skill_file),
+                dry_run=False,
+            )
         installed += 1
 
     # Install rendered heartbeat skill (from templates/)
@@ -184,10 +387,16 @@ def phase_skills(cfg, dry_run):
     if hb_rendered.exists():
         hb_dst = skills_dst / f"{prefix}-heartbeat" / "SKILL.md"
         if not dry_run:
-            hb_dst.parent.mkdir(parents=True, exist_ok=True)
+            _ensure_dir(hb_dst.parent, phase="skills", dry_run=False, source_template=_repo_relative(hb_rendered.parent))
             content = hb_rendered.read_text()
             content = _reprefix(content, prefix)
-            hb_dst.write_text(content)
+            _write_text(
+                hb_dst,
+                content,
+                phase="skills",
+                source_template=_repo_relative(hb_rendered),
+                dry_run=False,
+            )
         ok(f"Heartbeat skill (rendered) → {prefix}-heartbeat")
 
     ok(f"{installed} skills installed with prefix {prefix}-")
@@ -208,7 +417,7 @@ def phase_identity(cfg, dry_run):
     claude_dst = Path.home() / ".claude" / "CLAUDE.md"
     if claude_src.exists():
         if not dry_run:
-            shutil.copy2(claude_src, claude_dst)
+            _copy_file(claude_src, claude_dst, phase="identity", dry_run=False)
         ok(f"CLAUDE.md → {claude_dst}")
     elif dry_run:
         ok(f"[DRY] CLAUDE.md → {claude_dst} (will be generated by render)")
@@ -226,8 +435,8 @@ def phase_identity(cfg, dry_run):
         for f in config_files:
             src = config_src / f
             if src.exists() and not dry_run:
-                config_dst.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, config_dst / f)
+                _ensure_dir(config_dst, phase="identity", dry_run=False, source_template=_repo_relative(config_src))
+                _copy_file(src, config_dst / f, phase="identity", dry_run=False)
         ok(f"Config → {config_dst}")
     else:
         ok("Config: repo = edge_home (in-place)")
@@ -241,8 +450,8 @@ def phase_identity(cfg, dry_run):
         src = REPO_ROOT / "memory" / f
         dst = mem_dst / f
         if src.exists() and not dst.exists() and not dry_run:
-            mem_dst.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            _ensure_dir(mem_dst, phase="identity", dry_run=False, source_template="memory")
+            _copy_file(src, dst, phase="identity", dry_run=False)
             created += 1
     ok(f"Memory: {created} new (existing preserved) → {mem_dst}")
 
@@ -251,22 +460,22 @@ def phase_identity(cfg, dry_run):
         src = REPO_ROOT / "templates" / onb
         dst = edge / onb
         if src.exists() and not dst.exists() and not dry_run:
-            shutil.copy2(src, dst)
+            _copy_file(src, dst, phase="identity", dry_run=False)
     for tmpl in ["quick_win_archetypes.md", "self_intro_template.md"]:
         src = REPO_ROOT / "templates" / tmpl
         dst = edge / "templates" / tmpl
         if src.exists() and not dry_run:
             if src.resolve() != dst.resolve():
-                (edge / "templates").mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dst)
+                _ensure_dir(edge / "templates", phase="identity", dry_run=False, source_template="templates")
+                _copy_file(src, dst, phase="identity", dry_run=False)
     ok("Onboarding templates copied")
 
     # Health config → edge_home/health/config.yaml (from rendered template)
     health_config_src = REPO_ROOT / "config" / "health-config.yaml"
     health_config_dst = edge / "health" / "config.yaml"
     if health_config_src.exists() and not dry_run:
-        (edge / "health").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(health_config_src, health_config_dst)
+        _ensure_dir(edge / "health", phase="identity", dry_run=False, source_template="config")
+        _copy_file(health_config_src, health_config_dst, phase="identity", dry_run=False)
         ok(f"Health config → {health_config_dst}")
     elif not health_config_src.exists():
         warn("health-config.yaml not found — run edge-render first")
@@ -276,9 +485,9 @@ def phase_identity(cfg, dry_run):
     auto_dst = edge / "autonomy"
     if auto_src.exists() and auto_src.resolve() != auto_dst.resolve():
         if not dry_run:
-            auto_dst.mkdir(parents=True, exist_ok=True)
+            _ensure_dir(auto_dst, phase="identity", dry_run=False, source_template=_repo_relative(auto_src))
             for f in auto_src.glob("*.md"):
-                shutil.copy2(f, auto_dst / f.name)
+                _copy_file(f, auto_dst / f.name, phase="identity", dry_run=False)
         ok("Autonomy files copied")
 
     # Seed missing state files (frontier.md, breaks-active.md)
@@ -289,8 +498,13 @@ def phase_identity(cfg, dry_run):
     seeded = 0
     for path, content in seed_files.items():
         if not path.exists() and not dry_run:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content)
+            _write_text(
+                path,
+                content,
+                phase="identity",
+                source_template=f"generated:identity:{path.name}",
+                dry_run=False,
+            )
             seeded += 1
     if seeded:
         ok(f"{seeded} state files seeded (frontier.md, breaks-active.md)")
@@ -321,9 +535,8 @@ def phase_hooks(cfg, dry_run):
         print(f"  [DRY] patch ~/.claude/settings.json PreToolUse hook")
         return True
 
-    hooks_dst.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(hook_src, hook_dst)
-    hook_dst.chmod(0o755)
+    _ensure_dir(hooks_dst, phase="hooks", dry_run=False, source_template="hooks")
+    _copy_file(hook_src, hook_dst, phase="hooks", dry_run=False, chmod=0o755)
     ok(f"Hook installed: {hook_dst}")
 
     # Patch ~/.claude/settings.json — add PreToolUse hook for Write/Edit/NotebookEdit
@@ -354,7 +567,13 @@ def phase_hooks(cfg, dry_run):
             "matcher": "Write|Edit|NotebookEdit",
             "hooks": [{"type": "command", "command": hook_cmd}],
         })
-        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+        _write_json(
+            settings_path,
+            settings,
+            phase="hooks",
+            source_template="generated:hooks:settings",
+            dry_run=False,
+        )
         ok("PreToolUse hook registered in ~/.claude/settings.json")
     else:
         ok("PreToolUse hook already registered — no change")
@@ -379,16 +598,15 @@ def phase_venv(cfg, dry_run, skip_venv=False):
     if blog_src.resolve() != blog_dst.resolve():
         if not dry_run:
             for f in blog_src.glob("*.py"):
-                shutil.copy2(f, blog_dst / f.name)
+                _copy_file(f, blog_dst / f.name, phase="blog_venv", dry_run=False)
             for f in blog_src.glob("*.sh"):
                 dst = blog_dst / f.name
-                shutil.copy2(f, dst)
-                dst.chmod(0o755)
+                _copy_file(f, dst, phase="blog_venv", dry_run=False, chmod=0o755)
             for d in ["templates", "static"]:
                 src_d = blog_src / d
                 dst_d = blog_dst / d
                 if src_d.exists():
-                    shutil.copytree(src_d, dst_d, dirs_exist_ok=True)
+                    _copy_tree(src_d, dst_d, phase="blog_venv", dry_run=False)
         ok("Blog files copied")
     else:
         ok("Blog: repo = edge_home (in-place)")
@@ -414,6 +632,16 @@ def phase_venv(cfg, dry_run, skip_venv=False):
         fail(f"pip install failed: {result.stderr.strip()}")
         return False
 
+    _log_install_applied(
+        venv_dir,
+        source_template="command:python3 -m venv",
+        action="create",
+        kind="venv",
+        hash_value=_hash_path(venv_dir / "bin" / "python3"),
+        phase="blog_venv",
+        dry_run=False,
+        package_set="flask,flask-compress,markdown,pyyaml,sqlite-vec,openai",
+    )
     ok("venv created + deps installed")
     return True
 
@@ -457,6 +685,15 @@ def phase_tools_venv(cfg, dry_run, skip_venv=False):
         if result.returncode != 0:
             fail(f"pip install failed: {result.stderr.strip()}")
             return False
+        _log_install_applied(
+            venv_dir,
+            source_template=_repo_relative(reqs),
+            action="create",
+            kind="venv",
+            hash_value=_hash_path(venv_dir / "bin" / "python3"),
+            phase="tools_venv",
+            dry_run=False,
+        )
 
     # Shebangs stay as #!/usr/bin/env python3 (portable).
     # The ~/.local/bin/ wrappers handle venv activation per instance.
@@ -486,7 +723,7 @@ def phase_systemd(cfg, dry_run):
     }
 
     if not dry_run:
-        service_dir.mkdir(parents=True, exist_ok=True)
+        _ensure_dir(service_dir, phase="systemd", dry_run=False, source_template="systemd")
 
     for src_name, dst_name in units.items():
         src = REPO_ROOT / "systemd" / src_name
@@ -495,7 +732,7 @@ def phase_systemd(cfg, dry_run):
             src = REPO_ROOT / "systemd" / (src_name + ".tpl")
         if src.exists():
             if not dry_run:
-                shutil.copy2(src, service_dir / dst_name)
+                _copy_file(src, service_dir / dst_name, phase="systemd", dry_run=False)
             ok(dst_name)
         else:
             warn(f"{src_name} not found")
@@ -506,9 +743,8 @@ def phase_systemd(cfg, dry_run):
         hb_src = REPO_ROOT / "config" / "heartbeat.sh.tpl"  # fallback to template
     local_bin = Path.home() / ".local" / "bin"
     if hb_src.exists() and not dry_run:
-        local_bin.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(hb_src, local_bin / "heartbeat.sh")
-        (local_bin / "heartbeat.sh").chmod(0o755)
+        _ensure_dir(local_bin, phase="systemd", dry_run=False, source_template="config")
+        _copy_file(hb_src, local_bin / "heartbeat.sh", phase="systemd", dry_run=False, chmod=0o755)
         ok("heartbeat.sh → ~/.local/bin/")
     elif not hb_src.exists():
         warn("config/heartbeat.sh not found")
@@ -536,8 +772,8 @@ def phase_tools(cfg, dry_run):
         return True
 
     if not dry_run:
-        tools_dst.mkdir(parents=True, exist_ok=True)
-        local_bin.mkdir(parents=True, exist_ok=True)
+        _ensure_dir(tools_dst, phase="tools", dry_run=False, source_template="tools")
+        _ensure_dir(local_bin, phase="tools", dry_run=False, source_template="generated:local-bin")
 
     # Copy tools (if repo != edge_home)
     count = 0
@@ -547,7 +783,7 @@ def phase_tools(cfg, dry_run):
                 continue
             if not dry_run:
                 dst = tools_dst / tool.name
-                shutil.copy2(tool, dst)
+                _copy_file(tool, dst, phase="tools", dry_run=False)
                 dst.chmod(0o755)
             count += 1
         ok(f"{count} tools copied → {tools_dst}")
@@ -561,8 +797,9 @@ def phase_tools(cfg, dry_run):
         ok(f"Tools: repo = edge_home (in-place, {count} tools)")
 
     # Symlink ALL tools to ~/.local/bin/ (not just a hardcoded list)
+    tool_iter_root = tools_dst if tools_dst.exists() else tools_src
     linked = 0
-    for tool in tools_dst.iterdir():
+    for tool in tool_iter_root.iterdir():
         if tool.name.startswith(".") or tool.name.startswith("__") or tool.is_dir():
             continue
         if tool.suffix in (".md", ".yaml", ".yml", ".txt", ".css", ".svg", ".json"):
@@ -576,34 +813,55 @@ def phase_tools(cfg, dry_run):
             # Bash/other tools get a plain symlink.
             venv_python = tools_dst / ".venv" / "bin" / "python3"
             if tool.suffix == ".py" or _file_starts_with(tool, "#!/usr/bin/env python3"):
-                link.write_text(
+                _write_text(
+                    link,
                     '#!/bin/bash\n'
                     f'exec "{venv_python}" "{tool.resolve()}" "$@"\n'
+                    ,
+                    phase="tools",
+                    source_template=f"generated:tool-wrapper:{tool.name}",
+                    dry_run=False,
+                    chmod=0o755,
                 )
-                link.chmod(0o755)
             else:
-                link.symlink_to(tool.resolve())
+                _symlink_path(
+                    link,
+                    tool.resolve(),
+                    phase="tools",
+                    dry_run=False,
+                    source_template=_repo_relative(tool),
+                )
             linked += 1
     # Create hyphenated aliases for tools with underscores (validate_svg → validate-svg)
     venv_python = tools_dst / ".venv" / "bin" / "python3"
-    for tool in tools_dst.iterdir():
+    for tool in tool_iter_root.iterdir():
         if tool.is_file() and "_" in tool.stem and tool.suffix == ".py":
             alias_name = tool.stem.replace("_", "-")
             alias = local_bin / alias_name
             if not alias.exists() and not dry_run:
-                alias.write_text(
+                _write_text(
+                    alias,
                     '#!/bin/bash\n'
                     f'exec "{venv_python}" "{tool.resolve()}" "$@"\n'
+                    ,
+                    phase="tools",
+                    source_template=f"generated:tool-alias:{tool.name}",
+                    dry_run=False,
+                    chmod=0o755,
                 )
-                alias.chmod(0o755)
                 linked += 1
 
     # Also link consolidate-state from blog/
     cs = edge / "blog" / "consolidate-state.sh"
     if cs.exists() and not dry_run:
         link = local_bin / "consolidate-state"
-        link.unlink(missing_ok=True)
-        link.symlink_to(cs.resolve())
+        _symlink_path(
+            link,
+            cs.resolve(),
+            phase="tools",
+            dry_run=False,
+            source_template=str(cs),
+        )
         linked += 1
     ok(f"{linked} symlinks in ~/.local/bin/")
 
@@ -612,9 +870,9 @@ def phase_tools(cfg, dry_run):
     search_dst = edge / "search"
     if search_src.exists() and search_src.resolve() != search_dst.resolve():
         if not dry_run:
-            search_dst.mkdir(parents=True, exist_ok=True)
+            _ensure_dir(search_dst, phase="tools", dry_run=False, source_template=_repo_relative(search_src))
             for f in search_src.glob("*.py"):
-                shutil.copy2(f, search_dst / f.name)
+                _copy_file(f, search_dst / f.name, phase="tools", dry_run=False)
         ok("Search tools copied")
 
     # Create search venv (sqlite-vec, openai for embeddings)
@@ -628,6 +886,15 @@ def phase_tools(cfg, dry_run):
             if result.returncode == 0:
                 pip = search_venv / "bin" / "pip"
                 run(f"{pip} install -q -r {search_reqs}")
+                _log_install_applied(
+                    search_venv,
+                    source_template=_repo_relative(search_reqs),
+                    action="create",
+                    kind="venv",
+                    hash_value=_hash_path(search_venv / "bin" / "python3"),
+                    phase="tools",
+                    dry_run=False,
+                )
                 ok("Search venv created")
             else:
                 warn("Search venv failed")
@@ -641,19 +908,29 @@ def phase_tools(cfg, dry_run):
             wrapper = search_dst / wrapper_name.replace("edge-", "edge-")
             # Write portable source wrapper in search/ (the canonical copy)
             src_wrapper = search_dst / wrapper_name
-            src_wrapper.write_text(
+            _write_text(
+                src_wrapper,
                 '#!/bin/bash\n'
                 'SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"\n'
                 'EDGE_DIR="$(dirname "$SCRIPT_DIR")"\n'
                 'cd "$EDGE_DIR"\n'
                 '[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a\n'
                 f'"$SCRIPT_DIR/.venv/bin/python3" "$SCRIPT_DIR/{script}" "$@"\n'
+                ,
+                phase="tools",
+                source_template=f"generated:search-wrapper:{script}",
+                dry_run=False,
+                chmod=0o755,
             )
-            src_wrapper.chmod(0o755)
             # Symlink from ~/.local/bin/ to the source wrapper
             link = local_bin / wrapper_name
-            link.unlink(missing_ok=True)
-            link.symlink_to(src_wrapper.resolve())
+            _symlink_path(
+                link,
+                src_wrapper.resolve(),
+                phase="tools",
+                dry_run=False,
+                source_template=str(src_wrapper),
+            )
         ok("edge-index + edge-search wrappers created (portable, with secrets)")
 
     # Create SQLite database if missing
@@ -696,7 +973,13 @@ def phase_tools(cfg, dry_run):
             lines = [f"{k}={keys[k]}" for k in key_names if k in keys and keys[k]]
             if lines:
                 env_file = edge / "secrets" / filename
-                env_file.write_text("\n".join(lines) + "\n")
+                _write_text(
+                    env_file,
+                    "\n".join(lines) + "\n",
+                    phase="tools",
+                    source_template="generated:keys.env",
+                    dry_run=False,
+                )
                 env_file.chmod(0o600)
                 generated += 1
         if generated:
@@ -717,14 +1000,26 @@ def phase_tools(cfg, dry_run):
             f'export PATH="$HOME/.local/bin:{tools_dir}:$PATH"',
             f'export EDGE_DIR="{edge}"',
         ]
-        edge_env.write_text("\n".join(env_lines) + "\n")
+        _write_text(
+            edge_env,
+            "\n".join(env_lines) + "\n",
+            phase="tools",
+            source_template="generated:edge-env",
+            dry_run=False,
+        )
         ok(f".edge-env written ({len(env_lines)} exports)")
 
         # Prepend sourcing to .bashrc (before non-interactive guard)
         source_line = '[ -f "$HOME/.edge-env" ] && . "$HOME/.edge-env"'
         bashrc_content = bashrc.read_text() if bashrc.exists() else ""
         if ".edge-env" not in bashrc_content:
-            bashrc.write_text(source_line + "\n" + bashrc_content)
+            _write_text(
+                bashrc,
+                source_line + "\n" + bashrc_content,
+                phase="tools",
+                source_template="generated:bashrc-edge-env",
+                dry_run=False,
+            )
             ok(".bashrc: .edge-env sourced (prepended before guard)")
         else:
             ok(".bashrc: .edge-env already sourced")
@@ -732,8 +1027,14 @@ def phase_tools(cfg, dry_run):
         # Also append to .profile for login shells
         profile_content = profile.read_text() if profile.exists() else ""
         if ".edge-env" not in profile_content:
-            with open(profile, "a") as f:
-                f.write("\n" + source_line + "\n")
+            appended_profile = profile_content + ("" if profile_content.endswith("\n") or not profile_content else "\n") + source_line + "\n"
+            _write_text(
+                profile,
+                appended_profile,
+                phase="tools",
+                source_template="generated:profile-edge-env",
+                dry_run=False,
+            )
             ok(".profile: .edge-env sourced (appended)")
         else:
             ok(".profile: .edge-env already sourced")
@@ -743,11 +1044,10 @@ def phase_tools(cfg, dry_run):
     bin_dst = edge / "bin"
     if bin_src.exists() and bin_src.resolve() != bin_dst.resolve():
         if not dry_run:
-            bin_dst.mkdir(parents=True, exist_ok=True)
+            _ensure_dir(bin_dst, phase="tools", dry_run=False, source_template=_repo_relative(bin_src))
             for f in bin_src.glob("*.sh"):
                 dst = bin_dst / f.name
-                shutil.copy2(f, dst)
-                dst.chmod(0o755)
+                _copy_file(f, dst, phase="tools", dry_run=False, chmod=0o755)
         ok("Health scripts copied")
 
     return True
@@ -802,14 +1102,21 @@ def phase_avatar(cfg, dry_run):
 
     # Write prompt to temp file to avoid shell quoting issues
     prompt_file = edge / ".avatar-prompt.txt"
-    prompt_file.write_text(prompt)
+    _write_text(
+        prompt_file,
+        prompt,
+        phase="avatar",
+        source_template="generated:avatar-prompt",
+        dry_run=False,
+    )
 
     # Write avatar generation script to temp file (avoids shell quoting issues)
     avatar_script = edge / ".avatar-gen.py"
 
     if openai_key:
         try:
-            avatar_script.write_text(
+            _write_text(
+                avatar_script,
                 f'import urllib.request, json, base64, pathlib\n'
                 f'prompt = pathlib.Path("{prompt_file}").read_text().strip()\n'
                 f'data = json.dumps({{"model": "gpt-image-1", "prompt": prompt, "n": 1, "size": "1024x1024", "quality": "low"}}).encode()\n'
@@ -821,9 +1128,22 @@ def phase_avatar(cfg, dry_run):
                 f'img_bytes = base64.b64decode(img["b64_json"]) if "b64_json" in img else urllib.request.urlopen(img["url"], timeout=30).read()\n'
                 f'pathlib.Path("{avatar_path}").write_bytes(img_bytes)\n'
                 f'print(f"OK: {{len(img_bytes)}} bytes")\n'
+                ,
+                phase="avatar",
+                source_template="generated:avatar-openai-script",
+                dry_run=False,
             )
             result = run(f'python3 "{avatar_script}"')
             if result.returncode == 0 and avatar_path.exists():
+                _log_install_applied(
+                    avatar_path,
+                    source_template="command:openai-image-generation",
+                    action="write",
+                    kind="file",
+                    hash_value=_hash_path(avatar_path),
+                    phase="avatar",
+                    dry_run=False,
+                )
                 ok(f"Avatar generated via OpenAI ({avatar_path.stat().st_size // 1024}K)")
                 generated = True
             else:
@@ -833,7 +1153,8 @@ def phase_avatar(cfg, dry_run):
 
     if not generated and xai_key:
         try:
-            avatar_script.write_text(
+            _write_text(
+                avatar_script,
                 f'import urllib.request, json, base64, pathlib\n'
                 f'prompt = pathlib.Path("{prompt_file}").read_text().strip()\n'
                 f'data = json.dumps({{"model": "grok-2-image", "prompt": prompt, "n": 1}}).encode()\n'
@@ -845,9 +1166,22 @@ def phase_avatar(cfg, dry_run):
                 f'img_bytes = base64.b64decode(img["b64_json"]) if "b64_json" in img else urllib.request.urlopen(img["url"], timeout=30).read()\n'
                 f'pathlib.Path("{avatar_path}").write_bytes(img_bytes)\n'
                 f'print(f"OK: {{len(img_bytes)}} bytes")\n'
+                ,
+                phase="avatar",
+                source_template="generated:avatar-xai-script",
+                dry_run=False,
             )
             result = run(f'python3 "{avatar_script}"')
             if result.returncode == 0 and avatar_path.exists():
+                _log_install_applied(
+                    avatar_path,
+                    source_template="command:xai-image-generation",
+                    action="write",
+                    kind="file",
+                    hash_value=_hash_path(avatar_path),
+                    phase="avatar",
+                    dry_run=False,
+                )
                 ok(f"Avatar generated via xAI ({avatar_path.stat().st_size // 1024}K)")
                 generated = True
             else:
@@ -860,6 +1194,15 @@ def phase_avatar(cfg, dry_run):
         try:
             result = run(f'curl -sL -o "{avatar_path}" "https://api.dicebear.com/9.x/bottts/png?seed={name}&size=256"')
             if result.returncode == 0 and avatar_path.exists() and avatar_path.stat().st_size > 0:
+                _log_install_applied(
+                    avatar_path,
+                    source_template="command:dicebear-avatar",
+                    action="write",
+                    kind="file",
+                    hash_value=_hash_path(avatar_path),
+                    phase="avatar",
+                    dry_run=False,
+                )
                 ok(f"Avatar generated via DiceBear fallback ({avatar_path.stat().st_size // 1024}K)")
                 generated = True
         except Exception:
@@ -1000,12 +1343,18 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
                     items = ["First boot — no execution data yet"]
             if items:
                 lines = [f"- [{now} | seed] {item}" for item in items]
-                sf.write_text("\n".join(lines) + "\n")
+                _write_text(
+                    sf,
+                    "\n".join(lines) + "\n",
+                    phase="seed",
+                    source_template=f"generated:seed:{stype}",
+                    dry_run=False,
+                )
                 seeded += 1
 
     # --- threads/ ---
     threads_dir = edge / "threads"
-    threads_dir.mkdir(parents=True, exist_ok=True)
+    _ensure_dir(threads_dir, phase="seed", dry_run=dry_run, source_template="generated:seed:threads")
     existing_threads = list(threads_dir.glob("*.md"))
     if not existing_threads and llm_seed and "threads" in llm_seed:
         for t in llm_seed["threads"]:
@@ -1015,7 +1364,8 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
             if not tid:
                 continue
             tfile = threads_dir / f"{tid}.md"
-            tfile.write_text(
+            _write_text(
+                tfile,
                 f"---\n"
                 f"id: {tid}\n"
                 f"title: {t.get('title', tid)}\n"
@@ -1024,6 +1374,10 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
                 f"updated: {today}\n"
                 f"---\n\n"
                 f"{t.get('description', '')}\n"
+                ,
+                phase="seed",
+                source_template="generated:seed:thread",
+                dry_run=False,
             )
             seeded += 1
 
@@ -1031,14 +1385,25 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
     briefing_file = edge / "briefing.md"
     if not briefing_file.exists() or briefing_file.stat().st_size == 0:
         if llm_seed and "briefing" in llm_seed:
-            briefing_file.write_text(llm_seed["briefing"] + "\n")
+            _write_text(
+                briefing_file,
+                llm_seed["briefing"] + "\n",
+                phase="seed",
+                source_template="generated:seed:briefing-llm",
+                dry_run=False,
+            )
         else:
-            briefing_file.write_text(
+            _write_text(
+                briefing_file,
                 f"# Briefing — {today}\n\n"
                 f"Day 1. Mission: {mission}\n\n"
                 f"Goal: {goal}\n\n"
                 f"No data yet. First heartbeat will populate this.\n\n"
                 f"<!-- SYNTHETIC — replace on first /ed-strategy run -->\n"
+                ,
+                phase="seed",
+                source_template="generated:seed:briefing",
+                dry_run=False,
             )
         seeded += 1
 
@@ -1058,7 +1423,13 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
             conn = i.get("connection", "") if isinstance(i, dict) else ""
             lines.append(f"| {area} | {conn} |")
         lines.append("")
-        interests_file.write_text("\n".join(lines))
+        _write_text(
+            interests_file,
+            "\n".join(lines),
+            phase="seed",
+            source_template="generated:seed:interests",
+            dry_run=False,
+        )
         seeded += 1
 
     # --- memory/reflection-log.md ---
@@ -1074,23 +1445,36 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
 
     ref_log = mem_dir / "reflection-log.md"
     if not ref_log.exists() or ref_log.stat().st_size == 0:
-        ref_log.write_text("# Reflection — Execution Log\n\n---\n\n_Initialized on install. First reflection will populate this._\n")
+        _write_text(
+            ref_log,
+            "# Reflection — Execution Log\n\n---\n\n_Initialized on install. First reflection will populate this._\n",
+            phase="seed",
+            source_template="generated:seed:reflection-log",
+            dry_run=False,
+        )
         seeded += 1
 
     # --- discoverys.md ---
     disc = edge / "discoverys.md" if (edge / "discoverys.md").exists() else edge / "memory" / "discoverys.md"
     if not disc.exists() or disc.stat().st_size < 20:
         disc = edge / "discoverys.md"
-        disc.write_text(f"# Discoveries — Registry\n\n---\n\n_No discoveries yet. First heartbeat will start exploring._\n")
+        _write_text(
+            disc,
+            "# Discoveries — Registry\n\n---\n\n_No discoveries yet. First heartbeat will start exploring._\n",
+            phase="seed",
+            source_template="generated:seed:discoveries",
+            dry_run=False,
+        )
         seeded += 1
 
     # --- welcome blog entry ---
     entries_dir = edge / "blog" / "entries"
-    entries_dir.mkdir(parents=True, exist_ok=True)
+    _ensure_dir(entries_dir, phase="seed", dry_run=dry_run, source_template="generated:seed:entries")
     existing_entries = list(entries_dir.glob("*.md"))
     if not existing_entries:
         welcome = entries_dir / f"{today}-welcome.md"
-        welcome.write_text(
+        _write_text(
+            welcome,
             f"---\n"
             f"title: \"{name} is setting up\"\n"
             f"date: {today}\n"
@@ -1103,6 +1487,10 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
             f"I just came online. My mission: {mission}\n\n"
             f"The first heartbeat will run soon — or you can trigger it manually with `claude -p '/{cfg.get('skill_prefix', 'ed')}-heartbeat'`.\n\n"
             f"Until then, I'm here. Waiting.\n"
+            ,
+            phase="seed",
+            source_template="generated:seed:welcome-entry",
+            dry_run=False,
         )
         seeded += 1
 
@@ -1113,13 +1501,25 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
         steps = []
         for i, step in enumerate(first_steps):
             steps.append({"id": i + 1, "task": step.strip(), "status": "pending"})
-        fs_file.write_text(json.dumps(steps, indent=2, ensure_ascii=False) + "\n")
+        _write_json(
+            fs_file,
+            steps,
+            phase="seed",
+            source_template="generated:seed:first-steps",
+            dry_run=False,
+        )
         seeded += 1
 
     # --- state/dispatch-queue.json (empty queue for inter-beat signaling) ---
     dq_file = edge / "state" / "dispatch-queue.json"
     if not dq_file.exists():
-        dq_file.write_text("[]\n")
+        _write_text(
+            dq_file,
+            "[]\n",
+            phase="seed",
+            source_template="generated:seed:dispatch-queue",
+            dry_run=False,
+        )
         seeded += 1
 
     # --- seed workflow blog entries (static, no LLM cost) ---
@@ -1195,7 +1595,8 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
         tags_str = ", ".join(wf["tags"])
         kw_str = ", ".join(wf["keywords"])
         secrets_str = ", ".join(wf["secrets"])
-        wf_file.write_text(
+        _write_text(
+            wf_file,
             f"---\n"
             f"title: \"{wf['title']}\"\n"
             f"date: {today}\n"
@@ -1208,6 +1609,10 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
             f"cost_estimate: \"{wf['cost_estimate']}\"\n"
             f"---\n\n"
             f"{wf['body']}"
+            ,
+            phase="seed",
+            source_template=f"generated:seed:{wf['slug']}",
+            dry_run=False,
         )
         wf_created += 1
     if wf_created:
@@ -1255,7 +1660,7 @@ def phase_routines(cfg, dry_run):
 
     edge = Path(cfg["edge_home_expanded"])
     entries_dir = edge / "blog" / "entries"
-    entries_dir.mkdir(parents=True, exist_ok=True)
+    _ensure_dir(entries_dir, phase="routines", dry_run=dry_run, source_template="generated:routines:entries")
     today = datetime.now().strftime("%Y-%m-%d")
 
     # Index existing entries by source_hash (from frontmatter) to detect
@@ -1319,13 +1724,19 @@ def phase_routines(cfg, dry_run):
             date_str=today,
             provider=provider or "unknown",
         )
-        entry_path.write_text(markdown, encoding="utf-8")
+        _write_text(
+            entry_path,
+            markdown,
+            phase="routines",
+            source_template=f"generated:routine:{h}",
+            dry_run=False,
+        )
         rendered += 1
 
     # Write defer file if any routines couldn't be rendered
     pending_file = edge / "state" / "pending-routines.yaml"
     if deferred:
-        pending_file.parent.mkdir(parents=True, exist_ok=True)
+        _ensure_dir(pending_file.parent, phase="routines", dry_run=False, source_template="generated:routines:pending")
         # If pending file exists, merge (avoid duplicates by hash)
         existing_pending = []
         if pending_file.exists():
@@ -1337,9 +1748,12 @@ def phase_routines(cfg, dry_run):
         for d in deferred:
             if d["source_hash"] not in existing_hashes:
                 existing_pending.append(d)
-        pending_file.write_text(
+        _write_text(
+            pending_file,
             yaml.safe_dump(existing_pending, allow_unicode=True, sort_keys=False),
-            encoding="utf-8",
+            phase="routines",
+            source_template="generated:routines:pending",
+            dry_run=False,
         )
         warn(
             f"{len(deferred)} routine(s) deferred to {pending_file.relative_to(edge)} — "
@@ -1354,9 +1768,12 @@ def phase_routines(cfg, dry_run):
             rendered_hashes = {source_hash(r) for r in routines}
             remaining = [d for d in existing_pending if isinstance(d, dict) and d.get("source_hash") not in rendered_hashes]
             if remaining:
-                pending_file.write_text(
+                _write_text(
+                    pending_file,
                     yaml.safe_dump(remaining, allow_unicode=True, sort_keys=False),
-                    encoding="utf-8",
+                    phase="routines",
+                    source_template="generated:routines:pending",
+                    dry_run=False,
                 )
             else:
                 pending_file.unlink()
@@ -1392,6 +1809,9 @@ def main():
         sys.exit(1)
 
     cfg = load_config(config_path)
+    cycle_id = _ensure_install_context(cfg)
+    from telemetry import log_run_step
+
     name = cfg.get("name", "?")
     codename = cfg.get("codename", "?")
 
@@ -1403,23 +1823,80 @@ def main():
     if args.dry_run:
         print(f"  {YELLOW}[DRY RUN]{RESET}")
 
+    phase_specs = [
+        ("Render", "render", lambda: phase_render(str(config_path), args.dry_run)),
+        ("Dirs", "dirs", lambda: phase_dirs(cfg, args.dry_run)),
+        ("Skills", "skills", lambda: phase_skills(cfg, args.dry_run)),
+        ("Identity", "identity", lambda: phase_identity(cfg, args.dry_run)),
+        ("Hooks", "hooks", lambda: phase_hooks(cfg, args.dry_run)),
+        ("Blog", "blog_venv", lambda: phase_venv(cfg, args.dry_run, args.skip_venv)),
+        ("Tools venv", "tools_venv", lambda: phase_tools_venv(cfg, args.dry_run, args.skip_venv)),
+        ("Systemd", "systemd", lambda: phase_systemd(cfg, args.dry_run)),
+        ("Tools", "tools", lambda: phase_tools(cfg, args.dry_run)),
+        ("Avatar", "avatar", lambda: phase_avatar(cfg, args.dry_run)),
+        ("Seed", "seed", lambda: phase_seed(cfg, args.dry_run)),
+        ("Routines", "routines", lambda: phase_routines(cfg, args.dry_run)),
+    ]
+
     results = []
-    results.append(("Render", phase_render(str(config_path), args.dry_run)))
-    results.append(("Dirs", phase_dirs(cfg, args.dry_run)))
-    results.append(("Skills", phase_skills(cfg, args.dry_run)))
-    results.append(("Identity", phase_identity(cfg, args.dry_run)))
-    results.append(("Hooks", phase_hooks(cfg, args.dry_run)))
-    results.append(("Blog", phase_venv(cfg, args.dry_run, args.skip_venv)))
-    results.append(("Tools venv", phase_tools_venv(cfg, args.dry_run, args.skip_venv)))
-    results.append(("Systemd", phase_systemd(cfg, args.dry_run)))
-    results.append(("Tools", phase_tools(cfg, args.dry_run)))
-    results.append(("Avatar", phase_avatar(cfg, args.dry_run)))
-    results.append(("Seed", phase_seed(cfg, args.dry_run)))
-    results.append(("Routines", phase_routines(cfg, args.dry_run)))
+    log_run_step(
+        "edge-install",
+        "edge-apply",
+        "started",
+        run_id=cycle_id,
+        config=_repo_relative(config_path),
+        dry_run=args.dry_run,
+        skip_venv=args.skip_venv,
+        phase_count=len(phase_specs),
+    )
+
+    for label, phase_name, runner in phase_specs:
+        log_run_step(
+            "edge-install",
+            phase_name,
+            "started",
+            run_id=cycle_id,
+            tool="edge-apply",
+            dry_run=args.dry_run,
+        )
+        try:
+            result = runner()
+        except Exception as exc:
+            log_run_step(
+                "edge-install",
+                phase_name,
+                "failed",
+                run_id=cycle_id,
+                tool="edge-apply",
+                dry_run=args.dry_run,
+                error=str(exc),
+            )
+            raise
+        log_run_step(
+            "edge-install",
+            phase_name,
+            "completed" if result else "failed",
+            run_id=cycle_id,
+            tool="edge-apply",
+            dry_run=args.dry_run,
+        )
+        results.append((label, result))
 
     passed = sum(1 for _, r in results if r)
     failed = sum(1 for _, r in results if not r)
     color = GREEN if failed == 0 else RED
+
+    log_run_step(
+        "edge-install",
+        "edge-apply",
+        "completed" if failed == 0 else "failed",
+        run_id=cycle_id,
+        config=_repo_relative(config_path),
+        dry_run=args.dry_run,
+        skip_venv=args.skip_venv,
+        passed=passed,
+        failed=failed,
+    )
 
     print(f"\n{color}━━━  {passed}/{len(results)} phases OK  ━━━{RESET}")
 

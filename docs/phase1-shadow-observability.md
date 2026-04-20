@@ -23,6 +23,7 @@ Phase 1 captures facts from the current runtime across these surfaces:
 6. signals
 7. publication pipeline
 8. health / operator interventions
+9. fresh install / doctor verification
 
 ## Capability Map
 
@@ -124,6 +125,9 @@ These are the lowest-friction emitters available now.
 | workflow transitions | `log_workflow_transition()` | `logs/events.jsonl` | already captured through shared telemetry |
 | llm/router telemetry | `log_llm_call()` | `logs/events.jsonl` | already captured through shared telemetry |
 | state commit artifact fact | `consolidate-state` Phase 5 inline Python | `logs/events.jsonl` | indirectly captured through `edge-event` legacy artifact event |
+| render output facts | `tools/edge-render` | `logs/events.jsonl` + `state/events/log.jsonl` | dual-write `run_step` + `RenderProduced` |
+| install materialization facts | `tools/edge-apply` | `logs/events.jsonl` + `state/events/log.jsonl` | dual-write `run_step` + `InstallApplied` |
+| install verification checks | `tools/edge-doctor` | `logs/events.jsonl` + `state/events/log.jsonl` | dual-write `run_step` + `InstallCheckObserved` |
 
 ## Coverage Matrix
 
@@ -145,6 +149,9 @@ Legend:
 | workflow transitions | done | inherited from shared telemetry dual-write |
 | llm/router calls | done | inherited from shared telemetry dual-write |
 | execution attempts | done | normalized from `edge-ledger` |
+| render output facts | done | `edge-render` now dual-writes rendered artifacts as `RenderProduced` |
+| install materialization | done | `edge-apply` now emits `InstallApplied` across fresh-install writes |
+| install verification checks | done | `edge-doctor` emits one fact per check as `InstallCheckObserved` |
 | publication phase semantics | partial | current `edge-ledger` phase records are start-biased, not authoritative completion facts |
 | artifact published | partial | strong legacy signal exists, but canonical publish fact still needs tightening |
 | pre-skill executed | gap | currently prose-based; needs runtime evidence point |
