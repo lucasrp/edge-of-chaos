@@ -27,6 +27,28 @@ from _shared.telemetry import current_cycle_id, emit_shadow_event
 
 LOG = LOGS_DIR / "skill-steps.jsonl"
 REGISTRY = Path(__file__).resolve().parent / "skill-steps-registry.yaml"
+SKILL_ALIASES = {
+    "research": "ed-pesquisa",
+    "pesquisa": "ed-pesquisa",
+    "discovery": "ed-descoberta",
+    "descoberta": "ed-descoberta",
+    "heartbeat": "ed-heartbeat",
+    "strategy": "ed-estrategia",
+    "estrategia": "ed-estrategia",
+    "autonomy": "ed-autonomia",
+    "autonomia": "ed-autonomia",
+    "report": "ed-relatorio",
+    "relatorio": "ed-relatorio",
+    "experiment": "ed-experimento",
+    "experimento": "ed-experimento",
+    "planner": "ed-planejar",
+    "planejar": "ed-planejar",
+    "plan": "ed-planejar",
+    "reflection-hn": "ed-reflexao-HN",
+    "reflexao-hn": "ed-reflexao-HN",
+    "reflection-m": "ed-reflexao-M",
+    "reflexao-m": "ed-reflexao-M",
+}
 
 
 def _load_registry():
@@ -49,31 +71,81 @@ def _read_log():
     return [json.loads(line) for line in LOG.read_text().strip().split("\n") if line.strip()]
 
 
+def _candidate_skill_names(skill):
+    raw = (skill or "").strip()
+    normalized = raw.lstrip("/")
+    candidates = [raw, normalized, normalized.lower()]
+    if "-" in normalized:
+        _, suffix = normalized.split("-", 1)
+        candidates.extend([suffix, suffix.lower()])
+    seen = set()
+    ordered = []
+    for candidate in candidates:
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            ordered.append(candidate)
+    return ordered
+
+
+def _resolve_registry_skill(skill):
+    reg = _load_registry()
+    raw = (skill or "").strip()
+    for candidate in _candidate_skill_names(raw):
+        if candidate in reg:
+            return raw, candidate
+        alias = SKILL_ALIASES.get(candidate.lower())
+        if alias and alias in reg:
+            return raw, alias
+    return raw, None
+
+
 def _registry_steps(skill):
     """Get expected step IDs for a skill from registry."""
     reg = _load_registry()
-    entries = reg.get(skill, [])
-    return [s.split(":")[0] for s in entries], {s.split(":")[0]: s for s in entries}
+    raw_skill, registry_skill = _resolve_registry_skill(skill)
+    if not registry_skill:
+        return [], {}, raw_skill, None
+    entries = reg.get(registry_skill, [])
+    return [s.split(":")[0] for s in entries], {s.split(":")[0]: s for s in entries}, raw_skill, registry_skill
+
+
+def _entry_for_skill(skill, *, event, **extra):
+    raw_skill, registry_skill = _resolve_registry_skill(skill)
+    entry = {"skill": raw_skill, "event": event, **extra}
+    if registry_skill:
+        entry["registry_skill"] = registry_skill
+    return entry
 
 
 def cmd_step(skill, step_id):
     """Log a step as executed."""
-    _log({"skill": skill, "event": "step", "step": step_id, "status": "done"})
+    entry = _entry_for_skill(skill, event="step", step=step_id, status="done")
+    _log(entry)
     emit_shadow_event(
         "SkillStepObserved",
         actor="edge-skill-step",
         cycle_id=current_cycle_id(),
-        payload={"skill": skill, "step": step_id, "status": "done"},
+        payload={
+            "skill": entry["skill"],
+            "registry_skill": entry.get("registry_skill", ""),
+            "step": step_id,
+            "status": "done",
+        },
     )
 
 
 def cmd_skip(skill, step_id, reason=None):
     """Log a step as explicitly skipped."""
-    entry = {"skill": skill, "event": "step", "step": step_id, "status": "skipped"}
+    entry = _entry_for_skill(skill, event="step", step=step_id, status="skipped")
     if reason:
         entry["reason"] = reason
     _log(entry)
-    payload = {"skill": skill, "step": step_id, "status": "skipped"}
+    payload = {
+        "skill": entry["skill"],
+        "registry_skill": entry.get("registry_skill", ""),
+        "step": step_id,
+        "status": "skipped",
+    }
     if reason:
         payload["reason"] = reason
     emit_shadow_event(
@@ -86,11 +158,12 @@ def cmd_skip(skill, step_id, reason=None):
 
 def cmd_end(skill):
     """End a skill run. Compare logged steps against registry."""
-    expected_ids, step_names = _registry_steps(skill)
+    expected_ids, step_names, raw_skill, registry_skill = _registry_steps(skill)
 
     if not expected_ids:
-        _log({"skill": skill, "event": "end", "warning": f"skill '{skill}' not in registry"})
-        print(f"⚠ Skill '{skill}' não está no registry. Nada para comparar.")
+        entry = _entry_for_skill(skill, event="end", warning=f"skill '{raw_skill}' not in registry")
+        _log(entry)
+        print(f"⚠ Skill '{raw_skill}' não está no registry. Nada para comparar.")
         return
 
     # Read log backwards to find steps for this skill since last 'end' event
@@ -99,7 +172,8 @@ def cmd_end(skill):
     recorded_skip = {}
 
     for entry in reversed(all_entries):
-        if entry.get("skill") != skill:
+        entry_skill = entry.get("registry_skill") or entry.get("skill")
+        if entry_skill != registry_skill:
             continue
         if entry.get("event") == "end":
             break  # stop at previous end
@@ -114,7 +188,8 @@ def cmd_end(skill):
     silent_skips = [s for s in expected_ids if s not in all_accounted]
 
     summary = {
-        "skill": skill,
+        "skill": raw_skill,
+        "registry_skill": registry_skill,
         "event": "end",
         "expected": len(expected_ids),
         "done": len(recorded_done),
@@ -135,12 +210,13 @@ def cmd_end(skill):
     # Print summary
     if silent_skips:
         named = [step_names.get(s, s) for s in silent_skips]
-        print(f"⚠ {skill}: {len(silent_skips)} passos silenciosamente pulados:")
+        print(f"⚠ {raw_skill}: {len(silent_skips)} passos silenciosamente pulados:")
         for s in named:
             print(f"  - {s}")
     if recorded_skip:
         print(f"  ({len(recorded_skip)} skip(s) explícito(s))")
-    print(f"✓ {skill}: {summary['done']}/{summary['expected']} passos "
+    display_skill = raw_skill if raw_skill == registry_skill else f"{raw_skill} -> {registry_skill}"
+    print(f"✓ {display_skill}: {summary['done']}/{summary['expected']} passos "
           f"({summary['completion_pct']}%)")
 
 
@@ -158,7 +234,7 @@ def cmd_report(last_n=20):
     # Aggregate by skill
     by_skill = defaultdict(list)
     for e in recent:
-        by_skill[e["skill"]].append(e)
+        by_skill[e.get("registry_skill") or e["skill"]].append(e)
 
     print(f"=== Skill Step Completion ({len(recent)} execuções recentes) ===\n")
 
@@ -176,13 +252,13 @@ def cmd_report(last_n=20):
     all_silent_steps = Counter()
     for e in recent:
         for s in e.get("silent_skips", []):
-            all_silent_steps[f"{e['skill']}:{s}"] += 1
+            all_silent_steps[f"{e.get('registry_skill') or e['skill']}:{s}"] += 1
 
     if all_silent_steps:
         print("Passos mais silenciosamente pulados:")
         for step, count in all_silent_steps.most_common(10):
             skill_name, step_id = step.split(":", 1)
-            _, names = _registry_steps(skill_name)
+            _, names, _, _ = _registry_steps(skill_name)
             label = names.get(step_id, step_id)
             print(f"  {step}: {count}x — {label}")
         print()

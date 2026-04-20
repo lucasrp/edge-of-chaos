@@ -107,6 +107,49 @@ else
     fail "guard allows writes after dispatch"
 fi
 
+echo "--- Test 3b: second dispatch with different skill is rejected ---"
+set +e
+SECOND_DISPATCH_OUTPUT=$("$DISPATCH_TOOL" dispatch --skill autonomy 2>&1)
+SECOND_DISPATCH_STATUS=$?
+set -e
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$SECOND_DISPATCH_STATUS" "$SECOND_DISPATCH_OUTPUT"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+status = int(sys.argv[3])
+output = sys.argv[4]
+
+assert status == 1
+assert dispatch["request"]["skill"] == "research"
+assert dispatch["state"]["phase"] == "skill_dispatched"
+assert len([event for event in events if event["type"] == "SkillDispatched"]) == 1
+assert "already dispatched" in output
+PY
+then
+    pass "second dispatch with a different skill is rejected"
+else
+    fail "second dispatch with a different skill is rejected"
+fi
+
+echo "--- Test 3c: repeated dispatch with same skill is idempotent ---"
+"$DISPATCH_TOOL" dispatch --skill research >/dev/null
+
+if python3 - <<'PY' "$TMP_EDGE/state/events/log.jsonl"
+import json
+import sys
+
+events = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
+assert len([event for event in events if event["type"] == "SkillDispatched"]) == 1
+PY
+then
+    pass "repeated dispatch with same skill is a no-op"
+else
+    fail "repeated dispatch with same skill is a no-op"
+fi
+
 echo "--- Test 4: close emits inactive state and shadow events ---"
 "$DISPATCH_TOOL" close --status completed >/dev/null
 

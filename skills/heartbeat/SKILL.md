@@ -456,7 +456,7 @@ If GPT suggests a better direction, consider it. The entire beat costs ~2h of ti
 Run the chosen skill with step tracking (#113):
 
 ```bash
-# Flip the dispatch-cycle state — authorizes artifact writes (#212)
+# Flip the dispatch-cycle state exactly once — authorizes artifact writes (#212)
 edge-dispatch dispatch --skill <skill>
 
 # Before dispatching
@@ -513,7 +513,7 @@ today=$(date +%Y-%m-%d)
 DISPATCHED=$(python3 -c "
 import json, sys
 try:
-    steps = [json.loads(l) for l in open('$HOME/edge/logs/skill-steps.jsonl') if l.strip()]
+    steps = [json.loads(l) for l in open('$SKILL_STEPS_FILE') if l.strip()]
     today_starts = [s for s in steps if s.get('step') == 'start' and '$today' in (s.get('ts') or s.get('timestamp', ''))]
     if today_starts:
         last = today_starts[-1]
