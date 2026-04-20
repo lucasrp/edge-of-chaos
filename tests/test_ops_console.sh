@@ -120,6 +120,11 @@ r = client.post("/api/tasks/TASK-20260309-001/action",
                 content_type="application/json")
 check("POST /api/tasks/TASK-20260309-001/action", r)
 
+r = client.post("/api/steering/strategy/global/action",
+                json={"action": "align", "reason": "integration steering smoke test", "label": "strategy", "reference": "config/strategy.md"},
+                content_type="application/json")
+check("POST /api/steering/strategy/global/action", r)
+
 r = client.post("/api/heartbeat/trigger", content_type="application/json")
 ok = r.status_code in (200, 429)
 mark = "PASS" if ok else "FAIL"

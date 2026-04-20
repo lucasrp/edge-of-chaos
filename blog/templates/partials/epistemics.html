@@ -1,5 +1,6 @@
 <div class="dash-section">
   <h2 class="dash-section-title">epistemic & steering</h2>
+  <div class="runtime-note">operator steering is queued for the next dispatch; the cards below remain the current read model until dispatch applies the intent.</div>
 
   <div class="runtime-grid">
     <div class="runtime-card">
@@ -21,7 +22,13 @@
             <strong>{{ item.text }}</strong>
             <span class="runtime-pill runtime-pill-{{ item.kind_color }}">{{ item.kind }}</span>
           </div>
-          <div class="runtime-meta"><a href="/blog/entries/{{ item.artifact_filename }}" style="color:inherit">{{ item.artifact_title }}</a>{% if item.threads %} · {{ item.threads|join(', ') }}{% endif %}</div>
+          <div class="runtime-meta"><a href="{{ item.artifact_href }}" style="color:inherit">{{ item.artifact_title }}</a>{% if item.threads %} · {{ item.threads|join(', ') }}{% endif %}</div>
+          <div class="dash-task-actions">
+            <button class="action-btn" onclick='steeringAction("claim", {{ item.claim_id|tojson }}, "promote", {{ item.text|tojson }}, {{ item.reference|tojson }}, this)'>promote</button>
+            <button class="action-btn action-start" onclick='steeringAction("claim", {{ item.claim_id|tojson }}, "verified", {{ item.text|tojson }}, {{ item.reference|tojson }}, this)'>verified</button>
+            <button class="action-btn action-blocked" onclick='steeringAction("claim", {{ item.claim_id|tojson }}, "disputed", {{ item.text|tojson }}, {{ item.reference|tojson }}, this)'>disputed</button>
+            <button class="action-btn" onclick='steeringAction("claim", {{ item.claim_id|tojson }}, "stale", {{ item.text|tojson }}, {{ item.reference|tojson }}, this)'>stale</button>
+          </div>
         </div>
         {% endfor %}
       </div>
@@ -34,6 +41,12 @@
       <div class="runtime-card-title">strategy, topics, objectives</div>
       {% if ep_strategy.available %}
       <div class="runtime-note">{{ ep_strategy.summary or 'strategy file present but no summary text extracted yet' }}</div>
+      <div class="dash-task-actions">
+        <button class="action-btn action-start" onclick='steeringAction("strategy", {{ ep_strategy.strategy_id|tojson }}, "align", "strategy", {{ ep_strategy.strategy_reference|tojson }}, this, "alignment note for the next dispatch?")'>align</button>
+        <button class="action-btn" onclick='steeringAction("strategy", {{ ep_strategy.strategy_id|tojson }}, "reprioritize", "strategy", {{ ep_strategy.strategy_reference|tojson }}, this, "what should be reprioritized on the next dispatch?")'>reprioritize</button>
+        <button class="action-btn action-blocked" onclick='steeringAction("strategy", {{ ep_strategy.strategy_id|tojson }}, "redirect", "strategy", {{ ep_strategy.strategy_reference|tojson }}, this, "what redirect should the next dispatch follow?")'>redirect</button>
+        <button class="action-btn" onclick='steeringAction("strategy", {{ ep_strategy.strategy_id|tojson }}, "review-drift", "strategy", {{ ep_strategy.strategy_reference|tojson }}, this, "what drift should be reviewed on the next dispatch?")'>review drift</button>
+      </div>
       {% if ep_strategy.priorities %}
       <div class="runtime-subtitle">priorities</div>
       <div class="runtime-list">
@@ -55,6 +68,11 @@
             <strong>{{ topic.name }}</strong>
           </div>
           <div class="runtime-meta">{{ topic.title }}</div>
+          <div class="dash-task-actions">
+            <button class="action-btn action-start" onclick='steeringAction("topic", {{ topic.id|tojson }}, "promote", {{ topic.title|tojson }}, {{ topic.reference|tojson }}, this)'>promote</button>
+            <button class="action-btn" onclick='steeringAction("topic", {{ topic.id|tojson }}, "prioritize", {{ topic.title|tojson }}, {{ topic.reference|tojson }}, this)'>prioritize</button>
+            <button class="action-btn action-blocked" onclick='steeringAction("topic", {{ topic.id|tojson }}, "defer", {{ topic.title|tojson }}, {{ topic.reference|tojson }}, this)'>defer</button>
+          </div>
         </div>
         {% endfor %}
       </div>
@@ -68,13 +86,18 @@
         {% for objective in ep_strategy.objectives %}
         <div class="runtime-list-item">
           <div class="runtime-row">
-            <strong><a href="/thread/{{ objective.thread_id }}" style="color:inherit">{{ objective.title }}</a></strong>
+            <strong><a href="{{ objective.href }}" style="color:inherit">{{ objective.title }}</a></strong>
             <span class="runtime-meta">{{ objective.status }}</span>
           </div>
           <div class="runtime-meta">{{ objective.goal }}</div>
           {% if objective.next_step %}
           <div class="runtime-meta">next: {{ objective.next_step }}</div>
           {% endif %}
+          <div class="dash-task-actions">
+            <button class="action-btn action-start" onclick='steeringAction("objective", {{ objective.id|tojson }}, "attach", {{ objective.title|tojson }}, {{ objective.reference|tojson }}, this)'>attach</button>
+            <button class="action-btn" onclick='steeringAction("objective", {{ objective.id|tojson }}, "defer", {{ objective.title|tojson }}, {{ objective.reference|tojson }}, this)'>defer</button>
+            <button class="action-btn action-blocked" onclick='steeringAction("objective", {{ objective.id|tojson }}, "retire", {{ objective.title|tojson }}, {{ objective.reference|tojson }}, this)'>retire</button>
+          </div>
         </div>
         {% endfor %}
       </div>
@@ -98,6 +121,15 @@
             <span class="runtime-meta">{{ proposal.type }}</span>
           </div>
           <div class="runtime-meta">{{ proposal.updated_short }} · evidence {{ proposal.evidence_count }}{% if proposal.cost %} · {{ proposal.cost }}{% endif %}</div>
+          {% if proposal.evidence_preview %}
+          <div class="runtime-note">{{ proposal.evidence_preview|join(' · ') }}</div>
+          {% endif %}
+          <div class="dash-task-actions">
+            <button class="action-btn action-start" onclick='steeringAction("proposal", {{ proposal.id|tojson }}, "approve", {{ proposal.title|tojson }}, {{ (proposal.reference or "")|tojson }}, this)'>approve</button>
+            <button class="action-btn action-blocked" onclick='steeringAction("proposal", {{ proposal.id|tojson }}, "reject", {{ proposal.title|tojson }}, {{ (proposal.reference or "")|tojson }}, this)'>reject</button>
+            <button class="action-btn" onclick='steeringAction("proposal", {{ proposal.id|tojson }}, "defer", {{ proposal.title|tojson }}, {{ (proposal.reference or "")|tojson }}, this)'>defer</button>
+            <button class="action-btn" onclick='steeringAction("proposal", {{ proposal.id|tojson }}, "request-revision", {{ proposal.title|tojson }}, {{ (proposal.reference or "")|tojson }}, this, "what revision should be requested on the next dispatch?")'>revision</button>
+          </div>
         </div>
         {% endfor %}
       </div>
@@ -114,6 +146,72 @@
       </div>
       {% else %}
       <div class="runtime-empty">no decision log entries yet</div>
+      {% endif %}
+    </div>
+
+    <div class="runtime-card">
+      <div class="runtime-card-title">queued for next dispatch</div>
+      <div class="runtime-row">
+        <span>pending steering intents</span>
+        <span class="runtime-meta">{{ ep_queued_steering_count }}</span>
+      </div>
+
+      {% if ep_queued_steering %}
+      <div class="runtime-list">
+        {% for item in ep_queued_steering %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{% if item.href %}<a href="{{ item.href }}" style="color:inherit">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}</strong>
+            <span class="runtime-pill runtime-pill-muted">{{ item.target_type }}</span>
+          </div>
+          <div class="runtime-meta">{{ item.action }} · {{ item.ts_short }}{% if item.apply %} · {{ item.apply }}{% endif %}</div>
+          {% if item.reference %}
+          <div class="runtime-meta">ref: {{ item.reference }}</div>
+          {% endif %}
+          {% if item.reason %}
+          <div class="runtime-note">{{ item.reason }}</div>
+          {% endif %}
+          {% if item.value %}
+          <div class="runtime-note">{{ item.value }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no queued steering intents</div>
+      {% endif %}
+    </div>
+
+    <div class="runtime-card">
+      <div class="runtime-card-title">steering trace</div>
+      <div class="runtime-row">
+        <span>recent steering decisions</span>
+        <span class="runtime-meta">{{ ep_steering_trace_count }}</span>
+      </div>
+
+      {% if ep_steering_trace %}
+      <div class="runtime-list">
+        {% for item in ep_steering_trace %}
+        <div class="runtime-list-item">
+          <div class="runtime-row">
+            <strong>{% if item.href %}<a href="{{ item.href }}" style="color:inherit">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}</strong>
+            <span class="runtime-pill runtime-pill-muted">{{ item.display_action }}</span>
+          </div>
+          <div class="runtime-meta">{{ item.target_type or 'surface' }} · {{ item.ts_short }}{% if item.resulting_state %} · {{ item.resulting_state }}{% endif %}</div>
+          {% if item.reference %}
+          <div class="runtime-meta">ref: {{ item.reference }}</div>
+          {% endif %}
+          {% if item.reason %}
+          <div class="runtime-note">{{ item.reason }}</div>
+          {% endif %}
+          {% if item.value %}
+          <div class="runtime-note">{{ item.value }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="runtime-empty">no steering trace yet</div>
       {% endif %}
     </div>
 
@@ -135,7 +233,7 @@
             {% else %}
               no thread
             {% endif %}
-            → <a href="/blog/entries/{{ item.artifact_filename }}" style="color:inherit">{{ item.artifact_title }}</a>
+            → <a href="{{ item.artifact_href }}" style="color:inherit">{{ item.artifact_title }}</a>
             {% if item.report %} · <a href="/reports/{{ item.report }}" style="color:inherit">report</a>{% endif %}
           </div>
         </div>

@@ -30,7 +30,7 @@ def _now_str():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _log_operator_action(target_id, action, reason=None, value=None):
+def _log_operator_action(target_id, action, reason=None, value=None, **extra):
     entry = {
         "ts": _now_str(),
         "actor": "operator",
@@ -41,6 +41,9 @@ def _log_operator_action(target_id, action, reason=None, value=None):
         entry["reason"] = reason
     if value is not None:
         entry["value"] = value
+    for key, item in extra.items():
+        if item is not None:
+            entry[key] = item
     OPERATOR_LOG.parent.mkdir(parents=True, exist_ok=True)
     with open(OPERATOR_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -126,6 +129,13 @@ def heartbeat_trigger():
 
 
 VALID_THREAD_ACTIONS = {"active", "dormant", "done"}
+VALID_STEERING_ACTIONS = {
+    "proposal": {"approve", "reject", "defer", "request-revision"},
+    "claim": {"promote", "verified", "disputed", "stale"},
+    "topic": {"promote", "prioritize", "defer"},
+    "objective": {"attach", "retire", "defer"},
+    "strategy": {"align", "reprioritize", "redirect", "review-drift"},
+}
 
 
 @actions_bp.route('/api/threads/<thread_id>/action', methods=['POST'])
@@ -179,7 +189,16 @@ def task_action(task_id):
 
     intent_text = _build_task_intent_text(task_id, action, reason=reason, value=None if value is None else str(value))
     chat_id = add_chat("user", intent_text)
-    _log_operator_action(task_id, f"task-intent:{action}", reason=reason, value=value)
+    _log_operator_action(
+        task_id,
+        f"task-intent:{action}",
+        reason=reason,
+        value=value,
+        target_type="task",
+        label=task_id,
+        resulting_state="queued",
+        apply="next-dispatch",
+    )
     return jsonify({
         "ok": True,
         "queued": True,
@@ -187,4 +206,140 @@ def task_action(task_id):
         "task_id": task_id,
         "chat_id": chat_id,
         "dispatch_mode": "next-dispatch",
+    }), 200
+
+
+def _build_steering_intent_text(target_type, target_id, action, label=None, reference=None, reason=None, value=None):
+    lines = [
+        "[steering-intent]",
+        f"target_type: {target_type}",
+        f"target_id: {target_id}",
+        f"action: {action}",
+        "apply: next-dispatch",
+        "resulting_state: queued",
+    ]
+    if label:
+        lines.append(f"label: {label}")
+    if reference:
+        lines.append(f"reference: {reference}")
+    if reason:
+        lines.append(f"reason: {reason}")
+    if value is not None:
+        lines.append(f"value: {value}")
+    lines.append("note: queue this operator epistemic steering decision for the next dispatch; do not apply it immediately")
+    return "\n".join(lines)
+
+
+def _parse_steering_intent_text(text):
+    if not text or not str(text).startswith("[steering-intent]"):
+        return None
+    data = {}
+    for line in str(text).splitlines()[1:]:
+        if ":" not in line:
+            continue
+        key, raw_value = line.split(":", 1)
+        key = key.strip().lower()
+        value = raw_value.strip()
+        if key:
+            data[key] = value
+    target_type = data.get("target_type")
+    target_id = data.get("target_id")
+    action = data.get("action")
+    if not target_type or not target_id or not action:
+        return None
+    return {
+        "target_type": target_type,
+        "target_id": target_id,
+        "action": action,
+        "label": data.get("label"),
+        "reference": data.get("reference"),
+        "reason": data.get("reason"),
+        "value": data.get("value"),
+        "apply": data.get("apply"),
+        "resulting_state": data.get("resulting_state"),
+        "note": data.get("note"),
+    }
+
+
+def _find_pending_steering_intent(target_type, target_id, action, reason=None, value=None):
+    from dashboard_db import get_chats
+
+    for message in get_chats(unprocessed_only=True, limit=200):
+        if message.get("author") != "user":
+            continue
+        parsed = _parse_steering_intent_text(message.get("text", ""))
+        if not parsed:
+            continue
+        if parsed["target_type"] != target_type or parsed["target_id"] != target_id or parsed["action"] != action:
+            continue
+        if (parsed.get("reason") or None) != reason:
+            continue
+        if (parsed.get("value") or None) != (None if value is None else str(value)):
+            continue
+        return message
+    return None
+
+
+@actions_bp.route('/api/steering/<target_type>/<path:target_id>/action', methods=['POST'])
+def steering_action(target_type, target_id):
+    target_type = str(target_type or "").strip().lower()
+    if target_type not in VALID_STEERING_ACTIONS:
+        return jsonify({"error": f"Invalid target_type. Must be one of: {', '.join(sorted(VALID_STEERING_ACTIONS))}"}), 400
+
+    data = request.get_json(silent=True) or {}
+    action = str(data.get("action") or "").strip().lower()
+    reason = str(data.get("reason") or "").strip() or None
+    value = data.get("value")
+    label = str(data.get("label") or "").strip() or target_id
+    reference = str(data.get("reference") or "").strip() or None
+
+    if action not in VALID_STEERING_ACTIONS[target_type]:
+        valid = ", ".join(sorted(VALID_STEERING_ACTIONS[target_type]))
+        return jsonify({"error": f"Invalid action for {target_type}. Must be one of: {valid}"}), 400
+    if not reason:
+        return jsonify({"error": "A rationale is required for epistemic steering actions."}), 400
+
+    existing = _find_pending_steering_intent(target_type, target_id, action, reason=reason, value=value)
+    if existing:
+        return jsonify({
+            "ok": True,
+            "queued": True,
+            "duplicate": True,
+            "target_type": target_type,
+            "target_id": target_id,
+            "chat_id": existing.get("id"),
+        }), 200
+
+    from dashboard_db import add_chat
+
+    intent_text = _build_steering_intent_text(
+        target_type,
+        target_id,
+        action,
+        label=label,
+        reference=reference,
+        reason=reason,
+        value=None if value is None else str(value),
+    )
+    chat_id = add_chat("user", intent_text)
+    _log_operator_action(
+        target_id,
+        f"steering:{action}",
+        reason=reason,
+        value=value,
+        target_type=target_type,
+        label=label,
+        reference=reference,
+        resulting_state="queued",
+        apply="next-dispatch",
+    )
+    return jsonify({
+        "ok": True,
+        "queued": True,
+        "duplicate": False,
+        "target_type": target_type,
+        "target_id": target_id,
+        "chat_id": chat_id,
+        "dispatch_mode": "next-dispatch",
+        "resulting_state": "queued",
     }), 200

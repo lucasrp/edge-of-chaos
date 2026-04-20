@@ -9,7 +9,7 @@ from blog.services import (
     load_claims_dashboard, load_lineage_dashboard, load_proposals_dashboard,
     load_autonomy_summary, load_current_dispatch_state, load_primitive_runtime_summary,
     load_recent_dispatch_cycles, load_skill_evidence_summary, load_strategy_dashboard,
-    load_task_interventions,
+    load_task_interventions, load_epistemic_steering,
 )
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -453,11 +453,16 @@ def partial_runtime():
 
 def _build_epistemic_data():
     """Build context dict for epistemic and steering surfaces."""
+    steering = load_epistemic_steering(limit_actions=8)
     return {
         "ep_claims": load_claims_dashboard(limit=6),
         "ep_strategy": load_strategy_dashboard(limit_topics=5, limit_objectives=5),
         "ep_proposals": load_proposals_dashboard(limit=5),
         "ep_lineage": load_lineage_dashboard(limit=6),
+        "ep_queued_steering": steering["queued"],
+        "ep_queued_steering_count": steering["queued_count"],
+        "ep_steering_trace": steering["trace"],
+        "ep_steering_trace_count": steering["trace_count"],
     }
 
 
