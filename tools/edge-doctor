@@ -12,13 +12,49 @@ import shutil
 import socket
 import subprocess
 import sys
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "_shared"))
+
 CHECKS_PASSED = 0
 CHECKS_WARNED = 0
 CHECKS_FAILED = 0
+CURRENT_SECTION = ""
+
+
+def _slug(value: str) -> str:
+    return "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
+
+
+def _ensure_install_context(cfg: dict) -> str:
+    codename = str(cfg.get("codename", "agent"))
+    edge_home = Path(os.path.expanduser(cfg.get("edge_home", f"~/{codename}")))
+    os.environ.setdefault("EDGE_CODENAME", codename)
+    os.environ.setdefault("EDGE_STATE_DIR", str(edge_home))
+    cycle_id = os.environ.get("EDGE_CYCLE_ID")
+    if cycle_id:
+        return cycle_id
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    cycle_id = f"install:{codename}:{stamp}-{uuid.uuid4().hex[:6]}"
+    os.environ["EDGE_CYCLE_ID"] = cycle_id
+    return cycle_id
+
+
+def _record_check(check_id: str, status: str, detail: str, *, artifact: Path | str | None = None, **extra):
+    from telemetry import log_install_check
+
+    log_install_check(
+        check_id,
+        status,
+        detail=detail,
+        artifact=str(artifact) if artifact is not None else None,
+        section=CURRENT_SECTION,
+        **extra,
+    )
 
 
 def ok(msg):
@@ -40,24 +76,33 @@ def fail(msg):
 
 
 def check_file(path: Path, label: str):
+    check_id = f"file:{_slug(label)}"
     if path.exists():
         ok(f"{label}: {path}")
+        _record_check(check_id, "ok", f"{label}: {path}", artifact=path, label=label)
     else:
         fail(f"{label}: {path} — NÃO ENCONTRADO")
+        _record_check(check_id, "fail", f"{label}: {path} — NÃO ENCONTRADO", artifact=path, label=label)
 
 
 def check_dir(path: Path, label: str):
+    check_id = f"dir:{_slug(label)}"
     if path.is_dir():
         ok(f"{label}: {path}")
+        _record_check(check_id, "ok", f"{label}: {path}", artifact=path, label=label)
     else:
         fail(f"{label}: {path} — NÃO ENCONTRADO")
+        _record_check(check_id, "fail", f"{label}: {path} — NÃO ENCONTRADO", artifact=path, label=label)
 
 
 def check_command(cmd: str, label: str):
+    check_id = f"command:{_slug(cmd)}"
     if shutil.which(cmd):
         ok(f"{label}: {cmd}")
+        _record_check(check_id, "ok", f"{label}: {cmd}", artifact=cmd, label=label)
     else:
         fail(f"{label}: {cmd} — NÃO INSTALADO")
+        _record_check(check_id, "fail", f"{label}: {cmd} — NÃO INSTALADO", artifact=cmd, label=label)
 
 
 def check_port(port: int, host: str = "127.0.0.1"):
@@ -68,16 +113,35 @@ def check_port(port: int, host: str = "127.0.0.1"):
         s.connect((host, port))
         s.close()
         ok(f"Blog respondendo em {host}:{port}")
+        _record_check(
+            f"port:{host}:{port}",
+            "ok",
+            f"Blog respondendo em {host}:{port}",
+            artifact=f"{host}:{port}",
+            host=host,
+            port=port,
+        )
     except (ConnectionRefusedError, OSError):
         warn(f"Blog NÃO respondendo em {host}:{port} — iniciar com systemctl --user start blog-server")
+        _record_check(
+            f"port:{host}:{port}",
+            "warn",
+            f"Blog NÃO respondendo em {host}:{port} — iniciar com systemctl --user start blog-server",
+            artifact=f"{host}:{port}",
+            host=host,
+            port=port,
+        )
 
 
 def check_secret(env_file: Path, key: str, required: bool = True):
+    check_id = f"secret:{_slug(key)}"
     if not env_file.exists():
         if required:
             fail(f"Secrets file não encontrado: {env_file}")
+            _record_check(check_id, "fail", f"Secrets file não encontrado: {env_file}", artifact=env_file, key=key, required=required)
         else:
             warn(f"Secrets file não encontrado: {env_file}")
+            _record_check(check_id, "warn", f"Secrets file não encontrado: {env_file}", artifact=env_file, key=key, required=required)
         return
     content = env_file.read_text()
     for line in content.splitlines():
@@ -85,22 +149,29 @@ def check_secret(env_file: Path, key: str, required: bool = True):
             val = line.split("=", 1)[1].strip()
             if val.startswith('"') and val.endswith('"'):
                 warn(f"{key}: valor com aspas literais — remover aspas de {env_file}")
+                _record_check(check_id, "warn", f"{key}: valor com aspas literais — remover aspas de {env_file}", artifact=env_file, key=key, required=required)
             elif val:
                 ok(f"{key}: configurado")
+                _record_check(check_id, "ok", f"{key}: configurado", artifact=env_file, key=key, required=required)
             else:
                 if required:
                     fail(f"{key}: vazio em {env_file}")
+                    _record_check(check_id, "fail", f"{key}: vazio em {env_file}", artifact=env_file, key=key, required=required)
                 else:
                     warn(f"{key}: vazio (opcional — funcionalidade degradada)")
+                    _record_check(check_id, "warn", f"{key}: vazio (opcional — funcionalidade degradada)", artifact=env_file, key=key, required=required)
             return
     if required:
         warn(f"{key}: não encontrado em {env_file}")
+        _record_check(check_id, "warn", f"{key}: não encontrado em {env_file}", artifact=env_file, key=key, required=required)
     else:
         warn(f"{key}: não encontrado (opcional)")
+        _record_check(check_id, "warn", f"{key}: não encontrado (opcional)", artifact=env_file, key=key, required=required)
 
 
 def check_residual_placeholders(path: Path, label: str):
     """Check for unrendered {{ PLACEHOLDER }} in a file."""
+    check_id = f"placeholders:{_slug(label)}"
     if not path.exists():
         return
     content = path.read_text()
@@ -108,8 +179,17 @@ def check_residual_placeholders(path: Path, label: str):
     residuals = re.findall(r"\{\{[^}]+\}\}", content)
     if residuals:
         fail(f"{label}: {len(residuals)} placeholder(s) não renderizados: {residuals[:3]}")
+        _record_check(
+            check_id,
+            "fail",
+            f"{label}: {len(residuals)} placeholder(s) não renderizados: {residuals[:3]}",
+            artifact=path,
+            label=label,
+            residual_count=len(residuals),
+        )
     else:
         ok(f"{label}: sem placeholders residuais")
+        _record_check(check_id, "ok", f"{label}: sem placeholders residuais", artifact=path, label=label, residual_count=0)
 
 
 def check_systemd_timer():
@@ -121,13 +201,23 @@ def check_systemd_timer():
         )
         if result.stdout.strip() == "enabled":
             ok("Heartbeat timer: enabled")
+            _record_check("systemd:agent-heartbeat.timer", "ok", "Heartbeat timer: enabled", artifact="agent-heartbeat.timer")
         else:
             warn(f"Heartbeat timer: {result.stdout.strip()} — habilitar com: systemctl --user enable --now agent-heartbeat.timer")
+            _record_check(
+                "systemd:agent-heartbeat.timer",
+                "warn",
+                f"Heartbeat timer: {result.stdout.strip()} — habilitar com: systemctl --user enable --now agent-heartbeat.timer",
+                artifact="agent-heartbeat.timer",
+            )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         warn("systemctl não disponível — verificar heartbeat manualmente")
+        _record_check("systemd:agent-heartbeat.timer", "warn", "systemctl não disponível — verificar heartbeat manualmente", artifact="agent-heartbeat.timer")
 
 
 def main():
+    global CURRENT_SECTION
+
     parser = argparse.ArgumentParser(description="Validate agent installation")
     parser.add_argument("--config", "-c", default="agent.yaml")
     args = parser.parse_args()
@@ -140,11 +230,14 @@ def main():
     if not config_path.exists():
         print(f"Procurando agent.yaml em: {Path(args.config).resolve()}, {config_path.resolve()}")
         fail("agent.yaml não encontrado")
+        _record_check("config:agent-yaml", "fail", "agent.yaml não encontrado", artifact=config_path)
         print(f"\nResultado: 0 ok, 0 warn, 1 fail")
         sys.exit(1)
 
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
+    cycle_id = _ensure_install_context(cfg)
+    from telemetry import log_run_step
 
     name = cfg.get("name", "?")
     codename = cfg.get("codename", "?")
@@ -153,8 +246,16 @@ def main():
     blog_host = cfg.get("blog_host", "127.0.0.1")
 
     print(f"\n\033[1m━━━  edge-doctor: {name} ({codename})  ━━━\033[0m\n")
+    log_run_step(
+        "edge-doctor",
+        "doctor",
+        "started",
+        run_id=cycle_id,
+        config=str(config_path.resolve()),
+    )
 
     # 1. Dependencies
+    CURRENT_SECTION = "dependencies"
     print("\033[1m[1/6] Dependências\033[0m")
     check_command("claude", "Claude Code CLI")
     check_command("python3", "Python 3")
@@ -163,6 +264,7 @@ def main():
     print()
 
     # 2. Directory structure
+    CURRENT_SECTION = "directories"
     print("\033[1m[2/6] Diretórios\033[0m")
     check_dir(edge_home, "EDGE_HOME")
     check_dir(edge_home / "blog" / "entries", "Blog entries")
@@ -174,6 +276,7 @@ def main():
     print()
 
     # 3. Critical files
+    CURRENT_SECTION = "critical_files"
     print("\033[1m[3/6] Arquivos críticos\033[0m")
     claude_md = Path.home() / ".claude" / "CLAUDE.md"
     check_file(claude_md, "CLAUDE.md")
@@ -186,6 +289,7 @@ def main():
     print()
 
     # 4. Secrets
+    CURRENT_SECTION = "secrets"
     print("\033[1m[4/6] Secrets\033[0m")
     keys_env = edge_home / "secrets" / "keys.env"
     # ANTHROPIC_API_KEY is NOT checked: Claude Code subscription is the expected auth path,
@@ -195,26 +299,33 @@ def main():
     print()
 
     # 5. Venvs
+    CURRENT_SECTION = "venvs"
     print("\033[1m[5/7] Python venvs\033[0m")
     blog_venv = edge_home / "blog" / ".venv" / "bin" / "python3"
     if blog_venv.exists():
         ok("Blog venv: instalado")
+        _record_check("venv:blog", "ok", "Blog venv: instalado", artifact=blog_venv)
     else:
         fail("Blog venv: não encontrado — rodar edge-apply")
+        _record_check("venv:blog", "fail", "Blog venv: não encontrado — rodar edge-apply", artifact=blog_venv)
     tools_venv = edge_home / "tools" / ".venv" / "bin" / "python3"
     if tools_venv.exists():
         ok("Tools venv: instalado (edge-consult, review-gate)")
+        _record_check("venv:tools", "ok", "Tools venv: instalado (edge-consult, review-gate)", artifact=tools_venv)
     else:
         fail("Tools venv: não encontrado — edge-consult/review-gate/deepresearch QUEBRADOS")
+        _record_check("venv:tools", "fail", "Tools venv: não encontrado — edge-consult/review-gate/deepresearch QUEBRADOS", artifact=tools_venv)
     print()
 
     # 6. Services
+    CURRENT_SECTION = "services"
     print("\033[1m[6/7] Serviços\033[0m")
     check_port(blog_port, "127.0.0.1")
     check_systemd_timer()
     print()
 
     # 7. Skills
+    CURRENT_SECTION = "skills"
     print("\033[1m[7/7] Skills\033[0m")
     skills_dir = Path.home() / ".claude" / "skills"
     prefix = cfg.get("skill_prefix", codename)
@@ -223,8 +334,10 @@ def main():
         skill_path = skills_dir / f"{prefix}-{skill}"
         if skill_path.is_dir():
             ok(f"/{prefix}-{skill}")
+            _record_check(f"skill:{prefix}-{skill}", "ok", f"/{prefix}-{skill}", artifact=skill_path)
         else:
             warn(f"/{prefix}-{skill} — não encontrado em {skills_dir}")
+            _record_check(f"skill:{prefix}-{skill}", "warn", f"/{prefix}-{skill} — não encontrado em {skills_dir}", artifact=skill_path)
     print()
 
     # Summary
@@ -239,6 +352,16 @@ def main():
     else:
         print("\n✗ Instalação com problemas. Corrigir os itens em vermelho.")
 
+    log_run_step(
+        "edge-doctor",
+        "doctor",
+        "completed" if CHECKS_FAILED == 0 else "failed",
+        run_id=cycle_id,
+        config=str(config_path.resolve()),
+        passed=CHECKS_PASSED,
+        warned=CHECKS_WARNED,
+        failed=CHECKS_FAILED,
+    )
     sys.exit(0 if CHECKS_FAILED == 0 else 1)
 
 

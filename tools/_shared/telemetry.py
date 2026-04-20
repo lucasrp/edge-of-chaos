@@ -218,6 +218,119 @@ def log_run_step(
     )
 
 
+def log_render_produced(
+    artifact: str | os.PathLike[str],
+    *,
+    source_template: str,
+    hash_value: str,
+    residual_count: int = 0,
+    dry_run: bool = False,
+    **extra: Any,
+) -> None:
+    """Record one rendered artifact and dual-write the canonical shadow fact."""
+    artifact_str = os.fspath(artifact)
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    log_event(
+        "render_produced",
+        artifact=artifact_str,
+        source_template=source_template,
+        hash=hash_value,
+        residual_count=residual_count,
+        dry_run=dry_run,
+        **extra,
+    )
+    emit_shadow_event(
+        "RenderProduced",
+        actor=_detect_caller(),
+        artifact=artifact_str,
+        cycle_id=extra.get("cycle_id"),
+        payload={
+            "source_template": source_template,
+            "hash": hash_value,
+            "residual_count": residual_count,
+            "dry_run": dry_run,
+            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+        },
+    )
+
+
+def log_install_applied(
+    artifact: str | os.PathLike[str],
+    *,
+    source_template: str,
+    action: str,
+    kind: str,
+    hash_value: str | None = None,
+    dry_run: bool = False,
+    **extra: Any,
+) -> None:
+    """Record one install-time materialization and dual-write the canonical fact."""
+    artifact_str = os.fspath(artifact)
+    payload = {
+        "source_template": source_template,
+        "action": action,
+        "kind": kind,
+        "dry_run": dry_run,
+    }
+    if hash_value:
+        payload["hash"] = hash_value
+    payload.update({k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}})
+
+    log_event(
+        "install_applied",
+        artifact=artifact_str,
+        source_template=source_template,
+        action=action,
+        kind=kind,
+        hash=hash_value or "",
+        dry_run=dry_run,
+        **extra,
+    )
+    emit_shadow_event(
+        "InstallApplied",
+        actor=_detect_caller(),
+        artifact=artifact_str,
+        cycle_id=extra.get("cycle_id"),
+        payload=payload,
+    )
+
+
+def log_install_check(
+    check_id: str,
+    status: str,
+    *,
+    detail: str,
+    artifact: str | os.PathLike[str] | None = None,
+    severity: str | None = None,
+    **extra: Any,
+) -> None:
+    """Record one install verification check and its canonical shadow fact."""
+    artifact_str = os.fspath(artifact) if artifact is not None else None
+    log_event(
+        "install_check",
+        check_id=check_id,
+        status=status,
+        severity=severity or status,
+        detail=detail,
+        artifact=artifact_str or "",
+        **extra,
+    )
+    emit_shadow_event(
+        "InstallCheckObserved",
+        actor=_detect_caller(),
+        artifact=artifact_str,
+        cycle_id=extra.get("cycle_id"),
+        payload={
+            "check_id": check_id,
+            "status": status,
+            "severity": severity or status,
+            "detail": detail,
+            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+        },
+    )
+
+
 def log_search_query(
     query: str,
     *,

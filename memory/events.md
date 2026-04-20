@@ -149,15 +149,46 @@ Represents the canonical publish fact for an artifact.
 
 Required later for render/install drift, but defined now so the envelope does not drift again during rollout.
 
+### `RenderProduced`
+
+```json
+{
+  "type": "RenderProduced",
+  "artifact": "config/CLAUDE.md",
+  "payload": {
+    "hash": "sha256:...",
+    "source_template": "config/CLAUDE.md.tpl",
+    "residual_count": 0
+  }
+}
+```
+
+Represents one rendered artifact produced by `edge-render`.
+
+### `InstallCheckObserved`
+
+```json
+{
+  "type": "InstallCheckObserved",
+  "artifact": "~/ed/config/branding.yaml",
+  "payload": {
+    "check_id": "file:branding-yaml",
+    "status": "ok",
+    "severity": "ok",
+    "detail": "branding.yaml: /home/vboxuser/ed/config/branding.yaml"
+  }
+}
+```
+
+Represents one `edge-doctor` verification fact during fresh install or post-install validation.
+
 ## Projection Inputs
 
 The first projections depend on this subset:
 
 - `dispatch-completeness` reads `CycleStarted`, `SkillDispatched`, and `CycleClosed`
 - `pipeline-state` reads `PhaseCompleted` and `ArtifactPublished`
-- `render-install-drift` reads `InstallApplied` and a later `RenderProduced`
-
-`RenderProduced` is intentionally not required for Step 1.
+- `render-install-drift` reads `RenderProduced`, `InstallApplied`, and `InstallCheckObserved`
 
 ## Compatibility Rule
 
