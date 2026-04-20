@@ -193,19 +193,45 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     timestamp = now_iso()
     request = state.setdefault("request", {})
     state_block = state.setdefault("state", {})
-    request["skill"] = args.skill or request.get("skill")
-    if not request.get("skill"):
+    requested_skill = args.skill or request.get("skill")
+    requested_args = request.get("args", {})
+    if args.arg or args.args_json:
+        requested_args = parse_args_items(args.arg, args.args_json)
+
+    if not requested_skill:
         print(json.dumps({"ok": False, "error": "dispatch requires a skill"}, indent=2), file=sys.stderr)
         return 1
 
+    if state_block.get("skill_dispatched"):
+        existing_skill = request.get("skill")
+        existing_args = request.get("args", {})
+        if requested_skill == existing_skill and requested_args == existing_args:
+            print_json(state)
+            return 0
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": "skill already dispatched for active cycle",
+                    "cycle_id": state.get("cycle_id"),
+                    "dispatched_skill": existing_skill,
+                    "requested_skill": requested_skill,
+                    "hint": "close the current cycle before dispatching another skill",
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 1
+
+    request["skill"] = requested_skill
+    request["args"] = requested_args
     state_block["skill_dispatched"] = True
     state_block["phase"] = "skill_dispatched"
     state_block["skill_status"] = "running"
     state_block["dispatched_at"] = timestamp
     state_block["updated_at"] = timestamp
-
-    if args.arg or args.args_json:
-        request["args"] = parse_args_items(args.arg, args.args_json)
 
     write_json(CURRENT_DISPATCH_FILE, state)
     mirror_heartbeat_guard(state)
