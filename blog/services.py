@@ -97,6 +97,11 @@ def _claim_id(artifact_filename, text):
     return f"claim-{sha1(seed).hexdigest()[:12]}"
 
 
+def _surface_id(prefix, *parts):
+    seed = "||".join(str(part).strip() for part in parts if str(part).strip())
+    return f"{prefix}-{sha1(seed.encode('utf-8', errors='ignore')).hexdigest()[:12]}"
+
+
 def _surface_href(target_type, reference=None):
     reference = str(reference or "").strip()
     if not target_type or not reference:
@@ -106,6 +111,21 @@ def _surface_href(target_type, reference=None):
     if target_type in {"objective", "thread"}:
         return f"/thread/{reference}"
     return None
+
+
+def _parse_ts_value(value):
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except Exception:
+        return None
 
 
 def _find_shadow_markers(*markers):
@@ -286,16 +306,20 @@ def load_skill_evidence_summary(limit=5):
     current = load_current_dispatch_state()
     return {
         "pre_skill": {
+            "id": "pre-skill",
             "status": "observed" if pre_events else "gap",
             "color": "green" if pre_events else "red",
             "detail": f"{len(pre_events)} explicit pre-skill events" if pre_events else "no explicit pre-skill runtime evidence in shadow log yet",
             "protocol_status": current.get("preflight_status", "unknown"),
+            "reference": current.get("cycle_id"),
         },
         "post_skill": {
+            "id": "post-skill",
             "status": "observed" if post_events else "gap",
             "color": "green" if post_events else "red",
             "detail": f"{len(post_events)} explicit post-skill events" if post_events else "no explicit post-skill runtime evidence in shadow log yet",
             "protocol_status": current.get("postflight_status", "unknown"),
+            "reference": current.get("cycle_id"),
         },
         "skill_runs": runs,
         "skill_runs_total": len(runs),
@@ -323,6 +347,15 @@ def load_primitive_runtime_summary(limit=5):
     if payload and isinstance(payload, dict) and isinstance(payload.get("summary"), dict):
         summary = payload["summary"]
         sources = payload.get("sources", []) if isinstance(payload.get("sources"), list) else []
+        sources = [
+            {
+                **item,
+                "id": item.get("name"),
+                "reference": item.get("name"),
+            }
+            for item in sources
+            if isinstance(item, dict)
+        ]
         top_used = sorted(sources, key=lambda item: (-int(item.get("usage_30d", 0) or 0), item.get("name", "")))
         return {
             "available": True,
@@ -422,6 +455,8 @@ def load_autonomy_summary():
                 "total": 0,
                 "gaps": [],
                 "next_steps": [],
+                "recovered": [],
+                "codify_now": [],
             }
         content = AUTONOMY_CAPABILITIES_FILE.read_text(encoding="utf-8")
         rows = re.findall(r'^\|\s*\d+\s*\|([^|]+)\|\s*(\d+)\s*\|', content, re.MULTILINE)
@@ -432,21 +467,65 @@ def load_autonomy_summary():
                 "total": 0,
                 "gaps": [],
                 "next_steps": [],
+                "recovered": [],
+                "codify_now": [],
             }
-        caps = [{"name": row[0].strip(), "level": int(row[1])} for row in rows]
+        caps = [{
+            "id": _surface_id("cap", row[0].strip()),
+            "name": row[0].strip(),
+            "level": int(row[1]),
+            "reference": row[0].strip(),
+        } for row in rows]
         avg = round(sum(cap["level"] for cap in caps) / len(caps), 1)
         gaps = sorted(caps, key=lambda cap: cap["level"])[:3]
         next_steps = []
         if FRONTIER_FILE.exists():
             frontier = FRONTIER_FILE.read_text(encoding="utf-8")
             for match in re.finditer(r'### (?!~~)(GAP-\d+): (.+)', frontier):
-                next_steps.append({"id": match.group(1), "title": match.group(2)})
+                next_steps.append({
+                    "id": match.group(1),
+                    "title": match.group(2),
+                    "reference": match.group(1),
+                })
+        hotspots = load_hotspots()
+        recovered = []
+        for item in hotspots.get("recovered_but_unstable", [])[:3]:
+            if not isinstance(item, dict):
+                continue
+            signature = str(item.get("signature") or "").strip()
+            if not signature:
+                continue
+            recovered.append({
+                "id": _surface_id("recovered", signature),
+                "signature": signature,
+                "count": int(item.get("count", 0) or 0),
+                "last_seen": item.get("last_seen"),
+                "last_seen_short": _short_ts(item.get("last_seen")),
+                "reference": signature,
+            })
+        codify_now = []
+        for item in hotspots.get("codify_now", [])[:3]:
+            if not isinstance(item, dict):
+                continue
+            signature = str(item.get("signature") or "").strip()
+            if not signature:
+                continue
+            codify_now.append({
+                "id": _surface_id("codify", signature),
+                "signature": signature,
+                "count": int(item.get("count", 0) or 0),
+                "last_seen": item.get("last_seen"),
+                "last_seen_short": _short_ts(item.get("last_seen")),
+                "reference": signature,
+            })
         return {
             "available": True,
             "avg": avg,
             "total": len(caps),
             "gaps": gaps,
             "next_steps": next_steps[:4],
+            "recovered": recovered,
+            "codify_now": codify_now,
         }
     except Exception:
         return {
@@ -455,6 +534,8 @@ def load_autonomy_summary():
             "total": 0,
             "gaps": [],
             "next_steps": [],
+            "recovered": [],
+            "codify_now": [],
         }
 
 
@@ -714,6 +795,157 @@ def load_epistemic_steering(limit_actions=8):
         "queued_count": len(queued),
         "trace": trace,
         "trace_count": len(trace),
+    }
+
+
+def _parse_runtime_intent_message(text):
+    if not text or not str(text).startswith("[runtime-intent]"):
+        return None
+    payload = {}
+    for line in str(text).splitlines()[1:]:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip().lower()
+        value = value.strip()
+        if key:
+            payload[key] = value
+    target_type = payload.get("target_type")
+    target_id = payload.get("target_id")
+    action = payload.get("action")
+    if not target_type or not target_id or not action:
+        return None
+    reference = payload.get("reference")
+    return {
+        "target_type": target_type,
+        "target_id": target_id,
+        "action": action,
+        "label": payload.get("label") or target_id,
+        "reference": reference,
+        "href": _surface_href(target_type, reference=reference),
+        "resulting_state": payload.get("resulting_state"),
+        "apply": payload.get("apply"),
+        "reason": payload.get("reason"),
+        "value": payload.get("value"),
+        "note": payload.get("note"),
+    }
+
+
+def load_queued_runtime_intents(limit=8):
+    """Read queued runtime/autonomy interventions from the async chat inbox."""
+    try:
+        from dashboard_db import get_chats
+        messages = get_chats(unprocessed_only=True, limit=200)
+    except Exception:
+        return []
+
+    intents = []
+    for message in messages:
+        if message.get("author") != "user":
+            continue
+        parsed = _parse_runtime_intent_message(message.get("text", ""))
+        if not parsed:
+            continue
+        intents.append({
+            **parsed,
+            "chat_id": message.get("id"),
+            "processed": bool(message.get("processed")),
+            "pinned": bool(message.get("pinned")),
+            "ts": message.get("ts"),
+            "ts_short": _short_ts(message.get("ts")),
+        })
+        if len(intents) >= limit:
+            break
+    return intents
+
+
+def _match_followup_task(value):
+    needle = str(value or "").strip().lower()
+    if not needle:
+        return None
+    for task in load_tasks_snapshot()["tasks"]:
+        hay = " ".join([task["id"], task["title"]]).lower()
+        if needle in hay or task["id"].lower() == needle:
+            return {
+                "type": "task",
+                "id": task["id"],
+                "label": task["title"],
+                "href": "/dashboard",
+            }
+    return None
+
+
+def _match_followup_proposal(value):
+    needle = str(value or "").strip().lower()
+    if not needle:
+        return None
+    for proposal in load_json_safe(PROPOSALS_FILE, []):
+        if not isinstance(proposal, dict):
+            continue
+        title = str(proposal.get("title") or "").strip()
+        proposal_id = str(proposal.get("id") or "").strip()
+        hay = " ".join([proposal_id, title]).lower()
+        if needle in hay or proposal_id.lower() == needle:
+            return {
+                "type": "proposal",
+                "id": proposal_id or needle,
+                "label": title or proposal_id or needle,
+                "href": "/dashboard",
+            }
+    return None
+
+
+def _find_downstream_cycles(after_ts, exclude_cycle_id=None, limit=2):
+    after_dt = _parse_ts_value(after_ts)
+    if not after_dt:
+        return []
+    matches = []
+    for cycle in load_recent_dispatch_cycles(limit=24):
+        cycle_id = cycle.get("cycle_id")
+        if exclude_cycle_id and cycle_id == exclude_cycle_id:
+            continue
+        cycle_ts = _parse_ts_value(cycle.get("opened_at")) or _parse_ts_value(cycle.get("last_ts"))
+        if not cycle_ts or cycle_ts <= after_dt:
+            continue
+        matches.append({
+            "cycle_id": cycle_id,
+            "skill": cycle.get("skill"),
+            "trigger": cycle.get("trigger"),
+            "last_ts_short": cycle.get("last_ts_short"),
+        })
+        if len(matches) >= limit:
+            break
+    return matches
+
+
+def load_runtime_interventions(limit_actions=8):
+    """Build queued runtime interventions and a lineage-oriented trace."""
+    queued = load_queued_runtime_intents(limit=limit_actions)
+    trace = [
+        item for item in load_operator_actions(limit=200)
+        if item["action"].startswith("runtime:")
+    ][:limit_actions]
+
+    lineage = []
+    for item in trace:
+        followup = None
+        if item["display_action"] == "promote-task":
+            followup = _match_followup_task(item.get("value"))
+        elif item["display_action"] == "promote-proposal":
+            followup = _match_followup_proposal(item.get("value"))
+        lineage.append({
+            **item,
+            "downstream_cycles": _find_downstream_cycles(item.get("ts"), exclude_cycle_id=item.get("reference") or item.get("target_id")),
+            "downstream_target": followup,
+        })
+
+    return {
+        "queued": queued,
+        "queued_count": len(queued),
+        "trace": trace,
+        "trace_count": len(trace),
+        "lineage": lineage,
+        "lineage_count": len(lineage),
     }
 
 

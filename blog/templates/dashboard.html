@@ -18,7 +18,7 @@
   </div>
 
   <!-- Runtime transparency (dispatch/evidence/primitives/autonomy) -->
-  <div hx-get="/partials/runtime" hx-trigger="every 120s" hx-swap="innerHTML">
+  <div id="dashboard-runtime" hx-get="/partials/runtime" hx-trigger="every 120s" hx-swap="innerHTML">
     {% include 'partials/runtime.html' %}
   </div>
 
@@ -148,6 +148,14 @@ function refreshDashboardEpistemics() {
   }
 }
 
+function refreshDashboardRuntime() {
+  if (window.htmx) {
+    htmx.ajax('GET', '/partials/runtime', {target: '#dashboard-runtime', swap: 'innerHTML'});
+  } else {
+    location.reload();
+  }
+}
+
 function taskAction(taskId, action, btn) {
   if (!action) return;
 
@@ -210,6 +218,43 @@ function steeringAction(targetType, targetId, action, label, reference, btn, val
       refreshDashboardEpistemics();
     } else {
       r.json().then(function(d) { alert(d.error || 'Steering action failed'); });
+    }
+  }).catch(function() {
+    alert('Network error');
+  }).finally(function() {
+    if (btn) btn.disabled = false;
+  });
+}
+
+function runtimeAction(targetType, targetId, action, label, reference, btn, valuePrompt) {
+  if (!targetType || !targetId || !action) return;
+
+  var reason = window.prompt('rationale for ' + action + ' on ' + label + '?');
+  if (reason === null || !reason.trim()) return;
+
+  var payload = {
+    action: action,
+    reason: reason.trim(),
+    label: label,
+    reference: reference || ''
+  };
+
+  if (valuePrompt) {
+    var value = window.prompt(valuePrompt);
+    if (value === null) return;
+    if (value.trim()) payload.value = value.trim();
+  }
+
+  if (btn) btn.disabled = true;
+  fetch('/api/runtime/' + encodeURIComponent(targetType) + '/' + encodeURIComponent(targetId) + '/action', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(r) {
+    if (r.ok) {
+      refreshDashboardRuntime();
+    } else {
+      r.json().then(function(d) { alert(d.error || 'Runtime action failed'); });
     }
   }).catch(function() {
     alert('Network error');
