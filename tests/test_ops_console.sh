@@ -125,6 +125,11 @@ r = client.post("/api/steering/strategy/global/action",
                 content_type="application/json")
 check("POST /api/steering/strategy/global/action", r)
 
+r = client.post("/api/runtime/dispatch/integration-cycle/action",
+                json={"action": "require-review", "reason": "integration runtime smoke test", "label": "integration cycle", "reference": "integration-cycle"},
+                content_type="application/json")
+check("POST /api/runtime/dispatch/integration-cycle/action", r)
+
 r = client.post("/api/heartbeat/trigger", content_type="application/json")
 ok = r.status_code in (200, 429)
 mark = "PASS" if ok else "FAIL"

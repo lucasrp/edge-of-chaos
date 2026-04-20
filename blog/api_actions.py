@@ -1,4 +1,4 @@
-"""Action endpoints for heartbeat, threads, and queued task interventions."""
+"""Action endpoints for heartbeat, threads, and queued operator interventions."""
 
 import json
 from datetime import datetime, timezone
@@ -135,6 +135,20 @@ VALID_STEERING_ACTIONS = {
     "topic": {"promote", "prioritize", "defer"},
     "objective": {"attach", "retire", "defer"},
     "strategy": {"align", "reprioritize", "redirect", "review-drift"},
+}
+VALID_RUNTIME_ACTIONS = {
+    "dispatch": {"require-review", "retry", "halt", "safe-to-continue"},
+    "evidence": {"confirm", "dispute", "incomplete", "needs-instrumentation"},
+    "primitive": {"confirm-failure", "needs-guardrail", "stable", "defer"},
+    "autonomy": {
+        "accept-delta",
+        "dispute-delta",
+        "confirm-unstable",
+        "codify-accepted",
+        "codify-deferred",
+        "promote-proposal",
+        "promote-task",
+    },
 }
 
 
@@ -325,6 +339,142 @@ def steering_action(target_type, target_id):
     _log_operator_action(
         target_id,
         f"steering:{action}",
+        reason=reason,
+        value=value,
+        target_type=target_type,
+        label=label,
+        reference=reference,
+        resulting_state="queued",
+        apply="next-dispatch",
+    )
+    return jsonify({
+        "ok": True,
+        "queued": True,
+        "duplicate": False,
+        "target_type": target_type,
+        "target_id": target_id,
+        "chat_id": chat_id,
+        "dispatch_mode": "next-dispatch",
+        "resulting_state": "queued",
+    }), 200
+
+
+def _build_runtime_intent_text(target_type, target_id, action, label=None, reference=None, reason=None, value=None):
+    lines = [
+        "[runtime-intent]",
+        f"target_type: {target_type}",
+        f"target_id: {target_id}",
+        f"action: {action}",
+        "apply: next-dispatch",
+        "resulting_state: queued",
+    ]
+    if label:
+        lines.append(f"label: {label}")
+    if reference:
+        lines.append(f"reference: {reference}")
+    if reason:
+        lines.append(f"reason: {reason}")
+    if value is not None:
+        lines.append(f"value: {value}")
+    lines.append("note: queue this operator runtime/autonomy intervention for the next dispatch; do not apply it immediately")
+    return "\n".join(lines)
+
+
+def _parse_runtime_intent_text(text):
+    if not text or not str(text).startswith("[runtime-intent]"):
+        return None
+    data = {}
+    for line in str(text).splitlines()[1:]:
+        if ":" not in line:
+            continue
+        key, raw_value = line.split(":", 1)
+        key = key.strip().lower()
+        value = raw_value.strip()
+        if key:
+            data[key] = value
+    target_type = data.get("target_type")
+    target_id = data.get("target_id")
+    action = data.get("action")
+    if not target_type or not target_id or not action:
+        return None
+    return {
+        "target_type": target_type,
+        "target_id": target_id,
+        "action": action,
+        "label": data.get("label"),
+        "reference": data.get("reference"),
+        "reason": data.get("reason"),
+        "value": data.get("value"),
+        "apply": data.get("apply"),
+        "resulting_state": data.get("resulting_state"),
+        "note": data.get("note"),
+    }
+
+
+def _find_pending_runtime_intent(target_type, target_id, action, reason=None, value=None):
+    from dashboard_db import get_chats
+
+    for message in get_chats(unprocessed_only=True, limit=200):
+        if message.get("author") != "user":
+            continue
+        parsed = _parse_runtime_intent_text(message.get("text", ""))
+        if not parsed:
+            continue
+        if parsed["target_type"] != target_type or parsed["target_id"] != target_id or parsed["action"] != action:
+            continue
+        if (parsed.get("reason") or None) != reason:
+            continue
+        if (parsed.get("value") or None) != (None if value is None else str(value)):
+            continue
+        return message
+    return None
+
+
+@actions_bp.route('/api/runtime/<target_type>/<path:target_id>/action', methods=['POST'])
+def runtime_action(target_type, target_id):
+    target_type = str(target_type or "").strip().lower()
+    if target_type not in VALID_RUNTIME_ACTIONS:
+        return jsonify({"error": f"Invalid target_type. Must be one of: {', '.join(sorted(VALID_RUNTIME_ACTIONS))}"}), 400
+
+    data = request.get_json(silent=True) or {}
+    action = str(data.get("action") or "").strip().lower()
+    reason = str(data.get("reason") or "").strip() or None
+    value = data.get("value")
+    label = str(data.get("label") or "").strip() or target_id
+    reference = str(data.get("reference") or "").strip() or None
+
+    if action not in VALID_RUNTIME_ACTIONS[target_type]:
+        valid = ", ".join(sorted(VALID_RUNTIME_ACTIONS[target_type]))
+        return jsonify({"error": f"Invalid action for {target_type}. Must be one of: {valid}"}), 400
+    if not reason:
+        return jsonify({"error": "A rationale is required for runtime/autonomy interventions."}), 400
+
+    existing = _find_pending_runtime_intent(target_type, target_id, action, reason=reason, value=value)
+    if existing:
+        return jsonify({
+            "ok": True,
+            "queued": True,
+            "duplicate": True,
+            "target_type": target_type,
+            "target_id": target_id,
+            "chat_id": existing.get("id"),
+        }), 200
+
+    from dashboard_db import add_chat
+
+    intent_text = _build_runtime_intent_text(
+        target_type,
+        target_id,
+        action,
+        label=label,
+        reference=reference,
+        reason=reason,
+        value=None if value is None else str(value),
+    )
+    chat_id = add_chat("user", intent_text)
+    _log_operator_action(
+        target_id,
+        f"runtime:{action}",
         reason=reason,
         value=value,
         target_type=target_type,

@@ -9,7 +9,7 @@ from blog.services import (
     load_claims_dashboard, load_lineage_dashboard, load_proposals_dashboard,
     load_autonomy_summary, load_current_dispatch_state, load_primitive_runtime_summary,
     load_recent_dispatch_cycles, load_skill_evidence_summary, load_strategy_dashboard,
-    load_task_interventions, load_epistemic_steering,
+    load_task_interventions, load_epistemic_steering, load_runtime_interventions,
 )
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -429,12 +429,19 @@ def partial_briefing():
 
 def _build_runtime_data():
     """Build context dict for runtime transparency surfaces."""
+    interventions = load_runtime_interventions(limit_actions=8)
     return {
         "runtime_current_cycle": load_current_dispatch_state(),
         "runtime_recent_cycles": load_recent_dispatch_cycles(limit=6),
         "runtime_skill_evidence": load_skill_evidence_summary(limit=5),
         "runtime_primitives": load_primitive_runtime_summary(limit=5),
         "runtime_autonomy": load_autonomy_summary(),
+        "runtime_queued_interventions": interventions["queued"],
+        "runtime_queued_count": interventions["queued_count"],
+        "runtime_intervention_trace": interventions["trace"],
+        "runtime_intervention_trace_count": interventions["trace_count"],
+        "runtime_intervention_lineage": interventions["lineage"],
+        "runtime_intervention_lineage_count": interventions["lineage_count"],
     }
 
 
