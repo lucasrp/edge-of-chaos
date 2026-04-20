@@ -7,6 +7,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -216,6 +217,119 @@ def check_systemd_timer():
         _record_check("systemd:agent-heartbeat.timer", "warn", "systemctl não disponível — verificar heartbeat manualmente", artifact="agent-heartbeat.timer")
 
 
+def _hash_text(content: str) -> str:
+    return f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
+
+
+def _hash_file(path: Path) -> str:
+    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+
+
+def _state_root(edge_home: Path) -> Path:
+    branding_path = edge_home / "config" / "branding.yaml"
+    if branding_path.exists():
+        try:
+            branding = yaml.safe_load(branding_path.read_text(encoding="utf-8")) or {}
+            edge_state_dir = branding.get("edge_state_dir")
+            if edge_state_dir:
+                return Path(os.path.expanduser(str(edge_state_dir)))
+        except Exception:
+            pass
+    return edge_home
+
+
+def _latest_install_event(state_events_file: Path, artifact: Path) -> dict | None:
+    if not state_events_file.exists():
+        return None
+    latest = None
+    artifact_str = str(artifact)
+    for line in state_events_file.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "InstallApplied":
+            continue
+        if str(event.get("artifact") or "") != artifact_str:
+            continue
+        if latest is None or str(event.get("ts") or "") >= str(latest.get("ts") or ""):
+            latest = event
+    return latest
+
+
+def check_heartbeat_runtime_alignment(edge_home: Path, prefix: str):
+    state_events_file = _state_root(edge_home) / "state" / "events" / "log.jsonl"
+    wrapper_installed = Path.home() / ".local" / "bin" / "heartbeat.sh"
+    if wrapper_installed.exists():
+        latest = _latest_install_event(state_events_file, wrapper_installed)
+        actual_hash = _hash_file(wrapper_installed)
+        if latest and (latest.get("payload") or {}).get("hash") == actual_hash:
+            ok("heartbeat wrapper confere com o último InstallApplied")
+            _record_check(
+                "install:heartbeat-wrapper",
+                "ok",
+                "heartbeat wrapper confere com o último InstallApplied",
+                artifact=wrapper_installed,
+                expected_hash=(latest.get("payload") or {}).get("hash"),
+                actual_hash=actual_hash,
+            )
+        elif latest:
+            fail("heartbeat wrapper diverge do último InstallApplied")
+            _record_check(
+                "install:heartbeat-wrapper",
+                "fail",
+                "heartbeat wrapper diverge do último InstallApplied",
+                artifact=wrapper_installed,
+                expected_hash=(latest.get("payload") or {}).get("hash"),
+                actual_hash=actual_hash,
+            )
+        else:
+            warn("heartbeat wrapper sem InstallApplied correspondente no ledger")
+            _record_check(
+                "install:heartbeat-wrapper",
+                "warn",
+                "heartbeat wrapper sem InstallApplied correspondente no ledger",
+                artifact=wrapper_installed,
+                actual_hash=actual_hash,
+            )
+
+    skill_installed = Path.home() / ".claude" / "skills" / f"{prefix}-heartbeat" / "SKILL.md"
+    if skill_installed.exists():
+        latest = _latest_install_event(state_events_file, skill_installed)
+        actual_hash = _hash_file(skill_installed)
+        if latest and (latest.get("payload") or {}).get("hash") == actual_hash:
+            ok("heartbeat skill confere com o último InstallApplied")
+            _record_check(
+                "install:heartbeat-skill",
+                "ok",
+                "heartbeat skill confere com o último InstallApplied",
+                artifact=skill_installed,
+                expected_hash=(latest.get("payload") or {}).get("hash"),
+                actual_hash=actual_hash,
+            )
+        elif latest:
+            fail("heartbeat skill diverge do último InstallApplied")
+            _record_check(
+                "install:heartbeat-skill",
+                "fail",
+                "heartbeat skill diverge do último InstallApplied",
+                artifact=skill_installed,
+                expected_hash=(latest.get("payload") or {}).get("hash"),
+                actual_hash=actual_hash,
+            )
+        else:
+            warn("heartbeat skill sem InstallApplied correspondente no ledger")
+            _record_check(
+                "install:heartbeat-skill",
+                "warn",
+                "heartbeat skill sem InstallApplied correspondente no ledger",
+                artifact=skill_installed,
+                actual_hash=actual_hash,
+            )
+
+
 def check_render_install_drift():
     """Build and summarize the render/install drift projection."""
     tool = Path(__file__).resolve().parent / "rollup-render-install-drift.py"
@@ -358,6 +472,7 @@ def main():
     CURRENT_SECTION = "dependencies"
     print("\033[1m[1/6] Dependências\033[0m")
     check_command("claude", "Claude Code CLI")
+    check_command("edge-runner", "Edge runner CLI")
     check_command("python3", "Python 3")
     check_command("git", "Git")
     check_command("gh", "GitHub CLI (opcional)")
@@ -438,6 +553,7 @@ def main():
         else:
             warn(f"/{prefix}-{skill} — não encontrado em {skills_dir}")
             _record_check(f"skill:{prefix}-{skill}", "warn", f"/{prefix}-{skill} — não encontrado em {skills_dir}", artifact=skill_path)
+    check_heartbeat_runtime_alignment(edge_home, prefix)
     print()
 
     # 8. Projection

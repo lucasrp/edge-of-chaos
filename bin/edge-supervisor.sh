@@ -3,6 +3,8 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../config/paths.sh
+source "$SCRIPT_DIR/../config/paths.sh"
 source "$SCRIPT_DIR/survival-lib.sh"
 
 DRY_RUN=false
@@ -46,6 +48,10 @@ if [[ "$score_after" -lt 40 ]]; then mode="maintenance"; fi
 echo "$mode" > "$HEALTH_DIR/mode"
 log_health "supervisor: mode=$mode score=$score_after"
 
+HEARTBEAT_SKILL="/${SKILL_PREFIX}-heartbeat"
+RUNNER="$EDGE_REPO_DIR/tools/edge-runner"
+RUNNER_CWD="${WORK_DIR:-$EDGE_REPO_DIR}"
+
 # Step 4: Execute according to mode
 if $DRY_RUN; then
   log_health "supervisor: DRY RUN — skipping claude invocation"
@@ -53,8 +59,15 @@ else
   case "$mode" in
     normal)
       log_health "supervisor: running normal heartbeat"
-      cd "${WORK_DIR:-$HOME/work}"
-      claude -p "/ed-heartbeat" \
+      cd "$RUNNER_CWD"
+      "$RUNNER" skill \
+        --skill "$HEARTBEAT_SKILL" \
+        --dispatch-trigger heartbeat \
+        --dispatch-policy autonomous \
+        --dispatch-routing-mode auto \
+        --dispatch-preflight-profile heartbeat_default \
+        --dispatch-postflight-profile standard \
+        --dispatch-force \
         --max-turns 30 \
         --allowedTools "Bash(*),Read(*),Write(*),Edit(*),Glob(*),Grep(*),WebSearch(*),WebFetch(*),Task(*),Skill(*)" \
         2>&1 || true
@@ -63,8 +76,8 @@ else
       local_action=$(jq -r '.[0].remedy_skill // empty' "$HEALTH_DIR/raw/content-remediation.json" 2>/dev/null)
       if [[ -n "$local_action" ]]; then
         log_health "supervisor: running remediation: $local_action"
-        cd "${WORK_DIR:-$HOME/work}"
-        claude -p "$local_action" --max-turns 15 \
+        cd "$RUNNER_CWD"
+        "$RUNNER" skill --skill "$local_action" --max-turns 15 \
           --allowedTools "Bash(*),Read(*),Write(*),Edit(*),Glob(*),Grep(*),WebSearch(*),WebFetch(*),Task(*),Skill(*)" \
           2>&1 || true
       fi
@@ -72,8 +85,15 @@ else
 
     degraded)
       log_health "supervisor: running degraded heartbeat (limited)"
-      cd "${WORK_DIR:-$HOME/work}"
-      claude -p "/ed-heartbeat" \
+      cd "$RUNNER_CWD"
+      "$RUNNER" skill \
+        --skill "$HEARTBEAT_SKILL" \
+        --dispatch-trigger heartbeat \
+        --dispatch-policy autonomous \
+        --dispatch-routing-mode auto \
+        --dispatch-preflight-profile heartbeat_default \
+        --dispatch-postflight-profile standard \
+        --dispatch-force \
         --max-turns 15 \
         --allowedTools "Bash(*),Read(*),Write(*),Edit(*),Glob(*),Grep(*),WebSearch(*),WebFetch(*),Task(*),Skill(*)" \
         2>&1 || true
@@ -81,8 +101,8 @@ else
       local_action=$(jq -r '.[0].remedy_skill // empty' "$HEALTH_DIR/raw/content-remediation.json" 2>/dev/null)
       if [[ -n "$local_action" ]]; then
         log_health "supervisor: running remediation: $local_action"
-        cd "${WORK_DIR:-$HOME/work}"
-        claude -p "$local_action" --max-turns 10 \
+        cd "$RUNNER_CWD"
+        "$RUNNER" skill --skill "$local_action" --max-turns 10 \
           --allowedTools "Bash(*),Read(*),Write(*),Edit(*),Glob(*),Grep(*),WebSearch(*),WebFetch(*),Task(*),Skill(*)" \
           2>&1 || true
       fi
@@ -91,8 +111,8 @@ else
     maintenance)
       log_health "supervisor: MAINTENANCE MODE — diagnostics only"
       touch "$HEALTH_DIR/operator-alert.flag"
-      cd "$HOME"
-      claude -p "Leia ~/edge/health/current.json e ~/edge/SURVIVAL_POLICY.md. Status: $status, score: $score_after. Diagnostique os problemas e tente reparar o que puder. NÃO execute missão normal." \
+      cd "$RUNNER_CWD"
+      "$RUNNER" prompt --prompt "Leia $HEALTH_CURRENT_FILE e $EDGE_REPO_DIR/SURVIVAL_POLICY.md. Status: $status, score: $score_after. Diagnostique os problemas e tente reparar o que puder. NÃO execute missão normal." \
         --max-turns 10 \
         --allowedTools "Bash(*),Read(*),Write(*),Edit(*),Glob(*),Grep(*)" \
         2>&1 || true
