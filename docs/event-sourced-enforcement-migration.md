@@ -129,7 +129,13 @@ Step 1 should add dual-write from:
 - `consolidate-state`
 - `blog-publish.sh`
 
-`edge-apply` can join in the next step if needed, but it is not required to validate the dispatch/pipeline loop first.
+Fresh-install tooling can join after the dispatch loop is stable:
+
+- `edge-render`
+- `edge-apply`
+- `edge-doctor`
+
+These emit `RenderProduced`, `InstallApplied`, and `InstallCheckObserved` facts so install drift can be compared against runtime prose later.
 
 ## First Projections
 

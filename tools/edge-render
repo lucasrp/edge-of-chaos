@@ -8,10 +8,12 @@ Usage:
 """
 
 import argparse
+import hashlib
 import os
 import re
 import sys
-from datetime import date
+import uuid
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -20,6 +22,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "_shared"))
 from intervals import parse_interval  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _ensure_install_context(cfg: dict) -> str:
+    os.environ.setdefault("EDGE_CODENAME", str(cfg.get("codename", "agent")))
+    os.environ.setdefault("EDGE_STATE_DIR", str(cfg.get("edge_home_expanded", REPO_ROOT)))
+    cycle_id = os.environ.get("EDGE_CYCLE_ID")
+    if cycle_id:
+        return cycle_id
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    cycle_id = f"install:{cfg.get('codename', 'agent')}:{stamp}-{uuid.uuid4().hex[:6]}"
+    os.environ["EDGE_CYCLE_ID"] = cycle_id
+    return cycle_id
+
+
+def _repo_relative(path: Path) -> str:
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _hash_text(content: str) -> str:
+    return f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
 
 
 def _render_checklist(items: list[str], fallback: str) -> str:
@@ -283,6 +308,8 @@ def find_templates(repo_root: Path) -> list[Path]:
 
 def render_all(repo_root: Path, placeholders: dict, dry_run: bool = False) -> list[str]:
     """Render all templates, write output files."""
+    from telemetry import log_render_produced
+
     templates = find_templates(repo_root)
     results = []
 
@@ -305,7 +332,16 @@ def render_all(repo_root: Path, placeholders: dict, dry_run: bool = False) -> li
                 results.append(f"         Residuals: {residuals[:3]}")
         else:
             out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(rendered)
+            out_path.write_text(rendered, encoding="utf-8")
+            log_render_produced(
+                str(out_path),
+                source_template=str(rel),
+                hash_value=_hash_text(rendered),
+                residual_count=len(residuals),
+                dry_run=False,
+                output_path=str(out_path.relative_to(repo_root)),
+                template_path=str(rel),
+            )
             status = "WARN" if residuals else "OK"
             results.append(f"  [{status}] {out_path.relative_to(repo_root)}")
             if residuals:
@@ -326,6 +362,9 @@ def main():
         sys.exit(1)
 
     cfg = load_agent_yaml(config_path)
+    cycle_id = _ensure_install_context(cfg)
+    from telemetry import log_run_step
+
     placeholders = build_placeholder_map(cfg)
 
     print(f"{'[DRY RUN] ' if args.dry_run else ''}Rendering templates for: {cfg['name']} ({cfg['codename']})")
@@ -334,12 +373,44 @@ def main():
     print(f"  onboarding: {'ON' if cfg.get('onboarding_mode') else 'OFF'}")
     print()
 
-    results = render_all(REPO_ROOT, placeholders, dry_run=args.dry_run)
+    log_run_step(
+        "edge-render",
+        "templates",
+        "started",
+        run_id=cycle_id,
+        config=_repo_relative(config_path),
+        dry_run=args.dry_run,
+    )
+
+    try:
+        results = render_all(REPO_ROOT, placeholders, dry_run=args.dry_run)
+    except Exception as exc:
+        log_run_step(
+            "edge-render",
+            "templates",
+            "failed",
+            run_id=cycle_id,
+            config=_repo_relative(config_path),
+            dry_run=args.dry_run,
+            error=str(exc),
+        )
+        raise
+
     for r in results:
         print(r)
 
     total = len([r for r in results if r.startswith("  [")])
     warns = len([r for r in results if "[WARN]" in r])
+    log_run_step(
+        "edge-render",
+        "templates",
+        "completed",
+        run_id=cycle_id,
+        config=_repo_relative(config_path),
+        dry_run=args.dry_run,
+        template_count=total,
+        warn_count=warns,
+    )
     print(f"\nRendered {total} templates ({warns} with residuals).")
 
 
