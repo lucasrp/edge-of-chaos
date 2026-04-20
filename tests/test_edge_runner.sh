@@ -147,6 +147,31 @@ else
     fail "backend failure maps to failed CycleClosed state"
 fi
 
+echo "--- Test 4: bare heartbeat invocation auto-inferrs heartbeat dispatch defaults ---"
+unset MOCK_CLAUDE_EXIT_CODE || true
+export MOCK_CLAUDE_HEARTBEAT_FLOW=1
+"$RUNNER_TOOL" skill --skill /ed-heartbeat >/dev/null
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+
+assert dispatch["request"]["trigger"] == "heartbeat"
+assert dispatch["request"]["policy"] == "autonomous"
+assert dispatch["request"]["routing_mode"] == "auto"
+assert dispatch["request"]["preflight_profile"] == "heartbeat_default"
+assert dispatch["request"]["postflight_profile"] == "standard"
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+PY
+then
+    pass "bare heartbeat skill run auto-opens the heartbeat lifecycle"
+else
+    fail "bare heartbeat skill run auto-opens the heartbeat lifecycle"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"

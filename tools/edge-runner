@@ -87,6 +87,23 @@ def build_backend_command(args: argparse.Namespace) -> list[str]:
     return cmd
 
 
+def infer_dispatch_defaults(args: argparse.Namespace) -> None:
+    if args.cmd != "skill":
+        return
+    if args.dispatch_trigger:
+        return
+
+    skill = (args.skill or "").strip().lstrip("/")
+    if not skill or not skill.endswith("-heartbeat"):
+        return
+
+    args.dispatch_trigger = "heartbeat"
+    args.dispatch_policy = args.dispatch_policy or "autonomous"
+    args.dispatch_routing_mode = args.dispatch_routing_mode or "auto"
+    args.dispatch_preflight_profile = args.dispatch_preflight_profile or "heartbeat_default"
+    args.dispatch_postflight_profile = args.dispatch_postflight_profile or "standard"
+
+
 def run_edge_tool(
     tool_name: str,
     args: list[str],
@@ -200,6 +217,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    infer_dispatch_defaults(args)
 
     env = os.environ.copy()
     env.setdefault("EDGE_REPO_DIR", str(EDGE_REPO_DIR))

@@ -1528,7 +1528,7 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
             f"keywords: [welcome, setup, first-boot]\n"
             f"---\n\n"
             f"I just came online. My mission: {mission}\n\n"
-            f"The first heartbeat will run soon — or you can trigger it manually with `claude -p '/{cfg.get('skill_prefix', 'ed')}-heartbeat'`.\n\n"
+            f"The first heartbeat will run soon — or you can trigger it manually with `~/.local/bin/heartbeat.sh`.\n\n"
             f"Until then, I'm here. Waiting.\n"
             ,
             phase="seed",
@@ -2016,7 +2016,7 @@ def main():
         print(f"  1. Verify:     python3 tools/edge-doctor --config agent.yaml")
         print(f"  2. Blog:       systemctl --user enable --now blog-server")
         print(f"  3. Heartbeat:  systemctl --user enable --now agent-heartbeat.timer")
-        print(f"  4. Test:       claude -p '/{prefix}-heartbeat'")
+        print("  4. Test:       ~/.local/bin/heartbeat.sh")
         print(f"  5. Doctor:     python3 tools/edge-doctor --config agent.yaml")
     else:
         print(f"\n{RED}✗{RESET} {failed} phase(s) failed.")
