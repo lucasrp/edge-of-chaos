@@ -31,7 +31,7 @@ Phase 1 captures facts from the current runtime across these surfaces:
 The runtime has two triggers:
 
 - heartbeat
-- direct user dispatch
+- direct operator dispatch
 
 Both should converge on one cycle model:
 
@@ -135,7 +135,8 @@ Legend:
 
 | Capability | Status | Notes |
 |---|---|---|
-| cycle start via user directive | done | normalized from `edge-event user_directive` |
+| cycle start | done | emitted directly by `edge-dispatch open`; legacy `edge-event user_directive` still dual-writes during migration |
+| cycle close | done | emitted directly by `edge-dispatch close` |
 | skill dispatch | done | normalized from `edge-event skill_dispatched` |
 | skill steps | done | normalized from `edge-skill-step` |
 | primitive invocation | done | normalized from `usage_log.py` |

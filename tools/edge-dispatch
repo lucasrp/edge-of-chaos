@@ -1,0 +1,334 @@
+#!/usr/bin/env python3
+"""edge-dispatch — dispatch-cycle envelope for heartbeat and operator triggers.
+
+Usage:
+  edge-dispatch open --trigger heartbeat --policy autonomous
+  edge-dispatch open --trigger operator --skill reflection --arg topic=enforcement
+  edge-dispatch dispatch --skill research
+  edge-dispatch close --status completed
+  edge-dispatch status
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import CURRENT_BEAT_FILE, CURRENT_DISPATCH_FILE  # noqa: E402
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.telemetry import current_actor, emit_shadow_event, log_event  # noqa: E402
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def make_cycle_id() -> str:
+    stamp = datetime.now(timezone.utc).strftime("cycle-%Y%m%dT%H%M%SZ")
+    return f"{stamp}-{uuid.uuid4().hex[:6]}"
+
+
+def canonical_trigger(value: str) -> str:
+    if value == "user":
+        return "operator"
+    return value
+
+
+def parse_args_items(items: list[str] | None, args_json: str | None) -> dict[str, object]:
+    merged: dict[str, object] = {}
+    if args_json:
+        payload = json.loads(args_json)
+        if not isinstance(payload, dict):
+            raise ValueError("--args-json must decode to an object")
+        merged.update({str(k): v for k, v in payload.items()})
+    for item in items or []:
+        if "=" not in item:
+            raise ValueError(f"invalid --arg '{item}' (expected key=value)")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError(f"invalid --arg '{item}' (empty key)")
+        merged[key] = value
+    return merged
+
+
+def write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def read_state(require_exists: bool = True) -> dict:
+    if not CURRENT_DISPATCH_FILE.exists():
+        if require_exists:
+            raise FileNotFoundError(f"{CURRENT_DISPATCH_FILE} not found")
+        return {}
+    return json.loads(CURRENT_DISPATCH_FILE.read_text(encoding="utf-8"))
+
+
+def state_active(state: dict) -> bool:
+    state_block = state.get("state", {}) or {}
+    return bool(state_block.get("active"))
+
+
+def mirror_heartbeat_guard(state: dict) -> None:
+    request = state.get("request", {}) or {}
+    if request.get("trigger") != "heartbeat":
+        return
+
+    state_block = state.get("state", {}) or {}
+    legacy = {
+        "active": state_block.get("active", False),
+        "started_at": state_block.get("opened_at"),
+        "skill_dispatched": state_block.get("skill_dispatched", False),
+        "skill": request.get("skill"),
+    }
+    write_json(CURRENT_BEAT_FILE, legacy)
+
+
+def print_json(payload: dict) -> None:
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def cmd_open(args: argparse.Namespace) -> int:
+    existing = read_state(require_exists=False)
+    if existing and state_active(existing) and not args.force:
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": "active dispatch cycle already exists",
+                    "cycle_id": existing.get("cycle_id"),
+                    "hint": "use --force only if you are replacing a stale shadow cycle",
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 1
+
+    cycle_id = args.cycle_id or make_cycle_id()
+    requested_trigger = args.trigger
+    trigger = canonical_trigger(requested_trigger)
+    policy = args.policy or ("autonomous" if trigger == "heartbeat" else "operator")
+    routing_mode = args.routing_mode or ("auto" if trigger == "heartbeat" else "explicit")
+    preflight_profile = args.preflight_profile or ("heartbeat_default" if trigger == "heartbeat" else "operator_default")
+    postflight_profile = args.postflight_profile or "standard"
+    request_args = parse_args_items(args.arg, args.args_json)
+    opened_at = now_iso()
+
+    state = {
+        "version": 1,
+        "cycle_id": cycle_id,
+        "request": {
+            "trigger": trigger,
+            "skill": args.skill,
+            "args": request_args,
+            "policy": policy,
+            "routing_mode": routing_mode,
+            "preflight_profile": preflight_profile,
+            "postflight_profile": postflight_profile,
+            "opened_by": current_actor(),
+        },
+        "state": {
+            "active": True,
+            "phase": "opened",
+            "skill_dispatched": False,
+            "preflight_status": "pending",
+            "skill_status": "pending",
+            "postflight_status": "pending",
+            "close_status": None,
+            "opened_at": opened_at,
+            "updated_at": opened_at,
+            "dispatched_at": None,
+            "closed_at": None,
+            "close_reason": None,
+        },
+    }
+    write_json(CURRENT_DISPATCH_FILE, state)
+    mirror_heartbeat_guard(state)
+
+    emit_shadow_event(
+        "CycleStarted",
+        actor="edge-dispatch",
+        cycle_id=cycle_id,
+        payload={
+            "trigger": trigger,
+            "requested_trigger": requested_trigger,
+            "skill": args.skill,
+            "policy": policy,
+            "routing_mode": routing_mode,
+            "preflight_profile": preflight_profile,
+            "postflight_profile": postflight_profile,
+            "args": request_args,
+        },
+    )
+    log_event(
+        "dispatch_cycle",
+        action="opened",
+        cycle_id=cycle_id,
+        trigger=trigger,
+        skill=args.skill or "",
+        policy=policy,
+        routing_mode=routing_mode,
+    )
+    print_json(state)
+    return 0
+
+
+def cmd_dispatch(args: argparse.Namespace) -> int:
+    state = read_state()
+    if not state_active(state):
+        print(json.dumps({"ok": False, "error": "no active dispatch cycle"}, indent=2), file=sys.stderr)
+        return 1
+
+    timestamp = now_iso()
+    request = state.setdefault("request", {})
+    state_block = state.setdefault("state", {})
+    request["skill"] = args.skill or request.get("skill")
+    if not request.get("skill"):
+        print(json.dumps({"ok": False, "error": "dispatch requires a skill"}, indent=2), file=sys.stderr)
+        return 1
+
+    state_block["skill_dispatched"] = True
+    state_block["phase"] = "skill_dispatched"
+    state_block["skill_status"] = "running"
+    state_block["dispatched_at"] = timestamp
+    state_block["updated_at"] = timestamp
+
+    if args.arg or args.args_json:
+        request["args"] = parse_args_items(args.arg, args.args_json)
+
+    write_json(CURRENT_DISPATCH_FILE, state)
+    mirror_heartbeat_guard(state)
+
+    emit_shadow_event(
+        "SkillDispatched",
+        actor="edge-dispatch",
+        cycle_id=state["cycle_id"],
+        payload={
+            "trigger": request.get("trigger"),
+            "skill": request.get("skill"),
+            "dispatch_mode": args.dispatch_mode,
+            "policy": request.get("policy"),
+            "args": request.get("args", {}),
+        },
+    )
+    log_event(
+        "dispatch_cycle",
+        action="skill_dispatched",
+        cycle_id=state["cycle_id"],
+        trigger=request.get("trigger"),
+        skill=request.get("skill"),
+        dispatch_mode=args.dispatch_mode,
+    )
+    print_json(state)
+    return 0
+
+
+def cmd_close(args: argparse.Namespace) -> int:
+    state = read_state()
+    request = state.setdefault("request", {})
+    state_block = state.setdefault("state", {})
+    timestamp = now_iso()
+
+    state_block["active"] = False
+    state_block["phase"] = "closed"
+    state_block["close_status"] = args.status
+    state_block["close_reason"] = args.reason
+    state_block["closed_at"] = timestamp
+    state_block["updated_at"] = timestamp
+    if state_block.get("skill_status") == "running":
+        state_block["skill_status"] = "completed" if args.status == "completed" else args.status
+
+    write_json(CURRENT_DISPATCH_FILE, state)
+    mirror_heartbeat_guard(state)
+
+    emit_shadow_event(
+        "CycleClosed",
+        actor="edge-dispatch",
+        cycle_id=state["cycle_id"],
+        payload={
+            "trigger": request.get("trigger"),
+            "skill": request.get("skill"),
+            "close_status": args.status,
+            "reason": args.reason or "",
+        },
+    )
+    log_event(
+        "dispatch_cycle",
+        action="closed",
+        cycle_id=state["cycle_id"],
+        trigger=request.get("trigger"),
+        skill=request.get("skill") or "",
+        close_status=args.status,
+        reason=args.reason or "",
+    )
+    print_json(state)
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    state = read_state(require_exists=False)
+    if not state:
+        print_json({"ok": True, "active": False, "state_file": str(CURRENT_DISPATCH_FILE)})
+        return 0
+    print_json(state)
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Dispatch-cycle envelope for heartbeat and operator runs")
+    sub = parser.add_subparsers(dest="cmd")
+
+    p_open = sub.add_parser("open", help="Open a new dispatch cycle")
+    p_open.add_argument("--trigger", required=True, choices=["heartbeat", "operator", "user"])
+    p_open.add_argument("--skill", help="Requested skill, if already known")
+    p_open.add_argument("--policy", choices=["autonomous", "operator"], help="Execution policy")
+    p_open.add_argument("--routing-mode", choices=["auto", "explicit"], help="How the skill was chosen")
+    p_open.add_argument("--preflight-profile", help="Named preflight profile")
+    p_open.add_argument("--postflight-profile", help="Named postflight profile")
+    p_open.add_argument("--cycle-id", help="Override generated cycle id")
+    p_open.add_argument("--arg", action="append", help="Request arg (key=value). Repeatable.")
+    p_open.add_argument("--args-json", help="JSON object with request args")
+    p_open.add_argument("--force", action="store_true", help="Replace an active shadow cycle")
+
+    p_dispatch = sub.add_parser("dispatch", help="Mark the current cycle as skill-dispatched")
+    p_dispatch.add_argument("--skill", help="Dispatched skill name")
+    p_dispatch.add_argument("--dispatch-mode", default="normal", help="Dispatch mode label")
+    p_dispatch.add_argument("--arg", action="append", help="Request arg (key=value). Repeatable.")
+    p_dispatch.add_argument("--args-json", help="JSON object with request args")
+
+    p_close = sub.add_parser("close", help="Close the current dispatch cycle")
+    p_close.add_argument("--status", default="completed", choices=["completed", "failed", "aborted"])
+    p_close.add_argument("--reason", help="Optional close reason")
+
+    sub.add_parser("status", help="Print the current dispatch state")
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.cmd == "open":
+        return cmd_open(args)
+    if args.cmd == "dispatch":
+        return cmd_dispatch(args)
+    if args.cmd == "close":
+        return cmd_close(args)
+    if args.cmd == "status":
+        return cmd_status(args)
+    parser.print_help()
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

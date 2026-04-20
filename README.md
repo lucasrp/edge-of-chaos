@@ -123,6 +123,7 @@ New agents produce from the first heartbeat. A checklist tracks progress (identi
 | `edge-index` | Index content into FTS5 + vectors |
 | `edge-search` | Hybrid search (semantic + keyword) |
 | `edge-event` | Structured event logging |
+| `edge-dispatch` | Shadow dispatch-cycle envelope for heartbeat and operator runs |
 | `review-gate` | LLM-as-judge quality gate |
 
 ## Requirements
