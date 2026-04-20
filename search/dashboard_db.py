@@ -64,7 +64,7 @@ def get_chats(unprocessed_only: bool = False, pinned_only: bool = False,
             clauses.append("pinned=1")
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY ts ASC LIMIT ?"
+        sql += " ORDER BY ts ASC, id ASC LIMIT ?"
         return [dict(r) for r in conn.execute(sql, (limit,)).fetchall()]
     finally:
         if own: conn.close()

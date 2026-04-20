@@ -64,6 +64,39 @@ Any change to these files is monitored by `edge-state-audit`:
 
 ---
 
+## Async Inbox (MANDATORY, before execution)
+
+**User interaction is priority.** The async blog chat is the canonical operator
+input channel, but skills must consume it through the structured inbox
+contract rather than scraping `/api/chat` directly.
+
+Before meaningful execution, read the inbox:
+
+```bash
+edge-skill-inbox read --skill <skill> | tee /tmp/edge-skill-inbox.json
+```
+
+Rules:
+- `edge-skill-inbox read` returns the **captured dispatch snapshot** when the
+  skill was already dispatched. This is the deterministic contract for the
+  current cycle (`request.async_inbox` in `state/current-dispatch.json`).
+- If there is no active dispatched cycle yet, the tool falls back to a live
+  view. Use that only for lightweight routing/bootstrap. The real contract is
+  captured at `edge-dispatch dispatch --skill <skill>`.
+- Inspect all buckets: `direct_messages`, `task_intents`, `steering_intents`,
+  `runtime_intents`, and `pinned_messages`.
+- If the inbox reports `priority: high`, address it before generic exploration,
+  rotation, or opportunistic work.
+- `task_intents`, `steering_intents`, and `runtime_intents` are operator
+  instructions queued for the **next dispatch**, not immediate mutations.
+- Do **not** mark chat messages as processed manually inside the skill. The
+  captured `message_ids` are consumed by `edge-close` only after successful
+  completion of the cycle.
+- The shared protocol is the genotype of this rule. `pre-skill` is its
+  phenotype. They must agree: user interaction outranks generic exploration.
+
+---
+
 ## Workflow Lookup (MANDATORY, before execution)
 
 Before starting any skill, look up relevant workflows and save the results:

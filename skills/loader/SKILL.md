@@ -54,18 +54,23 @@ Only read these if the briefing indicates something that needs detail:
 
 DO NOT read by default: working-state.md (replaced by briefing), debugging.md (active errors are already in briefing), breaks-active.md (beats are already in briefing).
 
-### Step 2: Read pending chat
+### Step 2: Read async inbox
 
 ```bash
-curl -s 'http://localhost:8766/api/chat?unprocessed=true' 2>/dev/null | python3 -c "
+edge-skill-inbox read --skill loader 2>/dev/null | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
-    msgs = [m for m in data.get('messages', []) if m.get('author') == 'user' and not m.get('processed')]
-    for m in msgs:
-        print(f'[{m.get(\"id\")}] {m.get(\"text\", \"\")[:200]}')
-    if not msgs: print('(none)')
-except: print('(chat inaccessible)')
+    printed = 0
+    for bucket in ('direct_messages', 'task_intents', 'steering_intents', 'runtime_intents'):
+        for item in data.get(bucket, [])[:3]:
+            preview = item.get('preview') or item.get('text') or item.get('action') or ''
+            print(f'[{bucket}] {preview[:200]}')
+            printed += 1
+    if not printed:
+        print('(none)')
+except Exception:
+    print('(inbox inaccessible)')
 "
 ```
 
@@ -88,11 +93,11 @@ DO NOT dump file contents. ABSORB and produce a short synthesis:
 
 **Synthesis priority:** threads with overdue resurface appear FIRST — they are what needs attention today. Dormant and done threads do not appear in the synthesis (only on explicit request).
 
-### Step 5: Respond to pending chat (if any)
+### Step 5: Respond to pending inbox (if any)
 
-If there are unprocessed chat messages:
-1. Show them to the user
-2. Ask if they want me to respond now or later
+If there are pending async inbox items:
+1. Show the relevant direct messages/intents to the user
+2. Ask if they want me to act now or later
 
 ---
 

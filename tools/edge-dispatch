@@ -23,6 +23,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import CURRENT_BEAT_FILE, CURRENT_DISPATCH_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.telemetry import current_actor, emit_shadow_event, log_event  # noqa: E402
+from _shared.skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
 
 
 def now_iso() -> str:
@@ -232,9 +233,28 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     state_block["skill_status"] = "running"
     state_block["dispatched_at"] = timestamp
     state_block["updated_at"] = timestamp
+    inbox = attach_snapshot_to_dispatch(state, skill=requested_skill)
 
     write_json(CURRENT_DISPATCH_FILE, state)
     mirror_heartbeat_guard(state)
+
+    emit_shadow_event(
+        "AsyncInboxCaptured",
+        actor="edge-dispatch",
+        cycle_id=state["cycle_id"],
+        payload={
+            "skill": request.get("skill"),
+            "priority": inbox.get("priority"),
+            "priority_reason": inbox.get("priority_reason"),
+            "unprocessed_total": inbox.get("unprocessed_total", 0),
+            "pinned_total": inbox.get("pinned_total", 0),
+            "direct_messages": len(inbox.get("direct_messages", [])),
+            "task_intents": len(inbox.get("task_intents", [])),
+            "steering_intents": len(inbox.get("steering_intents", [])),
+            "runtime_intents": len(inbox.get("runtime_intents", [])),
+            "message_ids": inbox.get("message_ids", []),
+        },
+    )
 
     emit_shadow_event(
         "SkillDispatched",
@@ -246,6 +266,16 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
             "dispatch_mode": args.dispatch_mode,
             "policy": request.get("policy"),
             "args": request.get("args", {}),
+            "async_inbox": {
+                "priority": inbox.get("priority"),
+                "priority_reason": inbox.get("priority_reason"),
+                "unprocessed_total": inbox.get("unprocessed_total", 0),
+                "pinned_total": inbox.get("pinned_total", 0),
+                "direct_messages": len(inbox.get("direct_messages", [])),
+                "task_intents": len(inbox.get("task_intents", [])),
+                "steering_intents": len(inbox.get("steering_intents", [])),
+                "runtime_intents": len(inbox.get("runtime_intents", [])),
+            },
         },
     )
     log_event(
@@ -255,6 +285,8 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
         trigger=request.get("trigger"),
         skill=request.get("skill"),
         dispatch_mode=args.dispatch_mode,
+        async_inbox_priority=inbox.get("priority"),
+        async_inbox_unprocessed=inbox.get("unprocessed_total", 0),
     )
     print_json(state)
     return 0
