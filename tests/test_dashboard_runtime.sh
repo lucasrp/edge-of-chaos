@@ -87,6 +87,54 @@ cat >"$TMP_STATE/state/primitive-usage-rollup.json" <<'JSON'
 }
 JSON
 
+cat >"$TMP_STATE/state/primitives-status.json" <<'JSON'
+{
+  "generated_at": "2026-04-20T20:42:00+00:00",
+  "summary": {
+    "window_days": 30,
+    "declared_total": 3,
+    "contract_only_total": 1,
+    "active_total": 1,
+    "probed_total": 0,
+    "broken_total": 1,
+    "drifted_total": 0,
+    "usage_30d_total": 17,
+    "counts_by_effective_status": {
+      "broken": 1,
+      "active": 1,
+      "contract-only": 1
+    },
+    "health_status": "fail"
+  },
+  "sources": [
+    {
+      "name": "exa",
+      "effective_status": "broken",
+      "probe_status": "fail",
+      "usage_30d": 10,
+      "manifest_status": "active",
+      "problems": ["last_probe_failed"]
+    },
+    {
+      "name": "grok",
+      "effective_status": "active",
+      "probe_status": "unknown",
+      "usage_30d": 5,
+      "manifest_status": "active",
+      "problems": []
+    },
+    {
+      "name": "overleaf",
+      "effective_status": "contract-only",
+      "probe_status": "unknown",
+      "usage_30d": 2,
+      "manifest_status": "contract-only",
+      "problems": []
+    }
+  ]
+}
+JSON
+
 cat >"$TMP_STATE/state/sources-manifest.yaml" <<'YAML'
 version: 1
 sources:
@@ -132,8 +180,12 @@ assert data["runtime_current_cycle"]["skill"] == "reflection"
 assert data["runtime_skill_evidence"]["pre_skill"]["status"] == "gap"
 assert data["runtime_skill_evidence"]["post_skill"]["status"] == "gap"
 assert data["runtime_skill_evidence"]["skill_runs_total"] == 2
-assert data["runtime_primitives"]["total_calls"] == 17
-assert data["runtime_primitives"]["status_counts"]["contract-only"] == 1
+assert data["runtime_primitives"]["available"] is True
+assert data["runtime_primitives"]["health_status"] == "fail"
+assert data["runtime_primitives"]["declared_total"] == 3
+assert data["runtime_primitives"]["contract_only_total"] == 1
+assert data["runtime_primitives"]["broken_total"] == 1
+assert data["runtime_primitives"]["usage_30d_total"] == 17
 assert data["runtime_autonomy"]["available"] is True
 assert data["runtime_autonomy"]["avg"] == 5.0
 assert len(data["runtime_recent_cycles"]) >= 2
@@ -143,7 +195,9 @@ assert partial.status_code == 200, partial.status_code
 text = partial.get_data(as_text=True)
 assert "runtime transparency" in text
 assert "reflection" in text
+assert "primitives status" in text
 assert "contract-only" in text
+assert "broken" in text
 assert "GAP-101" in text
 print("ok")
 PY

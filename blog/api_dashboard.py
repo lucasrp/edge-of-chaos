@@ -9,6 +9,7 @@ from blog.services import (
     load_claims_dashboard, load_lineage_dashboard, load_proposals_dashboard,
     load_autonomy_summary, load_current_dispatch_state, load_primitive_runtime_summary,
     load_recent_dispatch_cycles, load_skill_evidence_summary, load_strategy_dashboard,
+    load_task_interventions,
 )
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -471,3 +472,21 @@ def partial_epistemics():
     """HTMX partial: epistemic and steering section fragment."""
     data = _build_epistemic_data()
     return render_template("partials/epistemics.html", **data)
+
+
+def _build_interventions_data():
+    """Build context dict for task interventions and operator action feed."""
+    return load_task_interventions(limit_tasks=6, limit_actions=8)
+
+
+@dashboard_bp.route("/api/dashboard/interventions")
+def interventions():
+    """Operator intervention read model for tasks and action history."""
+    return jsonify(_build_interventions_data())
+
+
+@dashboard_bp.route("/partials/interventions")
+def partial_interventions():
+    """HTMX partial: task interventions section fragment."""
+    data = _build_interventions_data()
+    return render_template("partials/interventions.html", **data)

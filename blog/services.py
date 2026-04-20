@@ -24,6 +24,7 @@ from paths import (  # noqa: E402
     GIT_SIGNALS_FILE as GIT_SIGNALS,
     LOGS_DIR,
     OPS_HOTSPOTS,
+    PRIMITIVES_STATUS_FILE,
     PROPOSALS_FILE,
     REPORTS_DIR,
     SIGNALS_DIR,
@@ -31,11 +32,13 @@ from paths import (  # noqa: E402
     SOURCES_MANIFEST_FILE,
     STATE_EVENTS_FILE,
     STATE_DIR,
+    TASKS_SNAPSHOT_FILE,
     TOPICS_DIR,
     THREADS_DIR,
 )
 
 ROOT = EDGE_REPO_DIR
+OPERATOR_ACTIONS_FILE = LOGS_DIR / "operator-actions.jsonl"
 PRIMITIVE_USAGE_ROLLUP_FILE = STATE_DIR / "primitive-usage-rollup.json"
 STRATEGY_FILE = ROOT / "config" / "strategy.md"
 
@@ -285,7 +288,43 @@ def load_skill_evidence_summary(limit=5):
 
 
 def load_primitive_runtime_summary(limit=5):
-    """Summarize primitive usage and lifecycle state."""
+    """Summarize primitives using the canonical primitives-status read model."""
+    payload = load_json_safe(PRIMITIVES_STATUS_FILE, None)
+    if not payload and (ROOT / "tools" / "edge-primitives").exists():
+        try:
+            result = subprocess.run(
+                [str(ROOT / "tools" / "edge-primitives"), "status", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=True,
+            )
+            payload = json.loads(result.stdout)
+        except Exception:
+            payload = None
+
+    if payload and isinstance(payload, dict) and isinstance(payload.get("summary"), dict):
+        summary = payload["summary"]
+        sources = payload.get("sources", []) if isinstance(payload.get("sources"), list) else []
+        top_used = sorted(sources, key=lambda item: (-int(item.get("usage_30d", 0) or 0), item.get("name", "")))
+        return {
+            "available": True,
+            "window_days": int(summary.get("window_days", 30) or 30),
+            "health_status": summary.get("health_status", "unknown"),
+            "health_color": "red" if summary.get("health_status") == "fail" else "yellow" if summary.get("health_status") == "degraded" else "green",
+            "declared_total": int(summary.get("declared_total", 0) or 0),
+            "contract_only_total": int(summary.get("contract_only_total", 0) or 0),
+            "active_total": int(summary.get("active_total", 0) or 0),
+            "probed_total": int(summary.get("probed_total", 0) or 0),
+            "broken_total": int(summary.get("broken_total", 0) or 0),
+            "drifted_total": int(summary.get("drifted_total", 0) or 0),
+            "usage_30d_total": int(summary.get("usage_30d_total", 0) or 0),
+            "counts_by_effective_status": summary.get("counts_by_effective_status", {}) or {},
+            "top_sources": sources[:limit],
+            "top_used": top_used[:limit],
+        }
+
+    # Legacy fallback while instances converge on primitives-status.json.
     usage = load_json_safe(PRIMITIVE_USAGE_ROLLUP_FILE, {
         "window_days": 30,
         "total_calls": 0,
@@ -338,12 +377,20 @@ def load_primitive_runtime_summary(limit=5):
             break
 
     return {
+        "available": False,
         "window_days": usage.get("window_days", 30),
-        "total_calls": int(usage.get("total_calls", 0) or 0),
-        "sources_total": len(sources),
-        "status_counts": status_counts,
+        "health_status": "unknown",
+        "health_color": "muted",
+        "declared_total": len(sources),
+        "contract_only_total": status_counts.get("contract-only", 0),
+        "active_total": status_counts.get("active", 0),
+        "probed_total": 0,
+        "broken_total": 0,
+        "drifted_total": 0,
+        "usage_30d_total": int(usage.get("total_calls", 0) or 0),
+        "counts_by_effective_status": status_counts,
+        "top_sources": [],
         "top_used": top_used[:limit],
-        "top_failing": top_failing[:limit],
         "lifecycle": lifecycle,
     }
 
@@ -392,6 +439,200 @@ def load_autonomy_summary():
             "gaps": [],
             "next_steps": [],
         }
+
+
+def _task_priority_rank(priority):
+    priority = str(priority or "P2").upper()
+    return {"P0": 0, "P1": 1, "P2": 2, "P3": 3}.get(priority, 2)
+
+
+def _normalize_task_entry(entry):
+    if not isinstance(entry, dict):
+        return None
+    task_id = str(entry.get("id") or entry.get("task_id") or "").strip()
+    if not task_id:
+        return None
+
+    history = entry.get("history", [])
+    if not isinstance(history, list):
+        history = []
+    latest = history[-1] if history else {}
+    if not isinstance(latest, dict):
+        latest = {}
+
+    priority = str(entry.get("priority") or "P2").upper()
+    if priority not in {"P0", "P1", "P2", "P3"}:
+        priority = "P2"
+
+    status = str(entry.get("status") or "todo").lower()
+    blocked = bool(entry.get("blocked"))
+    if blocked and status not in {"done", "deferred"}:
+        status = "blocked"
+
+    title = str(entry.get("title") or entry.get("summary") or task_id).strip()
+    summary = str(entry.get("summary") or "").strip()
+    owner = str(entry.get("owner") or "operator").strip()
+    updated_at = entry.get("updated_at") or latest.get("ts")
+    criteria = entry.get("criteria", [])
+    if isinstance(criteria, str):
+        criteria = [criteria]
+    if not isinstance(criteria, list):
+        criteria = []
+
+    return {
+        "id": task_id,
+        "title": title,
+        "summary": summary,
+        "status": status,
+        "blocked": blocked,
+        "priority": priority,
+        "priority_rank": _task_priority_rank(priority),
+        "priority_class": f"prio-{priority.lower()}",
+        "owner": owner,
+        "criteria": [str(item).strip() for item in criteria if str(item).strip()],
+        "updated_at": updated_at,
+        "updated_at_short": _short_ts(updated_at),
+        "history": history,
+        "history_count": len(history),
+        "latest_action": latest.get("action"),
+        "latest_reason": latest.get("reason"),
+        "latest_value": latest.get("value"),
+        "note_preview": str(latest.get("value") or "").strip(),
+        "status_badge": {
+            "done": "status-badge-done",
+            "blocked": "status-badge-blocked",
+            "ready": "status-badge-doing",
+            "doing": "status-badge-doing",
+            "acknowledged": "status-badge-doing",
+            "deferred": "status-badge-todo",
+            "todo": "status-badge-todo",
+        }.get(status, "status-badge-todo"),
+    }
+
+
+def load_tasks_snapshot():
+    """Load task snapshot with a tolerant shape for operator-facing interventions."""
+    raw = load_json_safe(TASKS_SNAPSHOT_FILE, {"version": 1, "tasks": []})
+    if isinstance(raw, list):
+        tasks_raw = raw
+        version = 1
+    elif isinstance(raw, dict):
+        tasks_raw = raw.get("tasks")
+        if tasks_raw is None and isinstance(raw.get("items"), list):
+            tasks_raw = raw["items"]
+        version = raw.get("version", 1)
+    else:
+        tasks_raw = []
+        version = 1
+
+    if not isinstance(tasks_raw, list):
+        tasks_raw = []
+
+    tasks = []
+    for item in tasks_raw:
+        normalized = _normalize_task_entry(item)
+        if normalized:
+            tasks.append(normalized)
+
+    tasks.sort(key=lambda item: (item["status"] == "done", item["blocked"] is False, item["priority_rank"], item["updated_at"] or ""), reverse=False)
+    return {"version": version, "tasks": tasks}
+
+
+def load_operator_actions(limit=8):
+    """Load recent operator actions from the durable operator log."""
+    actions = []
+    for entry in reversed(_iter_jsonl(OPERATOR_ACTIONS_FILE)):
+        if not isinstance(entry, dict):
+            continue
+        target_id = str(entry.get("target_id") or "").strip()
+        action = str(entry.get("action") or "").strip()
+        if not target_id or not action:
+            continue
+        actions.append({
+            "target_id": target_id,
+            "action": action,
+            "reason": entry.get("reason"),
+            "value": entry.get("value"),
+            "ts": entry.get("ts"),
+            "ts_short": _short_ts(entry.get("ts")),
+        })
+        if len(actions) >= limit:
+            break
+    return actions
+
+
+def _parse_task_intent_message(text):
+    if not text or not str(text).startswith("[task-intent]"):
+        return None
+    payload = {}
+    for line in str(text).splitlines()[1:]:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip().lower()
+        value = value.strip()
+        if key:
+            payload[key] = value
+    task_id = payload.get("task")
+    action = payload.get("action")
+    if not task_id or not action:
+        return None
+    return {
+        "task_id": task_id,
+        "action": action,
+        "reason": payload.get("reason"),
+        "value": payload.get("value"),
+        "apply": payload.get("apply"),
+        "note": payload.get("note"),
+    }
+
+
+def load_queued_task_intents(limit=8):
+    """Read queued task interventions from the async chat inbox."""
+    try:
+        from dashboard_db import get_chats
+    except Exception:
+        return []
+
+    intents = []
+    for message in get_chats(unprocessed_only=True, limit=200):
+        if message.get("author") != "user":
+            continue
+        parsed = _parse_task_intent_message(message.get("text", ""))
+        if not parsed:
+            continue
+        intents.append({
+            **parsed,
+            "chat_id": message.get("id"),
+            "processed": bool(message.get("processed")),
+            "pinned": bool(message.get("pinned")),
+            "ts": message.get("ts"),
+            "ts_short": _short_ts(message.get("ts")),
+        })
+        if len(intents) >= limit:
+            break
+    return intents
+
+
+def load_task_interventions(limit_tasks=6, limit_actions=8):
+    """Build the task intervention read model for the dashboard."""
+    snapshot = load_tasks_snapshot()
+    tasks = snapshot["tasks"]
+    attention = [task for task in tasks if task["status"] != "done"]
+    if not attention:
+        attention = tasks
+    attention.sort(key=lambda item: (item["blocked"] is False, item["priority_rank"], item["updated_at"] or ""), reverse=False)
+    queued = load_queued_task_intents(limit=limit_actions)
+    operator_actions = load_operator_actions(limit=limit_actions)
+    return {
+        "tasks": attention[:limit_tasks],
+        "tasks_total": len(tasks),
+        "task_attention_count": len([task for task in tasks if task["status"] != "done"]),
+        "queued_task_intents": queued,
+        "queued_task_count": len(queued),
+        "operator_actions": operator_actions,
+        "operator_actions_total": len(operator_actions),
+    }
 
 
 def _entry_records():
