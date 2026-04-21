@@ -1180,6 +1180,8 @@ Thread criado a partir de candidate (tag '{tag}').
 def api_thread_snooze(thread_id):
     """Snooze: update resurface +7d."""
     from datetime import timedelta
+    from blog.api_actions import _log_operator_action
+
     thread_path = THREADS_DIR / f"{thread_id}.md"
     if not thread_path.exists():
         return jsonify({"error": f"Thread {thread_id} not found"}), 404
@@ -1196,6 +1198,15 @@ def api_thread_snooze(thread_id):
         fm["updated"] = today
     new_fm = yaml.dump(fm, default_flow_style=False, allow_unicode=True).rstrip("\n")
     thread_path.write_text(f"---\n{new_fm}\n---{parts[2]}", encoding="utf-8")
+    _log_operator_action(
+        thread_id,
+        f"thread:{mode}",
+        value=fm["resurface"],
+        target_type="thread",
+        label=fm.get("title") or thread_id,
+        reference=thread_id,
+        resulting_state="applied",
+    )
     return jsonify({"ok": True, "resurface": fm["resurface"]})
 
 
@@ -1241,13 +1252,36 @@ def _build_threads_data():
     from blog.services import load_threads_enriched, compute_thread_candidates
     data = load_threads_enriched()
     threads = data["threads"]
+    threads_attention = [
+        t for t in threads
+        if t["status"] in {"active", "waiting"} and t.get("needs_attention")
+    ]
+    threads_waiting = [
+        t for t in threads
+        if t["status"] == "waiting" and not t.get("needs_attention")
+    ]
+    threads_active_healthy = [
+        t for t in threads
+        if t["status"] == "active" and not t.get("needs_attention")
+    ]
+    threads_proposed = [t for t in threads if t["status"] == "proposed"]
+    threads_backlog = [t for t in threads if t["status"] in {"dormant", "done"}]
+
     return {
-        "threads_due": [t for t in threads if t["resurface_due"] and t["status"] == "active"],
-        "threads_active": [t for t in threads if not t["resurface_due"] and t["status"] == "active"],
-        "threads_proposed": [t for t in threads if t["status"] == "proposed"],
-        "threads_dormant": [t for t in threads if t["status"] == "dormant"],
+        "threads_attention": threads_attention,
+        "threads_waiting": threads_waiting,
+        "threads_active_healthy": threads_active_healthy,
+        "threads_proposed": threads_proposed,
+        "threads_backlog": threads_backlog,
         "thread_candidates": compute_thread_candidates(),
         "thread_stats": data["stats"],
+        "thread_summary": {
+            "attention": len(threads_attention),
+            "waiting": len(threads_waiting),
+            "healthy": len(threads_active_healthy),
+            "proposed": len(threads_proposed),
+            "backlog": len(threads_backlog),
+        },
     }
 
 
