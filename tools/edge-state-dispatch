@@ -1,0 +1,374 @@
+#!/usr/bin/env python3
+"""Detect deterministic state anchor changes and queue a reflection dispatch.
+
+Anchors:
+- repo memory/MEMORY.md
+- Claude project MEMORY.md (if distinct)
+- repo config/CLAUDE.md
+- runtime ~/.claude/CLAUDE.md (if distinct)
+
+The detector stores the last observed version, writes a unified diff when a
+change is found, optionally runs edge-state-lint, and updates the persistent
+dispatch queue so the next heartbeat routes into reflection.
+"""
+
+from __future__ import annotations
+
+import difflib
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import EDGE_DIR, MEMORY_DIR, STATE_DIR  # noqa: E402
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
+
+HOME = Path.home()
+QUEUE_PATH = STATE_DIR / "dispatch-queue.json"
+TRACKER_PATH = STATE_DIR / "state-anchor-monitor.json"
+SNAPSHOT_DIR = STATE_DIR / "state-anchor-snapshots"
+DIFF_DIR = STATE_DIR / "state-anchor-diffs"
+LINT_BIN = SCRIPT_DIR / "edge-state-lint"
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def short_path(path: Path) -> str:
+    text = str(path)
+    home = str(HOME)
+    if text.startswith(home):
+        return "~" + text[len(home):]
+    return text
+
+
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def load_json(path: Path, default):
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return default
+
+
+def write_json(path: Path, payload: dict | list) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def ensure_dirs() -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    DIFF_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def watched_files() -> list[dict]:
+    items: list[dict] = []
+
+    def add(key: str, label: str, path: Path) -> None:
+        items.append({"key": key, "label": label, "path": path})
+
+    repo_memory = EDGE_DIR / "memory" / "MEMORY.md"
+    project_memory = MEMORY_DIR / "MEMORY.md"
+    repo_claude = EDGE_DIR / "config" / "CLAUDE.md"
+    runtime_claude = HOME / ".claude" / "CLAUDE.md"
+
+    add("repo_memory", "repo memory/MEMORY.md", repo_memory)
+    if project_memory != repo_memory:
+        add("project_memory", "project MEMORY.md", project_memory)
+    add("repo_claude", "repo config/CLAUDE.md", repo_claude)
+    if runtime_claude != repo_claude:
+        add("runtime_claude", "runtime ~/.claude/CLAUDE.md", runtime_claude)
+
+    return items
+
+
+def snapshot_path(key: str) -> Path:
+    return SNAPSHOT_DIR / f"{key}.latest"
+
+
+def write_snapshot(key: str, text: str) -> str:
+    path = snapshot_path(key)
+    path.write_text(text, encoding="utf-8")
+    return short_path(path)
+
+
+def read_snapshot(key: str) -> str:
+    path = snapshot_path(key)
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def write_diff(key: str, path: Path, before: str, after: str, ts_slug: str) -> str:
+    diff_path = DIFF_DIR / f"{ts_slug}-{key}.diff"
+    before_lines = before.splitlines()
+    after_lines = after.splitlines()
+    diff = difflib.unified_diff(
+        before_lines,
+        after_lines,
+        fromfile=f"{short_path(path)} (previous)",
+        tofile=f"{short_path(path)} (current)",
+        lineterm="",
+    )
+    diff_text = "\n".join(diff).strip()
+    if not diff_text:
+        diff_text = f"# No textual diff available for {short_path(path)}"
+    diff_path.write_text(diff_text + "\n", encoding="utf-8")
+    return short_path(diff_path)
+
+
+def run_lint() -> dict:
+    if not LINT_BIN.exists():
+        return {"error": f"missing lint binary: {LINT_BIN}"}
+    try:
+        result = subprocess.run(
+            [str(LINT_BIN), "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+            env={**os.environ, "EDGE_DIR": str(EDGE_DIR)},
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        return {"error": str(exc)}
+
+    stdout = result.stdout.strip()
+    if not stdout:
+        return {"error": "empty lint output", "returncode": result.returncode}
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError:
+        return {
+            "error": "invalid lint json",
+            "returncode": result.returncode,
+            "stdout": stdout[:500],
+        }
+    payload["returncode"] = result.returncode
+    return payload
+
+
+def upsert_dispatch(reason: str, payload: dict, created_at: str) -> str:
+    queue = load_json(QUEUE_PATH, [])
+    existing = None
+    for item in queue:
+        if item.get("skill") == "reflection" and item.get("source") == "state-anchor-monitor":
+            existing = item
+            break
+
+    if existing is None:
+        queue.append(
+            {
+                "skill": "reflection",
+                "source": "state-anchor-monitor",
+                "reason": reason,
+                "created_at": created_at,
+                "payload": payload,
+            }
+        )
+        status = "queued"
+    else:
+        existing["reason"] = reason
+        existing["payload"] = payload
+        existing["updated_at"] = created_at
+        status = "updated"
+
+    write_json(QUEUE_PATH, queue)
+    return status
+
+
+def emit_change_telemetry(changed: list[dict], lint: dict, queue_status: str, checked_at: str) -> None:
+    by_severity = lint.get("by_severity", {}) if isinstance(lint, dict) else {}
+    lint_errors = int(by_severity.get("error", 0)) if isinstance(by_severity.get("error", 0), int) else 0
+    lint_warnings = int(by_severity.get("warn", 0)) if isinstance(by_severity.get("warn", 0), int) else 0
+    labels = [item["label"] for item in changed]
+    paths = [item["path"] for item in changed]
+    diffs = [item["diff"] for item in changed]
+    summary = "State anchors changed: " + ", ".join(labels)
+
+    log_event(
+        "state_anchor_changed",
+        actor="edge-state-dispatch",
+        source="state-anchor-monitor",
+        checked_at=checked_at,
+        changed_labels=labels,
+        changed_paths=paths,
+        diff_paths=diffs,
+        change_count=len(changed),
+        lint_errors=lint_errors,
+        lint_warnings=lint_warnings,
+        dispatch_status=queue_status,
+    )
+    emit_shadow_event(
+        "StateAnchorChanged",
+        actor="edge-state-dispatch",
+        artifact=diffs[0] if diffs else None,
+        payload={
+            "summary": summary,
+            "checked_at": checked_at,
+            "changed_labels": labels,
+            "changed_paths": paths,
+            "diff_paths": diffs,
+            "change_count": len(changed),
+            "lint_errors": lint_errors,
+            "lint_warnings": lint_warnings,
+            "dispatch_status": queue_status,
+        },
+    )
+
+
+def detect_changes() -> dict:
+    ensure_dirs()
+    tracker = load_json(TRACKER_PATH, {"version": 1, "files": {}})
+    tracked = tracker.setdefault("files", {})
+    ts = now_iso()
+    ts_slug = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    baselined: list[str] = []
+    changed: list[dict] = []
+
+    for item in watched_files():
+        key = item["key"]
+        path = item["path"]
+        label = item["label"]
+        entry = tracked.get(key)
+        path_exists = path.exists()
+
+        if not entry:
+            if path_exists:
+                content = read_text(path)
+                file_hash = sha256_text(content)
+                tracked[key] = {
+                    "label": label,
+                    "path": str(path),
+                    "hash": file_hash,
+                    "last_seen_at": ts,
+                    "snapshot": write_snapshot(key, content),
+                }
+                baselined.append(label)
+            continue
+
+        previous_hash = entry.get("hash", "")
+        previous_text = read_snapshot(key)
+
+        if not path_exists:
+            if previous_hash and previous_hash != "MISSING":
+                diff_file = write_diff(key, path, previous_text, "", ts_slug)
+                changed.append(
+                    {
+                        "key": key,
+                        "label": label,
+                        "path": short_path(path),
+                        "change": "deleted",
+                        "before_hash": previous_hash[:12],
+                        "after_hash": "MISSING",
+                        "diff": diff_file,
+                    }
+                )
+                tracked[key] = {
+                    "label": label,
+                    "path": str(path),
+                    "hash": "MISSING",
+                    "last_seen_at": ts,
+                    "snapshot": write_snapshot(key, ""),
+                }
+            continue
+
+        current_text = read_text(path)
+        current_hash = sha256_text(current_text)
+        if current_hash == previous_hash:
+            entry["last_seen_at"] = ts
+            entry["path"] = str(path)
+            entry["label"] = label
+            continue
+
+        diff_file = write_diff(key, path, previous_text, current_text, ts_slug)
+        changed.append(
+            {
+                "key": key,
+                "label": label,
+                "path": short_path(path),
+                "change": "created" if previous_hash in ("", "MISSING") else "modified",
+                "before_hash": previous_hash[:12] if previous_hash else "",
+                "after_hash": current_hash[:12],
+                "diff": diff_file,
+            }
+        )
+        tracked[key] = {
+            "label": label,
+            "path": str(path),
+            "hash": current_hash,
+            "last_seen_at": ts,
+            "snapshot": write_snapshot(key, current_text),
+        }
+
+    tracker["last_checked_at"] = ts
+    write_json(TRACKER_PATH, tracker)
+    return {"baselined": baselined, "changed": changed, "checked_at": ts}
+
+
+def main() -> int:
+    result = detect_changes()
+    baselined = result["baselined"]
+    changed = result["changed"]
+    checked_at = result["checked_at"]
+
+    if baselined:
+        print("STATE_BASELINE " + ", ".join(baselined))
+
+    if not changed:
+        print("STATE_CLEAN")
+        return 0
+
+    lint = run_lint()
+    by_severity = lint.get("by_severity", {}) if isinstance(lint, dict) else {}
+    lint_errors = int(by_severity.get("error", 0)) if isinstance(by_severity.get("error", 0), int) else 0
+    lint_warnings = int(by_severity.get("warn", 0)) if isinstance(by_severity.get("warn", 0), int) else 0
+    changed_labels = [item["label"] for item in changed]
+
+    reason = "State anchors changed: " + ", ".join(changed_labels)
+    if lint.get("error"):
+        reason += f" | lint unavailable: {lint['error']}"
+    else:
+        reason += f" | lint: {lint_errors} errors, {lint_warnings} warnings"
+
+    payload = {
+        "checked_at": checked_at,
+        "changed_files": changed,
+        "lint": lint,
+    }
+    queue_status = upsert_dispatch(reason, payload, checked_at)
+    emit_change_telemetry(changed, lint, queue_status, checked_at)
+
+    print(
+        "STATE_CHANGE "
+        + ", ".join(f"{item['label']} ({item['change']})" for item in changed)
+    )
+    print(
+        f"STATE_QUEUE reflection {queue_status} | lint_errors={lint_errors} lint_warnings={lint_warnings}"
+    )
+    for item in changed:
+        print(f"STATE_DIFF {item['label']} -> {item['diff']}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
