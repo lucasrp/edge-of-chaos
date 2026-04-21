@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -20,7 +21,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import CURRENT_BEAT_FILE, CURRENT_DISPATCH_FILE  # noqa: E402
+from paths import CURRENT_BEAT_FILE, CURRENT_DISPATCH_FILE, THREADS_DIR  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.telemetry import current_actor, emit_shadow_event, log_event  # noqa: E402
 from _shared.skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
@@ -107,6 +108,69 @@ def resolve_primary_thread_id(request_args: dict[str, object]) -> str | None:
         if text:
             return text
     return None
+
+
+def touch_thread(thread_id: str, *, reason: str, cycle_id: str | None) -> None:
+    thread_file = THREADS_DIR / f"{thread_id}.md"
+    if not thread_file.exists():
+        log_event(
+            "thread_updated",
+            cycle_id=cycle_id,
+            thread_id=thread_id,
+            reason=reason,
+            status="missing",
+        )
+        return
+
+    content = thread_file.read_text(encoding="utf-8", errors="replace")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    updated_match = re.search(r"^updated:\s*(.+)$", content, flags=re.MULTILINE)
+    resurface_match = re.search(r"^resurface:\s*(.+)$", content, flags=re.MULTILINE)
+    previous_updated = updated_match.group(1).strip() if updated_match else None
+    resurface = resurface_match.group(1).strip() if resurface_match else None
+
+    if updated_match:
+        new_content = re.sub(r"^updated:.*$", f"updated: {today}", content, flags=re.MULTILINE)
+    elif content.startswith("---\n"):
+        parts = content.split("---", 2)
+        if len(parts) == 3:
+            frontmatter = parts[1].strip("\n")
+            body = parts[2]
+            frontmatter_lines = frontmatter.splitlines() if frontmatter else []
+            frontmatter_lines.append(f"updated: {today}")
+            new_content = "---\n" + "\n".join(frontmatter_lines) + "\n---" + body
+        else:
+            new_content = content
+    else:
+        new_content = content
+
+    if new_content != content:
+        thread_file.write_text(new_content, encoding="utf-8")
+
+    log_event(
+        "thread_updated",
+        cycle_id=cycle_id,
+        thread_id=thread_id,
+        reason=reason,
+        status="touched",
+        updated=today,
+        previous_updated=previous_updated,
+        resurface=resurface,
+        path=str(thread_file),
+    )
+    emit_shadow_event(
+        "ThreadTouched",
+        actor="edge-dispatch",
+        cycle_id=cycle_id,
+        artifact=str(thread_file),
+        payload={
+            "thread_id": thread_id,
+            "reason": reason,
+            "updated": today,
+            "previous_updated": previous_updated,
+            "resurface": resurface,
+        },
+    )
 
 
 def cmd_open(args: argparse.Namespace) -> int:
@@ -309,6 +373,12 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
         async_inbox_priority=inbox.get("priority"),
         async_inbox_unprocessed=inbox.get("unprocessed_total", 0),
     )
+    if primary_thread_id:
+        touch_thread(
+            primary_thread_id,
+            reason=f"dispatch:{requested_skill}",
+            cycle_id=state["cycle_id"],
+        )
     print_json(state)
     return 0
 

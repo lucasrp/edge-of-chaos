@@ -23,6 +23,7 @@ Tipos de evento:
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,8 +32,6 @@ import uuid
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import EVENTS_FILE, THREADS_DIR
-sys.path.insert(0, str(SCRIPT_DIR))
-from _shared.telemetry import current_cycle_id, emit_shadow_event
 
 EVENT_TYPES = [
     "skill_dispatched",
@@ -43,16 +42,6 @@ EVENT_TYPES = [
     "error_logged",
     "maintenance",
 ]
-
-SHADOW_TYPE_MAP = {
-    "skill_dispatched": "SkillDispatched",
-    "artifact_created": "ArtifactPublished",
-    "thread_updated": "ThreadUpdated",
-    "claim_resolved": "ClaimResolved",
-    "user_directive": "CycleStarted",
-    "error_logged": "ErrorLogged",
-    "maintenance": "MaintenancePerformed",
-}
 
 
 def log_event(args):
@@ -82,41 +71,14 @@ def log_event(args):
     with open(EVENTS_FILE, "a") as f:
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
-    shadow_cycle_id = current_cycle_id()
-    if not shadow_cycle_id and args.session:
-        shadow_cycle_id = f"session:{args.session}"
-
-    payload = {
-        "legacy_event_id": event["event_id"],
-        "legacy_type": args.type,
-        "summary": args.summary,
-    }
-    if args.thread:
-        payload["thread_id"] = args.thread
-    if args.task:
-        payload["task_id"] = args.task
-    if args.skill:
-        payload["skill"] = args.skill
-    if args.session:
-        payload["session_id"] = args.session
-    if args.artifacts:
-        payload["artifacts"] = [a.strip() for a in args.artifacts.split(",")]
-    if args.type == "user_directive":
-        payload["trigger"] = "user"
-
-    artifact = None
-    if payload.get("artifacts"):
-        artifact = payload["artifacts"][0]
-
-    emit_shadow_event(
-        SHADOW_TYPE_MAP.get(args.type, "LegacyEventObserved"),
-        actor="edge-event",
-        artifact=artifact,
-        cycle_id=shadow_cycle_id,
-        payload=payload,
-    )
-
     print(f"OK: {event['event_id']} [{event['type']}] {event['summary']}")
+    return event
+
+
+def append_event(event):
+    EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(EVENTS_FILE, "a") as f:
+        f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
 def cmd_recent(args):
@@ -230,26 +192,36 @@ def update_thread(thread_id, resurface_days=None):
 
     if not thread_file.exists():
         print(f"WARN: thread {thread_id} não encontrado em {threads_dir}", file=sys.stderr)
-        return False
+        return None
 
-    today = datetime.now().strftime("%Y-%m-%d")
-    content = thread_file.read_text()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    content = thread_file.read_text(encoding="utf-8", errors="replace")
+    updated_match = re.search(r'^updated:\s*(.+)$', content, flags=re.MULTILINE)
+    resurface_match = re.search(r'^resurface:\s*(.+)$', content, flags=re.MULTILINE)
+    previous_updated = updated_match.group(1).strip() if updated_match else None
+    previous_resurface = resurface_match.group(1).strip() if resurface_match else None
 
     # Atualizar updated:
-    import re
     content = re.sub(r'^updated:.*$', f'updated: {today}', content, flags=re.MULTILINE)
 
     # Atualizar resurface: se pedido
+    new_resurface = previous_resurface
     if resurface_days:
         from datetime import timedelta
-        new_resurface = (datetime.now() + timedelta(days=resurface_days)).strftime("%Y-%m-%d")
+        new_resurface = (datetime.now(timezone.utc) + timedelta(days=resurface_days)).strftime("%Y-%m-%d")
         content = re.sub(r'^resurface:.*$', f'resurface: {new_resurface}', content, flags=re.MULTILINE)
         print(f"  thread {thread_id}: updated={today}, resurface={new_resurface}")
     else:
         print(f"  thread {thread_id}: updated={today}")
 
-    thread_file.write_text(content)
-    return True
+    thread_file.write_text(content, encoding="utf-8")
+    return {
+        "path": str(thread_file),
+        "updated": today,
+        "previous_updated": previous_updated,
+        "resurface": new_resurface,
+        "previous_resurface": previous_resurface,
+    }
 
 
 def main():
@@ -280,10 +252,27 @@ def main():
     args = parser.parse_args()
 
     if args.cmd == "log":
-        log_event(args)
+        event = log_event(args)
         # Se --update-thread, atualizar o arquivo do thread
         if args.thread and args.update_thread is not None:
-            update_thread(args.thread, args.update_thread)
+            meta = update_thread(args.thread, args.update_thread)
+            if meta and args.type != "thread_updated":
+                append_event(
+                    {
+                        "event_id": f"EVT-{uuid.uuid4().hex[:8]}",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "type": "thread_updated",
+                        "summary": f"Thread touched by {args.type}: {args.thread}",
+                        "thread_id": args.thread,
+                        "source_event_id": event["event_id"],
+                        "source_event_type": args.type,
+                        "updated": meta["updated"],
+                        "previous_updated": meta["previous_updated"],
+                        "resurface": meta["resurface"],
+                        "previous_resurface": meta["previous_resurface"],
+                        "path": meta["path"],
+                    }
+                )
     elif args.cmd == "recent":
         cmd_recent(args)
     elif args.cmd == "stats":
