@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ proposal.title }} — edge_of_chaos</title>
+<link rel="icon" type="image/png" href="/static/avatar.png">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .proposal-page { max-width: 940px; margin: 0 auto; padding: 1rem; }
+  .proposal-header { margin-bottom: 1.5rem; }
+  .proposal-title { font-size: 1.45rem; margin: 0 0 .6rem; color: #e2e8f0; }
+  .proposal-meta { display: flex; gap: .8rem; flex-wrap: wrap; font-size: .82rem; color: #a0aec0; margin-bottom: .8rem; }
+  .proposal-meta span { background: #2d3748; padding: .15rem .5rem; border-radius: 4px; }
+  .proposal-back { color: #63b3ed; text-decoration: none; font-size: .9rem; }
+  .proposal-back:hover { text-decoration: underline; }
+  .proposal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .proposal-card { background: #2d3748; border: 1px solid #4a5568; border-radius: 6px; padding: .9rem 1rem; }
+  .proposal-card h2 { margin: 0 0 .7rem; font-size: 1rem; color: #e2e8f0; }
+  .proposal-line { display: flex; gap: .5rem; margin-bottom: .45rem; font-size: .9rem; color: #cbd5e0; }
+  .proposal-line strong { min-width: 115px; color: #a0aec0; font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
+  .proposal-flags { display: flex; gap: .35rem; flex-wrap: wrap; margin-top: .7rem; }
+  .timeline { list-style: none; padding: 0; }
+  .timeline li { background: #2d3748; border-radius: 4px; padding: .7rem .8rem; margin-bottom: .45rem; border-left: 3px solid #4a5568; }
+  .timeline-head { display: flex; justify-content: space-between; gap: .5rem; flex-wrap: wrap; margin-bottom: .25rem; }
+  .timeline-meta { font-size: .82rem; color: #a0aec0; }
+  .link-list { list-style: none; padding: 0; }
+  .link-list li { margin-bottom: .35rem; }
+  .link-list a, .proposal-link { color: #63b3ed; text-decoration: none; }
+  .link-list a:hover, .proposal-link:hover { text-decoration: underline; }
+  .empty { color: #718096; font-style: italic; font-size: .9rem; }
+</style>
+</head>
+<body style="background:#1a202c;color:#e2e8f0;">
+<div class="proposal-page">
+  <a href="/dashboard" class="proposal-back">&larr; dashboard</a>
+
+  <div class="proposal-header">
+    <h1 class="proposal-title">{{ proposal.title }}</h1>
+    <div class="proposal-meta">
+      <span>{{ proposal.status_label }}</span>
+      <span>{{ proposal.type }}</span>
+      <span>{{ proposal.evidence_count }} evidence</span>
+      <span>{{ proposal.linked_claims_count }} claims</span>
+      <span>{{ proposal.linked_threads_count }} threads</span>
+      {% if proposal.cost %}<span>cost: {{ proposal.cost }}</span>{% endif %}
+      {% if proposal.updated_short %}<span>updated: {{ proposal.updated_short }}</span>{% endif %}
+    </div>
+    {% if proposal.rationale %}
+    <p style="color:#a0aec0;margin:.5rem 0 0;"><strong>Why:</strong> {{ proposal.rationale }}</p>
+    {% endif %}
+  </div>
+
+  <div class="proposal-grid">
+    <div class="proposal-card">
+      <h2>Proposal Snapshot</h2>
+      <div class="proposal-line"><strong>status</strong><span>{{ proposal.status_label }}</span></div>
+      {% if proposal.action_text %}
+      <div class="proposal-line"><strong>next</strong><span>{{ proposal.action_text }}</span></div>
+      {% endif %}
+      {% if proposal.impact %}
+      <div class="proposal-line"><strong>impact</strong><span>{{ proposal.impact }}</span></div>
+      {% endif %}
+      {% if proposal.risk %}
+      <div class="proposal-line"><strong>risk</strong><span>{{ proposal.risk }}</span></div>
+      {% endif %}
+      <div class="proposal-line"><strong>surfaces</strong><span>{{ proposal.linked_claims_count }} claims · {{ proposal.linked_threads_count }} threads · {{ proposal.reports_count }} reports</span></div>
+      {% if proposal.flags %}
+      <div class="proposal-flags">
+        {% for flag in proposal.flags %}
+        <span class="thread-flag thread-flag-{{ flag.kind }}" title="{{ flag.detail }}">{{ flag.label }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="proposal-card">
+      <h2>Linked Surfaces</h2>
+      {% if proposal.linked_threads %}
+      <ul class="link-list">
+        {% for item in proposal.linked_threads %}
+        <li><a href="{{ item.href }}">{{ item.title }}</a>{% if item.status %} · {{ item.status }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty">No linked threads.</p>
+      {% endif %}
+
+      {% if proposal.linked_claims %}
+      <ul class="link-list">
+        {% for item in proposal.linked_claims %}
+        <li><a href="{{ item.href }}">{{ item.text }}</a>{% if item.kind %} · {{ item.kind }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if proposal.queued_steering_items %}
+  <h2 style="font-size:1.05rem;color:#e2e8f0;margin:1.4rem 0 .7rem;">Queued Steering</h2>
+  <ul class="timeline">
+    {% for item in proposal.queued_steering_items %}
+    <li>
+      <div class="timeline-head">
+        <strong>{{ item.action }}</strong>
+        <span class="timeline-meta">{{ item.ts_short }}</span>
+      </div>
+      <div class="timeline-meta">{{ item.reason }}{% if item.value %} · {{ item.value }}{% endif %}</div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if proposal.operator_actions %}
+  <h2 style="font-size:1.05rem;color:#e2e8f0;margin:1.4rem 0 .7rem;">Decision History</h2>
+  <ul class="timeline">
+    {% for item in proposal.operator_actions %}
+    <li>
+      <div class="timeline-head">
+        <strong>{{ item.display_action }}</strong>
+        <span class="timeline-meta">{{ item.ts_short }}</span>
+      </div>
+      <div class="timeline-meta">{{ item.reason }}{% if item.resulting_state %} · {{ item.resulting_state }}{% endif %}</div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <h2 style="font-size:1.05rem;color:#e2e8f0;margin:1.4rem 0 .7rem;">Evidence</h2>
+  {% if proposal.evidence_links %}
+  <ul class="timeline">
+    {% for item in proposal.evidence_links %}
+    <li>
+      <div class="timeline-head">
+        <strong>{% if item.href %}<a class="proposal-link" href="{{ item.href }}">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}</strong>
+        <span class="timeline-meta">{{ item.kind }}</span>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">No evidence linked yet.</p>
+  {% endif %}
+
+  {% if proposal.decision_log %}
+  <h2 style="font-size:1.05rem;color:#e2e8f0;margin:1.4rem 0 .7rem;">Decision Log Matches</h2>
+  <ul class="timeline">
+    {% for item in proposal.decision_log %}
+    <li><div class="timeline-meta">{{ item }}</div></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+</body>
+</html>
