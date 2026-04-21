@@ -3,7 +3,7 @@
 <div class="dashboard">
 
   <!-- Status Strip (auto-refreshes every 60s via HTMX) -->
-  <div hx-get="/partials/status-strip" hx-trigger="every 60s" hx-swap="innerHTML">
+  <div id="dashboard-status-strip" hx-get="/partials/status-strip" hx-trigger="every 60s" hx-swap="innerHTML">
     {% include 'partials/status_strip.html' %}
   </div>
 
@@ -48,7 +48,7 @@
   </div>
 
   <!-- Threads (auto-refreshes every 120s via HTMX) -->
-  <div hx-get="/partials/threads" hx-trigger="every 120s" hx-swap="innerHTML">
+  <div id="dashboard-threads" hx-get="/partials/threads" hx-trigger="every 120s" hx-swap="innerHTML">
     {% include 'partials/threads.html' %}
   </div>
 
@@ -86,7 +86,7 @@ function threadSnooze(threadId, mode) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({mode: mode})
   }).then(function(r) {
-    if (r.ok) { location.reload(); }
+    if (r.ok) { refreshDashboardThreads(); refreshStatusStrip(); }
     else { r.json().then(function(d) { alert(d.error || 'Snooze failed'); }); }
   }).catch(function() { alert('Network error'); });
 }
@@ -96,7 +96,7 @@ function promoteCandidate(tag) {
     method: 'POST',
     headers: {'Content-Type': 'application/json'}
   }).then(function(r) {
-    if (r.ok) { location.reload(); }
+    if (r.ok) { refreshDashboardThreads(); refreshStatusStrip(); }
     else { r.json().then(function(d) { alert(d.error || 'Promote failed'); }); }
   }).catch(function() { alert('Network error'); });
 }
@@ -122,14 +122,34 @@ function triggerHeartbeat(btn) {
 
 function threadAction(threadId, action) {
   if (!action) return;
+  var payload = {action: action};
+  if (action === 'waiting') {
+    var reason = window.prompt('waiting on what for ' + threadId + '?');
+    if (reason === null) return;
+    if (reason.trim()) payload.reason = reason.trim();
+  }
   fetch('/api/threads/' + threadId + '/action', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action: action})
+    body: JSON.stringify(payload)
   }).then(function(r) {
-    if (r.ok) { location.reload(); }
+    if (r.ok) { refreshDashboardThreads(); refreshStatusStrip(); }
     else { r.json().then(function(d) { alert(d.error || 'Action failed'); }); }
   }).catch(function() { alert('Network error'); });
+}
+
+function refreshStatusStrip() {
+  if (window.htmx) {
+    htmx.ajax('GET', '/partials/status-strip', {target: '#dashboard-status-strip', swap: 'innerHTML'});
+  }
+}
+
+function refreshDashboardThreads() {
+  if (window.htmx) {
+    htmx.ajax('GET', '/partials/threads', {target: '#dashboard-threads', swap: 'innerHTML'});
+  } else {
+    location.reload();
+  }
 }
 
 function refreshDashboardInterventions() {

@@ -46,6 +46,22 @@
   .back-link:hover { text-decoration: underline; }
   .stat-pill { display: inline-block; background: #4a5568; color: #e2e8f0; padding: .1rem .5rem; border-radius: 10px; font-size: .8rem; margin-right: .5rem; }
   .empty-state { color: #718096; font-style: italic; font-size: .9rem; }
+  .ops-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .ops-card { background: #2d3748; border: 1px solid #4a5568; border-radius: 6px; padding: .9rem 1rem; }
+  .ops-card h3 { margin: 0 0 .6rem; font-size: .95rem; color: #e2e8f0; }
+  .ops-line { display: flex; gap: .5rem; margin-bottom: .45rem; font-size: .9rem; color: #cbd5e0; }
+  .ops-line strong { min-width: 105px; color: #a0aec0; font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
+  .thread-flag-list { display: flex; gap: .35rem; flex-wrap: wrap; margin-top: .7rem; }
+  .thread-flag { display: inline-block; padding: .15rem .5rem; border-radius: 999px; font-size: .72rem; border: 1px solid #4a5568; color: #e2e8f0; }
+  .thread-flag-warn { border-color: #ed8936; color: #fbd38d; }
+  .thread-flag-ok { border-color: #38a169; color: #9ae6b4; }
+  .thread-flag-muted { border-color: #718096; color: #cbd5e0; }
+  .timeline-list { list-style: none; padding: 0; }
+  .timeline-list li { background: #2d3748; padding: .7rem .8rem; margin-bottom: .45rem; border-radius: 4px; border-left: 3px solid #4a5568; }
+  .timeline-head { display: flex; justify-content: space-between; gap: .5rem; flex-wrap: wrap; margin-bottom: .25rem; }
+  .timeline-type { font-size: .72rem; color: #a0aec0; font-family: 'IBM Plex Mono', monospace; }
+  .timeline-summary { color: #e2e8f0; }
+  .timeline-meta { font-size: .8rem; color: #a0aec0; margin-top: .2rem; }
 </style>
 </head>
 <body style="background:#1a202c;color:#e2e8f0;">
@@ -74,11 +90,88 @@
     {% if thread.done_when %}
     <p style="color:#a0aec0;"><strong>Done when:</strong> {{ thread.done_when }}</p>
     {% endif %}
+    {% if thread.summary and not thread.goal %}
+    <p style="color:#a0aec0;"><strong>Summary:</strong> {{ thread.summary }}</p>
+    {% endif %}
+  </div>
+
+  <div class="ops-grid">
+    <div class="ops-card">
+      <h3>Operational Snapshot</h3>
+      {% if thread.next_step %}
+      <div class="ops-line"><strong>next</strong><span>{{ thread.next_step }}</span></div>
+      {% endif %}
+      {% if thread.waiting_reason %}
+      <div class="ops-line"><strong>waiting on</strong><span>{{ thread.waiting_reason }}</span></div>
+      {% endif %}
+      {% if thread.last_evidence %}
+      <div class="ops-line">
+        <strong>last evidence</strong>
+        <span>
+          <a class="entry-title-link" href="{{ thread.last_evidence.href }}">{{ thread.last_evidence.label }}</a>
+          {% if thread.last_evidence.ts_short %} · {{ thread.last_evidence.ts_short }}{% endif %}
+        </span>
+      </div>
+      {% endif %}
+      {% if thread.last_dispatch %}
+      <div class="ops-line">
+        <strong>last beat</strong>
+        <span>
+          {{ thread.last_dispatch.summary }}
+          {% if thread.last_skill %} · /{{ thread.last_skill }}{% endif %}
+          {% if thread.last_dispatch.ts_short %} · {{ thread.last_dispatch.ts_short }}{% endif %}
+        </span>
+      </div>
+      {% endif %}
+      {% if thread.flags %}
+      <div class="thread-flag-list">
+        {% for flag in thread.flags %}
+        <span class="thread-flag thread-flag-{{ flag.kind }}" title="{{ flag.detail }}">{{ flag.label }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    {% if thread.operator_actions %}
+    <div class="ops-card">
+      <h3>Operator Actions</h3>
+      {% for action in thread.operator_actions[:6] %}
+      <div class="ops-line">
+        <strong>{{ action.ts_short }}</strong>
+        <span>
+          {{ action.display_action }}
+          {% if action.reason %} · {{ action.reason }}{% endif %}
+          {% if action.resulting_state %} · {{ action.resulting_state }}{% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
 
   <div class="thread-body">
     {{ thread.body_html | safe }}
   </div>
+
+  {% if thread.event_history %}
+  <h2 class="section-title">Beat History ({{ thread.event_history|length }})</h2>
+  <ul class="timeline-list">
+    {% for item in thread.event_history %}
+    <li>
+      <div class="timeline-head">
+        <span class="timeline-summary">{{ item.summary }}</span>
+        <span class="timeline-type">{{ item.ts_short }}</span>
+      </div>
+      <div class="timeline-meta">
+        {{ item.type }}
+        {% if item.skill %} · /{{ item.skill }}{% endif %}
+        {% if item.cycle_id %} · {{ item.cycle_id }}{% endif %}
+        {% if item.artifacts %} · {{ item.artifacts|join(', ') }}{% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
 
   {% if thread.entries %}
   <h2 class="section-title">Entries ({{ thread.entries_count }})</h2>

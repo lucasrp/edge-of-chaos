@@ -128,7 +128,7 @@ def heartbeat_trigger():
     return jsonify({"ok": True, "triggered_at": now_str}), 200
 
 
-VALID_THREAD_ACTIONS = {"active", "dormant", "done"}
+VALID_THREAD_ACTIONS = {"active", "waiting", "dormant", "done"}
 VALID_STEERING_ACTIONS = {
     "proposal": {"approve", "reject", "defer", "request-revision"},
     "claim": {"promote", "verified", "disputed", "stale"},
@@ -175,7 +175,15 @@ def thread_action(thread_id):
     fm["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     new_fm = yaml.dump(fm, default_flow_style=False, allow_unicode=True).rstrip("\n")
     thread_path.write_text(f"---\n{new_fm}\n---{parts[2]}", encoding="utf-8")
-    _log_operator_action(thread_id, f"thread:{action}", reason=reason)
+    _log_operator_action(
+        thread_id,
+        f"thread:{action}",
+        reason=reason,
+        target_type="thread",
+        label=fm.get("title") or thread_id,
+        reference=thread_id,
+        resulting_state="applied",
+    )
     return jsonify({"ok": True, "thread_id": thread_id, "old_status": old_status, "new_status": action}), 200
 
 

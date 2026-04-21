@@ -1846,9 +1846,157 @@
 
   .status-active { background: var(--green); color: #000; }
   .status-waiting { background: var(--orange); color: #000; }
+  .status-dormant { background: var(--surface); color: var(--text-muted); }
+  .status-done { background: var(--accent-soft); color: var(--accent); }
+  .status-proposed { background: rgba(99, 179, 237, 0.12); color: var(--accent); }
+  .status-candidate { background: rgba(255, 255, 255, 0.08); color: var(--text-muted); }
 
   .dash-thread-name { flex: 1; }
   .dash-thread-owner { font-size: 0.65rem; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; }
+
+  .thread-console-summary-bar {
+    display: flex;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+  }
+
+  .thread-console-summary-bar strong { color: var(--text); }
+  .thread-console-overcommit { margin-top: 0.7rem; }
+  .thread-console-empty { color: var(--text-muted); margin: 0; }
+  .thread-console-list { display: flex; flex-direction: column; gap: 0.7rem; }
+
+  .thread-console-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .thread-console-card-attention { border-color: var(--orange); }
+  .thread-console-card-candidate { border-style: dashed; }
+
+  .thread-console-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .thread-console-title-row,
+  .thread-console-meta-row {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .thread-console-title {
+    color: var(--text);
+    text-decoration: none;
+    font-size: 0.95rem;
+    font-weight: 600;
+    flex: 1;
+    min-width: 180px;
+  }
+
+  .thread-console-title:hover { color: var(--accent); }
+
+  .thread-console-chip {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.1rem 0.4rem;
+  }
+
+  .thread-console-meta-row {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.63rem;
+    color: var(--text-muted);
+  }
+
+  .thread-console-summary-text {
+    color: var(--text);
+    font-size: 0.84rem;
+    line-height: 1.45;
+  }
+
+  .thread-console-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 0.8rem;
+  }
+
+  .thread-console-column {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .thread-console-line {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    font-size: 0.77rem;
+    line-height: 1.45;
+  }
+
+  .thread-console-line strong {
+    min-width: 84px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .thread-console-line span { color: var(--text); }
+  .thread-console-line a { color: var(--accent); text-decoration: none; }
+  .thread-console-line a:hover { text-decoration: underline; }
+  .thread-console-line-warn span { color: var(--orange); }
+
+  .thread-console-stats {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.64rem;
+    color: var(--text-muted);
+  }
+
+  .thread-console-flags {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .thread-flag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.62rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    padding: 0.12rem 0.45rem;
+    color: var(--text-muted);
+  }
+
+  .thread-flag-warn { border-color: var(--orange); color: var(--orange); }
+  .thread-flag-ok { border-color: var(--green); color: var(--green); }
+  .thread-flag-muted { border-color: var(--border); color: var(--text-muted); }
+
+  .thread-console-actions {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    padding-top: 0.35rem;
+    border-top: 1px solid var(--border);
+  }
 
   /* Summary bar */
   .dash-summary {
