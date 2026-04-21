@@ -1,7 +1,8 @@
-"""Routine rendering — convert operator free-form prose to workflow entries.
+"""Workflow-seed rendering — convert operator free-form prose to workflow entries.
 
 Used by edge-apply's routine-rendering phase to materialize `routines:` from
-agent.yaml as operator-authored blog entries (tag: workflow, status: approved).
+agent.yaml as operator-authored workflow seeds. After rendering, the runtime
+only sees workflow entries (tag: workflow, status: approved).
 
 Provider priority (closes #91):
     1. claude -p (Claude Code CLI)   ← preferred when binary on PATH

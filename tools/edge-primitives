@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""edge-primitives — read model for declared and materialized primitives.
+"""edge-primitives — read model for runtime-declared and materialized primitives.
 
 Usage:
   edge-primitives status
@@ -220,18 +220,21 @@ def _effective_status(
     return "unknown", problems
 
 
-def build_status(config_path: Path) -> dict:
+def build_status(config_path: Path | None = None) -> dict:
     now = datetime.now(timezone.utc)
-    declared = _load_declared_sources(config_path)
     manifest = _load_manifest()
+    # Runtime truth should come from state. The bootstrap config is only a
+    # compatibility fallback for installs that still lack a seeded manifest.
+    declared_fallback = _load_declared_sources(config_path) if config_path and not manifest else {}
     usage = _collect_usage(now)
     lifecycle = _collect_lifecycle(now)
-    all_names = set(declared) | set(manifest) | _source_names_from_libexec()
+    all_names = set(declared_fallback) | set(manifest) | _source_names_from_libexec()
     sources = []
 
     for name in sorted(all_names):
-        declared_entry = declared.get(name, {})
         manifest_entry = manifest.get(name, {})
+        declared_entry = manifest_entry if manifest_entry else declared_fallback.get(name, {})
+        declared = bool(manifest_entry) or name in declared_fallback
         manifest_status = str(manifest_entry.get("status") or "").strip()
         meta_path = Path(manifest_entry.get("meta_path") or _default_meta_path(name))
         binary_path = Path(manifest_entry.get("binary_path") or _default_binary_path(name))
@@ -240,7 +243,7 @@ def build_status(config_path: Path) -> dict:
         lifecycle_entry = lifecycle.get(name, {})
         probe_ok = lifecycle_entry.get("last_probe_ok")
         effective_status, problems = _effective_status(
-            declared=name in declared,
+            declared=declared,
             manifest_status=manifest_status,
             manifest_exists=bool(manifest_entry),
             meta_exists=meta_exists,
@@ -250,11 +253,11 @@ def build_status(config_path: Path) -> dict:
         sources.append(
             {
                 "name": name,
-                "declared": name in declared,
+                "declared": declared,
                 "description": declared_entry.get("description") or manifest_entry.get("description", ""),
                 "description_present": bool(declared_entry.get("description") or manifest_entry.get("description")),
                 "manifest_exists": bool(manifest_entry),
-                "manifest_status": manifest_status or ("declared" if name in declared else ""),
+                "manifest_status": manifest_status or ("declared" if declared else ""),
                 "meta_path": str(meta_path),
                 "meta_exists": meta_exists,
                 "binary_path": str(binary_path),
@@ -300,10 +303,10 @@ def build_status(config_path: Path) -> dict:
     }
     payload = {
         "generated_at": now.isoformat(),
-        "config_path": str(config_path),
         "repo_root": str(EDGE_REPO_DIR),
         "state_root": str(PRIMITIVES_STATUS_FILE.parent.parent),
         "output_path": str(PRIMITIVES_STATUS_FILE),
+        "bootstrap_config_path": str(config_path) if config_path else "",
         "summary": summary,
         "sources": sources,
     }
@@ -339,11 +342,16 @@ def print_human(payload: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Status read model for declared and materialized primitives")
     parser.add_argument("command", nargs="?", default="status", choices=["status"])
-    parser.add_argument("--config", default=str(EDGE_REPO_DIR / "agent.yaml"))
+    parser.add_argument(
+        "--config",
+        default="",
+        help="Optional bootstrap config fallback. Runtime truth comes from state/sources-manifest.yaml.",
+    )
     parser.add_argument("--json", action="store_true", help="Print JSON payload instead of a human table")
     args = parser.parse_args()
 
-    payload = build_status(Path(args.config).expanduser())
+    config_path = Path(args.config).expanduser() if args.config else None
+    payload = build_status(config_path)
     if args.json:
         print(json.dumps(payload, ensure_ascii=False))
     else:

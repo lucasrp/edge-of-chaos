@@ -117,8 +117,8 @@ pre_skill_procedure:
 #     from the sources: manifest and log which one was most useful."
 # Remove this once state/source-usage.jsonl shows diverse invocation patterns.
 
-# --- Routines (operator-authored workflows) ---
-# Research/work routines you ALREADY have established — the things you'd do
+# --- Workflow seeds (legacy field name: routines) ---
+# Research/work habits you ALREADY have established — the things you'd do
 # on autopilot if someone asked you about a topic. Write in natural prose,
 # like you're explaining it to a new colleague on day 1.
 #
@@ -128,6 +128,10 @@ pre_skill_procedure:
 # 0 — instead of waiting for the agent to discover the routine later via
 # procedure-claim clustering.
 #
+# Runtime does NOT operate on `routines:` directly. This field is bootstrap
+# input only. After install, the live objects are workflow entries plus their
+# runtime reinforcement signals.
+#
 # Writing tips:
 #   - Say WHEN you use this (the trigger)
 #   - Say WHERE you go first and why
@@ -136,7 +140,7 @@ pre_skill_procedure:
 #     `when_it_fails` section of the generated workflow)
 #   - Don't try to be exhaustive — 3-5 sentences per routine is enough
 #
-# Rule: if you don't do this weekly, don't put it here. A routine is what's
+# Rule: if you don't do this weekly, don't put it here. A seed is what's
 # already a reflex, not a wish list.
 #
 # Install-time rendering: no API key required if you have `claude` CLI on
@@ -225,6 +229,9 @@ image_model: "gpt-image-1"                 # avatar generation
 #     base_url: https://openrouter.ai/api/v1
 #     secret_ref: openrouter.env:OPENROUTER_API_KEY
 #     model: anthropic/claude-opus-4.7
+#
+# edge-render materializes this block into config/runtime-routers.yaml.
+# Runtime tools read that file; agent.yaml is bootstrap only.
 routers:
   chat:
     base_url: https://api.openai.com/v1

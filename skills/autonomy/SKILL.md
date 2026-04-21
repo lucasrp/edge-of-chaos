@@ -1,106 +1,195 @@
 ---
 name: ed-autonomy
-description: "Evaluate, propose, act. Reads declared vs actual state, proposes changes to the agent's phenotype (sources, workflows, routines, config), and materializes primitives on demand. Meta-skill — heartbeat triggers based on gaps, patterns, or waste detected in usage data."
+description: "Evaluate, propose, act. Reads actual runtime state, proposes changes to the agent's phenotype (primitives, workflows, policies, config projections), and materializes primitives on demand. Meta-skill — heartbeat triggers based on gaps, patterns, or waste detected in usage data."
 user-invocable: true
 ---
 
 # Autonomy — Evaluate, Propose, Act
 
-The agent's self-evolution mechanism. Reads declared state vs actual state,
-proposes changes, acts on what's approved. **Produces a full-rite artifact
-every dispatch** — follow `_shared/report-template.md` like every other
-`/ed-*` skill. No minimal-meta, signal-only, or blackout-degraded mode.
+Autonomy is the self-evolution skill.
 
-**Principle:** more agency = more quality. But agency without initiative
-is just a bigger toolbox. The value is in seeing what nobody asked for.
+Its job is not to rediscover raw state by hand. Its job is to read the current
+read models, decide what is missing or wasteful, and act within scope.
+
+It still produces a full-rite artifact every dispatch. Follow
+`_shared/report-template.md` like every other `/ed-*` skill.
 
 ---
 
 ## The Job
 
-1. **Evaluate** — read, don't discover. Everything is declarative now:
-   - `sources:` (yaml) vs `state/sources-manifest.yaml` → what's declared but not materialized?
-   - `state/source-usage.jsonl` → what works? what's wasted? diversity?
-   - `state/signals/` → friction, serendipity, strategy shifts?
-   - `state/proposals.json` → active proposals: strengthen, remove stale, or add new
-
-2. **Propose** (max 3 active, max 1 new per beat):
-   - Each proposal: what, why, evidence, cost
-   - Adversarial review before adding (edge-consult)
-   - Proposal that survives 3+ revisions with growing evidence = strong signal
-   - Proposal the agent removes = self-correction (positive)
-
-3. **Act** — approval depends on scope:
-
-   | Action | Approval | Why |
-   |---|---|---|
-   | Create/improve primitive (local, reversible) | Auto | Internal tooling |
-   | Propose workflow (internal method) | Auto | Doesn't affect external state |
-   | Add/remove source | Auto | Reversible, blog documents |
-   | Add/remove routine (knowledge) | Auto | Knowledge, not execution |
-   | Modify pre_skill_procedure | **Human** | Changes every future beat |
-   | Modify pre_skill_context | **Human** | Changes agent knowledge every session |
-   | External action (publish, send, create account) | **Human** | Leaves the agent |
+1. **Evaluate** the current phenotype from read models
+2. **Propose** at most one new change per beat
+3. **Act** automatically when the scope is local and reversible
+4. **Document** what changed, what remains missing, and what should wait
 
 ---
 
-## Materialization — Creating primitives on demand
+## Primary Inputs
 
-When the agent tries to use a source and the primitive doesn't exist
-(exit 127) or an operation isn't built yet (exit 77):
+### 1. Primitive status is the canonical source
 
-**Bootstrap** (first heartbeats, during first_steps):
-- Create rough primitive as side-effect of the work
-- Follow `docs/TOOL_CONTRACT.md` — contract + impl + test + register
-- Blog entry (light): "created X, minimal, functional"
-- No pool overhead — demand comes from the work itself
+Use:
 
-**Steady-state** (after bootstrap):
-- Autonomy detects the gap in its evaluate phase
-- Proposes materialization via the pool
-- Creates with full discipline: contract, impl, test, adversarial, blog+report
+```bash
+edge-primitives status --json
+```
 
-**Deepening** (ongoing):
-- Autonomy reviews existing primitives with usage evidence
-- Proposes improvements: rate limiting, caching, slimmer output, new operations
-- Full adversarial + consolidar pipeline
+This is the main scoreboard for declared vs materialized primitives. It already
+joins:
 
----
+- `state/sources-manifest.yaml`
+- local meta/binary files
+- recent usage
+- recent probe history
 
-## Workflows — Learning from usage
+Do not manually diff raw files when the read model already explains the state.
 
-When the usage log shows a repeated pattern (e.g., "arxiv with math.AP
-filter + date sort works 4x better"), autonomy can propose a workflow:
+Important statuses:
 
-- Workflow = learned method, auto-approved (internal, no external side effect)
-- Published via blog entry with tag `workflow`, enters reinforcement loop
-- Can later be promoted to routine if the operator wants it every beat
+- `declared`
+- `contract-only`
+- `active`
+- `probed`
+- `drifted`
+- `broken`
 
-Removal works the same way: if a workflow never gets used after N beats,
-autonomy proposes removal. Blog documents why.
+### 2. Proposal pool
 
----
+Read:
 
-## State files
+- `state/proposals.json`
 
-- `state/proposals.json` — pool of active proposals
-- `state/sources-manifest.yaml` — materialized primitives (name, status, created)
-- `state/source-usage.jsonl` — invocation log (source, query, ok/fail, duration)
-- `docs/TOOL_CONTRACT.md` — contract for creating primitives
+Use it to strengthen, revise, or remove existing proposals before creating a
+new one.
 
----
+### 3. Operational signals
 
-## When to run
+Read the relevant signals and current context:
 
-- Heartbeat meta rotation (every ~9 beats, alongside reflection/strategy)
-- After gaining new access (new key, new host, new data)
-- When friction signals accumulate
+- `~/edge/briefing.md`
+- `state/signals/`
+- recent artifacts when a proposal depends on concrete prior evidence
+
+Prefer the digested state first. Read raw files only when you need details.
 
 ---
 
-## Anti-gaming
+## Decision Policy
 
-- Max 1 new proposal per execution
-- Adversarial before adding
-- If operator rejects >70% of proposals, autonomy is miscalibrated — recalibrate
-- Consolidar pipeline (blog + report + claims) for every action — no silent changes
+### Proposal limits
+
+- max 3 active proposals total
+- max 1 new proposal in this run
+- proposals need: what, why, evidence, cost
+
+### Approval rules
+
+| Action | Approval |
+|---|---|
+| Create or improve local primitive | Auto |
+| Add or remove source | Auto |
+| Propose workflow | Auto |
+| Modify activation procedure (`pre-skill.md`) | Human |
+| Modify activation context (`pre-skill.md`) | Human |
+| External action | Human |
+
+Autonomy should spend most beats pruning, deepening, or materializing, not
+opening new fronts.
+
+---
+
+## Primitive Lifecycle
+
+When autonomy works on primitives, use the lifecycle commands, not hand-edits.
+
+### Contract
+
+```bash
+edge-primitive-lifecycle contract <name> --description "..."
+```
+
+Use this when a source is declared but not yet specified well enough to build.
+
+### Materialize
+
+Write the executable, then register it:
+
+```bash
+edge-primitive-lifecycle materialize <name>
+```
+
+### Probe
+
+Validate the primitive explicitly:
+
+```bash
+edge-primitive-lifecycle probe <name> -- <probe command>
+```
+
+### Readback
+
+After any lifecycle mutation, read the status again:
+
+```bash
+edge-primitives status --json
+```
+
+That readback is the canonical proof of the new state.
+
+---
+
+## What to Look For
+
+Strong autonomy candidates:
+
+- `declared` sources with repeated demand but no contract
+- `contract-only` primitives with real usage pressure
+- `active` primitives never probed
+- `broken` or `drifted` primitives affecting current work
+- workflows repeatedly rediscovered in artifacts
+- stale proposals that no longer have evidence
+
+Weak candidates:
+
+- optional declared sources with no demand
+- cosmetic rewrites without operational payoff
+- speculative additions with no evidence trail
+
+---
+
+## Bootstrap vs Steady State
+
+### Bootstrap
+
+Early in a new instance, autonomy may materialize rough primitives quickly to
+reduce friction. Keep them small, local, and functional.
+
+### Steady state
+
+Later, autonomy should mostly:
+
+- harden frequently used primitives
+- probe what exists
+- remove drift
+- consolidate repeated operator patterns into workflows
+
+---
+
+## Anti-Gaming
+
+- More agency does not mean more surface area every beat.
+- A removed proposal is often healthier than a forced one.
+- Repeated operator rejection means calibration is off.
+- Primitive work without evidence from `edge-primitives status --json` or
+  recent usage is weak.
+
+---
+
+## Hard Rules
+
+- Do not hand-edit `state/sources-manifest.yaml` when lifecycle commands exist.
+- Do not infer primitive health from one file when the read model exists.
+- Do not create more than one new proposal in a run.
+- Do not escalate to human approval for things that are explicitly auto-local.
+- Do not skip the full artifact rite when autonomy makes a real change.

@@ -107,7 +107,7 @@ def _check_contention() -> list[tuple[int, str]]:
         return []
 
 # Provider resolution delegated to _shared/router_client.py (#222). Any new
-# model/endpoint is declared in agent.yaml routers: — no changes here.
+# model/endpoint is declared in config/runtime-routers.yaml — no changes here.
 
 # ---------------------------------------------------------------------------
 # System prompts

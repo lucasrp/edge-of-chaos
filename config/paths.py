@@ -81,6 +81,7 @@ SECRETS_DIR = EDGE_REPO_DIR / "secrets"
 AUTONOMY_DIR = EDGE_REPO_DIR / "autonomy"
 CONFIG_DIR = EDGE_REPO_DIR / "config"
 SEARCH_DIR = EDGE_REPO_DIR / "search"
+ROUTERS_CONFIG_FILE = CONFIG_DIR / "runtime-routers.yaml"
 
 # Phenotype subdirectories
 BLOG_STATE_DIR = EDGE_STATE_DIR / "blog"

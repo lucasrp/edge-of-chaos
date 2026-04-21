@@ -79,7 +79,9 @@ json.dump(steps, open('$HOME/edge/state/first-steps.json', 'w'), indent=2)
 
 Then continue to normal routing. One first step per heartbeat — don't rush them all at once.
 
-When all steps are done, set `onboarding_mode: false` in agent.yaml.
+When all steps are done, stop treating onboarding as a special branch. The
+runtime signal is that `first-steps.json` is exhausted, not that some bootstrap
+file was edited later.
 
 ### 0c: Routing decision
 
