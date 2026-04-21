@@ -1,3 +1,92 @@
+{% macro proposal_card(proposal) %}
+<div class="thread-console-card{{ ' thread-console-card-attention' if proposal.needs_attention else '' }}">
+  <div class="thread-console-head">
+    <div class="thread-console-title-row">
+      <span class="dash-thread-status status-{{ proposal.status_badge }}">{{ proposal.status_label }}</span>
+      <a href="{{ proposal.href }}" class="thread-console-title">{{ proposal.title }}</a>
+      <span class="thread-console-chip">{{ proposal.type }}</span>
+      {% if proposal.cost %}<span class="thread-console-chip">{{ proposal.cost }}</span>{% endif %}
+      {% if proposal.revisions_count %}<span class="thread-console-chip">v{{ proposal.revisions_count + 1 }}</span>{% endif %}
+    </div>
+    <div class="thread-console-meta-row">
+      {% if proposal.updated_short %}<span>updated {{ proposal.updated_short }}</span>{% endif %}
+      {% if proposal.created_short %}<span>created {{ proposal.created_short }}</span>{% endif %}
+      {% if proposal.queued_steering %}<span>queued {{ proposal.queued_steering.action }}</span>{% endif %}
+    </div>
+  </div>
+
+  {% if proposal.rationale %}
+  <div class="thread-console-summary-text">{{ proposal.rationale }}</div>
+  {% elif proposal.action_text %}
+  <div class="thread-console-summary-text">{{ proposal.action_text }}</div>
+  {% endif %}
+
+  <div class="thread-console-grid">
+    <div class="thread-console-column">
+      {% if proposal.action_text %}
+      <div class="thread-console-line"><strong>next</strong><span>{{ proposal.action_text }}</span></div>
+      {% endif %}
+      {% if proposal.impact %}
+      <div class="thread-console-line"><strong>impact</strong><span>{{ proposal.impact }}</span></div>
+      {% endif %}
+      {% if proposal.risk %}
+      <div class="thread-console-line"><strong>risk</strong><span>{{ proposal.risk }}</span></div>
+      {% endif %}
+    </div>
+
+    <div class="thread-console-column">
+      {% if proposal.evidence_count %}
+      <div class="thread-console-line"><strong>evidence</strong><span>{{ proposal.evidence_count }} linked items</span></div>
+      {% else %}
+      <div class="thread-console-line thread-console-line-warn"><strong>evidence</strong><span>none linked yet</span></div>
+      {% endif %}
+      <div class="thread-console-line"><strong>surfaces</strong><span>{{ proposal.linked_claims_count }} claims · {{ proposal.linked_threads_count }} threads · {{ proposal.reports_count }} reports</span></div>
+      {% if proposal.queued_steering %}
+      <div class="thread-console-line"><strong>queued</strong><span>{{ proposal.queued_steering.action }}{% if proposal.queued_steering.ts_short %} · {{ proposal.queued_steering.ts_short }}{% endif %}</span></div>
+      {% elif proposal.recent_operator_action %}
+      <div class="thread-console-line"><strong>decision</strong><span>{{ proposal.recent_operator_action.display_action }}{% if proposal.recent_operator_action.ts_short %} · {{ proposal.recent_operator_action.ts_short }}{% endif %}</span></div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if proposal.evidence_preview %}
+  <div class="runtime-note">{{ proposal.evidence_preview|join(' · ') }}</div>
+  {% endif %}
+
+  {% if proposal.linked_threads %}
+  <div class="runtime-meta">
+    threads:
+    {% for item in proposal.linked_threads[:3] %}
+      <a href="{{ item.href }}" style="color:inherit">{{ item.title }}</a>{% if not loop.last %}, {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if proposal.linked_claims %}
+  <div class="runtime-meta">
+    claims:
+    {% for item in proposal.linked_claims[:3] %}
+      <a href="{{ item.href }}" style="color:inherit">{{ item.text }}</a>{% if not loop.last %}, {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if proposal.flags %}
+  <div class="thread-console-flags">
+    {% for flag in proposal.flags %}
+    <span class="thread-flag thread-flag-{{ flag.kind }}" title="{{ flag.detail }}">{{ flag.label }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="thread-console-actions">
+    <button class="action-btn action-start" onclick='steeringAction("proposal", {{ proposal.id|tojson }}, "approve", {{ proposal.title|tojson }}, {{ (proposal.reference or "")|tojson }}, this)'>approve</button>
+    <button class="action-btn action-blocked" onclick='steeringAction("proposal", {{ proposal.id|tojson }}, "reject", {{ proposal.title|tojson }}, {{ (proposal.reference or "")|tojson }}, this)'>reject</button>
+    <button class="action-btn" onclick='steeringAction("proposal", {{ proposal.id|tojson }}, "defer", {{ proposal.title|tojson }}, {{ (proposal.reference or "")|tojson }}, this)'>defer</button>
+    <button class="action-btn" onclick='steeringAction("proposal", {{ proposal.id|tojson }}, "request-revision", {{ proposal.title|tojson }}, {{ (proposal.reference or "")|tojson }}, this, "what revision should be requested on the next dispatch?")'>revision</button>
+  </div>
+</div>
+{% endmacro %}
+
 <div class="dash-section">
   <h2 class="dash-section-title">epistemic & steering</h2>
   <div class="runtime-note">operator steering is queued for the next dispatch; the cards below remain the current read model until dispatch applies the intent.</div>
@@ -164,34 +253,63 @@
     </div>
 
     <div class="runtime-card">
-      <div class="runtime-card-title">proposals & decisions</div>
-      <div class="runtime-row">
-        <strong>active proposals</strong>
-        <span class="runtime-meta">{{ ep_proposals.active_count }}</span>
+      <div class="runtime-card-title">proposals console</div>
+      <div class="thread-console-summary-bar">
+        <span><strong>{{ ep_proposals.needs_decision_count }}</strong> needs decision</span>
+        <span><strong>{{ ep_proposals.needs_revision_count }}</strong> needs revision</span>
+        <span><strong>{{ ep_proposals.approved_waiting_count }}</strong> approved / queued</span>
+        <span><strong>{{ ep_proposals.deferred_count }}</strong> deferred</span>
+        <span><strong>{{ ep_proposals.queued_count }}</strong> queued steering</span>
+        <span><strong>{{ ep_proposals.low_evidence_count }}</strong> low evidence</span>
       </div>
-      {% if ep_proposals.active %}
-      <div class="runtime-list">
-        {% for proposal in ep_proposals.active %}
-        <div class="runtime-list-item">
-          <div class="runtime-row">
-            <strong>{{ proposal.title }}</strong>
-            <span class="runtime-meta">{{ proposal.type }}</span>
-          </div>
-          <div class="runtime-meta">{{ proposal.updated_short }} · evidence {{ proposal.evidence_count }}{% if proposal.cost %} · {{ proposal.cost }}{% endif %}</div>
-          {% if proposal.evidence_preview %}
-          <div class="runtime-note">{{ proposal.evidence_preview|join(' · ') }}</div>
-          {% endif %}
-          <div class="dash-task-actions">
-            <button class="action-btn action-start" onclick='steeringAction("proposal", {{ proposal.id|tojson }}, "approve", {{ proposal.title|tojson }}, {{ (proposal.reference or "")|tojson }}, this)'>approve</button>
-            <button class="action-btn action-blocked" onclick='steeringAction("proposal", {{ proposal.id|tojson }}, "reject", {{ proposal.title|tojson }}, {{ (proposal.reference or "")|tojson }}, this)'>reject</button>
-            <button class="action-btn" onclick='steeringAction("proposal", {{ proposal.id|tojson }}, "defer", {{ proposal.title|tojson }}, {{ (proposal.reference or "")|tojson }}, this)'>defer</button>
-            <button class="action-btn" onclick='steeringAction("proposal", {{ proposal.id|tojson }}, "request-revision", {{ proposal.title|tojson }}, {{ (proposal.reference or "")|tojson }}, this, "what revision should be requested on the next dispatch?")'>revision</button>
-          </div>
-        </div>
+
+      {% if ep_proposals.total == 0 %}
+      <div class="runtime-empty">no proposals captured yet</div>
+      {% endif %}
+
+      {% if ep_proposals.needs_decision %}
+      <div class="runtime-subtitle">needs decision</div>
+      <div class="thread-console-list">
+        {% for proposal in ep_proposals.needs_decision %}
+          {{ proposal_card(proposal) }}
         {% endfor %}
       </div>
-      {% else %}
-      <div class="runtime-empty">no active proposals</div>
+      {% endif %}
+
+      {% if ep_proposals.needs_revision %}
+      <div class="runtime-subtitle">needs revision</div>
+      <div class="thread-console-list">
+        {% for proposal in ep_proposals.needs_revision %}
+          {{ proposal_card(proposal) }}
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if ep_proposals.approved_waiting_execution %}
+      <div class="runtime-subtitle">approved / waiting execution</div>
+      <div class="thread-console-list">
+        {% for proposal in ep_proposals.approved_waiting_execution %}
+          {{ proposal_card(proposal) }}
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if ep_proposals.deferred %}
+      <div class="runtime-subtitle">deferred / parked</div>
+      <div class="thread-console-list">
+        {% for proposal in ep_proposals.deferred %}
+          {{ proposal_card(proposal) }}
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if ep_proposals.recently_decided %}
+      <div class="runtime-subtitle">decided recently</div>
+      <div class="thread-console-list">
+        {% for proposal in ep_proposals.recently_decided %}
+          {{ proposal_card(proposal) }}
+        {% endfor %}
+      </div>
       {% endif %}
 
       <div class="runtime-subtitle">recent decisions</div>

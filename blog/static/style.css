@@ -1850,6 +1850,11 @@
   .status-done { background: var(--accent-soft); color: var(--accent); }
   .status-proposed { background: rgba(99, 179, 237, 0.12); color: var(--accent); }
   .status-candidate { background: rgba(255, 255, 255, 0.08); color: var(--text-muted); }
+  .status-needs-decision { background: rgba(251, 191, 36, 0.18); color: #fbd38d; }
+  .status-needs-revision { background: rgba(237, 137, 54, 0.18); color: #f6ad55; }
+  .status-approved { background: rgba(72, 187, 120, 0.18); color: #9ae6b4; }
+  .status-deferred { background: rgba(160, 174, 192, 0.14); color: var(--text-muted); }
+  .status-decided { background: rgba(99, 179, 237, 0.14); color: var(--accent); }
 
   .dash-thread-name { flex: 1; }
   .dash-thread-owner { font-size: 0.65rem; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; }
