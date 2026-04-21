@@ -20,6 +20,7 @@ from paths import (  # noqa: E402
     CURADORIA_CANDIDATES_FILE as CURADORIA_CANDIDATES,
     EDGE_REPO_DIR,
     ENTRIES_DIR,
+    EVENTS_FILE,
     EXECUTION_LEDGER_FILE as EXECUTION_LEDGER,
     FRONTIER_FILE,
     GIT_SIGNALS_FILE as GIT_SIGNALS,
@@ -1330,37 +1331,32 @@ def get_heartbeat_status():
 
 # ─── Threads ───
 
-def _build_entries_thread_index():
-    """Build {thread_id: count} from entry frontmatter."""
-    index = {}
-    if not ENTRIES_DIR.exists():
-        return index
-    for fp in ENTRIES_DIR.glob("*.md"):
-        try:
-            raw = fp.read_text(encoding="utf-8", errors="replace")
-            parts = raw.split("---", 2)
-            if len(parts) < 3:
-                continue
-            fm = yaml.safe_load(parts[1])
-            if not fm:
-                continue
-            threads = fm.get("threads", [])
-            if isinstance(threads, str):
-                threads = [t.strip() for t in threads.split(",")]
-            if not isinstance(threads, list):
-                continue
-            for tid in threads:
-                tid = str(tid).strip()
-                if tid:
-                    index[tid] = index.get(tid, 0) + 1
-        except Exception:
-            continue
-    return index
+THREAD_EVIDENCE_STALE_DAYS = 7
+THREAD_HISTORY_LIMIT = 8
+THREAD_DETAIL_HISTORY_LIMIT = 20
+THREAD_NEXT_STEP_PLACEHOLDERS = {
+    "[definir]",
+    "[define]",
+    "definir",
+    "todo",
+    "tbd",
+    "pending",
+}
 
 
-def _parse_next_step(raw_body):
-    """Extract first non-empty line after ## Próximo passo or ## Next."""
-    match = re.search(r"^##\s+(?:Próximo passo|Next)\s*$", raw_body, re.MULTILINE | re.IGNORECASE)
+def _normalize_string_list(value):
+    if isinstance(value, str):
+        items = [part.strip() for part in value.split(",")]
+    elif isinstance(value, list):
+        items = [str(part).strip() for part in value]
+    else:
+        return []
+    return [item for item in items if item]
+
+
+def _extract_section_first_line(raw_body, heading_patterns):
+    pattern = r"^##\s+(?:" + "|".join(heading_patterns) + r")\s*$"
+    match = re.search(pattern, raw_body, re.MULTILINE | re.IGNORECASE)
     if not match:
         return None
     after = raw_body[match.end():]
@@ -1371,15 +1367,230 @@ def _parse_next_step(raw_body):
     return None
 
 
-def load_threads_enriched(status_filter=None):
-    """Load threads with enriched metadata (entries_count, resurface_due, next_step)."""
-    if not THREADS_DIR.exists():
-        return {"threads": [], "stats": {"total": 0, "active": 0, "dormant": 0, "done": 0, "proposed": 0, "resurface_due": 0}}
+def _extract_thread_summary(raw_body):
+    for line in raw_body.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith(("```", "-", "*")):
+            continue
+        return stripped
+    return None
 
-    entries_index = _build_entries_thread_index()
+
+def _parse_date_value(value):
+    parsed = _parse_ts_value(value)
+    return parsed.date() if parsed else None
+
+
+def _latest_item(current, candidate):
+    if not candidate:
+        return current
+    if not current:
+        return candidate
+
+    candidate_ts = candidate.get("_sort_ts")
+    current_ts = current.get("_sort_ts")
+    if candidate_ts and current_ts:
+        return candidate if candidate_ts > current_ts else current
+    if candidate_ts and not current_ts:
+        return candidate
+    return current
+
+
+def _build_thread_entry_rollup():
+    rollup = {}
+    if not ENTRIES_DIR.exists():
+        return rollup
+
+    for fp in ENTRIES_DIR.glob("*.md"):
+        try:
+            raw = fp.read_text(encoding="utf-8", errors="replace")
+            parts = raw.split("---", 2)
+            if len(parts) < 3:
+                continue
+            fm = yaml.safe_load(parts[1]) or {}
+            thread_ids = _normalize_string_list(fm.get("threads", []))
+            if not thread_ids:
+                continue
+
+            claims = _normalize_string_list(fm.get("claims", []))
+            verified_count = sum(1 for claim in claims if not str(claim).startswith("!"))
+            gaps_count = len(claims) - verified_count
+            report_file = str(fm.get("report") or "").strip() or None
+            note_file = str(fm.get("note") or "").strip() or None
+            entry_date = str(fm.get("date") or "").strip() or None
+            entry_sort_ts = _parse_ts_value(entry_date) or _parse_ts_value(fm.get("updated"))
+            evidence = {
+                "kind": "entry",
+                "label": str(fm.get("title") or fp.stem),
+                "slug": fp.stem,
+                "href": f"/entry/{fp.stem}",
+                "ts": entry_date,
+                "report": report_file,
+                "note": note_file,
+                "_sort_ts": entry_sort_ts,
+            }
+
+            for thread_id in thread_ids:
+                bucket = rollup.setdefault(thread_id, {
+                    "entries_count": 0,
+                    "claims_count": 0,
+                    "verified_count": 0,
+                    "gaps_count": 0,
+                    "report_files": set(),
+                    "last_evidence": None,
+                })
+                bucket["entries_count"] += 1
+                bucket["claims_count"] += len(claims)
+                bucket["verified_count"] += verified_count
+                bucket["gaps_count"] += gaps_count
+                if report_file:
+                    bucket["report_files"].add(report_file)
+                bucket["last_evidence"] = _latest_item(bucket["last_evidence"], dict(evidence))
+        except Exception:
+            continue
+
+    for bucket in rollup.values():
+        bucket["reports_count"] = len(bucket.pop("report_files", set()))
+        if bucket.get("last_evidence"):
+            bucket["last_evidence"]["ts_short"] = _short_ts(bucket["last_evidence"].get("ts"))
+            bucket["last_evidence"].pop("_sort_ts", None)
+    return rollup
+
+
+def _normalize_thread_event(row):
+    payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+    thread_id = str(row.get("thread_id") or payload.get("thread_id") or "").strip()
+    if not thread_id:
+        return None
+
+    ts = row.get("timestamp") or row.get("ts")
+    event_type = str(row.get("type") or "").strip()
+    skill = str(row.get("skill") or payload.get("skill") or "").strip() or None
+    cycle_id = str(row.get("cycle_id") or payload.get("cycle_id") or "").strip() or None
+    artifacts = row.get("artifacts") or payload.get("artifacts") or payload.get("artifact") or []
+    if isinstance(artifacts, str):
+        artifacts = [artifacts]
+    elif isinstance(artifacts, list):
+        artifacts = [str(item).strip() for item in artifacts if str(item).strip()]
+    else:
+        artifacts = []
+
+    summary = str(row.get("summary") or payload.get("summary") or "").strip()
+    normalized_type = re.sub(r"[^a-z0-9]+", "", event_type.lower())
+    if not summary:
+        if normalized_type == "skilldispatched" and skill:
+            summary = f"Dispatched /{skill}"
+        elif normalized_type in {"artifactpublished", "artifactcreated"} and artifacts:
+            summary = f"Published {artifacts[0]}"
+        elif normalized_type == "threadupdated":
+            summary = "Thread updated"
+        else:
+            summary = event_type or "event"
+
+    return {
+        "thread_id": thread_id,
+        "ts": ts,
+        "ts_short": _short_ts(ts),
+        "type": event_type,
+        "summary": summary,
+        "skill": skill,
+        "cycle_id": cycle_id,
+        "artifacts": artifacts,
+        "_sort_ts": _parse_ts_value(ts),
+        "_normalized_type": normalized_type,
+    }
+
+
+def _build_thread_event_rollup(limit_history=THREAD_HISTORY_LIMIT):
+    rollup = {}
+    seen = set()
+
+    for path in (STATE_EVENTS_FILE, EVENTS_FILE):
+        for row in _iter_jsonl(path):
+            event = _normalize_thread_event(row)
+            if not event:
+                continue
+            dedupe_key = (
+                event["thread_id"],
+                event.get("ts"),
+                event.get("_normalized_type"),
+                event.get("summary"),
+                event.get("skill"),
+                tuple(event.get("artifacts") or []),
+            )
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            rollup.setdefault(event["thread_id"], {"history": []})["history"].append(event)
+
+    min_ts = datetime.min.replace(tzinfo=timezone.utc)
+    for bucket in rollup.values():
+        bucket["history"].sort(key=lambda item: item.get("_sort_ts") or min_ts, reverse=True)
+        bucket["history"] = bucket["history"][:limit_history]
+        for item in bucket["history"]:
+            item.pop("_sort_ts", None)
+            item.pop("_normalized_type", None)
+        bucket["last_event"] = bucket["history"][0] if bucket["history"] else None
+        bucket["last_dispatch"] = next(
+            (
+                item for item in bucket["history"]
+                if item.get("skill") or re.sub(r"[^a-z0-9]+", "", str(item.get("type") or "").lower()) == "skilldispatched"
+            ),
+            None,
+        )
+    return rollup
+
+
+def _build_thread_operator_action_index(limit_per_thread=6):
+    rollup = {}
+    for item in load_operator_actions(limit=200):
+        action = str(item.get("action") or "").strip()
+        thread_id = str(item.get("target_id") or "").strip()
+        if not thread_id or not action.startswith("thread:"):
+            continue
+        bucket = rollup.setdefault(thread_id, [])
+        if len(bucket) < limit_per_thread:
+            bucket.append(item)
+    return rollup
+
+
+def _parse_next_step(raw_body):
+    """Extract first non-empty line after a next-step heading."""
+    return _extract_section_first_line(
+        raw_body,
+        [
+            r"Próximo passo",
+            r"Next",
+            r"Next step",
+            r"Refined next step",
+        ],
+    )
+
+
+def load_threads_enriched(status_filter=None):
+    """Load threads with operational metadata for dashboard triage."""
+    if not THREADS_DIR.exists():
+        return {
+            "threads": [],
+            "stats": {
+                "total": 0,
+                "active": 0,
+                "waiting": 0,
+                "dormant": 0,
+                "done": 0,
+                "proposed": 0,
+                "resurface_due": 0,
+            },
+        }
+
+    entry_rollup = _build_thread_entry_rollup()
+    event_rollup = _build_thread_event_rollup()
+    operator_rollup = _build_thread_operator_action_index()
     today = date.today()
     threads = []
-    stats = {"total": 0, "active": 0, "dormant": 0, "done": 0, "proposed": 0, "resurface_due": 0}
+    stats = {"total": 0, "active": 0, "waiting": 0, "dormant": 0, "done": 0, "proposed": 0, "resurface_due": 0}
 
     for fp in sorted(THREADS_DIR.glob("*.md")):
         try:
@@ -1393,23 +1604,102 @@ def load_threads_enriched(status_filter=None):
 
             thread_id = fm.get("id", fp.stem)
             status = fm.get("status", "active")
-            entries_count = entries_index.get(thread_id, 0) or entries_index.get(fp.stem, 0)
-            next_step = _parse_next_step(parts[2])
+            body = parts[2]
+            next_step = _parse_next_step(body)
+            thread_summary = fm.get("goal") or _extract_thread_summary(body)
+            entry_data = entry_rollup.get(thread_id) or entry_rollup.get(fp.stem, {})
+            event_data = event_rollup.get(thread_id) or event_rollup.get(fp.stem, {})
+            operator_actions = operator_rollup.get(thread_id) or operator_rollup.get(fp.stem, [])
+            waiting_reason = next(
+                (
+                    item.get("reason")
+                    for item in operator_actions
+                    if item.get("action") == "thread:waiting" and item.get("reason")
+                ),
+                None,
+            )
 
             # Resurface check
             resurface_str = fm.get("resurface")
             resurface_due = False
+            resurface_days_overdue = None
             if resurface_str:
                 try:
                     rd = date.fromisoformat(str(resurface_str))
                     resurface_due = rd <= today
+                    if rd <= today:
+                        resurface_days_overdue = max(0, (today - rd).days)
                 except (ValueError, TypeError):
                     pass
+
+            next_step_normalized = (next_step or "").strip().lower()
+            no_next_step = status in {"active", "waiting"} and (
+                not next_step or next_step_normalized in THREAD_NEXT_STEP_PLACEHOLDERS
+            )
+            last_evidence = entry_data.get("last_evidence")
+            last_dispatch = event_data.get("last_dispatch")
+            last_dispatch_ts = _parse_ts_value(last_dispatch.get("ts")) if last_dispatch else None
+            last_evidence_ts = _parse_ts_value(last_evidence.get("ts")) if last_evidence else None
+            last_touched_candidates = [
+                _parse_ts_value(fm.get("updated")),
+                last_evidence_ts,
+                last_dispatch_ts,
+                _parse_ts_value(operator_actions[0].get("ts")) if operator_actions else None,
+            ]
+            last_touched_candidates = [item for item in last_touched_candidates if item]
+            last_touched = max(last_touched_candidates) if last_touched_candidates else None
+
+            no_recent_evidence = False
+            days_since_evidence = None
+            if status in {"active", "waiting"}:
+                reference_ts = last_evidence_ts or last_dispatch_ts
+                if reference_ts is None:
+                    no_recent_evidence = True
+                else:
+                    days_since_evidence = max(0, (today - reference_ts.date()).days)
+                    no_recent_evidence = days_since_evidence >= THREAD_EVIDENCE_STALE_DAYS
+
+            closure_ready = (
+                status in {"active", "waiting"}
+                and bool(fm.get("done_when"))
+                and entry_data.get("reports_count", 0) > 0
+                and entry_data.get("gaps_count", 0) == 0
+                and not no_next_step
+            )
+
+            flags = []
+            attention_reasons = []
+            if resurface_due and status in {"active", "waiting"}:
+                label = "resurface due"
+                detail = f"{resurface_days_overdue}d overdue" if resurface_days_overdue else "due today"
+                flags.append({"kind": "warn", "label": label, "detail": detail})
+                attention_reasons.append(label)
+            if status == "waiting":
+                flags.append({"kind": "warn", "label": "waiting", "detail": waiting_reason or "awaiting follow-up"})
+            if no_next_step:
+                flags.append({"kind": "warn", "label": "no next step", "detail": "operator cannot tell what advances this thread"})
+                attention_reasons.append("no next step")
+            if no_recent_evidence:
+                detail = "no linked evidence yet" if days_since_evidence is None else f"{days_since_evidence}d since last evidence"
+                flags.append({"kind": "warn", "label": "no recent evidence", "detail": detail})
+                attention_reasons.append("no recent evidence")
+            if entry_data.get("gaps_count", 0) > 0:
+                flags.append({"kind": "muted", "label": f"{entry_data.get('gaps_count', 0)} open gaps", "detail": "claims still unresolved"})
+            if closure_ready:
+                flags.append({"kind": "ok", "label": "closure-ready", "detail": "done_when has support with no open gaps"})
+
+            attention_score = 0
+            if resurface_due:
+                attention_score += 5 + min(resurface_days_overdue or 0, 3)
+            if no_next_step:
+                attention_score += 4
+            if no_recent_evidence:
+                attention_score += 3
 
             stats["total"] += 1
             if status in stats:
                 stats[status] += 1
-            if resurface_due and status == "active":
+            if resurface_due and status in {"active", "waiting"}:
                 stats["resurface_due"] += 1
 
             threads.append({
@@ -1422,10 +1712,34 @@ def load_threads_enriched(status_filter=None):
                 "updated": str(fm.get("updated", "")),
                 "resurface": str(resurface_str) if resurface_str else None,
                 "goal": fm.get("goal"),
+                "summary": thread_summary,
                 "done_when": fm.get("done_when"),
-                "entries_count": entries_count,
+                "entries_count": entry_data.get("entries_count", 0),
+                "reports_count": entry_data.get("reports_count", 0),
+                "claims_count": entry_data.get("claims_count", 0),
+                "verified_count": entry_data.get("verified_count", 0),
+                "gaps_count": entry_data.get("gaps_count", 0),
                 "resurface_due": resurface_due,
+                "resurface_days_overdue": resurface_days_overdue,
                 "next_step": next_step,
+                "no_next_step": no_next_step,
+                "no_recent_evidence": no_recent_evidence,
+                "days_since_evidence": days_since_evidence,
+                "closure_ready": closure_ready,
+                "waiting_reason": waiting_reason,
+                "flags": flags,
+                "attention_reasons": attention_reasons,
+                "attention_summary": ", ".join(attention_reasons[:2]) if attention_reasons else None,
+                "attention_score": attention_score,
+                "needs_attention": status in {"active", "waiting"} and attention_score > 0,
+                "last_evidence": last_evidence,
+                "last_event": event_data.get("last_event"),
+                "last_dispatch": last_dispatch,
+                "last_skill": last_dispatch.get("skill") if last_dispatch else None,
+                "last_cycle_id": last_dispatch.get("cycle_id") if last_dispatch else None,
+                "recent_operator_action": operator_actions[0] if operator_actions else None,
+                "last_touched": last_touched.isoformat() if last_touched else None,
+                "last_touched_short": _short_ts(last_touched.isoformat()) if last_touched else None,
             })
         except Exception:
             continue
@@ -1433,14 +1747,34 @@ def load_threads_enriched(status_filter=None):
     if status_filter:
         threads = [t for t in threads if t["status"] == status_filter]
 
+    threads.sort(
+        key=lambda item: (
+            item.get("status") == "done",
+            item.get("status") == "dormant",
+            item.get("status") == "proposed",
+            item.get("status") != "waiting" and not item.get("needs_attention"),
+            -(item.get("attention_score") or 0),
+            item.get("resurface") or "",
+            item.get("updated") or "",
+        )
+    )
     return {"threads": threads, "stats": stats}
 
 
 def load_thread_detail(thread_id):
-    """Load full detail for a single thread: metadata, body, linked entries, reports, claims."""
+    """Load full detail for a single thread with evidence and operator history."""
     thread_path = THREADS_DIR / f"{thread_id}.md"
     if not thread_path.exists():
         return None
+
+    enriched_map = {item["id"]: item for item in load_threads_enriched().get("threads", [])}
+    enriched = enriched_map.get(thread_id, {})
+    event_history = (
+        _build_thread_event_rollup(limit_history=THREAD_DETAIL_HISTORY_LIMIT)
+        .get(thread_id, {})
+        .get("history", [])
+    )
+    operator_actions = _build_thread_operator_action_index(limit_per_thread=12).get(thread_id, [])
 
     raw = thread_path.read_text(encoding="utf-8", errors="replace")
     parts = raw.split("---", 2)
@@ -1518,6 +1852,16 @@ def load_thread_detail(thread_id):
         "resurface": str(fm.get("resurface", "")),
         "goal": fm.get("goal"),
         "done_when": fm.get("done_when"),
+        "summary": enriched.get("summary"),
+        "flags": enriched.get("flags", []),
+        "attention_summary": enriched.get("attention_summary"),
+        "next_step": enriched.get("next_step"),
+        "waiting_reason": enriched.get("waiting_reason"),
+        "last_evidence": enriched.get("last_evidence"),
+        "last_dispatch": enriched.get("last_dispatch"),
+        "last_skill": enriched.get("last_skill"),
+        "last_cycle_id": enriched.get("last_cycle_id"),
+        "recent_operator_action": enriched.get("recent_operator_action"),
         "body_html": body_html,
         "entries": entries,
         "entries_count": len(entries),
@@ -1528,6 +1872,8 @@ def load_thread_detail(thread_id):
         "claims_count": len(all_claims),
         "verified_count": len(verified),
         "gaps_count": len(gaps),
+        "event_history": event_history,
+        "operator_actions": operator_actions,
     }
 
 

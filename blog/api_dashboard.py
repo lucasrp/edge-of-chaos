@@ -397,6 +397,7 @@ def _build_status_strip_data():
         "claims_total": claims.get("total_learned", 0),
         "claims_open": claims.get("total_gaps", 0),
         "threads_active_count": thread_stats.get("active", 0),
+        "threads_waiting_count": thread_stats.get("waiting", 0),
         "threads_proposed_count": thread_stats.get("proposed", 0),
         "threads_dormant_count": thread_stats.get("dormant", 0),
         "threads_resurface_due": thread_stats.get("resurface_due", 0),
