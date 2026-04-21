@@ -27,6 +27,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (  # noqa: E402
     BRIEFING_FILE,
+    CLAIMS_VALIDATION_FILE,
+    CONTINUITY_DELTAS_DIR,
     EDGE_REPO_DIR,
     EDGE_STATE_DIR,
     ENTRIES_DIR,
@@ -286,6 +288,42 @@ def capture_post_state_changes(slug, entry_path):
     claims = fm.get("claims", [])
     threads = fm.get("threads", [])
 
+    delta_path = CONTINUITY_DELTAS_DIR / f"{slug}.json"
+    if delta_path.exists():
+        try:
+            delta = json.loads(delta_path.read_text(encoding="utf-8"))
+        except Exception:
+            delta = None
+        if delta:
+            lines.append("### Delta de continuidade")
+            if delta.get("primary_thread"):
+                lines.append(f"- **Thread principal:** `{delta['primary_thread']}`")
+            elif delta.get("linked_threads"):
+                lines.append(f"- **Threads ligadas:** {', '.join(delta.get('linked_threads') or [])}")
+            else:
+                lines.append("- **Thread principal:** nenhuma (claims órfãs)")
+            lines.append(
+                f"- **Claims:** {delta.get('claims_verified', 0)} verificadas, "
+                f"{delta.get('claims_open', 0)} abertas, "
+                f"{delta.get('orphan_claims', 0)} órfãs neste artifact"
+            )
+            if delta.get("hot_thread_snapshot"):
+                lines.append(
+                    f"- **Pressão da thread:** {delta['hot_thread_snapshot'].get('open_claims', 0)} "
+                    "claims abertas na thread principal"
+                )
+            if delta.get("candidate_cluster"):
+                lines.append(
+                    f"- **Candidato de nova thread:** {delta['candidate_cluster'].get('cluster_key')} "
+                    f"(score {delta['candidate_cluster'].get('score')})"
+                )
+            lines.append("")
+            lines.append(delta.get("summary", ""))
+            if delta.get("next_step"):
+                lines.append("")
+                lines.append(f"**Próximo passo de continuidade:** {delta['next_step']}")
+            lines.append("")
+
     # ── Claims written ──
     if claims:
         open_c = [c for c in claims if _is_open(c)]
@@ -334,6 +372,28 @@ def capture_post_state_changes(slug, entry_path):
                     break
             except Exception:
                 pass
+
+    # ── Shadow validation ──
+    if CLAIMS_VALIDATION_FILE.exists():
+        try:
+            validations = json.loads(CLAIMS_VALIDATION_FILE.read_text(encoding="utf-8")).get("entries", [])
+        except Exception:
+            validations = []
+        current = next((item for item in validations if item.get("slug") == slug), None)
+        if current:
+            lines.append("### Shadow validation")
+            judge = current.get("judge") or {}
+            heuristic = current.get("heuristic") or {}
+            lines.append(
+                f"- **Judge:** {judge.get('status', 'unknown')} "
+                f"({judge.get('provider', 'review')}:{judge.get('model', 'n/a')})"
+            )
+            if judge.get("summary"):
+                lines.append(f"- **Judge summary:** {judge.get('summary')}")
+            lines.append(f"- **Heuristic:** {heuristic.get('status', 'unknown')}")
+            for item in (judge.get("items") or [])[:5]:
+                lines.append(f"  - `{item.get('status', 'unknown')}` {item.get('text', '')} — {item.get('reason', '')}")
+            lines.append("")
 
     # ── Actual git diffs (what changed in state files) ──
     lines.append("### Diff real dos arquivos de estado")

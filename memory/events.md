@@ -56,7 +56,9 @@ Step 1 now tracks six event types.
   "type": "CycleStarted",
   "payload": {
     "skill_rotation_slot": "planner",
-    "trigger": "heartbeat"
+    "trigger": "heartbeat",
+    "thread_id": "self-healing-pillars",
+    "primary_thread_id": "self-healing-pillars"
   }
 }
 ```
@@ -78,7 +80,9 @@ emitters are being migrated.
   "type": "SkillDispatched",
   "payload": {
     "skill": "planner",
-    "dispatch_mode": "normal"
+    "dispatch_mode": "normal",
+    "thread_id": "self-healing-pillars",
+    "primary_thread_id": "self-healing-pillars"
   }
 }
 ```
@@ -93,6 +97,8 @@ Emitted exactly when a skill is actually dispatched, not when prose says it shou
   "payload": {
     "trigger": "operator",
     "skill": "reflection",
+    "thread_id": "self-healing-pillars",
+    "primary_thread_id": "self-healing-pillars",
     "close_status": "completed",
     "reason": ""
   }
@@ -133,6 +139,71 @@ Represents the outcome of one pipeline phase. This is enough to build the first 
 ```
 
 Represents the canonical publish fact for an artifact.
+
+### `ClaimObserved`
+
+```json
+{
+  "type": "ClaimObserved",
+  "artifact": "blog/entries/2026-04-21-example.md",
+  "payload": {
+    "claim_id": "claim-abcd1234",
+    "text": "Critical case still lacks a closure argument",
+    "kind": "gap",
+    "threads": ["boundedness-classification"]
+  }
+}
+```
+
+Represents one claim explicitly observed from a published artifact.
+
+### `ThreadTouched`
+
+```json
+{
+  "type": "ThreadTouched",
+  "artifact": "blog/entries/2026-04-21-example.md",
+  "payload": {
+    "thread_id": "boundedness-classification",
+    "reason": "artifact_published"
+  }
+}
+```
+
+Represents one continuity surface touched by a beat or artifact.
+
+### `ClaimLinkedToThread`
+
+```json
+{
+  "type": "ClaimLinkedToThread",
+  "artifact": "blog/entries/2026-04-21-example.md",
+  "payload": {
+    "claim_id": "claim-abcd1234",
+    "text": "Critical case still lacks a closure argument",
+    "thread_id": "boundedness-classification",
+    "kind": "gap"
+  }
+}
+```
+
+Represents the explicit edge from one claim to one thread.
+
+### `ClaimsValidationObserved`
+
+```json
+{
+  "type": "ClaimsValidationObserved",
+  "artifact": "blog/entries/2026-04-21-example.md",
+  "payload": {
+    "slug": "2026-04-21-example",
+    "judge_status": "uncertain",
+    "heuristic_status": "accepted"
+  }
+}
+```
+
+Represents the shadow validation result for continuity claim extraction.
 
 ### `InstallApplied`
 

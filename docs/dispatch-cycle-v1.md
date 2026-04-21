@@ -23,6 +23,7 @@ Persisted inside `state/current-dispatch.json`:
 {
   "trigger": "heartbeat",
   "skill": "research",
+  "primary_thread_id": "self-healing-pillars",
   "args": {
     "thread_id": "self-healing-pillars"
   },
@@ -41,6 +42,11 @@ Canonical trigger values:
 
 The CLI still accepts `user` as a legacy alias and normalizes it to
 `operator`.
+
+When a caller already knows the continuity target, the dispatch request should
+carry it as `primary_thread_id` (mirrored from `args.thread_id` when needed).
+That keeps beat→thread anchoring explicit instead of forcing later consumers to
+reconstruct it from artifact side effects.
 
 ## DispatchCycleState
 

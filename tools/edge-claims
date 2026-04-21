@@ -10,6 +10,7 @@ Uso:
 """
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -20,6 +21,14 @@ from datetime import datetime
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import ENTRIES_DIR
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.continuity import (
+    CLAIMS_DIGEST_FILE,
+    ORPHAN_CLAIMS_FILE,
+    build_claims_digest,
+    build_orphan_claims,
+    refresh_continuity_projections,
+)
 
 BLOG_DIR = ENTRIES_DIR
 
@@ -176,17 +185,105 @@ def cmd_stats(entries):
             print(f"  {t}: {n} claims")
 
 
+def _load_or_refresh(refresh=False):
+    if refresh:
+        projections = refresh_continuity_projections()
+        return projections["digest"], projections["orphans"]
+
+    digest = None
+    orphans = None
+    if CLAIMS_DIGEST_FILE.exists():
+        try:
+            digest = json.loads(CLAIMS_DIGEST_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            digest = None
+    if ORPHAN_CLAIMS_FILE.exists():
+        try:
+            orphans = json.loads(ORPHAN_CLAIMS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            orphans = None
+    if digest is None:
+        digest = build_claims_digest()
+    if orphans is None:
+        orphans = build_orphan_claims(digest)
+    return digest, orphans
+
+
+def cmd_digest(refresh=False, as_json=False):
+    digest, _orphans = _load_or_refresh(refresh=refresh)
+    if as_json:
+        print(json.dumps(digest, indent=2, ensure_ascii=False))
+        return
+
+    print("=== CLAIMS DIGEST ===")
+    print(f"Open: {digest.get('open_total', 0)}")
+    print(f"Verified: {digest.get('verified_total', 0)}")
+    print(f"Attention: {digest.get('attention_count', 0)}")
+    print(f"Unthreaded: {digest.get('unthreaded_count', 0)}")
+    print(f"Stale: {digest.get('stale_count', 0)}")
+    print(f"Opened 7d: {digest.get('opened_7d', 0)}")
+    print(f"Opened 30d: {digest.get('opened_30d', 0)}")
+    print(f"Resolved 7d: {digest.get('resolved_7d', 0)}")
+    print(f"Resolved 30d: {digest.get('resolved_30d', 0)}")
+    print(f"Fanout ratio: {digest.get('fanout_ratio', 0)}")
+    hot = digest.get("hot_threads_by_open_claims") or []
+    if hot:
+        print()
+        print("Hot threads:")
+        for item in hot[:8]:
+            print(f"  {item.get('thread_id')}: {item.get('open_claims')} open")
+    oldest = digest.get("oldest_open_claims") or []
+    if oldest:
+        print()
+        print("Oldest open:")
+        for item in oldest[:8]:
+            text = str(item.get("text") or "")[:100]
+            date = item.get("date") or "?"
+            threads = ", ".join(item.get("threads") or []) or "sem fio"
+            print(f"  {date} [{threads}] {text}")
+
+
+def cmd_orphans(refresh=False, as_json=False):
+    _digest, orphans = _load_or_refresh(refresh=refresh)
+    if as_json:
+        print(json.dumps(orphans, indent=2, ensure_ascii=False))
+        return
+
+    print("=== ORPHAN CLAIMS ===")
+    print(f"Total: {orphans.get('orphan_total', 0)}")
+    print(f"Open: {orphans.get('open_orphan_total', 0)}")
+    print(f"Stale: {orphans.get('stale_orphan_total', 0)}")
+    print(f"Multi-artifact: {orphans.get('multi_artifact_orphan_total', 0)}")
+    candidates = orphans.get("candidate_clusters") or []
+    if candidates:
+        print()
+        print("Candidate clusters:")
+        for cluster in candidates[:8]:
+            print(
+                f"  {cluster.get('cluster_key')}: score={cluster.get('score')} "
+                f"claims={cluster.get('claim_count')} open={cluster.get('open_total')}"
+            )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Buscar claims extraídas de artefatos")
     parser.add_argument("--thread", "-t", help="Filtrar por fio")
     parser.add_argument("--open", "-o", action="store_true", help="Só claims abertas (! = não sei)")
     parser.add_argument("--search", "-s", help="Buscar por texto")
     parser.add_argument("--stats", action="store_true", help="Estatísticas")
+    parser.add_argument("--digest", action="store_true", help="Resumo determinístico de claims")
+    parser.add_argument("--orphans", action="store_true", help="Resumo de claims órfãs")
+    parser.add_argument("--json", action="store_true", help="Saída JSON para digest/orphans")
+    parser.add_argument("--refresh", action="store_true", help="Recalcular projeções antes de responder")
     args = parser.parse_args()
 
     entries = all_entries()
 
-    if args.thread:
+    if args.digest:
+        cmd_digest(refresh=args.refresh, as_json=args.json)
+    elif args.orphans:
+        cmd_orphans(refresh=args.refresh, as_json=args.json)
+    elif args.thread:
         cmd_thread(entries, args.thread)
     elif args.open:
         cmd_open(entries)

@@ -24,7 +24,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (EVENTS_FILE, THREADS_DIR, ENTRIES_DIR as BLOG_DIR,
                    LOGS_DIR, STATE_DIR, DEBUGGING_FILE as DEBUG_FILE,
-                   INSIGHTS_FILE, BRIEFING_FILE as OUTPUT_FILE)
+                   INSIGHTS_FILE, BRIEFING_FILE as OUTPUT_FILE,
+                   CLAIMS_DIGEST_FILE, ORPHAN_CLAIMS_FILE)
 HEARTBEAT_LOG = LOGS_DIR / f"heartbeat-{datetime.now().strftime('%Y-%m-%d')}.log"
 OBSERVABILITY_FILE = STATE_DIR / "observability-rollup.json"
 
@@ -118,6 +119,24 @@ def read_open_claims():
     return claims
 
 
+def read_claims_digest():
+    if not CLAIMS_DIGEST_FILE.exists():
+        return {}
+    try:
+        return json.loads(CLAIMS_DIGEST_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def read_orphan_claims():
+    if not ORPHAN_CLAIMS_FILE.exists():
+        return {}
+    try:
+        return json.loads(ORPHAN_CLAIMS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 def read_beats():
     """Últimos beats de hoje."""
     if not HEARTBEAT_LOG.exists():
@@ -186,6 +205,8 @@ def generate_briefing():
     threads = read_threads()
     events = read_events(20)
     open_claims = read_open_claims()
+    claims_digest = read_claims_digest()
+    orphan_claims = read_orphan_claims()
     beats = read_beats()
     errors = read_open_errors()
     insights = read_unread_insights()
@@ -240,6 +261,48 @@ def generate_briefing():
         for c in open_claims[:7]:
             fios = ", ".join(c["threads"]) if c["threads"] else "sem fio"
             lines.append(f"- ? {c['claim']} ← {c['source']} ({fios})")
+        lines.append("")
+
+    if claims_digest:
+        lines.append("## Continuidade de claims")
+        lines.append(
+            f"- Claims: {claims_digest.get('verified_total', 0)} verificadas, "
+            f"{claims_digest.get('open_total', 0)} abertas, "
+            f"{claims_digest.get('unthreaded_count', 0)} órfãs, "
+            f"{claims_digest.get('stale_count', 0)} stale"
+        )
+        lines.append(
+            f"- Fanout 30d: {claims_digest.get('opened_30d', 0)} abertas / "
+            f"{claims_digest.get('resolved_30d', 0)} resolvidas "
+            f"(ratio {claims_digest.get('fanout_ratio', 0)})"
+        )
+        hot_threads = claims_digest.get("hot_threads_by_open_claims") or []
+        if hot_threads:
+            top = ", ".join(
+                f"{item.get('thread_id')}:{item.get('open_claims')}"
+                for item in hot_threads[:4]
+            )
+            lines.append(f"- Threads quentes: {top}")
+        oldest_open = claims_digest.get("oldest_open_claims") or []
+        if oldest_open:
+            for item in oldest_open[:3]:
+                threads = ", ".join(item.get("threads") or []) or "sem fio"
+                lines.append(f"- antigo: {item.get('text')} ({threads})")
+        lines.append("")
+
+    if orphan_claims:
+        lines.append("## Órfãs")
+        lines.append(
+            f"- Órfãs: {orphan_claims.get('orphan_total', 0)} total, "
+            f"{orphan_claims.get('open_orphan_total', 0)} abertas, "
+            f"{orphan_claims.get('stale_orphan_total', 0)} stale"
+        )
+        candidates = orphan_claims.get("candidate_clusters") or []
+        for cluster in candidates[:3]:
+            lines.append(
+                f"- candidato: {cluster.get('cluster_key')} "
+                f"(score {cluster.get('score')}, {cluster.get('claim_count')} claims)"
+            )
         lines.append("")
 
     # ── Últimos eventos ──
