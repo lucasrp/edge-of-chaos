@@ -67,20 +67,29 @@ legacy = json.load(open(sys.argv[2], encoding="utf-8"))
 events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8") if line.strip()]
 cycle_id = open(sys.argv[4], encoding="utf-8").read().strip()
 args = open(sys.argv[5], encoding="utf-8").read().strip()
+request = dispatch["request"]
 
 assert cycle_id == dispatch["cycle_id"]
-assert dispatch["request"]["trigger"] == "heartbeat"
+assert request["trigger"] == "heartbeat"
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
+assert dispatch["state"]["preflight_status"] == "completed"
+assert request["schema_version"] == 1
+assert "Dispatch runtime context below" in args
+assert "health_snapshot" in args
+assert request["primitives_status"]["summary"]["health_status"] == "ok"
+assert "workflow_status" in request
+assert "claims_summary" in request
 assert legacy["active"] is False
 assert any(event["type"] == "CycleStarted" for event in events)
+assert any(event["type"] == "PreflightCompleted" for event in events)
 assert any(event["type"] == "CycleClosed" for event in events)
 assert "/ed-heartbeat" in args
 PY
 then
-    pass "heartbeat run exports cycle id and closes the shadow cycle"
+    pass "heartbeat run exports cycle id, request context, and closes the shadow cycle"
 else
-    fail "heartbeat run exports cycle id and closes the shadow cycle"
+    fail "heartbeat run exports cycle id, request context, and closes the shadow cycle"
 fi
 
 echo "--- Test 2: success without skill completion evidence closes as failed ---"

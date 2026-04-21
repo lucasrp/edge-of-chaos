@@ -23,6 +23,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import EDGE_REPO_DIR  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.dispatch_runtime import read_dispatch_state, render_skill_runtime_prompt  # noqa: E402
+from _shared.telemetry import emit_shadow_event  # noqa: E402
 from _shared.telemetry import log_run_step  # noqa: E402
 
 
@@ -143,6 +145,10 @@ def maybe_open_cycle(args: argparse.Namespace, env: dict[str, str]) -> str | Non
         "--cycle-id",
         cycle_id,
     ]
+    if args.cmd == "skill" and args.skill and args.dispatch_trigger != "heartbeat":
+        dispatch_args.extend(["--skill", args.skill.lstrip("/")])
+    elif args.cmd == "prompt":
+        dispatch_args.extend(["--skill", "prompt"])
     if args.dispatch_policy:
         dispatch_args.extend(["--policy", args.dispatch_policy])
     if args.dispatch_routing_mode:
@@ -157,6 +163,37 @@ def maybe_open_cycle(args: argparse.Namespace, env: dict[str, str]) -> str | Non
     env["EDGE_CYCLE_ID"] = cycle_id
     run_edge_tool("edge-dispatch", dispatch_args, env)
     return cycle_id
+
+
+def maybe_run_preflight(args: argparse.Namespace, env: dict[str, str], cycle_id: str | None) -> None:
+    if not cycle_id:
+        return
+    preflight_args = ["run", "--stage", "preflight"]
+    if args.dispatch_preflight_profile:
+        preflight_args.extend(["--profile", args.dispatch_preflight_profile])
+    if args.cmd == "skill" and args.dispatch_trigger != "heartbeat" and args.skill:
+        preflight_args.extend(["--skill", args.skill.lstrip("/")])
+    elif args.cmd == "prompt":
+        preflight_args.extend(["--skill", "prompt"])
+    status, payload = run_edge_tool("edge-preflight", preflight_args, env, allow_nonzero=True)
+    if status == 2:
+        detail = (payload or {}).get("reason") or "duplicate_risk_block"
+        raise RuntimeError(f"preflight blocked: {detail}")
+    if status != 0:
+        detail = (payload or {}).get("error") or "preflight_failed"
+        raise RuntimeError(f"preflight failed: {detail}")
+
+
+def maybe_dispatch_skill(args: argparse.Namespace, env: dict[str, str], cycle_id: str | None) -> None:
+    if not cycle_id:
+        return
+    if args.cmd == "skill":
+        skill_name = args.skill.lstrip("/")
+        if skill_name.endswith("-heartbeat"):
+            return
+    else:
+        skill_name = "prompt"
+    run_edge_tool("edge-dispatch", ["dispatch", "--skill", skill_name], env)
 
 
 def maybe_close_cycle(
@@ -176,10 +213,47 @@ def maybe_close_cycle(
     return payload
 
 
-def invoke_backend(args: argparse.Namespace, env: dict[str, str]) -> int:
-    cmd = build_backend_command(args)
+def build_backend_content(args: argparse.Namespace, cycle_id: str | None) -> str:
+    if args.cmd != "skill" or not cycle_id:
+        return args.skill if args.cmd == "skill" else args.prompt
+    state = read_dispatch_state()
+    return render_skill_runtime_prompt(args.skill, state)
+
+
+def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: str | None = None) -> int:
+    content = build_backend_content(args, cycle_id)
+    original = args.skill if args.cmd == "skill" else args.prompt
+    if content != original:
+        backend_args = argparse.Namespace(**vars(args))
+        if args.cmd == "skill":
+            backend_args.skill = content
+        else:
+            backend_args.prompt = content
+        cmd = build_backend_command(backend_args)
+    else:
+        cmd = build_backend_command(args)
     result = subprocess.run(cmd, env=env, cwd=resolve_cwd(args.cwd))
     return result.returncode
+
+
+def maybe_mark_prompt_completion(args: argparse.Namespace, cycle_id: str | None, exit_code: int) -> None:
+    if args.cmd != "prompt" or not cycle_id or exit_code != 0:
+        return
+    emit_shadow_event(
+        "SkillRunCompleted",
+        actor="edge-runner",
+        cycle_id=cycle_id,
+        payload={
+            "skill": "prompt",
+            "registry_skill": "prompt",
+            "event": "end",
+            "expected": 1,
+            "done": 1,
+            "explicit_skips": 0,
+            "silent_skips": [],
+            "completion_pct": 100,
+        },
+    )
 
 
 def add_common_arguments(parser: argparse.ArgumentParser) -> None:
@@ -231,6 +305,8 @@ def main() -> int:
 
     try:
         cycle_id = maybe_open_cycle(args, env)
+        maybe_run_preflight(args, env, cycle_id)
+        maybe_dispatch_skill(args, env, cycle_id)
         if cycle_id:
             log_run_step(
                 "edge-runner",
@@ -242,7 +318,8 @@ def main() -> int:
                 target=args.skill if args.cmd == "skill" else "prompt",
             )
 
-        exit_code = invoke_backend(args, env)
+        exit_code = invoke_backend(args, env, cycle_id=cycle_id)
+        maybe_mark_prompt_completion(args, cycle_id, exit_code)
         if exit_code != 0:
             close_status = "failed"
             close_reason = f"backend_exit_{exit_code}"

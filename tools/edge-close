@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -127,65 +126,9 @@ def check_skill_completion(state: dict) -> tuple[bool, str, dict]:
 
     return False, "missing_skill_run_completed", {"skill": skill, "cycle_id": cycle_id}
 
-
-def run_standard_postflight() -> tuple[bool, str, dict]:
-    validate_script = EDGE_REPO_DIR / "blog" / "validate.py"
-    cmd = [sys.executable, str(validate_script), "--recent"]
-    result = subprocess.run(cmd, cwd=str(EDGE_REPO_DIR), capture_output=True, text=True)
-    output = (result.stdout or "").strip()
-    detail = output.splitlines()[-1] if output else f"exit={result.returncode}"
-    append_postskill_log("validate_recent", "OK" if result.returncode == 0 else "FAIL", detail)
-    return (
-        result.returncode == 0,
-        "validate_recent" if result.returncode == 0 else "validate_recent_failed",
-        {
-            "command": "python3 blog/validate.py --recent",
-            "returncode": result.returncode,
-            "detail": detail,
-        },
-    )
-
-
-def run_postflight(profile: str) -> tuple[bool, str, list[dict]]:
-    if not profile or profile == "none":
-        append_postskill_log("postflight_profile", "SKIP", "profile=none")
-        return True, "postflight_skipped", [{"step": "postflight_profile", "status": "skipped", "detail": "profile=none"}]
-
-    if profile == "standard":
-        ok, reason, detail = run_standard_postflight()
-        return ok, reason, [{"step": "validate_recent", "status": "ok" if ok else "failed", **detail}]
-
-    append_postskill_log("postflight_profile", "FAIL", f"unknown profile {profile}")
-    return False, "unknown_postflight_profile", [{"step": "postflight_profile", "status": "failed", "detail": profile}]
-
-
-def record_postflight(state: dict, *, status: str, profile: str, reason: str, steps: list[dict]) -> None:
-    cycle_id = state.get("cycle_id")
-    state_block = state.setdefault("state", {})
-    state_block["postflight_status"] = status
-    state_block["postflight_checked_at"] = now_iso()
-    state_block["updated_at"] = state_block["postflight_checked_at"]
-    state_block["postflight_reason"] = reason
-    state_block["postflight_steps"] = steps
-    write_state(state)
-    event_type = "PostflightCompleted" if status == "completed" else "PostflightFailed"
-    emit_shadow_event(
-        event_type,
-        actor="edge-close",
-        cycle_id=cycle_id,
-        payload={"profile": profile, "reason": reason, "steps": steps},
-    )
-    log_event(
-        "dispatch_postflight",
-        actor="edge-close",
-        cycle_id=cycle_id,
-        profile=profile,
-        status=status,
-        reason=reason,
-    )
-
-
 def close_dispatch(status: str, reason: str | None) -> tuple[int, dict]:
+    import subprocess
+
     cmd = [str(SCRIPT_DIR / "edge-dispatch"), "close", "--status", status]
     if reason:
         cmd.extend(["--reason", reason])
@@ -195,6 +138,18 @@ def close_dispatch(status: str, reason: str | None) -> tuple[int, dict]:
         raise RuntimeError(f"{' '.join(cmd)} failed: {detail}")
     payload = json.loads(result.stdout) if result.stdout.strip() else {}
     return result.returncode, payload
+
+
+def run_postflight(profile: str) -> tuple[bool, str, list[dict]]:
+    import subprocess
+
+    cmd = [str(SCRIPT_DIR / "edge-postflight"), "run", "--profile", profile]
+    result = subprocess.run(cmd, cwd=str(EDGE_REPO_DIR), capture_output=True, text=True)
+    raw = result.stdout.strip() or result.stderr.strip()
+    payload = json.loads(raw) if raw else {}
+    steps = payload.get("steps") or []
+    reason = payload.get("reason") or ("postflight_standard_completed" if result.returncode == 0 else "postflight_failed")
+    return result.returncode == 0, reason, steps
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -218,12 +173,26 @@ def main() -> int:
         skill_ok, skill_reason, skill_detail = check_skill_completion(state)
         if not skill_ok:
             append_postskill_log("skill_run_completed", "FAIL", skill_reason)
-            record_postflight(
-                state,
-                status="failed",
+            state_block = state.setdefault("state", {})
+            state_block["postflight_status"] = "failed"
+            state_block["postflight_checked_at"] = now_iso()
+            state_block["updated_at"] = state_block["postflight_checked_at"]
+            state_block["postflight_reason"] = skill_reason
+            state_block["postflight_steps"] = [{"step": "skill_run_completed", "status": "failed", **skill_detail}]
+            write_state(state)
+            emit_shadow_event(
+                "PostflightFailed",
+                actor="edge-close",
+                cycle_id=state.get("cycle_id"),
+                payload={"profile": profile, "reason": skill_reason, "steps": state_block["postflight_steps"]},
+            )
+            log_event(
+                "dispatch_postflight",
+                actor="edge-close",
+                cycle_id=state.get("cycle_id"),
                 profile=profile,
+                status="failed",
                 reason=skill_reason,
-                steps=[{"step": "skill_run_completed", "status": "failed", **skill_detail}],
             )
             effective_status = "failed"
             effective_reason = effective_reason or skill_reason
@@ -231,32 +200,35 @@ def main() -> int:
         else:
             append_postskill_log("skill_run_completed", "OK", skill_reason)
             post_ok, post_reason, post_steps = run_postflight(profile)
-            if post_ok:
-                record_postflight(
-                    state,
-                    status="completed",
-                    profile=profile,
-                    reason=post_reason,
-                    steps=[{"step": "skill_run_completed", "status": "ok", **skill_detail}, *post_steps],
-                )
-            else:
-                record_postflight(
-                    state,
-                    status="failed",
-                    profile=profile,
-                    reason=post_reason,
-                    steps=[{"step": "skill_run_completed", "status": "ok", **skill_detail}, *post_steps],
-                )
+            if not post_ok:
                 effective_status = "failed"
                 effective_reason = effective_reason or post_reason
                 exit_code = 1
     else:
-        record_postflight(
-            state,
-            status="skipped",
+        state_block = state.setdefault("state", {})
+        state_block["postflight_status"] = "skipped"
+        state_block["postflight_checked_at"] = now_iso()
+        state_block["updated_at"] = state_block["postflight_checked_at"]
+        state_block["postflight_reason"] = f"close_status_{requested_status}"
+        state_block["postflight_steps"] = [{"step": "postflight_profile", "status": "skipped", "detail": requested_status}]
+        write_state(state)
+        emit_shadow_event(
+            "PostflightCompleted",
+            actor="edge-close",
+            cycle_id=state.get("cycle_id"),
+            payload={
+                "profile": profile,
+                "reason": f"close_status_{requested_status}",
+                "steps": state_block["postflight_steps"],
+            },
+        )
+        log_event(
+            "dispatch_postflight",
+            actor="edge-close",
+            cycle_id=state.get("cycle_id"),
             profile=profile,
+            status="skipped",
             reason=f"close_status_{requested_status}",
-            steps=[{"step": "postflight_profile", "status": "skipped", "detail": requested_status}],
         )
 
     _, payload = close_dispatch(effective_status, effective_reason)

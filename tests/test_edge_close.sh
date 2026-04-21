@@ -69,16 +69,21 @@ import sys
 
 dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 postflight = open(sys.argv[2], encoding="utf-8").read()
+steps = dispatch["state"].get("postflight_steps", [])
+delta = dispatch["state"].get("postflight_delta", {})
+step_names = {step.get("step") for step in steps}
 
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["postflight_status"] == "completed"
 assert "validate_recent" in postflight
+assert {"validate_recent", "claims_digest", "primitives_status", "workflow_status", "briefing_digest"} <= step_names
+assert "claims_open_delta" in delta
 PY
 then
-    pass "edge-close completes only after skill end evidence and postflight"
+    pass "edge-close completes only after skill end evidence and enriched postflight"
 else
-    fail "edge-close completes only after skill end evidence and postflight"
+    fail "edge-close completes only after skill end evidence and enriched postflight"
 fi
 
 echo ""
