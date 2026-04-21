@@ -98,6 +98,17 @@ def print_json(payload: dict) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
+def resolve_primary_thread_id(request_args: dict[str, object]) -> str | None:
+    for key in ("primary_thread_id", "thread_id"):
+        value = request_args.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
 def cmd_open(args: argparse.Namespace) -> int:
     existing = read_state(require_exists=False)
     if existing and state_active(existing) and not args.force:
@@ -124,6 +135,7 @@ def cmd_open(args: argparse.Namespace) -> int:
     preflight_profile = args.preflight_profile or ("heartbeat_default" if trigger == "heartbeat" else "operator_default")
     postflight_profile = args.postflight_profile or "standard"
     request_args = parse_args_items(args.arg, args.args_json)
+    primary_thread_id = resolve_primary_thread_id(request_args)
     opened_at = now_iso()
 
     state = {
@@ -133,6 +145,7 @@ def cmd_open(args: argparse.Namespace) -> int:
             "trigger": trigger,
             "skill": args.skill,
             "args": request_args,
+            "primary_thread_id": primary_thread_id,
             "policy": policy,
             "routing_mode": routing_mode,
             "preflight_profile": preflight_profile,
@@ -170,6 +183,8 @@ def cmd_open(args: argparse.Namespace) -> int:
             "preflight_profile": preflight_profile,
             "postflight_profile": postflight_profile,
             "args": request_args,
+            "thread_id": primary_thread_id,
+            "primary_thread_id": primary_thread_id,
         },
     )
     log_event(
@@ -198,6 +213,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     requested_args = request.get("args", {})
     if args.arg or args.args_json:
         requested_args = parse_args_items(args.arg, args.args_json)
+    primary_thread_id = resolve_primary_thread_id(requested_args) or str(request.get("primary_thread_id") or "").strip() or None
 
     if not requested_skill:
         print(json.dumps({"ok": False, "error": "dispatch requires a skill"}, indent=2), file=sys.stderr)
@@ -228,6 +244,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
 
     request["skill"] = requested_skill
     request["args"] = requested_args
+    request["primary_thread_id"] = primary_thread_id
     state_block["skill_dispatched"] = True
     state_block["phase"] = "skill_dispatched"
     state_block["skill_status"] = "running"
@@ -244,6 +261,8 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
         cycle_id=state["cycle_id"],
         payload={
             "skill": request.get("skill"),
+            "thread_id": primary_thread_id,
+            "primary_thread_id": primary_thread_id,
             "priority": inbox.get("priority"),
             "priority_reason": inbox.get("priority_reason"),
             "unprocessed_total": inbox.get("unprocessed_total", 0),
@@ -266,6 +285,8 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
             "dispatch_mode": args.dispatch_mode,
             "policy": request.get("policy"),
             "args": request.get("args", {}),
+            "thread_id": primary_thread_id,
+            "primary_thread_id": primary_thread_id,
             "async_inbox": {
                 "priority": inbox.get("priority"),
                 "priority_reason": inbox.get("priority_reason"),
@@ -317,6 +338,8 @@ def cmd_close(args: argparse.Namespace) -> int:
         payload={
             "trigger": request.get("trigger"),
             "skill": request.get("skill"),
+            "thread_id": request.get("primary_thread_id"),
+            "primary_thread_id": request.get("primary_thread_id"),
             "close_status": args.status,
             "reason": args.reason or "",
         },

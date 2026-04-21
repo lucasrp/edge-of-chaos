@@ -1093,6 +1093,41 @@ except Exception as e:
 
 # ── 4. Digest (gera briefing.md) ──
 try:
+    tools_dir = Path(os.environ.get("TOOLS_DIR", str(Path.home() / "edge" / "tools")))
+    if str(tools_dir) not in sys.path:
+        sys.path.insert(0, str(tools_dir))
+    from _shared.continuity import process_publication_continuity  # type: ignore
+
+    current_dispatch_file = Path(os.environ.get("CURRENT_DISPATCH_FILE", os.path.expanduser("~/edge/state/current-dispatch.json")))
+    primary_thread_id = None
+    if current_dispatch_file.exists():
+        try:
+            dispatch_state = json.loads(current_dispatch_file.read_text())
+            request_block = dispatch_state.get("request", {}) or {}
+            primary_thread_id = (
+                str(request_block.get("primary_thread_id") or "").strip()
+                or str((request_block.get("args") or {}).get("thread_id") or "").strip()
+                or None
+            )
+        except Exception:
+            primary_thread_id = None
+
+    continuity = process_publication_continuity(
+        Path(entry_path),
+        primary_thread_id=primary_thread_id,
+        cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+    )
+    delta = continuity.get("delta", {}) or {}
+    validation = continuity.get("validation", {}) or {}
+    judge = validation.get("judge", {}) or {}
+    ok(
+        "continuity: "
+        f"{continuity.get('facts', {}).get('claims_count', 0)} claims, "
+        f"{len(continuity.get('facts', {}).get('threads', []))} threads, "
+        f"judge={judge.get('status', 'unknown')}, "
+        f"primary_thread={delta.get('primary_thread') or 'none'}"
+    )
+
     import subprocess
     result = subprocess.run(["edge-digest"], capture_output=True, text=True, timeout=10)
     if result.returncode == 0:

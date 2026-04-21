@@ -34,7 +34,8 @@ echo "--- Test 1: heartbeat open creates dispatch + legacy mirror ---"
     --cycle-id cycle-test-heartbeat \
     --policy autonomous \
     --routing-mode auto \
-    --arg topic=enforcement >/dev/null
+    --arg topic=enforcement \
+    --arg thread_id=ops-visibility >/dev/null
 
 if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/current-beat.json"
 import json
@@ -45,6 +46,8 @@ legacy = json.load(open(sys.argv[2], encoding="utf-8"))
 
 assert dispatch["cycle_id"] == "cycle-test-heartbeat"
 assert dispatch["request"]["trigger"] == "heartbeat"
+assert dispatch["request"]["primary_thread_id"] == "ops-visibility"
+assert dispatch["request"]["args"]["thread_id"] == "ops-visibility"
 assert dispatch["request"]["preflight_profile"] == "heartbeat_default"
 assert dispatch["state"]["active"] is True
 assert dispatch["state"]["skill_dispatched"] is False
@@ -82,18 +85,24 @@ fi
 echo "--- Test 3: dispatch marks skill and unblocks guard ---"
 "$DISPATCH_TOOL" dispatch --skill research >/dev/null
 
-if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/current-beat.json"
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/current-beat.json" "$TMP_EDGE/state/events/log.jsonl"
 import json
 import sys
 
 dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 legacy = json.load(open(sys.argv[2], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8") if line.strip()]
+skill_event = [event for event in events if event["type"] == "SkillDispatched"][-1]
+start_event = [event for event in events if event["type"] == "CycleStarted"][-1]
 
 assert dispatch["request"]["skill"] == "research"
+assert dispatch["request"]["primary_thread_id"] == "ops-visibility"
 assert dispatch["state"]["skill_dispatched"] is True
 assert dispatch["state"]["skill_status"] == "running"
 assert legacy["skill_dispatched"] is True
 assert legacy["skill"] == "research"
+assert start_event["payload"]["thread_id"] == "ops-visibility"
+assert skill_event["payload"]["thread_id"] == "ops-visibility"
 PY
 then
     pass "dispatch updates active cycle and legacy heartbeat mirror"
@@ -162,11 +171,13 @@ with open(sys.argv[2], encoding="utf-8") as f:
     events = [json.loads(line) for line in f if line.strip()]
 
 types = [event["type"] for event in events]
+closed = [event for event in events if event["type"] == "CycleClosed"][-1]
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert types.count("CycleStarted") == 1
 assert types.count("SkillDispatched") == 1
 assert types.count("CycleClosed") == 1
+assert closed["payload"]["thread_id"] == "ops-visibility"
 PY
 then
     pass "close finalizes state and emits CycleClosed"
