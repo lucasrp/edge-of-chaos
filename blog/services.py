@@ -1,6 +1,7 @@
 """Shared service helpers for dashboard and action blueprints."""
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -96,6 +97,10 @@ def _short_ts(value):
 def _claim_id(artifact_filename, text):
     seed = f"{artifact_filename}:{text}".encode("utf-8", errors="ignore")
     return f"claim-{sha1(seed).hexdigest()[:12]}"
+
+
+def _claim_surface_id(text):
+    return _surface_id("claim", str(text or "").strip().lower())
 
 
 def _surface_id(prefix, *parts):
@@ -1007,7 +1012,38 @@ def _entry_records():
     return records
 
 
-def _claim_records():
+CLAIM_STALE_DAYS = 14
+
+
+def _build_claim_operator_action_index(limit_per_claim=6):
+    rollup = {}
+    for item in load_operator_actions(limit=200):
+        if item.get("target_type") != "claim":
+            continue
+        claim_id = str(item.get("target_id") or "").strip()
+        if not claim_id:
+            continue
+        bucket = rollup.setdefault(claim_id, [])
+        if len(bucket) < limit_per_claim:
+            bucket.append(item)
+    return rollup
+
+
+def _build_claim_queued_intent_index(limit_per_claim=6):
+    rollup = {}
+    for item in load_queued_steering_intents(limit=200):
+        if item.get("target_type") != "claim":
+            continue
+        claim_id = str(item.get("target_id") or "").strip()
+        if not claim_id:
+            continue
+        bucket = rollup.setdefault(claim_id, [])
+        if len(bucket) < limit_per_claim:
+            bucket.append(item)
+    return rollup
+
+
+def _claim_occurrence_records():
     records = []
     for entry in _entry_records():
         for raw_claim in entry["claims"]:
@@ -1018,7 +1054,8 @@ def _claim_records():
             if not clean_text:
                 continue
             records.append({
-                "claim_id": _claim_id(entry["filename"], clean_text),
+                "claim_id": _claim_surface_id(clean_text),
+                "claim_occurrence_id": _claim_id(entry["filename"], clean_text),
                 "text": clean_text,
                 "kind": "gap" if is_gap else "verified",
                 "kind_color": "red" if is_gap else "green",
@@ -1029,21 +1066,202 @@ def _claim_records():
                 "reference": entry["filename"],
                 "report": entry["report"],
                 "date": entry["date"],
+                "_sort_ts": _parse_ts_value(entry["date"]),
             })
     return records
 
 
+def _claim_records():
+    claims = {}
+    operator_index = _build_claim_operator_action_index()
+    queued_index = _build_claim_queued_intent_index()
+    today = date.today()
+
+    for item in _claim_occurrence_records():
+        claim_id = item["claim_id"]
+        bucket = claims.setdefault(claim_id, {
+            "claim_id": claim_id,
+            "text": item["text"],
+            "occurrences": [],
+            "threads": set(),
+            "report_files": set(),
+            "artifact_files": set(),
+            "verified_occurrences": 0,
+            "gap_occurrences": 0,
+            "latest_occurrence": None,
+        })
+        bucket["occurrences"].append(item)
+        bucket["threads"].update(item.get("threads") or [])
+        if item.get("report"):
+            bucket["report_files"].add(item["report"])
+        bucket["artifact_files"].add(item["artifact_filename"])
+        if item["kind"] == "gap":
+            bucket["gap_occurrences"] += 1
+        else:
+            bucket["verified_occurrences"] += 1
+        bucket["latest_occurrence"] = _latest_item(bucket["latest_occurrence"], dict(item))
+
+    records = []
+    for claim_id, bucket in claims.items():
+        occurrences = bucket["occurrences"]
+        occurrences.sort(key=lambda row: row.get("_sort_ts") or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        latest = bucket["latest_occurrence"] or (occurrences[0] if occurrences else None)
+        kind = "gap" if bucket["gap_occurrences"] > 0 else "verified"
+        kind_color = "red" if kind == "gap" else "green"
+        latest_ts = _parse_ts_value(latest.get("date")) if latest else None
+        latest_date = latest_ts.date() if latest_ts else _parse_date_value(latest.get("date") if latest else None)
+        stale_days = (today - latest_date).days if latest_date else None
+        stale = stale_days is not None and stale_days >= CLAIM_STALE_DAYS
+        no_thread = len(bucket["threads"]) == 0
+        no_report = len(bucket["report_files"]) == 0
+        single_source = len(bucket["artifact_files"]) == 1
+        flags = []
+        attention_score = 0
+        if kind == "gap":
+            flags.append({"kind": "warn", "label": "open gap", "detail": "claim is still open, disputed, or stale"})
+            attention_score += 5
+        if no_thread:
+            flags.append({"kind": "warn", "label": "no thread", "detail": "claim is not linked to any continuity surface"})
+            attention_score += 3
+        if no_report:
+            flags.append({"kind": "warn", "label": "no report", "detail": "claim has no published report evidence"})
+            attention_score += 2
+        if single_source:
+            flags.append({"kind": "muted", "label": "single source", "detail": "claim appears in only one artifact"})
+            attention_score += 1
+        if stale:
+            flags.append({"kind": "warn", "label": "stale", "detail": f"{stale_days}d since last supporting artifact"})
+            attention_score += 2
+
+        recent_operator_action = (operator_index.get(claim_id) or [None])[0]
+        queued_steering = (queued_index.get(claim_id) or [None])[0]
+
+        records.append({
+            "claim_id": claim_id,
+            "text": bucket["text"],
+            "kind": kind,
+            "kind_color": kind_color,
+            "verified_occurrences": bucket["verified_occurrences"],
+            "gap_occurrences": bucket["gap_occurrences"],
+            "support_count": len(bucket["artifact_files"]),
+            "reports_count": len(bucket["report_files"]),
+            "threads": sorted(bucket["threads"]),
+            "reference": latest.get("artifact_filename") if latest else None,
+            "artifact_title": latest.get("artifact_title") if latest else None,
+            "artifact_filename": latest.get("artifact_filename") if latest else None,
+            "artifact_href": latest.get("artifact_href") if latest else None,
+            "report": latest.get("report") if latest else None,
+            "date": latest.get("date") if latest else None,
+            "date_short": _short_ts(latest.get("date")) if latest else "",
+            "latest_artifact_title": latest.get("artifact_title") if latest else None,
+            "latest_artifact_href": latest.get("artifact_href") if latest else None,
+            "latest_artifact_filename": latest.get("artifact_filename") if latest else None,
+            "latest_report": latest.get("report") if latest else None,
+            "flags": flags,
+            "no_thread": no_thread,
+            "no_report": no_report,
+            "single_source": single_source,
+            "stale": stale,
+            "stale_days": stale_days,
+            "needs_attention": bool(kind == "gap" or no_thread or no_report or stale),
+            "attention_score": attention_score,
+            "recent_operator_action": recent_operator_action,
+            "queued_steering": queued_steering,
+            "occurrences": occurrences,
+        })
+
+    records.sort(
+        key=lambda item: (
+            not item.get("needs_attention"),
+            -(item.get("attention_score") or 0),
+            item.get("date") or "",
+            item.get("text") or "",
+        ),
+        reverse=False,
+    )
+    return records
+
+
 def load_claims_dashboard(limit=6):
-    """Summarize claim state from entry frontmatter."""
+    """Summarize claims into an operator-facing dashboard workbench."""
     claims = _claim_records()
     verified_total = len([item for item in claims if item["kind"] == "verified"])
     open_total = len([item for item in claims if item["kind"] == "gap"])
+    attention = [item for item in claims if item["needs_attention"]]
+    verified_recent = [item for item in claims if item["kind"] == "verified" and not item["needs_attention"]]
+    queued_count = len([item for item in claims if item.get("queued_steering")])
     return {
         "total": verified_total + open_total,
         "verified_total": verified_total,
         "open_total": open_total,
+        "attention_count": len(attention),
+        "unthreaded_count": len([item for item in claims if item["no_thread"]]),
+        "no_report_count": len([item for item in claims if item["no_report"]]),
+        "queued_count": queued_count,
+        "attention": attention[:limit],
+        "verified_recent": verified_recent[:limit],
         "recent": claims[:limit],
     }
+
+
+def load_claim_detail(claim_id):
+    """Load a single aggregated claim surface with support and steering history."""
+    claim = next((item for item in _claim_records() if item["claim_id"] == claim_id), None)
+    if not claim:
+        return None
+
+    thread_index = {
+        item["id"]: item
+        for item in load_threads_enriched().get("threads", [])
+    }
+
+    reports = []
+    for report in sorted({row.get("report") for row in claim["occurrences"] if row.get("report")}):
+        report_path = REPORTS_DIR / report
+        reports.append({
+            "filename": report,
+            "exists": report_path.exists(),
+            "url": f"/reports/{report}" if report_path.exists() else None,
+        })
+
+    occurrences = []
+    for row in claim["occurrences"]:
+        occurrences.append({
+            "claim_occurrence_id": row["claim_occurrence_id"],
+            "artifact_title": row["artifact_title"],
+            "artifact_filename": row["artifact_filename"],
+            "artifact_href": row["artifact_href"],
+            "report": row.get("report"),
+            "threads": row.get("threads", []),
+            "date": row.get("date"),
+            "date_short": _short_ts(row.get("date")),
+            "kind": row.get("kind"),
+            "kind_color": row.get("kind_color"),
+        })
+
+    return {
+        **{key: value for key, value in claim.items() if key != "occurrences"},
+        "occurrences": occurrences,
+        "reports": reports,
+        "thread_links": [
+            {
+                "id": tid,
+                "title": thread_index.get(tid, {}).get("title", tid),
+                "status": thread_index.get(tid, {}).get("status"),
+                "href": f"/thread/{tid}",
+            }
+            for tid in claim.get("threads", [])
+        ],
+        "operator_actions": _build_claim_operator_action_index(limit_per_claim=12).get(claim_id, []),
+        "queued_steering": _build_claim_queued_intent_index(limit_per_claim=12).get(claim_id, []),
+    }
+
+
+def _current_topics_dir():
+    memory_project_dir = str(os.environ.get("MEMORY_PROJECT_DIR") or "").strip()
+    if memory_project_dir:
+        return Path.home() / ".claude" / "projects" / memory_project_dir / "memory" / "topics"
+    return TOPICS_DIR
 
 
 def load_strategy_dashboard(limit_topics=5, limit_objectives=5):
@@ -1064,8 +1282,9 @@ def load_strategy_dashboard(limit_topics=5, limit_objectives=5):
             pass
 
     topics = []
-    if TOPICS_DIR.exists():
-        for fp in sorted(TOPICS_DIR.glob("*.md")):
+    topics_dir = _current_topics_dir()
+    if topics_dir.exists():
+        for fp in sorted(topics_dir.glob("*.md")):
             try:
                 raw = fp.read_text(encoding="utf-8", errors="replace")
                 heading = next((line.lstrip("# ").strip() for line in raw.splitlines() if line.startswith("# ")), fp.stem)
@@ -1147,7 +1366,7 @@ def load_proposals_dashboard(limit=5):
 def load_lineage_dashboard(limit=6):
     """Build recent claim -> thread -> artifact lineage rows."""
     lineage = []
-    for item in _claim_records():
+    for item in _claim_occurrence_records():
         lineage.append({
             "claim_id": item["claim_id"],
             "claim": item["text"],

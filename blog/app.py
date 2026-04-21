@@ -1106,6 +1106,39 @@ def api_threads():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/claims")
+def api_claims():
+    """Aggregated claims workbench for epistemic triage."""
+    try:
+        from blog.services import load_claims_dashboard
+        return jsonify(load_claims_dashboard(limit=12))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/claims/<claim_id>/detail")
+def api_claim_detail(claim_id):
+    """Full claim detail: support, threads, reports, and steering history."""
+    try:
+        from blog.services import load_claim_detail
+        detail = load_claim_detail(claim_id)
+        if detail is None:
+            return jsonify({"error": f"Claim '{claim_id}' not found"}), 404
+        return jsonify(detail)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/claim/<claim_id>")
+def claim_page(claim_id):
+    """Render claim detail page."""
+    from blog.services import load_claim_detail
+    detail = load_claim_detail(claim_id)
+    if detail is None:
+        abort(404)
+    return render_template("claim_detail.html", claim=detail)
+
+
 @app.route("/api/threads/<thread_id>/detail")
 def api_thread_detail(thread_id):
     """Full thread detail: metadata, body, linked entries, reports, claims."""
