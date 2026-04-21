@@ -108,14 +108,20 @@ def _surface_id(prefix, *parts):
     return f"{prefix}-{sha1(seed.encode('utf-8', errors='ignore')).hexdigest()[:12]}"
 
 
-def _surface_href(target_type, reference=None):
+def _surface_href(target_type, reference=None, target_id=None):
     reference = str(reference or "").strip()
+    target_id = str(target_id or "").strip()
     if not target_type or not reference:
+        if target_type == "proposal" and target_id:
+            return f"/proposal/{target_id}"
         return None
     if target_type == "claim" and reference.endswith(".md"):
         return f"/blog/entries/{reference}"
     if target_type in {"objective", "thread"}:
         return f"/thread/{reference}"
+    if target_type == "proposal":
+        proposal_id = target_id or reference
+        return f"/proposal/{proposal_id}" if proposal_id else None
     return None
 
 
@@ -661,7 +667,7 @@ def load_operator_actions(limit=8):
             "target_type": target_type,
             "label": entry.get("label") or target_id,
             "reference": reference,
-            "href": entry.get("href") or _surface_href(target_type, reference=reference),
+            "href": entry.get("href") or _surface_href(target_type, reference=reference, target_id=target_id),
             "resulting_state": entry.get("resulting_state"),
             "apply": entry.get("apply"),
             "reason": entry.get("reason"),
@@ -752,7 +758,7 @@ def _parse_steering_intent_message(text):
         "action": action,
         "label": payload.get("label") or target_id,
         "reference": reference,
-        "href": _surface_href(target_type, reference=reference),
+        "href": _surface_href(target_type, reference=reference, target_id=target_id),
         "resulting_state": payload.get("resulting_state"),
         "apply": payload.get("apply"),
         "reason": payload.get("reason"),
@@ -828,7 +834,7 @@ def _parse_runtime_intent_message(text):
         "action": action,
         "label": payload.get("label") or target_id,
         "reference": reference,
-        "href": _surface_href(target_type, reference=reference),
+        "href": _surface_href(target_type, reference=reference, target_id=target_id),
         "resulting_state": payload.get("resulting_state"),
         "apply": payload.get("apply"),
         "reason": payload.get("reason"),
@@ -1325,24 +1331,56 @@ def load_strategy_dashboard(limit_topics=5, limit_objectives=5):
     }
 
 
-def load_proposals_dashboard(limit=5):
-    """Summarize active proposals and recent decisions."""
-    active = []
-    for proposal in load_json_safe(PROPOSALS_FILE, []):
-        if proposal.get("status") != "active":
-            continue
-        active.append({
-            "id": proposal.get("id"),
-            "title": proposal.get("title", "untitled"),
-            "type": proposal.get("type", "proposal"),
-            "updated_short": _short_ts(proposal.get("updated") or proposal.get("created")),
-            "evidence_count": len(proposal.get("evidence", []) or []),
-            "evidence_preview": list(proposal.get("evidence", []) or [])[:2],
-            "reference": (proposal.get("evidence", []) or [None])[0],
-            "cost": proposal.get("cost"),
-        })
-    active.sort(key=lambda item: item.get("updated_short", ""), reverse=True)
+PROPOSAL_STALE_DAYS = 14
 
+
+def _build_proposal_operator_action_index(limit_per_proposal=6):
+    rollup = {}
+    for item in load_operator_actions(limit=200):
+        if item.get("target_type") != "proposal":
+            continue
+        proposal_id = str(item.get("target_id") or "").strip()
+        if not proposal_id:
+            continue
+        bucket = rollup.setdefault(proposal_id, [])
+        if len(bucket) < limit_per_proposal:
+            bucket.append(item)
+    return rollup
+
+
+def _build_proposal_queued_intent_index(limit_per_proposal=6):
+    rollup = {}
+    for item in load_queued_steering_intents(limit=200):
+        if item.get("target_type") != "proposal":
+            continue
+        proposal_id = str(item.get("target_id") or "").strip()
+        if not proposal_id:
+            continue
+        bucket = rollup.setdefault(proposal_id, [])
+        if len(bucket) < limit_per_proposal:
+            bucket.append(item)
+    return rollup
+
+
+def _normalize_claim_text(raw_claim):
+    text = raw_claim.get("claim", "") if isinstance(raw_claim, dict) else str(raw_claim)
+    return str(text).lstrip("! ").strip()
+
+
+def _proposal_revisions_count(value):
+    if value is None:
+        return 0
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, list):
+        return len(value)
+    try:
+        return max(0, int(str(value).strip()))
+    except Exception:
+        return 0
+
+
+def _proposal_decision_log(limit=8):
     decisions = []
     decision_path = SIGNALS_DIR / "decision.md"
     if decision_path.exists():
@@ -1355,11 +1393,356 @@ def load_proposals_dashboard(limit=5):
                     break
         except Exception:
             pass
+    return decisions
+
+
+def _proposal_records():
+    proposals_raw = load_json_safe(PROPOSALS_FILE, [])
+    if not isinstance(proposals_raw, list):
+        proposals_raw = []
+
+    thread_items = {
+        item["id"]: item
+        for item in load_threads_enriched().get("threads", [])
+    }
+    thread_lookup = {}
+    for thread_id, thread in thread_items.items():
+        for key in {thread_id.lower(), str(thread.get("title") or "").strip().lower()}:
+            if key:
+                thread_lookup[key] = thread_id
+
+    claim_items = _claim_records()
+    claim_by_text = {}
+    claim_by_id = {}
+    for claim in claim_items:
+        claim_by_id[claim["claim_id"]] = claim
+        claim_by_text[claim["text"].strip().lower()] = claim
+
+    entry_lookup = {}
+    for entry in _entry_records():
+        keys = {
+            entry["filename"].strip().lower(),
+            entry["slug"].strip().lower(),
+            str(entry.get("title") or "").strip().lower(),
+        }
+        for key in keys:
+            if key:
+                entry_lookup[key] = entry
+
+    operator_index = _build_proposal_operator_action_index(limit_per_proposal=12)
+    queued_index = _build_proposal_queued_intent_index(limit_per_proposal=12)
+    today = date.today()
+    records = []
+
+    for proposal in proposals_raw:
+        if not isinstance(proposal, dict):
+            continue
+        proposal_id = str(proposal.get("id") or "").strip()
+        if not proposal_id:
+            continue
+
+        title = str(proposal.get("title") or "untitled").strip()
+        status = str(proposal.get("status") or "active").strip().lower()
+        proposal_type = str(proposal.get("type") or "proposal").strip() or "proposal"
+        created = str(proposal.get("created") or "").strip() or None
+        updated = str(proposal.get("updated") or created or "").strip() or None
+        rationale = str(
+            proposal.get("rationale")
+            or proposal.get("hypothesis")
+            or proposal.get("summary")
+            or proposal.get("why")
+            or ""
+        ).strip() or None
+        action_text = str(
+            proposal.get("action")
+            or proposal.get("scope")
+            or proposal.get("next_step")
+            or ""
+        ).strip() or None
+        impact = str(
+            proposal.get("impact")
+            or proposal.get("expected_value")
+            or proposal.get("expected_impact")
+            or ""
+        ).strip() or None
+        risk = str(
+            proposal.get("risk")
+            or proposal.get("risks")
+            or proposal.get("operational_risk")
+            or ""
+        ).strip() or None
+        cost = str(proposal.get("cost") or "").strip() or None
+        revisions_count = _proposal_revisions_count(proposal.get("revisions"))
+
+        evidence_items = _normalize_string_list(proposal.get("evidence") or [])
+        evidence_links = []
+        linked_threads = {}
+        linked_claims = {}
+        report_files = set()
+
+        explicit_threads = _normalize_string_list(proposal.get("threads") or proposal.get("thread"))
+        for raw_thread in explicit_threads:
+            thread_id = thread_lookup.get(raw_thread.lower(), raw_thread)
+            thread = thread_items.get(thread_id)
+            if thread:
+                linked_threads[thread_id] = {
+                    "id": thread_id,
+                    "title": thread.get("title", thread_id),
+                    "status": thread.get("status"),
+                    "href": f"/thread/{thread_id}",
+                }
+            else:
+                linked_threads[thread_id] = {
+                    "id": thread_id,
+                    "title": raw_thread,
+                    "status": None,
+                    "href": f"/thread/{thread_id}",
+                }
+
+        explicit_claims = _normalize_string_list(proposal.get("claims") or proposal.get("claim"))
+        for raw_claim in explicit_claims:
+            claim = claim_by_id.get(raw_claim) or claim_by_text.get(raw_claim.lstrip("! ").strip().lower())
+            if claim:
+                linked_claims[claim["claim_id"]] = {
+                    "claim_id": claim["claim_id"],
+                    "text": claim["text"],
+                    "kind": claim["kind"],
+                    "href": f"/claim/{claim['claim_id']}",
+                }
+
+        for evidence in evidence_items:
+            key = evidence.strip().lower()
+            entry = entry_lookup.get(key)
+            claim = claim_by_text.get(evidence.lstrip("! ").strip().lower())
+
+            if entry:
+                evidence_links.append({
+                    "label": entry["title"],
+                    "href": f"/blog/entries/{entry['filename']}",
+                    "kind": "artifact",
+                })
+                if entry.get("report"):
+                    report_files.add(entry["report"])
+                for thread_id in entry.get("threads", []):
+                    thread = thread_items.get(thread_id)
+                    linked_threads[thread_id] = {
+                        "id": thread_id,
+                        "title": thread.get("title", thread_id) if thread else thread_id,
+                        "status": thread.get("status") if thread else None,
+                        "href": f"/thread/{thread_id}",
+                    }
+                for raw_claim in entry.get("claims", []):
+                    clean_claim = _normalize_claim_text(raw_claim)
+                    if not clean_claim:
+                        continue
+                    matched_claim = claim_by_text.get(clean_claim.lower())
+                    if matched_claim:
+                        linked_claims[matched_claim["claim_id"]] = {
+                            "claim_id": matched_claim["claim_id"],
+                            "text": matched_claim["text"],
+                            "kind": matched_claim["kind"],
+                            "href": f"/claim/{matched_claim['claim_id']}",
+                        }
+            elif claim:
+                evidence_links.append({
+                    "label": claim["text"],
+                    "href": f"/claim/{claim['claim_id']}",
+                    "kind": "claim",
+                })
+                linked_claims[claim["claim_id"]] = {
+                    "claim_id": claim["claim_id"],
+                    "text": claim["text"],
+                    "kind": claim["kind"],
+                    "href": f"/claim/{claim['claim_id']}",
+                }
+                for thread_id in claim.get("threads", []):
+                    thread = thread_items.get(thread_id)
+                    linked_threads[thread_id] = {
+                        "id": thread_id,
+                        "title": thread.get("title", thread_id) if thread else thread_id,
+                        "status": thread.get("status") if thread else None,
+                        "href": f"/thread/{thread_id}",
+                    }
+            else:
+                evidence_links.append({
+                    "label": evidence,
+                    "href": None,
+                    "kind": "note",
+                })
+
+        operator_actions = operator_index.get(proposal_id, [])
+        queued_steering = queued_index.get(proposal_id, [])
+        recent_operator_action = operator_actions[0] if operator_actions else None
+        queued_action = queued_steering[0]["action"] if queued_steering else None
+        recent_action = recent_operator_action["display_action"] if recent_operator_action else None
+
+        updated_ts = _parse_ts_value(updated)
+        updated_date = updated_ts.date() if updated_ts else _parse_date_value(updated)
+        stale_days = (today - updated_date).days if updated_date else None
+        stale = stale_days is not None and stale_days >= PROPOSAL_STALE_DAYS
+        low_evidence = len(evidence_items) <= 1
+        no_links = not linked_threads and not linked_claims
+        needs_revision = status in {"needs_revision", "needs-revision", "revision", "revision-requested"} or queued_action == "request-revision" or recent_action == "request-revision"
+        approved_waiting = status == "approved" or queued_action == "approve"
+        deferred = status in {"deferred", "parked", "on-hold"} or queued_action == "defer"
+        decided_recently = status in {"rejected", "rejected_recent", "done"} or queued_action == "reject" or recent_action == "reject"
+        needs_decision = status == "active" and not needs_revision and not approved_waiting and not deferred and not decided_recently
+
+        flags = []
+        attention_score = 0
+        if needs_revision:
+            flags.append({"kind": "warn", "label": "needs revision", "detail": "proposal is blocked on a revision request"})
+            attention_score += 5
+        if low_evidence:
+            flags.append({"kind": "warn", "label": "low evidence", "detail": "proposal has one or zero explicit evidence items"})
+            attention_score += 3
+        if no_links:
+            flags.append({"kind": "muted", "label": "unlinked", "detail": "proposal is not linked to any claim or thread"})
+            attention_score += 2
+        if stale:
+            flags.append({"kind": "warn", "label": "stale", "detail": f"{stale_days}d since last update"})
+            attention_score += 2
+        if approved_waiting:
+            flags.append({"kind": "ok", "label": "queued", "detail": "proposal is approved or queued for the next dispatch"})
+        if deferred:
+            flags.append({"kind": "muted", "label": "deferred", "detail": "proposal is explicitly parked"})
+
+        if needs_revision:
+            lane = "needs_revision"
+            status_badge = "needs-revision"
+            status_label = "needs revision"
+        elif approved_waiting:
+            lane = "approved_waiting"
+            status_badge = "approved"
+            status_label = "approved"
+        elif deferred:
+            lane = "deferred"
+            status_badge = "deferred"
+            status_label = "deferred"
+        elif decided_recently:
+            lane = "recently_decided"
+            status_badge = "decided"
+            status_label = "decided"
+        else:
+            lane = "needs_decision"
+            status_badge = "needs-decision"
+            status_label = "needs decision"
+
+        records.append({
+            "id": proposal_id,
+            "title": title,
+            "type": proposal_type,
+            "status": status,
+            "status_label": status_label,
+            "status_badge": status_badge,
+            "lane": lane,
+            "href": f"/proposal/{proposal_id}",
+            "created": created,
+            "created_short": _short_ts(created),
+            "updated": updated,
+            "updated_short": _short_ts(updated),
+            "_sort_ts": updated_ts.timestamp() if updated_ts else 0,
+            "reference": evidence_items[0] if evidence_items else proposal_id,
+            "rationale": rationale,
+            "action_text": action_text,
+            "impact": impact,
+            "risk": risk,
+            "cost": cost,
+            "revisions_count": revisions_count,
+            "evidence_count": len(evidence_items),
+            "evidence_preview": evidence_items[:2],
+            "evidence_links": evidence_links,
+            "linked_threads": list(linked_threads.values())[:6],
+            "linked_threads_count": len(linked_threads),
+            "linked_claims": list(linked_claims.values())[:6],
+            "linked_claims_count": len(linked_claims),
+            "reports_count": len(report_files),
+            "reports": sorted(report_files),
+            "flags": flags,
+            "low_evidence": low_evidence,
+            "no_links": no_links,
+            "stale": stale,
+            "stale_days": stale_days,
+            "needs_attention": bool(needs_decision or needs_revision or low_evidence or stale or no_links),
+            "attention_score": attention_score,
+            "needs_decision": needs_decision,
+            "needs_revision": needs_revision,
+            "approved_waiting": approved_waiting,
+            "deferred": deferred,
+            "decided_recently": decided_recently,
+            "recent_operator_action": recent_operator_action,
+            "queued_steering": queued_steering[0] if queued_steering else None,
+            "operator_actions": operator_actions[:8],
+            "queued_steering_items": queued_steering[:8],
+        })
+
+    records.sort(
+        key=lambda item: (
+            {
+                "needs_revision": 0,
+                "needs_decision": 1,
+                "approved_waiting": 2,
+                "deferred": 3,
+                "recently_decided": 4,
+            }.get(item["lane"], 5),
+            -int(item.get("attention_score") or 0),
+            -(item.get("_sort_ts") or 0),
+            item.get("title") or "",
+        ),
+        reverse=False,
+    )
+    for item in records:
+        item.pop("_sort_ts", None)
+    return records
+
+
+def load_proposals_dashboard(limit=5):
+    """Summarize proposals into a decision console read model."""
+    proposals = _proposal_records()
+    active = sorted(
+        [item for item in proposals if item["status"] == "active"],
+        key=lambda item: item.get("updated") or "",
+        reverse=True,
+    )
+    needs_decision = [item for item in proposals if item["lane"] == "needs_decision"]
+    needs_revision = [item for item in proposals if item["lane"] == "needs_revision"]
+    approved_waiting = [item for item in proposals if item["lane"] == "approved_waiting"]
+    deferred = [item for item in proposals if item["lane"] == "deferred"]
+    recently_decided = [item for item in proposals if item["lane"] == "recently_decided"]
+    return {
+        "total": len(proposals),
+        "active_count": len(active),
+        "queued_count": len([item for item in proposals if item.get("queued_steering")]),
+        "low_evidence_count": len([item for item in proposals if item["low_evidence"]]),
+        "needs_decision_count": len(needs_decision),
+        "needs_revision_count": len(needs_revision),
+        "approved_waiting_count": len(approved_waiting),
+        "deferred_count": len(deferred),
+        "active": active[:limit],
+        "needs_decision": needs_decision[:limit],
+        "needs_revision": needs_revision[:limit],
+        "approved_waiting_execution": approved_waiting[:limit],
+        "deferred": deferred[:limit],
+        "recently_decided": recently_decided[:limit],
+        "decisions": _proposal_decision_log(limit=limit),
+    }
+
+
+def load_proposal_detail(proposal_id):
+    """Load a single proposal with linked evidence and steering history."""
+    proposal = next((item for item in _proposal_records() if item["id"] == proposal_id), None)
+    if not proposal:
+        return None
+
+    decision_hits = []
+    title_needle = proposal["title"].strip().lower()
+    for item in _proposal_decision_log(limit=50):
+        if title_needle and title_needle in item.lower():
+            decision_hits.append(item)
 
     return {
-        "active_count": len(active),
-        "active": active[:limit],
-        "decisions": decisions,
+        **proposal,
+        "decision_log": decision_hits,
     }
 
 

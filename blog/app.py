@@ -1162,6 +1162,29 @@ def thread_page(thread_id):
     return render_template("thread_detail.html", thread=detail)
 
 
+@app.route("/api/proposals/<proposal_id>/detail")
+def api_proposal_detail(proposal_id):
+    """Full proposal detail: evidence, linked surfaces, and steering history."""
+    try:
+        from blog.services import load_proposal_detail
+        detail = load_proposal_detail(proposal_id)
+        if detail is None:
+            return jsonify({"error": f"Proposal '{proposal_id}' not found"}), 404
+        return jsonify(detail)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/proposal/<proposal_id>")
+def proposal_page(proposal_id):
+    """Render proposal detail page."""
+    from blog.services import load_proposal_detail
+    detail = load_proposal_detail(proposal_id)
+    if detail is None:
+        abort(404)
+    return render_template("proposal_detail.html", proposal=detail)
+
+
 @app.route("/api/thread-candidates")
 def api_thread_candidates():
     """Detect recurring tags that could become threads."""

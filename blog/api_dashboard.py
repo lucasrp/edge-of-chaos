@@ -465,7 +465,7 @@ def _build_epistemic_data():
     return {
         "ep_claims": load_claims_dashboard(limit=6),
         "ep_strategy": load_strategy_dashboard(limit_topics=5, limit_objectives=5),
-        "ep_proposals": load_proposals_dashboard(limit=5),
+        "ep_proposals": load_proposals_dashboard(limit=8),
         "ep_lineage": load_lineage_dashboard(limit=6),
         "ep_queued_steering": steering["queued"],
         "ep_queued_steering_count": steering["queued_count"],
