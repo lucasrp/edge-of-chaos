@@ -8,7 +8,8 @@ first needs them.
 
 1. Operator declares `sources:` in agent.yaml with `{name, description}`
 2. Agent tries to use a source during work → exit 127 (not found)
-3. Agent reads the description (WHAT) + `docs/TOOL_CONTRACT.md` (HOW)
+3. Runtime state carries the declared source in `state/sources-manifest.yaml`;
+   agent reads the description there (WHAT) + `docs/TOOL_CONTRACT.md` (HOW)
 4. Agent writes contract (meta.yaml) + implementation + tests it
 5. Saves to `<edge_home>/libexec/<codename>/<name>`, registers in manifest
 6. Autonomy deepens the primitive later with evidence from usage log

@@ -1,8 +1,9 @@
 """Agnostic OpenAI-compatible router client.
 
-Single abstraction for every LLM/embedding call in the codebase. The YAML
-declares everything (base_url, secret ref, headers, query, model). The code
-has no per-provider branches — anything that speaks the OpenAI contract
+Single abstraction for every LLM/embedding call in the codebase. The rendered
+runtime router config declares everything (base_url, secret ref, headers,
+query, model). The code has no per-provider branches — anything that speaks
+the OpenAI contract
 (direct OpenAI, Azure, xAI, OpenRouter, LiteLLM, Groq, Together, vLLM…) is
 reachable with the same function.
 
@@ -32,14 +33,11 @@ except ImportError:
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
-from paths import EDGE_DIR, SECRETS_DIR  # noqa: E402
+from paths import ROUTERS_CONFIG_FILE, SECRETS_DIR  # noqa: E402
 
-AGENT_YAML = EDGE_DIR / "agent.yaml"
-
-# --- Legacy fallback: used when agent.yaml has no routers: block. Mirrors
-# the pre-#222 behavior (OpenAI default + xAI for grok). Prefix-match on the
-# model slug picks the right one. Kept tight so installs without routers:
-# keep working.
+# --- Legacy fallback: used when runtime router config is absent. Mirrors the
+# pre-#222 behavior (OpenAI default + xAI for grok). Kept tight so old installs
+# keep working until they render runtime-routers.yaml.
 _LEGACY_DEFAULTS: dict[str, dict[str, Any]] = {
     "chat": {
         "base_url": "https://api.openai.com/v1",
@@ -75,24 +73,42 @@ _LEGACY_DEFAULTS: dict[str, dict[str, Any]] = {
 
 
 @lru_cache(maxsize=1)
-def _load_agent_yaml() -> dict[str, Any]:
-    if yaml is None or not AGENT_YAML.exists():
+def _load_runtime_routers() -> dict[str, dict[str, Any]]:
+    if yaml is None or not ROUTERS_CONFIG_FILE.exists():
         return {}
     try:
-        data = yaml.safe_load(AGENT_YAML.read_text(encoding="utf-8")) or {}
+        data = yaml.safe_load(ROUTERS_CONFIG_FILE.read_text(encoding="utf-8")) or {}
     except Exception:
         return {}
-    return data if isinstance(data, dict) else {}
+    routers = data.get("routers") if isinstance(data, dict) else {}
+    if not isinstance(routers, dict):
+        return {}
+
+    resolved: dict[str, dict[str, Any]] = {}
+    for purpose, cfg in routers.items():
+        if not purpose or not isinstance(cfg, dict):
+            continue
+        base_url = str(cfg.get("base_url", "")).strip()
+        secret_ref = str(cfg.get("secret_ref", "")).strip()
+        model = str(cfg.get("model", "")).strip()
+        if not (base_url and secret_ref and model):
+            continue
+        payload = {
+            "base_url": base_url,
+            "secret_ref": secret_ref,
+            "model": model,
+            "headers": dict(cfg.get("headers") or {}),
+            "query": dict(cfg.get("query") or {}),
+        }
+        resolved[str(purpose)] = payload
+    return resolved
 
 
 def _resolve_legacy(purpose: str) -> dict[str, Any] | None:
     spec = _LEGACY_DEFAULTS.get(purpose)
     if spec is None:
         return None
-    agent = _load_agent_yaml()
     model = spec["model_default"]
-    if spec["model_key"] and agent.get(spec["model_key"]):
-        model = agent[spec["model_key"]]
     return {
         "base_url": spec["base_url"],
         "secret_ref": spec["secret_ref"],
@@ -106,13 +122,12 @@ def load_router_config(purpose: str) -> dict[str, Any]:
     """Return the resolved router config for a purpose.
 
     Lookup order:
-      1. agent.yaml routers.<purpose>
+      1. config/runtime-routers.yaml routers.<purpose>
       2. legacy defaults (_LEGACY_DEFAULTS) — back-compat for installs that
-         haven't declared routers: yet.
+         haven't rendered runtime routers yet.
     """
-    agent = _load_agent_yaml()
-    routers = agent.get("routers") or {}
-    cfg = routers.get(purpose) if isinstance(routers, dict) else None
+    routers = _load_runtime_routers()
+    cfg = routers.get(purpose)
     if cfg:
         return {
             "base_url": cfg["base_url"],
@@ -126,7 +141,7 @@ def load_router_config(purpose: str) -> dict[str, Any]:
         return legacy
     raise KeyError(
         f"No router found for purpose={purpose!r}. "
-        "Declare it under routers: in agent.yaml."
+        "Declare it in config/runtime-routers.yaml."
     )
 
 
@@ -137,18 +152,15 @@ def find_router_for_model(model: str) -> tuple[str, dict[str, Any]]:
     needs to resolve which router owns it. Falls back to legacy defaults so
     pre-existing model strings like 'grok-4.20-...' still work.
     """
-    agent = _load_agent_yaml()
-    routers = agent.get("routers") or {}
-    if isinstance(routers, dict):
-        for name, cfg in routers.items():
-            if cfg and cfg.get("model") == model:
-                return name, load_router_config(name)
+    routers = _load_runtime_routers()
+    for name, cfg in routers.items():
+        if cfg and cfg.get("model") == model:
+            return name, load_router_config(name)
     # Legacy prefix match. When the user *has* declared routers but the
     # requested model doesn't match any of them, we still fall through here —
     # warn loudly so a mismatched --model slug doesn't silently hit
     # api.openai.com with a non-OpenAI key (issue #233).
-    declared = [cfg.get("model") for cfg in routers.values()
-                if isinstance(cfg, dict)] if isinstance(routers, dict) else []
+    declared = [cfg.get("model") for cfg in routers.values() if isinstance(cfg, dict)]
     for purpose, spec in _LEGACY_DEFAULTS.items():
         if model.startswith(spec["model_default"].split("-")[0]):
             cfg = _resolve_legacy(purpose)
@@ -157,7 +169,7 @@ def find_router_for_model(model: str) -> tuple[str, dict[str, Any]]:
                 if declared:
                     print(
                         f"WARN router_client: model={model!r} not declared "
-                        f"in agent.yaml routers (declared: {declared}). "
+                        f"in runtime routers (declared: {declared}). "
                         f"Falling back to legacy endpoint {cfg['base_url']} "
                         f"using {cfg['secret_ref']}. This will fail if your "
                         f"key is not for that provider.",
@@ -166,7 +178,7 @@ def find_router_for_model(model: str) -> tuple[str, dict[str, Any]]:
                 return purpose, cfg
     raise KeyError(
         f"No router declares model={model!r}. "
-        f"Declared in agent.yaml: {declared or '(none)'}."
+        f"Declared in runtime config: {declared or '(none)'}."
     )
 
 
@@ -223,7 +235,7 @@ def make_client(
     client.responses.create(...).
 
     Args:
-      purpose: router name from agent.yaml (chat, review, embedding, …).
+      purpose: router name from config/runtime-routers.yaml (chat, review, embedding, …).
       model: override — if passed, resolves the router by model lookup.
              When both purpose and model are passed, purpose's router is used
              but model overrides the router-declared model slug.

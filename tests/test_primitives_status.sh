@@ -89,14 +89,14 @@ else
 fi
 
 echo "--- Test 2: edge-primitives status reports declared sources and writes snapshot ---"
-if python3 - <<'PY' "$STATUS_TOOL" "$TMP_CONFIG" "$STATUS_FILE"
+if python3 - <<'PY' "$STATUS_TOOL" "$STATUS_FILE"
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-tool, config_path, status_file = sys.argv[1:]
-result = subprocess.run([tool, "status", "--json", "--config", config_path], capture_output=True, text=True, check=True)
+tool, status_file = sys.argv[1:]
+result = subprocess.run([tool, "status", "--json"], capture_output=True, text=True, check=True)
 payload = json.loads(result.stdout)
 assert payload["summary"]["declared_total"] == 2
 assert payload["summary"]["declared_only_total"] == 2
@@ -123,13 +123,13 @@ EDGE_CYCLE_ID="primitive-status:test-contract" "$LIFECYCLE_TOOL" contract arxiv 
 EDGE_CYCLE_ID="primitive-status:test-materialize" "$LIFECYCLE_TOOL" materialize arxiv --ensure-executable >/dev/null
 EDGE_CYCLE_ID="primitive-status:test-probe" "$LIFECYCLE_TOOL" probe arxiv --operation search --command "$LIBEXEC_DIR/arxiv" >/dev/null
 
-if python3 - <<'PY' "$STATUS_TOOL" "$TMP_CONFIG"
+if python3 - <<'PY' "$STATUS_TOOL"
 import json
 import subprocess
 import sys
 
-tool, config_path = sys.argv[1:]
-payload = json.loads(subprocess.run([tool, "status", "--json", "--config", config_path], capture_output=True, text=True, check=True).stdout)
+tool = sys.argv[1]
+payload = json.loads(subprocess.run([tool, "status", "--json"], capture_output=True, text=True, check=True).stdout)
 rows = {row["name"]: row for row in payload["sources"]}
 assert payload["summary"]["probed_total"] == 1
 assert payload["summary"]["declared_only_total"] == 1
@@ -145,13 +145,13 @@ fi
 
 echo "--- Test 4: missing active binary is reported as drifted ---"
 rm -f "$LIBEXEC_DIR/arxiv"
-if python3 - <<'PY' "$STATUS_TOOL" "$TMP_CONFIG"
+if python3 - <<'PY' "$STATUS_TOOL"
 import json
 import subprocess
 import sys
 
-tool, config_path = sys.argv[1:]
-payload = json.loads(subprocess.run([tool, "status", "--json", "--config", config_path], capture_output=True, text=True, check=True).stdout)
+tool = sys.argv[1]
+payload = json.loads(subprocess.run([tool, "status", "--json"], capture_output=True, text=True, check=True).stdout)
 rows = {row["name"]: row for row in payload["sources"]}
 assert payload["summary"]["drifted_total"] == 1
 assert rows["arxiv"]["effective_status"] == "drifted"

@@ -2,7 +2,7 @@
 
 > Canonical contract for CLI primitives that agents create on demand.
 > Read this before writing any primitive. This is the HOW — the WHAT
-> comes from the source description in agent.yaml `sources:`.
+> comes from the source description materialized in runtime state.
 
 Part of issue #94 — `sources:` field + on-demand primitive creation.
 
@@ -26,12 +26,14 @@ Primitives are NOT pre-built. They are created on demand by the agent.
 
 ### Phase 1 — Pre-materialization (contract)
 
-Install-time seeding may register declared sources in `state/sources-manifest.yaml`
-with `status: declared`. That is intent only, not a built primitive.
+Install-time seeding registers declared source intent in
+`state/sources-manifest.yaml` with `status: declared`. That is runtime intent,
+not a built primitive.
 
 Agent hits exit 127 (primitive doesn't exist). Before writing code:
 
-1. Read the source's `description` from `agent.yaml` `sources:` — this is the SPEC
+1. Read the source's `description` from `state/sources-manifest.yaml` or
+   `tools/edge-primitives status --json` — this is the SPEC
 2. Read this document (TOOL_CONTRACT.md) — this is the HOW
 3. Write the contract: `<edge_home>/libexec/<codename>/<name>.meta.yaml`
    (name, description, input/output schema, needs, annotations)

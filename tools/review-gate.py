@@ -45,8 +45,8 @@ _SKILL_PREFIX = load_branding().get("skill_prefix", "agent")
 BLOG_RULES_PATH = SKILLS_DIR / f"{_SKILL_PREFIX}-blog" / "SKILL.md"
 GROK_MODEL = "grok-4.20-multi-agent-beta-0309"
 
-# Router purpose used by default. The actual model comes from agent.yaml
-# routers.<purpose>.model — respecting per-agent configuration (Azure, OpenAI,
+# Router purpose used by default. The actual model comes from
+# config/runtime-routers.yaml routers.<purpose>.model — respecting per-agent configuration (Azure, OpenAI,
 # xAI, etc.) instead of hardcoding a model slug.
 DEFAULT_PURPOSE = "chat"
 
@@ -1044,9 +1044,9 @@ def main():
                         help="Skill name for skill-specific rules")
     parser.add_argument("--model", "-m", default=None,
                         help="Override model slug. Default: use the model declared by "
-                             "--purpose in agent.yaml routers.")
+                             "--purpose in config/runtime-routers.yaml.")
     parser.add_argument("--purpose", "-p", default=DEFAULT_PURPOSE,
-                        help=f"Router purpose from agent.yaml (default: {DEFAULT_PURPOSE})")
+                        help=f"Router purpose from runtime router config (default: {DEFAULT_PURPOSE})")
     parser.add_argument("--threshold", "-t", type=float, default=3.5,
                         help="Overall score threshold for pass (default: 3.5)")
     parser.add_argument("--entry", "-e", default=None,

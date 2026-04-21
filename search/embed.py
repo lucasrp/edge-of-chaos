@@ -1,7 +1,7 @@
 """Embedding provider for edge-memory.
 
 Uses the agnostic router handler (#222). Endpoint/key/model are declared in
-agent.yaml routers.embedding — no provider knowledge in this file.
+config/runtime-routers.yaml routers.embedding — no provider knowledge here.
 """
 
 import sys

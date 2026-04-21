@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""edge-doctor: Validate agent installation health.
+"""edge-doctor: Validate agent runtime and installation health.
 
 Usage:
-    edge-doctor                        # auto-detect from current dir
-    edge-doctor --config agent.yaml    # explicit config
+    edge-doctor                        # uses rendered runtime config
+    edge-doctor --config agent.yaml    # bootstrap verification
 """
 
 import argparse
@@ -44,6 +44,37 @@ def _ensure_install_context(cfg: dict) -> str:
     cycle_id = f"install:{codename}:{stamp}-{uuid.uuid4().hex[:6]}"
     os.environ["EDGE_CYCLE_ID"] = cycle_id
     return cycle_id
+
+
+def _repo_root() -> Path:
+    return Path(os.environ.get("EDGE_REPO_DIR", Path(__file__).resolve().parent.parent)).resolve()
+
+
+def _load_runtime_cfg(repo_root: Path) -> tuple[dict | None, Path]:
+    branding_path = repo_root / "config" / "branding.yaml"
+    if not branding_path.exists():
+        return None, branding_path
+    try:
+        branding = yaml.safe_load(branding_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None, branding_path
+    if not isinstance(branding, dict):
+        return None, branding_path
+
+    blog_cfg = branding.get("blog") or {}
+    if not isinstance(blog_cfg, dict):
+        blog_cfg = {}
+
+    edge_state_dir = str(branding.get("edge_state_dir") or repo_root)
+    cfg = {
+        "name": str(branding.get("agent_name") or branding.get("org_name") or branding.get("codename") or "agent"),
+        "codename": str(branding.get("codename") or branding.get("skill_prefix") or "agent"),
+        "skill_prefix": str(branding.get("skill_prefix") or branding.get("codename") or "agent"),
+        "edge_home": edge_state_dir,
+        "blog_port": int(blog_cfg.get("port", 8766)),
+        "blog_host": str(blog_cfg.get("host", "127.0.0.1")),
+    }
+    return cfg, branding_path
 
 
 def _record_check(check_id: str, status: str, detail: str, *, artifact: Path | str | None = None, **extra):
@@ -225,16 +256,20 @@ def _hash_file(path: Path) -> str:
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
-def _state_root(edge_home: Path) -> Path:
-    branding_path = edge_home / "config" / "branding.yaml"
-    if branding_path.exists():
+def _state_root(edge_home: Path, repo_root: Path | None = None) -> Path:
+    branding_candidates = [edge_home / "config" / "branding.yaml"]
+    if repo_root is not None:
+        branding_candidates.append(repo_root / "config" / "branding.yaml")
+    for branding_path in branding_candidates:
+        if not branding_path.exists():
+            continue
         try:
             branding = yaml.safe_load(branding_path.read_text(encoding="utf-8")) or {}
             edge_state_dir = branding.get("edge_state_dir")
             if edge_state_dir:
                 return Path(os.path.expanduser(str(edge_state_dir)))
         except Exception:
-            pass
+            continue
     return edge_home
 
 
@@ -259,8 +294,8 @@ def _latest_install_event(state_events_file: Path, artifact: Path) -> dict | Non
     return latest
 
 
-def check_heartbeat_runtime_alignment(edge_home: Path, prefix: str):
-    state_events_file = _state_root(edge_home) / "state" / "events" / "log.jsonl"
+def check_heartbeat_runtime_alignment(edge_home: Path, prefix: str, repo_root: Path):
+    state_events_file = _state_root(edge_home, repo_root) / "state" / "events" / "log.jsonl"
     wrapper_installed = Path.home() / ".local" / "bin" / "heartbeat.sh"
     if wrapper_installed.exists():
         latest = _latest_install_event(state_events_file, wrapper_installed)
@@ -380,7 +415,7 @@ def check_render_install_drift():
         _record_check("projection:render-install-drift", "ok", detail, artifact=artifact)
 
 
-def check_primitives_status(config_path: Path):
+def check_primitives_status():
     tool = Path(__file__).resolve().parent / "edge-primitives"
     if not tool.exists():
         warn("primitive status tool não encontrado")
@@ -388,7 +423,7 @@ def check_primitives_status(config_path: Path):
         return
     try:
         result = subprocess.run(
-            [sys.executable, str(tool), "status", "--json", "--config", str(config_path.resolve())],
+            [sys.executable, str(tool), "status", "--json"],
             capture_output=True,
             text=True,
             timeout=15,
@@ -432,24 +467,39 @@ def check_primitives_status(config_path: Path):
 def main():
     global CURRENT_SECTION
 
-    parser = argparse.ArgumentParser(description="Validate agent installation")
-    parser.add_argument("--config", "-c", default="agent.yaml")
+    parser = argparse.ArgumentParser(description="Validate agent runtime and installation")
+    parser.add_argument("--config", "-c", default="", help="Optional bootstrap config path. Defaults to rendered runtime config.")
     args = parser.parse_args()
 
-    config_path = Path(args.config)
-    if not config_path.exists():
-        # Fallback: look relative to the script's repo root (tools/..)
-        repo_root = Path(__file__).resolve().parent.parent
-        config_path = repo_root / args.config
-    if not config_path.exists():
-        print(f"Procurando agent.yaml em: {Path(args.config).resolve()}, {config_path.resolve()}")
-        fail("agent.yaml não encontrado")
-        _record_check("config:agent-yaml", "fail", "agent.yaml não encontrado", artifact=config_path)
-        print(f"\nResultado: 0 ok, 0 warn, 1 fail")
-        sys.exit(1)
+    repo_root = _repo_root()
+    config_mode = "runtime"
+    if args.config:
+        config_path = Path(args.config)
+        if not config_path.exists():
+            config_path = repo_root / args.config
+        if not config_path.exists():
+            print(f"Procurando agent.yaml em: {Path(args.config).resolve()}, {config_path.resolve()}")
+            fail("agent.yaml não encontrado")
+            _record_check("config:agent-yaml", "fail", "agent.yaml não encontrado", artifact=config_path)
+            print(f"\nResultado: 0 ok, 0 warn, 1 fail")
+            sys.exit(1)
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        config_mode = "bootstrap"
+    else:
+        cfg, config_path = _load_runtime_cfg(repo_root)
+        if cfg is None:
+            print(f"Procurando runtime config em: {(repo_root / 'config' / 'branding.yaml').resolve()}")
+            fail("runtime branding não encontrado")
+            _record_check(
+                "config:runtime-branding",
+                "fail",
+                "runtime branding não encontrado",
+                artifact=repo_root / "config" / "branding.yaml",
+            )
+            print(f"\nResultado: 0 ok, 0 warn, 1 fail")
+            sys.exit(1)
 
-    with open(config_path) as f:
-        cfg = yaml.safe_load(f)
     cycle_id = _ensure_install_context(cfg)
     from telemetry import log_run_step
 
@@ -466,11 +516,12 @@ def main():
         "started",
         run_id=cycle_id,
         config=str(config_path.resolve()),
+        config_mode=config_mode,
     )
 
     # 1. Dependencies
     CURRENT_SECTION = "dependencies"
-    print("\033[1m[1/6] Dependências\033[0m")
+    print("\033[1m[1/8] Dependências\033[0m")
     check_command("claude", "Claude Code CLI")
     check_command("edge-runner", "Edge runner CLI")
     check_command("python3", "Python 3")
@@ -480,33 +531,35 @@ def main():
 
     # 2. Directory structure
     CURRENT_SECTION = "directories"
-    print("\033[1m[2/6] Diretórios\033[0m")
-    check_dir(edge_home, "EDGE_HOME")
+    print("\033[1m[2/8] Diretórios\033[0m")
+    check_dir(edge_home, "EDGE_STATE_DIR")
+    check_dir(repo_root / "blog", "Blog code")
     check_dir(edge_home / "blog" / "entries", "Blog entries")
     check_dir(edge_home / "reports", "Reports")
-    check_dir(edge_home / "tools", "Tools")
-    check_dir(edge_home / "config", "Config")
-    check_dir(edge_home / "secrets", "Secrets")
+    check_dir(repo_root / "tools", "Tools")
+    check_dir(repo_root / "config", "Runtime config")
+    check_dir(repo_root / "secrets", "Secrets")
     check_dir(edge_home / "logs", "Logs")
     print()
 
     # 3. Critical files
     CURRENT_SECTION = "critical_files"
-    print("\033[1m[3/6] Arquivos críticos\033[0m")
+    print("\033[1m[3/8] Arquivos críticos\033[0m")
     claude_md = Path.home() / ".claude" / "CLAUDE.md"
     check_file(claude_md, "CLAUDE.md")
-    check_file(edge_home / "config" / "branding.yaml", "branding.yaml")
-    check_file(edge_home / "config" / "pre-skill.md", "pre-skill.md")
-    check_file(edge_home / "config" / "post-skill.md", "post-skill.md")
-    check_file(edge_home / "config" / "strategy.md", "strategy.md")
+    check_file(repo_root / "config" / "branding.yaml", "branding.yaml")
+    check_file(repo_root / "config" / "runtime-routers.yaml", "runtime-routers.yaml")
+    check_file(repo_root / "config" / "pre-skill.md", "pre-skill.md")
+    check_file(repo_root / "config" / "post-skill.md", "post-skill.md")
+    check_file(repo_root / "config" / "strategy.md", "strategy.md")
     check_residual_placeholders(claude_md, "CLAUDE.md")
-    check_residual_placeholders(edge_home / "config" / "branding.yaml", "branding.yaml")
+    check_residual_placeholders(repo_root / "config" / "branding.yaml", "branding.yaml")
     print()
 
     # 4. Secrets
     CURRENT_SECTION = "secrets"
-    print("\033[1m[4/6] Secrets\033[0m")
-    keys_env = edge_home / "secrets" / "keys.env"
+    print("\033[1m[4/8] Secrets\033[0m")
+    keys_env = repo_root / "secrets" / "keys.env"
     # ANTHROPIC_API_KEY is NOT checked: Claude Code subscription is the expected auth path,
     # and MANIFEST.md / SETUP_GUIDE.md declare "empty is the expected state in most deploys".
     # Checking it emitted a warning that contradicted the docs and confused new users (see #84).
@@ -516,14 +569,14 @@ def main():
     # 5. Venvs
     CURRENT_SECTION = "venvs"
     print("\033[1m[5/8] Python venvs\033[0m")
-    blog_venv = edge_home / "blog" / ".venv" / "bin" / "python3"
+    blog_venv = repo_root / "blog" / ".venv" / "bin" / "python3"
     if blog_venv.exists():
         ok("Blog venv: instalado")
         _record_check("venv:blog", "ok", "Blog venv: instalado", artifact=blog_venv)
     else:
         fail("Blog venv: não encontrado — rodar edge-apply")
         _record_check("venv:blog", "fail", "Blog venv: não encontrado — rodar edge-apply", artifact=blog_venv)
-    tools_venv = edge_home / "tools" / ".venv" / "bin" / "python3"
+    tools_venv = repo_root / "tools" / ".venv" / "bin" / "python3"
     if tools_venv.exists():
         ok("Tools venv: instalado (edge-consult, review-gate)")
         _record_check("venv:tools", "ok", "Tools venv: instalado (edge-consult, review-gate)", artifact=tools_venv)
@@ -553,13 +606,13 @@ def main():
         else:
             warn(f"/{prefix}-{skill} — não encontrado em {skills_dir}")
             _record_check(f"skill:{prefix}-{skill}", "warn", f"/{prefix}-{skill} — não encontrado em {skills_dir}", artifact=skill_path)
-    check_heartbeat_runtime_alignment(edge_home, prefix)
+    check_heartbeat_runtime_alignment(edge_home, prefix, repo_root)
     print()
 
     # 8. Projection
     CURRENT_SECTION = "projection"
     print("\033[1m[8/8] Projection\033[0m")
-    check_primitives_status(config_path)
+    check_primitives_status()
     check_render_install_drift()
     print()
 
@@ -581,6 +634,7 @@ def main():
         "completed" if CHECKS_FAILED == 0 else "failed",
         run_id=cycle_id,
         config=str(config_path.resolve()),
+        config_mode=config_mode,
         passed=CHECKS_PASSED,
         warned=CHECKS_WARNED,
         failed=CHECKS_FAILED,

@@ -471,6 +471,7 @@ def phase_identity(cfg, dry_run):
     # Config files → edge_home/config/ (skip if same dir)
     config_files = ["pre-skill.md", "post-skill.md", "strategy.md",
                     "interests.md", "features.yaml", "branding.yaml",
+                    "runtime-routers.yaml",
                     "paths.py", "paths.sh", "branding.py"]
     config_src = REPO_ROOT / "config"
     config_dst = edge / "config"
@@ -1737,7 +1738,7 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
     return True
 
 
-# ─── Phase 11: Routines (operator-authored workflows via LLM) ───
+# ─── Phase 11: Workflow seeds (legacy field name: routines) ───
 
 def phase_routines(cfg, dry_run):
     """Render `routines:` free-form prose into operator-authored workflow entries.
@@ -1753,7 +1754,7 @@ def phase_routines(cfg, dry_run):
     state/pending-routines.yaml for the first heartbeat to pick up — install
     never blocks on routine rendering.
     """
-    header("11/11 Routines (operator-authored workflows)")
+    header("11/11 Workflow seeds (legacy field name: routines)")
 
     routines = cfg.get("routines", [])
     if not isinstance(routines, list):
@@ -1761,11 +1762,11 @@ def phase_routines(cfg, dry_run):
         return True
     routines = [r for r in routines if isinstance(r, str) and r.strip()]
     if not routines:
-        ok("No routines declared in agent.yaml — skipping")
+        ok("No workflow seeds declared in agent.yaml — skipping")
         return True
 
     if dry_run:
-        ok(f"[DRY RUN] Would render {len(routines)} routine(s)")
+        ok(f"[DRY RUN] Would render {len(routines)} workflow seed(s)")
         return True
 
     edge = Path(cfg["edge_home_expanded"])
@@ -2013,11 +2014,11 @@ def main():
     if failed == 0:
         prefix = cfg.get("skill_prefix", codename)
         print(f"\n{GREEN}✓{RESET} Installation complete. Next steps:")
-        print(f"  1. Verify:     python3 tools/edge-doctor --config agent.yaml")
+        print(f"  1. Verify:     python3 tools/edge-doctor")
         print(f"  2. Blog:       systemctl --user enable --now blog-server")
         print(f"  3. Heartbeat:  systemctl --user enable --now agent-heartbeat.timer")
         print("  4. Test:       ~/.local/bin/heartbeat.sh")
-        print(f"  5. Doctor:     python3 tools/edge-doctor --config agent.yaml")
+        print(f"  5. Doctor:     python3 tools/edge-doctor")
     else:
         print(f"\n{RED}✗{RESET} {failed} phase(s) failed.")
 

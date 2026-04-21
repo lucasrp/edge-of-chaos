@@ -169,7 +169,7 @@ checks = [
     if event.get("cycle_id") == "install:test-doctor" and event.get("type") == "InstallCheckObserved"
 ]
 assert checks, "expected InstallCheckObserved events from edge-doctor"
-assert any(event["payload"].get("check_id") == "dir:edge-home" for event in checks)
+assert any(event["payload"].get("check_id") == "dir:edge-state-dir" for event in checks)
 assert any(event["payload"].get("status") in {"warn", "fail"} for event in checks)
 PY
 then

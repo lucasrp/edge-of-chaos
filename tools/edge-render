@@ -22,6 +22,38 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "_shared"))
 from intervals import parse_interval  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+_LEGACY_ROUTER_DEFAULTS = {
+    "chat": {
+        "base_url": "https://api.openai.com/v1",
+        "secret_ref": "openai.env:OPENAI_API_KEY",
+        "model_key": "openai_model",
+        "model_default": "gpt-5.4",
+    },
+    "chat_mini": {
+        "base_url": "https://api.openai.com/v1",
+        "secret_ref": "openai.env:OPENAI_API_KEY",
+        "model_key": "openai_model_mini",
+        "model_default": "gpt-4.1-mini",
+    },
+    "review": {
+        "base_url": "https://api.x.ai/v1",
+        "secret_ref": "xai.env:XAI_API_KEY",
+        "model_key": "grok_model",
+        "model_default": "grok-4.20-multi-agent-beta-0309",
+    },
+    "embedding": {
+        "base_url": "https://api.openai.com/v1",
+        "secret_ref": "openai.env:OPENAI_API_KEY",
+        "model_key": None,
+        "model_default": "text-embedding-3-small",
+    },
+    "deepresearch": {
+        "base_url": "https://api.openai.com/v1",
+        "secret_ref": "openai.env:OPENAI_API_KEY",
+        "model_key": "openai_model",
+        "model_default": "gpt-5.4",
+    },
+}
 
 
 def _ensure_install_context(cfg: dict) -> str:
@@ -75,6 +107,64 @@ def _render_pre_skill(context: list[str], procedure: list[str]) -> str:
     # Only one populated — flat list (legacy-compatible output).
     items = context or procedure
     return "\n".join(f"- {item}" for item in items)
+
+
+def _normalize_router_map(raw_routers) -> dict[str, dict]:
+    if not isinstance(raw_routers, dict):
+        return {}
+    routers: dict[str, dict] = {}
+    for purpose, raw in raw_routers.items():
+        if not purpose or not isinstance(raw, dict):
+            continue
+        base_url = str(raw.get("base_url", "")).strip()
+        secret_ref = str(raw.get("secret_ref", "")).strip()
+        model = str(raw.get("model", "")).strip()
+        if not (base_url and secret_ref and model):
+            continue
+        cfg = {
+            "base_url": base_url,
+            "secret_ref": secret_ref,
+            "model": model,
+        }
+        headers = raw.get("headers") or {}
+        if isinstance(headers, dict) and headers:
+            cfg["headers"] = dict(headers)
+        query = raw.get("query") or {}
+        if isinstance(query, dict) and query:
+            cfg["query"] = dict(query)
+        routers[str(purpose)] = cfg
+    return routers
+
+
+def _resolve_runtime_routers(cfg: dict) -> dict[str, dict]:
+    routers = _normalize_router_map(cfg.get("routers"))
+    if routers:
+        return routers
+
+    resolved: dict[str, dict] = {}
+    for purpose, spec in _LEGACY_ROUTER_DEFAULTS.items():
+        model = spec["model_default"]
+        model_key = spec["model_key"]
+        if model_key and cfg.get(model_key):
+            model = str(cfg[model_key]).strip() or model
+        resolved[purpose] = {
+            "base_url": spec["base_url"],
+            "secret_ref": spec["secret_ref"],
+            "model": model,
+        }
+    return resolved
+
+
+def _render_runtime_routers_file(routers: dict[str, dict]) -> str:
+    payload = {
+        "routers": routers,
+    }
+    return (
+        "# Runtime routers — materialized from bootstrap config.\n"
+        "# Runtime tools read this file; agent.yaml is bootstrap only.\n\n"
+        + yaml.safe_dump(payload, sort_keys=False, allow_unicode=True).strip()
+        + "\n"
+    )
 
 
 def load_agent_yaml(path: Path) -> dict:
@@ -163,6 +253,7 @@ def load_agent_yaml(path: Path) -> dict:
     if isinstance(post, str):
         post = [post] if post.strip() else []
     cfg["post_skill"] = post
+    cfg["routers"] = _resolve_runtime_routers(cfg)
 
     # Apply smart defaults
     cfg.setdefault("language", "pt-BR")
@@ -277,6 +368,7 @@ def build_placeholder_map(cfg: dict) -> dict:
         # Computed
         "DATE": today,
         "USER_TIMEZONE": cfg["timezone"],
+        "RUNTIME_ROUTERS_FILE": _render_runtime_routers_file(cfg["routers"]),
         # Phenotype content (defaults, operator customizes post-install)
         "VOICE": cfg["voice"],
         "PROJECT_CONTEXT": "(no projects configured — updated by /reflexao)",

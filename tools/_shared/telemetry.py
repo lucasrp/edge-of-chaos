@@ -33,7 +33,7 @@ _LAST_SHADOW_HASH: str | None = None
 
 # --- Price table (USD per 1M tokens). Missing models map to 0 cost rather than
 # block the call; rollup flags unknown models separately.
-# Keep this table small — update when new models are added to agent.yaml.
+# Keep this table small — update when new models are added to runtime routers.
 _PRICE_PER_M: dict[str, tuple[float, float]] = {
     # model: (input_per_1m, output_per_1m)
     "gpt-5.4":                 (5.00, 15.00),

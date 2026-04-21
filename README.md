@@ -18,14 +18,14 @@ python3 tools/edge-render
 python3 tools/edge-apply
 
 # 4. Validate
-python3 tools/edge-doctor --config agent.yaml
+python3 tools/edge-doctor
 ```
 
 Done. Dashboard running, 22 skills installed, heartbeat ready.
 
 ## agent.yaml
 
-The single source of truth. Five required fields:
+Bootstrap spec. Used at render/install time to create runtime config. Five required fields:
 
 ```yaml
 name: my-agent                    # unique name (lowercase, hyphens)
@@ -74,7 +74,8 @@ my-agent/
 │   ├── post-skill.md       ← runs after every skill (notify, update strategy)
 │   ├── strategy.md         ← operator direction (agent reads, proposes)
 │   ├── interests.md        ← shared interests (guides exploration)
-│   └── branding.yaml       ← agent phenotype (name, colors, dashboard config via legacy `blog` key)
+│   ├── branding.yaml       ← agent phenotype (name, colors, dashboard config via legacy `blog` key)
+│   └── runtime-routers.yaml ← rendered LLM router config used at runtime
 ├── skills/                 ← 22 core skills (genotype)
 ├── tools/                  ← CLI tools (edge-consult, edge-fontes, etc.)
 ├── blog/                   ← Flask + htmx dashboard server (legacy package name)
@@ -92,7 +93,7 @@ my-agent/
 Every change goes through one question: is this genotype or phenotype?
 
 - **Genotype** — shared code (skills, tools, dashboard server). Lives in the repo. Propagates via git pull.
-- **Phenotype** — instance config (agent.yaml, branding, strategy). Per-agent. Generated at install.
+- **Phenotype** — rendered runtime config + local state. Per-agent. Generated at install and evolves in place.
 - **Epigenetics** — runtime state (feed entries, reports, memory). Never replicates.
 
 **Heartbeat**
