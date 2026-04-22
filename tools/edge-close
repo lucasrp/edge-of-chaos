@@ -140,16 +140,17 @@ def close_dispatch(status: str, reason: str | None) -> tuple[int, dict]:
     return result.returncode, payload
 
 
-def run_postflight(profile: str) -> tuple[bool, str, list[dict]]:
+def run_postflight(profile: str) -> tuple[bool, str, str, list[dict]]:
     import subprocess
 
     cmd = [str(SCRIPT_DIR / "edge-postflight"), "run", "--profile", profile]
     result = subprocess.run(cmd, cwd=str(EDGE_REPO_DIR), capture_output=True, text=True)
     raw = result.stdout.strip() or result.stderr.strip()
     payload = json.loads(raw) if raw else {}
+    status = payload.get("status") or ("completed" if result.returncode == 0 else "failed")
     steps = payload.get("steps") or []
     reason = payload.get("reason") or ("postflight_standard_completed" if result.returncode == 0 else "postflight_failed")
-    return result.returncode == 0, reason, steps
+    return result.returncode == 0, status, reason, steps
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -199,7 +200,9 @@ def main() -> int:
             exit_code = 1
         else:
             append_postskill_log("skill_run_completed", "OK", skill_reason)
-            post_ok, post_reason, post_steps = run_postflight(profile)
+            post_ok, post_status, post_reason, post_steps = run_postflight(profile)
+            if post_ok and post_status == "warning":
+                effective_reason = effective_reason or post_reason
             if not post_ok:
                 effective_status = "failed"
                 effective_reason = effective_reason or post_reason

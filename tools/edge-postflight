@@ -62,15 +62,86 @@ def before_snapshot(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_validate_recent() -> tuple[bool, dict[str, Any]]:
-    code, stdout, stderr = run_subprocess([sys.executable, str(EDGE_REPO_DIR / "blog" / "validate.py"), "--recent"])
-    detail = (stdout or stderr or f"exit={code}").splitlines()[-1]
-    append_postskill_log("validate_recent", "OK" if code == 0 else "FAIL", detail)
+def _validate_recent_cmd(*, fix: bool = False) -> tuple[int, str, str]:
+    cmd = [sys.executable, str(EDGE_REPO_DIR / "blog" / "validate.py"), "--recent"]
+    if fix:
+        cmd.append("--fix")
+    return run_subprocess(cmd)
+
+
+def _last_detail(stdout: str, stderr: str, code: int) -> str:
+    return (stdout or stderr or f"exit={code}").splitlines()[-1]
+
+
+def _looks_autofixable_validation(stdout: str, stderr: str) -> bool:
+    blob = f"{stdout}\n{stderr}".lower()
+    return "--fix" in blob or "format issues" in blob or "wrong format" in blob or "missing report field" in blob
+
+
+def run_validate_recent() -> tuple[bool, str, dict[str, Any]]:
+    code, stdout, stderr = _validate_recent_cmd()
+    detail = _last_detail(stdout, stderr, code)
+    if code == 0:
+        append_postskill_log("validate_recent", "OK", detail)
+        return (
+            True,
+            "completed",
+            {
+                "step": "validate_recent",
+                "status": "ok",
+                "command": "python3 blog/validate.py --recent",
+                "returncode": code,
+                "detail": detail,
+            },
+        )
+
+    if _looks_autofixable_validation(stdout, stderr):
+        fix_code, fix_stdout, fix_stderr = _validate_recent_cmd(fix=True)
+        retry_code, retry_stdout, retry_stderr = _validate_recent_cmd()
+        retry_detail = _last_detail(retry_stdout, retry_stderr, retry_code)
+        if retry_code == 0:
+            detail = f"auto-fixed recent integrity issues ({_last_detail(fix_stdout, fix_stderr, fix_code)})"
+            append_postskill_log("validate_recent", "WARN", detail)
+            return (
+                True,
+                "warning",
+                {
+                    "step": "validate_recent",
+                    "status": "warning",
+                    "command": "python3 blog/validate.py --recent",
+                    "returncode": code,
+                    "fix_attempted": True,
+                    "fix_returncode": fix_code,
+                    "retry_returncode": retry_code,
+                    "detail": detail,
+                    "retry_detail": retry_detail,
+                },
+            )
+
+        detail = retry_detail
+        append_postskill_log("validate_recent", "FAIL", detail)
+        return (
+            False,
+            "failed",
+            {
+                "step": "validate_recent",
+                "status": "failed",
+                "command": "python3 blog/validate.py --recent",
+                "returncode": code,
+                "fix_attempted": True,
+                "fix_returncode": fix_code,
+                "retry_returncode": retry_code,
+                "detail": detail,
+            },
+        )
+
+    append_postskill_log("validate_recent", "FAIL", detail)
     return (
-        code == 0,
+        False,
+        "failed",
         {
             "step": "validate_recent",
-            "status": "ok" if code == 0 else "failed",
+            "status": "failed",
             "command": "python3 blog/validate.py --recent",
             "returncode": code,
             "detail": detail,
@@ -144,7 +215,7 @@ def record_postflight(state: dict[str, Any], *, status: str, profile: str, reaso
     state_block["postflight_steps"] = steps
     state_block["postflight_delta"] = delta
     write_dispatch_state(state)
-    event_type = "PostflightCompleted" if status == "completed" else "PostflightFailed"
+    event_type = "PostflightCompleted" if status in {"completed", "warning", "skipped"} else "PostflightFailed"
     emit_shadow_event(
         event_type,
         actor="edge-postflight",
@@ -161,14 +232,14 @@ def record_postflight(state: dict[str, Any], *, status: str, profile: str, reaso
     )
 
 
-def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, list[dict[str, Any]], dict[str, Any]]:
+def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, list[dict[str, Any]], dict[str, Any]]:
     steps: list[dict[str, Any]] = []
     before = before_snapshot(state)
 
-    ok, validate_step = run_validate_recent()
+    ok, validate_status, validate_step = run_validate_recent()
     steps.append(validate_step)
     if not ok:
-        return False, "validate_recent_failed", steps, {}
+        return False, "failed", "validate_recent_failed", steps, {}
 
     claims_refresh = refresh_claims_status()
     steps.append({"step": "claims_digest", "status": "ok", "detail": claims_refresh["detail"]})
@@ -176,7 +247,7 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, list[d
     primitives_refresh = refresh_primitives_status()
     steps.append({"step": "primitives_status", "status": "ok" if primitives_refresh["ok"] else "failed", "detail": primitives_refresh["detail"]})
     if not primitives_refresh["ok"]:
-        return False, "primitives_status_failed", steps, {}
+        return False, "failed", "primitives_status_failed", steps, {}
 
     workflow_refresh = refresh_workflow_status()
     steps.append({"step": "workflow_status", "status": "ok", "detail": workflow_refresh["detail"]})
@@ -184,7 +255,7 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, list[d
     briefing_refresh = refresh_briefing()
     steps.append({"step": "briefing_digest", "status": "ok" if briefing_refresh["ok"] else "failed", "detail": briefing_refresh["detail"]})
     if not briefing_refresh["ok"]:
-        return False, "briefing_digest_failed", steps, {}
+        return False, "failed", "briefing_digest_failed", steps, {}
 
     request = state.setdefault("request", {})
     digest = claims_refresh["payload"].get("digest") or {}
@@ -232,7 +303,9 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, list[d
         "top_broken": workflow_summary.get("top_broken", []),
     }
     delta = compute_delta(before, claims=claims_refresh["payload"], primitives=primitives_payload, workflows=workflows_payload)
-    return True, "postflight_standard_completed", steps, delta
+    if validate_status == "warning":
+        return True, "warning", "validate_recent_warning", steps, delta
+    return True, "completed", "postflight_standard_completed", steps, delta
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -273,16 +346,16 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(json.dumps({"ok": False, "reason": "unknown_postflight_profile", "state": state}, indent=2, ensure_ascii=False), file=sys.stderr)
         return 1
 
-    ok, reason, steps, delta = run_standard(state, profile)
+    ok, postflight_status, reason, steps, delta = run_standard(state, profile)
     record_postflight(
         state,
-        status="completed" if ok else "failed",
+        status=postflight_status if ok else "failed",
         profile=profile,
         reason=reason,
         steps=steps,
         delta=delta,
     )
-    output = {"ok": ok, "reason": reason, "steps": steps, "delta": delta, "state": state}
+    output = {"ok": ok, "status": postflight_status if ok else "failed", "reason": reason, "steps": steps, "delta": delta, "state": state}
     stream = sys.stdout if ok else sys.stderr
     print(json.dumps(output, indent=2, ensure_ascii=False), file=stream)
     return 0 if ok else 1

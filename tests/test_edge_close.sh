@@ -86,6 +86,46 @@ else
     fail "edge-close completes only after skill end evidence and enriched postflight"
 fi
 
+echo "--- Test 3: autofixable validate_recent becomes warning, not failed close ---"
+TODAY="$(date +%Y-%m-%d)"
+cat >"$TMP_EDGE/blog/entries/2026-04-22-warning.md" <<EOF
+---
+date: $TODAY
+title: Warning Example
+report: reports/2026-04-22-warning.html
+tags: [note]
+---
+
+warning body
+EOF
+cat >"$TMP_EDGE/reports/2026-04-22-warning.html" <<'EOF'
+<html><body>warning report</body></html>
+EOF
+"$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-warning --force >/dev/null
+"$DISPATCH_TOOL" dispatch --skill discovery >/dev/null
+EDGE_CYCLE_ID=cycle-close-warning "$STEP_TOOL" discovery start >/dev/null
+EDGE_CYCLE_ID=cycle-close-warning "$STEP_TOOL" discovery end >/dev/null
+"$CLOSE_TOOL" --status completed >/dev/null
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/blog/entries/2026-04-22-warning.md"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+entry = open(sys.argv[2], encoding="utf-8").read()
+
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+assert dispatch["state"]["close_reason"] == "validate_recent_warning"
+assert dispatch["state"]["postflight_status"] == "warning"
+assert "report: 2026-04-22-warning.html" in entry
+PY
+then
+    pass "autofixable validate_recent closes as completed with warning"
+else
+    fail "autofixable validate_recent closes as completed with warning"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"

@@ -30,6 +30,9 @@ cat >"$TMP_HOME/.local/bin/claude" <<'SH'
 set -euo pipefail
 printf '%s\n' "$EDGE_CYCLE_ID" > "${MOCK_CLAUDE_ENV_OUT:?}"
 printf '%s\n' "$*" > "${MOCK_CLAUDE_ARGS_OUT:?}"
+if [ -n "${MOCK_CLAUDE_SLEEP_SECONDS:-}" ]; then
+  sleep "${MOCK_CLAUDE_SLEEP_SECONDS}"
+fi
 if [ "${MOCK_CLAUDE_HEARTBEAT_FLOW:-0}" = "1" ]; then
   "${EDGE_REPO_DIR:?}/tools/edge-dispatch" dispatch --skill discovery >/dev/null
   "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery start >/dev/null
@@ -179,6 +182,45 @@ then
     pass "bare heartbeat skill run auto-opens the heartbeat lifecycle"
 else
     fail "bare heartbeat skill run auto-opens the heartbeat lifecycle"
+fi
+
+echo "--- Test 5: heartbeat dispatch timeout closes explicitly instead of stalling ---"
+unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
+unset MOCK_CLAUDE_EXIT_CODE || true
+export MOCK_CLAUDE_SLEEP_SECONDS=3
+export EDGE_HEARTBEAT_DISPATCH_TIMEOUT_SECONDS=1
+set +e
+"$RUNNER_TOOL" skill \
+    --skill /ed-heartbeat \
+    --dispatch-trigger heartbeat \
+    --dispatch-policy autonomous \
+    --dispatch-routing-mode auto \
+    --dispatch-preflight-profile heartbeat_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force >/dev/null
+STATUS=$?
+set -e
+unset MOCK_CLAUDE_SLEEP_SECONDS || true
+unset EDGE_HEARTBEAT_DISPATCH_TIMEOUT_SECONDS || true
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$STATUS"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+status = int(sys.argv[3])
+
+assert status == 1
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "failed"
+assert dispatch["state"]["close_reason"] == "heartbeat_dispatch_timeout"
+assert any(event["type"] == "HeartbeatDispatchTimedOut" for event in events)
+PY
+then
+    pass "heartbeat dispatch timeout closes explicitly instead of stalling"
+else
+    fail "heartbeat dispatch timeout closes explicitly instead of stalling"
 fi
 
 echo ""
