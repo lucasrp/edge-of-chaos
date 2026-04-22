@@ -15,6 +15,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
 from paths import (  # noqa: E402
     CLAIMS_DIGEST_FILE,
+    CAPABILITIES_STATUS_FILE,
     CONTINUITY_DELTAS_DIR,
     CURRENT_DISPATCH_FILE,
     DISPATCH_QUEUE_FILE,
@@ -29,6 +30,7 @@ from paths import (  # noqa: E402
     WORKFLOW_HEALTH_FILE,
 )
 from .continuity import refresh_continuity_projections  # noqa: E402
+from .capability_runtime import build_capability_status  # noqa: E402
 from .skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
 from .telemetry import emit_shadow_event, log_event, log_run_step  # noqa: E402
 from .workflow_runtime import build_workflow_status, recommend_workflows  # noqa: E402
@@ -214,6 +216,29 @@ def _workflow_status_and_recommendations(query: str | None, *, skill: str | None
     )
 
 
+def _capabilities_status(skill: str | None = None) -> dict[str, Any]:
+    payload = build_capability_status(skill=skill)
+    summary = payload.get("summary") or {}
+    recommended = payload.get("recommended") or []
+    attention = [
+        {
+            "name": item.get("name"),
+            "kind": item.get("kind"),
+            "effective_status": item.get("effective_status"),
+            "description": item.get("description", ""),
+        }
+        for item in (payload.get("capabilities") or [])
+        if item.get("effective_status") in {"missing", "optional-missing", "broken", "drifted"}
+    ][:5]
+    return {
+        "health_status": summary.get("health_status", "unknown"),
+        "summary": summary,
+        "recommended": recommended[:5],
+        "attention": attention,
+        "source_path": str(CAPABILITIES_STATUS_FILE),
+    }
+
+
 def _dispatch_queue_summary() -> dict[str, Any]:
     queue = _read_json(DISPATCH_QUEUE_FILE, [])
     if not isinstance(queue, list):
@@ -386,6 +411,7 @@ def enrich_dispatch_state(
     request["claims_summary"] = claims_summary
     request["orphan_claims_summary"] = orphan_summary
     request["primitives_status"] = _primitives_status()
+    request["capabilities_status"] = _capabilities_status(skill)
     corpus_query = derive_corpus_query(skill, args, primary_thread_id=primary_thread_id)
     workflow_status, workflow_recommendations = _workflow_status_and_recommendations(corpus_query, skill=skill)
     request["workflow_status"] = workflow_status
@@ -432,6 +458,7 @@ def enrich_dispatch_state(
         "open_claims": claims_summary.get("open_total", 0),
         "orphans": orphan_summary.get("orphan_total", 0),
         "primitive_health": request["primitives_status"].get("health_status"),
+        "capability_health": request["capabilities_status"].get("health_status"),
         "workflow_recommendations": len(request["workflow_recommendations"]),
         "queue_pending": request["dispatch_queue_summary"].get("pending_total", 0),
         "onboarding_pending": request["onboarding_summary"].get("pending_total", 0),
@@ -487,6 +514,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "claims_summary": request.get("claims_summary", {}),
         "orphan_claims_summary": request.get("orphan_claims_summary", {}),
         "primitives_status": request.get("primitives_status", {}),
+        "capabilities_status": request.get("capabilities_status", {}),
         "workflow_status": request.get("workflow_status", {}),
         "workflow_recommendations": request.get("workflow_recommendations", [])[:3],
         "dispatch_queue_summary": request.get("dispatch_queue_summary", {}),
@@ -498,6 +526,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "Dispatch runtime context below is authoritative for cross-cutting checks already handled by CLI "
         "(health, inbox, corpus, claims, primitives, workflows, queue, onboarding).\n"
         "Do not re-derive those manually unless a field is missing or obviously stale.\n\n"
+        "Prefer `edge-cap invoke <capability> -- ...` over direct CLI/tool calls when a capability exists in `capabilities_status`.\n\n"
         "```json\n"
         f"{json.dumps(summary, indent=2, ensure_ascii=False)}\n"
         "```"

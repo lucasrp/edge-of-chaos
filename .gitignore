@@ -21,6 +21,7 @@ config/interests.md
 config/pre-skill.md
 config/post-skill.md
 config/features.yaml
+config/capabilities.yaml
 config/heartbeat.sh
 config/health-config.yaml
 memory/personality.md

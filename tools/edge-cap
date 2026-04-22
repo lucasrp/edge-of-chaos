@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""edge-cap — capability registry, status, invoke and probe surface."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.capability_runtime import (  # noqa: E402
+    build_capability_status,
+    get_capability,
+    invoke_capability,
+    probe_capability,
+)
+
+
+def _print_status(payload: dict[str, object]) -> None:
+    summary = payload.get("summary") or {}
+    print("capabilities:"
+          f" total={summary.get('capability_total', 0)}"
+          f" static={summary.get('static_total', 0)}"
+          f" primitive={summary.get('primitive_total', 0)}"
+          f" available={summary.get('available_total', 0)}"
+          f" missing={summary.get('missing_total', 0)}"
+          f" broken={summary.get('broken_total', 0)}"
+          f" drifted={summary.get('drifted_total', 0)}"
+          f" health={summary.get('health_status', 'unknown')}")
+    recommended = payload.get("recommended") or []
+    if recommended:
+        print("recommended:")
+        for item in recommended:
+            print(f"  - {item.get('name')} ({item.get('kind')} {item.get('effective_status')})")
+    for row in payload.get("capabilities") or []:
+        print(
+            f"{row.get('name'):28} "
+            f"{row.get('kind'):12} "
+            f"{row.get('effective_status'):16} "
+            f"invoke30d={row.get('invoke_30d', row.get('usage_30d', 0))}"
+        )
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    payload = build_capability_status(skill=args.skill)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+        return 0
+    _print_status(payload)
+    return 0
+
+
+def cmd_invoke(args: argparse.Namespace) -> int:
+    argv = list(args.argv or [])
+    if argv and argv[0] == "--":
+        argv = argv[1:]
+    try:
+        result = invoke_capability(args.name, argv, skill=args.skill)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    if result.stdout:
+        sys.stdout.write(result.stdout)
+    if result.stderr:
+        sys.stderr.write(result.stderr)
+    return int(result.returncode)
+
+
+def cmd_probe(args: argparse.Namespace) -> int:
+    try:
+        result = probe_capability(args.name, skill=args.skill)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(
+            {
+                "name": args.name,
+                "ok": result.returncode == 0,
+                "exit_code": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            },
+            ensure_ascii=False,
+        ))
+    else:
+        capability = get_capability(args.name, skill=args.skill) or {}
+        status = "ok" if result.returncode == 0 else "fail"
+        print(f"{args.name}: {status} ({capability.get('kind', 'unknown')})")
+        if result.stdout:
+            sys.stdout.write(result.stdout)
+        if result.stderr:
+            sys.stderr.write(result.stderr)
+    return int(result.returncode)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Capability surface across primitives and CLI wrappers")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_status = sub.add_parser("status", help="Show capability status read model")
+    p_status.add_argument("--skill", default="", help="Optional skill hint for recommendations")
+    p_status.add_argument("--json", action="store_true")
+
+    p_invoke = sub.add_parser("invoke", help="Invoke a capability by name")
+    p_invoke.add_argument("name")
+    p_invoke.add_argument("--skill", default="", help="Optional skill hint for telemetry")
+    p_invoke.add_argument("argv", nargs=argparse.REMAINDER)
+
+    p_probe = sub.add_parser("probe", help="Run the configured probe for a capability")
+    p_probe.add_argument("name")
+    p_probe.add_argument("--skill", default="", help="Optional skill hint for telemetry")
+    p_probe.add_argument("--json", action="store_true")
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    if args.cmd == "status":
+        return cmd_status(args)
+    if args.cmd == "invoke":
+        return cmd_invoke(args)
+    if args.cmd == "probe":
+        return cmd_probe(args)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

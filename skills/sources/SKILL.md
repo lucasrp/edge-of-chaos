@@ -6,21 +6,21 @@ user-invocable: true
 
 # /ed-sources — Unified Access to External and Internal Sources
 
-**RULE: For external searches, ALWAYS use `edge-sources` (executable script) instead of WebSearch directly.** Agents and subagents call via Bash. WebSearch only as a complement when edge-sources doesn't cover.
+**RULE: For external searches, ALWAYS prefer `edge-cap invoke sources.aggregate -- ...` instead of calling `edge-sources` directly.** `edge-sources` is the current implementation behind the capability wrapper. WebSearch only as a complement when the capability does not cover the need.
 
 Centralized layer for accessing the external world. Like `/ed-context` is for internal status, `/ed-sources` is for the outside world — X, Web, ArXiv, GitHub, backend.
 
 ## Executable Script: edge-sources
 
 ```bash
-edge-sources "topic"                          # default: research
-edge-sources "topic" --intent strategy      # routing by intent
-edge-sources "topic" --sources x,hn,arxiv     # override sources
-edge-sources --front-page                     # headlines (heartbeat)
-edge-sources "topic" --json                   # JSON output
+edge-cap invoke sources.aggregate -- "topic"                         # default: research
+edge-cap invoke sources.aggregate -- "topic" --intent strategy       # routing by intent
+edge-cap invoke sources.aggregate -- "topic" --sources x,hn,arxiv    # override sources
+edge-cap invoke sources.aggregate -- --front-page                    # headlines (heartbeat)
+edge-cap invoke sources.aggregate -- "topic" --json                  # JSON output
 ```
 
-The script runs sources in parallel (X, HN, ArXiv, Semantic Scholar, Reddit, GitHub, HF Papers), filters by signal, and returns structured markdown. Code: `~/edge/tools/edge-sources`.
+The capability currently runs `edge-sources` under the hood. The implementation runs sources in parallel (X, HN, ArXiv, Semantic Scholar, Reddit, GitHub, HF Papers), filters by signal, and returns structured markdown. Code: `~/edge/tools/edge-sources`.
 
 Any skill calls `/ed-sources` with an intent and topic. `/ed-sources` runs edge-sources, adds LLM curation, and returns.
 
@@ -399,7 +399,7 @@ Routing by intent is hardcoded in `edge-sources` (ROUTING variable). Each intent
 ### Step 1: Run edge-sources (MANDATORY)
 
 ```bash
-edge-sources "topic" --intent [intent]
+edge-cap invoke sources.aggregate -- "topic" --intent [intent]
 ```
 
 The script already handles: routing by intent, parallel execution of all scriptable sources (X, HN, ArXiv, Semantic Scholar, Reddit, GitHub, HF Papers), automatic wildcard, and structured markdown output.

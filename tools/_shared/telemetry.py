@@ -722,6 +722,84 @@ def log_primitive_call(
         pass
 
 
+def log_capability_invocation(
+    capability: str,
+    *,
+    kind: str,
+    command: list[str],
+    exit_code: int,
+    ok: bool,
+    latency_ms: int = 0,
+    **extra: Any,
+) -> None:
+    """Record one capability invocation across primitive and CLI implementations."""
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    log_event(
+        "capability_invocation",
+        capability=capability,
+        kind=kind,
+        command=command,
+        exit_code=exit_code,
+        ok=ok,
+        latency_ms=int(latency_ms),
+        **extra,
+    )
+    emit_shadow_event(
+        "CapabilityInvocationObserved",
+        actor=_detect_caller(),
+        cycle_id=extra.get("cycle_id"),
+        payload={
+            "capability": capability,
+            "kind": kind,
+            "command": command,
+            "exit_code": exit_code,
+            "ok": ok,
+            "latency_ms": int(latency_ms),
+            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+        },
+    )
+
+
+def log_capability_probe_completed(
+    capability: str,
+    *,
+    kind: str,
+    command: list[str],
+    exit_code: int,
+    ok: bool,
+    latency_ms: int = 0,
+    **extra: Any,
+) -> None:
+    """Record one capability probe across primitive and CLI implementations."""
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    log_event(
+        "capability_probe",
+        capability=capability,
+        kind=kind,
+        command=command,
+        exit_code=exit_code,
+        ok=ok,
+        latency_ms=int(latency_ms),
+        **extra,
+    )
+    emit_shadow_event(
+        "CapabilityProbeCompleted",
+        actor=_detect_caller(),
+        cycle_id=extra.get("cycle_id"),
+        payload={
+            "capability": capability,
+            "kind": kind,
+            "command": command,
+            "exit_code": exit_code,
+            "ok": ok,
+            "latency_ms": int(latency_ms),
+            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+        },
+    )
+
+
 @contextmanager
 def time_primitive(source: str, notes: dict[str, Any] | None = None):
     """Context manager that times a primitive block and logs success/failure.
@@ -818,6 +896,8 @@ __all__ = [
     "log_primitive_materialized",
     "log_primitive_missing",
     "log_primitive_probe_completed",
+    "log_capability_invocation",
+    "log_capability_probe_completed",
     "time_primitive",
     "log_workflow_transition",
     "log_resolution",
