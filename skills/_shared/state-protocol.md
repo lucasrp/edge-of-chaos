@@ -102,7 +102,7 @@ Rules:
 Before starting any skill, look up relevant workflows and save the results:
 
 ```bash
-edge-search "terms relevant to what I'm about to do" --type workflow -k 3 | tee /tmp/edge-recalled-workflows.txt
+edge-cap invoke search.corpus -- "terms relevant to what I'm about to do" --type workflow -k 3 | tee /tmp/edge-recalled-workflows.txt
 ```
 
 Returns validated workflows (steps, secrets, when it works/fails) and anti-patterns (what didn't work and why). The results are saved to `/tmp/edge-recalled-workflows.txt` so they're available at entry-creation time (recall happens early, entry is written late).
@@ -279,7 +279,7 @@ The pipeline prints the path. Read before continuing.
 
 If the skill does NOT change any protected file (e.g.: pure blog entry, research):
 
-1. Look up relevant workflows (`edge-search "terms" --type workflow -k 3`)
+1. Look up relevant workflows (`edge-cap invoke search.corpus -- "terms" --type workflow -k 3`)
 2. Execute skill
 3. Note in scratchpad
 4. Create blog entry with claims (+ blog entry with tag `workflow` if a new combination emerged)

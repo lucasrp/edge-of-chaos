@@ -359,6 +359,26 @@ def _refresh_primitives_status(config_path: str | None = None) -> tuple[bool, st
     return result.returncode == 0, detail
 
 
+def _refresh_capabilities_status(skill: str | None = None) -> tuple[bool, str]:
+    tool = REPO_ROOT / "tools" / "edge-cap"
+    if not tool.exists():
+        return False, "edge-cap not found"
+    cmd = [sys.executable, str(tool), "status", "--json"]
+    if skill:
+        cmd.extend(["--skill", skill])
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        return False, str(exc)
+    detail = result.stderr.strip() or result.stdout.strip()
+    return result.returncode == 0, detail
+
+
 # ─── Phase 1: Render ───
 
 def phase_render(config_path, dry_run):
@@ -1760,6 +1780,12 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
         ok("primitives-status refreshed")
     else:
         warn(f"primitives-status refresh failed: {status_detail[:160]}")
+
+    capability_ok, capability_detail = _refresh_capabilities_status()
+    if capability_ok:
+        ok("capabilities-status refreshed")
+    else:
+        warn(f"capabilities-status refresh failed: {capability_detail[:160]}")
 
     if seeded > 0:
         ok(f"{seeded} seed files generated from agent.yaml")

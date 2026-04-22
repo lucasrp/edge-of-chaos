@@ -32,11 +32,22 @@ It still produces a full-rite artifact every dispatch. Follow
 Use:
 
 ```bash
+edge-cap status --json --skill autonomy
+```
+
+This is the main scoreboard for capability coverage. It already joins:
+
+- static CLI wrappers from `config/capabilities.yaml`
+- runtime-declared and materialized primitives
+- recent capability probes/invocations
+
+When you need primitive-specific details, drill down with:
+
+```bash
 edge-primitives status --json
 ```
 
-This is the main scoreboard for declared vs materialized primitives. It already
-joins:
+That primitive read model already joins:
 
 - `state/sources-manifest.yaml`
 - local meta/binary files
@@ -132,7 +143,7 @@ edge-primitive-lifecycle probe <name> -- <probe command>
 After any lifecycle mutation, read the status again:
 
 ```bash
-edge-primitives status --json
+edge-cap status --json --skill autonomy
 ```
 
 That readback is the canonical proof of the new state.
@@ -181,7 +192,7 @@ Later, autonomy should mostly:
 - More agency does not mean more surface area every beat.
 - A removed proposal is often healthier than a forced one.
 - Repeated operator rejection means calibration is off.
-- Primitive work without evidence from `edge-primitives status --json` or
+- Primitive work without evidence from `edge-cap status --json` or
   recent usage is weak.
 
 ---

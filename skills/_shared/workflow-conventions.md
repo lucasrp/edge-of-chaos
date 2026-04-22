@@ -113,7 +113,7 @@ Beyond workflow-specific fields, **every blog entry** (research, discovery, stra
 
 ### Capture rule
 
-1. Before executing, the skill consults workflows via `edge-search --type workflow -k 3`
+1. Before executing, the skill consults workflows via `edge-cap invoke search.corpus -- "terms relevant to what I'm about to do" --type workflow -k 3`
 2. During execution, the agent follows (or not) the recalled workflows
 3. In the blog entry frontmatter:
    - If used a workflow and it worked → `workflows_used: [workflow-slug]`
@@ -188,7 +188,7 @@ Create a full workflow entry when:
 
 ```bash
 # Check if a similar workflow already exists
-edge-search "sources research consult" --type workflow -k 3
+edge-cap invoke search.corpus -- "sources research consult" --type workflow -k 3
 ```
 
 If something similar exists, use `workflows_used:` to reinforce instead of creating a duplicate.
@@ -201,7 +201,7 @@ Before execution, skills can look up relevant workflows:
 
 ```bash
 # Search for workflows related to what I'm about to do
-edge-search "research sources blog" --type workflow -k 3
+edge-cap invoke search.corpus -- "research sources blog" --type workflow -k 3
 ```
 
 The result returns validated workflows with steps, required secrets, and when it works/fails. Anti-patterns appear alongside — the skill knows what to avoid.
