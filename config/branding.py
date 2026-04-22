@@ -28,6 +28,7 @@ _DEFAULTS = {
     },
     "edge_dir": "",
     "memory_project_dir": "",
+    "codename": "",
     "skill_prefix": "agent",
 }
 

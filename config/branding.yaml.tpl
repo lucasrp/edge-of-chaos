@@ -29,4 +29,5 @@ blog:
 # Paths
 edge_dir: ""  # empty = auto-detect from script location
 memory_project_dir: "{{MEMORY_PROJECT_DIR}}"
+codename: "{{CODENAME}}"  # optional at runtime; falls back to skill_prefix when omitted
 skill_prefix: "{{SKILL_PREFIX}}"

@@ -13,15 +13,22 @@ EDGE_DIR="$EDGE_REPO_DIR"   # Legacy alias kept during migration.
 
 # --- Load branding.yaml from genotype root ---
 BRANDING_FILE="$EDGE_REPO_DIR/config/branding.yaml"
+
+branding_value() {
+  local pattern="$1"
+  local file="$2"
+  grep "$pattern" "$file" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"' || true
+}
+
 if [ -f "$BRANDING_FILE" ]; then
-  BLOG_PORT=$(grep '^  port:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}')
-  BLOG_AUTH_ENABLED=$(grep '^  auth_enabled:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}')
-  BLOG_AUTH_USER=$(grep '^  auth_user:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
-  BLOG_AUTH_PASS=$(grep '^  auth_pass:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
-  MEMORY_PROJECT_DIR=$(grep '^memory_project_dir:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
-  SKILL_PREFIX=$(grep '^skill_prefix:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
-  EDGE_INSTANCE_FROM_BRANDING=$(grep '^codename:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
-  EDGE_STATE_DIR_FROM_BRANDING=$(grep '^edge_state_dir:' "$BRANDING_FILE" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
+  BLOG_PORT=$(branding_value '^  port:' "$BRANDING_FILE")
+  BLOG_AUTH_ENABLED=$(branding_value '^  auth_enabled:' "$BRANDING_FILE")
+  BLOG_AUTH_USER=$(branding_value '^  auth_user:' "$BRANDING_FILE")
+  BLOG_AUTH_PASS=$(branding_value '^  auth_pass:' "$BRANDING_FILE")
+  MEMORY_PROJECT_DIR=$(branding_value '^memory_project_dir:' "$BRANDING_FILE")
+  SKILL_PREFIX=$(branding_value '^skill_prefix:' "$BRANDING_FILE")
+  EDGE_INSTANCE_FROM_BRANDING=$(branding_value '^codename:' "$BRANDING_FILE")
+  EDGE_STATE_DIR_FROM_BRANDING=$(branding_value '^edge_state_dir:' "$BRANDING_FILE")
 else
   BLOG_PORT=8766
   BLOG_AUTH_ENABLED=false
@@ -33,7 +40,7 @@ else
   EDGE_STATE_DIR_FROM_BRANDING=""
 fi
 
-EDGE_INSTANCE="${EDGE_INSTANCE:-${EDGE_CODENAME:-${EDGE_INSTANCE_FROM_BRANDING:-}}}"
+EDGE_INSTANCE="${EDGE_INSTANCE:-${EDGE_CODENAME:-${EDGE_INSTANCE_FROM_BRANDING:-${SKILL_PREFIX:-agent}}}}"
 EDGE_STATE_DIR="${EDGE_STATE_DIR:-${EDGE_STATE_DIR_FROM_BRANDING:-${EDGE_REPO_DIR}}}"
 EDGE_HOME="$EDGE_STATE_DIR"  # Legacy mutable-root alias used by some tools.
 
@@ -53,7 +60,11 @@ if [ -n "$MEMORY_PROJECT_DIR" ]; then
   MEMORY_BASE="$HOME/.claude/projects/${MEMORY_PROJECT_DIR}/memory"
   PROJECT_DIR="$HOME/.claude/projects/${MEMORY_PROJECT_DIR}"
 else
-  _first_proj=$(ls "$HOME/.claude/projects/" 2>/dev/null | head -1)
+  if [ -d "$HOME/.claude/projects" ]; then
+    _first_proj=$(find "$HOME/.claude/projects" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | head -1 || true)
+  else
+    _first_proj=""
+  fi
   MEMORY_BASE="$HOME/.claude/projects/${_first_proj}/memory"
   PROJECT_DIR="$HOME/.claude/projects/${_first_proj}"
 fi
