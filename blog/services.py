@@ -1019,6 +1019,120 @@ def _entry_records():
 
 
 CLAIM_STALE_DAYS = 14
+CLAIM_ACTION_COPY = {
+    "promote": {
+        "label": "Turn into proposal",
+        "detail": "Escalate this claim into explicit work for the next dispatch.",
+    },
+    "verified": {
+        "label": "Mark supported",
+        "detail": "Treat the claim as sufficiently supported by current evidence.",
+    },
+    "disputed": {
+        "label": "Mark contested",
+        "detail": "Keep the claim explicitly contested until evidence improves.",
+    },
+    "stale": {
+        "label": "Needs fresh evidence",
+        "detail": "Ask the next dispatch to refresh or strengthen the evidence.",
+    },
+}
+
+
+def _claim_action_copy(action):
+    action = str(action or "").strip().lower()
+    meta = CLAIM_ACTION_COPY.get(action)
+    if meta:
+        return dict(meta)
+    label = action.replace("-", " ").strip() or "take action"
+    return {
+        "label": label.capitalize(),
+        "detail": "Queue a steering action for the next dispatch.",
+    }
+
+
+def _decorate_claim_action(item, action_key):
+    if not item:
+        return None
+    meta = _claim_action_copy(action_key)
+    return {
+        **item,
+        "action_label": meta["label"],
+        "action_detail": meta["detail"],
+    }
+
+
+def _claim_evidence_strength(support_count, reports_count, single_source):
+    if support_count >= 3 or (support_count >= 2 and reports_count >= 1):
+        return {
+            "label": "grounded",
+            "detail": "Multiple artifacts and at least some published evidence support this claim.",
+        }
+    if support_count >= 2 or reports_count >= 1:
+        return {
+            "label": "moderate",
+            "detail": "There is more than one signal, but the support still has visible gaps.",
+        }
+    if single_source:
+        return {
+            "label": "thin",
+            "detail": "This claim currently hangs on a single artifact.",
+        }
+    return {
+        "label": "unknown",
+        "detail": "No reliable support strength could be derived.",
+    }
+
+
+def _claim_linked_work_summary(thread_links):
+    if not thread_links:
+        return "No linked thread yet."
+    titles = [item["title"] for item in thread_links[:2]]
+    summary = ", ".join(titles)
+    remaining = len(thread_links) - len(titles)
+    if remaining > 0:
+        summary += f" +{remaining} more"
+    return summary
+
+
+def _claim_why_now(kind, no_thread, no_report, stale, stale_days):
+    reasons = []
+    if kind == "gap":
+        reasons.append("This claim is still an open evidence gap.")
+    if no_thread:
+        reasons.append("No thread currently owns it.")
+    if no_report:
+        reasons.append("There is no published report backing it yet.")
+    if stale:
+        days = stale_days if stale_days is not None else "?"
+        reasons.append(f"The latest evidence is {days}d old.")
+    if reasons:
+        return " ".join(reasons)
+    return "This claim is supported, linked, and not asking for immediate intervention."
+
+
+def _claim_recommended_action(kind, no_thread, no_report, stale, single_source, queued_steering):
+    if queued_steering:
+        return None
+    if no_thread:
+        return {
+            "action": "promote",
+            "label": CLAIM_ACTION_COPY["promote"]["label"],
+            "reason": "No continuity surface owns this claim yet, so it should become explicit work.",
+        }
+    if kind == "gap":
+        return {
+            "action": "disputed",
+            "label": CLAIM_ACTION_COPY["disputed"]["label"],
+            "reason": "Keep it explicitly contested until the supporting evidence becomes stronger.",
+        }
+    if stale or no_report or single_source:
+        return {
+            "action": "stale",
+            "label": CLAIM_ACTION_COPY["stale"]["label"],
+            "reason": "The evidence is too thin, too old, or insufficiently published to leave untouched.",
+        }
+    return None
 
 
 def _build_claim_operator_action_index(limit_per_claim=6):
@@ -1031,7 +1145,7 @@ def _build_claim_operator_action_index(limit_per_claim=6):
             continue
         bucket = rollup.setdefault(claim_id, [])
         if len(bucket) < limit_per_claim:
-            bucket.append(item)
+            bucket.append(_decorate_claim_action(item, item.get("display_action")))
     return rollup
 
 
@@ -1045,7 +1159,7 @@ def _build_claim_queued_intent_index(limit_per_claim=6):
             continue
         bucket = rollup.setdefault(claim_id, [])
         if len(bucket) < limit_per_claim:
-            bucket.append(item)
+            bucket.append(_decorate_claim_action(item, item.get("action")))
     return rollup
 
 
@@ -1081,6 +1195,10 @@ def _claim_records():
     claims = {}
     operator_index = _build_claim_operator_action_index()
     queued_index = _build_claim_queued_intent_index()
+    thread_index = {
+        item["id"]: item
+        for item in load_threads_enriched().get("threads", [])
+    }
     today = date.today()
 
     for item in _claim_occurrence_records():
@@ -1121,6 +1239,21 @@ def _claim_records():
         no_thread = len(bucket["threads"]) == 0
         no_report = len(bucket["report_files"]) == 0
         single_source = len(bucket["artifact_files"]) == 1
+        reports_count = len(bucket["report_files"])
+        thread_links = [
+            {
+                "id": tid,
+                "title": thread_index.get(tid, {}).get("title", tid),
+                "status": thread_index.get(tid, {}).get("status"),
+                "href": f"/thread/{tid}",
+            }
+            for tid in sorted(bucket["threads"])
+        ]
+        evidence_strength = _claim_evidence_strength(
+            support_count=len(bucket["artifact_files"]),
+            reports_count=reports_count,
+            single_source=single_source,
+        )
         flags = []
         attention_score = 0
         if kind == "gap":
@@ -1141,17 +1274,48 @@ def _claim_records():
 
         recent_operator_action = (operator_index.get(claim_id) or [None])[0]
         queued_steering = (queued_index.get(claim_id) or [None])[0]
+        why_now = _claim_why_now(
+            kind=kind,
+            no_thread=no_thread,
+            no_report=no_report,
+            stale=stale,
+            stale_days=stale_days,
+        )
+        best_evidence = {
+            "label": latest.get("artifact_title") if latest else None,
+            "href": latest.get("artifact_href") if latest else None,
+            "date_short": _short_ts(latest.get("date")) if latest else "",
+            "report": latest.get("report") if latest else None,
+        } if latest else None
+        recommended_action = _claim_recommended_action(
+            kind=kind,
+            no_thread=no_thread,
+            no_report=no_report,
+            stale=stale,
+            single_source=single_source,
+            queued_steering=queued_steering,
+        )
+        support_summary_parts = [
+            f"{len(bucket['artifact_files'])} artifact{'s' if len(bucket['artifact_files']) != 1 else ''}",
+            f"{reports_count} report{'s' if reports_count != 1 else ''}",
+        ]
+        if thread_links:
+            support_summary_parts.append(_claim_linked_work_summary(thread_links))
+        else:
+            support_summary_parts.append("no linked thread")
 
         records.append({
             "claim_id": claim_id,
             "text": bucket["text"],
             "kind": kind,
             "kind_color": kind_color,
+            "judgment_label": "needs support" if kind == "gap" else "supported",
             "verified_occurrences": bucket["verified_occurrences"],
             "gap_occurrences": bucket["gap_occurrences"],
             "support_count": len(bucket["artifact_files"]),
-            "reports_count": len(bucket["report_files"]),
+            "reports_count": reports_count,
             "threads": sorted(bucket["threads"]),
+            "thread_links": thread_links,
             "reference": latest.get("artifact_filename") if latest else None,
             "artifact_title": latest.get("artifact_title") if latest else None,
             "artifact_filename": latest.get("artifact_filename") if latest else None,
@@ -1163,6 +1327,13 @@ def _claim_records():
             "latest_artifact_href": latest.get("artifact_href") if latest else None,
             "latest_artifact_filename": latest.get("artifact_filename") if latest else None,
             "latest_report": latest.get("report") if latest else None,
+            "best_evidence": best_evidence,
+            "why_now": why_now,
+            "support_summary": " · ".join(support_summary_parts),
+            "linked_work_summary": _claim_linked_work_summary(thread_links),
+            "evidence_strength_label": evidence_strength["label"],
+            "evidence_strength_detail": evidence_strength["detail"],
+            "recommended_action": recommended_action,
             "flags": flags,
             "no_thread": no_thread,
             "no_report": no_report,
@@ -1249,7 +1420,7 @@ def load_claim_detail(claim_id):
         **{key: value for key, value in claim.items() if key != "occurrences"},
         "occurrences": occurrences,
         "reports": reports,
-        "thread_links": [
+        "thread_links": claim.get("thread_links") or [
             {
                 "id": tid,
                 "title": thread_index.get(tid, {}).get("title", tid),

@@ -38,25 +38,39 @@
   <div class="claim-header">
     <h1 class="claim-title">{{ claim.text }}</h1>
     <div class="claim-meta">
-      <span>{{ claim.kind }}</span>
+      <span>{{ claim.judgment_label }}</span>
+      <span>{{ claim.evidence_strength_label }}</span>
       <span>{{ claim.support_count }} artifacts</span>
       <span>{{ claim.reports_count }} reports</span>
       <span>{{ claim.verified_occurrences }} verified</span>
       <span>{{ claim.gap_occurrences }} gap</span>
       {% if claim.date_short %}<span>last seen: {{ claim.date_short }}</span>{% endif %}
     </div>
+    <p style="color:#a0aec0;margin:.5rem 0 0;"><strong>Why this is here:</strong> {{ claim.why_now }}</p>
   </div>
 
   <div class="claim-grid">
     <div class="claim-card">
-      <h2>Claim Snapshot</h2>
-      <div class="claim-line"><strong>status</strong><span>{{ claim.kind }}</span></div>
-      <div class="claim-line"><strong>support</strong><span>{{ claim.support_count }} supporting artifacts</span></div>
-      <div class="claim-line"><strong>threads</strong><span>{{ claim.threads|length }}</span></div>
-      <div class="claim-line"><strong>reports</strong><span>{{ claim.reports_count }}</span></div>
-      {% if claim.latest_artifact_href %}
-      <div class="claim-line"><strong>latest artifact</strong><span><a class="artifact-link" href="{{ claim.latest_artifact_href }}">{{ claim.latest_artifact_title }}</a></span></div>
+      <h2>Current Judgment</h2>
+      <div class="claim-line"><strong>status</strong><span>{{ claim.judgment_label }}</span></div>
+      <div class="claim-line"><strong>support</strong><span>{{ claim.support_summary }}</span></div>
+      <div class="claim-line"><strong>strength</strong><span>{{ claim.evidence_strength_label }} · {{ claim.evidence_strength_detail }}</span></div>
+      {% if claim.best_evidence and claim.best_evidence.href %}
+      <div class="claim-line"><strong>best evidence</strong><span><a class="artifact-link" href="{{ claim.best_evidence.href }}">{{ claim.best_evidence.label }}</a>{% if claim.best_evidence.date_short %} · {{ claim.best_evidence.date_short }}{% endif %}</span></div>
+      {% elif claim.best_evidence and claim.best_evidence.label %}
+      <div class="claim-line"><strong>best evidence</strong><span>{{ claim.best_evidence.label }}{% if claim.best_evidence.date_short %} · {{ claim.best_evidence.date_short }}{% endif %}</span></div>
       {% endif %}
+      <div class="claim-line"><strong>linked work</strong><span>{{ claim.linked_work_summary }}</span></div>
+      <div class="claim-line">
+        <strong>next action</strong>
+        <span>
+          {% if claim.recommended_action %}
+          {{ claim.recommended_action.label }} · {{ claim.recommended_action.reason }}
+          {% else %}
+          no immediate action needed
+          {% endif %}
+        </span>
+      </div>
       {% if claim.flags %}
       <div class="claim-flags">
         {% for flag in claim.flags %}
@@ -67,7 +81,7 @@
     </div>
 
     <div class="claim-card">
-      <h2>Threads & Reports</h2>
+      <h2>Linked Work & Reports</h2>
       {% if claim.thread_links %}
       <ul class="thread-list">
         {% for item in claim.thread_links %}
@@ -91,16 +105,22 @@
         {% endfor %}
       </ul>
       {% endif %}
+
+      {% if claim.queued_steering %}
+      <div class="claim-line"><strong>queued</strong><span>{{ claim.queued_steering[0].action_label }}{% if claim.queued_steering[0].reason %} · {{ claim.queued_steering[0].reason }}{% endif %}</span></div>
+      {% elif claim.operator_actions %}
+      <div class="claim-line"><strong>last decision</strong><span>{{ claim.operator_actions[0].action_label }}{% if claim.operator_actions[0].reason %} · {{ claim.operator_actions[0].reason }}{% endif %}</span></div>
+      {% endif %}
     </div>
   </div>
 
   {% if claim.queued_steering %}
-  <h2 style="font-size:1.05rem;color:#e2e8f0;margin:1.4rem 0 .7rem;">Queued Steering</h2>
+  <h2 style="font-size:1.05rem;color:#e2e8f0;margin:1.4rem 0 .7rem;">Queued Decision</h2>
   <ul class="timeline">
     {% for item in claim.queued_steering %}
     <li>
       <div class="timeline-head">
-        <strong>{{ item.action }}</strong>
+        <strong>{{ item.action_label }}</strong>
         <span class="timeline-meta">{{ item.ts_short }}</span>
       </div>
       <div class="timeline-meta">{{ item.reason }}{% if item.value %} · {{ item.value }}{% endif %}</div>
@@ -110,12 +130,12 @@
   {% endif %}
 
   {% if claim.operator_actions %}
-  <h2 style="font-size:1.05rem;color:#e2e8f0;margin:1.4rem 0 .7rem;">Steering History</h2>
+  <h2 style="font-size:1.05rem;color:#e2e8f0;margin:1.4rem 0 .7rem;">Decision History</h2>
   <ul class="timeline">
     {% for item in claim.operator_actions %}
     <li>
       <div class="timeline-head">
-        <strong>{{ item.display_action }}</strong>
+        <strong>{{ item.action_label }}</strong>
         <span class="timeline-meta">{{ item.ts_short }}</span>
       </div>
       <div class="timeline-meta">{{ item.reason }}{% if item.resulting_state %} · {{ item.resulting_state }}{% endif %}</div>
@@ -124,7 +144,7 @@
   </ul>
   {% endif %}
 
-  <h2 style="font-size:1.05rem;color:#e2e8f0;margin:1.4rem 0 .7rem;">Supporting Artifacts</h2>
+  <h2 style="font-size:1.05rem;color:#e2e8f0;margin:1.4rem 0 .7rem;">Evidence Timeline</h2>
   {% if claim.occurrences %}
   <ul class="timeline">
     {% for item in claim.occurrences %}
