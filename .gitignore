@@ -65,6 +65,7 @@ threads/*.md
 !threads/.gitkeep
 state/*.md
 state/*.json
+state/events/
 state/signals/
 !state/.gitkeep
 autonomy/*.md

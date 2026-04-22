@@ -5,9 +5,9 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/survival-lib.sh"
 
-ENTRIES_DIR=$(read_yaml_key blog_entries_dir 2>/dev/null || echo "$HOME/edge/blog/entries")
-META_DIR=$(read_yaml_key meta_reports_dir 2>/dev/null || echo "$HOME/edge/meta-reports")
-SECRETS_DIR=$(read_yaml_key secrets_dir 2>/dev/null || echo "$HOME/edge/secrets")
+ENTRIES_DIR="${ENTRIES_DIR:-$(read_yaml_key blog_entries_dir 2>/dev/null || echo "$HOME/edge/blog/entries")}"
+META_DIR="${META_DIR:-$(read_yaml_key meta_reports_dir 2>/dev/null || echo "$HOME/edge/meta-reports")}"
+SECRETS_DIR="${SECRETS_DIR:-$(read_yaml_key secrets_dir 2>/dev/null || echo "$HOME/edge/secrets")}"
 
 # --- Adversarial rate (last 7 days) ---
 adversarial_rate=0
