@@ -1,3 +1,94 @@
+{% macro claim_card(item, include_actions=true) %}
+<div class="thread-console-card{{ ' thread-console-card-attention' if item.needs_attention else '' }}">
+  <div class="thread-console-head">
+    <div class="thread-console-title-row">
+      <span class="runtime-pill runtime-pill-{{ item.kind_color }}">{{ item.judgment_label }}</span>
+      <a href="/claim/{{ item.claim_id }}" class="thread-console-title">{{ item.text }}</a>
+      <span class="thread-console-chip">{{ item.evidence_strength_label }}</span>
+    </div>
+    <div class="thread-console-meta-row">
+      {% if item.date_short %}<span>last seen {{ item.date_short }}</span>{% endif %}
+      <span>{{ item.support_count }} artifacts</span>
+      <span>{{ item.reports_count }} reports</span>
+    </div>
+  </div>
+
+  <div class="thread-console-summary-text">{{ item.why_now }}</div>
+
+  <div class="thread-console-grid">
+    <div class="thread-console-column">
+      <div class="thread-console-line">
+        <strong>best evidence</strong>
+        <span>
+          {% if item.best_evidence and item.best_evidence.href %}
+          <a href="{{ item.best_evidence.href }}">{{ item.best_evidence.label }}</a>
+          {% elif item.best_evidence and item.best_evidence.label %}
+          {{ item.best_evidence.label }}
+          {% else %}
+          none linked yet
+          {% endif %}
+          {% if item.best_evidence and item.best_evidence.date_short %} · {{ item.best_evidence.date_short }}{% endif %}
+          {% if item.latest_report %} · <a href="/reports/{{ item.latest_report }}">report</a>{% endif %}
+        </span>
+      </div>
+      <div class="thread-console-line">
+        <strong>linked work</strong>
+        <span>
+          {% if item.thread_links %}
+            {% for thread in item.thread_links[:2] %}
+              <a href="{{ thread.href }}">{{ thread.title }}</a>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+            {% if item.thread_links|length > 2 %} +{{ item.thread_links|length - 2 }} more{% endif %}
+          {% else %}
+          no linked thread yet
+          {% endif %}
+        </span>
+      </div>
+    </div>
+
+    <div class="thread-console-column">
+      <div class="thread-console-line"><strong>support</strong><span>{{ item.support_summary }}</span></div>
+      <div class="thread-console-line">
+        <strong>next action</strong>
+        <span>
+          {% if item.recommended_action %}
+          {{ item.recommended_action.label }}
+          {% else %}
+          no immediate action needed
+          {% endif %}
+        </span>
+      </div>
+      {% if item.recommended_action %}
+      <div class="runtime-note">{{ item.recommended_action.reason }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if item.flags %}
+  <div class="claim-card-flags">
+    {% for flag in item.flags %}
+    <span class="thread-flag thread-flag-{{ flag.kind }}" title="{{ flag.detail }}">{{ flag.label }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if item.queued_steering %}
+  <div class="runtime-note">Queued for next dispatch: {{ item.queued_steering.action_label }}{% if item.queued_steering.reason %} — {{ item.queued_steering.reason }}{% endif %}</div>
+  {% elif item.recent_operator_action %}
+  <div class="runtime-note">Last operator decision: {{ item.recent_operator_action.action_label }}{% if item.recent_operator_action.reason %} — {{ item.recent_operator_action.reason }}{% endif %}</div>
+  {% endif %}
+
+  {% if include_actions %}
+  <div class="dash-task-actions">
+    <button class="action-btn" onclick='steeringAction("claim", {{ item.claim_id|tojson }}, "promote", {{ item.text|tojson }}, {{ item.reference|tojson }}, this, null, "Turn into proposal")'>turn into proposal</button>
+    <button class="action-btn action-start" onclick='steeringAction("claim", {{ item.claim_id|tojson }}, "verified", {{ item.text|tojson }}, {{ item.reference|tojson }}, this, null, "Mark supported")'>mark supported</button>
+    <button class="action-btn action-blocked" onclick='steeringAction("claim", {{ item.claim_id|tojson }}, "disputed", {{ item.text|tojson }}, {{ item.reference|tojson }}, this, null, "Mark contested")'>mark contested</button>
+    <button class="action-btn" onclick='steeringAction("claim", {{ item.claim_id|tojson }}, "stale", {{ item.text|tojson }}, {{ item.reference|tojson }}, this, null, "Needs fresh evidence")'>needs fresh evidence</button>
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}
+
 {% macro proposal_card(proposal) %}
 <div class="thread-console-card{{ ' thread-console-card-attention' if proposal.needs_attention else '' }}">
   <div class="thread-console-head">
@@ -120,44 +211,9 @@
       </div>
       {% if ep_claims.attention %}
       <div class="runtime-subtitle">needs attention</div>
-      <div class="runtime-list">
+      <div class="thread-console-list">
         {% for item in ep_claims.attention %}
-        <div class="runtime-list-item">
-          <div class="runtime-row">
-            <strong><a href="/claim/{{ item.claim_id }}" style="color:inherit">{{ item.text }}</a></strong>
-            <span class="runtime-pill runtime-pill-{{ item.kind_color }}">{{ item.kind }}</span>
-          </div>
-          <div class="runtime-meta">{{ item.support_count }} artifacts · {{ item.reports_count }} reports{% if item.date_short %} · {{ item.date_short }}{% endif %}</div>
-          <div class="runtime-meta">
-            {% if item.threads %}
-              {% for tid in item.threads %}
-                <a href="/thread/{{ tid }}" style="color:inherit">{{ tid }}</a>{% if not loop.last %}, {% endif %}
-              {% endfor %}
-            {% else %}
-              no thread
-            {% endif %}
-            {% if item.latest_artifact_href %} · <a href="{{ item.latest_artifact_href }}" style="color:inherit">{{ item.latest_artifact_title }}</a>{% endif %}
-            {% if item.latest_report %} · <a href="/reports/{{ item.latest_report }}" style="color:inherit">report</a>{% endif %}
-          </div>
-          {% if item.flags %}
-          <div class="claim-card-flags">
-            {% for flag in item.flags %}
-            <span class="thread-flag thread-flag-{{ flag.kind }}" title="{{ flag.detail }}">{{ flag.label }}</span>
-            {% endfor %}
-          </div>
-          {% endif %}
-          {% if item.queued_steering %}
-          <div class="runtime-note">queued: {{ item.queued_steering.action }} · {{ item.queued_steering.ts_short }}</div>
-          {% elif item.recent_operator_action %}
-          <div class="runtime-note">last steering: {{ item.recent_operator_action.display_action }} · {{ item.recent_operator_action.ts_short }}</div>
-          {% endif %}
-          <div class="dash-task-actions">
-            <button class="action-btn" onclick='steeringAction("claim", {{ item.claim_id|tojson }}, "promote", {{ item.text|tojson }}, {{ item.reference|tojson }}, this)'>promote</button>
-            <button class="action-btn action-start" onclick='steeringAction("claim", {{ item.claim_id|tojson }}, "verified", {{ item.text|tojson }}, {{ item.reference|tojson }}, this)'>verified</button>
-            <button class="action-btn action-blocked" onclick='steeringAction("claim", {{ item.claim_id|tojson }}, "disputed", {{ item.text|tojson }}, {{ item.reference|tojson }}, this)'>disputed</button>
-            <button class="action-btn" onclick='steeringAction("claim", {{ item.claim_id|tojson }}, "stale", {{ item.text|tojson }}, {{ item.reference|tojson }}, this)'>stale</button>
-          </div>
-        </div>
+          {{ claim_card(item, true) }}
         {% endfor %}
       </div>
       {% else %}
@@ -165,19 +221,10 @@
       {% endif %}
 
       {% if ep_claims.verified_recent %}
-      <div class="runtime-subtitle">stable recently</div>
-      <div class="runtime-list">
+      <div class="runtime-subtitle">supported and linked</div>
+      <div class="thread-console-list">
         {% for item in ep_claims.verified_recent %}
-        <div class="runtime-list-item">
-          <div class="runtime-row">
-            <strong><a href="/claim/{{ item.claim_id }}" style="color:inherit">{{ item.text }}</a></strong>
-            <span class="runtime-pill runtime-pill-{{ item.kind_color }}">{{ item.kind }}</span>
-          </div>
-          <div class="runtime-meta">{{ item.support_count }} artifacts · {{ item.reports_count }} reports{% if item.threads %} · {{ item.threads|join(', ') }}{% endif %}</div>
-          {% if item.latest_artifact_href %}
-          <div class="runtime-meta"><a href="{{ item.latest_artifact_href }}" style="color:inherit">{{ item.latest_artifact_title }}</a>{% if item.latest_report %} · <a href="/reports/{{ item.latest_report }}" style="color:inherit">report</a>{% endif %}</div>
-          {% endif %}
-        </div>
+          {{ claim_card(item, false) }}
         {% endfor %}
       </div>
       {% endif %}

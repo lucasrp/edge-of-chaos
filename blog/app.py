@@ -1412,40 +1412,53 @@ def get_health_data(entries):
 @app.route("/dashboard/")
 def dashboard_page():
     """Operational dashboard — 30-second health check for operator."""
-    entries = get_entries()
-    health = get_health_data(entries)
-    knowledge_clusters = load_knowledge_clusters()
-    kc_summary = [{k: v for k, v in c.items() if k != "content"} for c in knowledge_clusters]
+    dashboard_sections = [
+        {"id": "overview", "label": "overview"},
+        {"id": "runtime", "label": "runtime"},
+        {"id": "work", "label": "work"},
+        {"id": "epistemics", "label": "epistemics"},
+        {"id": "threads", "label": "threads"},
+        {"id": "knowledge", "label": "knowledge"},
+    ]
+    section_lookup = {item["id"]: item["label"] for item in dashboard_sections}
+    dashboard_section = str(request.args.get("section") or "overview").strip().lower()
+    if dashboard_section not in section_lookup:
+        dashboard_section = "overview"
 
     status_strip = _build_status_strip_data()
-    alerts = _build_alerts_data()
-    pipeline = _build_pipeline_data()
-    hotspots_data = _build_hotspots_data()
-    corpus_data = _build_corpus_data()
-    briefing_data = _build_briefing_data()
-    epistemic_data = _build_epistemic_data()
-    interventions_data = _build_interventions_data()
-    runtime_data = _build_runtime_data()
-    threads_data = _build_threads_data()
+    dashboard_context = {}
+
+    if dashboard_section == "overview":
+        dashboard_context["alerts"] = _build_alerts_data()
+        dashboard_context.update(_build_pipeline_data())
+        dashboard_context.update(_build_hotspots_data())
+        dashboard_context.update(_build_corpus_data())
+        dashboard_context.update(_build_briefing_data())
+    elif dashboard_section == "runtime":
+        dashboard_context.update(_build_runtime_data())
+    elif dashboard_section == "work":
+        dashboard_context.update(_build_interventions_data())
+    elif dashboard_section == "epistemics":
+        dashboard_context.update(_build_epistemic_data())
+    elif dashboard_section == "threads":
+        dashboard_context.update(_build_threads_data())
+    elif dashboard_section == "knowledge":
+        knowledge_clusters = load_knowledge_clusters()
+        dashboard_context["knowledge_clusters"] = [
+            {k: v for k, v in item.items() if k != "content"}
+            for item in knowledge_clusters
+        ]
 
     return render_template(
         "dashboard.html",
         tab="dashboard",
-        page_title="edge_of_chaos — dashboard",
-        header_sub="dashboard",
+        page_title=f"edge_of_chaos — dashboard / {section_lookup[dashboard_section]}",
+        header_sub=f"dashboard / {section_lookup[dashboard_section]}",
         stats=get_stats_data(),
-        health=health,
-        knowledge_clusters=kc_summary,
-        alerts=alerts,
+        dashboard_sections=dashboard_sections,
+        dashboard_section=dashboard_section,
         **status_strip,
-        **pipeline,
-        **hotspots_data,
-        **corpus_data,
-        **briefing_data,
-        **epistemic_data,
-        **interventions_data,
-        **runtime_data,
-        **threads_data,
+        **dashboard_context,
     )
 
 

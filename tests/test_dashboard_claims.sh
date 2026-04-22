@@ -110,8 +110,9 @@ assert attention_claim["no_report"] is True
 detail = client.get(f"/claim/{attention_claim['claim_id']}")
 assert detail.status_code == 200, detail.status_code
 detail_html = detail.get_data(as_text=True)
-assert "Claim Snapshot" in detail_html
-assert "Supporting Artifacts" in detail_html
+assert "Current Judgment" in detail_html
+assert "Evidence Timeline" in detail_html
+assert "Why this is here" in detail_html
 assert "Queue close audit" in detail_html
 
 steer = client.post(
@@ -130,8 +131,10 @@ assert partial.status_code == 200, partial.status_code
 text = partial.get_data(as_text=True)
 assert "claims workbench" in text
 assert "needs attention" in text
-assert "stable recently" in text
+assert "supported and linked" in text
 assert "Operator notes should land in visible tasks" in text
-assert "queued: disputed" in text
+assert "Queued for next dispatch: Mark contested" in text
+assert "Turn into proposal" in text
+assert "Needs fresh evidence" in text
 print("ok")
 PY
