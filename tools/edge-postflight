@@ -1,0 +1,372 @@
+#!/usr/bin/env python3
+"""edge-postflight — deterministic dispatch postflight and state refresh.
+
+Usage:
+  edge-postflight run
+  edge-postflight run --profile standard
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import EDGE_REPO_DIR, LOGS_DIR  # noqa: E402
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.continuity import refresh_continuity_projections  # noqa: E402
+from _shared.dispatch_runtime import read_dispatch_state, write_dispatch_state  # noqa: E402
+from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
+from _shared.workflow_runtime import build_workflow_status  # noqa: E402
+
+POST_SKILL_LOG = LOGS_DIR / "post-skill.log"
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def append_postskill_log(name: str, status: str, detail: str = "") -> None:
+    POST_SKILL_LOG.parent.mkdir(parents=True, exist_ok=True)
+    line = f"[{now_iso()}] procedure: {name} | status: {status}"
+    if detail:
+        line += f" | detail: {detail}"
+    with POST_SKILL_LOG.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+
+
+def run_subprocess(cmd: list[str]) -> tuple[int, str, str]:
+    result = subprocess.run(cmd, cwd=str(EDGE_REPO_DIR), capture_output=True, text=True)
+    return result.returncode, (result.stdout or "").strip(), (result.stderr or "").strip()
+
+
+def before_snapshot(state: dict[str, Any]) -> dict[str, Any]:
+    request = state.get("request", {}) or {}
+    workflow_status = request.get("workflow_status") or {}
+    primitives_status = request.get("primitives_status") or {}
+    claims_summary = request.get("claims_summary") or {}
+    orphan_summary = request.get("orphan_claims_summary") or {}
+    return {
+        "claims_open_total": int(claims_summary.get("open_total", 0) or 0),
+        "orphans_total": int(orphan_summary.get("orphan_total", 0) or 0),
+        "primitive_broken_total": int((primitives_status.get("summary") or {}).get("broken_total", 0) or 0),
+        "primitive_drifted_total": int((primitives_status.get("summary") or {}).get("drifted_total", 0) or 0),
+        "workflow_broken_total": int(workflow_status.get("broken_total", 0) or 0),
+        "workflow_stale_total": int(workflow_status.get("stale_total", 0) or 0),
+    }
+
+
+def _validate_recent_cmd(*, fix: bool = False) -> tuple[int, str, str]:
+    cmd = [sys.executable, str(EDGE_REPO_DIR / "blog" / "validate.py"), "--recent"]
+    if fix:
+        cmd.append("--fix")
+    return run_subprocess(cmd)
+
+
+def _last_detail(stdout: str, stderr: str, code: int) -> str:
+    return (stdout or stderr or f"exit={code}").splitlines()[-1]
+
+
+def _looks_autofixable_validation(stdout: str, stderr: str) -> bool:
+    blob = f"{stdout}\n{stderr}".lower()
+    return "--fix" in blob or "format issues" in blob or "wrong format" in blob or "missing report field" in blob
+
+
+def run_validate_recent() -> tuple[bool, str, dict[str, Any]]:
+    code, stdout, stderr = _validate_recent_cmd()
+    detail = _last_detail(stdout, stderr, code)
+    if code == 0:
+        append_postskill_log("validate_recent", "OK", detail)
+        return (
+            True,
+            "completed",
+            {
+                "step": "validate_recent",
+                "status": "ok",
+                "command": "python3 blog/validate.py --recent",
+                "returncode": code,
+                "detail": detail,
+            },
+        )
+
+    if _looks_autofixable_validation(stdout, stderr):
+        fix_code, fix_stdout, fix_stderr = _validate_recent_cmd(fix=True)
+        retry_code, retry_stdout, retry_stderr = _validate_recent_cmd()
+        retry_detail = _last_detail(retry_stdout, retry_stderr, retry_code)
+        if retry_code == 0:
+            detail = f"auto-fixed recent integrity issues ({_last_detail(fix_stdout, fix_stderr, fix_code)})"
+            append_postskill_log("validate_recent", "WARN", detail)
+            return (
+                True,
+                "warning",
+                {
+                    "step": "validate_recent",
+                    "status": "warning",
+                    "command": "python3 blog/validate.py --recent",
+                    "returncode": code,
+                    "fix_attempted": True,
+                    "fix_returncode": fix_code,
+                    "retry_returncode": retry_code,
+                    "detail": detail,
+                    "retry_detail": retry_detail,
+                },
+            )
+
+        detail = retry_detail
+        append_postskill_log("validate_recent", "FAIL", detail)
+        return (
+            False,
+            "failed",
+            {
+                "step": "validate_recent",
+                "status": "failed",
+                "command": "python3 blog/validate.py --recent",
+                "returncode": code,
+                "fix_attempted": True,
+                "fix_returncode": fix_code,
+                "retry_returncode": retry_code,
+                "detail": detail,
+            },
+        )
+
+    append_postskill_log("validate_recent", "FAIL", detail)
+    return (
+        False,
+        "failed",
+        {
+            "step": "validate_recent",
+            "status": "failed",
+            "command": "python3 blog/validate.py --recent",
+            "returncode": code,
+            "detail": detail,
+        },
+    )
+
+
+def refresh_primitives_status() -> dict[str, Any]:
+    code, stdout, stderr = run_subprocess([sys.executable, str(EDGE_REPO_DIR / "tools" / "edge-primitives"), "status", "--json"])
+    if code != 0:
+        detail = (stderr or stdout or f"exit={code}").splitlines()[-1]
+        append_postskill_log("primitives_status", "FAIL", detail)
+        return {"ok": False, "detail": detail, "payload": {}}
+    payload = json.loads(stdout) if stdout else {}
+    detail = f"health={((payload.get('summary') or {}).get('health_status') or 'unknown')}"
+    append_postskill_log("primitives_status", "OK", detail)
+    return {"ok": True, "detail": detail, "payload": payload}
+
+
+def refresh_workflow_status() -> dict[str, Any]:
+    payload = build_workflow_status()
+    summary = payload.get("summary") or {}
+    detail = f"broken={summary.get('broken_total', 0)} stale={summary.get('stale_total', 0)}"
+    append_postskill_log("workflow_status", "OK", detail)
+    return {"ok": True, "detail": detail, "payload": payload}
+
+
+def refresh_claims_status() -> dict[str, Any]:
+    projections = refresh_continuity_projections()
+    digest = projections.get("digest") or {}
+    detail = f"open={digest.get('open_total', 0)} orphans={digest.get('unthreaded_count', 0)}"
+    append_postskill_log("claims_digest", "OK", detail)
+    return {"ok": True, "detail": detail, "payload": projections}
+
+
+def refresh_briefing() -> dict[str, Any]:
+    code, stdout, stderr = run_subprocess([sys.executable, str(EDGE_REPO_DIR / "tools" / "edge-digest")])
+    if code != 0:
+        detail = (stderr or stdout or f"exit={code}").splitlines()[-1]
+        append_postskill_log("briefing_digest", "FAIL", detail)
+        return {"ok": False, "detail": detail}
+    detail = (stdout or "briefing refreshed").splitlines()[-1]
+    append_postskill_log("briefing_digest", "OK", detail)
+    return {"ok": True, "detail": detail}
+
+
+def compute_delta(before: dict[str, Any], *, claims: dict[str, Any], primitives: dict[str, Any], workflows: dict[str, Any]) -> dict[str, Any]:
+    digest = claims.get("digest") or {}
+    orphans = claims.get("orphans") or {}
+    primitives_summary = (primitives.get("summary") or {})
+    workflow_summary = (workflows.get("summary") or {})
+    return {
+        "claims_open_delta": int(digest.get("open_total", 0) or 0) - before["claims_open_total"],
+        "orphans_delta": int(orphans.get("orphan_total", 0) or 0) - before["orphans_total"],
+        "primitive_broken_delta": int(primitives_summary.get("broken_total", 0) or 0) - before["primitive_broken_total"],
+        "primitive_drifted_delta": int(primitives_summary.get("drifted_total", 0) or 0) - before["primitive_drifted_total"],
+        "workflow_broken_delta": int(workflow_summary.get("broken_total", 0) or 0) - before["workflow_broken_total"],
+        "workflow_stale_delta": int(workflow_summary.get("stale_total", 0) or 0) - before["workflow_stale_total"],
+    }
+
+
+def record_postflight(state: dict[str, Any], *, status: str, profile: str, reason: str, steps: list[dict[str, Any]], delta: dict[str, Any]) -> None:
+    cycle_id = state.get("cycle_id")
+    request = state.setdefault("request", {})
+    state_block = state.setdefault("state", {})
+    state_block["postflight_status"] = status
+    state_block["postflight_profile"] = profile
+    state_block["postflight_checked_at"] = now_iso()
+    state_block["updated_at"] = state_block["postflight_checked_at"]
+    state_block["postflight_reason"] = reason
+    state_block["postflight_steps"] = steps
+    state_block["postflight_delta"] = delta
+    write_dispatch_state(state)
+    event_type = "PostflightCompleted" if status in {"completed", "warning", "skipped"} else "PostflightFailed"
+    emit_shadow_event(
+        event_type,
+        actor="edge-postflight",
+        cycle_id=cycle_id,
+        payload={"profile": profile, "reason": reason, "steps": steps, "delta": delta},
+    )
+    log_event(
+        "dispatch_postflight",
+        actor="edge-postflight",
+        cycle_id=cycle_id,
+        profile=profile,
+        status=status,
+        reason=reason,
+    )
+
+
+def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, list[dict[str, Any]], dict[str, Any]]:
+    steps: list[dict[str, Any]] = []
+    before = before_snapshot(state)
+
+    ok, validate_status, validate_step = run_validate_recent()
+    steps.append(validate_step)
+    if not ok:
+        return False, "failed", "validate_recent_failed", steps, {}
+
+    claims_refresh = refresh_claims_status()
+    steps.append({"step": "claims_digest", "status": "ok", "detail": claims_refresh["detail"]})
+
+    primitives_refresh = refresh_primitives_status()
+    steps.append({"step": "primitives_status", "status": "ok" if primitives_refresh["ok"] else "failed", "detail": primitives_refresh["detail"]})
+    if not primitives_refresh["ok"]:
+        return False, "failed", "primitives_status_failed", steps, {}
+
+    workflow_refresh = refresh_workflow_status()
+    steps.append({"step": "workflow_status", "status": "ok", "detail": workflow_refresh["detail"]})
+
+    briefing_refresh = refresh_briefing()
+    steps.append({"step": "briefing_digest", "status": "ok" if briefing_refresh["ok"] else "failed", "detail": briefing_refresh["detail"]})
+    if not briefing_refresh["ok"]:
+        return False, "failed", "briefing_digest_failed", steps, {}
+
+    request = state.setdefault("request", {})
+    digest = claims_refresh["payload"].get("digest") or {}
+    orphans = claims_refresh["payload"].get("orphans") or {}
+    primitives_payload = primitives_refresh["payload"] or {}
+    workflows_payload = workflow_refresh["payload"] or {}
+    request["claims_summary"] = {
+        "open_total": digest.get("open_total", 0),
+        "verified_total": digest.get("verified_total", 0),
+        "attention_count": digest.get("attention_count", 0),
+        "unthreaded_count": digest.get("unthreaded_count", 0),
+        "stale_count": digest.get("stale_count", 0),
+        "fanout_ratio": digest.get("fanout_ratio", 0),
+        "hot_threads_by_open_claims": (digest.get("hot_threads_by_open_claims") or [])[:5],
+        "oldest_open_claims": (digest.get("oldest_open_claims") or [])[:5],
+    }
+    request["orphan_claims_summary"] = {
+        "orphan_total": orphans.get("orphan_total", 0),
+        "open_orphan_total": orphans.get("open_orphan_total", 0),
+        "stale_orphan_total": orphans.get("stale_orphan_total", 0),
+        "multi_artifact_orphan_total": orphans.get("multi_artifact_orphan_total", 0),
+        "candidate_clusters": (orphans.get("candidate_clusters") or [])[:5],
+    }
+    request["primitives_status"] = {
+        "health_status": (primitives_payload.get("summary") or {}).get("health_status", "unknown"),
+        "summary": primitives_payload.get("summary") or {},
+        "attention": [
+            {
+                "name": item.get("name"),
+                "effective_status": item.get("effective_status"),
+                "problems": item.get("problems", []),
+                "usage_30d": item.get("usage_30d", 0),
+            }
+            for item in (primitives_payload.get("sources") or [])[:5]
+            if item.get("effective_status") in {"broken", "drifted"}
+        ],
+    }
+    workflow_summary = workflows_payload.get("summary") or {}
+    request["workflow_status"] = {
+        "workflow_total": workflow_summary.get("workflow_total", 0),
+        "cited_total": workflow_summary.get("cited_total", 0),
+        "broken_total": workflow_summary.get("broken_total", 0),
+        "stale_total": workflow_summary.get("stale_total", 0),
+        "top_used": workflow_summary.get("top_used", []),
+        "top_broken": workflow_summary.get("top_broken", []),
+    }
+    delta = compute_delta(before, claims=claims_refresh["payload"], primitives=primitives_payload, workflows=workflows_payload)
+    if validate_status == "warning":
+        return True, "warning", "validate_recent_warning", steps, delta
+    return True, "completed", "postflight_standard_completed", steps, delta
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run deterministic postflight for the active dispatch cycle")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_run = sub.add_parser("run", help="Execute postflight")
+    p_run.add_argument("--profile", help="Override postflight profile")
+    return parser
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    state = read_dispatch_state()
+    request = state.setdefault("request", {})
+    profile = args.profile or request.get("postflight_profile") or "standard"
+
+    if profile in {"", "none"}:
+        record_postflight(
+            state,
+            status="skipped",
+            profile="none",
+            reason="profile_none",
+            steps=[{"step": "postflight_profile", "status": "skipped", "detail": "profile=none"}],
+            delta={},
+        )
+        print(json.dumps({"ok": True, "status": "skipped", "state": state}, indent=2, ensure_ascii=False))
+        return 0
+
+    if profile != "standard":
+        record_postflight(
+            state,
+            status="failed",
+            profile=profile,
+            reason="unknown_postflight_profile",
+            steps=[{"step": "postflight_profile", "status": "failed", "detail": profile}],
+            delta={},
+        )
+        print(json.dumps({"ok": False, "reason": "unknown_postflight_profile", "state": state}, indent=2, ensure_ascii=False), file=sys.stderr)
+        return 1
+
+    ok, postflight_status, reason, steps, delta = run_standard(state, profile)
+    record_postflight(
+        state,
+        status=postflight_status if ok else "failed",
+        profile=profile,
+        reason=reason,
+        steps=steps,
+        delta=delta,
+    )
+    output = {"ok": ok, "status": postflight_status if ok else "failed", "reason": reason, "steps": steps, "delta": delta, "state": state}
+    stream = sys.stdout if ok else sys.stderr
+    print(json.dumps(output, indent=2, ensure_ascii=False), file=stream)
+    return 0 if ok else 1
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    if args.cmd == "run":
+        return cmd_run(args)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

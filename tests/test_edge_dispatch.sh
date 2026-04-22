@@ -94,20 +94,29 @@ legacy = json.load(open(sys.argv[2], encoding="utf-8"))
 events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8") if line.strip()]
 skill_event = [event for event in events if event["type"] == "SkillDispatched"][-1]
 start_event = [event for event in events if event["type"] == "CycleStarted"][-1]
+request = dispatch["request"]
 
-assert dispatch["request"]["skill"] == "research"
-assert dispatch["request"]["primary_thread_id"] == "ops-visibility"
+assert request["skill"] == "research"
+assert request["primary_thread_id"] == "ops-visibility"
 assert dispatch["state"]["skill_dispatched"] is True
 assert dispatch["state"]["skill_status"] == "running"
+assert dispatch["state"]["preflight_status"] == "completed"
 assert legacy["skill_dispatched"] is True
 assert legacy["skill"] == "research"
+assert request["schema_version"] == 1
+assert "health_snapshot" in request
+assert "claims_summary" in request
+assert "primitives_status" in request
+assert "workflow_status" in request
+assert "workflow_recommendations" in request
+assert "corpus_hits" in request
 assert start_event["payload"]["thread_id"] == "ops-visibility"
 assert skill_event["payload"]["thread_id"] == "ops-visibility"
 PY
 then
-    pass "dispatch updates active cycle and legacy heartbeat mirror"
+    pass "dispatch updates active cycle, legacy heartbeat mirror, and runtime context"
 else
-    fail "dispatch updates active cycle and legacy heartbeat mirror"
+    fail "dispatch updates active cycle, legacy heartbeat mirror, and runtime context"
 fi
 
 if EDGE_ROOT="$TMP_EDGE" bash "$GUARD_TOOL" <<<"$BLOCK_PAYLOAD" >/dev/null 2>/dev/null; then

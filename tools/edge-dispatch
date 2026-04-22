@@ -23,6 +23,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import CURRENT_BEAT_FILE, CURRENT_DISPATCH_FILE, THREADS_DIR  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.dispatch_runtime import enrich_dispatch_state  # noqa: E402
 from _shared.telemetry import current_actor, emit_shadow_event, log_event  # noqa: E402
 from _shared.skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
 
@@ -315,6 +316,16 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     state_block["dispatched_at"] = timestamp
     state_block["updated_at"] = timestamp
     inbox = attach_snapshot_to_dispatch(state, skill=requested_skill)
+    enrich_dispatch_state(
+        state,
+        skill=requested_skill,
+        stage="dispatch",
+        profile=request.get("preflight_profile"),
+    )
+    state_block["phase"] = "skill_dispatched"
+    state_block["skill_status"] = "running"
+    state_block["dispatched_at"] = timestamp
+    state_block["updated_at"] = timestamp
 
     write_json(CURRENT_DISPATCH_FILE, state)
     mirror_heartbeat_guard(state)

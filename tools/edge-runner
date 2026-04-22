@@ -13,8 +13,10 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,7 +25,18 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import EDGE_REPO_DIR  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.dispatch_runtime import read_dispatch_state, render_skill_runtime_prompt  # noqa: E402
+from _shared.telemetry import emit_shadow_event  # noqa: E402
 from _shared.telemetry import log_run_step  # noqa: E402
+
+HEARTBEAT_DISPATCH_TIMEOUT_SECONDS = int(os.environ.get("EDGE_HEARTBEAT_DISPATCH_TIMEOUT_SECONDS", "120") or 120)
+HEARTBEAT_DISPATCH_POLL_SECONDS = float(os.environ.get("EDGE_HEARTBEAT_DISPATCH_POLL_SECONDS", "2") or 2)
+
+
+class RunnerAbort(Exception):
+    def __init__(self, reason: str, message: str | None = None) -> None:
+        super().__init__(message or reason)
+        self.reason = reason
 
 
 def now_stamp() -> str:
@@ -121,7 +134,7 @@ def run_edge_tool(
     )
     if result.returncode != 0 and not allow_nonzero:
         detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
-        raise RuntimeError(f"{' '.join(cmd)} failed: {detail}")
+        raise RunnerAbort(f"{tool_name}_failed", f"{' '.join(cmd)} failed: {detail}")
     payload = result.stdout.strip()
     if not payload:
         return result.returncode, {}
@@ -143,6 +156,10 @@ def maybe_open_cycle(args: argparse.Namespace, env: dict[str, str]) -> str | Non
         "--cycle-id",
         cycle_id,
     ]
+    if args.cmd == "skill" and args.skill and args.dispatch_trigger != "heartbeat":
+        dispatch_args.extend(["--skill", args.skill.lstrip("/")])
+    elif args.cmd == "prompt":
+        dispatch_args.extend(["--skill", "prompt"])
     if args.dispatch_policy:
         dispatch_args.extend(["--policy", args.dispatch_policy])
     if args.dispatch_routing_mode:
@@ -157,6 +174,37 @@ def maybe_open_cycle(args: argparse.Namespace, env: dict[str, str]) -> str | Non
     env["EDGE_CYCLE_ID"] = cycle_id
     run_edge_tool("edge-dispatch", dispatch_args, env)
     return cycle_id
+
+
+def maybe_run_preflight(args: argparse.Namespace, env: dict[str, str], cycle_id: str | None) -> None:
+    if not cycle_id:
+        return
+    preflight_args = ["run", "--stage", "preflight"]
+    if args.dispatch_preflight_profile:
+        preflight_args.extend(["--profile", args.dispatch_preflight_profile])
+    if args.cmd == "skill" and args.dispatch_trigger != "heartbeat" and args.skill:
+        preflight_args.extend(["--skill", args.skill.lstrip("/")])
+    elif args.cmd == "prompt":
+        preflight_args.extend(["--skill", "prompt"])
+    status, payload = run_edge_tool("edge-preflight", preflight_args, env, allow_nonzero=True)
+    if status == 2:
+        detail = (payload or {}).get("reason") or "duplicate_risk_block"
+        raise RunnerAbort("preflight_blocked", f"preflight blocked: {detail}")
+    if status != 0:
+        detail = (payload or {}).get("error") or "preflight_failed"
+        raise RunnerAbort("preflight_failed", f"preflight failed: {detail}")
+
+
+def maybe_dispatch_skill(args: argparse.Namespace, env: dict[str, str], cycle_id: str | None) -> None:
+    if not cycle_id:
+        return
+    if args.cmd == "skill":
+        skill_name = args.skill.lstrip("/")
+        if skill_name.endswith("-heartbeat"):
+            return
+    else:
+        skill_name = "prompt"
+    run_edge_tool("edge-dispatch", ["dispatch", "--skill", skill_name], env)
 
 
 def maybe_close_cycle(
@@ -176,10 +224,140 @@ def maybe_close_cycle(
     return payload
 
 
-def invoke_backend(args: argparse.Namespace, env: dict[str, str]) -> int:
-    cmd = build_backend_command(args)
-    result = subprocess.run(cmd, env=env, cwd=resolve_cwd(args.cwd))
-    return result.returncode
+def build_backend_content(args: argparse.Namespace, cycle_id: str | None) -> str:
+    if args.cmd != "skill" or not cycle_id:
+        return args.skill if args.cmd == "skill" else args.prompt
+    state = read_dispatch_state()
+    return render_skill_runtime_prompt(args.skill, state)
+
+
+def heartbeat_watchdog_enabled(args: argparse.Namespace, cycle_id: str | None) -> bool:
+    if not cycle_id or args.cmd != "skill":
+        return False
+    skill_name = (args.skill or "").strip().lstrip("/")
+    return bool(skill_name.endswith("-heartbeat"))
+
+
+def dispatch_state_matches(cycle_id: str) -> dict | None:
+    try:
+        state = read_dispatch_state()
+    except Exception:
+        return None
+    if state.get("cycle_id") != cycle_id:
+        return None
+    return state
+
+
+def heartbeat_dispatch_completed(cycle_id: str) -> bool:
+    state = dispatch_state_matches(cycle_id)
+    if not state:
+        return False
+    request = state.get("request", {}) or {}
+    state_block = state.get("state", {}) or {}
+    skill = str(request.get("skill") or "").strip()
+    return bool(state_block.get("skill_dispatched") and skill and not skill.endswith("heartbeat"))
+
+
+def terminate_backend_process(proc: subprocess.Popen[bytes | str]) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except Exception:
+        try:
+            proc.terminate()
+        except Exception:
+            return
+    try:
+        proc.wait(timeout=10)
+        return
+    except Exception:
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            return
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        pass
+
+
+def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: str | None = None) -> int:
+    content = build_backend_content(args, cycle_id)
+    original = args.skill if args.cmd == "skill" else args.prompt
+    if content != original:
+        backend_args = argparse.Namespace(**vars(args))
+        if args.cmd == "skill":
+            backend_args.skill = content
+        else:
+            backend_args.prompt = content
+        cmd = build_backend_command(backend_args)
+    else:
+        cmd = build_backend_command(args)
+
+    if not heartbeat_watchdog_enabled(args, cycle_id):
+        result = subprocess.run(cmd, env=env, cwd=resolve_cwd(args.cwd))
+        return result.returncode
+
+    proc = subprocess.Popen(
+        cmd,
+        env=env,
+        cwd=resolve_cwd(args.cwd),
+        start_new_session=True,
+    )
+    assert cycle_id is not None
+    dispatch_observed = False
+    deadline = time.monotonic() + HEARTBEAT_DISPATCH_TIMEOUT_SECONDS
+    while True:
+        returncode = proc.poll()
+        if returncode is not None:
+            return returncode
+
+        if not dispatch_observed and heartbeat_dispatch_completed(cycle_id):
+            dispatch_observed = True
+            emit_shadow_event(
+                "HeartbeatDispatchObserved",
+                actor="edge-runner",
+                cycle_id=cycle_id,
+                payload={"timeout_seconds": HEARTBEAT_DISPATCH_TIMEOUT_SECONDS},
+            )
+
+        if not dispatch_observed and time.monotonic() >= deadline:
+            terminate_backend_process(proc)
+            emit_shadow_event(
+                "HeartbeatDispatchTimedOut",
+                actor="edge-runner",
+                cycle_id=cycle_id,
+                payload={"timeout_seconds": HEARTBEAT_DISPATCH_TIMEOUT_SECONDS},
+            )
+            raise RunnerAbort(
+                "heartbeat_dispatch_timeout",
+                f"heartbeat failed to dispatch an internal skill within {HEARTBEAT_DISPATCH_TIMEOUT_SECONDS}s",
+            )
+
+        time.sleep(HEARTBEAT_DISPATCH_POLL_SECONDS)
+
+
+def maybe_mark_prompt_completion(args: argparse.Namespace, cycle_id: str | None, exit_code: int) -> None:
+    if args.cmd != "prompt" or not cycle_id or exit_code != 0:
+        return
+    emit_shadow_event(
+        "SkillRunCompleted",
+        actor="edge-runner",
+        cycle_id=cycle_id,
+        payload={
+            "skill": "prompt",
+            "registry_skill": "prompt",
+            "event": "end",
+            "expected": 1,
+            "done": 1,
+            "explicit_skips": 0,
+            "silent_skips": [],
+            "completion_pct": 100,
+        },
+    )
 
 
 def add_common_arguments(parser: argparse.ArgumentParser) -> None:
@@ -231,6 +409,8 @@ def main() -> int:
 
     try:
         cycle_id = maybe_open_cycle(args, env)
+        maybe_run_preflight(args, env, cycle_id)
+        maybe_dispatch_skill(args, env, cycle_id)
         if cycle_id:
             log_run_step(
                 "edge-runner",
@@ -242,7 +422,8 @@ def main() -> int:
                 target=args.skill if args.cmd == "skill" else "prompt",
             )
 
-        exit_code = invoke_backend(args, env)
+        exit_code = invoke_backend(args, env, cycle_id=cycle_id)
+        maybe_mark_prompt_completion(args, cycle_id, exit_code)
         if exit_code != 0:
             close_status = "failed"
             close_reason = f"backend_exit_{exit_code}"
@@ -250,6 +431,11 @@ def main() -> int:
         exit_code = 130
         close_status = "aborted"
         close_reason = "keyboard_interrupt"
+    except RunnerAbort as exc:
+        exit_code = 1
+        close_status = "failed"
+        close_reason = exc.reason
+        print(f"edge-runner: {exc}", file=sys.stderr)
     except Exception as exc:
         exit_code = 1
         close_status = "failed"
