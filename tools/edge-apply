@@ -153,10 +153,11 @@ def _copy_tree(
     *,
     phase: str,
     dry_run: bool,
+    ignore=None,
 ) -> None:
     if dry_run:
         return
-    shutil.copytree(src, dst, dirs_exist_ok=True)
+    shutil.copytree(src, dst, dirs_exist_ok=True, ignore=ignore)
     _log_install_applied(
         dst,
         source_template=_repo_relative(src),
@@ -167,6 +168,27 @@ def _copy_tree(
         dry_run=False,
         recursive=True,
     )
+
+
+def _should_skip_tool_entry(path: Path) -> bool:
+    name = path.name
+    if name.startswith(".") or name.startswith("__"):
+        return True
+    if name in {".venv", "venv", "__pycache__", ".mypy_cache", ".pytest_cache"}:
+        return True
+    return False
+
+
+def _tool_tree_ignore(_src: str, names: list[str]) -> set[str]:
+    skipped = set()
+    for name in names:
+        if name.startswith(".") or name.startswith("__"):
+            skipped.add(name)
+        elif name in {".venv", "venv", "__pycache__", ".mypy_cache", ".pytest_cache"}:
+            skipped.add(name)
+        elif name.endswith((".pyc", ".pyo")):
+            skipped.add(name)
+    return skipped
 
 
 def _write_text(
@@ -823,20 +845,29 @@ def phase_tools(cfg, dry_run):
     count = 0
     if tools_src.resolve() != tools_dst.resolve():
         for tool in tools_src.iterdir():
-            if tool.name.startswith(".") or tool.name.startswith("__") or tool.is_dir():
+            if _should_skip_tool_entry(tool):
                 continue
             if not dry_run:
                 dst = tools_dst / tool.name
-                _copy_file(tool, dst, phase="tools", dry_run=False)
-                dst.chmod(0o755)
+                if tool.is_dir():
+                    _copy_tree(
+                        tool,
+                        dst,
+                        phase="tools",
+                        dry_run=False,
+                        ignore=_tool_tree_ignore,
+                    )
+                else:
+                    _copy_file(tool, dst, phase="tools", dry_run=False)
+                    dst.chmod(0o755)
             count += 1
         ok(f"{count} tools copied → {tools_dst}")
     else:
-        count = len([f for f in tools_src.iterdir() if f.is_file() and not f.name.startswith(".")])
+        count = len([f for f in tools_src.iterdir() if not _should_skip_tool_entry(f)])
         # Just ensure executable
         if not dry_run:
             for tool in tools_src.iterdir():
-                if tool.is_file() and not tool.name.startswith("."):
+                if tool.is_file() and not _should_skip_tool_entry(tool):
                     tool.chmod(0o755)
         ok(f"Tools: repo = edge_home (in-place, {count} tools)")
 

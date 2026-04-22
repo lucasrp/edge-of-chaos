@@ -7,8 +7,8 @@ source "$SCRIPT_DIR/survival-lib.sh"
 
 BLOG_PORT=$(read_yaml_key blog_port 2>/dev/null || echo 8766)
 BLOG_SERVICE=$(read_yaml_key blog_service 2>/dev/null || echo blog-server.service)
-SQLITE_DB=$(read_yaml_key sqlite_db 2>/dev/null || echo "$HOME/edge/edge-memory.db")
-REPO_ROOT=$(read_yaml_key repo_root 2>/dev/null || echo "$HOME/edge")
+SQLITE_DB="${SQLITE_DB:-$(read_yaml_key sqlite_db 2>/dev/null || echo "${SEARCH_DB_FILE:-$HOME/edge/edge-memory.db}")}"
+REPO_ROOT="${REPO_ROOT:-$(read_yaml_key repo_root 2>/dev/null || echo "${EDGE_REPO_DIR:-$HOME/edge}")}"
 
 # --- disk ---
 check_disk() {
@@ -119,7 +119,7 @@ check_index() {
 # --- consolidate-state ---
 check_consolidate() {
   local latest
-  latest=$(find "$REPO_ROOT/meta-reports" -name '*meta*' -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+  latest=$(find "$META_DIR" -name '*meta*' -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
   if [[ -z "$latest" ]]; then
     emit_component consolidate unknown "no meta-reports found"
     return

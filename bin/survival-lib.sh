@@ -2,6 +2,13 @@
 # survival-lib.sh — shared functions for health checks
 # Part of: Instinto de Sobrevivência (edge_of_chaos)
 
+_SURVIVAL_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_PATHS_SH="${_SURVIVAL_LIB_DIR}/../config/paths.sh"
+if [[ -f "$_PATHS_SH" ]]; then
+  # shellcheck source=../config/paths.sh
+  source "$_PATHS_SH"
+fi
+
 HEALTH_DIR="${HEALTH_DIR:-$HOME/edge/health}"
 CONFIG_FILE="${CONFIG_FILE:-$HEALTH_DIR/config.yaml}"
 RAW_DIR="$HEALTH_DIR/raw"

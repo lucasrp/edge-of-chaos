@@ -15,7 +15,7 @@ source "$(dirname "$0")/../config/paths.sh"
 
 # 0. Health check (runs edge-check.sh, updates health/current.json)
 HEALTH_SCRIPT="$(dirname "$0")/../bin/edge-check.sh"
-HEALTH_FILE="$EDGE_DIR/health/current.json"
+HEALTH_FILE="$HEALTH_CURRENT_FILE"
 
 if [ -x "$HEALTH_SCRIPT" ]; then
   bash "$HEALTH_SCRIPT" >/dev/null 2>&1
@@ -49,10 +49,10 @@ if [ -x "$STATE_MONITOR_BIN" ]; then
 fi
 
 # 0b. Stub primitives — implement ALL before any beat runs (#191)
-LIBEXEC_DIR="$EDGE_DIR/libexec/${SKILL_PREFIX}"
-if [ -d "$LIBEXEC_DIR" ]; then
+PRIMITIVES_LIBEXEC_DIR="$LIBEXEC_DIR"
+if [ -d "$PRIMITIVES_LIBEXEC_DIR" ]; then
   STUBS=()
-  for prim in "$LIBEXEC_DIR"/*; do
+  for prim in "$PRIMITIVES_LIBEXEC_DIR"/*; do
     [ -f "$prim" ] || continue
     [[ "$prim" == *.meta.yaml ]] && continue
     if grep -q 'exit 127' "$prim" 2>/dev/null; then
@@ -65,8 +65,8 @@ if [ -d "$LIBEXEC_DIR" ]; then
     echo "PREFLIGHT_STUBS (${#STUBS[@]} unimplemented primitives)"
     echo "Implementing before heartbeat can start..."
     for stub_name in "${STUBS[@]}"; do
-      stub_path="$LIBEXEC_DIR/$stub_name"
-      meta_path="$LIBEXEC_DIR/${stub_name}.meta.yaml"
+      stub_path="$PRIMITIVES_LIBEXEC_DIR/$stub_name"
+      meta_path="$PRIMITIVES_LIBEXEC_DIR/${stub_name}.meta.yaml"
       desc=""
       if [ -f "$meta_path" ]; then
         desc=$(cat "$meta_path")
@@ -150,7 +150,7 @@ if [ -f "$debug_file" ]; then
 fi
 
 # 4. Corpus curation — run every beat, lightweight
-CURATION_FILE="$EDGE_DIR/state/procedure-curation.json"
+CURATION_FILE="$PROCEDURE_CURATION_FILE"
 if command -v edge-crystallize &>/dev/null; then
   # Regenerate curation if stale (>2h) or missing
   curation_stale=false
@@ -171,7 +171,7 @@ if command -v edge-crystallize &>/dev/null; then
 fi
 
 # 5. Source primitive usage — check last beat
-USAGE_LOG="$EDGE_DIR/state/source-usage.jsonl"
+USAGE_LOG="$SOURCE_USAGE_FILE"
 if [ -f "$USAGE_LOG" ]; then
   recent_usage=$(python3 -c "
 import json
@@ -194,7 +194,7 @@ else
 fi
 
 # 5b. Holding queue — artifacts BLOCKED awaiting drain (#206)
-HOLDING_INDEX="$EDGE_DIR/holding/index.json"
+HOLDING_INDEX="$STATE_DIR/holding/index.json"
 if [ -f "$HOLDING_INDEX" ]; then
   hold_summary=$(python3 -c "
 import json
@@ -214,7 +214,7 @@ except: pass
 fi
 
 # 5c. Missing primitives — exit 127 was recorded (#206 + #191)
-MISSING_FLAG="$EDGE_DIR/state/missing-primitives.json"
+MISSING_FLAG="$STATE_DIR/missing-primitives.json"
 if [ -f "$MISSING_FLAG" ]; then
   missing_names=$(python3 -c "
 import json
