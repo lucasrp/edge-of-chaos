@@ -126,6 +126,49 @@ else
     fail "autofixable validate_recent closes as completed with warning"
 fi
 
+echo "--- Test 4: mixed aware/naive completion timestamps still close successfully ---"
+"$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-naive-mixed --force >/dev/null
+"$DISPATCH_TOOL" dispatch --skill discovery >/dev/null
+python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl"
+import json
+import sys
+
+dispatch_path, events_path = sys.argv[1], sys.argv[2]
+dispatch = json.load(open(dispatch_path, encoding="utf-8"))
+dispatch["cycle_id"] = "cycle-close-naive-mixed"
+dispatch["request"]["skill"] = "discovery"
+dispatch["state"]["opened_at"] = "2026-04-22T00:00:00+00:00"
+dispatch["state"]["dispatched_at"] = "2026-04-22T00:00:01+00:00"
+json.dump(dispatch, open(dispatch_path, "w", encoding="utf-8"), indent=2)
+with open(dispatch_path, "a", encoding="utf-8") as fh:
+    fh.write("\n")
+
+event = {
+    "ts": "2026-04-22T00:00:02",
+    "type": "SkillRunCompleted",
+    "cycle_id": "cycle-close-naive-mixed",
+    "payload": {"skill": "discovery", "registry_skill": "discovery"},
+}
+with open(events_path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(event) + "\n")
+PY
+"$CLOSE_TOOL" --status completed >/dev/null
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+PY
+then
+    pass "mixed aware/naive timestamps do not break edge-close"
+else
+    fail "mixed aware/naive timestamps do not break edge-close"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"

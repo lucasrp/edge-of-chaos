@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -68,9 +68,15 @@ def iso_ge(left: str | None, right: str | None) -> bool:
     if not left or not right:
         return False
     try:
-        return datetime.fromisoformat(left) >= datetime.fromisoformat(right)
+        left_dt = datetime.fromisoformat(left)
+        right_dt = datetime.fromisoformat(right)
     except ValueError:
         return False
+    if left_dt.tzinfo is None:
+        left_dt = left_dt.replace(tzinfo=timezone.utc)
+    if right_dt.tzinfo is None:
+        right_dt = right_dt.replace(tzinfo=timezone.utc)
+    return left_dt >= right_dt
 
 
 def check_skill_completion(state: dict) -> tuple[bool, str, dict]:
