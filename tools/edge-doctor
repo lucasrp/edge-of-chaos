@@ -446,17 +446,16 @@ def check_primitives_status():
     detail = (
         "primitives-status: "
         f"declared={summary.get('declared_total', 0)}, "
-        f"contract_only={summary.get('contract_only_total', 0)}, "
+        f"degraded={summary.get('degraded_total', 0)}, "
         f"active={summary.get('active_total', 0)}, "
         f"probed={summary.get('probed_total', 0)}, "
-        f"broken={summary.get('broken_total', 0)}, "
-        f"drifted={summary.get('drifted_total', 0)}"
+        f"broken={summary.get('broken_total', 0)}"
     )
     artifact = payload.get("output_path") or tool
     if summary.get("broken_total", 0):
         fail(detail)
         _record_check("projection:primitives-status", "fail", detail, artifact=artifact)
-    elif summary.get("drifted_total", 0):
+    elif summary.get("degraded_total", 0):
         warn(detail)
         _record_check("projection:primitives-status", "warn", detail, artifact=artifact)
     else:

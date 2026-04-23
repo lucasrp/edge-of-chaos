@@ -58,12 +58,13 @@ Do not manually diff raw files when the read model already explains the state.
 
 Important statuses:
 
-- `declared`
-- `contract-only`
 - `active`
 - `probed`
-- `drifted`
+- `degraded`
 - `broken`
+
+Use `manifest_status` and `problems` for the distinction between a merely
+declared source and a contract-written source that still is not activated.
 
 ### 2. Proposal pool
 
@@ -154,10 +155,9 @@ That readback is the canonical proof of the new state.
 
 Strong autonomy candidates:
 
-- `declared` sources with repeated demand but no contract
-- `contract-only` primitives with real usage pressure
+- `degraded` primitives with real usage pressure
 - `active` primitives never probed
-- `broken` or `drifted` primitives affecting current work
+- `broken` or `degraded` primitives affecting current work
 - workflows repeatedly rediscovered in artifacts
 - stale proposals that no longer have evidence
 

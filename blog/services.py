@@ -342,6 +342,12 @@ def load_skill_evidence_summary(limit=5):
 
 def load_primitive_runtime_summary(limit=5):
     """Summarize primitives using the canonical primitives-status read model."""
+    def _normalize_effective_status(value):
+        status = str(value or "unknown")
+        if status in {"declared", "contract-only", "drifted"}:
+            return "degraded"
+        return status
+
     payload = load_json_safe(PRIMITIVES_STATUS_FILE, None)
     if not payload and (ROOT / "tools" / "edge-primitives").exists():
         try:
@@ -362,12 +368,16 @@ def load_primitive_runtime_summary(limit=5):
         sources = [
             {
                 **item,
+                "effective_status": _normalize_effective_status(item.get("effective_status")),
                 "id": item.get("name"),
                 "reference": item.get("name"),
             }
             for item in sources
             if isinstance(item, dict)
         ]
+        degraded_total = int(summary.get("degraded_total", 0) or 0)
+        if not degraded_total:
+            degraded_total = int(summary.get("declared_only_total", 0) or 0) + int(summary.get("contract_only_total", 0) or 0) + int(summary.get("drifted_total", 0) or 0)
         top_used = sorted(sources, key=lambda item: (-int(item.get("usage_30d", 0) or 0), item.get("name", "")))
         return {
             "available": True,
@@ -375,11 +385,10 @@ def load_primitive_runtime_summary(limit=5):
             "health_status": summary.get("health_status", "unknown"),
             "health_color": "red" if summary.get("health_status") == "fail" else "yellow" if summary.get("health_status") == "degraded" else "green",
             "declared_total": int(summary.get("declared_total", 0) or 0),
-            "contract_only_total": int(summary.get("contract_only_total", 0) or 0),
+            "degraded_total": degraded_total,
             "active_total": int(summary.get("active_total", 0) or 0),
             "probed_total": int(summary.get("probed_total", 0) or 0),
             "broken_total": int(summary.get("broken_total", 0) or 0),
-            "drifted_total": int(summary.get("drifted_total", 0) or 0),
             "usage_30d_total": int(summary.get("usage_30d_total", 0) or 0),
             "counts_by_effective_status": summary.get("counts_by_effective_status", {}) or {},
             "top_sources": sources[:limit],
@@ -444,11 +453,10 @@ def load_primitive_runtime_summary(limit=5):
         "health_status": "unknown",
         "health_color": "muted",
         "declared_total": len(sources),
-        "contract_only_total": status_counts.get("contract-only", 0),
+        "degraded_total": status_counts.get("declared", 0) + status_counts.get("contract-only", 0) + status_counts.get("degraded", 0),
         "active_total": status_counts.get("active", 0),
         "probed_total": 0,
         "broken_total": 0,
-        "drifted_total": 0,
         "usage_30d_total": int(usage.get("total_calls", 0) or 0),
         "counts_by_effective_status": status_counts,
         "top_sources": [],

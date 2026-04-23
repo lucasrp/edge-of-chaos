@@ -25,9 +25,8 @@ def _print_status(payload: dict[str, object]) -> None:
           f" static={summary.get('static_total', 0)}"
           f" primitive={summary.get('primitive_total', 0)}"
           f" available={summary.get('available_total', 0)}"
-          f" missing={summary.get('missing_total', 0)}"
+          f" degraded={summary.get('degraded_total', 0)}"
           f" broken={summary.get('broken_total', 0)}"
-          f" drifted={summary.get('drifted_total', 0)}"
           f" health={summary.get('health_status', 'unknown')}")
     recommended = payload.get("recommended") or []
     if recommended:

@@ -211,22 +211,21 @@ check_primitives() {
     return
   fi
 
-  local declared contract_only active probed broken drifted
+  local declared degraded active probed broken
   declared=$(echo "$payload" | jq -r '.summary.declared_total // 0' 2>/dev/null || echo 0)
-  contract_only=$(echo "$payload" | jq -r '.summary.contract_only_total // 0' 2>/dev/null || echo 0)
+  degraded=$(echo "$payload" | jq -r '.summary.degraded_total // 0' 2>/dev/null || echo 0)
   active=$(echo "$payload" | jq -r '.summary.active_total // 0' 2>/dev/null || echo 0)
   probed=$(echo "$payload" | jq -r '.summary.probed_total // 0' 2>/dev/null || echo 0)
   broken=$(echo "$payload" | jq -r '.summary.broken_total // 0' 2>/dev/null || echo 0)
-  drifted=$(echo "$payload" | jq -r '.summary.drifted_total // 0' 2>/dev/null || echo 0)
 
   local detail
-  detail="declared=${declared} contract_only=${contract_only} active=${active} probed=${probed} broken=${broken} drifted=${drifted}"
+  detail="declared=${declared} degraded=${degraded} active=${active} probed=${probed} broken=${broken}"
 
-  if [[ "$declared" -eq 0 ]] && [[ "$contract_only" -eq 0 ]] && [[ "$active" -eq 0 ]] && [[ "$probed" -eq 0 ]] && [[ "$broken" -eq 0 ]] && [[ "$drifted" -eq 0 ]]; then
+  if [[ "$declared" -eq 0 ]] && [[ "$degraded" -eq 0 ]] && [[ "$active" -eq 0 ]] && [[ "$probed" -eq 0 ]] && [[ "$broken" -eq 0 ]]; then
     emit_component primitives unknown "no primitives declared yet"
   elif [[ "$broken" -gt 0 ]]; then
     emit_component primitives fail "$detail"
-  elif [[ "$drifted" -gt 0 ]]; then
+  elif [[ "$degraded" -gt 0 ]]; then
     emit_component primitives degraded "$detail"
   else
     emit_component primitives ok "$detail"
