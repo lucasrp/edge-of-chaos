@@ -97,6 +97,11 @@ SLUG="${FILENAME%.md}"
 export EDGE_PUBLISH_SLUG="$SLUG"
 export EDGE_BLOG_PUBLISH_RUN_ID="${EDGE_BLOG_PUBLISH_RUN_ID:-blog-publish:${SLUG}:$(date -u +%Y%m%dT%H%M%SZ)}"
 
+if ! "$TOOLS_DIR/edge-publish-guard" --operation blog-publish --target "$ENTRY_PATH" >/dev/null; then
+    echo "ERROR: inline publication blocked until heartbeat dispatch completes."
+    exit 65
+fi
+
 # Guardrail: BLOCK direct calls — everything must go through consolidate-state
 if [[ -z "${CALLED_FROM_CONSOLIDAR_ESTADO:-}" && -z "${CALLED_FROM_FULL_PUBLISH:-}" ]]; then
     echo "ERROR: blog-publish.sh cannot be called directly."

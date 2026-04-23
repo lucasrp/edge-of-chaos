@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""edge-publish-guard — block inline artifact publication before heartbeat dispatch."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import CURRENT_DISPATCH_FILE  # noqa: E402
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.telemetry import emit_shadow_event  # noqa: E402
+
+
+def read_dispatch_state() -> dict:
+    if not CURRENT_DISPATCH_FILE.exists():
+        return {}
+    try:
+        return json.loads(CURRENT_DISPATCH_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def should_block(dispatch: dict) -> tuple[bool, dict]:
+    request = dispatch.get("request", {}) or {}
+    state = dispatch.get("state", {}) or {}
+    trigger = str(request.get("trigger") or "")
+    skill = str(request.get("skill") or "")
+    payload = {
+        "trigger": trigger or None,
+        "skill": skill or None,
+        "active": bool(state.get("active")),
+        "skill_dispatched": bool(state.get("skill_dispatched")),
+    }
+    if not state.get("active"):
+        return False, payload
+    if trigger != "heartbeat":
+        return False, payload
+    if state.get("skill_dispatched"):
+        return False, payload
+    if skill and not skill.endswith("heartbeat"):
+        return False, payload
+    return True, payload
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--operation", default="", help="Logical operation name")
+    parser.add_argument("--target", default="", help="Artifact path or label")
+    parser.add_argument("--json", action="store_true", help="Print JSON response")
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    dispatch = read_dispatch_state()
+    blocked, payload = should_block(dispatch)
+    payload.update(
+        {
+            "operation": args.operation or None,
+            "target": args.target or None,
+            "guard": "edge-publish-guard",
+        }
+    )
+    if blocked:
+        emit_shadow_event(
+            "HeartbeatInlineWorkDetected",
+            actor="edge-publish-guard",
+            cycle_id=str(dispatch.get("cycle_id") or "") or None,
+            artifact=args.target or None,
+            payload=payload,
+        )
+        if args.json:
+            print(json.dumps({"ok": False, "blocked": True, **payload}, ensure_ascii=False))
+        else:
+            target = args.target or "<unknown>"
+            op = args.operation or "publish"
+            sys.stderr.write(
+                "BLOCK(edge-publish-guard): heartbeat cannot publish inline before dispatch.\n"
+                f"  operation: {op}\n"
+                f"  target: {target}\n"
+                "  fix: dispatch a substantive skill first.\n"
+            )
+        return 2
+
+    if args.json:
+        print(json.dumps({"ok": True, "blocked": False, **payload}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
