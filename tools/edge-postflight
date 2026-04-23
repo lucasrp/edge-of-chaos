@@ -421,7 +421,16 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
     warning_seen = False
 
     for step in protocol.get("procedures") or []:
-        result = _execute_postflight_step(step, state)
+        try:
+            result = _execute_postflight_step(step, state)
+        except Exception as exc:
+            result = _protocol_step(
+                step,
+                status="warning",
+                satisfied=False,
+                detail=str(exc),
+                extra={"error": str(exc), "failure_mode": "exception"},
+            )
         steps.append(result)
         if not result.get("satisfied"):
             failed_steps += 1

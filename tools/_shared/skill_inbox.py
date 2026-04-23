@@ -7,21 +7,85 @@ skills can inspect without scraping raw `/api/chat` output.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+EDGE_REPO_DIR = SCRIPT_DIR.parent.parent
+SEARCH_DIR = EDGE_REPO_DIR / "search"
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "search"))
 
 
 def _load_dashboard_chat_api():
+    if os.environ.get("EDGE_SKILL_INBOX_FORCE_SUBPROCESS") == "1":
+        return None, None
     try:
         from dashboard_db import get_chats, mark_chat_processed  # type: ignore
     except Exception:
         return None, None
     return get_chats, mark_chat_processed
+
+
+def _search_python() -> str | None:
+    override = str(os.environ.get("EDGE_SEARCH_PYTHON") or "").strip()
+    if override:
+        return override
+    candidate = SEARCH_DIR / ".venv" / "bin" / "python3"
+    if candidate.exists():
+        return str(candidate)
+    return sys.executable
+
+
+def _dashboard_chat_via_subprocess(payload: dict[str, Any]) -> dict[str, Any] | None:
+    search_python = _search_python()
+    if not search_python:
+        return None
+    helper = """
+import json
+import sys
+from pathlib import Path
+
+search_dir = Path(sys.argv[1])
+payload = json.loads(sys.argv[2])
+sys.path.insert(0, str(search_dir))
+
+from dashboard_db import get_chats, mark_chat_processed
+
+action = str(payload.get("action") or "").strip()
+if action == "snapshot":
+    limit = int(payload.get("limit") or 200)
+    print(json.dumps({
+        "unprocessed": get_chats(unprocessed_only=True, limit=limit),
+        "pinned": get_chats(pinned_only=True, limit=min(limit, 50)),
+    }))
+elif action == "consume":
+    processed = []
+    for chat_id in payload.get("chat_ids") or []:
+        mark_chat_processed(int(chat_id))
+        processed.append(int(chat_id))
+    print(json.dumps({"processed_ids": processed}))
+else:
+    raise SystemExit(f"unsupported action: {action}")
+""".strip()
+    env = os.environ.copy()
+    env["EDGE_REPO_DIR"] = str(EDGE_REPO_DIR)
+    result = subprocess.run(
+        [search_python, "-c", helper, str(SEARCH_DIR), json.dumps(payload, ensure_ascii=False)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        parsed = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def now_iso() -> str:
@@ -149,8 +213,9 @@ def build_async_inbox_snapshot(*, skill: str | None = None, limit: int = 200) ->
     """Return the structured async inbox contract for the next skill."""
     get_chats, _ = _load_dashboard_chat_api()
     if get_chats is None:
-        unprocessed = []
-        pinned = []
+        payload = _dashboard_chat_via_subprocess({"action": "snapshot", "limit": limit}) or {}
+        unprocessed = payload.get("unprocessed") or []
+        pinned = payload.get("pinned") or []
     else:
         try:
             unprocessed = get_chats(unprocessed_only=True, limit=limit)
@@ -248,17 +313,15 @@ def consume_captured_inbox(state: dict[str, Any]) -> dict[str, Any]:
     processed_ids: list[int] = []
     _, mark_chat_processed = _load_dashboard_chat_api()
     if mark_chat_processed is None:
-        return {
-            "processed_ids": processed_ids,
-            "processed_count": 0,
-            "captured_total": len(ids),
-        }
-    for chat_id in ids:
-        try:
-            mark_chat_processed(chat_id)
-            processed_ids.append(chat_id)
-        except Exception:
-            continue
+        payload = _dashboard_chat_via_subprocess({"action": "consume", "chat_ids": ids}) or {}
+        processed_ids = [int(item) for item in payload.get("processed_ids") or [] if str(item).strip()]
+    else:
+        for chat_id in ids:
+            try:
+                mark_chat_processed(chat_id)
+                processed_ids.append(chat_id)
+            except Exception:
+                continue
 
     if snapshot:
         snapshot["processed_at"] = now_iso()
