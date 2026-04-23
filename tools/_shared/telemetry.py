@@ -118,6 +118,11 @@ def _append_event(event: dict[str, Any]) -> None:
         pass
 
 
+def _should_emit_legacy_shadow() -> bool:
+    value = (os.environ.get("EDGE_EMIT_LEGACY_SHADOW", "0") or "0").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
 def emit_shadow_event(
     event_type: str,
     *,
@@ -159,13 +164,14 @@ def log_event(event_type: str, **fields: Any) -> None:
     }
     event.update(fields)
     _append_event(event)
-    emit_shadow_event(
-        "LegacyTelemetryObserved",
-        actor=_detect_caller(),
-        cycle_id=fields.get("cycle_id"),
-        artifact=fields.get("artifact"),
-        payload={"legacy_type": event_type, **fields},
-    )
+    if _should_emit_legacy_shadow():
+        emit_shadow_event(
+            "LegacyTelemetryObserved",
+            actor=_detect_caller(),
+            cycle_id=fields.get("cycle_id"),
+            artifact=fields.get("artifact"),
+            payload={"legacy_type": event_type, **fields},
+        )
 
 
 def log_llm_call(
