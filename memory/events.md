@@ -220,6 +220,23 @@ Represents the shadow validation result for continuity claim extraction.
 
 Required later for render/install drift, but defined now so the envelope does not drift again during rollout.
 
+### `InstallRemoved`
+
+```json
+{
+  "type": "InstallRemoved",
+  "artifact": "~/edge/.avatar-gen.py",
+  "payload": {
+    "source_template": "generated:avatar-openai-script",
+    "kind": "file",
+    "reason": "temporary-avatar-cleanup"
+  }
+}
+```
+
+Represents an install-time artifact cleanup so drift projections can distinguish
+durable state from intentional temporary files.
+
 ### `RenderProduced`
 
 ```json
@@ -482,7 +499,7 @@ The first projections depend on this subset:
 
 - `dispatch-completeness` reads `CycleStarted`, `SkillDispatched`, and `CycleClosed`
 - `pipeline-state` reads `PhaseCompleted` and `ArtifactPublished`
-- `render-install-drift` reads `RenderProduced`, `InstallApplied`, and `InstallCheckObserved`
+- `render-install-drift` reads `RenderProduced`, `InstallApplied`, `InstallRemoved`, and `InstallCheckObserved`
 
 ## Compatibility Rule
 

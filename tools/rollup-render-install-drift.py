@@ -46,6 +46,7 @@ def _latest_by_key(existing: dict, key: str, event: dict) -> None:
 def build_projection(limit: int = 20) -> dict:
     render_by_output: dict[str, dict] = {}
     install_by_artifact: dict[str, dict] = {}
+    removed_by_artifact: dict[str, dict] = {}
     checks_by_id: dict[str, dict] = {}
 
     for event in _iter_jsonl(STATE_EVENTS_FILE) or []:
@@ -57,12 +58,22 @@ def build_projection(limit: int = 20) -> dict:
         elif etype == "InstallApplied":
             artifact = str(event.get("artifact") or "")
             _latest_by_key(install_by_artifact, artifact, event)
+        elif etype == "InstallRemoved":
+            artifact = str(event.get("artifact") or "")
+            _latest_by_key(removed_by_artifact, artifact, event)
         elif etype == "InstallCheckObserved":
             check_id = str(payload.get("check_id") or "")
             _latest_by_key(checks_by_id, check_id, event)
 
+    active_installs: dict[str, dict] = {}
+    for artifact, install_event in install_by_artifact.items():
+        removed_event = removed_by_artifact.get(artifact)
+        if removed_event and _parse_ts(removed_event.get("ts")) >= _parse_ts(install_event.get("ts")):
+            continue
+        active_installs[artifact] = install_event
+
     installs_by_source: dict[str, list[dict]] = {}
-    for event in install_by_artifact.values():
+    for event in active_installs.values():
         source_template = str((event.get("payload") or {}).get("source_template") or "")
         installs_by_source.setdefault(source_template, []).append(event)
 
@@ -96,7 +107,7 @@ def build_projection(limit: int = 20) -> dict:
 
     install_without_render = []
     missing_on_disk = []
-    for artifact, install_event in install_by_artifact.items():
+    for artifact, install_event in active_installs.items():
         payload = install_event.get("payload") or {}
         source_template = str(payload.get("source_template") or "")
         if source_template and source_template not in render_by_output and not source_template.startswith(("generated:", "command:")):
@@ -138,7 +149,7 @@ def build_projection(limit: int = 20) -> dict:
         "state_events_path": str(STATE_EVENTS_FILE),
         "summary": {
             "rendered_outputs": len(render_by_output),
-            "installed_artifacts": len(install_by_artifact),
+            "installed_artifacts": len(active_installs),
             "render_linked_installs": linked_installs,
             "rendered_without_install": len(rendered_without_install),
             "install_without_render": len(install_without_render),

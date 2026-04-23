@@ -296,6 +296,43 @@ def log_install_applied(
     )
 
 
+def log_install_removed(
+    artifact: str | os.PathLike[str],
+    *,
+    source_template: str,
+    kind: str,
+    reason: str,
+    dry_run: bool = False,
+    **extra: Any,
+) -> None:
+    """Record one install-time cleanup/removal and dual-write the canonical fact."""
+    artifact_str = os.fspath(artifact)
+    payload = {
+        "source_template": source_template,
+        "kind": kind,
+        "reason": reason,
+        "dry_run": dry_run,
+    }
+    payload.update({k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}})
+
+    log_event(
+        "install_removed",
+        artifact=artifact_str,
+        source_template=source_template,
+        kind=kind,
+        reason=reason,
+        dry_run=dry_run,
+        **extra,
+    )
+    emit_shadow_event(
+        "InstallRemoved",
+        actor=_detect_caller(),
+        artifact=artifact_str,
+        cycle_id=extra.get("cycle_id"),
+        payload=payload,
+    )
+
+
 def log_install_check(
     check_id: str,
     status: str,
