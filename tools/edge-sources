@@ -24,6 +24,12 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 sys.path.insert(0, str(SCRIPT_DIR.parent / "tools"))
 from paths import TOOLS_DIR, SECRETS_DIR
 from _shared.telemetry import log_primitive_call, log_run_step, log_source_query
+from _shared.search_runtime import (
+    clear_builtin_web_search_allowance,
+    load_exa_api_key,
+    load_search_policy,
+    write_builtin_web_search_allowance,
+)
 
 # --- Routing table: intent -> sources ---
 ROUTING = {
@@ -242,12 +248,7 @@ def search_hf_papers(topic):
 def search_exa(topic):
     """Search Exa API (semantic web search)."""
     try:
-        secrets = SECRETS_DIR / "exa.env"
-        api_key = None
-        if secrets.exists():
-            for line in secrets.read_text().splitlines():
-                if line.startswith("EXA_API_KEY="):
-                    api_key = line.split("=", 1)[1].strip()
+        api_key = load_exa_api_key()
         if not api_key:
             return [{"title": "Exa: no API key", "url": "", "source": "Exa", "detail": "Set EXA_API_KEY in secrets/exa.env", "score": 0}]
         body = json.dumps({
@@ -325,6 +326,42 @@ def run_sources(topic, sources, max_workers=6):
     return all_results
 
 
+def _has_usable_results(items):
+    usable = [
+        item for item in items or []
+        if item.get("url") and "error" not in str(item.get("title", "")).lower()
+    ]
+    return bool(usable)
+
+
+def _maybe_unlock_builtin_web_search(topic, sources, results_by_source):
+    policy = load_search_policy()
+    provider = str(policy.get("web_provider") or "").strip().lower()
+    if bool(policy.get("builtin_web_search")) or provider != "exa":
+        clear_builtin_web_search_allowance()
+        return None
+    if "exa" not in sources:
+        return None
+
+    exa_items = results_by_source.get("exa") or []
+    if _has_usable_results(exa_items):
+        clear_builtin_web_search_allowance()
+        return None
+
+    allowance = write_builtin_web_search_allowance(
+        "provider_failed_or_empty",
+        query=topic,
+        provider="exa",
+        source="edge-sources",
+        details={
+            "selected_sources": list(sources),
+            "exa_result_count": len(exa_items),
+            "exa_preview": [str(item.get("title") or "")[:160] for item in exa_items[:3]],
+        },
+    )
+    return allowance
+
+
 def format_markdown(topic, intent, results_by_source, wildcard_src=None):
     """Format results as structured markdown."""
     lines = [f"## External Sources — \"{topic}\" (intent: {intent})\n"]
@@ -378,9 +415,9 @@ def format_markdown(topic, intent, results_by_source, wildcard_src=None):
         lines.append(f"- {src}: {ok_count} results{wc}")
     lines.append("")
 
-    # Note about WebSearch
+    # Note about builtin web search policy
     lines.append("### Note")
-    lines.append("WebSearch/WebFetch are not scriptable (Claude tools). To complement, use WebSearch in the conversation context.\n")
+    lines.append("Use this tool before Claude WebSearch/WebFetch. Runtime may unlock builtin web search only after the primary web provider fails or returns nothing useful.\n")
 
     return "\n".join(lines)
 
@@ -481,6 +518,12 @@ def main():
         # Execute
         print(f"Querying {len(sources)} sources for \"{args.topic}\" (intent: {args.intent})...", file=sys.stderr)
         results = run_sources(args.topic, sources)
+        allowance = _maybe_unlock_builtin_web_search(args.topic, sources, results)
+        if allowance is not None:
+            print(
+                "Exa failed or returned no usable hits; unlocked Claude WebSearch/WebFetch fallback temporarily.",
+                file=sys.stderr,
+            )
 
         ok_sources = 0
         total_results = 0

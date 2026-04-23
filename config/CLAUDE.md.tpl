@@ -108,6 +108,9 @@ Always use the maximum thinking/reasoning available. Think deeply before acting.
 - Never evaluate own output — always submit to adversarial review.
 - **Never modify genotype files.** Report bugs in the blog instead.
 - Never skip steps silently.
+- `edge-search` is always fair game. Use it as many times as needed.
+- For open web retrieval, use `edge-sources` before builtin Claude WebSearch/WebFetch.
+- If `config/features.yaml` disables builtin web search, treat WebSearch/WebFetch as runtime-managed fallback only.
 
 ## Heartbeat
 

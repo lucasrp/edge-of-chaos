@@ -21,7 +21,18 @@ sys.path.insert(0, str(edge_dir / "tools"))
 
 from _shared.dispatch_runtime import _epistemic_protocol, _search_protocol, render_skill_runtime_prompt
 
-request = {"skill": "research", "corpus_query": "heartbeat dispatch timeout", "configured_integrations": [], "unbound_integrations": []}
+request = {
+    "skill": "research",
+    "corpus_query": "heartbeat dispatch timeout",
+    "configured_integrations": [],
+    "unbound_integrations": [],
+    "search_runtime": {
+        "builtin_web_search": False,
+        "web_provider": "exa",
+        "web_fallback": "claude_web",
+        "builtin_web_search_unlocked": False,
+    },
+}
 search_protocol = _search_protocol("research", request)
 epistemic_protocol = _epistemic_protocol("research")
 
@@ -47,15 +58,25 @@ state = {
         "duplicate_risk": {},
         "configured_integrations": [],
         "unbound_integrations": [],
+        "search_runtime": {
+            "builtin_web_search": False,
+            "web_provider": "exa",
+            "web_fallback": "claude_web",
+            "builtin_web_search_unlocked": False,
+        },
         "search_protocol": search_protocol,
         "epistemic_protocol": epistemic_protocol,
     }
 }
 prompt = render_skill_runtime_prompt("research", state)
+assert search_protocol["fallback"]["tool"] == "exa"
+assert search_protocol["fallback"]["builtin_web_search"]["enabled"] is False
 assert "search_protocol" in prompt
+assert "search_runtime" in prompt
 assert "epistemic_protocol" in prompt
 assert "first-principles derivation" in prompt
-assert "fall back to web search" in prompt
+assert "configured web provider" in prompt
+assert "do not call `WebSearch`/`WebFetch` directly" in prompt
 PY
 then
     pass "substantive skills get explicit search/epistemic runtime protocol"

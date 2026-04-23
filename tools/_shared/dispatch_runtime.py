@@ -33,6 +33,7 @@ from paths import (  # noqa: E402
 from .continuity import refresh_continuity_projections  # noqa: E402
 from .capability_runtime import build_capability_status, build_configured_integrations, invoke_capability, probe_capability  # noqa: E402
 from .protocol_runtime import emit_protocol_step_observed, ensure_compiled_protocol, protocol_context  # noqa: E402
+from .search_runtime import search_runtime_summary  # noqa: E402
 from .skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
 from .telemetry import emit_shadow_event, log_event, log_run_step, log_workflow_recommended  # noqa: E402
 from .workflow_runtime import build_workflow_status, recommend_workflows  # noqa: E402
@@ -500,6 +501,7 @@ def _search_protocol(skill: str | None, request: dict[str, Any]) -> dict[str, An
     internal_status = _capability_effective_status("search.corpus", request)
     external_status = _capability_effective_status("sources.aggregate", request)
     external_intent = EXTERNAL_SEARCH_INTENTS.get(normalized, "research")
+    runtime_search = request.get("search_runtime") or search_runtime_summary()
     protocol = {
         "required": substantive,
         "policy": "complete before substantive decisions, synthesis, or artifact drafting",
@@ -566,11 +568,17 @@ def _search_protocol(skill: str | None, request: dict[str, Any]) -> dict[str, An
         ],
         "fallback": {
             "allowed": True,
-            "tool": "web_search",
-            "when": "Use web search only after internal required coverage is still missing and the external multi-source search capability fails or returns nothing useful.",
+            "tool": runtime_search.get("web_provider", "exa"),
+            "builtin_web_search": {
+                "enabled": runtime_search.get("builtin_web_search", False),
+                "fallback_provider": runtime_search.get("web_fallback", "claude_web"),
+                "unlocked": runtime_search.get("builtin_web_search_unlocked", False),
+            },
+            "when": "Use edge-search as often as needed. If corpus coverage is still missing and external source fan-out fails or returns nothing useful, use the configured web provider first. When builtin web search is policy-disabled, do not call WebSearch/WebFetch directly unless runtime has explicitly unlocked the fallback window.",
             "must_record": [
                 "why_corpus_or_external_search_was_insufficient",
                 "which_gap_the_web_search_is_covering",
+                "which_provider_failed_or_returned_empty",
             ],
         },
     }
@@ -1092,6 +1100,7 @@ def enrich_dispatch_state(
     request.setdefault("corpus_hits", [])
     request.setdefault("configured_integrations", [])
     request.setdefault("unbound_integrations", [])
+    request["search_runtime"] = search_runtime_summary()
     request["search_protocol"] = _search_protocol(skill, request)
     request["epistemic_protocol"] = _epistemic_protocol(skill)
     request["constraints"] = {
@@ -1127,6 +1136,8 @@ def enrich_dispatch_state(
         "missing_required_corpus_types": list((request.get("corpus_coverage") or {}).get("missing_required_types") or []),
         "configured_integrations": len(request.get("configured_integrations") or []),
         "unbound_integrations": len(request.get("unbound_integrations") or []),
+        "builtin_web_search": (request.get("search_runtime") or {}).get("builtin_web_search"),
+        "web_provider": (request.get("search_runtime") or {}).get("web_provider"),
         "open_claims": claims_summary.get("open_total", 0),
         "orphans": orphan_summary.get("orphan_total", 0),
         "primitive_health": (request.get("primitives_status") or {}).get("health_status"),
@@ -1193,6 +1204,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "duplicate_risk": request.get("duplicate_risk", {}),
         "configured_integrations": request.get("configured_integrations", [])[:12],
         "unbound_integrations": request.get("unbound_integrations", [])[:12],
+        "search_runtime": request.get("search_runtime", {}),
         "search_protocol": request.get("search_protocol", {}),
         "epistemic_protocol": request.get("epistemic_protocol", {}),
         "claims_summary": request.get("claims_summary", {}),
@@ -1228,7 +1240,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "1. Run the required search protocol to consult live memory (`topic`, `workflow`, `memory`) and external sources when available.\n"
         "2. Produce explicit Feynman checkpoints: plain language, first-principles derivation, and a clear boundary of what is still unknown.\n"
         "3. Adversarially interpret the first round, then run at least one more search round guided by the contradictions and unknowns.\n"
-        "4. If internal corpus coverage is still missing and external source fan-out fails or returns nothing useful, fall back to web search and say why.\n"
+        "4. Use `edge-search` as often as needed. If internal corpus coverage is still missing and external source fan-out fails or returns nothing useful, use the configured web provider and say why. When builtin web search is policy-disabled, do not call `WebSearch`/`WebFetch` directly unless runtime has explicitly unlocked the fallback window.\n"
         "5. Configured integrations may exist without a capability binding; those are visible in `configured_integrations` / `unbound_integrations` and may be used ad hoc when explicitly needed, but they do not count as canonical capability use.\n\n"
         "```json\n"
         f"{json.dumps(summary, indent=2, ensure_ascii=False)}\n"

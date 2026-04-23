@@ -675,29 +675,36 @@ def phase_identity(cfg, dry_run):
 # ─── Phase 4b: Hooks (enforcement #218, Peça 2) ───
 
 def phase_hooks(cfg, dry_run):
-    """Install write-guard hook and register it in ~/.claude/settings.json.
-
-    The hook blocks Write/Edit on protected artifact paths unless
-    EDGE_CONSOLIDATE_ACTIVE=1 is set (i.e., consolidate-state is the caller).
-    This enforces the genotype rule: only consolidate-state writes artifacts.
-    """
-    header("4b/8  Hooks (write-guard #218)")
-    hook_src = REPO_ROOT / "hooks" / "write-guard.sh"
-    if not hook_src.exists():
-        warn(f"hooks/write-guard.sh not found at {hook_src} — skipping")
-        return True
+    """Install Claude PreToolUse hooks and register them in settings.json."""
+    header("4b/8  Hooks (write guard + web search policy)")
+    hook_specs = [
+        ("write-guard.sh", "Write|Edit|NotebookEdit"),
+        ("web-search-policy-guard.sh", "WebSearch|WebFetch"),
+    ]
 
     hooks_dst = Path.home() / ".claude" / "hooks"
-    hook_dst = hooks_dst / "write-guard.sh"
 
     if dry_run:
-        print(f"  [DRY] install {hook_src} → {hook_dst}")
-        print(f"  [DRY] patch ~/.claude/settings.json PreToolUse hook")
+        for hook_name, matcher in hook_specs:
+            print(f"  [DRY] install {REPO_ROOT / 'hooks' / hook_name} → {hooks_dst / hook_name}")
+            print(f"  [DRY] patch ~/.claude/settings.json PreToolUse hook ({matcher})")
         return True
 
     _ensure_dir(hooks_dst, phase="hooks", dry_run=False, source_template="hooks")
-    _copy_file(hook_src, hook_dst, phase="hooks", dry_run=False, chmod=0o755)
-    ok(f"Hook installed: {hook_dst}")
+    installed_hooks: list[tuple[str, str]] = []
+    for hook_name, matcher in hook_specs:
+        hook_src = REPO_ROOT / "hooks" / hook_name
+        if not hook_src.exists():
+            warn(f"hooks/{hook_name} not found at {hook_src} — skipping")
+            continue
+        hook_dst = hooks_dst / hook_name
+        _copy_file(hook_src, hook_dst, phase="hooks", dry_run=False, chmod=0o755)
+        installed_hooks.append((str(hook_dst), matcher))
+        ok(f"Hook installed: {hook_dst}")
+
+    if not installed_hooks:
+        warn("No hook scripts installed — skipping ~/.claude/settings.json patch")
+        return True
 
     # Patch ~/.claude/settings.json — add PreToolUse hook for Write/Edit/NotebookEdit
     settings_path = Path.home() / ".claude" / "settings.json"
@@ -711,22 +718,27 @@ def phase_hooks(cfg, dry_run):
 
     hooks_cfg = settings.setdefault("hooks", {})
     pre_tool = hooks_cfg.setdefault("PreToolUse", [])
-
-    hook_cmd = str(hook_dst)
-    already_registered = any(
-        isinstance(entry, dict)
-        and any(
-            isinstance(h, dict) and h.get("command") == hook_cmd
-            for h in entry.get("hooks", [])
+    changed = False
+    for hook_cmd, matcher in installed_hooks:
+        already_registered = any(
+            isinstance(entry, dict)
+            and entry.get("matcher") == matcher
+            and any(
+                isinstance(h, dict) and h.get("command") == hook_cmd
+                for h in entry.get("hooks", [])
+            )
+            for entry in pre_tool
         )
-        for entry in pre_tool
-    )
-
-    if not already_registered:
+        if already_registered:
+            ok(f"PreToolUse hook already registered ({matcher}) — no change")
+            continue
         pre_tool.append({
-            "matcher": "Write|Edit|NotebookEdit",
+            "matcher": matcher,
             "hooks": [{"type": "command", "command": hook_cmd}],
         })
+        changed = True
+
+    if changed:
         _write_json(
             settings_path,
             settings,
@@ -734,9 +746,7 @@ def phase_hooks(cfg, dry_run):
             source_template="generated:hooks:settings",
             dry_run=False,
         )
-        ok("PreToolUse hook registered in ~/.claude/settings.json")
-    else:
-        ok("PreToolUse hook already registered — no change")
+        ok("PreToolUse hooks registered in ~/.claude/settings.json")
 
     return True
 

@@ -7,6 +7,9 @@ review:
   review_gate: auto         # LLM-as-judge no pipeline de publicação (precisa: OPENAI_API_KEY)
 
 search:
+  builtin_web_search: false  # bloqueia WebSearch/WebFetch por default; hook libera so no fallback
+  web_provider: exa          # provider primario para busca web aberta
+  web_fallback: claude_web   # fallback de runtime se o provider primario falhar/zerar
   exa: auto                 # busca semântica via Exa (precisa: EXA_API_KEY)
 
 research:
