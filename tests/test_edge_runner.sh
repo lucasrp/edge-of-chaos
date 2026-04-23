@@ -293,6 +293,39 @@ fi
 echo "--- Test 5: heartbeat dispatch timeout closes explicitly instead of stalling ---"
 unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
 unset MOCK_CLAUDE_EXIT_CODE || true
+export MOCK_CLAUDE_SLEEP_SECONDS=2
+export MOCK_CLAUDE_HEARTBEAT_FLOW=1
+"$RUNNER_TOOL" skill \
+    --skill /ed-heartbeat \
+    --dispatch-trigger heartbeat \
+    --dispatch-policy autonomous \
+    --dispatch-routing-mode auto \
+    --dispatch-preflight-profile heartbeat_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force >/dev/null
+unset MOCK_CLAUDE_SLEEP_SECONDS || true
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+assert dispatch["state"]["close_reason"] in ("", None)
+assert not any(event["type"] == "HeartbeatDispatchTimedOut" for event in events[-20:])
+PY
+then
+    pass "heartbeat dispatch no longer times out by default"
+else
+    fail "heartbeat dispatch no longer times out by default"
+fi
+
+echo "--- Test 6: explicit heartbeat dispatch timeout still closes explicitly instead of stalling ---"
+unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
+unset MOCK_CLAUDE_EXIT_CODE || true
 export MOCK_CLAUDE_SLEEP_SECONDS=3
 export EDGE_HEARTBEAT_DISPATCH_TIMEOUT_SECONDS=1
 set +e

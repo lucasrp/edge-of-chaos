@@ -29,7 +29,15 @@ from _shared.dispatch_runtime import read_dispatch_state, render_skill_runtime_p
 from _shared.telemetry import emit_shadow_event  # noqa: E402
 from _shared.telemetry import log_run_step  # noqa: E402
 
-HEARTBEAT_DISPATCH_TIMEOUT_SECONDS = int(os.environ.get("EDGE_HEARTBEAT_DISPATCH_TIMEOUT_SECONDS", "120") or 120)
+
+def parse_heartbeat_dispatch_timeout_seconds() -> int | None:
+    raw = str(os.environ.get("EDGE_HEARTBEAT_DISPATCH_TIMEOUT_SECONDS", "") or "").strip().lower()
+    if raw in {"", "0", "off", "false", "none", "disabled"}:
+        return None
+    return int(raw)
+
+
+HEARTBEAT_DISPATCH_TIMEOUT_SECONDS = parse_heartbeat_dispatch_timeout_seconds()
 HEARTBEAT_DISPATCH_POLL_SECONDS = float(os.environ.get("EDGE_HEARTBEAT_DISPATCH_POLL_SECONDS", "2") or 2)
 
 
@@ -403,7 +411,11 @@ def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: s
     )
     assert cycle_id is not None
     dispatch_observed = False
-    deadline = time.monotonic() + HEARTBEAT_DISPATCH_TIMEOUT_SECONDS
+    deadline = (
+        time.monotonic() + HEARTBEAT_DISPATCH_TIMEOUT_SECONDS
+        if HEARTBEAT_DISPATCH_TIMEOUT_SECONDS is not None
+        else None
+    )
     while True:
         returncode = proc.poll()
         if returncode is not None:
@@ -418,7 +430,7 @@ def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: s
                 payload={"timeout_seconds": HEARTBEAT_DISPATCH_TIMEOUT_SECONDS},
             )
 
-        if not dispatch_observed and time.monotonic() >= deadline:
+        if not dispatch_observed and deadline is not None and time.monotonic() >= deadline:
             terminate_backend_process(proc)
             emit_shadow_event(
                 "HeartbeatDispatchTimedOut",
