@@ -99,10 +99,10 @@ tool, status_file = sys.argv[1:]
 result = subprocess.run([tool, "status", "--json"], capture_output=True, text=True, check=True)
 payload = json.loads(result.stdout)
 assert payload["summary"]["declared_total"] == 2
-assert payload["summary"]["declared_only_total"] == 2
+assert payload["summary"]["degraded_total"] == 2
 rows = {row["name"]: row for row in payload["sources"]}
-assert rows["arxiv"]["effective_status"] == "declared"
-assert rows["exa"]["effective_status"] == "declared"
+assert rows["arxiv"]["effective_status"] == "degraded"
+assert rows["exa"]["effective_status"] == "degraded"
 assert Path(status_file).exists()
 PY
 then
@@ -132,9 +132,9 @@ tool = sys.argv[1]
 payload = json.loads(subprocess.run([tool, "status", "--json"], capture_output=True, text=True, check=True).stdout)
 rows = {row["name"]: row for row in payload["sources"]}
 assert payload["summary"]["probed_total"] == 1
-assert payload["summary"]["declared_only_total"] == 1
+assert payload["summary"]["degraded_total"] == 1
 assert rows["arxiv"]["effective_status"] == "probed"
-assert rows["exa"]["effective_status"] == "declared"
+assert rows["exa"]["effective_status"] == "degraded"
 assert rows["arxiv"]["probe_status"] == "ok"
 PY
 then
@@ -143,7 +143,7 @@ else
     fail "lifecycle transitions update status to probed"
 fi
 
-echo "--- Test 4: missing active binary is reported as drifted ---"
+echo "--- Test 4: missing active binary is reported as degraded ---"
 rm -f "$LIBEXEC_DIR/arxiv"
 if python3 - <<'PY' "$STATUS_TOOL"
 import json
@@ -153,13 +153,13 @@ import sys
 tool = sys.argv[1]
 payload = json.loads(subprocess.run([tool, "status", "--json"], capture_output=True, text=True, check=True).stdout)
 rows = {row["name"]: row for row in payload["sources"]}
-assert payload["summary"]["drifted_total"] == 1
-assert rows["arxiv"]["effective_status"] == "drifted"
+assert payload["summary"]["degraded_total"] == 2
+assert rows["arxiv"]["effective_status"] == "degraded"
 PY
 then
-    pass "status reports drift when active binary disappears"
+    pass "status reports degraded when active binary disappears"
 else
-    fail "status reports drift when active binary disappears"
+    fail "status reports degraded when active binary disappears"
 fi
 
 echo ""

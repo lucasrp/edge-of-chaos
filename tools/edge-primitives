@@ -31,12 +31,10 @@ from paths import (  # noqa: E402
 WINDOW_DAYS = 30
 STATUS_ORDER = {
     "broken": 0,
-    "drifted": 1,
+    "degraded": 1,
     "probed": 2,
     "active": 3,
-    "contract-only": 4,
-    "declared": 5,
-    "unknown": 6,
+    "unknown": 4,
 }
 
 
@@ -208,15 +206,17 @@ def _effective_status(
     if binary_exists and probe_ok is False:
         return "broken", problems + ["last_probe_failed"]
     if problems:
-        return "drifted", problems
+        return "degraded", problems
     if binary_exists and probe_ok is True:
         return "probed", problems
     if binary_exists:
         return "active", problems
-    if meta_exists or manifest_status == "contract-only":
-        return "contract-only", problems
     if declared or manifest_status == "declared" or manifest_exists:
-        return "declared", problems
+        if meta_exists:
+            problems.append("not_activated")
+        else:
+            problems.append("declared_not_activated")
+        return "degraded", problems
     return "unknown", problems
 
 
@@ -280,7 +280,8 @@ def build_status(config_path: Path | None = None) -> dict:
     sources.sort(key=lambda row: (STATUS_ORDER.get(row["effective_status"], 99), row["name"]))
     counts = Counter(row["effective_status"] for row in sources)
     broken_total = counts.get("broken", 0)
-    drifted_total = counts.get("drifted", 0)
+    degraded_total = counts.get("degraded", 0)
+    manifest_status_counts = Counter((row.get("manifest_status") or "unknown") for row in sources)
     summary = {
         "generated_at": now.isoformat(),
         "window_days": WINDOW_DAYS,
@@ -289,17 +290,16 @@ def build_status(config_path: Path | None = None) -> dict:
         "manifest_total": sum(1 for row in sources if row["manifest_exists"]),
         "meta_total": sum(1 for row in sources if row["meta_exists"]),
         "binary_total": sum(1 for row in sources if row["binary_exists"]),
-        "declared_only_total": counts.get("declared", 0),
-        "contract_only_total": counts.get("contract-only", 0),
+        "degraded_total": degraded_total,
         "active_total": counts.get("active", 0),
         "probed_total": counts.get("probed", 0),
         "broken_total": broken_total,
-        "drifted_total": drifted_total,
         "missing_127_30d_total": sum(row["missing_127_30d"] for row in sources),
         "missing_77_30d_total": sum(row["missing_77_30d"] for row in sources),
         "usage_30d_total": sum(row["usage_30d"] for row in sources),
         "counts_by_effective_status": dict(sorted(counts.items(), key=lambda item: (STATUS_ORDER.get(item[0], 99), item[0]))),
-        "health_status": "fail" if broken_total else "degraded" if drifted_total else "ok",
+        "counts_by_manifest_status": dict(sorted(manifest_status_counts.items())),
+        "health_status": "fail" if broken_total else "degraded" if degraded_total else "ok",
     }
     payload = {
         "generated_at": now.isoformat(),
@@ -320,11 +320,10 @@ def print_human(payload: dict) -> None:
     print(
         "primitives:"
         f" declared={summary['declared_total']}"
-        f" contract_only={summary['contract_only_total']}"
+        f" degraded={summary['degraded_total']}"
         f" active={summary['active_total']}"
         f" probed={summary['probed_total']}"
         f" broken={summary['broken_total']}"
-        f" drifted={summary['drifted_total']}"
         f" health={summary['health_status']}"
     )
     for row in payload["sources"]:

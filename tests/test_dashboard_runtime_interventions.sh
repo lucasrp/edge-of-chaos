@@ -79,11 +79,10 @@ cat >"$TMP_STATE/state/primitives-status.json" <<'JSON'
   "summary": {
     "window_days": 30,
     "declared_total": 2,
-    "contract_only_total": 0,
+    "degraded_total": 0,
     "active_total": 1,
     "probed_total": 0,
     "broken_total": 1,
-    "drifted_total": 0,
     "usage_30d_total": 12,
     "counts_by_effective_status": {
       "broken": 1,

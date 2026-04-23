@@ -30,16 +30,19 @@ from .telemetry import log_capability_invocation, log_capability_probe_completed
 WINDOW_DAYS = 30
 STATUS_ORDER = {
     "broken": 0,
-    "drifted": 1,
-    "missing": 2,
-    "optional-missing": 3,
-    "probed": 4,
-    "active": 5,
-    "available": 6,
-    "contract-only": 7,
-    "declared": 8,
-    "unknown": 9,
+    "degraded": 1,
+    "probed": 2,
+    "active": 3,
+    "available": 4,
+    "unknown": 5,
 }
+
+
+def _normalize_effective_status(value: Any) -> str:
+    status = str(value or "unknown").strip() or "unknown"
+    if status in {"missing", "optional-missing", "drifted", "contract-only", "declared"}:
+        return "degraded"
+    return status
 
 
 def _normalize_skill(skill: str | None) -> str:
@@ -201,12 +204,9 @@ def _static_capability_row(item: dict[str, Any], *, invocations: dict[str, Any],
     elif available:
         effective_status = "available"
         problems = []
-    elif required:
-        effective_status = "missing"
-        problems = ["required_command_missing"]
     else:
-        effective_status = "optional-missing"
-        problems = ["optional_command_missing"]
+        effective_status = "degraded"
+        problems = ["required_command_missing" if required else "optional_command_missing"]
     skills = item.get("skills") or []
     normalized_skill = _normalize_skill(skill)
     return {
@@ -239,7 +239,7 @@ def _primitive_capability_row(item: dict[str, Any], *, invocations: dict[str, An
     name = f"source.{item.get('name')}"
     probe_event = probes.get(name, {})
     invocation_event = invocations.get(name, {})
-    effective_status = str(item.get("effective_status") or "unknown")
+    effective_status = _normalize_effective_status(item.get("effective_status"))
     normalized_skill = _normalize_skill(skill)
     return {
         "name": name,
@@ -285,14 +285,13 @@ def build_capability_status(*, skill: str | None = None) -> dict[str, Any]:
     rows.sort(key=lambda row: (STATUS_ORDER.get(str(row.get("effective_status") or "unknown"), 99), str(row.get("name") or "")))
     counts = Counter(str(row.get("effective_status") or "unknown") for row in rows)
     kind_counts = Counter(str(row.get("kind") or "unknown") for row in rows)
-    required_missing_total = sum(1 for row in rows if row.get("effective_status") == "missing" and row.get("required"))
+    required_degraded_total = sum(1 for row in rows if row.get("effective_status") == "degraded" and row.get("required"))
     broken_total = counts.get("broken", 0)
-    drifted_total = counts.get("drifted", 0)
-    optional_missing_total = counts.get("optional-missing", 0)
-    if required_missing_total or broken_total:
+    degraded_total = counts.get("degraded", 0)
+    if required_degraded_total or broken_total:
         health_status = "fail"
-    elif drifted_total or optional_missing_total:
-        health_status = "warn"
+    elif degraded_total:
+        health_status = "degraded"
     else:
         health_status = "ok"
 
@@ -314,10 +313,10 @@ def build_capability_status(*, skill: str | None = None) -> dict[str, Any]:
         "static_total": sum(1 for row in rows if row.get("source") == "static_registry"),
         "primitive_total": sum(1 for row in rows if row.get("source") == "primitives_status"),
         "available_total": sum(1 for row in rows if row.get("effective_status") in {"available", "active", "probed"}),
-        "missing_total": counts.get("missing", 0),
-        "optional_missing_total": optional_missing_total,
+        "degraded_total": degraded_total,
+        "required_degraded_total": required_degraded_total,
+        "optional_degraded_total": max(0, degraded_total - required_degraded_total),
         "broken_total": broken_total,
-        "drifted_total": drifted_total,
         "counts_by_effective_status": dict(sorted(counts.items(), key=lambda item: (STATUS_ORDER.get(item[0], 99), item[0]))),
         "counts_by_kind": dict(sorted(kind_counts.items())),
         "health_status": health_status,
@@ -354,7 +353,7 @@ def invoke_capability(name: str, argv: list[str], *, skill: str | None = None) -
     if not command:
         raise RuntimeError(f"capability has no command: {name}")
     effective_status = str(capability.get("effective_status") or "unknown")
-    if effective_status in {"missing", "optional-missing", "contract-only", "declared"}:
+    if effective_status == "degraded":
         raise RuntimeError(f"capability unavailable: {name} ({effective_status})")
     final_cmd = command + (argv if capability.get("passthrough", True) else [])
     started = time.monotonic()

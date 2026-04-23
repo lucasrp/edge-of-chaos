@@ -419,11 +419,10 @@ def _capabilities_dimension(events: list[dict[str, Any]], capabilities_status: d
     capability_invokes, capability_invoke_fail, capability_probe_fail, primitive_probe_fail = _capability_events(events)
 
     available = int(cap_summary.get("available_total", 0) or 0)
-    missing = int(cap_summary.get("missing_total", 0) or 0)
+    degraded = int(cap_summary.get("degraded_total", 0) or 0)
     broken = int(cap_summary.get("broken_total", 0) or 0)
-    drifted = int(cap_summary.get("drifted_total", 0) or 0)
     primitive_broken = int(primitive_summary.get("broken_total", 0) or 0)
-    primitive_drifted = int(primitive_summary.get("drifted_total", 0) or 0)
+    primitive_degraded = int(primitive_summary.get("degraded_total", 0) or 0)
     never_used_available = sum(
         1
         for row in cap_rows
@@ -432,23 +431,22 @@ def _capabilities_dimension(events: list[dict[str, Any]], capabilities_status: d
     primitive_never_used = sum(
         1
         for row in sources
-        if str(row.get("effective_status")) in {"active", "probed", "contract-only"} and int(row.get("usage_30d", 0) or 0) == 0
+        if str(row.get("effective_status")) in {"active", "probed"} and int(row.get("usage_30d", 0) or 0) == 0
     )
     total_invocations = sum(capability_invokes.values())
     total_invoke_fail = sum(capability_invoke_fail.values())
     invoke_fail_rate = total_invoke_fail / total_invocations if total_invocations else 0.0
-    if available == 0 and missing == 0 and broken == 0 and drifted == 0 and primitive_broken == 0 and primitive_drifted == 0 and total_invocations == 0:
+    if available == 0 and degraded == 0 and broken == 0 and primitive_broken == 0 and primitive_degraded == 0 and total_invocations == 0:
         return {
             "status": "unknown",
             "score": 50,
             "detail": "no capability evidence yet",
             "metrics": {
                 "available_capabilities": 0,
-                "missing_capabilities": 0,
+                "degraded_capabilities": 0,
                 "broken_capabilities": 0,
-                "drifted_capabilities": 0,
+                "degraded_primitives": 0,
                 "broken_primitives": 0,
-                "drifted_primitives": 0,
                 "never_used_available_capabilities": 0,
                 "never_used_primitives": 0,
                 "capability_invocations_30d": 0,
@@ -461,30 +459,33 @@ def _capabilities_dimension(events: list[dict[str, Any]], capabilities_status: d
 
     score = 100
     score -= min(broken * 15, 40)
-    score -= min(drifted * 8, 20)
+    score -= min(degraded * 8, 20)
     score -= min(primitive_broken * 15, 30)
-    score -= min(primitive_drifted * 8, 20)
-    score -= min(missing * 5, 20)
+    score -= min(primitive_degraded * 8, 20)
     if available > 0:
         score -= min(round((never_used_available / max(available, 1)) * 20), 20)
     if total_invocations:
         score -= min(round(invoke_fail_rate * 30), 30)
     score = max(0, min(100, score))
+    status = _dimension_status(score)
+    if broken or primitive_broken:
+        status = "fail"
+    elif status == "ok" and (degraded or primitive_degraded):
+        status = "degraded"
 
     return {
-        "status": _dimension_status(score),
+        "status": status,
         "score": score,
         "detail": (
-            f"available={available} missing={missing} broken={broken} drifted={drifted} "
-            f"primitive_broken={primitive_broken} primitive_drifted={primitive_drifted}"
+            f"available={available} degraded={degraded} broken={broken} "
+            f"primitive_broken={primitive_broken} primitive_degraded={primitive_degraded}"
         ),
         "metrics": {
             "available_capabilities": available,
-            "missing_capabilities": missing,
+            "degraded_capabilities": degraded,
             "broken_capabilities": broken,
-            "drifted_capabilities": drifted,
+            "degraded_primitives": primitive_degraded,
             "broken_primitives": primitive_broken,
-            "drifted_primitives": primitive_drifted,
             "never_used_available_capabilities": never_used_available,
             "never_used_primitives": primitive_never_used,
             "capability_invocations_30d": total_invocations,

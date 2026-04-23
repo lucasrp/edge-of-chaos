@@ -199,7 +199,7 @@ def _primitives_status() -> dict[str, Any]:
             "usage_30d": item.get("usage_30d", 0),
         }
         for item in sources[:5]
-        if item.get("effective_status") in {"broken", "drifted"}
+        if item.get("effective_status") in {"broken", "degraded"}
     ]
     return {
         "health_status": summary.get("health_status", "unknown"),
@@ -237,7 +237,7 @@ def _capabilities_status(skill: str | None = None) -> dict[str, Any]:
             "description": item.get("description", ""),
         }
         for item in (payload.get("capabilities") or [])
-        if item.get("effective_status") in {"missing", "optional-missing", "broken", "drifted"}
+        if item.get("effective_status") in {"broken", "degraded"}
     ][:5]
     return {
         "health_status": summary.get("health_status", "unknown"),

@@ -93,16 +93,15 @@ cat >"$TMP_STATE/state/primitives-status.json" <<'JSON'
   "summary": {
     "window_days": 30,
     "declared_total": 3,
-    "contract_only_total": 1,
+    "degraded_total": 1,
     "active_total": 1,
     "probed_total": 0,
     "broken_total": 1,
-    "drifted_total": 0,
     "usage_30d_total": 17,
     "counts_by_effective_status": {
       "broken": 1,
       "active": 1,
-      "contract-only": 1
+      "degraded": 1
     },
     "health_status": "fail"
   },
@@ -125,7 +124,7 @@ cat >"$TMP_STATE/state/primitives-status.json" <<'JSON'
     },
     {
       "name": "overleaf",
-      "effective_status": "contract-only",
+      "effective_status": "degraded",
       "probe_status": "unknown",
       "usage_30d": 2,
       "manifest_status": "contract-only",
@@ -183,7 +182,7 @@ assert data["runtime_skill_evidence"]["skill_runs_total"] == 2
 assert data["runtime_primitives"]["available"] is True
 assert data["runtime_primitives"]["health_status"] == "fail"
 assert data["runtime_primitives"]["declared_total"] == 3
-assert data["runtime_primitives"]["contract_only_total"] == 1
+assert data["runtime_primitives"]["degraded_total"] == 1
 assert data["runtime_primitives"]["broken_total"] == 1
 assert data["runtime_primitives"]["usage_30d_total"] == 17
 assert data["runtime_autonomy"]["available"] is True
@@ -196,7 +195,7 @@ text = partial.get_data(as_text=True)
 assert "runtime transparency" in text
 assert "reflection" in text
 assert "primitives status" in text
-assert "contract-only" in text
+assert "degraded" in text
 assert "broken" in text
 assert "GAP-101" in text
 print("ok")

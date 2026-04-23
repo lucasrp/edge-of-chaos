@@ -59,9 +59,9 @@ def before_snapshot(state: dict[str, Any]) -> dict[str, Any]:
         "claims_open_total": int(claims_summary.get("open_total", 0) or 0),
         "orphans_total": int(orphan_summary.get("orphan_total", 0) or 0),
         "primitive_broken_total": int((primitives_status.get("summary") or {}).get("broken_total", 0) or 0),
-        "primitive_drifted_total": int((primitives_status.get("summary") or {}).get("drifted_total", 0) or 0),
+        "primitive_degraded_total": int((primitives_status.get("summary") or {}).get("degraded_total", 0) or 0),
         "capability_broken_total": int((capabilities_status.get("summary") or {}).get("broken_total", 0) or 0),
-        "capability_missing_total": int((capabilities_status.get("summary") or {}).get("missing_total", 0) or 0),
+        "capability_degraded_total": int((capabilities_status.get("summary") or {}).get("degraded_total", 0) or 0),
         "workflow_broken_total": int(workflow_status.get("broken_total", 0) or 0),
         "workflow_stale_total": int(workflow_status.get("stale_total", 0) or 0),
     }
@@ -180,7 +180,7 @@ def refresh_capabilities_status(skill: str | None = None) -> dict[str, Any]:
     detail = (
         f"health={summary.get('health_status', 'unknown')} "
         f"available={summary.get('available_total', 0)} "
-        f"missing={summary.get('missing_total', 0)} "
+        f"degraded={summary.get('degraded_total', 0)} "
         f"broken={summary.get('broken_total', 0)}"
     )
     append_postskill_log("capabilities_status", "OK", detail)
@@ -223,9 +223,9 @@ def compute_delta(
         "claims_open_delta": int(digest.get("open_total", 0) or 0) - before["claims_open_total"],
         "orphans_delta": int(orphans.get("orphan_total", 0) or 0) - before["orphans_total"],
         "primitive_broken_delta": int(primitives_summary.get("broken_total", 0) or 0) - before["primitive_broken_total"],
-        "primitive_drifted_delta": int(primitives_summary.get("drifted_total", 0) or 0) - before["primitive_drifted_total"],
+        "primitive_degraded_delta": int(primitives_summary.get("degraded_total", 0) or 0) - before["primitive_degraded_total"],
         "capability_broken_delta": int(capabilities_summary.get("broken_total", 0) or 0) - before["capability_broken_total"],
-        "capability_missing_delta": int(capabilities_summary.get("missing_total", 0) or 0) - before["capability_missing_total"],
+        "capability_degraded_delta": int(capabilities_summary.get("degraded_total", 0) or 0) - before["capability_degraded_total"],
         "workflow_broken_delta": int(workflow_summary.get("broken_total", 0) or 0) - before["workflow_broken_total"],
         "workflow_stale_delta": int(workflow_summary.get("stale_total", 0) or 0) - before["workflow_stale_total"],
     }
@@ -321,7 +321,7 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
                 "usage_30d": item.get("usage_30d", 0),
             }
             for item in (primitives_payload.get("sources") or [])[:5]
-            if item.get("effective_status") in {"broken", "drifted"}
+            if item.get("effective_status") in {"broken", "degraded"}
         ],
     }
     capabilities_payload = capabilities_refresh["payload"] or {}
@@ -337,7 +337,7 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
                 "description": item.get("description", ""),
             }
             for item in (capabilities_payload.get("capabilities") or [])
-            if item.get("effective_status") in {"missing", "optional-missing", "broken", "drifted"}
+            if item.get("effective_status") in {"broken", "degraded"}
         ][:5],
     }
     workflow_summary = workflows_payload.get("summary") or {}

@@ -65,13 +65,13 @@ import json, sys
 payload = json.loads(sys.argv[1])
 summary = payload["summary"]
 assert summary["capability_total"] >= 5
-assert summary["health_status"] == "warn"
+assert summary["health_status"] == "degraded"
 names = {item["name"]: item for item in payload["capabilities"]}
 assert names["search.corpus"]["effective_status"] == "available"
 assert names["sources.aggregate"]["effective_status"] == "available"
 assert names["workflow.recommend"]["effective_status"] == "available"
 assert names["repo.status"]["effective_status"] == "available"
-assert names["storage.sync"]["effective_status"] == "optional-missing"
+assert names["storage.sync"]["effective_status"] == "degraded"
 assert names["source.arxiv"]["effective_status"] in {"active", "probed"}
 recommended = {item["name"] for item in payload["recommended"]}
 assert "search.corpus" in recommended

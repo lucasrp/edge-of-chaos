@@ -78,13 +78,13 @@ cat >"$TMP_STATE/state/primitives-status.json" <<'JSON'
     "health_status": "degraded",
     "declared_total": 3,
     "broken_total": 1,
-    "drifted_total": 1,
+    "degraded_total": 1,
     "usage_30d_total": 9
   },
   "sources": [
     {"name":"arxiv","effective_status":"active","usage_30d":4},
     {"name":"exa","effective_status":"broken","usage_30d":0},
-    {"name":"grafana","effective_status":"contract-only","usage_30d":0}
+    {"name":"grafana","effective_status":"degraded","usage_30d":0}
   ]
 }
 JSON
@@ -95,15 +95,16 @@ cat >"$TMP_STATE/state/capabilities-status.json" <<'JSON'
     "health_status": "degraded",
     "capability_total": 4,
     "available_total": 2,
-    "missing_total": 1,
+    "degraded_total": 1,
     "broken_total": 1,
-    "drifted_total": 0
+    "required_degraded_total": 0,
+    "optional_degraded_total": 1
   },
   "capabilities": [
     {"name":"source.arxiv","effective_status":"available","invoke_30d":0},
     {"name":"source.github","effective_status":"available","invoke_30d":2},
     {"name":"search.corpus","effective_status":"broken","invoke_30d":1},
-    {"name":"storage.sync","effective_status":"missing","invoke_30d":0}
+    {"name":"storage.sync","effective_status":"degraded","invoke_30d":0}
   ]
 }
 JSON
