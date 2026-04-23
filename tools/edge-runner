@@ -23,7 +23,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import EDGE_REPO_DIR  # noqa: E402
+from paths import EDGE_REPO_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.dispatch_runtime import read_dispatch_state, render_skill_runtime_prompt  # noqa: E402
 from _shared.telemetry import emit_shadow_event  # noqa: E402
@@ -248,6 +248,75 @@ def dispatch_state_matches(cycle_id: str) -> dict | None:
     return state
 
 
+def iter_jsonl(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return rows
+
+
+def iso_ge(left: str | None, right: str | None) -> bool:
+    if not left or not right:
+        return False
+    try:
+        left_dt = datetime.fromisoformat(left)
+        right_dt = datetime.fromisoformat(right)
+    except ValueError:
+        return False
+    if left_dt.tzinfo is None:
+        left_dt = left_dt.replace(tzinfo=timezone.utc)
+    if right_dt.tzinfo is None:
+        right_dt = right_dt.replace(tzinfo=timezone.utc)
+    return left_dt >= right_dt
+
+
+def normalize_skill_name(skill: str | None) -> str:
+    return str(skill or "").strip().lstrip("/")
+
+
+def skill_run_completed_for_cycle(cycle_id: str, skill: str | None) -> bool:
+    state = dispatch_state_matches(cycle_id)
+    if not state:
+        return False
+    requested_skill = normalize_skill_name(skill)
+    if not requested_skill:
+        return False
+    state_block = state.get("state", {}) or {}
+    threshold = state_block.get("dispatched_at") or state_block.get("opened_at")
+
+    accepted = {requested_skill, f"/{requested_skill}"}
+    for event in reversed(iter_jsonl(STATE_EVENTS_FILE)):
+        if event.get("type") != "SkillRunCompleted":
+            continue
+        if event.get("cycle_id") != cycle_id:
+            continue
+        payload = event.get("payload", {}) or {}
+        event_skill = normalize_skill_name(payload.get("skill"))
+        registry_skill = normalize_skill_name(payload.get("registry_skill"))
+        if event_skill not in accepted and registry_skill not in accepted:
+            continue
+        if threshold and not iso_ge(event.get("ts"), threshold):
+            continue
+        return True
+
+    for row in reversed(iter_jsonl(SKILL_STEPS_FILE)):
+        if row.get("event") != "end":
+            continue
+        if normalize_skill_name(row.get("skill")) not in accepted and normalize_skill_name(row.get("registry_skill")) not in accepted:
+            continue
+        if threshold and not iso_ge(row.get("ts"), threshold):
+            continue
+        return True
+    return False
+
+
 def heartbeat_dispatch_completed(cycle_id: str) -> bool:
     state = dispatch_state_matches(cycle_id)
     if not state:
@@ -256,6 +325,31 @@ def heartbeat_dispatch_completed(cycle_id: str) -> bool:
     state_block = state.get("state", {}) or {}
     skill = str(request.get("skill") or "").strip()
     return bool(state_block.get("skill_dispatched") and skill and not skill.endswith("heartbeat"))
+
+
+def dispatched_follow_on_skill(args: argparse.Namespace, cycle_id: str | None) -> str | None:
+    if not cycle_id or args.cmd != "skill":
+        return None
+    initial_skill = normalize_skill_name(args.skill)
+    if not initial_skill.endswith("heartbeat"):
+        return None
+    state = dispatch_state_matches(cycle_id)
+    if not state:
+        return None
+    request = state.get("request", {}) or {}
+    state_block = state.get("state", {}) or {}
+    dispatched_skill = normalize_skill_name(request.get("skill"))
+    if not state_block.get("skill_dispatched"):
+        return None
+    if not dispatched_skill or dispatched_skill == initial_skill or dispatched_skill.endswith("heartbeat"):
+        return None
+    return dispatched_skill
+
+
+def make_follow_on_skill_args(args: argparse.Namespace, skill_name: str) -> argparse.Namespace:
+    follow_on = argparse.Namespace(**vars(args))
+    follow_on.skill = f"/{normalize_skill_name(skill_name)}"
+    return follow_on
 
 
 def terminate_backend_process(proc: subprocess.Popen[bytes | str]) -> None:
@@ -340,22 +434,36 @@ def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: s
         time.sleep(HEARTBEAT_DISPATCH_POLL_SECONDS)
 
 
-def maybe_mark_prompt_completion(args: argparse.Namespace, cycle_id: str | None, exit_code: int) -> None:
-    if args.cmd != "prompt" or not cycle_id or exit_code != 0:
+def maybe_mark_skill_completion(skill: str, cycle_id: str | None, exit_code: int) -> None:
+    if not cycle_id or exit_code != 0:
+        return
+    normalized = normalize_skill_name(skill)
+    if not normalized:
+        return
+    state = dispatch_state_matches(cycle_id)
+    if not state:
+        return
+    current_skill = normalize_skill_name((state.get("request", {}) or {}).get("skill"))
+    if normalized != current_skill:
+        return
+    if not (state.get("state", {}) or {}).get("skill_dispatched") and normalized != "prompt":
+        return
+    if skill_run_completed_for_cycle(cycle_id, normalized):
         return
     emit_shadow_event(
         "SkillRunCompleted",
         actor="edge-runner",
         cycle_id=cycle_id,
         payload={
-            "skill": "prompt",
-            "registry_skill": "prompt",
+            "skill": normalized,
+            "registry_skill": normalized,
             "event": "end",
             "expected": 1,
             "done": 1,
             "explicit_skips": 0,
             "silent_skips": [],
             "completion_pct": 100,
+            "completion_source": "edge_runner_fallback",
         },
     )
 
@@ -423,10 +531,43 @@ def main() -> int:
             )
 
         exit_code = invoke_backend(args, env, cycle_id=cycle_id)
-        maybe_mark_prompt_completion(args, cycle_id, exit_code)
+        if args.cmd == "prompt":
+            maybe_mark_skill_completion("prompt", cycle_id, exit_code)
+        elif args.cmd == "skill":
+            maybe_mark_skill_completion(args.skill, cycle_id, exit_code)
+
+        follow_on_skill = dispatched_follow_on_skill(args, cycle_id)
+        if follow_on_skill and exit_code == 0:
+            log_run_step(
+                "edge-runner",
+                "handoff",
+                "started",
+                run_id=cycle_id,
+                backend=args.backend,
+                mode=args.cmd,
+                target=follow_on_skill,
+            )
+            follow_on_args = make_follow_on_skill_args(args, follow_on_skill)
+            follow_on_exit = invoke_backend(follow_on_args, env, cycle_id=cycle_id)
+            maybe_mark_skill_completion(follow_on_skill, cycle_id, follow_on_exit)
+            final_status = "completed" if follow_on_exit == 0 else "failed"
+            log_run_step(
+                "edge-runner",
+                "handoff",
+                final_status,
+                run_id=cycle_id,
+                backend=args.backend,
+                mode="skill",
+                target=follow_on_skill,
+                exit_code=follow_on_exit,
+            )
+            if follow_on_exit != 0:
+                exit_code = follow_on_exit
+                close_status = "failed"
+                close_reason = f"dispatched_backend_exit_{follow_on_exit}"
         if exit_code != 0:
             close_status = "failed"
-            close_reason = f"backend_exit_{exit_code}"
+            close_reason = close_reason or f"backend_exit_{exit_code}"
     except KeyboardInterrupt:
         exit_code = 130
         close_status = "aborted"
