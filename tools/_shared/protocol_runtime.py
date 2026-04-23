@@ -44,6 +44,7 @@ _ALLOWED_KINDS: dict[str, set[str]] = {
         "primitives.status",
         "capabilities.status",
         "workflow.status",
+        "curation.digest",
         "briefing.refresh",
         "cycle_health.observe",
         "capability.invoke",

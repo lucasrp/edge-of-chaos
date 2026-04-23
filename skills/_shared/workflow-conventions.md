@@ -109,7 +109,7 @@ Beyond workflow-specific fields, **every blog entry** (research, discovery, stra
 |-------|------|-------------|-------------------|
 | `procedure:` | list of strings | NEW procedure discovered that was NOT covered by workflows recalled from RAG | Atom for crystallization into future workflow |
 | `workflows_used:` | list of slugs | Workflow recalled from RAG that was followed AND produced good results | Reinforcement — boost relevance in RAG |
-| `workflows_broken:` | list of slugs | Workflow recalled from RAG that was followed but FAILED or is outdated | Healing — flag for /ed-corpus-curation to fix/archive |
+| `workflows_broken:` | list of slugs | Workflow recalled from RAG that was followed but FAILED or is outdated | Healing — flag for runtime curation digest / workflow repair |
 
 ### Capture rule
 
@@ -135,14 +135,14 @@ procedure:
 
 ### How the corpus processes these signals
 
-**`workflows_used:`** — `/ed-corpus-curation` counts citations per workflow. Frequently cited workflows gain relevance in RAG (confirmed_useful signal). Never-cited workflows are candidates for decay.
+**`workflows_used:`** — `edge-curation sync` counts citations per workflow. Frequently cited workflows gain relevance in RAG (confirmed_useful signal). Never-cited workflows are candidates for decay.
 
-**`workflows_broken:`** — `/ed-corpus-curation` flags workflows cited as broken. Possible actions:
+**`workflows_broken:`** — `edge-curation sync` flags workflows cited as broken. Possible actions:
 - Update the workflow (if the problem is fixable)
 - Mark as anti-pattern (if the workflow is fundamentally broken)
 - Archive (if the workflow is obsolete)
 
-**`procedure:`** — `/ed-corpus-curation` (mode `procedures`) clusters procedure-claims by similarity. When 3+ claims converge on the same topic, proposes crystallization into a full workflow entry.
+**`procedure:`** — `edge-curation sync` clusters repeated procedure-claims deterministically. When 3+ claims converge on the same topic, it proposes crystallization into a full workflow entry.
 
 ### Full example
 
@@ -180,7 +180,7 @@ Do NOT capture:
 ### Level 2: Workflow entries (molecules — when atoms crystallize)
 
 Create a full workflow entry when:
-1. **3+ similar procedure-claims** already exist in the corpus (detected by /ed-corpus-curation)
+1. **3+ similar procedure-claims** already exist in the corpus (detected by `edge-curation sync`)
 2. **The session combined 2+ capabilities** in a significant way that justifies immediate documentation
 3. **A combination failed** in an instructive way — the anti-pattern prevents rediscovery of the failure
 
@@ -220,18 +220,18 @@ A workflow that fails during execution should be recorded in `debugging.md` and 
 
 ### Reinforcement (workflows_used:)
 
-Workflows cited in `workflows_used:` accumulate a **confirmed_useful** signal. `/ed-corpus-curation` counts citations per workflow entry. The more cited, the more relevant in RAG.
+Workflows cited in `workflows_used:` accumulate a **confirmed_useful** signal. `edge-curation sync` counts citations per workflow entry. The more cited, the more relevant in RAG.
 
 ### Decay (absence of citation)
 
 Workflows never cited in `workflows_used:` lose relevance naturally:
 - `edge-search` records telemetry for each search
-- `/ed-corpus-curation` identifies workflows with no recent citation
+- `edge-curation sync` identifies workflows with no recent citation
 - A workflow with no citation in 60 days is a candidate for archive
 
 ### Healing (workflows_broken:)
 
-Workflows cited in `workflows_broken:` receive a **needs_attention** signal. `/ed-corpus-curation` flags these for action:
+Workflows cited in `workflows_broken:` receive a **needs_attention** signal. `edge-curation sync` flags these for action:
 - If fixable → update the workflow
 - If obsolete → mark as anti-pattern or archive
 - If multiple entries cite the same workflow as broken → high priority

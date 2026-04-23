@@ -164,7 +164,7 @@ if command -v edge-crystallize &>/dev/null; then
   fi
 
   if [ "$curation_stale" = true ]; then
-    # Run corpus-curation in procedures mode (silent, no LLM)
+    # Probe deterministic workflow crystallization signals (silent, no LLM)
     edge-crystallize --dry-run 2>/dev/null | grep -q "candidate" && \
       SIGNALS+=("CURATION:crystallization candidates detected")
   fi

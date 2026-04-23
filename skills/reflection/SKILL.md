@@ -281,41 +281,22 @@ else:
 echo "Procedures: $PROC_COUNT entries with procedures, last curation: $LAST_CURATION"
 ```
 
-**Trigger to dispatch `/ed-corpus-curation procedures`:**
+**Trigger runtime curation maintenance (`edge-curation sync` in postflight):**
 - More than 10 entries with procedures since last curation, OR
 - Last procedure curation was more than 14 days ago
 
-If trigger active → **write to the persistent dispatch queue** AND include as one of the HN-Output insights:
+If trigger active → **record it as a high-priority runtime maintenance gap** AND include as one of the HN-Output insights:
 
 ```bash
-# Write dispatch to persistent queue (survives between sessions)
-python3 -c "
-import json, os
-from datetime import datetime
-f = os.path.expanduser('~/edge/state/dispatch-queue.json')
-queue = json.load(open(f)) if os.path.exists(f) else []
-# Avoid duplicate dispatches
-if not any(d.get('skill') == 'corpus-curation procedures' for d in queue):
-    queue.append({
-        'skill': 'corpus-curation procedures',
-        'source': 'reflection/HN-7',
-        'reason': f'Procedure accumulation: {PROC_COUNT} entries, last curation: {LAST_CURATION}',
-        'created': datetime.now().isoformat()
-    })
-    with open(f, 'w') as fh:
-        json.dump(queue, fh, indent=2)
-    print('DISPATCH queued: corpus-curation procedures')
-else:
-    print('DISPATCH already queued: corpus-curation procedures')
-" 2>/dev/null
+echo "Procedure accumulation should be surfaced in postflight attention and curation digest"
 ```
 
 HN-Output insight:
 ```
-[DISPATCH] Procedure accumulation detected (N entries, last curation: DATE) → /ed-corpus-curation procedures (queued in dispatch-queue.json)
+[MAINTENANCE] Procedure accumulation detected (N entries, last curation: DATE) → edge-curation sync should surface new crystallization candidates in postflight
 ```
 
-The next heartbeat reads `dispatch-queue.json` before the round-robin and dispatches the queued skill. **Corpus-curation generates an HTML report** (via YAML spec + consolidate-state) as its main deliverable — the report is what the operator will see.
+The next postflight/maintenance cycle should refresh `procedure-curation.json` and `curation-digest.json`. Reflection should treat those artifacts as the procedural source of truth.
 
 ### HN-Output: Synthesize
 

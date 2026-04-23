@@ -5,7 +5,7 @@ Reads `workflow_transition` events from `logs/events.jsonl` and produces
 `state/workflow-funnel.json` counting transitions: claim → cluster → draft →
 approved → cited → broken → healed → retired.
 
-Consumers: /ed-corpus-curation procedures, /ed-autonomy.
+Consumers: edge-curation sync, /ed-autonomy.
 """
 
 from __future__ import annotations

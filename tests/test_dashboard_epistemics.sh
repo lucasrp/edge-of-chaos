@@ -25,7 +25,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$TMP_STATE/blog/entries" "$TMP_STATE/state/signals" "$TMP_STATE/threads" "$TMP_HOME/.claude/projects/test-project/memory/topics"
+mkdir -p "$TMP_STATE/blog/entries" "$TMP_STATE/state/signals" "$TMP_STATE/threads" "$TMP_STATE/topics"
 
 if [ -f "$STRATEGY_FILE" ]; then cp "$STRATEGY_FILE" "$STRATEGY_BACKUP"; fi
 
@@ -39,11 +39,11 @@ Stabilize runtime visibility while tightening epistemic curation.
 - reduce ambiguity between artifacts and steering state
 MD
 
-cat >"$TMP_HOME/.claude/projects/test-project/memory/topics/dispatch.md" <<'MD'
+cat >"$TMP_STATE/topics/dispatch.md" <<'MD'
 # Dispatch transparency
 MD
 
-cat >"$TMP_HOME/.claude/projects/test-project/memory/topics/lineage.md" <<'MD'
+cat >"$TMP_STATE/topics/lineage.md" <<'MD'
 # Knowledge lineage
 MD
 

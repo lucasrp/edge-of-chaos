@@ -175,6 +175,28 @@ def refresh_workflow_status() -> dict[str, Any]:
     return {"ok": True, "detail": detail, "payload": payload}
 
 
+def refresh_curation_digest() -> dict[str, Any]:
+    code, stdout, stderr = run_subprocess([sys.executable, str(EDGE_REPO_DIR / "tools" / "edge-curation"), "sync", "--json"])
+    if code != 0:
+        detail = (stderr or stdout or f"exit={code}").splitlines()[-1]
+        append_postskill_log("curation_digest", "FAIL", detail)
+        return {"ok": False, "status": "failed", "detail": detail, "payload": {}}
+    payload = json.loads(stdout) if stdout else {}
+    status = str(payload.get("status") or "ok")
+    detail = (
+        f"topics={((payload.get('topics') or {}).get('total', 0))} "
+        f"candidates={((payload.get('procedures') or {}).get('candidate_total', 0))} "
+        f"stale={((payload.get('corpus') or {}).get('stale_candidates', 0))}"
+    )
+    append_postskill_log("curation_digest", "WARN" if status == "warning" else "OK", detail)
+    return {
+        "ok": status == "ok",
+        "status": status,
+        "detail": detail,
+        "payload": payload,
+    }
+
+
 def refresh_capabilities_status(skill: str | None = None) -> dict[str, Any]:
     payload = build_capability_status(skill=skill)
     summary = payload.get("summary") or {}
@@ -278,6 +300,17 @@ def _execute_postflight_step(step: dict[str, Any], state: dict[str, Any]) -> dic
     if kind == "workflow.status":
         refreshed = refresh_workflow_status()
         return _protocol_step(step, status="ok", satisfied=True, detail=str(refreshed.get("detail") or ""), extra={"payload": refreshed.get("payload") or {}})
+
+    if kind == "curation.digest":
+        refreshed = refresh_curation_digest()
+        refreshed_status = str(refreshed.get("status") or ("ok" if refreshed.get("ok") else "failed"))
+        return _protocol_step(
+            step,
+            status=refreshed_status,
+            satisfied=bool(refreshed.get("ok", False)),
+            detail=str(refreshed.get("detail") or ""),
+            extra={"payload": refreshed.get("payload") or {}},
+        )
 
     if kind == "capabilities.status":
         refreshed = refresh_capabilities_status(skill=skill)
@@ -384,6 +417,7 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
     primitives_payload: dict[str, Any] = {}
     workflows_payload: dict[str, Any] = {}
     capabilities_payload: dict[str, Any] = {}
+    curation_payload: dict[str, Any] = {}
     warning_seen = False
 
     for step in protocol.get("procedures") or []:
@@ -413,6 +447,8 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
             workflows_payload = payload
         elif kind == "capabilities.status" and isinstance(payload, dict):
             capabilities_payload = payload
+        elif kind == "curation.digest" and isinstance(payload, dict):
+            curation_payload = payload
 
     digest = claims_payload.get("digest") or {}
     orphans = claims_payload.get("orphans") or {}
@@ -478,6 +514,8 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
             "top_used": workflow_summary.get("top_used", []),
             "top_broken": workflow_summary.get("top_broken", []),
         }
+    if curation_payload:
+        request["curation_digest"] = curation_payload
 
     delta = compute_delta(
         before,
@@ -492,6 +530,11 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
         "protocol_compiled_hash": request["post_skill_context"].get("compiled_hash"),
         "failed_steps": failed_steps,
         "delta": delta,
+        "curation": {
+            "topics_total": int((curation_payload.get("topics") or {}).get("total", 0) or 0),
+            "stale_candidates": int((curation_payload.get("corpus") or {}).get("stale_candidates", 0) or 0),
+            "procedure_candidates": int((curation_payload.get("procedures") or {}).get("candidate_total", 0) or 0),
+        } if curation_payload else {},
     }
 
     if failed_steps or warning_seen:

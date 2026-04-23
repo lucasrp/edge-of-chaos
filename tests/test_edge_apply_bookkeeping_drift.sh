@@ -154,6 +154,59 @@ else
     fail "phase_avatar emits InstallRemoved for temp files"
 fi
 
+echo "--- Test 3: phase_identity migrates legacy topics into state topics dir ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_CONFIG" "$TMP_HOME" "$TMP_REPO" "$TMP_STATE"
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+edge_dir, config_path, home_dir, repo_dir, state_dir = sys.argv[1:]
+os.environ["HOME"] = home_dir
+os.environ["EDGE_STATE_DIR"] = state_dir
+os.environ["EDGE_CODENAME"] = "drift-test"
+os.environ["EDGE_CYCLE_ID"] = "install:test-topic-migration"
+
+loader = importlib.machinery.SourceFileLoader("edge_apply_mod", f"{edge_dir}/tools/edge-apply")
+spec = importlib.util.spec_from_loader(loader.name, loader)
+mod = importlib.util.module_from_spec(spec)
+loader.exec_module(mod)
+mod.REPO_ROOT = Path(repo_dir)
+
+cfg = mod.load_config(Path(config_path))
+legacy_topics_dir = Path(home_dir) / ".claude" / "projects" / cfg["memory_project_dir"] / "memory" / "topics"
+legacy_topics_dir.mkdir(parents=True, exist_ok=True)
+(legacy_topics_dir / "dispatch.md").write_text("# Dispatch transparency\n", encoding="utf-8")
+(legacy_topics_dir / "lineage.md").write_text("# Knowledge lineage\n", encoding="utf-8")
+
+assert mod.phase_identity(cfg, dry_run=False) is True
+
+topics_dir = Path(state_dir) / "topics"
+assert (topics_dir / "dispatch.md").exists()
+assert (topics_dir / "lineage.md").exists()
+
+events = [
+    json.loads(line)
+    for line in (Path(state_dir) / "state" / "events" / "log.jsonl").read_text(encoding="utf-8").splitlines()
+    if line.strip()
+]
+matches = [
+    event for event in events
+    if event.get("type") == "InstallApplied"
+    and event.get("cycle_id") == "install:test-topic-migration"
+    and Path(event.get("artifact") or "").parent == topics_dir
+]
+seen = {Path(event["artifact"]).name for event in matches}
+assert {"dispatch.md", "lineage.md"} <= seen, seen
+PY
+then
+    pass "phase_identity migrates legacy topics into state topics dir"
+else
+    fail "phase_identity migrates legacy topics into state topics dir"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"

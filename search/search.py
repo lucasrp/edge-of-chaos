@@ -17,6 +17,12 @@ from paths import EDGE_STATE_DIR, NOTES_DIR  # noqa: E402
 from db import EMBEDDING_DIM, ensure_db
 from embed import embed_text
 
+TYPE_GROUPS: dict[str, tuple[str, ...]] = {
+    "topic": ("topic",),
+    "workflow": ("workflow",),
+    "memory": ("note", "blog", "report"),
+}
+
 def _resolve_state_path(raw_path: str) -> Path:
     path = Path(raw_path)
     if path.is_absolute():
@@ -246,6 +252,137 @@ def hybrid_search(
             conn.close()
 
 
+def _resolve_type_group(spec: str) -> tuple[str, tuple[str, ...]]:
+    label = str(spec or "").strip().lower()
+    if not label:
+        raise ValueError("empty type group")
+    if label in TYPE_GROUPS:
+        return label, TYPE_GROUPS[label]
+    return label, (label,)
+
+
+def _search_type_bundle(
+    query: str,
+    *,
+    bundle_types: tuple[str, ...],
+    limit: int,
+    conn=None,
+    query_embedding: list[float] | None = None,
+) -> list[dict]:
+    merged: dict[int, dict] = {}
+    for doc_type in bundle_types:
+        for item in hybrid_search(
+            query,
+            limit=max(limit, 3),
+            doc_type=doc_type,
+            conn=conn,
+            _query_embedding=query_embedding,
+        ):
+            doc_id = int(item["id"])
+            current = merged.get(doc_id)
+            if current is None or float(item.get("score") or 0.0) > float(current.get("score") or 0.0):
+                merged[doc_id] = item
+    ranked = sorted(merged.values(), key=lambda item: float(item.get("score") or 0.0), reverse=True)
+    return ranked[:limit]
+
+
+def search_with_coverage(
+    query: str,
+    *,
+    limit: int = 10,
+    required_types: list[str] | None = None,
+    optional_types: list[str] | None = None,
+    conn=None,
+) -> tuple[list[dict], dict[str, object], list[dict]]:
+    own_conn = conn is None
+    if own_conn:
+        conn = ensure_db()
+
+    required_specs = [str(item).strip() for item in (required_types or []) if str(item).strip()]
+    optional_specs = [str(item).strip() for item in (optional_types or []) if str(item).strip()]
+    try:
+        try:
+            query_embedding = embed_text(query)
+        except Exception:
+            query_embedding = None
+
+        grouped_results: dict[str, list[dict]] = {}
+        coverage_required: list[dict[str, object]] = []
+        coverage_optional: list[dict[str, object]] = []
+        seen_specs: set[str] = set()
+
+        def _collect(spec: str, *, target: list[dict[str, object]]) -> None:
+            label, bundle_types = _resolve_type_group(spec)
+            if label in seen_specs:
+                return
+            seen_specs.add(label)
+            hits = _search_type_bundle(
+                query,
+                bundle_types=bundle_types,
+                limit=max(3, min(limit, 4)),
+                conn=conn,
+                query_embedding=query_embedding,
+            )
+            grouped_results[label] = hits
+            target.append(
+                {
+                    "name": label,
+                    "types": list(bundle_types),
+                    "hit_count": len(hits),
+                    "covered": bool(hits),
+                }
+            )
+
+        for spec in required_specs:
+            _collect(spec, target=coverage_required)
+        for spec in optional_specs:
+            _collect(spec, target=coverage_optional)
+
+        general_results: list[dict] = []
+        workflows: list[dict] = []
+        if len(grouped_results) == 0 or sum(len(items) for items in grouped_results.values()) < limit:
+            general_results, workflows = search_with_sidecar(query, limit=limit, conn=conn)
+
+        combined: list[dict] = []
+        seen_ids: set[int] = set()
+
+        def _push(items: list[dict]) -> None:
+            for item in items:
+                doc_id = int(item["id"])
+                if doc_id in seen_ids:
+                    continue
+                seen_ids.add(doc_id)
+                combined.append(item)
+                if len(combined) >= limit:
+                    return
+
+        for spec in required_specs:
+            _push(grouped_results.get(_resolve_type_group(spec)[0], []))
+            if len(combined) >= limit:
+                break
+        if len(combined) < limit:
+            for spec in optional_specs:
+                _push(grouped_results.get(_resolve_type_group(spec)[0], []))
+                if len(combined) >= limit:
+                    break
+        if len(combined) < limit:
+            _push(general_results)
+
+        missing_required = [item["name"] for item in coverage_required if not item["covered"]]
+        coverage = {
+            "required": coverage_required,
+            "optional": coverage_optional,
+            "required_covered": len(missing_required) == 0,
+            "missing_required_types": missing_required,
+        }
+
+        _enrich_with_notes(combined)
+        return combined[:limit], coverage, workflows
+    finally:
+        if own_conn:
+            conn.close()
+
+
 def search_with_sidecar(
     query: str,
     limit: int = 10,
@@ -347,12 +484,25 @@ def format_results(
     results: list[dict],
     mode: str = "hybrid",
     workflows: list[dict] | None = None,
+    coverage: dict[str, object] | None = None,
 ) -> str:
     """Format search results for terminal output."""
     if not results and not workflows:
         return "No results found."
 
     lines = []
+
+    if coverage:
+        missing = list(coverage.get("missing_required_types") or [])
+        required = list(coverage.get("required") or [])
+        if required:
+            parts = []
+            for item in required:
+                name = str(item.get("name") or "")
+                hit_count = int(item.get("hit_count") or 0)
+                parts.append(f"{name}={hit_count}")
+            status = "OK" if not missing else f"MISSING {', '.join(missing)}"
+            lines.append(f"Coverage: {status} ({', '.join(parts)})\n")
 
     if results:
         lines.append(f"Results ({mode}, {len(results)} matches):\n")
@@ -423,6 +573,20 @@ def main():
     parser.add_argument(
         "--type", dest="doc_type", help="Filter by type (note, report, blog, etc.)"
     )
+    parser.add_argument(
+        "--require-type",
+        action="append",
+        dest="required_types",
+        default=[],
+        help="Require coverage from a type or type-group (topic, workflow, memory, note, blog, report). May be repeated.",
+    )
+    parser.add_argument(
+        "--optional-type",
+        action="append",
+        dest="optional_types",
+        default=[],
+        help="Prefer coverage from a type or type-group without making it mandatory. May be repeated.",
+    )
     parser.add_argument("-k", type=int, default=10, help="Number of results (default: 10)")
     parser.add_argument("--stats", action="store_true", help="Show database stats")
     parser.add_argument(
@@ -466,6 +630,7 @@ def main():
 
     conn = ensure_db()
     workflows = []
+    coverage = None
     run_id = f"search:{uuid.uuid4().hex[:8]}"
 
     if log_run_step is not None:
@@ -488,6 +653,15 @@ def main():
                 query_embedding, limit=args.k, doc_type=args.doc_type, conn=conn
             )
             mode = "semantic"
+        elif args.required_types or args.optional_types:
+            results, coverage, workflows = search_with_coverage(
+                query,
+                limit=args.k,
+                required_types=args.required_types,
+                optional_types=args.optional_types,
+                conn=conn,
+            )
+            mode = "hybrid-coverage"
         elif not args.no_sidecar and args.doc_type != "workflow":
             results, workflows = search_with_sidecar(
                 query, limit=args.k, doc_type=args.doc_type, conn=conn
@@ -499,7 +673,7 @@ def main():
             )
             mode = "hybrid"
 
-        print(format_results(results, mode, workflows=workflows))
+        print(format_results(results, mode, workflows=workflows, coverage=coverage))
 
         all_results = results + workflows
         if not args.no_telemetry and all_results:

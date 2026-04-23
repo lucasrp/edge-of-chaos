@@ -124,7 +124,7 @@ if [[ "$index_status" == "fail" || "$index_status" == "unknown" ]]; then
     repair_log "Index: in cooldown, skipping"
   else
     repair_log "Index: attempting reindex"
-    if safe_timeout 60 edge-index "$ENTRIES_DIR/" "$REPORTS_DIR/" "$NOTES_DIR/" 2>/dev/null; then
+    if safe_timeout 60 edge-index "$ENTRIES_DIR/" "$REPORTS_DIR/" "$NOTES_DIR/" "$TOPICS_DIR/" 2>/dev/null; then
       repair_log "Index: reindex SUCCESS"
       update_repair_state index true
       jq -n --arg ts "$(ts_now)" '{ts:$ts, source:"repair"}' > "$HEALTH_DIR/last_success/index.ok"

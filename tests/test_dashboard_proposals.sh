@@ -21,13 +21,13 @@ trap cleanup EXIT
 mkdir -p \
     "$TMP_STATE/blog/entries" \
     "$TMP_STATE/threads" \
+    "$TMP_STATE/topics" \
     "$TMP_STATE/reports" \
     "$TMP_STATE/logs" \
     "$TMP_STATE/state/signals" \
-    "$TMP_STATE/search" \
-    "$TMP_HOME/.claude/projects/test-project/memory/topics"
+    "$TMP_STATE/search"
 
-cat >"$TMP_HOME/.claude/projects/test-project/memory/topics/dispatch.md" <<'MD'
+cat >"$TMP_STATE/topics/dispatch.md" <<'MD'
 # Dispatch transparency
 MD
 

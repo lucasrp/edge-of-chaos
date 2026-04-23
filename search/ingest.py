@@ -93,6 +93,8 @@ def _detect_type(path: Path, meta: dict | None = None) -> str:
     s = str(path)
     if "/notes/" in s:
         return "note"
+    if "/topics/" in s:
+        return "topic"
     if "/reports/" in s:
         return "report"
     if "/blog/entries/" in s:
