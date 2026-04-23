@@ -107,6 +107,27 @@ events = [
     },
     {
         "ts": "2026-04-20T20:06:00+00:00",
+        "type": "InstallApplied",
+        "artifact": str(edge / ".avatar-gen.py"),
+        "payload": {
+            "source_template": "generated:avatar-openai-script",
+            "hash": "sha256:temp",
+            "kind": "file",
+            "action": "write",
+        },
+    },
+    {
+        "ts": "2026-04-20T20:06:30+00:00",
+        "type": "InstallRemoved",
+        "artifact": str(edge / ".avatar-gen.py"),
+        "payload": {
+            "source_template": "generated:avatar-openai-script",
+            "kind": "file",
+            "reason": "temporary-avatar-cleanup",
+        },
+    },
+    {
+        "ts": "2026-04-20T20:07:00+00:00",
         "type": "InstallCheckObserved",
         "artifact": str(edge / "install" / "missing.md"),
         "payload": {
@@ -156,6 +177,7 @@ payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert payload["rendered_without_install"][0]["output_path"] == "config/branding.yaml"
 assert payload["hash_mismatches"][0]["output_path"] == "config/paths.py"
 assert payload["missing_on_disk"][0]["artifact"].endswith("missing.md")
+assert all(not item["artifact"].endswith(".avatar-gen.py") for item in payload["missing_on_disk"])
 assert payload["doctor_failures"][0]["check_id"] == "file:missing-md"
 PY
 then

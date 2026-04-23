@@ -104,6 +104,27 @@ def _log_install_applied(
     )
 
 
+def _log_install_removed(
+    artifact: Path | str,
+    *,
+    source_template: str,
+    kind: str,
+    reason: str,
+    dry_run: bool,
+    **extra,
+) -> None:
+    from telemetry import log_install_removed
+
+    log_install_removed(
+        str(artifact),
+        source_template=source_template,
+        kind=kind,
+        reason=reason,
+        dry_run=dry_run,
+        **extra,
+    )
+
+
 def _ensure_dir(path: Path, *, phase: str, dry_run: bool, source_template: str = "generated:mkdir") -> None:
     if dry_run:
         return
@@ -513,8 +534,19 @@ def phase_identity(cfg, dry_run):
     # Config files → edge_home/config/ (skip if same dir)
     config_files = ["pre-skill.md", "post-skill.md", "strategy.md",
                     "interests.md", "features.yaml", "branding.yaml",
+                    "capabilities.yaml",
                     "runtime-routers.yaml",
                     "paths.py", "paths.sh", "branding.py"]
+    rendered_config_files = {
+        "branding.yaml",
+        "capabilities.yaml",
+        "features.yaml",
+        "interests.md",
+        "post-skill.md",
+        "pre-skill.md",
+        "runtime-routers.yaml",
+        "strategy.md",
+    }
     config_src = REPO_ROOT / "config"
     config_dst = edge / "config"
     if config_src.resolve() != config_dst.resolve():
@@ -525,6 +557,20 @@ def phase_identity(cfg, dry_run):
                 _copy_file(src, config_dst / f, phase="identity", dry_run=False)
         ok(f"Config → {config_dst}")
     else:
+        if not dry_run:
+            for f in rendered_config_files:
+                artifact = config_dst / f
+                if artifact.exists():
+                    _log_install_applied(
+                        artifact,
+                        source_template=_repo_relative(artifact),
+                        action="in-place",
+                        kind="file",
+                        hash_value=_hash_path(artifact),
+                        phase="identity",
+                        dry_run=False,
+                        in_place=True,
+                    )
         ok("Config: repo = edge_home (in-place)")
 
     # Memory → ~/.claude/projects/{project}/memory/ (only if not exists)
@@ -1207,9 +1253,11 @@ def phase_avatar(cfg, dry_run):
 
     # Write avatar generation script to temp file (avoids shell quoting issues)
     avatar_script = edge / ".avatar-gen.py"
+    avatar_script_template = None
 
     if openai_key:
         try:
+            avatar_script_template = "generated:avatar-openai-script"
             _write_text(
                 avatar_script,
                 f'import urllib.request, json, base64, pathlib\n'
@@ -1225,7 +1273,7 @@ def phase_avatar(cfg, dry_run):
                 f'print(f"OK: {{len(img_bytes)}} bytes")\n'
                 ,
                 phase="avatar",
-                source_template="generated:avatar-openai-script",
+                source_template=avatar_script_template,
                 dry_run=False,
             )
             result = run(f'python3 "{avatar_script}"')
@@ -1248,6 +1296,7 @@ def phase_avatar(cfg, dry_run):
 
     if not generated and xai_key:
         try:
+            avatar_script_template = "generated:avatar-xai-script"
             _write_text(
                 avatar_script,
                 f'import urllib.request, json, base64, pathlib\n'
@@ -1263,7 +1312,7 @@ def phase_avatar(cfg, dry_run):
                 f'print(f"OK: {{len(img_bytes)}} bytes")\n'
                 ,
                 phase="avatar",
-                source_template="generated:avatar-xai-script",
+                source_template=avatar_script_template,
                 dry_run=False,
             )
             result = run(f'python3 "{avatar_script}"')
@@ -1306,8 +1355,26 @@ def phase_avatar(cfg, dry_run):
     if not generated:
         warn("No avatar generated (no API keys and DiceBear unavailable)")
 
-    prompt_file.unlink(missing_ok=True)
-    avatar_script.unlink(missing_ok=True)
+    if prompt_file.exists():
+        prompt_file.unlink()
+        _log_install_removed(
+            prompt_file,
+            source_template="generated:avatar-prompt",
+            kind="file",
+            reason="temporary-avatar-cleanup",
+            phase="avatar",
+            dry_run=False,
+        )
+    if avatar_script.exists():
+        avatar_script.unlink()
+        _log_install_removed(
+            avatar_script,
+            source_template=avatar_script_template or "generated:avatar-script",
+            kind="file",
+            reason="temporary-avatar-cleanup",
+            phase="avatar",
+            dry_run=False,
+        )
     return True
 
 
