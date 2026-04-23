@@ -94,6 +94,7 @@ export PATH="$TMP_BIN:$PATH"
 
 CONSOLIDATE="$EDGE_DIR/blog/consolidate-state.sh"
 EVENTS_FILE="$TMP_STATE/state/events/log.jsonl"
+LEGACY_EVENTS_FILE="$TMP_STATE/logs/events.jsonl"
 
 echo "=== consolidate-state adversarial phase test ==="
 echo "Temp state: $TMP_STATE"
@@ -101,7 +102,7 @@ echo ""
 
 echo "--- Test 1: missing review.json triggers phase-0.3 generation ---"
 if "$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >/tmp/test-consolidate-adversarial.log 2>&1; then
-    if python3 - <<'PY' "$TMP_REPORT" "$EVENTS_FILE"
+    if python3 - <<'PY' "$TMP_REPORT" "$LEGACY_EVENTS_FILE"
 import json, pathlib, sys
 report = pathlib.Path(sys.argv[1])
 events_path = pathlib.Path(sys.argv[2])
@@ -110,9 +111,9 @@ resolved = report.with_suffix(".resolved")
 assert review.exists(), "review.json missing"
 assert resolved.exists(), "resolved marker missing"
 events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-steps = [e for e in events if e.get("type") == "LegacyTelemetryObserved" and (e.get("payload") or {}).get("legacy_type") == "run_step"]
-phase03 = [(e["payload"]["phase"], e["payload"]["status"], e["payload"].get("operation")) for e in steps if e["payload"]["phase"] == "phase-0.3"]
-phase05 = [(e["payload"]["phase"], e["payload"]["status"]) for e in steps if e["payload"]["phase"] == "phase-0.5"]
+steps = [e for e in events if e.get("type") == "run_step"]
+phase03 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.3"]
+phase05 = [(e["phase"], e["status"]) for e in steps if e["phase"] == "phase-0.5"]
 assert ("phase-0.3", "started", "adversarial_review") in phase03
 assert ("phase-0.3", "completed", "adversarial_review_generated") in phase03
 assert ("phase-0.5", "started") in phase05
@@ -134,14 +135,14 @@ set +e
 "$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >/tmp/test-consolidate-adversarial.log 2>&1
 STATUS=$?
 set -e
-if python3 - <<'PY' "$STATUS" "$EVENTS_FILE"
+if python3 - <<'PY' "$STATUS" "$LEGACY_EVENTS_FILE"
 import json, sys, pathlib
 status = int(sys.argv[1])
 events_path = pathlib.Path(sys.argv[2])
 assert status == 3
 events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-steps = [e for e in events if e.get("type") == "LegacyTelemetryObserved" and (e.get("payload") or {}).get("legacy_type") == "run_step"]
-phase03 = [(e["payload"]["phase"], e["payload"]["status"], e["payload"].get("operation")) for e in steps if e["payload"]["phase"] == "phase-0.3"]
+steps = [e for e in events if e.get("type") == "run_step"]
+phase03 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.3"]
 assert ("phase-0.3", "failed", "adversarial_review") in phase03
 PY
 then
