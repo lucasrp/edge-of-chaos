@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""edge-publish-scope — stage only an explicit allowlist during publish."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.telemetry import emit_shadow_event  # noqa: E402
+
+
+def repo_root() -> Path:
+    return Path(os.environ.get("EDGE_REPO_DIR") or os.getcwd()).expanduser().resolve()
+
+
+def normalize_paths(values: list[str]) -> list[str]:
+    root = repo_root()
+    normalized: list[str] = []
+    for raw in values:
+        if not raw:
+            continue
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            path = (root / path).resolve()
+        try:
+            rel = path.relative_to(root)
+        except ValueError:
+            continue
+        rel_str = rel.as_posix()
+        if rel_str == "." or rel_str in normalized:
+            continue
+        normalized.append(rel_str)
+    return normalized
+
+
+def is_ignored(path: str) -> bool:
+    result = subprocess.run(
+        ["git", "check-ignore", "-q", "--", path],
+        cwd=str(repo_root()),
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def stage_paths(paths: list[str]) -> None:
+    if not paths:
+        return
+    subprocess.run(["git", "add", "--", *paths], cwd=str(repo_root()), check=True, capture_output=True, text=True)
+
+
+def staged_files() -> list[str]:
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        cwd=str(repo_root()),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def cmd_stage(args: argparse.Namespace) -> int:
+    allowed_paths = normalize_paths(args.allow or [])
+    stageable = [path for path in allowed_paths if not is_ignored(path)]
+    if stageable:
+        stage_paths(stageable)
+
+    staged = staged_files()
+    allowed_set = set(stageable)
+    illegal = sorted(path for path in staged if path not in allowed_set)
+    payload = {
+        "slug": args.slug,
+        "allowed_paths": allowed_paths,
+        "stageable_paths": stageable,
+        "staged_files": staged,
+        "illegal_files": illegal,
+    }
+    if illegal:
+        emit_shadow_event(
+            "PublishCommitScopeViolation",
+            actor="edge-publish-scope",
+            payload=payload,
+        )
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+    return 2 if illegal else 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    stage = sub.add_parser("stage", help="Stage only the allowlisted files and detect scope violations")
+    stage.add_argument("--slug", required=True)
+    stage.add_argument("--allow", action="append", default=[], help="Allowlisted repo-relative or absolute path")
+    stage.add_argument("--json", action="store_true", help="Emit JSON result")
+    stage.set_defaults(func=cmd_stage)
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

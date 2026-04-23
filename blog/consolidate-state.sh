@@ -49,6 +49,11 @@ export EDGE_CONSOLIDATE_ACTIVE=1
 # Unset on exit so subsequent processes lose authorization.
 trap 'unset EDGE_CONSOLIDATE_ACTIVE' EXIT
 
+if ! "$TOOLS_DIR/edge-publish-guard" --operation consolidate-state --target "${1:-}" >/dev/null; then
+    echo "ERROR: inline publication blocked until heartbeat dispatch completes."
+    exit 65
+fi
+
 # Peça 3: telemetry helper — record phase start/end in edge-ledger.
 # Fails silently if edge-ledger is unavailable (telemetry is never blocking).
 ledger_record() {
@@ -1236,7 +1241,7 @@ emit_run_step_event "phase-6" "started" "diffs_and_git_commit" ""
 
 # Note: BLOG_PORT, BLOG_AUTH_USER, BLOG_AUTH_PASS already exported by paths.sh
 
-python3 - "$ENTRY_PATH" "$SLUG" "$REPORT_FOR_COMMIT" "$COMMIT_REASON" "$STATE_AUDIT_EXIT" "$REPORT_RESULT" <<'PYPHASE5'
+if python3 - "$ENTRY_PATH" "$SLUG" "$REPORT_FOR_COMMIT" "$COMMIT_REASON" "$STATE_AUDIT_EXIT" "$REPORT_RESULT" "$REPORT_HTML" "$META_REPORT_PATH" <<'PYPHASE5'
 import sys, yaml, json, os, subprocess, urllib.request, traceback
 from pathlib import Path
 from datetime import datetime, timezone
@@ -1244,6 +1249,8 @@ from datetime import datetime, timezone
 entry_path, slug, report, reason = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 state_audit_exit = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5].isdigit() else -1
 report_result = sys.argv[6] if len(sys.argv) > 6 else "skip"
+report_html = sys.argv[7] if len(sys.argv) > 7 else ""
+meta_report_path = sys.argv[8] if len(sys.argv) > 8 else ""
 
 GREEN = "\033[0;32m"
 YELLOW = "\033[1;33m"
@@ -1270,6 +1277,25 @@ def log_failure(phase, operation, error, tb=None):
     try:
         with open(FAILURES_FILE, "a") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+def emit_scope_violation(payload):
+    try:
+        tools_dir = Path(
+            os.environ.get("TOOLS_DIR")
+            or (Path(os.environ.get("EDGE_REPO_DIR", os.environ.get("EDGE_DIR", str(Path.home() / "edge")))).expanduser() / "tools")
+        )
+        if str(tools_dir) not in sys.path:
+            sys.path.insert(0, str(tools_dir))
+        from _shared.telemetry import emit_shadow_event  # type: ignore
+
+        emit_shadow_event(
+            "PublishCommitScopeViolation",
+            actor="consolidate-state",
+            cycle_id=os.environ.get("EDGE_CYCLE_ID") or None,
+            payload=payload,
+        )
     except Exception:
         pass
 
@@ -1367,33 +1393,51 @@ for dirpath, prefix in TRACKED.items():
 # ── 2. Captura diffs do ~/edge/ (repo principal) ──
 try:
     edge_dir = os.environ.get("EDGE_REPO_DIR", os.environ.get("EDGE_DIR", os.path.expanduser("~/edge")))
-    subprocess.run(["git", "add", "-A"], cwd=edge_dir, capture_output=True, timeout=30)
+    tool_path = Path(edge_dir) / "tools" / "edge-publish-scope"
+    changelog_path = Path(os.environ.get("BLOG_CHANGELOG_FILE", "")).expanduser()
+    allowed_paths = [entry_path]
+    if report_html:
+        allowed_paths.append(report_html)
+    if meta_report_path:
+        allowed_paths.append(meta_report_path)
+    if proposal_path.exists():
+        allowed_paths.append(str(proposal_path))
+    if audit_path.exists():
+        allowed_paths.append(str(audit_path))
+    if changelog_path and changelog_path.exists():
+        allowed_paths.append(str(changelog_path))
 
-    # ORPHAN GUARD: unstage blog entries/reports/meta-reports that don't belong to this slug.
-    # Prevents files written to disk but never published via consolidate-state from being
-    # swept into another slug's commit by git add -A. (Root cause of orphan entries bug.)
-    staged_result = subprocess.run(
-        ["git", "diff", "--cached", "--name-only"],
-        cwd=edge_dir, capture_output=True, text=True, timeout=10
+    scope_cmd = [str(tool_path), "stage", "--slug", slug, "--json"]
+    for allowed_path in allowed_paths:
+        if allowed_path:
+            scope_cmd.extend(["--allow", allowed_path])
+    scope_result = subprocess.run(
+        scope_cmd,
+        cwd=edge_dir,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
-    if staged_result.returncode == 0 and staged_result.stdout.strip():
-        staged_files = staged_result.stdout.strip().split("\n")
-        orphans = []
-        for f in staged_files:
-            is_entry = f.startswith("blog/entries/") and f.endswith(".md")
-            is_report = f.startswith("reports/") and (f.endswith(".html") or f.endswith(".yaml"))
-            is_meta = f.startswith("meta-reports/")
-            if (is_entry or is_report or is_meta) and slug not in f:
-                orphans.append(f)
-        if orphans:
-            warn(f"ORPHAN GUARD: {len(orphans)} file(s) from ANOTHER slug in staging — removing:")
-            for o in orphans:
-                warn(f"  ↳ {o}")
-            subprocess.run(
-                ["git", "reset", "HEAD", "--"] + orphans,
-                cwd=edge_dir, capture_output=True, timeout=10
-            )
-            warn("Publish orphan files via consolidate-state separately.")
+    scope_payload = {}
+    if scope_result.stdout.strip():
+        try:
+            scope_payload = json.loads(scope_result.stdout)
+        except Exception:
+            scope_payload = {"raw": scope_result.stdout.strip()}
+    if scope_result.returncode == 2:
+        emit_scope_violation({
+            "slug": slug,
+            "allowed_paths": scope_payload.get("allowed_paths", []),
+            "illegal_files": scope_payload.get("illegal_files", []),
+        })
+        illegal = scope_payload.get("illegal_files", []) or []
+        if illegal:
+            warn(f"SCOPE GUARD: {len(illegal)} file(s) outside publish allowlist in staging:")
+            for item in illegal:
+                warn(f"  ↳ {item}")
+        raise SystemExit(2)
+    if scope_result.returncode != 0:
+        raise RuntimeError(scope_result.stderr.strip() or scope_result.stdout.strip() or "edge-publish-scope failed")
 
     result = subprocess.run(
         ["git", "diff", "--cached", "--unified=3", "--", ".", ":(exclude)*.venv*", ":(exclude)*.b64", ":(exclude)*.png", ":(exclude)*.jpg", ":(exclude)*.pdf", ":(exclude)*.db"],
@@ -1621,7 +1665,12 @@ except Exception as e:
     log_failure("6", "commit_edge", e, traceback.format_exc())
     fail(f"Git commit failed: {e}")
 PYPHASE5
-emit_run_step_event "phase-6" "completed" "diffs_and_git_commit" ""
+then
+    emit_run_step_event "phase-6" "completed" "diffs_and_git_commit" ""
+else
+    emit_run_step_event "phase-6" "failed" "diffs_and_git_commit" "phase 6 failed"
+    ALL_OK=false
+fi
 
 echo ""
 echo "========================================="
