@@ -141,6 +141,29 @@ else
     fail "edge-skill-inbox read is deterministic during an active cycle"
 fi
 
+echo "--- Test 2b: subprocess fallback returns the same captured dispatch snapshot ---"
+if python3 - <<'PY' "$(
+EDGE_SKILL_INBOX_FORCE_SUBPROCESS=1 EDGE_SEARCH_PYTHON="$(command -v python3)" \
+    "$INBOX_TOOL" read --skill research
+)" "$SEED_OUTPUT" "$LATE_OUTPUT"
+import json
+import sys
+
+snapshot = json.loads(sys.argv[1])
+seed = json.loads(sys.argv[2])
+late = json.loads(sys.argv[3])
+
+assert snapshot["message_ids"] == seed["captured_ids"]
+assert snapshot["unprocessed_total"] == 5
+assert late["late_id"] not in snapshot["message_ids"]
+assert snapshot["priority"] == "high"
+PY
+then
+    pass "edge-skill-inbox subprocess fallback stays deterministic during an active cycle"
+else
+    fail "edge-skill-inbox subprocess fallback stays deterministic during an active cycle"
+fi
+
 echo "--- Test 3: successful close consumes only the captured inbox ---"
 EDGE_CYCLE_ID=cycle-skill-inbox "$STEP_TOOL" research start >/dev/null
 EDGE_CYCLE_ID=cycle-skill-inbox "$STEP_TOOL" research end >/dev/null
