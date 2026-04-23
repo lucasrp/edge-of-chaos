@@ -28,6 +28,7 @@ names = {item["name"]: item for item in payload["capabilities"]}
 assert names["search.corpus"]["effective_status"] == "available"
 assert names["sources.aggregate"]["effective_status"] == "available"
 assert names["workflow.recommend"]["effective_status"] == "available"
+assert names["repo.sync"]["effective_status"] == "available"
 PY
 then
   pass "repo-local edge-* tools resolve without PATH"

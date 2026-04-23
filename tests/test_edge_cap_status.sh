@@ -38,7 +38,11 @@ cat >"$TMP_BIN/git" <<'EOF'
 #!/usr/bin/env bash
 echo "git $*"
 EOF
-chmod +x "$TMP_BIN/edge-search" "$TMP_BIN/edge-sources" "$TMP_BIN/edge-workflows" "$TMP_BIN/git"
+cat >"$TMP_BIN/edge-repo-sync" <<'EOF'
+#!/usr/bin/env bash
+echo "edge-repo-sync $*"
+EOF
+chmod +x "$TMP_BIN/edge-search" "$TMP_BIN/edge-sources" "$TMP_BIN/edge-workflows" "$TMP_BIN/git" "$TMP_BIN/edge-repo-sync"
 
 cat >"$TMP_STATE/state/sources-manifest.yaml" <<'YAML'
 sources:
@@ -64,13 +68,14 @@ if python3 - <<'PY' "$OUTPUT"
 import json, sys
 payload = json.loads(sys.argv[1])
 summary = payload["summary"]
-assert summary["capability_total"] >= 5
+assert summary["capability_total"] >= 6
 assert summary["health_status"] == "degraded"
 names = {item["name"]: item for item in payload["capabilities"]}
 assert names["search.corpus"]["effective_status"] == "available"
 assert names["sources.aggregate"]["effective_status"] == "available"
 assert names["workflow.recommend"]["effective_status"] == "available"
 assert names["repo.status"]["effective_status"] == "available"
+assert names["repo.sync"]["effective_status"] == "available"
 assert names["storage.sync"]["effective_status"] == "degraded"
 assert names["source.arxiv"]["effective_status"] in {"active", "probed"}
 recommended = {item["name"] for item in payload["recommended"]}

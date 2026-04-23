@@ -41,7 +41,17 @@ cat >"$TMP_BIN/git" <<'EOF'
 #!/usr/bin/env bash
 printf 'git version test\n'
 EOF
-chmod +x "$TMP_REPO/search/edge-search" "$TMP_REPO/tools/edge-sources" "$TMP_REPO/tools/edge-workflows" "$TMP_BIN/git"
+cat >"$TMP_REPO/tools/edge-repo-sync" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--help" ]]; then
+  echo 'edge-repo-sync help'
+elif [[ "${1:-}" == "status" ]]; then
+  echo '{"exact_code":true,"head_sha":"test"}'
+else
+  echo "edge-repo-sync $*"
+fi
+EOF
+chmod +x "$TMP_REPO/search/edge-search" "$TMP_REPO/tools/edge-sources" "$TMP_REPO/tools/edge-workflows" "$TMP_REPO/tools/edge-repo-sync" "$TMP_BIN/git"
 
 cat >"$TMP_STATE/state/sources-manifest.yaml" <<'YAML'
 sources:
@@ -109,6 +119,14 @@ else
   fail "probe runs static capability probe"
 fi
 
+SYNC_OUT=$(env PATH="$TMP_BIN:/bin" EDGE_REPO_DIR="$TMP_REPO" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="captest" \
+  /usr/bin/python3 "$EDGE_DIR/tools/edge-cap" invoke repo.sync -- status --json)
+if grep -q '"exact_code":true' <<<"$SYNC_OUT"; then
+  pass "invoke runs repo sync capability"
+else
+  fail "invoke runs repo sync capability"
+fi
+
 if python3 - <<'PY' "$TMP_STATE/state/events/log.jsonl"
 import json, sys
 from pathlib import Path
@@ -116,6 +134,7 @@ events = [json.loads(line) for line in Path(sys.argv[1]).read_text(encoding="utf
 types = {(event.get("type"), (event.get("payload") or {}).get("capability")) for event in events}
 assert ("CapabilityInvocationObserved", "search.corpus") in types
 assert ("CapabilityInvocationObserved", "source.arxiv") in types
+assert ("CapabilityInvocationObserved", "repo.sync") in types
 assert ("CapabilityProbeCompleted", "repo.status") in types
 PY
 then
