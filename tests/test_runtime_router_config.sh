@@ -180,6 +180,57 @@ else
     fail "edge-doctor uses runtime branding by default"
 fi
 
+echo "--- Test 4: router_client falls back to local Claude CLI on remote failure ---"
+if EDGE_REPO_DIR="$TMP_RUNTIME" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="router-runtime-test" python3 - <<'PY' "$EDGE_DIR"
+import sys
+from types import SimpleNamespace
+
+edge_dir = sys.argv[1]
+sys.path.insert(0, f"{edge_dir}/tools")
+import _shared.router_client as rc
+
+class FailingResource:
+    def create(self, *args, **kwargs):
+        raise RuntimeError("429 insufficient_quota")
+
+class DummyClient:
+    def __init__(self):
+        self.chat = SimpleNamespace(completions=FailingResource())
+        self.responses = FailingResource()
+        self.embeddings = FailingResource()
+
+rc.claude_cli_available = lambda: True
+rc.call_claude_cli_text = lambda prompt, timeout=60: "claude fallback ok"
+
+client = rc._wrap_with_telemetry(DummyClient(), "review", "gpt-5.4", 30)
+chat = client.chat.completions.create(
+    model="gpt-5.4",
+    messages=[
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "User prompt"},
+    ],
+)
+assert chat.choices[0].message.content == "claude fallback ok"
+assert chat.usage.prompt_tokens == 0
+
+resp = client.responses.create(
+    model="gpt-5.4",
+    input=[
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "User prompt"},
+    ],
+    tools=[{"type": "web_search_preview"}],
+)
+assert resp.output_text == "claude fallback ok"
+assert resp.usage.input_tokens == 0
+assert resp.output[0].type == "message"
+PY
+then
+    pass "router_client falls back to local Claude CLI on remote failure"
+else
+    fail "router_client falls back to local Claude CLI on remote failure"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"
