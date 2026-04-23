@@ -347,6 +347,135 @@ Represents the validation probe after contract or materialization.
 
 Represents the mutation of `state/sources-manifest.yaml`, which is the durable lifecycle index for materialized primitives.
 
+### `WorkflowRecommended`
+
+```json
+{
+  "type": "WorkflowRecommended",
+  "payload": {
+    "slug": "sources-research-consult-report",
+    "title": "Sources → Research → Consult → Report",
+    "source": "search_sidecar",
+    "score": 0.87,
+    "query": "claim continuity graph"
+  }
+}
+```
+
+Represents a workflow recommendation emitted by runtime preflight before the skill starts.
+
+### `WorkflowUsedObserved`
+
+```json
+{
+  "type": "WorkflowUsedObserved",
+  "artifact": "blog/entries/2026-04-23-example.md",
+  "payload": {
+    "slug": "sources-research-consult-report",
+    "mode": "used"
+  }
+}
+```
+
+Represents a workflow explicitly cited as having worked in a published artifact.
+
+### `WorkflowBrokenObserved`
+
+```json
+{
+  "type": "WorkflowBrokenObserved",
+  "artifact": "blog/entries/2026-04-23-example.md",
+  "payload": {
+    "slug": "stale-playwright-validation",
+    "mode": "broken"
+  }
+}
+```
+
+Represents a workflow explicitly cited as broken/outdated in a published artifact.
+
+### `WorkflowIgnoredObserved`
+
+```json
+{
+  "type": "WorkflowIgnoredObserved",
+  "payload": {
+    "slug": "sources-research-consult-report",
+    "reason": "recommended_not_cited"
+  }
+}
+```
+
+Represents a workflow recommendation that the cycle ignored instead of citing as used or broken.
+
+### `PrimitiveBypassObserved`
+
+```json
+{
+  "type": "PrimitiveBypassObserved",
+  "payload": {
+    "source": "arxiv",
+    "capability": "source.arxiv",
+    "reason": "primitive_used_without_capability_wrapper",
+    "primitive_invocations": 2,
+    "capability_invocations": 0
+  }
+}
+```
+
+Represents substrate discipline drift: a primitive was invoked directly when a capability wrapper existed.
+
+### `ProviderProbeCompleted`
+
+```json
+{
+  "type": "ProviderProbeCompleted",
+  "payload": {
+    "provider": "openai",
+    "ok": true,
+    "status": "ok",
+    "http_status": "200",
+    "probe": "check-quality"
+  }
+}
+```
+
+Represents a concrete provider/API availability probe executed by the runtime.
+
+### `HealthComponentObserved`
+
+```json
+{
+  "type": "HealthComponentObserved",
+  "payload": {
+    "name": "runtime_flow",
+    "status": "degraded",
+    "detail": "started=12 closed=10 dispatched=8"
+  }
+}
+```
+
+Represents one health component/check result written into `health/raw/*.json`.
+
+### `HealthSnapshotComputed`
+
+```json
+{
+  "type": "HealthSnapshotComputed",
+  "payload": {
+    "status": "degraded",
+    "score": 72,
+    "hard_fail": false,
+    "dimensions": {
+      "runtime_flow": {"status": "degraded", "score": 58},
+      "continuity": {"status": "degraded", "score": 54}
+    }
+  }
+}
+```
+
+Represents the final health v2 snapshot after all component checks and event-backed dimensions have been rolled up.
+
 ## Projection Inputs
 
 The first projections depend on this subset:

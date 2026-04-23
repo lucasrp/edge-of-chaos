@@ -87,9 +87,9 @@ check_providers() {
   # Exa
   if [[ -f "$SECRETS_DIR/exa.env" ]]; then
     local exa_key
+    local code=000
     exa_key=$(grep -oP 'EXA_API_KEY=\K.*' "$SECRETS_DIR/exa.env" 2>/dev/null)
     if [[ -n "$exa_key" ]]; then
-      local code
       code=$(safe_timeout 5 curl -sS -o /dev/null -w '%{http_code}' \
         -H "x-api-key: $exa_key" \
         -H "Content-Type: application/json" \
@@ -101,14 +101,15 @@ check_providers() {
         exa_status="degraded"
       fi
     fi
+    emit_shadow_fact "ProviderProbeCompleted" "$(jq -cn --arg provider exa --arg status "$exa_status" --arg http_status "$code" '{provider:$provider, ok: ($status == "ok"), status:$status, http_status:$http_status, probe:"check-quality"}')" "check-quality"
   fi
 
   # OpenAI
   if [[ -f "$SECRETS_DIR/openai.env" ]]; then
     local oai_key
+    local code=000
     oai_key=$(grep -oP 'OPENAI_API_KEY=\K.*' "$SECRETS_DIR/openai.env" 2>/dev/null)
     if [[ -n "$oai_key" ]]; then
-      local code
       code=$(safe_timeout 5 curl -sS -o /dev/null -w '%{http_code}' \
         -H "Authorization: Bearer $oai_key" \
         "https://api.openai.com/v1/models" 2>/dev/null || echo 000)
@@ -118,6 +119,7 @@ check_providers() {
         openai_status="degraded"
       fi
     fi
+    emit_shadow_fact "ProviderProbeCompleted" "$(jq -cn --arg provider openai --arg status "$openai_status" --arg http_status "$code" '{provider:$provider, ok: ($status == "ok"), status:$status, http_status:$http_status, probe:"check-quality"}')" "check-quality"
   fi
 }
 
