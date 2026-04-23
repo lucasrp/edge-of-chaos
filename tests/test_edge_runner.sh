@@ -83,15 +83,20 @@ RUNNER_TOOL="$EDGE_DIR/tools/edge-runner"
 cat >"$TMP_HOME/.local/bin/claude" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$EDGE_CYCLE_ID" > "${MOCK_CLAUDE_ENV_OUT:?}"
-printf '%s\n' "$*" > "${MOCK_CLAUDE_ARGS_OUT:?}"
+printf '%s\n' "$EDGE_CYCLE_ID" >> "${MOCK_CLAUDE_ENV_OUT:?}"
+printf '__INVOCATION__\n' >> "${MOCK_CLAUDE_ARGS_OUT:?}"
+printf '%s\n' "$*" >> "${MOCK_CLAUDE_ARGS_OUT:?}"
+printf '__END__\n' >> "${MOCK_CLAUDE_ARGS_OUT:?}"
 if [ -n "${MOCK_CLAUDE_SLEEP_SECONDS:-}" ]; then
   sleep "${MOCK_CLAUDE_SLEEP_SECONDS}"
 fi
 if [ "${MOCK_CLAUDE_HEARTBEAT_FLOW:-0}" = "1" ]; then
-  "${EDGE_REPO_DIR:?}/tools/edge-dispatch" dispatch --skill discovery >/dev/null
-  "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery start >/dev/null
-  "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery end >/dev/null
+  if [[ "$*" == *"/ed-heartbeat"* ]]; then
+    "${EDGE_REPO_DIR:?}/tools/edge-dispatch" dispatch --skill discovery >/dev/null
+  elif [[ "$*" == *"/discovery"* ]]; then
+    "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery start >/dev/null
+    "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery end >/dev/null
+  fi
 fi
 exit "${MOCK_CLAUDE_EXIT_CODE:-0}"
 SH
@@ -105,6 +110,7 @@ echo ""
 echo "--- Test 1: heartbeat skill run opens and closes cycle mechanically ---"
 export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id.txt"
 export MOCK_CLAUDE_ARGS_OUT="$TMP_BASE/args.txt"
+rm -f "$MOCK_CLAUDE_ENV_OUT" "$MOCK_CLAUDE_ARGS_OUT"
 unset MOCK_CLAUDE_EXIT_CODE || true
 export MOCK_CLAUDE_HEARTBEAT_FLOW=1
 "$RUNNER_TOOL" skill \
@@ -123,11 +129,24 @@ import sys
 dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 legacy = json.load(open(sys.argv[2], encoding="utf-8"))
 events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8") if line.strip()]
-cycle_id = open(sys.argv[4], encoding="utf-8").read().strip()
-args = open(sys.argv[5], encoding="utf-8").read().strip()
+cycle_ids = [line.strip() for line in open(sys.argv[4], encoding="utf-8") if line.strip()]
+invocations = []
+current = []
+for raw_line in open(sys.argv[5], encoding="utf-8"):
+    line = raw_line.rstrip("\n")
+    if line == "__INVOCATION__":
+        current = []
+        continue
+    if line == "__END__":
+        invocations.append("\n".join(current))
+        current = []
+        continue
+    current.append(line)
 request = dispatch["request"]
 
-assert cycle_id == dispatch["cycle_id"]
+assert len(cycle_ids) == 2
+assert cycle_ids[0] == dispatch["cycle_id"]
+assert cycle_ids[1] == dispatch["cycle_id"]
 assert request["trigger"] == "heartbeat"
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
@@ -152,28 +171,34 @@ assert request["heartbeat_routing"]["round_robin_skills"] == [
     "discovery",
     "strategy",
 ]
-assert "Dispatch runtime context below" in args
-assert "health_snapshot" in args
-assert "pre_skill_context" in args
-assert "preflight_evidence" in args
-assert "corpus_coverage" in args
-assert "search_protocol" in args
-assert "epistemic_protocol" in args
-assert "configured_integrations" in args
-assert "heartbeat_routing" in args
+assert "Dispatch runtime context below" in invocations[0]
+assert "health_snapshot" in invocations[0]
+assert "pre_skill_context" in invocations[0]
+assert "preflight_evidence" in invocations[0]
+assert "corpus_coverage" in invocations[0]
+assert "search_protocol" in invocations[0]
+assert "epistemic_protocol" in invocations[0]
+assert "configured_integrations" in invocations[0]
+assert "heartbeat_routing" in invocations[0]
 assert request["primitives_status"]["summary"]["health_status"] == "ok"
 assert "workflow_status" in request
 assert "claims_summary" in request
 assert legacy["active"] is False
 assert any(event["type"] == "CycleStarted" for event in events)
 assert any(event["type"] == "PreflightCompleted" for event in events)
+assert any(event["type"] == "SkillDispatched" for event in events)
+assert any(event["type"] == "SkillRunCompleted" for event in events)
 assert any(event["type"] == "CycleClosed" for event in events)
-assert "/ed-heartbeat" in args
+assert len(invocations) == 2
+assert "/ed-heartbeat" in invocations[0]
+assert "/discovery" in invocations[1]
+assert "Dispatch runtime context below" in invocations[0]
+assert "Dispatch runtime context below" in invocations[1]
 PY
 then
-    pass "heartbeat run exports cycle id, request context, and closes the shadow cycle"
+    pass "heartbeat run dispatches and executes the follow-on skill before closing the cycle"
 else
-    fail "heartbeat run exports cycle id, request context, and closes the shadow cycle"
+    fail "heartbeat run dispatches and executes the follow-on skill before closing the cycle"
 fi
 
 echo "--- Test 2: success without skill completion evidence closes as failed ---"
