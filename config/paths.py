@@ -72,7 +72,6 @@ MEMORY_PROJECT_DIR = _memory_project
 
 # --- Derived paths ---
 MEMORY_DIR = HOME / ".claude" / "projects" / MEMORY_PROJECT_DIR / "memory" if MEMORY_PROJECT_DIR else HOME / ".claude" / "memory"
-TOPICS_DIR = MEMORY_DIR / "topics"
 
 # Genotype subdirectories
 BLOG_DIR = EDGE_REPO_DIR / "blog"
@@ -99,6 +98,7 @@ NOTES_DIR = EDGE_STATE_DIR / "notes"
 BUILDS_DIR = EDGE_STATE_DIR / "builds"
 LOGS_DIR = EDGE_STATE_DIR / "logs"
 THREADS_DIR = EDGE_STATE_DIR / "threads"
+TOPICS_DIR = EDGE_STATE_DIR / "topics"
 HEALTH_DIR = EDGE_STATE_DIR / "health"
 META_DIR = EDGE_STATE_DIR / "meta-reports"
 META_REPORTS_DIR = META_DIR
@@ -130,11 +130,13 @@ TASKS_SNAPSHOT_FILE = STATE_DIR / "tasks.snapshot.json"
 BRIEFING_FILE = EDGE_STATE_DIR / "briefing.md"
 GIT_SIGNALS_FILE = STATE_DIR / "git-signals.json"
 CURADORIA_CANDIDATES_FILE = STATE_DIR / "curadoria-candidates.json"
+CURATION_DIGEST_FILE = STATE_DIR / "curation-digest.json"
 PROPOSALS_FILE = STATE_DIR / "proposals.json"
 PROCEDURE_CURATION_FILE = STATE_DIR / "procedure-curation.json"
 WORKFLOW_HEALTH_FILE = STATE_DIR / "workflow-health.json"
 FIRST_STEPS_FILE = STATE_DIR / "first-steps.json"
 DISPATCH_QUEUE_FILE = STATE_DIR / "dispatch-queue.json"
+HEARTBEAT_ROTATION_FILE = STATE_DIR / "heartbeat-rotation.json"
 SOURCE_USAGE_FILE = STATE_DIR / "source-usage.jsonl"
 SOURCES_MANIFEST_FILE = STATE_DIR / "sources-manifest.yaml"
 PRIMITIVES_STATUS_FILE = STATE_DIR / "primitives-status.json"

@@ -1442,13 +1442,6 @@ def load_claim_detail(claim_id):
     }
 
 
-def _current_topics_dir():
-    memory_project_dir = str(os.environ.get("MEMORY_PROJECT_DIR") or "").strip()
-    if memory_project_dir:
-        return Path.home() / ".claude" / "projects" / memory_project_dir / "memory" / "topics"
-    return TOPICS_DIR
-
-
 def load_strategy_dashboard(limit_topics=5, limit_objectives=5):
     """Summarize strategy text, topics, and active objectives."""
     summary_lines = []
@@ -1467,9 +1460,8 @@ def load_strategy_dashboard(limit_topics=5, limit_objectives=5):
             pass
 
     topics = []
-    topics_dir = _current_topics_dir()
-    if topics_dir.exists():
-        for fp in sorted(topics_dir.glob("*.md")):
+    if TOPICS_DIR.exists():
+        for fp in sorted(TOPICS_DIR.glob("*.md")):
             try:
                 raw = fp.read_text(encoding="utf-8", errors="replace")
                 heading = next((line.lstrip("# ").strip() for line in raw.splitlines() if line.startswith("# ")), fp.stem)

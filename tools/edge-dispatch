@@ -23,7 +23,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import CURRENT_BEAT_FILE, CURRENT_DISPATCH_FILE, THREADS_DIR  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
-from _shared.dispatch_runtime import enrich_dispatch_state  # noqa: E402
+from _shared.dispatch_runtime import acknowledge_heartbeat_routing, enrich_dispatch_state  # noqa: E402
 from _shared.telemetry import current_actor, emit_shadow_event, log_event  # noqa: E402
 from _shared.skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
 
@@ -310,6 +310,11 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     request["skill"] = requested_skill
     request["args"] = requested_args
     request["primary_thread_id"] = primary_thread_id
+    acknowledge_heartbeat_routing(
+        state,
+        dispatched_skill=requested_skill,
+        dispatch_mode=args.dispatch_mode,
+    )
     state_block["skill_dispatched"] = True
     state_block["phase"] = "skill_dispatched"
     state_block["skill_status"] = "running"

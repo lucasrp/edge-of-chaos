@@ -22,10 +22,10 @@ mkdir -p \
     "$TMP_STATE/blog/entries" \
     "$TMP_STATE/state/signals" \
     "$TMP_STATE/threads" \
+    "$TMP_STATE/topics" \
     "$TMP_STATE/reports" \
     "$TMP_STATE/logs" \
-    "$TMP_STATE/search" \
-    "$TMP_HOME/.claude/projects/test-project/memory/topics"
+    "$TMP_STATE/search"
 
 cat >"$TMP_STATE/blog/entries/2026-04-21-dashboard.md" <<'MD'
 ---

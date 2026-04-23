@@ -89,38 +89,24 @@ file was edited later.
 
 **If `PREFLIGHT_WORK`:** Continue to Step 1 normally. Use detected signals to inform reading and decision.
 
-**If `PREFLIGHT_CLEAN` (and health ok):** Use round-robin to pick the next skill.
+**If `PREFLIGHT_CLEAN` (and health ok):** Use the heartbeat routing block already injected by the runtime.
 
-```bash
-python3 -c "
-import json, pathlib
-f = pathlib.Path.home() / 'edge' / 'state' / 'beat-rotation.json'
-try:
-    rot = json.loads(f.read_text())
-except:
-    rot = {'beat': 0, 'meta_idx': 0, 'content_idx': 0}
+The runtime now prepares `request.heartbeat_routing` before this skill runs. It is authoritative for the fairness lane. Do **not** recalculate a rotation in bash or Python inside the beat.
 
-beat = rot['beat']
-meta = ['reflection', 'autonomy', 'strategy']
-content = ['discovery', 'research']
+The fairness lane rotates explicitly through these 7 skills:
+- `autonomy`
+- `reflection`
+- `report`
+- `research`
+- `map`
+- `discovery`
+- `strategy`
 
-# Every 3rd beat is meta, others are content
-if (beat + 1) % 3 == 0:
-    skill = meta[rot['meta_idx'] % len(meta)]
-    kind = 'META'
-    rot['meta_idx'] += 1
-else:
-    skill = content[rot['content_idx'] % len(content)]
-    kind = 'CONTENT'
-    rot['content_idx'] += 1
+When there is no stronger signal from inbox, queue, overdue thread, or debugging remediation, dispatch `request.heartbeat_routing.suggested_skill`.
 
-rot['beat'] = beat + 1
-f.write_text(json.dumps(rot))
-print(f'ROTATION: {kind} → {skill} (beat #{beat + 1})')
-" 2>/dev/null
-```
+If `request.heartbeat_routing.priority_hints` is non-empty, those hints outrank the fairness candidate and should steer the dispatch first.
 
-Dispatch the skill from the rotation. Meta skills (reflection, autonomy, strategy) MUST run — they maintain the agent's self-awareness. Content skills (discovery, research) produce domain output.
+Procedural corpus/workflow curation is intentionally **not** part of this fairness lane. It is owned by deterministic postflight/runtime maintenance (`edge-curation sync`), not by a recurring skill.
 
 Log:
 ```bash
@@ -462,7 +448,7 @@ else:
 " 2>/dev/null
 ```
 
-If `DISPATCH_PENDING` → dispatch the indicated internal skill (e.g., `/ed-corpus-curation procedures`). Internal skills (`invocation: internal`) are only dispatched by explicit signal from another skill, never by the normal rotation.
+If `DISPATCH_PENDING` → dispatch the indicated internal skill (for example `strategy` or `research`). Queue overrides outrank the fairness lane.
 
 3. **Pending error in debugging.md that I can resolve?** → Resolve.
 
@@ -470,14 +456,9 @@ If `DISPATCH_PENDING` → dispatch the indicated internal skill (e.g., `/ed-corp
 
 5. **Open claim without a resurfacing thread?** → `edge-claims --open` shows what I don't know yet. If any open claim has matured (more context available, new research that could answer it), consider it as a topic for `/ed-research`.
 
-6. **None of the above?** → Choose ONE skill based on what seems most useful NOW:
-   - `/ed-research [topic]` — when there is an open question or hot topic
-   - `/ed-discovery` — when context suggests an interesting lateral connection
-   - `/ed-strategy` — every ~5 beats, or when context changed
-   - `/ed-reflection` — when there is user feedback to process
-   - `/ed-planner` — when there is a mature insight to turn into a proposal
+6. **None of the above?** → Dispatch the runtime fairness candidate from `request.heartbeat_routing.suggested_skill`. This is the canonical round-robin lane.
 
-7. **Absolute fallback (NEVER skip):** If nothing above applies, dispatch `/ed-discovery` or `/ed-research` (alternate with the last one). The heartbeat NEVER ends without dispatching.
+7. **Absolute fallback (NEVER skip):** If the routing block is missing or clearly stale, dispatch `/ed-discovery`. The heartbeat NEVER ends without dispatching.
 
 **Anti-saturation rule:** If the last 3 beats were on the same topic, CHANGE TOPIC (don't stop).
 

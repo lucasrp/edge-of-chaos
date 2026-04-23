@@ -156,7 +156,7 @@ def maybe_open_cycle(args: argparse.Namespace, env: dict[str, str]) -> str | Non
         "--cycle-id",
         cycle_id,
     ]
-    if args.cmd == "skill" and args.skill and args.dispatch_trigger != "heartbeat":
+    if args.cmd == "skill" and args.skill:
         dispatch_args.extend(["--skill", args.skill.lstrip("/")])
     elif args.cmd == "prompt":
         dispatch_args.extend(["--skill", "prompt"])

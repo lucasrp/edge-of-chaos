@@ -137,11 +137,30 @@ assert request["pre_skill_context"]["protocol"] == "preflight"
 assert request["pre_skill_context"]["source_hash"].startswith("sha256:")
 assert len(request["preflight_evidence"]) >= 1
 assert any(item["kind"] == "health.snapshot" for item in request["preflight_evidence"])
-assert any(item["kind"] == "corpus.lookup" and item["satisfied"] is False for item in request["preflight_evidence"])
+corpus_step = next(item for item in request["preflight_evidence"] if item["kind"] == "corpus.lookup")
+assert corpus_step["satisfied"] is False
+assert corpus_step["missing_required_types"] == ["topic", "workflow", "memory"]
+assert request["search_protocol"]["required"] is True
+assert request["epistemic_protocol"]["required"] is True
+assert request["heartbeat_routing"]["suggested_skill"] == "autonomy"
+assert request["heartbeat_routing"]["round_robin_skills"] == [
+    "autonomy",
+    "reflection",
+    "report",
+    "research",
+    "map",
+    "discovery",
+    "strategy",
+]
 assert "Dispatch runtime context below" in args
 assert "health_snapshot" in args
 assert "pre_skill_context" in args
 assert "preflight_evidence" in args
+assert "corpus_coverage" in args
+assert "search_protocol" in args
+assert "epistemic_protocol" in args
+assert "configured_integrations" in args
+assert "heartbeat_routing" in args
 assert request["primitives_status"]["summary"]["health_status"] == "ok"
 assert "workflow_status" in request
 assert "claims_summary" in request

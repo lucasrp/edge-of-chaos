@@ -22,6 +22,7 @@ from paths import (  # noqa: E402
     EDGE_REPO_DIR,
     PRIMITIVES_STATUS_FILE,
     SEARCH_DIR,
+    SECRETS_DIR,
     STATE_EVENTS_FILE,
     TOOLS_DIR,
 )
@@ -35,6 +36,107 @@ STATUS_ORDER = {
     "active": 3,
     "available": 4,
     "unknown": 5,
+}
+
+INTEGRATION_CATALOG: dict[str, dict[str, Any]] = {
+    "assertia-db": {
+        "name": "assertia_db",
+        "label": "Assertia DB",
+        "kind": "product_usage_database",
+        "roles": ["search", "database"],
+        "candidate_capabilities": [],
+    },
+    "bob": {
+        "name": "bob",
+        "label": "Bob",
+        "kind": "instance_access",
+        "roles": [],
+        "candidate_capabilities": [],
+    },
+    "digitalocean": {
+        "name": "digitalocean",
+        "label": "DigitalOcean",
+        "kind": "cloud_infrastructure",
+        "roles": [],
+        "candidate_capabilities": [],
+    },
+    "exa": {
+        "name": "exa",
+        "label": "Exa",
+        "kind": "search_engine",
+        "roles": ["search", "external_search"],
+        "candidate_capabilities": ["sources.aggregate"],
+    },
+    "grafana-loki": {
+        "name": "grafana",
+        "label": "Grafana Loki",
+        "kind": "observability_database",
+        "roles": ["search", "observability"],
+        "candidate_capabilities": [],
+    },
+    "joao": {
+        "name": "joao",
+        "label": "Joao",
+        "kind": "instance_access",
+        "roles": [],
+        "candidate_capabilities": [],
+    },
+    "keys": {
+        "name": "legacy_keys_bundle",
+        "label": "Legacy Keys Bundle",
+        "kind": "shared_secret_bundle",
+        "roles": [],
+        "candidate_capabilities": [],
+    },
+    "moltbook": {
+        "name": "moltbook",
+        "label": "Moltbook",
+        "kind": "social_platform",
+        "roles": ["publish"],
+        "candidate_capabilities": [],
+    },
+    "netlify": {
+        "name": "netlify",
+        "label": "Netlify",
+        "kind": "deployment_platform",
+        "roles": [],
+        "candidate_capabilities": [],
+    },
+    "openai": {
+        "name": "openai",
+        "label": "OpenAI",
+        "kind": "llm_provider",
+        "roles": [],
+        "candidate_capabilities": [],
+    },
+    "slack": {
+        "name": "slack",
+        "label": "Slack",
+        "kind": "communication_platform",
+        "roles": [],
+        "candidate_capabilities": [],
+    },
+    "vultr": {
+        "name": "vultr",
+        "label": "Vultr",
+        "kind": "cloud_infrastructure",
+        "roles": [],
+        "candidate_capabilities": [],
+    },
+    "x-api": {
+        "name": "x",
+        "label": "X API",
+        "kind": "social_source",
+        "roles": ["search", "external_search"],
+        "candidate_capabilities": ["sources.aggregate"],
+    },
+    "xai": {
+        "name": "xai",
+        "label": "xAI",
+        "kind": "llm_provider",
+        "roles": [],
+        "candidate_capabilities": [],
+    },
 }
 
 
@@ -87,6 +189,39 @@ def _normalize_command(value: Any) -> list[str]:
     return []
 
 
+def _normalize_roles(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    roles: list[str] = []
+    for item in value:
+        role = str(item or "").strip()
+        if role and role not in roles:
+            roles.append(role)
+    return roles
+
+
+def _parse_env_file(path: Path) -> list[str]:
+    vars_present: list[str] = []
+    if not path.exists():
+        return vars_present
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return vars_present
+    for line in raw.splitlines():
+        text = line.strip()
+        if not text or text.startswith("#") or "=" not in text:
+            continue
+        key, value = text.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key and value:
+            vars_present.append(key)
+    return sorted(set(vars_present))
+
+
 def _load_static_registry() -> list[dict[str, Any]]:
     config_path = CAPABILITIES_CONFIG_FILE
     if not config_path.exists():
@@ -113,6 +248,9 @@ def _load_static_registry() -> list[dict[str, Any]]:
         capability["probe"] = _normalize_command(item.get("probe"))
         capability["passthrough"] = bool(item.get("passthrough", True))
         capability["required"] = bool(item.get("required", False))
+        capability["roles"] = _normalize_roles(item.get("roles"))
+        capability["search_adapter"] = str(item.get("search_adapter") or "").strip()
+        capability["search_scope"] = str(item.get("search_scope") or "").strip()
         skills = item.get("skills") or []
         capability["skills"] = [str(skill).strip() for skill in skills if str(skill).strip()] if isinstance(skills, list) else []
         capabilities.append(capability)
@@ -215,6 +353,7 @@ def _static_capability_row(item: dict[str, Any], *, invocations: dict[str, Any],
         "source": "static_registry",
         "description": str(item.get("description") or "").strip(),
         "required": required,
+        "roles": list(item.get("roles") or []),
         "skills": skills,
         "recommended_for_skill": bool(normalized_skill and normalized_skill in skills),
         "configured_command": command,
@@ -248,6 +387,7 @@ def _primitive_capability_row(item: dict[str, Any], *, invocations: dict[str, An
         "primitive_name": item.get("name"),
         "description": str(item.get("description") or "").strip(),
         "required": False,
+        "roles": ["search", "source"],
         "skills": ["sources", "research", "discovery", "report", "strategy", "planner", "autonomy"],
         "recommended_for_skill": bool(normalized_skill and normalized_skill in {"sources", "research", "discovery", "report", "strategy", "planner", "autonomy"}),
         "configured_command": [str(item.get("binary_path") or "")] if item.get("binary_path") else [],
@@ -335,6 +475,61 @@ def build_capability_status(*, skill: str | None = None) -> dict[str, Any]:
     CAPABILITIES_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
     CAPABILITIES_STATUS_FILE.write_text(json.dumps(status_payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return status_payload
+
+
+def build_configured_integrations(*, skill: str | None = None) -> dict[str, Any]:
+    capability_payload = build_capability_status(skill=skill)
+    capability_rows = {
+        str(item.get("name") or "").strip(): item
+        for item in (capability_payload.get("capabilities") or [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    }
+
+    def _binding_status(candidate_capabilities: list[str]) -> str:
+        if not candidate_capabilities:
+            return "absent"
+        matched = [capability_rows.get(name) for name in candidate_capabilities if capability_rows.get(name)]
+        if not matched:
+            return "absent"
+        statuses = {str(item.get("effective_status") or "unknown") for item in matched if isinstance(item, dict)}
+        if statuses & {"available", "active", "probed"}:
+            return "present"
+        if statuses & {"degraded", "broken"}:
+            return "degraded"
+        return "absent"
+
+    integrations: list[dict[str, Any]] = []
+    if SECRETS_DIR.exists():
+        for path in sorted(SECRETS_DIR.glob("*.env")):
+            secret_key = path.stem
+            catalog_entry = INTEGRATION_CATALOG.get(secret_key, {})
+            candidate_capabilities = list(catalog_entry.get("candidate_capabilities") or [])
+            integration = {
+                "name": str(catalog_entry.get("name") or secret_key.replace("-", "_")),
+                "label": str(catalog_entry.get("label") or path.stem),
+                "kind": str(catalog_entry.get("kind") or "external_integration"),
+                "roles": list(catalog_entry.get("roles") or []),
+                "status": "configured",
+                "secret_file": path.name,
+                "vars_present": _parse_env_file(path),
+                "candidate_capabilities": candidate_capabilities,
+            }
+            integration["capability_binding"] = _binding_status(candidate_capabilities)
+            integrations.append(integration)
+
+    integrations.sort(key=lambda item: (item.get("capability_binding") != "absent", str(item.get("name") or "")))
+    unbound = [item for item in integrations if item.get("capability_binding") == "absent"]
+    summary = {
+        "integration_total": len(integrations),
+        "unbound_total": len(unbound),
+        "bound_total": sum(1 for item in integrations if item.get("capability_binding") == "present"),
+        "degraded_total": sum(1 for item in integrations if item.get("capability_binding") == "degraded"),
+    }
+    return {
+        "summary": summary,
+        "configured_integrations": integrations,
+        "unbound_integrations": unbound,
+    }
 
 
 def get_capability(name: str, *, skill: str | None = None) -> dict[str, Any] | None:

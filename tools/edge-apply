@@ -589,6 +589,32 @@ def phase_identity(cfg, dry_run):
             created += 1
     ok(f"Memory: {created} new (existing preserved) → {mem_dst}")
 
+    # Topics migrate to edge_home/topics/ and remain agent-owned state.
+    topics_state_root = Path(os.environ.get("EDGE_STATE_DIR") or cfg["edge_home_expanded"])
+    topics_dst = topics_state_root / "topics"
+    migrated_topics = 0
+    legacy_topic_roots: list[Path] = []
+    seen_topic_roots: set[Path] = set()
+    for candidate in [mem_dst / "topics", *(Path.home() / ".claude" / "projects").glob("*/memory/topics")]:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            resolved = candidate
+        if resolved in seen_topic_roots or not candidate.exists():
+            continue
+        seen_topic_roots.add(resolved)
+        legacy_topic_roots.append(candidate)
+
+    for legacy_topics_src in legacy_topic_roots:
+        for src in sorted(legacy_topics_src.glob("*.md")):
+            dst = topics_dst / src.name
+            if dst.exists() or dry_run:
+                continue
+            _ensure_dir(topics_dst, phase="identity", dry_run=False, source_template="state:topics")
+            _copy_file(src, dst, phase="identity", dry_run=False)
+            migrated_topics += 1
+    ok(f"Topics: {migrated_topics} migrated to state → {topics_dst}")
+
     # Onboarding files → edge_home/
     for onb in ["onboarding.md", "onboarding_checklist.md"]:
         src = REPO_ROOT / "templates" / onb

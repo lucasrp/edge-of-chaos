@@ -110,7 +110,7 @@ def create_from_curation(args):
     today = datetime.now().strftime("%Y-%m-%d")
 
     if not curation_file.exists():
-        print("No procedure-curation.json found. Run /ed-corpus-curation procedures first.")
+        print("No procedure-curation.json found. Run edge-curation sync first.")
         sys.exit(1)
 
     data = json.load(open(curation_file))

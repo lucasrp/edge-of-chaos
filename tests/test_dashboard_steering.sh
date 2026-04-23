@@ -25,7 +25,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$TMP_STATE/blog/entries" "$TMP_STATE/state/signals" "$TMP_STATE/threads" "$TMP_STATE/logs" "$TMP_STATE/search" "$TMP_HOME/.claude/projects/test-project/memory/topics"
+mkdir -p "$TMP_STATE/blog/entries" "$TMP_STATE/state/signals" "$TMP_STATE/threads" "$TMP_STATE/logs" "$TMP_STATE/search" "$TMP_STATE/topics"
 
 if [ -f "$STRATEGY_FILE" ]; then cp "$STRATEGY_FILE" "$STRATEGY_BACKUP"; fi
 
@@ -39,11 +39,11 @@ Make epistemic steering explicit and operator-visible.
 - tie runtime visibility to explicit operator direction
 MD
 
-cat >"$TMP_HOME/.claude/projects/test-project/memory/topics/dispatch.md" <<'MD'
+cat >"$TMP_STATE/topics/dispatch.md" <<'MD'
 # Dispatch transparency
 MD
 
-cat >"$TMP_HOME/.claude/projects/test-project/memory/topics/epistemics.md" <<'MD'
+cat >"$TMP_STATE/topics/epistemics.md" <<'MD'
 # Epistemic steering
 MD
 
