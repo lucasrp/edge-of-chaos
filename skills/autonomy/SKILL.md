@@ -102,8 +102,8 @@ Prefer the digested state first. Read raw files only when you need details.
 | Create or improve local primitive | Auto |
 | Add or remove source | Auto |
 | Propose workflow | Auto |
-| Modify activation procedure (`pre-skill.md`) | Human |
-| Modify activation context (`pre-skill.md`) | Human |
+| Modify runtime protocol procedure (`preflight.yaml`) | Human |
+| Modify runtime protocol context (`preflight.yaml`) | Human |
 | External action | Human |
 
 Autonomy should spend most beats pruning, deepening, or materializing, not

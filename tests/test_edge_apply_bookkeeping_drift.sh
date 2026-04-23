@@ -32,7 +32,7 @@ blog_port: 8766
 onboarding_mode: true
 YAML
 
-for file in branding.yaml capabilities.yaml features.yaml interests.md post-skill.md pre-skill.md runtime-routers.yaml strategy.md; do
+for file in branding.yaml capabilities.yaml features.yaml interests.md postflight.yaml preflight.yaml runtime-routers.yaml strategy.md; do
     printf 'rendered %s\n' "$file" >"$TMP_REPO/config/$file"
 done
 for file in paths.py paths.sh branding.py health-config.yaml; do
@@ -92,8 +92,8 @@ expected = {
     "capabilities.yaml",
     "features.yaml",
     "interests.md",
-    "post-skill.md",
-    "pre-skill.md",
+    "postflight.yaml",
+    "preflight.yaml",
     "runtime-routers.yaml",
     "strategy.md",
 }

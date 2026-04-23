@@ -70,8 +70,8 @@ my-agent/
 ├── agent.yaml              ← your config (gitignored)
 ├── agent.yaml.example      ← template with all fields
 ├── config/
-│   ├── pre-skill.md        ← loaded before every skill (identity, context)
-│   ├── post-skill.md       ← runs after every skill (notify, update strategy)
+│   ├── preflight.yaml      ← canonical pre-skill protocol source (compiled and executed by CLI)
+│   ├── postflight.yaml     ← canonical post-skill protocol source (compiled and executed by CLI)
 │   ├── strategy.md         ← operator direction (agent reads, proposes)
 │   ├── interests.md        ← shared interests (guides exploration)
 │   ├── branding.yaml       ← agent phenotype (name, colors, dashboard config via legacy `blog` key)

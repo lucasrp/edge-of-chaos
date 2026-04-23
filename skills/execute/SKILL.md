@@ -31,7 +31,7 @@ Direct implementation or via Ralph. Always generates a report. Only runs when th
 
 ## Context Activation
 
-**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
+**Use the runtime pre-skill context injected by `edge-preflight` and sourced from `~/edge/config/preflight.yaml`.**
 
 ---
 
@@ -193,7 +193,7 @@ Final message with:
 
 ## Post-execution
 
-**Follow `~/edge/config/post-skill.md` for post-publication actions.**
+**Use the runtime post-skill protocol sourced from `~/edge/config/postflight.yaml` and executed by `edge-postflight`.**
 
 ---
 

@@ -28,7 +28,7 @@ Read context sources relevant to the caller and produce a summary with:
 
 ## Context Activation
 
-**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
+**Use the runtime pre-skill context injected by `edge-preflight` and sourced from `~/edge/config/preflight.yaml`.**
 
 ---
 

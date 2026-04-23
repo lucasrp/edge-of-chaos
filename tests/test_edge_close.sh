@@ -4,6 +4,10 @@ set -euo pipefail
 EDGE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_BASE="$(mktemp -d /tmp/edge-close-XXXXXX)"
 TMP_EDGE="$TMP_BASE/edge"
+PROTO_PREFLIGHT="$EDGE_DIR/config/preflight.yaml"
+PROTO_POSTFLIGHT="$EDGE_DIR/config/postflight.yaml"
+BACKUP_PREFLIGHT="$TMP_BASE/preflight.yaml.bak"
+BACKUP_POSTFLIGHT="$TMP_BASE/postflight.yaml.bak"
 PASS=0
 FAIL=0
 
@@ -11,11 +15,62 @@ pass() { echo "  PASS: $1"; PASS=$((PASS + 1)); }
 fail() { echo "  FAIL: $1"; FAIL=$((FAIL + 1)); }
 
 cleanup() {
+    if [[ -f "$BACKUP_PREFLIGHT" ]]; then mv "$BACKUP_PREFLIGHT" "$PROTO_PREFLIGHT"; else rm -f "$PROTO_PREFLIGHT"; fi
+    if [[ -f "$BACKUP_POSTFLIGHT" ]]; then mv "$BACKUP_POSTFLIGHT" "$PROTO_POSTFLIGHT"; else rm -f "$PROTO_POSTFLIGHT"; fi
     rm -rf "$TMP_BASE"
 }
 trap cleanup EXIT
 
 mkdir -p "$TMP_EDGE/blog/entries" "$TMP_EDGE/reports" "$TMP_EDGE/state/events" "$TMP_EDGE/logs" "$TMP_EDGE/state"
+
+if [[ -f "$PROTO_PREFLIGHT" ]]; then cp "$PROTO_PREFLIGHT" "$BACKUP_PREFLIGHT"; fi
+if [[ -f "$PROTO_POSTFLIGHT" ]]; then cp "$PROTO_POSTFLIGHT" "$BACKUP_POSTFLIGHT"; fi
+cat >"$PROTO_PREFLIGHT" <<'YAML'
+version: 1
+protocol: preflight
+context_notes: []
+operator_notes: []
+procedures:
+  - id: health-snapshot
+    kind: health.snapshot
+  - id: inbox
+    kind: inbox.snapshot
+  - id: claims
+    kind: claims.refresh
+  - id: primitives
+    kind: primitives.status
+  - id: capabilities
+    kind: capabilities.status
+  - id: corpus
+    kind: corpus.lookup
+  - id: workflows
+    kind: workflow.status
+  - id: queue
+    kind: queue.status
+  - id: onboarding
+    kind: onboarding.status
+YAML
+cat >"$PROTO_POSTFLIGHT" <<'YAML'
+version: 1
+protocol: postflight
+context_notes: []
+operator_notes: []
+procedures:
+  - id: validate-recent
+    kind: validate.recent
+  - id: claims
+    kind: claims.refresh
+  - id: primitives
+    kind: primitives.status
+  - id: capabilities
+    kind: capabilities.status
+  - id: workflows
+    kind: workflow.status
+  - id: briefing
+    kind: briefing.refresh
+  - id: cycle-health
+    kind: cycle_health.observe
+YAML
 
 export EDGE_REPO_DIR="$EDGE_DIR"
 export EDGE_STATE_DIR="$TMP_EDGE"
@@ -71,13 +126,13 @@ dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 postflight = open(sys.argv[2], encoding="utf-8").read()
 steps = dispatch["state"].get("postflight_steps", [])
 delta = dispatch["state"].get("postflight_delta", {})
-step_names = {step.get("step") for step in steps}
+step_names = {step.get("id") for step in steps}
 
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["postflight_status"] == "completed"
 assert "validate_recent" in postflight
-assert {"validate_recent", "claims_digest", "primitives_status", "workflow_status", "briefing_digest"} <= step_names
+assert {"validate-recent", "claims", "primitives", "workflows", "briefing"} <= step_names
 assert "claims_open_delta" in delta
 PY
 then
@@ -116,7 +171,7 @@ entry = open(sys.argv[2], encoding="utf-8").read()
 
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
-assert dispatch["state"]["close_reason"] == "validate_recent_warning"
+assert dispatch["state"]["close_reason"] == "postflight_step_warning"
 assert dispatch["state"]["postflight_status"] == "warning"
 assert "report: 2026-04-22-warning.html" in entry
 PY

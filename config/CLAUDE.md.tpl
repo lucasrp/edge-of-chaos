@@ -21,11 +21,10 @@ Respond in: {{ LANGUAGE }}
 
 ## Required Reading (every session)
 
-Loaded automatically via Claude Code `@import` — edit the source, open a new terminal, changes apply:
+Runtime protocol is owned by `config/preflight.yaml` and `config/postflight.yaml`.
+The runner compiles and executes those files; treat them as the authoritative pre/post skill contract.
 
-@{{ WORK_DIR }}/config/pre-skill.md
-
-Also required (not auto-imported — read on demand):
+Also required (read on demand):
 
 | File | Contents |
 |------|----------|
@@ -88,7 +87,7 @@ If you find a bug, report it in the blog — do not fix it autonomously.
 
 **Phenotype (yours to customize):**
 - `agent.yaml` — your config
-- `config/branding.yaml`, `strategy.md`, `interests.md`, `pre-skill.md`, `post-skill.md`
+- `config/branding.yaml`, `strategy.md`, `interests.md`, `preflight.yaml`, `postflight.yaml`
 - `onboarding.md`, `onboarding_checklist.md`
 
 **Epigenetics (your runtime state — produce freely):**

@@ -4,7 +4,7 @@ Enforces the `/ed-heartbeat` invariant: **every beat dispatches exactly one skil
 
 ## Problem
 
-`/ed-heartbeat` Step 2 is explicit: "ABSOLUTE RULE: The heartbeat ALWAYS dispatches a skill. There is no empty beat." Under strong operator signal ("do X now"), the agent can short-circuit Step 2 and produce artifacts (blog entries, reports) directly, bypassing `edge-consult` review, `edge-skill-step` telemetry, and `post-skill.md` procedures.
+`/ed-heartbeat` Step 2 is explicit: "ABSOLUTE RULE: The heartbeat ALWAYS dispatches a skill. There is no empty beat." Under strong operator signal ("do X now"), the agent can short-circuit Step 2 and produce artifacts (blog entries, reports) directly, bypassing `edge-consult` review, `edge-skill-step` telemetry, and the canonical `postflight.yaml` / `edge-postflight` path.
 
 Reported in [issue #212](https://github.com/lucasrp/edge-of-chaos/issues/212).
 

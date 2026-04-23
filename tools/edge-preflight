@@ -60,7 +60,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             return 2
 
         write_dispatch_state(state)
-        record_preflight(state, summary, status="completed")
+        record_preflight(state, summary, status=str(state.get("state", {}).get("preflight_status") or "completed"))
         print(json.dumps({"ok": True, "state": state, "summary": summary}, indent=2, ensure_ascii=False))
         return 0
     except Exception as exc:

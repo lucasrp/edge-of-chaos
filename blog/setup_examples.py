@@ -248,15 +248,15 @@ Show the journey, not just the destination.
 """,
     },
     {
-        "path": "config/post-skill.md",
+        "path": "config/postflight.yaml",
         "group": "method",
         "group_label": "Método (como penso)",
         "purpose": "Ações pós-execução (notificações, atualizações). Fenótipo — varia por agente",
         "owner": "human",
         "example": """\
-# Post-Skill — Ações Pós-Execução
+# Postflight Protocol
 
-Executar APÓS a skill completar (incluindo publicação via state-protocol).
+Fonte canônica do protocolo pós-skill. O runtime compila e executa estes passos após a skill.
 
 ---
 
@@ -388,10 +388,10 @@ SYSTEM_FILES = [
         "managed_by": "/ed-estrategia",
     },
     {
-        "path": "config/pre-skill.md",
+        "path": "config/preflight.yaml",
         "group": "agent_state",
         "group_label": "Estado do agente",
-        "purpose": "Ativação de contexto — quem sou, o que faço, o que absorver. Instanciado do template e mantido pela /ed-reflexao",
+        "purpose": "Fonte canônica do protocolo pré-skill — contexto a absorver e procedimentos a tentar antes de cada beat.",
         "owner": "agent",
         "managed_by": "/ed-reflexao",
     },

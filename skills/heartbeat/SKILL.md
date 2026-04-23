@@ -527,7 +527,7 @@ Individual steps within the skill should call `edge-skill-step <skill> <step_id>
 
 After the skill's main work is done (Step 2) and before logging (Step 3):
 
-1. Re-read `config/post-skill.md`
+1. Re-read `config/postflight.yaml`
 2. Execute EVERY procedure defined there, one by one
 3. **CRITICAL: each procedure is independent. A failure in one MUST NOT
    stop the others.** Execute all of them, every time, regardless of
