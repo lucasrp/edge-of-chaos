@@ -35,6 +35,16 @@ capabilities:
     required: true
     skills: ["reflection", "autonomy", "heartbeat"]
 
+  - name: repo.sync
+    kind: external_cli
+    description: Audit and exact-code synchronization wrapper for the genotype checkout.
+    command: ["edge-repo-sync"]
+    passthrough: true
+    probe: ["edge-repo-sync", "--help"]
+    required: true
+    roles: ["sync", "audit", "repository"]
+    skills: ["reflection", "autonomy", "heartbeat", "execute"]
+
   - name: storage.sync
     kind: external_cli
     description: File synchronization wrapper over rclone sync.
