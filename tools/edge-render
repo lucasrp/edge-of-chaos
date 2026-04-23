@@ -109,6 +109,50 @@ def _render_pre_skill(context: list[str], procedure: list[str]) -> str:
     return "\n".join(f"- {item}" for item in items)
 
 
+def _render_protocol_yaml(payload: dict) -> str:
+    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True).strip() + "\n"
+
+
+def _render_preflight_protocol(cfg: dict) -> str:
+    payload = {
+        "version": 1,
+        "protocol": "preflight",
+        "context_notes": list(cfg["pre_skill_context"]),
+        "operator_notes": list(cfg["pre_skill_procedure"]),
+        "procedures": [
+            {"id": "health-snapshot", "kind": "health.snapshot"},
+            {"id": "async-inbox", "kind": "inbox.snapshot"},
+            {"id": "claims-refresh", "kind": "claims.refresh"},
+            {"id": "primitives-status", "kind": "primitives.status"},
+            {"id": "capabilities-status", "kind": "capabilities.status"},
+            {"id": "corpus-lookup", "kind": "corpus.lookup"},
+            {"id": "workflow-status", "kind": "workflow.status"},
+            {"id": "queue-status", "kind": "queue.status"},
+            {"id": "onboarding-status", "kind": "onboarding.status"},
+        ],
+    }
+    return _render_protocol_yaml(payload)
+
+
+def _render_postflight_protocol(cfg: dict) -> str:
+    payload = {
+        "version": 1,
+        "protocol": "postflight",
+        "context_notes": [],
+        "operator_notes": list(cfg["post_skill"]),
+        "procedures": [
+            {"id": "validate-recent", "kind": "validate.recent"},
+            {"id": "claims-refresh", "kind": "claims.refresh"},
+            {"id": "primitives-status", "kind": "primitives.status"},
+            {"id": "capabilities-status", "kind": "capabilities.status"},
+            {"id": "workflow-status", "kind": "workflow.status"},
+            {"id": "briefing-refresh", "kind": "briefing.refresh"},
+            {"id": "cycle-health-observe", "kind": "cycle_health.observe"},
+        ],
+    }
+    return _render_protocol_yaml(payload)
+
+
 def _normalize_router_map(raw_routers) -> dict[str, dict]:
     if not isinstance(raw_routers, dict):
         return {}
@@ -351,17 +395,8 @@ def build_placeholder_map(cfg: dict) -> dict:
         "CONTEXT_DIR": cfg["context_dir"],
         "KB_TYPE": cfg["kb_type"],
         "KB_REFRESH": cfg["kb_refresh"],
-        # Lifecycle hooks (rendered from lists). PRE_SKILL_CHECKLIST renders
-        # the split (context + procedure) when context is present; otherwise
-        # it falls back to a flat list for backward compat with legacy yamls.
-        "PRE_SKILL_CHECKLIST": _render_pre_skill(
-            cfg["pre_skill_context"],
-            cfg["pre_skill_procedure"],
-        ),
-        "POST_SKILL_CHECKLIST": _render_checklist(
-            cfg["post_skill"],
-            "_(no post-skill actions configured — add items to `post_skill` in agent.yaml)_",
-        ),
+        "PREFLIGHT_PROTOCOL_YAML": _render_preflight_protocol(cfg),
+        "POSTFLIGHT_PROTOCOL_YAML": _render_postflight_protocol(cfg),
         # Repo
         "REPO_OWNER": cfg["repo_owner"],
         "REPO_NAME": cfg["repo_name"],

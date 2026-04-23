@@ -12,9 +12,9 @@ Autonomous review with 3 signal sources: **git archaeology** (git_signals.py), *
 
 ## Context Activation
 
-**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
+**Use the runtime pre-skill context injected by `edge-preflight` and sourced from `~/edge/config/preflight.yaml`.**
 
-> Note: /ed-reflection is responsible for MAINTAINING pre-skill.md up to date (see "Responsibility: pre-skill.md" section below).
+> Note: /ed-reflection is responsible for maintaining the pre/post runtime protocol source (`preflight.yaml` / `postflight.yaml`) when the operator decides it should change.
 
 ---
 
@@ -40,7 +40,7 @@ Escalate to heartbeat-escalated if ANY condition:
 
 | File | When |
 |------|------|
-| `~/edge/config/pre-skill.md` | **Context changed** — new/closed projects, files to absorb, operator priorities changed |
+| `~/edge/config/preflight.yaml` | **Context changed** — new/closed projects, files to absorb, operator priorities changed |
 | `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/reflection-log.md` | **ALWAYS** — execution log |
 | `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/debugging.md` | New or recurring errors (crossref step) |
 | `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/MEMORY.md` | Consolidated knowledge (manual mode) |
@@ -55,9 +55,9 @@ Escalate to heartbeat-escalated if ANY condition:
 | `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/personality.md` | Adopted discoveries |
 | `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md` | Mark as ADOPTED/ARCHIVED |
 
-### Responsibility: pre-skill.md
+### Responsibility: preflight.yaml
 
-The `~/edge/config/pre-skill.md` is the agent's activation letter — it defines who it is, what it's doing, and what to absorb. `/ed-reflection` is responsible for keeping it up to date:
+The `~/edge/config/preflight.yaml` is the canonical runtime protocol source for what the agent should absorb and attempt before a skill. `/ed-reflection` is responsible for proposing updates when the operator decides the protocol should change:
 
 - **New project appeared** → add to the context section
 - **Project closed** → remove
@@ -65,7 +65,7 @@ The `~/edge/config/pre-skill.md` is the agent's activation letter — it defines
 - **File no longer needed** → remove
 - **Priorities changed** → reflect in the "What I'm doing" section
 
-Base template: `~/edge/config/pre-skill.md.tpl`. The reflection instantiates and keeps `pre-skill.md` alive.
+Base template: `~/edge/config/preflight.yaml.tpl`. Reflection may update the protocol source, but the runtime compiles and executes it.
 
 ---
 
@@ -618,7 +618,7 @@ Report to user:
 
 ## Post-execution
 
-**Follow `~/edge/config/post-skill.md` for post-publication actions.**
+**Use the runtime post-skill protocol sourced from `~/edge/config/postflight.yaml` and executed by `edge-postflight`.**
 
 ---
 

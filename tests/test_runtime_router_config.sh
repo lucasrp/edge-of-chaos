@@ -147,7 +147,7 @@ mkdir -p \
     "$TMP_STATE/health/last_success" \
     "$TMP_HOME/.claude"
 touch "$TMP_HOME/.claude/CLAUDE.md"
-touch "$TMP_RUNTIME/config/pre-skill.md" "$TMP_RUNTIME/config/post-skill.md" "$TMP_RUNTIME/config/strategy.md"
+touch "$TMP_RUNTIME/config/preflight.yaml" "$TMP_RUNTIME/config/postflight.yaml" "$TMP_RUNTIME/config/strategy.md"
 touch "$TMP_RUNTIME/blog/.venv/bin/python3" "$TMP_RUNTIME/tools/.venv/bin/python3"
 cat >"$TMP_RUNTIME/secrets/keys.env" <<'ENV'
 OPENAI_API_KEY=test-openai-key

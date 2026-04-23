@@ -4,6 +4,10 @@ set -euo pipefail
 EDGE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_BASE="$(mktemp -d /tmp/edge-dispatch-XXXXXX)"
 TMP_EDGE="$TMP_BASE/edge"
+PROTO_PREFLIGHT="$EDGE_DIR/config/preflight.yaml"
+PROTO_POSTFLIGHT="$EDGE_DIR/config/postflight.yaml"
+BACKUP_PREFLIGHT="$TMP_BASE/preflight.yaml.bak"
+BACKUP_POSTFLIGHT="$TMP_BASE/postflight.yaml.bak"
 PASS=0
 FAIL=0
 
@@ -11,11 +15,62 @@ pass() { echo "  PASS: $1"; PASS=$((PASS + 1)); }
 fail() { echo "  FAIL: $1"; FAIL=$((FAIL + 1)); }
 
 cleanup() {
+    if [[ -f "$BACKUP_PREFLIGHT" ]]; then mv "$BACKUP_PREFLIGHT" "$PROTO_PREFLIGHT"; else rm -f "$PROTO_PREFLIGHT"; fi
+    if [[ -f "$BACKUP_POSTFLIGHT" ]]; then mv "$BACKUP_POSTFLIGHT" "$PROTO_POSTFLIGHT"; else rm -f "$PROTO_POSTFLIGHT"; fi
     rm -rf "$TMP_BASE"
 }
 trap cleanup EXIT
 
 mkdir -p "$TMP_EDGE/blog/entries" "$TMP_EDGE/reports" "$TMP_EDGE/state"
+
+if [[ -f "$PROTO_PREFLIGHT" ]]; then cp "$PROTO_PREFLIGHT" "$BACKUP_PREFLIGHT"; fi
+if [[ -f "$PROTO_POSTFLIGHT" ]]; then cp "$PROTO_POSTFLIGHT" "$BACKUP_POSTFLIGHT"; fi
+cat >"$PROTO_PREFLIGHT" <<'YAML'
+version: 1
+protocol: preflight
+context_notes: []
+operator_notes: []
+procedures:
+  - id: health-snapshot
+    kind: health.snapshot
+  - id: inbox
+    kind: inbox.snapshot
+  - id: claims
+    kind: claims.refresh
+  - id: primitives
+    kind: primitives.status
+  - id: capabilities
+    kind: capabilities.status
+  - id: corpus
+    kind: corpus.lookup
+  - id: workflows
+    kind: workflow.status
+  - id: queue
+    kind: queue.status
+  - id: onboarding
+    kind: onboarding.status
+YAML
+cat >"$PROTO_POSTFLIGHT" <<'YAML'
+version: 1
+protocol: postflight
+context_notes: []
+operator_notes: []
+procedures:
+  - id: validate-recent
+    kind: validate.recent
+  - id: claims
+    kind: claims.refresh
+  - id: primitives
+    kind: primitives.status
+  - id: capabilities
+    kind: capabilities.status
+  - id: workflows
+    kind: workflow.status
+  - id: briefing
+    kind: briefing.refresh
+  - id: cycle-health
+    kind: cycle_health.observe
+YAML
 
 export EDGE_REPO_DIR="$EDGE_DIR"
 export EDGE_STATE_DIR="$TMP_EDGE"
@@ -100,7 +155,7 @@ assert request["skill"] == "research"
 assert request["primary_thread_id"] == "ops-visibility"
 assert dispatch["state"]["skill_dispatched"] is True
 assert dispatch["state"]["skill_status"] == "running"
-assert dispatch["state"]["preflight_status"] == "completed"
+assert dispatch["state"]["preflight_status"] == "warning"
 assert legacy["skill_dispatched"] is True
 assert legacy["skill"] == "research"
 assert request["schema_version"] == 1
@@ -110,6 +165,7 @@ assert "primitives_status" in request
 assert "workflow_status" in request
 assert "workflow_recommendations" in request
 assert "corpus_hits" in request
+assert any(item["kind"] == "corpus.lookup" and item["satisfied"] is False for item in request["preflight_evidence"])
 assert start_event["payload"]["thread_id"] == "ops-visibility"
 assert skill_event["payload"]["thread_id"] == "ops-visibility"
 PY

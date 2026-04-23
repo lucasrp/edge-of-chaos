@@ -30,7 +30,8 @@ from paths import (  # noqa: E402
     WORKFLOW_HEALTH_FILE,
 )
 from .continuity import refresh_continuity_projections  # noqa: E402
-from .capability_runtime import build_capability_status  # noqa: E402
+from .capability_runtime import build_capability_status, invoke_capability, probe_capability  # noqa: E402
+from .protocol_runtime import emit_protocol_step_observed, ensure_compiled_protocol, protocol_context  # noqa: E402
 from .skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
 from .telemetry import emit_shadow_event, log_event, log_run_step, log_workflow_recommended  # noqa: E402
 from .workflow_runtime import build_workflow_status, recommend_workflows  # noqa: E402
@@ -399,6 +400,181 @@ def corpus_lookup(query: str | None, *, skill: str | None = None, corpus_policy:
     return hits[:6], duplicate_risk, workflow_recommendations
 
 
+def _record_workflow_recommendations(
+    recommendations: list[dict[str, Any]],
+    *,
+    query: str | None,
+    cycle_id: str | None,
+    stage: str,
+    profile: str,
+    skill: str | None,
+) -> None:
+    for item in recommendations:
+        slug = str(item.get("slug") or "").strip()
+        if not slug:
+            continue
+        log_workflow_recommended(
+            slug,
+            title=str(item.get("title") or ""),
+            source=str(item.get("source") or ""),
+            score=float(item.get("score") or 0.0),
+            query=query or "",
+            cycle_id=cycle_id,
+            stage=stage,
+            profile=profile,
+            skill=skill or "",
+        )
+
+
+def _step_result(step: dict[str, Any], *, status: str, satisfied: bool, detail: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = {
+        "id": step.get("id"),
+        "kind": step.get("kind"),
+        "status": status,
+        "satisfied": satisfied,
+        "detail": detail,
+    }
+    if step.get("note"):
+        payload["note"] = step.get("note")
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def _execute_preflight_step(
+    step: dict[str, Any],
+    state: dict[str, Any],
+    *,
+    skill: str | None,
+    stage: str,
+) -> dict[str, Any]:
+    request = state.setdefault("request", {})
+    kind = str(step.get("kind") or "")
+    runtime_policy = request.get("runtime_policy") or {}
+
+    if kind == "health.snapshot":
+        snapshot = _health_snapshot()
+        request["health_snapshot"] = snapshot
+        return _step_result(step, status="ok", satisfied=True, detail=f"status={snapshot.get('status')} score={snapshot.get('score')}")
+
+    if kind == "inbox.snapshot":
+        inbox = attach_snapshot_to_dispatch(state, skill=skill)
+        request["async_inbox"] = inbox
+        return _step_result(step, status="ok", satisfied=True, detail=f"unprocessed={inbox.get('unprocessed_total', 0)}")
+
+    if kind == "claims.refresh":
+        claims_summary, orphan_summary = _claims_summary()
+        request["claims_summary"] = claims_summary
+        request["orphan_claims_summary"] = orphan_summary
+        return _step_result(
+            step,
+            status="ok",
+            satisfied=True,
+            detail=f"open={claims_summary.get('open_total', 0)} orphans={orphan_summary.get('orphan_total', 0)}",
+        )
+
+    if kind == "primitives.status":
+        primitives = _primitives_status()
+        request["primitives_status"] = primitives
+        return _step_result(step, status="ok", satisfied=True, detail=f"health={primitives.get('health_status', 'unknown')}")
+
+    if kind == "capabilities.status":
+        capabilities = _capabilities_status(skill)
+        request["capabilities_status"] = capabilities
+        return _step_result(step, status="ok", satisfied=True, detail=f"health={capabilities.get('health_status', 'unknown')}")
+
+    if kind == "corpus.lookup":
+        corpus_query = derive_corpus_query(skill, request.get("args", {}) or {}, primary_thread_id=request.get("primary_thread_id"))
+        hits, duplicate_risk, workflow_recommendations = corpus_lookup(
+            corpus_query,
+            skill=skill,
+            corpus_policy=str(runtime_policy.get("corpus_policy") or "warn"),
+        )
+        request["corpus_query"] = corpus_query
+        request["corpus_hits"] = hits
+        request["duplicate_risk"] = duplicate_risk
+        request["workflow_recommendations"] = workflow_recommendations[:3]
+        query_state = "searched" if corpus_query else "missing"
+        search_failed = str(duplicate_risk.get("reason") or "").startswith("search_failed:")
+        return _step_result(
+            step,
+            status="failed" if search_failed else "ok",
+            satisfied=not search_failed,
+            detail=f"query={query_state} hits={len(hits)} duplicate={duplicate_risk.get('level')}",
+            extra={"corpus_query": corpus_query or "", "corpus_hits": len(hits), "duplicate_risk": duplicate_risk.get("level")},
+        )
+
+    if kind == "workflow.status":
+        corpus_query = request.get("corpus_query")
+        workflow_status, workflow_recommendations = _workflow_status_and_recommendations(corpus_query, skill=skill)
+        corpus_workflows = list(request.get("workflow_recommendations") or [])
+        if corpus_workflows:
+            workflow_recommendations = corpus_workflows + [
+                item
+                for item in workflow_recommendations
+                if str(item.get("slug") or "") not in {str(existing.get("slug") or "") for existing in corpus_workflows}
+            ]
+        request["workflow_status"] = workflow_status
+        request["workflow_recommendations"] = workflow_recommendations[:3]
+        _record_workflow_recommendations(
+            request["workflow_recommendations"],
+            query=corpus_query,
+            cycle_id=state.get("cycle_id"),
+            stage=stage,
+            profile=str(state.get("state", {}).get("preflight_profile") or request.get("preflight_profile") or "standard"),
+            skill=skill,
+        )
+        return _step_result(
+            step,
+            status="ok",
+            satisfied=True,
+            detail=f"recommended={len(request['workflow_recommendations'])} broken={workflow_status.get('broken_total', 0)}",
+        )
+
+    if kind == "queue.status":
+        queue_summary = _dispatch_queue_summary()
+        request["dispatch_queue_summary"] = queue_summary
+        return _step_result(step, status="ok", satisfied=True, detail=f"pending={queue_summary.get('pending_total', 0)}")
+
+    if kind == "onboarding.status":
+        onboarding_summary = _onboarding_summary()
+        request["onboarding_summary"] = onboarding_summary
+        return _step_result(step, status="ok", satisfied=True, detail=f"pending={onboarding_summary.get('pending_total', 0)}")
+
+    if kind == "capability.probe":
+        capability_name = str(step.get("capability") or "")
+        try:
+            result = probe_capability(capability_name, skill=skill)
+            satisfied = result.returncode == 0
+            return _step_result(
+                step,
+                status="ok" if satisfied else "failed",
+                satisfied=satisfied,
+                detail=f"{capability_name} exit={result.returncode}",
+                extra={"capability": capability_name, "exit_code": int(result.returncode)},
+            )
+        except Exception as exc:
+            return _step_result(step, status="failed", satisfied=False, detail=str(exc), extra={"capability": capability_name})
+
+    if kind == "capability.invoke":
+        capability_name = str(step.get("capability") or "")
+        argv = list(step.get("argv") or [])
+        try:
+            result = invoke_capability(capability_name, argv, skill=skill)
+            satisfied = result.returncode == 0
+            return _step_result(
+                step,
+                status="ok" if satisfied else "failed",
+                satisfied=satisfied,
+                detail=f"{capability_name} exit={result.returncode}",
+                extra={"capability": capability_name, "exit_code": int(result.returncode), "argv": argv},
+            )
+        except Exception as exc:
+            return _step_result(step, status="failed", satisfied=False, detail=str(exc), extra={"capability": capability_name, "argv": argv})
+
+    raise RuntimeError(f"unsupported preflight protocol kind: {kind}")
+
+
 def enrich_dispatch_state(
     state: dict[str, Any],
     *,
@@ -408,84 +584,87 @@ def enrich_dispatch_state(
 ) -> dict[str, Any]:
     request = state.setdefault("request", {})
     state_block = state.setdefault("state", {})
-    request["schema_version"] = REQUEST_SCHEMA_VERSION
     skill = skill or request.get("skill")
     args = request.setdefault("args", {})
-    primary_thread_id = request.get("primary_thread_id")
+    request["schema_version"] = REQUEST_SCHEMA_VERSION
     runtime_policy = _resolve_runtime_policy(skill, args)
     request["runtime_policy"] = runtime_policy
-    request["health_snapshot"] = _health_snapshot()
-    request["async_inbox"] = attach_snapshot_to_dispatch(state, skill=skill)
-    claims_summary, orphan_summary = _claims_summary()
-    request["claims_summary"] = claims_summary
-    request["orphan_claims_summary"] = orphan_summary
-    request["primitives_status"] = _primitives_status()
-    request["capabilities_status"] = _capabilities_status(skill)
-    corpus_query = derive_corpus_query(skill, args, primary_thread_id=primary_thread_id)
-    workflow_status, workflow_recommendations = _workflow_status_and_recommendations(corpus_query, skill=skill)
-    request["workflow_status"] = workflow_status
-    request["dispatch_queue_summary"] = _dispatch_queue_summary()
-    request["onboarding_summary"] = _onboarding_summary()
-    request["dispatch_reason"] = request.get("dispatch_reason") or state_block.get("phase") or "runtime"
-    request["linked_threads"] = [primary_thread_id] if primary_thread_id else []
-    request["constraints"] = {
-        "degraded_health": request["health_snapshot"].get("status") in {"degraded", "unhealthy", "critical"},
-        "has_pending_inbox": request["async_inbox"].get("unprocessed_total", 0) > 0,
-        "has_onboarding": request["onboarding_summary"].get("pending_total", 0) > 0,
-    }
-    hits, duplicate_risk, corpus_workflows = corpus_lookup(
-        corpus_query,
-        skill=skill,
-        corpus_policy=runtime_policy["corpus_policy"],
-    )
-    request["corpus_query"] = corpus_query
-    request["corpus_hits"] = hits
-    request["duplicate_risk"] = duplicate_risk
-    if corpus_workflows:
-        workflow_recommendations = corpus_workflows + [
-            item for item in workflow_recommendations if item["slug"] not in {wf["slug"] for wf in corpus_workflows}
-        ]
-    request["workflow_recommendations"] = workflow_recommendations[:3]
-    for item in request["workflow_recommendations"]:
-        slug = str(item.get("slug") or "").strip()
-        if not slug:
-            continue
-        log_workflow_recommended(
-            slug,
-            title=str(item.get("title") or ""),
-            source=str(item.get("source") or ""),
-            score=float(item.get("score") or 0.0),
-            query=corpus_query or "",
-            cycle_id=state.get("cycle_id"),
-            stage=stage,
-            profile=state_block["preflight_profile"],
-            skill=skill or "",
-        )
-    state_block["preflight_status"] = "completed"
+    protocol = ensure_compiled_protocol("preflight")
     state_block["preflight_profile"] = profile or request.get("preflight_profile") or "standard"
     state_block["preflight_stage"] = stage
+    request["pre_skill_context"] = protocol_context(protocol)
+    emit_shadow_event(
+        "PreSkillContextLoaded",
+        actor="edge-preflight",
+        cycle_id=state.get("cycle_id"),
+        payload={
+            "protocol_stage": "pre_skill",
+            "source_hash": protocol.get("source_hash"),
+            "compiled_hash": protocol.get("compiled_hash"),
+            "context_note_total": len(protocol.get("context_notes") or []),
+            "operator_note_total": len(protocol.get("operator_notes") or []),
+        },
+    )
+
+    evidence: list[dict[str, Any]] = []
+    failed_steps = 0
+    for step in protocol.get("procedures") or []:
+        result = _execute_preflight_step(step, state, skill=skill, stage=stage)
+        evidence.append(result)
+        if not result.get("satisfied"):
+            failed_steps += 1
+        emit_protocol_step_observed(
+            "preflight",
+            step,
+            status=str(result.get("status") or "unknown"),
+            detail=str(result.get("detail") or ""),
+            satisfied=bool(result.get("satisfied")),
+            cycle_id=state.get("cycle_id"),
+            extra={k: v for k, v in result.items() if k not in {"id", "kind", "note", "status", "satisfied", "detail"}},
+        )
+
+    request["preflight_evidence"] = evidence
+    primary_thread_id = request.get("primary_thread_id")
+    request["dispatch_reason"] = request.get("dispatch_reason") or state_block.get("phase") or "runtime"
+    request["linked_threads"] = [primary_thread_id] if primary_thread_id else []
+    request.setdefault("duplicate_risk", {"level": "none", "recent_hits": [], "reason": "unchecked"})
+    request.setdefault("workflow_recommendations", [])
+    request.setdefault("corpus_hits", [])
+    request["constraints"] = {
+        "degraded_health": (request.get("health_snapshot") or {}).get("status") in {"degraded", "unhealthy", "critical"},
+        "has_pending_inbox": (request.get("async_inbox") or {}).get("unprocessed_total", 0) > 0,
+        "has_onboarding": (request.get("onboarding_summary") or {}).get("pending_total", 0) > 0,
+    }
+    state_block["preflight_status"] = "warning" if failed_steps else "completed"
     state_block["preflight_checked_at"] = _now_iso()
     state_block["updated_at"] = state_block["preflight_checked_at"]
     if state_block.get("phase") in {"opened", "preflight_failed"}:
         state_block["phase"] = "preflight_completed"
 
+    claims_summary = request.get("claims_summary") or {}
+    orphan_summary = request.get("orphan_claims_summary") or {}
     summary = {
         "schema_version": REQUEST_SCHEMA_VERSION,
         "skill": skill,
         "stage": stage,
         "profile": state_block["preflight_profile"],
-        "health_status": request["health_snapshot"].get("status"),
-        "health_score": request["health_snapshot"].get("score"),
-        "corpus_query": corpus_query,
-        "corpus_hits": len(hits),
-        "duplicate_risk": duplicate_risk.get("level"),
+        "protocol_source_hash": request["pre_skill_context"].get("source_hash"),
+        "protocol_compiled_hash": request["pre_skill_context"].get("compiled_hash"),
+        "step_total": len(request["pre_skill_context"].get("steps") or []),
+        "failed_steps": failed_steps,
+        "evidence_total": len(evidence),
+        "health_status": (request.get("health_snapshot") or {}).get("status"),
+        "health_score": (request.get("health_snapshot") or {}).get("score"),
+        "corpus_query": request.get("corpus_query"),
+        "corpus_hits": len(request.get("corpus_hits") or []),
+        "duplicate_risk": (request.get("duplicate_risk") or {}).get("level"),
         "open_claims": claims_summary.get("open_total", 0),
         "orphans": orphan_summary.get("orphan_total", 0),
-        "primitive_health": request["primitives_status"].get("health_status"),
-        "capability_health": request["capabilities_status"].get("health_status"),
-        "workflow_recommendations": len(request["workflow_recommendations"]),
-        "queue_pending": request["dispatch_queue_summary"].get("pending_total", 0),
-        "onboarding_pending": request["onboarding_summary"].get("pending_total", 0),
+        "primitive_health": (request.get("primitives_status") or {}).get("health_status"),
+        "capability_health": (request.get("capabilities_status") or {}).get("health_status"),
+        "workflow_recommendations": len(request.get("workflow_recommendations") or []),
+        "queue_pending": (request.get("dispatch_queue_summary") or {}).get("pending_total", 0),
+        "onboarding_pending": (request.get("onboarding_summary") or {}).get("pending_total", 0),
     }
     return summary
 
@@ -493,7 +672,7 @@ def enrich_dispatch_state(
 def record_preflight(state: dict[str, Any], summary: dict[str, Any], *, status: str = "completed") -> None:
     cycle_id = state.get("cycle_id")
     _append_preflight_log("preflight", status.upper(), json.dumps(summary, ensure_ascii=False))
-    event_type = "PreflightCompleted" if status == "completed" else "PreflightFailed"
+    event_type = "PreflightCompleted" if status in {"completed", "warning"} else "PreflightFailed"
     emit_shadow_event(event_type, actor="edge-preflight", cycle_id=cycle_id, payload=summary)
     log_run_step("edge-preflight", summary.get("stage", "run"), status, run_id=cycle_id, **summary)
     log_event(
@@ -530,6 +709,8 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "linked_threads": request.get("linked_threads", []),
         "dispatch_reason": request.get("dispatch_reason"),
         "constraints": request.get("constraints", {}),
+        "pre_skill_context": request.get("pre_skill_context", {}),
+        "preflight_evidence": request.get("preflight_evidence", []),
         "health_snapshot": request.get("health_snapshot", {}),
         "async_inbox": request.get("async_inbox", {}),
         "corpus_query": request.get("corpus_query"),
@@ -548,7 +729,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
     return (
         f"{skill}\n\n"
         "Dispatch runtime context below is authoritative for cross-cutting checks already handled by CLI "
-        "(health, inbox, corpus, claims, primitives, workflows, queue, onboarding).\n"
+        "(health, inbox, corpus, claims, primitives, workflows, queue, onboarding, protocol execution).\n"
         "Do not re-derive those manually unless a field is missing or obviously stale.\n\n"
         "Prefer `edge-cap invoke <capability> -- ...` over direct CLI/tool calls when a capability exists in `capabilities_status`.\n\n"
         "```json\n"

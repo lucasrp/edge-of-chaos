@@ -534,7 +534,7 @@ def phase_identity(cfg, dry_run):
         return False
 
     # Config files → edge_home/config/ (skip if same dir)
-    config_files = ["pre-skill.md", "post-skill.md", "strategy.md",
+    config_files = ["preflight.yaml", "postflight.yaml", "strategy.md",
                     "interests.md", "features.yaml", "branding.yaml",
                     "capabilities.yaml",
                     "runtime-routers.yaml",
@@ -544,8 +544,8 @@ def phase_identity(cfg, dry_run):
         "capabilities.yaml",
         "features.yaml",
         "interests.md",
-        "post-skill.md",
-        "pre-skill.md",
+        "postflight.yaml",
+        "preflight.yaml",
         "runtime-routers.yaml",
         "strategy.md",
     }

@@ -34,7 +34,7 @@ It can be anything, as long as it has well-contextualized practical application:
 
 ## Context Activation
 
-**Follow `~/edge/config/pre-skill.md` — who I am, what I'm doing, what to absorb.**
+**Use the runtime pre-skill context injected by `edge-preflight` and sourced from `~/edge/config/preflight.yaml`.**
 
 ---
 
@@ -117,7 +117,7 @@ bibliography: [...]               # MANDATORY
 
 ## Post-execution
 
-**Follow `~/edge/config/post-skill.md` for post-publication actions** (notify, update strategy).
+**Use the runtime post-skill protocol sourced from `~/edge/config/postflight.yaml` and executed by `edge-postflight`** (notify, update strategy).
 
 ---
 
