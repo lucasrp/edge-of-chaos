@@ -598,6 +598,12 @@ def main():
     parser.add_argument(
         "--doc-stats", action="store_true", help="Show per-doc retrieval stats"
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Emit machine-readable JSON instead of formatted text",
+    )
     args = parser.parse_args()
 
     if args.doc_stats:
@@ -673,7 +679,17 @@ def main():
             )
             mode = "hybrid"
 
-        print(format_results(results, mode, workflows=workflows, coverage=coverage))
+        if args.json_output:
+            payload = {
+                "mode": mode,
+                "query": query,
+                "results": results,
+                "workflows": workflows,
+                "coverage": coverage or {},
+            }
+            print(json.dumps(payload, ensure_ascii=False))
+        else:
+            print(format_results(results, mode, workflows=workflows, coverage=coverage))
 
         all_results = results + workflows
         if not args.no_telemetry and all_results:

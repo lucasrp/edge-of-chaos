@@ -723,15 +723,29 @@ def corpus_lookup(query: str | None, *, skill: str | None = None, corpus_policy:
         return [], {"level": "none", "recent_hits": [], "reason": "no_query", "coverage": {"required": [], "optional": [], "required_covered": False, "missing_required_types": ["topic", "workflow", "memory"]}}, []
 
     try:
-        sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "search"))
-        from search import search_with_coverage  # type: ignore
-
-        results, coverage, workflows = search_with_coverage(
-            query,
-            limit=6,
-            required_types=["topic", "workflow", "memory"],
-            optional_types=[],
+        code, stdout, stderr = _run_subprocess(
+            [
+                str(EDGE_REPO_DIR / "search" / "edge-search"),
+                "--json",
+                "--require-type",
+                "topic",
+                "--require-type",
+                "workflow",
+                "--require-type",
+                "memory",
+                "-k",
+                "6",
+                query,
+            ]
         )
+        if code != 0:
+            raise RuntimeError(stderr or stdout or f"edge-search exit={code}")
+        payload = json.loads(stdout or "{}")
+        if not isinstance(payload, dict):
+            raise RuntimeError("edge-search did not return a JSON object")
+        results = payload.get("results") or []
+        coverage = payload.get("coverage") or {}
+        workflows = payload.get("workflows") or []
     except Exception as exc:
         return [], {"level": "none", "recent_hits": [], "reason": f"search_failed:{exc}", "coverage": {"required": [], "optional": [], "required_covered": False, "missing_required_types": ["topic", "workflow", "memory"]}}, []
 
