@@ -679,31 +679,34 @@ def derive_corpus_query(skill: str | None, args: dict[str, Any], primary_thread_
 
 
 def _result_date(result: dict[str, Any]) -> str:
-    path_value = str(result.get("path") or "").strip()
-    if not path_value:
-        return ""
-    path = Path(path_value)
-    if not path.is_absolute():
-        path = EDGE_STATE_DIR / path
-    if not path.exists():
-        return ""
-    if path.suffix == ".md":
-        try:
-            raw = path.read_text(encoding="utf-8", errors="replace")
-            parts = raw.split("---", 2)
-            if len(parts) >= 3:
-                fm = json.loads("{}")
-                try:
-                    import yaml  # local optional import
+    try:
+        path_value = str(result.get("path") or "").strip()
+        if not path_value:
+            return ""
+        path = Path(path_value)
+        if not path.is_absolute():
+            path = EDGE_STATE_DIR / path
+        if not path.exists():
+            return ""
+        if path.suffix == ".md":
+            try:
+                raw = path.read_text(encoding="utf-8", errors="replace")
+                parts = raw.split("---", 2)
+                if len(parts) >= 3:
+                    fm = json.loads("{}")
+                    try:
+                        import yaml  # local optional import
 
-                    fm = yaml.safe_load(parts[1]) or {}
-                except Exception:
-                    fm = {}
-                if isinstance(fm, dict) and fm.get("date"):
-                    return str(fm.get("date"))
-        except Exception:
-            pass
-    return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+                        fm = yaml.safe_load(parts[1]) or {}
+                    except Exception:
+                        fm = {}
+                    if isinstance(fm, dict) and fm.get("date"):
+                        return str(fm.get("date"))
+            except Exception:
+                pass
+        return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+    except Exception:
+        return ""
 
 
 def _hours_since(value: str) -> float | None:
@@ -940,7 +943,7 @@ def _execute_preflight_step(
         coverage_missing = list((duplicate_risk.get("coverage") or {}).get("missing_required_types") or [])
         return _step_result(
             step,
-            status="failed" if search_failed else ("warning" if coverage_missing else "ok"),
+            status="warning" if search_failed or coverage_missing else "ok",
             satisfied=(not search_failed) and not coverage_missing,
             detail=f"query={query_state} hits={len(hits)} duplicate={duplicate_risk.get('level')} missing={','.join(coverage_missing) if coverage_missing else 'none'}",
             extra={
@@ -1056,7 +1059,16 @@ def enrich_dispatch_state(
     evidence: list[dict[str, Any]] = []
     failed_steps = 0
     for step in protocol.get("procedures") or []:
-        result = _execute_preflight_step(step, state, skill=skill, stage=stage)
+        try:
+            result = _execute_preflight_step(step, state, skill=skill, stage=stage)
+        except Exception as exc:
+            result = _step_result(
+                step,
+                status="warning",
+                satisfied=False,
+                detail=str(exc),
+                extra={"error": str(exc), "failure_mode": "exception"},
+            )
         evidence.append(result)
         if not result.get("satisfied"):
             failed_steps += 1
@@ -1160,6 +1172,7 @@ def maybe_block_duplicate(state: dict[str, Any]) -> tuple[bool, str | None]:
 
 def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
     request = state.get("request", {}) or {}
+    normalized_skill = _normalize_skill_name(skill)
     summary = {
         "schema_version": request.get("schema_version", REQUEST_SCHEMA_VERSION),
         "trigger": request.get("trigger"),
@@ -1193,11 +1206,23 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "onboarding_summary": request.get("onboarding_summary", {}),
         "args": request.get("args", {}),
     }
+    heartbeat_contract = ""
+    if normalized_skill.endswith("heartbeat"):
+        heartbeat_contract = (
+            "HEARTBEAT ROUTER CONTRACT:\n"
+            "- You are routing only. Do not draft artifacts, do not call `consolidate-state`, and do not publish inline.\n"
+            "- Your first irreversible action must be `edge-dispatch dispatch --skill <chosen-skill>`.\n"
+            "- Use `request.async_inbox` and `request.heartbeat_routing` to choose the internal skill.\n"
+            "- If `priority_hints` exist, treat them as stronger than the fairness candidate unless the inbox content clearly demands a different substantive skill.\n"
+            "- After dispatch, the substantive skill owns search, synthesis, publication, and postflight.\n"
+            "- Inline artifact publication before dispatch is a protocol violation and is mechanically blocked.\n\n"
+        )
     return (
         f"{skill}\n\n"
         "Dispatch runtime context below is authoritative for cross-cutting checks already handled by CLI "
         "(health, inbox, corpus, claims, primitives, workflows, queue, onboarding, protocol execution).\n"
         "Do not re-derive those manually unless a field is missing or obviously stale.\n\n"
+        f"{heartbeat_contract}"
         "Prefer `edge-cap invoke <capability> -- ...` over direct CLI/tool calls when a capability exists in `capabilities_status`.\n\n"
         "Before any substantive decision, synthesis, or artifact drafting in non-heartbeat skills, follow the runtime decision protocol:\n"
         "1. Run the required search protocol to consult live memory (`topic`, `workflow`, `memory`) and external sources when available.\n"

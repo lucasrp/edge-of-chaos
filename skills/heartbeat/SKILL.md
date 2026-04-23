@@ -422,6 +422,12 @@ agent's own substrate. If a branch would ask "should I continue?" or "should I
 dispatch now or later?", that branch is invalid. Choose the best internal
 skill, dispatch it, and continue. Only `/ed-execute` may stop for human sign-off.
 
+**Router-only rule:** the heartbeat does not draft the final artifact, does not
+run `consolidate-state`, and does not publish inline. Its only job is to pick
+the right internal skill and flip the dispatch cycle to that skill. Search,
+Feynman checkpoints, synthesis, publication, and postflight belong to the
+dispatched skill.
+
 ### Decision tree (simple)
 
 1. **Async inbox has operator input?** (`priority: high`, direct message, or queued intent) → This outranks exploration and rotation. Choose the internal skill best suited to handle it, then let that dispatched skill read `request.async_inbox`.
@@ -464,21 +470,6 @@ If `DISPATCH_PENDING` → dispatch the indicated internal skill (for example `st
 
 **Variety rule:** Don't repeat the same skill 3x in a row. Alternate work/exploration.
 
-### Step 2.5: Decision sanity check (edge-consult — MANDATORY)
-
-Before dispatching, submit the decision to edge-consult:
-
-```bash
-edge-consult "Context: [summary of what I read in steps 1a-1g]. Decision: dispatch [skill] about [topic]. Am I choosing correctly or is there something more urgent?"
-```
-
-If GPT suggests a better direction, consider it. The entire beat costs ~2h of timing — getting the choice right matters more than speed.
-
-`edge-consult` may help change the **chosen skill/topic**, but it does not get
-to convert the beat into "ask the operator", "wait for the next timer", or
-"stop at the decision". If a suggestion implies deferring dispatch, ignore that
-part and choose a better internal skill instead.
-
 ### Dispatch
 
 There is no "decision recorded, sub-skill deferred" endpoint. After choosing
@@ -489,54 +480,17 @@ Run the chosen skill with step tracking (#113):
 ```bash
 # Flip the dispatch-cycle state exactly once — authorizes artifact writes (#212)
 edge-dispatch dispatch --skill <skill>
-
-# Before dispatching
-edge-skill-step <skill> start
-
-# The skill runs — it produces blog entry + report + note per its own protocol.
-# The dispatched skill already includes its own internal edge-consult (mandatory).
-
-# After skill completes
-edge-skill-step <skill> end
 ```
 
-Individual steps within the skill should call `edge-skill-step <skill> <step_id>` as they execute. Silent skips (steps not logged as executed or skipped) are flagged by reflection.
+After `edge-dispatch dispatch --skill <skill>` succeeds, stop doing inline work
+as heartbeat. Do **not** call `consolidate-state`, `blog-publish`, review-gate,
+or any post-skill procedure from the heartbeat body. The dispatched skill and
+runtime postflight own those phases.
 
----
+## Step 2.5: Dispatch verification (MANDATORY — mechanical check)
 
-## Step 2.9: Post-skill execution (MANDATORY after work completes)
-
-After the skill's main work is done (Step 2) and before logging (Step 3):
-
-1. Re-read `config/postflight.yaml`
-2. Execute EVERY procedure defined there, one by one
-3. **CRITICAL: each procedure is independent. A failure in one MUST NOT
-   stop the others.** Execute all of them, every time, regardless of
-   prior failures. The sequence is:
-   - Procedure 1 (e.g. LaTeX render) → try → log success or failure → CONTINUE
-   - Procedure 2 (e.g. Overleaf mirror) → try → log success or failure → CONTINUE
-   - Procedure 3 (e.g. notify operator) → try → log success or failure → CONTINUE
-4. For each procedure, log the outcome to `logs/post-skill.log`:
-   ```
-   [TIMESTAMP] procedure: LaTeX render | status: FAIL | reason: pandoc not installed
-   [TIMESTAMP] procedure: Overleaf mirror | status: OK | files: 2
-   [TIMESTAMP] procedure: notify | status: SKIP | reason: no notification channel configured
-   ```
-5. If a tool is missing (pandoc, latexmk), log it and move on — do not
-   attempt to install packages mid-beat. **Dependency remediation
-   happens during reflection, not mid-beat** (see reflection HN-1c)
-6. If a primitive exists for the task (e.g. `libexec/<codename>/overleaf-sync`),
-   use it instead of raw git commands
-7. notify.sh is ALWAYS the last call, even if everything else failed —
-   the operator needs to know what happened
-
-**A post-skill that stops at the first failure is a bug, not caution.**
-
----
-
-## Step 2.95: Dispatch verification (MANDATORY — mechanical check)
-
-Before logging, verify that a skill was actually dispatched. This is not optional.
+Before logging, verify that a skill was actually dispatched. This is not
+optional.
 
 ```bash
 # Check if edge-skill-step recorded a 'start' for this beat

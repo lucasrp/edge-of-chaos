@@ -71,18 +71,63 @@ from pathlib import Path
 edge_dir = Path(sys.argv[1])
 sys.path.insert(0, str(edge_dir / "tools"))
 
-from _shared.dispatch_runtime import _epistemic_protocol, _search_protocol
+from _shared.dispatch_runtime import _epistemic_protocol, _search_protocol, render_skill_runtime_prompt
 
 request = {"skill": "heartbeat", "corpus_query": "", "configured_integrations": [], "unbound_integrations": []}
 search_protocol = _search_protocol("heartbeat", request)
 epistemic_protocol = _epistemic_protocol("heartbeat")
 assert search_protocol["required"] is False
 assert epistemic_protocol["required"] is False
+state = {"request": {"heartbeat_routing": {"suggested_skill": "autonomy"}, "async_inbox": {}, "schema_version": 1}}
+prompt = render_skill_runtime_prompt("heartbeat", state)
+assert "HEARTBEAT ROUTER CONTRACT" in prompt
+assert "Do not draft artifacts" in prompt
+assert "edge-dispatch dispatch --skill <chosen-skill>" in prompt
 PY
 then
     pass "heartbeat remains exempt from the substantive protocol"
 else
     fail "heartbeat remains exempt from the substantive protocol"
+fi
+
+echo "--- Test 3: preflight step exceptions degrade to warning instead of aborting ---"
+if python3 - <<'PY' "$EDGE_DIR"
+import sys
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+sys.path.insert(0, str(edge_dir / "tools"))
+
+import _shared.dispatch_runtime as runtime
+
+original_protocol = runtime.ensure_compiled_protocol
+original_execute = runtime._execute_preflight_step
+try:
+    runtime.ensure_compiled_protocol = lambda _stage: {
+        "source_hash": "sha256:test",
+        "compiled_hash": "sha256:test",
+        "context_notes": [],
+        "operator_notes": [],
+        "procedures": [{"id": "boom", "kind": "health.snapshot"}],
+    }
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("boom")
+    runtime._execute_preflight_step = boom
+    state = {"cycle_id": "cycle-test", "request": {"skill": "research", "args": {}}, "state": {}}
+    runtime.enrich_dispatch_state(state, skill="research")
+    evidence = state["request"]["preflight_evidence"]
+    assert evidence[0]["status"] == "warning"
+    assert evidence[0]["satisfied"] is False
+    assert evidence[0]["failure_mode"] == "exception"
+    assert state["state"]["preflight_status"] == "warning"
+finally:
+    runtime.ensure_compiled_protocol = original_protocol
+    runtime._execute_preflight_step = original_execute
+PY
+then
+    pass "preflight exceptions degrade to warning instead of aborting"
+else
+    fail "preflight exceptions degrade to warning instead of aborting"
 fi
 
 echo ""
@@ -92,4 +137,3 @@ echo "Failed: $FAIL"
 if [[ $FAIL -ne 0 ]]; then
     exit 1
 fi
-
