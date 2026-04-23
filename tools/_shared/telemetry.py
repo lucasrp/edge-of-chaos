@@ -840,6 +840,96 @@ def log_workflow_transition(
     )
 
 
+def log_workflow_recommended(
+    slug: str,
+    *,
+    title: str = "",
+    source: str = "",
+    score: float | int = 0.0,
+    query: str = "",
+    **extra: Any,
+) -> None:
+    """Record that runtime recommended a workflow before the skill ran."""
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    log_event(
+        "workflow_recommended",
+        slug=slug,
+        title=title,
+        source=source,
+        score=float(score or 0.0),
+        query=query,
+        **extra,
+    )
+    emit_shadow_event(
+        "WorkflowRecommended",
+        actor=_detect_caller(),
+        cycle_id=extra.get("cycle_id"),
+        payload={
+            "slug": slug,
+            "title": title,
+            "source": source,
+            "score": float(score or 0.0),
+            "query": query,
+            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+        },
+    )
+
+
+def log_workflow_observed(
+    slug: str,
+    *,
+    mode: str,
+    artifact: str | None = None,
+    **extra: Any,
+) -> None:
+    """Record that a workflow was cited as used or broken by an artifact."""
+    shadow_type = "WorkflowBrokenObserved" if mode == "broken" else "WorkflowUsedObserved"
+    log_event(
+        "workflow_observed",
+        slug=slug,
+        mode=mode,
+        artifact=artifact or "",
+        **extra,
+    )
+    emit_shadow_event(
+        shadow_type,
+        actor=_detect_caller(),
+        artifact=artifact,
+        cycle_id=extra.get("cycle_id"),
+        payload={
+            "slug": slug,
+            "mode": mode,
+            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+        },
+    )
+
+
+def log_workflow_ignored(
+    slug: str,
+    *,
+    reason: str,
+    **extra: Any,
+) -> None:
+    """Record that runtime recommended a workflow but the cycle did not cite it."""
+    log_event(
+        "workflow_ignored",
+        slug=slug,
+        reason=reason,
+        **extra,
+    )
+    emit_shadow_event(
+        "WorkflowIgnoredObserved",
+        actor=_detect_caller(),
+        cycle_id=extra.get("cycle_id"),
+        payload={
+            "slug": slug,
+            "reason": reason,
+            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+        },
+    )
+
+
 def log_resolution(
     *,
     obj_type: str,  # claim | friction | workflow_broken | issue | thread
@@ -898,6 +988,9 @@ __all__ = [
     "log_primitive_probe_completed",
     "log_capability_invocation",
     "log_capability_probe_completed",
+    "log_workflow_recommended",
+    "log_workflow_observed",
+    "log_workflow_ignored",
     "time_primitive",
     "log_workflow_transition",
     "log_resolution",

@@ -32,7 +32,7 @@ from paths import (  # noqa: E402
 from .continuity import refresh_continuity_projections  # noqa: E402
 from .capability_runtime import build_capability_status  # noqa: E402
 from .skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
-from .telemetry import emit_shadow_event, log_event, log_run_step  # noqa: E402
+from .telemetry import emit_shadow_event, log_event, log_run_step, log_workflow_recommended  # noqa: E402
 from .workflow_runtime import build_workflow_status, recommend_workflows  # noqa: E402
 
 REQUEST_SCHEMA_VERSION = 1
@@ -136,12 +136,21 @@ def _health_snapshot() -> dict[str, Any]:
     if not isinstance(payload, dict):
         payload = {}
     remediation = payload.get("remediation_queue") or []
+    dimensions = payload.get("dimensions") or {}
     return {
         "status": payload.get("status", "unknown"),
         "score": int(payload.get("score", 100) or 100),
         "hard_fail": bool(payload.get("hard_fail", False)),
         "updated_at": payload.get("ts") or payload.get("updated_at") or "",
         "remediation_count": len(remediation) if isinstance(remediation, list) else 0,
+        "dimensions": {
+            name: {
+                "status": dim.get("status"),
+                "score": dim.get("score"),
+            }
+            for name, dim in dimensions.items()
+            if isinstance(dim, dict)
+        },
     }
 
 
@@ -437,6 +446,21 @@ def enrich_dispatch_state(
             item for item in workflow_recommendations if item["slug"] not in {wf["slug"] for wf in corpus_workflows}
         ]
     request["workflow_recommendations"] = workflow_recommendations[:3]
+    for item in request["workflow_recommendations"]:
+        slug = str(item.get("slug") or "").strip()
+        if not slug:
+            continue
+        log_workflow_recommended(
+            slug,
+            title=str(item.get("title") or ""),
+            source=str(item.get("source") or ""),
+            score=float(item.get("score") or 0.0),
+            query=corpus_query or "",
+            cycle_id=state.get("cycle_id"),
+            stage=stage,
+            profile=state_block["preflight_profile"],
+            skill=skill or "",
+        )
     state_block["preflight_status"] = "completed"
     state_block["preflight_profile"] = profile or request.get("preflight_profile") or "standard"
     state_block["preflight_stage"] = stage

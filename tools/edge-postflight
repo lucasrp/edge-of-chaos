@@ -23,6 +23,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.continuity import refresh_continuity_projections  # noqa: E402
 from _shared.capability_runtime import build_capability_status  # noqa: E402
 from _shared.dispatch_runtime import read_dispatch_state, write_dispatch_state  # noqa: E402
+from _shared.health_runtime import observe_cycle_health_events  # noqa: E402
 from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
 from _shared.workflow_runtime import build_workflow_status  # noqa: E402
 
@@ -348,6 +349,17 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
         "top_used": workflow_summary.get("top_used", []),
         "top_broken": workflow_summary.get("top_broken", []),
     }
+    observations = observe_cycle_health_events(state)
+    steps.append(
+        {
+            "step": "cycle_health_observations",
+            "status": "ok",
+            "detail": (
+                f"workflow_ignored={observations.get('workflow_ignored', 0)} "
+                f"primitive_bypass={observations.get('primitive_bypass', 0)}"
+            ),
+        }
+    )
     delta = compute_delta(
         before,
         claims=claims_refresh["payload"],

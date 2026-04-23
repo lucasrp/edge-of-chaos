@@ -894,6 +894,14 @@ def fail(msg): print(f"  {RED}FAIL{NC}: {msg}")
 FAILURES_FILE = Path(os.environ.get("PIPELINE_FAILURES_FILE", os.path.expanduser("~/edge/logs/pipeline-failures.jsonl")))
 FAILURES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
+tools_dir = Path(os.environ.get("TOOLS_DIR", str(Path.home() / "edge" / "tools")))
+if str(tools_dir) not in sys.path:
+    sys.path.insert(0, str(tools_dir))
+try:
+    from _shared.telemetry import log_workflow_observed  # type: ignore
+except Exception:
+    log_workflow_observed = None
+
 def log_failure(phase, operation, error, tb=None):
     """Log pipeline failure to persistent JSONL for post-mortem analysis."""
     entry = {
@@ -989,6 +997,14 @@ try:
         citations[wslug]["used"] += 1
         citations[wslug]["last_cited"] = today
         updated = True
+        if log_workflow_observed is not None:
+            log_workflow_observed(
+                wslug,
+                mode="used",
+                artifact=f"blog/entries/{slug}.md",
+                cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+                title=title,
+            )
 
     # Process workflows_broken (healing signal)
     for wslug in workflows_broken:
@@ -997,6 +1013,14 @@ try:
         citations[wslug]["broken"] += 1
         citations[wslug]["last_cited"] = today
         updated = True
+        if log_workflow_observed is not None:
+            log_workflow_observed(
+                wslug,
+                mode="broken",
+                artifact=f"blog/entries/{slug}.md",
+                cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+                title=title,
+            )
 
     if updated:
         health["citations"] = citations
@@ -1093,7 +1117,6 @@ except Exception as e:
 
 # ── 4. Digest (gera briefing.md) ──
 try:
-    tools_dir = Path(os.environ.get("TOOLS_DIR", str(Path.home() / "edge" / "tools")))
     if str(tools_dir) not in sys.path:
         sys.path.insert(0, str(tools_dir))
     from _shared.continuity import process_publication_continuity  # type: ignore

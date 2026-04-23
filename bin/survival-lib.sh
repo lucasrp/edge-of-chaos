@@ -19,18 +19,66 @@ log_health() {
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >&2
 }
 
+emit_shadow_fact() {
+  local event_type="$1"
+  local payload_json="${2-}"
+  if [[ -z "$payload_json" ]]; then
+    payload_json='{}'
+  fi
+  local actor="${3:-edge-health}"
+  EDGE_HEALTH_PAYLOAD_JSON="$payload_json" python3 - "$event_type" "$actor" <<'PYEOF' 2>/dev/null || true
+import json
+import os
+import sys
+from pathlib import Path
+
+event_type, actor = sys.argv[1:3]
+payload_json = os.environ.get("EDGE_HEALTH_PAYLOAD_JSON", "")
+tools_dir = Path(
+    os.environ.get("TOOLS_DIR")
+    or (
+        Path(
+            os.environ.get(
+                "EDGE_REPO_DIR",
+                os.environ.get("EDGE_DIR", str(Path.home() / "edge")),
+            )
+        ).expanduser()
+        / "tools"
+    )
+)
+sys.path.insert(0, str(tools_dir))
+try:
+    from _shared.telemetry import emit_shadow_event
+except Exception:
+    sys.exit(0)
+
+try:
+    payload = json.loads(payload_json)
+except Exception:
+    payload = {"raw_payload": payload_json}
+
+emit_shadow_event(
+    event_type,
+    actor=actor,
+    cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+    payload=payload,
+)
+PYEOF
+}
+
 emit_component() {
   local name="$1" status="$2" detail="$3"
   local ts
   ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   local json
-  json=$(jq -n \
+  json=$(jq -cn \
     --arg name "$name" \
     --arg status "$status" \
     --arg detail "$detail" \
     --arg ts "$ts" \
     '{name:$name, status:$status, detail:$detail, ts:$ts}')
   echo "$json" > "$RAW_DIR/${name}.json"
+  emit_shadow_fact "HealthComponentObserved" "$json" "edge-health"
 }
 
 compute_score() {
