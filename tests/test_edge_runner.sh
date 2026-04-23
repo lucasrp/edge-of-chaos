@@ -23,6 +23,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$TMP_EDGE/blog/entries" "$TMP_EDGE/reports" "$TMP_EDGE/state" "$TMP_HOME/.local/bin"
+mkdir -p "$TMP_HOME/.claude/projects/test-project"
 
 if [[ -f "$PROTO_PREFLIGHT" ]]; then cp "$PROTO_PREFLIGHT" "$BACKUP_PREFLIGHT"; fi
 if [[ -f "$PROTO_POSTFLIGHT" ]]; then cp "$PROTO_POSTFLIGHT" "$BACKUP_POSTFLIGHT"; fi
@@ -36,6 +37,8 @@ procedures:
     kind: health.snapshot
   - id: inbox
     kind: inbox.snapshot
+  - id: claude-sessions
+    kind: claude.sessions.digest
   - id: claims
     kind: claims.refresh
   - id: primitives
@@ -51,6 +54,13 @@ procedures:
   - id: onboarding
     kind: onboarding.status
 YAML
+
+cat >"$TMP_HOME/.claude/projects/test-project/session-1.jsonl" <<'JSONL'
+{"type":"user","timestamp":"2026-04-23T10:00:00Z","sessionId":"session-1","message":{"role":"user","content":"topics deve ser consultado no edge search em todo beat"}}
+{"type":"user","timestamp":"2026-04-23T10:05:00Z","sessionId":"session-1","message":{"role":"user","content":"workflow automatico deve acontecer so com orientacao explicita do operador"}}
+{"type":"user","timestamp":"2026-04-23T10:10:00Z","sessionId":"session-1","message":{"role":"user","content":"a primitive do exa no ed deveria mencionar deep research"}}
+{"type":"user","timestamp":"2026-04-23T10:15:00Z","sessionId":"session-1","message":{"role":"user","content":"topics deve ser consultado no edge search em todo beat"}}
+JSONL
 cat >"$PROTO_POSTFLIGHT" <<'YAML'
 version: 1
 protocol: postflight
@@ -77,6 +87,7 @@ export EDGE_REPO_DIR="$EDGE_DIR"
 export EDGE_STATE_DIR="$TMP_EDGE"
 export EDGE_CODENAME="test-agent"
 export HOME="$TMP_HOME"
+export EDGE_OPERATOR_PRESSURE_DISABLE_LLM=1
 
 RUNNER_TOOL="$EDGE_DIR/tools/edge-runner"
 
@@ -156,9 +167,15 @@ assert request["pre_skill_context"]["protocol"] == "preflight"
 assert request["pre_skill_context"]["source_hash"].startswith("sha256:")
 assert len(request["preflight_evidence"]) >= 1
 assert any(item["kind"] == "health.snapshot" for item in request["preflight_evidence"])
+assert any(item["kind"] == "claude.sessions.digest" for item in request["preflight_evidence"])
 corpus_step = next(item for item in request["preflight_evidence"] if item["kind"] == "corpus.lookup")
 assert corpus_step["satisfied"] is False
 assert corpus_step["missing_required_types"] == ["topic", "workflow", "memory"]
+assert request["operator_pressure_summary"]["item_total"] >= 3
+assert request["operator_pressure_summary"]["workflow_candidates"] >= 1
+assert request["operator_pressure_summary"]["capability_candidates"] >= 1
+assert request["operator_pressure_digest"]["repeated_operator_guidance"]
+assert request["operator_pressure_digest"]["active_entities"]
 assert request["search_protocol"]["required"] is True
 assert request["epistemic_protocol"]["required"] is True
 assert request["heartbeat_routing"]["suggested_skill"] == "autonomy"
@@ -176,6 +193,7 @@ assert "health_snapshot" in invocations[0]
 assert "pre_skill_context" in invocations[0]
 assert "preflight_evidence" in invocations[0]
 assert "corpus_coverage" in invocations[0]
+assert "operator_pressure_digest" in invocations[0]
 assert "search_protocol" in invocations[0]
 assert "epistemic_protocol" in invocations[0]
 assert "configured_integrations" in invocations[0]

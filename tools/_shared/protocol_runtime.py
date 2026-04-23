@@ -28,6 +28,7 @@ _ALLOWED_KINDS: dict[str, set[str]] = {
     "preflight": {
         "health.snapshot",
         "inbox.snapshot",
+        "claude.sessions.digest",
         "claims.refresh",
         "primitives.status",
         "capabilities.status",

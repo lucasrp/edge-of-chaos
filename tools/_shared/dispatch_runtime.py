@@ -32,6 +32,7 @@ from paths import (  # noqa: E402
 )
 from .continuity import refresh_continuity_projections  # noqa: E402
 from .capability_runtime import build_capability_status, build_configured_integrations, invoke_capability, probe_capability  # noqa: E402
+from .operator_pressure import build_operator_pressure_layers  # noqa: E402
 from .protocol_runtime import emit_protocol_step_observed, ensure_compiled_protocol, protocol_context  # noqa: E402
 from .search_runtime import search_runtime_summary  # noqa: E402
 from .skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
@@ -407,6 +408,21 @@ def _claims_summary() -> tuple[dict[str, Any], dict[str, Any]]:
             "source_path": str(ORPHAN_CLAIMS_FILE),
         },
     )
+
+
+def _operator_pressure_digest() -> dict[str, Any]:
+    payload = build_operator_pressure_layers()
+    summary = payload.get("summary") or {}
+    hot_digest = payload.get("hot_digest") or {}
+    return {
+        "summary": summary,
+        "digest": hot_digest,
+        "redigest": {
+            "generated_at": str((payload.get("redigest") or {}).get("generated_at") or ""),
+            "snapshot_hash": str((payload.get("redigest") or {}).get("snapshot_hash") or ""),
+            "source_hash": str((payload.get("redigest") or {}).get("source_hash") or ""),
+        },
+    }
 
 
 def _primitives_status() -> dict[str, Any]:
@@ -911,6 +927,31 @@ def _execute_preflight_step(
         request["async_inbox"] = inbox
         return _step_result(step, status="ok", satisfied=True, detail=f"unprocessed={inbox.get('unprocessed_total', 0)}")
 
+    if kind == "claude.sessions.digest":
+        pressure = _operator_pressure_digest()
+        digest = pressure.get("digest") or {}
+        summary = pressure.get("summary") or {}
+        request["operator_pressure"] = pressure
+        request["operator_pressure_digest"] = digest
+        request["operator_pressure_summary"] = summary
+        return _step_result(
+            step,
+            status="ok",
+            satisfied=True,
+            detail=(
+                f"items={summary.get('item_total', 0)} "
+                f"required={summary.get('required_state_changes', 0)} "
+                f"workflow_candidates={summary.get('workflow_candidates', 0)} "
+                f"capability_candidates={summary.get('capability_candidates', 0)}"
+            ),
+            extra={
+                "item_total": int(summary.get("item_total", 0) or 0),
+                "workflow_candidates": int(summary.get("workflow_candidates", 0) or 0),
+                "capability_candidates": int(summary.get("capability_candidates", 0) or 0),
+                "render_mode": str(summary.get("render_mode") or ""),
+            },
+        )
+
     if kind == "claims.refresh":
         claims_summary, orphan_summary = _claims_summary()
         request["claims_summary"] = claims_summary
@@ -1101,6 +1142,9 @@ def enrich_dispatch_state(
     request.setdefault("configured_integrations", [])
     request.setdefault("unbound_integrations", [])
     request["search_runtime"] = search_runtime_summary()
+    request.setdefault("operator_pressure", {"summary": {}, "digest": {}, "redigest": {}})
+    request.setdefault("operator_pressure_digest", {})
+    request.setdefault("operator_pressure_summary", {})
     request["search_protocol"] = _search_protocol(skill, request)
     request["epistemic_protocol"] = _epistemic_protocol(skill)
     request["constraints"] = {
@@ -1138,6 +1182,8 @@ def enrich_dispatch_state(
         "unbound_integrations": len(request.get("unbound_integrations") or []),
         "builtin_web_search": (request.get("search_runtime") or {}).get("builtin_web_search"),
         "web_provider": (request.get("search_runtime") or {}).get("web_provider"),
+        "operator_pressure_items": (request.get("operator_pressure_summary") or {}).get("item_total", 0),
+        "operator_pressure_workflow_candidates": (request.get("operator_pressure_summary") or {}).get("workflow_candidates", 0),
         "open_claims": claims_summary.get("open_total", 0),
         "orphans": orphan_summary.get("orphan_total", 0),
         "primitive_health": (request.get("primitives_status") or {}).get("health_status"),
@@ -1202,6 +1248,8 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "corpus_coverage": request.get("corpus_coverage", {}),
         "corpus_hits": request.get("corpus_hits", [])[:4],
         "duplicate_risk": request.get("duplicate_risk", {}),
+        "operator_pressure_digest": request.get("operator_pressure_digest", {}),
+        "operator_pressure_summary": request.get("operator_pressure_summary", {}),
         "configured_integrations": request.get("configured_integrations", [])[:12],
         "unbound_integrations": request.get("unbound_integrations", [])[:12],
         "search_runtime": request.get("search_runtime", {}),
@@ -1235,6 +1283,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "(health, inbox, corpus, claims, primitives, workflows, queue, onboarding, protocol execution).\n"
         "Do not re-derive those manually unless a field is missing or obviously stale.\n\n"
         f"{heartbeat_contract}"
+        "The `operator_pressure_digest` is the hot, recent operator-feedback layer. Treat it as the highest-signal short-horizon constraint on what the operator keeps trying to change right now.\n\n"
         "Prefer `edge-cap invoke <capability> -- ...` over direct CLI/tool calls when a capability exists in `capabilities_status`.\n\n"
         "Before any substantive decision, synthesis, or artifact drafting in non-heartbeat skills, follow the runtime decision protocol:\n"
         "1. Run the required search protocol to consult live memory (`topic`, `workflow`, `memory`) and external sources when available.\n"

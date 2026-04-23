@@ -122,6 +122,7 @@ def _render_preflight_protocol(cfg: dict) -> str:
         "procedures": [
             {"id": "health-snapshot", "kind": "health.snapshot"},
             {"id": "async-inbox", "kind": "inbox.snapshot"},
+            {"id": "claude-sessions-digest", "kind": "claude.sessions.digest"},
             {"id": "claims-refresh", "kind": "claims.refresh"},
             {"id": "primitives-status", "kind": "primitives.status"},
             {"id": "capabilities-status", "kind": "capabilities.status"},

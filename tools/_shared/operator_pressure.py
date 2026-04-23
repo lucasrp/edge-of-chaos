@@ -1,0 +1,737 @@
+"""Operator pressure ledger + hot digest for recent Claude sessions.
+
+This module implements the first runtime slice of the operator-pressure design:
+
+1. Canonical pressure ledger in state/operator-pressure/ledger.json
+2. Hot digest for preflight injection in state/operator-pressure/hot-digest.json
+3. Periodic redigest snapshots in state/operator-pressure/redigests/
+
+The hot digest is optimized for current skill execution and is not meant for
+retrieval indexing. The periodic redigest is the colder, segmentable layer.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import sys
+from collections import Counter
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
+from paths import (  # noqa: E402
+    OPERATOR_PRESSURE_HOT_DIGEST_FILE,
+    OPERATOR_PRESSURE_LEDGER_FILE,
+    OPERATOR_PRESSURE_REDIGEST_DIR,
+    PROJECT_DIR,
+)
+from .router_client import make_client  # noqa: E402
+from .telemetry import emit_shadow_event, log_event  # noqa: E402
+
+SCHEMA_VERSION = 1
+LEDGER_WINDOW_DAYS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_WINDOW_DAYS", "7") or "7")
+MAX_SESSIONS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_SESSIONS", "8") or "8")
+MAX_MESSAGES = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_MESSAGES", "48") or "48")
+SECTION_LIMIT = int(os.environ.get("EDGE_OPERATOR_PRESSURE_SECTION_LIMIT", "4") or "4")
+REDIGEST_INTERVAL_HOURS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_REDIGEST_INTERVAL_HOURS", "24") or "24")
+LLM_DISABLED = os.environ.get("EDGE_OPERATOR_PRESSURE_DISABLE_LLM", "").strip() in {"1", "true", "yes"}
+LLM_MODEL = os.environ.get("EDGE_OPERATOR_PRESSURE_MODEL", "gpt-5.4").strip() or "gpt-5.4"
+
+_WHITESPACE_RE = re.compile(r"\s+")
+_PUNCT_RE = re.compile(r"[^a-z0-9]+")
+_QUESTION_RE = re.compile(r"\?$|^(como|qual|quais|porque|por que|sera|será)\b", re.I)
+_FAILURE_RE = re.compile(r"\b(falhou|falha|erro|timeout|degraded|quebrou|bug|problema)\b", re.I)
+_CONTRADICTION_RE = re.compile(r"\b(na verdade|ali[aá]s|espera|opa|mas|s[oó] que)\b", re.I)
+_DIRECTIVE_RE = re.compile(
+    r"\b(tem que|deve|deveria|quero que|fa[cç]a|adicione|coloque|tire|remova|deixe|sempre|nunca|padroniza|padronizar|implemente|corrija|ajuste|abra uma issue|de merge)\b",
+    re.I,
+)
+_CORRECTION_RE = re.compile(
+    r"\b(n[aã]o [ée]|n[aã]o foi|n[aã]o era|de novo|errado|erro operacional|voc[eê] tem que|era para|n[aã]o devia)\b",
+    re.I,
+)
+_TENTATIVE_RE = re.compile(r"\b(talvez|acho que|ser[aá] que|poderia|quem sabe)\b", re.I)
+_RESOLUTION_RE = re.compile(r"\b(fechado|resolvido|pode seguir|segue isso|pode tocar)\b", re.I)
+
+_TARGET_RULES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\b(workflow|routines?|preflight|postflight|protocolo)\b", re.I), "workflow"),
+    (re.compile(r"\b(procedure|procedural|procedimento)\b", re.I), "procedure"),
+    (re.compile(r"\b(capability|primitive|primitiva|repo\.sync|exa|grafana|github|meta|whatsapp)\b", re.I), "capability"),
+    (re.compile(r"\b(policy|politica|policy|regra|guardrail)\b", re.I), "policy"),
+    (re.compile(r"\b(skill|heartbeat|autonomy|reflection|report|research|strategy|map|discovery)\b", re.I), "skill"),
+    (re.compile(r"\b(thread|topic|topics|claim|claims)\b", re.I), "thread"),
+    (re.compile(r"\b(research|pesquisa|investigar|investiga[cç][aã]o|search)\b", re.I), "research"),
+]
+
+_ENTITY_RULES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\bmeta\b", re.I), "meta"),
+    (re.compile(r"\bwhatsapp\b", re.I), "whatsapp"),
+    (re.compile(r"\bgrafana\b", re.I), "grafana"),
+    (re.compile(r"\bexa\b", re.I), "exa"),
+    (re.compile(r"\bgithub\b", re.I), "github"),
+    (re.compile(r"\bworkflow\b", re.I), "workflow"),
+    (re.compile(r"\btopic[s]?\b", re.I), "topic"),
+    (re.compile(r"\bmemory\b", re.I), "memory"),
+    (re.compile(r"\bpreflight\b", re.I), "preflight"),
+    (re.compile(r"\bpostflight\b", re.I), "postflight"),
+    (re.compile(r"\bheartbeat\b", re.I), "heartbeat"),
+    (re.compile(r"\breflection\b", re.I), "reflection"),
+    (re.compile(r"\bautonomy\b", re.I), "autonomy"),
+    (re.compile(r"\breport\b", re.I), "report"),
+    (re.compile(r"\bresearch\b", re.I), "research"),
+    (re.compile(r"\bstrategy\b", re.I), "strategy"),
+    (re.compile(r"\bmap\b", re.I), "map"),
+    (re.compile(r"\bclaude\b", re.I), "claude"),
+    (re.compile(r"\bopenai\b", re.I), "openai"),
+]
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _now_iso() -> str:
+    return _now().isoformat()
+
+
+def _hash_payload(payload: Any) -> str:
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return f"sha256:{hashlib.sha256(raw).hexdigest()}"
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _parse_ts(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        value = raw.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _extract_user_text(message: dict[str, Any]) -> str:
+    content = message.get("message") or {}
+    if isinstance(content, dict):
+        raw = content.get("content")
+        if isinstance(raw, list):
+            parts: list[str] = []
+            for item in raw:
+                if isinstance(item, dict):
+                    text = str(item.get("text") or "").strip()
+                    if text:
+                        parts.append(text)
+            return "\n".join(parts).strip()
+        return str(raw or "").strip()
+    return str(content or "").strip()
+
+
+def _iter_recent_user_messages(
+    *,
+    project_dir: Path,
+    window_days: int = LEDGER_WINDOW_DAYS,
+    max_sessions: int = MAX_SESSIONS,
+    max_messages: int = MAX_MESSAGES,
+) -> list[dict[str, Any]]:
+    cutoff = _now() - timedelta(days=window_days)
+    if not project_dir.exists():
+        return []
+    session_files = sorted(
+        [path for path in project_dir.glob("*.jsonl") if path.is_file()],
+        key=lambda item: item.stat().st_mtime,
+        reverse=True,
+    )[:max_sessions]
+    rows: list[dict[str, Any]] = []
+    for path in session_files:
+        try:
+            handle = path.open(encoding="utf-8")
+        except Exception:
+            continue
+        with handle:
+            for idx, line in enumerate(handle):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if payload.get("type") != "user":
+                    continue
+                text = _extract_user_text(payload)
+                if not text or len(text) < 8:
+                    continue
+                ts = _parse_ts(str(payload.get("timestamp") or ""))
+                if ts and ts < cutoff:
+                    continue
+                rows.append(
+                    {
+                        "session_id": str(payload.get("sessionId") or path.stem),
+                        "message_idx": idx,
+                        "timestamp": (ts or datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)).isoformat(),
+                        "text": text,
+                        "source_file": path.name,
+                        "cwd": str(payload.get("cwd") or ""),
+                    }
+                )
+    rows.sort(key=lambda item: (item["timestamp"], item["session_id"], item["message_idx"]))
+    return rows[-max_messages:]
+
+
+def _normalize_text(text: str) -> str:
+    value = _WHITESPACE_RE.sub(" ", text.strip().lower())
+    return value
+
+
+def _fingerprint_text(text: str) -> str:
+    value = _normalize_text(text)
+    value = _PUNCT_RE.sub(" ", value)
+    value = _WHITESPACE_RE.sub(" ", value).strip()
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def _classify_kind(text: str) -> str:
+    if _RESOLUTION_RE.search(text):
+        return "resolution"
+    if _FAILURE_RE.search(text):
+        return "failure"
+    if _CONTRADICTION_RE.search(text):
+        return "contradiction"
+    if _CORRECTION_RE.search(text):
+        return "correction"
+    if _QUESTION_RE.search(text):
+        return "question"
+    if _TENTATIVE_RE.search(text):
+        return "tentative"
+    if _DIRECTIVE_RE.search(text):
+        return "directive"
+    return "directive"
+
+
+def _infer_target(text: str) -> str:
+    for pattern, target in _TARGET_RULES:
+        if pattern.search(text):
+            return target
+    return "policy"
+
+
+def _extract_entities(text: str) -> list[str]:
+    entities: list[str] = []
+    for pattern, label in _ENTITY_RULES:
+        if pattern.search(text):
+            entities.append(label)
+    return sorted(set(entities))
+
+
+def _explicit_operator_direction(kind: str, text: str) -> bool:
+    if kind not in {"directive", "correction", "contradiction"}:
+        return False
+    return bool(_DIRECTIVE_RE.search(text) or _CORRECTION_RE.search(text))
+
+
+def _items_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for message in messages:
+        text = str(message.get("text") or "").strip()
+        if not text:
+            continue
+        kind = _classify_kind(text)
+        target = _infer_target(text)
+        fingerprint = _fingerprint_text(text)
+        item_id = f"pressure:{fingerprint}"
+        item = grouped.get(item_id)
+        if item is None:
+            item = {
+                "id": item_id,
+                "kind": kind,
+                "content": text[:600],
+                "target": target,
+                "status": "active",
+                "repeat_count": 0,
+                "created_at": message["timestamp"],
+                "last_seen_at": message["timestamp"],
+                "valid_until": "",
+                "entities": _extract_entities(text),
+                "explicit_operator_direction": _explicit_operator_direction(kind, text),
+                "provenance": [],
+                "supersedes": [],
+                "promoted_to": [],
+            }
+            grouped[item_id] = item
+        item["repeat_count"] += 1
+        item["last_seen_at"] = message["timestamp"]
+        item["kind"] = kind if item["repeat_count"] == 1 else item["kind"]
+        item["target"] = target if item["repeat_count"] == 1 else item["target"]
+        provenance = item.setdefault("provenance", [])
+        provenance.append(
+            {
+                "session_id": message["session_id"],
+                "message_idx": int(message["message_idx"]),
+                "timestamp": message["timestamp"],
+                "source_file": message["source_file"],
+            }
+        )
+        item["provenance"] = provenance[-5:]
+        merged_entities = set(item.get("entities") or [])
+        merged_entities.update(_extract_entities(text))
+        item["entities"] = sorted(merged_entities)
+    items = list(grouped.values())
+    items.sort(
+        key=lambda item: (
+            -int(item.get("repeat_count") or 0),
+            str(item.get("last_seen_at") or ""),
+            str(item.get("id") or ""),
+        ),
+        reverse=True,
+    )
+    return items
+
+
+def _ledger_from_messages(messages: list[dict[str, Any]], *, project_dir: Path) -> dict[str, Any]:
+    items = _items_from_messages(messages)
+    item_payload = [
+        {
+            "id": item["id"],
+            "kind": item["kind"],
+            "content": item["content"],
+            "target": item["target"],
+            "status": item["status"],
+            "repeat_count": item["repeat_count"],
+            "created_at": item["created_at"],
+            "last_seen_at": item["last_seen_at"],
+            "valid_until": item["valid_until"],
+            "entities": item["entities"],
+            "explicit_operator_direction": item["explicit_operator_direction"],
+            "provenance": item["provenance"],
+            "supersedes": item["supersedes"],
+            "promoted_to": item["promoted_to"],
+        }
+        for item in items
+    ]
+    source_hash = _hash_payload(item_payload)
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": _now_iso(),
+        "project_dir": str(project_dir),
+        "window_days": LEDGER_WINDOW_DAYS,
+        "message_total": len(messages),
+        "session_total": len({row["session_id"] for row in messages}),
+        "item_total": len(item_payload),
+        "source_hash": source_hash,
+        "items": item_payload,
+    }
+
+
+def _rank_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def key(item: dict[str, Any]) -> tuple[int, str, int]:
+        return (
+            int(item.get("repeat_count") or 0),
+            str(item.get("last_seen_at") or ""),
+            1 if item.get("explicit_operator_direction") else 0,
+        )
+    return sorted(items, key=key, reverse=True)
+
+
+def _compact_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "item_id": item.get("id"),
+        "text": str(item.get("content") or "")[:220],
+        "target": item.get("target"),
+        "kind": item.get("kind"),
+        "repeat_count": int(item.get("repeat_count") or 0),
+        "status": item.get("status"),
+        "entities": list(item.get("entities") or []),
+        "last_seen_at": item.get("last_seen_at"),
+    }
+
+
+def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str, Any] | None = None) -> dict[str, Any]:
+    items = list(ledger.get("items") or [])
+    ranked = _rank_items(items)
+    directives = [item for item in ranked if item.get("explicit_operator_direction")]
+    repeated = [item for item in ranked if int(item.get("repeat_count") or 0) >= 2]
+    unresolved = [
+        item
+        for item in ranked
+        if str(item.get("kind") or "") in {"failure", "contradiction", "question", "tentative", "correction"}
+    ]
+    workflow_candidates = [
+        item for item in directives if str(item.get("target") or "") in {"workflow", "procedure", "policy"}
+    ]
+    capability_candidates = [
+        item for item in directives if str(item.get("target") or "") == "capability"
+    ]
+    entity_counts = Counter(entity for item in ranked for entity in list(item.get("entities") or []))
+    top_entities = [name for name, _count in entity_counts.most_common(8)]
+    summary_parts = []
+    if directives:
+        summary_parts.append(f"{len(directives)} active operator directives")
+    if repeated:
+        summary_parts.append(f"{len(repeated)} repeated guidance items")
+    if unresolved:
+        summary_parts.append(f"{len(unresolved)} unresolved feedback items")
+    if not summary_parts:
+        summary_parts.append("no strong recent operator pressure detected")
+    digest = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": _now_iso(),
+        "source_hash": ledger.get("source_hash"),
+        "render_mode": "deterministic",
+        "model": "",
+        "previous_digest_hash": str(previous_digest.get("digest_hash") or "") if isinstance(previous_digest, dict) else "",
+        "summary": "; ".join(summary_parts),
+        "required_state_changes": [_compact_item(item) for item in directives[:SECTION_LIMIT]],
+        "repeated_operator_guidance": [_compact_item(item) for item in repeated[:SECTION_LIMIT]],
+        "workflow_candidates": [_compact_item(item) for item in workflow_candidates[:SECTION_LIMIT]],
+        "capability_candidates": [_compact_item(item) for item in capability_candidates[:SECTION_LIMIT]],
+        "unresolved_feedback": [_compact_item(item) for item in unresolved[:SECTION_LIMIT]],
+        "active_entities": top_entities,
+        "item_ids": [str(item.get("id") or "") for item in ranked[: max(SECTION_LIMIT * 4, 1)]],
+    }
+    digest["digest_hash"] = _hash_payload(
+        {
+            key: value
+            for key, value in digest.items()
+            if key not in {"generated_at", "digest_hash"}
+        }
+    )
+    return digest
+
+
+def _llm_prompt(
+    render_input: dict[str, Any],
+    *,
+    previous_digest: dict[str, Any] | None,
+    delta_items: list[dict[str, Any]],
+) -> str:
+    return (
+        "You are rendering an operator-pressure digest for runtime preflight.\n"
+        "Return JSON only. Do not add commentary.\n\n"
+        "Goal:\n"
+        "- compress recent operator pressure into a bounded operational digest\n"
+        "- preserve explicit operator direction\n"
+        "- surface repeated guidance and unresolved feedback\n"
+        "- keep entries short and directly actionable\n\n"
+        "Required JSON schema:\n"
+        "{\n"
+        '  "summary": "short paragraph",\n'
+        '  "required_state_changes": [{"item_id":"...","text":"...","target":"...","kind":"...","repeat_count":1,"status":"active","entities":["..."],"last_seen_at":"..."}],\n'
+        '  "repeated_operator_guidance": [same shape],\n'
+        '  "workflow_candidates": [same shape],\n'
+        '  "capability_candidates": [same shape],\n'
+        '  "unresolved_feedback": [same shape],\n'
+        '  "active_entities": ["..."]\n'
+        "}\n\n"
+        "Rules:\n"
+        "- Keep lists bounded to the most important items already provided.\n"
+        "- Do not invent workflow candidates unless they come from explicit operator direction.\n"
+        "- Keep `text` concise but faithful.\n"
+        "- Preserve item_id/target/kind/repeat_count/status/entities/last_seen_at from the inputs.\n"
+        "- If a section has nothing useful, return an empty list.\n\n"
+        f"Previous digest (if any):\n{json.dumps(previous_digest or {}, ensure_ascii=False, indent=2)}\n\n"
+        f"Delta items since previous digest:\n{json.dumps(delta_items, ensure_ascii=False, indent=2)}\n\n"
+        f"Render input:\n{json.dumps(render_input, ensure_ascii=False, indent=2)}\n"
+    )
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    raw = text.strip()
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        pass
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        payload = json.loads(raw[start : end + 1])
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def _coerce_digest_shape(candidate: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    digest = dict(fallback)
+    digest["summary"] = str(candidate.get("summary") or fallback.get("summary") or "").strip()
+    for key in (
+        "required_state_changes",
+        "repeated_operator_guidance",
+        "workflow_candidates",
+        "capability_candidates",
+        "unresolved_feedback",
+    ):
+        items = candidate.get(key)
+        if isinstance(items, list):
+            normalized: list[dict[str, Any]] = []
+            for item in items[:SECTION_LIMIT]:
+                if not isinstance(item, dict):
+                    continue
+                normalized.append(
+                    {
+                        "item_id": str(item.get("item_id") or ""),
+                        "text": str(item.get("text") or "")[:220],
+                        "target": str(item.get("target") or ""),
+                        "kind": str(item.get("kind") or ""),
+                        "repeat_count": int(item.get("repeat_count") or 0),
+                        "status": str(item.get("status") or "active"),
+                        "entities": [str(entity) for entity in (item.get("entities") or []) if str(entity).strip()],
+                        "last_seen_at": str(item.get("last_seen_at") or ""),
+                    }
+                )
+            digest[key] = normalized
+    entities = candidate.get("active_entities")
+    if isinstance(entities, list):
+        digest["active_entities"] = [str(entity) for entity in entities[:8] if str(entity).strip()]
+    return digest
+
+
+def _render_hot_digest_with_llm(
+    ledger: dict[str, Any],
+    *,
+    previous_digest: dict[str, Any] | None,
+    delta_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    fallback = _deterministic_hot_digest(ledger, previous_digest=previous_digest)
+    if LLM_DISABLED:
+        return fallback
+    render_input = {
+        "source_hash": ledger.get("source_hash"),
+        "item_total": ledger.get("item_total", 0),
+        "session_total": ledger.get("session_total", 0),
+        "required_state_changes": fallback.get("required_state_changes", []),
+        "repeated_operator_guidance": fallback.get("repeated_operator_guidance", []),
+        "workflow_candidates": fallback.get("workflow_candidates", []),
+        "capability_candidates": fallback.get("capability_candidates", []),
+        "unresolved_feedback": fallback.get("unresolved_feedback", []),
+        "active_entities": fallback.get("active_entities", []),
+    }
+    prompt = _llm_prompt(render_input, previous_digest=previous_digest, delta_items=delta_items[:SECTION_LIMIT])
+    try:
+        client, model = make_client("chat", model=LLM_MODEL, timeout=90)
+        response = client.chat.completions.create(
+            model=model,
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": "You compress operator pressure into compact structured JSON for runtime use."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        content = response.choices[0].message.content
+        payload = _extract_json_object(str(content or ""))
+        if not payload:
+            raise RuntimeError("digest renderer did not return JSON")
+        digest = _coerce_digest_shape(payload, fallback)
+        digest["render_mode"] = "gpt-5"
+        digest["model"] = model
+        digest["generated_at"] = _now_iso()
+        digest["source_hash"] = ledger.get("source_hash")
+        digest["previous_digest_hash"] = str(previous_digest.get("digest_hash") or "") if isinstance(previous_digest, dict) else ""
+        digest["item_ids"] = fallback.get("item_ids", [])
+        digest["digest_hash"] = _hash_payload(
+            {
+                key: value
+                for key, value in digest.items()
+                if key not in {"generated_at", "digest_hash"}
+            }
+        )
+        return digest
+    except Exception as exc:
+        fallback["render_mode"] = "deterministic"
+        fallback["render_warning"] = str(exc)
+        return fallback
+
+
+def _build_redigest(ledger: dict[str, Any], hot_digest: dict[str, Any], previous_latest: dict[str, Any] | None = None) -> dict[str, Any]:
+    items = list(ledger.get("items") or [])
+    by_target = Counter(str(item.get("target") or "policy") for item in items)
+    by_kind = Counter(str(item.get("kind") or "directive") for item in items)
+    segments: list[dict[str, Any]] = []
+    for section in (
+        "required_state_changes",
+        "repeated_operator_guidance",
+        "workflow_candidates",
+        "capability_candidates",
+        "unresolved_feedback",
+    ):
+        for item in hot_digest.get(section) or []:
+            if not isinstance(item, dict):
+                continue
+            segments.append(
+                {
+                    "section": section,
+                    "item_id": str(item.get("item_id") or ""),
+                    "text": str(item.get("text") or ""),
+                    "target": str(item.get("target") or ""),
+                    "kind": str(item.get("kind") or ""),
+                    "repeat_count": int(item.get("repeat_count") or 0),
+                    "entities": list(item.get("entities") or []),
+                    "status": str(item.get("status") or "active"),
+                    "last_seen_at": str(item.get("last_seen_at") or ""),
+                }
+            )
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": _now_iso(),
+        "source_hash": ledger.get("source_hash"),
+        "item_total": ledger.get("item_total", 0),
+        "summary": hot_digest.get("summary", ""),
+        "segments": segments,
+        "counts": {
+            "by_target": dict(sorted(by_target.items())),
+            "by_kind": dict(sorted(by_kind.items())),
+        },
+        "active_entities": hot_digest.get("active_entities", []),
+        "previous_snapshot_hash": str(previous_latest.get("snapshot_hash") or "") if isinstance(previous_latest, dict) else "",
+    }
+    payload["snapshot_hash"] = _hash_payload(
+        {
+            key: value
+            for key, value in payload.items()
+            if key not in {"generated_at", "snapshot_hash"}
+        }
+    )
+    return payload
+
+
+def _maybe_write_redigest(ledger: dict[str, Any], hot_digest: dict[str, Any], *, redigest_dir: Path) -> dict[str, Any]:
+    latest_path = redigest_dir / "latest.json"
+    latest = _read_json(latest_path)
+    if latest:
+        previous_ts = _parse_ts(str(latest.get("generated_at") or ""))
+        if previous_ts and (_now() - previous_ts) < timedelta(hours=REDIGEST_INTERVAL_HOURS):
+            return latest
+    snapshot = _build_redigest(ledger, hot_digest, previous_latest=latest)
+    stamp = _now().strftime("%Y%m%dT%H%M%SZ")
+    snapshot_path = redigest_dir / f"{stamp}.json"
+    _write_json(snapshot_path, snapshot)
+    _write_json(latest_path, snapshot)
+    emit_shadow_event(
+        "OperatorPressureRedigestUpdated",
+        actor="operator-pressure",
+        cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+        payload={
+            "snapshot_path": str(snapshot_path),
+            "item_total": snapshot.get("item_total", 0),
+            "segment_total": len(snapshot.get("segments") or []),
+            "source_hash": snapshot.get("source_hash"),
+        },
+    )
+    log_event(
+        "operator_pressure_redigest",
+        actor="operator-pressure",
+        cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+        snapshot_path=str(snapshot_path),
+        item_total=snapshot.get("item_total", 0),
+        segment_total=len(snapshot.get("segments") or []),
+        source_hash=snapshot.get("source_hash"),
+        status="updated",
+    )
+    return snapshot
+
+
+def build_operator_pressure_layers(
+    *,
+    project_dir: Path | None = None,
+    ledger_path: Path | None = None,
+    hot_digest_path: Path | None = None,
+    redigest_dir: Path | None = None,
+) -> dict[str, Any]:
+    project_dir = project_dir or PROJECT_DIR
+    ledger_path = ledger_path or OPERATOR_PRESSURE_LEDGER_FILE
+    hot_digest_path = hot_digest_path or OPERATOR_PRESSURE_HOT_DIGEST_FILE
+    redigest_dir = redigest_dir or OPERATOR_PRESSURE_REDIGEST_DIR
+
+    messages = _iter_recent_user_messages(project_dir=project_dir)
+    ledger = _ledger_from_messages(messages, project_dir=project_dir)
+    previous_digest = _read_json(hot_digest_path)
+    if previous_digest and previous_digest.get("source_hash") == ledger.get("source_hash"):
+        hot_digest = previous_digest
+    else:
+        previous_item_ids = set(previous_digest.get("item_ids") or []) if isinstance(previous_digest, dict) else set()
+        delta_items = [
+            _compact_item(item)
+            for item in (ledger.get("items") or [])
+            if str(item.get("id") or "") not in previous_item_ids
+        ]
+        hot_digest = _render_hot_digest_with_llm(ledger, previous_digest=previous_digest, delta_items=delta_items)
+
+    _write_json(ledger_path, ledger)
+    _write_json(hot_digest_path, hot_digest)
+    latest_before = _read_json((redigest_dir / "latest.json"))
+    redigest = _maybe_write_redigest(ledger, hot_digest, redigest_dir=redigest_dir)
+
+    summary = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": _now_iso(),
+        "project_dir": str(project_dir),
+        "message_total": ledger.get("message_total", 0),
+        "session_total": ledger.get("session_total", 0),
+        "item_total": ledger.get("item_total", 0),
+        "active_entities": hot_digest.get("active_entities", []),
+        "required_state_changes": len(hot_digest.get("required_state_changes") or []),
+        "repeated_guidance": len(hot_digest.get("repeated_operator_guidance") or []),
+        "workflow_candidates": len(hot_digest.get("workflow_candidates") or []),
+        "capability_candidates": len(hot_digest.get("capability_candidates") or []),
+        "unresolved_feedback": len(hot_digest.get("unresolved_feedback") or []),
+        "render_mode": hot_digest.get("render_mode", "deterministic"),
+        "source_hash": ledger.get("source_hash"),
+        "ledger_path": str(ledger_path),
+        "hot_digest_path": str(hot_digest_path),
+        "redigest_path": str(redigest_dir / "latest.json"),
+        "redigest_updated": (not latest_before) or latest_before.get("snapshot_hash") != redigest.get("snapshot_hash"),
+    }
+    emit_shadow_event(
+        "ClaudeSessionDigestComputed",
+        actor="operator-pressure",
+        cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+        payload=summary,
+    )
+    log_event(
+        "operator_pressure_digest",
+        actor="operator-pressure",
+        cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+        status="computed",
+        item_total=summary["item_total"],
+        session_total=summary["session_total"],
+        render_mode=summary["render_mode"],
+        workflow_candidates=summary["workflow_candidates"],
+        capability_candidates=summary["capability_candidates"],
+        unresolved_feedback=summary["unresolved_feedback"],
+    )
+    return {
+        "ledger": ledger,
+        "hot_digest": hot_digest,
+        "redigest": redigest,
+        "summary": summary,
+    }
+
+
+__all__ = ["build_operator_pressure_layers"]
