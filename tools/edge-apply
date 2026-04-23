@@ -26,7 +26,9 @@ from pathlib import Path
 
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "_shared"))
+TOOLS_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOLS_DIR))
+sys.path.insert(0, str(TOOLS_DIR / "_shared"))
 from intervals import parse_interval  # noqa: E402
 from routines import (  # noqa: E402
     build_entry_markdown,
@@ -1465,6 +1467,18 @@ Generate EXACTLY this JSON structure (no markdown, no explanation, just valid JS
 Each signal should be a short sentence (under 120 chars). Use ! prefix for open gaps, ? for speculative ideas.
 Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioning-wedge'), not interest areas."""
 
+        def _parse_seed_json(raw: str) -> dict | None:
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                match = re.search(r"\{[\s\S]*\}", raw)
+                if not match:
+                    return None
+                try:
+                    return json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    return None
+
         if openai_key:
             try:
                 import urllib.request
@@ -1480,10 +1494,23 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
                 resp = urllib.request.urlopen(req, timeout=30)
                 result = json.loads(resp.read())
                 content = result["choices"][0]["message"]["content"]
-                llm_seed = json.loads(content)
+                llm_seed = _parse_seed_json(content)
+                if llm_seed is None:
+                    raise ValueError("provider returned non-JSON seed payload")
                 ok("Seed generated via LLM")
             except Exception as e:
                 warn(f"LLM seed generation failed: {e}")
+        if not llm_seed:
+            try:
+                from _shared.router_client import call_claude_cli_text
+
+                content = call_claude_cli_text(llm_prompt, timeout=60)
+                llm_seed = _parse_seed_json(content)
+                if llm_seed is None:
+                    raise ValueError("claude CLI returned non-JSON seed payload")
+                ok("Seed generated via local Claude CLI fallback")
+            except Exception as e:
+                warn(f"Claude CLI seed fallback failed: {e}")
 
         # Write signal files (LLM content or deterministic fallback)
         for stype in ["strategy", "autonomy", "friction", "serendipity", "reflection"]:

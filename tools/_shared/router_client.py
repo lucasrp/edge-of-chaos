@@ -18,10 +18,14 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
+import uuid
 from functools import lru_cache
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from .telemetry import log_llm_call
@@ -70,6 +74,8 @@ _LEGACY_DEFAULTS: dict[str, dict[str, Any]] = {
         "model_default": "gpt-5.4",
     },
 }
+
+CLAUDE_FALLBACK_MODEL = "claude-cli"
 
 
 @lru_cache(maxsize=1)
@@ -221,6 +227,208 @@ def _substitute(template: str, mapping: dict[str, str]) -> str:
     return _SUBST_RE.sub(_sub, template)
 
 
+def resolve_claude_bin() -> str:
+    env_override = os.environ.get("EDGE_CLAUDE_BIN") or os.environ.get("CLAUDE_BIN")
+    candidates: list[str] = []
+    if env_override:
+        candidates.append(env_override)
+
+    path_hit = shutil.which("claude")
+    if path_hit:
+        candidates.append(path_hit)
+
+    home = Path.home()
+    candidates.extend(
+        [
+            str(home / ".local" / "bin" / "claude"),
+            str(home / "bin" / "claude"),
+        ]
+    )
+    for glob_hit in sorted((home / ".nvm" / "versions" / "node").glob("*/bin/claude"), reverse=True):
+        candidates.append(str(glob_hit))
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    raise FileNotFoundError("claude CLI not found on PATH or common install locations")
+
+
+def claude_cli_available() -> bool:
+    try:
+        resolve_claude_bin()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def call_claude_cli_text(prompt: str, *, timeout: int = 60) -> str:
+    """Invoke the local Claude CLI and return plain text output."""
+    result = subprocess.run(
+        [resolve_claude_bin(), "-p", prompt, "--dangerously-skip-permissions"],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        stderr_tail = (result.stderr or "").strip()[-500:]
+        raise RuntimeError(
+            f"claude CLI exited {result.returncode}: {stderr_tail or '(no stderr)'}"
+        )
+    text = (result.stdout or "").strip()
+    if not text:
+        raise RuntimeError("claude CLI produced empty output")
+    return text
+
+
+def _content_to_text(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                if isinstance(item.get("text"), str):
+                    parts.append(item["text"])
+                elif isinstance(item.get("content"), str):
+                    parts.append(item["content"])
+            else:
+                text = getattr(item, "text", None)
+                if isinstance(text, str):
+                    parts.append(text)
+        return "\n".join(part.strip() for part in parts if part and part.strip())
+    if isinstance(content, dict):
+        if isinstance(content.get("text"), str):
+            return content["text"]
+        if isinstance(content.get("content"), str):
+            return content["content"]
+    text = getattr(content, "text", None)
+    if isinstance(text, str):
+        return text
+    return str(content)
+
+
+def _message_field(message: Any, field: str, default: Any = "") -> Any:
+    if isinstance(message, dict):
+        return message.get(field, default)
+    return getattr(message, field, default)
+
+
+def _messages_to_prompt(messages: list[Any]) -> str:
+    sections: list[str] = []
+    for message in messages or []:
+        role = str(_message_field(message, "role", "user") or "user")
+        content = _content_to_text(_message_field(message, "content", ""))
+        if not content.strip():
+            continue
+        sections.append(f"## {role.title()}\n\n{content.strip()}")
+    return "\n\n".join(sections).strip()
+
+
+def _responses_input_to_prompt(input_value: Any, tools: list[Any] | None) -> str:
+    sections: list[str] = []
+    if isinstance(input_value, str):
+        sections.append(input_value.strip())
+    elif isinstance(input_value, list):
+        for item in input_value:
+            role = str(_message_field(item, "role", "user") or "user")
+            content = _content_to_text(_message_field(item, "content", ""))
+            if not content.strip():
+                continue
+            sections.append(f"## {role.title()}\n\n{content.strip()}")
+    elif input_value is not None:
+        sections.append(str(input_value).strip())
+
+    tool_types: list[str] = []
+    for tool in tools or []:
+        if isinstance(tool, dict):
+            tool_type = str(tool.get("type") or "").strip()
+        else:
+            tool_type = str(getattr(tool, "type", "") or "").strip()
+        if tool_type:
+            tool_types.append(tool_type)
+    if tool_types:
+        sections.append(
+            "## Requested tools\n\n"
+            + "\n".join(f"- {tool_type} (not available in local Claude CLI fallback)" for tool_type in tool_types)
+        )
+    return "\n\n".join(section for section in sections if section).strip()
+
+
+def _fallback_prompt(resource_name: str, kwargs: dict[str, Any]) -> str:
+    if resource_name == "chat.completions":
+        return _messages_to_prompt(list(kwargs.get("messages") or []))
+    if resource_name == "responses":
+        return _responses_input_to_prompt(kwargs.get("input"), list(kwargs.get("tools") or []))
+    return ""
+
+
+def _should_fallback_to_claude(exc: Exception, resource_name: str) -> bool:
+    if resource_name == "embeddings":
+        return False
+    if not claude_cli_available():
+        return False
+    status_code = getattr(exc, "status_code", None)
+    if status_code in {401, 403, 429}:
+        return True
+    lowered = f"{type(exc).__name__}: {exc}".lower()
+    needles = (
+        "insufficient_quota",
+        "quota",
+        "rate limit",
+        "429",
+        "401",
+        "403",
+        "unauthoriz",
+        "forbidden",
+        "timeout",
+        "timed out",
+        "timedout",
+        "connection error",
+        "api connection",
+        "service unavailable",
+    )
+    return any(needle in lowered for needle in needles)
+
+
+def _build_chat_fallback_response(text: str) -> Any:
+    return SimpleNamespace(
+        id=f"{CLAUDE_FALLBACK_MODEL}-{uuid.uuid4().hex[:8]}",
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=text, tool_calls=None)
+            )
+        ],
+        usage=SimpleNamespace(prompt_tokens=0, completion_tokens=0),
+    )
+
+
+def _build_responses_fallback_response(text: str) -> Any:
+    return SimpleNamespace(
+        id=f"{CLAUDE_FALLBACK_MODEL}-{uuid.uuid4().hex[:8]}",
+        output=[SimpleNamespace(type="message", content=[SimpleNamespace(text=text, annotations=[])])],
+        output_text=text,
+        usage=SimpleNamespace(input_tokens=0, output_tokens=0),
+    )
+
+
+def _call_claude_fallback(resource_name: str, kwargs: dict[str, Any], *, timeout_s: int) -> Any:
+    prompt = _fallback_prompt(resource_name, kwargs)
+    if not prompt.strip():
+        raise RuntimeError(f"cannot build Claude fallback prompt for resource={resource_name}")
+    text = call_claude_cli_text(prompt, timeout=timeout_s)
+    if resource_name == "responses":
+        return _build_responses_fallback_response(text)
+    return _build_chat_fallback_response(text)
+
+
 def make_client(
     purpose: str | None = None,
     *,
@@ -278,7 +486,8 @@ def make_client(
 
     client = OpenAI(**client_kwargs)
     purpose_name = purpose if purpose is not None else _resolve_purpose_name(cfg["model"])
-    return _wrap_with_telemetry(client, purpose_name, cfg["model"]), cfg["model"]
+    fallback_timeout_s = int(timeout) if timeout else 60
+    return _wrap_with_telemetry(client, purpose_name, cfg["model"], fallback_timeout_s), cfg["model"]
 
 
 def _resolve_purpose_name(model: str) -> str:
@@ -292,22 +501,44 @@ def _resolve_purpose_name(model: str) -> str:
 class _InstrumentedCreate:
     """Wrap `resource.create(...)` so every call emits an llm_call event."""
 
-    def __init__(self, inner_create: Any, router: str, default_model: str) -> None:
+    def __init__(self, inner_create: Any, router: str, default_model: str, resource_name: str, fallback_timeout_s: int) -> None:
         self._inner = inner_create
         self._router = router
         self._default_model = default_model
+        self._resource_name = resource_name
+        self._fallback_timeout_s = fallback_timeout_s
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         model = kwargs.get("model") or self._default_model
         t0 = time.monotonic()
         try:
             resp = self._inner(*args, **kwargs)
-        except Exception:
+        except Exception as exc:
             dt_ms = int((time.monotonic() - t0) * 1000)
+            fallback_candidate = _should_fallback_to_claude(exc, self._resource_name)
             log_llm_call(
                 router=self._router, model=model, tokens_in=0, tokens_out=0,
                 latency_ms=dt_ms, error=True,
+                fallback_candidate=fallback_candidate,
             )
+            if fallback_candidate:
+                fallback_started = time.monotonic()
+                fallback_resp = _call_claude_fallback(
+                    self._resource_name,
+                    kwargs,
+                    timeout_s=self._fallback_timeout_s,
+                )
+                fallback_dt_ms = int((time.monotonic() - fallback_started) * 1000)
+                log_llm_call(
+                    router=f"{self._router}:claude-fallback",
+                    model=CLAUDE_FALLBACK_MODEL,
+                    tokens_in=0,
+                    tokens_out=0,
+                    latency_ms=fallback_dt_ms,
+                    fallback_for=model,
+                    resource=self._resource_name,
+                )
+                return fallback_resp
             raise
         dt_ms = int((time.monotonic() - t0) * 1000)
         tokens_in, tokens_out = _extract_tokens(resp)
@@ -321,30 +552,33 @@ class _InstrumentedCreate:
 class _InstrumentedResource:
     """Proxy a resource object (e.g., chat.completions). Wraps `.create` only."""
 
-    def __init__(self, inner: Any, router: str, default_model: str) -> None:
+    def __init__(self, inner: Any, router: str, default_model: str, resource_name: str, fallback_timeout_s: int) -> None:
         self._inner = inner
         self._router = router
         self._default_model = default_model
+        self._resource_name = resource_name
+        self._fallback_timeout_s = fallback_timeout_s
 
     def __getattr__(self, name: str) -> Any:
         attr = getattr(self._inner, name)
         if name == "create":
-            return _InstrumentedCreate(attr, self._router, self._default_model)
+            return _InstrumentedCreate(attr, self._router, self._default_model, self._resource_name, self._fallback_timeout_s)
         return attr
 
 
 class _InstrumentedChat:
     """Proxy client.chat, wrap client.chat.completions."""
 
-    def __init__(self, inner: Any, router: str, default_model: str) -> None:
+    def __init__(self, inner: Any, router: str, default_model: str, fallback_timeout_s: int) -> None:
         self._inner = inner
         self._router = router
         self._default_model = default_model
+        self._fallback_timeout_s = fallback_timeout_s
 
     def __getattr__(self, name: str) -> Any:
         attr = getattr(self._inner, name)
         if name == "completions":
-            return _InstrumentedResource(attr, self._router, self._default_model)
+            return _InstrumentedResource(attr, self._router, self._default_model, "chat.completions", self._fallback_timeout_s)
         return attr
 
 
@@ -353,25 +587,26 @@ class _InstrumentedClient:
     `embeddings.create`, and `responses.create` to emit llm_call telemetry.
     Every other attribute passes through unchanged."""
 
-    def __init__(self, inner: Any, router: str, default_model: str) -> None:
+    def __init__(self, inner: Any, router: str, default_model: str, fallback_timeout_s: int) -> None:
         self._inner = inner
         self._router = router
         self._default_model = default_model
+        self._fallback_timeout_s = fallback_timeout_s
 
     def __getattr__(self, name: str) -> Any:
         attr = getattr(self._inner, name)
         if name == "chat":
-            return _InstrumentedChat(attr, self._router, self._default_model)
+            return _InstrumentedChat(attr, self._router, self._default_model, self._fallback_timeout_s)
         if name in ("embeddings", "responses"):
-            return _InstrumentedResource(attr, self._router, self._default_model)
+            return _InstrumentedResource(attr, self._router, self._default_model, name, self._fallback_timeout_s)
         return attr
 
 
-def _wrap_with_telemetry(client: Any, router: str, default_model: str) -> Any:
+def _wrap_with_telemetry(client: Any, router: str, default_model: str, fallback_timeout_s: int) -> Any:
     """Opt-out via env: ED_TELEMETRY_DISABLE=1."""
     if os.environ.get("ED_TELEMETRY_DISABLE") == "1":
         return client
-    return _InstrumentedClient(client, router, default_model)
+    return _InstrumentedClient(client, router, default_model, fallback_timeout_s)
 
 
 def _extract_tokens(resp: Any) -> tuple[int, int]:
@@ -389,8 +624,12 @@ def _extract_tokens(resp: Any) -> tuple[int, int]:
 
 
 __all__ = [
+    "CLAUDE_FALLBACK_MODEL",
+    "call_claude_cli_text",
+    "claude_cli_available",
     "load_router_config",
     "find_router_for_model",
     "load_secret",
     "make_client",
+    "resolve_claude_bin",
 ]
