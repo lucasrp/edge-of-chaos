@@ -33,7 +33,7 @@ from paths import (  # noqa: E402
 from .router_client import make_client  # noqa: E402
 from .telemetry import emit_shadow_event, log_event  # noqa: E402
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 LEDGER_WINDOW_DAYS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_WINDOW_DAYS", "7") or "7")
 MAX_SESSIONS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_SESSIONS", "8") or "8")
 MAX_MESSAGES = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_MESSAGES", "48") or "48")
@@ -89,6 +89,19 @@ _ENTITY_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bclaude\b", re.I), "claude"),
     (re.compile(r"\bopenai\b", re.I), "openai"),
 ]
+
+_HOT_DIGEST_KEYS = {
+    "summary",
+    "signal_from_operator_now",
+    "operator_pains_resolvable_now",
+    "operator_toil_optimizable_now",
+    "mistakes_to_avoid_now",
+    "implicit_needs_hypotheses",
+    "workflow_candidates",
+    "capability_candidates",
+    "active_entities",
+    "item_ids",
+}
 
 
 def _now() -> datetime:
@@ -369,15 +382,37 @@ def _compact_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _hot_digest_matches_schema(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if int(payload.get("schema_version") or 0) != SCHEMA_VERSION:
+        return False
+    return all(key in payload for key in _HOT_DIGEST_KEYS)
+
+
 def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str, Any] | None = None) -> dict[str, Any]:
     items = list(ledger.get("items") or [])
     ranked = _rank_items(items)
     directives = [item for item in ranked if item.get("explicit_operator_direction")]
-    repeated = [item for item in ranked if int(item.get("repeat_count") or 0) >= 2]
-    unresolved = [
+    pains = [
         item
         for item in ranked
-        if str(item.get("kind") or "") in {"failure", "contradiction", "question", "tentative", "correction"}
+        if item.get("explicit_operator_direction") or str(item.get("kind") or "") in {"failure", "question", "tentative"}
+    ]
+    toil = [
+        item
+        for item in ranked
+        if int(item.get("repeat_count") or 0) >= 2 and (item.get("explicit_operator_direction") or str(item.get("kind") or "") in {"correction", "contradiction"})
+    ]
+    mistakes = [
+        item
+        for item in ranked
+        if str(item.get("kind") or "") in {"correction", "contradiction", "failure"}
+    ]
+    hypotheses = [
+        item
+        for item in ranked
+        if str(item.get("kind") or "") in {"tentative", "question"}
     ]
     workflow_candidates = [
         item for item in directives if str(item.get("target") or "") in {"workflow", "procedure", "policy"}
@@ -389,11 +424,11 @@ def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str,
     top_entities = [name for name, _count in entity_counts.most_common(8)]
     summary_parts = []
     if directives:
-        summary_parts.append(f"{len(directives)} active operator directives")
-    if repeated:
-        summary_parts.append(f"{len(repeated)} repeated guidance items")
-    if unresolved:
-        summary_parts.append(f"{len(unresolved)} unresolved feedback items")
+        summary_parts.append(f"{len(directives)} active operator signals")
+    if toil:
+        summary_parts.append(f"{len(toil)} recurring operator toil patterns")
+    if mistakes:
+        summary_parts.append(f"{len(mistakes)} recent mistakes to avoid")
     if not summary_parts:
         summary_parts.append("no strong recent operator pressure detected")
     digest = {
@@ -404,11 +439,13 @@ def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str,
         "model": "",
         "previous_digest_hash": str(previous_digest.get("digest_hash") or "") if isinstance(previous_digest, dict) else "",
         "summary": "; ".join(summary_parts),
-        "required_state_changes": [_compact_item(item) for item in directives[:SECTION_LIMIT]],
-        "repeated_operator_guidance": [_compact_item(item) for item in repeated[:SECTION_LIMIT]],
+        "signal_from_operator_now": [_compact_item(item) for item in directives[:SECTION_LIMIT]],
+        "operator_pains_resolvable_now": [_compact_item(item) for item in pains[:SECTION_LIMIT]],
+        "operator_toil_optimizable_now": [_compact_item(item) for item in toil[:SECTION_LIMIT]],
+        "mistakes_to_avoid_now": [_compact_item(item) for item in mistakes[:SECTION_LIMIT]],
+        "implicit_needs_hypotheses": [_compact_item(item) for item in hypotheses[:SECTION_LIMIT]],
         "workflow_candidates": [_compact_item(item) for item in workflow_candidates[:SECTION_LIMIT]],
         "capability_candidates": [_compact_item(item) for item in capability_candidates[:SECTION_LIMIT]],
-        "unresolved_feedback": [_compact_item(item) for item in unresolved[:SECTION_LIMIT]],
         "active_entities": top_entities,
         "item_ids": [str(item.get("id") or "") for item in ranked[: max(SECTION_LIMIT * 4, 1)]],
     }
@@ -439,11 +476,13 @@ def _llm_prompt(
         "Required JSON schema:\n"
         "{\n"
         '  "summary": "short paragraph",\n'
-        '  "required_state_changes": [{"item_id":"...","text":"...","target":"...","kind":"...","repeat_count":1,"status":"active","entities":["..."],"last_seen_at":"..."}],\n'
-        '  "repeated_operator_guidance": [same shape],\n'
+        '  "signal_from_operator_now": [{"item_id":"...","text":"...","target":"...","kind":"...","repeat_count":1,"status":"active","entities":["..."],"last_seen_at":"..."}],\n'
+        '  "operator_pains_resolvable_now": [same shape],\n'
+        '  "operator_toil_optimizable_now": [same shape],\n'
+        '  "mistakes_to_avoid_now": [same shape],\n'
+        '  "implicit_needs_hypotheses": [same shape],\n'
         '  "workflow_candidates": [same shape],\n'
         '  "capability_candidates": [same shape],\n'
-        '  "unresolved_feedback": [same shape],\n'
         '  "active_entities": ["..."]\n'
         "}\n\n"
         "Rules:\n"
@@ -482,11 +521,13 @@ def _coerce_digest_shape(candidate: dict[str, Any], fallback: dict[str, Any]) ->
     digest = dict(fallback)
     digest["summary"] = str(candidate.get("summary") or fallback.get("summary") or "").strip()
     for key in (
-        "required_state_changes",
-        "repeated_operator_guidance",
+        "signal_from_operator_now",
+        "operator_pains_resolvable_now",
+        "operator_toil_optimizable_now",
+        "mistakes_to_avoid_now",
+        "implicit_needs_hypotheses",
         "workflow_candidates",
         "capability_candidates",
-        "unresolved_feedback",
     ):
         items = candidate.get(key)
         if isinstance(items, list):
@@ -526,11 +567,13 @@ def _render_hot_digest_with_llm(
         "source_hash": ledger.get("source_hash"),
         "item_total": ledger.get("item_total", 0),
         "session_total": ledger.get("session_total", 0),
-        "required_state_changes": fallback.get("required_state_changes", []),
-        "repeated_operator_guidance": fallback.get("repeated_operator_guidance", []),
+        "signal_from_operator_now": fallback.get("signal_from_operator_now", []),
+        "operator_pains_resolvable_now": fallback.get("operator_pains_resolvable_now", []),
+        "operator_toil_optimizable_now": fallback.get("operator_toil_optimizable_now", []),
+        "mistakes_to_avoid_now": fallback.get("mistakes_to_avoid_now", []),
+        "implicit_needs_hypotheses": fallback.get("implicit_needs_hypotheses", []),
         "workflow_candidates": fallback.get("workflow_candidates", []),
         "capability_candidates": fallback.get("capability_candidates", []),
-        "unresolved_feedback": fallback.get("unresolved_feedback", []),
         "active_entities": fallback.get("active_entities", []),
     }
     prompt = _llm_prompt(render_input, previous_digest=previous_digest, delta_items=delta_items[:SECTION_LIMIT])
@@ -575,11 +618,13 @@ def _build_redigest(ledger: dict[str, Any], hot_digest: dict[str, Any], previous
     by_kind = Counter(str(item.get("kind") or "directive") for item in items)
     segments: list[dict[str, Any]] = []
     for section in (
-        "required_state_changes",
-        "repeated_operator_guidance",
+        "signal_from_operator_now",
+        "operator_pains_resolvable_now",
+        "operator_toil_optimizable_now",
+        "mistakes_to_avoid_now",
+        "implicit_needs_hypotheses",
         "workflow_candidates",
         "capability_candidates",
-        "unresolved_feedback",
     ):
         for item in hot_digest.get(section) or []:
             if not isinstance(item, dict):
@@ -672,7 +717,7 @@ def build_operator_pressure_layers(
     messages = _iter_recent_user_messages(project_dir=project_dir)
     ledger = _ledger_from_messages(messages, project_dir=project_dir)
     previous_digest = _read_json(hot_digest_path)
-    if previous_digest and previous_digest.get("source_hash") == ledger.get("source_hash"):
+    if _hot_digest_matches_schema(previous_digest) and previous_digest.get("source_hash") == ledger.get("source_hash"):
         hot_digest = previous_digest
     else:
         previous_item_ids = set(previous_digest.get("item_ids") or []) if isinstance(previous_digest, dict) else set()
@@ -696,11 +741,13 @@ def build_operator_pressure_layers(
         "session_total": ledger.get("session_total", 0),
         "item_total": ledger.get("item_total", 0),
         "active_entities": hot_digest.get("active_entities", []),
-        "required_state_changes": len(hot_digest.get("required_state_changes") or []),
-        "repeated_guidance": len(hot_digest.get("repeated_operator_guidance") or []),
+        "signal_from_operator_now": len(hot_digest.get("signal_from_operator_now") or []),
+        "operator_pains_resolvable_now": len(hot_digest.get("operator_pains_resolvable_now") or []),
+        "operator_toil_optimizable_now": len(hot_digest.get("operator_toil_optimizable_now") or []),
+        "mistakes_to_avoid_now": len(hot_digest.get("mistakes_to_avoid_now") or []),
+        "implicit_needs_hypotheses": len(hot_digest.get("implicit_needs_hypotheses") or []),
         "workflow_candidates": len(hot_digest.get("workflow_candidates") or []),
         "capability_candidates": len(hot_digest.get("capability_candidates") or []),
-        "unresolved_feedback": len(hot_digest.get("unresolved_feedback") or []),
         "render_mode": hot_digest.get("render_mode", "deterministic"),
         "source_hash": ledger.get("source_hash"),
         "ledger_path": str(ledger_path),
@@ -722,9 +769,11 @@ def build_operator_pressure_layers(
         item_total=summary["item_total"],
         session_total=summary["session_total"],
         render_mode=summary["render_mode"],
+        signal_from_operator_now=summary["signal_from_operator_now"],
+        operator_toil_optimizable_now=summary["operator_toil_optimizable_now"],
         workflow_candidates=summary["workflow_candidates"],
         capability_candidates=summary["capability_candidates"],
-        unresolved_feedback=summary["unresolved_feedback"],
+        mistakes_to_avoid_now=summary["mistakes_to_avoid_now"],
     )
     return {
         "ledger": ledger,

@@ -172,10 +172,22 @@ corpus_step = next(item for item in request["preflight_evidence"] if item["kind"
 assert corpus_step["satisfied"] is False
 assert corpus_step["missing_required_types"] == ["topic", "workflow", "memory"]
 assert request["operator_pressure_summary"]["item_total"] >= 3
+assert request["operator_pressure_summary"]["signal_from_operator_now"] >= 1
+assert request["operator_pressure_summary"]["operator_toil_optimizable_now"] >= 1
 assert request["operator_pressure_summary"]["workflow_candidates"] >= 1
 assert request["operator_pressure_summary"]["capability_candidates"] >= 1
-assert request["operator_pressure_digest"]["repeated_operator_guidance"]
+assert request["operator_pressure_digest"]["signal_from_operator_now"]
+assert request["operator_pressure_digest"]["operator_toil_optimizable_now"]
+assert "mistakes_to_avoid_now" in request["operator_pressure_digest"]
 assert request["operator_pressure_digest"]["active_entities"]
+assert request["beat_launch_context"]["signal_from_operator_now"]
+assert request["beat_launch_context"]["signal_from_edge_state_now"]
+assert request["beat_launch_context"]["decision_blend"] == {
+    "operator_min_weight": 0.20,
+    "edge_state_min_weight": 0.20,
+    "exploration_weight": 0.60,
+}
+assert any("Corpus coverage is missing required types" in item for item in request["beat_launch_context"]["signal_from_edge_state_now"])
 assert request["search_protocol"]["required"] is True
 assert request["epistemic_protocol"]["required"] is True
 assert request["heartbeat_routing"]["suggested_skill"] == "autonomy"
@@ -194,6 +206,7 @@ assert "pre_skill_context" in invocations[0]
 assert "preflight_evidence" in invocations[0]
 assert "corpus_coverage" in invocations[0]
 assert "operator_pressure_digest" in invocations[0]
+assert "beat_launch_context" in invocations[0]
 assert "search_protocol" in invocations[0]
 assert "epistemic_protocol" in invocations[0]
 assert "configured_integrations" in invocations[0]
