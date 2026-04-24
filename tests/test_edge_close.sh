@@ -113,6 +113,36 @@ else
     fail "edge-close downgrades incomplete cycles to failed"
 fi
 
+echo "--- Test 1b: edge-close refuses to close a different EDGE_CYCLE_ID ---"
+"$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-mismatch --force >/dev/null
+"$DISPATCH_TOOL" dispatch --skill discovery >/dev/null
+EDGE_CYCLE_ID=cycle-close-mismatch "$STEP_TOOL" discovery start >/dev/null
+EDGE_CYCLE_ID=cycle-close-mismatch "$STEP_TOOL" discovery end >/dev/null
+set +e
+EDGE_CYCLE_ID=cycle-other "$CLOSE_TOOL" --status completed >/dev/null 2>/dev/null
+STATUS=$?
+set -e
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$STATUS"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+status = int(sys.argv[2])
+
+assert status == 1
+assert dispatch["cycle_id"] == "cycle-close-mismatch"
+assert dispatch["state"]["active"] is True
+assert dispatch["state"]["close_status"] is None
+PY
+then
+    pass "edge-close validates EDGE_CYCLE_ID before postflight"
+else
+    fail "edge-close validates EDGE_CYCLE_ID before postflight"
+fi
+
+EDGE_CYCLE_ID=cycle-close-mismatch "$DISPATCH_TOOL" close --status aborted >/dev/null
+
 echo "--- Test 2: completed close succeeds with skill end evidence and postflight ---"
 "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-complete --force >/dev/null
 "$DISPATCH_TOOL" dispatch --skill discovery >/dev/null

@@ -258,6 +258,84 @@ else
     fail "close finalizes state and emits CycleClosed"
 fi
 
+echo "--- Test 4b: force does not replace an active cycle owned by a live runner ---"
+EDGE_RUNNER_PID=$$ "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-active-owner >/dev/null
+set +e
+ACTIVE_REPLACE_OUTPUT=$(EDGE_RUNNER_PID=$$ "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-active-replacement --force 2>&1)
+ACTIVE_REPLACE_STATUS=$?
+set -e
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$ACTIVE_REPLACE_STATUS" "$ACTIVE_REPLACE_OUTPUT"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+status = int(sys.argv[2])
+output = sys.argv[3]
+
+assert status == 1
+assert dispatch["cycle_id"] == "cycle-active-owner"
+assert dispatch["state"]["active"] is True
+assert "running process" in output
+PY
+then
+    pass "force refuses to overwrite a live active cycle"
+else
+    fail "force refuses to overwrite a live active cycle"
+fi
+
+EDGE_CYCLE_ID=cycle-active-owner "$DISPATCH_TOOL" close --status aborted >/dev/null
+
+echo "--- Test 4c: force can replace a stale active cycle whose owner pid is gone ---"
+STALE_PID=99999999
+while kill -0 "$STALE_PID" 2>/dev/null; do STALE_PID=$((STALE_PID + 1)); done
+EDGE_RUNNER_PID=$STALE_PID "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-stale-owner >/dev/null
+EDGE_RUNNER_PID=$$ "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-stale-replacement --force >/dev/null
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+assert dispatch["cycle_id"] == "cycle-stale-replacement"
+assert dispatch["state"]["active"] is True
+PY
+then
+    pass "force replaces only stale active cycles"
+else
+    fail "force replaces only stale active cycles"
+fi
+
+EDGE_CYCLE_ID=cycle-stale-replacement "$DISPATCH_TOOL" close --status aborted >/dev/null
+
+echo "--- Test 4d: dispatch refuses to mutate a different EDGE_CYCLE_ID ---"
+"$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-mismatch >/dev/null
+set +e
+MISMATCH_OUTPUT=$(EDGE_CYCLE_ID=cycle-other "$DISPATCH_TOOL" dispatch --skill research 2>&1)
+MISMATCH_STATUS=$?
+set -e
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$MISMATCH_STATUS" "$MISMATCH_OUTPUT"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+status = int(sys.argv[2])
+output = sys.argv[3]
+
+assert status == 1
+assert dispatch["cycle_id"] == "cycle-mismatch"
+assert dispatch["state"]["skill_dispatched"] is False
+assert "cycle mismatch" in output
+PY
+then
+    pass "dispatch validates EDGE_CYCLE_ID before mutation"
+else
+    fail "dispatch validates EDGE_CYCLE_ID before mutation"
+fi
+
+EDGE_CYCLE_ID=cycle-mismatch "$DISPATCH_TOOL" close --status aborted >/dev/null
+
 echo "--- Test 5: operator cycle suppresses legacy heartbeat guard fallback ---"
 python3 - <<'PY' "$TMP_EDGE/state/current-beat.json"
 import json

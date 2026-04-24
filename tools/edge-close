@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,26 @@ def read_state() -> dict:
     if not CURRENT_DISPATCH_FILE.exists():
         raise FileNotFoundError(f"{CURRENT_DISPATCH_FILE} not found")
     return json.loads(CURRENT_DISPATCH_FILE.read_text(encoding="utf-8"))
+
+
+def expected_cycle_id() -> str | None:
+    value = os.environ.get("EDGE_CYCLE_ID")
+    if value and value.strip():
+        return value.strip()
+    return None
+
+
+def validate_cycle_id(state: dict) -> tuple[bool, dict]:
+    expected = expected_cycle_id()
+    current = state.get("cycle_id")
+    if not expected or current == expected:
+        return True, {}
+    return False, {
+        "ok": False,
+        "error": "close cycle mismatch",
+        "expected_cycle_id": expected,
+        "current_cycle_id": current,
+    }
 
 
 def write_state(state: dict) -> None:
@@ -168,6 +189,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     state = read_state()
+    cycle_ok, cycle_error = validate_cycle_id(state)
+    if not cycle_ok:
+        print(json.dumps(cycle_error, indent=2, ensure_ascii=False), file=sys.stderr)
+        return 1
     request = state.get("request", {}) or {}
     profile = request.get("postflight_profile") or "standard"
     requested_status = args.status
