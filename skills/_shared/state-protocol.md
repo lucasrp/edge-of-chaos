@@ -89,9 +89,10 @@ Rules:
   rotation, or opportunistic work.
 - `task_intents`, `steering_intents`, and `runtime_intents` are operator
   instructions queued for the **next dispatch**, not immediate mutations.
-- Do **not** mark chat messages as processed manually inside the skill. The
-  captured `message_ids` are consumed by `edge-close` only after successful
-  completion of the cycle.
+- Do **not** mark chat messages as processed or post manual acknowledgements
+  inside the skill. The captured `message_ids` are acknowledged and consumed
+  by the `async_inbox.respond` postflight procedure only after the skill
+  reaches completion evidence.
 - The shared protocol is the genotype of this rule. `pre-skill` is its
   phenotype. They must agree: user interaction outranks generic exploration.
 

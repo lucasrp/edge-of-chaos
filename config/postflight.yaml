@@ -19,3 +19,5 @@ procedures:
     kind: briefing.refresh
   - id: cycle-health
     kind: cycle_health.observe
+  - id: async-inbox-response
+    kind: async_inbox.respond

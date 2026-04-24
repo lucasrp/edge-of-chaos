@@ -164,12 +164,29 @@ else
     fail "edge-skill-inbox subprocess fallback stays deterministic during an active cycle"
 fi
 
-echo "--- Test 3: successful close consumes only the captured inbox ---"
+echo "--- Test 3: postflight acknowledgement consumes only the captured inbox ---"
 EDGE_CYCLE_ID=cycle-skill-inbox "$STEP_TOOL" research start >/dev/null
 EDGE_CYCLE_ID=cycle-skill-inbox "$STEP_TOOL" research end >/dev/null
+ACK_OUTPUT=$(python3 - <<'PY' "$EDGE_DIR" "$TMP_EDGE/state/current-dispatch.json"
+import json
+import sys
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+state_path = Path(sys.argv[2])
+sys.path.insert(0, str(edge_dir / "tools"))
+
+from _shared.skill_inbox import acknowledge_captured_inbox
+
+state = json.loads(state_path.read_text(encoding="utf-8"))
+result = acknowledge_captured_inbox(state)
+state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+print(json.dumps(result, ensure_ascii=False))
+PY
+)
 "$CLOSE_TOOL" --status completed >/dev/null
 
-if python3 - <<'PY' "$EDGE_DIR" "$SEED_OUTPUT" "$LATE_OUTPUT" "$TMP_EDGE/state/current-dispatch.json"
+if python3 - <<'PY' "$EDGE_DIR" "$SEED_OUTPUT" "$LATE_OUTPUT" "$TMP_EDGE/state/current-dispatch.json" "$ACK_OUTPUT"
 import json
 import sys
 
@@ -177,26 +194,37 @@ edge_dir = sys.argv[1]
 seed = json.loads(sys.argv[2])
 late = json.loads(sys.argv[3])
 dispatch = json.load(open(sys.argv[4], encoding="utf-8"))
+ack = json.loads(sys.argv[5])
 
 sys.path.insert(0, edge_dir + "/search")
 from dashboard_db import get_chats
 
-messages = {int(item["id"]): item for item in get_chats(limit=20)}
+all_messages = get_chats(limit=20)
+messages = {int(item["id"]): item for item in all_messages}
 for chat_id in seed["captured_ids"]:
     assert messages[chat_id]["processed"] == 1
 assert messages[seed["pinned_id"]]["pinned"] == 1
 assert messages[late["late_id"]]["processed"] == 0
+replies = [
+    item for item in all_messages
+    if item["author"] == "system" and "Processed async dashboard input" in item["text"]
+]
+assert replies
 
 inbox = dispatch["request"]["async_inbox"]
 assert dispatch["state"]["close_status"] == "completed"
 assert inbox["processed_count"] == 5
 assert inbox["processed_message_ids"] == seed["captured_ids"]
+assert inbox["response_chat_id"] == replies[-1]["id"]
+assert inbox["response_processed"] is True
+assert ack["reply_id"] == replies[-1]["id"]
+assert replies[-1]["processed"] == 1
 assert "processed_at" in inbox
 PY
 then
-    pass "edge-close consumes captured ids and leaves late input for the next cycle"
+    pass "postflight acknowledgement consumes captured ids and leaves late input for the next cycle"
 else
-    fail "edge-close consumes captured ids and leaves late input for the next cycle"
+    fail "postflight acknowledgement consumes captured ids and leaves late input for the next cycle"
 fi
 
 echo "--- Test 4: after close, read falls back to the live inbox ---"
