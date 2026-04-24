@@ -137,6 +137,15 @@ check_consolidate() {
 
 # --- git ---
 check_git() {
+  if [[ ! -d "$REPO_ROOT/.git" ]]; then
+    if [[ -f "$REPO_ROOT/agent.yaml" || -f "$REPO_ROOT/config/branding.yaml" ]]; then
+      emit_component git unknown "materialized install (no git checkout)"
+    else
+      emit_component git fail "not a valid git repo"
+    fi
+    return
+  fi
+
   if ! (cd "$REPO_ROOT" && git rev-parse HEAD >/dev/null 2>&1); then
     emit_component git fail "not a valid git repo"
     return

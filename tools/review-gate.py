@@ -301,7 +301,11 @@ DIMENSIONS = {
         "At least 1 SVG visualization (inline in raw-html block). "
         "Data tables paired with charts when 3+ values compared. "
         "Diagrams where relationships/flows communicate better visually. "
-        "SVG follows standards: viewBox, font-family, semantic colors."
+        "Prefer visual reasoning, not decorative charts: causal maps, funnels, timelines, "
+        "state-transition diagrams, evidence matrices, uncertainty heatmaps, or before/after comparisons. "
+        "If a report compares 3+ items, steps, metrics, risks, or alternatives, it should contain a visual encoding "
+        "of that comparison, not only prose/table. SVG follows standards: viewBox, font-family, semantic colors, "
+        "labels that explain the insight, and enough whitespace to be readable."
     ),
     "intellectual_honesty": (
         "'O que Nao Sei' section has genuine, specific gaps — not boilerplate. "
@@ -335,8 +339,8 @@ DIMENSIONS = {
 
 # Weights for weighted average (must match DIMENSIONS order and sum to 1.0)
 # structural 15%, depth 15%, storytelling 12%, feynman 12%,
-# didactic 12%, writing 8%, visualization 8%, honesty 10%, consistency 8%
-DIMENSION_WEIGHTS = [0.15, 0.15, 0.12, 0.12, 0.08, 0.08, 0.10, 0.08, 0.12]
+# writing 6%, visualization 12%, honesty 10%, consistency 6%, didactic 12%
+DIMENSION_WEIGHTS = [0.15, 0.15, 0.12, 0.12, 0.06, 0.12, 0.10, 0.06, 0.12]
 
 # ---------------------------------------------------------------------------
 # System prompts
@@ -436,6 +440,7 @@ Flag as critical_issues if ANY of these:
 - executive_summary or metrics missing at top level
 - Empty sections (title present but no blocks/content)
 - Zero SVG visualizations in entire spec
+- A report compares 3+ items/steps/metrics/risks/alternatives but has no chart, flow, matrix, timeline, or diagram representing that comparison visually
 - "O que Nao Sei" is clearly boilerplate (vague generic text, not specific to this report's topic)
 - Sections reference data/events not present elsewhere in the spec (internal contradiction)
 - Blog entry says one thing, report says another (if blog entry provided)
@@ -465,7 +470,7 @@ Respond with ONLY valid JSON (no markdown fences, no text outside JSON):
 
 Rules for pass/fail:
 - pass = true ONLY when: ALL dimensions >= 3 AND zero critical_issues AND overall >= {threshold}
-- overall = weighted average (structural 15%, depth 15%, storytelling 12%, feynman 12%, didactic 12%, writing 8%, visualization 8%, honesty 10%, consistency 8%)
+- overall = weighted average (structural 15%, depth 15%, storytelling 12%, feynman 12%, writing 6%, visualization 12%, honesty 10%, consistency 6%, didactic 12%)
 - suggestions: 3-7 specific, actionable improvements
 """
 
@@ -481,13 +486,14 @@ Language: Portuguese (PT-BR). Output: ONLY the complete, corrected YAML. No mark
 - Preserve the YAML structure (title, subtitle, date, executive_summary, metrics, sections, bibliography)
 - If the reviewer says a section is shallow, DEEPEN it with concrete content (not lorem ipsum)
 - If an SVG is missing and the reviewer flagged it, add a simple but real SVG visualization
+- If the report compares 3+ things, add a visual encoding of the comparison: timeline, funnel, matrix, causal map, risk heatmap, before/after, or flow diagram
 - If "O que Nao Sei" is flagged as boilerplate, rewrite with genuine, specific gaps
 - Keep all existing metadata intact (title, date, etc.)
 
 ## Report Template Rules (summary)
 - Required sections: linhagem (first), "O que Nao Sei" (penultimate), glossario (last)
 - Required top-level keys: executive_summary, metrics, bibliography
-- At least 1 SVG visualization (inline raw-html block)
+- At least 1 SVG visualization (inline raw-html block); comparisons with 3+ values need a chart/diagram, not only a table
 - Tables paired with charts when 3+ values compared
 """
 

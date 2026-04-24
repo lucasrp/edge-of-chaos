@@ -505,6 +505,37 @@ fi
 
 # ─── PHASE 0.5: Review Gate (LLM-as-judge) ───
 if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) ]]; then
+    echo "── Phase 0.45: Feynman Judge ──"
+    emit_run_step_event "phase-0.45" "started" "feynman_judge" ""
+    FEYNMAN_REVIEW_FILE="${REPORT_INPUT%.yaml}.feynman-review.json"
+    [[ "$REPORT_INPUT" == *.yml ]] && FEYNMAN_REVIEW_FILE="${REPORT_INPUT%.yml}.feynman-review.json"
+    if [[ -x "$TOOLS_DIR/feynman-judge" ]]; then
+        FEYNMAN_JSON=$("$TOOLS_DIR/feynman-judge" "$REPORT_INPUT" --json --output "$FEYNMAN_REVIEW_FILE" 2>/dev/null)
+        FEYNMAN_EXIT=$?
+    elif command -v feynman-judge &>/dev/null; then
+        FEYNMAN_JSON=$(feynman-judge "$REPORT_INPUT" --json --output "$FEYNMAN_REVIEW_FILE" 2>/dev/null)
+        FEYNMAN_EXIT=$?
+    else
+        FEYNMAN_JSON=""
+        FEYNMAN_EXIT=127
+    fi
+    if [[ $FEYNMAN_EXIT -eq 0 ]]; then
+        FEYNMAN_SCORE=$(echo "$FEYNMAN_JSON" | python3 -c "
+import json, sys
+try:
+    print(json.load(sys.stdin).get('overall', 0))
+except Exception:
+    print(0)
+" 2>/dev/null)
+        ok "Feynman judge: score ${FEYNMAN_SCORE}/5.0"
+        echo "  Review: $FEYNMAN_REVIEW_FILE"
+        emit_run_step_event "phase-0.45" "completed" "feynman_judge" ""
+    else
+        warn "Feynman judge unavailable or failed (non-fatal)"
+        emit_run_step_event "phase-0.45" "failed" "feynman_judge" "judge unavailable or failed"
+    fi
+    echo ""
+
     if command -v review-gate &>/dev/null; then
         echo "── Phase 0.5: Review Gate ──"
         emit_run_step_event "phase-0.5" "started" "review_gate" ""
@@ -895,6 +926,16 @@ except Exception as e:
 - review cost: \$${REVIEW_COST}
 REVIEW_EOF
             ok "Review gate results injected into meta-report"
+        fi
+        if [[ -n "${FEYNMAN_SCORE:-}" && -f "$META_REPORT_PATH" ]]; then
+            cat >> "$META_REPORT_PATH" <<FEYNMAN_EOF
+
+## Feynman Judge
+
+- feynman score: ${FEYNMAN_SCORE}/5.0
+- review file: $(basename "${FEYNMAN_REVIEW_FILE:-}")
+FEYNMAN_EOF
+            ok "Feynman judge results injected into meta-report"
         fi
     else
         warn "edge-meta-report failed (exit $META_EXIT)"

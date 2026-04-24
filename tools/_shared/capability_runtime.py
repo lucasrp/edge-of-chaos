@@ -223,21 +223,26 @@ def _parse_env_file(path: Path) -> list[str]:
 
 
 def _load_static_registry() -> list[dict[str, Any]]:
-    config_path = CAPABILITIES_CONFIG_FILE
-    if not config_path.exists():
-        tpl_path = CAPABILITIES_CONFIG_FILE.with_suffix(CAPABILITIES_CONFIG_FILE.suffix + ".tpl")
-        if tpl_path.exists():
-            config_path = tpl_path
-    if not config_path.exists():
-        return []
-    raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    items = raw.get("capabilities") if isinstance(raw, dict) else []
-    if not isinstance(items, list):
-        return []
+    tpl_path = CAPABILITIES_CONFIG_FILE.with_suffix(CAPABILITIES_CONFIG_FILE.suffix + ".tpl")
+
+    def load_items(path: Path) -> list[dict[str, Any]]:
+        if not path.exists():
+            return []
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        items = raw.get("capabilities") if isinstance(raw, dict) else []
+        return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
+    merged: dict[str, dict[str, Any]] = {}
+    for item in load_items(tpl_path):
+        name = str(item.get("name") or "").strip()
+        if name:
+            merged[name] = dict(item)
+    for item in load_items(CAPABILITIES_CONFIG_FILE):
+        name = str(item.get("name") or "").strip()
+        if name:
+            merged[name] = dict(item)
     capabilities: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
+    for item in merged.values():
         name = str(item.get("name") or "").strip()
         if not name:
             continue

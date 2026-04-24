@@ -1,0 +1,25 @@
+# Runtime routers — materialized from bootstrap config.
+# Runtime tools read this file; agent.yaml is bootstrap only.
+
+routers:
+  chat:
+    base_url: https://api.openai.com/v1
+    secret_ref: openai.env:OPENAI_API_KEY
+    model: gpt-5.4
+  chat_mini:
+    base_url: https://api.openai.com/v1
+    secret_ref: openai.env:OPENAI_API_KEY
+    model: gpt-4.1-mini
+  review:
+    base_url: https://api.x.ai/v1
+    secret_ref: xai.env:XAI_API_KEY
+    model: grok-4.20-multi-agent-beta-0309
+  embedding:
+    base_url: https://api.openai.com/v1
+    secret_ref: openai.env:OPENAI_API_KEY
+    model: text-embedding-3-small
+  deepresearch:
+    base_url: https://api.openai.com/v1
+    secret_ref: openai.env:OPENAI_API_KEY
+    model: gpt-5.4
+

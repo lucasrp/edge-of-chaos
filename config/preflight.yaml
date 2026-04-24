@@ -1,0 +1,25 @@
+version: 1
+protocol: preflight
+context_notes: []
+operator_notes: []
+procedures:
+  - id: health-snapshot
+    kind: health.snapshot
+  - id: inbox
+    kind: inbox.snapshot
+  - id: claude-sessions
+    kind: claude.sessions.digest
+  - id: claims
+    kind: claims.refresh
+  - id: primitives
+    kind: primitives.status
+  - id: capabilities
+    kind: capabilities.status
+  - id: corpus
+    kind: corpus.lookup
+  - id: workflows
+    kind: workflow.status
+  - id: queue
+    kind: queue.status
+  - id: onboarding
+    kind: onboarding.status

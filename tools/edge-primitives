@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,9 @@ from paths import (  # noqa: E402
     SOURCES_MANIFEST_FILE,
     STATE_EVENTS_FILE,
 )
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.capability_runtime import build_capability_status, build_configured_integrations, probe_capability  # noqa: E402
+from _shared.telemetry import emit_shadow_event  # noqa: E402
 
 WINDOW_DAYS = 30
 STATUS_ORDER = {
@@ -211,6 +215,9 @@ def _effective_status(
         return "probed", problems
     if binary_exists:
         return "active", problems
+    if (declared or manifest_status == "declared" or manifest_exists) and not meta_exists and not binary_exists:
+        problems.append("declared_unbound")
+        return "unknown", problems
     if declared or manifest_status == "declared" or manifest_exists:
         if meta_exists:
             problems.append("not_activated")
@@ -224,7 +231,7 @@ def build_status(config_path: Path | None = None) -> dict:
     now = datetime.now(timezone.utc)
     manifest = _load_manifest()
     # Runtime truth should come from state. The bootstrap config is only a
-    # compatibility fallback for installs that still lack a seeded manifest.
+    # seed fallback for installs that still lack a manifest.
     declared_fallback = _load_declared_sources(config_path) if config_path and not manifest else {}
     usage = _collect_usage(now)
     lifecycle = _collect_lifecycle(now)
@@ -315,6 +322,182 @@ def build_status(config_path: Path | None = None) -> dict:
     return payload
 
 
+def _probe_primitives(payload: dict, *, skip: bool = False) -> list[dict]:
+    results: list[dict] = []
+    if skip:
+        return results
+    lifecycle_tool = SCRIPT_DIR / "edge-primitive-lifecycle"
+    for row in payload.get("sources") or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        binary_path = str(row.get("binary_path") or "").strip()
+        if not name:
+            continue
+        if not binary_path or not row.get("binary_exists"):
+            results.append({"name": name, "status": "skipped", "reason": "binary_missing"})
+            continue
+        cmd = [
+            sys.executable,
+            str(lifecycle_tool),
+            "probe",
+            name,
+            "--operation",
+            "search",
+            "--command",
+            binary_path,
+            "--help",
+        ]
+        try:
+            result = subprocess.run(cmd, cwd=str(EDGE_REPO_DIR), capture_output=True, text=True)
+            results.append(
+                {
+                    "name": name,
+                    "status": "ok" if result.returncode == 0 else "failed",
+                    "exit_code": result.returncode,
+                    "command": cmd,
+                    "stderr": (result.stderr or "").strip()[:500],
+                }
+            )
+        except Exception as exc:
+            results.append({"name": name, "status": "failed", "error": str(exc), "command": cmd})
+    return results
+
+
+def _probe_capabilities(payload: dict, *, skill: str = "", skip: bool = False) -> list[dict]:
+    results: list[dict] = []
+    if skip:
+        return results
+    for row in payload.get("capabilities") or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        status = str(row.get("effective_status") or "unknown")
+        if status == "degraded" and not row.get("available"):
+            results.append({"name": name, "status": "skipped", "reason": "unavailable"})
+            continue
+        try:
+            result = probe_capability(name, skill=skill)
+            results.append(
+                {
+                    "name": name,
+                    "kind": row.get("kind"),
+                    "status": "ok" if result.returncode == 0 else "failed",
+                    "exit_code": result.returncode,
+                    "stderr": (result.stderr or "").strip()[:500],
+                }
+            )
+        except Exception as exc:
+            results.append({"name": name, "kind": row.get("kind"), "status": "failed", "error": str(exc)})
+    return results
+
+
+def _candidate_actions(primitives_payload: dict, capabilities_payload: dict, integrations_payload: dict) -> list[dict]:
+    actions: list[dict] = []
+    for row in primitives_payload.get("sources") or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        status = str(row.get("effective_status") or "")
+        problems = list(row.get("problems") or [])
+        if status in {"broken", "degraded", "unknown"}:
+            actions.append(
+                {
+                    "id": f"primitive:{name}",
+                    "type": "primitive_repair_or_materialization",
+                    "source": name,
+                    "status": status,
+                    "problems": problems,
+                    "suggestion": "Decide whether to repair, materialize, probe again, or retire this primitive.",
+                }
+            )
+    for row in capabilities_payload.get("capabilities") or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        status = str(row.get("effective_status") or "")
+        if status in {"broken", "degraded"} or (row.get("required") and status not in {"available", "active", "probed"}):
+            actions.append(
+                {
+                    "id": f"capability:{name}",
+                    "type": "capability_repair",
+                    "capability": name,
+                    "status": status,
+                    "problems": list(row.get("problems") or []),
+                    "suggestion": "Decide whether this capability should be repaired, replaced, or explicitly downgraded.",
+                }
+            )
+    for item in integrations_payload.get("unbound_integrations") or []:
+        if not isinstance(item, dict):
+            continue
+        roles = list(item.get("roles") or [])
+        if not roles:
+            continue
+        actions.append(
+            {
+                "id": f"integration:{item.get('name')}",
+                "type": "capability_candidate",
+                "integration": item.get("name"),
+                "roles": roles,
+                "candidate_capabilities": list(item.get("candidate_capabilities") or []),
+                "suggestion": "Decide whether this configured surface should get a broad read/search capability.",
+            }
+        )
+    return actions
+
+
+def run_checkup(
+    payload: dict,
+    *,
+    config_path: Path | None = None,
+    skill: str = "",
+    skip_primitive_probes: bool = False,
+    skip_capability_probes: bool = False,
+) -> dict:
+    primitive_probe_results = _probe_primitives(payload, skip=skip_primitive_probes)
+    refreshed_primitives = build_status(config_path)
+    capabilities_before = build_capability_status(skill=skill)
+    capability_probe_results = _probe_capabilities(capabilities_before, skill=skill, skip=skip_capability_probes)
+    capabilities_after = build_capability_status(skill=skill)
+    integrations = build_configured_integrations(skill=skill)
+    candidate_actions = _candidate_actions(refreshed_primitives, capabilities_after, integrations)
+    failed_probes = [
+        item
+        for item in [*primitive_probe_results, *capability_probe_results]
+        if item.get("status") == "failed"
+    ]
+    status = "warning" if failed_probes or candidate_actions else "ok"
+    checkup = {
+        "status": status,
+        "skill": skill,
+        "primitive_probe_total": len(primitive_probe_results),
+        "capability_probe_total": len(capability_probe_results),
+        "failed_probe_total": len(failed_probes),
+        "candidate_action_total": len(candidate_actions),
+        "primitive_probes": primitive_probe_results,
+        "capability_probes": capability_probe_results,
+        "candidate_actions": candidate_actions[:20],
+    }
+    emit_shadow_event(
+        "AutonomyPrimitiveCheckupCompleted",
+        actor="edge-primitives",
+        payload={
+            "skill": skill,
+            "status": status,
+            "primitive_probe_total": len(primitive_probe_results),
+            "capability_probe_total": len(capability_probe_results),
+            "candidate_action_total": len(candidate_actions),
+        },
+    )
+    refreshed_primitives["checkup"] = checkup
+    refreshed_primitives["capabilities_status"] = capabilities_after
+    refreshed_primitives["configured_integrations"] = integrations.get("configured_integrations") or []
+    refreshed_primitives["unbound_integrations"] = integrations.get("unbound_integrations") or []
+    return refreshed_primitives
+
+
 def print_human(payload: dict) -> None:
     summary = payload["summary"]
     print(
@@ -336,6 +519,15 @@ def print_human(payload: dict) -> None:
             f"probe={row['probe_status']:7} "
             f"usage30d={row['usage_30d']}"
         )
+    checkup = payload.get("checkup") or {}
+    if checkup:
+        print(
+            "checkup:"
+            f" status={checkup.get('status')}"
+            f" primitive_probes={checkup.get('primitive_probe_total', 0)}"
+            f" capability_probes={checkup.get('capability_probe_total', 0)}"
+            f" candidates={checkup.get('candidate_action_total', 0)}"
+        )
 
 
 def main() -> int:
@@ -347,10 +539,22 @@ def main() -> int:
         help="Optional bootstrap config fallback. Runtime truth comes from state/sources-manifest.yaml.",
     )
     parser.add_argument("--json", action="store_true", help="Print JSON payload instead of a human table")
+    parser.add_argument("--checkup", action="store_true", help="Run deep primitive/capability probes and emit candidate actions")
+    parser.add_argument("--skill", default="", help="Skill requesting the checkup, used for capability recommendations")
+    parser.add_argument("--skip-primitive-probes", action="store_true", help="Refresh status without probing primitive binaries")
+    parser.add_argument("--skip-capability-probes", action="store_true", help="Refresh status without probing capabilities")
     args = parser.parse_args()
 
     config_path = Path(args.config).expanduser() if args.config else None
     payload = build_status(config_path)
+    if args.checkup:
+        payload = run_checkup(
+            payload,
+            config_path=config_path,
+            skill=args.skill,
+            skip_primitive_probes=args.skip_primitive_probes,
+            skip_capability_probes=args.skip_capability_probes,
+        )
     if args.json:
         print(json.dumps(payload, ensure_ascii=False))
     else:

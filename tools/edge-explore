@@ -1,0 +1,616 @@
+#!/usr/bin/env python3
+"""edge-explore — deterministic read-only exploration pack before a skill.
+
+This tool keeps exploration outside Claude's discretion. It is intentionally
+resilient: broken sources/signals become warnings and a degraded pack, not a
+hard stop for the cycle.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import (  # noqa: E402
+    BRIEFING_FILE,
+    CAPABILITIES_STATUS_FILE,
+    CLAIMS_DIGEST_FILE,
+    CURATION_DIGEST_FILE,
+    CURRENT_DISPATCH_FILE,
+    EDGE_REPO_DIR,
+    EXPLORATIONS_DIR,
+    GIT_SIGNALS_FILE,
+    HEALTH_CURRENT_FILE,
+    PRIMITIVES_STATUS_FILE,
+    REPORTS_DIR,
+    TOPICS_DIR,
+    WORKFLOW_HEALTH_FILE,
+)
+
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.telemetry import log_exploration_event  # noqa: E402
+
+
+SOURCE_INTENTS = {
+    "autonomy": "strategy",
+    "discovery": "discovery",
+    "execute": "execute",
+    "experiment": "research",
+    "map": "research",
+    "planner": "planner",
+    "prd": "planner",
+    "reflection": "reflection",
+    "report": "report",
+    "research": "research",
+    "strategy": "strategy",
+}
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def normalize_skill(value: str | None) -> str:
+    text = str(value or "").strip().lstrip("/")
+    if text.startswith("ed-"):
+        text = text[3:]
+    return text or "unknown"
+
+
+def normalize_query(value: str | None, skill: str) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    return text[:500] if text else skill.replace("-", " ")
+
+
+def read_json(path: Path) -> tuple[Any, str | None]:
+    if not path.exists():
+        return None, "missing"
+    try:
+        return json.loads(path.read_text(encoding="utf-8")), None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def run_cmd(cmd: list[str], *, timeout: int = 45) -> dict[str, Any]:
+    started = time.monotonic()
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(EDGE_REPO_DIR),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return {
+            "command": cmd,
+            "ok": result.returncode == 0,
+            "exit_code": result.returncode,
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "stdout": (result.stdout or "").strip(),
+            "stderr": (result.stderr or "").strip(),
+        }
+    except Exception as exc:
+        return {
+            "command": cmd,
+            "ok": False,
+            "exit_code": None,
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "stdout": "",
+            "stderr": str(exc),
+        }
+
+
+def summarize_edge_search(stdout: str) -> dict[str, Any]:
+    if not stdout:
+        return {"result_count": 0, "results": [], "coverage": {}}
+    try:
+        payload = json.loads(stdout)
+    except Exception:
+        return {"result_count": 0, "results": [], "coverage": {}, "parse_error": "invalid_json"}
+    results = payload.get("results") if isinstance(payload, dict) else []
+    if not isinstance(results, list):
+        results = []
+    compact = []
+    for item in results[:6]:
+        if not isinstance(item, dict):
+            continue
+        compact.append(
+            {
+                "title": str(item.get("title") or Path(str(item.get("path") or "")).stem),
+                "type": str(item.get("type") or ""),
+                "path": str(item.get("path") or ""),
+                "score": item.get("score"),
+                "snippet": str(item.get("snippet") or "")[:240],
+            }
+        )
+    return {
+        "result_count": len(results),
+        "results": compact,
+        "coverage": payload.get("coverage") if isinstance(payload, dict) else {},
+    }
+
+
+def summarize_edge_sources(stdout: str) -> dict[str, Any]:
+    if not stdout:
+        return {"source_count": 0, "result_count": 0, "sources": {}}
+    try:
+        payload = json.loads(stdout)
+    except Exception:
+        return {
+            "source_count": 0,
+            "result_count": 0,
+            "sources": {},
+            "markdown_preview": stdout[:1200],
+        }
+    sources: dict[str, Any] = {}
+    result_count = 0
+    if isinstance(payload, dict):
+        for name, block in payload.items():
+            if not isinstance(block, dict):
+                continue
+            items = block.get("results") or []
+            usable = [
+                {
+                    "title": str(item.get("title") or "")[:180],
+                    "url": str(item.get("url") or ""),
+                    "detail": str(item.get("detail") or "")[:220],
+                }
+                for item in items[:4]
+                if isinstance(item, dict) and ("error" not in str(item.get("title") or "").lower())
+            ]
+            sources[name] = {
+                "result_count": len(items),
+                "usable_count": len(usable),
+                "wildcard": bool(block.get("wildcard")),
+                "top": usable,
+            }
+            result_count += len(usable)
+    return {"source_count": len(sources), "result_count": result_count, "sources": sources}
+
+
+def list_recent_files(base: Path, *, suffix: str = ".md", limit: int = 5) -> list[dict[str, Any]]:
+    if not base.exists():
+        return []
+    rows = []
+    for path in sorted(base.rglob(f"*{suffix}"), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
+        if len(rows) >= limit:
+            break
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            text = ""
+        rows.append(
+            {
+                "path": str(path),
+                "title": path.stem,
+                "preview": re.sub(r"\s+", " ", text[:360]).strip(),
+            }
+        )
+    return rows
+
+
+def collect_memory(query: str, skill: str, warnings: list[str]) -> dict[str, Any]:
+    edge_search = EDGE_REPO_DIR / "search" / "edge-search"
+    cmd = [
+        str(edge_search),
+        "--json",
+        "--require-type",
+        "topic",
+        "--require-type",
+        "workflow",
+        "--require-type",
+        "memory",
+        "-k",
+        "8",
+        query,
+    ]
+    if not edge_search.exists():
+        result = {"ok": False, "stderr": "edge-search missing", "stdout": "", "latency_ms": 0, "exit_code": None, "command": cmd}
+    else:
+        result = run_cmd(cmd, timeout=30)
+    if not result["ok"]:
+        warnings.append(f"memory search failed: {result.get('stderr') or result.get('exit_code')}")
+    summary = summarize_edge_search(result.get("stdout", ""))
+    return {
+        "query": query,
+        "edge_search": {
+            "ok": result["ok"],
+            "exit_code": result["exit_code"],
+            "latency_ms": result["latency_ms"],
+            **summary,
+        },
+        "topics_recent": list_recent_files(TOPICS_DIR, limit=5),
+        "reports_recent": list_recent_files(REPORTS_DIR, suffix=".yaml", limit=5),
+        "briefing": read_text_preview(BRIEFING_FILE),
+    }
+
+
+def read_text_preview(path: Path, limit: int = 800) -> dict[str, Any]:
+    if not path.exists():
+        return {"path": str(path), "status": "missing", "preview": ""}
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        return {"path": str(path), "status": "error", "error": str(exc), "preview": ""}
+    return {"path": str(path), "status": "ok", "preview": re.sub(r"\s+", " ", text[:limit]).strip()}
+
+
+def collect_signals(skill: str, cycle_id: str | None, warnings: list[str]) -> list[dict[str, Any]]:
+    files = [
+        ("health", HEALTH_CURRENT_FILE),
+        ("capabilities", CAPABILITIES_STATUS_FILE),
+        ("primitives", PRIMITIVES_STATUS_FILE),
+        ("workflow_health", WORKFLOW_HEALTH_FILE),
+        ("claims", CLAIMS_DIGEST_FILE),
+        ("curation", CURATION_DIGEST_FILE),
+        ("git", GIT_SIGNALS_FILE),
+    ]
+    signals = []
+    for name, path in files:
+        payload, error = read_json(path)
+        status = "ok" if error is None else "warning"
+        if error:
+            warnings.append(f"signal {name} unavailable: {error}")
+        compact = compact_signal(name, payload)
+        signal = {"name": name, "path": str(path), "status": status, "summary": compact}
+        signals.append(signal)
+        log_exploration_event(
+            "SignalQueried",
+            cycle_id=cycle_id,
+            skill=skill,
+            status=status,
+            query=name,
+            signal=name,
+            path=str(path),
+            substantive=True,
+        )
+    return signals
+
+
+def compact_signal(name: str, payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return {}
+    if name == "health":
+        return {
+            "status": payload.get("status"),
+            "score": payload.get("score"),
+            "hard_fail": payload.get("hard_fail"),
+            "dimensions": {
+                key: {"status": value.get("status"), "score": value.get("score")}
+                for key, value in (payload.get("dimensions") or {}).items()
+                if isinstance(value, dict)
+            },
+        }
+    if name in {"capabilities", "primitives"}:
+        return payload.get("summary") or {}
+    if name == "workflow_health":
+        return payload.get("summary") or payload
+    if name == "claims":
+        return {
+            "open_total": payload.get("open_total"),
+            "verified_total": payload.get("verified_total"),
+            "attention_count": payload.get("attention_count"),
+            "unthreaded_count": payload.get("unthreaded_count"),
+        }
+    if name == "curation":
+        return {
+            "topics": (payload.get("topics") or {}).get("total"),
+            "procedure_candidates": (payload.get("procedures") or {}).get("candidate_total"),
+            "stale_candidates": (payload.get("corpus") or {}).get("stale_candidates"),
+        }
+    return {key: payload.get(key) for key in list(payload)[:8]}
+
+
+def run_sources(query: str, skill: str, round_id: str, cycle_id: str | None, warnings: list[str], *, skip_sources: bool) -> dict[str, Any]:
+    if skip_sources:
+        return {"skipped": True, "reason": "skip_sources"}
+    intent = SOURCE_INTENTS.get(skill, "research")
+    cmd = [str(SCRIPT_DIR / "edge-sources"), query, "--intent", intent, "--json"]
+    result = run_cmd(cmd, timeout=75)
+    if not result["ok"]:
+        warnings.append(f"{round_id} sources failed: {result.get('stderr') or result.get('exit_code')}")
+    summary = summarize_edge_sources(result.get("stdout", ""))
+    log_exploration_event(
+        "SourceQueried",
+        cycle_id=cycle_id,
+        skill=skill,
+        query=query,
+        round_id=round_id,
+        status="ok" if result["ok"] else "warning",
+        source="edge-sources",
+        operation="fanout",
+        ok=result["ok"],
+        exit_code=result["exit_code"],
+        latency_ms=result["latency_ms"],
+        substantive=True,
+        result_count=summary.get("result_count", 0),
+        source_count=summary.get("source_count", 0),
+    )
+    return {
+        "query": query,
+        "intent": intent,
+        "ok": result["ok"],
+        "exit_code": result["exit_code"],
+        "latency_ms": result["latency_ms"],
+        **summary,
+    }
+
+
+def first_principles_intent(query: str, skill: str) -> dict[str, Any]:
+    return {
+        "problem": query,
+        "objective": f"Prepare enough evidence for the `{skill}` skill to decide or synthesize without starting blind.",
+        "domain": "operator/system/domain context inferred from query and live signals",
+        "likely_decision": "choose what to report, change, or explicitly leave uncertain",
+        "ambiguous_terms": extract_ambiguous_terms(query),
+    }
+
+
+def extract_ambiguous_terms(query: str) -> list[str]:
+    terms = []
+    for token in re.findall(r"[A-Za-zÀ-ÿ0-9_-]{4,}", query):
+        if token.lower() in {"isso", "essa", "esse", "aqui", "there", "with", "para", "como"}:
+            terms.append(token)
+    return terms[:8]
+
+
+def adversarial_feynman(query: str, round1: dict[str, Any], signals: list[dict[str, Any]], warnings: list[str]) -> dict[str, Any]:
+    memory_hits = ((round1.get("memory") or {}).get("edge_search") or {}).get("result_count", 0)
+    source_hits = ((round1.get("sources") or {}).get("result_count", 0)
+                   if isinstance(round1.get("sources"), dict) else 0)
+    broken = [
+        item["name"]
+        for item in signals
+        if item.get("name") in {"capabilities", "primitives"}
+        and str((item.get("summary") or {}).get("health_status") or "").lower() in {"fail", "degraded", "unhealthy"}
+    ]
+    unknowns = []
+    if memory_hits == 0:
+        unknowns.append("No accumulated memory strongly matched the query.")
+    if source_hits == 0:
+        unknowns.append("External source fan-out did not produce usable evidence.")
+    if broken:
+        unknowns.append(f"Capability/primitives health may limit evidence: {', '.join(broken)}.")
+    if warnings:
+        unknowns.append("Some signals or sources degraded during exploration.")
+    if not unknowns:
+        unknowns.append("The main uncertainty is whether the evidence is sufficient for state change, not just report production.")
+
+    targeted_query = f"{query} failure modes weak evidence missing data next observation"
+    return {
+        "simple_explanation": "Before the skill acts, the system must know what evidence exists, what state signals say, and what could make the apparent conclusion wrong.",
+        "first_principles_derivation": [
+            "A skill decision is only as good as the evidence available before it starts.",
+            "Evidence comes from accumulated memory, external knowledge sources, and live system/domain signals.",
+            "If any of those are missing or degraded, the final output must say so instead of sounding certain.",
+        ],
+        "what_would_make_this_wrong": [
+            "The source results are irrelevant or stale.",
+            "The live signals are unavailable or do not cover the real domain state.",
+            "The skill produces a polished artifact without changing or clarifying the underlying state.",
+        ],
+        "unknowns": unknowns,
+        "round_2_query": targeted_query[:500],
+    }
+
+
+def review_pack(rounds: list[dict[str, Any]], signals: list[dict[str, Any]], warnings: list[str]) -> dict[str, Any]:
+    source_rounds = [r.get("sources") or {} for r in rounds if isinstance(r.get("sources"), dict)]
+    source_results = sum(int(r.get("result_count") or 0) for r in source_rounds)
+    memory_results = sum(int(((r.get("memory") or {}).get("edge_search") or {}).get("result_count") or 0) for r in rounds)
+    signal_ok = sum(1 for item in signals if item.get("status") == "ok")
+    signal_total = len(signals)
+    readiness = "ready"
+    if warnings or source_results == 0 or memory_results == 0:
+        readiness = "degraded"
+    return {
+        "decision_readiness": readiness,
+        "source_coverage": {
+            "rounds": len(source_rounds),
+            "usable_results": source_results,
+        },
+        "memory_coverage": {
+            "usable_results": memory_results,
+        },
+        "signal_coverage": {
+            "ok": signal_ok,
+            "total": signal_total,
+        },
+        "warnings": warnings,
+        "required_for_skill": [
+            "Read this exploration pack before deciding.",
+            "Cite degraded evidence or remaining unknowns in the raw report.",
+            "Do not treat health/status probes as substantive exploration.",
+        ],
+    }
+
+
+def write_pack(pack: dict[str, Any]) -> tuple[Path, Path]:
+    cycle_id = str(pack.get("cycle_id") or "manual")
+    out_dir = EXPLORATIONS_DIR / cycle_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path = out_dir / "pack.json"
+    md_path = out_dir / "pack.md"
+    json_path.write_text(json.dumps(pack, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    md_path.write_text(render_markdown(pack), encoding="utf-8")
+    return json_path, md_path
+
+
+def update_dispatch_state(pack: dict[str, Any]) -> None:
+    if not CURRENT_DISPATCH_FILE.exists():
+        return
+    try:
+        state = json.loads(CURRENT_DISPATCH_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if str(state.get("cycle_id") or "") != str(pack.get("cycle_id") or ""):
+        return
+    request = state.setdefault("request", {})
+    request["exploration_pack"] = {
+        "status": (pack.get("review") or {}).get("decision_readiness", "unknown"),
+        "path": ((pack.get("paths") or {}).get("json") or ""),
+        "markdown_path": ((pack.get("paths") or {}).get("markdown") or ""),
+        "query": pack.get("query"),
+        "skill": pack.get("skill"),
+        "generated_at": pack.get("generated_at"),
+        "review": pack.get("review"),
+        "adversarial_feynman": pack.get("adversarial_feynman"),
+    }
+    state.setdefault("state", {})["exploration_status"] = request["exploration_pack"]["status"]
+    state.setdefault("state", {})["exploration_checked_at"] = now_iso()
+    tmp = CURRENT_DISPATCH_FILE.with_suffix(CURRENT_DISPATCH_FILE.suffix + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(CURRENT_DISPATCH_FILE)
+
+
+def render_markdown(pack: dict[str, Any]) -> str:
+    lines = [
+        f"# Exploration Pack: {pack.get('skill')}",
+        "",
+        f"- cycle_id: `{pack.get('cycle_id')}`",
+        f"- query: {pack.get('query')}",
+        f"- readiness: `{(pack.get('review') or {}).get('decision_readiness')}`",
+        "",
+        "## Intent",
+        "",
+        f"- Problem: {(pack.get('intent') or {}).get('problem')}",
+        f"- Objective: {(pack.get('intent') or {}).get('objective')}",
+        "",
+        "## Adversarial Feynman",
+        "",
+        (pack.get("adversarial_feynman") or {}).get("simple_explanation", ""),
+        "",
+        "Unknowns:",
+    ]
+    for item in (pack.get("adversarial_feynman") or {}).get("unknowns", []):
+        lines.append(f"- {item}")
+    lines.extend(["", "## Review Warnings"])
+    warnings = (pack.get("review") or {}).get("warnings") or []
+    if warnings:
+        for warning in warnings:
+            lines.append(f"- {warning}")
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Rounds"])
+    for round_item in pack.get("rounds") or []:
+        lines.append(f"- `{round_item.get('id')}` query: {round_item.get('query')}")
+        memory_hits = ((round_item.get("memory") or {}).get("edge_search") or {}).get("result_count", 0)
+        source_hits = (round_item.get("sources") or {}).get("result_count", 0) if isinstance(round_item.get("sources"), dict) else 0
+        lines.append(f"  memory_hits={memory_hits} source_hits={source_hits}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    skill = normalize_skill(args.skill)
+    query = normalize_query(args.query, skill)
+    cycle_id = args.cycle_id or os.environ.get("EDGE_CYCLE_ID") or "manual"
+    warnings: list[str] = []
+
+    log_exploration_event("ExplorationStarted", cycle_id=cycle_id, skill=skill, query=query, status="started")
+
+    intent = first_principles_intent(query, skill)
+    signals = collect_signals(skill, cycle_id, warnings)
+
+    log_exploration_event("ExplorationRoundStarted", cycle_id=cycle_id, skill=skill, query=query, round_id="round_1", status="started")
+    round1 = {
+        "id": "round_1",
+        "query": query,
+        "memory": collect_memory(query, skill, warnings),
+        "sources": run_sources(query, skill, "round_1", cycle_id, warnings, skip_sources=args.skip_sources),
+    }
+    log_exploration_event("ExplorationRoundCompleted", cycle_id=cycle_id, skill=skill, query=query, round_id="round_1", status="completed")
+
+    adversarial = adversarial_feynman(query, round1, signals, warnings)
+    log_exploration_event(
+        "AdversarialFeynmanCompleted",
+        cycle_id=cycle_id,
+        skill=skill,
+        query=query,
+        status="completed",
+        unknown_count=len(adversarial.get("unknowns") or []),
+    )
+
+    query2 = str(adversarial.get("round_2_query") or query)
+    log_exploration_event("ExplorationRoundStarted", cycle_id=cycle_id, skill=skill, query=query2, round_id="round_2", status="started")
+    round2 = {
+        "id": "round_2",
+        "query": query2,
+        "memory": collect_memory(query2, skill, warnings),
+        "sources": run_sources(query2, skill, "round_2", cycle_id, warnings, skip_sources=args.skip_sources),
+    }
+    log_exploration_event("ExplorationRoundCompleted", cycle_id=cycle_id, skill=skill, query=query2, round_id="round_2", status="completed")
+
+    rounds = [round1, round2]
+    review = review_pack(rounds, signals, warnings)
+    pack = {
+        "schema_version": 1,
+        "cycle_id": cycle_id,
+        "skill": skill,
+        "query": query,
+        "generated_at": now_iso(),
+        "intent": intent,
+        "memory_required": ["topics", "workflows", "reports"],
+        "signals": signals,
+        "rounds": rounds,
+        "adversarial_feynman": adversarial,
+        "review": review,
+    }
+    json_path, md_path = write_pack(pack)
+    pack["paths"] = {"json": str(json_path), "markdown": str(md_path)}
+    json_path.write_text(json.dumps(pack, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    md_path.write_text(render_markdown(pack), encoding="utf-8")
+    update_dispatch_state(pack)
+
+    log_exploration_event(
+        "ReviewGateCompleted",
+        cycle_id=cycle_id,
+        skill=skill,
+        query=query,
+        status=review["decision_readiness"],
+        warning_count=len(warnings),
+    )
+    log_exploration_event(
+        "ExplorationPackPublished",
+        cycle_id=cycle_id,
+        skill=skill,
+        query=query,
+        status=review["decision_readiness"],
+        pack_path=str(json_path),
+        markdown_path=str(md_path),
+        warning_count=len(warnings),
+    )
+    print(json.dumps({"ok": True, "status": review["decision_readiness"], "pack": pack}, indent=2, ensure_ascii=False))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Build a deterministic exploration pack for a skill")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    run = sub.add_parser("run", help="Run two-round exploration")
+    run.add_argument("--skill", required=True)
+    run.add_argument("--query", default="")
+    run.add_argument("--cycle-id")
+    run.add_argument("--skip-sources", action="store_true", help="Skip external source fan-out, mainly for tests")
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    if args.cmd == "run":
+        return cmd_run(args)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

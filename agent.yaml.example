@@ -86,7 +86,20 @@ sources:
   # - name: overleaf
   #   description: "Read LaTeX projects via git clone; writes live in prose, not here"
 
-# --- Before each skill ---
+# --- Agent mandates ---
+# Behavioral mandates injected into every skill. These are not tool checklists;
+# runtime CLIs handle mandatory exploration and signals. Mandates are the
+# agent's decision posture.
+agent_mandates:
+  - "Preserve the operator's real objective over producing polished artifacts."
+  - "Use the exploration pack as the minimum evidence base before deciding."
+  - "State uncertainty explicitly before making recommendations."
+  - "Prefer measurable state change when the exploration pack exposes an actionable gap."
+
+# --- Skill context/procedure ---
+# New agents should prefer `agent_mandates` for behavioral rules and
+# `sources:`/capabilities for read-only exploration.
+#
 # Two distinct kinds of material, split into two fields (see issue #83):
 #
 #   pre_skill_context    Knowledge/facts/rules — DECLARATIVE, loaded as
@@ -99,8 +112,8 @@ sources:
 #                        Bad:  "query arxiv, check hn, search reddit"
 #                              (= cookbook anti-pattern, see issue #94)
 #
-# Legacy: `pre_skill` (single list) is still accepted. When present alone, it
-# is treated as procedure. Prefer the split fields for new agents.
+# `pre_skill` (single list) is accepted when present alone and treated as
+# procedure. Prefer the split fields for new agents.
 
 pre_skill_context:
   - |
@@ -117,7 +130,7 @@ pre_skill_procedure:
 #     from the sources: manifest and log which one was most useful."
 # Remove this once state/source-usage.jsonl shows diverse invocation patterns.
 
-# --- Workflow seeds (legacy field name: routines) ---
+# --- Workflow seeds ---
 # Research/work habits you ALREADY have established — the things you'd do
 # on autopilot if someone asked you about a topic. Write in natural prose,
 # like you're explaining it to a new colleague on day 1.
@@ -170,9 +183,10 @@ routines:
     notes I read the CHANGELOG on GitHub via WebFetch. I never start from
     blog posts about a release — they oversimplify and lose the trade-offs.
 
-# --- After each skill ---
-# Actions the agent takes after completing any task.
-post_skill:
+# --- Fan out ---
+# How finished work is communicated/persisted after the skill. These are
+# typically mutation surfaces: publish, notify, persist, update state.
+fan_out:
   - |
     Post on Moltbook — Don Draper style: one sharp insight, no jargon, make them feel it.
     API: POST https://www.moltbook.com/api/v1/posts with header "Authorization: Bearer $MOLTBOOK_API_KEY"
@@ -180,6 +194,8 @@ post_skill:
     Also browse new posts (GET /api/v1/posts?sort=new&limit=5), comment on interesting ones, upvote good takes.
     Rate limits: 1 post/30min, 1 comment/20s, 50 comments/day.
   - "Notify operator if running autonomously"
+
+# `post_skill` is accepted as an alias. Prefer `fan_out` for new agents.
 
 # --- Onboarding ---
 onboarding_mode: true           # false after graduated
@@ -191,7 +207,7 @@ public_url: ""                  # public URL of the blog (if exposed)
 repo_owner: "lucasrp"           # GitHub user/org
 repo_name: "edge-of-chaos"     # GitHub repo name
 
-# --- LLM Models (legacy flat keys — kept for back-compat) ---
+# --- LLM Models ---
 # router_client.py falls back to these when routers: is missing.
 openai_model: "gpt-5.4"                    # edge-consult primary, review-gate
 openai_model_mini: "gpt-4.1-mini"          # seed generation, cheap tasks

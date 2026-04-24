@@ -843,6 +843,43 @@ def log_capability_probe_completed(
     )
 
 
+def log_exploration_event(
+    event_type: str,
+    *,
+    skill: str,
+    query: str = "",
+    round_id: str | None = None,
+    status: str = "ok",
+    pack_path: str | None = None,
+    **extra: Any,
+) -> None:
+    """Record exploration lifecycle events used by pre-dispatch evidence packs."""
+    payload = {
+        "skill": skill,
+        "query": re.sub(r"\s+", " ", query).strip()[:240],
+        "status": status,
+        **extra,
+    }
+    if round_id:
+        payload["round_id"] = round_id
+    log_event(
+        event_type.lower(),
+        skill=skill,
+        query=payload["query"],
+        round_id=round_id or "",
+        status=status,
+        pack_path=pack_path or "",
+        **extra,
+    )
+    emit_shadow_event(
+        event_type,
+        actor=_detect_caller(),
+        artifact=pack_path,
+        cycle_id=extra.get("cycle_id"),
+        payload=payload,
+    )
+
+
 @contextmanager
 def time_primitive(source: str, notes: dict[str, Any] | None = None):
     """Context manager that times a primitive block and logs success/failure.
@@ -1031,6 +1068,7 @@ __all__ = [
     "log_primitive_probe_completed",
     "log_capability_invocation",
     "log_capability_probe_completed",
+    "log_exploration_event",
     "log_workflow_recommended",
     "log_workflow_observed",
     "log_workflow_ignored",

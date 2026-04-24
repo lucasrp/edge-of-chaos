@@ -13,32 +13,19 @@ import argparse
 import json
 import os
 import shutil
-import signal
 import subprocess
 import sys
-import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import EDGE_REPO_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
+from paths import EDGE_INSTANCE, EDGE_REPO_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
-from _shared.dispatch_runtime import read_dispatch_state, render_skill_runtime_prompt  # noqa: E402
+from _shared.dispatch_runtime import read_dispatch_state, render_skill_runtime_prompt, write_dispatch_state  # noqa: E402
 from _shared.telemetry import emit_shadow_event  # noqa: E402
 from _shared.telemetry import log_run_step  # noqa: E402
-
-
-def parse_heartbeat_dispatch_timeout_seconds() -> int | None:
-    raw = str(os.environ.get("EDGE_HEARTBEAT_DISPATCH_TIMEOUT_SECONDS", "") or "").strip().lower()
-    if raw in {"", "0", "off", "false", "none", "disabled"}:
-        return None
-    return int(raw)
-
-
-HEARTBEAT_DISPATCH_TIMEOUT_SECONDS = parse_heartbeat_dispatch_timeout_seconds()
-HEARTBEAT_DISPATCH_POLL_SECONDS = float(os.environ.get("EDGE_HEARTBEAT_DISPATCH_POLL_SECONDS", "2") or 2)
 
 
 class RunnerAbort(Exception):
@@ -215,6 +202,141 @@ def maybe_dispatch_skill(args: argparse.Namespace, env: dict[str, str], cycle_id
     run_edge_tool("edge-dispatch", ["dispatch", "--skill", skill_name], env)
 
 
+def exploration_disabled() -> bool:
+    value = str(os.environ.get("EDGE_EXPLORE_DISABLED", "") or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def derive_exploration_query(state: dict, skill_name: str) -> str:
+    request = state.get("request", {}) or {}
+    if request.get("corpus_query"):
+        return str(request.get("corpus_query") or "")
+    args = request.get("args") or {}
+    if isinstance(args, dict):
+        for key in ("query", "topic", "title", "subject", "target", "question", "task", "prompt", "focus"):
+            value = args.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+    inbox = request.get("async_inbox") or {}
+    direct = inbox.get("direct_messages") or []
+    if direct and isinstance(direct[0], dict):
+        text = str(direct[0].get("text") or direct[0].get("body") or "").strip()
+        if text:
+            return text[:500]
+    return normalize_skill_name(skill_name).replace("-", " ")
+
+
+def maybe_run_exploration(args: argparse.Namespace, env: dict[str, str], cycle_id: str | None, skill_name: str | None) -> None:
+    if not cycle_id or exploration_disabled():
+        return
+    normalized = normalize_skill_name(skill_name)
+    if not normalized or normalized.endswith("heartbeat"):
+        return
+    try:
+        state = dispatch_state_matches(cycle_id) or read_dispatch_state()
+        existing = ((state.get("request", {}) or {}).get("exploration_pack") or {})
+        if existing.get("path") and existing.get("skill") == normalized:
+            return
+        query = derive_exploration_query(state, normalized)
+        explore_args = ["run", "--skill", normalized, "--query", query, "--cycle-id", cycle_id]
+        if str(os.environ.get("EDGE_EXPLORE_SKIP_SOURCES", "") or "").strip().lower() in {"1", "true", "yes", "on"}:
+            explore_args.append("--skip-sources")
+        status, payload = run_edge_tool("edge-explore", explore_args, env, allow_nonzero=True)
+        if status != 0:
+            emit_shadow_event(
+                "ExplorationPackFailed",
+                actor="edge-runner",
+                cycle_id=cycle_id,
+                payload={
+                    "skill": normalized,
+                    "query": query,
+                    "status": "warning",
+                    "reason": (payload or {}).get("error") or f"edge-explore exit={status}",
+                },
+            )
+    except Exception as exc:
+        emit_shadow_event(
+            "ExplorationPackFailed",
+            actor="edge-runner",
+            cycle_id=cycle_id,
+            payload={"skill": normalized, "status": "warning", "reason": str(exc)},
+        )
+
+
+def autonomy_checkup_disabled() -> bool:
+    value = str(os.environ.get("EDGE_AUTONOMY_PRIMITIVE_CHECKUP_DISABLED", "") or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def attach_autonomy_checkup(cycle_id: str, payload: dict) -> None:
+    state = dispatch_state_matches(cycle_id)
+    if not state:
+        return
+    request = state.setdefault("request", {})
+    summary = (payload.get("summary") or {}) if isinstance(payload, dict) else {}
+    checkup = (payload.get("checkup") or {}) if isinstance(payload, dict) else {}
+    capabilities = (payload.get("capabilities_status") or {}) if isinstance(payload, dict) else {}
+    request["autonomy_primitives_checkup"] = {
+        "status": checkup.get("status") or summary.get("health_status") or "unknown",
+        "generated_at": payload.get("generated_at") or "",
+        "primitive_summary": summary,
+        "checkup": checkup,
+        "capability_summary": (capabilities.get("summary") or {}),
+        "candidate_actions": checkup.get("candidate_actions") or [],
+    }
+    if summary:
+        request["primitives_status"] = {
+            "health_status": summary.get("health_status"),
+            "summary": summary,
+            "sources": payload.get("sources") or [],
+        }
+    if capabilities:
+        request["capabilities_status"] = {
+            "health_status": (capabilities.get("summary") or {}).get("health_status"),
+            "summary": capabilities.get("summary") or {},
+            "recommended": capabilities.get("recommended") or [],
+            "capabilities": capabilities.get("capabilities") or [],
+        }
+    state.setdefault("state", {})["autonomy_primitives_checkup_status"] = request["autonomy_primitives_checkup"]["status"]
+    write_dispatch_state(state)
+
+
+def maybe_run_autonomy_primitive_checkup(
+    args: argparse.Namespace,
+    env: dict[str, str],
+    cycle_id: str | None,
+    skill_name: str | None,
+) -> None:
+    if not cycle_id or autonomy_checkup_disabled():
+        return
+    normalized = normalize_skill_name(skill_name)
+    if normalized != "autonomy":
+        return
+    try:
+        status, payload = run_edge_tool(
+            "edge-primitives",
+            ["status", "--json", "--checkup", "--skill", "autonomy"],
+            env,
+            allow_nonzero=True,
+        )
+        if payload:
+            attach_autonomy_checkup(cycle_id, payload)
+        if status != 0:
+            emit_shadow_event(
+                "AutonomyPrimitiveCheckupFailed",
+                actor="edge-runner",
+                cycle_id=cycle_id,
+                payload={"skill": normalized, "status": "warning", "exit_code": status},
+            )
+    except Exception as exc:
+        emit_shadow_event(
+            "AutonomyPrimitiveCheckupFailed",
+            actor="edge-runner",
+            cycle_id=cycle_id,
+            payload={"skill": normalized, "status": "warning", "reason": str(exc)},
+        )
+
+
 def maybe_close_cycle(
     args: argparse.Namespace,
     env: dict[str, str],
@@ -237,13 +359,6 @@ def build_backend_content(args: argparse.Namespace, cycle_id: str | None) -> str
         return args.skill if args.cmd == "skill" else args.prompt
     state = read_dispatch_state()
     return render_skill_runtime_prompt(args.skill, state)
-
-
-def heartbeat_watchdog_enabled(args: argparse.Namespace, cycle_id: str | None) -> bool:
-    if not cycle_id or args.cmd != "skill":
-        return False
-    skill_name = (args.skill or "").strip().lstrip("/")
-    return bool(skill_name.endswith("-heartbeat"))
 
 
 def dispatch_state_matches(cycle_id: str) -> dict | None:
@@ -286,7 +401,11 @@ def iso_ge(left: str | None, right: str | None) -> bool:
 
 
 def normalize_skill_name(skill: str | None) -> str:
-    return str(skill or "").strip().lstrip("/")
+    raw = str(skill or "").strip().lstrip("/")
+    prefix = str(EDGE_INSTANCE or "").strip()
+    if prefix and raw.startswith(f"{prefix}-"):
+        raw = raw[len(prefix) + 1:]
+    return raw
 
 
 def skill_run_completed_for_cycle(cycle_id: str, skill: str | None) -> bool:
@@ -325,16 +444,6 @@ def skill_run_completed_for_cycle(cycle_id: str, skill: str | None) -> bool:
     return False
 
 
-def heartbeat_dispatch_completed(cycle_id: str) -> bool:
-    state = dispatch_state_matches(cycle_id)
-    if not state:
-        return False
-    request = state.get("request", {}) or {}
-    state_block = state.get("state", {}) or {}
-    skill = str(request.get("skill") or "").strip()
-    return bool(state_block.get("skill_dispatched") and skill and not skill.endswith("heartbeat"))
-
-
 def dispatched_follow_on_skill(args: argparse.Namespace, cycle_id: str | None) -> str | None:
     if not cycle_id or args.cmd != "skill":
         return None
@@ -360,32 +469,6 @@ def make_follow_on_skill_args(args: argparse.Namespace, skill_name: str) -> argp
     return follow_on
 
 
-def terminate_backend_process(proc: subprocess.Popen[bytes | str]) -> None:
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except Exception:
-        try:
-            proc.terminate()
-        except Exception:
-            return
-    try:
-        proc.wait(timeout=10)
-        return
-    except Exception:
-        pass
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except Exception:
-        try:
-            proc.kill()
-        except Exception:
-            return
-    try:
-        proc.wait(timeout=5)
-    except Exception:
-        pass
-
-
 def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: str | None = None) -> int:
     content = build_backend_content(args, cycle_id)
     original = args.skill if args.cmd == "skill" else args.prompt
@@ -399,51 +482,8 @@ def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: s
     else:
         cmd = build_backend_command(args)
 
-    if not heartbeat_watchdog_enabled(args, cycle_id):
-        result = subprocess.run(cmd, env=env, cwd=resolve_cwd(args.cwd))
-        return result.returncode
-
-    proc = subprocess.Popen(
-        cmd,
-        env=env,
-        cwd=resolve_cwd(args.cwd),
-        start_new_session=True,
-    )
-    assert cycle_id is not None
-    dispatch_observed = False
-    deadline = (
-        time.monotonic() + HEARTBEAT_DISPATCH_TIMEOUT_SECONDS
-        if HEARTBEAT_DISPATCH_TIMEOUT_SECONDS is not None
-        else None
-    )
-    while True:
-        returncode = proc.poll()
-        if returncode is not None:
-            return returncode
-
-        if not dispatch_observed and heartbeat_dispatch_completed(cycle_id):
-            dispatch_observed = True
-            emit_shadow_event(
-                "HeartbeatDispatchObserved",
-                actor="edge-runner",
-                cycle_id=cycle_id,
-                payload={"timeout_seconds": HEARTBEAT_DISPATCH_TIMEOUT_SECONDS},
-            )
-
-        if not dispatch_observed and deadline is not None and time.monotonic() >= deadline:
-            terminate_backend_process(proc)
-            emit_shadow_event(
-                "HeartbeatDispatchTimedOut",
-                actor="edge-runner",
-                cycle_id=cycle_id,
-                payload={"timeout_seconds": HEARTBEAT_DISPATCH_TIMEOUT_SECONDS},
-            )
-            raise RunnerAbort(
-                "heartbeat_dispatch_timeout",
-                f"heartbeat failed to dispatch an internal skill within {HEARTBEAT_DISPATCH_TIMEOUT_SECONDS}s",
-            )
-
-        time.sleep(HEARTBEAT_DISPATCH_POLL_SECONDS)
+    result = subprocess.run(cmd, env=env, cwd=resolve_cwd(args.cwd))
+    return result.returncode
 
 
 def maybe_mark_skill_completion(skill: str, cycle_id: str | None, exit_code: int) -> None:
@@ -531,6 +571,11 @@ def main() -> int:
         cycle_id = maybe_open_cycle(args, env)
         maybe_run_preflight(args, env, cycle_id)
         maybe_dispatch_skill(args, env, cycle_id)
+        if args.cmd == "prompt":
+            maybe_run_exploration(args, env, cycle_id, "prompt")
+        elif args.cmd == "skill" and not normalize_skill_name(args.skill).endswith("heartbeat"):
+            maybe_run_exploration(args, env, cycle_id, args.skill)
+            maybe_run_autonomy_primitive_checkup(args, env, cycle_id, args.skill)
         if cycle_id:
             log_run_step(
                 "edge-runner",
@@ -550,6 +595,8 @@ def main() -> int:
 
         follow_on_skill = dispatched_follow_on_skill(args, cycle_id)
         if follow_on_skill and exit_code == 0:
+            maybe_run_exploration(args, env, cycle_id, follow_on_skill)
+            maybe_run_autonomy_primitive_checkup(args, env, cycle_id, follow_on_skill)
             log_run_step(
                 "edge-runner",
                 "handoff",

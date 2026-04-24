@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""feynman-judge — review a raw report for Feynman-method clarity.
+
+This is deliberately lightweight and deterministic. The traditional
+`review-gate` remains the broad YAML quality judge; this judge focuses on
+simple explanation, first-principles derivation, and explicit uncertainty
+before a report is rendered into a polished artifact.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+try:
+    import yaml
+except Exception:  # pragma: no cover
+    yaml = None
+
+
+def load_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def flatten(value: Any) -> str:
+    if isinstance(value, dict):
+        return "\n".join(f"{k}: {flatten(v)}" for k, v in value.items())
+    if isinstance(value, list):
+        return "\n".join(flatten(item) for item in value)
+    return str(value or "")
+
+
+def load_report(path: Path) -> tuple[str, dict[str, Any]]:
+    raw = load_text(path)
+    if path.suffix.lower() in {".yaml", ".yml"} and yaml is not None:
+        try:
+            payload = yaml.safe_load(raw) or {}
+            if isinstance(payload, dict):
+                return flatten(payload), payload
+        except Exception:
+            pass
+    return raw, {}
+
+
+def contains_any(text: str, needles: list[str]) -> bool:
+    lower = text.lower()
+    return any(needle.lower() in lower for needle in needles)
+
+
+def section_present(text: str, names: list[str]) -> bool:
+    lower = text.lower()
+    return any(name.lower() in lower for name in names)
+
+
+def score_item(ok: bool, feedback_ok: str, feedback_bad: str) -> dict[str, Any]:
+    return {"score": 5 if ok else 2, "feedback": feedback_ok if ok else feedback_bad}
+
+
+def judge(path: Path) -> dict[str, Any]:
+    text, payload = load_report(path)
+    compact = re.sub(r"\s+", " ", text).strip()
+    has_plain = contains_any(compact, ["em termos simples", "plain language", "simplificando", "em uma frase", "o problema é"])
+    has_first_principles = contains_any(compact, ["primeiros princípios", "first principles", "causa", "causal", "mecanismo", "deriv"])
+    has_unknowns = section_present(compact, ["O que Nao Sei", "O que Não Sei", "unknown", "incerteza", "não sabemos", "nao sabemos"])
+    has_evidence = contains_any(compact, ["evidência", "evidence", "fonte", "source", "sinal", "signal", "observado"])
+    has_inference = contains_any(compact, ["inferência", "inference", "interpretação", "interpretation", "hipótese", "hypothesis"])
+    has_recommendation = contains_any(compact, ["recomend", "próximo passo", "next step", "ação", "action"])
+    has_assumptions = contains_any(compact, ["premissa", "assumption", "se isso for falso", "mudaria a conclusão", "would change"])
+    jargon_risk = len(re.findall(r"\b[A-Z]{3,}\b", compact)) >= 6 and not contains_any(compact, ["glossário", "glossario", "defini"])
+
+    dimensions = {
+        "plain_explanation": score_item(
+            has_plain,
+            "Explica o problema em linguagem simples.",
+            "Falta uma explicação simples antes da análise técnica.",
+        ),
+        "first_principles_derivation": score_item(
+            has_first_principles,
+            "Deriva a conclusão por mecanismo/causa.",
+            "A conclusão parece afirmada; faltam primeiros princípios ou cadeia causal.",
+        ),
+        "unknown_boundary": score_item(
+            has_unknowns,
+            "Delimita explicitamente o que não se sabe.",
+            "Falta fronteira explícita de desconhecimento.",
+        ),
+        "evidence_inference_recommendation": score_item(
+            has_evidence and has_inference and has_recommendation,
+            "Separa evidência, interpretação e recomendação.",
+            "Evidência, inferência e recomendação não estão suficientemente separadas.",
+        ),
+        "assumption_sensitivity": score_item(
+            has_assumptions,
+            "Nomeia premissas críticas ou o que mudaria a conclusão.",
+            "Falta dizer quais premissas, se falsas, mudariam a conclusão.",
+        ),
+        "jargon_control": score_item(
+            not jargon_risk,
+            "Não há risco forte de jargão sem explicação.",
+            "Há muitos acrônimos/termos técnicos sem explicação suficiente.",
+        ),
+    }
+    overall = round(sum(item["score"] for item in dimensions.values()) / max(1, len(dimensions)), 2)
+    issues = [
+        item["feedback"]
+        for item in dimensions.values()
+        if item["score"] < 3
+    ]
+    result = {
+        "pass": overall >= 3 and not issues,
+        "overall": overall,
+        "dimensions": dimensions,
+        "critical_issues": issues,
+        "suggestions": [
+            "Adicionar uma explicação simples do problema antes de qualquer recomendação.",
+            "Derivar a recomendação por cadeia causal: condição inicial -> mecanismo -> consequência.",
+            "Separar blocos de evidência, inferência e recomendação.",
+            "Listar premissas que mudariam a conclusão se estivessem erradas.",
+            "Converter unknowns restantes em próximas observações/checks concretos.",
+        ][: max(3, min(5, len(issues) + 2))],
+        "path": str(path),
+        "format": "yaml" if payload else path.suffix.lstrip(".") or "text",
+    }
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Judge raw report clarity using Feynman-method criteria")
+    parser.add_argument("report")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--output", help="Optional output JSON path")
+    args = parser.parse_args()
+
+    result = judge(Path(args.report))
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if args.json or args.output:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(f"Feynman judge: {result['overall']}/5 pass={result['pass']}")
+        for issue in result["critical_issues"]:
+            print(f"- {issue}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

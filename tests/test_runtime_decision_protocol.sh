@@ -74,9 +74,10 @@ assert search_protocol["fallback"]["builtin_web_search"]["enabled"] is False
 assert "search_protocol" in prompt
 assert "search_runtime" in prompt
 assert "epistemic_protocol" in prompt
-assert "first-principles derivation" in prompt
+assert "exploration_pack" in prompt
+assert "mandatory read-only exploration loop" in prompt
 assert "configured web provider" in prompt
-assert "do not call `WebSearch`/`WebFetch` directly" in prompt
+assert "policy-disabled" in prompt
 PY
 then
     pass "substantive skills get explicit search/epistemic runtime protocol"

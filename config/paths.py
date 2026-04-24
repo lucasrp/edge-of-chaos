@@ -38,7 +38,7 @@ EDGE_REPO_DIR = (
     or _CONFIG_DIR.parent
 )
 
-# Legacy alias kept during migration.
+# Runtime-root alias used by older tools.
 EDGE_DIR = EDGE_REPO_DIR
 
 # --- Instance identity / mutable phenotype root ---
@@ -57,9 +57,9 @@ EDGE_STATE_DIR = (
 )
 
 # --- MEMORY_PROJECT_DIR: Claude Code project directory name ---
-_memory_project = _branding.get("memory_project_dir", "")
+_memory_project = os.environ.get("MEMORY_PROJECT_DIR", "")
 if not _memory_project:
-    _memory_project = os.environ.get("MEMORY_PROJECT_DIR", "")
+    _memory_project = _branding.get("memory_project_dir", "")
 if not _memory_project:
     # Auto-detect: first project dir in ~/.claude/projects/
     _proj_base = HOME / ".claude" / "projects"
@@ -110,6 +110,7 @@ PROJECTIONS_DIR = STATE_DIR / "projections"
 RUNTIME_PROTOCOL_DIR = STATE_DIR / "runtime"
 SIGNALS_DIR = STATE_DIR / "signals"
 OPERATOR_PRESSURE_DIR = STATE_DIR / "operator-pressure"
+EXPLORATIONS_DIR = STATE_DIR / "explorations"
 SEARCH_STATE_DIR = EDGE_STATE_DIR / "search"
 DB_DIR = EDGE_STATE_DIR / "db"
 LIBEXEC_DIR = EDGE_STATE_DIR / "libexec" / (EDGE_INSTANCE or "agent")
