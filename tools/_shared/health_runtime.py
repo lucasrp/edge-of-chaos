@@ -500,15 +500,13 @@ def _capabilities_dimension(events: list[dict[str, Any]], capabilities_status: d
 def _workflow_dimension(events: list[dict[str, Any]], workflow_status: dict[str, Any]) -> dict[str, Any]:
     rows = _cycle_window(events, days=30)
     counts = Counter(row.get("type") for row in rows)
-    recommended = counts.get("WorkflowRecommended", 0)
     used = counts.get("WorkflowUsedObserved", 0)
     broken = counts.get("WorkflowBrokenObserved", 0)
-    ignored = counts.get("WorkflowIgnoredObserved", 0)
     summary = workflow_status.get("summary") or {}
     stale_total = int(summary.get("stale_total", 0) or 0)
     broken_total = int(summary.get("broken_total", 0) or 0)
     workflow_total = int(summary.get("workflow_total", 0) or 0)
-    if workflow_total == 0 and recommended == 0 and used == 0 and broken == 0 and ignored == 0:
+    if workflow_total == 0 and used == 0 and broken == 0:
         return {
             "status": "unknown",
             "score": 50,
@@ -518,40 +516,31 @@ def _workflow_dimension(events: list[dict[str, Any]], workflow_status: dict[str,
                 "workflow_cited_total": 0,
                 "workflow_broken_total": 0,
                 "workflow_stale_total": 0,
-                "recommended_30d": 0,
                 "used_30d": 0,
                 "broken_30d": 0,
-                "ignored_30d": 0,
-                "adoption_rate_30d": 0.0,
+                "citation_events_30d": 0,
             },
         }
 
-    adoption_rate = (used + broken) / recommended if recommended else 1.0
     score = 100
     score -= min(broken_total * 10, 30)
     score -= min(stale_total * 3, 20)
-    if recommended:
-        score -= min(round((1.0 - adoption_rate) * 30), 30)
-        score -= min(round((ignored / recommended) * 20), 20)
     score = max(0, min(100, score))
 
     return {
         "status": _dimension_status(score),
         "score": score,
         "detail": (
-            f"recommended_30d={recommended} used_30d={used} broken_30d={broken} "
-            f"ignored_30d={ignored} stale={stale_total} broken_total={broken_total}"
+            f"used_30d={used} broken_30d={broken} stale={stale_total} broken_total={broken_total}"
         ),
         "metrics": {
             "workflow_total": workflow_total,
             "workflow_cited_total": int(summary.get("cited_total", 0) or 0),
             "workflow_broken_total": broken_total,
             "workflow_stale_total": stale_total,
-            "recommended_30d": recommended,
             "used_30d": used,
             "broken_30d": broken,
-            "ignored_30d": ignored,
-            "adoption_rate_30d": round(adoption_rate, 3),
+            "citation_events_30d": used + broken,
         },
     }
 
@@ -626,35 +615,32 @@ def _substrate_discipline_dimension(events: list[dict[str, Any]]) -> dict[str, A
     rows = _cycle_window(events, days=30)
     counts = Counter(row.get("type") for row in rows)
     primitive_bypass = counts.get("PrimitiveBypassObserved", 0)
-    workflow_ignored = counts.get("WorkflowIgnoredObserved", 0)
     secret_bypass = counts.get("SecretBypassObserved", 0)
     api_bypass = counts.get("ApiBypassObserved", 0)
     cli_bypass = counts.get("CliBypassObserved", 0)
-    if primitive_bypass == 0 and workflow_ignored == 0 and secret_bypass == 0 and api_bypass == 0 and cli_bypass == 0:
+    if primitive_bypass == 0 and secret_bypass == 0 and api_bypass == 0 and cli_bypass == 0:
         return {
             "status": "unknown",
             "score": 50,
             "detail": "no substrate-discipline evidence yet",
             "metrics": {
                 "primitive_bypass_30d": 0,
-                "workflow_ignored_30d": 0,
                 "secret_bypass_30d": 0,
                 "api_bypass_30d": 0,
                 "cli_bypass_30d": 0,
             },
         }
-    score = 100 - min(primitive_bypass * 8, 40) - min(workflow_ignored * 4, 20) - min(secret_bypass * 20, 40) - min(api_bypass * 10, 30) - min(cli_bypass * 10, 30)
+    score = 100 - min(primitive_bypass * 8, 40) - min(secret_bypass * 20, 40) - min(api_bypass * 10, 30) - min(cli_bypass * 10, 30)
     score = max(0, min(100, score))
     return {
         "status": _dimension_status(score),
         "score": score,
         "detail": (
-            f"primitive_bypass_30d={primitive_bypass} workflow_ignored_30d={workflow_ignored} "
-            f"secret_bypass_30d={secret_bypass} api_bypass_30d={api_bypass} cli_bypass_30d={cli_bypass}"
+            f"primitive_bypass_30d={primitive_bypass} secret_bypass_30d={secret_bypass} "
+            f"api_bypass_30d={api_bypass} cli_bypass_30d={cli_bypass}"
         ),
         "metrics": {
             "primitive_bypass_30d": primitive_bypass,
-            "workflow_ignored_30d": workflow_ignored,
             "secret_bypass_30d": secret_bypass,
             "api_bypass_30d": api_bypass,
             "cli_bypass_30d": cli_bypass,
@@ -742,9 +728,9 @@ def _remediation_queue(dimensions: dict[str, dict[str, Any]], raw: dict[str, dic
     if dimensions["capabilities"]["status"] != "ok":
         queue.append({"domain": "capabilities", "priority": 2, "action": "repair broken capabilities/primitives and improve adoption", "detail": dimensions["capabilities"]["detail"]})
     if dimensions["workflows"]["status"] != "ok":
-        queue.append({"domain": "workflows", "priority": 3, "action": "review stale/broken workflows and recommendation adoption", "detail": dimensions["workflows"]["detail"]})
+        queue.append({"domain": "workflows", "priority": 3, "action": "review stale/broken human workflows", "detail": dimensions["workflows"]["detail"]})
     if dimensions["substrate_discipline"]["status"] != "ok":
-        queue.append({"domain": "substrate_discipline", "priority": 2, "action": "reduce raw bypasses and ignored recommendations", "detail": dimensions["substrate_discipline"]["detail"]})
+        queue.append({"domain": "substrate_discipline", "priority": 2, "action": "reduce raw primitive/capability bypasses", "detail": dimensions["substrate_discipline"]["detail"]})
     if dimensions["api_runtime"]["status"] != "ok":
         queue.append({"domain": "api_runtime", "priority": 2, "action": "repair provider credentials or upstream API access", "detail": dimensions["api_runtime"]["detail"]})
     if str((raw.get("disk") or {}).get("status")) == "critical":
@@ -839,46 +825,13 @@ def _events_for_cycle(cycle_id: str, path: Path = STATE_EVENTS_FILE) -> list[dic
 def observe_cycle_health_events(state: dict[str, Any], *, path: Path = STATE_EVENTS_FILE) -> dict[str, Any]:
     cycle_id = str(state.get("cycle_id") or "").strip()
     if not cycle_id:
-        return {"workflow_ignored": 0, "primitive_bypass": 0}
-    request = state.get("request", {}) or {}
+        return {"primitive_bypass": 0}
     rows = _events_for_cycle(cycle_id, path=path)
-    existing_ignored = {
-        str((row.get("payload") or {}).get("slug") or "")
-        for row in rows
-        if row.get("type") == "WorkflowIgnoredObserved"
-    }
     existing_bypass = {
         str((row.get("payload") or {}).get("source") or "")
         for row in rows
         if row.get("type") == "PrimitiveBypassObserved"
     }
-    used_or_broken = {
-        str((row.get("payload") or {}).get("slug") or "")
-        for row in rows
-        if row.get("type") in {"WorkflowUsedObserved", "WorkflowBrokenObserved"}
-    }
-    recommended = {
-        str(item.get("slug") or "").strip(): item
-        for item in (request.get("workflow_recommendations") or [])
-        if str(item.get("slug") or "").strip()
-    }
-    workflow_ignored = 0
-    for slug, item in recommended.items():
-        if slug in used_or_broken or slug in existing_ignored:
-            continue
-        emit_shadow_event(
-            "WorkflowIgnoredObserved",
-            actor="edge-postflight",
-            cycle_id=cycle_id,
-            payload={
-                "slug": slug,
-                "reason": "recommended_not_cited",
-                "skill": request.get("skill"),
-                "query": request.get("corpus_query"),
-                "source": item.get("source"),
-            },
-        )
-        workflow_ignored += 1
 
     primitive_invocations = Counter()
     capability_invocations = Counter()
@@ -912,7 +865,7 @@ def observe_cycle_health_events(state: dict[str, Any], *, path: Path = STATE_EVE
         )
         primitive_bypass += 1
 
-    return {"workflow_ignored": workflow_ignored, "primitive_bypass": primitive_bypass}
+    return {"primitive_bypass": primitive_bypass}
 
 
 __all__ = [

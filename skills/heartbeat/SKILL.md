@@ -49,7 +49,7 @@ Use these runtime fields as authoritative:
 - `request.dispatch_queue_summary`
 - `request.beat_launch_context`
 - `request.health_snapshot`
-- `request.workflow_recommendations`
+- `request.workflow_status`
 
 `beat_launch_context` is the best short-lived launch frame for this beat. It already composes:
 

@@ -29,7 +29,6 @@ assert names["search.corpus"]["effective_status"] == "available"
 assert names["sources.aggregate"]["effective_status"] == "available"
 assert names["signals.aggregate"]["effective_status"] == "available"
 assert names["context.aggregate"]["effective_status"] == "available"
-assert names["workflow.recommend"]["effective_status"] == "available"
 assert names["repo.sync"]["effective_status"] == "available"
 PY
 then

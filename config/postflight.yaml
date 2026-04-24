@@ -13,6 +13,8 @@ procedures:
     kind: capabilities.status
   - id: workflows
     kind: workflow.status
+  - id: source-affordances
+    kind: source_affordance.digest
   - id: briefing
     kind: briefing.refresh
   - id: cycle-health

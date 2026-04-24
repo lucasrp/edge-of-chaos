@@ -240,13 +240,13 @@ proposal = client.post(
     f"/api/runtime/autonomy/{frontier_id}/action",
     json={
         "action": "promote-proposal",
-        "reason": "frontier gap should become an explicit proposal",
+        "reason": "frontier gap should not become an agent-created proposal",
         "value": "Instrument explicit pre-skill evidence",
         "label": "instrument explicit pre-skill evidence",
         "reference": frontier_id,
     },
 )
-assert proposal.status_code == 200, proposal.status_code
+assert proposal.status_code == 400, proposal.status_code
 
 task = client.post(
     f"/api/runtime/autonomy/{codify_id}/action",
@@ -263,12 +263,11 @@ assert task.get_json()["resulting_state"] == "queued"
 
 messages = client.get("/api/chat?unprocessed=1").get_json()["messages"]
 intents = [m for m in messages if m["author"] == "user" and m["text"].startswith("[runtime-intent]")]
-assert len(intents) == 5
+assert len(intents) == 4
 assert any("target_type: dispatch" in m["text"] for m in intents)
 assert any("target_type: evidence" in m["text"] for m in intents)
 assert any("target_type: primitive" in m["text"] for m in intents)
 assert any("target_type: autonomy" in m["text"] for m in intents)
-assert any("Instrument explicit pre-skill evidence" in m["text"] for m in intents)
 assert any("Investigate exa guardrail" in m["text"] for m in intents)
 
 operator_log = [
@@ -283,20 +282,15 @@ assert operator_log[-1]["resulting_state"] == "queued"
 runtime = client.get("/api/dashboard/runtime")
 assert runtime.status_code == 200, runtime.status_code
 data = runtime.get_json()
-assert data["runtime_queued_count"] == 5
-assert data["runtime_intervention_trace_count"] == 5
-assert data["runtime_intervention_lineage_count"] == 5
+assert data["runtime_queued_count"] == 4
+assert data["runtime_intervention_trace_count"] == 4
+assert data["runtime_intervention_lineage_count"] == 4
 assert {item["action"] for item in data["runtime_intervention_trace"]} == {
     "runtime:require-review",
     "runtime:incomplete",
     "runtime:confirm-failure",
-    "runtime:promote-proposal",
     "runtime:promote-task",
 }
-
-proposal_lineage = next(item for item in data["runtime_intervention_lineage"] if item["display_action"] == "promote-proposal")
-assert proposal_lineage["downstream_target"]["type"] == "proposal"
-assert proposal_lineage["downstream_target"]["label"] == "Instrument explicit pre-skill evidence"
 
 task_lineage = next(item for item in data["runtime_intervention_lineage"] if item["display_action"] == "promote-task")
 assert task_lineage["downstream_target"]["type"] == "task"
@@ -312,7 +306,7 @@ text = partial.get_data(as_text=True)
 assert "queued for next dispatch" in text
 assert "intervention lineage" in text
 assert "require review" in text
-assert "Instrument explicit pre-skill evidence" in text
+assert "promote proposal" not in text
 assert "Investigate exa guardrail" in text
 print("ok")
 PY

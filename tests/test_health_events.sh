@@ -38,7 +38,7 @@ cat >"$TMP_STATE/state/events/log.jsonl" <<'JSONL'
 {"ts":"2026-04-23T11:00:20+00:00","type":"WorkflowUsedObserved","cycle_id":"cycle-health-1","payload":{"slug":"wf-used"}}
 JSONL
 
-echo "--- Test 2: observe_cycle_health_events emits workflow ignored and primitive bypass ---"
+echo "--- Test 2: observe_cycle_health_events emits primitive bypass ---"
 if OUTPUT=$(env HOME="$TMP_HOME" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" python3 - <<'PY'
 import json
 import os
@@ -54,30 +54,16 @@ state = {
     "request": {
         "skill": "research",
         "corpus_query": "claim continuity graph",
-        "workflow_recommendations": [
-            {"slug": "wf-used", "source": "search_sidecar"},
-            {"slug": "wf-ignored", "source": "search_sidecar"},
-        ],
     },
 }
 
 print(json.dumps(observe_cycle_health_events(state), ensure_ascii=False))
 PY
 ); then
-  if [[ "$(jq -r '.workflow_ignored' <<<"$OUTPUT")" == "1" ]]; then
-    pass "workflow ignored observation count correct"
-  else
-    fail "workflow ignored observation count wrong: $OUTPUT"
-  fi
   if [[ "$(jq -r '.primitive_bypass' <<<"$OUTPUT")" == "1" ]]; then
     pass "primitive bypass observation count correct"
   else
     fail "primitive bypass observation count wrong: $OUTPUT"
-  fi
-  if grep -q '"type": "WorkflowIgnoredObserved"' "$TMP_STATE/state/events/log.jsonl" && grep -q '"slug": "wf-ignored"' "$TMP_STATE/state/events/log.jsonl"; then
-    pass "WorkflowIgnoredObserved emitted"
-  else
-    fail "WorkflowIgnoredObserved missing"
   fi
   if grep -q '"type": "PrimitiveBypassObserved"' "$TMP_STATE/state/events/log.jsonl" && grep -q '"source": "arxiv"' "$TMP_STATE/state/events/log.jsonl"; then
     pass "PrimitiveBypassObserved emitted"

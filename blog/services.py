@@ -951,8 +951,6 @@ def load_runtime_interventions(limit_actions=8):
         followup = None
         if item["display_action"] == "promote-task":
             followup = _match_followup_task(item.get("value"))
-        elif item["display_action"] == "promote-proposal":
-            followup = _match_followup_proposal(item.get("value"))
         lineage.append({
             **item,
             "downstream_cycles": _find_downstream_cycles(item.get("ts"), exclude_cycle_id=item.get("reference") or item.get("target_id")),

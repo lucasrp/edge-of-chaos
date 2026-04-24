@@ -407,14 +407,13 @@ def collect_workflow_signal(signals: list[dict[str, Any]]) -> None:
     summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else payload
     broken = int(summary.get("broken_total", 0) or 0)
     stale = int(summary.get("stale_total", 0) or 0)
-    ignored = int(summary.get("ignored_30d", 0) or 0)
     severity = "warning" if broken or stale else "info"
     signals.append(
         make_signal(
             signal_id="workflow.health",
             source="workflow",
             kind="status",
-            summary=f"Workflow health: broken={broken} stale={stale} ignored_30d={ignored}.",
+            summary=f"Workflow health: broken={broken} stale={stale}.",
             severity=severity,
             decision_effect="route" if severity == "warning" else "inform",
             evidence={"summary": summary, "path": str(WORKFLOW_HEALTH_FILE)},

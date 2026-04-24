@@ -30,10 +30,12 @@ def _resolve_state_path(raw_path: str) -> Path:
     return EDGE_STATE_DIR / path
 
 try:
-    from _shared.telemetry import log_run_step, log_search_query
+    from _shared.telemetry import log_odi_observed, log_run_step, log_search_query, make_odi_id
 except Exception:
+    log_odi_observed = None
     log_run_step = None
     log_search_query = None
+    make_odi_id = None
 
 
 def _parse_frontmatter_note(filepath: Path) -> str | None:
@@ -458,6 +460,42 @@ def log_search_telemetry(query: str, results: list[dict], conn=None) -> None:
             conn.close()
 
 
+def observe_search_odis(query: str, results: list[dict], *, mode: str, run_id: str) -> None:
+    """Emit one ODI per search result, keyed by atomic corpus type."""
+    if log_odi_observed is None or make_odi_id is None:
+        return
+    for index, item in enumerate(results or [], 1):
+        doc_type = str(item.get("type") or "unknown").strip().lower() or "unknown"
+        source_id = f"search.{doc_type}"
+        odi_id = make_odi_id(
+            source_id,
+            run_id,
+            query,
+            item.get("path") or "",
+            item.get("title") or "",
+            index,
+        )
+        item["odi_id"] = odi_id
+        log_odi_observed(
+            odi_id,
+            source_id=source_id,
+            primitive="edge-search",
+            context=mode,
+            query=query,
+            run_id=run_id,
+            title=str(item.get("title") or "")[:240],
+            url=str(item.get("path") or ""),
+            rank=index,
+            score=item.get("score"),
+            result_kind="corpus_hit",
+            metadata={
+                "doc_type": doc_type,
+                "path": item.get("path") or "",
+                "snippet": str(item.get("snippet") or "")[:300],
+            },
+        )
+
+
 def doc_stats(conn=None) -> list[dict]:
     """Per-document retrieval stats from search_events."""
     own_conn = conn is None
@@ -678,6 +716,8 @@ def main():
                 query, limit=args.k, doc_type=args.doc_type, conn=conn
             )
             mode = "hybrid"
+
+        observe_search_odis(query, results + workflows, mode=mode, run_id=run_id)
 
         if args.json_output:
             payload = {

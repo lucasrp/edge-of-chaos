@@ -210,7 +210,6 @@
           </div>
           <div class="runtime-meta">{{ step.title }}</div>
           <div class="dash-task-actions">
-            <button class="action-btn" onclick='runtimeAction("autonomy", {{ step.id|tojson }}, "promote-proposal", {{ step.title|tojson }}, {{ step.reference|tojson }}, this, "proposal title to carry into the next dispatch?")'>promote proposal</button>
             <button class="action-btn" onclick='runtimeAction("autonomy", {{ step.id|tojson }}, "promote-task", {{ step.title|tojson }}, {{ step.reference|tojson }}, this, "task title to carry into the next dispatch?")'>promote task</button>
           </div>
         </div>

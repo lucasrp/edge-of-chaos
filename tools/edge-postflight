@@ -175,6 +175,17 @@ def refresh_workflow_status() -> dict[str, Any]:
     return {"ok": True, "detail": detail, "payload": payload}
 
 
+def refresh_source_affordance_digest() -> dict[str, Any]:
+    code, stdout, stderr = run_subprocess([sys.executable, str(EDGE_REPO_DIR / "tools" / "rollup-affordances.py")])
+    if code != 0:
+        detail = (stderr or stdout or f"exit={code}").splitlines()[-1]
+        append_postskill_log("source_affordance_digest", "FAIL", detail)
+        return {"ok": False, "detail": detail, "payload": {}}
+    detail = (stdout or "source affordance digest refreshed").splitlines()[-1]
+    append_postskill_log("source_affordance_digest", "OK", detail)
+    return {"ok": True, "detail": detail, "payload": {"detail": detail}}
+
+
 def refresh_curation_digest() -> dict[str, Any]:
     code, stdout, stderr = run_subprocess([sys.executable, str(EDGE_REPO_DIR / "tools" / "edge-curation"), "sync", "--json"])
     if code != 0:
@@ -312,6 +323,16 @@ def _execute_postflight_step(step: dict[str, Any], state: dict[str, Any]) -> dic
             extra={"payload": refreshed.get("payload") or {}},
         )
 
+    if kind == "source_affordance.digest":
+        refreshed = refresh_source_affordance_digest()
+        return _protocol_step(
+            step,
+            status="ok" if refreshed.get("ok") else "failed",
+            satisfied=bool(refreshed.get("ok", False)),
+            detail=str(refreshed.get("detail") or ""),
+            extra={"payload": refreshed.get("payload") or {}},
+        )
+
     if kind == "capabilities.status":
         refreshed = refresh_capabilities_status(skill=skill)
         return _protocol_step(step, status="ok", satisfied=bool(refreshed.get("ok", False)), detail=str(refreshed.get("detail") or ""), extra={"payload": refreshed.get("payload") or {}})
@@ -326,7 +347,7 @@ def _execute_postflight_step(step: dict[str, Any], state: dict[str, Any]) -> dic
             step,
             status="ok",
             satisfied=True,
-            detail=f"workflow_ignored={observations.get('workflow_ignored', 0)} primitive_bypass={observations.get('primitive_bypass', 0)}",
+            detail=f"primitive_bypass={observations.get('primitive_bypass', 0)}",
             extra={"payload": observations},
         )
 
