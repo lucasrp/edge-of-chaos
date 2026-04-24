@@ -10,69 +10,50 @@
 
 {{ AGENT_MISSION }}
 
-## Method
-
-Derive before searching. Show thinking process, not conclusions. Gaps emerge inline.
-Exploratory tone, not didactic. Details: `memory/metodo.md`
-
 ## Language
 
 Respond in: {{ LANGUAGE }}
 
-## Required Reading (every session)
+## Operating Model
 
-Runtime protocol is owned by `config/preflight.yaml` and `config/postflight.yaml`.
-The runner compiles and executes those files; treat them as the authoritative pre/post skill contract.
+Runtime owns the minimum lifecycle: dispatch context, preflight, exploration pack,
+quality gates, postflight, and bookkeeping.
 
-Also required (read on demand):
+Skills add semantic judgment above that minimum. Do not repeat runtime mechanics
+when the injected context already provides them.
+
+Method: derive before accepting, expose gaps, then use evidence. Details:
+`memory/metodo.md`.
+
+## Core References
+
+Read on demand, according to the task:
 
 | File | Contents |
 |------|----------|
-| `memory/rules-core.md` | Cross-cutting rules (max 15) |
+| `memory/rules-core.md` | Cross-cutting mandates |
 | `memory/personality.md` | Core identity and cognitive profile |
 | `memory/metodo.md` | Feynman method |
 | `memory/debugging.md` | Errors that must not recur |
 | `config/strategy.md` | Operator direction (phase, priorities, constraints) |
+| `config/preflight.yaml` / `config/postflight.yaml` | Runtime lifecycle source |
 
 ## Skills
 
 Invoked via `/{{ SKILL_PREFIX }}-{name}` slash commands.
-Shared protocols: `~/.claude/skills/_shared/`
+Each skill should complement the runtime, not restate it.
 
-## Blog
+## Tool Posture
 
-Internal blog at `http://localhost:{{ BLOG_PORT }}/blog/`
-- Entries: `blog/entries/*.md`
-- Always blog insights — primary communication channel.
+Prefer canonical capabilities and edge CLI read models when they exist. If they
+do not cover the needed read path, use the smallest safe ad hoc read and record
+the missing primitive/capability.
 
-## Tools
-
-- `edge-consult` — Cross-model adversarial review (GPT + Grok)
-- `edge-sources` — Unified external source search
-- `edge-render` — Generate files from agent.yaml
-- `edge-apply` — Provision host (idempotent)
-- `edge-doctor` — Validate installation
-- `consolidate-state` — 8-phase publication pipeline
-- `review-gate` — LLM-as-judge quality gate
-- `edge-signal` — Typed operational signal writer
-
-## Signals — Operational Memory
-
-Capture signals inline during work. Two channels:
-- **Frontmatter** (in blog entries): consolidate-state extracts automatically
-- **CLI** (runtime): `edge-signal <type> "<message>"`
-
-6 types: `autonomy` `strategy` `reflection` `friction` `decision` `serendipity`
-
-Prefixes: (none)=verified, `!`=open gap, `?`=speculative
-
-Storage: `state/signals/<type>.md` — one file per type, append-only, compressed at 100 lines.
-
-## Genotype / Phenotype — CRITICAL
+## Genotype / Phenotype
 
 This repo has three layers. Confusing them breaks the system for ALL instances.
 
-**Genotype (NEVER modify autonomously):**
+**Genotype (shared source):**
 - `skills/` — skill definitions
 - `tools/` — CLI tools
 - `blog/app.py`, `blog/*.sh` — blog server and pipeline code
@@ -82,8 +63,7 @@ This repo has three layers. Confusing them breaks the system for ALL instances.
 - `memory/personality.md`, `memory/rules-core.md`, `memory/metodo.md`
 - `SURVIVAL_POLICY.md`
 
-**Do NOT rename, refactor, delete, or restructure genotype files.**
-If you find a bug, report it in the blog — do not fix it autonomously.
+Genotype changes require the issue -> clone -> PR -> merge -> propagate loop.
 
 **Phenotype (yours to customize):**
 - `agent.yaml` — your config
@@ -95,22 +75,7 @@ If you find a bug, report it in the blog — do not fix it autonomously.
 - `reports/` — your HTML reports
 - `logs/`, `threads/`, `state/`, `meta-reports/`
 
-**The test:** "If I change this, does it affect other instances?" YES → genotype → DO NOT TOUCH.
-
-## Thinking
-
-Always use the maximum thinking/reasoning available. Think deeply before acting. Never rush.
-
-## Guardrails
-
-- Reversible+local = do it. Leaves the machine = ask.
-- Discretionary spend limit: up to $2 without asking.
-- Never evaluate own output — always submit to adversarial review.
-- **Never modify genotype files.** Report bugs in the blog instead.
-- Never skip steps silently.
-- `edge-search` is always fair game. Use it as many times as needed.
-- For open web retrieval, use `edge-sources` before builtin Claude WebSearch/WebFetch.
-- If `config/features.yaml` disables builtin web search, treat WebSearch/WebFetch as runtime-managed fallback only.
+**The test:** "If I change this, does it affect other instances?" YES -> genotype -> use the genotype change loop.
 
 ## Heartbeat
 
