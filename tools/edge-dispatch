@@ -12,10 +12,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
+import os
 import re
+import socket
 import sys
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,6 +39,15 @@ def now_iso() -> str:
 def make_cycle_id() -> str:
     stamp = datetime.now(timezone.utc).strftime("cycle-%Y%m%dT%H%M%SZ")
     return f"{stamp}-{uuid.uuid4().hex[:6]}"
+
+
+@contextmanager
+def dispatch_lock():
+    lock_path = CURRENT_DISPATCH_FILE.parent / ".current-dispatch.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
 
 
 def canonical_trigger(value: str) -> str:
@@ -79,6 +92,71 @@ def read_state(require_exists: bool = True) -> dict:
 def state_active(state: dict) -> bool:
     state_block = state.get("state", {}) or {}
     return bool(state_block.get("active"))
+
+
+def expected_cycle_id() -> str | None:
+    value = os.environ.get("EDGE_CYCLE_ID")
+    if value and value.strip():
+        return value.strip()
+    return None
+
+
+def current_cycle_matches(state: dict) -> bool:
+    expected = expected_cycle_id()
+    return not expected or state.get("cycle_id") == expected
+
+
+def pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def owner_pid(state: dict) -> int | None:
+    value = ((state.get("state", {}) or {}).get("owner_pid") or (state.get("runtime", {}) or {}).get("owner_pid"))
+    try:
+        pid = int(value)
+    except (TypeError, ValueError):
+        return None
+    return pid if pid > 0 else None
+
+
+def owner_alive(state: dict) -> bool | None:
+    host = ((state.get("state", {}) or {}).get("owner_host") or (state.get("runtime", {}) or {}).get("owner_host"))
+    if host and str(host) != socket.gethostname():
+        return None
+    pid = owner_pid(state)
+    if pid is None:
+        return None
+    return pid_is_alive(pid)
+
+
+def owner_metadata() -> dict[str, object]:
+    pid_value = os.environ.get("EDGE_RUNNER_PID") or str(os.getppid())
+    try:
+        pid = int(pid_value)
+    except ValueError:
+        pid = os.getppid()
+    return {
+        "owner_pid": pid,
+        "owner_host": socket.gethostname(),
+        "owner_actor": current_actor(),
+        "owner_started_at": os.environ.get("EDGE_RUNNER_STARTED_AT") or "",
+    }
+
+
+def active_cycle_error(existing: dict, *, reason: str) -> dict:
+    return {
+        "ok": False,
+        "error": reason,
+        "cycle_id": existing.get("cycle_id"),
+        "owner_pid": owner_pid(existing),
+        "hint": "close the active cycle explicitly before opening another one",
+    }
 
 
 def mirror_heartbeat_guard(state: dict) -> None:
@@ -176,21 +254,18 @@ def touch_thread(thread_id: str, *, reason: str, cycle_id: str | None) -> None:
 
 def cmd_open(args: argparse.Namespace) -> int:
     existing = read_state(require_exists=False)
-    if existing and state_active(existing) and not args.force:
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "error": "active dispatch cycle already exists",
-                    "cycle_id": existing.get("cycle_id"),
-                    "hint": "use --force only if you are replacing a stale shadow cycle",
-                },
-                indent=2,
-                ensure_ascii=False,
-            ),
-            file=sys.stderr,
-        )
-        return 1
+    if existing and state_active(existing):
+        alive = owner_alive(existing)
+        if args.force and alive is False:
+            pass
+        else:
+            reason = "active dispatch cycle already exists"
+            if args.force and alive is True:
+                reason = "active dispatch cycle is still owned by a running process"
+            elif args.force and alive is None:
+                reason = "active dispatch cycle owner is unknown"
+            print(json.dumps(active_cycle_error(existing, reason=reason), indent=2, ensure_ascii=False), file=sys.stderr)
+            return 1
 
     cycle_id = args.cycle_id or make_cycle_id()
     requested_trigger = args.trigger
@@ -230,6 +305,7 @@ def cmd_open(args: argparse.Namespace) -> int:
             "dispatched_at": None,
             "closed_at": None,
             "close_reason": None,
+            **owner_metadata(),
         },
     }
     write_json(CURRENT_DISPATCH_FILE, state)
@@ -267,6 +343,21 @@ def cmd_open(args: argparse.Namespace) -> int:
 
 def cmd_dispatch(args: argparse.Namespace) -> int:
     state = read_state()
+    if not current_cycle_matches(state):
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": "dispatch cycle mismatch",
+                    "expected_cycle_id": expected_cycle_id(),
+                    "current_cycle_id": state.get("cycle_id"),
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 1
     if not state_active(state):
         print(json.dumps({"ok": False, "error": "no active dispatch cycle"}, indent=2), file=sys.stderr)
         return 1
@@ -401,6 +492,21 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
 
 def cmd_close(args: argparse.Namespace) -> int:
     state = read_state()
+    if not current_cycle_matches(state):
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": "close cycle mismatch",
+                    "expected_cycle_id": expected_cycle_id(),
+                    "current_cycle_id": state.get("cycle_id"),
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 1
     request = state.setdefault("request", {})
     state_block = state.setdefault("state", {})
     timestamp = now_iso()
@@ -466,7 +572,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_open.add_argument("--cycle-id", help="Override generated cycle id")
     p_open.add_argument("--arg", action="append", help="Request arg (key=value). Repeatable.")
     p_open.add_argument("--args-json", help="JSON object with request args")
-    p_open.add_argument("--force", action="store_true", help="Replace an active shadow cycle")
+    p_open.add_argument("--force", action="store_true", help="Replace only stale active cycles whose owner process is gone")
 
     p_dispatch = sub.add_parser("dispatch", help="Mark the current cycle as skill-dispatched")
     p_dispatch.add_argument("--skill", help="Dispatched skill name")
@@ -485,12 +591,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    if args.cmd == "open":
-        return cmd_open(args)
-    if args.cmd == "dispatch":
-        return cmd_dispatch(args)
-    if args.cmd == "close":
-        return cmd_close(args)
+    if args.cmd in {"open", "dispatch", "close"}:
+        with dispatch_lock():
+            if args.cmd == "open":
+                return cmd_open(args)
+            if args.cmd == "dispatch":
+                return cmd_dispatch(args)
+            if args.cmd == "close":
+                return cmd_close(args)
     if args.cmd == "status":
         return cmd_status(args)
     parser.print_help()
