@@ -134,6 +134,29 @@ else
   fail "edge-signals returns priority state signals and primitive warning"
 fi
 
+cat >"$TMP_STATE/state/render-install-drift.json" <<'JSON'
+{
+  "summary": {"rendered_without_install": 0, "install_without_render": 67, "hash_mismatches": 0, "missing_on_disk": 0, "doctor_warn": 0, "doctor_fail": 0}
+}
+JSON
+
+OUTPUT_INSTALL_ONLY=$(EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="sigtest" \
+  "$EDGE_DIR/tools/edge-signals" --json --limit 20)
+
+if python3 - <<'PY' "$OUTPUT_INSTALL_ONLY"
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+signals = {item["id"]: item for item in payload["signals"]}
+assert "render_install.drift" not in signals
+PY
+then
+  pass "edge-signals ignores install-only render drift bookkeeping"
+else
+  fail "edge-signals emitted false render drift warning for install-only bookkeeping"
+fi
+
 if grep -q '"type": "OdiObserved"' "$TMP_STATE/state/events/log.jsonl" && grep -q '"source_id": "signal.primitives"' "$TMP_STATE/state/events/log.jsonl"; then
   pass "edge-signals emits ODI observations for atomic signal channels"
 else

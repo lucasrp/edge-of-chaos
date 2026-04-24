@@ -430,7 +430,7 @@ def collect_render_install_signal(signals: list[dict[str, Any]]) -> None:
         return
     drift_total = sum(
         int(summary.get(key, 0) or 0)
-        for key in ("rendered_without_install", "install_without_render", "hash_mismatches", "missing_on_disk", "doctor_fail")
+        for key in ("rendered_without_install", "hash_mismatches", "missing_on_disk", "doctor_fail")
     )
     warning_total = int(summary.get("doctor_warn", 0) or 0)
     if not drift_total and not warning_total:
