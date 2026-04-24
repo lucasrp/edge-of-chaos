@@ -99,10 +99,12 @@ tool, status_file = sys.argv[1:]
 result = subprocess.run([tool, "status", "--json"], capture_output=True, text=True, check=True)
 payload = json.loads(result.stdout)
 assert payload["summary"]["declared_total"] == 2
-assert payload["summary"]["degraded_total"] == 2
+assert payload["summary"]["degraded_total"] == 0
 rows = {row["name"]: row for row in payload["sources"]}
-assert rows["arxiv"]["effective_status"] == "degraded"
-assert rows["exa"]["effective_status"] == "degraded"
+assert rows["arxiv"]["effective_status"] == "unknown"
+assert rows["exa"]["effective_status"] == "unknown"
+assert "declared_unbound" in rows["arxiv"]["problems"]
+assert "declared_unbound" in rows["exa"]["problems"]
 assert Path(status_file).exists()
 PY
 then
@@ -132,9 +134,9 @@ tool = sys.argv[1]
 payload = json.loads(subprocess.run([tool, "status", "--json"], capture_output=True, text=True, check=True).stdout)
 rows = {row["name"]: row for row in payload["sources"]}
 assert payload["summary"]["probed_total"] == 1
-assert payload["summary"]["degraded_total"] == 1
+assert payload["summary"]["degraded_total"] == 0
 assert rows["arxiv"]["effective_status"] == "probed"
-assert rows["exa"]["effective_status"] == "degraded"
+assert rows["exa"]["effective_status"] == "unknown"
 assert rows["arxiv"]["probe_status"] == "ok"
 PY
 then
@@ -153,13 +155,37 @@ import sys
 tool = sys.argv[1]
 payload = json.loads(subprocess.run([tool, "status", "--json"], capture_output=True, text=True, check=True).stdout)
 rows = {row["name"]: row for row in payload["sources"]}
-assert payload["summary"]["degraded_total"] == 2
+assert payload["summary"]["degraded_total"] == 1
 assert rows["arxiv"]["effective_status"] == "degraded"
+assert rows["exa"]["effective_status"] == "unknown"
 PY
 then
     pass "status reports degraded when active binary disappears"
 else
     fail "status reports degraded when active binary disappears"
+fi
+
+echo "--- Test 5: checkup probes capabilities and reports candidate actions without aborting ---"
+if OUTPUT=$("$STATUS_TOOL" status --json --checkup --skill autonomy --skip-primitive-probes); then
+    if python3 - <<'PY' "$OUTPUT"
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+checkup = payload["checkup"]
+assert checkup["status"] in {"ok", "warning"}
+assert checkup["capability_probe_total"] >= 1
+assert checkup["candidate_action_total"] >= 1
+assert "capabilities_status" in payload
+assert "configured_integrations" in payload
+PY
+    then
+        pass "checkup refreshes primitives/capabilities and emits decisions"
+    else
+        fail "checkup refreshes primitives/capabilities and emits decisions"
+    fi
+else
+    fail "checkup refreshes primitives/capabilities and emits decisions"
 fi
 
 echo ""

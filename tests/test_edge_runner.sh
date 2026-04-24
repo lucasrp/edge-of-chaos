@@ -87,6 +87,8 @@ YAML
 export EDGE_REPO_DIR="$EDGE_DIR"
 export EDGE_STATE_DIR="$TMP_EDGE"
 export EDGE_CODENAME="test-agent"
+export EDGE_EXPLORE_SKIP_SOURCES=1
+export MEMORY_PROJECT_DIR="test-project"
 export HOME="$TMP_HOME"
 export EDGE_OPERATOR_PRESSURE_DISABLE_LLM=1
 
@@ -139,7 +141,7 @@ import json
 import sys
 
 dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
-legacy = json.load(open(sys.argv[2], encoding="utf-8"))
+beat_mirror = json.load(open(sys.argv[2], encoding="utf-8"))
 events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8") if line.strip()]
 cycle_ids = [line.strip() for line in open(sys.argv[4], encoding="utf-8") if line.strip()]
 invocations = []
@@ -194,6 +196,9 @@ assert request["beat_launch_context"]["decision_blend"] == {
 assert any("Corpus coverage is missing required types" in item for item in request["beat_launch_context"]["signal_from_edge_state_now"])
 assert request["search_protocol"]["required"] is True
 assert request["epistemic_protocol"]["required"] is True
+assert request["exploration_pack"]["skill"] == "discovery"
+assert request["exploration_pack"]["status"] in ("ready", "degraded")
+assert request["exploration_pack"]["path"].endswith("/pack.json")
 assert request["heartbeat_routing"]["suggested_skill"] == "autonomy"
 assert request["heartbeat_routing"]["round_robin_skills"] == [
     "autonomy",
@@ -213,15 +218,18 @@ assert "operator_pressure_digest" in invocations[0]
 assert "beat_launch_context" in invocations[0]
 assert "search_protocol" in invocations[0]
 assert "epistemic_protocol" in invocations[0]
+assert "exploration_pack" in invocations[1]
+assert "Adversarial Feynman" in open(request["exploration_pack"]["markdown_path"], encoding="utf-8").read()
 assert "configured_integrations" in invocations[0]
 assert "heartbeat_routing" in invocations[0]
 assert request["primitives_status"]["summary"]["health_status"] == "ok"
 assert "workflow_status" in request
 assert "claims_summary" in request
-assert legacy["active"] is False
+assert beat_mirror["active"] is False
 assert any(event["type"] == "CycleStarted" for event in events)
 assert any(event["type"] == "PreflightCompleted" for event in events)
 assert any(event["type"] == "SkillDispatched" for event in events)
+assert any(event["type"] == "ExplorationPackPublished" for event in events)
 assert any(event["type"] == "SkillRunCompleted" for event in events)
 assert any(event["type"] == "CycleClosed" for event in events)
 assert len(invocations) == 2
@@ -358,12 +366,47 @@ else
     fail "heartbeat dispatch no longer times out by default"
 fi
 
-echo "--- Test 6: explicit heartbeat dispatch timeout still closes explicitly instead of stalling ---"
+echo "--- Test 6: autonomy skill receives deep primitives/capabilities checkup ---"
 unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
 unset MOCK_CLAUDE_EXIT_CODE || true
-export MOCK_CLAUDE_SLEEP_SECONDS=3
+"$RUNNER_TOOL" skill \
+    --skill /autonomy \
+    --dispatch-trigger operator \
+    --dispatch-policy operator \
+    --dispatch-routing-mode explicit \
+    --dispatch-preflight-profile heartbeat_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force >/dev/null
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+request = dispatch["request"]
+checkup = request["autonomy_primitives_checkup"]
+
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+assert checkup["status"] in {"ok", "warning", "degraded", "fail"}
+assert "primitive_summary" in checkup
+assert "capability_summary" in checkup
+assert "candidate_actions" in checkup
+assert any(event["type"] == "AutonomyPrimitiveCheckupCompleted" for event in events)
+PY
+then
+    pass "autonomy checkup runs through edge-primitives --checkup"
+else
+    fail "autonomy checkup runs through edge-primitives --checkup"
+fi
+
+echo "--- Test 7: explicit heartbeat timeout env is ignored ---"
+unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
+unset MOCK_CLAUDE_EXIT_CODE || true
+export MOCK_CLAUDE_SLEEP_SECONDS=2
+export MOCK_CLAUDE_HEARTBEAT_FLOW=1
 export EDGE_HEARTBEAT_DISPATCH_TIMEOUT_SECONDS=1
-set +e
 "$RUNNER_TOOL" skill \
     --skill /ed-heartbeat \
     --dispatch-trigger heartbeat \
@@ -372,29 +415,25 @@ set +e
     --dispatch-preflight-profile heartbeat_default \
     --dispatch-postflight-profile standard \
     --dispatch-force >/dev/null
-STATUS=$?
-set -e
 unset MOCK_CLAUDE_SLEEP_SECONDS || true
 unset EDGE_HEARTBEAT_DISPATCH_TIMEOUT_SECONDS || true
 
-if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$STATUS"
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl"
 import json
 import sys
 
 dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
-status = int(sys.argv[3])
 
-assert status == 1
 assert dispatch["state"]["active"] is False
-assert dispatch["state"]["close_status"] == "failed"
-assert dispatch["state"]["close_reason"] == "heartbeat_dispatch_timeout"
-assert any(event["type"] == "HeartbeatDispatchTimedOut" for event in events)
+assert dispatch["state"]["close_status"] == "completed"
+assert dispatch["state"]["close_reason"] in ("", None)
+assert not any(event["type"] == "HeartbeatDispatchTimedOut" for event in events[-20:])
 PY
 then
-    pass "heartbeat dispatch timeout closes explicitly instead of stalling"
+    pass "heartbeat timeout env no longer kills long beats"
 else
-    fail "heartbeat dispatch timeout closes explicitly instead of stalling"
+    fail "heartbeat timeout env no longer kills long beats"
 fi
 
 echo ""

@@ -1446,6 +1446,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "search_runtime": request.get("search_runtime", {}),
         "search_protocol": request.get("search_protocol", {}),
         "epistemic_protocol": request.get("epistemic_protocol", {}),
+        "exploration_pack": request.get("exploration_pack", {}),
         "claims_summary": request.get("claims_summary", {}),
         "orphan_claims_summary": request.get("orphan_claims_summary", {}),
         "primitives_status": request.get("primitives_status", {}),
@@ -1476,12 +1477,10 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         f"{heartbeat_contract}"
         "The `operator_pressure_digest` captures recent operator signal only. The `beat_launch_context` is the ephemeral composition of that operator signal with current edge-state signals and the exploration budget for this beat. Treat those two together as the launch frame for what matters now.\n\n"
         "Prefer `edge-cap invoke <capability> -- ...` over direct CLI/tool calls when a capability exists in `capabilities_status`.\n\n"
-        "Before any substantive decision, synthesis, or artifact drafting in non-heartbeat skills, follow the runtime decision protocol:\n"
-        "1. Run the required search protocol to consult live memory (`topic`, `workflow`, `memory`) and external sources when available.\n"
-        "2. Produce explicit Feynman checkpoints: plain language, first-principles derivation, and a clear boundary of what is still unknown.\n"
-        "3. Adversarially interpret the first round, then run at least one more search round guided by the contradictions and unknowns.\n"
-        "4. Use `edge-search` as often as needed. If internal corpus coverage is still missing and external source fan-out fails or returns nothing useful, use the configured web provider and say why. When builtin web search is policy-disabled, do not call `WebSearch`/`WebFetch` directly unless runtime has explicitly unlocked the fallback window.\n"
-        "5. Configured integrations may exist without a capability binding; those are visible in `configured_integrations` / `unbound_integrations` and may be used ad hoc when explicitly needed, but they do not count as canonical capability use.\n\n"
+        "Before any substantive decision, synthesis, or artifact drafting in non-heartbeat skills, read `exploration_pack` first. "
+        "The runtime has already performed the mandatory read-only exploration loop: memory retrieval, source/signal fan-out, adversarial Feynman interpretation, and a targeted second round. "
+        "Use the pack as the minimum evidence base, surface its warnings, and only run additional search if the pack is missing, stale, or leaves a decision-blocking gap.\n"
+        "Configured integrations may exist without a capability binding; those are visible in `configured_integrations` / `unbound_integrations` and may be used ad hoc when explicitly needed, but they do not count as canonical capability use.\n\n"
         "```json\n"
         f"{json.dumps(summary, indent=2, ensure_ascii=False)}\n"
         "```"

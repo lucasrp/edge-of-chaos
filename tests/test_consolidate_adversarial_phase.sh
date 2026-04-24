@@ -94,7 +94,7 @@ export PATH="$TMP_BIN:$PATH"
 
 CONSOLIDATE="$EDGE_DIR/blog/consolidate-state.sh"
 EVENTS_FILE="$TMP_STATE/state/events/log.jsonl"
-LEGACY_EVENTS_FILE="$TMP_STATE/logs/events.jsonl"
+EVENTS_MIRROR_FILE="$TMP_STATE/logs/events.jsonl"
 
 echo "=== consolidate-state adversarial phase test ==="
 echo "Temp state: $TMP_STATE"
@@ -102,20 +102,25 @@ echo ""
 
 echo "--- Test 1: missing review.json triggers phase-0.3 generation ---"
 if "$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >/tmp/test-consolidate-adversarial.log 2>&1; then
-    if python3 - <<'PY' "$TMP_REPORT" "$LEGACY_EVENTS_FILE"
+    if python3 - <<'PY' "$TMP_REPORT" "$EVENTS_MIRROR_FILE"
 import json, pathlib, sys
 report = pathlib.Path(sys.argv[1])
 events_path = pathlib.Path(sys.argv[2])
 review = report.with_suffix(".review.json")
+feynman = pathlib.Path(str(report).replace(".yaml", ".feynman-review.json"))
 resolved = report.with_suffix(".resolved")
 assert review.exists(), "review.json missing"
+assert feynman.exists(), "feynman-review.json missing"
 assert resolved.exists(), "resolved marker missing"
 events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
 steps = [e for e in events if e.get("type") == "run_step"]
 phase03 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.3"]
+phase045 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.45"]
 phase05 = [(e["phase"], e["status"]) for e in steps if e["phase"] == "phase-0.5"]
 assert ("phase-0.3", "started", "adversarial_review") in phase03
 assert ("phase-0.3", "completed", "adversarial_review_generated") in phase03
+assert ("phase-0.45", "started", "feynman_judge") in phase045
+assert ("phase-0.45", "completed", "feynman_judge") in phase045
 assert ("phase-0.5", "started") in phase05
 assert ("phase-0.5", "completed") in phase05
 PY
@@ -135,7 +140,7 @@ set +e
 "$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >/tmp/test-consolidate-adversarial.log 2>&1
 STATUS=$?
 set -e
-if python3 - <<'PY' "$STATUS" "$LEGACY_EVENTS_FILE"
+if python3 - <<'PY' "$STATUS" "$EVENTS_MIRROR_FILE"
 import json, sys, pathlib
 status = int(sys.argv[1])
 events_path = pathlib.Path(sys.argv[2])

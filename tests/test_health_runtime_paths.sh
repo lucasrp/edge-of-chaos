@@ -8,6 +8,7 @@ TMP_STATE="$TMP_BASE/state"
 TMP_BIN="$TMP_BASE/bin"
 TMP_REPO="$TMP_BASE/heartbeat-repo"
 TMP_STATE_HEARTBEAT="$TMP_BASE/heartbeat-state"
+TMP_INSTALL="$TMP_BASE/materialized-install"
 PASS=0
 FAIL=0
 
@@ -19,7 +20,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$TMP_HOME" "$TMP_STATE" "$TMP_BIN" "$TMP_REPO/config" "$TMP_REPO/tools" "$TMP_REPO/bin" "$TMP_STATE_HEARTBEAT"
+mkdir -p "$TMP_HOME" "$TMP_STATE" "$TMP_BIN" "$TMP_REPO/config" "$TMP_REPO/tools" "$TMP_REPO/bin" "$TMP_STATE_HEARTBEAT" "$TMP_INSTALL"
 
 echo "=== health/heartbeat path split Smoke Test ==="
 
@@ -59,6 +60,20 @@ if env HOME="$TMP_HOME" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" ba
   else
     pass "sqlite3 unavailable; sqlite path assertion skipped"
   fi
+
+  cat >"$TMP_INSTALL/agent.yaml" <<'YAML'
+codename: materialized-test
+YAML
+  if env HOME="$TMP_HOME" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" REPO_ROOT="$TMP_INSTALL" bash "$EDGE_DIR/bin/check-infra.sh" >/dev/null 2>&1; then
+    git_status=$(jq -r '.status' "$TMP_STATE/health/raw/git.json" 2>/dev/null || echo "missing")
+  else
+    git_status="missing"
+  fi
+  if [[ "$git_status" == "unknown" ]]; then
+    pass "check-infra treats materialized installs without .git as unknown"
+  else
+    fail "check-infra git status unexpected: $git_status"
+  fi
 else
   fail "check-infra execution failed"
 fi
@@ -84,7 +99,7 @@ EOF
 chmod +x "$TMP_BIN/edge-index"
 
 if env PATH="$TMP_BIN:/usr/bin:/bin" HOME="$TMP_HOME" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" bash "$EDGE_DIR/bin/edge-repair.sh" >/dev/null 2>&1; then
-  expected="$TMP_STATE/blog/entries/ $TMP_STATE/reports/ $TMP_STATE/notes/"
+  expected="$TMP_STATE/blog/entries/ $TMP_STATE/reports/ $TMP_STATE/notes/ $TMP_STATE/topics/"
   actual="$(cat "$TMP_BASE/edge-index.args" 2>/dev/null || true)"
   if [[ "$actual" == "$expected" ]]; then
     pass "edge-repair reindexes state-root content"

@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "_shared"))
 from intervals import parse_interval  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-_LEGACY_ROUTER_DEFAULTS = {
+_ROUTER_FALLBACK_DEFAULTS = {
     "chat": {
         "base_url": "https://api.openai.com/v1",
         "secret_ref": "openai.env:OPENAI_API_KEY",
@@ -89,7 +89,7 @@ def _render_checklist(items: list[str], fallback: str) -> str:
 def _render_pre_skill(context: list[str], procedure: list[str]) -> str:
     """Render pre-skill split into context (injected knowledge) and procedure
     (pre-beat actions) subsections. When only one is populated, render a flat
-    list — matches legacy behavior for agents that haven't migrated to #83.
+    list for compact output.
     """
     if not context and not procedure:
         return "_(no pre-skill actions configured — add items to `pre_skill_context` or `pre_skill_procedure` in agent.yaml)_"
@@ -104,7 +104,7 @@ def _render_pre_skill(context: list[str], procedure: list[str]) -> str:
             "\n".join(f"- {item}" for item in procedure),
         ]
         return "\n".join(parts)
-    # Only one populated — flat list (legacy-compatible output).
+    # Only one populated — flat list.
     items = context or procedure
     return "\n".join(f"- {item}" for item in items)
 
@@ -117,7 +117,7 @@ def _render_preflight_protocol(cfg: dict) -> str:
     payload = {
         "version": 1,
         "protocol": "preflight",
-        "context_notes": list(cfg["pre_skill_context"]),
+        "context_notes": list(cfg["agent_mandates"]) + list(cfg["pre_skill_context"]),
         "operator_notes": list(cfg["pre_skill_procedure"]),
         "procedures": [
             {"id": "health-snapshot", "kind": "health.snapshot"},
@@ -140,7 +140,7 @@ def _render_postflight_protocol(cfg: dict) -> str:
         "version": 1,
         "protocol": "postflight",
         "context_notes": [],
-        "operator_notes": list(cfg["post_skill"]),
+        "operator_notes": list(cfg["fan_out"]),
         "procedures": [
             {"id": "validate-recent", "kind": "validate.recent"},
             {"id": "claims-refresh", "kind": "claims.refresh"},
@@ -188,7 +188,7 @@ def _resolve_runtime_routers(cfg: dict) -> dict[str, dict]:
         return routers
 
     resolved: dict[str, dict] = {}
-    for purpose, spec in _LEGACY_ROUTER_DEFAULTS.items():
+    for purpose, spec in _ROUTER_FALLBACK_DEFAULTS.items():
         model = spec["model_default"]
         model_key = spec["model_key"]
         if model_key and cfg.get(model_key):
@@ -233,10 +233,8 @@ def load_agent_yaml(path: Path) -> dict:
         sys.exit(1)
 
     # Normalize pre_skill_context / pre_skill_procedure / pre_skill.
-    #
-    # Schema (#83): prefer the split fields. Legacy `pre_skill` still works —
-    # when it's the only one set, its items are treated as procedure by default,
-    # preserving the rendered output for agents that haven't migrated.
+    # Prefer the split fields. If only `pre_skill` is set, treat it as
+    # procedure by default.
     def _normalize_list(val):
         if val is None:
             return []
@@ -246,7 +244,10 @@ def load_agent_yaml(path: Path) -> dict:
 
     pre_context = _normalize_list(cfg.get("pre_skill_context"))
     pre_procedure = _normalize_list(cfg.get("pre_skill_procedure"))
-    pre_legacy = _normalize_list(cfg.get("pre_skill"))
+    pre_alias = _normalize_list(cfg.get("pre_skill"))
+    cfg["agent_mandates"] = [
+        item for item in _normalize_list(cfg.get("agent_mandates")) if str(item).strip()
+    ]
 
     # Normalize `routines:` (free-form operator-authored workflows, #90).
     # Rendered later by edge-apply's phase_routines — here we just preserve
@@ -261,7 +262,7 @@ def load_agent_yaml(path: Path) -> dict:
     # No install-time resolution against a catalog. Primitives are born from
     # demand, not speculation.
     #
-    # Also accepts plain strings for backward compat (name only, no description).
+    # Also accepts plain strings (name only, no description).
     raw_sources = cfg.get("sources") or []
     if not isinstance(raw_sources, list):
         raw_sources = [raw_sources]
@@ -284,21 +285,25 @@ def load_agent_yaml(path: Path) -> dict:
             continue
         cfg["sources"].append({"name": name, "description": desc})
 
-    # Legacy compat: if only `pre_skill` is set, map it into procedure.
-    if pre_legacy and not pre_context and not pre_procedure:
-        pre_procedure = pre_legacy
-        pre_legacy = []
+    # If only `pre_skill` is set, map it into procedure.
+    if pre_alias and not pre_context and not pre_procedure:
+        pre_procedure = pre_alias
+        pre_alias = []
 
     cfg["pre_skill_context"] = pre_context
     cfg["pre_skill_procedure"] = pre_procedure
     # `pre_skill` kept as the combined list for any downstream consumer that
     # still reads it as a flat sequence (docs, old tooling, etc.).
-    cfg["pre_skill"] = list(pre_context) + list(pre_procedure) + list(pre_legacy)
+    cfg["pre_skill"] = list(pre_context) + list(pre_procedure) + list(pre_alias)
 
     post = cfg.get("post_skill", [])
     if isinstance(post, str):
         post = [post] if post.strip() else []
     cfg["post_skill"] = post
+    fan_out = cfg.get("fan_out", post)
+    if isinstance(fan_out, str):
+        fan_out = [fan_out] if fan_out.strip() else []
+    cfg["fan_out"] = [item for item in list(fan_out or []) if str(item).strip()]
     cfg["routers"] = _resolve_runtime_routers(cfg)
 
     # Apply smart defaults
