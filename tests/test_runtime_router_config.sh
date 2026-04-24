@@ -61,6 +61,7 @@ edge_dir, config_path, tmp_base = sys.argv[1:]
 repo = Path(tmp_base) / "render-repo"
 (repo / "config").mkdir(parents=True, exist_ok=True)
 (repo / "config" / "runtime-routers.yaml.tpl").write_text("{{ RUNTIME_ROUTERS_FILE }}\n", encoding="utf-8")
+(repo / "config" / "postflight.yaml.tpl").write_text("{{ POSTFLIGHT_PROTOCOL_YAML }}\n", encoding="utf-8")
 
 os.environ["EDGE_STATE_DIR"] = str(Path(tmp_base) / "render-state")
 os.environ["EDGE_CYCLE_ID"] = "install:test-runtime-routers-render"
@@ -78,11 +79,13 @@ mod.render_all(repo, placeholders, dry_run=False)
 payload = yaml.safe_load((repo / "config" / "runtime-routers.yaml").read_text(encoding="utf-8"))
 assert payload["routers"]["review"]["base_url"] == "https://api.x.ai/v1"
 assert payload["routers"]["chat"]["model"] == "gpt-5.4"
+postflight = yaml.safe_load((repo / "config" / "postflight.yaml").read_text(encoding="utf-8"))
+assert any(item["kind"] == "source_affordance.digest" for item in postflight["procedures"])
 PY
 then
-    pass "edge-render materializes runtime-routers.yaml"
+    pass "edge-render materializes runtime routers and source affordance postflight"
 else
-    fail "edge-render materializes runtime-routers.yaml"
+    fail "edge-render materializes runtime routers and source affordance postflight"
 fi
 
 echo "--- Test 2: router_client reads runtime routers without agent.yaml ---"

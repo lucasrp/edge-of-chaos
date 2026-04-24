@@ -147,6 +147,7 @@ def _render_postflight_protocol(cfg: dict) -> str:
             {"id": "primitives-status", "kind": "primitives.status"},
             {"id": "capabilities-status", "kind": "capabilities.status"},
             {"id": "workflow-status", "kind": "workflow.status"},
+            {"id": "source-affordances", "kind": "source_affordance.digest"},
             {"id": "curation-digest", "kind": "curation.digest"},
             {"id": "briefing-refresh", "kind": "briefing.refresh"},
             {"id": "cycle-health-observe", "kind": "cycle_health.observe"},
