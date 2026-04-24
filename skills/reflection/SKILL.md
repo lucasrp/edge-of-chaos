@@ -219,8 +219,9 @@ This creates a `workflow` entry immediately (operator authority = approval). The
   from reflection unless reflection itself is the dispatched skill responsible
   for that action.
 
-**DO NOT mark as processed manually** — `edge-close` consumes the captured
-message ids only after the cycle completes successfully.
+**DO NOT mark as processed manually** — `async_inbox.respond` in postflight
+posts the final dashboard acknowledgement and consumes captured message ids
+only after the cycle reaches completion evidence.
 
 ### HN-5: State drift check + skill step completion
 
