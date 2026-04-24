@@ -10,6 +10,23 @@ The heartbeat is a router, not a worker.
 
 Its job is to choose the next internal skill and dispatch it quickly.
 
+## Direct Slash Re-entry
+
+If `EDGE_CYCLE_ID` is empty, this slash command was invoked directly inside
+Claude instead of through `edge-runner`. Do not open a cycle manually in that
+case. Re-enter through the canonical wrapper so the parent runner owns
+preflight, dispatch, follow-on skill execution, postflight, and foreground
+output:
+
+```bash
+if [ -z "${EDGE_CYCLE_ID:-}" ]; then
+  EDGE_HEARTBEAT_FOREGROUND=1 ~/.local/bin/heartbeat.sh
+fi
+```
+
+After that command returns, stop. Do not call `edge-dispatch open`,
+`edge-dispatch dispatch`, or `edge-close` from the direct slash process.
+
 ## What The Runtime Already Did
 
 By the time this skill starts, the runtime already handled the mechanical layer:
@@ -145,29 +162,9 @@ Direct `/ed-heartbeat` invocation is still a full beat.
 
 It is not a preview and not a planning-only mode.
 
-The heartbeat still must dispatch one internal skill and let the normal lifecycle continue.
-
-If `EDGE_CYCLE_ID` is empty, open the fallback lifecycle before routing:
-
-```bash
-if [ -z "${EDGE_CYCLE_ID:-}" ]; then
-  edge-dispatch open \
-    --trigger heartbeat \
-    --policy autonomous \
-    --routing-mode auto \
-    --preflight-profile heartbeat_default \
-    --postflight-profile standard \
-    --force
-fi
-```
-
-If this direct invocation path opened the fallback lifecycle itself, close it through the normal closer after the beat completes:
-
-```bash
-if [ -z "${EDGE_CYCLE_ID:-}" ]; then
-  edge-close --status completed
-fi
-```
+The heartbeat still must run through the normal lifecycle. Direct slash
+invocation re-enters via `~/.local/bin/heartbeat.sh`; it does not manually
+manage the lifecycle.
 
 ## Router-only rule:
 
