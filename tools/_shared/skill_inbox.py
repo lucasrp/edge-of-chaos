@@ -22,12 +22,12 @@ sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "search"))
 
 def _load_dashboard_chat_api():
     if os.environ.get("EDGE_SKILL_INBOX_FORCE_SUBPROCESS") == "1":
-        return None, None
+        return None, None, None
     try:
-        from dashboard_db import get_chats, mark_chat_processed  # type: ignore
+        from dashboard_db import add_chat, get_chats, mark_chat_processed  # type: ignore
     except Exception:
-        return None, None
-    return get_chats, mark_chat_processed
+        return None, None, None
+    return get_chats, add_chat, mark_chat_processed
 
 
 def _search_python() -> str | None:
@@ -53,7 +53,7 @@ search_dir = Path(sys.argv[1])
 payload = json.loads(sys.argv[2])
 sys.path.insert(0, str(search_dir))
 
-from dashboard_db import get_chats, mark_chat_processed
+from dashboard_db import add_chat, get_chats, mark_chat_processed
 
 action = str(payload.get("action") or "").strip()
 if action == "snapshot":
@@ -68,6 +68,32 @@ elif action == "consume":
         mark_chat_processed(int(chat_id))
         processed.append(int(chat_id))
     print(json.dumps({"processed_ids": processed}))
+elif action == "respond_and_consume":
+    author = str(payload.get("author") or "system").strip() or "system"
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        raise SystemExit("response text is required")
+    reply_id = add_chat(author, text)
+    reply_processed = False
+    try:
+        mark_chat_processed(int(reply_id))
+        reply_processed = True
+    except Exception:
+        pass
+    processed = []
+    failed = []
+    for chat_id in payload.get("chat_ids") or []:
+        try:
+            mark_chat_processed(int(chat_id))
+            processed.append(int(chat_id))
+        except Exception:
+            failed.append(int(chat_id))
+    print(json.dumps({
+        "reply_id": reply_id,
+        "reply_processed": reply_processed,
+        "processed_ids": processed,
+        "failed_ids": failed,
+    }))
 else:
     raise SystemExit(f"unsupported action: {action}")
 """.strip()
@@ -97,6 +123,16 @@ def _preview(text: str, *, limit: int = 180) -> str:
     if len(blob) <= limit:
         return blob
     return blob[: limit - 1] + "…"
+
+
+def _captured_message_ids(snapshot: dict[str, Any]) -> list[int]:
+    ids: list[int] = []
+    for item in snapshot.get("message_ids") or []:
+        try:
+            ids.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return ids
 
 
 def _parse_kv_block(prefix: str, text: str) -> dict[str, str] | None:
@@ -211,7 +247,7 @@ def classify_message(message: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
 def build_async_inbox_snapshot(*, skill: str | None = None, limit: int = 200) -> dict[str, Any]:
     """Return the structured async inbox contract for the next skill."""
-    get_chats, _ = _load_dashboard_chat_api()
+    get_chats, _, _ = _load_dashboard_chat_api()
     if get_chats is None:
         payload = _dashboard_chat_via_subprocess({"action": "snapshot", "limit": limit}) or {}
         unprocessed = payload.get("unprocessed") or []
@@ -309,9 +345,9 @@ def consume_captured_inbox(state: dict[str, Any]) -> dict[str, Any]:
     """Mark captured async inbox messages as processed after a successful skill run."""
     request = state.setdefault("request", {})
     snapshot = request.get("async_inbox") or {}
-    ids = [int(item) for item in snapshot.get("message_ids", []) if str(item).strip()]
+    ids = _captured_message_ids(snapshot)
     processed_ids: list[int] = []
-    _, mark_chat_processed = _load_dashboard_chat_api()
+    _, _, mark_chat_processed = _load_dashboard_chat_api()
     if mark_chat_processed is None:
         payload = _dashboard_chat_via_subprocess({"action": "consume", "chat_ids": ids}) or {}
         processed_ids = [int(item) for item in payload.get("processed_ids") or [] if str(item).strip()]
@@ -331,6 +367,154 @@ def consume_captured_inbox(state: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "processed_ids": processed_ids,
+        "processed_count": len(processed_ids),
+        "captured_total": len(ids),
+    }
+
+
+def build_postflight_response_text(state: dict[str, Any], snapshot: dict[str, Any]) -> str:
+    """Build a concise dashboard response for captured async operator input."""
+    request = state.get("request", {}) or {}
+    cycle_id = state.get("cycle_id") or "unknown-cycle"
+    skill = request.get("skill") or snapshot.get("skill") or "unknown-skill"
+    direct = len(snapshot.get("direct_messages") or [])
+    task = len(snapshot.get("task_intents") or [])
+    steering = len(snapshot.get("steering_intents") or [])
+    runtime = len(snapshot.get("runtime_intents") or [])
+    captured_total = len(_captured_message_ids(snapshot))
+
+    lines = [
+        f"[postflight] Processed async dashboard input for cycle {cycle_id}.",
+        f"Skill: {skill}. Captured: {captured_total} message(s) "
+        f"(direct={direct}, task={task}, steering={steering}, runtime={runtime}).",
+        "The substantive result belongs to the generated artifact/report; late messages remain queued for the next cycle.",
+    ]
+
+    previews: list[str] = []
+    for bucket in ("direct_messages", "task_intents", "steering_intents", "runtime_intents"):
+        for item in snapshot.get(bucket) or []:
+            preview = str(item.get("preview") or item.get("text") or "").strip()
+            if preview:
+                previews.append(_preview(preview, limit=120))
+            if len(previews) >= 3:
+                break
+        if len(previews) >= 3:
+            break
+    if previews:
+        lines.append("Seen: " + " | ".join(previews))
+    return "\n".join(lines)
+
+
+def acknowledge_captured_inbox(state: dict[str, Any], *, author: str = "system") -> dict[str, Any]:
+    """Post a final dashboard acknowledgement, then consume captured user chat ids.
+
+    The captured dispatch snapshot is authoritative. Live chat is intentionally
+    not scanned here, so messages that arrive after dispatch remain pending for
+    the next cycle.
+    """
+    request = state.setdefault("request", {})
+    snapshot = request.get("async_inbox") or {}
+    ids = _captured_message_ids(snapshot)
+
+    if not ids:
+        return {
+            "ok": True,
+            "detail": "no captured async inbox messages",
+            "reply_posted": False,
+            "processed_ids": [],
+            "processed_count": 0,
+            "captured_total": 0,
+        }
+
+    if int(snapshot.get("processed_count") or 0) >= len(ids) and snapshot.get("response_chat_id"):
+        return {
+            "ok": True,
+            "detail": "captured async inbox already acknowledged",
+            "reply_posted": True,
+            "reply_id": snapshot.get("response_chat_id"),
+            "reply_processed": bool(snapshot.get("response_processed", False)),
+            "processed_ids": snapshot.get("processed_message_ids") or [],
+            "processed_count": int(snapshot.get("processed_count") or 0),
+            "captured_total": len(ids),
+        }
+
+    text = build_postflight_response_text(state, snapshot)
+    processed_ids: list[int] = []
+    failed_ids: list[int] = []
+    reply_id: int | None = None
+    reply_processed = False
+    _, add_chat, mark_chat_processed = _load_dashboard_chat_api()
+
+    try:
+        if add_chat is None or mark_chat_processed is None:
+            payload = _dashboard_chat_via_subprocess({
+                "action": "respond_and_consume",
+                "author": author,
+                "text": text,
+                "chat_ids": ids,
+            })
+            if not payload:
+                raise RuntimeError("dashboard chat API unavailable")
+            reply_id = int(payload.get("reply_id"))
+            reply_processed = bool(payload.get("reply_processed", False))
+            processed_ids = [
+                int(item)
+                for item in payload.get("processed_ids") or []
+                if str(item).strip()
+            ]
+            failed_ids = [
+                int(item)
+                for item in payload.get("failed_ids") or []
+                if str(item).strip()
+            ]
+        else:
+            reply_id = int(add_chat(author, text))
+            try:
+                mark_chat_processed(reply_id)
+                reply_processed = True
+            except Exception:
+                pass
+            for chat_id in ids:
+                try:
+                    mark_chat_processed(chat_id)
+                    processed_ids.append(chat_id)
+                except Exception:
+                    failed_ids.append(chat_id)
+    except Exception as exc:
+        snapshot["response_error"] = str(exc)
+        request["async_inbox"] = snapshot
+        return {
+            "ok": False,
+            "detail": f"async inbox response failed: {exc}",
+            "reply_posted": reply_id is not None,
+            "reply_id": reply_id,
+            "reply_processed": reply_processed,
+            "processed_ids": processed_ids,
+            "failed_ids": failed_ids,
+            "processed_count": len(processed_ids),
+            "captured_total": len(ids),
+        }
+
+    now = now_iso()
+    snapshot["response_posted_at"] = now
+    snapshot["response_chat_id"] = reply_id
+    snapshot["response_author"] = author
+    snapshot["response_processed"] = reply_processed
+    snapshot["response_text_preview"] = _preview(text)
+    snapshot["processed_at"] = now
+    snapshot["processed_message_ids"] = processed_ids
+    snapshot["processed_count"] = len(processed_ids)
+    request["async_inbox"] = snapshot
+
+    ok = reply_processed and len(processed_ids) == len(ids)
+    return {
+        "ok": ok,
+        "detail": f"reply_id={reply_id} reply_processed={reply_processed} processed={len(processed_ids)}/{len(ids)}",
+        "reply_posted": True,
+        "reply_id": reply_id,
+        "reply_processed": reply_processed,
+        "processed_ids": processed_ids,
+        "failed_ids": failed_ids,
         "processed_count": len(processed_ids),
         "captured_total": len(ids),
     }

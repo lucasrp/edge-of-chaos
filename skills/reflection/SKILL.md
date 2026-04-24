@@ -433,7 +433,8 @@ If found:
 - Execute changes
 - Mark as `[PROCESSED]`
 
-Read async chat (HN-4) — classify but DO NOT respond.
+Read async chat (HN-4) — classify it, but do not manually acknowledge or mark
+it processed; postflight owns the final dashboard acknowledgement.
 
 ### M-7: Evaluate pending discoveries
 

@@ -25,6 +25,7 @@ from _shared.capability_runtime import build_capability_status, invoke_capabilit
 from _shared.dispatch_runtime import read_dispatch_state, write_dispatch_state  # noqa: E402
 from _shared.health_runtime import observe_cycle_health_events  # noqa: E402
 from _shared.protocol_runtime import emit_protocol_step_observed, ensure_compiled_protocol, protocol_context  # noqa: E402
+from _shared.skill_inbox import acknowledge_captured_inbox  # noqa: E402
 from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
 from _shared.workflow_runtime import build_workflow_status  # noqa: E402
 
@@ -351,6 +352,19 @@ def _execute_postflight_step(step: dict[str, Any], state: dict[str, Any]) -> dic
             extra={"payload": observations},
         )
 
+    if kind == "async_inbox.respond":
+        result = acknowledge_captured_inbox(state)
+        ok = bool(result.get("ok", False))
+        status = "ok" if ok else "warning"
+        append_postskill_log("async_inbox_response", "OK" if ok else "WARN", str(result.get("detail") or ""))
+        return _protocol_step(
+            step,
+            status=status,
+            satisfied=ok,
+            detail=str(result.get("detail") or ""),
+            extra={"payload": result},
+        )
+
     if kind == "capability.probe":
         capability_name = str(step.get("capability") or "")
         try:
@@ -439,6 +453,7 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
     workflows_payload: dict[str, Any] = {}
     capabilities_payload: dict[str, Any] = {}
     curation_payload: dict[str, Any] = {}
+    async_inbox_payload: dict[str, Any] = {}
     warning_seen = False
 
     for step in protocol.get("procedures") or []:
@@ -479,6 +494,8 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
             capabilities_payload = payload
         elif kind == "curation.digest" and isinstance(payload, dict):
             curation_payload = payload
+        elif kind == "async_inbox.respond" and isinstance(payload, dict):
+            async_inbox_payload = payload
 
     digest = claims_payload.get("digest") or {}
     orphans = claims_payload.get("orphans") or {}
@@ -546,6 +563,15 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
         }
     if curation_payload:
         request["curation_digest"] = curation_payload
+    if async_inbox_payload:
+        request["async_inbox_response"] = {
+            "ok": bool(async_inbox_payload.get("ok", False)),
+            "reply_posted": bool(async_inbox_payload.get("reply_posted", False)),
+            "reply_id": async_inbox_payload.get("reply_id"),
+            "processed_count": int(async_inbox_payload.get("processed_count", 0) or 0),
+            "captured_total": int(async_inbox_payload.get("captured_total", 0) or 0),
+            "detail": async_inbox_payload.get("detail") or "",
+        }
 
     delta = compute_delta(
         before,
@@ -565,6 +591,11 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
             "stale_candidates": int((curation_payload.get("corpus") or {}).get("stale_candidates", 0) or 0),
             "procedure_candidates": int((curation_payload.get("procedures") or {}).get("candidate_total", 0) or 0),
         } if curation_payload else {},
+        "async_inbox": {
+            "reply_posted": bool(async_inbox_payload.get("reply_posted", False)),
+            "processed_count": int(async_inbox_payload.get("processed_count", 0) or 0),
+            "captured_total": int(async_inbox_payload.get("captured_total", 0) or 0),
+        } if async_inbox_payload else {},
     }
 
     if failed_steps or warning_seen:

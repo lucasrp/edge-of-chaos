@@ -151,6 +151,7 @@ def _render_postflight_protocol(cfg: dict) -> str:
             {"id": "curation-digest", "kind": "curation.digest"},
             {"id": "briefing-refresh", "kind": "briefing.refresh"},
             {"id": "cycle-health-observe", "kind": "cycle_health.observe"},
+            {"id": "async-inbox-response", "kind": "async_inbox.respond"},
         ],
     }
     return _render_protocol_yaml(payload)
