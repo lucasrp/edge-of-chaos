@@ -143,10 +143,7 @@ cat >"$TMP_STATE/state/events/log.jsonl" <<'JSONL'
 {"ts":"2026-04-23T11:02:00+00:00","type":"PostflightFailed","cycle_id":"cycle-2","payload":{}}
 {"ts":"2026-04-23T10:05:00+00:00","type":"ThreadTouched","payload":{"thread_id":"alpha-thread"}}
 {"ts":"2026-04-22T10:05:00+00:00","type":"ClaimPromotedToThread","payload":{"claim_id":"claim-x"}}
-{"ts":"2026-04-23T10:06:00+00:00","type":"WorkflowRecommended","payload":{"slug":"2026-04-01-sources-research-consult-report"}}
-{"ts":"2026-04-23T10:07:00+00:00","type":"WorkflowRecommended","payload":{"slug":"2026-04-01-stale-playwright-validation"}}
 {"ts":"2026-04-23T10:08:00+00:00","type":"WorkflowUsedObserved","payload":{"slug":"2026-04-01-sources-research-consult-report"}}
-{"ts":"2026-04-23T10:09:00+00:00","type":"WorkflowIgnoredObserved","payload":{"slug":"2026-04-01-stale-playwright-validation"}}
 {"ts":"2026-04-23T10:10:00+00:00","type":"PrimitiveManifestUpdated","payload":{"source":"grafana"}}
 {"ts":"2026-04-23T10:11:00+00:00","type":"PrimitiveMaterialized","payload":{"source":"grafana"}}
 {"ts":"2026-04-23T10:12:00+00:00","type":"PrimitiveProbeCompleted","payload":{"source":"grafana","ok":true}}
@@ -174,10 +171,10 @@ if env HOME="$TMP_HOME" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" py
   else
     fail "runtime_flow did not capture heartbeat timeouts"
   fi
-  if [[ "$(jq -r '.dimensions.workflows.metrics.ignored_30d' "$TMP_STATE/health/current.json")" == "1" ]]; then
-    pass "workflow dimension captured ignored recommendations"
+  if [[ "$(jq -r '.dimensions.workflows.metrics.citation_events_30d' "$TMP_STATE/health/current.json")" == "1" ]]; then
+    pass "workflow dimension captured workflow citation events"
   else
-    fail "workflow ignored count wrong"
+    fail "workflow citation count wrong"
   fi
   if [[ "$(jq -r '.dimensions.substrate_discipline.metrics.primitive_bypass_30d' "$TMP_STATE/health/current.json")" == "1" ]]; then
     pass "substrate discipline captured primitive bypass"

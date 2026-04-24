@@ -1,10 +1,10 @@
 ---
 name: ed-autonomy
-description: "Evaluate, propose, act. Reads actual runtime state, proposes changes to the agent's phenotype (primitives, workflows, policies, config projections), and materializes primitives on demand. Meta-skill — heartbeat triggers based on gaps, patterns, or waste detected in usage data."
+description: "Evaluate, workflow, act. Reads actual runtime state, improves primitives and agent-owned search/signal workflows, and materializes primitives on demand. It does not create skill proposals."
 user-invocable: true
 ---
 
-# Autonomy — Evaluate, Propose, Act
+# Autonomy — Evaluate, Workflow, Act
 
 Autonomy is the self-evolution skill.
 
@@ -19,9 +19,9 @@ It still produces a full-rite artifact every dispatch. Follow
 ## The Job
 
 1. **Evaluate** the current phenotype from read models
-2. **Propose** at most one new change per beat
+2. **Improve workflows** for agent-owned search/signal behavior
 3. **Act** automatically when the scope is local and reversible
-4. **Document** what changed, what remains missing, and what should wait
+4. **Document** what changed, what remains missing, and what should wait for human directive
 
 ---
 
@@ -66,14 +66,15 @@ Important statuses:
 Use `manifest_status` and `problems` for the distinction between a merely
 declared source and a contract-written source that still is not activated.
 
-### 2. Proposal pool
+### 2. Source affordance digest
 
 Read:
 
-- `state/proposals.json`
+- `state/source-affordance-digest.json`
 
-Use it to strengthen, revise, or remove existing proposals before creating a
-new one.
+Use it to decide which atomic sources/channels work for which affordances
+(`novelty`, `confirmation`, `continuity`, `operational_signal`, etc.).
+The unit of learning is the source/channel, not the wrapper.
 
 ### 3. Operational signals
 
@@ -81,7 +82,7 @@ Read the relevant signals and current context:
 
 - `~/edge/briefing.md`
 - `state/signals/`
-- recent artifacts when a proposal depends on concrete prior evidence
+- recent artifacts when a workflow decision depends on concrete prior evidence
 
 Prefer the digested state first. Read raw files only when you need details.
 
@@ -89,11 +90,12 @@ Prefer the digested state first. Read raw files only when you need details.
 
 ## Decision Policy
 
-### Proposal limits
+### Workflow limits
 
-- max 3 active proposals total
-- max 1 new proposal in this run
-- proposals need: what, why, evidence, cost
+- no skill proposals
+- no new `state/proposals.json` entries from autonomy
+- max 1 workflow change or primitive materialization per run
+- workflow changes need: what, why, evidence, cost
 
 ### Approval rules
 
@@ -101,7 +103,10 @@ Prefer the digested state first. Read raw files only when you need details.
 |---|---|
 | Create or improve local primitive | Auto |
 | Add or remove source | Auto |
-| Propose workflow | Auto |
+| Record source/channel affordance grade | Auto |
+| Update agent-owned search/signal workflow | Auto |
+| Propose or create a new skill | Not allowed |
+| Create a general proposal | Human |
 | Modify runtime protocol procedure (`preflight.yaml`) | Human |
 | Modify runtime protocol context (`preflight.yaml`) | Human |
 | External action | Human |
@@ -158,8 +163,8 @@ Strong autonomy candidates:
 - `degraded` primitives with real usage pressure
 - `active` primitives never probed
 - `broken` or `degraded` primitives affecting current work
-- workflows repeatedly rediscovered in artifacts
-- stale proposals that no longer have evidence
+- source/channel affordances repeatedly confirmed by ODIs
+- search/signal workflows repeatedly rediscovered in artifacts
 
 Weak candidates:
 
@@ -183,17 +188,18 @@ Later, autonomy should mostly:
 - harden frequently used primitives
 - probe what exists
 - remove drift
-- consolidate repeated operator patterns into workflows
+- consolidate repeated search/signal patterns into workflows
 
 ---
 
 ## Anti-Gaming
 
 - More agency does not mean more surface area every beat.
-- A removed proposal is often healthier than a forced one.
 - Repeated operator rejection means calibration is off.
 - Primitive work without evidence from `edge-cap status --json` or
   recent usage is weak.
+- Do not convert uncertainty into a skill proposal. Convert repeated search or
+  signal evidence into workflow learning, or leave it for human directive.
 
 ---
 
@@ -201,6 +207,7 @@ Later, autonomy should mostly:
 
 - Do not hand-edit `state/sources-manifest.yaml` when lifecycle commands exist.
 - Do not infer primitive health from one file when the read model exists.
-- Do not create more than one new proposal in a run.
+- Do not create skill proposals.
+- Do not create new `state/proposals.json` entries.
 - Do not escalate to human approval for things that are explicitly auto-local.
 - Do not skip the full artifact rite when autonomy makes a real change.

@@ -433,6 +433,103 @@ def log_source_query(
     )
 
 
+def make_odi_id(source_id: str, *parts: Any) -> str:
+    """Create an output-data-item id for one primitive result."""
+    raw = json.dumps([source_id, *parts], ensure_ascii=False, sort_keys=True, default=str)
+    return f"odi:{sha256(raw.encode('utf-8')).hexdigest()[:16]}"
+
+
+def log_odi_observed(
+    odi_id: str,
+    *,
+    source_id: str,
+    primitive: str,
+    context: str,
+    query: str = "",
+    run_id: str = "",
+    title: str = "",
+    url: str = "",
+    rank: int | None = None,
+    score: float | int | None = None,
+    result_kind: str = "result",
+    metadata: dict[str, Any] | None = None,
+    **extra: Any,
+) -> None:
+    """Record one concrete output from an atomic source/channel.
+
+    ODIs are raw observations, not judgments. The agent grades them later with
+    SourceAffordanceEvaluated events.
+    """
+    source_id = str(source_id or "").strip()
+    odi_id = str(odi_id or "").strip()
+    if not source_id or not odi_id:
+        return
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    payload = {
+        "odi_id": odi_id,
+        "source_id": source_id,
+        "primitive": primitive,
+        "context": context,
+        "query": query,
+        "run_id": run_id,
+        "title": title,
+        "url": url,
+        "rank": rank,
+        "score": float(score) if score is not None else None,
+        "result_kind": result_kind,
+        "metadata": metadata or {},
+        **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+    }
+    log_event("odi_observed", **payload, cycle_id=extra.get("cycle_id"))
+    emit_shadow_event(
+        "OdiObserved",
+        actor=_detect_caller(),
+        cycle_id=extra.get("cycle_id"),
+        payload=payload,
+    )
+
+
+def log_source_affordance_evaluated(
+    source_id: str,
+    *,
+    affordance: str,
+    score: float | int,
+    context: str,
+    odi_id: str = "",
+    episode_id: str = "",
+    query: str = "",
+    reason: str = "",
+    **extra: Any,
+) -> None:
+    """Record the agent's contextual grade for one source/channel affordance."""
+    source_id = str(source_id or "").strip()
+    affordance = str(affordance or "").strip().lower().replace(" ", "_")
+    if not source_id or not affordance:
+        return
+    bounded_score = max(1.0, min(5.0, float(score or 0.0)))
+    extra.setdefault("skill", current_skill())
+    extra.setdefault("beat", current_beat())
+    payload = {
+        "source_id": source_id,
+        "affordance": affordance,
+        "score": bounded_score,
+        "context": context,
+        "odi_id": odi_id,
+        "episode_id": episode_id,
+        "query": query,
+        "reason": reason,
+        **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
+    }
+    log_event("source_affordance_evaluated", **payload, cycle_id=extra.get("cycle_id"))
+    emit_shadow_event(
+        "SourceAffordanceEvaluated",
+        actor=_detect_caller(),
+        cycle_id=extra.get("cycle_id"),
+        payload=payload,
+    )
+
+
 def _detect_caller() -> str:
     """Best-effort caller detection from sys.argv[0]."""
     try:
@@ -920,42 +1017,6 @@ def log_workflow_transition(
     )
 
 
-def log_workflow_recommended(
-    slug: str,
-    *,
-    title: str = "",
-    source: str = "",
-    score: float | int = 0.0,
-    query: str = "",
-    **extra: Any,
-) -> None:
-    """Record that runtime recommended a workflow before the skill ran."""
-    extra.setdefault("skill", current_skill())
-    extra.setdefault("beat", current_beat())
-    log_event(
-        "workflow_recommended",
-        slug=slug,
-        title=title,
-        source=source,
-        score=float(score or 0.0),
-        query=query,
-        **extra,
-    )
-    emit_shadow_event(
-        "WorkflowRecommended",
-        actor=_detect_caller(),
-        cycle_id=extra.get("cycle_id"),
-        payload={
-            "slug": slug,
-            "title": title,
-            "source": source,
-            "score": float(score or 0.0),
-            "query": query,
-            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
-        },
-    )
-
-
 def log_workflow_observed(
     slug: str,
     *,
@@ -980,31 +1041,6 @@ def log_workflow_observed(
         payload={
             "slug": slug,
             "mode": mode,
-            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
-        },
-    )
-
-
-def log_workflow_ignored(
-    slug: str,
-    *,
-    reason: str,
-    **extra: Any,
-) -> None:
-    """Record that runtime recommended a workflow but the cycle did not cite it."""
-    log_event(
-        "workflow_ignored",
-        slug=slug,
-        reason=reason,
-        **extra,
-    )
-    emit_shadow_event(
-        "WorkflowIgnoredObserved",
-        actor=_detect_caller(),
-        cycle_id=extra.get("cycle_id"),
-        payload={
-            "slug": slug,
-            "reason": reason,
             **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
         },
     )
@@ -1068,10 +1104,11 @@ __all__ = [
     "log_primitive_probe_completed",
     "log_capability_invocation",
     "log_capability_probe_completed",
+    "make_odi_id",
+    "log_odi_observed",
+    "log_source_affordance_evaluated",
     "log_exploration_event",
-    "log_workflow_recommended",
     "log_workflow_observed",
-    "log_workflow_ignored",
     "time_primitive",
     "log_workflow_transition",
     "log_resolution",

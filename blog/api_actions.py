@@ -146,7 +146,6 @@ VALID_RUNTIME_ACTIONS = {
         "confirm-unstable",
         "codify-accepted",
         "codify-deferred",
-        "promote-proposal",
         "promote-task",
     },
 }

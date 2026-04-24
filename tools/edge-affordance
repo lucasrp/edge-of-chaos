@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""edge-affordance — record agent grades for atomic source/channel affordances."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import uuid
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.telemetry import log_source_affordance_evaluated  # noqa: E402
+
+
+def cmd_evaluate(args: argparse.Namespace) -> int:
+    episode_id = args.episode_id or f"episode:{uuid.uuid4().hex[:8]}"
+    log_source_affordance_evaluated(
+        args.source_id,
+        affordance=args.affordance,
+        score=args.score,
+        context=args.context,
+        odi_id=args.odi or "",
+        episode_id=episode_id,
+        query=args.query or "",
+        reason=args.reason or "",
+    )
+    payload = {
+        "ok": True,
+        "source_id": args.source_id,
+        "affordance": args.affordance,
+        "score": max(1.0, min(5.0, float(args.score))),
+        "context": args.context,
+        "odi_id": args.odi or "",
+        "episode_id": episode_id,
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        print(
+            f"recorded {payload['source_id']} affordance={payload['affordance']} "
+            f"score={payload['score']:.1f} episode={payload['episode_id']}"
+        )
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Record contextual grades for atomic sources/channels, not wrapper-level workflows."
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    evaluate = sub.add_parser("evaluate", help="Grade one source/channel for one affordance in context")
+    evaluate.add_argument("source_id", help="Atomic source/channel id, e.g. source.hn, source.x, signal.friction, search.note")
+    evaluate.add_argument("--affordance", required=True, help="Capability being graded, e.g. novelty, confirmation, continuity")
+    evaluate.add_argument("--score", required=True, type=float, help="Contextual score from 1 to 5")
+    evaluate.add_argument("--context", required=True, help="Why this source/channel was used")
+    evaluate.add_argument("--odi", default="", help="Optional ODI id that anchors the judgment")
+    evaluate.add_argument("--episode-id", default="", help="Optional larger search episode id")
+    evaluate.add_argument("--query", default="", help="Optional query/focus")
+    evaluate.add_argument("--reason", default="", help="Short reason for the grade")
+    evaluate.add_argument("--json", action="store_true")
+    evaluate.set_defaults(func=cmd_evaluate)
+
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

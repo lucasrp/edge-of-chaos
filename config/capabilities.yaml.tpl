@@ -38,15 +38,6 @@ capabilities:
     required: true
     skills: ["research", "discovery", "report", "planner", "strategy", "reflection", "autonomy"]
 
-  - name: workflow.recommend
-    kind: external_cli
-    description: Workflow recommendation surface over edge-workflows recommend.
-    command: ["edge-workflows", "recommend"]
-    passthrough: true
-    probe: ["edge-workflows", "status", "--json"]
-    required: true
-    skills: ["research", "report", "strategy", "planner", "reflection", "autonomy"]
-
   - name: repo.status
     kind: external_cli
     description: Git status wrapper for quick repo cleanliness and drift inspection.

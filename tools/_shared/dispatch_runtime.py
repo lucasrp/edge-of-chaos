@@ -37,8 +37,8 @@ from .protocol_runtime import emit_protocol_step_observed, ensure_compiled_proto
 from .search_runtime import search_runtime_summary  # noqa: E402
 from .signal_runtime import build_signal_context  # noqa: E402
 from .skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
-from .telemetry import emit_shadow_event, log_event, log_run_step, log_workflow_recommended  # noqa: E402
-from .workflow_runtime import build_workflow_status, recommend_workflows  # noqa: E402
+from .telemetry import emit_shadow_event, log_event, log_run_step  # noqa: E402
+from .workflow_runtime import build_workflow_status  # noqa: E402
 
 REQUEST_SCHEMA_VERSION = 1
 RECENT_DUPLICATE_HOURS = 36
@@ -471,7 +471,6 @@ def _edge_state_signals(request: dict[str, Any]) -> list[str]:
     inbox = request.get("async_inbox") or {}
     health = request.get("health_snapshot") or {}
     coverage = request.get("corpus_coverage") or {}
-    workflow_recommendations = request.get("workflow_recommendations") or []
     queue = request.get("dispatch_queue_summary") or {}
     onboarding = request.get("onboarding_summary") or {}
     capabilities = request.get("capabilities_status") or {}
@@ -493,9 +492,6 @@ def _edge_state_signals(request: dict[str, Any]) -> list[str]:
     missing_required = list(coverage.get("missing_required_types") or [])
     if missing_required:
         signals.append(f"Corpus coverage is missing required types: {', '.join(missing_required)}.")
-
-    if workflow_recommendations:
-        signals.append(f"There are {len(workflow_recommendations)} workflow recommendations available for the current query.")
 
     pending_queue = int(queue.get("pending_total", 0) or 0)
     if pending_queue > 0:
@@ -530,8 +526,6 @@ def _expected_state_change(request: dict[str, Any], operator_signal: list[str], 
     missing_required = list((request.get("corpus_coverage") or {}).get("missing_required_types") or [])
     if missing_required:
         changes.append(f"Close the missing corpus coverage for {', '.join(missing_required)} before irreversible synthesis or publication.")
-    if request.get("workflow_recommendations"):
-        changes.append("Either use the top workflow recommendation or explicitly reject it.")
     if not changes and edge_signal:
         changes.append("Leave the system in a more explicit and less ambiguous state than it started.")
     return _unique_compact_strings(changes)
@@ -599,21 +593,17 @@ def _primitives_status() -> dict[str, Any]:
     }
 
 
-def _workflow_status_and_recommendations(query: str | None, *, skill: str | None = None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _workflow_status() -> dict[str, Any]:
     status = build_workflow_status()
-    recommendations = recommend_workflows(query or "", skill=skill, limit=3)
-    return (
-        {
-            "workflow_total": status.get("summary", {}).get("workflow_total", 0),
-            "cited_total": status.get("summary", {}).get("cited_total", 0),
-            "broken_total": status.get("summary", {}).get("broken_total", 0),
-            "stale_total": status.get("summary", {}).get("stale_total", 0),
-            "top_used": status.get("summary", {}).get("top_used", []),
-            "top_broken": status.get("summary", {}).get("top_broken", []),
-            "source_path": str(WORKFLOW_HEALTH_FILE),
-        },
-        recommendations,
-    )
+    return {
+        "workflow_total": status.get("summary", {}).get("workflow_total", 0),
+        "cited_total": status.get("summary", {}).get("cited_total", 0),
+        "broken_total": status.get("summary", {}).get("broken_total", 0),
+        "stale_total": status.get("summary", {}).get("stale_total", 0),
+        "top_used": status.get("summary", {}).get("top_used", []),
+        "top_broken": status.get("summary", {}).get("top_broken", []),
+        "source_path": str(WORKFLOW_HEALTH_FILE),
+    }
 
 
 def _capabilities_status(skill: str | None = None) -> dict[str, Any]:
@@ -892,9 +882,9 @@ def _hours_since(value: str) -> float | None:
         return None
 
 
-def corpus_lookup(query: str | None, *, skill: str | None = None, corpus_policy: str = "warn") -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+def corpus_lookup(query: str | None, *, skill: str | None = None, corpus_policy: str = "warn") -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if not query:
-        return [], {"level": "none", "recent_hits": [], "reason": "no_query", "coverage": {"required": [], "optional": [], "required_covered": False, "missing_required_types": ["topic", "workflow", "memory"]}}, []
+        return [], {"level": "none", "recent_hits": [], "reason": "no_query", "coverage": {"required": [], "optional": [], "required_covered": False, "missing_required_types": ["topic", "workflow", "memory"]}}
 
     try:
         code, stdout, stderr = _run_subprocess(
@@ -919,9 +909,8 @@ def corpus_lookup(query: str | None, *, skill: str | None = None, corpus_policy:
             raise RuntimeError("edge-search did not return a JSON object")
         results = payload.get("results") or []
         coverage = payload.get("coverage") or {}
-        workflows = payload.get("workflows") or []
     except Exception as exc:
-        return [], {"level": "none", "recent_hits": [], "reason": f"search_failed:{exc}", "coverage": {"required": [], "optional": [], "required_covered": False, "missing_required_types": ["topic", "workflow", "memory"]}}, []
+        return [], {"level": "none", "recent_hits": [], "reason": f"search_failed:{exc}", "coverage": {"required": [], "optional": [], "required_covered": False, "missing_required_types": ["topic", "workflow", "memory"]}}
 
     hits = []
     recent_hits = []
@@ -999,43 +988,7 @@ def corpus_lookup(query: str | None, *, skill: str | None = None, corpus_policy:
         "recent_hits": recent_hits[:3],
         "coverage": coverage,
     }
-    workflow_recommendations = [
-        {
-            "slug": Path(str(item.get("path") or "")).stem,
-            "title": str(item.get("title") or Path(str(item.get("path") or "")).stem),
-            "path": str(item.get("path") or ""),
-            "score": round(float(item.get("score") or 0), 6),
-            "source": "search_sidecar",
-        }
-        for item in workflows or []
-    ][:3]
-    return hits[:6], duplicate_risk, workflow_recommendations
-
-
-def _record_workflow_recommendations(
-    recommendations: list[dict[str, Any]],
-    *,
-    query: str | None,
-    cycle_id: str | None,
-    stage: str,
-    profile: str,
-    skill: str | None,
-) -> None:
-    for item in recommendations:
-        slug = str(item.get("slug") or "").strip()
-        if not slug:
-            continue
-        log_workflow_recommended(
-            slug,
-            title=str(item.get("title") or ""),
-            source=str(item.get("source") or ""),
-            score=float(item.get("score") or 0.0),
-            query=query or "",
-            cycle_id=cycle_id,
-            stage=stage,
-            profile=profile,
-            skill=skill or "",
-        )
+    return hits[:6], duplicate_risk
 
 
 def _step_result(step: dict[str, Any], *, status: str, satisfied: bool, detail: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1161,7 +1114,7 @@ def _execute_preflight_step(
 
     if kind == "corpus.lookup":
         corpus_query = derive_corpus_query(skill, request.get("args", {}) or {}, primary_thread_id=request.get("primary_thread_id"))
-        hits, duplicate_risk, workflow_recommendations = corpus_lookup(
+        hits, duplicate_risk = corpus_lookup(
             corpus_query,
             skill=skill,
             corpus_policy=str(runtime_policy.get("corpus_policy") or "warn"),
@@ -1170,7 +1123,6 @@ def _execute_preflight_step(
         request["corpus_hits"] = hits
         request["duplicate_risk"] = duplicate_risk
         request["corpus_coverage"] = duplicate_risk.get("coverage") or {}
-        request["workflow_recommendations"] = workflow_recommendations[:3]
         query_state = "searched" if corpus_query else "missing"
         search_failed = str(duplicate_risk.get("reason") or "").startswith("search_failed:")
         coverage_missing = list((duplicate_risk.get("coverage") or {}).get("missing_required_types") or [])
@@ -1188,30 +1140,13 @@ def _execute_preflight_step(
         )
 
     if kind == "workflow.status":
-        corpus_query = request.get("corpus_query")
-        workflow_status, workflow_recommendations = _workflow_status_and_recommendations(corpus_query, skill=skill)
-        corpus_workflows = list(request.get("workflow_recommendations") or [])
-        if corpus_workflows:
-            workflow_recommendations = corpus_workflows + [
-                item
-                for item in workflow_recommendations
-                if str(item.get("slug") or "") not in {str(existing.get("slug") or "") for existing in corpus_workflows}
-            ]
+        workflow_status = _workflow_status()
         request["workflow_status"] = workflow_status
-        request["workflow_recommendations"] = workflow_recommendations[:3]
-        _record_workflow_recommendations(
-            request["workflow_recommendations"],
-            query=corpus_query,
-            cycle_id=state.get("cycle_id"),
-            stage=stage,
-            profile=str(state.get("state", {}).get("preflight_profile") or request.get("preflight_profile") or "standard"),
-            skill=skill,
-        )
         return _step_result(
             step,
             status="ok",
             satisfied=True,
-            detail=f"recommended={len(request['workflow_recommendations'])} broken={workflow_status.get('broken_total', 0)}",
+            detail=f"broken={workflow_status.get('broken_total', 0)} stale={workflow_status.get('stale_total', 0)}",
         )
 
     if kind == "queue.status":
@@ -1321,7 +1256,6 @@ def enrich_dispatch_state(
     request["linked_threads"] = [primary_thread_id] if primary_thread_id else []
     request.setdefault("duplicate_risk", {"level": "none", "recent_hits": [], "reason": "unchecked"})
     request.setdefault("corpus_coverage", {"required": [], "optional": [], "required_covered": False, "missing_required_types": ["topic", "workflow", "memory"]})
-    request.setdefault("workflow_recommendations", [])
     request.setdefault("corpus_hits", [])
     request.setdefault("configured_integrations", [])
     request.setdefault("unbound_integrations", [])
@@ -1378,7 +1312,6 @@ def enrich_dispatch_state(
         "orphans": orphan_summary.get("orphan_total", 0),
         "primitive_health": (request.get("primitives_status") or {}).get("health_status"),
         "capability_health": (request.get("capabilities_status") or {}).get("health_status"),
-        "workflow_recommendations": len(request.get("workflow_recommendations") or []),
         "queue_pending": (request.get("dispatch_queue_summary") or {}).get("pending_total", 0),
         "onboarding_pending": (request.get("onboarding_summary") or {}).get("pending_total", 0),
     }
@@ -1452,7 +1385,6 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "primitives_status": request.get("primitives_status", {}),
         "capabilities_status": request.get("capabilities_status", {}),
         "workflow_status": request.get("workflow_status", {}),
-        "workflow_recommendations": request.get("workflow_recommendations", [])[:3],
         "heartbeat_routing": request.get("heartbeat_routing", {}),
         "dispatch_queue_summary": request.get("dispatch_queue_summary", {}),
         "onboarding_summary": request.get("onboarding_summary", {}),

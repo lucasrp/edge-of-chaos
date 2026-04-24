@@ -23,7 +23,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 sys.path.insert(0, str(SCRIPT_DIR.parent / "tools"))
 from paths import TOOLS_DIR, SECRETS_DIR
-from _shared.telemetry import log_primitive_call, log_run_step, log_source_query
+from _shared.telemetry import make_odi_id, log_odi_observed, log_primitive_call, log_run_step, log_source_query
 from _shared.search_runtime import (
     clear_builtin_web_search_allowance,
     load_exa_api_key,
@@ -300,7 +300,7 @@ def pick_wildcard(selected_sources):
     return random.choice(candidates) if candidates else None
 
 
-def run_sources(topic, sources, max_workers=6):
+def run_sources(topic, sources, max_workers=6, *, run_id="", intent="", wildcard_src=None):
     """Run multiple sources concurrently."""
     import time as _time
     all_results = {}
@@ -320,9 +320,55 @@ def run_sources(topic, sources, max_workers=6):
                 all_results[src] = items
                 ok = bool(items) and not (len(items) == 1 and "error" in str(items[0].get("title", "")).lower())
                 log_primitive_call(src, ok=ok, latency_ms=dt_ms, notes={"topic": topic[:80], "n": len(items)})
+                source_id = f"source.{src}"
+                for index, item in enumerate(items or [], 1):
+                    odi_id = make_odi_id(
+                        source_id,
+                        run_id,
+                        topic,
+                        item.get("url") or "",
+                        item.get("title") or "",
+                        index,
+                    )
+                    item["odi_id"] = odi_id
+                    log_odi_observed(
+                        odi_id,
+                        source_id=source_id,
+                        primitive="edge-sources",
+                        context=intent or "research",
+                        query=topic,
+                        run_id=run_id,
+                        title=str(item.get("title") or "")[:240],
+                        url=str(item.get("url") or ""),
+                        rank=index,
+                        score=item.get("score"),
+                        result_kind="error" if "error" in str(item.get("title") or "").lower() else "source_result",
+                        metadata={
+                            "source_label": item.get("source") or src,
+                            "detail": str(item.get("detail") or "")[:300],
+                            "wildcard": src == wildcard_src,
+                            "latency_ms": dt_ms,
+                        },
+                    )
             except Exception as e:
                 all_results[src] = [{"title": f"{src} error: {e}", "url": "", "source": src, "detail": "", "score": 0}]
                 log_primitive_call(src, ok=False, latency_ms=dt_ms, notes={"topic": topic[:80], "err": str(e)[:120]})
+                source_id = f"source.{src}"
+                odi_id = make_odi_id(source_id, run_id, topic, "exception", str(e)[:120])
+                all_results[src][0]["odi_id"] = odi_id
+                log_odi_observed(
+                    odi_id,
+                    source_id=source_id,
+                    primitive="edge-sources",
+                    context=intent or "research",
+                    query=topic,
+                    run_id=run_id,
+                    title=f"{src} error: {e}"[:240],
+                    rank=1,
+                    score=0,
+                    result_kind="error",
+                    metadata={"error": str(e)[:300], "wildcard": src == wildcard_src, "latency_ms": dt_ms},
+                )
     return all_results
 
 
@@ -517,7 +563,7 @@ def main():
     try:
         # Execute
         print(f"Querying {len(sources)} sources for \"{args.topic}\" (intent: {args.intent})...", file=sys.stderr)
-        results = run_sources(args.topic, sources)
+        results = run_sources(args.topic, sources, run_id=run_id, intent=args.intent, wildcard_src=wildcard_src)
         allowance = _maybe_unlock_builtin_web_search(args.topic, sources, results)
         if allowance is not None:
             print(

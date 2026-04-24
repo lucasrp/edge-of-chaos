@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""edge-workflows — workflow health and recommendation read model."""
+"""edge-workflows — workflow health read model."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from _shared.workflow_runtime import build_workflow_status, recommend_workflows  # noqa: E402
+from _shared.workflow_runtime import build_workflow_status  # noqa: E402
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -40,40 +40,12 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_recommend(args: argparse.Namespace) -> int:
-    query = str(args.query or "").strip()
-    if not query:
-        print("edge-workflows recommend requires a non-empty query", file=sys.stderr)
-        return 1
-    payload = {
-        "query": query,
-        "skill": args.skill or "",
-        "recommendations": recommend_workflows(query, skill=args.skill, limit=args.limit),
-    }
-    if args.json:
-        print(json.dumps(payload, indent=2, ensure_ascii=False))
-        return 0
-    print("=== WORKFLOW RECOMMENDATIONS ===")
-    for item in payload["recommendations"]:
-        print(f"- {item.get('slug')} ({item.get('source')} score={item.get('score')})")
-        print(f"  {item.get('title')}")
-    if not payload["recommendations"]:
-        print("No recommendations.")
-    return 0
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Workflow runtime read model")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_status = sub.add_parser("status", help="Show workflow health summary")
     p_status.add_argument("--json", action="store_true")
-
-    p_rec = sub.add_parser("recommend", help="Recommend workflows for a query")
-    p_rec.add_argument("query")
-    p_rec.add_argument("--skill")
-    p_rec.add_argument("--limit", type=int, default=3)
-    p_rec.add_argument("--json", action="store_true")
     return parser
 
 
@@ -81,8 +53,6 @@ def main() -> int:
     args = build_parser().parse_args()
     if args.cmd == "status":
         return cmd_status(args)
-    if args.cmd == "recommend":
-        return cmd_recommend(args)
     return 1
 
 

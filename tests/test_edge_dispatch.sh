@@ -163,7 +163,6 @@ assert "health_snapshot" in request
 assert "claims_summary" in request
 assert "primitives_status" in request
 assert "workflow_status" in request
-assert "workflow_recommendations" in request
 assert "corpus_hits" in request
 assert "corpus_coverage" in request
 assert request["corpus_coverage"]["required_covered"] is False

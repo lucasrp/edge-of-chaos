@@ -1,4 +1,4 @@
-"""Workflow runtime summaries and recommendations.
+"""Workflow runtime summaries.
 
 Small operational read model over workflow entries and workflow-health.json.
 """
@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import re
 import sys
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -160,63 +159,3 @@ def build_workflow_status() -> dict[str, Any]:
         "workflows": workflows,
     }
     return payload
-
-
-def recommend_workflows(query: str, *, skill: str | None = None, limit: int = 3) -> list[dict[str, Any]]:
-    query = str(query or "").strip()
-    if not query:
-        return []
-
-    recommendations: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    try:
-        sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "search"))
-        from search import search_with_sidecar  # type: ignore
-
-        _results, sidecar = search_with_sidecar(query, limit=0, wf_limit=limit)
-        for item in sidecar or []:
-            slug = Path(str(item.get("path") or "")).stem
-            if not slug or slug in seen:
-                continue
-            seen.add(slug)
-            recommendations.append(
-                {
-                    "slug": slug,
-                    "title": str(item.get("title") or slug),
-                    "path": str(item.get("path") or ""),
-                    "score": round(float(item.get("score") or 0), 6),
-                    "source": "search_sidecar",
-                }
-            )
-    except Exception:
-        recommendations = []
-
-    if len(recommendations) >= limit:
-        return recommendations[:limit]
-
-    workflow_status = build_workflow_status()
-    query_tokens = _tokenize(query + " " + (skill or ""))
-    scored = []
-    for item in workflow_status.get("workflows") or []:
-        overlap = len(query_tokens.intersection(set(item.get("tokens") or [])))
-        if overlap <= 0:
-            continue
-        score = overlap + float(item.get("used") or 0) * 0.1 - float(item.get("broken") or 0) * 0.25
-        scored.append(
-            {
-                "slug": item["slug"],
-                "title": item["title"],
-                "path": item["path"],
-                "score": round(score, 6),
-                "source": "workflow_health",
-            }
-        )
-    scored.sort(key=lambda item: (-item["score"], item["slug"]))
-    for item in scored:
-        if item["slug"] in seen:
-            continue
-        recommendations.append(item)
-        seen.add(item["slug"])
-        if len(recommendations) >= limit:
-            break
-    return recommendations[:limit]

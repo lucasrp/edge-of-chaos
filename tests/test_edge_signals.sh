@@ -123,6 +123,7 @@ assert "dispatch.current" in signals
 assert "dispatch.queue" in signals
 assert "events.attention" in signals
 assert signals["primitives.health"]["decision_effect"] == "gate"
+assert signals["primitives.health"]["odi_id"].startswith("odi:")
 assert payload["report_warning"]["required"] is True
 attention = payload["report_warning"]["items"][0]["broken_or_degraded"]
 assert any(item["name"] == "meta" for item in attention)
@@ -131,6 +132,12 @@ then
   pass "edge-signals returns priority state signals and primitive warning"
 else
   fail "edge-signals returns priority state signals and primitive warning"
+fi
+
+if grep -q '"type": "OdiObserved"' "$TMP_STATE/state/events/log.jsonl" && grep -q '"source_id": "signal.primitives"' "$TMP_STATE/state/events/log.jsonl"; then
+  pass "edge-signals emits ODI observations for atomic signal channels"
+else
+  fail "edge-signals ODI observations missing"
 fi
 
 echo ""

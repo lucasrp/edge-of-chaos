@@ -6,11 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import uuid
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.signal_runtime import build_signal_context  # noqa: E402
+from _shared.telemetry import make_odi_id, log_odi_observed  # noqa: E402
 
 
 def print_markdown(payload: dict[str, object]) -> None:
@@ -57,6 +59,7 @@ def main() -> int:
     args = parser.parse_args()
 
     query = args.query or args.query_pos
+    run_id = f"signals:{uuid.uuid4().hex[:8]}"
     payload = build_signal_context(
         query=query,
         scope=args.scope,
@@ -64,6 +67,32 @@ def main() -> int:
         skill=args.skill,
         refresh=args.refresh,
     )
+    for index, signal in enumerate(payload.get("signals") or [], 1):
+        if not isinstance(signal, dict):
+            continue
+        source = str(signal.get("source") or "unknown").strip().lower().replace(" ", "_")
+        source_id = f"signal.{source}"
+        odi_id = make_odi_id(source_id, run_id, query, signal.get("id") or "", signal.get("summary") or "", index)
+        signal["odi_id"] = odi_id
+        log_odi_observed(
+            odi_id,
+            source_id=source_id,
+            primitive="edge-signals",
+            context=args.scope,
+            query=query,
+            run_id=run_id,
+            title=str(signal.get("summary") or "")[:240],
+            rank=index,
+            score=signal.get("score"),
+            result_kind="signal",
+            metadata={
+                "signal_id": signal.get("id"),
+                "severity": signal.get("severity"),
+                "decision_effect": signal.get("decision_effect"),
+                "kind": signal.get("kind"),
+                "skill": args.skill,
+            },
+        )
     if args.json:
         print(json.dumps(payload, ensure_ascii=False))
     else:
