@@ -70,10 +70,15 @@ assert ledger_path.exists()
 assert hot_path.exists()
 assert (redigest_dir / "latest.json").exists()
 assert summary["item_total"] >= 3
+assert summary["signal_from_operator_now"] >= 1
+assert summary["operator_toil_optimizable_now"] >= 1
 assert summary["workflow_candidates"] >= 1
 assert summary["capability_candidates"] >= 1
 assert hot["render_mode"] == "deterministic"
-assert hot["repeated_operator_guidance"]
+assert hot["signal_from_operator_now"]
+assert hot["operator_pains_resolvable_now"]
+assert hot["operator_toil_optimizable_now"]
+assert hot["mistakes_to_avoid_now"]
 assert any(item["target"] == "workflow" for item in hot["workflow_candidates"])
 assert any(item["target"] == "capability" for item in hot["capability_candidates"])
 assert "topic" in hot["active_entities"]

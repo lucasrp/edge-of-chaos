@@ -77,6 +77,13 @@ SUBSTANTIVE_SKILLS = {
     "prd",
 }
 
+BEAT_LAUNCH_SECTION_LIMIT = 4
+BEAT_LAUNCH_DECISION_BLEND = {
+    "operator_min_weight": 0.20,
+    "edge_state_min_weight": 0.20,
+    "exploration_weight": 0.60,
+}
+
 EXTERNAL_SEARCH_INTENTS = {
     "autonomy": "strategy",
     "discovery": "discovery",
@@ -423,6 +430,142 @@ def _operator_pressure_digest() -> dict[str, Any]:
             "source_hash": str((payload.get("redigest") or {}).get("source_hash") or ""),
         },
     }
+
+
+def _unique_compact_strings(values: list[str], *, limit: int = BEAT_LAUNCH_SECTION_LIMIT) -> list[str]:
+    seen: set[str] = set()
+    compact: list[str] = []
+    for value in values:
+        text = re.sub(r"\s+", " ", str(value or "").strip())
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        compact.append(text[:220])
+        if len(compact) >= limit:
+            break
+    return compact
+
+
+def _item_texts(items: Any, *, limit: int = BEAT_LAUNCH_SECTION_LIMIT) -> list[str]:
+    texts: list[str] = []
+    if not isinstance(items, list):
+        return texts
+    for item in items:
+        if isinstance(item, dict):
+            text = str(item.get("text") or "").strip()
+            if text:
+                texts.append(text)
+        else:
+            text = str(item or "").strip()
+            if text:
+                texts.append(text)
+    return _unique_compact_strings(texts, limit=limit)
+
+
+def _edge_state_signals(request: dict[str, Any]) -> list[str]:
+    signals: list[str] = []
+    inbox = request.get("async_inbox") or {}
+    health = request.get("health_snapshot") or {}
+    coverage = request.get("corpus_coverage") or {}
+    workflow_recommendations = request.get("workflow_recommendations") or []
+    queue = request.get("dispatch_queue_summary") or {}
+    onboarding = request.get("onboarding_summary") or {}
+    capabilities = request.get("capabilities_status") or {}
+    integrations = request.get("unbound_integrations") or []
+
+    unprocessed_total = int(inbox.get("unprocessed_total", 0) or 0)
+    if unprocessed_total > 0:
+        priority = str(inbox.get("priority") or "").strip().lower() or "active"
+        signals.append(f"There are {unprocessed_total} unprocessed async operator messages with {priority} priority.")
+
+    health_status = str(health.get("status") or "").strip().lower()
+    if health_status in {"degraded", "unhealthy", "critical"}:
+        score = health.get("score")
+        if score is None:
+            signals.append(f"Health is {health_status}.")
+        else:
+            signals.append(f"Health is {health_status} with score {score}.")
+
+    missing_required = list(coverage.get("missing_required_types") or [])
+    if missing_required:
+        signals.append(f"Corpus coverage is missing required types: {', '.join(missing_required)}.")
+
+    if workflow_recommendations:
+        signals.append(f"There are {len(workflow_recommendations)} workflow recommendations available for the current query.")
+
+    pending_queue = int(queue.get("pending_total", 0) or 0)
+    if pending_queue > 0:
+        signals.append(f"The dispatch queue has {pending_queue} pending entries.")
+
+    onboarding_pending = int(onboarding.get("pending_total", 0) or 0)
+    if onboarding_pending > 0:
+        signals.append(f"Onboarding has {onboarding_pending} pending steps.")
+
+    capability_health = str(capabilities.get("health_status") or "").strip().lower()
+    if capability_health in {"degraded", "broken"}:
+        signals.append(f"Capability health is {capability_health}.")
+
+    if integrations:
+        names = [str(item.get("name") or "").strip() for item in integrations if isinstance(item, dict) and str(item.get("name") or "").strip()]
+        if names:
+            signals.append(f"Configured integrations without capability bindings still exist: {', '.join(names[:3])}.")
+
+    if not signals:
+        signals.append("Edge state is nominal enough that no urgent runtime signal dominates this beat.")
+    return _unique_compact_strings(signals)
+
+
+def _expected_state_change(request: dict[str, Any], operator_signal: list[str], edge_signal: list[str]) -> list[str]:
+    changes: list[str] = []
+    if operator_signal:
+        changes.append("Reduce at least one active operator pressure item with a concrete state change in this beat.")
+    if int((request.get("async_inbox") or {}).get("unprocessed_total", 0) or 0) > 0:
+        changes.append("Consume or explicitly address pending async operator input.")
+    missing_required = list((request.get("corpus_coverage") or {}).get("missing_required_types") or [])
+    if missing_required:
+        changes.append(f"Close the missing corpus coverage for {', '.join(missing_required)} before irreversible synthesis or publication.")
+    if request.get("workflow_recommendations"):
+        changes.append("Either use the top workflow recommendation or explicitly reject it.")
+    if not changes and edge_signal:
+        changes.append("Leave the system in a more explicit and less ambiguous state than it started.")
+    return _unique_compact_strings(changes)
+
+
+def _unknowns_that_still_matter(request: dict[str, Any], digest: dict[str, Any]) -> list[str]:
+    unknowns = _item_texts(digest.get("implicit_needs_hypotheses"))
+    missing_required = list((request.get("corpus_coverage") or {}).get("missing_required_types") or [])
+    if missing_required:
+        unknowns.append(f"Internal memory search is still missing {', '.join(missing_required)}.")
+    integrations = request.get("unbound_integrations") or []
+    names = [str(item.get("name") or "").strip() for item in integrations if isinstance(item, dict) and str(item.get("name") or "").strip()]
+    if names:
+        unknowns.append(f"Some configured integrations are still unbound: {', '.join(names[:3])}.")
+    if not unknowns:
+        unknowns.append("No dominant unresolved unknown has been extracted from recent operator sessions.")
+    return _unique_compact_strings(unknowns)
+
+
+def build_beat_launch_context(request: dict[str, Any]) -> dict[str, Any]:
+    digest = request.get("operator_pressure_digest") or {}
+    operator_signal = _item_texts(digest.get("signal_from_operator_now"))
+    edge_signal = _edge_state_signals(request)
+    context = {
+        "schema_version": REQUEST_SCHEMA_VERSION,
+        "ephemeral": True,
+        "signal_from_operator_now": operator_signal,
+        "signal_from_edge_state_now": edge_signal,
+        "operator_pains_resolvable_now": _item_texts(digest.get("operator_pains_resolvable_now")),
+        "operator_toil_optimizable_now": _item_texts(digest.get("operator_toil_optimizable_now")),
+        "mistakes_to_avoid_now": _item_texts(digest.get("mistakes_to_avoid_now")),
+        "implicit_needs_hypotheses": _item_texts(digest.get("implicit_needs_hypotheses")),
+        "expected_state_change": _expected_state_change(request, operator_signal, edge_signal),
+        "unknowns_that_still_matter": _unknowns_that_still_matter(request, digest),
+        "decision_blend": dict(BEAT_LAUNCH_DECISION_BLEND),
+    }
+    return context
 
 
 def _primitives_status() -> dict[str, Any]:
@@ -940,12 +1083,15 @@ def _execute_preflight_step(
             satisfied=True,
             detail=(
                 f"items={summary.get('item_total', 0)} "
-                f"required={summary.get('required_state_changes', 0)} "
+                f"operator_signal={summary.get('signal_from_operator_now', 0)} "
+                f"toil={summary.get('operator_toil_optimizable_now', 0)} "
                 f"workflow_candidates={summary.get('workflow_candidates', 0)} "
                 f"capability_candidates={summary.get('capability_candidates', 0)}"
             ),
             extra={
                 "item_total": int(summary.get("item_total", 0) or 0),
+                "signal_from_operator_now": int(summary.get("signal_from_operator_now", 0) or 0),
+                "operator_toil_optimizable_now": int(summary.get("operator_toil_optimizable_now", 0) or 0),
                 "workflow_candidates": int(summary.get("workflow_candidates", 0) or 0),
                 "capability_candidates": int(summary.get("capability_candidates", 0) or 0),
                 "render_mode": str(summary.get("render_mode") or ""),
@@ -1152,6 +1298,7 @@ def enrich_dispatch_state(
         "has_pending_inbox": (request.get("async_inbox") or {}).get("unprocessed_total", 0) > 0,
         "has_onboarding": (request.get("onboarding_summary") or {}).get("pending_total", 0) > 0,
     }
+    request["beat_launch_context"] = build_beat_launch_context(request)
     if _heartbeat_skill_active(state, skill):
         prepare_heartbeat_routing(state, skill=skill)
     state_block["preflight_status"] = "warning" if failed_steps else "completed"
@@ -1183,7 +1330,11 @@ def enrich_dispatch_state(
         "builtin_web_search": (request.get("search_runtime") or {}).get("builtin_web_search"),
         "web_provider": (request.get("search_runtime") or {}).get("web_provider"),
         "operator_pressure_items": (request.get("operator_pressure_summary") or {}).get("item_total", 0),
+        "operator_pressure_signal_from_operator_now": (request.get("operator_pressure_summary") or {}).get("signal_from_operator_now", 0),
+        "operator_pressure_operator_toil_optimizable_now": (request.get("operator_pressure_summary") or {}).get("operator_toil_optimizable_now", 0),
         "operator_pressure_workflow_candidates": (request.get("operator_pressure_summary") or {}).get("workflow_candidates", 0),
+        "beat_launch_operator_signals": len((request.get("beat_launch_context") or {}).get("signal_from_operator_now") or []),
+        "beat_launch_edge_state_signals": len((request.get("beat_launch_context") or {}).get("signal_from_edge_state_now") or []),
         "open_claims": claims_summary.get("open_total", 0),
         "orphans": orphan_summary.get("orphan_total", 0),
         "primitive_health": (request.get("primitives_status") or {}).get("health_status"),
@@ -1250,6 +1401,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "duplicate_risk": request.get("duplicate_risk", {}),
         "operator_pressure_digest": request.get("operator_pressure_digest", {}),
         "operator_pressure_summary": request.get("operator_pressure_summary", {}),
+        "beat_launch_context": request.get("beat_launch_context", {}),
         "configured_integrations": request.get("configured_integrations", [])[:12],
         "unbound_integrations": request.get("unbound_integrations", [])[:12],
         "search_runtime": request.get("search_runtime", {}),
@@ -1283,7 +1435,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "(health, inbox, corpus, claims, primitives, workflows, queue, onboarding, protocol execution).\n"
         "Do not re-derive those manually unless a field is missing or obviously stale.\n\n"
         f"{heartbeat_contract}"
-        "The `operator_pressure_digest` is the hot, recent operator-feedback layer. Treat it as the highest-signal short-horizon constraint on what the operator keeps trying to change right now.\n\n"
+        "The `operator_pressure_digest` captures recent operator signal only. The `beat_launch_context` is the ephemeral composition of that operator signal with current edge-state signals and the exploration budget for this beat. Treat those two together as the launch frame for what matters now.\n\n"
         "Prefer `edge-cap invoke <capability> -- ...` over direct CLI/tool calls when a capability exists in `capabilities_status`.\n\n"
         "Before any substantive decision, synthesis, or artifact drafting in non-heartbeat skills, follow the runtime decision protocol:\n"
         "1. Run the required search protocol to consult live memory (`topic`, `workflow`, `memory`) and external sources when available.\n"
