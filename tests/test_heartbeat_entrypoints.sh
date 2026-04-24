@@ -41,9 +41,9 @@ import sys
 
 text = Path(sys.argv[1]).read_text(encoding="utf-8")
 required = [
-    "Direct slash-command invocation is still a full heartbeat",
-    "Do **not** ask the operator whether to batch-run `first_steps`",
-    "Never prompt the operator mid-beat.",
+    "Direct `/ed-heartbeat` invocation is still a full beat.",
+    "The heartbeat is a router, not a worker.",
+    "It must dispatch exactly one internal skill.",
     "Router-only rule:",
     "does not draft the final artifact",
     "After `edge-dispatch dispatch --skill <skill>` succeeds, stop doing inline work",
@@ -56,9 +56,9 @@ for needle in required:
     assert needle in text, needle
 PY
 then
-    pass "heartbeat skill documents manual fallback lifecycle and bans mid-beat confirmation"
+    pass "heartbeat skill documents fallback lifecycle and the minimal router contract"
 else
-    fail "heartbeat skill documents manual fallback lifecycle and bans mid-beat confirmation"
+    fail "heartbeat skill documents fallback lifecycle and the minimal router contract"
 fi
 
 echo ""
