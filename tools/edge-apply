@@ -676,10 +676,11 @@ def phase_identity(cfg, dry_run):
 
 def phase_hooks(cfg, dry_run):
     """Install Claude PreToolUse hooks and register them in settings.json."""
-    header("4b/8  Hooks (write guard + web search policy)")
+    header("4b/8  Hooks (write guard + web/search/shell policy)")
     hook_specs = [
         ("write-guard.sh", "Write|Edit|NotebookEdit"),
         ("web-search-policy-guard.sh", "WebSearch|WebFetch"),
+        ("shell-follow-guard.sh", "Bash"),
     ]
 
     hooks_dst = Path.home() / ".claude" / "hooks"
