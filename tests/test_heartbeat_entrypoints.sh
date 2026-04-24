@@ -34,7 +34,7 @@ else
     fail "manual docs avoid the direct slash-command bootstrap path"
 fi
 
-echo "--- Test 2: heartbeat skill carries fallback lifecycle + no-HITL contract ---"
+echo "--- Test 2: direct heartbeat slash re-enters through wrapper instead of manual lifecycle ---"
 if python3 - <<'PY' "$EDGE_DIR/skills/heartbeat/SKILL.md"
 from pathlib import Path
 import sys
@@ -42,23 +42,30 @@ import sys
 text = Path(sys.argv[1]).read_text(encoding="utf-8")
 required = [
     "Direct `/ed-heartbeat` invocation is still a full beat.",
+    "Direct Slash Re-entry",
     "The heartbeat is a router, not a worker.",
     "It must dispatch exactly one internal skill.",
     "Router-only rule:",
     "does not draft the final artifact",
     "After `edge-dispatch dispatch --skill <skill>` succeeds, stop doing inline work",
-    "edge-dispatch open \\",
-    '--trigger heartbeat',
     'if [ -z "${EDGE_CYCLE_ID:-}" ]; then',
-    'edge-close --status completed',
+    'EDGE_HEARTBEAT_FOREGROUND=1 ~/.local/bin/heartbeat.sh',
+    "Do not call `edge-dispatch open`",
+    "invocation re-enters via `~/.local/bin/heartbeat.sh`",
 ]
 for needle in required:
     assert needle in text, needle
+for forbidden in [
+    "edge-dispatch open \\",
+    "--trigger heartbeat",
+    "edge-close --status completed",
+]:
+    assert forbidden not in text, forbidden
 PY
 then
-    pass "heartbeat skill documents fallback lifecycle and the minimal router contract"
+    pass "heartbeat skill delegates direct slash invocation to the wrapper"
 else
-    fail "heartbeat skill documents fallback lifecycle and the minimal router contract"
+    fail "heartbeat skill delegates direct slash invocation to the wrapper"
 fi
 
 echo "--- Test 3: heartbeat wrapper streams manual runs while preserving systemd logging ---"
