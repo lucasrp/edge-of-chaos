@@ -45,6 +45,8 @@ context_notes: []
 operator_notes:
   - Record failures but keep the cycle moving.
 procedures:
+  - id: source-affordances
+    kind: source_affordance.digest
   - id: briefing-refresh
     kind: briefing.refresh
 YAML
@@ -106,7 +108,32 @@ else
     fail "ensure_compiled_protocol writes compiled JSON with hashes"
 fi
 
-echo "--- Test 2: source edits trigger automatic recompilation on next ensure ---"
+echo "--- Test 2: postflight accepts source affordance digest step ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_STATE"
+import json
+import sys
+from pathlib import Path
+
+edge_dir, state_dir = sys.argv[1:]
+sys.path.insert(0, f"{edge_dir}/tools")
+from _shared.protocol_runtime import ensure_compiled_protocol
+
+compiled = ensure_compiled_protocol("postflight")
+assert compiled["protocol"] == "postflight"
+kinds = [item["kind"] for item in compiled["procedures"]]
+assert "source_affordance.digest" in kinds
+compiled_path = Path(state_dir) / "state" / "runtime" / "postflight.compiled.json"
+assert compiled_path.exists()
+saved = json.loads(compiled_path.read_text(encoding="utf-8"))
+assert any(item["kind"] == "source_affordance.digest" for item in saved["procedures"])
+PY
+then
+    pass "postflight accepts source affordance digest step"
+else
+    fail "postflight accepts source affordance digest step"
+fi
+
+echo "--- Test 3: source edits trigger automatic recompilation on next ensure ---"
 if python3 - <<'PY' "$EDGE_DIR" "$TMP_REPO/config/preflight.yaml"
 import sys
 from pathlib import Path
@@ -129,7 +156,7 @@ else
     fail "source edits trigger automatic recompilation on next ensure"
 fi
 
-echo "--- Test 3: unknown protocol kinds fail compilation ---"
+echo "--- Test 4: unknown protocol kinds fail compilation ---"
 if python3 - <<'PY' "$EDGE_DIR" "$TMP_REPO/config/preflight.yaml"
 import sys
 from pathlib import Path
