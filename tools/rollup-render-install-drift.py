@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import json
 import sys
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import RENDER_INSTALL_DRIFT_FILE, STATE_EVENTS_FILE  # noqa: E402
+from paths import EDGE_REPO_DIR, RENDER_INSTALL_DRIFT_FILE, STATE_EVENTS_FILE  # noqa: E402
 
 
 def _iter_jsonl(path: Path):
@@ -43,6 +44,28 @@ def _latest_by_key(existing: dict, key: str, event: dict) -> None:
         existing[key] = event
 
 
+def _repo_relative(path: str | None) -> str:
+    if not path:
+        return ""
+    try:
+        return str(Path(path).resolve().relative_to(EDGE_REPO_DIR.resolve()))
+    except (OSError, ValueError):
+        return str(path)
+
+
+def _hash_file(path: Path) -> str:
+    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+
+
+def _is_in_place_self_install(event: dict) -> bool:
+    payload = event.get("payload") or {}
+    if payload.get("in_place") is not True:
+        return False
+    artifact = str(event.get("artifact") or "")
+    source_template = str(payload.get("source_template") or "")
+    return bool(source_template and source_template == _repo_relative(artifact))
+
+
 def build_projection(limit: int = 20) -> dict:
     render_by_output: dict[str, dict] = {}
     install_by_artifact: dict[str, dict] = {}
@@ -53,6 +76,8 @@ def build_projection(limit: int = 20) -> dict:
         etype = event.get("type")
         payload = event.get("payload") or {}
         if etype == "RenderProduced":
+            if int(payload.get("residual_count", 0) or 0) > 0:
+                continue
             output_path = str(payload.get("output_path") or event.get("artifact") or "")
             _latest_by_key(render_by_output, output_path, event)
         elif etype == "InstallApplied":
@@ -83,6 +108,21 @@ def build_projection(limit: int = 20) -> dict:
     for output_path, render_event in render_by_output.items():
         installs = installs_by_source.get(output_path, [])
         if not installs:
+            artifact = str(render_event.get("artifact") or "")
+            render_ts = _parse_ts(render_event.get("ts"))
+            active_install = active_installs.get(artifact)
+            if active_install and _parse_ts(active_install.get("ts")) >= render_ts:
+                continue
+
+            render_hash = (render_event.get("payload") or {}).get("hash")
+            artifact_path = Path(artifact) if artifact else None
+            if artifact_path and artifact_path.exists() and render_hash:
+                try:
+                    if _hash_file(artifact_path) == render_hash:
+                        linked_installs += 1
+                        continue
+                except OSError:
+                    pass
             rendered_without_install.append(
                 {
                     "output_path": output_path,
@@ -111,14 +151,15 @@ def build_projection(limit: int = 20) -> dict:
         payload = install_event.get("payload") or {}
         source_template = str(payload.get("source_template") or "")
         if source_template and source_template not in render_by_output and not source_template.startswith(("generated:", "command:")):
-            install_without_render.append(
-                {
-                    "artifact": artifact,
-                    "source_template": source_template,
-                    "kind": payload.get("kind"),
-                    "action": payload.get("action"),
-                }
-            )
+            if not _is_in_place_self_install(install_event):
+                install_without_render.append(
+                    {
+                        "artifact": artifact,
+                        "source_template": source_template,
+                        "kind": payload.get("kind"),
+                        "action": payload.get("action"),
+                    }
+                )
         if artifact and not Path(artifact).exists():
             missing_on_disk.append(
                 {
@@ -132,6 +173,8 @@ def build_projection(limit: int = 20) -> dict:
     doctor_warnings = []
     for event in checks_by_id.values():
         payload = event.get("payload") or {}
+        if payload.get("check_id") == "projection:render-install-drift":
+            continue
         entry = {
             "check_id": payload.get("check_id"),
             "status": payload.get("status"),

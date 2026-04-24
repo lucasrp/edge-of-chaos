@@ -38,6 +38,10 @@ good = edge / "install" / "claude.md"
 good.write_text("same", encoding="utf-8")
 mismatch = edge / "install" / "paths.py"
 mismatch.write_text("installed", encoding="utf-8")
+in_place = edge / "install" / "in-place.md"
+in_place.write_text("same", encoding="utf-8")
+superseded = edge / "install" / "seeded.md"
+superseded.write_text("seeded", encoding="utf-8")
 events = [
     {
         "ts": "2026-04-20T20:00:00+00:00",
@@ -137,6 +141,61 @@ events = [
             "detail": "missing.md: not found",
         },
     },
+    {
+        "ts": "2026-04-20T20:08:00+00:00",
+        "type": "RenderProduced",
+        "artifact": str(edge / "install" / "obsolete.md"),
+        "payload": {
+            "source_template": "config/obsolete.md.tpl",
+            "output_path": "config/obsolete.md",
+            "hash": "sha256:obsolete-render",
+            "residual_count": 1,
+        },
+    },
+    {
+        "ts": "2026-04-20T20:10:00+00:00",
+        "type": "RenderProduced",
+        "artifact": str(in_place),
+        "payload": {
+            "source_template": "config/in-place.md.tpl",
+            "output_path": "config/in-place.md",
+            "hash": "sha256:0967115f2813a3541eaef77de9d9d5773f1c0c04314b0bbfe4ff3b3b1c55b5d5",
+            "residual_count": 0,
+        },
+    },
+    {
+        "ts": "2026-04-20T20:11:00+00:00",
+        "type": "RenderProduced",
+        "artifact": str(superseded),
+        "payload": {
+            "source_template": "config/seeded.md.tpl",
+            "output_path": "config/seeded.md",
+            "hash": "sha256:rendered-seed",
+            "residual_count": 0,
+        },
+    },
+    {
+        "ts": "2026-04-20T20:12:00+00:00",
+        "type": "InstallApplied",
+        "artifact": str(superseded),
+        "payload": {
+            "source_template": "generated:seed:seeded",
+            "hash": "sha256:seeded",
+            "kind": "file",
+            "action": "write",
+        },
+    },
+    {
+        "ts": "2026-04-20T20:13:00+00:00",
+        "type": "InstallCheckObserved",
+        "artifact": str(edge / "state" / "render-install-drift.json"),
+        "payload": {
+            "check_id": "projection:render-install-drift",
+            "status": "fail",
+            "severity": "fail",
+            "detail": "self-referential prior failure",
+        },
+    },
 ]
 log_path = edge / "state" / "events" / "log.jsonl"
 with open(log_path, "w", encoding="utf-8") as f:
@@ -152,9 +211,9 @@ from pathlib import Path
 
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 summary = payload["summary"]
-assert summary["rendered_outputs"] == 3
-assert summary["installed_artifacts"] == 3
-assert summary["render_linked_installs"] == 2
+assert summary["rendered_outputs"] == 5
+assert summary["installed_artifacts"] == 4
+assert summary["render_linked_installs"] == 3
 assert summary["rendered_without_install"] == 1
 assert summary["install_without_render"] == 1
 assert summary["hash_mismatches"] == 1
@@ -178,7 +237,11 @@ assert payload["rendered_without_install"][0]["output_path"] == "config/branding
 assert payload["hash_mismatches"][0]["output_path"] == "config/paths.py"
 assert payload["missing_on_disk"][0]["artifact"].endswith("missing.md")
 assert all(not item["artifact"].endswith(".avatar-gen.py") for item in payload["missing_on_disk"])
+assert all(item["output_path"] != "config/obsolete.md" for item in payload["hash_mismatches"])
+assert all(item["output_path"] != "config/in-place.md" for item in payload["rendered_without_install"])
+assert all(item["output_path"] != "config/seeded.md" for item in payload["rendered_without_install"])
 assert payload["doctor_failures"][0]["check_id"] == "file:missing-md"
+assert all(item["check_id"] != "projection:render-install-drift" for item in payload["doctor_failures"])
 PY
 then
     pass "rollup captures representative examples"
