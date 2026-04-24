@@ -50,6 +50,7 @@ _ALLOWED_KINDS: dict[str, set[str]] = {
         "curation.digest",
         "briefing.refresh",
         "cycle_health.observe",
+        "async_inbox.respond",
         "capability.invoke",
         "capability.probe",
     },
