@@ -26,18 +26,28 @@ mkdir -p "$LOGS_DIR"
 
 cd "$EDGE_REPO_DIR"
 
-# Run heartbeat through our CLI boundary. The runner owns the shadow
-# dispatch lifecycle so the skill body no longer needs to open/close it.
-"$EDGE_REPO_DIR/tools/edge-runner" skill \
-    --skill "$SKILL" \
-    --dispatch-trigger heartbeat \
-    --dispatch-policy autonomous \
-    --dispatch-routing-mode auto \
-    --dispatch-preflight-profile heartbeat_default \
-    --dispatch-postflight-profile standard \
-    --dispatch-force \
-    --dangerously-skip-permissions \
-    >> "$LOGFILE" 2>&1
+run_heartbeat() {
+    "$EDGE_REPO_DIR/tools/edge-runner" skill \
+        --skill "$SKILL" \
+        --dispatch-trigger heartbeat \
+        --dispatch-policy autonomous \
+        --dispatch-routing-mode auto \
+        --dispatch-preflight-profile heartbeat_default \
+        --dispatch-postflight-profile standard \
+        --dispatch-force \
+        --dangerously-skip-permissions
+}
+
+# Systemd should stay quiet and log to file. Manual terminal runs should show
+# the dispatch and follow-on skill live while still keeping the same log trail.
+HEARTBEAT_STATUS=0
+if [[ -t 1 || "${EDGE_HEARTBEAT_FOREGROUND:-0}" == "1" ]]; then
+    run_heartbeat 2>&1 | tee -a "$LOGFILE"
+    HEARTBEAT_STATUS=${PIPESTATUS[0]}
+else
+    run_heartbeat >> "$LOGFILE" 2>&1
+    HEARTBEAT_STATUS=$?
+fi
 
 # Index new content after heartbeat
 if command -v edge-index &>/dev/null; then
@@ -45,3 +55,5 @@ if command -v edge-index &>/dev/null; then
         [ -f "$f" ] && edge-index "$f" 2>/dev/null
     done
 fi
+
+exit "$HEARTBEAT_STATUS"

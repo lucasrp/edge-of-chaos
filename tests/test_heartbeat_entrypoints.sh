@@ -61,6 +61,29 @@ else
     fail "heartbeat skill documents fallback lifecycle and the minimal router contract"
 fi
 
+echo "--- Test 3: heartbeat wrapper streams manual runs while preserving systemd logging ---"
+if python3 - <<'PY' "$EDGE_DIR/config/heartbeat.sh.tpl"
+from pathlib import Path
+import sys
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+required = [
+    "run_heartbeat()",
+    'if [[ -t 1 || "${EDGE_HEARTBEAT_FOREGROUND:-0}" == "1" ]]; then',
+    'run_heartbeat 2>&1 | tee -a "$LOGFILE"',
+    "HEARTBEAT_STATUS=${PIPESTATUS[0]}",
+    'run_heartbeat >> "$LOGFILE" 2>&1',
+    'exit "$HEARTBEAT_STATUS"',
+]
+for needle in required:
+    assert needle in text, needle
+PY
+then
+    pass "heartbeat wrapper shows manual runs and keeps systemd log behavior"
+else
+    fail "heartbeat wrapper shows manual runs and keeps systemd log behavior"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"
