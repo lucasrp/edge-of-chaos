@@ -1394,6 +1394,9 @@ title = fm.get("title", slug)
 raw_claims = fm.get("claims", [])
 threads = fm.get("threads", [])
 tags = fm.get("tags", [])
+meta_dir = Path(os.environ.get("META_DIR", os.path.expanduser("~/edge/meta-reports")))
+proposal_path = meta_dir / f"{slug}.state-proposal.yaml"
+audit_path = meta_dir / f"{slug}.state-audit.yaml"
 
 # Normalize claims: accept both str ("!claim") and dict ({claim, status})
 def _is_open(c):
@@ -1473,77 +1476,81 @@ for dirpath, prefix in TRACKED.items():
 # ── 2. Captura diffs do ~/edge/ (repo principal) ──
 try:
     edge_dir = os.environ.get("EDGE_REPO_DIR", os.environ.get("EDGE_DIR", os.path.expanduser("~/edge")))
-    tool_path = Path(edge_dir) / "tools" / "edge-publish-scope"
-    changelog_path = Path(os.environ.get("BLOG_CHANGELOG_FILE", "")).expanduser()
-    allowed_paths = [entry_path]
-    if report_html:
-        allowed_paths.append(report_html)
-    if meta_report_path:
-        allowed_paths.append(meta_report_path)
-    if proposal_path.exists():
-        allowed_paths.append(str(proposal_path))
-    if audit_path.exists():
-        allowed_paths.append(str(audit_path))
-    if changelog_path and changelog_path.exists():
-        allowed_paths.append(str(changelog_path))
+    edge_git_dir = Path(edge_dir) / ".git"
+    if not edge_git_dir.exists():
+        warn(f"EDGE_REPO_DIR is not a git repository; skipping scoped diff: {edge_dir}")
+    else:
+        tool_path = Path(edge_dir) / "tools" / "edge-publish-scope"
+        changelog_path = Path(os.environ.get("BLOG_CHANGELOG_FILE", "")).expanduser()
+        allowed_paths = [entry_path]
+        if report_html:
+            allowed_paths.append(report_html)
+        if meta_report_path:
+            allowed_paths.append(meta_report_path)
+        if proposal_path.exists():
+            allowed_paths.append(str(proposal_path))
+        if audit_path.exists():
+            allowed_paths.append(str(audit_path))
+        if changelog_path and changelog_path.exists():
+            allowed_paths.append(str(changelog_path))
 
-    scope_cmd = [str(tool_path), "stage", "--slug", slug, "--json"]
-    for allowed_path in allowed_paths:
-        if allowed_path:
-            scope_cmd.extend(["--allow", allowed_path])
-    scope_result = subprocess.run(
-        scope_cmd,
-        cwd=edge_dir,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    scope_payload = {}
-    if scope_result.stdout.strip():
-        try:
-            scope_payload = json.loads(scope_result.stdout)
-        except Exception:
-            scope_payload = {"raw": scope_result.stdout.strip()}
-    if scope_result.returncode == 2:
-        emit_scope_violation({
-            "slug": slug,
-            "allowed_paths": scope_payload.get("allowed_paths", []),
-            "illegal_files": scope_payload.get("illegal_files", []),
-        })
-        illegal = scope_payload.get("illegal_files", []) or []
-        if illegal:
-            warn(f"SCOPE GUARD: {len(illegal)} file(s) outside publish allowlist in staging:")
-            for item in illegal:
-                warn(f"  ↳ {item}")
-        raise SystemExit(2)
-    if scope_result.returncode != 0:
-        raise RuntimeError(scope_result.stderr.strip() or scope_result.stdout.strip() or "edge-publish-scope failed")
-
-    result = subprocess.run(
-        ["git", "diff", "--cached", "--unified=3", "--", ".", ":(exclude)*.venv*", ":(exclude)*.b64", ":(exclude)*.png", ":(exclude)*.jpg", ":(exclude)*.pdf", ":(exclude)*.db"],
-        cwd=edge_dir, capture_output=True, text=True, errors="replace", timeout=30
-    )
-    edge_diff = result.stdout.strip()
-    if edge_diff:
-        current_file = None
-        current_lines = []
-        for line in edge_diff.split("\n"):
-            if line.startswith("diff --git a/"):
-                if current_file and current_lines:
-                    all_diffs.append({
-                        "path": f"edge/{current_file}",
-                        "diff": "\n".join(current_lines)
-                    })
-                file_parts = line.split(" b/", 1)
-                current_file = file_parts[1] if len(file_parts) > 1 else line.split("a/", 1)[-1].split(" ")[0]
-                current_lines = [line]
-            else:
-                current_lines.append(line)
-        if current_file and current_lines:
-            all_diffs.append({
-                "path": f"edge/{current_file}",
-                "diff": "\n".join(current_lines)
+        scope_cmd = [str(tool_path), "stage", "--slug", slug, "--json"]
+        for allowed_path in allowed_paths:
+            if allowed_path:
+                scope_cmd.extend(["--allow", allowed_path])
+        scope_result = subprocess.run(
+            scope_cmd,
+            cwd=edge_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        scope_payload = {}
+        if scope_result.stdout.strip():
+            try:
+                scope_payload = json.loads(scope_result.stdout)
+            except Exception:
+                scope_payload = {"raw": scope_result.stdout.strip()}
+        if scope_result.returncode == 2:
+            emit_scope_violation({
+                "slug": slug,
+                "allowed_paths": scope_payload.get("allowed_paths", []),
+                "illegal_files": scope_payload.get("illegal_files", []),
             })
+            illegal = scope_payload.get("illegal_files", []) or []
+            if illegal:
+                warn(f"SCOPE GUARD: {len(illegal)} file(s) outside publish allowlist in staging:")
+                for item in illegal:
+                    warn(f"  ↳ {item}")
+            raise SystemExit(2)
+        if scope_result.returncode != 0:
+            raise RuntimeError(scope_result.stderr.strip() or scope_result.stdout.strip() or "edge-publish-scope failed")
+
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--unified=3", "--", ".", ":(exclude)*.venv*", ":(exclude)*.b64", ":(exclude)*.png", ":(exclude)*.jpg", ":(exclude)*.pdf", ":(exclude)*.db"],
+            cwd=edge_dir, capture_output=True, text=True, errors="replace", timeout=30
+        )
+        edge_diff = result.stdout.strip()
+        if edge_diff:
+            current_file = None
+            current_lines = []
+            for line in edge_diff.split("\n"):
+                if line.startswith("diff --git a/"):
+                    if current_file and current_lines:
+                        all_diffs.append({
+                            "path": f"edge/{current_file}",
+                            "diff": "\n".join(current_lines)
+                        })
+                    file_parts = line.split(" b/", 1)
+                    current_file = file_parts[1] if len(file_parts) > 1 else line.split("a/", 1)[-1].split(" ")[0]
+                    current_lines = [line]
+                else:
+                    current_lines.append(line)
+            if current_file and current_lines:
+                all_diffs.append({
+                    "path": f"edge/{current_file}",
+                    "diff": "\n".join(current_lines)
+                })
 except Exception as e:
     log_failure("6", "diff_edge_repo", e, traceback.format_exc())
     warn(f"Diff edge repo failed: {e}")
@@ -1613,9 +1620,6 @@ if failures:
 lines.append("")
 
 # State audit summary (if audit ran)
-meta_dir = Path(os.environ.get("META_DIR", os.path.expanduser("~/edge/meta-reports")))
-proposal_path = meta_dir / f"{slug}.state-proposal.yaml"
-audit_path = meta_dir / f"{slug}.state-audit.yaml"
 if audit_path.exists():
     try:
         audit_data = yaml.safe_load(audit_path.read_text())
@@ -1729,18 +1733,21 @@ for dirpath, prefix in mini_repos_with_changes:
 
 # ── 6. Commit ~/edge/ ──
 try:
-    result = subprocess.run(
-        ["git", "commit", "-m", commit_msg],
-        cwd=edge_dir, capture_output=True, text=True, timeout=30
-    )
-    if result.returncode == 0:
-        hash_result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=edge_dir, capture_output=True, text=True, timeout=10
-        )
-        ok(f"Commit: {hash_result.stdout.strip()}")
+    if not (Path(edge_dir) / ".git").exists():
+        warn(f"EDGE_REPO_DIR is not a git repository; skipping git commit: {edge_dir}")
     else:
-        warn("Nothing to commit or git failed")
+        result = subprocess.run(
+            ["git", "commit", "-m", commit_msg],
+            cwd=edge_dir, capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            hash_result = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=edge_dir, capture_output=True, text=True, timeout=10
+            )
+            ok(f"Commit: {hash_result.stdout.strip()}")
+        else:
+            warn("Nothing to commit or git failed")
 except Exception as e:
     log_failure("6", "commit_edge", e, traceback.format_exc())
     fail(f"Git commit failed: {e}")
@@ -1773,8 +1780,8 @@ elif $ALL_OK; then
     [[ -n "$META_REPORT_PATH" ]] && echo " Meta-report: $META_REPORT_PATH"
     echo "========================================="
     ledger_record "pipeline-end" "partial"
-    emit_run_step_event "pipeline" "failed" "pipeline_end" "partial publication"
-    exit 2
+    emit_run_step_event "pipeline" "degraded" "pipeline_end" "partial publication"
+    exit 0
 else
     echo -e " ${RED}ISSUES${NC}: verify manually"
     echo "========================================="
