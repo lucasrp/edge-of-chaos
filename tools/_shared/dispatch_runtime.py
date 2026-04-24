@@ -35,6 +35,7 @@ from .capability_runtime import build_capability_status, build_configured_integr
 from .operator_pressure import build_operator_pressure_layers  # noqa: E402
 from .protocol_runtime import emit_protocol_step_observed, ensure_compiled_protocol, protocol_context  # noqa: E402
 from .search_runtime import search_runtime_summary  # noqa: E402
+from .signal_runtime import build_signal_context  # noqa: E402
 from .skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
 from .telemetry import emit_shadow_event, log_event, log_run_step, log_workflow_recommended  # noqa: E402
 from .workflow_runtime import build_workflow_status, recommend_workflows  # noqa: E402
@@ -1125,6 +1126,38 @@ def _execute_preflight_step(
         request["configured_integrations"] = capabilities.get("configured_integrations") or []
         request["unbound_integrations"] = capabilities.get("unbound_integrations") or []
         return _step_result(step, status="ok", satisfied=True, detail=f"health={capabilities.get('health_status', 'unknown')}")
+
+    if kind == "signals.context":
+        signal_query = str(step.get("query") or "").strip()
+        if not signal_query:
+            signal_query = derive_corpus_query(skill, request.get("args", {}) or {}, primary_thread_id=request.get("primary_thread_id"))
+        payload = build_signal_context(
+            query=signal_query,
+            scope=str(step.get("scope") or "routing"),
+            limit=max(1, int(step.get("limit") or 12)),
+            skill=skill,
+            refresh=bool(step.get("refresh", False)),
+        )
+        request["edge_signals"] = payload
+        request["primitive_health_warning"] = payload.get("report_warning") or {}
+        summary = payload.get("summary") or {}
+        status = "warning" if summary.get("critical_total", 0) or summary.get("warning_total", 0) else "ok"
+        return _step_result(
+            step,
+            status=status,
+            satisfied=True,
+            detail=(
+                f"signals={summary.get('signal_total', 0)} "
+                f"critical={summary.get('critical_total', 0)} "
+                f"warning={summary.get('warning_total', 0)}"
+            ),
+            extra={
+                "signal_total": int(summary.get("signal_total", 0) or 0),
+                "critical_total": int(summary.get("critical_total", 0) or 0),
+                "warning_total": int(summary.get("warning_total", 0) or 0),
+                "query": signal_query,
+            },
+        )
 
     if kind == "corpus.lookup":
         corpus_query = derive_corpus_query(skill, request.get("args", {}) or {}, primary_thread_id=request.get("primary_thread_id"))

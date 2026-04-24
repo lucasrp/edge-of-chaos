@@ -26,6 +26,14 @@ cat >"$TMP_BIN/edge-sources" <<'EOF'
 #!/usr/bin/env bash
 echo "edge-sources $*"
 EOF
+cat >"$TMP_BIN/edge-signals" <<'EOF'
+#!/usr/bin/env bash
+echo "edge-signals $*"
+EOF
+cat >"$TMP_BIN/edge-context" <<'EOF'
+#!/usr/bin/env bash
+echo "edge-context $*"
+EOF
 cat >"$TMP_BIN/edge-workflows" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "status" ]]; then
@@ -42,7 +50,7 @@ cat >"$TMP_BIN/edge-repo-sync" <<'EOF'
 #!/usr/bin/env bash
 echo "edge-repo-sync $*"
 EOF
-chmod +x "$TMP_BIN/edge-search" "$TMP_BIN/edge-sources" "$TMP_BIN/edge-workflows" "$TMP_BIN/git" "$TMP_BIN/edge-repo-sync"
+chmod +x "$TMP_BIN/edge-search" "$TMP_BIN/edge-sources" "$TMP_BIN/edge-signals" "$TMP_BIN/edge-context" "$TMP_BIN/edge-workflows" "$TMP_BIN/git" "$TMP_BIN/edge-repo-sync"
 
 cat >"$TMP_STATE/state/sources-manifest.yaml" <<'YAML'
 sources:
@@ -73,6 +81,8 @@ assert summary["health_status"] == "degraded"
 names = {item["name"]: item for item in payload["capabilities"]}
 assert names["search.corpus"]["effective_status"] == "available"
 assert names["sources.aggregate"]["effective_status"] == "available"
+assert names["signals.aggregate"]["effective_status"] == "available"
+assert names["context.aggregate"]["effective_status"] == "available"
 assert names["workflow.recommend"]["effective_status"] == "available"
 assert names["repo.status"]["effective_status"] == "available"
 assert names["repo.sync"]["effective_status"] == "available"

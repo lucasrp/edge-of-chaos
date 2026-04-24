@@ -6,7 +6,28 @@ capabilities:
     passthrough: true
     probe: ["edge-sources", "--help"]
     required: true
+    roles: ["search", "source", "external_context"]
     skills: ["sources", "research", "discovery", "report", "strategy", "planner", "heartbeat"]
+
+  - name: signals.aggregate
+    kind: external_cli
+    description: State-oriented signal aggregation wrapper over edge-signals for routing, gating, and primitive health visibility.
+    command: ["edge-signals"]
+    passthrough: true
+    probe: ["edge-signals", "--help"]
+    required: true
+    roles: ["signals", "observe", "routing", "health"]
+    skills: ["heartbeat", "reflection", "autonomy", "report", "research", "strategy", "planner", "discovery"]
+
+  - name: context.aggregate
+    kind: external_cli
+    description: Unified UX wrapper over distinct edge-signals and edge-sources lanes.
+    command: ["edge-context"]
+    passthrough: true
+    probe: ["edge-context", "--help"]
+    required: true
+    roles: ["signals", "search", "context"]
+    skills: ["heartbeat", "reflection", "autonomy", "report", "research", "strategy", "planner", "discovery"]
 
   - name: search.corpus
     kind: external_cli

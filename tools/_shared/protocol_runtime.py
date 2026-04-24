@@ -32,6 +32,7 @@ _ALLOWED_KINDS: dict[str, set[str]] = {
         "claims.refresh",
         "primitives.status",
         "capabilities.status",
+        "signals.context",
         "corpus.lookup",
         "workflow.status",
         "queue.status",
@@ -156,6 +157,19 @@ def _normalize_step(
         effective_status = str(capability_row.get("effective_status") or "").strip()
         if effective_status in {"degraded", "broken"}:
             warnings.append(f"{capability} currently {effective_status}")
+
+    if kind == "signals.context":
+        scope = str(raw_step.get("scope") or "routing").strip() or "routing"
+        if scope not in {"routing", "skill", "all"}:
+            raise ProtocolCompileError(f"{protocol} procedures[{index}] signals.context scope must be routing, skill, or all")
+        step["scope"] = scope
+        if raw_step.get("query") is not None:
+            step["query"] = str(raw_step.get("query") or "").strip()
+        try:
+            step["limit"] = max(1, int(raw_step.get("limit") or 12))
+        except (TypeError, ValueError) as exc:
+            raise ProtocolCompileError(f"{protocol} procedures[{index}] signals.context limit must be an integer") from exc
+        step["refresh"] = bool(raw_step.get("refresh", False))
 
     return step, warnings
 

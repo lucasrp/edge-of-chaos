@@ -29,6 +29,10 @@ operator_notes:
 procedures:
   - id: health-snapshot
     kind: health.snapshot
+  - id: edge-signals
+    kind: signals.context
+    scope: routing
+    limit: 5
   - id: capability-probe
     kind: capability.probe
     capability: storage.sync
@@ -91,7 +95,10 @@ compiled_path = Path(state_dir) / "state" / "runtime" / "preflight.compiled.json
 assert compiled_path.exists()
 saved = json.loads(compiled_path.read_text(encoding="utf-8"))
 assert saved["source_hash"] == compiled["source_hash"]
-assert len(saved["procedures"]) == 2
+assert len(saved["procedures"]) == 3
+signal_step = next(item for item in saved["procedures"] if item["kind"] == "signals.context")
+assert signal_step["scope"] == "routing"
+assert signal_step["limit"] == 5
 PY
 then
     pass "ensure_compiled_protocol writes compiled JSON with hashes"
