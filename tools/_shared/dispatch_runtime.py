@@ -522,6 +522,8 @@ def _expected_state_change(request: dict[str, Any], operator_signal: list[str], 
     changes: list[str] = []
     if operator_signal:
         changes.append("Reduce at least one active operator pressure item with a concrete state change in this beat.")
+    if (request.get("operator_pressure_digest") or {}).get("substrate_gap_requests"):
+        changes.append("Make at least one missing native-support gap more explicit, narrower, or better materialized than it was before this beat.")
     if int((request.get("async_inbox") or {}).get("unprocessed_total", 0) or 0) > 0:
         changes.append("Consume or explicitly address pending async operator input.")
     missing_required = list((request.get("corpus_coverage") or {}).get("missing_required_types") or [])
@@ -559,6 +561,7 @@ def build_beat_launch_context(request: dict[str, Any]) -> dict[str, Any]:
         "signal_from_edge_state_now": edge_signal,
         "operator_pains_resolvable_now": _item_texts(digest.get("operator_pains_resolvable_now")),
         "operator_toil_optimizable_now": _item_texts(digest.get("operator_toil_optimizable_now")),
+        "substrate_gap_requests": _item_texts(digest.get("substrate_gap_requests")),
         "mistakes_to_avoid_now": _item_texts(digest.get("mistakes_to_avoid_now")),
         "implicit_needs_hypotheses": _item_texts(digest.get("implicit_needs_hypotheses")),
         "expected_state_change": _expected_state_change(request, operator_signal, edge_signal),
@@ -1086,7 +1089,8 @@ def _execute_preflight_step(
                 f"operator_signal={summary.get('signal_from_operator_now', 0)} "
                 f"toil={summary.get('operator_toil_optimizable_now', 0)} "
                 f"workflow_candidates={summary.get('workflow_candidates', 0)} "
-                f"capability_candidates={summary.get('capability_candidates', 0)}"
+                f"capability_candidates={summary.get('capability_candidates', 0)} "
+                f"substrate_gap_requests={summary.get('substrate_gap_requests', 0)}"
             ),
             extra={
                 "item_total": int(summary.get("item_total", 0) or 0),
@@ -1094,6 +1098,7 @@ def _execute_preflight_step(
                 "operator_toil_optimizable_now": int(summary.get("operator_toil_optimizable_now", 0) or 0),
                 "workflow_candidates": int(summary.get("workflow_candidates", 0) or 0),
                 "capability_candidates": int(summary.get("capability_candidates", 0) or 0),
+                "substrate_gap_requests": int(summary.get("substrate_gap_requests", 0) or 0),
                 "render_mode": str(summary.get("render_mode") or ""),
             },
         )
@@ -1333,6 +1338,7 @@ def enrich_dispatch_state(
         "operator_pressure_signal_from_operator_now": (request.get("operator_pressure_summary") or {}).get("signal_from_operator_now", 0),
         "operator_pressure_operator_toil_optimizable_now": (request.get("operator_pressure_summary") or {}).get("operator_toil_optimizable_now", 0),
         "operator_pressure_workflow_candidates": (request.get("operator_pressure_summary") or {}).get("workflow_candidates", 0),
+        "operator_pressure_substrate_gap_requests": (request.get("operator_pressure_summary") or {}).get("substrate_gap_requests", 0),
         "beat_launch_operator_signals": len((request.get("beat_launch_context") or {}).get("signal_from_operator_now") or []),
         "beat_launch_edge_state_signals": len((request.get("beat_launch_context") or {}).get("signal_from_edge_state_now") or []),
         "open_claims": claims_summary.get("open_total", 0),
