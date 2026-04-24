@@ -60,6 +60,7 @@ cat >"$TMP_HOME/.claude/projects/test-project/session-1.jsonl" <<'JSONL'
 {"type":"user","timestamp":"2026-04-23T10:05:00Z","sessionId":"session-1","message":{"role":"user","content":"workflow automatico deve acontecer so com orientacao explicita do operador"}}
 {"type":"user","timestamp":"2026-04-23T10:10:00Z","sessionId":"session-1","message":{"role":"user","content":"a primitive do exa no ed deveria mencionar deep research"}}
 {"type":"user","timestamp":"2026-04-23T10:15:00Z","sessionId":"session-1","message":{"role":"user","content":"topics deve ser consultado no edge search em todo beat"}}
+{"type":"user","timestamp":"2026-04-23T10:20:00Z","sessionId":"session-1","message":{"role":"user","content":"eu nao deveria ter que repetir esse passo; isso deveria vir no install"}}
 JSONL
 cat >"$PROTO_POSTFLIGHT" <<'YAML'
 version: 1
@@ -176,12 +177,15 @@ assert request["operator_pressure_summary"]["signal_from_operator_now"] >= 1
 assert request["operator_pressure_summary"]["operator_toil_optimizable_now"] >= 1
 assert request["operator_pressure_summary"]["workflow_candidates"] >= 1
 assert request["operator_pressure_summary"]["capability_candidates"] >= 1
+assert request["operator_pressure_summary"]["substrate_gap_requests"] >= 1
 assert request["operator_pressure_digest"]["signal_from_operator_now"]
 assert request["operator_pressure_digest"]["operator_toil_optimizable_now"]
+assert request["operator_pressure_digest"]["substrate_gap_requests"]
 assert "mistakes_to_avoid_now" in request["operator_pressure_digest"]
 assert request["operator_pressure_digest"]["active_entities"]
 assert request["beat_launch_context"]["signal_from_operator_now"]
 assert request["beat_launch_context"]["signal_from_edge_state_now"]
+assert request["beat_launch_context"]["substrate_gap_requests"]
 assert request["beat_launch_context"]["decision_blend"] == {
     "operator_min_weight": 0.20,
     "edge_state_min_weight": 0.20,

@@ -1,10 +1,10 @@
-"""Operator pressure ledger + hot digest for recent Claude sessions.
+"""Operator pressure atom store + hot digest for recent Claude sessions.
 
-This module implements the first runtime slice of the operator-pressure design:
+This module maintains three layers:
 
-1. Canonical pressure ledger in state/operator-pressure/ledger.json
-2. Hot digest for preflight injection in state/operator-pressure/hot-digest.json
-3. Periodic redigest snapshots in state/operator-pressure/redigests/
+1. Canonical atom snapshot in state/operator-pressure/ledger.json
+2. Append-only atom ledger in state/operator-pressure/pressure-ledger.jsonl
+3. Hot digest + periodic redigests derived from those atoms
 
 The hot digest is optimized for current skill execution and is not meant for
 retrieval indexing. The periodic redigest is the colder, segmentable layer.
@@ -25,6 +25,7 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
 from paths import (  # noqa: E402
+    OPERATOR_PRESSURE_ATOMS_FILE,
     OPERATOR_PRESSURE_HOT_DIGEST_FILE,
     OPERATOR_PRESSURE_LEDGER_FILE,
     OPERATOR_PRESSURE_REDIGEST_DIR,
@@ -33,7 +34,7 @@ from paths import (  # noqa: E402
 from .router_client import make_client  # noqa: E402
 from .telemetry import emit_shadow_event, log_event  # noqa: E402
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 LEDGER_WINDOW_DAYS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_WINDOW_DAYS", "7") or "7")
 MAX_SESSIONS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_SESSIONS", "8") or "8")
 MAX_MESSAGES = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_MESSAGES", "48") or "48")
@@ -57,6 +58,44 @@ _CORRECTION_RE = re.compile(
 )
 _TENTATIVE_RE = re.compile(r"\b(talvez|acho que|ser[aá] que|poderia|quem sabe)\b", re.I)
 _RESOLUTION_RE = re.compile(r"\b(fechado|resolvido|pode seguir|segue isso|pode tocar)\b", re.I)
+_OUTBURST_RE = re.compile(r"\b(merda|shit|porra|caralho|droga)\b", re.I)
+_FRUSTRATED_RE = re.compile(r"\b(merda|shit|porra|caralho|de novo|sempre|deveria funcionar|nao aguento)\b", re.I)
+_SARCASTIC_RE = re.compile(r"(^aham\b|/s\b|\".*\"\s*$)", re.I)
+_GLOBAL_SCOPE_RE = re.compile(
+    r"\b(sempre|nunca|todo beat|every beat|todas as skills|all skills|install|instal[a-z]*|runtime|sistema|system|workflow|policy|capability|primitive|primitiva|preflight|postflight|heartbeat)\b",
+    re.I,
+)
+_STRONG_IMPERATIVE_RE = re.compile(r"\b(tem que|quero que|sempre|nunca|fa[cç]a|adicione|tire|remova|coloque|implemente|corrija|ajuste)\b", re.I)
+_SUBSTRATE_GAP_RULES: list[tuple[re.Pattern[str], str]] = [
+    (
+        re.compile(
+            r"\b(use|usa|usar)\b.{0,40}\b(key|chave|token|credential|credencial|api|integra[cç][aã]o|integration)\b",
+            re.I,
+        ),
+        "ad_hoc_surface_use",
+    ),
+    (
+        re.compile(
+            r"\b(should already be available|devia j[aá] existir|isso deveria existir|isso deveria estar pronto|should come ready in the install|vir no install|existir no install)\b",
+            re.I,
+        ),
+        "native_support_expectation",
+    ),
+    (
+        re.compile(
+            r"\b(i keep having to ask|keep having to ask|tenho que repetir|n[aã]o deveria ter que repetir|shouldn'?t need to repeat|toda vez eu tenho que|sempre preciso que)\b",
+            re.I,
+        ),
+        "repeated_manual_request",
+    ),
+    (
+        re.compile(
+            r"\b(why can'?t you already see this|por que voc[eê] n[aã]o consegue ver|you should be able to inspect this directly|devia conseguir consultar isso direto)\b",
+            re.I,
+        ),
+        "missing_native_observability",
+    ),
+]
 
 _TARGET_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(workflow|routines?|preflight|postflight|protocolo)\b", re.I), "workflow"),
@@ -90,6 +129,28 @@ _ENTITY_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bopenai\b", re.I), "openai"),
 ]
 
+_ENTITY_TYPE_MAP = {
+    "meta": "surface",
+    "whatsapp": "surface",
+    "grafana": "surface",
+    "exa": "surface",
+    "github": "surface",
+    "claude": "system",
+    "openai": "surface",
+    "workflow": "workflow",
+    "topic": "memory",
+    "memory": "memory",
+    "preflight": "protocol",
+    "postflight": "protocol",
+    "heartbeat": "skill",
+    "reflection": "skill",
+    "autonomy": "skill",
+    "report": "skill",
+    "research": "skill",
+    "strategy": "skill",
+    "map": "skill",
+}
+
 _HOT_DIGEST_KEYS = {
     "summary",
     "signal_from_operator_now",
@@ -99,6 +160,7 @@ _HOT_DIGEST_KEYS = {
     "implicit_needs_hypotheses",
     "workflow_candidates",
     "capability_candidates",
+    "substrate_gap_requests",
     "active_entities",
     "item_ids",
 }
@@ -230,6 +292,8 @@ def _fingerprint_text(text: str) -> str:
 def _classify_kind(text: str) -> str:
     if _RESOLUTION_RE.search(text):
         return "resolution"
+    if _OUTBURST_RE.search(text) and not (_DIRECTIVE_RE.search(text) or _CORRECTION_RE.search(text) or _QUESTION_RE.search(text)):
+        return "outburst"
     if _FAILURE_RE.search(text):
         return "failure"
     if _CONTRADICTION_RE.search(text):
@@ -245,19 +309,117 @@ def _classify_kind(text: str) -> str:
     return "directive"
 
 
+def _substrate_gap_reasons(text: str) -> list[str]:
+    reasons: list[str] = []
+    for pattern, reason in _SUBSTRATE_GAP_RULES:
+        if pattern.search(text):
+            reasons.append(reason)
+    return sorted(set(reasons))
+
+
 def _infer_target(text: str) -> str:
     for pattern, target in _TARGET_RULES:
         if pattern.search(text):
             return target
+    if _substrate_gap_reasons(text):
+        return "capability"
     return "policy"
 
 
-def _extract_entities(text: str) -> list[str]:
+def _extract_entity_names(text: str) -> list[str]:
     entities: list[str] = []
     for pattern, label in _ENTITY_RULES:
         if pattern.search(text):
             entities.append(label)
     return sorted(set(entities))
+
+
+def _extract_entity_objects(text: str) -> list[dict[str, str]]:
+    return [
+        {
+            "name": name,
+            "type": _ENTITY_TYPE_MAP.get(name, "concept"),
+        }
+        for name in _extract_entity_names(text)
+    ]
+
+
+def _entity_names(raw_entities: Any) -> list[str]:
+    names: list[str] = []
+    if not isinstance(raw_entities, list):
+        return names
+    for item in raw_entities:
+        if isinstance(item, dict):
+            name = str(item.get("name") or "").strip()
+        else:
+            name = str(item or "").strip()
+        if name:
+            names.append(name)
+    return sorted(set(names))
+
+
+def _infer_emotion(text: str, kind: str) -> str:
+    if _SARCASTIC_RE.search(text):
+        return "sarcastic"
+    if _TENTATIVE_RE.search(text) or kind in {"question", "tentative"}:
+        return "uncertain"
+    if _FRUSTRATED_RE.search(text):
+        return "frustrated"
+    if kind in {"directive", "correction", "contradiction"}:
+        return "instructive"
+    return "neutral"
+
+
+def _infer_scope(text: str) -> str:
+    return "global" if _GLOBAL_SCOPE_RE.search(text) else "local"
+
+
+def _imperative_strength(text: str, kind: str, *, explicit_operator_direction: bool, repeat_count: int) -> str:
+    if kind in {"directive", "correction", "contradiction"} and (_STRONG_IMPERATIVE_RE.search(text) or repeat_count >= 2):
+        return "high"
+    if explicit_operator_direction or kind in {"directive", "correction", "contradiction"}:
+        return "medium"
+    return "low"
+
+
+def _salience_for_item(item: dict[str, Any]) -> float:
+    score = 0.15
+    score += min(int(item.get("repeat_count") or 0) * 0.12, 0.36)
+    if item.get("explicit_operator_direction"):
+        score += 0.20
+    if str(item.get("kind") or "") in {"correction", "contradiction", "failure"}:
+        score += 0.16
+    if item.get("substrate_gap_signal"):
+        score += 0.10
+    if str(item.get("scope") or "") == "global":
+        score += 0.08
+    return round(min(score, 1.0), 3)
+
+
+def _atom_hash(item: dict[str, Any]) -> str:
+    payload = {
+        "id": item.get("id"),
+        "kind": item.get("kind"),
+        "content": item.get("content"),
+        "target": item.get("target"),
+        "status": item.get("status"),
+        "repeat_count": item.get("repeat_count"),
+        "created_at": item.get("created_at"),
+        "last_seen_at": item.get("last_seen_at"),
+        "valid_from": item.get("valid_from"),
+        "valid_until": item.get("valid_until"),
+        "entities": item.get("entities"),
+        "salience": item.get("salience"),
+        "explicit_operator_direction": item.get("explicit_operator_direction"),
+        "emotion": item.get("emotion"),
+        "imperative_strength": item.get("imperative_strength"),
+        "scope": item.get("scope"),
+        "substrate_gap_signal": item.get("substrate_gap_signal"),
+        "substrate_gap_reasons": item.get("substrate_gap_reasons"),
+        "supersedes": item.get("supersedes"),
+        "promoted_to": item.get("promoted_to"),
+    }
+    return _hash_payload(payload)
 
 
 def _explicit_operator_direction(kind: str, text: str) -> bool:
@@ -278,6 +440,8 @@ def _items_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
         item_id = f"pressure:{fingerprint}"
         item = grouped.get(item_id)
         if item is None:
+            substrate_gap_reasons = _substrate_gap_reasons(text)
+            explicit_direction = _explicit_operator_direction(kind, text)
             item = {
                 "id": item_id,
                 "kind": kind,
@@ -287,9 +451,16 @@ def _items_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "repeat_count": 0,
                 "created_at": message["timestamp"],
                 "last_seen_at": message["timestamp"],
+                "valid_from": message["timestamp"],
                 "valid_until": "",
-                "entities": _extract_entities(text),
-                "explicit_operator_direction": _explicit_operator_direction(kind, text),
+                "entities": _extract_entity_objects(text),
+                "salience": 0.0,
+                "explicit_operator_direction": explicit_direction,
+                "emotion": _infer_emotion(text, kind),
+                "imperative_strength": "low",
+                "scope": _infer_scope(text),
+                "substrate_gap_signal": bool(substrate_gap_reasons),
+                "substrate_gap_reasons": substrate_gap_reasons,
                 "provenance": [],
                 "supersedes": [],
                 "promoted_to": [],
@@ -302,19 +473,36 @@ def _items_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
         provenance = item.setdefault("provenance", [])
         provenance.append(
             {
-                "session_id": message["session_id"],
-                "message_idx": int(message["message_idx"]),
+                "source_kind": "session",
+                "source_id": message["session_id"],
+                "message_range": [int(message["message_idx"]), int(message["message_idx"])],
                 "timestamp": message["timestamp"],
                 "source_file": message["source_file"],
+                "cwd": message.get("cwd") or "",
             }
         )
         item["provenance"] = provenance[-5:]
-        merged_entities = set(item.get("entities") or [])
-        merged_entities.update(_extract_entities(text))
-        item["entities"] = sorted(merged_entities)
+        merged_entities = {entity["name"]: entity for entity in item.get("entities") or [] if isinstance(entity, dict)}
+        for entity in _extract_entity_objects(text):
+            merged_entities[entity["name"]] = entity
+        item["entities"] = [merged_entities[name] for name in sorted(merged_entities)]
+        merged_gap_reasons = set(item.get("substrate_gap_reasons") or [])
+        merged_gap_reasons.update(_substrate_gap_reasons(text))
+        item["substrate_gap_reasons"] = sorted(merged_gap_reasons)
+        item["substrate_gap_signal"] = bool(item["substrate_gap_reasons"])
+        item["imperative_strength"] = _imperative_strength(
+            text,
+            kind,
+            explicit_operator_direction=bool(item.get("explicit_operator_direction")),
+            repeat_count=int(item.get("repeat_count") or 0),
+        )
+    for item in grouped.values():
+        item["salience"] = _salience_for_item(item)
+        item["atom_hash"] = _atom_hash(item)
     items = list(grouped.values())
     items.sort(
         key=lambda item: (
+            float(item.get("salience") or 0.0),
             -int(item.get("repeat_count") or 0),
             str(item.get("last_seen_at") or ""),
             str(item.get("id") or ""),
@@ -329,6 +517,8 @@ def _ledger_from_messages(messages: list[dict[str, Any]], *, project_dir: Path) 
     item_payload = [
         {
             "id": item["id"],
+            "atom_id": item["id"],
+            "atom_hash": item["atom_hash"],
             "kind": item["kind"],
             "content": item["content"],
             "target": item["target"],
@@ -336,9 +526,16 @@ def _ledger_from_messages(messages: list[dict[str, Any]], *, project_dir: Path) 
             "repeat_count": item["repeat_count"],
             "created_at": item["created_at"],
             "last_seen_at": item["last_seen_at"],
+            "valid_from": item["valid_from"],
             "valid_until": item["valid_until"],
             "entities": item["entities"],
+            "salience": item["salience"],
             "explicit_operator_direction": item["explicit_operator_direction"],
+            "emotion": item["emotion"],
+            "imperative_strength": item["imperative_strength"],
+            "scope": item["scope"],
+            "substrate_gap_signal": item["substrate_gap_signal"],
+            "substrate_gap_reasons": item["substrate_gap_reasons"],
             "provenance": item["provenance"],
             "supersedes": item["supersedes"],
             "promoted_to": item["promoted_to"],
@@ -348,20 +545,24 @@ def _ledger_from_messages(messages: list[dict[str, Any]], *, project_dir: Path) 
     source_hash = _hash_payload(item_payload)
     return {
         "schema_version": SCHEMA_VERSION,
+        "store_kind": "operator_pressure_atom_store",
         "generated_at": _now_iso(),
         "project_dir": str(project_dir),
         "window_days": LEDGER_WINDOW_DAYS,
         "message_total": len(messages),
         "session_total": len({row["session_id"] for row in messages}),
         "item_total": len(item_payload),
+        "atom_total": len(item_payload),
         "source_hash": source_hash,
+        "atoms": item_payload,
         "items": item_payload,
     }
 
 
 def _rank_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    def key(item: dict[str, Any]) -> tuple[int, str, int]:
+    def key(item: dict[str, Any]) -> tuple[float, int, str, int]:
         return (
+            float(item.get("salience") or 0.0),
             int(item.get("repeat_count") or 0),
             str(item.get("last_seen_at") or ""),
             1 if item.get("explicit_operator_direction") else 0,
@@ -377,7 +578,7 @@ def _compact_item(item: dict[str, Any]) -> dict[str, Any]:
         "kind": item.get("kind"),
         "repeat_count": int(item.get("repeat_count") or 0),
         "status": item.get("status"),
-        "entities": list(item.get("entities") or []),
+        "entities": _entity_names(item.get("entities") or []),
         "last_seen_at": item.get("last_seen_at"),
     }
 
@@ -420,7 +621,8 @@ def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str,
     capability_candidates = [
         item for item in directives if str(item.get("target") or "") == "capability"
     ]
-    entity_counts = Counter(entity for item in ranked for entity in list(item.get("entities") or []))
+    substrate_gap_requests = [item for item in ranked if item.get("substrate_gap_signal")]
+    entity_counts = Counter(entity for item in ranked for entity in _entity_names(item.get("entities") or []))
     top_entities = [name for name, _count in entity_counts.most_common(8)]
     summary_parts = []
     if directives:
@@ -429,6 +631,8 @@ def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str,
         summary_parts.append(f"{len(toil)} recurring operator toil patterns")
     if mistakes:
         summary_parts.append(f"{len(mistakes)} recent mistakes to avoid")
+    if substrate_gap_requests:
+        summary_parts.append(f"{len(substrate_gap_requests)} substrate gaps still requested by the operator")
     if not summary_parts:
         summary_parts.append("no strong recent operator pressure detected")
     digest = {
@@ -446,6 +650,7 @@ def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str,
         "implicit_needs_hypotheses": [_compact_item(item) for item in hypotheses[:SECTION_LIMIT]],
         "workflow_candidates": [_compact_item(item) for item in workflow_candidates[:SECTION_LIMIT]],
         "capability_candidates": [_compact_item(item) for item in capability_candidates[:SECTION_LIMIT]],
+        "substrate_gap_requests": [_compact_item(item) for item in substrate_gap_requests[:SECTION_LIMIT]],
         "active_entities": top_entities,
         "item_ids": [str(item.get("id") or "") for item in ranked[: max(SECTION_LIMIT * 4, 1)]],
     }
@@ -483,6 +688,7 @@ def _llm_prompt(
         '  "implicit_needs_hypotheses": [same shape],\n'
         '  "workflow_candidates": [same shape],\n'
         '  "capability_candidates": [same shape],\n'
+        '  "substrate_gap_requests": [same shape],\n'
         '  "active_entities": ["..."]\n'
         "}\n\n"
         "Rules:\n"
@@ -528,6 +734,7 @@ def _coerce_digest_shape(candidate: dict[str, Any], fallback: dict[str, Any]) ->
         "implicit_needs_hypotheses",
         "workflow_candidates",
         "capability_candidates",
+        "substrate_gap_requests",
     ):
         items = candidate.get(key)
         if isinstance(items, list):
@@ -574,6 +781,7 @@ def _render_hot_digest_with_llm(
         "implicit_needs_hypotheses": fallback.get("implicit_needs_hypotheses", []),
         "workflow_candidates": fallback.get("workflow_candidates", []),
         "capability_candidates": fallback.get("capability_candidates", []),
+        "substrate_gap_requests": fallback.get("substrate_gap_requests", []),
         "active_entities": fallback.get("active_entities", []),
     }
     prompt = _llm_prompt(render_input, previous_digest=previous_digest, delta_items=delta_items[:SECTION_LIMIT])
@@ -612,11 +820,93 @@ def _render_hot_digest_with_llm(
         return fallback
 
 
+def _existing_atom_index(path: Path) -> dict[str, dict[str, Any]]:
+    if not path.exists():
+        return {}
+    index: dict[str, dict[str, Any]] = {}
+    try:
+        handle = path.open(encoding="utf-8")
+    except Exception:
+        return {}
+    with handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            atom_id = str(payload.get("atom_id") or "").strip()
+            if not atom_id:
+                continue
+            index[atom_id] = {
+                "atom_hash": str(payload.get("atom_hash") or ""),
+                "revision": int(payload.get("revision") or 0),
+            }
+    return index
+
+
+def _append_atom_store(ledger: dict[str, Any], *, atoms_path: Path) -> dict[str, Any]:
+    atoms_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = _existing_atom_index(atoms_path)
+    appended = 0
+    with atoms_path.open("a", encoding="utf-8") as handle:
+        for item in ledger.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            atom_id = str(item.get("id") or "").strip()
+            if not atom_id:
+                continue
+            atom_hash = str(item.get("atom_hash") or _atom_hash(item))
+            previous = existing.get(atom_id) or {}
+            if previous.get("atom_hash") == atom_hash:
+                continue
+            entry = {
+                "schema_version": SCHEMA_VERSION,
+                "entry_type": "atom",
+                "recorded_at": _now_iso(),
+                "atom_id": atom_id,
+                "atom_hash": atom_hash,
+                "revision": int(previous.get("revision") or 0) + 1,
+                "kind": item.get("kind"),
+                "content": item.get("content"),
+                "target": item.get("target"),
+                "status": item.get("status"),
+                "repeat_count": int(item.get("repeat_count") or 0),
+                "created_at": item.get("created_at"),
+                "last_seen_at": item.get("last_seen_at"),
+                "valid_from": item.get("valid_from") or item.get("created_at"),
+                "valid_until": item.get("valid_until") or "",
+                "entities": item.get("entities") or [],
+                "salience": float(item.get("salience") or 0.0),
+                "explicit_operator_direction": bool(item.get("explicit_operator_direction")),
+                "emotion": item.get("emotion"),
+                "imperative_strength": item.get("imperative_strength"),
+                "scope": item.get("scope"),
+                "substrate_gap_signal": bool(item.get("substrate_gap_signal")),
+                "substrate_gap_reasons": list(item.get("substrate_gap_reasons") or []),
+                "provenance": item.get("provenance") or [],
+                "supersedes": item.get("supersedes") or [],
+                "promoted_to": item.get("promoted_to") or [],
+            }
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            appended += 1
+    return {
+        "path": str(atoms_path),
+        "appended": appended,
+        "atom_total": int(ledger.get("atom_total") or ledger.get("item_total") or 0),
+    }
+
+
 def _build_redigest(ledger: dict[str, Any], hot_digest: dict[str, Any], previous_latest: dict[str, Any] | None = None) -> dict[str, Any]:
     items = list(ledger.get("items") or [])
     by_target = Counter(str(item.get("target") or "policy") for item in items)
     by_kind = Counter(str(item.get("kind") or "directive") for item in items)
-    segments: list[dict[str, Any]] = []
+    by_status = Counter(str(item.get("status") or "active") for item in items)
+    derived_sections: dict[str, list[str]] = {}
     for section in (
         "signal_from_operator_now",
         "operator_pains_resolvable_now",
@@ -625,33 +915,57 @@ def _build_redigest(ledger: dict[str, Any], hot_digest: dict[str, Any], previous
         "implicit_needs_hypotheses",
         "workflow_candidates",
         "capability_candidates",
+        "substrate_gap_requests",
     ):
         for item in hot_digest.get(section) or []:
             if not isinstance(item, dict):
                 continue
-            segments.append(
-                {
-                    "section": section,
-                    "item_id": str(item.get("item_id") or ""),
-                    "text": str(item.get("text") or ""),
-                    "target": str(item.get("target") or ""),
-                    "kind": str(item.get("kind") or ""),
-                    "repeat_count": int(item.get("repeat_count") or 0),
-                    "entities": list(item.get("entities") or []),
-                    "status": str(item.get("status") or "active"),
-                    "last_seen_at": str(item.get("last_seen_at") or ""),
-                }
-            )
+            item_id = str(item.get("item_id") or "").strip()
+            if not item_id:
+                continue
+            derived_sections.setdefault(item_id, []).append(section)
+    segments: list[dict[str, Any]] = []
+    for item in _rank_items(items):
+        item_id = str(item.get("id") or "").strip()
+        if not item_id:
+            continue
+        segments.append(
+            {
+                "segment_id": f"pressure-segment:{item_id}",
+                "segment_type": "operator_pressure_atom",
+                "derived_from_atom_ids": [item_id],
+                "derived_sections": derived_sections.get(item_id, []),
+                "text": str(item.get("content") or "")[:220],
+                "target": str(item.get("target") or ""),
+                "kind": str(item.get("kind") or ""),
+                "status": str(item.get("status") or "active"),
+                "repeat_count": int(item.get("repeat_count") or 0),
+                "salience": float(item.get("salience") or 0.0),
+                "explicit_operator_direction": bool(item.get("explicit_operator_direction")),
+                "emotion": str(item.get("emotion") or ""),
+                "imperative_strength": str(item.get("imperative_strength") or ""),
+                "scope": str(item.get("scope") or ""),
+                "entities": _entity_names(item.get("entities") or []),
+                "entity_refs": list(item.get("entities") or []),
+                "valid_from": str(item.get("valid_from") or item.get("created_at") or ""),
+                "valid_until": str(item.get("valid_until") or ""),
+                "last_seen_at": str(item.get("last_seen_at") or ""),
+                "substrate_gap_signal": bool(item.get("substrate_gap_signal")),
+                "substrate_gap_reasons": list(item.get("substrate_gap_reasons") or []),
+            }
+        )
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": _now_iso(),
         "source_hash": ledger.get("source_hash"),
         "item_total": ledger.get("item_total", 0),
+        "atom_total": ledger.get("atom_total", 0),
         "summary": hot_digest.get("summary", ""),
         "segments": segments,
         "counts": {
             "by_target": dict(sorted(by_target.items())),
             "by_kind": dict(sorted(by_kind.items())),
+            "by_status": dict(sorted(by_status.items())),
         },
         "active_entities": hot_digest.get("active_entities", []),
         "previous_snapshot_hash": str(previous_latest.get("snapshot_hash") or "") if isinstance(previous_latest, dict) else "",
@@ -708,11 +1022,14 @@ def build_operator_pressure_layers(
     ledger_path: Path | None = None,
     hot_digest_path: Path | None = None,
     redigest_dir: Path | None = None,
+    atoms_path: Path | None = None,
 ) -> dict[str, Any]:
     project_dir = project_dir or PROJECT_DIR
+    explicit_ledger_path = ledger_path
     ledger_path = ledger_path or OPERATOR_PRESSURE_LEDGER_FILE
     hot_digest_path = hot_digest_path or OPERATOR_PRESSURE_HOT_DIGEST_FILE
     redigest_dir = redigest_dir or OPERATOR_PRESSURE_REDIGEST_DIR
+    atoms_path = atoms_path or ((explicit_ledger_path.parent / "pressure-ledger.jsonl") if explicit_ledger_path else OPERATOR_PRESSURE_ATOMS_FILE)
 
     messages = _iter_recent_user_messages(project_dir=project_dir)
     ledger = _ledger_from_messages(messages, project_dir=project_dir)
@@ -730,6 +1047,7 @@ def build_operator_pressure_layers(
 
     _write_json(ledger_path, ledger)
     _write_json(hot_digest_path, hot_digest)
+    atom_store = _append_atom_store(ledger, atoms_path=atoms_path)
     latest_before = _read_json((redigest_dir / "latest.json"))
     redigest = _maybe_write_redigest(ledger, hot_digest, redigest_dir=redigest_dir)
 
@@ -748,9 +1066,12 @@ def build_operator_pressure_layers(
         "implicit_needs_hypotheses": len(hot_digest.get("implicit_needs_hypotheses") or []),
         "workflow_candidates": len(hot_digest.get("workflow_candidates") or []),
         "capability_candidates": len(hot_digest.get("capability_candidates") or []),
+        "substrate_gap_requests": len(hot_digest.get("substrate_gap_requests") or []),
         "render_mode": hot_digest.get("render_mode", "deterministic"),
         "source_hash": ledger.get("source_hash"),
         "ledger_path": str(ledger_path),
+        "atoms_path": atom_store["path"],
+        "atom_entries_appended": atom_store["appended"],
         "hot_digest_path": str(hot_digest_path),
         "redigest_path": str(redigest_dir / "latest.json"),
         "redigest_updated": (not latest_before) or latest_before.get("snapshot_hash") != redigest.get("snapshot_hash"),
@@ -773,7 +1094,9 @@ def build_operator_pressure_layers(
         operator_toil_optimizable_now=summary["operator_toil_optimizable_now"],
         workflow_candidates=summary["workflow_candidates"],
         capability_candidates=summary["capability_candidates"],
+        substrate_gap_requests=summary["substrate_gap_requests"],
         mistakes_to_avoid_now=summary["mistakes_to_avoid_now"],
+        atom_entries_appended=summary["atom_entries_appended"],
     )
     return {
         "ledger": ledger,
