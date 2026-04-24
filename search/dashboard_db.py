@@ -52,7 +52,12 @@ def add_chat(author: str, text: str, conn=None) -> int:
 
 def get_chats(unprocessed_only: bool = False, pinned_only: bool = False,
               limit: int = 100, conn=None) -> list[dict]:
-    """Get chat messages, optionally filtered by processed/pinned status."""
+    """Get the latest chat messages, optionally filtered by processed/pinned status.
+
+    The UI should show the most recent conversation, but still render it in
+    chronological order. A direct ascending LIMIT hides new messages once the
+    table has more than ``limit`` rows.
+    """
     own = conn is None
     if own: conn = ensure_db()
     try:
@@ -64,8 +69,10 @@ def get_chats(unprocessed_only: bool = False, pinned_only: bool = False,
             clauses.append("pinned=1")
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY ts ASC, id ASC LIMIT ?"
-        return [dict(r) for r in conn.execute(sql, (limit,)).fetchall()]
+        sql += " ORDER BY ts DESC, id DESC LIMIT ?"
+        rows = [dict(r) for r in conn.execute(sql, (limit,)).fetchall()]
+        rows.reverse()
+        return rows
     finally:
         if own: conn.close()
 
