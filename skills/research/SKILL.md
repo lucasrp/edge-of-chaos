@@ -72,6 +72,8 @@ edge-search "[technical facet]" -k 5 --type note
 edge-search "[conceptual facet]" -k 5 --type report
 ```
 
+> **Note (issue #381):** `edge-sources` (Step 3.5) now always runs the corpus as its first source and renders a `### Corpus (internal)` section at the top of its output. Step 1 is still the right place for *targeted, multi-facet* exploration; but if you skip it, you still cannot escape corpus consultation downstream — the report must reflect what that section returned (or document an empty result).
+
 For each relevant result, read the original:
 ```bash
 cat ~/edge/notes/[file].md | head -60    # Notes — more detailed
