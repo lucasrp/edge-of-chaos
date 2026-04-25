@@ -86,17 +86,20 @@ OUTPUT=$(env -u EDGE_STATE_DIR -u EDGE_HOME -u EDGE_CODENAME -u EDGE_INSTANCE HO
 STATUS=$?
 set -e
 
-if python3 - <<'PY' "$STATUS" "$OUTPUT" "$TMP_RUNTIME/blog/changelog.md"
+if python3 - <<'PY' "$STATUS" "$OUTPUT" "$TMP_RUNTIME/blog/changelog.md" "$TMP_RUNTIME/blog/entries/issue-302-smoke.md"
 import pathlib
 import sys
 
 status = int(sys.argv[1])
 output = sys.argv[2]
 changelog = pathlib.Path(sys.argv[3])
+entry = pathlib.Path(sys.argv[4])
 
-assert status == 0
+assert status == 1
 assert "=== blog-publish: issue-302-smoke ===" in output
 assert "[3/5] Updating changelog..." in output
+assert "Publish verification failed" in output
+assert entry.exists()
 assert changelog.exists()
 assert "Issue 302 Smoke" in changelog.read_text(encoding="utf-8")
 PY

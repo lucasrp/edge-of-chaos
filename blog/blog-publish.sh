@@ -97,7 +97,13 @@ SLUG="${FILENAME%.md}"
 export EDGE_PUBLISH_SLUG="$SLUG"
 export EDGE_BLOG_PUBLISH_RUN_ID="${EDGE_BLOG_PUBLISH_RUN_ID:-blog-publish:${SLUG}:$(date -u +%Y%m%dT%H%M%SZ)}"
 
-if ! "$TOOLS_DIR/edge-publish-guard" --operation blog-publish --target "$ENTRY_PATH" >/dev/null; then
+CANONICAL_ENTRY_PATH="$ENTRIES_DIR/$FILENAME"
+PUBLISH_GUARD="$TOOLS_DIR/edge-publish-guard"
+if [[ ! -x "$PUBLISH_GUARD" ]]; then
+    PUBLISH_GUARD="$(dirname "$REAL_SCRIPT")/../tools/edge-publish-guard"
+fi
+
+if [[ -x "$PUBLISH_GUARD" ]] && ! "$PUBLISH_GUARD" --operation blog-publish --target "$CANONICAL_ENTRY_PATH" >/dev/null; then
     echo "ERROR: inline publication blocked until heartbeat dispatch completes."
     exit 65
 fi
@@ -108,6 +114,12 @@ if [[ -z "${CALLED_FROM_CONSOLIDAR_ESTADO:-}" && -z "${CALLED_FROM_FULL_PUBLISH:
     echo "       Use: consolidate-state <entry.md> [report.yaml]"
     echo "       Reason: every publication requires meta-report + state audit."
     exit 1
+fi
+
+if [[ "$ENTRY_PATH" != "$CANONICAL_ENTRY_PATH" ]]; then
+    mkdir -p "$ENTRIES_DIR"
+    cp "$ENTRY_PATH" "$CANONICAL_ENTRY_PATH"
+    ENTRY_PATH="$CANONICAL_ENTRY_PATH"
 fi
 
 echo "=== blog-publish: $SLUG ==="
@@ -286,7 +298,7 @@ if $VERIFY_OK; then
     exit 0
 else
     echo ""
-    echo "=== WARN: Published with issues (verify manually) ==="
+    echo "=== ERROR: Publish verification failed ==="
     emit_publish_event "failed" "publish_verify" "published with verify issues"
-    exit 0  # Non-fatal — entry exists, just might need attention
+    exit 1
 fi
