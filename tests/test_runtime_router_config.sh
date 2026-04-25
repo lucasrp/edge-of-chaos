@@ -234,6 +234,115 @@ else
     fail "router_client falls back to local Claude CLI on remote failure"
 fi
 
+echo "--- Test 5: router_client falls back when external client cannot be configured ---"
+if EDGE_REPO_DIR="$TMP_RUNTIME" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="router-runtime-test" python3 - <<'PY' "$EDGE_DIR" "$TMP_STATE/logs/events.jsonl"
+import json
+import sys
+from pathlib import Path
+
+edge_dir = sys.argv[1]
+events_path = Path(sys.argv[2])
+sys.path.insert(0, f"{edge_dir}/tools")
+import _shared.router_client as rc
+
+rc.claude_cli_available = lambda: True
+rc.call_claude_cli_text = lambda prompt, timeout=60: "configured fallback ok"
+
+def missing_secret(_secret_ref):
+    raise RuntimeError("Secret OPENAI_API_KEY not found")
+
+rc.load_secret = missing_secret
+
+client, model = rc.make_client("chat", timeout=30)
+assert model in {"gpt-5.4", "claude-cli"}
+chat = client.chat.completions.create(
+    model=model,
+    messages=[
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "User prompt"},
+    ],
+)
+assert chat.choices[0].message.content == "configured fallback ok"
+events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+degraded = [event for event in events if event.get("type") == "llm_provider_degraded"]
+assert any(event.get("fallback") == "claude-cli" for event in degraded)
+
+try:
+    rc.make_client("embedding", timeout=30)
+except RuntimeError as exc:
+    assert "Secret OPENAI_API_KEY not found" in str(exc) or "openai package is required" in str(exc)
+else:
+    raise AssertionError("embedding client should not fall back to Claude CLI")
+PY
+then
+    pass "router_client falls back when external client cannot be configured"
+else
+    fail "router_client falls back when external client cannot be configured"
+fi
+
+echo "--- Test 6: review-gate uses Claude fallback when API secrets are absent ---"
+rm -f "$TMP_RUNTIME/secrets/openai.env" "$TMP_RUNTIME/secrets/xai.env"
+mkdir -p "$TMP_HOME/.local/bin" "$TMP_STATE/reports"
+cat >"$TMP_HOME/.local/bin/claude" <<'SH'
+#!/usr/bin/env bash
+cat <<'JSON'
+{
+  "pass": true,
+  "overall": 4.0,
+  "dimensions": {
+    "structural_completeness": {"score": 4, "feedback": "fallback ok"},
+    "content_depth": {"score": 4, "feedback": "fallback ok"},
+    "storytelling": {"score": 4, "feedback": "fallback ok"},
+    "feynman_method": {"score": 4, "feedback": "fallback ok"},
+    "writing_quality": {"score": 4, "feedback": "fallback ok"},
+    "visualization": {"score": 4, "feedback": "fallback ok"},
+    "intellectual_honesty": {"score": 4, "feedback": "fallback ok"},
+    "internal_consistency": {"score": 4, "feedback": "fallback ok"},
+    "didactic_clarity": {"score": 4, "feedback": "fallback ok"}
+  },
+  "critical_issues": [],
+  "suggestions": []
+}
+JSON
+SH
+chmod +x "$TMP_HOME/.local/bin/claude"
+cat >"$TMP_STATE/reports/fallback-spec.yaml" <<'YAML'
+title: "Fallback spec"
+date: "25/04/2026"
+executive_summary: "Validate fallback"
+metrics: []
+sections:
+  - title: "linhagem"
+    content: "test"
+  - title: "O que Nao Sei"
+    content: "test"
+  - title: "glossario"
+    content: "test"
+bibliography: []
+YAML
+if EDGE_REPO_DIR="$TMP_RUNTIME" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="router-runtime-test" EDGE_CLAUDE_BIN="$TMP_HOME/.local/bin/claude" \
+    python3 "$EDGE_DIR/tools/review-gate.py" "$TMP_STATE/reports/fallback-spec.yaml" --review-only --json >/tmp/test-review-gate-fallback.json 2>/tmp/test-review-gate-fallback.err
+then
+    if python3 - <<'PY' /tmp/test-review-gate-fallback.json
+import json
+import sys
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+review = payload["final_review"]
+assert review["_meta"]["model"] in {"gpt-5.4", "claude-cli"}
+assert review["_meta"]["tokens"]["total"] == 0
+assert review["overall"] >= 3.5
+PY
+    then
+        pass "review-gate uses Claude fallback when API secrets are absent"
+    else
+        cat /tmp/test-review-gate-fallback.err
+        fail "review-gate uses Claude fallback when API secrets are absent"
+    fi
+else
+    cat /tmp/test-review-gate-fallback.err
+    fail "review-gate uses Claude fallback when API secrets are absent"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"

@@ -28,7 +28,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from .telemetry import log_llm_call
+from .telemetry import log_event, log_llm_call
 
 try:
     import yaml  # type: ignore
@@ -284,6 +284,35 @@ def call_claude_cli_text(prompt: str, *, timeout: int = 60) -> str:
     return text
 
 
+def _safe_error_text(exc: Exception, limit: int = 500) -> str:
+    text = f"{type(exc).__name__}: {exc}"
+    return re.sub(r"\s+", " ", text).strip()[:limit]
+
+
+def _log_provider_degradation(
+    *,
+    router: str,
+    model: str,
+    resource: str,
+    exc: Exception,
+    fallback: str | None,
+    stage: str,
+) -> None:
+    try:
+        log_event(
+            "llm_provider_degraded",
+            router=router,
+            model=model,
+            resource=resource,
+            stage=stage,
+            error_type=type(exc).__name__,
+            error=_safe_error_text(exc),
+            fallback=fallback or "",
+        )
+    except Exception:
+        pass
+
+
 def _content_to_text(content: Any) -> str:
     if content is None:
         return ""
@@ -406,7 +435,7 @@ def _build_chat_fallback_response(text: str) -> Any:
                 message=SimpleNamespace(content=text, tool_calls=None)
             )
         ],
-        usage=SimpleNamespace(prompt_tokens=0, completion_tokens=0),
+        usage=SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0),
     )
 
 
@@ -427,6 +456,151 @@ def _call_claude_fallback(resource_name: str, kwargs: dict[str, Any], *, timeout
     if resource_name == "responses":
         return _build_responses_fallback_response(text)
     return _build_chat_fallback_response(text)
+
+
+class _ClaudeFallbackCreate:
+    """OpenAI-shaped `.create()` shim backed only by local Claude CLI."""
+
+    def __init__(self, router: str, default_model: str, resource_name: str, fallback_timeout_s: int, setup_error: str) -> None:
+        self._router = router
+        self._default_model = default_model
+        self._resource_name = resource_name
+        self._fallback_timeout_s = fallback_timeout_s
+        self._setup_error = setup_error
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        model = kwargs.get("model") or self._default_model
+        if self._resource_name == "embeddings":
+            raise RuntimeError(
+                "Claude CLI fallback does not support embeddings; use FTS-only/no-embed degradation."
+            )
+        started = time.monotonic()
+        try:
+            resp = _call_claude_fallback(
+                self._resource_name,
+                kwargs,
+                timeout_s=self._fallback_timeout_s,
+            )
+        except Exception as exc:
+            _log_provider_degradation(
+                router=self._router,
+                model=str(model),
+                resource=self._resource_name,
+                exc=exc,
+                fallback=None,
+                stage="claude_fallback_failed",
+            )
+            raise
+        latency_ms = int((time.monotonic() - started) * 1000)
+        log_llm_call(
+            router=f"{self._router}:claude-fallback",
+            model=CLAUDE_FALLBACK_MODEL,
+            tokens_in=0,
+            tokens_out=0,
+            latency_ms=latency_ms,
+            fallback_for=model,
+            resource=self._resource_name,
+            setup_fallback=True,
+            setup_error=self._setup_error,
+        )
+        return resp
+
+
+class _ClaudeFallbackResource:
+    def __init__(self, router: str, default_model: str, resource_name: str, fallback_timeout_s: int, setup_error: str) -> None:
+        self._router = router
+        self._default_model = default_model
+        self._resource_name = resource_name
+        self._fallback_timeout_s = fallback_timeout_s
+        self._setup_error = setup_error
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "create":
+            return _ClaudeFallbackCreate(
+                self._router,
+                self._default_model,
+                self._resource_name,
+                self._fallback_timeout_s,
+                self._setup_error,
+            )
+        raise AttributeError(name)
+
+
+class _ClaudeFallbackChat:
+    def __init__(self, router: str, default_model: str, fallback_timeout_s: int, setup_error: str) -> None:
+        self._router = router
+        self._default_model = default_model
+        self._fallback_timeout_s = fallback_timeout_s
+        self._setup_error = setup_error
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "completions":
+            return _ClaudeFallbackResource(
+                self._router,
+                self._default_model,
+                "chat.completions",
+                self._fallback_timeout_s,
+                self._setup_error,
+            )
+        raise AttributeError(name)
+
+
+class _ClaudeFallbackClient:
+    """Minimal OpenAI-compatible client used when external setup fails."""
+
+    def __init__(self, router: str, default_model: str, fallback_timeout_s: int, setup_error: str) -> None:
+        self._router = router
+        self._default_model = default_model
+        self._fallback_timeout_s = fallback_timeout_s
+        self._setup_error = setup_error
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "chat":
+            return _ClaudeFallbackChat(
+                self._router,
+                self._default_model,
+                self._fallback_timeout_s,
+                self._setup_error,
+            )
+        if name in ("responses", "embeddings"):
+            return _ClaudeFallbackResource(
+                self._router,
+                self._default_model,
+                name,
+                self._fallback_timeout_s,
+                self._setup_error,
+            )
+        raise AttributeError(name)
+
+
+def _purpose_allows_claude_fallback(purpose: str | None, model: str | None) -> bool:
+    if str(purpose or "").strip() == "embedding":
+        return False
+    if "embedding" in str(model or "").lower():
+        return False
+    return claude_cli_available()
+
+
+def _fallback_only_client(
+    *,
+    router: str,
+    model: str,
+    timeout: float | None,
+    exc: Exception,
+    resource: str,
+    stage: str,
+) -> tuple[Any, str]:
+    timeout_s = int(timeout) if timeout else 60
+    setup_error = _safe_error_text(exc)
+    _log_provider_degradation(
+        router=router,
+        model=model,
+        resource=resource,
+        exc=exc,
+        fallback=CLAUDE_FALLBACK_MODEL,
+        stage=stage,
+    )
+    return _ClaudeFallbackClient(router, model, timeout_s, setup_error), model
 
 
 def make_client(
@@ -453,6 +627,15 @@ def make_client(
     try:
         from openai import OpenAI  # imported lazily so tests without SDK don't break on import
     except ImportError as exc:  # pragma: no cover
+        if _purpose_allows_claude_fallback(purpose, model):
+            return _fallback_only_client(
+                router=purpose or "unknown",
+                model=model or CLAUDE_FALLBACK_MODEL,
+                timeout=timeout,
+                exc=exc,
+                resource="client",
+                stage="sdk_import",
+            )
         raise RuntimeError(
             "openai package is required: pip install openai"
         ) from exc
@@ -460,14 +643,39 @@ def make_client(
     if purpose is None and model is None:
         raise ValueError("make_client requires purpose or model.")
 
-    if purpose is not None:
-        cfg = load_router_config(purpose)
-        if model is not None:
-            cfg["model"] = model
-    else:
-        _, cfg = find_router_for_model(model)  # type: ignore[arg-type]
+    try:
+        if purpose is not None:
+            cfg = load_router_config(purpose)
+            if model is not None:
+                cfg["model"] = model
+            purpose_name = purpose
+        else:
+            purpose_name, cfg = find_router_for_model(model)  # type: ignore[arg-type]
+    except Exception as exc:
+        if _purpose_allows_claude_fallback(purpose, model):
+            return _fallback_only_client(
+                router=purpose or "unknown",
+                model=model or CLAUDE_FALLBACK_MODEL,
+                timeout=timeout,
+                exc=exc,
+                resource="router",
+                stage="router_config",
+            )
+        raise
 
-    api_key = load_secret(cfg["secret_ref"])
+    try:
+        api_key = load_secret(cfg["secret_ref"])
+    except Exception as exc:
+        if _purpose_allows_claude_fallback(purpose, cfg["model"]):
+            return _fallback_only_client(
+                router=purpose_name,
+                model=cfg["model"],
+                timeout=timeout,
+                exc=exc,
+                resource="secret",
+                stage="secret_resolution",
+            )
+        raise
     subst = {"key": api_key, "KEY": api_key}
     headers = {k: _substitute(str(v), subst) for k, v in cfg.get("headers", {}).items()}
     query = {k: _substitute(str(v), subst) for k, v in cfg.get("query", {}).items()}
@@ -484,8 +692,19 @@ def make_client(
         client_kwargs["timeout"] = timeout
     client_kwargs.update(kwargs)
 
-    client = OpenAI(**client_kwargs)
-    purpose_name = purpose if purpose is not None else _resolve_purpose_name(cfg["model"])
+    try:
+        client = OpenAI(**client_kwargs)
+    except Exception as exc:
+        if _purpose_allows_claude_fallback(purpose, cfg["model"]):
+            return _fallback_only_client(
+                router=purpose_name,
+                model=cfg["model"],
+                timeout=timeout,
+                exc=exc,
+                resource="client",
+                stage="client_init",
+            )
+        raise
     fallback_timeout_s = int(timeout) if timeout else 60
     return _wrap_with_telemetry(client, purpose_name, cfg["model"], fallback_timeout_s), cfg["model"]
 
@@ -521,13 +740,32 @@ class _InstrumentedCreate:
                 latency_ms=dt_ms, error=True,
                 fallback_candidate=fallback_candidate,
             )
+            _log_provider_degradation(
+                router=self._router,
+                model=str(model),
+                resource=self._resource_name,
+                exc=exc,
+                fallback=CLAUDE_FALLBACK_MODEL if fallback_candidate else None,
+                stage="remote_call",
+            )
             if fallback_candidate:
                 fallback_started = time.monotonic()
-                fallback_resp = _call_claude_fallback(
-                    self._resource_name,
-                    kwargs,
-                    timeout_s=self._fallback_timeout_s,
-                )
+                try:
+                    fallback_resp = _call_claude_fallback(
+                        self._resource_name,
+                        kwargs,
+                        timeout_s=self._fallback_timeout_s,
+                    )
+                except Exception as fallback_exc:
+                    _log_provider_degradation(
+                        router=self._router,
+                        model=CLAUDE_FALLBACK_MODEL,
+                        resource=self._resource_name,
+                        exc=fallback_exc,
+                        fallback=None,
+                        stage="claude_fallback_failed",
+                    )
+                    raise
                 fallback_dt_ms = int((time.monotonic() - fallback_started) * 1000)
                 log_llm_call(
                     router=f"{self._router}:claude-fallback",
