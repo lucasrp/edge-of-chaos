@@ -90,6 +90,23 @@ else
   fail "hook allows WebSearch when builtin policy is enabled"
 fi
 
+echo "--- Test 4: WebFetch is always allowed regardless of policy (issue #378) ---"
+cat >"$FEATURES_FILE" <<'YAML'
+search:
+  builtin_web_search: false
+  web_provider: exa
+  web_fallback: claude_web
+  exa: auto
+YAML
+rm -f "$TMP_STATE/state/runtime/web-search-fallback.json"
+
+WEBFETCH_INPUT='{"tool_name":"WebFetch","tool_input":{"url":"https://arxiv.org/abs/2602.17913","prompt":"summarize"}}'
+if EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" bash "$HOOK" <<<"$WEBFETCH_INPUT" >/dev/null 2>&1; then
+  pass "hook allows WebFetch even when WebSearch is blocked"
+else
+  fail "hook should allow WebFetch but blocked it"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"
