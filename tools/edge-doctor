@@ -129,13 +129,38 @@ def check_dir(path: Path, label: str):
 
 
 def check_command(cmd: str, label: str):
+    """Resolve `cmd` via PATH first, then fall back to known install paths.
+
+    Issue #376: when edge-apply has just installed symlinks to ~/.local/bin/
+    but the current shell has not refreshed PATH (.edge-env not sourced yet),
+    `shutil.which(cmd)` returns None and the install looks broken. Treat the
+    binary as installed if it exists at a known location, but warn so the
+    user knows to source ~/.edge-env or open a new shell.
+    """
     check_id = f"command:{_slug(cmd)}"
-    if shutil.which(cmd):
+    resolved = shutil.which(cmd)
+    if resolved:
         ok(f"{label}: {cmd}")
-        _record_check(check_id, "ok", f"{label}: {cmd}", artifact=cmd, label=label)
-    else:
-        fail(f"{label}: {cmd} — NÃO INSTALADO")
-        _record_check(check_id, "fail", f"{label}: {cmd} — NÃO INSTALADO", artifact=cmd, label=label)
+        _record_check(check_id, "ok", f"{label}: {cmd}", artifact=resolved, label=label)
+        return
+    fallback_paths = [
+        Path.home() / ".local" / "bin" / cmd,
+        Path.home() / "bin" / cmd,
+    ]
+    for candidate in fallback_paths:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            warn(f"{label}: {candidate} (encontrado, mas fora do PATH — rode `source ~/.edge-env` ou abra um novo shell)")
+            _record_check(
+                check_id,
+                "warn",
+                f"{label}: {candidate} fora do PATH",
+                artifact=str(candidate),
+                label=label,
+                resolution="path_not_active",
+            )
+            return
+    fail(f"{label}: {cmd} — NÃO INSTALADO")
+    _record_check(check_id, "fail", f"{label}: {cmd} — NÃO INSTALADO", artifact=cmd, label=label)
 
 
 def check_port(port: int, host: str = "127.0.0.1"):
