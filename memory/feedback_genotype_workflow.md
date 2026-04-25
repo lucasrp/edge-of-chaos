@@ -25,6 +25,6 @@ Second, the operator has corrected this 8+ times across conversations (2026-04-0
 **How to apply:**
 - Genotype paths (per CLAUDE.md and hooks/): `skills/`, `tools/`, `search/*.py`, `blog/app.py`, `blog/*.sh`, `bin/`, `config/*.tpl`, `hooks/*.sh`, `memory/personality.md`, `memory/rules-core.md`, `memory/metodo.md`, `SURVIVAL_POLICY.md`.
 - `edge-apply` is idempotent; `--skip-venv` avoids the slow search-venv rebuild when only skills/code changed.
-- `gauss` has chronic drift (100+ local commits). Use `git pull --rebase -X theirs --autostash` there so gauss's own `memory/debugging.md` wins on conflict — the genotype change still lands.
+- Use the same pull command for every fleet host. If a host reports conflicts or local commits, stop and inspect instead of applying a host-specific merge strategy by default.
 - Phenotype/epigenetic edits (`agent.yaml`, `state/`, `blog/entries/`, `logs/`, `threads/`, `reports/`) can be done in place — they're per-instance and gitignored or not in genotype.
 - The test: "If I change this, does it affect other instances?" YES → genotype → full 7-step loop.
