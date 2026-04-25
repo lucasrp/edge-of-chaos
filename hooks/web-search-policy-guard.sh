@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# web-search-policy-guard.sh — Claude Code PreToolUse hook for WebSearch/WebFetch
+# web-search-policy-guard.sh — Claude Code PreToolUse hook for WebSearch
 #
 # Blocks builtin Claude web search unless runtime policy allows it. The normal
 # path is: edge-search for corpus, edge-sources for external search, and only
 # then a temporary builtin fallback window if the configured web provider fails.
+#
+# WebFetch is intentionally NOT blocked — it is the legitimate read-path for
+# URLs returned by edge-sources. Blocking it forces ad hoc curl bypasses
+# (issue #378).
 
 set -euo pipefail
 
@@ -22,7 +26,7 @@ except Exception:
     raise SystemExit(0)
 
 tool_name = str(payload.get("tool_name") or "").strip()
-if tool_name not in {"WebSearch", "WebFetch"}:
+if tool_name != "WebSearch":
     raise SystemExit(0)
 
 repo_root = Path(edge_root)
