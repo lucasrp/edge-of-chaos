@@ -2202,11 +2202,12 @@ def main():
     if failed == 0:
         prefix = cfg.get("skill_prefix", codename)
         print(f"\n{GREEN}✓{RESET} Installation complete. Next steps:")
-        print(f"  1. Verify:     python3 tools/edge-doctor")
-        print(f"  2. Blog:       systemctl --user enable --now blog-server")
-        print(f"  3. Heartbeat:  systemctl --user enable --now agent-heartbeat.timer")
-        print("  4. Test:       ~/.local/bin/heartbeat.sh")
-        print(f"  5. Doctor:     python3 tools/edge-doctor")
+        print(f"  1. Reload PATH: source ~/.edge-env  (or open a new shell)")
+        print(f"  2. Verify:      python3 tools/edge-doctor")
+        print(f"  3. Blog:        systemctl --user enable --now blog-server")
+        print(f"  4. Heartbeat:   systemctl --user enable --now agent-heartbeat.timer")
+        print(f"  5. Test:        ~/.local/bin/heartbeat.sh")
+        print(f"  6. Doctor:      python3 tools/edge-doctor")
     else:
         print(f"\n{RED}✗{RESET} {failed} phase(s) failed.")
 
