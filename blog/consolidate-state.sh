@@ -13,8 +13,9 @@
 # Pipeline (8 fases):
 #   0.  Frontmatter injection (report: field)
 #   0b. Note link injection (note: field, if matching note exists)
-#   0.3 Adversarial review enforcement (edge-consult --gate)
-#   0.5 Review gate (LLM-as-judge, content report only)
+#   0.3 Adversarial review enforcement (edge-consult --gate; YAML or HTML)
+#   0.45 Feynman judge (YAML or HTML)
+#   0.5 Review gate (LLM-as-judge, content report only; YAML or HTML)
 #   1.  Blog entry (blog-publish.sh)
 #   2.  Content report (generate_report.py, mandatory — #245)
 #   3.  Verificação (API, frontmatter, files)
@@ -123,6 +124,41 @@ run_adversarial_gate_review() {
     fi
     echo "$review_output"
     return 0
+}
+
+artifact_stem_for() {
+    local artifact="$1"
+    case "$artifact" in
+        *.yaml) echo "${artifact%.yaml}" ;;
+        *.yml) echo "${artifact%.yml}" ;;
+        *.html) echo "${artifact%.html}" ;;
+        *) echo "${artifact%.*}" ;;
+    esac
+}
+
+artifact_kind_for() {
+    local artifact="$1"
+    case "$artifact" in
+        *.yaml|*.yml) echo "YAML" ;;
+        *.html) echo "HTML" ;;
+        *) echo "unknown" ;;
+    esac
+}
+
+run_review_gate() {
+    local artifact="$1"
+    local skill_name="${2:-}"
+    local review_cmd=()
+    if command -v review-gate &>/dev/null; then
+        review_cmd=(review-gate "$artifact" --json)
+    elif [[ -x "$TOOLS_DIR/review-gate.py" ]]; then
+        review_cmd=(python3 "$TOOLS_DIR/review-gate.py" "$artifact" --json)
+    else
+        return 127
+    fi
+    [[ -n "$skill_name" ]] && review_cmd+=(--skill "$skill_name")
+    [[ -n "${ENTRY_PATH:-}" ]] && review_cmd+=(--entry "$ENTRY_PATH")
+    "${review_cmd[@]}"
 }
 
 # Parse flags
@@ -438,16 +474,29 @@ else
 fi
 
 # ─── PHASE 0.3: Adversarial Review Enforcement ───
-# Phase 0.3 is mandatory for YAML-backed publishes. If a gate review does not
-# already exist, generate it now so telemetry and artifact provenance always
-# include the adversarial pass. Pre-existing unresolved reviews still block.
-if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) ]]; then
-    REVIEW_JSON_FILE="${REPORT_INPUT%.yaml}.review.json"
-    [[ "$REPORT_INPUT" == *.yml ]] && REVIEW_JSON_FILE="${REPORT_INPUT%.yml}.review.json"
-    RESOLVED_FILE="${REVIEW_JSON_FILE%.review.json}.resolved"
-    REVIEW_QUESTION="Adversarially review this publication spec before publish. Identify the weakest reasoning, unsupported assumptions, protocol violations, and what is most likely to break."
+# Every content artifact path must pass the same pre-publication gates. YAML
+# specs and pre-rendered HTML both become reader-visible reports, so neither
+# may bypass adversarial review, Feynman review, or the review gate.
+if [[ -n "$REPORT_INPUT" ]]; then
+    if [[ ! -f "$REPORT_INPUT" ]]; then
+        fail "Report not found before quality gates: $REPORT_INPUT"
+        emit_run_step_event "phase-0.3" "failed" "adversarial_review" "report artifact missing before gates"
+        exit 1
+    fi
 
-    echo "── Phase 0.3: Adversarial Review ──"
+    REPORT_KIND="$(artifact_kind_for "$REPORT_INPUT")"
+    if [[ "$REPORT_KIND" == "unknown" ]]; then
+        fail "Unsupported report format before publish: $REPORT_INPUT"
+        emit_run_step_event "phase-0.3" "failed" "adversarial_review" "unsupported report artifact format"
+        exit 1
+    fi
+
+    REPORT_ARTIFACT_STEM="$(artifact_stem_for "$REPORT_INPUT")"
+    REVIEW_JSON_FILE="${REPORT_ARTIFACT_STEM}.review.json"
+    RESOLVED_FILE="${REPORT_ARTIFACT_STEM}.resolved"
+    REVIEW_QUESTION="Adversarially review this publication artifact before publish. It may be a YAML report spec or pre-rendered HTML. Identify the weakest reasoning, unsupported assumptions, missing evidence, protocol violations, missing visual/explanatory structure, and what is most likely to break. If it is HTML, review the final reader-visible artifact."
+
+    echo "── Phase 0.3: Adversarial Review ($REPORT_KIND) ──"
     emit_run_step_event "phase-0.3" "started" "adversarial_review" ""
 
     if [[ ! -f "$REVIEW_JSON_FILE" ]]; then
@@ -475,12 +524,11 @@ if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.y
         fail "Adversarial review pending: $(basename "$REVIEW_JSON_FILE")"
         echo ""
         echo "  edge-consult generated feedback that has not been addressed."
-        echo "  Address the feedback in YAML and create the marker to proceed:"
+        echo "  Address the feedback in the artifact and create the marker to proceed:"
         echo "    touch $RESOLVED_FILE"
         echo ""
         echo "  (Enforcement #218: bypass flags removed — adversarial review is mandatory.)"
         echo ""
-        # Show the review summary
         python3 -c "
 import json, sys
 try:
@@ -491,7 +539,8 @@ try:
         print(f'    {line}')
     if len(resp.split('\n')) > 8:
         print('    ...')
-except: pass
+except Exception:
+    pass
 " 2>/dev/null
         echo ""
         emit_run_step_event "phase-0.3" "failed" "adversarial_review" "pending unresolved review"
@@ -501,14 +550,10 @@ except: pass
         emit_run_step_event "phase-0.3" "completed" "adversarial_review" ""
         echo ""
     fi
-fi
 
-# ─── PHASE 0.5: Review Gate (LLM-as-judge) ───
-if [[ -n "$REPORT_INPUT" && ("$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml) ]]; then
-    echo "── Phase 0.45: Feynman Judge ──"
+    echo "── Phase 0.45: Feynman Judge ($REPORT_KIND) ──"
     emit_run_step_event "phase-0.45" "started" "feynman_judge" ""
-    FEYNMAN_REVIEW_FILE="${REPORT_INPUT%.yaml}.feynman-review.json"
-    [[ "$REPORT_INPUT" == *.yml ]] && FEYNMAN_REVIEW_FILE="${REPORT_INPUT%.yml}.feynman-review.json"
+    FEYNMAN_REVIEW_FILE="${REPORT_ARTIFACT_STEM}.feynman-review.json"
     if [[ -x "$TOOLS_DIR/feynman-judge" ]]; then
         FEYNMAN_JSON=$("$TOOLS_DIR/feynman-judge" "$REPORT_INPUT" --json --output "$FEYNMAN_REVIEW_FILE" 2>/dev/null)
         FEYNMAN_EXIT=$?
@@ -531,38 +576,38 @@ except Exception:
         echo "  Review: $FEYNMAN_REVIEW_FILE"
         emit_run_step_event "phase-0.45" "completed" "feynman_judge" ""
     else
-        warn "Feynman judge unavailable or failed (non-fatal)"
+        fail "Feynman judge unavailable or failed"
         emit_run_step_event "phase-0.45" "failed" "feynman_judge" "judge unavailable or failed"
+        exit 3
     fi
     echo ""
 
-    if command -v review-gate &>/dev/null; then
-        echo "── Phase 0.5: Review Gate ──"
-        emit_run_step_event "phase-0.5" "started" "review_gate" ""
-        # Detect skill from YAML filename (spec-SKILL-slug.yaml)
-        YAML_BASENAME=$(basename "$REPORT_INPUT")
-        SKILL_NAME=""
-        if [[ "$YAML_BASENAME" =~ ^spec-([a-z]+)- ]]; then
-            SKILL_NAME="${BASH_REMATCH[1]}"
-        fi
+    echo "── Phase 0.5: Review Gate ($REPORT_KIND) ──"
+    emit_run_step_event "phase-0.5" "started" "review_gate" ""
+    REPORT_BASENAME=$(basename "$REPORT_INPUT")
+    SKILL_NAME=""
+    if [[ "$REPORT_BASENAME" =~ ^spec-([a-z]+)- ]]; then
+        SKILL_NAME="${BASH_REMATCH[1]}"
+    fi
 
-        REVIEW_CMD="review-gate $REPORT_INPUT --json"
-        [[ -n "$SKILL_NAME" ]] && REVIEW_CMD="$REVIEW_CMD --skill $SKILL_NAME"
+    REVIEW_JSON=$(run_review_gate "$REPORT_INPUT" "$SKILL_NAME" 2>/dev/null)
+    REVIEW_EXIT=$?
+    if [[ $REVIEW_EXIT -ne 0 ]]; then
+        fail "review-gate unavailable or failed (exit $REVIEW_EXIT)"
+        emit_run_step_event "phase-0.5" "failed" "review_gate" "review-gate unavailable or failed"
+        exit 3
+    fi
 
-        REVIEW_JSON=$($REVIEW_CMD 2>/dev/null)
-        REVIEW_EXIT=$?
-
-        # Extract overall score and total cost from full --json output
-        REVIEW_SCORE=$(echo "$REVIEW_JSON" | python3 -c "
+    REVIEW_SCORE=$(echo "$REVIEW_JSON" | python3 -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
     fr = d.get('final_review', d)
     print(fr.get('overall', 0))
-except:
+except Exception:
     print(0)
 " 2>/dev/null)
-        REVIEW_COST=$(echo "$REVIEW_JSON" | python3 -c "
+    REVIEW_COST=$(echo "$REVIEW_JSON" | python3 -c "
 import json, sys, re
 try:
     d = json.load(sys.stdin)
@@ -581,19 +626,15 @@ try:
         c = meta.get('cost_estimate', '')
         total = float(re.sub(r'[^\d.]', '', c) or 0)
     print(f'{total:.4f}')
-except:
+except Exception:
     print('0')
 " 2>/dev/null)
-        TOTAL_LLM_COST="$REVIEW_COST"
+    TOTAL_LLM_COST="$REVIEW_COST"
 
-        # Review gate now returns advisory feedback (exit 0 always)
-        # Feedback saved in .feedback.json alongside YAML
-        ok "Review gate: score ${REVIEW_SCORE}/5.0, cost \$${REVIEW_COST}"
-        FEEDBACK_FILE="${REPORT_INPUT%.yaml}.feedback.json"
-        [[ ! -f "$FEEDBACK_FILE" ]] && FEEDBACK_FILE="${REPORT_INPUT%.yml}.feedback.json"
-        if [[ -f "$FEEDBACK_FILE" ]]; then
-            # Show top suggestions for agent to incorporate
-            echo "$REVIEW_JSON" | python3 -c "
+    ok "Review gate: score ${REVIEW_SCORE}/5.0, cost \$${REVIEW_COST}"
+    FEEDBACK_FILE="${REPORT_ARTIFACT_STEM}.feedback.json"
+    if [[ -f "$FEEDBACK_FILE" ]]; then
+        echo "$REVIEW_JSON" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 r = d.get('final_review', d)
@@ -603,7 +644,8 @@ ca = d.get('coauthor', {})
 ca_suggestions = ca.get('suggestions', [])
 if issues:
     print('  Critical issues:')
-    for i in issues[:3]: print(f'    - {i}')
+    for i in issues[:3]:
+        print(f'    - {i}')
 if ca_suggestions:
     print(f'  Co-author suggestions: {len(ca_suggestions)}')
     for s in ca_suggestions[:3]:
@@ -611,20 +653,20 @@ if ca_suggestions:
         print(f'    - {str(desc)[:120]}')
 if suggestions:
     print(f'  Reviewer suggestions: {len(suggestions)}')
-    for s in suggestions[:3]: print(f'    - {str(s)[:120]}')
+    for s in suggestions[:3]:
+        print(f'    - {str(s)[:120]}')
 " 2>/dev/null
-            echo "  Feedback: $FEEDBACK_FILE"
-        fi
+        echo "  Feedback: $FEEDBACK_FILE"
+    fi
 
-        if [[ "$REVIEW_ONLY" == "true" ]]; then
-            emit_run_step_event "phase-0.5" "completed" "review_gate" ""
-            echo ""
-            echo "Review-only mode. Nothing published."
-            exit 0
-        fi
+    if [[ "$REVIEW_ONLY" == "true" ]]; then
         emit_run_step_event "phase-0.5" "completed" "review_gate" ""
         echo ""
+        echo "Review-only mode. Nothing published."
+        exit 0
     fi
+    emit_run_step_event "phase-0.5" "completed" "review_gate" ""
+    echo ""
 fi
 
 # ─── PHASE 1: Blog entry ───
@@ -863,6 +905,10 @@ if $ALL_OK && [[ "$REPORT_RESULT" != "fail" ]]; then
     emit_run_step_event "phase-3" "completed" "verification" ""
 else
     emit_run_step_event "phase-3" "failed" "verification" "verification ended with warnings or failures"
+    fail "Verification failed before state commit; publication will not be recorded as Published"
+    ledger_record "pipeline-end" "fail"
+    emit_run_step_event "pipeline" "failed" "pipeline_end" "verification failed before state commit"
+    exit 2
 fi
 
 # ─── PHASE 4: Meta-report (cognitive mirror) ───

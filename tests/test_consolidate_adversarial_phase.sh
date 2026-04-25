@@ -7,6 +7,7 @@ TMP_STATE="$TMP_BASE/state"
 TMP_BIN="$TMP_BASE/bin"
 TMP_ENTRY="$TMP_STATE/blog/entries/test-entry.md"
 TMP_REPORT="$TMP_STATE/reports/test-spec.yaml"
+TMP_REPORT_HTML="$TMP_STATE/reports/test-report.html"
 PASS=0
 FAIL=0
 
@@ -40,6 +41,19 @@ date: "23/04/2026"
 sections:
   - title: "1. Test"
     content: "Test content"
+EOF
+
+cat >"$TMP_REPORT_HTML" <<'EOF'
+<!doctype html>
+<html lang="pt-BR">
+<head><title>Test HTML report</title></head>
+<body>
+<h1>Test HTML report</h1>
+<p>Em termos simples, este relatorio testa o gate de HTML pre-renderizado.</p>
+<h2>O que Nao Sei</h2>
+<p>Nao sabemos se o ambiente externo esta disponivel.</p>
+</body>
+</html>
 EOF
 
 cat >"$TMP_BIN/review-gate" <<'EOF'
@@ -155,6 +169,39 @@ then
 else
     cat /tmp/test-consolidate-adversarial.log
     fail "unresolved existing review still blocks phase-0.3"
+fi
+
+echo "--- Test 3: HTML report path also runs mandatory gates ---"
+if "$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT_HTML" --review-only >/tmp/test-consolidate-adversarial.log 2>&1; then
+    if python3 - <<'PY' "$TMP_REPORT_HTML" "$EVENTS_MIRROR_FILE"
+import json, pathlib, sys
+report = pathlib.Path(sys.argv[1])
+events_path = pathlib.Path(sys.argv[2])
+stem = report.with_suffix("")
+review = stem.with_suffix(".review.json")
+feynman = stem.with_suffix(".feynman-review.json")
+resolved = stem.with_suffix(".resolved")
+assert review.exists(), "html review.json missing"
+assert feynman.exists(), "html feynman-review.json missing"
+assert resolved.exists(), "html resolved marker missing"
+events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+steps = [e for e in events if e.get("type") == "run_step"]
+phase03 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.3"]
+phase045 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.45"]
+phase05 = [(e["phase"], e["status"]) for e in steps if e["phase"] == "phase-0.5"]
+assert ("phase-0.3", "completed", "adversarial_review_generated") in phase03
+assert ("phase-0.45", "completed", "feynman_judge") in phase045
+assert ("phase-0.5", "completed") in phase05
+PY
+    then
+        pass "HTML report path runs adversarial, Feynman, and review gates"
+    else
+        cat /tmp/test-consolidate-adversarial.log
+        fail "HTML report path runs adversarial, Feynman, and review gates"
+    fi
+else
+    cat /tmp/test-consolidate-adversarial.log
+    fail "review-only HTML publish with generated review succeeds"
 fi
 
 echo ""
