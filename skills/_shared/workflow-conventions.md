@@ -247,6 +247,22 @@ If a secret expires, there's no need to update each workflow — just consult th
 
 ---
 
+## Waiting on background subprocesses (anti-pattern)
+
+When a skill backgrounds a sibling job (e.g. `review-gate`, `consolidate-state`) and needs to wait for it, **do not poll with `pgrep -f "<pattern>"`**.
+
+`pgrep -f` matches against the full command line, and the shell that runs the loop carries the literal pattern in its own argv. The loop matches itself, the condition is never false, the wait never terminates. This is the failure mode that triggered issue #374 — a skill subprocess held the heartbeat lock for 12+ hours after its substantive work had already completed.
+
+Use one of these instead:
+
+- `wait <pid>` when you have the PID of the backgrounded job.
+- Marker file: the bg job writes `done` on exit, the waiter polls (`until [ -f /tmp/<job>.done ]; do sleep 3; done`).
+- Regex-bracket trick: `pgrep -f "[r]eview-gate /tmp/spec-..."` — the bracket prevents the pattern from matching itself.
+
+`edge-runner` enforces a hard wall-clock cap on the dispatched subprocess (default 5400s, env override `EDGE_RUNNER_SKILL_TIMEOUT_SEC`); `heartbeat.sh` recovers a stale lock after `EDGE_HEARTBEAT_STALE_LOCK_SEC` (default 5400s). Both are defense in depth — write the wait correctly so neither has to fire.
+
+---
+
 ## Migration from legacy workflows.md
 
 The file `~/edge/autonomy/workflows.md` contains 15 workflows in the old format. These serve as historical reference but **new workflows must be blog entries** with tag `workflow`.

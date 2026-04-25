@@ -15,11 +15,66 @@ SKILL="/{{ SKILL_PREFIX }}-heartbeat"
 # Load secrets
 [ -f "$SECRETS_DIR/keys.env" ] && set -a && source "$SECRETS_DIR/keys.env" && set +a
 
+# Stale-lock recovery — issue #374. When the prior heartbeat's `claude -p` hangs
+# (e.g. self-matching `pgrep -f` wait loops), the lockfile is held forever and
+# every cron tick SKIPs silently. If the dispatch state has not advanced for
+# longer than the threshold, kill the holders, force-close the cycle, and let
+# this beat proceed. Set EDGE_HEARTBEAT_STALE_LOCK_SEC=0 to disable.
+EDGE_HEARTBEAT_STALE_LOCK_SEC="${EDGE_HEARTBEAT_STALE_LOCK_SEC:-5400}"
+
+try_recover_stale_lock() {
+    [ "$EDGE_HEARTBEAT_STALE_LOCK_SEC" -gt 0 ] 2>/dev/null || return 1
+    [ -f "$CURRENT_DISPATCH_FILE" ] || return 1
+    local age stale_cycle holders
+    age=$(python3 -c '
+import json, sys, os
+from datetime import datetime, timezone
+try:
+    state = json.load(open(sys.argv[1])).get("state", {}) or {}
+except Exception:
+    sys.exit(0)
+ts = state.get("updated_at") or state.get("opened_at")
+if not ts:
+    sys.exit(0)
+try:
+    dt = datetime.fromisoformat(ts)
+except ValueError:
+    sys.exit(0)
+if dt.tzinfo is None:
+    dt = dt.replace(tzinfo=timezone.utc)
+print(int((datetime.now(timezone.utc) - dt).total_seconds()))
+' "$CURRENT_DISPATCH_FILE" 2>/dev/null)
+    [ -n "$age" ] || return 1
+    [ "$age" -gt "$EDGE_HEARTBEAT_STALE_LOCK_SEC" ] || return 1
+    stale_cycle=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("cycle_id",""))' "$CURRENT_DISPATCH_FILE" 2>/dev/null)
+    echo "[$(date +%H:%M)] STALE LOCK — cycle=$stale_cycle age=${age}s threshold=${EDGE_HEARTBEAT_STALE_LOCK_SEC}s; killing holders and force-closing" >> "$LOGFILE"
+    holders=$(fuser "$LOCKFILE" 2>/dev/null | tr -s ' ')
+    if [ -n "$holders" ]; then
+        for pid in $holders; do kill -TERM "$pid" 2>/dev/null || true; done
+        sleep 5
+        for pid in $holders; do kill -KILL "$pid" 2>/dev/null || true; done
+    fi
+    if [ -n "$stale_cycle" ]; then
+        EDGE_CYCLE_ID="$stale_cycle" "$EDGE_REPO_DIR/tools/edge-dispatch" close \
+            --status failed --reason stale_lock >> "$LOGFILE" 2>&1 || true
+    fi
+    rm -f "$LOCKFILE"
+    return 0
+}
+
 # Prevent overlapping heartbeats
 exec 200>"$LOCKFILE"
 if ! flock -n 200; then
-    echo "[$(date +%H:%M)] SKIP — previous heartbeat still running" >> "$LOGFILE"
-    exit 0
+    if try_recover_stale_lock; then
+        exec 200>"$LOCKFILE"
+        if ! flock -n 200; then
+            echo "[$(date +%H:%M)] SKIP — could not acquire lock after stale recovery" >> "$LOGFILE"
+            exit 1
+        fi
+    else
+        echo "[$(date +%H:%M)] SKIP — previous heartbeat still running" >> "$LOGFILE"
+        exit 0
+    fi
 fi
 
 mkdir -p "$LOGS_DIR"

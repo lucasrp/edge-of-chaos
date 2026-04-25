@@ -436,6 +436,45 @@ else
     fail "heartbeat timeout env no longer kills long beats"
 fi
 
+echo "--- Test 8: backend exceeding EDGE_RUNNER_SKILL_TIMEOUT_SEC is killed and cycle closes failed ---"
+unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
+unset MOCK_CLAUDE_EXIT_CODE || true
+export MOCK_CLAUDE_SLEEP_SECONDS=10
+export EDGE_RUNNER_SKILL_TIMEOUT_SEC=2
+set +e
+"$RUNNER_TOOL" skill \
+    --skill /ed-heartbeat \
+    --dispatch-trigger heartbeat \
+    --dispatch-policy autonomous \
+    --dispatch-routing-mode auto \
+    --dispatch-preflight-profile heartbeat_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force >/dev/null 2>&1
+STATUS=$?
+set -e
+unset MOCK_CLAUDE_SLEEP_SECONDS || true
+unset EDGE_RUNNER_SKILL_TIMEOUT_SEC || true
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$STATUS"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+status = int(sys.argv[3])
+
+assert status != 0
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "failed"
+assert dispatch["state"]["close_reason"] == "skill_subprocess_timeout"
+assert any(event["type"] == "SkillSubprocessTimeout" for event in events[-30:])
+PY
+then
+    pass "watchdog kills hung backend and closes cycle as skill_subprocess_timeout"
+else
+    fail "watchdog kills hung backend and closes cycle as skill_subprocess_timeout"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"
