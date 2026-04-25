@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-review-gate — Quality gate for YAML report specs.
+review-gate — Quality gate for report artifacts.
 
 Three-phase pipeline with 2 hardcoded improvement rounds:
-  Phase 1 (co-author): GPT with tools enriches/generates YAML draft
-  Phase 2 (review+refine loop): Reviewer evaluates → Refiner rewrites YAML → repeat 2x
-  Result: improved YAML written back to file
+  Phase 1 (co-author): GPT with tools suggests artifact improvements
+  Phase 2 (review): Reviewer evaluates the report artifact
+  Result: structured feedback saved alongside the artifact
 
 Usage:
     review-gate spec.yaml                          # Full pipeline (co-author + 2x review/refine)
+    review-gate report.html                        # Review a pre-rendered HTML report artifact
     review-gate spec.yaml --review-only            # Review only (no co-authoring, no refinement)
     review-gate spec.yaml --coauthor-only          # Co-author only (no review)
     review-gate spec.yaml --entry blog-entry.md    # Include blog entry for consistency
@@ -348,12 +349,12 @@ DIMENSION_WEIGHTS = [0.15, 0.15, 0.12, 0.12, 0.06, 0.12, 0.10, 0.06, 0.12]
 
 COAUTHOR_SYSTEM = """You are a co-author helping an autonomous AI agent (""" + _AGENT_NAME + """) improve a YAML report specification before publication. The YAML will be converted to an HTML report, published to an internal blog, and indexed into long-term memory.
 
-Your role: SUGGEST improvements to the YAML. You do NOT rewrite it — the agent keeps control. You pull context using your tools and return structured suggestions that the agent will decide whether to incorporate.
+Your role: SUGGEST improvements to the report artifact. You do NOT rewrite it — the agent keeps control. You pull context using your tools and return structured suggestions that the agent will decide whether to incorporate.
 
 Language: Portuguese (PT-BR).
 
 ## What to do:
-1. Read the YAML spec carefully
+1. Read the artifact carefully. It may be a YAML report spec or a pre-rendered HTML report.
 2. Use your tools to pull relevant context (memory files, previous reports, corpus search, blog entries)
 3. Return a JSON object with specific, actionable SUGGESTIONS (not rewrites)
 
@@ -397,15 +398,16 @@ Return JSON with these keys:
     }}
   ],
   "missing_connections": ["things the YAML should reference but doesn't"],
-  "factual_issues": ["any claims in the YAML that contradict what you found in context"]
+  "factual_issues": ["any claims in the artifact that contradict what you found in context"]
 }}
 """
 
-REVIEWER_SYSTEM = """You are a quality reviewer for YAML report specifications used by an autonomous AI agent (""" + _AGENT_NAME + """). These specs get converted to HTML reports via yaml_to_html.py, published to an internal blog, and indexed into long-term memory.
+REVIEWER_SYSTEM = """You are a quality reviewer for report artifacts used by an autonomous AI agent (""" + _AGENT_NAME + """). Artifacts may be YAML report specs that get converted to HTML, or pre-rendered HTML reports. They are published to an internal blog and indexed into long-term memory.
 
-Your job: evaluate the YAML spec against the rubric and provide structured, SPECIFIC feedback. Cite section titles, block types, and exact content when pointing out issues. Your feedback will be used by the agent to improve the spec in a self-refinement loop.
+Your job: evaluate the artifact against the rubric and provide structured, SPECIFIC feedback. Cite section titles, block types, visible HTML sections, and exact content when pointing out issues. Your feedback will be used by the agent to improve the artifact before publication.
 
 IMPORTANT: You are evaluating the artifact AS-IS. You have no tools and no external context. Judge only what's in front of you. If a claim seems unverified, flag it. If context seems missing, note it.
+If the artifact is HTML, judge the reader-visible structure and content equivalents instead of requiring YAML syntax or YAML top-level keys.
 
 Language: respond in Portuguese (PT-BR).
 
@@ -437,7 +439,7 @@ Rate each dimension 0-5:
 
 Flag as critical_issues if ANY of these:
 - Required section completely missing (linhagem, "O que Nao Sei", glossario)
-- executive_summary or metrics missing at top level
+- executive_summary or metrics missing at top level, or no reader-visible equivalent in HTML
 - Empty sections (title present but no blocks/content)
 - Zero SVG visualizations in entire spec
 - A report compares 3+ items/steps/metrics/risks/alternatives but has no chart, flow, matrix, timeline, or diagram representing that comparison visually
@@ -548,6 +550,15 @@ def load_entry(entry_path: str) -> str:
 # Phase 1: Co-author
 # ---------------------------------------------------------------------------
 
+def artifact_label(path: str) -> str:
+    suffix = Path(path).suffix.lower()
+    if suffix == ".html":
+        return "pre-rendered HTML report artifact"
+    if suffix in {".yaml", ".yml"}:
+        return "YAML report spec"
+    return "report artifact"
+
+
 def coauthor(yaml_path: str, skill: str = None, model: str = None,
              purpose: str = DEFAULT_PURPOSE,
              entry_path: str = None, brief: str = None) -> dict:
@@ -562,7 +573,8 @@ def coauthor(yaml_path: str, skill: str = None, model: str = None,
         skill_rules=load_skill_rules(skill) if skill else "",
     )
 
-    user_msg = f"Enrich this YAML report spec:\n\n{yaml_content}"
+    label = artifact_label(yaml_path)
+    user_msg = f"Enrich this {label}:\n\n{yaml_content}"
     if entry_path:
         entry_content = load_entry(entry_path)
         if entry_content:
@@ -721,7 +733,8 @@ def review(yaml_path: str, skill: str = None, model: str = None,
         threshold=threshold,
     )
 
-    user_msg = f"Review this YAML report spec:\n\n{yaml_content}"
+    label = artifact_label(yaml_path)
+    user_msg = f"Review this {label}:\n\n{yaml_content}"
     if entry_path:
         entry_content = load_entry(entry_path)
         if entry_content:
