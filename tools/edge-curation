@@ -8,7 +8,8 @@ import json
 import re
 import subprocess
 import sys
-from collections import Counter, defaultdict
+import unicodedata
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -18,12 +19,16 @@ import yaml
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (  # noqa: E402
+    CLAIMS_DIGEST_FILE,
     CURADORIA_CANDIDATES_FILE,
     CURATION_DIGEST_FILE,
     EDGE_REPO_DIR,
     ENTRIES_DIR,
+    ORPHAN_CLAIMS_FILE,
+    OPERATOR_PRESSURE_HOT_DIGEST_FILE,
     PROCEDURE_CURATION_FILE,
     STATE_DIR,
+    THREADS_DIR,
     TOPICS_DIR,
     WORKFLOW_HEALTH_FILE,
 )
@@ -71,6 +76,763 @@ def _coerce_list(value: Any) -> list[str]:
     else:
         items = [value]
     return [str(item).strip() for item in items if str(item).strip()]
+
+
+def _slug_title(slug: str) -> str:
+    return re.sub(r"[-_]+", " ", str(slug or "").strip()).strip().title()
+
+
+def _normalize_ascii(value: str) -> str:
+    return unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
+
+
+def _slugify(value: str) -> str:
+    normalized = _normalize_ascii(value)
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized.strip().lower())
+    return slug.strip("-") or "topic"
+
+
+def _first_heading(raw: str) -> str:
+    for line in raw.splitlines():
+        if line.startswith("# "):
+            return line.lstrip("# ").strip()
+    return ""
+
+
+def _claim_refs_for_thread(claims_digest: dict[str, Any], thread_id: str) -> list[dict[str, Any]]:
+    claims = claims_digest.get("claims") or []
+    refs: list[dict[str, Any]] = []
+    for item in claims:
+        if thread_id not in _coerce_list(item.get("threads")):
+            continue
+        refs.append(
+            {
+                "claim_id": item.get("claim_id"),
+                "text": item.get("text"),
+                "kind": item.get("kind"),
+                "support_count": item.get("support_count", 0),
+                "latest_artifact": item.get("latest_artifact_filename"),
+                "latest_date": item.get("latest_date"),
+            }
+        )
+    refs.sort(key=lambda item: (item.get("kind") != "gap", item.get("latest_date") or ""))
+    return refs[:8]
+
+
+def _read_thread_files() -> dict[str, dict[str, Any]]:
+    threads: dict[str, dict[str, Any]] = {}
+    if not THREADS_DIR.exists():
+        return threads
+    for path in sorted(THREADS_DIR.glob("*.md")):
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+            fm = _load_frontmatter(path)
+        except Exception:
+            continue
+        thread_id = str(fm.get("id") or path.stem).strip()
+        if not thread_id:
+            continue
+        threads[thread_id] = {
+            "id": thread_id,
+            "title": str(fm.get("title") or _first_heading(raw) or _slug_title(thread_id)),
+            "status": str(fm.get("status") or "unknown"),
+            "updated": str(fm.get("updated") or ""),
+            "path": str(path),
+        }
+    return threads
+
+
+def _read_topic_files() -> dict[str, dict[str, Any]]:
+    topics: dict[str, dict[str, Any]] = {}
+    if not TOPICS_DIR.exists():
+        return topics
+    for path in sorted(TOPICS_DIR.glob("*.md")):
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+            fm = _load_frontmatter(path)
+        except Exception:
+            continue
+        topic_id = path.stem
+        linked_threads = set(_coerce_list(fm.get("threads")))
+        for match in re.findall(r"`([a-z0-9][a-z0-9_-]+)`", raw, flags=re.I):
+            linked_threads.add(match)
+        topics[topic_id] = {
+            "id": topic_id,
+            "title": str(fm.get("title") or _first_heading(raw) or _slug_title(topic_id)),
+            "status": str(fm.get("status") or "unknown"),
+            "threads": sorted(linked_threads),
+            "path": str(path),
+            "generated": bool(fm.get("generated_by") == "edge-curation"),
+        }
+    return topics
+
+
+def _write_thread_stub(thread_id: str, claims_digest: dict[str, Any]) -> Path:
+    today = datetime.now(timezone.utc).date().isoformat()
+    title = _slug_title(thread_id)
+    refs = _claim_refs_for_thread(claims_digest, thread_id)
+    lines = [
+        "---",
+        f"id: {thread_id}",
+        f"title: {title}",
+        "status: active",
+        f"created: {today}",
+        f"updated: {today}",
+        "generated_by: edge-curation",
+        "---",
+        "",
+        f"{title} is a hot direction thread generated from recurring claims.",
+        "",
+        "## Hot claims",
+    ]
+    if refs:
+        for ref in refs:
+            marker = "gap" if ref.get("kind") == "gap" else "verified"
+            text = str(ref.get("text") or "").strip()
+            artifact = str(ref.get("latest_artifact") or "").strip()
+            suffix = f" ({artifact})" if artifact else ""
+            lines.append(f"- [{marker}] {text}{suffix}")
+    else:
+        lines.append("- No claim details available yet.")
+    lines.extend(
+        [
+            "",
+            "## Next consolidation",
+            "- Replace this generated stub with a curated direction summary when the thread is first worked.",
+            "",
+        ]
+    )
+    THREADS_DIR.mkdir(parents=True, exist_ok=True)
+    path = THREADS_DIR / f"{thread_id}.md"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def _write_topic_stub(thread_id: str, claims_digest: dict[str, Any], thread_title: str) -> Path:
+    today = datetime.now(timezone.utc).date().isoformat()
+    slug = _slugify(thread_id)
+    refs = _claim_refs_for_thread(claims_digest, thread_id)
+    lines = [
+        "---",
+        f"title: {thread_title}",
+        "status: active",
+        f"threads: [{thread_id}]",
+        "tags: [topic, hot-state]",
+        f"updated_at: {today}",
+        "generated_by: edge-curation",
+        "---",
+        "",
+        f"# {thread_title}",
+        "",
+        "## What it is",
+        f"Hot knowledge topic for the `{thread_id}` thread.",
+        "",
+        "## Current evidence",
+    ]
+    if refs:
+        for ref in refs:
+            marker = "gap" if ref.get("kind") == "gap" else "verified"
+            text = str(ref.get("text") or "").strip()
+            artifact = str(ref.get("latest_artifact") or "").strip()
+            suffix = f" ({artifact})" if artifact else ""
+            lines.append(f"- [{marker}] {text}{suffix}")
+    else:
+        lines.append("- No claim details available yet.")
+    lines.extend(
+        [
+            "",
+            "## Curation rule",
+            "- Quando este topico aparecer em preflight ou postflight, consolidate novas claims aqui em vez de criar conceitos paralelos.",
+            "",
+            "## Next consolidation",
+            "- Human or skill curation should replace this generated summary with a durable abstraction.",
+            "",
+        ]
+    )
+    TOPICS_DIR.mkdir(parents=True, exist_ok=True)
+    path = TOPICS_DIR / f"{slug}.md"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+_OPERATOR_PRESSURE_SECTIONS = (
+    "signal_from_operator_now",
+    "substrate_gap_requests",
+    "workflow_candidates",
+    "capability_candidates",
+    "operator_toil_optimizable_now",
+    "operator_pains_resolvable_now",
+    "mistakes_to_avoid_now",
+    "implicit_needs_hypotheses",
+)
+
+_OPERATOR_SECTION_WEIGHT = {
+    "signal_from_operator_now": 10,
+    "substrate_gap_requests": 9,
+    "workflow_candidates": 8,
+    "capability_candidates": 8,
+    "operator_toil_optimizable_now": 7,
+    "operator_pains_resolvable_now": 6,
+    "mistakes_to_avoid_now": 5,
+    "implicit_needs_hypotheses": 3,
+}
+
+_OPERATOR_GROUP_LIMIT = 8
+
+_OPERATOR_STOPWORDS = {
+    "about",
+    "acho",
+    "again",
+    "agora",
+    "ainda",
+    "alem",
+    "also",
+    "already",
+    "and",
+    "aqui",
+    "background",
+    "cada",
+    "com",
+    "como",
+    "cria",
+    "criar",
+    "deixar",
+    "depois",
+    "deve",
+    "devem",
+    "devia",
+    "deveria",
+    "disso",
+    "does",
+    "dos",
+    "ela",
+    "ele",
+    "eles",
+    "em",
+    "era",
+    "essa",
+    "esse",
+    "esta",
+    "estao",
+    "isso",
+    "mas",
+    "melhor",
+    "nao",
+    "ne",
+    "now",
+    "para",
+    "por",
+    "porque",
+    "quando",
+    "que",
+    "se",
+    "ser",
+    "should",
+    "tem",
+    "ter",
+    "the",
+    "this",
+    "todo",
+    "uma",
+    "vai",
+    "voce",
+    "with",
+}
+
+_OPERATOR_CONCEPT_RULES: list[tuple[re.Pattern[str], str, str]] = [
+    (
+        re.compile(r"\bedge\s+apply\b.*\btopic[s]?\b|\btopic[s]?\b.*\bedge\s+apply\b"),
+        "edge-apply-topic-bootstrap",
+        "Edge Apply Topic Bootstrap",
+    ),
+    (
+        re.compile(r"\btopic[s]?\b.*\b(eliminatorio|bloqueante|required|obrigatorio|gate)\b"),
+        "topic-non-blocking-contract",
+        "Topic Non Blocking Contract",
+    ),
+    (
+        re.compile(r"\bthread[s]?\b.*\btopic[s]?\b|\btopic[s]?\b.*\bthread[s]?\b"),
+        "threads-topics-hot-state",
+        "Threads And Topics Hot State",
+    ),
+    (
+        re.compile(r"\b(operator|usuario|user)\b.*\b(feedback|digest|signal|sinal)\b|\bfeedback\b"),
+        "operator-feedback-curation",
+        "Operator Feedback Curation",
+    ),
+    (
+        re.compile(r"\bpostflight\b.*\b(curadoria|curation|consolid|digest|topic[s]?)\b|\bcuradoria\b.*\bpostflight\b"),
+        "postflight-curation-loop",
+        "Postflight Curation Loop",
+    ),
+    (
+        re.compile(r"\bcorpus\b.*\b(curadoria|curation)\b|\bcuradoria\b.*\bcorpus\b"),
+        "corpus-curation",
+        "Corpus Curation",
+    ),
+    (
+        re.compile(r"\bheartbeat\b.*\b(background|terminal|continu|dispatch)\b|\bbackground\b.*\bheartbeat\b"),
+        "heartbeat-runtime",
+        "Heartbeat Runtime",
+    ),
+    (
+        re.compile(r"\bgrafana\b|\blobki\b|\bobservability\b|\bobservabilidade\b"),
+        "runtime-observability",
+        "Runtime Observability",
+    ),
+]
+
+
+def _compact_operator_text(text: str, limit: int = 220) -> str:
+    compact = re.sub(r"\s+", " ", str(text or "").strip())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3].rstrip() + "..."
+
+
+def _operator_keywords(text: str) -> list[str]:
+    normalized = _normalize_ascii(text).lower()
+    words = re.findall(r"[a-z0-9]+", normalized)
+    out: list[str] = []
+    seen: set[str] = set()
+    for word in words:
+        if len(word) < 3 or word in _OPERATOR_STOPWORDS or word in seen:
+            continue
+        seen.add(word)
+        out.append(word)
+    return out
+
+
+def _coerce_operator_pressure_item(raw: Any, section: str, index: int) -> dict[str, Any] | None:
+    if isinstance(raw, dict):
+        text = ""
+        for key in ("text", "summary", "content", "description", "message", "title", "item"):
+            candidate = str(raw.get(key) or "").strip()
+            if candidate:
+                text = candidate
+                break
+        if not text:
+            return None
+        return {
+            "item_id": str(raw.get("item_id") or raw.get("id") or "").strip(),
+            "text": _compact_operator_text(text),
+            "section": section,
+            "target": str(raw.get("target") or "").strip(),
+            "kind": str(raw.get("kind") or "").strip(),
+            "repeat_count": int(raw.get("repeat_count") or 0),
+            "status": str(raw.get("status") or "active").strip(),
+            "entities": _coerce_list(raw.get("entities")),
+            "last_seen_at": str(raw.get("last_seen_at") or "").strip(),
+        }
+    text = _compact_operator_text(str(raw or ""))
+    if not text:
+        return None
+    return {
+        "item_id": "",
+        "text": text,
+        "section": section,
+        "target": "",
+        "kind": "",
+        "repeat_count": 0,
+        "status": "active",
+        "entities": [],
+        "last_seen_at": "",
+        "synthetic_id": f"{section}:{index}",
+    }
+
+
+def _operator_pressure_items(operator_digest: dict[str, Any]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for section in _OPERATOR_PRESSURE_SECTIONS:
+        rows = operator_digest.get(section) or []
+        if not isinstance(rows, list):
+            continue
+        for index, raw in enumerate(rows):
+            item = _coerce_operator_pressure_item(raw, section, index)
+            if not item:
+                continue
+            key = str(item.get("item_id") or item.get("synthetic_id") or _slugify(item.get("text", ""))).strip()
+            existing = merged.setdefault(
+                key,
+                {
+                    "item_id": str(item.get("item_id") or ""),
+                    "text": item["text"],
+                    "sections": [],
+                    "target": item.get("target") or "",
+                    "kind": item.get("kind") or "",
+                    "repeat_count": 0,
+                    "status": item.get("status") or "active",
+                    "entities": [],
+                    "last_seen_at": item.get("last_seen_at") or "",
+                    "score": 0,
+                },
+            )
+            if section not in existing["sections"]:
+                existing["sections"].append(section)
+            existing["score"] += _OPERATOR_SECTION_WEIGHT.get(section, 1)
+            existing["repeat_count"] = max(int(existing.get("repeat_count") or 0), int(item.get("repeat_count") or 0))
+            existing["score"] += int(item.get("repeat_count") or 0)
+            if item.get("last_seen_at") and str(item.get("last_seen_at")) > str(existing.get("last_seen_at") or ""):
+                existing["last_seen_at"] = item.get("last_seen_at")
+            entities = list(existing.get("entities") or [])
+            for entity in _coerce_list(item.get("entities")):
+                if entity not in entities:
+                    entities.append(entity)
+            existing["entities"] = entities[:8]
+            for key_name in ("target", "kind", "status"):
+                if item.get(key_name) and not existing.get(key_name):
+                    existing[key_name] = item.get(key_name)
+    return sorted(
+        merged.values(),
+        key=lambda item: (-int(item.get("score") or 0), str(item.get("last_seen_at") or ""), str(item.get("text") or "")),
+    )
+
+
+def _operator_concept_for_item(item: dict[str, Any]) -> tuple[str, str]:
+    text = str(item.get("text") or "")
+    entities = _coerce_list(item.get("entities"))
+    haystack = _normalize_ascii(" ".join([text, str(item.get("target") or ""), str(item.get("kind") or ""), *entities])).lower()
+    for pattern, slug, title in _OPERATOR_CONCEPT_RULES:
+        if pattern.search(haystack):
+            return slug, title
+
+    tokens: list[str] = []
+    target = _slugify(str(item.get("target") or ""))
+    if target in {"workflow", "procedure", "policy", "capability", "thread", "research", "skill"}:
+        tokens.append(target)
+    for entity in entities:
+        slug = _slugify(entity)
+        if slug and slug not in _OPERATOR_STOPWORDS:
+            tokens.append(slug)
+    tokens.extend(_operator_keywords(text))
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        token = _slugify(token)
+        if not token or token in seen or token in _OPERATOR_STOPWORDS:
+            continue
+        seen.add(token)
+        unique.append(token)
+        if len(unique) >= 4:
+            break
+    slug = _slugify("-".join(unique) if unique else text)
+    return slug, _slug_title(slug)
+
+
+def _operator_pressure_groups(operator_digest: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+    items = _operator_pressure_items(operator_digest)
+    groups: dict[str, dict[str, Any]] = {}
+    for item in items:
+        slug, title = _operator_concept_for_item(item)
+        group = groups.setdefault(
+            slug,
+            {
+                "thread_id": slug,
+                "title": title,
+                "score": 0,
+                "sections": Counter(),
+                "item_ids": set(),
+                "entities": set(),
+                "evidence": [],
+            },
+        )
+        group["score"] += int(item.get("score") or 0)
+        for section in item.get("sections") or []:
+            group["sections"][section] += 1
+        if item.get("item_id"):
+            group["item_ids"].add(str(item.get("item_id")))
+        for entity in _coerce_list(item.get("entities")):
+            group["entities"].add(entity)
+        evidence_key = str(item.get("item_id") or item.get("text") or "").casefold()
+        if evidence_key and evidence_key not in {str(existing.get("key") or "") for existing in group["evidence"]}:
+            group["evidence"].append(
+                {
+                    "key": evidence_key,
+                    "text": item.get("text"),
+                    "sections": item.get("sections") or [],
+                    "target": item.get("target") or "",
+                    "kind": item.get("kind") or "",
+                    "repeat_count": int(item.get("repeat_count") or 0),
+                    "last_seen_at": item.get("last_seen_at") or "",
+                }
+            )
+
+    normalized: list[dict[str, Any]] = []
+    for group in groups.values():
+        sections = group["sections"]
+        normalized.append(
+            {
+                "thread_id": group["thread_id"],
+                "title": group["title"],
+                "score": int(group["score"]),
+                "sections": dict(sorted(sections.items())),
+                "item_ids": sorted(group["item_ids"]),
+                "entities": sorted(group["entities"]),
+                "evidence": [
+                    {key: value for key, value in evidence.items() if key != "key"}
+                    for evidence in group["evidence"][:6]
+                ],
+            }
+        )
+    normalized.sort(key=lambda item: (-int(item.get("score") or 0), str(item.get("thread_id") or "")))
+    return normalized[:_OPERATOR_GROUP_LIMIT], len(items)
+
+
+def _operator_evidence_lines(group: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for evidence in group.get("evidence") or []:
+        sections = ", ".join(_coerce_list(evidence.get("sections"))[:3]) or "operator_pressure"
+        text = _compact_operator_text(str(evidence.get("text") or ""))
+        suffix_parts = []
+        if evidence.get("target"):
+            suffix_parts.append(f"target={evidence.get('target')}")
+        if evidence.get("kind"):
+            suffix_parts.append(f"kind={evidence.get('kind')}")
+        suffix = f" ({', '.join(suffix_parts)})" if suffix_parts else ""
+        lines.append(f"- [{sections}] {text}{suffix}")
+    return lines or ["- No operator evidence details available yet."]
+
+
+def _write_operator_thread_stub(group: dict[str, Any]) -> Path:
+    today = datetime.now(timezone.utc).date().isoformat()
+    thread_id = str(group.get("thread_id") or "operator-pressure").strip()
+    title = str(group.get("title") or _slug_title(thread_id)).strip()
+    lines = [
+        "---",
+        f"id: {thread_id}",
+        f"title: {title}",
+        "status: active",
+        f"created: {today}",
+        f"updated: {today}",
+        "generated_by: edge-curation",
+        "source: operator-pressure",
+        "---",
+        "",
+        f"{title} is a hot direction thread generated from recent operator feedback.",
+        "",
+        "## Operator signals",
+        *_operator_evidence_lines(group),
+        "",
+        "## Direction",
+        "- Turn this hot feedback into an explicit research question, runtime change, or durable procedure before it goes cold.",
+        "",
+    ]
+    THREADS_DIR.mkdir(parents=True, exist_ok=True)
+    path = THREADS_DIR / f"{thread_id}.md"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def _write_operator_topic_stub(group: dict[str, Any]) -> Path:
+    today = datetime.now(timezone.utc).date().isoformat()
+    thread_id = str(group.get("thread_id") or "operator-pressure").strip()
+    title = str(group.get("title") or _slug_title(thread_id)).strip()
+    lines = [
+        "---",
+        f"title: {title}",
+        "status: active",
+        f"threads: [{thread_id}]",
+        "tags: [topic, hot-state, operator-pressure]",
+        f"updated_at: {today}",
+        "generated_by: edge-curation",
+        "source: operator-pressure",
+        "---",
+        "",
+        f"# {title}",
+        "",
+        "## What it is",
+        "Hot knowledge extracted from recent operator feedback.",
+        "",
+        "## Current operator evidence",
+        *_operator_evidence_lines(group),
+        "",
+        "## Curation rule",
+        "- Quando feedback do usuario apontar para este conceito, consolide a evidencia aqui em vez de perder o conhecimento no historico da sessao.",
+        "",
+        "## Next consolidation",
+        "- Replace this generated summary with a durable abstraction once the direction has been worked.",
+        "",
+    ]
+    TOPICS_DIR.mkdir(parents=True, exist_ok=True)
+    path = TOPICS_DIR / f"{thread_id}.md"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def _curate_operator_pressure(operator_digest: dict[str, Any]) -> dict[str, Any]:
+    thread_files = _read_thread_files()
+    topic_files = _read_topic_files()
+    existing_topic_threads = {
+        thread_id
+        for topic in topic_files.values()
+        for thread_id in _coerce_list(topic.get("threads"))
+    }
+    groups, item_total = _operator_pressure_groups(operator_digest)
+
+    created_threads: list[dict[str, Any]] = []
+    created_topics: list[dict[str, Any]] = []
+    missing_topic_candidates: list[dict[str, Any]] = []
+
+    for group in groups:
+        thread_id = str(group.get("thread_id") or "").strip()
+        if not thread_id:
+            continue
+        if thread_id not in thread_files:
+            path = _write_operator_thread_stub(group)
+            thread_files[thread_id] = {
+                "id": thread_id,
+                "title": group.get("title") or _slug_title(thread_id),
+                "status": "active",
+                "updated": datetime.now(timezone.utc).date().isoformat(),
+                "path": str(path),
+            }
+            created_threads.append({"thread_id": thread_id, "path": str(path)})
+
+        if thread_id in existing_topic_threads:
+            continue
+        target_path = TOPICS_DIR / f"{thread_id}.md"
+        candidate = {
+            "thread_id": thread_id,
+            "title": group.get("title") or _slug_title(thread_id),
+            "reason": "operator_pressure_without_topic",
+            "score": int(group.get("score") or 0),
+        }
+        missing_topic_candidates.append(candidate)
+        if target_path.exists():
+            candidate["reason"] = "topic_file_exists_without_thread_link"
+            candidate["path"] = str(target_path)
+            continue
+        path = _write_operator_topic_stub(group)
+        existing_topic_threads.add(thread_id)
+        created_topics.append({"thread_id": thread_id, "path": str(path)})
+
+    return {
+        "generated_at": _now_iso(),
+        "source": str(OPERATOR_PRESSURE_HOT_DIGEST_FILE),
+        "available": OPERATOR_PRESSURE_HOT_DIGEST_FILE.exists(),
+        "items_total": item_total,
+        "groups_total": len(groups),
+        "threads_created": len(created_threads),
+        "topics_created": len(created_topics),
+        "missing_topic_candidates_total": len(missing_topic_candidates),
+        "created_threads": created_threads,
+        "created_topics": created_topics,
+        "missing_topic_candidates": missing_topic_candidates[:12],
+        "groups": [
+            {
+                "thread_id": group.get("thread_id"),
+                "title": group.get("title"),
+                "score": group.get("score"),
+                "sections": group.get("sections"),
+                "item_ids": group.get("item_ids"),
+                "entities": group.get("entities"),
+                "evidence": group.get("evidence"),
+            }
+            for group in groups[:12]
+        ],
+    }
+
+
+def _curate_hot_state(claims_digest: dict[str, Any], orphan_claims: dict[str, Any]) -> dict[str, Any]:
+    thread_files = _read_thread_files()
+    topic_files = _read_topic_files()
+    hot_threads = claims_digest.get("hot_threads_by_open_claims") or []
+    referenced_threads = sorted(
+        {
+            thread_id
+            for claim in claims_digest.get("claims") or []
+            for thread_id in _coerce_list(claim.get("threads"))
+        }
+    )
+    existing_topic_threads = {
+        thread_id
+        for topic in topic_files.values()
+        for thread_id in _coerce_list(topic.get("threads"))
+    }
+
+    created_threads: list[dict[str, Any]] = []
+    missing_thread_files: list[dict[str, Any]] = []
+    for thread_id in referenced_threads:
+        if thread_id in thread_files:
+            continue
+        missing_thread_files.append({"thread_id": thread_id, "title": _slug_title(thread_id)})
+        path = _write_thread_stub(thread_id, claims_digest)
+        thread_files[thread_id] = {
+            "id": thread_id,
+            "title": _slug_title(thread_id),
+            "status": "active",
+            "updated": datetime.now(timezone.utc).date().isoformat(),
+            "path": str(path),
+        }
+        created_threads.append({"thread_id": thread_id, "path": str(path)})
+
+    created_topics: list[dict[str, Any]] = []
+    missing_topic_candidates: list[dict[str, Any]] = []
+    for item in hot_threads:
+        thread_id = str(item.get("thread_id") or "").strip()
+        if not thread_id:
+            continue
+        open_claims = int(item.get("open_claims", 0) or 0)
+        thread_title = (thread_files.get(thread_id) or {}).get("title") or _slug_title(thread_id)
+        if thread_id in existing_topic_threads:
+            continue
+        candidate = {
+            "thread_id": thread_id,
+            "title": thread_title,
+            "open_claims": open_claims,
+            "reason": "hot_thread_without_topic",
+        }
+        missing_topic_candidates.append(candidate)
+        target_path = TOPICS_DIR / f"{_slugify(thread_id)}.md"
+        if target_path.exists():
+            candidate["reason"] = "topic_file_exists_without_thread_link"
+            candidate["path"] = str(target_path)
+            continue
+        path = _write_topic_stub(thread_id, claims_digest, str(thread_title))
+        existing_topic_threads.add(thread_id)
+        created_topics.append({"thread_id": thread_id, "path": str(path)})
+
+    topic_files = _read_topic_files()
+    thread_files = _read_thread_files()
+    stale_topics = [
+        {
+            "topic_id": topic_id,
+            "title": topic.get("title"),
+            "reason": "topic_without_thread_link",
+            "path": topic.get("path"),
+        }
+        for topic_id, topic in topic_files.items()
+        if not _coerce_list(topic.get("threads"))
+    ]
+
+    return {
+        "generated_at": _now_iso(),
+        "threads": {
+            "files_total": len(thread_files),
+            "referenced_total": len(referenced_threads),
+            "hot_total": len(hot_threads),
+            "missing_files_total": len(missing_thread_files),
+            "created_total": len(created_threads),
+            "missing_files": missing_thread_files[:12],
+            "created": created_threads,
+            "hot": hot_threads[:12],
+        },
+        "topics": {
+            "files_total": len(topic_files),
+            "thread_links_total": len(existing_topic_threads),
+            "missing_candidates_total": len(missing_topic_candidates),
+            "created_total": len(created_topics),
+            "stale_total": len(stale_topics),
+            "missing_candidates": missing_topic_candidates[:12],
+            "created": created_topics,
+            "stale": stale_topics[:12],
+        },
+        "orphan_claims": {
+            "total": int(orphan_claims.get("orphan_total", 0) or 0),
+            "candidate_clusters": (orphan_claims.get("candidate_clusters") or [])[:8],
+        },
+    }
 
 
 def _entry_date(frontmatter: dict[str, Any], path: Path) -> datetime:
@@ -266,6 +1028,11 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
     corpus_payload, corpus_warnings = _refresh_corpus_health()
     procedure_payload = _build_procedure_curation(window_days)
     funnel_payload, funnel_warnings = _refresh_workflow_funnel()
+    claims_digest = _read_json(CLAIMS_DIGEST_FILE, {})
+    orphan_claims = _read_json(ORPHAN_CLAIMS_FILE, {})
+    operator_pressure_digest = _read_json(OPERATOR_PRESSURE_HOT_DIGEST_FILE, {})
+    hot_state = _curate_hot_state(claims_digest, orphan_claims)
+    operator_pressure = _curate_operator_pressure(operator_pressure_digest)
     topic_index_warnings = _refresh_topics_index()
     workflow_health = _read_json(WORKFLOW_HEALTH_FILE, {})
     topics = _topics_summary()
@@ -293,6 +1060,8 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
             "never_cited_total": len(procedure_payload.get("never_cited_workflows") or []),
         },
         "topics": topics,
+        "hot_state": hot_state,
+        "operator_pressure": operator_pressure,
         "workflow_health": {
             "citation_total": len((workflow_health.get("citations") or {})),
             "funnel_tracked_total": int(funnel_payload.get("tracked_workflows", 0) or 0),
@@ -303,6 +1072,9 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
             "procedure_curation": str(PROCEDURE_CURATION_FILE),
             "workflow_health": str(WORKFLOW_HEALTH_FILE),
             "curation_digest": str(CURATION_DIGEST_FILE),
+            "claims_digest": str(CLAIMS_DIGEST_FILE),
+            "orphan_claims": str(ORPHAN_CLAIMS_FILE),
+            "operator_pressure_hot_digest": str(OPERATOR_PRESSURE_HOT_DIGEST_FILE),
         },
     }
     _write_json(CURATION_DIGEST_FILE, digest)
@@ -316,6 +1088,11 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
             "warning_count": len(warnings),
             "candidate_total": digest["procedures"]["candidate_total"],
             "topics_total": digest["topics"]["total"],
+            "topics_created": hot_state["topics"]["created_total"],
+            "threads_created": hot_state["threads"]["created_total"],
+            "operator_pressure_items": operator_pressure["items_total"],
+            "operator_pressure_topics_created": operator_pressure["topics_created"],
+            "operator_pressure_threads_created": operator_pressure["threads_created"],
             "stale_candidates": digest["corpus"]["stale_candidates"],
         },
     )
@@ -326,6 +1103,11 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
         warning_count=len(warnings),
         candidate_total=digest["procedures"]["candidate_total"],
         topics_total=digest["topics"]["total"],
+        topics_created=hot_state["topics"]["created_total"],
+        threads_created=hot_state["threads"]["created_total"],
+        operator_pressure_items=operator_pressure["items_total"],
+        operator_pressure_topics_created=operator_pressure["topics_created"],
+        operator_pressure_threads_created=operator_pressure["threads_created"],
         stale_candidates=digest["corpus"]["stale_candidates"],
     )
     return digest

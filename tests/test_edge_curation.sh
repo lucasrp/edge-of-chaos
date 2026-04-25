@@ -17,7 +17,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$TMP_REPO"/{tools,blog/entries,config} "$TMP_REPO/tools/_shared" "$TMP_STATE"/{state,topics,logs} "$TMP_HOME"
+mkdir -p "$TMP_REPO"/{tools,blog/entries,config} "$TMP_REPO/tools/_shared" "$TMP_STATE"/{state,topics,threads,logs} "$TMP_STATE/state/projections" "$TMP_STATE/state/operator-pressure" "$TMP_HOME"
 
 export HOME="$TMP_HOME"
 export EDGE_REPO_DIR="$TMP_REPO"
@@ -34,10 +34,14 @@ from pathlib import Path
 
 EDGE_REPO_DIR = Path(os.environ["EDGE_REPO_DIR"])
 EDGE_STATE_DIR = Path(os.environ["EDGE_STATE_DIR"])
+CLAIMS_DIGEST_FILE = EDGE_STATE_DIR / "state" / "projections" / "claims-digest.json"
 CURADORIA_CANDIDATES_FILE = EDGE_STATE_DIR / "state" / "curadoria-candidates.json"
 CURATION_DIGEST_FILE = EDGE_STATE_DIR / "state" / "curation-digest.json"
 ENTRIES_DIR = EDGE_REPO_DIR / "blog" / "entries"
+ORPHAN_CLAIMS_FILE = EDGE_STATE_DIR / "state" / "projections" / "orphan-claims.json"
+OPERATOR_PRESSURE_HOT_DIGEST_FILE = EDGE_STATE_DIR / "state" / "operator-pressure" / "hot-digest.json"
 PROCEDURE_CURATION_FILE = EDGE_STATE_DIR / "state" / "procedure-curation.json"
+THREADS_DIR = EDGE_STATE_DIR / "threads"
 TOPICS_DIR = EDGE_STATE_DIR / "topics"
 WORKFLOW_HEALTH_FILE = EDGE_STATE_DIR / "state" / "workflow-health.json"
 EVENTS_FILE = EDGE_STATE_DIR / "logs" / "events.jsonl"
@@ -124,6 +128,83 @@ cat >"$TMP_STATE/topics/topic-a.md" <<'EOF'
 # Topic A
 EOF
 
+cat >"$TMP_STATE/state/projections/claims-digest.json" <<'JSON'
+{
+  "claims": [
+    {
+      "claim_id": "claim-alpha",
+      "text": "Search substrate still has no topic producer.",
+      "kind": "gap",
+      "threads": ["search-substrate"],
+      "support_count": 1,
+      "latest_artifact_filename": "2026-04-24-research-topic-contract.md",
+      "latest_date": "2026-04-24T00:00:00+00:00"
+    },
+    {
+      "claim_id": "claim-beta",
+      "text": "Runtime observability needs a canonical hot-state loop.",
+      "kind": "gap",
+      "threads": ["runtime-observability"],
+      "support_count": 1,
+      "latest_artifact_filename": "2026-04-24-runtime.md",
+      "latest_date": "2026-04-24T00:00:00+00:00"
+    }
+  ],
+  "hot_threads_by_open_claims": [
+    {"thread_id": "search-substrate", "open_claims": 1},
+    {"thread_id": "runtime-observability", "open_claims": 1}
+  ]
+}
+JSON
+
+cat >"$TMP_STATE/state/projections/orphan-claims.json" <<'JSON'
+{
+  "orphan_total": 0,
+  "candidate_clusters": []
+}
+JSON
+
+cat >"$TMP_STATE/state/operator-pressure/hot-digest.json" <<'JSON'
+{
+  "schema_version": 3,
+  "generated_at": "2026-04-24T00:00:00+00:00",
+  "summary": "operator feedback asks for hot-state curation",
+  "signal_from_operator_now": [
+    {
+      "item_id": "pressure-hot-state",
+      "text": "threads e topics sao o estado quente; direcionamento quente e conhecimento quente",
+      "target": "thread",
+      "kind": "directive",
+      "repeat_count": 1,
+      "status": "active",
+      "entities": ["topic"],
+      "last_seen_at": "2026-04-24T00:00:00+00:00"
+    }
+  ],
+  "operator_pains_resolvable_now": [],
+  "operator_toil_optimizable_now": [],
+  "mistakes_to_avoid_now": [],
+  "implicit_needs_hypotheses": [],
+  "workflow_candidates": [],
+  "capability_candidates": [],
+  "substrate_gap_requests": [],
+  "active_entities": ["topic"],
+  "item_ids": ["pressure-hot-state"]
+}
+JSON
+
+cat >"$TMP_STATE/threads/runtime-observability.md" <<'EOF'
+---
+id: runtime-observability
+title: Runtime Observability
+status: active
+created: 2026-04-24
+updated: 2026-04-24
+---
+
+Existing hot direction.
+EOF
+
 echo "=== edge-curation Smoke Test ==="
 echo "Temp repo: $TMP_REPO"
 echo ""
@@ -144,9 +225,31 @@ digest = json.loads(Path(digest_path).read_text(encoding="utf-8"))
 assert payload["procedures"]["candidate_total"] == 1
 assert proc["crystallization_candidates"][0]["claim_count"] == 3
 assert digest["corpus"]["stale_candidates"] == 2
-assert digest["topics"]["total"] == 1
+assert digest["topics"]["total"] == 4
+assert digest["hot_state"]["threads"]["referenced_total"] == 2
+assert digest["hot_state"]["threads"]["created_total"] == 1
+assert digest["hot_state"]["topics"]["created_total"] == 2
+assert digest["operator_pressure"]["items_total"] == 1
+assert digest["operator_pressure"]["groups_total"] == 1
+assert digest["operator_pressure"]["threads_created"] == 1
+assert digest["operator_pressure"]["topics_created"] == 1
+state_root = Path(digest_path).parents[1]
+assert (state_root / "threads" / "search-substrate.md").exists()
+assert (state_root / "threads" / "threads-topics-hot-state.md").exists()
+assert (state_root / "topics" / "search-substrate.md").exists()
+assert (state_root / "topics" / "runtime-observability.md").exists()
+assert (state_root / "topics" / "threads-topics-hot-state.md").exists()
 assert "funnel_tracked_total" in digest["workflow_health"]
 assert "topics" in Path(f"{Path(digest_path).parent}/topics-index.args").read_text(encoding="utf-8")
+
+second = subprocess.run([tool, "sync", "--json"], capture_output=True, text=True, check=True)
+second_payload = json.loads(second.stdout)
+second_digest = json.loads(Path(digest_path).read_text(encoding="utf-8"))
+assert second_payload["topics"]["total"] == 4
+assert second_digest["hot_state"]["threads"]["created_total"] == 0
+assert second_digest["hot_state"]["topics"]["created_total"] == 0
+assert second_digest["operator_pressure"]["threads_created"] == 0
+assert second_digest["operator_pressure"]["topics_created"] == 0
 PY
 then
     pass "sync builds procedure-curation and digest"

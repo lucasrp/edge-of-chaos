@@ -195,10 +195,19 @@ def refresh_curation_digest() -> dict[str, Any]:
         return {"ok": False, "status": "failed", "detail": detail, "payload": {}}
     payload = json.loads(stdout) if stdout else {}
     status = str(payload.get("status") or "ok")
+    hot_state = payload.get("hot_state") or {}
+    hot_threads = hot_state.get("threads") or {}
+    hot_topics = hot_state.get("topics") or {}
+    operator_pressure = payload.get("operator_pressure") or {}
     detail = (
         f"topics={((payload.get('topics') or {}).get('total', 0))} "
         f"candidates={((payload.get('procedures') or {}).get('candidate_total', 0))} "
-        f"stale={((payload.get('corpus') or {}).get('stale_candidates', 0))}"
+        f"stale={((payload.get('corpus') or {}).get('stale_candidates', 0))} "
+        f"threads_created={hot_threads.get('created_total', 0)} "
+        f"topics_created={hot_topics.get('created_total', 0)} "
+        f"operator_items={operator_pressure.get('items_total', 0)} "
+        f"operator_threads_created={operator_pressure.get('threads_created', 0)} "
+        f"operator_topics_created={operator_pressure.get('topics_created', 0)}"
     )
     append_postskill_log("curation_digest", "WARN" if status == "warning" else "OK", detail)
     return {
@@ -590,6 +599,15 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
             "topics_total": int((curation_payload.get("topics") or {}).get("total", 0) or 0),
             "stale_candidates": int((curation_payload.get("corpus") or {}).get("stale_candidates", 0) or 0),
             "procedure_candidates": int((curation_payload.get("procedures") or {}).get("candidate_total", 0) or 0),
+            "hot_threads": int(((curation_payload.get("hot_state") or {}).get("threads") or {}).get("hot_total", 0) or 0),
+            "threads_created": int(((curation_payload.get("hot_state") or {}).get("threads") or {}).get("created_total", 0) or 0),
+            "topics_created": int(((curation_payload.get("hot_state") or {}).get("topics") or {}).get("created_total", 0) or 0),
+            "missing_topic_candidates": int(((curation_payload.get("hot_state") or {}).get("topics") or {}).get("missing_candidates_total", 0) or 0),
+            "stale_topics": int(((curation_payload.get("hot_state") or {}).get("topics") or {}).get("stale_total", 0) or 0),
+            "operator_pressure_items": int((curation_payload.get("operator_pressure") or {}).get("items_total", 0) or 0),
+            "operator_threads_created": int((curation_payload.get("operator_pressure") or {}).get("threads_created", 0) or 0),
+            "operator_topics_created": int((curation_payload.get("operator_pressure") or {}).get("topics_created", 0) or 0),
+            "operator_missing_topic_candidates": int((curation_payload.get("operator_pressure") or {}).get("missing_topic_candidates_total", 0) or 0),
         } if curation_payload else {},
         "async_inbox": {
             "reply_posted": bool(async_inbox_payload.get("reply_posted", False)),
