@@ -19,6 +19,8 @@ import os
 import re
 import shutil
 import subprocess
+import sys
+from pathlib import Path
 
 
 # ─── Prompt ────────────────────────────────────────────────────────────────
@@ -93,7 +95,10 @@ def _call_openai(prompt: str, timeout: int = 60) -> str | None:
     try:
         from .router_client import make_client
     except ImportError:
-        from router_client import make_client  # type: ignore
+        tools_dir = Path(__file__).resolve().parent.parent
+        if str(tools_dir) not in sys.path:
+            sys.path.insert(0, str(tools_dir))
+        from _shared.router_client import make_client  # type: ignore
     try:
         client, model = make_client("chat_mini", timeout=timeout)
         response = client.chat.completions.create(
