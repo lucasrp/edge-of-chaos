@@ -11,6 +11,26 @@ fail() { echo "  FAIL: $1"; FAIL=$((FAIL + 1)); }
 echo "=== heartbeat entrypoint contract ==="
 echo ""
 
+echo "--- Test 0: heartbeat.sh.tpl parses as bash with stale-lock recovery wired (issue #374) ---"
+TMP_HB=$(mktemp /tmp/heartbeat-rendered-XXXXXX.sh)
+trap 'rm -f "$TMP_HB"' EXIT
+sed \
+    -e 's|{{ WORK_DIR }}|/tmp/edge-test|g' \
+    -e 's|{{ CODENAME }}|test|g' \
+    -e 's|{{ SKILL_PREFIX }}|test|g' \
+    -e 's|{{ HEARTBEAT_INTERVAL }}|2h|g' \
+    "$EDGE_DIR/config/heartbeat.sh.tpl" > "$TMP_HB"
+if bash -n "$TMP_HB" 2>&1; then
+    pass "rendered heartbeat.sh parses without syntax errors"
+else
+    fail "rendered heartbeat.sh has syntax errors"
+fi
+if grep -q "try_recover_stale_lock" "$TMP_HB" && grep -q "EDGE_HEARTBEAT_STALE_LOCK_SEC" "$TMP_HB"; then
+    pass "rendered heartbeat.sh wires stale-lock recovery"
+else
+    fail "rendered heartbeat.sh missing stale-lock recovery"
+fi
+
 echo "--- Test 1: manual docs no longer point to direct claude -p heartbeat ---"
 if python3 - <<'PY' "$EDGE_DIR"
 from pathlib import Path

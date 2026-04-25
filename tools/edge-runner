@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import uuid
@@ -473,6 +474,22 @@ def make_follow_on_skill_args(args: argparse.Namespace, skill_name: str) -> argp
     return follow_on
 
 
+DEFAULT_SKILL_TIMEOUT_SECONDS = 5400  # 90 minutes — see issue #374
+
+
+def resolve_skill_timeout_seconds() -> int | None:
+    raw = os.environ.get("EDGE_RUNNER_SKILL_TIMEOUT_SEC")
+    if raw is None or raw == "":
+        return DEFAULT_SKILL_TIMEOUT_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_SKILL_TIMEOUT_SECONDS
+    if value <= 0:
+        return None
+    return value
+
+
 def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: str | None = None) -> int:
     content = build_backend_content(args, cycle_id)
     original = args.skill if args.cmd == "skill" else args.prompt
@@ -486,8 +503,66 @@ def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: s
     else:
         cmd = build_backend_command(args)
 
-    result = subprocess.run(cmd, env=env, cwd=resolve_cwd(args.cwd))
-    return result.returncode
+    timeout_seconds = resolve_skill_timeout_seconds()
+    if timeout_seconds is None:
+        result = subprocess.run(cmd, env=env, cwd=resolve_cwd(args.cwd))
+        return result.returncode
+
+    popen_kwargs: dict = {"env": env, "cwd": resolve_cwd(args.cwd)}
+    if os.name == "posix":
+        popen_kwargs["start_new_session"] = True
+    proc = subprocess.Popen(cmd, **popen_kwargs)
+    try:
+        return proc.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        target = args.skill if args.cmd == "skill" else "prompt"
+        emit_shadow_event(
+            "SkillSubprocessTimeout",
+            actor="edge-runner",
+            cycle_id=cycle_id,
+            payload={
+                "target": target,
+                "mode": args.cmd,
+                "timeout_seconds": timeout_seconds,
+                "pid": proc.pid,
+            },
+        )
+        _terminate_process_group(proc)
+        raise RunnerAbort("skill_subprocess_timeout", f"backend exceeded {timeout_seconds}s — process group killed")
+
+
+def _terminate_process_group(proc: subprocess.Popen) -> None:
+    if os.name != "posix":
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+        return
+    try:
+        pgid = os.getpgid(proc.pid)
+    except (ProcessLookupError, OSError):
+        return
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except (ProcessLookupError, OSError):
+        return
+    try:
+        proc.wait(timeout=10)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, OSError):
+        return
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        pass
 
 
 def maybe_mark_skill_completion(skill: str, cycle_id: str | None, exit_code: int) -> None:
