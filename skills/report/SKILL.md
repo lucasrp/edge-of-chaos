@@ -22,11 +22,9 @@ Use `ed-report` when:
 
 If the answer fits cleanly in a few paragraphs, do not inflate it into a report.
 
-## Runtime Boundary
+## Boundary
 
-Use the runtime-injected pre-skill context as the starting point.
-
-Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill. The runtime owns those mechanics.
+Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill.
 
 Follow the shared source lookup protocol when external evidence, current information, examples, papers, repositories, or public discussion are relevant.
 

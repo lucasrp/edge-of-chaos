@@ -10,11 +10,9 @@ The heartbeat is a router, not a worker.
 
 Its only job is to choose one internal skill, dispatch it, and stop.
 
-## Runtime Boundary
+## Launch Frame
 
-Assume the runtime already opened the cycle, ran preflight, captured operator/system context, and prepared routing fields.
-
-Do not redo lifecycle work inside this skill.
+Assume the cycle is already open and routing fields are already prepared. Do not redo lifecycle work inside this skill.
 
 If `/ed-heartbeat` is invoked directly without `EDGE_CYCLE_ID`, re-enter through the canonical wrapper and then stop:
 
@@ -28,7 +26,7 @@ Do not call `edge-dispatch open` or `edge-close` from the direct slash process.
 
 ## Inputs
 
-Trust the runtime-injected request fields:
+Use the prepared request fields:
 
 - `request.dispatch_queue_summary`
 - `request.heartbeat_routing`

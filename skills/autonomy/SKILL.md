@@ -35,11 +35,9 @@ Autonomy does not own project delivery, product code, broad refactors, or skill 
 
 It still reports every run. The difference is that the report is an operational accountability record, not a separate publication ritual. If autonomy acts, the report must make the action auditable: decision, evidence, changed surface, verification readback, residual risk, and next route.
 
-## Runtime Boundary
+## Boundary
 
-Use the runtime-injected pre-skill context as the starting point.
-
-Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill. The runtime owns those mechanics.
+Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill.
 
 When editing protected state or shared protocols, follow the shared state protocol. Prefer lifecycle tools and read models over hand-editing raw state.
 

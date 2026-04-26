@@ -10,11 +10,9 @@ Use this skill to turn a target into a concrete development cycle.
 
 Planner does not execute the cycle. It designs the work so a human, team, or explicit implementation process can execute it with minimal ambiguity.
 
-## Runtime Boundary
+## Boundary
 
-Use the runtime-injected pre-skill context as the starting point.
-
-Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill. The runtime owns those mechanics.
+Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill.
 
 Follow the shared source lookup protocol when the proposal depends on external tools, technical patterns, ecosystem examples, or implementation gotchas.
 

@@ -34,11 +34,9 @@ It is responsible for:
 
 If adding a new source/signal workflow would make more than 10 active workflows, first merge, archive, or delete an old one. More than 10 active workflows means the skill failed its curation job.
 
-## Runtime Boundary
+## Boundary
 
-Use the runtime-injected pre-skill context as the starting point.
-
-Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill. The runtime owns those mechanics.
+Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill.
 
 Do not duplicate the source registry in this skill. `edge-sources`, `edge-signals`, `edge-context`, capability manifests, and primitive read models are the executable source of truth.
 

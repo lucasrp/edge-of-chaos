@@ -24,11 +24,9 @@ It is responsible for:
 
 The output is a usable map of relationships, not a narrative summary.
 
-## Runtime Boundary
+## Boundary
 
-Use the runtime-injected pre-skill context as the starting point.
-
-Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill. The runtime owns those mechanics.
+Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill.
 
 Map uses internal sources first. Use the shared source lookup protocol only when an internal relationship depends on current external facts or outside examples.
 
@@ -46,7 +44,7 @@ Use `ed-map` for:
 
 Do not use it for:
 
-- current project status: use `ed-context` or status tools;
+- current project status or factual inventory;
 - evidence discovery: use `ed-research`;
 - action prioritization: use `ed-strategy`;
 - implementation planning: use `ed-planner`;
@@ -150,7 +148,7 @@ Route findings instead of overreaching:
 - stale claims or thread cleanup -> `ed-strategy`;
 - evidence gap -> `ed-research`;
 - implementation or project sequencing -> `ed-planner`;
-- current status question -> status/context tool.
+- current status question -> status/read-model CLI.
 
 ## Output
 
