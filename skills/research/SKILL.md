@@ -32,6 +32,13 @@ Feynman cycle:
 
 Run at most two gap-resolution loops before publishing the remaining uncertainty.
 
+Do not pause after the first gap pass to ask whether to continue. A direct
+`/ed-research` dispatch already authorizes the bounded Feynman cycle. If the
+topic is underspecified, infer a reasonable scope from current context and say
+what you assumed in the final artifact. Ask the operator only when the target
+cannot be inferred enough to begin, required access is missing, or the next
+step requires an external/destructive mutation rather than research.
+
 ## Boundary
 
 Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill.

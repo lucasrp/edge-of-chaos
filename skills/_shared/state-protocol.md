@@ -97,6 +97,34 @@ Rules:
 
 ---
 
+## Autonomous Continuation After Explicit Dispatch (MANDATORY)
+
+An explicit skill dispatch is authorization to complete that skill's own
+contract. Do not stop mid-skill to ask whether to continue, whether to run the
+next internal loop, or whether to finish the method the operator already
+invoked.
+
+Rules:
+- If the operator invoked a concrete skill (`/ed-research`, `/ed-planner`,
+  `/ed-reflection`, etc.), infer reasonable scope from the request and current
+  context, state assumptions in the final output, and continue through the
+  skill contract.
+- If a method has bounded internal loops, run those loops autonomously within
+  the skill budget. Remaining uncertainty belongs in the output as open gaps,
+  not as a mid-cycle permission question.
+- Ask the operator only when the target cannot be inferred enough to begin, a
+  destructive or external mutation needs approval, required access is missing,
+  or the next step truly depends on a human judgment rather than agent work.
+- A question to the operator is not a substitute for doing available research,
+  probing local state, checking read models, or trying the next non-mutating
+  step.
+
+For research skills specifically: Feynman gap-resolution loops are part of the
+contract. Complete them autonomously, then publish remaining
+`[STILL DON'T UNDERSTAND: ...]` gaps if they remain.
+
+---
+
 ## Workflow Lookup (MANDATORY, before execution)
 
 Before starting any skill, look up relevant workflows and save the results:
