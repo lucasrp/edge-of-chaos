@@ -1,0 +1,17 @@
+[Unit]
+Description=Publish Edge dispatch-cycle projection to Fleet Loki
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/edge/secrets/grafana-loki.env
+Environment=EDGE_DIR=%h/edge
+Environment=EDGE_STATE_DIR=%h/edge
+Environment=EDGE_HOST=%H
+Environment=SHIPPER_JOB=edge-fleet
+ExecStart=/usr/bin/python3 %h/fleet-observe/publish_dispatch_projection.py
+WorkingDirectory=%h/fleet-observe
+
+[Install]
+WantedBy=default.target
