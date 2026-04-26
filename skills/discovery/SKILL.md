@@ -6,121 +6,113 @@ user-invocable: true
 
 # Discovery — Practical Insight
 
-Explore freely and bring back something useful. It could be a tool, a concept, a mental model, a word from another culture, a pattern from another industry — anything. The search is open-ended. What matters is that in the end, the contextualization to work is CLEAR and detailed.
+Use this skill for open-ended exploration that should bring back something useful: a tool, concept, mental model, pattern from another industry, cultural idea, historical analogy, or emerging technique.
 
-Like that well-informed friend who brings things you would never have found on your own, but explains well why it matters to you.
-
----
+Unlike `ed-research`, the target does not need to be known in advance. The value is finding something the agent/operator would not naturally search for, then making its practical relevance clear.
 
 ## Arguments
 
-- **No argument** (`/ed-discovery`): explore freely and bring back something useful
-- **With direction** (`/ed-discovery something for testing prompts`): search in that specific direction
+- No argument: explore freely and bring back something useful.
+- With direction: explore in that direction while keeping room for adjacent discoveries.
 
----
+## Runtime Boundary
 
-## What Makes a Good Discovery
+Use the runtime-injected pre-skill context as the starting point.
 
-It can be anything, as long as it has well-contextualized practical application:
+Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill. The runtime owns those mechanics.
 
-- **Tools** — "you're tuning prompts by hand? DSPy optimizes automatically"
-- **Concepts** — "Hamilton Three-Layer: Apollo's governance is exactly what the heartbeat does"
-- **Patterns from other industries** — "Andon cord from Toyota: fail-fast in the pipeline"
-- **Words/concepts from other cultures** — "Genchi genbutsu: go and see for yourself"
+## What Counts As A Discovery
 
-**What it is NOT:** something interesting but with no clear connection ("Physarum solves mazes — cool, but so what?").
+A good discovery has practical application, not just novelty.
 
----
+Examples:
 
-## Context Activation
+- Tool: "prompt tuning by hand can become an optimization loop with DSPy."
+- Concept: "Andon cord maps to fail-fast pipeline interruption."
+- Industry pattern: "aviation checklists clarify handoff risk in agent workflows."
+- Cultural concept: "genchi genbutsu means go see the real system, not the proxy."
 
-**Use the runtime pre-skill context injected by `edge-preflight` and sourced from `~/edge/config/preflight.yaml`.**
+Not enough: "this is interesting." The discovery must answer: what changes because we know this?
 
----
+## Method
 
-## Protocol
+### 1. Choose A Starting Direction
 
-### Step 1: Explore
+Start from one of:
 
-The search is open-ended. It can start from:
-- A work problem you want to solve
-- Something you saw in a research that caught your attention
-- Pure curiosity about an adjacent topic
-- Trending in tech, science, design, management, any field
+- current work friction;
+- a vague operator signal;
+- a surprising thread in prior research;
+- a nearby field;
+- a tool ecosystem;
+- an analogy from another discipline;
+- pure curiosity when no stronger signal exists.
 
-Can search anywhere:
-- Tool ecosystem, GitHub, HN, papers
-- Other industries (manufacturing, aviation, medicine)
-- Other cultures (Japanese concepts, philosophies, untranslatable words)
-- History (how analogous problems were solved in the past)
+### 2. Explore Broadly
 
-### Step 2: Search external sources (MANDATORY)
+Search across sources appropriate to the direction:
 
-Run `/ed-sources discovery "[topic]"` to explore all external sources (X, HN, Web, ArXiv).
+- tool ecosystems and repositories;
+- HN, technical blogs, docs, papers, and public discussions;
+- other industries such as manufacturing, aviation, medicine, education, operations;
+- history, philosophy, language, and cultural concepts.
 
-The search itself can be the discovery — a tweet, HN post, or paper that points to something worth researching in depth.
+The source itself can be the discovery if it reveals a reusable idea.
 
-### Step 3: Research in depth
+### 3. Understand The Discovery
 
-Use `ultrathink` (thinkmax).
+For tools, capture:
 
-For TOOLS: what it is, how it works, how to get started, cost, limitations.
+- what it does;
+- how it works;
+- how to get started;
+- cost and operating constraints;
+- limitations and failure modes.
 
-For CONCEPTS: origin and original context, the essence, **detailed application** to our specific context — which project, which stage, "how it was" vs "how it becomes".
+For concepts or patterns, capture:
 
-### Step 4: Save notes
+- original context;
+- core mechanism;
+- why it mattered there;
+- where the analogy does and does not transfer.
 
-`~/edge/notes/discovery-[name].md` — always include: what it is, original context, **application to work** (mandatory), sources.
+### 4. Contextualize To Work
 
-### Step 5: Register discovery
+This is the central requirement.
 
-Add at the top of `discoverys.md`:
+Explain concretely:
 
-```markdown
-## [YYYY-MM-DD] [Name] — [Short phrase] [PENDING]
+- which project or workflow it affects;
+- what current friction it addresses;
+- how things work now;
+- how they would work with the discovery;
+- what first practical step would test it;
+- what risk would make the analogy fail.
 
-**Type:** [tool | concept | pattern | mental model]
-**Problem:** [Which friction/gap it addresses]
-**What it is:** [2-3 clear sentences]
-**Application:** [CONCRETE connection — which project, stage, how it changes things]
-**To get started:** [First practical step]
-**Effort:** [low | medium | high]
-**Notes:** `~/edge/notes/discovery-[name].md`
-```
+## Quality Criteria
 
----
+- The application to work must be specific enough to act on.
+- Include a before/after comparison for the main application.
+- Explain the concept plainly before using it as advice.
+- Distinguish useful analogy from overreach.
+- Prefer one strong discovery over a list of loosely related curiosities.
+- Keep sources traceable.
 
-## Publication
+## Output Contract
 
-**Follow `~/.claude/skills/_shared/state-protocol.md` for status management.**
+Produce a discovery artifact suitable for the uniform report pipeline.
 
-1. Blog entry with tag `discovery` + YAML report
-2. `consolidate-state ~/edge/blog/entries/<slug>.md /tmp/spec-discovery-[slug].yaml`
-3. Verify generated HTML
+Recommended sections:
 
-YAML report structure:
-
-```yaml
-title: "Discovery: [Name]"
-subtitle: "[What it solves]"
-sections:
-  - title: "1. The Problem"       # Which friction motivated it
-  - title: "2. The Discovery"     # What it is, concept-grid mandatory
-  - title: "3. Application"        # comparison before/after mandatory
-  - title: "4. Getting Started"    # next-steps-grid
-bibliography: [...]               # MANDATORY
-```
-
-**Block types and rules:** see `~/.claude/skills/_shared/report-template.md`.
-
----
-
-## Post-execution
-
-**Use the runtime post-skill protocol sourced from `~/edge/config/postflight.yaml` and executed by `edge-postflight`** (notify, update strategy).
-
----
+1. The Problem Or Friction
+2. The Discovery
+3. Original Context
+4. Application To Work
+5. Before And After
+6. Getting Started
+7. Risks And Limits
+8. References
 
 ## Privacy Rule
 
-For external posts: **NEVER** identify organization/company name, owner name, project name.
+For external posts or public communication, do not identify private organizations, owners, project names, or data that can trace the human operator.

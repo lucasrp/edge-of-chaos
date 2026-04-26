@@ -114,22 +114,6 @@ ed-relatorio:
   - "5:Publicar HTML"
   - "6:Verificar"
 
-ed-experimento:
-  - "1:Retomar estado"
-  - "2:Absorver contexto"
-  - "3:Formular hipotese"
-  - "4:Derivar"
-  - "5:Pesquisar gaps"
-  - "6:Montar experimento"
-  - "7:Rodar dados"
-  - "8:Analisar resultados"
-  - "8.5:Sanity check adversarial"
-  - "9:Ensinar"
-  - "10:Salvar"
-  - "11:Break journal"
-  - "12:Blog + relatorio"
-  - "14:Relatorio usuario"
-
 ed-planejar:
   - "1:Rodar contexto"
   - "1.5:Consultar relatorios"

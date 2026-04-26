@@ -73,9 +73,6 @@ SUBSTANTIVE_SKILLS = {
     "discovery",
     "strategy",
     "planner",
-    "execute",
-    "experiment",
-    "prd",
 }
 
 BEAT_LAUNCH_SECTION_LIMIT = 4
@@ -88,11 +85,8 @@ BEAT_LAUNCH_DECISION_BLEND = {
 EXTERNAL_SEARCH_INTENTS = {
     "autonomy": "strategy",
     "discovery": "discovery",
-    "execute": "execute",
-    "experiment": "research",
     "map": "research",
     "planner": "planner",
-    "prd": "planner",
     "reflection": "reflection",
     "report": "report",
     "research": "research",

@@ -75,7 +75,6 @@ Compiled documents that form consciousness. Nothing external.
 | discovery | — | Free exploration, minimal context |
 | strategy | 4 (git), 5, 6, 7, 8, 9, 10, 11, 12, 13 | Complete view including code status + project |
 | planner | 4 (git), 7, 10, 11, 13 | Code status + kanban + meetings + issues |
-| execute | 4 (git), 5, 10, 13 | Code status + WIP + kanban + blockers |
 | reflection | 6, 9, 12 | Pattern detection needs sessions, health, and real usage |
 | full | 4 (git), 5, 6, 7, 8, 9, 10, 11, 12, 13 | Complete view |
 
@@ -170,7 +169,7 @@ Only load if the caller is in the table above for that source.
 
 #### 5. Detailed Git
 
-**Callers:** execute, strategy, full
+**Callers:** strategy, full
 
 ```bash
 for proj in project-a project-b project-c ralph; do  # customize with your project names
@@ -303,7 +302,7 @@ grep -c '## \[' ~/.claude/projects/$MEMORY_PROJECT_DIR/memory/reflection-log.md 
 
 #### 10. GitHub Boards (Kanban)
 
-**Callers:** heartbeat, research, strategy, planner, execute, full
+**Callers:** heartbeat, research, strategy, planner, full
 
 ```bash
 # Requires $GITHUB_USER account (personal) — has org access
@@ -364,7 +363,7 @@ If `VM_INACCESSIBLE`: proceed without. Not a blocker.
 
 #### 13. GitHub Issues — `dev` Repo (Real Backlog)
 
-**Callers:** heartbeat, research, strategy, planner, execute, full
+**Callers:** heartbeat, research, strategy, planner, full
 
 The `$GITHUB_ORG/dev` repo is the central issue tracker. More complete than boards (which are subsets). Relevant labels: `impedimento`, `qualidade`, `migração`, `applied-domain`, `documentacao`, `épico`.
 
@@ -403,7 +402,7 @@ project-c [active|dormant|stable] — 1-line summary
 [Connections between projects. Next steps. What unblocks what.]
 ```
 
-**For callers with sources 10-12 (heartbeat, research, strategy, planner, execute, full), add:**
+**For callers with sources 10-12 (heartbeat, research, strategy, planner, full), add:**
 
 ```markdown
 ### Project — Kanban & Meetings

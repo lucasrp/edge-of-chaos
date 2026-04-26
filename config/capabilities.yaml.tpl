@@ -55,7 +55,7 @@ capabilities:
     probe: ["edge-repo-sync", "--help"]
     required: true
     roles: ["sync", "audit", "repository"]
-    skills: ["reflection", "autonomy", "heartbeat", "execute"]
+    skills: ["reflection", "autonomy", "heartbeat"]
 
   - name: storage.sync
     kind: external_cli
@@ -64,4 +64,4 @@ capabilities:
     passthrough: true
     probe: ["rclone", "version"]
     required: false
-    skills: ["report", "execute", "autonomy"]
+    skills: ["report", "autonomy"]

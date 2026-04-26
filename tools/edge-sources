@@ -39,7 +39,6 @@ ROUTING = {
     'heartbeat':  {'primary': ['hn', 'reddit'],                           'secondary': ['x', 'github', 'exa']},
     'reflection': {'primary': ['hn', 'reddit'],                           'secondary': ['semantic_scholar', 'exa']},
     'planner':    {'primary': ['hn', 'github', 'exa'],                    'secondary': ['arxiv', 'hf_papers']},
-    'execute':    {'primary': ['hn', 'github'],                           'secondary': ['reddit', 'exa']},
     'report':     {'primary': ['hn', 'arxiv', 'semantic_scholar', 'exa'], 'secondary': ['x', 'reddit', 'github', 'hf_papers']},
 }
 
@@ -368,6 +367,7 @@ def run_sources(topic, sources, max_workers=6, *, run_id="", intent="", wildcard
                 log_primitive_call(src, ok=ok, latency_ms=dt_ms, notes={"topic": topic[:80], "n": len(items)})
                 source_id = f"source.{src}"
                 for index, item in enumerate(items or [], 1):
+                    result_kind = "error" if "error" in str(item.get("title") or "").lower() else "source_result"
                     odi_id = make_odi_id(
                         source_id,
                         run_id,
@@ -377,6 +377,11 @@ def run_sources(topic, sources, max_workers=6, *, run_id="", intent="", wildcard
                         index,
                     )
                     item["odi_id"] = odi_id
+                    item["source_id"] = source_id
+                    item["rank"] = index
+                    item["result_kind"] = result_kind
+                    item["wildcard"] = src == wildcard_src
+                    item["latency_ms"] = dt_ms
                     log_odi_observed(
                         odi_id,
                         source_id=source_id,
@@ -388,7 +393,7 @@ def run_sources(topic, sources, max_workers=6, *, run_id="", intent="", wildcard
                         url=str(item.get("url") or ""),
                         rank=index,
                         score=item.get("score"),
-                        result_kind="error" if "error" in str(item.get("title") or "").lower() else "source_result",
+                        result_kind=result_kind,
                         metadata={
                             "source_label": item.get("source") or src,
                             "detail": str(item.get("detail") or "")[:300],
@@ -402,6 +407,11 @@ def run_sources(topic, sources, max_workers=6, *, run_id="", intent="", wildcard
                 source_id = f"source.{src}"
                 odi_id = make_odi_id(source_id, run_id, topic, "exception", str(e)[:120])
                 all_results[src][0]["odi_id"] = odi_id
+                all_results[src][0]["source_id"] = source_id
+                all_results[src][0]["rank"] = 1
+                all_results[src][0]["result_kind"] = "error"
+                all_results[src][0]["wildcard"] = src == wildcard_src
+                all_results[src][0]["latency_ms"] = dt_ms
                 log_odi_observed(
                     odi_id,
                     source_id=source_id,
@@ -454,9 +464,63 @@ def _maybe_unlock_builtin_web_search(topic, sources, results_by_source):
     return allowance
 
 
-def format_markdown(topic, intent, results_by_source, wildcard_src=None):
+def _source_error(item):
+    return "error" in str(item.get("title", "")).lower() or str(item.get("result_kind") or "") == "error"
+
+
+def summarize_results(results_by_source, selected_sources, wildcard_src=None):
+    per_source = {}
+    total_results = 0
+    ok_sources = 0
+    failed_sources = 0
+    useful_odi_ids = []
+    error_odi_ids = []
+
+    for src in selected_sources:
+        items = list(results_by_source.get(src) or [])
+        errors = [item for item in items if _source_error(item)]
+        usable = [
+            item for item in items
+            if not _source_error(item) and (item.get("url") or item.get("detail") or item.get("title"))
+        ]
+        total_results += len(usable)
+        if errors:
+            failed_sources += 1
+        else:
+            ok_sources += 1
+
+        useful_ids = [str(item.get("odi_id") or "") for item in usable if item.get("odi_id")]
+        error_ids = [str(item.get("odi_id") or "") for item in errors if item.get("odi_id")]
+        useful_odi_ids.extend(useful_ids[:5])
+        error_odi_ids.extend(error_ids[:5])
+        per_source[src] = {
+            "source_id": f"source.{src}",
+            "selected": True,
+            "wildcard": src == wildcard_src,
+            "result_count": len(items),
+            "usable_count": len(usable),
+            "error_count": len(errors),
+            "latency_ms": max([int(item.get("latency_ms") or 0) for item in items] or [0]),
+            "top_odi_ids": useful_ids[:5],
+            "error_odi_ids": error_ids[:5],
+        }
+
+    return {
+        "source_count": len(selected_sources),
+        "ok_sources": ok_sources,
+        "failed_sources": failed_sources,
+        "total_results": total_results,
+        "per_source": per_source,
+        "useful_odi_ids": useful_odi_ids[:20],
+        "error_odi_ids": error_odi_ids[:20],
+    }
+
+
+def format_markdown(topic, intent, results_by_source, wildcard_src=None, run_id=""):
     """Format results as structured markdown."""
     lines = [f"## External Sources — \"{topic}\" (intent: {intent})\n"]
+    if run_id:
+        lines.append(f"Run: `{run_id}`\n")
 
     # Corpus section (issue #381) — surfaced first so prior internal knowledge
     # is read before any external source. If corpus was queried but returned
@@ -482,7 +546,7 @@ def format_markdown(topic, intent, results_by_source, wildcard_src=None):
         if src == 'corpus':
             continue
         for item in items:
-            if item.get("url") or "error" not in item.get("title", "").lower():
+            if item.get("url") or not _source_error(item):
                 all_items.append(item)
     all_items.sort(key=lambda x: x.get('score', 0), reverse=True)
 
@@ -512,7 +576,7 @@ def format_markdown(topic, intent, results_by_source, wildcard_src=None):
     errors = []
     for src, items in results_by_source.items():
         for item in items:
-            if 'error' in item.get('title', '').lower():
+            if _source_error(item):
                 errors.append(f"  - {item['title']}")
     if errors:
         lines.append("### Errors\n")
@@ -522,7 +586,7 @@ def format_markdown(topic, intent, results_by_source, wildcard_src=None):
     # Source summary
     lines.append("### Sources Consulted\n")
     for src, items in results_by_source.items():
-        ok_count = len([i for i in items if 'error' not in i.get('title', '').lower()])
+        ok_count = len([i for i in items if not _source_error(i)])
         wc = " (WILDCARD)" if src == wildcard_src else ""
         lines.append(f"- {src}: {ok_count} results{wc}")
     lines.append("")
@@ -543,6 +607,59 @@ def format_json(results_by_source, wildcard_src=None):
             "wildcard": src == wildcard_src,
         }
     return json.dumps(output, indent=2, ensure_ascii=False)
+
+
+def format_feedback_json(
+    results_by_source,
+    *,
+    topic,
+    intent,
+    selected_sources,
+    wildcard_src=None,
+    run_id="",
+    episode_id="",
+    pattern_id="",
+    pattern_note="",
+    route_mode="intent",
+    builtin_web_allowance=None,
+):
+    """Format a stable feedback contract for source/signal curation."""
+    summary = summarize_results(results_by_source, selected_sources, wildcard_src)
+    payload = {
+        "schema_version": 2,
+        "kind": "edge_sources_feedback_episode",
+        "run": {
+            "run_id": run_id,
+            "episode_id": episode_id or run_id,
+            "pattern_id": pattern_id,
+            "pattern_note": pattern_note,
+            "query": topic,
+            "intent": intent,
+        },
+        "route": {
+            "mode": route_mode,
+            "selected_sources": selected_sources,
+            "wildcard_source": wildcard_src,
+            "corpus_included": "corpus" in selected_sources,
+            "builtin_web_fallback_unlocked": bool(builtin_web_allowance),
+        },
+        "summary": summary,
+        "results_by_source": results_by_source,
+        "feedback_contract": {
+            "grade_command": "edge-affordance evaluate <source_id> --affordance <affordance> --score <1-5> --context <intent/context> --query <query> --reason <reason> --odi <odi_id> --episode-id <episode_id>",
+            "grade_atomic_sources": True,
+            "recommended_affordances": [
+                "novelty",
+                "confirmation",
+                "continuity",
+                "operational_signal",
+                "implementation_pattern",
+                "primary_source",
+                "counterexample",
+            ],
+        },
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False)
 
 
 def front_page():
@@ -570,7 +687,7 @@ def front_page():
 def main():
     parser = argparse.ArgumentParser(
         description="Unified external source search",
-        epilog="Intents: research, discovery, strategy, heartbeat, reflection, planner, execute, report"
+        epilog="Intents: research, discovery, strategy, heartbeat, reflection, planner, report"
     )
     parser.add_argument("topic", nargs="?", default="", help="Search topic")
     parser.add_argument("--intent", "-i", default="research", choices=list(ROUTING.keys()),
@@ -578,6 +695,14 @@ def main():
     parser.add_argument("--sources", "-s", default="", help="Comma-separated source override (e.g. x,hn,arxiv)")
     parser.add_argument("--front-page", action="store_true", help="Headlines-only mode (HN front page)")
     parser.add_argument("--json", action="store_true", help="JSON output")
+    parser.add_argument("--feedback-json", action="store_true",
+                        help="JSON v2 with run metadata, route summary, ODIs, and feedback contract")
+    parser.add_argument("--episode-id", default="",
+                        help="Group multiple source runs into one curation/test episode")
+    parser.add_argument("--pattern-id", default="",
+                        help="Label the query/source pattern being tested")
+    parser.add_argument("--pattern-note", default="",
+                        help="Short note describing the pattern variant")
     parser.add_argument("--no-wildcard", action="store_true", help="Skip wildcard source")
     parser.add_argument("--no-corpus", action="store_true",
                         help="Skip the mandatory internal corpus (edge-search) source — issue #381")
@@ -585,10 +710,24 @@ def main():
 
     if args.front_page:
         results = front_page()
-        if args.json:
+        run_id = f"sources:{uuid.uuid4().hex[:8]}"
+        episode_id = args.episode_id or run_id
+        if args.feedback_json:
+            print(format_feedback_json(
+                results,
+                topic="headlines",
+                intent="heartbeat",
+                selected_sources=["hn"],
+                run_id=run_id,
+                episode_id=episode_id,
+                pattern_id=args.pattern_id,
+                pattern_note=args.pattern_note,
+                route_mode="front_page",
+            ))
+        elif args.json:
             print(format_json(results))
         else:
-            print(format_markdown("headlines", "heartbeat", results))
+            print(format_markdown("headlines", "heartbeat", results, run_id=run_id))
         return
 
     if not args.topic:
@@ -599,9 +738,11 @@ def main():
         sources = [s.strip() for s in args.sources.split(",") if s.strip() in SOURCE_FN]
         if not sources:
             parser.error(f"No valid sources. Available: {', '.join(SOURCE_FN.keys())}")
+        route_mode = "override"
     else:
         route = ROUTING.get(args.intent, ROUTING['research'])
         sources = route['primary'] + route['secondary']
+        route_mode = "intent"
 
     # Corpus is always queried first unless explicitly opted out (issue #381).
     # This removes the possibility of skipping prior knowledge before going
@@ -617,6 +758,7 @@ def main():
             sources.append(wildcard_src)
 
     run_id = f"sources:{uuid.uuid4().hex[:8]}"
+    episode_id = args.episode_id or run_id
     log_run_step(
         "edge-sources",
         "fanout",
@@ -624,6 +766,8 @@ def main():
         run_id=run_id,
         intent=args.intent,
         source_count=len(sources),
+        episode_id=episode_id,
+        pattern_id=args.pattern_id,
     )
     log_source_query(
         args.topic,
@@ -632,6 +776,10 @@ def main():
         sources=sources,
         wildcard_source=wildcard_src,
         run_id=run_id,
+        episode_id=episode_id,
+        pattern_id=args.pattern_id,
+        pattern_note=args.pattern_note,
+        route_mode=route_mode,
     )
 
     try:
@@ -666,6 +814,10 @@ def main():
             failed_sources=max(0, len(sources) - ok_sources),
             wildcard_source=wildcard_src,
             run_id=run_id,
+            episode_id=episode_id,
+            pattern_id=args.pattern_id,
+            pattern_note=args.pattern_note,
+            route_mode=route_mode,
         )
         log_run_step(
             "edge-sources",
@@ -675,13 +827,29 @@ def main():
             total_results=total_results,
             ok_sources=ok_sources,
             failed_sources=max(0, len(sources) - ok_sources),
+            episode_id=episode_id,
+            pattern_id=args.pattern_id,
         )
 
         # Output
-        if args.json:
+        if args.feedback_json:
+            print(format_feedback_json(
+                results,
+                topic=args.topic,
+                intent=args.intent,
+                selected_sources=sources,
+                wildcard_src=wildcard_src,
+                run_id=run_id,
+                episode_id=episode_id,
+                pattern_id=args.pattern_id,
+                pattern_note=args.pattern_note,
+                route_mode=route_mode,
+                builtin_web_allowance=allowance,
+            ))
+        elif args.json:
             print(format_json(results, wildcard_src))
         else:
-            print(format_markdown(args.topic, args.intent, results, wildcard_src))
+            print(format_markdown(args.topic, args.intent, results, wildcard_src, run_id=run_id))
     except Exception as exc:
         log_source_query(
             args.topic,
@@ -691,6 +859,10 @@ def main():
             wildcard_source=wildcard_src,
             run_id=run_id,
             error=str(exc),
+            episode_id=episode_id,
+            pattern_id=args.pattern_id,
+            pattern_note=args.pattern_note,
+            route_mode=route_mode,
         )
         log_run_step(
             "edge-sources",
@@ -698,6 +870,8 @@ def main():
             "failed",
             run_id=run_id,
             error=str(exc),
+            episode_id=episode_id,
+            pattern_id=args.pattern_id,
         )
         raise
 

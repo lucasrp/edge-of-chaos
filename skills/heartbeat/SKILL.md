@@ -8,15 +8,15 @@ user-invocable: true
 
 The heartbeat is a router, not a worker.
 
-Its job is to choose the next internal skill and dispatch it quickly.
+Its only job is to choose one internal skill, dispatch it, and stop.
 
-## Direct Slash Re-entry
+## Runtime Boundary
 
-If `EDGE_CYCLE_ID` is empty, this slash command was invoked directly inside
-Claude instead of through `edge-runner`. Do not open a cycle manually in that
-case. Re-enter through the canonical wrapper so the parent runner owns
-preflight, dispatch, follow-on skill execution, postflight, and foreground
-output:
+Assume the runtime already opened the cycle, ran preflight, captured operator/system context, and prepared routing fields.
+
+Do not redo lifecycle work inside this skill.
+
+If `/ed-heartbeat` is invoked directly without `EDGE_CYCLE_ID`, re-enter through the canonical wrapper and then stop:
 
 ```bash
 if [ -z "${EDGE_CYCLE_ID:-}" ]; then
@@ -24,113 +24,44 @@ if [ -z "${EDGE_CYCLE_ID:-}" ]; then
 fi
 ```
 
-After that command returns, stop. Do not call `edge-dispatch open`,
-`edge-dispatch dispatch`, or `edge-close` from the direct slash process.
+Do not call `edge-dispatch open` or `edge-close` from the direct slash process.
 
-## What The Runtime Already Did
+## Inputs
 
-By the time this skill starts, the runtime already handled the mechanical layer:
+Trust the runtime-injected request fields:
 
-- opened the cycle
-- ran preflight
-- captured health, inbox, claims, workflows, capabilities, corpus coverage, and queue state
-- computed `operator_pressure_digest`
-- computed `beat_launch_context`
-- prepared `heartbeat_routing`
-- blocked inline artifact publication before dispatch
-
-Do not redo those steps manually inside the heartbeat.
-
-## What This Skill Must Do
-
-1. Read the runtime context already injected into the request.
-2. Choose exactly one internal skill.
-3. Dispatch it immediately.
-4. Stop.
-
-The dispatched skill owns:
-
-- search rounds
-- Feynman / first-principles / adversarial checkpoints
-- synthesis
-- artifact drafting
-- publication
-- postflight
-
-## Inputs To Trust
-
-Use these runtime fields as authoritative:
-
-- `request.async_inbox`
-- `request.heartbeat_routing`
 - `request.dispatch_queue_summary`
+- `request.heartbeat_routing`
 - `request.beat_launch_context`
+- `request.async_inbox`
 - `request.health_snapshot`
 - `request.workflow_status`
 
-`beat_launch_context` is the best short-lived launch frame for this beat. It already composes:
+`beat_launch_context` is the short-lived launch frame for the beat. Use it to compare operator pressure, edge-state pressure, and exploration budget.
 
-- recent operator signal
-- current edge-state signal
-- the exploration budget
-
-## Routing Policy
+## Routing Order
 
 Choose the next skill in this order:
 
-1. `dispatch_queue_summary.head`
-If there is an explicit queued skill, dispatch it.
+1. `dispatch_queue_summary.head`: explicit queued work wins.
+2. `heartbeat_routing.priority_hints`: runtime/inbox hints beat fairness.
+3. `beat_launch_context.signal_from_operator_now`: reduce immediate operator pressure.
+4. `beat_launch_context.signal_from_edge_state_now`: address the strongest internal state signal.
+5. `heartbeat_routing.suggested_skill`: fall back to the round-robin candidate.
 
-2. `heartbeat_routing.priority_hints`
-If inbox or runtime hints are present, dispatch the best-fitting internal skill for that pressure.
+If routing data is missing or stale, dispatch `discovery`.
 
-3. `beat_launch_context.signal_from_operator_now`
-If operator pressure is dominant right now, choose the skill that best reduces it.
+## Skill Heuristics
 
-4. `beat_launch_context.signal_from_edge_state_now`
-If the edge state is the stronger signal, choose the skill that best responds to it.
+- `reflection`: correction, confusion, contradictory state, diagnosis.
+- `autonomy`: operational change, substrate adjustment, concrete internal action.
+- `report`: clear synthesis for operator consumption.
+- `research`: unresolved question, evidence gap, investigation before action.
+- `map`: landscape, structure, taxonomy, comparison.
+- `discovery`: no dominant signal, open exploration.
+- `strategy`: sequencing, prioritization, medium-horizon direction.
 
-5. `heartbeat_routing.suggested_skill`
-If nothing outranks fairness, dispatch the round-robin candidate.
-
-## Default Skill Heuristics
-
-Use simple defaults:
-
-- `reflection`
-  - operator correction
-  - confusion
-  - contradictory state
-  - diagnosis
-
-- `autonomy`
-  - operational change
-  - substrate adjustment
-  - doing the next concrete move
-
-- `report`
-  - synthesizing a situation clearly for operator consumption
-
-- `research`
-  - unresolved question
-  - evidence gap
-  - investigation needed before action
-
-- `map`
-  - landscape / structure / taxonomy / comparison
-
-- `discovery`
-  - no strong signal dominates
-  - exploration is appropriate
-
-- `strategy`
-  - sequencing, prioritization, or medium-horizon direction
-
-If multiple skills are plausible, prefer:
-
-1. the one that reduces immediate operator pain
-2. then the one that addresses the strongest edge-state signal
-3. then the fairness candidate
+If multiple skills are plausible, choose the one that best reduces immediate operator pain, then the strongest edge-state signal, then the fairness candidate.
 
 ## Dispatch
 
@@ -144,30 +75,7 @@ After dispatch succeeds, stop doing substantive work as heartbeat.
 
 ## Invariants
 
-- The heartbeat is a router, not a worker.
-- It must dispatch exactly one internal skill.
-- It must not do substantive work inline after dispatch.
-
-## Failure Rule
-
-If no better candidate exists and routing data is somehow missing or stale:
-
-- dispatch `discovery`
-
-The heartbeat must not end without dispatching one internal skill.
-
-## Direct Invocation
-
-Direct `/ed-heartbeat` invocation is still a full beat.
-
-It is not a preview and not a planning-only mode.
-
-The heartbeat still must run through the normal lifecycle. Direct slash
-invocation re-enters via `~/.local/bin/heartbeat.sh`; it does not manually
-manage the lifecycle.
-
-## Router-only rule:
-
-The heartbeat does not draft the final artifact.
-
-After `edge-dispatch dispatch --skill <skill>` succeeds, stop doing inline work as heartbeat.
+- Dispatch exactly one internal skill.
+- Do not draft artifacts.
+- Do not perform the dispatched skill's analysis inline.
+- Do not end the heartbeat without a dispatch.
