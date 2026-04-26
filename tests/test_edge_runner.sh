@@ -196,6 +196,9 @@ assert request["beat_launch_context"]["decision_blend"] == {
 assert any("Corpus coverage is missing required types" in item for item in request["beat_launch_context"]["signal_from_edge_state_now"])
 assert request["search_protocol"]["required"] is True
 assert request["epistemic_protocol"]["required"] is True
+assert request["delta_prerequisite"]["required"] is True
+assert request["delta_prerequisite"]["inputs"]["raw_chat"]["available"] is True
+assert request["delta_prerequisite"]["inputs"]["raw_chat"]["recent_items"]
 assert request["exploration_pack"]["skill"] == "discovery"
 assert request["exploration_pack"]["status"] in ("ready", "degraded")
 assert request["exploration_pack"]["path"].endswith("/pack.json")
@@ -216,9 +219,12 @@ assert "preflight_evidence" in invocations[0]
 assert "corpus_coverage" in invocations[0]
 assert "operator_pressure_digest" in invocations[0]
 assert "beat_launch_context" in invocations[0]
+assert "delta_prerequisite" in invocations[0]
+assert "DELTA PREREQUISITE" in invocations[0]
 assert "search_protocol" in invocations[0]
 assert "epistemic_protocol" in invocations[0]
 assert "exploration_pack" in invocations[1]
+assert "delta_prerequisite" in invocations[1]
 assert "Adversarial Feynman" in open(request["exploration_pack"]["markdown_path"], encoding="utf-8").read()
 assert "configured_integrations" in invocations[0]
 assert "heartbeat_routing" in invocations[0]

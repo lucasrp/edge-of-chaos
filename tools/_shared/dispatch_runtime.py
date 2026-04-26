@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,11 @@ from paths import (  # noqa: E402
     HEARTBEAT_ROTATION_FILE,
     HEALTH_CURRENT_FILE,
     ORPHAN_CLAIMS_FILE,
+    OPERATOR_PRESSURE_ATOMS_FILE,
+    OPERATOR_PRESSURE_HOT_DIGEST_FILE,
+    OPERATOR_PRESSURE_REDIGEST_DIR,
     PREFLIGHT_LOG_FILE,
+    STATE_EVENTS_FILE,
     THREADS_DIR,
     WORKFLOW_HEALTH_FILE,
 )
@@ -81,6 +86,12 @@ BEAT_LAUNCH_DECISION_BLEND = {
     "edge_state_min_weight": 0.20,
     "exploration_weight": 0.60,
 }
+DELTA_PREREQUISITE_SCHEMA_VERSION = 1
+DELTA_DIGEST_FILE = CONTINUITY_DELTAS_DIR / "runtime-latest.json"
+DELTA_HISTORY_DIR = CONTINUITY_DELTAS_DIR / "runtime-history"
+DELTA_OPEN_WORK_LIMIT = int(os.environ.get("EDGE_DELTA_OPEN_WORK_LIMIT", "20") or "20")
+DELTA_CHAT_ITEM_LIMIT = int(os.environ.get("EDGE_DELTA_CHAT_ITEM_LIMIT", "12") or "12")
+DELTA_EVENT_LIMIT = int(os.environ.get("EDGE_DELTA_EVENT_LIMIT", "8") or "8")
 
 EXTERNAL_SEARCH_INTENTS = {
     "autonomy": "strategy",
@@ -416,6 +427,23 @@ def _operator_pressure_digest() -> dict[str, Any]:
     payload = build_operator_pressure_layers()
     summary = payload.get("summary") or {}
     hot_digest = payload.get("hot_digest") or {}
+    ledger = payload.get("ledger") or {}
+    raw_items = []
+    for item in list(ledger.get("items") or ledger.get("atoms") or [])[:DELTA_CHAT_ITEM_LIMIT]:
+        if not isinstance(item, dict):
+            continue
+        raw_items.append(
+            {
+                "item_id": item.get("id") or item.get("atom_id"),
+                "kind": item.get("kind"),
+                "target": item.get("target"),
+                "status": item.get("status"),
+                "text": str(item.get("content") or "")[:360],
+                "last_seen_at": item.get("last_seen_at"),
+                "repeat_count": int(item.get("repeat_count") or 0),
+                "provenance": list(item.get("provenance") or [])[:3],
+            }
+        )
     return {
         "summary": summary,
         "digest": hot_digest,
@@ -423,6 +451,21 @@ def _operator_pressure_digest() -> dict[str, Any]:
             "generated_at": str((payload.get("redigest") or {}).get("generated_at") or ""),
             "snapshot_hash": str((payload.get("redigest") or {}).get("snapshot_hash") or ""),
             "source_hash": str((payload.get("redigest") or {}).get("source_hash") or ""),
+        },
+        "raw_chat": {
+            "available": bool(raw_items),
+            "message_total": int(ledger.get("message_total") or summary.get("message_total") or 0),
+            "session_total": int(ledger.get("session_total") or summary.get("session_total") or 0),
+            "item_total": int(ledger.get("item_total") or summary.get("item_total") or 0),
+            "window_days": ledger.get("window_days"),
+            "project_dir": ledger.get("project_dir") or summary.get("project_dir"),
+            "source_paths": {
+                "ledger": summary.get("ledger_path"),
+                "atoms": summary.get("atoms_path") or str(OPERATOR_PRESSURE_ATOMS_FILE),
+                "hot_digest": summary.get("hot_digest_path") or str(OPERATOR_PRESSURE_HOT_DIGEST_FILE),
+                "redigest": summary.get("redigest_path") or str(OPERATOR_PRESSURE_REDIGEST_DIR / "latest.json"),
+            },
+            "recent_items": raw_items,
         },
     }
 
@@ -558,6 +601,244 @@ def build_beat_launch_context(request: dict[str, Any]) -> dict[str, Any]:
         "decision_blend": dict(BEAT_LAUNCH_DECISION_BLEND),
     }
     return context
+
+
+def _delta_required_for_skill(skill: str | None) -> bool:
+    normalized = _normalize_skill_name(skill)
+    return normalized in SUBSTANTIVE_SKILLS
+
+
+def _compact_open_work(items: Any, *, limit: int = DELTA_OPEN_WORK_LIMIT) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    compact: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        compact.append(
+            {
+                "id": item.get("id") or item.get("work_id"),
+                "title": item.get("title") or item.get("summary"),
+                "surface": item.get("surface"),
+                "status": item.get("status"),
+                "priority": item.get("priority"),
+                "last_checked_at": item.get("last_checked_at") or item.get("last_seen_at"),
+                "next_probe": item.get("next_probe"),
+                "evidence": list(item.get("evidence") or [])[:3],
+            }
+        )
+        if len(compact) >= limit:
+            break
+    return compact
+
+
+def _compact_surface_baselines(payload: Any, *, limit: int = DELTA_OPEN_WORK_LIMIT) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    compact: dict[str, Any] = {}
+    for key in sorted(payload.keys(), key=lambda item: str(item))[:limit]:
+        value = payload.get(key)
+        if isinstance(value, dict):
+            compact[str(key)] = {
+                "kind": value.get("kind"),
+                "locator": value.get("locator"),
+                "last_seen_ref": value.get("last_seen_ref"),
+                "last_checked_at": value.get("last_checked_at"),
+                "summary": value.get("summary"),
+            }
+        else:
+            compact[str(key)] = value
+    return compact
+
+
+def _previous_delta_digest() -> dict[str, Any]:
+    payload = _read_json(DELTA_DIGEST_FILE, {})
+    if not isinstance(payload, dict):
+        payload = {}
+    return {
+        "schema_version": payload.get("schema_version"),
+        "generated_at": payload.get("generated_at"),
+        "digest_hash": payload.get("digest_hash"),
+        "source_hash": payload.get("source_hash"),
+        "summary": payload.get("summary"),
+        "surface_baselines": _compact_surface_baselines(payload.get("surface_baselines")),
+        "open_work": _compact_open_work(payload.get("open_work")),
+        "archived_work_recent": _compact_open_work(payload.get("archived_work_recent") or payload.get("archived_work"), limit=6),
+        "source_path": str(DELTA_DIGEST_FILE),
+    }
+
+
+def _recent_state_events(limit: int = DELTA_EVENT_LIMIT) -> list[dict[str, Any]]:
+    if not STATE_EVENTS_FILE.exists():
+        return []
+    rows: deque[dict[str, Any]] = deque(maxlen=max(1, limit))
+    try:
+        handle = STATE_EVENTS_FILE.open(encoding="utf-8")
+    except Exception:
+        return []
+    with handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            rows.append(
+                {
+                    "type": event.get("type"),
+                    "ts": event.get("ts"),
+                    "actor": event.get("actor"),
+                    "cycle_id": event.get("cycle_id"),
+                    "skill": payload.get("skill") or payload.get("target"),
+                    "status": payload.get("status") or payload.get("close_status"),
+                    "thread_id": payload.get("thread_id"),
+                }
+            )
+    return list(rows)
+
+
+def _delta_raw_chat_context(request: dict[str, Any]) -> dict[str, Any]:
+    pressure = request.get("operator_pressure") or {}
+    raw = pressure.get("raw_chat") or {}
+    summary = request.get("operator_pressure_summary") or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    source_paths = raw.get("source_paths") if isinstance(raw.get("source_paths"), dict) else {}
+    if not source_paths:
+        source_paths = {
+            "ledger": summary.get("ledger_path"),
+            "atoms": summary.get("atoms_path") or str(OPERATOR_PRESSURE_ATOMS_FILE),
+            "hot_digest": summary.get("hot_digest_path") or str(OPERATOR_PRESSURE_HOT_DIGEST_FILE),
+            "redigest": summary.get("redigest_path") or str(OPERATOR_PRESSURE_REDIGEST_DIR / "latest.json"),
+        }
+    recent_items = raw.get("recent_items")
+    if not isinstance(recent_items, list):
+        recent_items = []
+    return {
+        "available": bool(raw.get("available") or recent_items or summary.get("item_total")),
+        "message_total": int(raw.get("message_total") or summary.get("message_total") or 0),
+        "session_total": int(raw.get("session_total") or summary.get("session_total") or 0),
+        "item_total": int(raw.get("item_total") or summary.get("item_total") or 0),
+        "window_days": raw.get("window_days"),
+        "project_dir": raw.get("project_dir") or summary.get("project_dir"),
+        "source_paths": source_paths,
+        "recent_items": recent_items[:DELTA_CHAT_ITEM_LIMIT],
+        "contract": "raw chat is the source of what the operator actually said; structured state is the source of what the system already persisted",
+    }
+
+
+def build_delta_prerequisite(state: dict[str, Any], *, skill: str | None, stage: str) -> dict[str, Any]:
+    request = state.get("request", {}) or {}
+    normalized = _normalize_skill_name(skill or request.get("skill"))
+    required = _delta_required_for_skill(normalized)
+    previous = _previous_delta_digest()
+    open_work = previous.get("open_work") or []
+    operator_digest = request.get("operator_pressure_digest") or {}
+    return {
+        "schema_version": DELTA_PREREQUISITE_SCHEMA_VERSION,
+        "skill": normalized,
+        "stage": stage,
+        "required": required,
+        "reason": (
+            "substantive skill must load the current work delta before its own reasoning"
+            if required
+            else "non-substantive or routing skill; delta pass is optional"
+        ),
+        "skill_command": "ed-delta",
+        "previous_delta_digest": previous,
+        "persistence": {
+            "read_path": str(DELTA_DIGEST_FILE),
+            "write_path": str(DELTA_DIGEST_FILE),
+            "history_dir": str(DELTA_HISTORY_DIR),
+            "write_policy": "persist new_delta_digest only after reconciling observed deltas; do not fabricate baselines for surfaces that were not probed",
+        },
+        "delivery": {
+            "mode": "same_backend_invocation",
+            "visibility": "the delta pass runs inside the dispatched skill prompt; keep delta_frame in working context for the main skill",
+            "handoff_field": "delta_frame.work_continuity.inject_to_next_skill",
+        },
+        "inputs": {
+            "current_request": {
+                "trigger": request.get("trigger"),
+                "policy": request.get("policy"),
+                "skill": request.get("skill"),
+                "args": request.get("args", {}),
+                "primary_thread_id": request.get("primary_thread_id"),
+                "linked_threads": request.get("linked_threads", []),
+                "dispatch_reason": request.get("dispatch_reason"),
+            },
+            "strategic_context": {
+                "beat_launch_context": request.get("beat_launch_context", {}),
+                "operator_pressure_digest": operator_digest,
+                "operator_pressure_summary": request.get("operator_pressure_summary", {}),
+                "claims_summary": request.get("claims_summary", {}),
+                "orphan_claims_summary": request.get("orphan_claims_summary", {}),
+                "dispatch_queue_summary": request.get("dispatch_queue_summary", {}),
+            },
+            "raw_chat": _delta_raw_chat_context(request),
+            "surfaces": {
+                "configured_integrations": request.get("configured_integrations", [])[:12],
+                "unbound_integrations": request.get("unbound_integrations", [])[:12],
+                "capabilities_status": request.get("capabilities_status", {}),
+                "search_runtime": request.get("search_runtime", {}),
+                "surface_baselines": previous.get("surface_baselines", {}),
+                "open_work": open_work,
+            },
+            "preflight": {
+                "constraints": request.get("constraints", {}),
+                "evidence": request.get("preflight_evidence", []),
+                "health_snapshot": request.get("health_snapshot", {}),
+                "workflow_status": request.get("workflow_status", {}),
+                "primitives_status": request.get("primitives_status", {}),
+            },
+            "events": {
+                "recent": _recent_state_events(),
+                "source_path": str(STATE_EVENTS_FILE),
+            },
+            "exploration_pack": request.get("exploration_pack", {}),
+        },
+        "expected_output": {
+            "delta_frame": {
+                "deltas": [
+                    {
+                        "surface": "repo/github/overleaf/meta/obsidian/etc",
+                        "before": "previous known state",
+                        "after": "current observed state",
+                        "evidence": ["source refs, commands, URLs, file paths, event ids"],
+                        "relevance": "why the next skill should care",
+                        "confidence": "high|medium|low",
+                    }
+                ],
+                "non_deltas": [{"surface": "checked surface", "evidence": ["why unchanged"]}],
+                "unverified": [{"surface": "surface not checked", "reason": "why"}],
+                "work_continuity": {
+                    "open_work_to_keep": [],
+                    "open_work_to_archive": [],
+                    "new_open_work": [],
+                    "inject_to_next_skill": [],
+                },
+            },
+            "new_delta_digest": {
+                "surface_baselines": "updated only for probed surfaces",
+                "open_work": "curated open work registry",
+                "summary": "short continuity digest for the next beat",
+            },
+        },
+        "rules": [
+            "Compare previous_delta_digest, structured preflight state, raw chat, and any probed surfaces before the main skill reasons.",
+            "Do not discard the delta output; the same backend invocation must carry delta_frame into the dispatched skill's main reasoning.",
+            "Use raw chat to recover work mentioned outside edge cycles; use structured state to avoid re-opening work that was already closed.",
+            "Probe only surfaces relevant to the current request, high-priority open work, or explicit operator pressure.",
+            "Represent every real delta with before, after, evidence, relevance, and confidence.",
+            "Curate multiple open work items: keep, create, merge, mark blocked, or archive stale work with no downstream action.",
+            "If nothing changed, say so explicitly and pass an empty delta_frame to the main skill.",
+        ],
+    }
 
 
 def _primitives_status() -> dict[str, Any]:
@@ -1265,6 +1546,7 @@ def enrich_dispatch_state(
         "has_onboarding": (request.get("onboarding_summary") or {}).get("pending_total", 0) > 0,
     }
     request["beat_launch_context"] = build_beat_launch_context(request)
+    request["delta_prerequisite"] = build_delta_prerequisite(state, skill=skill, stage=stage)
     if _heartbeat_skill_active(state, skill):
         prepare_heartbeat_routing(state, skill=skill)
     state_block["preflight_status"] = "warning" if failed_steps else "completed"
@@ -1302,6 +1584,8 @@ def enrich_dispatch_state(
         "operator_pressure_substrate_gap_requests": (request.get("operator_pressure_summary") or {}).get("substrate_gap_requests", 0),
         "beat_launch_operator_signals": len((request.get("beat_launch_context") or {}).get("signal_from_operator_now") or []),
         "beat_launch_edge_state_signals": len((request.get("beat_launch_context") or {}).get("signal_from_edge_state_now") or []),
+        "delta_prerequisite_required": bool((request.get("delta_prerequisite") or {}).get("required")),
+        "delta_open_work": len(((request.get("delta_prerequisite") or {}).get("previous_delta_digest") or {}).get("open_work") or []),
         "open_claims": claims_summary.get("open_total", 0),
         "orphans": orphan_summary.get("orphan_total", 0),
         "primitive_health": (request.get("primitives_status") or {}).get("health_status"),
@@ -1347,6 +1631,14 @@ def maybe_block_duplicate(state: dict[str, Any]) -> tuple[bool, str | None]:
 def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
     request = state.get("request", {}) or {}
     normalized_skill = _normalize_skill_name(skill)
+    delta_prerequisite = request.get("delta_prerequisite", {})
+    if isinstance(delta_prerequisite, dict):
+        delta_prerequisite = dict(delta_prerequisite)
+        delta_inputs = dict(delta_prerequisite.get("inputs") or {})
+        delta_inputs["exploration_pack"] = request.get("exploration_pack", {})
+        if request.get("autonomy_primitives_checkup"):
+            delta_inputs["autonomy_primitives_checkup"] = request.get("autonomy_primitives_checkup", {})
+        delta_prerequisite["inputs"] = delta_inputs
     summary = {
         "schema_version": request.get("schema_version", REQUEST_SCHEMA_VERSION),
         "trigger": request.get("trigger"),
@@ -1368,6 +1660,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "operator_pressure_digest": request.get("operator_pressure_digest", {}),
         "operator_pressure_summary": request.get("operator_pressure_summary", {}),
         "beat_launch_context": request.get("beat_launch_context", {}),
+        "delta_prerequisite": delta_prerequisite,
         "configured_integrations": request.get("configured_integrations", [])[:12],
         "unbound_integrations": request.get("unbound_integrations", [])[:12],
         "search_runtime": request.get("search_runtime", {}),
@@ -1402,6 +1695,8 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "Do not re-derive those manually unless a field is missing or obviously stale.\n\n"
         f"{heartbeat_contract}"
         "The `operator_pressure_digest` captures recent operator signal only. The `beat_launch_context` is the ephemeral composition of that operator signal with current edge-state signals and the exploration budget for this beat. Treat those two together as the launch frame for what matters now.\n\n"
+        "DELTA PREREQUISITE:\n"
+        "For substantive non-heartbeat skills, `request.delta_prerequisite.required` is true. Before the main skill performs substantive work, execute the internal `ed-delta` pass over `request.delta_prerequisite`: reconcile previous_delta_digest, raw chat, structured preflight state, events, and relevant work surfaces; produce a `delta_frame`; and carry `delta_frame.work_continuity.inject_to_next_skill` into the main skill. The delta pass runs in this same backend invocation, so its explored text and frame remain available to the dispatched skill. If no real delta is found, state that explicitly and continue with an empty delta frame.\n\n"
         "Prefer `edge-cap invoke <capability> -- ...` over direct CLI/tool calls when a capability exists in `capabilities_status`.\n\n"
         "Before any substantive decision, synthesis, or artifact drafting in non-heartbeat skills, read `exploration_pack` first. "
         "The runtime has already performed the mandatory read-only exploration loop: memory retrieval, source/signal fan-out, adversarial Feynman interpretation, and a targeted second round. "
