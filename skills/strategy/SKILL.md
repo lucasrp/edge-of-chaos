@@ -159,6 +159,50 @@ Strategic Actions
 
 The queue should be short enough to act on.
 
+### 6. Curate The Delta Digest
+
+Every strategy run must update the curated delta digest, even if the update is an explicit no-op.
+
+Strategy owns the digest `work` section:
+
+- `open_work`: active work that should affect future dispatch.
+- `archived_work_recent`: stale or completed work removed from active attention.
+- `priority_threads`: threads that should bias the next dispatch.
+- `surface_baselines`: checked work surfaces and their latest known refs.
+
+Strategy may also update `handoff.inject_to_next_skill`, `handoff.watch_next`, and `handoff.unverified_but_important` when the next skill needs short guidance.
+
+Persist with:
+
+```bash
+edge-delta update --skill strategy --payload-file <json>
+```
+
+If nothing should change:
+
+```bash
+edge-delta update --skill strategy --no-op --summary "<reason>"
+```
+
+The payload shape is:
+
+```json
+{
+  "summary": "short strategic continuity summary",
+  "work": {
+    "open_work": [],
+    "archived_work_recent": [],
+    "priority_threads": [],
+    "surface_baselines": {}
+  },
+  "handoff": {
+    "inject_to_next_skill": [],
+    "watch_next": [],
+    "unverified_but_important": []
+  }
+}
+```
+
 ## Quality Criteria
 
 - Strategy must be grounded in actual project, thread, and claim state.
@@ -170,6 +214,7 @@ The queue should be short enough to act on.
 - Priority means something else is not first; state the trade-off.
 - Do not turn strategy into implementation.
 - Do not edit operator-owned direction or priority files directly from this skill.
+- Do not finish without `edge-delta update` or an explicit `edge-delta update --no-op`.
 - Make stale assumptions visible.
 - Compare against prior strategy when available.
 
@@ -185,9 +230,10 @@ Recommended sections:
 4. Claim Curation
 5. Dependencies And Conflicts
 6. Strategic Action Queue
-7. Operator Decisions
-8. Risks
-9. References
+7. Delta Digest Update
+8. Operator Decisions
+9. Risks
+10. References
 
 Useful structures:
 

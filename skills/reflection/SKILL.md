@@ -172,6 +172,52 @@ Routed / Monitoring:
 
 If no issue is found, say so directly and name the residual risk or next signal to watch.
 
+### 8. Curate The Delta Digest
+
+Every reflection run must update the curated delta digest, even if the update is an explicit no-op.
+
+Reflection owns the digest `learning` section:
+
+- `recent_failures`: live operational failures or repeated mistakes.
+- `rules_to_preserve`: durable lessons that should continue guiding dispatch.
+- `protocol_gaps`: missing or weak protocol support.
+- `skill_patch_candidates`: concrete skill changes that should be planned or implemented.
+- `archived_guidance_recent`: stale guidance removed from active attention.
+
+Reflection may also update `handoff.inject_to_next_skill`, `handoff.watch_next`, and `handoff.unverified_but_important` when the next skill needs short guidance.
+
+Persist with:
+
+```bash
+edge-delta update --skill reflection --payload-file <json>
+```
+
+If nothing should change:
+
+```bash
+edge-delta update --skill reflection --no-op --summary "<reason>"
+```
+
+The payload shape is:
+
+```json
+{
+  "summary": "short learning continuity summary",
+  "learning": {
+    "recent_failures": [],
+    "rules_to_preserve": [],
+    "protocol_gaps": [],
+    "skill_patch_candidates": [],
+    "archived_guidance_recent": []
+  },
+  "handoff": {
+    "inject_to_next_skill": [],
+    "watch_next": [],
+    "unverified_but_important": []
+  }
+}
+```
+
 ## Escalation Triggers
 
 Escalate from normal to escalated when any of these is true:
@@ -189,4 +235,5 @@ Escalate from normal to escalated when any of these is true:
 - Operator feedback outranks autonomous curiosity.
 - Reflection changes operating behavior or routes the work; it does not merely summarize.
 - Stale rules are liabilities. Archive them when no current work depends on them.
+- Do not finish without `edge-delta update` or an explicit `edge-delta update --no-op`.
 - Keep the output short enough to guide the next cycle.

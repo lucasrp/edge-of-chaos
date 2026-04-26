@@ -16,7 +16,7 @@ The delta pass runs inside the same backend invocation as the dispatched skill. 
 
 Use `request.delta_prerequisite` as the contract. It contains:
 
-- `previous_delta_digest`: prior surface baselines and curated open work.
+- `previous_delta_digest`: curated `work`, `learning`, and `handoff` state from prior strategy/reflection runs.
 - `raw_chat`: recent operator messages and source refs.
 - `strategic_context`: beat launch context, operator pressure, claims, queue, and open gaps.
 - `surfaces`: configured integrations, capabilities, previous baselines, and open work.
@@ -24,6 +24,8 @@ Use `request.delta_prerequisite` as the contract. It contains:
 - `events`: recent edge runtime events.
 
 Structured state is authoritative for what was persisted. Raw chat is authoritative for what the operator actually said. Reconcile the two before acting.
+
+If `previous_delta_digest` is missing from runtime context, use `edge-delta show --json` as the fallback source. The CLI only reads persisted JSON; it does not call a model.
 
 ## Method
 
@@ -33,7 +35,7 @@ Structured state is authoritative for what was persisted. Raw chat is authoritat
 4. Probe only as much as needed to establish whether a real delta exists.
 5. Classify each checked surface as `delta`, `non_delta`, or `unverified`.
 6. Curate open work: keep, create, merge, block, complete, or archive.
-7. Produce `delta_frame` for the next skill and `new_delta_digest` for continuity.
+7. Produce `delta_frame` for the next skill. Strategy/reflection own persistence through `edge-delta update`.
 
 ## Delta Rules
 
@@ -49,6 +51,12 @@ Every real delta must include:
 Do not call something a delta just because context exists. If a surface was checked and nothing relevant changed, put it in `non_deltas`. If it matters but was not checked, put it in `unverified`.
 
 ## Open Work Curation
+
+The digest has three curated sections:
+
+- `work`: open work, archived work, priority threads, and surface baselines. Strategy owns this.
+- `learning`: recent failures, durable rules, protocol gaps, and skill patch candidates. Reflection owns this.
+- `handoff`: short guidance to inject into the next skill. Strategy and reflection may both update this.
 
 Open work may contain many entries, but it is not a passive backlog.
 
@@ -90,12 +98,7 @@ Return or carry forward this shape:
       "inject_to_next_skill": []
     }
   },
-  "new_delta_digest": {
-    "generated_at": "...",
-    "summary": "...",
-    "surface_baselines": {},
-    "open_work": []
-  }
+  "digest_update_needed": false
 }
 ```
 
