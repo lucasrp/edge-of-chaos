@@ -11,7 +11,7 @@
       <span class="entry-number">#{{ entry.break_number }} | {{ entry.tag }} #{{ entry.category_number }}</span>
       <div class="entry-title">{{ entry.title }}</div>
     </div>
-    {% if not entry.published %}<span class="entry-tag" style="background:#e74c3c;color:#fff;font-weight:bold">SEM PIPELINE</span>{% endif %}
+    {% if not entry.pipeline_complete %}<span class="entry-tag" style="background:#e74c3c;color:#fff;font-weight:bold">SEM PIPELINE</span>{% endif %}
     <span class="entry-tag tag-{{ entry.tag }}">{{ entry.tag }}</span>
     <span class="temp-badge temp-{{ entry.temperature or 'null' }}"
           data-path="{{ entry.path }}"

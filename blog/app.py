@@ -108,6 +108,21 @@ TAG_MAP = {
     "execution": "execucao", "calibration": "calibracao",
 }
 
+UNPUBLISHED_STATUSES = {"draft", "pending", "pendente", "unpublished", "private", "hidden"}
+UNPUBLISHED_TAGS = {"draft", "workflow-draft", "unpublished"}
+
+
+def _normalized_token(value):
+    return str(value or "").strip().lower()
+
+
+def is_entry_published(fm, tags):
+    status = _normalized_token(fm.get("status"))
+    if status in UNPUBLISHED_STATUSES:
+        return False
+    normalized_tags = {_normalized_token(tag) for tag in tags or []}
+    return not bool(normalized_tags & UNPUBLISHED_TAGS)
+
 SKILL_GROUPS = [
     {"name": "producao", "label": "producao", "tags": ["pesquisa", "descoberta", "lazer"]},
     {"name": "planejamento", "label": "planejamento", "tags": ["planejamento", "estrategia"]},
@@ -274,8 +289,8 @@ def load_entries():
         if audit_path.exists():
             state_audit = audit_path.name
 
-        # Pipeline enforcement: entry is "published" only if meta-report exists
-        published = bool(meta_report)
+        pipeline_complete = bool(meta_report)
+        published = is_entry_published(fm, tags_list)
 
         entries.append({
             "title": fm.get("title", fp.stem),
@@ -285,6 +300,8 @@ def load_entries():
             "context": fm.get("context", ""),
             "report": os.path.basename(fm.get("report", "")) if fm.get("report") else "",
             "meta_report": meta_report,
+            "pipeline_complete": pipeline_complete,
+            "pipeline_status": "complete" if pipeline_complete else "missing_meta_report",
             "published": published,
             "state_proposal": state_proposal,
             "state_audit": state_audit,
@@ -424,7 +441,8 @@ def filter_entries(entries, comments_data, cat=None, temp=None, status=None,
             fts_slugs = {r["slug"] for r in fts_results}
 
     for e in entries:
-        # Pipeline enforcement: hide unpublished entries unless explicitly requested
+        # Hide explicit drafts/unpublished entries unless explicitly requested.
+        # Missing meta-report is tracked separately as pipeline_status.
         if not show_pending and not e.get("published"):
             continue
 
@@ -777,6 +795,9 @@ def entries_json():
             "category_number": e["category_number"],
             "report": e.get("report", ""),
             "meta_report": e.get("meta_report", ""),
+            "pipeline_complete": e.get("pipeline_complete", False),
+            "pipeline_status": e.get("pipeline_status", ""),
+            "published": e.get("published", False),
             "state_proposal": e.get("state_proposal", ""),
             "state_audit": e.get("state_audit", ""),
             "llm_cost": e.get("llm_cost", ""),

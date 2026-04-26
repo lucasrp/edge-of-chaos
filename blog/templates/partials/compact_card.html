@@ -8,7 +8,7 @@
   <div class="compact-row">
     <span class="entry-number">#{{ entry.break_number }}</span>
     <span class="compact-title">{{ entry.title[:60] }}{{ '...' if entry.title|length > 60 }}</span>
-    {% if not entry.published %}<span class="entry-tag" style="background:#e74c3c;color:#fff;font-size:0.7em">SEM PIPELINE</span>{% endif %}
+    {% if not entry.pipeline_complete %}<span class="entry-tag" style="background:#e74c3c;color:#fff;font-size:0.7em">SEM PIPELINE</span>{% endif %}
     <span class="entry-tag tag-{{ entry.tag }}">{{ entry.tag }}</span>
     <span class="temp-badge temp-{{ entry.temperature or 'null' }}"
           data-path="{{ entry.path }}"
