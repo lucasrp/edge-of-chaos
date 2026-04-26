@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""edge-replay — inspect canonical event-ledger projections."""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import STATE_EVENTS_FILE  # noqa: E402
+
+
+def iter_events(path: Path = STATE_EVENTS_FILE):
+    if not path.exists():
+        return
+    with open(path, encoding="utf-8") as f:
+        for line_no, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            event["_line"] = line_no
+            yield event
+
+
+def _load_dispatch_cycles_module():
+    path = SCRIPT_DIR / "rollup-dispatch-cycles.py"
+    spec = importlib.util.spec_from_file_location("rollup_dispatch_cycles", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _print_event_line(event: dict[str, Any]) -> None:
+    ts = event.get("ts") or event.get("timestamp") or "?"
+    etype = event.get("type") or "?"
+    cycle_id = event.get("cycle_id") or ""
+    artifact = event.get("artifact") or ""
+    payload = event.get("payload") or {}
+    detail_parts = []
+    for key in ("trigger", "skill", "close_status", "phase", "ok", "reason"):
+        if isinstance(payload, dict) and payload.get(key) not in {None, ""}:
+            detail_parts.append(f"{key}={payload.get(key)}")
+    detail = " ".join(detail_parts)
+    suffix = " ".join(part for part in [cycle_id, artifact, detail] if part)
+    print(f"{event.get('_line', '?')}: {ts} {etype}" + (f" {suffix}" if suffix else ""))
+
+
+def cmd_tail(args: argparse.Namespace) -> int:
+    events = list(iter_events() or [])
+    if args.type:
+        events = [event for event in events if event.get("type") == args.type]
+    selected = events[-max(1, args.limit):]
+    if args.json:
+        print(json.dumps(selected, indent=2, ensure_ascii=False))
+    else:
+        for event in selected:
+            _print_event_line(event)
+    return 0
+
+
+def cmd_dispatch_cycles(args: argparse.Namespace) -> int:
+    module = _load_dispatch_cycles_module()
+    limit = max(1, args.limit)
+    payload = module.build_projection(limit=limit) if args.no_write else module.write_projection(limit=limit)
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        summary = payload["summary"]
+        counts = summary["counts_by_status"]
+        print(
+            "dispatch-cycles: "
+            f"cycles={summary['cycles_total']} "
+            f"incomplete={summary['cycles_incomplete']} "
+            f"closed={counts.get('closed', 0)} "
+            f"failed={counts.get('failed', 0)} "
+            f"missing_dispatch={counts.get('missing_dispatch', 0)} "
+            f"missing_close={counts.get('missing_close', 0)}"
+        )
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Replay and project canonical edge events")
+    parser.add_argument("--tail", action="store_true", help="Show recent canonical events")
+    parser.add_argument("-n", "--limit", type=int, default=20, help="Number of events or cycles to show")
+    parser.add_argument("--type", help="Filter --tail by event type")
+    parser.add_argument("--json", action="store_true", help="Print JSON")
+
+    subparsers = parser.add_subparsers(dest="command")
+    dispatch = subparsers.add_parser("dispatch-cycles", help="Build/read dispatch-cycle projection")
+    dispatch.add_argument("--json", action="store_true", help="Print JSON projection")
+    dispatch.add_argument("--limit", type=int, default=50, help="Maximum recent/incomplete cycles to include")
+    dispatch.add_argument("--no-write", action="store_true", help="Do not write projection file")
+    dispatch.set_defaults(func=cmd_dispatch_cycles)
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.tail:
+        return cmd_tail(args)
+    if hasattr(args, "func"):
+        return args.func(args)
+    parser.print_help()
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

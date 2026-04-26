@@ -501,6 +501,12 @@ The first projections depend on this subset:
 - `pipeline-state` reads `PhaseCompleted` and `ArtifactPublished`
 - `render-install-drift` reads `RenderProduced`, `InstallApplied`, `InstallRemoved`, and `InstallCheckObserved`
 
+`dispatch-completeness` is materialized by `tools/rollup-dispatch-cycles.py`
+into `state/projections/dispatch-cycles.json`. It is also available through
+`tools/edge-replay dispatch-cycles`. This projection is shadow-mode read-side
+state: it explains whether a dispatch cycle opened, dispatched, closed, failed,
+or remained incomplete without changing runtime behavior.
+
 ## Compatibility Rule
 
 Existing logs may still use:
