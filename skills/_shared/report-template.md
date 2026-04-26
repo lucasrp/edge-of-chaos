@@ -16,7 +16,11 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
 
 1. **Generate YAML** with the sections from the calling skill, using the block types below
 2. **Write YAML** to `/tmp/spec-[skill]-[slug].yaml`
-3. **Include claims in the blog entry frontmatter** (compaction — MANDATORY):
+3. **Write the blog entry as a light invitation, then include claims in
+   frontmatter** (compaction — MANDATORY). The entry body should be only a few
+   concise paragraphs: lead with what changed or what was learned, invite the
+   reader into the work, and leave implementation depth to the report. Do not
+   duplicate the YAML/report structure in the blog body.
    ```yaml
    claims:
      - "Verified fact I learned"
