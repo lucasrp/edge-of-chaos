@@ -169,6 +169,11 @@ assert request["corpus_coverage"]["required_covered"] is False
 assert request["corpus_coverage"]["missing_required_types"] == ["topic", "workflow", "memory"]
 assert request["search_protocol"]["required"] is True
 assert request["epistemic_protocol"]["required"] is True
+assert request["delta_prerequisite"]["required"] is True
+assert request["delta_prerequisite"]["skill_command"] == "ed-delta"
+assert "previous_delta_digest" in request["delta_prerequisite"]
+assert "raw_chat" in request["delta_prerequisite"]["inputs"]
+assert "surface_baselines" in request["delta_prerequisite"]["inputs"]["surfaces"]
 assert "configured_integrations" in request
 assert "unbound_integrations" in request
 corpus_step = next(item for item in request["preflight_evidence"] if item["kind"] == "corpus.lookup")

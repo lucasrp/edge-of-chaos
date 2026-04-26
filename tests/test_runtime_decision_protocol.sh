@@ -66,6 +66,12 @@ state = {
         },
         "search_protocol": search_protocol,
         "epistemic_protocol": epistemic_protocol,
+        "delta_prerequisite": {
+            "required": True,
+            "skill_command": "ed-delta",
+            "previous_delta_digest": {"open_work": []},
+            "inputs": {"raw_chat": {"available": False}},
+        },
     }
 }
 prompt = render_skill_runtime_prompt("research", state)
@@ -75,6 +81,10 @@ assert "search_protocol" in prompt
 assert "search_runtime" in prompt
 assert "epistemic_protocol" in prompt
 assert "exploration_pack" in prompt
+assert "delta_prerequisite" in prompt
+assert "DELTA PREREQUISITE" in prompt
+assert "ed-delta" in prompt
+assert "same backend invocation" in prompt
 assert "mandatory read-only exploration loop" in prompt
 assert "configured web provider" in prompt
 assert "policy-disabled" in prompt
@@ -103,6 +113,7 @@ assert epistemic_protocol["required"] is False
 state = {"request": {"heartbeat_routing": {"suggested_skill": "autonomy"}, "async_inbox": {}, "schema_version": 1}}
 prompt = render_skill_runtime_prompt("heartbeat", state)
 assert "HEARTBEAT ROUTER CONTRACT" in prompt
+assert "DELTA PREREQUISITE" in prompt
 assert "Do not draft artifacts" in prompt
 assert "edge-dispatch dispatch --skill <chosen-skill>" in prompt
 PY
