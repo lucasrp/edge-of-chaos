@@ -26,11 +26,9 @@ A reflection run is incomplete if it only describes a problem and leaves no owne
 
 Reflection does not own product implementation, project delivery, or broad refactors. It owns the decision that an operational lesson exists and the placement of that lesson in the system.
 
-## Runtime Boundary
+## Boundary
 
-Use the runtime-injected pre-skill context as the starting point.
-
-Do not manage lifecycle, publication, postflight acknowledgement, or generic artifact rites inside this skill. The runtime owns those mechanics.
+Do not manage lifecycle, publication, postflight acknowledgement, or generic artifact rites inside this skill.
 
 When editing protected state or shared protocols, follow the shared state protocol. Make the intended change explicit before editing, keep the change focused, and report what changed.
 

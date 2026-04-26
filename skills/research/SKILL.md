@@ -32,11 +32,9 @@ Feynman cycle:
 
 Run at most two gap-resolution loops before publishing the remaining uncertainty.
 
-## Runtime Boundary
+## Boundary
 
-Use the runtime-injected pre-skill context as the starting point.
-
-Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill. The runtime owns those mechanics.
+Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill.
 
 ## Research Method
 

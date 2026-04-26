@@ -53,7 +53,6 @@ Any change to these files is monitored by `edge-state-audit`:
 - `~/edge/autonomy/frontier.md`
 - `~/edge/autonomy/workflows.md`
 - `~/edge/autonomy/metrics.md`
-- `~/edge/autonomy/ed-log.md`
 - `~/edge/autonomy/autonomy-policy.md`
 
 **Skills:**
@@ -196,9 +195,6 @@ changes:
   - path: "~/edge/autonomy/capabilities.md"
     action: modify
     reason: "Register new capability #24"
-  - path: "~/edge/autonomy/ed-log.md"
-    action: modify
-    reason: "Append expansion entry"
 EOF
 
 # Register proposal

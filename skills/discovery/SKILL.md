@@ -15,11 +15,9 @@ Unlike `ed-research`, the target does not need to be known in advance. The value
 - No argument: explore freely and bring back something useful.
 - With direction: explore in that direction while keeping room for adjacent discoveries.
 
-## Runtime Boundary
+## Boundary
 
-Use the runtime-injected pre-skill context as the starting point.
-
-Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill. The runtime owns those mechanics.
+Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill.
 
 ## What Counts As A Discovery
 

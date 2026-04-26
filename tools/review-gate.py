@@ -43,7 +43,6 @@ from paths import (ENTRIES_DIR, MEMORY_DIR, REPORTS_DIR, NOTES_DIR, SKILLS_DIR, 
 from _shared.router_client import make_client  # noqa: E402
 _AGENT_NAME = load_branding().get("agent_name", "agent")
 _SKILL_PREFIX = load_branding().get("skill_prefix", "agent")
-BLOG_RULES_PATH = SKILLS_DIR / f"{_SKILL_PREFIX}-blog" / "SKILL.md"
 GROK_MODEL = "grok-4.20-multi-agent-beta-0309"
 
 # Router purpose used by default. The actual model comes from
@@ -368,9 +367,6 @@ Return JSON with these keys:
 ## Report Template Rules
 {rubric}
 
-## Blog Writing Style Rules
-{blog_rules}
-
 {skill_rules}
 
 ## Tools available:
@@ -418,10 +414,6 @@ Language: respond in Portuguese (PT-BR).
 ## Report Template Rules
 
 {rubric}
-
-## Blog Writing Style Rules
-
-{blog_rules}
 
 {skill_rules}
 
@@ -510,23 +502,6 @@ def load_rubric() -> str:
     return "(Report template not found)"
 
 
-def load_blog_rules() -> str:
-    if not BLOG_RULES_PATH.exists():
-        return "(Blog rules not found)"
-    content = BLOG_RULES_PATH.read_text(encoding="utf-8")
-    lines = content.split("\n")
-    in_style = False
-    style_lines = []
-    for line in lines:
-        if "Estilo de Escrita" in line:
-            in_style = True
-        elif in_style and line.startswith("## ") and "Estilo" not in line:
-            break
-        if in_style:
-            style_lines.append(line)
-    return "\n".join(style_lines) if style_lines else ""
-
-
 def load_skill_rules(skill_name: str) -> str:
     if not skill_name:
         return ""
@@ -569,7 +544,6 @@ def coauthor(yaml_path: str, skill: str = None, model: str = None,
 
     system = COAUTHOR_SYSTEM.format(
         rubric=load_rubric(),
-        blog_rules=load_blog_rules(),
         skill_rules=load_skill_rules(skill) if skill else "",
     )
 
@@ -728,7 +702,6 @@ def review(yaml_path: str, skill: str = None, model: str = None,
     system = REVIEWER_SYSTEM.format(
         dimensions=dim_text,
         rubric=load_rubric(),
-        blog_rules=load_blog_rules(),
         skill_rules=load_skill_rules(skill) if skill else "",
         threshold=threshold,
     )

@@ -115,7 +115,7 @@ ed-relatorio:
   - "6:Verificar"
 
 ed-planejar:
-  - "1:Rodar contexto"
+  - "1:Definir escopo"
   - "1.5:Consultar relatorios"
   - "2:Absorver estado"
   - "2.5:Buscar fontes"

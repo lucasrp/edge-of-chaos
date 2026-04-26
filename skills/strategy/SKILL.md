@@ -12,11 +12,9 @@ Strategy is not passive recommendation. It makes decisions over the agent-owned 
 
 It does not execute project work directly.
 
-## Runtime Boundary
+## Boundary
 
-Use the runtime-injected pre-skill context as the starting point.
-
-Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill. The runtime owns those mechanics.
+Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill.
 
 Follow the shared source lookup protocol when external trends, platform changes, ecosystem shifts, or strategic examples are relevant.
 
@@ -37,7 +35,7 @@ Produce a strategic action artifact that answers:
 
 Use relevant internal state:
 
-- runtime context;
+- current session context;
 - project status and repositories;
 - issues, boards, proposals, and threads;
 - claims and their supporting artifacts;
