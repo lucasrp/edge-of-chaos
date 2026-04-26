@@ -197,6 +197,7 @@ assert any("Corpus coverage is missing required types" in item for item in reque
 assert request["search_protocol"]["required"] is True
 assert request["epistemic_protocol"]["required"] is True
 assert request["delta_prerequisite"]["required"] is True
+assert request["delta_prerequisite"]["digest_update_required"] is False
 assert request["delta_prerequisite"]["inputs"]["raw_chat"]["available"] is True
 assert request["delta_prerequisite"]["inputs"]["raw_chat"]["recent_items"]
 assert request["exploration_pack"]["skill"] == "discovery"

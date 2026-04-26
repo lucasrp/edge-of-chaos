@@ -170,6 +170,7 @@ assert request["corpus_coverage"]["missing_required_types"] == ["topic", "workfl
 assert request["search_protocol"]["required"] is True
 assert request["epistemic_protocol"]["required"] is True
 assert request["delta_prerequisite"]["required"] is True
+assert request["delta_prerequisite"]["digest_update_required"] is False
 assert request["delta_prerequisite"]["skill_command"] == "ed-delta"
 assert "previous_delta_digest" in request["delta_prerequisite"]
 assert "raw_chat" in request["delta_prerequisite"]["inputs"]

@@ -651,19 +651,85 @@ def _compact_surface_baselines(payload: Any, *, limit: int = DELTA_OPEN_WORK_LIM
     return compact
 
 
+def _compact_digest_items(items: Any, *, limit: int = DELTA_OPEN_WORK_LIMIT) -> list[Any]:
+    if not isinstance(items, list):
+        return []
+    compact: list[Any] = []
+    for item in items[:limit]:
+        if isinstance(item, dict):
+            compact.append(
+                {
+                    str(key): value
+                    for key, value in item.items()
+                    if key in {"id", "title", "summary", "surface", "status", "priority", "reason", "next", "evidence", "skill", "thread_id"}
+                }
+            )
+        else:
+            text = str(item or "").strip()
+            if text:
+                compact.append(text[:260])
+    return compact
+
+
+def _compact_learning_section(payload: Any) -> dict[str, Any]:
+    payload = payload if isinstance(payload, dict) else {}
+    return {
+        "recent_failures": _compact_digest_items(payload.get("recent_failures")),
+        "rules_to_preserve": _compact_digest_items(payload.get("rules_to_preserve")),
+        "protocol_gaps": _compact_digest_items(payload.get("protocol_gaps")),
+        "skill_patch_candidates": _compact_digest_items(payload.get("skill_patch_candidates")),
+        "archived_guidance_recent": _compact_digest_items(payload.get("archived_guidance_recent"), limit=8),
+    }
+
+
+def _compact_handoff_section(payload: Any) -> dict[str, Any]:
+    payload = payload if isinstance(payload, dict) else {}
+    return {
+        "inject_to_next_skill": _compact_digest_items(payload.get("inject_to_next_skill")),
+        "watch_next": _compact_digest_items(payload.get("watch_next")),
+        "unverified_but_important": _compact_digest_items(payload.get("unverified_but_important")),
+    }
+
+
+def _delta_digest_update_owner(skill: str | None) -> str | None:
+    normalized = _normalize_skill_name(skill)
+    if normalized == "strategy":
+        return "work"
+    if normalized == "reflection":
+        return "learning"
+    return None
+
+
 def _previous_delta_digest() -> dict[str, Any]:
     payload = _read_json(DELTA_DIGEST_FILE, {})
     if not isinstance(payload, dict):
         payload = {}
+    work = payload.get("work") if isinstance(payload.get("work"), dict) else {}
+    learning = payload.get("learning") if isinstance(payload.get("learning"), dict) else {}
+    handoff = payload.get("handoff") if isinstance(payload.get("handoff"), dict) else {}
+    surface_baselines = payload.get("surface_baselines") or work.get("surface_baselines")
+    open_work = payload.get("open_work") or work.get("open_work")
+    archived_work = payload.get("archived_work_recent") or work.get("archived_work_recent") or payload.get("archived_work")
     return {
         "schema_version": payload.get("schema_version"),
+        "kind": payload.get("kind") or "edge_delta_digest",
         "generated_at": payload.get("generated_at"),
+        "updated_at": payload.get("updated_at"),
         "digest_hash": payload.get("digest_hash"),
         "source_hash": payload.get("source_hash"),
         "summary": payload.get("summary"),
-        "surface_baselines": _compact_surface_baselines(payload.get("surface_baselines")),
-        "open_work": _compact_open_work(payload.get("open_work")),
-        "archived_work_recent": _compact_open_work(payload.get("archived_work_recent") or payload.get("archived_work"), limit=6),
+        "surface_baselines": _compact_surface_baselines(surface_baselines),
+        "open_work": _compact_open_work(open_work),
+        "archived_work_recent": _compact_open_work(archived_work, limit=6),
+        "work": {
+            "open_work": _compact_open_work(open_work),
+            "archived_work_recent": _compact_open_work(archived_work, limit=6),
+            "priority_threads": _compact_digest_items(work.get("priority_threads")),
+            "surface_baselines": _compact_surface_baselines(surface_baselines),
+        },
+        "learning": _compact_learning_section(learning),
+        "handoff": _compact_handoff_section(handoff),
+        "recent_updates": _compact_digest_items(payload.get("updates"), limit=6),
         "source_path": str(DELTA_DIGEST_FILE),
     }
 
@@ -738,12 +804,15 @@ def build_delta_prerequisite(state: dict[str, Any], *, skill: str | None, stage:
     required = _delta_required_for_skill(normalized)
     previous = _previous_delta_digest()
     open_work = previous.get("open_work") or []
+    digest_update_owner = _delta_digest_update_owner(normalized)
     operator_digest = request.get("operator_pressure_digest") or {}
     return {
         "schema_version": DELTA_PREREQUISITE_SCHEMA_VERSION,
         "skill": normalized,
         "stage": stage,
         "required": required,
+        "digest_update_required": digest_update_owner is not None,
+        "digest_update_owner": digest_update_owner,
         "reason": (
             "substantive skill must load the current work delta before its own reasoning"
             if required
@@ -761,6 +830,13 @@ def build_delta_prerequisite(state: dict[str, Any], *, skill: str | None, stage:
             "mode": "same_backend_invocation",
             "visibility": "the delta pass runs inside the dispatched skill prompt; keep delta_frame in working context for the main skill",
             "handoff_field": "delta_frame.work_continuity.inject_to_next_skill",
+        },
+        "digest_update_contract": {
+            "required_for_current_skill": digest_update_owner is not None,
+            "owner_section": digest_update_owner,
+            "cli": "edge-delta update --skill <strategy|reflection> --payload-file <json>",
+            "policy": "strategy curates work; reflection curates learning; both may refresh short handoff guidance",
+            "no_op": "edge-delta update --skill <skill> --no-op --summary '<why nothing changed>'",
         },
         "inputs": {
             "current_request": {
@@ -788,6 +864,9 @@ def build_delta_prerequisite(state: dict[str, Any], *, skill: str | None, stage:
                 "search_runtime": request.get("search_runtime", {}),
                 "surface_baselines": previous.get("surface_baselines", {}),
                 "open_work": open_work,
+                "curated_work": previous.get("work", {}),
+                "curated_learning": previous.get("learning", {}),
+                "curated_handoff": previous.get("handoff", {}),
             },
             "preflight": {
                 "constraints": request.get("constraints", {}),
@@ -824,14 +903,16 @@ def build_delta_prerequisite(state: dict[str, Any], *, skill: str | None, stage:
                 },
             },
             "new_delta_digest": {
-                "surface_baselines": "updated only for probed surfaces",
-                "open_work": "curated open work registry",
+                "work": "strategy-owned open work, archives, priority threads, and surface baselines",
+                "learning": "reflection-owned recent failures, durable rules, protocol gaps, and skill patch candidates",
+                "handoff": "short guidance to inject into the next skill",
                 "summary": "short continuity digest for the next beat",
             },
         },
         "rules": [
             "Compare previous_delta_digest, structured preflight state, raw chat, and any probed surfaces before the main skill reasons.",
             "Do not discard the delta output; the same backend invocation must carry delta_frame into the dispatched skill's main reasoning.",
+            "Use curated work, learning, and handoff sections as the persistent continuity layer; keep the runtime delta_frame short.",
             "Use raw chat to recover work mentioned outside edge cycles; use structured state to avoid re-opening work that was already closed.",
             "Probe only surfaces relevant to the current request, high-priority open work, or explicit operator pressure.",
             "Represent every real delta with before, after, evidence, relevance, and confidence.",
@@ -1585,6 +1666,8 @@ def enrich_dispatch_state(
         "beat_launch_operator_signals": len((request.get("beat_launch_context") or {}).get("signal_from_operator_now") or []),
         "beat_launch_edge_state_signals": len((request.get("beat_launch_context") or {}).get("signal_from_edge_state_now") or []),
         "delta_prerequisite_required": bool((request.get("delta_prerequisite") or {}).get("required")),
+        "delta_digest_update_required": bool((request.get("delta_prerequisite") or {}).get("digest_update_required")),
+        "delta_digest_update_owner": (request.get("delta_prerequisite") or {}).get("digest_update_owner"),
         "delta_open_work": len(((request.get("delta_prerequisite") or {}).get("previous_delta_digest") or {}).get("open_work") or []),
         "open_claims": claims_summary.get("open_total", 0),
         "orphans": orphan_summary.get("orphan_total", 0),
@@ -1697,6 +1780,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "The `operator_pressure_digest` captures recent operator signal only. The `beat_launch_context` is the ephemeral composition of that operator signal with current edge-state signals and the exploration budget for this beat. Treat those two together as the launch frame for what matters now.\n\n"
         "DELTA PREREQUISITE:\n"
         "For substantive non-heartbeat skills, `request.delta_prerequisite.required` is true. Before the main skill performs substantive work, execute the internal `ed-delta` pass over `request.delta_prerequisite`: reconcile previous_delta_digest, raw chat, structured preflight state, events, and relevant work surfaces; produce a `delta_frame`; and carry `delta_frame.work_continuity.inject_to_next_skill` into the main skill. The delta pass runs in this same backend invocation, so its explored text and frame remain available to the dispatched skill. If no real delta is found, state that explicitly and continue with an empty delta frame.\n\n"
+        "If `request.delta_prerequisite.digest_update_required` is true, persist a compact curated update before closing the skill: `strategy` owns the digest `work` section, `reflection` owns the digest `learning` section, and both may update short `handoff` guidance. Use `edge-delta update --skill <skill> --payload-file <json>` or record an explicit no-op with `edge-delta update --skill <skill> --no-op --summary <reason>`.\n\n"
         "Prefer `edge-cap invoke <capability> -- ...` over direct CLI/tool calls when a capability exists in `capabilities_status`.\n\n"
         "Before any substantive decision, synthesis, or artifact drafting in non-heartbeat skills, read `exploration_pack` first. "
         "The runtime has already performed the mandatory read-only exploration loop: memory retrieval, source/signal fan-out, adversarial Feynman interpretation, and a targeted second round. "

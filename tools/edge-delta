@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+"""edge-delta - curated runtime delta digest store."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import CONTINUITY_DELTAS_DIR  # noqa: E402
+
+SCHEMA_VERSION = 1
+DIGEST_FILE = CONTINUITY_DELTAS_DIR / "runtime-latest.json"
+HISTORY_DIR = CONTINUITY_DELTAS_DIR / "runtime-history"
+MAX_ITEMS = 20
+MAX_TEXT = 700
+
+WORK_FIELDS = {
+    "open_work",
+    "archived_work_recent",
+    "priority_threads",
+    "surface_baselines",
+}
+LEARNING_FIELDS = {
+    "recent_failures",
+    "rules_to_preserve",
+    "protocol_gaps",
+    "skill_patch_candidates",
+    "archived_guidance_recent",
+}
+HANDOFF_FIELDS = {
+    "inject_to_next_skill",
+    "watch_next",
+    "unverified_but_important",
+}
+TOP_LEVEL_UPDATE_FIELDS = {
+    "summary",
+    "work",
+    "learning",
+    "handoff",
+    "surface_baselines",
+    "open_work",
+    "archived_work_recent",
+}
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def read_json(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def stable_hash(payload: Any) -> str:
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return f"sha256:{hashlib.sha256(raw).hexdigest()}"
+
+
+def compact(value: Any, *, max_items: int = MAX_ITEMS) -> Any:
+    if isinstance(value, str):
+        return value.strip()[:MAX_TEXT]
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        return [compact(item, max_items=max_items) for item in value[:max_items]]
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key in sorted(value.keys(), key=lambda item: str(item)):
+            text_key = str(key).strip()
+            if not text_key:
+                continue
+            out[text_key] = compact(value[key], max_items=max_items)
+        return out
+    return str(value)[:MAX_TEXT]
+
+
+def empty_digest() -> dict[str, Any]:
+    generated_at = now_iso()
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "edge_delta_digest",
+        "generated_at": generated_at,
+        "updated_at": generated_at,
+        "summary": "",
+        "source_hash": "",
+        "digest_hash": "",
+        "surface_baselines": {},
+        "open_work": [],
+        "archived_work_recent": [],
+        "work": {
+            "open_work": [],
+            "archived_work_recent": [],
+            "priority_threads": [],
+            "surface_baselines": {},
+        },
+        "learning": {
+            "recent_failures": [],
+            "rules_to_preserve": [],
+            "protocol_gaps": [],
+            "skill_patch_candidates": [],
+            "archived_guidance_recent": [],
+        },
+        "handoff": {
+            "inject_to_next_skill": [],
+            "watch_next": [],
+            "unverified_but_important": [],
+        },
+        "updates": [],
+    }
+
+
+def normalize_section(raw: Any, fields: set[str]) -> dict[str, Any]:
+    section: dict[str, Any] = {}
+    raw = raw if isinstance(raw, dict) else {}
+    for field in fields:
+        default: Any = {} if field == "surface_baselines" else []
+        value = raw.get(field, default)
+        if field == "surface_baselines":
+            section[field] = compact(value if isinstance(value, dict) else {})
+        else:
+            section[field] = compact(value if isinstance(value, list) else [])
+    return section
+
+
+def normalize_digest(payload: Any) -> dict[str, Any]:
+    base = empty_digest()
+    if not isinstance(payload, dict):
+        refresh_hashes(base)
+        return base
+
+    base["schema_version"] = int(payload.get("schema_version") or SCHEMA_VERSION)
+    base["kind"] = str(payload.get("kind") or "edge_delta_digest")
+    base["generated_at"] = str(payload.get("generated_at") or base["generated_at"])
+    base["updated_at"] = str(payload.get("updated_at") or payload.get("generated_at") or base["updated_at"])
+    base["summary"] = str(payload.get("summary") or "")[:MAX_TEXT]
+
+    work = normalize_section(payload.get("work"), WORK_FIELDS)
+    if payload.get("open_work") and not work["open_work"]:
+        work["open_work"] = compact(payload.get("open_work") if isinstance(payload.get("open_work"), list) else [])
+    if payload.get("archived_work_recent") and not work["archived_work_recent"]:
+        work["archived_work_recent"] = compact(
+            payload.get("archived_work_recent") if isinstance(payload.get("archived_work_recent"), list) else []
+        )
+    if payload.get("surface_baselines") and not work["surface_baselines"]:
+        work["surface_baselines"] = compact(
+            payload.get("surface_baselines") if isinstance(payload.get("surface_baselines"), dict) else {}
+        )
+
+    base["work"] = work
+    base["learning"] = normalize_section(payload.get("learning"), LEARNING_FIELDS)
+    base["handoff"] = normalize_section(payload.get("handoff"), HANDOFF_FIELDS)
+    base["open_work"] = work["open_work"]
+    base["archived_work_recent"] = work["archived_work_recent"]
+    base["surface_baselines"] = work["surface_baselines"]
+    base["updates"] = compact(payload.get("updates") if isinstance(payload.get("updates"), list) else [])[-MAX_ITEMS:]
+    refresh_hashes(base)
+    return base
+
+
+def hashable_digest(digest: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in digest.items()
+        if key not in {"digest_hash", "source_hash", "generated_at", "updated_at"}
+    }
+
+
+def refresh_hashes(digest: dict[str, Any]) -> None:
+    source = hashable_digest(digest)
+    digest["source_hash"] = stable_hash(source)
+    digest["digest_hash"] = stable_hash({**source, "source_hash": digest["source_hash"]})
+
+
+def current_digest() -> dict[str, Any]:
+    return normalize_digest(read_json(DIGEST_FILE, {}))
+
+
+def unwrap_update(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be a JSON object")
+    for key in ("delta_digest_update", "new_delta_digest"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            return nested
+    return payload
+
+
+def validate_update(payload: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    unknown = sorted(set(payload.keys()) - TOP_LEVEL_UPDATE_FIELDS)
+    if unknown:
+        errors.append(f"unknown top-level field(s): {', '.join(unknown)}")
+    for section_name, fields in (("work", WORK_FIELDS), ("learning", LEARNING_FIELDS), ("handoff", HANDOFF_FIELDS)):
+        section = payload.get(section_name)
+        if section is None:
+            continue
+        if not isinstance(section, dict):
+            errors.append(f"{section_name} must be an object")
+            continue
+        unknown_section = sorted(set(section.keys()) - fields)
+        if unknown_section:
+            errors.append(f"{section_name} has unknown field(s): {', '.join(unknown_section)}")
+        for field, value in section.items():
+            if field == "surface_baselines":
+                if not isinstance(value, dict):
+                    errors.append("work.surface_baselines must be an object")
+            elif field in fields and not isinstance(value, list):
+                errors.append(f"{section_name}.{field} must be a list")
+    if "surface_baselines" in payload and not isinstance(payload["surface_baselines"], dict):
+        errors.append("surface_baselines must be an object")
+    for field in ("open_work", "archived_work_recent"):
+        if field in payload and not isinstance(payload[field], list):
+            errors.append(f"{field} must be a list")
+    if "summary" in payload and not isinstance(payload["summary"], str):
+        errors.append("summary must be a string")
+    return errors
+
+
+def normalized_skill(raw: str | None) -> str:
+    return str(raw or "").strip().lstrip("/").split("-")[-1]
+
+
+def validate_skill_scope(payload: dict[str, Any], *, skill: str | None) -> list[str]:
+    normalized = normalized_skill(skill)
+    errors: list[str] = []
+    if normalized == "strategy" and "learning" in payload:
+        errors.append("strategy may update work and handoff, not learning")
+    if normalized == "reflection":
+        work_fields = {"work", "open_work", "archived_work_recent", "surface_baselines"}
+        used = sorted(work_fields.intersection(payload.keys()))
+        if used:
+            errors.append(f"reflection may update learning and handoff, not work field(s): {', '.join(used)}")
+    return errors
+
+
+def load_update_payload(args: argparse.Namespace) -> dict[str, Any]:
+    if args.no_op:
+        return {"summary": args.summary or "no delta digest changes"}
+    if args.payload_json:
+        payload = json.loads(args.payload_json)
+    elif args.payload_file:
+        if args.payload_file == "-":
+            payload = json.loads(sys.stdin.read())
+        else:
+            payload = json.loads(Path(args.payload_file).read_text(encoding="utf-8"))
+    else:
+        raise ValueError("update requires --payload-file, --payload-json, or --no-op")
+    payload = unwrap_update(payload)
+    if args.summary:
+        payload["summary"] = args.summary
+    return payload
+
+
+def merge_section(target: dict[str, Any], update: dict[str, Any], fields: set[str]) -> None:
+    for field in fields:
+        if field not in update:
+            continue
+        if field == "surface_baselines":
+            existing = target.get(field) if isinstance(target.get(field), dict) else {}
+            incoming = update.get(field) if isinstance(update.get(field), dict) else {}
+            target[field] = compact({**existing, **incoming})
+        else:
+            target[field] = compact(update.get(field) if isinstance(update.get(field), list) else [])
+
+
+def apply_update(digest: dict[str, Any], payload: dict[str, Any], *, skill: str, no_op: bool = False) -> dict[str, Any]:
+    digest = normalize_digest(digest)
+    if "work" in payload and isinstance(payload["work"], dict):
+        merge_section(digest["work"], payload["work"], WORK_FIELDS)
+    if "learning" in payload and isinstance(payload["learning"], dict):
+        merge_section(digest["learning"], payload["learning"], LEARNING_FIELDS)
+    if "handoff" in payload and isinstance(payload["handoff"], dict):
+        merge_section(digest["handoff"], payload["handoff"], HANDOFF_FIELDS)
+
+    if "open_work" in payload:
+        digest["work"]["open_work"] = compact(payload.get("open_work") if isinstance(payload.get("open_work"), list) else [])
+    if "archived_work_recent" in payload:
+        digest["work"]["archived_work_recent"] = compact(
+            payload.get("archived_work_recent") if isinstance(payload.get("archived_work_recent"), list) else []
+        )
+    if "surface_baselines" in payload:
+        existing = digest["work"].get("surface_baselines") if isinstance(digest["work"].get("surface_baselines"), dict) else {}
+        incoming = payload.get("surface_baselines") if isinstance(payload.get("surface_baselines"), dict) else {}
+        digest["work"]["surface_baselines"] = compact({**existing, **incoming})
+
+    digest["open_work"] = digest["work"]["open_work"]
+    digest["archived_work_recent"] = digest["work"]["archived_work_recent"]
+    digest["surface_baselines"] = digest["work"]["surface_baselines"]
+
+    summary = str(payload.get("summary") or "").strip()
+    if summary:
+        digest["summary"] = summary[:MAX_TEXT]
+    digest["updated_at"] = now_iso()
+    update_record = {
+        "skill": skill,
+        "updated_at": digest["updated_at"],
+        "summary": summary or ("no-op" if no_op else "delta digest update"),
+        "sections": [key for key in ("work", "learning", "handoff") if key in payload],
+        "no_op": bool(no_op),
+    }
+    digest["updates"] = compact((digest.get("updates") or []) + [update_record])[-MAX_ITEMS:]
+    refresh_hashes(digest)
+    return digest
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    digest = current_digest()
+    if args.json:
+        print(json.dumps(digest, indent=2, ensure_ascii=False))
+    else:
+        print(f"path: {DIGEST_FILE}")
+        print(f"digest_hash: {digest.get('digest_hash')}")
+        print(f"summary: {digest.get('summary') or '(empty)'}")
+        print(f"open_work: {len(digest.get('open_work') or [])}")
+        print(f"learning_failures: {len((digest.get('learning') or {}).get('recent_failures') or [])}")
+    return 0
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    try:
+        payload = load_update_payload(args)
+    except Exception as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, indent=2), file=sys.stderr)
+        return 1
+    errors = validate_update(payload)
+    if args.skill:
+        errors.extend(validate_skill_scope(payload, skill=args.skill))
+    result = {"ok": not errors, "errors": errors}
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0 if not errors else 1
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    try:
+        payload = load_update_payload(args)
+    except Exception as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, indent=2), file=sys.stderr)
+        return 1
+    errors = validate_update(payload)
+    errors.extend(validate_skill_scope(payload, skill=args.skill))
+    if errors:
+        print(json.dumps({"ok": False, "errors": errors}, indent=2, ensure_ascii=False), file=sys.stderr)
+        return 1
+    digest = apply_update(current_digest(), payload, skill=args.skill, no_op=args.no_op)
+    if not args.dry_run:
+        write_json(DIGEST_FILE, digest)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        safe_skill = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in args.skill)
+        history_path = HISTORY_DIR / f"{stamp}-{safe_skill}.json"
+        write_json(history_path, digest)
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "path": str(DIGEST_FILE),
+                "digest_hash": digest.get("digest_hash"),
+                "summary": digest.get("summary"),
+                "dry_run": bool(args.dry_run),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Curated runtime delta digest store")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_show = sub.add_parser("show", help="Show the current curated delta digest")
+    p_show.add_argument("--json", action="store_true")
+    p_show.set_defaults(func=cmd_show)
+
+    p_validate = sub.add_parser("validate", help="Validate a digest update payload")
+    p_validate.add_argument("--payload-file")
+    p_validate.add_argument("--payload-json")
+    p_validate.add_argument("--skill")
+    p_validate.add_argument("--summary")
+    p_validate.add_argument("--no-op", action="store_true")
+    p_validate.set_defaults(func=cmd_validate)
+
+    p_update = sub.add_parser("update", help="Merge and persist a curated digest update")
+    p_update.add_argument("--skill", required=True)
+    p_update.add_argument("--payload-file")
+    p_update.add_argument("--payload-json")
+    p_update.add_argument("--summary")
+    p_update.add_argument("--no-op", action="store_true")
+    p_update.add_argument("--dry-run", action="store_true")
+    p_update.set_defaults(func=cmd_update)
+
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -69,6 +69,7 @@ state = {
         "delta_prerequisite": {
             "required": True,
             "skill_command": "ed-delta",
+            "digest_update_required": False,
             "previous_delta_digest": {"open_work": []},
             "inputs": {"raw_chat": {"available": False}},
         },
@@ -85,6 +86,7 @@ assert "delta_prerequisite" in prompt
 assert "DELTA PREREQUISITE" in prompt
 assert "ed-delta" in prompt
 assert "same backend invocation" in prompt
+assert "edge-delta update" in prompt
 assert "mandatory read-only exploration loop" in prompt
 assert "configured web provider" in prompt
 assert "policy-disabled" in prompt
@@ -93,6 +95,36 @@ then
     pass "substantive skills get explicit search/epistemic runtime protocol"
 else
     fail "substantive skills get explicit search/epistemic runtime protocol"
+fi
+
+echo "--- Test 1b: strategy/reflection own curated delta digest updates ---"
+if python3 - <<'PY' "$EDGE_DIR"
+import sys
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+sys.path.insert(0, str(edge_dir / "tools"))
+
+from _shared.dispatch_runtime import build_delta_prerequisite
+
+strategy = build_delta_prerequisite({"request": {"skill": "strategy"}}, skill="strategy", stage="dispatch")
+reflection = build_delta_prerequisite({"request": {"skill": "reflection"}}, skill="reflection", stage="dispatch")
+research = build_delta_prerequisite({"request": {"skill": "research"}}, skill="research", stage="dispatch")
+
+assert strategy["digest_update_required"] is True
+assert strategy["digest_update_owner"] == "work"
+assert strategy["digest_update_contract"]["cli"].startswith("edge-delta update")
+assert reflection["digest_update_required"] is True
+assert reflection["digest_update_owner"] == "learning"
+assert research["digest_update_required"] is False
+assert research["digest_update_owner"] is None
+assert "curated_learning" in strategy["inputs"]["surfaces"]
+assert "curated_handoff" in strategy["inputs"]["surfaces"]
+PY
+then
+    pass "strategy/reflection own curated delta digest updates"
+else
+    fail "strategy/reflection own curated delta digest updates"
 fi
 
 echo "--- Test 2: heartbeat is exempt from the substantive protocol ---"
