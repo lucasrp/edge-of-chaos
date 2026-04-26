@@ -1,282 +1,201 @@
 ---
 name: ed-strategy
-description: "Strategic planning across all projects. Analyze state, identify connections, set priorities, suggest next steps. Triggers on: strategy, estrategia, planeje, plan ahead, big picture, quadro geral."
+description: "Strategic planning across all projects. Analyze state, curate claims and threads, choose action modes, and route next work. Triggers on: strategy, estrategia, planeje, plan ahead, big picture, quadro geral."
 user-invocable: true
 ---
 
-# Strategy — Cross-Project Strategic Planning
+# Strategy — Active Strategic Curation
 
-Look at the big picture across all projects. Analyze where each one stands, what's blocked, what needs attention, and how they connect. Define directions and next steps.
+Use this skill to look across projects, threads, claims, and signals, then decide what should happen next.
 
----
+Strategy is not passive recommendation. It makes decisions over the agent-owned substrate: classify work, curate stale knowledge, route next skills, and produce an action queue.
+
+It does not execute project work directly.
+
+## Runtime Boundary
+
+Use the runtime-injected pre-skill context as the starting point.
+
+Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill. The runtime owns those mechanics.
+
+Follow the shared source lookup protocol when external trends, platform changes, ecosystem shifts, or strategic examples are relevant.
 
 ## The Job
 
-1. Absorb cross-project status (via `/ed-context`)
-2. Analyze each project: where it stands, what it needs, what blocks it
-3. Identify connections between projects
-4. Define directions: priorities, threads to deepen, skills to develop
-5. Suggest concrete next steps to the user
-6. **Update `~/edge/config/strategy.md`** — sections "Proposals" and "Context" (agent writes, operator reviews)
-7. Propose updates for `~/work/CLAUDE.md` (in the report — the one who applies is `/ed-reflection`)
+Produce a strategic action artifact that answers:
 
----
+- What should move now?
+- What is blocked?
+- What needs research, planning, or execution?
+- Which threads should stay active, be merged, be parked, or be archived?
+- Which claims are still useful, disputed, stale, or dead?
+- Which stale claims should be archived because no work is derived from them?
+- What should be routed to another skill next?
+- What decisions belong to the operator?
 
-## Context Activation
+## Inputs
 
-**Use the runtime pre-skill context injected by `edge-preflight` and sourced from `~/edge/config/preflight.yaml`.**
+Use relevant internal state:
 
----
+- runtime context;
+- project status and repositories;
+- issues, boards, proposals, and threads;
+- claims and their supporting artifacts;
+- recent reports and decisions;
+- operational signals such as friction, autonomy, decision, reflection, and serendipity;
+- prior strategy artifacts.
 
-## Protocol (follow in order)
+Use external sources only when the strategy depends on current ecosystem information or outside examples.
 
-### Step 0: Read operational signals
+## Action Modes
 
-```bash
-# Primary signals
-cat ~/edge/state/signals/strategy.md 2>/dev/null || echo "(empty)"
+Every project, thread, or meaningful claim cluster should receive one of these modes:
 
-# Cross-cutting signals
-cat ~/edge/state/signals/friction.md 2>/dev/null     # where it hurts → what to deprioritize or fix
-cat ~/edge/state/signals/decision.md 2>/dev/null     # what was approved/rejected → constraints
-cat ~/edge/state/signals/serendipity.md 2>/dev/null  # what's working → where to double down
-cat ~/edge/state/signals/autonomy.md 2>/dev/null     # what's missing → factor into roadmap
-cat ~/edge/state/signals/reflection.md 2>/dev/null   # how work went + cost → efficiency signals
-```
+- `advance`: move it forward now.
+- `unblock`: remove a concrete blocker.
+- `research`: evidence or understanding is missing.
+- `plan`: turn it into a proposal or implementation cycle.
+- `operator_action`: enough is known; hand off for implementation or human decision.
+- `reflect`: update memory, correct drift, or process feedback.
+- `merge`: combine duplicates or overlapping threads/claims.
+- `park`: keep it, but do not spend work now.
+- `archive`: remove from active attention.
+- `operator_decision`: requires human choice before progress.
 
-These signals are atoms accumulated across all skills. Use them to ground strategy in operational reality, not narrative.
+Each active mode needs a next skill or next action.
 
-### Step 1: Absorb project context
+## Thread Curation
 
-Run `/ed-context` to obtain complete cross-project status (git, boards, issues, digests).
+For each active or resurfacing thread, decide:
 
-If `/ed-context` was already run in this session, re-read the output — don't repeat.
+- keep active;
+- merge with another thread;
+- route to `ed-research`, `ed-planner`, `ed-reflection`, `ed-map`, or `operator_action`;
+- park with a concrete reactivation condition;
+- archive because it no longer produces useful work.
 
-### Step 1.5: Consult previous reports
+A thread should not remain active only because it exists. If it has no current objective, no next action, and no useful pressure on a project, archive it.
 
-Check previous strategy and other relevant reports:
+## Claim Curation
 
-```bash
-ls -lt ~/edge/reports/*.yaml 2>/dev/null | head -20
-```
+Claims are working knowledge, not a museum.
 
-For each strategy YAML or with a relevant name, read the first ~30 lines (title, subtitle, executive_summary). For the most recent strategy, read the priorities and risks sections.
+Classify old, stale, weak, duplicated, or unsupported claims explicitly:
 
-**What to look for:**
-- Previous strategy — priorities that were defined, what changed since then
-- Recent research and executions — inform the real status of projects
-- Pending proposals — whether they were executed or not
-- Risk evolution — which materialized, which were mitigated
+- `keep`: still useful and connected to live work.
+- `refresh`: still important, but source/evidence may be stale.
+- `dispute`: contradicted or no longer trusted.
+- `merge`: duplicate or near-duplicate of a stronger claim.
+- `promote`: should become workflow, proposal, issue, or thread.
+- `archive`: stale or inactive with no derived work.
 
-**In the output:** compare with the last strategy: what changed, what remains.
+Archive a claim when all are true:
 
-### Step 2: Per-project analysis
+- it is old or marked stale;
+- no active thread, proposal, issue, workflow, or project action depends on it;
+- it is not needed as evidence for a current decision;
+- refreshing it would not unblock concrete work.
 
-For each project, evaluate:
+Do not keep stale claims around as passive context. If no work is derived from them, archive them.
+
+If a stale claim still matters, do not archive it silently. Route it to `refresh` or `research` and state what decision depends on it.
+
+## Method
+
+### 1. Establish The Big Picture
+
+Start with the current state of the ecosystem:
+
+- active projects;
+- blocked projects;
+- recently changed priorities;
+- operator pressure;
+- runtime pressure;
+- stale or overloaded knowledge surfaces.
+
+### 2. Analyze Projects
+
+For every relevant project, evaluate:
 
 | Dimension | Question |
-|-----------|----------|
-| **Momentum** | Is it being actively worked on? What's the pace? |
-| **Blockers** | Is anything stalled? What unblocks it? |
-| **Tech debt** | Is tech debt accumulating? Pending refactors? |
-| **Next milestone** | What's the next concrete milestone? |
-| **Dependencies** | Does it depend on another project? Does another depend on it? |
+|---|---|
+| Momentum | Is it active, dormant, blocked, or complete? |
+| Next milestone | What is the next concrete milestone? |
+| Blockers | What prevents progress? |
+| Risk | What degrades if ignored? |
+| Dependencies | What does it need from other projects? |
+| Action mode | advance, unblock, research, plan, operator_action, park, archive, or operator_decision? |
 
-### Step 3: Connections between projects
+### 3. Curate Threads And Claims
 
-Map:
-- **Direct dependencies** — e.g., frontend needs backend endpoints
-- **Opportunities** — ralph can automate tasks in other projects
-- **Conflicts** — changes in one project that affect another
-- **Synergies** — work in one project that benefits another
+Review threads and claim clusters as part of strategy, not as a separate housekeeping task.
 
-### Step 3.5: Search external sources (MANDATORY)
+For each item, decide:
 
-Run `/ed-sources strategy` to obtain trends and strategic insights from all relevant sources (X, HN, Web, GitHub releases, platform usage).
+- current status;
+- whether it is still strategically useful;
+- what work is derived from it;
+- whether it should be archived, merged, refreshed, promoted, or routed.
 
-Include in the strategic analysis and cite in the report (with URL).
+### 4. Map Dependencies
 
-### Step 4: Define directions
+Identify:
 
-Based on the analysis, define:
-- **Priority 1-3** — what to tackle first and why
-- **Threads to deepen** — areas that deserve further investigation
-- **Skills to develop** — what to learn to be more useful (feeds `/ed-research`)
-- **Risks** — what can go wrong if ignored
+- direct dependencies;
+- shared infrastructure;
+- reusable work;
+- conflicts between priorities;
+- synergies where one effort advances multiple projects.
 
-### Step 4.5: Adversarial sanity check (MANDATORY)
+Use a diagram or table when the graph is non-trivial.
 
-Synthesize priorities and defined directions in 2-3 sentences and submit to edge-consult (details: report-template.md):
+### 5. Produce The Action Queue
 
-```bash
-edge-consult "Priorities: [list]. Justification: [reasons]. What risk am I underestimating?" --context /tmp/spec-strategy-[slug].yaml
+End with an explicit queue:
+
+```text
+Strategic Actions
+1. <target> -> <action_mode> -> next: <skill/action> -> reason: <why>
+2. <target> -> <action_mode> -> next: <skill/action> -> reason: <why>
 ```
 
-Adjust if GPT finds a valid flaw (e.g., unseen dependency, ignored risk). If maintaining position, record as callout in the report.
+The queue should be short enough to act on.
 
-### Step 5: Update strategy.md
+## Quality Criteria
 
-Edit `~/edge/config/strategy.md`:
+- Strategy must be grounded in actual project, thread, and claim state.
+- Every active item needs an action mode.
+- Every `advance`, `unblock`, `research`, `plan`, `operator_action`, or `reflect` item needs a next skill or concrete action.
+- Every `park` item needs a reactivation condition.
+- Every `archive` decision needs a short reason.
+- Stale claims without derived work should be archived, not carried forward.
+- Priority means something else is not first; state the trade-off.
+- Do not turn strategy into implementation.
+- Do not edit operator-owned direction or priority files directly from this skill.
+- Make stale assumptions visible.
+- Compare against prior strategy when available.
 
-- **"Proposals (agent)" section** — add new proposals with date, or mark previous ones as [ACCEPTED]/[REJECTED] if the operator decided
-- **"Context (agent)" section** — update with analysis data (metrics, detected patterns, scenario changes)
-- **DO NOT edit** "Direction" and "Priorities" sections — those belong to the operator
+## Output Contract
 
-If `strategy.md` doesn't exist, instantiate from `~/edge/config/strategy.md.tpl`.
+Produce a strategy artifact suitable for the uniform report pipeline.
 
-### Step 5b: Propose updates for ~/work/CLAUDE.md
+Recommended sections:
 
-**DO NOT edit the file directly.** Include in the report (step 6) the proposed changes for:
-- **Project Map** — updated status of each project
-- **Current Priorities** — reorder according to analysis
-- **Suggestions** — concrete next steps
-- **Inter-Project Connections** — if they changed
+1. Big Picture
+2. Project Action Modes
+3. Thread Curation
+4. Claim Curation
+5. Dependencies And Conflicts
+6. Strategic Action Queue
+7. Operator Decisions
+8. Risks
+9. References
 
-`/ed-reflection` is the only skill that applies changes to `~/work/CLAUDE.md`.
+Useful structures:
 
-### Step 6: Update internal blog + generate HTML report
-
-**Follow `~/.claude/skills/_shared/state-protocol.md` for state management.**
-
-1. Create .md entry in `~/edge/blog/entries/` with tag `strategy` (format: see `/ed-blog` SKILL.md)
-2. **Generate YAML** for the report with the sections below, using converter block types
-3. **Write YAML** to `/tmp/spec-strategy-[slug].yaml`
-4. Publish everything atomically (blog entry + HTML report + indexing):
-   ```bash
-   consolidate-state ~/edge/blog/entries/<file>.md /tmp/spec-strategy-[slug].yaml
-   ```
-5. **Read the generated HTML** (`~/edge/reports/<file>.html`) for verification
-
-**Check for retrospective:** After adding the entry, check if there's critical mass for a
-retrospective (see "Retrospectives" section in `/ed-blog` SKILL.md). Strategy is the natural
-moment for this — you've already surveyed everything. If 5+ entries since the last retrospective
-AND a thematic arc emerged, write the retrospective in the same step.
-
-#### YAML Structure
-
-```yaml
-title: "Strategy — [date]"
-subtitle: "[1-sentence status vision]"
-date: "DD/MM/YYYY"
-
-executive_summary:
-  - "**State:** ..."
-  - "**Priority #1:** ..."
-
-metrics:
-  - value: "N"
-    label: "Projects"
-  - value: "N"
-    label: "Blockers"
-  - value: "N"
-    label: "Proposals"
-
-sections:
-  - title: "1. Big Picture"
-    blocks: [...]
-  - title: "2. Per Project"
-    blocks: [...]
-  - title: "3. Connections and Dependencies"
-    blocks: [...]
-  - title: "4. Priorities"
-    blocks: [...]
-  - title: "5. Risks and Next Steps"
-    blocks: [...]
-
-# MANDATORY — auto-renders as last section "References"
-bibliography:
-  - text: "Source description"
-    url: "https://..."
-    source: "WebSearch"   # Where it came from: ArXiv, X, WebSearch, GitHub, HN, Docs, etc.
-```
-
-**Block types and rules:** see `~/.claude/skills/_shared/report-template.md`.
-
-#### Golden rule 1: card with status badge per project
-
-Each project gets a `card` with a momentum badge (ACTIVE / DORMANT / BLOCKED). Inside: next milestone, blockers, dependencies. The reader should see each project's status at a glance.
-
-#### Golden rule 2: ascii-diagram for connections
-
-Connections between projects should include an `ascii-diagram` showing the dependency graph. Complement with a `table` of specific dependencies.
-
-#### Golden rule 3: risk-table mandatory
-
-Risks should use `risk-table` with probability and mitigation. No abstract risk — each one must have a concrete mitigation action.
-
-
-#### Mandatory sections:
-
-**1. Big Picture** — `paragraph` with 2-3 sentence vision; `metrics-grid` with KPIs (active projects, blockers, pending proposals)
-**2. Per Project** — `card` with status badge for each project (rule 1); `callout` for critical blockers
-**3. Connections and Dependencies** — `ascii-diagram` of the graph (rule 2); `table` of specific dependencies
-**4. Priorities** — `numbered-card` for each priority with justification; `comparison` when reordering (before/after analysis)
-**5. Risks and Next Steps** — `risk-table` (rule 3); `next-steps-grid` with concrete actions
-
-
-### Step 7b: Record observations
-`edge-scratch add "Strategy: [main conclusion]. [priority change]. [defined direction]."`
-State processed during publication via meta-report (see `~/.claude/skills/_shared/state-protocol.md`).
-
-### Step 8: Report to user
-
-Format:
-
-```markdown
-## Strategy — [date]
-
-### Big Picture
-[2-3 sentence vision of the ecosystem status]
-
-### Per Project
-#### [Project A]
-- Status: [momentum]
-- Next milestone: [what]
-- Attention: [blockers or risks]
-
-#### [Project B]
-[same]
-
-#### [... repeat for each managed project]
-
-### Connections and Dependencies
-[What connects the projects, what blocks what]
-
-### Suggested Priorities
-1. [Priority with justification]
-2. [Priority with justification]
-3. [Priority with justification]
-
-### Next Steps
-[Concrete actions suggested to the user]
-
-### Risks
-[What can go wrong if ignored]
-
-### HTML Report
-~/edge/reports/[file].html
-```
-
----
-
-## Post-execution
-
-**Use the runtime post-skill protocol sourced from `~/edge/config/postflight.yaml` and executed by `edge-postflight`.**
-
----
-
-## When to Use
-
-- **Manually:** `/ed-strategy` — "look at the big picture and plan"
-- **Via /ed-heartbeat:** Periodically (when strategy is outdated)
-- **After significant changes** — large refactor, new project, change of direction
-
----
-
-## Notes
-
-- Strategy is NOT operational. Don't execute tasks — analyze and plan
-- Priorities are suggestions to the user, not orders. The user decides
-- Use `ultrathink` (thinkmax) for deep analysis
-- Don't inflate the analysis — if a project is stable and doesn't need attention, say so in 1 line
-- Focus on connections that unblock work, not theoretical connections
+- project cards with action-mode badges;
+- thread table;
+- claim curation table;
+- dependency diagram;
+- action queue;
+- risk table.

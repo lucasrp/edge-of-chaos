@@ -4,273 +4,117 @@ description: "Generate a structured HTML report on any topic. Use when you need 
 user-invocable: true
 ---
 
-# /ed-report — Thinking by Producing
+# Report — Thinking By Producing
 
-Generate a structured HTML report on any topic. A tool for both thinking AND communication.
+Use this skill when the work needs more than a short answer: a structured analysis, a decision memo, a synthesis of evidence, or a durable explanation.
 
-## When to Use
+A report is both thinking and communication. The structure should force clarity that running text would not.
 
-**The user asks:**
-- "make a report about X"
-- "analyze this in detail"
-- "I want to understand Y better"
+## When To Use
 
-**edge_of_chaos decides:**
-- I need to understand something before acting — the report forces structured thinking
-- A complex topic needs to be decomposed — the section format demands clarity
-- I want to record reasoning that may be useful later — the HTML persists
+Use `ed-report` when:
 
-**Rule:** if the thinking is complex enough to need more than 3 paragraphs, it deserves a report. The act of structuring into sections, tables, and comparisons FORCES understanding that running text does not.
+- the user asks for a report or detailed analysis;
+- the agent needs to understand something before acting;
+- a complex topic needs decomposition;
+- a decision needs evidence, comparisons, risks, and next steps;
+- reasoning should become a durable artifact.
 
----
+If the answer fits cleanly in a few paragraphs, do not inflate it into a report.
 
-## Context Activation
+## Runtime Boundary
 
-**Use the runtime pre-skill context injected by `edge-preflight` and sourced from `~/edge/config/preflight.yaml`.**
+Use the runtime-injected pre-skill context as the starting point.
 
----
+Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill. The runtime owns those mechanics.
 
-## Protocol
+Follow the shared source lookup protocol when external evidence, current information, examples, papers, repositories, or public discussion are relevant.
 
-### Step 1: Define scope
+## Method
 
-Before researching or writing, answer in 1-2 sentences:
-- **What do I want to understand?** (central question)
-- **For what?** (decision to make, context to build, curiosity to satisfy)
-- **What's the minimum the report needs to be useful?**
+### 1. Define Scope
 
-If invoked by the user with a specific topic, the scope comes from the request.
-If self-invoked, make the trigger explicit ("I'm generating this report because...").
+Before researching or writing, answer:
 
-### Step 2: Research
+- What is the central question?
+- What decision or understanding should the report enable?
+- What is the minimum evidence needed for the report to be useful?
+- What would be out of scope or misleading to imply?
 
-Use the available tools depending on the topic:
+If user-invoked, the request provides the scope. If self-invoked, state why the report is being generated.
 
-- **WebSearch / WebFetch** — state of the art, tools, papers, docs
-- **Read local files** — projects, previous notes, transcripts
-- **Read previous reports** — avoid redoing work:
-  ```bash
-  ls -lt ~/edge/reports/*.html | head -10
-  ```
-- **Grep in notes** — connect with past research:
-  ```bash
-  grep -rl "TERM" ~/edge/notes/*.md | head -5
-  ```
+### 2. Gather Evidence
 
-**Feynman Method:** derive from first principles before pasting conclusions from others. Show the thinking process, not just the conclusion. If a gap is found in reasoning, mark it explicitly.
+Use the right sources for the topic:
 
-### Step 2.5: Search external sources (MANDATORY)
+- internal context and project files;
+- previous notes and reports;
+- source lookup for external evidence and current context;
+- primary docs, papers, repos, or public discussions where relevant.
 
-Run `/ed-sources report "[central topic]"` for comprehensive search across ALL external sources (X, Web, ArXiv, HN, GitHub).
+Prefer primary sources and concrete examples. Record source identifiers clearly enough that the reader can inspect them later.
 
-Incorporate into the analysis and cite in the report (with @username and URL for tweets, links for papers/posts).
+### 3. Derive Before Summarizing
 
-### Step 3: Structure in YAML
+Use first-principles reasoning before pasting conclusions from sources.
 
-Build the YAML spec with sections and block types. The format is the same as `/report`.
+If reasoning stalls, mark the gap explicitly. A good report shows where understanding came from, what changed during investigation, and what remains uncertain.
 
-```yaml
-title: "Report Title"
-subtitle: "Contextual subtitle"
-date: "DD/MM/YYYY"
+### 4. Structure The Report
 
-executive_summary:
-  - "Point 1"
-  - "Point 2"
+Choose sections that tell a story:
 
-metrics:
-  - value: "N"
-    label: "Label"
+1. Context
+2. Central Question
+3. Evidence
+4. Analysis
+5. Alternatives Or Comparisons
+6. Recommendation Or Synthesis
+7. Risks And Unknowns
+8. Next Steps
+9. References
 
-sections:
-  - title: "1. Section"
-    blocks:
-      - type: paragraph
-        text: "..."
+Adapt titles to the topic, but preserve the arc: context -> evidence -> analysis -> decision.
 
-# MANDATORY — auto-renders as last section "References"
-bibliography:
-  - text: "Author (2024). Paper title"
-    url: "https://arxiv.org/abs/..."
-    source: "ArXiv"
-  - text: "@username — Tweet about the topic"
-    url: "https://x.com/username/status/..."
-    source: "X"
-  - text: "Post or doc title"
-    url: "https://example.com/..."
-    source: "WebSearch"
-```
+## Report Quality
 
-**Bibliography is MANDATORY in every report.** The root-level `bibliography:` field in the YAML auto-renders as a last section "References" with:
-- Numbering `[1]`, `[2]`, ...
-- Clickable URL
-- Badge indicating the source that found the reference (ArXiv, X, WebSearch, GitHub, HN, Docs, etc.)
+- Sections should build on each other; order matters.
+- Tables beat prose when 3+ comparable items exist.
+- Comparisons beat paragraphs when alternatives have trade-offs.
+- Callouts should mark insights, risks, caveats, or decisions the reader should not miss.
+- Claims should be traceable to sources, files, or explicit reasoning.
+- Uncertainty should be visible, not hidden.
+- Recommendations should be concrete enough to execute or test.
 
-This allows the reader to evaluate WHICH sources are most useful and click to see the original.
+## Visuals
 
-Accepted formats:
-- **Structured:** `{text, url, source}` — always prefer
-- **Simple string:** `"Author (2024). Title. URL"` — quick fallback
+Use visual structure when it makes the report easier to reason about.
 
-`source` reflects WHERE the information came from (which tool/source found it), not the content type. E.g., a paper found via WebSearch has `source: "WebSearch"`, not `source: "Paper"`.
+Prefer:
 
-**Choosing block types by content:**
+- tables for exact reference;
+- comparison blocks for before/after or option trade-offs;
+- flow examples for input -> output transformations;
+- diagrams for architecture, process, dependencies, or feedback loops;
+- timelines for sequence;
+- charts for numeric comparison.
 
-| I need to show... | Block type |
-|---------------------|-----------|
-| Running text, reasoning | `paragraph` |
-| Before vs after, option A vs B | `comparison` |
-| Tabular data, patterns | `table` |
-| KPIs, key numbers | `metrics-grid` |
-| Important highlight | `callout` (info/success/warning/danger) |
-| Concepts side by side | `concept-grid` |
-| Input → output (examples) | `flow-example` |
-| Code, config | `code-block` |
-| Proposed changes | `diff-block` |
-| Next steps | `next-steps-grid` |
-| Sequential items | `numbered-card` |
-| Simple list | `list` |
-| Sources and references | `bibliography` |
+If the reader would need to draw something on paper to understand it, include a visualization.
 
-`text` fields support: `**bold**`, `*italic*`, `` `code` ``, `--` (mdash), `->` (rarr).
+## Output Contract
 
-### Step 3.5: Adversarial sanity check (MANDATORY)
+Produce a report artifact suitable for the uniform report pipeline.
 
-Synthesize the report's conclusions in 2-3 sentences and submit to edge-consult (details: report-template.md):
-
-```bash
-edge-consult "Analysis: [conclusions]. Where is this reasoning weakest?" --context /tmp/spec-[slug].yaml
-```
-
-Adjust if GPT finds a valid flaw. If position holds, record as callout in the report.
-
-### Step 4: Record in blog and memory (BEFORE the HTML — MANDATORY)
-
-**Follow `~/.claude/skills/_shared/state-protocol.md` for status management.**
-
-**Blog BEFORE HTML. ALWAYS.** The HTML is the most expensive step in tokens. If context runs out during HTML generation, the blog has already been written. The report filename is deterministic (`YYYY-MM-DD-slug.html`) — it can be referenced before it exists.
-
-**4a. Internal blog:**
-1. Create .md entry with tag `report` (or from the calling skill). Format: see `/ed-blog` SKILL.md
-2. Publication will happen in Step 5 together with the report (via `consolidate-state`)
-
-**4b. Status observations:** `edge-scratch add "Report [topic]: [main conclusion]. [next step]."` (status via meta-report, see `~/.claude/skills/_shared/state-protocol.md`).
-
-**4c. Discoveries** — if the report revealed something new (tool, pattern, bug, insight):
-- Note in `~/edge/notes/` if it deserves its own note
-- Or add as entry in `~/.claude/projects/$MEMORY_PROJECT_DIR/memory/discoverys.md` with `[PENDING]`
-- `/ed-reflection` will process it in the next execution
-
-If self-invoked, explain to the user what was generated and why:
-> "I generated a report on X because I needed to understand Y before Z. It's at ~/edge/reports/..."
-
-### Step 5: Publish blog entry + generate HTML + index (atomic)
-
-```bash
-consolidate-state ~/edge/blog/entries/<file>.md /tmp/spec-[slug].yaml
-```
-
-`consolidate-state` does everything: publishes the blog entry, generates the HTML report in `~/edge/reports/`, and indexes in edge-memory.
-
-If notes were created in ~/edge/notes/, index separately:
-```bash
-edge-index ~/edge/notes/[note].md
-```
-
-### Step 6: Verify
-
-**6a. Validate SVGs** (zero context cost):
-```bash
-validate-svg ~/edge/reports/[created-report].html
-```
-If any SVG failed, fix in the YAML and regenerate.
-
-**6b. Review YAML** (automatically saved alongside the HTML). Confirm that:
-- Executive summary captures the essence
-- Sections have logical flow
-- Tables and comparisons communicate more than text would
-- Knowledge gaps are marked (honesty > completeness)
-
----
-
-## Writing Style
-
-Same as the blog: reflective and direct. Neither formal-academic nor too-casual.
-
-Additions specific to reports:
-- **Sections tell a story.** Order matters: context → problem → analysis → synthesis → next step
-- **Tables > text** when there are 3+ items with comparable attributes
-- **Comparisons > paragraphs** when there are options with tradeoffs
-- **Callouts for insights** the reader should not miss
-- **Honesty about gaps:** "I didn't investigate X" is better than silence or bullshit
-
----
-
-## Inline SVG Visualizations (MANDATORY when applicable)
-
-Inline SVG is the visual language of reports. Generate via `raw-html` block in the YAML. It's not just for numbers — any information that communicates better as an image than as text deserves SVG.
-
-**Decision rule:** if the reader would need to draw on paper to understand, the report should have SVG.
-
-### When to generate SVG
-
-| Situation | SVG Type | Example |
-|-----------|----------|---------|
-| Comparison of 3+ values | Horizontal/vertical bars | Costs, durations, counts |
-| Statistical distribution | Box plot (whiskers + median) | Response times, scores |
-| Trend over time | Grouped bars by period | Metrics evolution |
-| Proportion/composition | 100% stacked bars | Distribution by category |
-| Relationships between components | Boxes + arrows diagram | Architecture, pipeline, data flow |
-| Process with decisions | Flowchart (boxes + diamonds) | Workflow, decision tree |
-| Temporal sequence | Horizontal timeline | History, roadmap, evolution |
-| 2D positioning | Quadrant/matrix | Urgency x impact, effort x value |
-| Hierarchy/taxonomy | Tree diagram | Project structure, dependencies |
-| State/progress | Progress bars, gauges | Completeness, health, coverage |
-| Cycle/loop | Circular diagram | Feedback loops, iterative cycles |
-
-### Technical standard
-
-- Fixed `viewBox`: `700 280` for charts, `700 400` for diagrams, `700 200` for timelines
-- `font-family: 'Segoe UI', sans-serif`
-- `max-width: 100%` on the container
-- Semantic colors:
-  - `#2b6cb0` normal/info (primary blue)
-  - `#38a169` success/positive
-  - `#e53e3e` danger/critical
-  - `#ed8936` alert/attention
-  - `#805ad5` highlight/special
-  - `#718096` neutral/secondary
-- Inline legend (inside the SVG, not separate)
-- Text: minimum 12px, adequate contrast
-- `<title>` on main elements for accessibility
-
-### Rules
-
-1. **Numeric data: SVG + table = mandatory pair.** The chart is the visualization; the table is the exact reference
-2. **Relationship/flow diagrams do not need a table** — they are self-explanatory
-3. **Simplicity > decoration.** Horizontal bar works? Don't use 3D. Straight arrow works? Don't use curves
-4. **Prefer SVG over text** when 3+ elements have spatial relationships (above/below, before/after, contains/contained, depends/blocks)
-5. **Minimum 1 SVG per report.** If there's no data or relationships to visualize, the report is probably too short to be a report
-
----
-
-## Format Rules
-
-- No internal anchor links (`<a href="#...">` causes blank screen in SharePoint)
-- External links ALLOWED and ENCOURAGED (`<a href="https://...">`) — tweets, papers, docs, sources. The reader wants to click and see the original
-- 100% self-contained (inline SVG, inline CSS) — single file, no external dependencies
-- No emojis (unless the user asks)
-
----
-
-## Post-execution
-
-**Use the runtime post-skill protocol sourced from `~/edge/config/postflight.yaml` and executed by `edge-postflight`.**
-
----
+The artifact should include:
+
+- title and subtitle;
+- concise executive summary;
+- sections with narrative flow;
+- at least one structured element when useful: table, comparison, diagram, timeline, flow example, or chart;
+- references for external or non-obvious claims;
+- explicit risks and unknowns;
+- next steps.
 
 ## Privacy
 
-Reports live in `~/edge/reports/` — CONFIDENTIAL, human + AI only.
-May contain project names, specific details, work insights.
-For public content (Netlify), sanitize BEFORE publishing.
+Reports may contain confidential project details. Public versions must be sanitized before publication.

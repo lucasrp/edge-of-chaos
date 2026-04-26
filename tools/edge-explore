@@ -44,11 +44,8 @@ from _shared.telemetry import log_exploration_event  # noqa: E402
 SOURCE_INTENTS = {
     "autonomy": "strategy",
     "discovery": "discovery",
-    "execute": "execute",
-    "experiment": "research",
     "map": "research",
     "planner": "planner",
-    "prd": "planner",
     "reflection": "reflection",
     "report": "report",
     "research": "research",

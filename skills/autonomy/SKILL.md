@@ -1,213 +1,198 @@
 ---
 name: ed-autonomy
-description: "Evaluate, workflow, act. Reads actual runtime state, improves primitives and agent-owned search/signal workflows, and materializes primitives on demand. It does not create skill proposals."
+description: "Evaluate and improve the agent-owned operational substrate: capabilities, primitives, source/signal workflows, and local reversible automation. It does not create skill proposals or do product implementation."
 user-invocable: true
 ---
 
-# Autonomy — Evaluate, Workflow, Act
+# Autonomy — Operational Substrate
 
-Autonomy is the self-evolution skill.
+Use this skill when the agent should improve its own ability to work.
 
-Its job is not to rediscover raw state by hand. Its job is to read the current
-read models, decide what is missing or wasteful, and act within scope.
+Autonomy is not strategy, reflection, or project execution. It evaluates the current capability substrate, finds missing or wasteful operational affordances, and attempts every substrate improvement it can reach.
 
-It still produces a full-rite artifact every dispatch. Follow
-`_shared/report-template.md` like every other `/ed-*` skill.
+## Responsibility
 
----
+Autonomy owns the agent-owned operational substrate.
 
-## The Job
+It is responsible for:
 
-1. **Evaluate** the current phenotype from read models
-2. **Improve workflows** for agent-owned search/signal behavior
-3. **Act** automatically when the scope is local and reversible
-4. **Document** what changed, what remains missing, and what should wait for human directive
+- capability and primitive coverage;
+- source and signal workflows;
+- local wrappers and probes;
+- operational affordance learning;
+- reducing repeated tool/search/signal friction;
+- attempting substrate changes until they succeed or hit a concrete error.
 
----
+A run is incomplete if it only observes missing capability and leaves no decision. Each finding must become one of:
+
+- `act`: make local, reversible substrate improvements;
+- `probe`: validate an existing primitive or capability;
+- `workflow`: update or route a repeatable agent-owned workflow;
+- `blocked`: tried, but a command, credential, permission, dependency, verification, or runtime error prevented completion;
+- `route`: send product, strategy, planning, or reflection work to the right skill.
+
+Autonomy does not own project delivery, product code, broad refactors, or skill creation.
+
+It still reports every run. The difference is that the report is an operational accountability record, not a separate publication ritual. If autonomy acts, the report must make the action auditable: decision, evidence, changed surface, verification readback, residual risk, and next route.
+
+## Runtime Boundary
+
+Use the runtime-injected pre-skill context as the starting point.
+
+Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill. The runtime owns those mechanics.
+
+When editing protected state or shared protocols, follow the shared state protocol. Prefer lifecycle tools and read models over hand-editing raw state.
+
+Use the shared source lookup protocol only when a substrate decision depends on current external tool behavior, ecosystem practice, or comparable implementations.
 
 ## Primary Inputs
 
-### 1. Primitive status is the canonical source
-
-Use:
+Use read models first:
 
 ```bash
 edge-cap status --json --skill autonomy
-```
-
-This is the main scoreboard for capability coverage. It already joins:
-
-- static CLI wrappers from `config/capabilities.yaml`
-- runtime-declared and materialized primitives
-- recent capability probes/invocations
-
-When you need primitive-specific details, drill down with:
-
-```bash
 edge-primitives status --json
 ```
 
-That primitive read model already joins:
+These are the canonical sources for capability and primitive state. They combine configuration, materialized primitives, probe results, and recent usage.
 
-- `state/sources-manifest.yaml`
-- local meta/binary files
-- recent usage
-- recent probe history
+Also inspect when relevant:
 
-Do not manually diff raw files when the read model already explains the state.
+- `state/source-affordance-digest.json`;
+- runtime capability and workflow status;
+- operational signals such as autonomy, friction, cost, reflection, and serendipity;
+- recent failed or repeated tool/search/signal paths;
+- local workflow and primitive usage evidence.
 
-Important statuses:
-
-- `active`
-- `probed`
-- `degraded`
-- `broken`
-
-Use `manifest_status` and `problems` for the distinction between a merely
-declared source and a contract-written source that still is not activated.
-
-### 2. Source affordance digest
-
-Read:
-
-- `state/source-affordance-digest.json`
-
-Use it to decide which atomic sources/channels work for which affordances
-(`novelty`, `confirmation`, `continuity`, `operational_signal`, etc.).
-The unit of learning is the source/channel, not the wrapper.
-
-### 3. Operational signals
-
-Read the relevant signals and current context:
-
-- `~/edge/briefing.md`
-- `state/signals/`
-- recent artifacts when a workflow decision depends on concrete prior evidence
-
-Prefer the digested state first. Read raw files only when you need details.
-
----
+Read raw manifests or logs only when the read model cannot answer the question.
 
 ## Decision Policy
 
-### Workflow limits
+Autonomy should sweep the whole substrate and try all substrate work it can reach in the current run. It should not stop after one primitive, and it should not skip a candidate just because it looks weak, speculative, or low priority.
 
-- no skill proposals
-- no new `state/proposals.json` entries from autonomy
-- max 1 workflow change or primitive materialization per run
-- workflow changes need: what, why, evidence, cost
+The default is attempt. The only valid reason for not completing substrate work is that the attempt hit a real blocker: missing command, missing credential, permission failure, dependency failure, failing probe, verification mismatch, destructive-only path, or other concrete runtime error.
 
-### Approval rules
+Limits:
 
-| Action | Approval |
-|---|---|
-| Create or improve local primitive | Auto |
-| Add or remove source | Auto |
-| Record source/channel affordance grade | Auto |
-| Update agent-owned search/signal workflow | Auto |
-| Propose or create a new skill | Not allowed |
-| Create a general proposal | Human |
-| Modify runtime protocol procedure (`preflight.yaml`) | Human |
-| Modify runtime protocol context (`preflight.yaml`) | Human |
-| External action | Human |
+- no skill proposals;
+- no general proposal entries;
+- no product implementation;
+- every mutation needs intended effect and readback;
+- batch actions must isolate failures so one broken item does not prevent independent attempts.
 
-Autonomy should spend most beats pruning, deepening, or materializing, not
-opening new fronts.
+## Candidate Discovery
 
----
+Treat all substrate candidates as attemptable unless they are outside autonomy's ownership.
+
+Candidate examples:
+
+- broken or degraded primitives blocking current work;
+- active primitives that have never been probed;
+- repeated manual search/signal/tool pattern that can become a local workflow;
+- source/channel affordance repeatedly confirmed by actual use;
+- local wrapper that removes recurring operational friction;
+- stale primitive or workflow that is confusing routing or wasting effort.
+
+Weak demand is not a reason to skip. If a candidate can be attempted cheaply inside the agent-owned substrate, try it. If the attempt fails, record the exact failure and continue.
 
 ## Primitive Lifecycle
 
-When autonomy works on primitives, use the lifecycle commands, not hand-edits.
+Use lifecycle commands when they exist.
 
-### Contract
+Contract:
 
 ```bash
 edge-primitive-lifecycle contract <name> --description "..."
 ```
 
-Use this when a source is declared but not yet specified well enough to build.
-
-### Materialize
-
-Write the executable, then register it:
+Materialize:
 
 ```bash
 edge-primitive-lifecycle materialize <name>
 ```
 
-### Probe
-
-Validate the primitive explicitly:
+Probe:
 
 ```bash
 edge-primitive-lifecycle probe <name> -- <probe command>
 ```
 
-### Readback
-
-After any lifecycle mutation, read the status again:
+Read back after mutation:
 
 ```bash
 edge-cap status --json --skill autonomy
 ```
 
-That readback is the canonical proof of the new state.
+The readback is the proof. Do not infer success from the file edit alone.
 
----
+## Method
 
-## What to Look For
+### 1. Read The Substrate
 
-Strong autonomy candidates:
+Start from capability and primitive read models. Identify degraded, broken, unprobed, unused, duplicated, or high-friction items.
 
-- `degraded` primitives with real usage pressure
-- `active` primitives never probed
-- `broken` or `degraded` primitives affecting current work
-- source/channel affordances repeatedly confirmed by ODIs
-- search/signal workflows repeatedly rediscovered in artifacts
+### 2. Build The Attempt Queue
 
-Weak candidates:
+For each candidate, define:
 
-- optional declared sources with no demand
-- cosmetic rewrites without operational payoff
-- speculative additions with no evidence trail
+- what will be attempted;
+- which command/file/tool is involved;
+- how success will be verified;
+- what error would block completion.
 
----
+Do not discard candidates for low priority. Ordering is allowed; skipping before trying is not.
 
-## Bootstrap vs Steady State
+### 3. Attempt The Queue
 
-### Bootstrap
+Attempt every substrate action found in the sweep:
 
-Early in a new instance, autonomy may materialize rough primitives quickly to
-reduce friction. Keep them small, local, and functional.
+- probe existing capability;
+- materialize or improve local primitives;
+- update local source/signal workflows;
+- remove or archive stale substrate items;
+- route the issue elsewhere.
 
-### Steady state
+If an action requires a missing credential, missing dependency, unavailable network route, unavailable command, irreversible external mutation, or destructive-only path, attempt the smallest probe/setup/read-only version first. If that fails or proves impossible, record it as `blocked` with the exact error.
 
-Later, autonomy should mostly:
+### 4. Apply Batch And Read Back
 
-- harden frequently used primitives
-- probe what exists
-- remove drift
-- consolidate repeated search/signal patterns into workflows
+Before changing files, state the batch: what will be attempted and how each item will be verified.
 
----
+After each mutation, run the relevant probe or status readback. If one item fails, handle that item without invalidating the whole batch: revert your own incomplete local mutation when appropriate, or mark that substrate item blocked/degraded with the exact error and continue with independent attempts.
 
-## Anti-Gaming
+### 5. Close With Decision
 
-- More agency does not mean more surface area every beat.
-- Repeated operator rejection means calibration is off.
-- Primitive work without evidence from `edge-cap status --json` or
-  recent usage is weak.
-- Do not convert uncertainty into a skill proposal. Convert repeated search or
-  signal evidence into workflow learning, or leave it for human directive.
+Return a concise operational report:
 
----
+```markdown
+Autonomy Sweep: <scope>
+Actions Completed:
+- <target> -> <action> -> <readback>
 
-## Hard Rules
+Blocked After Attempt:
+- <target> -> <attempted action> -> <exact error/blocker>
 
-- Do not hand-edit `state/sources-manifest.yaml` when lifecycle commands exist.
-- Do not infer primitive health from one file when the read model exists.
+Routed:
+- <target> -> <skill/action>
+
+Residual Risk: <what may still be wrong>
+Next: <remaining work or next sweep focus>
+```
+
+## Routing
+
+- repeated mistake or stale operating rule -> `ed-reflection`;
+- stale claims, project sequencing, or action queue -> `ed-strategy`;
+- external-practice question after local attempt fails -> `ed-research`;
+- product or implementation plan -> `ed-planner`;
+- internal relationships between capabilities, workflows, and projects -> `ed-map`;
+- current state summary -> status/context tool.
+
+## Invariants
+
+- Read models before raw files.
+- Sweep the whole substrate and attempt every reachable substrate improvement.
+- Do not skip because priority, demand, or evidence seems weak.
+- Only mark work not done after a concrete failed attempt or hard blocker.
 - Do not create skill proposals.
-- Do not create new `state/proposals.json` entries.
-- Do not escalate to human approval for things that are explicitly auto-local.
-- Do not skip the full artifact rite when autonomy makes a real change.
+- Verification readback is part of the action, not optional.

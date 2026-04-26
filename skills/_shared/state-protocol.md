@@ -144,6 +144,22 @@ See `~/.claude/skills/_shared/workflow-conventions.md` for lifecycle details.
 
 ---
 
+## Source Lookup
+
+When a skill needs external evidence, recent information, examples, public discussions, papers, repositories, or broader context, use the source capability wrapper:
+
+```bash
+edge-cap invoke sources.aggregate -- "topic" --intent <skill>
+```
+
+The current implementation behind that capability is `edge-sources` (plural). Do not use `edge-source` singular; it is not the current command.
+
+Use direct web search only as a complement when the source capability does not cover the needed page, document, or precise verification target.
+
+The output artifact should say which source routes were used and how they changed the analysis. If source lookup is unavailable or degraded, surface that limitation instead of silently proceeding as if external context was checked.
+
+---
+
 ## Full Flow (with status changes)
 
 ### Step 1: Execute skill + note in scratchpad

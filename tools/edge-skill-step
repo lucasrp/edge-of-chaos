@@ -39,8 +39,6 @@ SKILL_ALIASES = {
     "autonomia": "ed-autonomia",
     "report": "ed-relatorio",
     "relatorio": "ed-relatorio",
-    "experiment": "ed-experimento",
-    "experimento": "ed-experimento",
     "planner": "ed-planejar",
     "planejar": "ed-planejar",
     "plan": "ed-planejar",
