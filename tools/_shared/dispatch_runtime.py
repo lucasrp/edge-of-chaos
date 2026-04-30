@@ -7,7 +7,9 @@ import os
 import re
 import subprocess
 import sys
+import fcntl
 from collections import deque
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -109,11 +111,20 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
+def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+@contextmanager
+def _dispatch_queue_lock():
+    lock_path = DISPATCH_QUEUE_FILE.parent / ".dispatch-queue.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
 
 
 def read_dispatch_state() -> dict[str, Any]:
@@ -161,6 +172,112 @@ def _normalize_skill_name(skill: str | None) -> str:
     if EDGE_INSTANCE and raw.startswith(f"{EDGE_INSTANCE}-"):
         return raw[len(EDGE_INSTANCE) + 1 :]
     return raw
+
+
+def ack_dispatch_queue_entry(
+    *,
+    skill: str,
+    source: str,
+    entry_id: str | None = None,
+    cycle_id: str | None = None,
+    reason: str = "manual_ack",
+) -> dict[str, Any]:
+    """Remove one dispatch-queue entry through an explicit command contract."""
+    normalized_skill = _normalize_skill_name(skill)
+    normalized_source = str(source or "").strip()
+    expected_entry_id = str(entry_id or "").strip()
+
+    with _dispatch_queue_lock():
+        queue = _read_json(DISPATCH_QUEUE_FILE, [])
+        if not isinstance(queue, list):
+            queue = []
+
+        before_total = len(queue)
+        removed_entry: dict[str, Any] | None = None
+        kept: list[Any] = []
+        for item in queue:
+            if not isinstance(item, dict) or removed_entry is not None:
+                kept.append(item)
+                continue
+
+            item_skill = _normalize_skill_name(item.get("skill"))
+            item_source = str(item.get("source") or "").strip()
+            item_entry_id = str(item.get("entry_id") or "").strip()
+            skill_matches = item_skill == normalized_skill
+            source_matches = item_source == normalized_source
+            id_matches = not expected_entry_id or item_entry_id == expected_entry_id
+            if skill_matches and source_matches and id_matches:
+                removed_entry = item
+            else:
+                kept.append(item)
+
+        if removed_entry is not None:
+            _write_json(DISPATCH_QUEUE_FILE, kept)
+
+    result = {
+        "ok": True,
+        "removed": removed_entry is not None,
+        "skill": normalized_skill,
+        "source": normalized_source,
+        "entry_id": expected_entry_id or (removed_entry or {}).get("entry_id"),
+        "reason": reason,
+        "cycle_id": cycle_id,
+        "before_total": before_total,
+        "after_total": len(kept) if removed_entry is not None else before_total,
+        "queue_path": str(DISPATCH_QUEUE_FILE),
+        "removed_entry": removed_entry,
+    }
+    if removed_entry is not None:
+        emit_shadow_event(
+            "DispatchQueueEntryAcknowledged",
+            actor="edge-dispatch",
+            cycle_id=cycle_id,
+            payload={
+                "skill": normalized_skill,
+                "source": normalized_source,
+                "entry_id": result.get("entry_id"),
+                "reason": reason,
+                "before_total": before_total,
+                "after_total": result["after_total"],
+            },
+        )
+        log_event(
+            "dispatch_queue",
+            actor="edge-dispatch",
+            cycle_id=cycle_id,
+            action="acknowledged",
+            skill=normalized_skill,
+            source=normalized_source,
+            entry_id=result.get("entry_id") or "",
+            reason=reason,
+        )
+    return result
+
+
+def ack_dispatch_queue_for_completed_cycle(state: dict[str, Any]) -> dict[str, Any] | None:
+    """Ack the queue head captured by preflight when the selected skill completed."""
+    request = state.get("request", {}) or {}
+    queue_summary = request.get("dispatch_queue_summary") or {}
+    head = queue_summary.get("head") if isinstance(queue_summary, dict) else None
+    if not isinstance(head, dict):
+        return None
+
+    selected_skill = _normalize_skill_name(request.get("skill"))
+    queued_skill = _normalize_skill_name(head.get("skill"))
+    if not selected_skill or selected_skill != queued_skill:
+        return None
+
+    source = str(head.get("source") or "").strip()
+    if not source:
+        return None
+
+    return ack_dispatch_queue_entry(
+        skill=selected_skill,
+        source=source,
+        entry_id=str(head.get("entry_id") or "").strip() or None,
+        cycle_id=state.get("cycle_id"),
+        reason="completed_cycle",
+    )
 
 
 def _heartbeat_skill_active(state: dict[str, Any], skill: str | None = None) -> bool:
