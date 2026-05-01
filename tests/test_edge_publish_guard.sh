@@ -4,6 +4,10 @@ set -euo pipefail
 EDGE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_BASE="$(mktemp -d /tmp/edge-publish-guard-XXXXXX)"
 TMP_EDGE="$TMP_BASE/edge"
+MANUAL_OUT="$TMP_BASE/manual.out"
+OPERATOR_OUT="$TMP_BASE/operator.out"
+EXPIRED_OUT="$TMP_BASE/expired.out"
+ACTIVE_OPERATOR_OUT="$TMP_BASE/active-operator.out"
 PASS=0
 FAIL=0
 
@@ -87,18 +91,18 @@ else
 fi
 
 echo "--- Test 3: active heartbeat without publisher cycle allows manual publish ---"
-if "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/manual.md" >/tmp/edge-publish-guard-manual.out; then
+if "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/manual.md" >"$MANUAL_OUT"; then
     pass "guard allows unscoped manual publish while heartbeat is active"
 else
-    cat /tmp/edge-publish-guard-manual.out
+    cat "$MANUAL_OUT"
     fail "guard allows unscoped manual publish while heartbeat is active"
 fi
 
 echo "--- Test 4: different publisher cycle allows parallel operator publish ---"
-if EDGE_CYCLE_ID=cycle-operator-work "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/operator.md" >/tmp/edge-publish-guard-operator.out; then
+if EDGE_CYCLE_ID=cycle-operator-work "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/operator.md" >"$OPERATOR_OUT"; then
     pass "guard allows different-cycle operator publish while heartbeat is active"
 else
-    cat /tmp/edge-publish-guard-operator.out
+    cat "$OPERATOR_OUT"
     fail "guard allows different-cycle operator publish while heartbeat is active"
 fi
 
@@ -144,15 +148,15 @@ cat >"$DISPATCH_FILE" <<JSON
 }
 JSON
 
-if EDGE_CYCLE_ID=cycle-heartbeat-expired "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/expired.md" --json >/tmp/edge-publish-guard-expired.out; then
-    if grep -q "expired_heartbeat_cycle" /tmp/edge-publish-guard-expired.out; then
+if EDGE_CYCLE_ID=cycle-heartbeat-expired "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/expired.md" --json >"$EXPIRED_OUT"; then
+    if grep -q "expired_heartbeat_cycle" "$EXPIRED_OUT"; then
         pass "guard ignores expired heartbeat cycles"
     else
-        cat /tmp/edge-publish-guard-expired.out
+        cat "$EXPIRED_OUT"
         fail "guard reports expired heartbeat cycles"
     fi
 else
-    cat /tmp/edge-publish-guard-expired.out
+    cat "$EXPIRED_OUT"
     fail "guard ignores expired heartbeat cycles"
 fi
 
@@ -171,15 +175,15 @@ cat >"$DISPATCH_FILE" <<'JSON'
 }
 JSON
 
-if EDGE_CYCLE_ID=cycle-operator "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/operator-active.md" --json >/tmp/edge-publish-guard-active-operator.out; then
-    if grep -q "non_heartbeat_cycle" /tmp/edge-publish-guard-active-operator.out; then
+if EDGE_CYCLE_ID=cycle-operator "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/operator-active.md" --json >"$ACTIVE_OPERATOR_OUT"; then
+    if grep -q "non_heartbeat_cycle" "$ACTIVE_OPERATOR_OUT"; then
         pass "guard allows active operator cycles"
     else
-        cat /tmp/edge-publish-guard-active-operator.out
+        cat "$ACTIVE_OPERATOR_OUT"
         fail "guard reports active operator cycles"
     fi
 else
-    cat /tmp/edge-publish-guard-active-operator.out
+    cat "$ACTIVE_OPERATOR_OUT"
     fail "guard allows active operator cycles"
 fi
 
