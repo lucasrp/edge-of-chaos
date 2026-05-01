@@ -91,6 +91,7 @@ export EDGE_EXPLORE_SKIP_SOURCES=1
 export MEMORY_PROJECT_DIR="test-project"
 export HOME="$TMP_HOME"
 export EDGE_OPERATOR_PRESSURE_DISABLE_LLM=1
+export EDGE_OPERATOR_PRESSURE_WINDOW_DAYS=30
 
 RUNNER_TOOL="$EDGE_DIR/tools/edge-runner"
 
@@ -185,6 +186,9 @@ assert request["operator_pressure_digest"]["operator_toil_optimizable_now"]
 assert request["operator_pressure_digest"]["substrate_gap_requests"]
 assert "mistakes_to_avoid_now" in request["operator_pressure_digest"]
 assert request["operator_pressure_digest"]["active_entities"]
+assert request["operator_pressure"]["projection"]["projection_status"] in ("fresh", "refreshed")
+assert request["operator_pressure"]["projection"]["path"].endswith("/state/projections/operator-pressure.json")
+assert request["delta_prerequisite"]["inputs"]["raw_chat"]["source_paths"]["projection"].endswith("/state/projections/operator-pressure.json")
 assert request["beat_launch_context"]["signal_from_operator_now"]
 assert request["beat_launch_context"]["signal_from_edge_state_now"]
 assert request["beat_launch_context"]["substrate_gap_requests"]

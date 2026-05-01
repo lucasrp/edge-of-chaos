@@ -31,6 +31,7 @@ from paths import (  # noqa: E402
     ORPHAN_CLAIMS_FILE,
     OPERATOR_PRESSURE_ATOMS_FILE,
     OPERATOR_PRESSURE_HOT_DIGEST_FILE,
+    OPERATOR_PRESSURE_PROJECTION_FILE,
     OPERATOR_PRESSURE_REDIGEST_DIR,
     PREFLIGHT_LOG_FILE,
     STATE_EVENTS_FILE,
@@ -39,7 +40,7 @@ from paths import (  # noqa: E402
 )
 from .continuity import refresh_continuity_projections  # noqa: E402
 from .capability_runtime import build_capability_status, build_configured_integrations, invoke_capability, probe_capability  # noqa: E402
-from .operator_pressure import build_operator_pressure_layers  # noqa: E402
+from .operator_pressure import read_or_refresh_operator_pressure_projection  # noqa: E402
 from .protocol_runtime import emit_protocol_step_observed, ensure_compiled_protocol, protocol_context  # noqa: E402
 from .search_runtime import search_runtime_summary  # noqa: E402
 from .signal_runtime import build_signal_context  # noqa: E402
@@ -541,10 +542,11 @@ def _claims_summary() -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 def _operator_pressure_digest() -> dict[str, Any]:
-    payload = build_operator_pressure_layers()
-    summary = payload.get("summary") or {}
-    hot_digest = payload.get("hot_digest") or {}
-    ledger = payload.get("ledger") or {}
+    projection = read_or_refresh_operator_pressure_projection()
+    summary = projection.get("summary") or {}
+    hot_digest = projection.get("hot_digest") or {}
+    ledger = projection.get("ledger") or {}
+    source_paths = projection.get("source_paths") or {}
     raw_items = []
     for item in list(ledger.get("items") or ledger.get("atoms") or [])[:DELTA_CHAT_ITEM_LIMIT]:
         if not isinstance(item, dict):
@@ -565,9 +567,15 @@ def _operator_pressure_digest() -> dict[str, Any]:
         "summary": summary,
         "digest": hot_digest,
         "redigest": {
-            "generated_at": str((payload.get("redigest") or {}).get("generated_at") or ""),
-            "snapshot_hash": str((payload.get("redigest") or {}).get("snapshot_hash") or ""),
-            "source_hash": str((payload.get("redigest") or {}).get("source_hash") or ""),
+            "generated_at": str((projection.get("redigest") or {}).get("generated_at") or ""),
+            "snapshot_hash": str((projection.get("redigest") or {}).get("snapshot_hash") or ""),
+            "source_hash": str((projection.get("redigest") or {}).get("source_hash") or ""),
+        },
+        "projection": {
+            "status": projection.get("status"),
+            "projection_status": projection.get("projection_status"),
+            "path": str(source_paths.get("projection") or OPERATOR_PRESSURE_PROJECTION_FILE),
+            "generated_at": projection.get("generated_at"),
         },
         "raw_chat": {
             "available": bool(raw_items),
@@ -577,10 +585,11 @@ def _operator_pressure_digest() -> dict[str, Any]:
             "window_days": ledger.get("window_days"),
             "project_dir": ledger.get("project_dir") or summary.get("project_dir"),
             "source_paths": {
-                "ledger": summary.get("ledger_path"),
-                "atoms": summary.get("atoms_path") or str(OPERATOR_PRESSURE_ATOMS_FILE),
-                "hot_digest": summary.get("hot_digest_path") or str(OPERATOR_PRESSURE_HOT_DIGEST_FILE),
-                "redigest": summary.get("redigest_path") or str(OPERATOR_PRESSURE_REDIGEST_DIR / "latest.json"),
+                "ledger": source_paths.get("ledger") or summary.get("ledger_path"),
+                "atoms": source_paths.get("atoms") or summary.get("atoms_path") or str(OPERATOR_PRESSURE_ATOMS_FILE),
+                "hot_digest": source_paths.get("hot_digest") or summary.get("hot_digest_path") or str(OPERATOR_PRESSURE_HOT_DIGEST_FILE),
+                "redigest": source_paths.get("redigest") or summary.get("redigest_path") or str(OPERATOR_PRESSURE_REDIGEST_DIR / "latest.json"),
+                "projection": source_paths.get("projection") or str(OPERATOR_PRESSURE_PROJECTION_FILE),
             },
             "recent_items": raw_items,
         },
@@ -898,6 +907,7 @@ def _delta_raw_chat_context(request: dict[str, Any]) -> dict[str, Any]:
             "atoms": summary.get("atoms_path") or str(OPERATOR_PRESSURE_ATOMS_FILE),
             "hot_digest": summary.get("hot_digest_path") or str(OPERATOR_PRESSURE_HOT_DIGEST_FILE),
             "redigest": summary.get("redigest_path") or str(OPERATOR_PRESSURE_REDIGEST_DIR / "latest.json"),
+            "projection": str(OPERATOR_PRESSURE_PROJECTION_FILE),
         }
     recent_items = raw.get("recent_items")
     if not isinstance(recent_items, list):
@@ -1504,6 +1514,7 @@ def _execute_preflight_step(
         pressure = _operator_pressure_digest()
         digest = pressure.get("digest") or {}
         summary = pressure.get("summary") or {}
+        projection = pressure.get("projection") or {}
         request["operator_pressure"] = pressure
         request["operator_pressure_digest"] = digest
         request["operator_pressure_summary"] = summary
@@ -1517,7 +1528,8 @@ def _execute_preflight_step(
                 f"toil={summary.get('operator_toil_optimizable_now', 0)} "
                 f"workflow_candidates={summary.get('workflow_candidates', 0)} "
                 f"capability_candidates={summary.get('capability_candidates', 0)} "
-                f"substrate_gap_requests={summary.get('substrate_gap_requests', 0)}"
+                f"substrate_gap_requests={summary.get('substrate_gap_requests', 0)} "
+                f"projection={projection.get('projection_status') or projection.get('status') or 'unknown'}"
             ),
             extra={
                 "item_total": int(summary.get("item_total", 0) or 0),
@@ -1527,6 +1539,7 @@ def _execute_preflight_step(
                 "capability_candidates": int(summary.get("capability_candidates", 0) or 0),
                 "substrate_gap_requests": int(summary.get("substrate_gap_requests", 0) or 0),
                 "render_mode": str(summary.get("render_mode") or ""),
+                "projection_status": str(projection.get("projection_status") or projection.get("status") or ""),
             },
         )
 

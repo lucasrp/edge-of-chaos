@@ -36,6 +36,7 @@ Keep these concerns separate:
    - compact LLM-generated render derived from the canonical items
    - injected into preflight
    - optimized for current decision-making, not archival storage
+   - materialized as the CQRS read model at `state/projections/operator-pressure.json`
 
 3. **Periodic redigest snapshots**
    - consolidated, reviewable artifacts derived from the canonical items
