@@ -78,7 +78,33 @@ else
   fail "check-infra execution failed"
 fi
 
-echo "--- Test 3: edge-repair reindexes state paths ---"
+echo "--- Test 3: check-content truncates oversized glob scans ---"
+mkdir -p "$TMP_STATE/content/blog" "$TMP_STATE/health" "$TMP_STATE/threads"
+for i in 1 2 3 4 5; do
+  printf -- '---\ntitle: Entry %s\n---\n' "$i" > "$TMP_STATE/content/blog/entry-$i.md"
+done
+cat >"$TMP_STATE/health/config.yaml" <<YAML
+monitored_files:
+  - path: "$TMP_STATE/content/blog"
+    glob: "*.md"
+    category: blog
+    threshold_days: 9999
+monitored_skills: []
+YAML
+
+if env HOME="$TMP_HOME" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" EDGE_CONTENT_MAX_FILES=3 bash "$EDGE_DIR/bin/check-content.sh" >/dev/null 2>&1; then
+  content_status="$(jq -r '.status' "$TMP_STATE/health/raw/content.json" 2>/dev/null || echo "missing")"
+  content_detail="$(jq -r '.detail' "$TMP_STATE/health/raw/content.json" 2>/dev/null || echo "")"
+  if [[ "$content_status" == "degraded" ]] && [[ "$content_detail" == *"scan_truncated=3/5 limit=3"* ]]; then
+    pass "check-content reports bounded scans instead of walking every file"
+  else
+    fail "check-content truncation detail unexpected: status=$content_status detail=$content_detail"
+  fi
+else
+  fail "check-content execution failed"
+fi
+
+echo "--- Test 4: edge-repair reindexes state paths ---"
 mkdir -p "$TMP_STATE/blog/entries" "$TMP_STATE/reports" "$TMP_STATE/notes"
 cat >"$TMP_STATE/health/current.json" <<'JSON'
 {
@@ -110,7 +136,7 @@ else
   fail "edge-repair execution failed"
 fi
 
-echo "--- Test 4: heartbeat-preflight reads health from state root ---"
+echo "--- Test 5: heartbeat-preflight reads health from state root ---"
 cp "$EDGE_DIR/tools/heartbeat-preflight.sh" "$TMP_REPO/tools/heartbeat-preflight.sh"
 cp "$EDGE_DIR/config/paths.sh" "$TMP_REPO/config/paths.sh"
 cat >"$TMP_REPO/bin/edge-check.sh" <<'EOF'

@@ -50,6 +50,8 @@ from .workflow_runtime import build_workflow_status  # noqa: E402
 
 REQUEST_SCHEMA_VERSION = 1
 RECENT_DUPLICATE_HOURS = 36
+CORPUS_REQUIRED_TYPES = ["workflow", "memory"]
+CORPUS_OPTIONAL_TYPES = ["topic"]
 HEARTBEAT_FAIRNESS_SKILLS = (
     "autonomy",
     "reflection",
@@ -1142,7 +1144,8 @@ def _search_protocol(skill: str | None, request: dict[str, Any]) -> dict[str, An
         "required": substantive,
         "policy": "complete before substantive decisions, synthesis, or artifact drafting",
         "query_seed": corpus_query,
-        "required_internal_coverage": ["topic", "workflow", "memory"],
+        "required_internal_coverage": list(CORPUS_REQUIRED_TYPES),
+        "optional_internal_coverage": list(CORPUS_OPTIONAL_TYPES),
         "rounds": [
             {
                 "id": "search_round_1",
@@ -1152,10 +1155,11 @@ def _search_protocol(skill: str | None, request: dict[str, Any]) -> dict[str, An
                 "internal_search": {
                     "tool": "edge-search",
                     "available_status": internal_status,
-                    "require_types": ["topic", "workflow", "memory"],
+                    "require_types": list(CORPUS_REQUIRED_TYPES),
+                    "optional_types": list(CORPUS_OPTIONAL_TYPES),
                     "multiple_sources_required": True,
                     "notes": [
-                        "Run edge-search with required coverage for topic, workflow, and memory.",
+                        "Run edge-search with required coverage for workflow and memory; topic coverage is useful but optional until a topic producer exists.",
                         "Branch into at least one follow-up internal query if the first pass is vague or low-signal.",
                     ],
                 },
@@ -1190,7 +1194,8 @@ def _search_protocol(skill: str | None, request: dict[str, Any]) -> dict[str, An
                 "internal_search": {
                     "tool": "edge-search",
                     "available_status": internal_status,
-                    "require_types": ["topic", "workflow", "memory"],
+                    "require_types": list(CORPUS_REQUIRED_TYPES),
+                    "optional_types": list(CORPUS_OPTIONAL_TYPES),
                     "multiple_sources_required": True,
                 },
                 "external_search": {
@@ -1367,7 +1372,7 @@ def _hours_since(value: str) -> float | None:
 
 def corpus_lookup(query: str | None, *, skill: str | None = None, corpus_policy: str = "warn") -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if not query:
-        return [], {"level": "none", "recent_hits": [], "reason": "no_query", "coverage": {"required": [], "optional": [], "required_covered": False, "missing_required_types": ["topic", "workflow", "memory"]}}
+        return [], {"level": "none", "recent_hits": [], "reason": "no_query", "coverage": {"required": [], "optional": [], "required_covered": False, "missing_required_types": list(CORPUS_REQUIRED_TYPES)}}
 
     try:
         code, stdout, stderr = _run_subprocess(
@@ -1375,11 +1380,11 @@ def corpus_lookup(query: str | None, *, skill: str | None = None, corpus_policy:
                 str(EDGE_REPO_DIR / "search" / "edge-search"),
                 "--json",
                 "--require-type",
-                "topic",
-                "--require-type",
                 "workflow",
                 "--require-type",
                 "memory",
+                "--optional-type",
+                "topic",
                 "-k",
                 "6",
                 query,
@@ -1393,7 +1398,7 @@ def corpus_lookup(query: str | None, *, skill: str | None = None, corpus_policy:
         results = payload.get("results") or []
         coverage = payload.get("coverage") or {}
     except Exception as exc:
-        return [], {"level": "none", "recent_hits": [], "reason": f"search_failed:{exc}", "coverage": {"required": [], "optional": [], "required_covered": False, "missing_required_types": ["topic", "workflow", "memory"]}}
+        return [], {"level": "none", "recent_hits": [], "reason": f"search_failed:{exc}", "coverage": {"required": [], "optional": [], "required_covered": False, "missing_required_types": list(CORPUS_REQUIRED_TYPES)}}
 
     hits = []
     recent_hits = []
@@ -1741,7 +1746,7 @@ def enrich_dispatch_state(
     request["dispatch_reason"] = request.get("dispatch_reason") or state_block.get("phase") or "runtime"
     request["linked_threads"] = [primary_thread_id] if primary_thread_id else []
     request.setdefault("duplicate_risk", {"level": "none", "recent_hits": [], "reason": "unchecked"})
-    request.setdefault("corpus_coverage", {"required": [], "optional": [], "required_covered": False, "missing_required_types": ["topic", "workflow", "memory"]})
+    request.setdefault("corpus_coverage", {"required": [], "optional": [], "required_covered": False, "missing_required_types": list(CORPUS_REQUIRED_TYPES)})
     request.setdefault("corpus_hits", [])
     request.setdefault("configured_integrations", [])
     request.setdefault("unbound_integrations", [])

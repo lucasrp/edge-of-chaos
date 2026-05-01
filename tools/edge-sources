@@ -20,10 +20,15 @@ from urllib.request import urlopen, Request
 from urllib.parse import quote, urlencode
 import xml.etree.ElementTree as ET
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover
+    yaml = None
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 sys.path.insert(0, str(SCRIPT_DIR.parent / "tools"))
-from paths import EDGE_REPO_DIR, TOOLS_DIR, SECRETS_DIR
+from paths import EDGE_REPO_DIR, TOOLS_DIR, SECRETS_DIR, SOURCES_MANIFEST_FILE
 from _shared.telemetry import make_odi_id, log_odi_observed, log_primitive_call, log_run_step, log_source_query
 from _shared.search_runtime import (
     clear_builtin_web_search_allowance,
@@ -43,6 +48,7 @@ ROUTING = {
     'report':     {'primary': ['hn', 'arxiv', 'semantic_scholar', 'exa'], 'secondary': ['x', 'reddit', 'github', 'hf_papers']},
 }
 
+MANAGED_CLAUDE_SOURCE = 'claude_builtin'
 ALL_SOURCES = ['x', 'hn', 'arxiv', 'semantic_scholar', 'reddit', 'github', 'hf_papers', 'exa']
 
 
@@ -280,6 +286,28 @@ def search_exa(topic):
         return [{"title": f"Exa error: {e}", "url": "", "source": "Exa", "detail": "", "score": 0}]
 
 
+def search_claude_builtin(topic):
+    """Open a managed Claude WebSearch allowance for this query."""
+    allowance = write_builtin_web_search_allowance(
+        "managed_source_selected",
+        query=topic,
+        provider="claude_builtin",
+        source="edge-sources",
+        details={"selected_source": MANAGED_CLAUDE_SOURCE},
+    )
+    return [
+        {
+            "title": "Claude WebSearch managed fallback unlocked",
+            "url": "",
+            "source": "Claude WebSearch",
+            "detail": f"Call Claude WebSearch for this query before {allowance.get('expires_at')}.",
+            "score": 0,
+            "allowance_expires_at": allowance.get("expires_at", ""),
+            "managed_web_search": True,
+        }
+    ]
+
+
 # --- Internal corpus (issue #381) ---
 
 def search_corpus(topic):
@@ -334,6 +362,7 @@ SOURCE_FN = {
     'github': search_github,
     'hf_papers': search_hf_papers,
     'exa': search_exa,
+    MANAGED_CLAUDE_SOURCE: search_claude_builtin,
 }
 
 
@@ -344,6 +373,38 @@ def pick_wildcard(selected_sources):
     """
     candidates = [s for s in ALL_SOURCES if s not in selected_sources and s != 'corpus']
     return random.choice(candidates) if candidates else None
+
+
+def _primary_search_sources_from_manifest():
+    if yaml is None or not SOURCES_MANIFEST_FILE.exists():
+        return []
+    try:
+        manifest = yaml.safe_load(SOURCES_MANIFEST_FILE.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return []
+    items = manifest.get("sources") if isinstance(manifest, dict) else []
+    if not isinstance(items, list):
+        return []
+    selected = []
+    for item in items:
+        if not isinstance(item, dict) or not item.get("primary"):
+            continue
+        name = str(item.get("name") or "").strip()
+        roles = [str(role).strip() for role in (item.get("roles") or []) if str(role).strip()]
+        if name in SOURCE_FN and (not roles or "search" in roles):
+            selected.append(name)
+    return selected
+
+
+def select_sources_for_intent(intent, *, override=""):
+    if override:
+        return [s.strip() for s in override.split(",") if s.strip() in SOURCE_FN], "override"
+    route = ROUTING.get(intent, ROUTING['research'])
+    primary_sources = _primary_search_sources_from_manifest()
+    if primary_sources:
+        selected = primary_sources + [src for src in route['secondary'] if src not in primary_sources]
+        return selected, "manifest_primary"
+    return [MANAGED_CLAUDE_SOURCE], "managed_claude_default"
 
 
 def run_sources(topic, sources, max_workers=6, *, run_id="", intent="", wildcard_src=None):
@@ -734,16 +795,13 @@ def main():
     if not args.topic:
         parser.error("topic is required (unless --front-page)")
 
-    # Select sources
-    if args.sources:
-        sources = [s.strip() for s in args.sources.split(",") if s.strip() in SOURCE_FN]
-        if not sources:
-            parser.error(f"No valid sources. Available: {', '.join(SOURCE_FN.keys())}")
-        route_mode = "override"
-    else:
-        route = ROUTING.get(args.intent, ROUTING['research'])
-        sources = route['primary'] + route['secondary']
-        route_mode = "intent"
+    # Select sources. A source marked `primary: true` in agent.yaml is
+    # materialized into state/sources-manifest.yaml by render/apply and wins.
+    # Without an explicit primary source, open-web search uses Claude WebSearch
+    # only through this wrapper so telemetry still records the route.
+    sources, route_mode = select_sources_for_intent(args.intent, override=args.sources)
+    if not sources:
+        parser.error(f"No valid sources. Available: {', '.join(SOURCE_FN.keys())}")
 
     # Corpus is always queried first unless explicitly opted out (issue #381).
     # This removes the possibility of skipping prior knowledge before going
@@ -753,7 +811,7 @@ def main():
 
     # Wildcard: one random source outside the routing (forced serendipity)
     wildcard_src = None
-    if not args.no_wildcard and not args.sources:
+    if not args.no_wildcard and not args.sources and route_mode != "managed_claude_default":
         wildcard_src = pick_wildcard(sources)
         if wildcard_src:
             sources.append(wildcard_src)

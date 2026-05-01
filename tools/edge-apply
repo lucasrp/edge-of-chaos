@@ -376,7 +376,7 @@ def load_config(path: Path) -> dict:
     # instead of silently rebaixando pra 2h like the old hardcoded map did.
     parse_interval(cfg["heartbeat_interval"])
     cfg["systemd_interval"] = cfg["heartbeat_interval"]
-    cfg["memory_project_dir"] = cfg["edge_home_expanded"].rstrip("/").replace("/", "-").lstrip("-")
+    cfg["memory_project_dir"] = cfg["edge_home_expanded"].rstrip("/").replace("/", "-")
     return cfg
 
 

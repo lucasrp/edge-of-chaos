@@ -73,6 +73,8 @@ mod = importlib.util.module_from_spec(spec)
 loader.exec_module(mod)
 
 cfg = mod.load_agent_yaml(Path(config_path))
+assert cfg["memory_project_dir"] == str(Path(cfg["edge_home_expanded"]).resolve()).rstrip("/").replace("/", "-")
+assert cfg["memory_project_dir"].startswith("-"), cfg["memory_project_dir"]
 placeholders = mod.build_placeholder_map(cfg)
 mod.render_all(repo, placeholders, dry_run=False)
 

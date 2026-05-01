@@ -123,35 +123,44 @@ date: 2026-04-01
 tags: [workflow]
 ---
 MD
-cat >"$TMP_STATE/state/workflow-health.json" <<'JSON'
+ts_recent_1="$(date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%S+00:00)"
+ts_recent_2="$(date -u -d '5 hours ago' +%Y-%m-%dT%H:%M:%S+00:00)"
+ts_recent_3="$(date -u -d '4 hours ago' +%Y-%m-%dT%H:%M:%S+00:00)"
+ts_recent_4="$(date -u -d '3 hours ago' +%Y-%m-%dT%H:%M:%S+00:00)"
+ts_recent_5="$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%S+00:00)"
+ts_recent_6="$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S+00:00)"
+ts_recent_7="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%S+00:00)"
+ts_old="$(date -u -d '120 days ago' +%Y-%m-%dT%H:%M:%S+00:00)"
+
+cat >"$TMP_STATE/state/workflow-health.json" <<JSON
 {
   "citations": {
-    "2026-04-01-sources-research-consult-report": {"used": 2, "broken": 0, "last_cited": "2026-04-22T10:00:00+00:00"},
-    "2026-04-01-stale-playwright-validation": {"used": 1, "broken": 3, "last_cited": "2025-12-01T10:00:00+00:00"}
+    "2026-04-01-sources-research-consult-report": {"used": 2, "broken": 0, "last_cited": "$ts_recent_1"},
+    "2026-04-01-stale-playwright-validation": {"used": 1, "broken": 3, "last_cited": "$ts_old"}
   }
 }
 JSON
 
-cat >"$TMP_STATE/state/events/log.jsonl" <<'JSONL'
-{"ts":"2026-04-23T10:00:00+00:00","type":"CycleStarted","cycle_id":"cycle-1","payload":{}}
-{"ts":"2026-04-23T10:00:10+00:00","type":"SkillDispatched","cycle_id":"cycle-1","payload":{"skill":"research"}}
-{"ts":"2026-04-23T10:00:20+00:00","type":"SkillRunCompleted","cycle_id":"cycle-1","payload":{"skill":"research"}}
-{"ts":"2026-04-23T10:00:30+00:00","type":"PostflightCompleted","cycle_id":"cycle-1","payload":{}}
-{"ts":"2026-04-23T10:00:31+00:00","type":"CycleClosed","cycle_id":"cycle-1","payload":{}}
-{"ts":"2026-04-23T11:00:00+00:00","type":"CycleStarted","cycle_id":"cycle-2","payload":{}}
-{"ts":"2026-04-23T11:01:00+00:00","type":"HeartbeatDispatchTimedOut","cycle_id":"cycle-2","payload":{}}
-{"ts":"2026-04-23T11:02:00+00:00","type":"PostflightFailed","cycle_id":"cycle-2","payload":{}}
-{"ts":"2026-04-23T10:05:00+00:00","type":"ThreadTouched","payload":{"thread_id":"alpha-thread"}}
-{"ts":"2026-04-22T10:05:00+00:00","type":"ClaimPromotedToThread","payload":{"claim_id":"claim-x"}}
-{"ts":"2026-04-23T10:08:00+00:00","type":"WorkflowUsedObserved","payload":{"slug":"2026-04-01-sources-research-consult-report"}}
-{"ts":"2026-04-23T10:10:00+00:00","type":"PrimitiveManifestUpdated","payload":{"source":"grafana"}}
-{"ts":"2026-04-23T10:11:00+00:00","type":"PrimitiveMaterialized","payload":{"source":"grafana"}}
-{"ts":"2026-04-23T10:12:00+00:00","type":"PrimitiveProbeCompleted","payload":{"source":"grafana","ok":true}}
-{"ts":"2026-04-23T10:13:00+00:00","type":"PrimitiveBypassObserved","payload":{"source":"arxiv","capability":"source.arxiv"}}
-{"ts":"2026-04-23T10:14:00+00:00","type":"CapabilityInvocationObserved","payload":{"capability":"source.github","ok":true}}
-{"ts":"2026-04-23T10:15:00+00:00","type":"CapabilityProbeCompleted","payload":{"capability":"search.corpus","ok":false}}
-{"ts":"2026-04-23T10:16:00+00:00","type":"ProviderProbeCompleted","payload":{"provider":"exa","ok":true,"status":"ok","http_status":"200"}}
-{"ts":"2026-04-23T10:17:00+00:00","type":"ProviderProbeCompleted","payload":{"provider":"openai","ok":false,"status":"degraded","http_status":"401"}}
+cat >"$TMP_STATE/state/events/log.jsonl" <<JSONL
+{"ts":"$ts_recent_1","type":"CycleStarted","cycle_id":"cycle-1","payload":{}}
+{"ts":"$ts_recent_2","type":"SkillDispatched","cycle_id":"cycle-1","payload":{"skill":"research"}}
+{"ts":"$ts_recent_3","type":"SkillRunCompleted","cycle_id":"cycle-1","payload":{"skill":"research"}}
+{"ts":"$ts_recent_4","type":"PostflightCompleted","cycle_id":"cycle-1","payload":{}}
+{"ts":"$ts_recent_5","type":"CycleClosed","cycle_id":"cycle-1","payload":{}}
+{"ts":"$ts_recent_1","type":"CycleStarted","cycle_id":"cycle-2","payload":{}}
+{"ts":"$ts_recent_2","type":"HeartbeatDispatchTimedOut","cycle_id":"cycle-2","payload":{}}
+{"ts":"$ts_recent_3","type":"PostflightFailed","cycle_id":"cycle-2","payload":{}}
+{"ts":"$ts_recent_4","type":"ThreadTouched","payload":{"thread_id":"alpha-thread"}}
+{"ts":"$ts_recent_5","type":"ClaimPromotedToThread","payload":{"claim_id":"claim-x"}}
+{"ts":"$ts_recent_6","type":"WorkflowUsedObserved","payload":{"slug":"2026-04-01-sources-research-consult-report"}}
+{"ts":"$ts_recent_7","type":"PrimitiveManifestUpdated","payload":{"source":"grafana"}}
+{"ts":"$ts_recent_7","type":"PrimitiveMaterialized","payload":{"source":"grafana"}}
+{"ts":"$ts_recent_7","type":"PrimitiveProbeCompleted","payload":{"source":"grafana","ok":true}}
+{"ts":"$ts_recent_7","type":"PrimitiveBypassObserved","payload":{"source":"arxiv","capability":"source.arxiv"}}
+{"ts":"$ts_recent_7","type":"CapabilityInvocationObserved","payload":{"capability":"source.github","ok":true}}
+{"ts":"$ts_recent_7","type":"CapabilityProbeCompleted","payload":{"capability":"search.corpus","ok":false}}
+{"ts":"$ts_recent_7","type":"ProviderProbeCompleted","payload":{"provider":"exa","ok":true,"status":"ok","http_status":"200"}}
+{"ts":"$ts_recent_7","type":"ProviderProbeCompleted","payload":{"provider":"openai","ok":false,"status":"degraded","http_status":"401"}}
 JSONL
 
 echo "--- Test 1: rollup-health-v2 writes current.json with v2 dimensions ---"

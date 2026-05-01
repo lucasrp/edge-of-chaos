@@ -16,7 +16,11 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
 
 1. **Generate YAML** with the sections from the calling skill, using the block types below
 2. **Write YAML** to `/tmp/spec-[skill]-[slug].yaml`
-3. **Write the blog entry as a light strategic invitation, then include claims
+3. **Write the blog entry to a staging path** such as
+   `/tmp/entry-[skill]-[slug].md`. Do not write directly into
+   `~/edge/blog/entries/`; protected artifact paths are only writable by the
+   `consolidate-state` pipeline.
+4. **Write the blog entry as a light strategic invitation, then include claims
    in frontmatter** (compaction — MANDATORY). The entry body should be only a
    few concise paragraphs: frame why this matters now, explain what the
    operator gains by opening the report, and leave implementation depth to the
@@ -31,9 +35,9 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
    - `!` prefix = "I don't know" — open gap, candidate for future research.
    - `threads:` = related investigation threads (see `~/edge/threads/`).
    - `consolidate-state` warns if claims are missing.
-4. **Publish atomically** (blog entry + report HTML + meta-report + state commit):
+5. **Publish atomically** (blog entry + report HTML + meta-report + state commit):
    ```bash
-   consolidate-state ~/edge/blog/entries/<file>.md /tmp/spec-[skill]-[slug].yaml
+   consolidate-state /tmp/entry-[skill]-[slug].md /tmp/spec-[skill]-[slug].yaml
    ```
    `consolidate-state` handles everything in 7 phases:
    - Phase 0/0.5: Frontmatter + review gate
@@ -50,8 +54,8 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
 
    Useful flags: `--scratchpad PATH`, `--reason TEXT`
    (Enforcement #218: bypass flags `--skip-review`, `--no-adversarial`, `--no-meta` were removed — all phases run unconditionally.)
-5. **Read meta-report** (`~/edge/meta-reports/<slug>-meta.md`) BEFORE editing status
-6. **Read the generated HTML** (`~/edge/reports/<file>.html`) for verification
+6. **Read meta-report** (`~/edge/meta-reports/<slug>-meta.md`) BEFORE editing status
+7. **Read the generated HTML** (`~/edge/reports/<file>.html`) for verification
 
 ---
 

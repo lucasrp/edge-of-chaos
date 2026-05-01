@@ -162,6 +162,39 @@ else
     fail "probe exit 77 emits PrimitiveOperationMissingObserved"
 fi
 
+echo "--- Test 6: probe command preserves leading-dash arguments ---"
+cat >"$LIBEXEC_DIR/probe-args" <<'SH'
+#!/usr/bin/env bash
+if [ "$1" = "-f" ] && [ "$2" = "--max-time" ] && [ "$3" = "10" ]; then
+  exit 0
+fi
+exit 64
+SH
+chmod +x "$LIBEXEC_DIR/probe-args"
+EDGE_CYCLE_ID="primitive:test-probe-leading-dash" "$TOOL" probe curl-like --operation reachability --command "$LIBEXEC_DIR/probe-args" -f --max-time 10 >/dev/null
+if python3 - <<'PY' "$SHADOW_LOG"
+import json
+import sys
+from pathlib import Path
+
+events = [json.loads(line) for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+matches = [
+    event for event in events
+    if event.get("cycle_id") == "primitive:test-probe-leading-dash" and event.get("type") == "PrimitiveProbeCompleted"
+]
+assert matches
+payload = matches[-1]["payload"]
+assert payload["source"] == "curl-like"
+assert payload["exit_code"] == 0
+assert payload["ok"] is True
+assert payload["command"][-3:] == ["-f", "--max-time", "10"]
+PY
+then
+    pass "probe command preserves leading-dash arguments"
+else
+    fail "probe command preserves leading-dash arguments"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"

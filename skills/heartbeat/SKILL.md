@@ -9,8 +9,13 @@ user-invocable: true
 The heartbeat is a router, not a worker.
 
 Its only job is to choose one internal skill, dispatch it, and stop.
+It must dispatch exactly one internal skill.
+
+Direct `/ed-heartbeat` invocation is still a full beat.
 
 ## Launch Frame
+
+### Direct Slash Re-entry
 
 Assume the cycle is already open and routing fields are already prepared. Do not redo lifecycle work inside this skill.
 
@@ -23,6 +28,7 @@ fi
 ```
 
 Do not call `edge-dispatch open` or `edge-close` from the direct slash process.
+The direct invocation re-enters via `~/.local/bin/heartbeat.sh`; do not recreate the lifecycle by hand.
 
 ## Inputs
 
@@ -63,13 +69,15 @@ If multiple skills are plausible, choose the one that best reduces immediate ope
 
 ## Dispatch
 
+Router-only rule: the heartbeat dispatches the next skill and does not draft the final artifact.
+
 Dispatch exactly once:
 
 ```bash
 edge-dispatch dispatch --skill <skill>
 ```
 
-After dispatch succeeds, stop doing substantive work as heartbeat.
+After `edge-dispatch dispatch --skill <skill>` succeeds, stop doing inline work and stop doing substantive work as heartbeat.
 
 ## Invariants
 

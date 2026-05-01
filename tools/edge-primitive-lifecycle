@@ -214,6 +214,8 @@ def cmd_materialize(args: argparse.Namespace) -> int:
 
 def cmd_probe(args: argparse.Namespace) -> int:
     command = list(args.command or [])
+    if command and command[0] == "--":
+        command = command[1:]
     if not command:
         print(json.dumps({"ok": False, "error": "probe requires --command ..."}, ensure_ascii=False))
         return 2
@@ -276,7 +278,7 @@ def build_parser() -> argparse.ArgumentParser:
     probe = sub.add_parser("probe", help="Run a probe command and record the lifecycle fact")
     probe.add_argument("source")
     probe.add_argument("--operation")
-    probe.add_argument("--command", nargs="+", required=True)
+    probe.add_argument("--command", nargs=argparse.REMAINDER, required=True)
     probe.set_defaults(func=cmd_probe)
 
     return parser
