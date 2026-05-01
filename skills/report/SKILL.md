@@ -41,6 +41,26 @@ Before researching or writing, answer:
 
 If user-invoked, the request provides the scope. If self-invoked, state why the report is being generated.
 
+### Bare Invocation / Missing Scope
+
+A bare `/ed-report` dispatch is already authorization to choose a useful
+report target. Do not end the skill by asking the operator what topic to use
+when runtime context contains enough signal to proceed.
+
+If no explicit topic, question, or args are present:
+
+1. Inspect the injected runtime frame: `delta_prerequisite`,
+   `beat_launch_context`, `operator_pressure_digest`, `health_snapshot`,
+   `claims_summary`, `exploration_pack`, recent pipeline failures, and current
+   git/runtime drift.
+2. Select the highest-leverage report target that would reduce operator
+   uncertainty or make the next engineering action clear.
+3. State the inferred target and why it was selected.
+4. Produce the report artifact.
+
+Ask the operator for a topic only when the runtime frame contains no reasonable
+candidate and any inferred report would be misleading. That should be rare.
+
 ### 2. Gather Evidence
 
 Use the right sources for the topic:
