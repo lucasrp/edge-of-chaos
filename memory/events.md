@@ -507,6 +507,13 @@ into `state/projections/dispatch-cycles.json`. It is also available through
 state: it explains whether a dispatch cycle opened, dispatched, closed, failed,
 or remained incomplete without changing runtime behavior.
 
+`pipeline-state` is materialized by `tools/rollup-pipeline-state.py` into
+`state/projections/pipeline-state.json`. It is also available through
+`tools/edge-replay pipeline-state`. This projection classifies each artifact as
+`complete`, `partial`, `blocked`, `failed`, or `orphaned_publish` from
+`PhaseCompleted` and `ArtifactPublished` facts without changing publication
+behavior.
+
 ## Compatibility Rule
 
 Existing logs may still use:

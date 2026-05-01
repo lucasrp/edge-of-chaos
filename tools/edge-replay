@@ -31,14 +31,22 @@ def iter_events(path: Path = STATE_EVENTS_FILE):
             yield event
 
 
-def _load_dispatch_cycles_module():
-    path = SCRIPT_DIR / "rollup-dispatch-cycles.py"
-    spec = importlib.util.spec_from_file_location("rollup_dispatch_cycles", path)
+def _load_rollup_module(filename: str, module_name: str):
+    path = SCRIPT_DIR / filename
+    spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_dispatch_cycles_module():
+    return _load_rollup_module("rollup-dispatch-cycles.py", "rollup_dispatch_cycles")
+
+
+def _load_pipeline_state_module():
+    return _load_rollup_module("rollup-pipeline-state.py", "rollup_pipeline_state")
 
 
 def _print_event_line(event: dict[str, Any]) -> None:
@@ -90,6 +98,28 @@ def cmd_dispatch_cycles(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pipeline_state(args: argparse.Namespace) -> int:
+    module = _load_pipeline_state_module()
+    limit = max(1, args.limit)
+    payload = module.build_projection(limit=limit) if args.no_write else module.write_projection(limit=limit)
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        summary = payload["summary"]
+        counts = summary["counts_by_status"]
+        print(
+            "pipeline-state: "
+            f"artifacts={summary['artifacts_total']} "
+            f"attention={summary['artifacts_attention']} "
+            f"complete={counts.get('complete', 0)} "
+            f"partial={counts.get('partial', 0)} "
+            f"blocked={counts.get('blocked', 0)} "
+            f"failed={counts.get('failed', 0)} "
+            f"orphaned_publish={counts.get('orphaned_publish', 0)}"
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Replay and project canonical edge events")
     parser.add_argument("--tail", action="store_true", help="Show recent canonical events")
@@ -103,6 +133,12 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch.add_argument("--limit", type=int, default=50, help="Maximum recent/incomplete cycles to include")
     dispatch.add_argument("--no-write", action="store_true", help="Do not write projection file")
     dispatch.set_defaults(func=cmd_dispatch_cycles)
+
+    pipeline = subparsers.add_parser("pipeline-state", help="Build/read pipeline-state projection")
+    pipeline.add_argument("--json", action="store_true", help="Print JSON projection")
+    pipeline.add_argument("--limit", type=int, default=50, help="Maximum recent/attention artifacts to include")
+    pipeline.add_argument("--no-write", action="store_true", help="Do not write projection file")
+    pipeline.set_defaults(func=cmd_pipeline_state)
     return parser
 
 
@@ -119,4 +155,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
