@@ -111,7 +111,9 @@ if [ "${MOCK_CLAUDE_HEARTBEAT_FLOW:-0}" = "1" ]; then
   if [[ "$PROMPT" == *"/ed-heartbeat"* ]]; then
     "${EDGE_REPO_DIR:?}/tools/edge-dispatch" dispatch --skill discovery >/dev/null
   elif [[ "$PROMPT" == *"/discovery"* ]]; then
-    "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery start >/dev/null
+    for step in direction explore application persistence; do
+      "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery "$step" >/dev/null
+    done
     "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery end >/dev/null
   fi
 fi
