@@ -66,6 +66,17 @@ blog_auth_pass: ""              # default for new agents: generate a password
 # the description + docs/TOOL_CONTRACT.md and creates the primitive on the
 # spot. Autonomy reviews and deepens it later based on usage evidence.
 #
+# Web/open-search preference is also declared here. Do NOT add a separate
+# `search:` block just to pick a provider. If this agent has a preferred
+# open-web source, mark that source with `primary: true`; render/apply will
+# carry that into state/sources-manifest.yaml for the runtime to use. If no
+# source is primary, open-web lookup still goes through edge-sources so source
+# usage is visible in telemetry instead of bypassing the substrate through
+# direct Claude WebSearch.
+#
+# `edge-search` is different: it searches the agent's internal corpus and is
+# always framework infrastructure. Do not list it under `sources:`.
+#
 # Edge-native tools (edge-consult, edge-signal, edge-search, review-gate,
 # etc) are framework infrastructure — always available, NEVER listed here.
 #
@@ -81,8 +92,10 @@ blog_auth_pass: ""              # default for new agents: generate a password
 sources:
   - name: arxiv
     description: "Search for recent preprints — describe what this source does for YOUR agent"
+    # primary: true              # Optional: preferred open-web/search source.
   # - name: semscholar
   #   description: "Citation tracking and paper metadata"
+  #   primary: true
   # - name: overleaf
   #   description: "Read LaTeX projects via git clone; writes live in prose, not here"
 

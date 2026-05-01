@@ -9,7 +9,8 @@ Usage:
     edge-sources "topic" --json                   # JSON output
 
 Runs all sources concurrently, curates by signal, outputs structured markdown.
-Sources that can't be scripted (WebSearch/WebFetch) are noted in output.
+Claude WebSearch is treated as a managed fallback path, not a direct source
+bypass. WebFetch remains the read path for URLs returned by sources.
 """
 
 import sys, os, json, argparse, subprocess, random, shutil, uuid
@@ -593,7 +594,7 @@ def format_markdown(topic, intent, results_by_source, wildcard_src=None, run_id=
 
     # Note about builtin web search policy
     lines.append("### Note")
-    lines.append("Use this tool before Claude WebSearch/WebFetch. Runtime may unlock builtin web search only after the primary web provider fails or returns nothing useful.\n")
+    lines.append("Use this tool before Claude WebSearch. Runtime may unlock builtin WebSearch only after the primary web provider fails or returns nothing useful. WebFetch remains valid for URLs already surfaced by sources.\n")
 
     return "\n".join(lines)
 
@@ -789,7 +790,7 @@ def main():
         allowance = _maybe_unlock_builtin_web_search(args.topic, sources, results)
         if allowance is not None:
             print(
-                "Exa failed or returned no usable hits; unlocked Claude WebSearch/WebFetch fallback temporarily.",
+                "Exa failed or returned no usable hits; unlocked Claude WebSearch fallback temporarily.",
                 file=sys.stderr,
             )
 

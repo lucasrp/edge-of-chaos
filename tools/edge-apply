@@ -290,18 +290,40 @@ def _normalize_sources(raw_sources) -> list[dict]:
     if not isinstance(raw_sources, list):
         raw_sources = [raw_sources]
     normalized = []
+
+    def normalize_roles(value) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []
+
+    def normalize_primary(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        text = str(value or "").strip().lower()
+        return text in {"1", "true", "yes", "on"}
+
     for src in raw_sources:
         if isinstance(src, dict) and src.get("name"):
             name = str(src["name"]).strip()
             description = str(src.get("description", "")).strip()
+            roles = normalize_roles(src.get("roles"))
+            primary = normalize_primary(src.get("primary"))
         elif isinstance(src, str) and src.strip():
             name = src.strip()
             description = ""
+            roles = []
+            primary = False
         else:
             continue
         if not name or name.startswith("edge-"):
             continue
-        normalized.append({"name": name, "description": description})
+        if primary and "search" not in roles:
+            roles.append("search")
+        normalized.append({"name": name, "description": description, "roles": roles, "primary": primary})
     return normalized
 
 
@@ -1773,6 +1795,8 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
                 {
                     "name": src["name"],
                     "description": src.get("description", ""),
+                    "roles": list(src.get("roles") or []),
+                    "primary": bool(src.get("primary")),
                     "status": "declared",
                     "created_at": now_iso,
                     "updated_at": now_iso,
@@ -1785,6 +1809,14 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
             continue
         if src.get("description") and not entry.get("description"):
             entry["description"] = src["description"]
+            changed = True
+        desired_roles = list(src.get("roles") or [])
+        if entry.get("roles") != desired_roles:
+            entry["roles"] = desired_roles
+            changed = True
+        desired_primary = bool(src.get("primary"))
+        if bool(entry.get("primary")) != desired_primary:
+            entry["primary"] = desired_primary
             changed = True
         if not entry.get("status"):
             entry["status"] = "declared"
