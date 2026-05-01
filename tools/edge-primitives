@@ -71,18 +71,40 @@ def _normalize_sources(raw_sources) -> dict[str, dict]:
     if not isinstance(raw_sources, list):
         raw_sources = [raw_sources]
     normalized: dict[str, dict] = {}
+
+    def normalize_roles(value) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []
+
+    def normalize_primary(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        text = str(value or "").strip().lower()
+        return text in {"1", "true", "yes", "on"}
+
     for src in raw_sources:
         if isinstance(src, dict) and src.get("name"):
             name = str(src["name"]).strip()
             description = str(src.get("description", "")).strip()
+            roles = normalize_roles(src.get("roles"))
+            primary = normalize_primary(src.get("primary"))
         elif isinstance(src, str) and src.strip():
             name = src.strip()
             description = ""
+            roles = []
+            primary = False
         else:
             continue
         if not name or name.startswith("edge-"):
             continue
-        normalized[name] = {"name": name, "description": description}
+        if primary and "search" not in roles:
+            roles.append("search")
+        normalized[name] = {"name": name, "description": description, "roles": roles, "primary": primary}
     return normalized
 
 
@@ -263,6 +285,8 @@ def build_status(config_path: Path | None = None) -> dict:
                 "declared": declared,
                 "description": declared_entry.get("description") or manifest_entry.get("description", ""),
                 "description_present": bool(declared_entry.get("description") or manifest_entry.get("description")),
+                "roles": list(declared_entry.get("roles") or manifest_entry.get("roles") or []),
+                "primary": bool(declared_entry.get("primary") or manifest_entry.get("primary")),
                 "manifest_exists": bool(manifest_entry),
                 "manifest_status": manifest_status or ("declared" if declared else ""),
                 "meta_path": str(meta_path),

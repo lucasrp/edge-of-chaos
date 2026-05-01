@@ -1210,7 +1210,7 @@ def _search_protocol(skill: str | None, request: dict[str, Any]) -> dict[str, An
                 "fallback_provider": runtime_search.get("web_fallback", "claude_web"),
                 "unlocked": runtime_search.get("builtin_web_search_unlocked", False),
             },
-            "when": "Use edge-search as often as needed. If corpus coverage is still missing and external source fan-out fails or returns nothing useful, use the configured web provider first. When builtin web search is policy-disabled, do not call WebSearch/WebFetch directly unless runtime has explicitly unlocked the fallback window.",
+            "when": "Use edge-search as often as needed. If corpus coverage is still missing and external source fan-out fails or returns nothing useful, use the configured web provider first. When builtin web search is policy-disabled, do not call WebSearch directly unless runtime has explicitly unlocked the fallback window. WebFetch is allowed for URLs already surfaced by sources.",
             "must_record": [
                 "why_corpus_or_external_search_was_insufficient",
                 "which_gap_the_web_search_is_covering",

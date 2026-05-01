@@ -34,6 +34,7 @@ sources:
     description: Recent preprints
   - name: exa
     description: Web search
+    primary: true
 YAML
 
 export HOME="$TMP_HOME"
@@ -51,7 +52,31 @@ echo "=== primitives status Smoke Test ==="
 echo "Temp state: $TMP_EDGE"
 echo ""
 
-echo "--- Test 1: phase_seed seeds manifest from declared sources ---"
+echo "--- Test 1: edge-render preserves source search primary metadata ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_CONFIG"
+import importlib.machinery
+import importlib.util
+import sys
+from pathlib import Path
+
+edge_dir, config_path = sys.argv[1:]
+loader = importlib.machinery.SourceFileLoader("edge_render_mod", f"{edge_dir}/tools/edge-render")
+spec = importlib.util.spec_from_loader(loader.name, loader)
+mod = importlib.util.module_from_spec(spec)
+loader.exec_module(mod)
+cfg = mod.load_agent_yaml(Path(config_path))
+sources = {item["name"]: item for item in cfg["sources"]}
+assert sources["exa"]["primary"] is True
+assert sources["exa"]["roles"] == ["search"]
+assert sources["arxiv"]["primary"] is False
+PY
+then
+    pass "edge-render preserves source search primary metadata"
+else
+    fail "edge-render preserves source search primary metadata"
+fi
+
+echo "--- Test 2: phase_seed seeds manifest from declared sources ---"
 if python3 - <<'PY' "$EDGE_DIR" "$TMP_CONFIG"
 import importlib.machinery
 import importlib.util
@@ -78,6 +103,9 @@ entries = {item["name"]: item for item in manifest["sources"]}
 assert set(entries) == {"arxiv", "exa"}
 assert entries["arxiv"]["status"] == "declared"
 assert entries["exa"]["status"] == "declared"
+assert entries["exa"]["primary"] is True
+assert entries["exa"]["roles"] == ["search"]
+assert entries["arxiv"]["primary"] is False
 PY
     then
         pass "phase_seed seeds declared sources into manifest"
@@ -88,7 +116,7 @@ else
     fail "phase_seed seeds declared sources into manifest"
 fi
 
-echo "--- Test 2: edge-primitives status reports declared sources and writes snapshot ---"
+echo "--- Test 3: edge-primitives status reports declared sources and writes snapshot ---"
 if python3 - <<'PY' "$STATUS_TOOL" "$STATUS_FILE"
 import json
 import subprocess
@@ -103,6 +131,9 @@ assert payload["summary"]["degraded_total"] == 0
 rows = {row["name"]: row for row in payload["sources"]}
 assert rows["arxiv"]["effective_status"] == "unknown"
 assert rows["exa"]["effective_status"] == "unknown"
+assert rows["arxiv"]["primary"] is False
+assert rows["exa"]["primary"] is True
+assert rows["exa"]["roles"] == ["search"]
 assert "declared_unbound" in rows["arxiv"]["problems"]
 assert "declared_unbound" in rows["exa"]["problems"]
 assert Path(status_file).exists()
@@ -113,7 +144,7 @@ else
     fail "edge-primitives status reports declared sources"
 fi
 
-echo "--- Test 3: lifecycle transitions update the read model ---"
+echo "--- Test 4: lifecycle transitions update the read model ---"
 mkdir -p "$LIBEXEC_DIR"
 cat >"$LIBEXEC_DIR/arxiv" <<'SH'
 #!/usr/bin/env bash
@@ -145,7 +176,7 @@ else
     fail "lifecycle transitions update status to probed"
 fi
 
-echo "--- Test 4: missing active binary is reported as degraded ---"
+echo "--- Test 5: missing active binary is reported as degraded ---"
 rm -f "$LIBEXEC_DIR/arxiv"
 if python3 - <<'PY' "$STATUS_TOOL"
 import json
@@ -165,7 +196,7 @@ else
     fail "status reports degraded when active binary disappears"
 fi
 
-echo "--- Test 5: checkup probes capabilities and reports candidate actions without aborting ---"
+echo "--- Test 6: checkup probes capabilities and reports candidate actions without aborting ---"
 if OUTPUT=$("$STATUS_TOOL" status --json --checkup --skill autonomy --skip-primitive-probes); then
     if python3 - <<'PY' "$OUTPUT"
 import json

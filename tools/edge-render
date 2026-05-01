@@ -245,6 +245,21 @@ def load_agent_yaml(path: Path) -> dict:
             return [val] if val.strip() else []
         return list(val)
 
+    def _normalize_roles(val):
+        if val is None:
+            return []
+        if isinstance(val, str):
+            return [item.strip() for item in val.split(",") if item.strip()]
+        if isinstance(val, list):
+            return [str(item).strip() for item in val if str(item).strip()]
+        return []
+
+    def _normalize_primary(val):
+        if isinstance(val, bool):
+            return val
+        text = str(val or "").strip().lower()
+        return text in {"1", "true", "yes", "on"}
+
     pre_context = _normalize_list(cfg.get("pre_skill_context"))
     pre_procedure = _normalize_list(cfg.get("pre_skill_procedure"))
     pre_alias = _normalize_list(cfg.get("pre_skill"))
@@ -260,8 +275,10 @@ def load_agent_yaml(path: Path) -> dict:
     ]
 
     # Normalize `sources:` (capability manifest of external read primitives,
-    # #94). Each entry is {name, description} — the description is the spec
-    # the agent uses to create the primitive on first invocation (exit 127).
+    # #94). Each entry is {name, description, roles, primary} — the description
+    # is the spec the agent uses to create the primitive on first invocation
+    # (exit 127). `primary: true` marks the preferred open-web/search source
+    # and is carried through render/apply into state/sources-manifest.yaml.
     # No install-time resolution against a catalog. Primitives are born from
     # demand, not speculation.
     #
@@ -274,9 +291,13 @@ def load_agent_yaml(path: Path) -> dict:
         if isinstance(src, dict) and src.get("name"):
             name = src["name"].strip()
             desc = src.get("description", "").strip()
+            roles = _normalize_roles(src.get("roles"))
+            primary = _normalize_primary(src.get("primary"))
         elif isinstance(src, str) and src.strip():
             name = src.strip()
             desc = ""
+            roles = []
+            primary = False
         else:
             continue
         if name.startswith("edge-"):
@@ -286,7 +307,9 @@ def load_agent_yaml(path: Path) -> dict:
                 file=sys.stderr,
             )
             continue
-        cfg["sources"].append({"name": name, "description": desc})
+        if primary and "search" not in roles:
+            roles.append("search")
+        cfg["sources"].append({"name": name, "description": desc, "roles": roles, "primary": primary})
 
     # If only `pre_skill` is set, map it into procedure.
     if pre_alias and not pre_context and not pre_procedure:

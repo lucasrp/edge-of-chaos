@@ -30,6 +30,11 @@ Install-time seeding registers declared source intent in
 `state/sources-manifest.yaml` with `status: declared`. That is runtime intent,
 not a built primitive.
 
+Optional source search preference also materializes there. In `agent.yaml`,
+mark a preferred open-web/search source with `primary: true`; render/apply
+preserves it in `state/sources-manifest.yaml` as runtime metadata. If no source
+is primary, open-web lookup still routes through `edge-sources` for telemetry.
+
 Agent hits exit 127 (primitive doesn't exist). Before writing code:
 
 1. Read the source's `description` from `state/sources-manifest.yaml` or
