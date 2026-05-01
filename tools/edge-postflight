@@ -239,6 +239,40 @@ def refresh_claims_status() -> dict[str, Any]:
     return {"ok": True, "detail": detail, "payload": projections}
 
 
+def refresh_pipeline_state(cycle_id: str | None = None) -> dict[str, Any]:
+    code, stdout, stderr = run_subprocess([sys.executable, str(EDGE_REPO_DIR / "tools" / "rollup-pipeline-state.py"), "--json"])
+    if code != 0:
+        detail = (stderr or stdout or f"exit={code}").splitlines()[-1]
+        append_postskill_log("pipeline_state", "FAIL", detail)
+        return {"ok": False, "status": "failed", "detail": detail, "payload": {}, "current_attention": []}
+
+    payload = json.loads(stdout) if stdout else {}
+    summary = payload.get("summary") or {}
+    counts = summary.get("counts_by_status") or {}
+    attention = [
+        item
+        for item in (payload.get("attention_artifacts") or [])
+        if cycle_id and item.get("cycle_id") == cycle_id
+    ]
+    detail = (
+        f"artifacts={summary.get('artifacts_total', 0)} "
+        f"attention={summary.get('artifacts_attention', 0)} "
+        f"complete={counts.get('complete', 0)} "
+        f"blocked={counts.get('blocked', 0)} "
+        f"failed={counts.get('failed', 0)} "
+        f"current_attention={len(attention)}"
+    )
+    ok = len(attention) == 0
+    append_postskill_log("pipeline_state", "OK" if ok else "WARN", detail)
+    return {
+        "ok": ok,
+        "status": "ok" if ok else "warning",
+        "detail": detail,
+        "payload": payload,
+        "current_attention": attention[:5],
+    }
+
+
 def refresh_briefing() -> dict[str, Any]:
     code, stdout, stderr = run_subprocess([sys.executable, str(EDGE_REPO_DIR / "tools" / "edge-digest")])
     if code != 0:
@@ -313,6 +347,19 @@ def _execute_postflight_step(step: dict[str, Any], state: dict[str, Any]) -> dic
     if kind == "claims.refresh":
         refreshed = refresh_claims_status()
         return _protocol_step(step, status="ok", satisfied=bool(refreshed.get("ok", False)), detail=str(refreshed.get("detail") or ""), extra={"payload": refreshed.get("payload") or {}})
+
+    if kind == "pipeline_state.refresh":
+        refreshed = refresh_pipeline_state(cycle_id=state.get("cycle_id"))
+        return _protocol_step(
+            step,
+            status=str(refreshed.get("status") or ("ok" if refreshed.get("ok") else "warning")),
+            satisfied=bool(refreshed.get("ok", False)),
+            detail=str(refreshed.get("detail") or ""),
+            extra={
+                "payload": refreshed.get("payload") or {},
+                "current_attention": refreshed.get("current_attention") or [],
+            },
+        )
 
     if kind == "primitives.status":
         refreshed = refresh_primitives_status()
@@ -461,6 +508,8 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
     primitives_payload: dict[str, Any] = {}
     workflows_payload: dict[str, Any] = {}
     capabilities_payload: dict[str, Any] = {}
+    pipeline_state_payload: dict[str, Any] = {}
+    pipeline_state_attention: list[dict[str, Any]] = []
     curation_payload: dict[str, Any] = {}
     async_inbox_payload: dict[str, Any] = {}
     warning_seen = False
@@ -495,6 +544,9 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
         kind = str(step.get("kind") or "")
         if kind == "claims.refresh" and isinstance(payload, dict):
             claims_payload = payload
+        elif kind == "pipeline_state.refresh" and isinstance(payload, dict):
+            pipeline_state_payload = payload
+            pipeline_state_attention = list(result.get("current_attention") or [])
         elif kind == "primitives.status" and isinstance(payload, dict):
             primitives_payload = payload
         elif kind == "workflow.status" and isinstance(payload, dict):
@@ -570,6 +622,14 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
             "top_used": workflow_summary.get("top_used", []),
             "top_broken": workflow_summary.get("top_broken", []),
         }
+    if pipeline_state_payload:
+        pipeline_summary = pipeline_state_payload.get("summary") or {}
+        request["pipeline_state_summary"] = {
+            "artifacts_total": pipeline_summary.get("artifacts_total", 0),
+            "artifacts_attention": pipeline_summary.get("artifacts_attention", 0),
+            "counts_by_status": pipeline_summary.get("counts_by_status", {}),
+            "current_attention": pipeline_state_attention,
+        }
     if curation_payload:
         request["curation_digest"] = curation_payload
     if async_inbox_payload:
@@ -595,6 +655,11 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
         "protocol_compiled_hash": request["post_skill_context"].get("compiled_hash"),
         "failed_steps": failed_steps,
         "delta": delta,
+        "pipeline_state": {
+            "artifacts_total": int(((pipeline_state_payload.get("summary") or {}).get("artifacts_total", 0)) or 0),
+            "artifacts_attention": int(((pipeline_state_payload.get("summary") or {}).get("artifacts_attention", 0)) or 0),
+            "current_attention": len(pipeline_state_attention),
+        } if pipeline_state_payload else {},
         "curation": {
             "topics_total": int((curation_payload.get("topics") or {}).get("total", 0) or 0),
             "stale_candidates": int((curation_payload.get("corpus") or {}).get("stale_candidates", 0) or 0),

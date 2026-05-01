@@ -440,6 +440,60 @@ def check_render_install_drift():
         _record_check("projection:render-install-drift", "ok", detail, artifact=artifact)
 
 
+def check_pipeline_state():
+    """Build and summarize the publication pipeline projection."""
+    tool = Path(__file__).resolve().parent / "rollup-pipeline-state.py"
+    if not tool.exists():
+        warn("pipeline-state projection tool não encontrado")
+        _record_check("projection:pipeline-state", "warn", "pipeline-state projection tool não encontrado", artifact=tool)
+        return
+    try:
+        result = subprocess.run(
+            [sys.executable, str(tool), "--json"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        warn(f"pipeline-state projection indisponível: {exc}")
+        _record_check("projection:pipeline-state", "warn", f"pipeline-state projection indisponível: {exc}", artifact=tool)
+        return
+
+    if result.returncode != 0:
+        warn(f"pipeline-state projection falhou: {result.stderr.strip() or result.stdout.strip()}")
+        _record_check(
+            "projection:pipeline-state",
+            "warn",
+            f"pipeline-state projection falhou: {result.stderr.strip() or result.stdout.strip()}",
+            artifact=tool,
+        )
+        return
+
+    payload = json.loads(result.stdout) if result.stdout.strip() else {}
+    summary = payload.get("summary", {}) or {}
+    counts = summary.get("counts_by_status", {}) or {}
+    detail = (
+        "pipeline-state: "
+        f"artifacts={summary.get('artifacts_total', 0)}, "
+        f"attention={summary.get('artifacts_attention', 0)}, "
+        f"complete={counts.get('complete', 0)}, "
+        f"partial={counts.get('partial', 0)}, "
+        f"blocked={counts.get('blocked', 0)}, "
+        f"failed={counts.get('failed', 0)}, "
+        f"orphaned_publish={counts.get('orphaned_publish', 0)}"
+    )
+    artifact = payload.get("output_path") or tool
+    if counts.get("blocked", 0) or counts.get("failed", 0):
+        fail(detail)
+        _record_check("projection:pipeline-state", "fail", detail, artifact=artifact)
+    elif summary.get("artifacts_attention", 0):
+        warn(detail)
+        _record_check("projection:pipeline-state", "warn", detail, artifact=artifact)
+    else:
+        ok(detail)
+        _record_check("projection:pipeline-state", "ok", detail, artifact=artifact)
+
+
 def check_primitives_status():
     tool = Path(__file__).resolve().parent / "edge-primitives"
     if not tool.exists():
@@ -637,6 +691,7 @@ def main():
     CURRENT_SECTION = "projection"
     print("\033[1m[8/8] Projection\033[0m")
     check_primitives_status()
+    check_pipeline_state()
     check_render_install_drift()
     print()
 

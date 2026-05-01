@@ -88,7 +88,7 @@ tools_dir = Path(
 )
 sys.path.insert(0, str(tools_dir))
 try:
-    from _shared.telemetry import log_run_step
+    from _shared.telemetry import emit_shadow_event, log_run_step
 except Exception:
     sys.exit(0)
 
@@ -106,6 +106,32 @@ log_run_step(
     run_id=os.environ.get("EDGE_CONSOLIDATE_RUN_ID"),
     **fields,
 )
+
+if status in {"completed", "failed", "degraded"} and (phase == "pipeline" or phase.startswith("phase-")):
+    slug = os.environ.get("EDGE_PUBLISH_SLUG", "").strip()
+    if slug and slug != "unknown":
+        normalized_phase = phase[6:] if phase.startswith("phase-") else phase
+        payload = {
+            "pipeline": "consolidate-state",
+            "phase": normalized_phase,
+            "status": status,
+            "slug": slug,
+        }
+        if status == "completed":
+            payload["ok"] = True
+        elif status == "failed":
+            payload["ok"] = False
+        if operation:
+            payload["operation"] = operation
+        if error_text:
+            payload["reason"] = error_text[:240]
+        emit_shadow_event(
+            "PhaseCompleted",
+            actor="consolidate-state",
+            artifact=f"blog/entries/{slug}.md",
+            cycle_id=os.environ.get("EDGE_CYCLE_ID") or None,
+            payload=payload,
+        )
 PYEOF
 }
 

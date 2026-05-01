@@ -43,6 +43,7 @@ _ALLOWED_KINDS: dict[str, set[str]] = {
     "postflight": {
         "validate.recent",
         "claims.refresh",
+        "pipeline_state.refresh",
         "primitives.status",
         "capabilities.status",
         "workflow.status",

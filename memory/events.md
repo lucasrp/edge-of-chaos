@@ -124,6 +124,10 @@ trigger came from heartbeat or operator intent.
 ```
 
 Represents the outcome of one pipeline phase. This is enough to build the first `pipeline-state` projection.
+`consolidate-state` also emits a terminal `PhaseCompleted` with
+`payload.phase = "pipeline"` when the whole publication pipeline completes,
+fails, or degrades. The `pipeline-state` projection treats a published artifact
+as `complete` only when the terminal pipeline phase is OK.
 
 ### `ArtifactPublished`
 
@@ -139,6 +143,40 @@ Represents the outcome of one pipeline phase. This is enough to build the first 
 ```
 
 Represents the canonical publish fact for an artifact.
+
+### `ArtifactWriteAuthorized`
+
+```json
+{
+  "type": "ArtifactWriteAuthorized",
+  "artifact": "blog/entries/2026-04-19-example.md",
+  "payload": {
+    "tool": "Write",
+    "operation": "write",
+    "source": "write-guard",
+    "reason": "consolidate_state_active"
+  }
+}
+```
+
+Represents a command-boundary decision allowing a protected artifact write.
+
+### `ArtifactWriteRejected`
+
+```json
+{
+  "type": "ArtifactWriteRejected",
+  "artifact": "blog/entries/2026-04-19-example.md",
+  "payload": {
+    "tool": "Write",
+    "operation": "write",
+    "source": "edge-cmd",
+    "reason": "protected_write_requires_command_boundary"
+  }
+}
+```
+
+Represents a command-boundary decision rejecting a protected artifact write.
 
 ### `ClaimObserved`
 
@@ -513,6 +551,10 @@ or remained incomplete without changing runtime behavior.
 `complete`, `partial`, `blocked`, `failed`, or `orphaned_publish` from
 `PhaseCompleted` and `ArtifactPublished` facts without changing publication
 behavior.
+
+`edge-cmd validate-write` is the command-boundary validator for protected
+artifact writes. Legacy hooks may remain installed, but their authoritative
+decision is delegated to `edge-cmd` during the migration.
 
 ## Compatibility Rule
 

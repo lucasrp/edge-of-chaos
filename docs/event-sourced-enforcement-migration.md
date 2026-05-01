@@ -171,6 +171,8 @@ Current implementation path:
 - `tools/rollup-pipeline-state.py` builds `state/projections/pipeline-state.json`
 - `edge-replay pipeline-state` exposes the projection from the canonical ledger
 - `ArtifactPublished` without matching `PhaseCompleted` is surfaced as `orphaned_publish` until pipeline phase emission is complete
+- `consolidate-state` emits `PhaseCompleted` for every completed/failed/degraded phase, including a terminal `phase=pipeline`
+- `edge-doctor` and `edge-postflight` now read `pipeline-state` in advisory/soft-gate mode
 
 ### `render-install-drift`
 
@@ -219,6 +221,7 @@ Turn on narrow projection reads in the highest-value binary checkpoints:
 
 - dispatch-cycle close
 - pipeline completion summary
+- postflight projection refresh
 
 Do not yet block arbitrary writes. The purpose here is to force the cycle semantics, not to redesign every command path at once.
 
@@ -231,6 +234,13 @@ Only after this is stable should the following legacy pieces start disappearing:
 - prose-only "ABSOLUTE RULE" enforcement that duplicates binary invariants
 - primitive-specific write hooks
 - state-only audits that can now be replayed from events
+
+Current implementation path:
+
+- `tools/edge-cmd validate-write` validates protected artifact writes and emits `ArtifactWriteAuthorized` / `ArtifactWriteRejected`
+- `hooks/write-guard.sh` delegates protected write decisions to `edge-cmd`
+- `bin/heartbeat-dispatch-guard.sh` delegates heartbeat dispatch enforcement to `edge-cmd` while retaining its legacy fallback when the command boundary is unavailable
+- `tools/audit-cqrs-migration.py` audits the migration surface and reports remaining shim/fallback residue
 
 ## Legacy Retirement Order
 

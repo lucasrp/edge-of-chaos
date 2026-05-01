@@ -144,6 +144,7 @@ def _render_postflight_protocol(cfg: dict) -> str:
         "procedures": [
             {"id": "validate-recent", "kind": "validate.recent"},
             {"id": "claims-refresh", "kind": "claims.refresh"},
+            {"id": "pipeline-state", "kind": "pipeline_state.refresh"},
             {"id": "primitives-status", "kind": "primitives.status"},
             {"id": "capabilities-status", "kind": "capabilities.status"},
             {"id": "workflow-status", "kind": "workflow.status"},
