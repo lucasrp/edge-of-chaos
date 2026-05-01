@@ -65,6 +65,41 @@ def badge_html(text: str, variant: str = "neutral") -> str:
     return f'<span class="badge badge-{variant}">{html.escape(str(text))}</span>'
 
 
+def _xml_text(value) -> str:
+    """Escape text for inline SVG nodes and attributes."""
+    return html.escape(str(value), quote=True)
+
+
+def _coerce_number(value, default: float = 0.0) -> float:
+    """Extract a float from common YAML scalar forms such as '42%' or '1,5'."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    match = re.search(r"-?\d+(?:[\.,]\d+)?", str(value or ""))
+    if not match:
+        return default
+    return float(match.group(0).replace(",", "."))
+
+
+def _format_number(value: float) -> str:
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:.1f}".rstrip("0").rstrip(".")
+
+
+def _chart_color(item: dict, default: str = "#2b6cb0") -> str:
+    colors = {
+        "danger": "#e53e3e",
+        "warning": "#ed8936",
+        "success": "#38a169",
+        "highlight": "#805ad5",
+        "neutral": "#718096",
+        "info": "#2b6cb0",
+        "normal": "#2b6cb0",
+    }
+    raw = str(item.get("color") or item.get("variant") or item.get("status") or "").lower()
+    return colors.get(raw, item.get("color") or default)
+
+
 # ---------------------------------------------------------------------------
 # Block renderers
 # ---------------------------------------------------------------------------
@@ -480,6 +515,178 @@ def render_metrics_grid_block(b):
     return _render_metrics_items(b.get("items", []) or b.get("metrics", []))
 
 
+@renderer("bar-chart")
+def render_bar_chart(b):
+    items = b.get("items", []) or b.get("data", [])
+    if not items:
+        return ""
+
+    title = b.get("title", "Grafico de barras")
+    unit = str(b.get("unit", "") or "")
+    label_key = b.get("label_key", "label")
+    value_key = b.get("value_key", "value")
+    value_label = b.get("value_label", "Valor")
+    values = [_coerce_number(item.get(value_key, item.get("value", 0))) for item in items]
+    max_value = _coerce_number(b.get("max_value"), max(values) if values else 1.0)
+    max_value = max(max_value, max(values) if values else 1.0, 1.0)
+
+    width, height = 700, 280
+    plot_x, plot_w = 220, 410
+    top, bottom = 48, 238
+    rows = max(len(items), 1)
+    step = (bottom - top) / rows
+    bar_h = min(26, step * 0.58)
+
+    svg = [
+        f'<svg role="img" viewBox="0 0 {width} {height}" '
+        'xmlns="http://www.w3.org/2000/svg" '
+        'style="max-width:100%;height:auto;display:block;margin:8px 0 14px;">',
+        f"<title>{_xml_text(title)}</title>",
+        '<rect x="0" y="0" width="700" height="280" rx="8" fill="#ffffff"/>',
+        '<line x1="220" y1="238" x2="630" y2="238" stroke="#d1d5db" stroke-width="1"/>',
+        f'<text x="24" y="26" font-family="Segoe UI,sans-serif" font-size="16" '
+        f'font-weight="600" fill="#1a3560">{_xml_text(title)}</text>',
+        f'<text x="220" y="260" font-family="Segoe UI,sans-serif" font-size="11" '
+        f'fill="#718096">0</text>',
+        f'<text x="630" y="260" font-family="Segoe UI,sans-serif" font-size="11" '
+        f'text-anchor="end" fill="#718096">{_xml_text(_format_number(max_value) + unit)}</text>',
+    ]
+
+    for idx, item in enumerate(items):
+        label = str(item.get(label_key) or item.get("name") or item.get("title") or f"Item {idx + 1}")
+        value = values[idx]
+        bar_w = 0 if max_value <= 0 else max(2, (value / max_value) * plot_w)
+        y = top + idx * step + (step - bar_h) / 2
+        color = _chart_color(item)
+        svg.extend([
+            f'<text x="24" y="{y + bar_h * 0.72:.1f}" font-family="Segoe UI,sans-serif" '
+            f'font-size="12" fill="#374151">{_xml_text(label)}</text>',
+            f'<rect x="{plot_x}" y="{y:.1f}" width="{plot_w}" height="{bar_h:.1f}" '
+            f'rx="4" fill="#e5e7eb"/>',
+            f'<rect x="{plot_x}" y="{y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" '
+            f'rx="4" fill="{_xml_text(color)}"/>',
+            f'<text x="{min(plot_x + bar_w + 8, 672):.1f}" y="{y + bar_h * 0.72:.1f}" '
+            f'font-family="Segoe UI,sans-serif" font-size="12" fill="#111827">'
+            f'{_xml_text(_format_number(value) + unit)}</text>',
+        ])
+    svg.append("</svg>")
+
+    table_rows = "".join(
+        "<tr>"
+        f"<td>{render_text(str(item.get(label_key) or item.get('name') or item.get('title') or f'Item {idx + 1}'))}</td>"
+        f"<td>{render_text(_format_number(values[idx]) + unit)}</td>"
+        "</tr>"
+        for idx, item in enumerate(items)
+    )
+    table = (
+        '<div class="table-wrapper"><table><thead><tr>'
+        f'<th>{render_text(b.get("label_label", "Item"))}</th>'
+        f'<th>{render_text(value_label)}</th>'
+        f'</tr></thead><tbody>{table_rows}</tbody></table></div>'
+    )
+    note = ""
+    if b.get("note"):
+        note = (
+            f'<p style="font-size: 12px; color: var(--gray-500); margin-top: -8px;">'
+            f'{render_text(b["note"])}</p>'
+        )
+    return "\n".join(['<div class="chart-block">', *svg, table, note, '</div>'])
+
+
+@renderer("line-chart")
+def render_line_chart(b):
+    points = b.get("points", []) or b.get("items", []) or b.get("data", [])
+    if not points:
+        return ""
+
+    title = b.get("title", "Grafico de linha")
+    unit = str(b.get("unit", "") or "")
+    label_key = b.get("label_key", "label")
+    value_key = b.get("value_key", "value")
+    value_label = b.get("value_label", "Valor")
+    values = [_coerce_number(item.get(value_key, item.get("value", 0))) for item in points]
+    min_value = min(values) if values else 0.0
+    max_value = max(values) if values else 1.0
+    if b.get("min_value") is not None:
+        min_value = _coerce_number(b.get("min_value"), min_value)
+    if b.get("max_value") is not None:
+        max_value = _coerce_number(b.get("max_value"), max_value)
+    if min_value == max_value:
+        min_value -= 1
+        max_value += 1
+
+    width, height = 700, 280
+    left, right = 70, 650
+    top, bottom = 48, 226
+    span_x = max(right - left, 1)
+    span_y = max_value - min_value
+    denom = max(len(points) - 1, 1)
+
+    coords = []
+    for idx, value in enumerate(values):
+        x = left + (idx / denom) * span_x
+        y = bottom - ((value - min_value) / span_y) * (bottom - top)
+        coords.append((x, y))
+    polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y in coords)
+
+    svg = [
+        f'<svg role="img" viewBox="0 0 {width} {height}" '
+        'xmlns="http://www.w3.org/2000/svg" '
+        'style="max-width:100%;height:auto;display:block;margin:8px 0 14px;">',
+        f"<title>{_xml_text(title)}</title>",
+        '<rect x="0" y="0" width="700" height="280" rx="8" fill="#ffffff"/>',
+        f'<text x="24" y="26" font-family="Segoe UI,sans-serif" font-size="16" '
+        f'font-weight="600" fill="#1a3560">{_xml_text(title)}</text>',
+        f'<line x1="{left}" y1="{bottom}" x2="{right}" y2="{bottom}" stroke="#d1d5db" stroke-width="1"/>',
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{bottom}" stroke="#d1d5db" stroke-width="1"/>',
+        f'<text x="24" y="{top + 4}" font-family="Segoe UI,sans-serif" font-size="11" '
+        f'fill="#718096">{_xml_text(_format_number(max_value) + unit)}</text>',
+        f'<text x="24" y="{bottom}" font-family="Segoe UI,sans-serif" font-size="11" '
+        f'fill="#718096">{_xml_text(_format_number(min_value) + unit)}</text>',
+        f'<polyline points="{polyline}" fill="none" stroke="#2b6cb0" stroke-width="3" '
+        'stroke-linejoin="round" stroke-linecap="round"/>',
+    ]
+
+    for idx, item in enumerate(points):
+        label = str(item.get(label_key) or item.get("name") or item.get("title") or idx + 1)
+        value = values[idx]
+        x, y = coords[idx]
+        color = _chart_color(item, "#2b6cb0")
+        svg.extend([
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{_xml_text(color)}"/>',
+            f'<text x="{x:.1f}" y="248" font-family="Segoe UI,sans-serif" font-size="10" '
+            f'text-anchor="middle" fill="#718096">{_xml_text(label)}</text>',
+        ])
+        if len(points) <= 8:
+            svg.append(
+                f'<text x="{x:.1f}" y="{max(y - 10, 38):.1f}" font-family="Segoe UI,sans-serif" '
+                f'font-size="11" text-anchor="middle" fill="#111827">'
+                f'{_xml_text(_format_number(value) + unit)}</text>'
+            )
+    svg.append("</svg>")
+
+    table_rows = "".join(
+        "<tr>"
+        f"<td>{render_text(str(item.get(label_key) or item.get('name') or item.get('title') or idx + 1))}</td>"
+        f"<td>{render_text(_format_number(values[idx]) + unit)}</td>"
+        "</tr>"
+        for idx, item in enumerate(points)
+    )
+    table = (
+        '<div class="table-wrapper"><table><thead><tr>'
+        f'<th>{render_text(b.get("label_label", "Ponto"))}</th>'
+        f'<th>{render_text(value_label)}</th>'
+        f'</tr></thead><tbody>{table_rows}</tbody></table></div>'
+    )
+    note = ""
+    if b.get("note"):
+        note = (
+            f'<p style="font-size: 12px; color: var(--gray-500); margin-top: -8px;">'
+            f'{render_text(b["note"])}</p>'
+        )
+    return "\n".join(['<div class="chart-block">', *svg, table, note, '</div>'])
+
+
 @renderer("list")
 def render_list(b):
     tag = "ol" if b.get("ordered") else "ul"
@@ -765,6 +972,24 @@ BLOCK_SCHEMAS = {
         "synonyms": {"metrics": "items"},
         "container_field": ("items", "metrics"),
     },
+    "bar-chart": {
+        "required": [],
+        "optional": [
+            "title", "unit", "max_value", "value_label", "label_label",
+            "label_key", "value_key", "note", "items", "data",
+        ],
+        "synonyms": {"data": "items"},
+        "container_field": ("items", "data"),
+    },
+    "line-chart": {
+        "required": [],
+        "optional": [
+            "title", "unit", "min_value", "max_value", "value_label",
+            "label_label", "label_key", "value_key", "note", "points", "items", "data",
+        ],
+        "synonyms": {"items": "points", "data": "points"},
+        "container_field": ("points", "items", "data"),
+    },
     "list": {
         "required": [],
         "optional": ["items", "ordered", "style"],
@@ -815,7 +1040,7 @@ BLOCK_SCHEMAS = {
     },
     "glossary": {
         "required": [],
-        "optional": ["context", "terms"],
+        "optional": ["context", "terms", "items"],
         "synonyms": {"items": "terms"},
         "container_field": ("terms", "items"),
     },
@@ -830,6 +1055,14 @@ def _validate_block(block_type: str, block: dict) -> list:
     warnings = []
     present = {k for k in block if k != "type"}
     known = set(schema["required"]) | set(schema["optional"]) | set(schema.get("synonyms", {}).keys())
+
+    if block_type == "comparison":
+        has_left = any(k in block for k in ("before", "left", "left_title", "left_items"))
+        has_right = any(k in block for k in ("after", "right", "right_title", "right_items"))
+        if not has_left:
+            warnings.append("Campo obrigatorio ausente: 'before'")
+        if not has_right:
+            warnings.append("Campo obrigatorio ausente: 'after'")
 
     # Missing required fields
     for field in schema["required"]:
@@ -913,6 +1146,14 @@ _BLOCK_TYPE_ALIASES = {
     "kpi-row": "metrics-grid",
     "kpi-grid": "metrics-grid",
     "stats": "metrics-grid",
+    # Chart aliases
+    "chart": "bar-chart",
+    "bar": "bar-chart",
+    "bars": "bar-chart",
+    "horizontal-bar": "bar-chart",
+    "line": "line-chart",
+    "trend": "line-chart",
+    "sparkline": "line-chart",
     # Card aliases
     "numbered-cards": "numbered-card",
     "step-card": "numbered-card",
@@ -1019,6 +1260,7 @@ def _normalize_section_blocks(section: dict) -> list:
     4. Next-steps shorthand: section has 'type: next-steps-grid' and 'steps'
     5. Table shorthand: section has 'type: table' and 'headers'/'rows'
     6. Callout shorthand: section has 'type: callout' and 'content'/'text'
+    7. Chart shorthand: section has 'type: bar-chart'/'line-chart' and items/data
     """
     if section.get("blocks"):
         return section["blocks"]
@@ -1047,19 +1289,24 @@ def _normalize_section_blocks(section: dict) -> list:
             block["highlight_rows"] = section["highlight_rows"]
     elif sec_type == "metrics-grid":
         block["items"] = section.get("metrics", section.get("items", []))
+    elif sec_type == "bar-chart":
+        block["items"] = section.get("items", section.get("data", []))
+    elif sec_type == "line-chart":
+        block["points"] = section.get("points", section.get("items", section.get("data", [])))
     elif sec_type == "next-steps-grid":
         block["steps"] = section.get("steps", section.get("items", []))
     elif content:
         block["text"] = content
 
     # Copy any extra keys the renderer might need
-    for key in ("items", "steps", "ordered", "variant",
-                "headers", "rows", "number", "badge", "badge_class"):
+    for key in ("items", "steps", "points", "ordered", "variant",
+                "headers", "rows", "number", "badge", "badge_class",
+                "unit", "max_value", "min_value", "value_label", "label_label"):
         if key in section and key not in block:
             block[key] = section[key]
 
     if block.get("text") or block.get("items") or block.get("steps") \
-       or block.get("headers") or block.get("content"):
+       or block.get("points") or block.get("headers") or block.get("content"):
         title = section.get("title", "(sem titulo)")
         print(f"AVISO: secao '{title}' usa formato shorthand (type/content no nivel da secao). "
               f"Formato correto: blocks: [{{type: ..., text: ...}}]. Convertido automaticamente.",

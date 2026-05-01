@@ -298,13 +298,15 @@ DIMENSIONS = {
         "Titles are evocative, not descriptive."
     ),
     "visualization": (
-        "At least 1 SVG visualization (inline in raw-html block). "
-        "Data tables paired with charts when 3+ values compared. "
+        "At least 1 SVG visualization, either via structured chart blocks "
+        "(bar-chart, line-chart) or inline SVG in a raw-html block. "
+        "Data tables paired with charts when 3+ values are compared. "
         "Diagrams where relationships/flows communicate better visually. "
         "Prefer visual reasoning, not decorative charts: causal maps, funnels, timelines, "
         "state-transition diagrams, evidence matrices, uncertainty heatmaps, or before/after comparisons. "
         "If a report compares 3+ items, steps, metrics, risks, or alternatives, it should contain a visual encoding "
-        "of that comparison, not only prose/table. SVG follows standards: viewBox, font-family, semantic colors, "
+        "of that comparison, not only prose/table. If it has multiple analytical comparisons, trends, or operational "
+        "trade-offs, expect 2+ visual encodings. SVG follows standards: viewBox, font-family, semantic colors, "
         "labels that explain the insight, and enough whitespace to be readable."
     ),
     "intellectual_honesty": (
@@ -318,7 +320,9 @@ DIMENSIONS = {
         "Metrics match what's reported in sections. "
         "Title matches actual scope. Numbers consistent throughout. "
         "Linhagem references real prior work, not generic placeholders. "
-        "Blog entry (if provided) is consistent with report content."
+        "Blog entry (if provided) is consistent with report content and acts as a light strategic invitation: "
+        "it contextualizes why the work matters, states what the operator gains by opening the report, and leaves "
+        "technical depth to the report instead of duplicating it."
     ),
     "didactic_clarity": (
         "Every concept, acronym, and technical term is explained on first use. "
@@ -433,8 +437,10 @@ Flag as critical_issues if ANY of these:
 - Required section completely missing (linhagem, "O que Nao Sei", glossario)
 - executive_summary or metrics missing at top level, or no reader-visible equivalent in HTML
 - Empty sections (title present but no blocks/content)
-- Zero SVG visualizations in entire spec
+- Zero SVG-capable visualizations in entire spec (no bar-chart, line-chart, or raw-html inline SVG)
 - A report compares 3+ items/steps/metrics/risks/alternatives but has no chart, flow, matrix, timeline, or diagram representing that comparison visually
+- A report has multiple quantitative/trade-off comparisons but only one visual encoding and no clear reason for keeping the rest textual
+- Associated blog entry duplicates the report structure or does not explain the operator gain from opening the report (if blog entry provided)
 - "O que Nao Sei" is clearly boilerplate (vague generic text, not specific to this report's topic)
 - Sections reference data/events not present elsewhere in the spec (internal contradiction)
 - Blog entry says one thing, report says another (if blog entry provided)
@@ -479,15 +485,17 @@ Language: Portuguese (PT-BR). Output: ONLY the complete, corrected YAML. No mark
 - Do NOT remove existing good content — only add, improve, or restructure
 - Preserve the YAML structure (title, subtitle, date, executive_summary, metrics, sections, bibliography)
 - If the reviewer says a section is shallow, DEEPEN it with concrete content (not lorem ipsum)
-- If an SVG is missing and the reviewer flagged it, add a simple but real SVG visualization
-- If the report compares 3+ things, add a visual encoding of the comparison: timeline, funnel, matrix, causal map, risk heatmap, before/after, or flow diagram
+- If an SVG/chart is missing and the reviewer flagged it, add a simple but real visualization; use `bar-chart` or `line-chart` for routine numerical data, and raw-html SVG for custom diagrams
+- If the report compares 3+ things, add a visual encoding of the comparison: bar-chart, line-chart, timeline, funnel, matrix, causal map, risk heatmap, before/after, or flow diagram
+- If the report has several analytical comparisons or operational trade-offs, add multiple visual encodings rather than one decorative chart
 - If "O que Nao Sei" is flagged as boilerplate, rewrite with genuine, specific gaps
 - Keep all existing metadata intact (title, date, etc.)
 
 ## Report Template Rules (summary)
 - Required sections: linhagem (first), "O que Nao Sei" (penultimate), glossario (last)
 - Required top-level keys: executive_summary, metrics, bibliography
-- At least 1 SVG visualization (inline raw-html block); comparisons with 3+ values need a chart/diagram, not only a table
+- At least 1 SVG visualization (`bar-chart`, `line-chart`, or inline raw-html SVG); comparisons with 3+ values need a chart/diagram, not only a table
+- Reports with multiple comparisons/trends/trade-offs should use 2+ visual encodings when useful
 - Tables paired with charts when 3+ values compared
 """
 

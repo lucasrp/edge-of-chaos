@@ -443,6 +443,61 @@ class TestMetricsGrid:
         assert any("desconhecido" in w for w in warnings)
 
 
+class TestBarChart:
+    def test_basic(self):
+        block = {
+            "type": "bar-chart",
+            "title": "Comparacao de risco",
+            "unit": "%",
+            "items": [
+                {"label": "A", "value": 20, "variant": "success"},
+                {"label": "B", "value": 80, "variant": "danger"},
+            ],
+        }
+        assert_renders(block, "<svg", "Comparacao de risco", "A", "80%", "<table")
+        assert_validates_clean(block)
+
+    def test_data_synonym(self):
+        block = {
+            "type": "bar-chart",
+            "data": [{"label": "Latencia", "value": "42ms"}],
+        }
+        assert_renders(block, "Latencia", "42")
+        assert_validates_clean(block)
+
+    def test_empty_items_warns(self):
+        warnings = _validate_block("bar-chart", {"type": "bar-chart", "items": []})
+        assert any("Container vazio" in w for w in warnings)
+
+
+class TestLineChart:
+    def test_basic(self):
+        block = {
+            "type": "line-chart",
+            "title": "Tendencia",
+            "unit": " ciclos",
+            "points": [
+                {"label": "D1", "value": 1},
+                {"label": "D2", "value": 3},
+                {"label": "D3", "value": 2},
+            ],
+        }
+        assert_renders(block, "<polyline", "Tendencia", "D2", "3 ciclos", "<table")
+        assert_validates_clean(block)
+
+    def test_items_synonym(self):
+        block = {
+            "type": "line-chart",
+            "items": [{"label": "antes", "value": 1}, {"label": "depois", "value": 2}],
+        }
+        assert_renders(block, "antes", "depois")
+        assert_validates_clean(block)
+
+    def test_empty_points_warns(self):
+        warnings = _validate_block("line-chart", {"type": "line-chart", "points": []})
+        assert any("Container vazio" in w for w in warnings)
+
+
 class TestList:
     def test_unordered(self):
         block = {"type": "list", "items": ["apple", "banana", "cherry"]}

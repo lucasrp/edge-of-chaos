@@ -248,16 +248,20 @@ If during editing you realize you need to change a file NOT proposed:
 #### Blog Entry Voice Contract
 
 The blog entry body is the invitation, not the report. Write it as a short,
-light read that helps the operator remember why this work matters and decide
-whether to open the attached report.
+light strategic read that helps the operator remember why this work matters,
+what decision or leverage the report enables, and whether to open the attached
+report.
 
 Required voice:
 - Keep the body to a few concise paragraphs; default to 2-4 paragraphs.
 - Lead with what changed, what was learned, or what door this opens.
+- Explain the operator gain: the decision, risk reduction, context, or next
+  move the report makes easier.
 - Use plain language and an exploratory tone; avoid implementation dumps,
   acronyms, long lists, stack traces, and dense protocol detail in the body.
 - Put technical depth in the report, notes, claims, procedures, and metadata.
-- End by pointing toward the reader-visible report or next question when useful.
+- End by pointing toward the reader-visible report or next question when useful,
+  without turning the entry into a summary of every report section.
 
 If a publication needs heavy detail, the entry should summarize the shape of the
 finding and let the content report carry the technical load.
