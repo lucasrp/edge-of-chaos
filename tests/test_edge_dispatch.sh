@@ -342,6 +342,95 @@ fi
 
 EDGE_CYCLE_ID=cycle-mismatch "$DISPATCH_TOOL" close --status aborted >/dev/null
 
+echo "--- Test 4e: ack removes an exact dispatch queue entry ---"
+cat >"$TMP_EDGE/state/dispatch-queue.json" <<'JSON'
+[
+  {
+    "skill": "reflection",
+    "source": "state-anchor-monitor",
+    "entry_id": "state-anchor-monitor:abc123",
+    "reason": "state anchor changed",
+    "created_at": "2026-04-29T00:00:00+00:00",
+    "payload": {"changed_files": [{"path": "memory/MEMORY.md"}]}
+  },
+  {
+    "skill": "strategy",
+    "source": "reflection",
+    "entry_id": "reflection:def456",
+    "reason": "handoff",
+    "created_at": "2026-04-29T00:01:00+00:00",
+    "payload": {}
+  }
+]
+JSON
+
+ACK_OUTPUT=$("$DISPATCH_TOOL" ack \
+    --skill reflection \
+    --source state-anchor-monitor \
+    --entry-id state-anchor-monitor:abc123 \
+    --cycle-id cycle-queue-ack \
+    --reason test_ack)
+
+if python3 - <<'PY' "$TMP_EDGE/state/dispatch-queue.json" "$TMP_EDGE/state/events/log.jsonl" "$ACK_OUTPUT"
+import json
+import sys
+
+queue = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+ack = json.loads(sys.argv[3])
+
+assert ack["removed"] is True
+assert ack["entry_id"] == "state-anchor-monitor:abc123"
+assert len(queue) == 1
+assert queue[0]["skill"] == "strategy"
+event = [item for item in events if item["type"] == "DispatchQueueEntryAcknowledged"][-1]
+assert event["cycle_id"] == "cycle-queue-ack"
+assert event["payload"]["reason"] == "test_ack"
+PY
+then
+    pass "ack removes an exact dispatch queue entry"
+else
+    fail "ack removes an exact dispatch queue entry"
+fi
+
+echo "--- Test 4f: completed cycle auto-acks the captured queue head ---"
+cat >"$TMP_EDGE/state/dispatch-queue.json" <<'JSON'
+[
+  {
+    "skill": "reflection",
+    "source": "state-anchor-monitor",
+    "entry_id": "state-anchor-monitor:autoack",
+    "reason": "state anchor changed",
+    "created_at": "2026-04-29T00:00:00+00:00",
+    "payload": {"changed_files": [{"path": "config/CLAUDE.md"}]}
+  }
+]
+JSON
+
+"$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-queue-autoack >/dev/null
+"$DISPATCH_TOOL" dispatch --skill reflection >/dev/null
+"$DISPATCH_TOOL" close --status completed >/dev/null
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/dispatch-queue.json" "$TMP_EDGE/state/events/log.jsonl"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+queue = json.load(open(sys.argv[2], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8") if line.strip()]
+acks = [item for item in events if item["type"] == "DispatchQueueEntryAcknowledged" and item.get("cycle_id") == "cycle-queue-autoack"]
+
+assert queue == []
+assert dispatch["state"]["dispatch_queue_ack"]["removed"] is True
+assert dispatch["state"]["dispatch_queue_ack"]["entry_id"] == "state-anchor-monitor:autoack"
+assert acks[-1]["payload"]["reason"] == "completed_cycle"
+PY
+then
+    pass "completed cycle auto-acks the captured queue head"
+else
+    fail "completed cycle auto-acks the captured queue head"
+fi
+
 echo "--- Test 5: operator cycle suppresses legacy heartbeat guard fallback ---"
 python3 - <<'PY' "$TMP_EDGE/state/current-beat.json"
 import json

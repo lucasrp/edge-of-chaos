@@ -6,6 +6,7 @@ Usage:
   edge-dispatch open --trigger operator --skill reflection --arg topic=enforcement
   edge-dispatch dispatch --skill research
   edge-dispatch close --status completed
+  edge-dispatch ack --skill reflection --source state-anchor-monitor
   edge-dispatch status
 """
 
@@ -27,7 +28,12 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import CURRENT_BEAT_FILE, CURRENT_DISPATCH_FILE, THREADS_DIR  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
-from _shared.dispatch_runtime import acknowledge_heartbeat_routing, enrich_dispatch_state  # noqa: E402
+from _shared.dispatch_runtime import (  # noqa: E402
+    ack_dispatch_queue_entry,
+    ack_dispatch_queue_for_completed_cycle,
+    acknowledge_heartbeat_routing,
+    enrich_dispatch_state,
+)
 from _shared.telemetry import current_actor, emit_shadow_event, log_event  # noqa: E402
 from _shared.skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
 
@@ -519,6 +525,17 @@ def cmd_close(args: argparse.Namespace) -> int:
     state_block["updated_at"] = timestamp
     if state_block.get("skill_status") == "running":
         state_block["skill_status"] = "completed" if args.status == "completed" else args.status
+    if args.status == "completed":
+        ack_result = ack_dispatch_queue_for_completed_cycle(state)
+        if ack_result is not None:
+            state_block["dispatch_queue_ack"] = {
+                "removed": ack_result.get("removed", False),
+                "skill": ack_result.get("skill"),
+                "source": ack_result.get("source"),
+                "entry_id": ack_result.get("entry_id"),
+                "reason": ack_result.get("reason"),
+                "after_total": ack_result.get("after_total"),
+            }
 
     write_json(CURRENT_DISPATCH_FILE, state)
     mirror_heartbeat_guard(state)
@@ -558,6 +575,18 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ack(args: argparse.Namespace) -> int:
+    result = ack_dispatch_queue_entry(
+        skill=args.skill,
+        source=args.source,
+        entry_id=args.entry_id,
+        cycle_id=args.cycle_id,
+        reason=args.reason,
+    )
+    print_json(result)
+    return 0 if result.get("removed") else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Dispatch-cycle envelope for heartbeat and operator runs")
     sub = parser.add_subparsers(dest="cmd")
@@ -584,6 +613,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_close.add_argument("--status", default="completed", choices=["completed", "failed", "aborted"])
     p_close.add_argument("--reason", help="Optional close reason")
 
+    p_ack = sub.add_parser("ack", help="Acknowledge and remove a dispatch-queue entry")
+    p_ack.add_argument("--skill", required=True, help="Queued skill to acknowledge")
+    p_ack.add_argument("--source", required=True, help="Queue producer/source to acknowledge")
+    p_ack.add_argument("--entry-id", help="Optional stable queue entry id to guard against stale acks")
+    p_ack.add_argument("--cycle-id", help="Cycle that consumed the queue entry")
+    p_ack.add_argument("--reason", default="manual_ack", help="Ack reason label")
+
     sub.add_parser("status", help="Print the current dispatch state")
     return parser
 
@@ -591,7 +627,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    if args.cmd in {"open", "dispatch", "close"}:
+    if args.cmd in {"open", "dispatch", "close", "ack"}:
         with dispatch_lock():
             if args.cmd == "open":
                 return cmd_open(args)
@@ -599,6 +635,8 @@ def main() -> int:
                 return cmd_dispatch(args)
             if args.cmd == "close":
                 return cmd_close(args)
+            if args.cmd == "ack":
+                return cmd_ack(args)
     if args.cmd == "status":
         return cmd_status(args)
     parser.print_help()

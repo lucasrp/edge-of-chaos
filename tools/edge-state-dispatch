@@ -53,6 +53,11 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def dispatch_entry_id(source: str, payload: dict) -> str:
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"{source}:{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:16]}"
+
+
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -168,9 +173,11 @@ def run_lint() -> dict:
 
 def upsert_dispatch(reason: str, payload: dict, created_at: str) -> str:
     queue = load_json(QUEUE_PATH, [])
+    source = "state-anchor-monitor"
+    entry_id = dispatch_entry_id(source, payload)
     existing = None
     for item in queue:
-        if item.get("skill") == "reflection" and item.get("source") == "state-anchor-monitor":
+        if item.get("skill") == "reflection" and item.get("source") == source:
             existing = item
             break
 
@@ -178,7 +185,8 @@ def upsert_dispatch(reason: str, payload: dict, created_at: str) -> str:
         queue.append(
             {
                 "skill": "reflection",
-                "source": "state-anchor-monitor",
+                "source": source,
+                "entry_id": entry_id,
                 "reason": reason,
                 "created_at": created_at,
                 "payload": payload,
@@ -186,6 +194,8 @@ def upsert_dispatch(reason: str, payload: dict, created_at: str) -> str:
         )
         status = "queued"
     else:
+        existing.setdefault("created_at", created_at)
+        existing["entry_id"] = entry_id
         existing["reason"] = reason
         existing["payload"] = payload
         existing["updated_at"] = created_at
