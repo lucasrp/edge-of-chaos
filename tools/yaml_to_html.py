@@ -790,6 +790,8 @@ def render_gap_table(b):
         parts.append(f'<td><span class="{cls}">{html.escape(status.upper())}</span></td>')
         parts.append('</tr>')
     parts.append('</tbody></table></div>')
+    if b.get("note"):
+        parts.append(f'<p class="chart-note">{render_text(b["note"])}</p>')
     return "\n".join(parts)
 
 
@@ -1022,7 +1024,7 @@ BLOCK_SCHEMAS = {
     },
     "gap-table": {
         "required": [],
-        "optional": ["gaps", "headers", "rows"],
+        "optional": ["gaps", "headers", "rows", "note"],
         "synonyms": {},
         "container_field": ("gaps", "headers"),
     },

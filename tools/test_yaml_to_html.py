@@ -589,6 +589,17 @@ class TestGapTable:
         assert_renders(block, "Gap one", "Gap two", "ABERTO", "RESOLVIDO")
         assert_validates_clean(block)
 
+    def test_with_note(self):
+        block = {
+            "type": "gap-table",
+            "gaps": [
+                {"id": 1, "description": "Gap one", "need": "Data", "status": "open"},
+            ],
+            "note": "This table records validation gaps.",
+        }
+        assert_renders(block, "Gap one", "This table records validation gaps")
+        assert_validates_clean(block)
+
     def test_table_fallback(self):
         """gap-table with headers/rows delegates to table renderer."""
         block = {
