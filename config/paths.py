@@ -68,6 +68,10 @@ if not _memory_project:
     ) if _proj_base.exists() else []
     _memory_project = _candidates[0] if _candidates else ""
 
+_expected_memory_project = str(EDGE_REPO_DIR).rstrip("/").replace("/", "-")
+if _memory_project and _memory_project == _expected_memory_project.lstrip("-"):
+    _memory_project = _expected_memory_project
+
 MEMORY_PROJECT_DIR = _memory_project
 
 # --- Derived paths ---

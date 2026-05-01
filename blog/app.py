@@ -1429,24 +1429,25 @@ def get_health_data(entries):
     return health
 
 
-@app.route("/dashboard")
-@app.route("/dashboard/")
-def dashboard_page():
-    """Operational dashboard — 30-second health check for operator."""
-    dashboard_sections = [
+DASHBOARD_SECTIONS = [
         {"id": "overview", "label": "overview"},
         {"id": "runtime", "label": "runtime"},
         {"id": "work", "label": "work"},
         {"id": "epistemics", "label": "epistemics"},
         {"id": "threads", "label": "threads"},
         {"id": "knowledge", "label": "knowledge"},
-    ]
-    section_lookup = {item["id"]: item["label"] for item in dashboard_sections}
-    dashboard_section = str(request.args.get("section") or "overview").strip().lower()
+]
+
+
+def _dashboard_section_id(raw):
+    section_lookup = {item["id"]: item["label"] for item in DASHBOARD_SECTIONS}
+    dashboard_section = str(raw or "overview").strip().lower()
     if dashboard_section not in section_lookup:
         dashboard_section = "overview"
+    return dashboard_section
 
-    status_strip = _build_status_strip_data()
+
+def _build_dashboard_section_context(dashboard_section):
     dashboard_context = {}
 
     if dashboard_section == "overview":
@@ -1469,6 +1470,29 @@ def dashboard_page():
             {k: v for k, v in item.items() if k != "content"}
             for item in knowledge_clusters
         ]
+    return dashboard_context
+
+
+@app.route("/partials/dashboard-section")
+def partial_dashboard_section():
+    """HTMX partial: selected dashboard section without rebuilding the page shell."""
+    dashboard_section = _dashboard_section_id(request.args.get("section"))
+    dashboard_context = _build_dashboard_section_context(dashboard_section)
+    return render_template(
+        "partials/dashboard_section.html",
+        dashboard_section=dashboard_section,
+        **dashboard_context,
+    )
+
+
+@app.route("/dashboard")
+@app.route("/dashboard/")
+def dashboard_page():
+    """Operational dashboard — 30-second health check for operator."""
+    section_lookup = {item["id"]: item["label"] for item in DASHBOARD_SECTIONS}
+    dashboard_section = _dashboard_section_id(request.args.get("section"))
+    status_strip = _build_status_strip_data()
+    dashboard_context = _build_dashboard_section_context(dashboard_section)
 
     return render_template(
         "dashboard.html",
@@ -1476,7 +1500,7 @@ def dashboard_page():
         page_title=f"edge_of_chaos — dashboard / {section_lookup[dashboard_section]}",
         header_sub=f"dashboard / {section_lookup[dashboard_section]}",
         stats=get_stats_data(),
-        dashboard_sections=dashboard_sections,
+        dashboard_sections=DASHBOARD_SECTIONS,
         dashboard_section=dashboard_section,
         **status_strip,
         **dashboard_context,

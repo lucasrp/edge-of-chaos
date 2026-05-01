@@ -1,0 +1,65 @@
+{% if dashboard_section == 'overview' %}
+  <div hx-get="/partials/alerts" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/alerts.html' %}
+  </div>
+
+  <div hx-get="/partials/pipeline" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/pipeline.html' %}
+  </div>
+
+  <div hx-get="/partials/hotspots" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/hotspots.html' %}
+  </div>
+
+  <div hx-get="/partials/corpus" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/corpus.html' %}
+  </div>
+
+  <div hx-get="/partials/briefing" hx-trigger="every 300s" hx-swap="innerHTML">
+    {% include 'partials/briefing.html' %}
+  </div>
+{% elif dashboard_section == 'runtime' %}
+  <div id="dashboard-runtime" hx-get="/partials/runtime" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/runtime.html' %}
+  </div>
+{% elif dashboard_section == 'work' %}
+  <div id="dashboard-interventions" hx-get="/partials/interventions" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/interventions.html' %}
+  </div>
+
+  <div class="dash-chat">
+    <div class="dash-chat-row">
+      <textarea class="dash-chat-input" id="dash-chat-input" rows="1" placeholder="message to agent..."></textarea>
+      <button class="action-btn action-send" onclick="sendDashChat()">send</button>
+    </div>
+    <span class="dash-chat-confirm" id="dash-chat-confirm"></span>
+  </div>
+{% elif dashboard_section == 'epistemics' %}
+  <div id="dashboard-epistemics" hx-get="/partials/epistemics" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/epistemics.html' %}
+  </div>
+{% elif dashboard_section == 'threads' %}
+  <div id="dashboard-threads" hx-get="/partials/threads" hx-trigger="every 120s" hx-swap="innerHTML">
+    {% include 'partials/threads.html' %}
+  </div>
+{% elif dashboard_section == 'knowledge' %}
+  {% if knowledge_clusters %}
+  <div class="dash-section">
+    <h2 class="dash-section-title">knowledge clusters <a href="/knowledge" style="float:right;font-size:0.65rem;color:var(--accent);text-decoration:none">ver tudo &rarr;</a></h2>
+    <div class="dash-threads">
+      {% for c in knowledge_clusters %}
+      <div class="dash-thread">
+        <span class="dash-thread-status {{ 'status-active' if c.type == 'core' else ('status-waiting' if c.type == 'misses') }}">{{ c.type }}</span>
+        <span class="dash-thread-name">{{ c.name }}</span>
+        <span class="dash-thread-owner">{{ c.rules }}r</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="dash-section">
+    <h2 class="dash-section-title">knowledge clusters</h2>
+    <div class="runtime-empty">no knowledge clusters indexed yet</div>
+  </div>
+  {% endif %}
+{% endif %}

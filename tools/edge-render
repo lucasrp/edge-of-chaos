@@ -381,7 +381,7 @@ def load_agent_yaml(path: Path) -> dict:
 
     # Memory project dir (Claude Code convention)
     edge_abs = os.path.expanduser(cfg["edge_home"]).rstrip("/")
-    cfg["memory_project_dir"] = edge_abs.replace("/", "-").lstrip("-")
+    cfg["memory_project_dir"] = edge_abs.replace("/", "-")
 
     return cfg
 

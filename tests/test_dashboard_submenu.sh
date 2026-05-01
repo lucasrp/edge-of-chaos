@@ -87,6 +87,7 @@ overview = client.get("/dashboard")
 assert overview.status_code == 200, overview.status_code
 overview_html = overview.get_data(as_text=True)
 assert "dashboard-subnav" in overview_html
+assert 'hx-get="/partials/dashboard-section?section=runtime"' in overview_html
 assert 'hx-get="/partials/alerts"' in overview_html
 assert 'hx-get="/partials/pipeline"' in overview_html
 assert "proposals console" not in overview_html
@@ -127,5 +128,16 @@ fallback = client.get("/dashboard?section=unknown")
 assert fallback.status_code == 200, fallback.status_code
 fallback_html = fallback.get_data(as_text=True)
 assert 'hx-get="/partials/alerts"' in fallback_html
+
+runtime_partial = client.get("/partials/dashboard-section?section=runtime")
+assert runtime_partial.status_code == 200, runtime_partial.status_code
+runtime_partial_html = runtime_partial.get_data(as_text=True)
+assert "runtime transparency" in runtime_partial_html
+assert "dashboard-status-strip" not in runtime_partial_html
+assert 'hx-get="/partials/alerts"' not in runtime_partial_html
+
+fallback_partial = client.get("/partials/dashboard-section?section=unknown")
+assert fallback_partial.status_code == 200, fallback_partial.status_code
+assert 'hx-get="/partials/alerts"' in fallback_partial.get_data(as_text=True)
 print("ok")
 PY

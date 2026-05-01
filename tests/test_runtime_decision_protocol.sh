@@ -37,7 +37,8 @@ search_protocol = _search_protocol("research", request)
 epistemic_protocol = _epistemic_protocol("research")
 
 assert search_protocol["required"] is True
-assert search_protocol["required_internal_coverage"] == ["topic", "workflow", "memory"]
+assert search_protocol["required_internal_coverage"] == ["workflow", "memory"]
+assert search_protocol["optional_internal_coverage"] == ["topic"]
 assert search_protocol["rounds"][0]["id"] == "search_round_1"
 assert search_protocol["rounds"][1]["id"] == "adversarial_interpretation"
 assert search_protocol["rounds"][2]["id"] == "search_round_2"
@@ -53,7 +54,7 @@ state = {
         "pre_skill_context": {},
         "preflight_evidence": [],
         "corpus_query": "heartbeat dispatch timeout",
-        "corpus_coverage": {"required": [], "optional": [], "required_covered": False, "missing_required_types": ["topic"]},
+        "corpus_coverage": {"required": [], "optional": [], "required_covered": False, "missing_required_types": ["workflow"]},
         "corpus_hits": [],
         "duplicate_risk": {},
         "configured_integrations": [],

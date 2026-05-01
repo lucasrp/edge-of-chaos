@@ -88,7 +88,7 @@ fi
 
 echo "--- Test 2: edge-sources main() always prepends corpus to selected sources ---"
 out=$(EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP/state" PATH="$PATH_OVERRIDE" python3 - "$EDGE_DIR" <<'PY' 2>&1
-import sys, argparse
+import os, sys, argparse
 from pathlib import Path
 from importlib.machinery import SourceFileLoader
 import importlib.util
@@ -99,25 +99,45 @@ spec = importlib.util.spec_from_loader("edge_sources", loader)
 mod = importlib.util.module_from_spec(spec)
 loader.exec_module(mod)
 
-# Simulate the source-selection block from main() with default args.
+# Simulate the source-selection block from main() with no primary source.
 class A: pass
 args = A()
 args.sources = ""
 args.intent = "research"
 args.no_corpus = False
 
-route = mod.ROUTING.get(args.intent, mod.ROUTING["research"])
-sources = route["primary"] + route["secondary"]
+sources, route_mode = mod.select_sources_for_intent(args.intent, override=args.sources)
 if not args.no_corpus and "corpus" not in sources:
     sources = ["corpus"] + sources
 print("FIRST_SOURCE=", sources[0])
 print("HAS_CORPUS=", "corpus" in sources)
+print("DEFAULT_ROUTE_MODE=", route_mode)
+print("DEFAULT_HAS_CLAUDE=", "claude_builtin" in sources)
+wildcard_src = None
+if route_mode != "managed_claude_default":
+    wildcard_src = mod.pick_wildcard(sources)
+    if wildcard_src:
+        sources.append(wildcard_src)
+print("DEFAULT_WILDCARD=", wildcard_src)
+print("DEFAULT_SOURCE_COUNT=", len(sources))
 
 args.no_corpus = True
-sources = route["primary"] + route["secondary"]
+sources, route_mode = mod.select_sources_for_intent(args.intent, override=args.sources)
 if not args.no_corpus and "corpus" not in sources:
     sources = ["corpus"] + sources
 print("OPTOUT_HAS_CORPUS=", "corpus" in sources)
+
+manifest = Path(os.environ["EDGE_STATE_DIR"]) / "state" / "sources-manifest.yaml"
+manifest.parent.mkdir(parents=True, exist_ok=True)
+manifest.write_text("""version: 1
+sources:
+  - name: exa
+    roles: [search]
+    primary: true
+""", encoding="utf-8")
+sources, route_mode = mod.select_sources_for_intent(args.intent, override="")
+print("PRIMARY_ROUTE_MODE=", route_mode)
+print("PRIMARY_FIRST=", sources[0])
 PY
 )
 if echo "$out" | grep -q "FIRST_SOURCE= corpus"; then
@@ -131,10 +151,28 @@ if echo "$out" | grep -q "HAS_CORPUS= True"; then
 else
     fail "corpus missing by default: $out"
 fi
+if echo "$out" | grep -q "DEFAULT_ROUTE_MODE= managed_claude_default" && echo "$out" | grep -q "DEFAULT_HAS_CLAUDE= True"; then
+    pass "no primary source defaults to managed Claude WebSearch wrapper"
+else
+    echo "$out"
+    fail "no primary source did not default to managed Claude wrapper"
+fi
+if echo "$out" | grep -q "DEFAULT_WILDCARD= None" && echo "$out" | grep -q "DEFAULT_SOURCE_COUNT= 2"; then
+    pass "managed Claude default does not add an external wildcard"
+else
+    echo "$out"
+    fail "managed Claude default added unexpected external source"
+fi
 if echo "$out" | grep -q "OPTOUT_HAS_CORPUS= False"; then
     pass "--no-corpus opts out cleanly"
 else
     fail "--no-corpus did not opt out: $out"
+fi
+if echo "$out" | grep -q "PRIMARY_ROUTE_MODE= manifest_primary" && echo "$out" | grep -q "PRIMARY_FIRST= exa"; then
+    pass "manifest primary source wins source selection"
+else
+    echo "$out"
+    fail "manifest primary source did not win selection"
 fi
 
 echo "--- Test 3: format_markdown surfaces a Corpus section above External sources ---"

@@ -176,7 +176,7 @@ assert any(item["kind"] == "health.snapshot" for item in request["preflight_evid
 assert any(item["kind"] == "claude.sessions.digest" for item in request["preflight_evidence"])
 corpus_step = next(item for item in request["preflight_evidence"] if item["kind"] == "corpus.lookup")
 assert corpus_step["satisfied"] is False
-assert corpus_step["missing_required_types"] == ["topic", "workflow", "memory"]
+assert corpus_step["missing_required_types"] == ["workflow", "memory"]
 assert request["operator_pressure_summary"]["item_total"] >= 3
 assert request["operator_pressure_summary"]["signal_from_operator_now"] >= 1
 assert request["operator_pressure_summary"]["operator_toil_optimizable_now"] >= 1

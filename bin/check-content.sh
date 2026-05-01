@@ -13,73 +13,107 @@ remediation=()
 total_monitored=0
 total_stale=0
 stable_dates=()
+content_scan_truncated=false
+content_scan_matched_total=0
+content_scan_limit="${EDGE_CONTENT_MAX_FILES:-300}"
 
 # Parse monitored_files from config
 check_files() {
   local files_json
-  files_json=$(python3 -c "
-import yaml, json, sys, glob, os
-d = yaml.safe_load(open('$CONFIG_FILE'))
-result = []
-for f in d.get('monitored_files', []):
-    path = f['path']
-    if f.get('glob'):
-        matches = glob.glob(os.path.join(path, f['glob']))
-        for m in matches:
-            result.append({'path': m, 'category': f['category'], 'threshold_days': f.get('threshold_days'), 'remedy_skill': f.get('remedy_skill')})
+  files_json=$(CONFIG_FILE="$CONFIG_FILE" EDGE_CONTENT_MAX_FILES="$content_scan_limit" python3 - <<'PY' 2>/dev/null
+import glob
+import json
+import os
+import time
+from pathlib import Path
+
+import yaml
+
+config_file = os.environ["CONFIG_FILE"]
+max_files = int(os.environ.get("EDGE_CONTENT_MAX_FILES") or "300")
+data = yaml.safe_load(open(config_file, encoding="utf-8")) or {}
+expanded = []
+for item in data.get("monitored_files", []) or []:
+    base = str(item.get("path") or "")
+    if item.get("glob"):
+        for match in glob.glob(os.path.join(base, str(item.get("glob") or ""))):
+            expanded.append({
+                "path": match,
+                "category": item.get("category"),
+                "threshold_days": item.get("threshold_days"),
+                "remedy_skill": item.get("remedy_skill"),
+            })
     else:
-        result.append({'path': path, 'category': f['category'], 'threshold_days': f.get('threshold_days'), 'remedy_skill': f.get('remedy_skill')})
-print(json.dumps(result))
-" 2>/dev/null)
+        expanded.append({
+            "path": base,
+            "category": item.get("category"),
+            "threshold_days": item.get("threshold_days"),
+            "remedy_skill": item.get("remedy_skill"),
+        })
+
+def mtime(path):
+    try:
+        return Path(path).stat().st_mtime
+    except OSError:
+        return 0
+
+matched_total = len(expanded)
+expanded.sort(key=lambda row: mtime(row["path"]), reverse=True)
+truncated = matched_total > max_files
+if truncated:
+    expanded = expanded[:max_files]
+
+now = time.time()
+stale_files = []
+stable_dates = []
+remediation = []
+for row in expanded:
+    path = row["path"]
+    try:
+        days = int((now - Path(path).stat().st_mtime) // 86400)
+    except OSError:
+        days = 9999
+    category = row.get("category")
+    threshold = row.get("threshold_days")
+    remedy = row.get("remedy_skill")
+    if category == "stable":
+        stable_dates.append(days)
+        continue
+    if threshold is not None and days > int(threshold):
+        name = Path(path).name or str(path)
+        stale_files.append(f"{name}:{days}d")
+        if remedy:
+            remediation.append({"file": name, "days_stale": days, "remedy_skill": remedy, "priority": 2})
+
+if len(stable_dates) > 1:
+    first = stable_dates[0]
+    all_same = all(abs(first - day) <= 2 for day in stable_dates)
+    if all_same and first > 7:
+        stale_files.append(f"STABLE_GROUP:{first}d")
+        remediation.append({"file": "stable_group", "days_stale": first, "remedy_skill": "/ed-reflexao", "priority": 1})
+
+print(json.dumps({
+    "total_monitored": len(expanded),
+    "matched_total": matched_total,
+    "truncated": truncated,
+    "stale_files": stale_files,
+    "total_stale": len(stale_files),
+    "remediation": remediation,
+}))
+PY
+)
 
   if [[ -z "$files_json" ]]; then
     log_health "WARN: could not parse monitored_files from config"
     return
   fi
 
-  local count
-  count=$(echo "$files_json" | jq 'length')
-
-  for i in $(seq 0 $((count - 1))); do
-    local path category threshold remedy days
-    path=$(echo "$files_json" | jq -r ".[$i].path")
-    category=$(echo "$files_json" | jq -r ".[$i].category")
-    threshold=$(echo "$files_json" | jq -r ".[$i].threshold_days")
-    remedy=$(echo "$files_json" | jq -r ".[$i].remedy_skill")
-
-    total_monitored=$((total_monitored + 1))
-    days=$(days_since_mtime "$path")
-
-    if [[ "$category" == "stable" ]]; then
-      stable_dates+=("$days")
-      continue
-    fi
-
-    if [[ "$threshold" != "null" ]] && [[ "$days" -gt "$threshold" ]]; then
-      total_stale=$((total_stale + 1))
-      stale_files+=("$(basename "$path"):${days}d")
-      if [[ "$remedy" != "null" ]]; then
-        remediation+=("{\"file\":\"$(basename "$path")\",\"days_stale\":$days,\"remedy_skill\":\"$remedy\",\"priority\":2}")
-      fi
-    fi
-  done
-
-  # Group alarm for stable files: if all have same staleness (within 2 days), skill stopped
-  if [[ ${#stable_dates[@]} -gt 1 ]]; then
-    local first="${stable_dates[0]}"
-    local all_same=true
-    for d in "${stable_dates[@]}"; do
-      if [[ $(( first - d )) -gt 2 ]] || [[ $(( d - first )) -gt 2 ]]; then
-        all_same=false
-        break
-      fi
-    done
-    if $all_same && [[ "$first" -gt 7 ]]; then
-      stale_files+=("STABLE_GROUP:${first}d")
-      total_stale=$((total_stale + 1))
-      remediation+=("{\"file\":\"stable_group\",\"days_stale\":$first,\"remedy_skill\":\"/ed-reflexao\",\"priority\":1}")
-    fi
-  fi
+  total_monitored=$(echo "$files_json" | jq -r '.total_monitored // 0')
+  total_stale=$(echo "$files_json" | jq -r '.total_stale // 0')
+  content_scan_truncated=$(echo "$files_json" | jq -r '.truncated // false')
+  content_scan_matched_total=$(echo "$files_json" | jq -r '.matched_total // 0')
+  mapfile -t stale_files < <(echo "$files_json" | jq -r '.stale_files[]?')
+  mapfile -t remediation < <(echo "$files_json" | jq -c '.remediation[]?')
 }
 
 # Check monitored skills usage
@@ -146,7 +180,7 @@ check_threads
 
 # Determine status
 local_status="ok"
-if [[ "$total_stale" -gt 0 ]] || [[ ${#overdue_skills[@]} -gt 0 ]] || [[ "$overdue_threads" -gt 2 ]]; then
+if [[ "$total_stale" -gt 0 ]] || [[ ${#overdue_skills[@]} -gt 0 ]] || [[ "$overdue_threads" -gt 2 ]] || [[ "$content_scan_truncated" == "true" ]]; then
   local_status="degraded"
 fi
 if [[ "$total_stale" -gt 3 ]] || [[ ${#overdue_skills[@]} -gt 2 ]]; then
@@ -154,6 +188,9 @@ if [[ "$total_stale" -gt 3 ]] || [[ ${#overdue_skills[@]} -gt 2 ]]; then
 fi
 
 detail="stale=${total_stale}/${total_monitored}"
+if [[ "$content_scan_truncated" == "true" ]]; then
+  detail+=" scan_truncated=${total_monitored}/${content_scan_matched_total} limit=${content_scan_limit}"
+fi
 [[ ${#stale_files[@]} -gt 0 ]] && detail+=" files=[$(IFS=,; echo "${stale_files[*]}")]"
 [[ ${#overdue_skills[@]} -gt 0 ]] && detail+=" skills=[$(IFS=,; echo "${overdue_skills[*]}")]"
 [[ "$overdue_threads" -gt 0 ]] && detail+=" threads_overdue=${overdue_threads}"

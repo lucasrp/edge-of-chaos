@@ -167,7 +167,7 @@ assert "workflow_status" in request
 assert "corpus_hits" in request
 assert "corpus_coverage" in request
 assert request["corpus_coverage"]["required_covered"] is False
-assert request["corpus_coverage"]["missing_required_types"] == ["topic", "workflow", "memory"]
+assert request["corpus_coverage"]["missing_required_types"] == ["workflow", "memory"]
 assert request["search_protocol"]["required"] is True
 assert request["epistemic_protocol"]["required"] is True
 assert request["delta_prerequisite"]["required"] is True
@@ -180,7 +180,7 @@ assert "configured_integrations" in request
 assert "unbound_integrations" in request
 corpus_step = next(item for item in request["preflight_evidence"] if item["kind"] == "corpus.lookup")
 assert corpus_step["satisfied"] is False
-assert corpus_step["missing_required_types"] == ["topic", "workflow", "memory"]
+assert corpus_step["missing_required_types"] == ["workflow", "memory"]
 assert start_event["payload"]["thread_id"] == "ops-visibility"
 assert skill_event["payload"]["thread_id"] == "ops-visibility"
 PY
