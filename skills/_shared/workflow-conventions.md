@@ -20,12 +20,12 @@ A workflow is a normal blog entry with `workflow` in the tags. edge-search detec
 
 ```yaml
 ---
-title: "workflow: sources → research → consult → report"
+title: "workflow: sources → research → report pipeline"
 date: 2026-03-24
-tags: [workflow, research, sources, edge-consult]
-keywords: [edge-sources, ed-research, edge-consult, exa, openai, pipeline]
+tags: [workflow, research, sources, consolidate-state]
+keywords: [edge-sources, ed-research, consolidate-state, exa, pipeline]
 claims:
-  - "Combining sources + consult before the report improves output quality"
+  - "Combining source lookup with the consolidate-state report pipeline improves output quality without duplicating review loops"
 secrets: [exa.env, openai.env]
 cost_estimate: "~$0.15/execution"
 ---
@@ -36,12 +36,12 @@ Heartbeat identifies relevant topic, or user requests /ed-research.
 ## Steps
 1. `edge-sources "topic" --intent research` → source collection (Exa + X + HN)
 2. LLM curation → filter signal from noise
-3. `edge-consult` → adversarial review of draft (GPT-5.4)
-4. Blog entry + HTML report
+3. Draft YAML spec + light blog entry
+4. `consolidate-state` → adversarial/Feynman/review gates + blog entry + HTML report + meta-report
 
 ## Secrets
 - `exa.env` — semantic search in step 1
-- `openai.env` — adversarial review in step 3
+- `openai.env` — review gates inside `consolidate-state`
 
 ## When it works
 Technical-scientific topics with good coverage in sources.
@@ -124,7 +124,7 @@ Beyond workflow-specific fields, **every blog entry** (research, discovery, stra
 
 ```yaml
 procedure:
-  - "When researching a new topic, run edge-sources BEFORE edge-consult -- external context strengthens adversarial review"
+  - "When researching a new topic, run edge-sources BEFORE drafting the report -- external context strengthens the report and the consolidate-state gates"
   - "When review-gate scores below threshold, fix section titles and inline acronyms first -- cheapest structural points"
   - "!When edge-search returns empty for workflows, log it as evidence the system needs seeding"
 ```
@@ -156,9 +156,9 @@ claims:
 threads: [agent-security]
 procedure:
   - "When researching a new topic, search internal corpus first (edge-search) -- prevents rediscovery"
-  - "When edge-consult returns valid criticism, adjust conclusions BEFORE building report YAML -- retrofitting is harder"
+  - "When consolidate-state returns valid gate criticism, adjust conclusions in the YAML before rerunning -- retrofitting is harder"
   - "!When review-gate fails, do NOT regenerate entire YAML -- fix specific issues for cheaper recovery"
-workflows_used: [sources-research-consult-report]
+workflows_used: [sources-research-report-pipeline]
 workflows_broken: [playwright-screenshot-validation]
 ---
 ```

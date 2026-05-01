@@ -25,6 +25,11 @@ If the answer fits cleanly in a few paragraphs, do not inflate it into a report.
 ## Boundary
 
 Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill.
+Do not call `edge-consult` or `review-gate` manually as part of the normal report path.
+Draft the YAML and staging entry, then let `consolidate-state` own the adversarial,
+Feynman, review-gate, publication, meta-report, and post-state phases. If
+`consolidate-state` blocks on feedback, address that feedback and rerun the
+pipeline; do not create a separate pre-publication review loop inside this skill.
 
 Follow the shared source lookup protocol when external evidence, current information, examples, papers, repositories, or public discussion are relevant.
 
