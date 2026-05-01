@@ -28,6 +28,7 @@ partial_degraded = first_index('emit_run_step_event "pipeline" "degraded" "pipel
 report_materialization = first_index('emit_run_step_event "phase-0.9" "started" "report_materialization"')
 blog_publish = first_index('emit_run_step_event "phase-1" "started" "blog_publish"')
 report_confirmation = first_index('emit_run_step_event "phase-2" "started" "report_generation"')
+render_error_count = first_index("RENDER_ERRORS=$(grep -c 'ERRO bloco' \"$REPORT_HTML\" 2>/dev/null || true)")
 materialize_function = first_index('materialize_report_before_publish()')
 index_function = first_index('index_materialized_report()')
 
@@ -47,6 +48,9 @@ assert materialize_function < report_materialization < blog_publish, (
 )
 assert index_function < report_confirmation and blog_publish < report_confirmation, (
     "phase-2 should confirm/index the already materialized report after blog publish"
+)
+assert report_confirmation < render_error_count, (
+    "render-error counting must tolerate zero matches under set -e during phase-3 verification"
 )
 PY
 
