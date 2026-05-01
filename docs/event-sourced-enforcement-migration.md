@@ -166,6 +166,12 @@ Purpose:
 
 This is the second target because current failures in `ed`, `gauss`, and `roberto` are dominated by pipeline completion ambiguity, especially around Phase 1.
 
+Current implementation path:
+
+- `tools/rollup-pipeline-state.py` builds `state/projections/pipeline-state.json`
+- `edge-replay pipeline-state` exposes the projection from the canonical ledger
+- `ArtifactPublished` without matching `PhaseCompleted` is surfaced as `orphaned_publish` until pipeline phase emission is complete
+
 ### `render-install-drift`
 
 Purpose:
