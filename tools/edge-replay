@@ -49,6 +49,10 @@ def _load_pipeline_state_module():
     return _load_rollup_module("rollup-pipeline-state.py", "rollup_pipeline_state")
 
 
+def _load_operator_pressure_module():
+    return _load_rollup_module("rollup-operator-pressure.py", "rollup_operator_pressure")
+
+
 def _print_event_line(event: dict[str, Any]) -> None:
     ts = event.get("ts") or event.get("timestamp") or "?"
     etype = event.get("type") or "?"
@@ -120,6 +124,27 @@ def cmd_pipeline_state(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_operator_pressure(args: argparse.Namespace) -> int:
+    module = _load_operator_pressure_module()
+    if args.no_write:
+        payload = module.build_operator_pressure_projection(write_layers=False, emit_events=False, allow_llm=False)
+    else:
+        payload = module.write_operator_pressure_projection()
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        summary = payload.get("summary") or {}
+        print(
+            "operator-pressure: "
+            f"status={payload.get('status')} "
+            f"items={summary.get('item_total', 0)} "
+            f"sessions={summary.get('session_total', 0)} "
+            f"messages={summary.get('message_total', 0)} "
+            f"render={summary.get('render_mode', '')}"
+        )
+    return 0 if payload.get("status") == "ok" else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Replay and project canonical edge events")
     parser.add_argument("--tail", action="store_true", help="Show recent canonical events")
@@ -139,6 +164,11 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--limit", type=int, default=50, help="Maximum recent/attention artifacts to include")
     pipeline.add_argument("--no-write", action="store_true", help="Do not write projection file")
     pipeline.set_defaults(func=cmd_pipeline_state)
+
+    pressure = subparsers.add_parser("operator-pressure", help="Build/read operator-pressure projection")
+    pressure.add_argument("--json", action="store_true", help="Print JSON projection")
+    pressure.add_argument("--no-write", action="store_true", help="Do not write projection files")
+    pressure.set_defaults(func=cmd_operator_pressure)
     return parser
 
 

@@ -36,6 +36,7 @@ export HOME="$TMP_HOME"
 export EDGE_REPO_DIR="$EDGE_DIR"
 export EDGE_STATE_DIR="$TMP_STATE"
 export EDGE_OPERATOR_PRESSURE_DISABLE_LLM=1
+export EDGE_OPERATOR_PRESSURE_WINDOW_DAYS=30
 
 echo "=== operator pressure layers Test ==="
 echo ""
@@ -145,6 +146,53 @@ then
     pass "unchanged ledger reuses the cached hot digest"
 else
     fail "unchanged ledger reuses the cached hot digest"
+fi
+
+echo "--- Test 3: CQRS projection wraps the pressure layers ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_PROJECT" "$TMP_STATE"
+import json
+import sys
+from pathlib import Path
+
+edge_dir, project_dir, state_dir = sys.argv[1:]
+sys.path.insert(0, f"{edge_dir}/tools")
+
+from _shared.operator_pressure import (
+    build_operator_pressure_projection,
+    read_operator_pressure_projection,
+    write_operator_pressure_projection,
+)
+
+state_dir = Path(state_dir)
+projection_path = state_dir / "projections" / "operator-pressure.json"
+
+preview = build_operator_pressure_projection(
+    project_dir=Path(project_dir),
+    projection_path=projection_path,
+    write_layers=False,
+    allow_llm=False,
+)
+assert preview["projection_kind"] == "operator_pressure"
+assert preview["status"] == "ok"
+assert not projection_path.exists()
+
+payload = write_operator_pressure_projection(
+    project_dir=Path(project_dir),
+    projection_path=projection_path,
+    allow_llm=False,
+)
+stored = read_operator_pressure_projection(projection_path)
+assert projection_path.exists()
+assert stored["projection_kind"] == "operator_pressure"
+assert payload["summary"]["item_total"] >= 3
+assert stored["hot_digest"]["signal_from_operator_now"]
+assert stored["raw_chat"]["available"] is True
+assert stored["source_paths"]["projection"] == str(projection_path)
+PY
+then
+    pass "operator pressure projection supports no-write preview and materialized read model"
+else
+    fail "operator pressure projection supports no-write preview and materialized read model"
 fi
 
 echo ""

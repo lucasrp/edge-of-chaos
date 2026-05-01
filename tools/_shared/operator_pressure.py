@@ -28,7 +28,9 @@ from paths import (  # noqa: E402
     OPERATOR_PRESSURE_ATOMS_FILE,
     OPERATOR_PRESSURE_HOT_DIGEST_FILE,
     OPERATOR_PRESSURE_LEDGER_FILE,
+    OPERATOR_PRESSURE_PROJECTION_FILE,
     OPERATOR_PRESSURE_REDIGEST_DIR,
+    PROJECTS_BASE,
     PROJECT_DIR,
 )
 from .router_client import make_client  # noqa: E402
@@ -40,6 +42,7 @@ MAX_SESSIONS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_SESSIONS", "8") or
 MAX_MESSAGES = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_MESSAGES", "48") or "48")
 SECTION_LIMIT = int(os.environ.get("EDGE_OPERATOR_PRESSURE_SECTION_LIMIT", "4") or "4")
 REDIGEST_INTERVAL_HOURS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_REDIGEST_INTERVAL_HOURS", "24") or "24")
+PROJECTION_MAX_AGE_MINUTES = int(os.environ.get("EDGE_OPERATOR_PRESSURE_PROJECTION_MAX_AGE_MINUTES", "30") or "30")
 LLM_DISABLED = os.environ.get("EDGE_OPERATOR_PRESSURE_DISABLE_LLM", "").strip() in {"1", "true", "yes"}
 LLM_MODEL = os.environ.get("EDGE_OPERATOR_PRESSURE_MODEL", "gpt-5.4").strip() or "gpt-5.4"
 
@@ -194,6 +197,33 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     except Exception:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _jsonl_count(path: Path) -> int:
+    try:
+        return sum(1 for item in path.glob("*.jsonl") if item.is_file())
+    except Exception:
+        return 0
+
+
+def _resolve_project_dir(project_dir: Path | None = None) -> Path:
+    if project_dir is not None:
+        return project_dir
+
+    candidates = [PROJECT_DIR]
+    name = PROJECT_DIR.name
+    if name:
+        alternate = PROJECTS_BASE / (name[1:] if name.startswith("-") else f"-{name}")
+        if alternate not in candidates:
+            candidates.append(alternate)
+
+    existing = [candidate for candidate in candidates if candidate.exists()]
+    with_sessions = [candidate for candidate in existing if _jsonl_count(candidate)]
+    if with_sessions:
+        return sorted(with_sessions, key=lambda item: _jsonl_count(item), reverse=True)[0]
+    if existing:
+        return existing[0]
+    return PROJECT_DIR
 
 
 def _parse_ts(raw: str | None) -> datetime | None:
@@ -1016,42 +1046,20 @@ def _maybe_write_redigest(ledger: dict[str, Any], hot_digest: dict[str, Any], *,
     return snapshot
 
 
-def build_operator_pressure_layers(
+def _projection_summary(
+    ledger: dict[str, Any],
+    hot_digest: dict[str, Any],
+    redigest: dict[str, Any],
     *,
-    project_dir: Path | None = None,
-    ledger_path: Path | None = None,
-    hot_digest_path: Path | None = None,
-    redigest_dir: Path | None = None,
-    atoms_path: Path | None = None,
+    project_dir: Path,
+    ledger_path: Path,
+    atoms_path: Path,
+    hot_digest_path: Path,
+    redigest_dir: Path,
+    atom_store: dict[str, Any],
+    latest_before: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    project_dir = project_dir or PROJECT_DIR
-    explicit_ledger_path = ledger_path
-    ledger_path = ledger_path or OPERATOR_PRESSURE_LEDGER_FILE
-    hot_digest_path = hot_digest_path or OPERATOR_PRESSURE_HOT_DIGEST_FILE
-    redigest_dir = redigest_dir or OPERATOR_PRESSURE_REDIGEST_DIR
-    atoms_path = atoms_path or ((explicit_ledger_path.parent / "pressure-ledger.jsonl") if explicit_ledger_path else OPERATOR_PRESSURE_ATOMS_FILE)
-
-    messages = _iter_recent_user_messages(project_dir=project_dir)
-    ledger = _ledger_from_messages(messages, project_dir=project_dir)
-    previous_digest = _read_json(hot_digest_path)
-    if _hot_digest_matches_schema(previous_digest) and previous_digest.get("source_hash") == ledger.get("source_hash"):
-        hot_digest = previous_digest
-    else:
-        previous_item_ids = set(previous_digest.get("item_ids") or []) if isinstance(previous_digest, dict) else set()
-        delta_items = [
-            _compact_item(item)
-            for item in (ledger.get("items") or [])
-            if str(item.get("id") or "") not in previous_item_ids
-        ]
-        hot_digest = _render_hot_digest_with_llm(ledger, previous_digest=previous_digest, delta_items=delta_items)
-
-    _write_json(ledger_path, ledger)
-    _write_json(hot_digest_path, hot_digest)
-    atom_store = _append_atom_store(ledger, atoms_path=atoms_path)
-    latest_before = _read_json((redigest_dir / "latest.json"))
-    redigest = _maybe_write_redigest(ledger, hot_digest, redigest_dir=redigest_dir)
-
-    summary = {
+    return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": _now_iso(),
         "project_dir": str(project_dir),
@@ -1076,28 +1084,96 @@ def build_operator_pressure_layers(
         "redigest_path": str(redigest_dir / "latest.json"),
         "redigest_updated": (not latest_before) or latest_before.get("snapshot_hash") != redigest.get("snapshot_hash"),
     }
-    emit_shadow_event(
-        "ClaudeSessionDigestComputed",
-        actor="operator-pressure",
-        cycle_id=os.environ.get("EDGE_CYCLE_ID"),
-        payload=summary,
+
+
+def build_operator_pressure_layers(
+    *,
+    project_dir: Path | None = None,
+    ledger_path: Path | None = None,
+    hot_digest_path: Path | None = None,
+    redigest_dir: Path | None = None,
+    atoms_path: Path | None = None,
+    write: bool = True,
+    emit_events: bool = True,
+    allow_llm: bool = True,
+) -> dict[str, Any]:
+    project_dir = _resolve_project_dir(project_dir)
+    explicit_ledger_path = ledger_path
+    ledger_path = ledger_path or OPERATOR_PRESSURE_LEDGER_FILE
+    hot_digest_path = hot_digest_path or OPERATOR_PRESSURE_HOT_DIGEST_FILE
+    redigest_dir = redigest_dir or OPERATOR_PRESSURE_REDIGEST_DIR
+    atoms_path = atoms_path or ((explicit_ledger_path.parent / "pressure-ledger.jsonl") if explicit_ledger_path else OPERATOR_PRESSURE_ATOMS_FILE)
+
+    messages = _iter_recent_user_messages(project_dir=project_dir)
+    ledger = _ledger_from_messages(messages, project_dir=project_dir)
+    previous_digest = _read_json(hot_digest_path)
+    if _hot_digest_matches_schema(previous_digest) and previous_digest.get("source_hash") == ledger.get("source_hash"):
+        hot_digest = previous_digest
+    else:
+        previous_item_ids = set(previous_digest.get("item_ids") or []) if isinstance(previous_digest, dict) else set()
+        delta_items = [
+            _compact_item(item)
+            for item in (ledger.get("items") or [])
+            if str(item.get("id") or "") not in previous_item_ids
+        ]
+        hot_digest = (
+            _render_hot_digest_with_llm(ledger, previous_digest=previous_digest, delta_items=delta_items)
+            if allow_llm
+            else _deterministic_hot_digest(ledger, previous_digest=previous_digest)
+        )
+
+    latest_before = _read_json((redigest_dir / "latest.json"))
+    if write:
+        _write_json(ledger_path, ledger)
+        _write_json(hot_digest_path, hot_digest)
+        atom_store = _append_atom_store(ledger, atoms_path=atoms_path)
+        redigest = _maybe_write_redigest(ledger, hot_digest, redigest_dir=redigest_dir)
+    else:
+        atom_store = {
+            "path": str(atoms_path),
+            "appended": 0,
+            "atom_total": int(ledger.get("atom_total") or ledger.get("item_total") or 0),
+        }
+        if latest_before and latest_before.get("source_hash") == ledger.get("source_hash"):
+            redigest = latest_before
+        else:
+            redigest = _build_redigest(ledger, hot_digest, previous_latest=latest_before)
+
+    summary = _projection_summary(
+        ledger,
+        hot_digest,
+        redigest,
+        project_dir=project_dir,
+        ledger_path=ledger_path,
+        atoms_path=atoms_path,
+        hot_digest_path=hot_digest_path,
+        redigest_dir=redigest_dir,
+        atom_store=atom_store,
+        latest_before=latest_before,
     )
-    log_event(
-        "operator_pressure_digest",
-        actor="operator-pressure",
-        cycle_id=os.environ.get("EDGE_CYCLE_ID"),
-        status="computed",
-        item_total=summary["item_total"],
-        session_total=summary["session_total"],
-        render_mode=summary["render_mode"],
-        signal_from_operator_now=summary["signal_from_operator_now"],
-        operator_toil_optimizable_now=summary["operator_toil_optimizable_now"],
-        workflow_candidates=summary["workflow_candidates"],
-        capability_candidates=summary["capability_candidates"],
-        substrate_gap_requests=summary["substrate_gap_requests"],
-        mistakes_to_avoid_now=summary["mistakes_to_avoid_now"],
-        atom_entries_appended=summary["atom_entries_appended"],
-    )
+    if emit_events:
+        emit_shadow_event(
+            "ClaudeSessionDigestComputed",
+            actor="operator-pressure",
+            cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+            payload=summary,
+        )
+        log_event(
+            "operator_pressure_digest",
+            actor="operator-pressure",
+            cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+            status="computed",
+            item_total=summary["item_total"],
+            session_total=summary["session_total"],
+            render_mode=summary["render_mode"],
+            signal_from_operator_now=summary["signal_from_operator_now"],
+            operator_toil_optimizable_now=summary["operator_toil_optimizable_now"],
+            workflow_candidates=summary["workflow_candidates"],
+            capability_candidates=summary["capability_candidates"],
+            substrate_gap_requests=summary["substrate_gap_requests"],
+            mistakes_to_avoid_now=summary["mistakes_to_avoid_now"],
+            atom_entries_appended=summary["atom_entries_appended"],
+        )
     return {
         "ledger": ledger,
         "hot_digest": hot_digest,
@@ -1106,4 +1182,216 @@ def build_operator_pressure_layers(
     }
 
 
-__all__ = ["build_operator_pressure_layers"]
+def _projection_age_minutes(payload: dict[str, Any] | None) -> float | None:
+    if not isinstance(payload, dict):
+        return None
+    generated = _parse_ts(str(payload.get("generated_at") or ""))
+    if generated is None:
+        return None
+    return (_now() - generated).total_seconds() / 60
+
+
+def operator_pressure_projection_is_stale(
+    payload: dict[str, Any] | None,
+    *,
+    max_age_minutes: int = PROJECTION_MAX_AGE_MINUTES,
+) -> bool:
+    if not isinstance(payload, dict):
+        return True
+    if payload.get("projection_kind") != "operator_pressure":
+        return True
+    if payload.get("status") != "ok":
+        return True
+    age = _projection_age_minutes(payload)
+    return age is None or age > max_age_minutes
+
+
+def _raw_chat_from_ledger(ledger: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "available": bool(ledger.get("items") or ledger.get("atoms")),
+        "message_total": int(ledger.get("message_total") or summary.get("message_total") or 0),
+        "session_total": int(ledger.get("session_total") or summary.get("session_total") or 0),
+        "item_total": int(ledger.get("item_total") or summary.get("item_total") or 0),
+        "window_days": ledger.get("window_days"),
+        "project_dir": ledger.get("project_dir") or summary.get("project_dir"),
+    }
+
+
+def build_operator_pressure_projection(
+    *,
+    project_dir: Path | None = None,
+    projection_path: Path | None = None,
+    write_layers: bool = True,
+    emit_events: bool = False,
+    allow_llm: bool = True,
+) -> dict[str, Any]:
+    projection_path = projection_path or OPERATOR_PRESSURE_PROJECTION_FILE
+    layers = build_operator_pressure_layers(
+        project_dir=project_dir,
+        write=write_layers,
+        emit_events=False,
+        allow_llm=allow_llm,
+    )
+    ledger = layers["ledger"]
+    summary = dict(layers["summary"])
+    hot_digest = layers["hot_digest"]
+    redigest = layers["redigest"]
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "projection_kind": "operator_pressure",
+        "status": "ok",
+        "generated_at": summary.get("generated_at") or _now_iso(),
+        "output_path": str(projection_path),
+        "source": {
+            "project_dir": summary.get("project_dir"),
+            "source_hash": summary.get("source_hash"),
+            "window_days": ledger.get("window_days"),
+        },
+        "summary": summary,
+        "ledger": ledger,
+        "hot_digest": hot_digest,
+        "redigest": redigest,
+        "raw_chat": _raw_chat_from_ledger(ledger, summary),
+        "source_paths": {
+            "ledger": summary.get("ledger_path"),
+            "atoms": summary.get("atoms_path"),
+            "hot_digest": summary.get("hot_digest_path"),
+            "redigest": summary.get("redigest_path"),
+            "projection": str(projection_path),
+        },
+    }
+    if emit_events:
+        emit_shadow_event(
+            "OperatorPressureProjectionBuilt",
+            actor="operator-pressure",
+            cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+            payload={
+                "projection_path": str(projection_path),
+                "item_total": summary.get("item_total", 0),
+                "source_hash": summary.get("source_hash"),
+                "write_layers": write_layers,
+            },
+        )
+    return payload
+
+
+def write_operator_pressure_projection(
+    *,
+    project_dir: Path | None = None,
+    projection_path: Path | None = None,
+    allow_llm: bool = True,
+) -> dict[str, Any]:
+    projection_path = projection_path or OPERATOR_PRESSURE_PROJECTION_FILE
+    try:
+        payload = build_operator_pressure_projection(
+            project_dir=project_dir,
+            projection_path=projection_path,
+            write_layers=True,
+            emit_events=False,
+            allow_llm=allow_llm,
+        )
+        _write_json(projection_path, payload)
+        summary = payload.get("summary") or {}
+        emit_shadow_event(
+            "ClaudeSessionDigestComputed",
+            actor="operator-pressure",
+            cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+            payload={
+                **summary,
+                "projection_path": str(projection_path),
+                "projection_kind": "operator_pressure",
+            },
+        )
+        log_event(
+            "operator_pressure_projection",
+            actor="operator-pressure",
+            cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+            status="computed",
+            projection_path=str(projection_path),
+            item_total=summary.get("item_total", 0),
+            session_total=summary.get("session_total", 0),
+            render_mode=summary.get("render_mode"),
+            source_hash=summary.get("source_hash"),
+        )
+        return payload
+    except Exception as exc:
+        failed = {
+            "schema_version": SCHEMA_VERSION,
+            "projection_kind": "operator_pressure",
+            "status": "failed",
+            "generated_at": _now_iso(),
+            "output_path": str(projection_path),
+            "error": str(exc),
+            "summary": {
+                "schema_version": SCHEMA_VERSION,
+                "generated_at": _now_iso(),
+                "message_total": 0,
+                "session_total": 0,
+                "item_total": 0,
+                "render_mode": "failed",
+            },
+            "ledger": {"items": [], "atoms": []},
+            "hot_digest": _deterministic_hot_digest({"items": [], "source_hash": ""}),
+            "redigest": {},
+            "raw_chat": {"available": False, "message_total": 0, "session_total": 0, "item_total": 0},
+            "source_paths": {"projection": str(projection_path)},
+        }
+        _write_json(projection_path, failed)
+        emit_shadow_event(
+            "ClaudeSessionDigestFailed",
+            actor="operator-pressure",
+            cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+            payload={"projection_path": str(projection_path), "error": str(exc)},
+        )
+        log_event(
+            "operator_pressure_projection",
+            actor="operator-pressure",
+            cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+            status="failed",
+            projection_path=str(projection_path),
+            error=str(exc),
+        )
+        return failed
+
+
+def read_operator_pressure_projection(projection_path: Path | None = None) -> dict[str, Any] | None:
+    return _read_json(projection_path or OPERATOR_PRESSURE_PROJECTION_FILE)
+
+
+def read_or_refresh_operator_pressure_projection(
+    *,
+    projection_path: Path | None = None,
+    max_age_minutes: int = PROJECTION_MAX_AGE_MINUTES,
+) -> dict[str, Any]:
+    projection_path = projection_path or OPERATOR_PRESSURE_PROJECTION_FILE
+    current = read_operator_pressure_projection(projection_path)
+    if not operator_pressure_projection_is_stale(current, max_age_minutes=max_age_minutes):
+        current = dict(current or {})
+        current["projection_status"] = "fresh"
+        return current
+
+    age = _projection_age_minutes(current)
+    emit_shadow_event(
+        "ClaudeSessionDigestStale",
+        actor="operator-pressure",
+        cycle_id=os.environ.get("EDGE_CYCLE_ID"),
+        payload={
+            "projection_path": str(projection_path),
+            "age_minutes": age,
+            "max_age_minutes": max_age_minutes,
+            "reason": "missing" if current is None else "stale_or_invalid",
+        },
+    )
+    refreshed = write_operator_pressure_projection(projection_path=projection_path)
+    refreshed["projection_status"] = "refreshed"
+    return refreshed
+
+
+__all__ = [
+    "build_operator_pressure_layers",
+    "build_operator_pressure_projection",
+    "operator_pressure_projection_is_stale",
+    "read_operator_pressure_projection",
+    "read_or_refresh_operator_pressure_projection",
+    "write_operator_pressure_projection",
+]

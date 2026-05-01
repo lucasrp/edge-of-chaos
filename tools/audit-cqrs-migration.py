@@ -79,6 +79,37 @@ def _run_projection() -> Check:
     return Check("projection:pipeline-state-replay", "ok", detail, str(tool.relative_to(REPO_ROOT)))
 
 
+def _run_operator_pressure_projection() -> Check:
+    tool = SCRIPT_DIR / "rollup-operator-pressure.py"
+    env = dict(os.environ)
+    env["EDGE_OPERATOR_PRESSURE_DISABLE_LLM"] = "1"
+    result = subprocess.run(
+        [sys.executable, str(tool), "--json", "--no-write"],
+        cwd=str(REPO_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        return Check("projection:operator-pressure", "fail", result.stderr.strip() or result.stdout.strip(), str(tool.relative_to(REPO_ROOT)))
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return Check("projection:operator-pressure", "fail", f"invalid JSON: {exc}", str(tool.relative_to(REPO_ROOT)))
+    summary = payload.get("summary") or {}
+    detail = (
+        f"status={payload.get('status')} "
+        f"items={summary.get('item_total', 0)} "
+        f"sessions={summary.get('session_total', 0)} "
+        f"messages={summary.get('message_total', 0)} "
+        f"render={summary.get('render_mode', '')}"
+    )
+    if payload.get("status") != "ok":
+        return Check("projection:operator-pressure", "fail", detail, str(tool.relative_to(REPO_ROOT)))
+    return Check("projection:operator-pressure", "ok", detail, str(tool.relative_to(REPO_ROOT)))
+
+
 def _fleet_canonical_check() -> Check:
     path = REPO_ROOT / "observability" / "fleet"
     if path.exists():
@@ -177,7 +208,20 @@ def build_audit() -> dict[str, Any]:
             ["pipeline_state.refresh"],
             "default postflight protocol includes pipeline-state refresh",
         ),
+        _check_contains(
+            "runtime:operator-pressure-projection",
+            REPO_ROOT / "tools" / "_shared" / "dispatch_runtime.py",
+            ["read_or_refresh_operator_pressure_projection", "projection_status"],
+            "preflight consumes operator pressure through a projection refresh boundary",
+        ),
+        _check_contains(
+            "replay:operator-pressure",
+            REPO_ROOT / "tools" / "edge-replay",
+            ["operator-pressure", "write_operator_pressure_projection"],
+            "edge-replay exposes the operator-pressure projection",
+        ),
         _run_projection(),
+        _run_operator_pressure_projection(),
         _fleet_canonical_check(),
     ]
     return {
