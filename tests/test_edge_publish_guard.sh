@@ -37,6 +37,11 @@ else
 fi
 
 echo "--- Test 2: active heartbeat before dispatch is blocked and emits event ---"
+FUTURE_EXPIRES_AT="$(python3 - <<'PY'
+from datetime import datetime, timedelta, timezone
+print((datetime.now(timezone.utc) + timedelta(hours=2)).isoformat())
+PY
+)"
 cat >"$DISPATCH_FILE" <<'JSON'
 {
   "cycle_id": "cycle-heartbeat-inline",
@@ -46,13 +51,19 @@ cat >"$DISPATCH_FILE" <<'JSON'
   },
   "state": {
     "active": true,
-    "skill_dispatched": false
+    "skill_dispatched": false,
+    "expires_at": "__FUTURE_EXPIRES_AT__"
   }
 }
 JSON
+python3 - <<'PY' "$DISPATCH_FILE" "$FUTURE_EXPIRES_AT"
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+path.write_text(path.read_text().replace("__FUTURE_EXPIRES_AT__", sys.argv[2]), encoding="utf-8")
+PY
 
 set +e
-"$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/test.md" >/dev/null 2>/dev/null
+EDGE_CYCLE_ID=cycle-heartbeat-inline "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/test.md" >/dev/null 2>/dev/null
 STATUS=$?
 set -e
 
@@ -67,14 +78,31 @@ event = [item for item in events if item["type"] == "HeartbeatInlineWorkDetected
 assert event["payload"]["operation"] == "consolidate-state"
 assert event["payload"]["skill"] == "bob-heartbeat"
 assert event["payload"]["skill_dispatched"] is False
+assert event["payload"]["publisher_cycle_id"] == "cycle-heartbeat-inline"
 PY
 then
-    pass "guard blocks inline publish before dispatch and emits event"
+    pass "guard blocks same-cycle inline publish before dispatch and emits event"
 else
-    fail "guard blocks inline publish before dispatch and emits event"
+    fail "guard blocks same-cycle inline publish before dispatch and emits event"
 fi
 
-echo "--- Test 3: dispatched substantive skill allows publish ---"
+echo "--- Test 3: active heartbeat without publisher cycle allows manual publish ---"
+if "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/manual.md" >/tmp/edge-publish-guard-manual.out; then
+    pass "guard allows unscoped manual publish while heartbeat is active"
+else
+    cat /tmp/edge-publish-guard-manual.out
+    fail "guard allows unscoped manual publish while heartbeat is active"
+fi
+
+echo "--- Test 4: different publisher cycle allows parallel operator publish ---"
+if EDGE_CYCLE_ID=cycle-operator-work "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/operator.md" >/tmp/edge-publish-guard-operator.out; then
+    pass "guard allows different-cycle operator publish while heartbeat is active"
+else
+    cat /tmp/edge-publish-guard-operator.out
+    fail "guard allows different-cycle operator publish while heartbeat is active"
+fi
+
+echo "--- Test 5: dispatched substantive skill allows publish ---"
 cat >"$DISPATCH_FILE" <<'JSON'
 {
   "cycle_id": "cycle-heartbeat-dispatched",
@@ -93,6 +121,66 @@ if "$GUARD_TOOL" --operation blog-publish --target "$TMP_EDGE/blog/entries/test.
     pass "guard allows publish after substantive dispatch"
 else
     fail "guard allows publish after substantive dispatch"
+fi
+
+echo "--- Test 6: expired heartbeat cycle does not block same-cycle publish ---"
+PAST_EXPIRES_AT="$(python3 - <<'PY'
+from datetime import datetime, timedelta, timezone
+print((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat())
+PY
+)"
+cat >"$DISPATCH_FILE" <<JSON
+{
+  "cycle_id": "cycle-heartbeat-expired",
+  "request": {
+    "trigger": "heartbeat",
+    "skill": "bob-heartbeat"
+  },
+  "state": {
+    "active": true,
+    "skill_dispatched": false,
+    "expires_at": "$PAST_EXPIRES_AT"
+  }
+}
+JSON
+
+if EDGE_CYCLE_ID=cycle-heartbeat-expired "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/expired.md" --json >/tmp/edge-publish-guard-expired.out; then
+    if grep -q "expired_heartbeat_cycle" /tmp/edge-publish-guard-expired.out; then
+        pass "guard ignores expired heartbeat cycles"
+    else
+        cat /tmp/edge-publish-guard-expired.out
+        fail "guard reports expired heartbeat cycles"
+    fi
+else
+    cat /tmp/edge-publish-guard-expired.out
+    fail "guard ignores expired heartbeat cycles"
+fi
+
+echo "--- Test 7: active operator cycle never blocks publish ---"
+cat >"$DISPATCH_FILE" <<'JSON'
+{
+  "cycle_id": "cycle-operator",
+  "request": {
+    "trigger": "operator",
+    "skill": "research"
+  },
+  "state": {
+    "active": true,
+    "skill_dispatched": false
+  }
+}
+JSON
+
+if EDGE_CYCLE_ID=cycle-operator "$GUARD_TOOL" --operation consolidate-state --target "$TMP_EDGE/blog/entries/operator-active.md" --json >/tmp/edge-publish-guard-active-operator.out; then
+    if grep -q "non_heartbeat_cycle" /tmp/edge-publish-guard-active-operator.out; then
+        pass "guard allows active operator cycles"
+    else
+        cat /tmp/edge-publish-guard-active-operator.out
+        fail "guard reports active operator cycles"
+    fi
+else
+    cat /tmp/edge-publish-guard-active-operator.out
+    fail "guard allows active operator cycles"
 fi
 
 echo ""

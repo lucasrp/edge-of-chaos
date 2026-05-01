@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -14,6 +15,8 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import CURRENT_DISPATCH_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.telemetry import emit_shadow_event  # noqa: E402
+
+DEFAULT_DISPATCH_TTL_SECONDS = 7200
 
 
 def read_dispatch_state() -> dict:
@@ -25,25 +28,76 @@ def read_dispatch_state() -> dict:
         return {}
 
 
-def should_block(dispatch: dict) -> tuple[bool, dict]:
+def _parse_time(value: object) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _dispatch_ttl_seconds() -> int | None:
+    raw = os.environ.get("EDGE_DISPATCH_TTL_SEC", str(DEFAULT_DISPATCH_TTL_SECONDS))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_DISPATCH_TTL_SECONDS
+    if value <= 0:
+        return None
+    return value
+
+
+def _is_expired(state: dict) -> bool:
+    expires_at = _parse_time(state.get("expires_at"))
+    if expires_at is not None:
+        return datetime.now(timezone.utc) > expires_at
+
+    ttl = _dispatch_ttl_seconds()
+    opened_at = _parse_time(state.get("opened_at"))
+    if ttl is None or opened_at is None:
+        return False
+    return datetime.now(timezone.utc) > opened_at + timedelta(seconds=ttl)
+
+
+def should_block(dispatch: dict, publisher_cycle_id: str | None) -> tuple[bool, dict]:
     request = dispatch.get("request", {}) or {}
     state = dispatch.get("state", {}) or {}
     trigger = str(request.get("trigger") or "")
     skill = str(request.get("skill") or "")
+    current_cycle_id = str(dispatch.get("cycle_id") or "")
+    publisher_cycle_id = str(publisher_cycle_id or "").strip()
     payload = {
+        "current_cycle_id": current_cycle_id or None,
+        "publisher_cycle_id": publisher_cycle_id or None,
         "trigger": trigger or None,
         "skill": skill or None,
         "active": bool(state.get("active")),
         "skill_dispatched": bool(state.get("skill_dispatched")),
+        "expires_at": state.get("expires_at"),
     }
     if not state.get("active"):
+        payload["reason"] = "no_active_cycle"
         return False, payload
     if trigger != "heartbeat":
+        payload["reason"] = "non_heartbeat_cycle"
+        return False, payload
+    if _is_expired(state):
+        payload["reason"] = "expired_heartbeat_cycle"
         return False, payload
     if state.get("skill_dispatched"):
+        payload["reason"] = "heartbeat_skill_dispatched"
         return False, payload
     if skill and not skill.endswith("heartbeat"):
+        payload["reason"] = "substantive_skill_selected"
         return False, payload
+    if not current_cycle_id or not publisher_cycle_id or publisher_cycle_id != current_cycle_id:
+        payload["reason"] = "different_or_unscoped_cycle"
+        return False, payload
+    payload["reason"] = "heartbeat_inline_publish_before_dispatch"
     return True, payload
 
 
@@ -51,6 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--operation", default="", help="Logical operation name")
     parser.add_argument("--target", default="", help="Artifact path or label")
+    parser.add_argument("--cycle-id", default="", help="Publishing cycle id; defaults to EDGE_CYCLE_ID")
     parser.add_argument("--json", action="store_true", help="Print JSON response")
     return parser
 
@@ -58,7 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     dispatch = read_dispatch_state()
-    blocked, payload = should_block(dispatch)
+    publisher_cycle_id = args.cycle_id or os.environ.get("EDGE_CYCLE_ID", "")
+    blocked, payload = should_block(dispatch, publisher_cycle_id)
     payload.update(
         {
             "operation": args.operation or None,

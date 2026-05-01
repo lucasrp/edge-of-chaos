@@ -106,6 +106,7 @@ assert dispatch["request"]["args"]["thread_id"] == "ops-visibility"
 assert dispatch["request"]["preflight_profile"] == "heartbeat_default"
 assert dispatch["state"]["active"] is True
 assert dispatch["state"]["skill_dispatched"] is False
+assert dispatch["state"]["expires_at"]
 assert legacy["active"] is True
 assert legacy["skill_dispatched"] is False
 PY
@@ -128,13 +129,13 @@ PY
 )
 
 set +e
-EDGE_ROOT="$TMP_EDGE" bash "$GUARD_TOOL" <<<"$BLOCK_PAYLOAD" >/dev/null 2>/dev/null
+EDGE_ROOT="$TMP_EDGE" EDGE_CYCLE_ID=cycle-test-heartbeat bash "$GUARD_TOOL" <<<"$BLOCK_PAYLOAD" >/dev/null 2>/dev/null
 STATUS=$?
 set -e
 if [[ "$STATUS" -eq 2 ]]; then
-    pass "guard blocks heartbeat writes before skill dispatch"
+    pass "guard blocks same-cycle heartbeat writes before skill dispatch"
 else
-    fail "guard blocks heartbeat writes before skill dispatch (exit=$STATUS)"
+    fail "guard blocks same-cycle heartbeat writes before skill dispatch (exit=$STATUS)"
 fi
 
 echo "--- Test 3: dispatch marks skill and unblocks guard ---"

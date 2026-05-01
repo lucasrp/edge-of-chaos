@@ -81,7 +81,7 @@ cat >"$TMP_STATE/state/current-dispatch.json" <<JSON
 }
 JSON
 set +e
-EDGE_CONSOLIDATE_ACTIVE=1 "$TOOL" validate-write \
+EDGE_CONSOLIDATE_ACTIVE=1 EDGE_CYCLE_ID=cycle-cmd-heartbeat "$TOOL" validate-write \
   --tool Write \
   --path "$ENTRY_PATH" \
   --source test \
@@ -95,7 +95,54 @@ else
     fail "edge-cmd keeps heartbeat dispatch invariant at the command boundary"
 fi
 
-echo "--- Test 5: write-guard delegates to edge-cmd ---"
+echo "--- Test 5: heartbeat dispatch invariant allows different or unscoped cycles ---"
+EDGE_CONSOLIDATE_ACTIVE=1 "$TOOL" validate-write \
+  --tool Write \
+  --path "$ENTRY_PATH" \
+  --source test \
+  --require-dispatched-heartbeat \
+  --json >/tmp/edge-cmd-unscoped.out
+EDGE_CONSOLIDATE_ACTIVE=1 EDGE_CYCLE_ID=cycle-operator-work "$TOOL" validate-write \
+  --tool Write \
+  --path "$ENTRY_PATH" \
+  --source test \
+  --require-dispatched-heartbeat \
+  --json >/tmp/edge-cmd-different.out
+if grep -q "different_or_unscoped_cycle" /tmp/edge-cmd-unscoped.out && grep -q "different_or_unscoped_cycle" /tmp/edge-cmd-different.out; then
+    pass "edge-cmd does not block operator or unscoped publications for another heartbeat cycle"
+else
+    cat /tmp/edge-cmd-unscoped.out /tmp/edge-cmd-different.out
+    fail "edge-cmd does not block operator or unscoped publications for another heartbeat cycle"
+fi
+
+echo "--- Test 6: expired heartbeat dispatch invariant is ignored ---"
+PAST_EXPIRES_AT="$(python3 - <<'PY'
+from datetime import datetime, timedelta, timezone
+print((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat())
+PY
+)"
+python3 - <<'PY' "$TMP_STATE/state/current-dispatch.json" "$PAST_EXPIRES_AT"
+import json
+import sys
+path, expires_at = sys.argv[1:3]
+payload = json.load(open(path, encoding="utf-8"))
+payload["state"]["expires_at"] = expires_at
+json.dump(payload, open(path, "w", encoding="utf-8"), indent=2)
+PY
+EDGE_CONSOLIDATE_ACTIVE=1 EDGE_CYCLE_ID=cycle-cmd-heartbeat "$TOOL" validate-write \
+  --tool Write \
+  --path "$ENTRY_PATH" \
+  --source test \
+  --require-dispatched-heartbeat \
+  --json >/tmp/edge-cmd-expired.out
+if grep -q "expired_heartbeat_cycle" /tmp/edge-cmd-expired.out; then
+    pass "edge-cmd ignores expired heartbeat cycles"
+else
+    cat /tmp/edge-cmd-expired.out
+    fail "edge-cmd ignores expired heartbeat cycles"
+fi
+
+echo "--- Test 7: write-guard delegates to edge-cmd ---"
 set +e
 printf '{"tool_name":"Write","tool_input":{"file_path":"%s"}}\n' "$ENTRY_PATH" | "$WRITE_GUARD" >/tmp/write-guard.out 2>/tmp/write-guard.err
 STATUS=$?
@@ -107,16 +154,25 @@ else
     fail "write-guard delegates protected write rejection to edge-cmd"
 fi
 
-echo "--- Test 6: heartbeat-dispatch-guard delegates to edge-cmd ---"
+echo "--- Test 8: heartbeat-dispatch-guard delegates same-cycle rejection to edge-cmd ---"
+python3 - <<'PY' "$TMP_STATE/state/current-dispatch.json" "$NOW_ISO"
+import json
+import sys
+path, opened_at = sys.argv[1:3]
+payload = json.load(open(path, encoding="utf-8"))
+payload["state"]["opened_at"] = opened_at
+payload["state"].pop("expires_at", None)
+json.dump(payload, open(path, "w", encoding="utf-8"), indent=2)
+PY
 set +e
-printf '{"tool_name":"Write","tool_input":{"file_path":"%s"}}\n' "$ENTRY_PATH" | env EDGE_CONSOLIDATE_ACTIVE=1 "$HEARTBEAT_GUARD" >/tmp/heartbeat-guard.out 2>/tmp/heartbeat-guard.err
+printf '{"tool_name":"Write","tool_input":{"file_path":"%s"}}\n' "$ENTRY_PATH" | env EDGE_CONSOLIDATE_ACTIVE=1 EDGE_CYCLE_ID=cycle-cmd-heartbeat "$HEARTBEAT_GUARD" >/tmp/heartbeat-guard.out 2>/tmp/heartbeat-guard.err
 STATUS=$?
 set -e
 if [[ "$STATUS" -eq 2 ]] && grep -q "heartbeat is active" /tmp/heartbeat-guard.err; then
-    pass "heartbeat-dispatch-guard delegates heartbeat rejection to edge-cmd"
+    pass "heartbeat-dispatch-guard delegates same-cycle heartbeat rejection to edge-cmd"
 else
     cat /tmp/heartbeat-guard.out /tmp/heartbeat-guard.err
-    fail "heartbeat-dispatch-guard delegates heartbeat rejection to edge-cmd"
+    fail "heartbeat-dispatch-guard delegates same-cycle heartbeat rejection to edge-cmd"
 fi
 
 echo ""
