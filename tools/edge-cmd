@@ -12,7 +12,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +45,7 @@ PROTECTED_ROOTS = (
     LOGS_DIR,
 )
 PUBLISH_ROOTS = (ENTRIES_DIR, REPORTS_DIR)
+DEFAULT_DISPATCH_TTL_SECONDS = 7200
 
 
 def _now_iso() -> str:
@@ -89,16 +90,39 @@ def _read_json(path: Path) -> dict[str, Any] | None:
         return None
 
 
-def _is_stale(started_at: str | None, *, max_age_s: int = 3600) -> bool:
-    if not started_at:
-        return False
+def _parse_time(value: Any) -> datetime | None:
+    if not value:
+        return None
     try:
-        started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _dispatch_ttl_seconds() -> int | None:
+    raw = os.environ.get("EDGE_DISPATCH_TTL_SEC", str(DEFAULT_DISPATCH_TTL_SECONDS))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_DISPATCH_TTL_SECONDS
+    if value <= 0:
+        return None
+    return value
+
+
+def _is_stale(heartbeat: dict[str, Any]) -> bool:
+    expires_at = _parse_time(heartbeat.get("expires_at"))
+    if expires_at is not None:
+        return datetime.now(timezone.utc) > expires_at
+
+    ttl = _dispatch_ttl_seconds()
+    started = _parse_time(heartbeat.get("started_at"))
+    if ttl is None or started is None:
         return False
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - started).total_seconds() > max_age_s
+    return datetime.now(timezone.utc) > started + timedelta(seconds=ttl)
 
 
 def _active_heartbeat_state() -> tuple[dict[str, Any] | None, str]:
@@ -114,6 +138,7 @@ def _active_heartbeat_state() -> tuple[dict[str, Any] | None, str]:
                     "skill_dispatched": state.get("skill_dispatched"),
                     "skill": request.get("skill"),
                     "cycle_id": dispatch.get("cycle_id"),
+                    "expires_at": state.get("expires_at"),
                 },
                 "current-dispatch.json",
             )
@@ -147,6 +172,7 @@ def validate_write(args: argparse.Namespace) -> int:
         "tool": args.tool,
         "operation": args.operation,
         "source": args.source,
+        "publisher_cycle_id": (args.cycle_id or os.environ.get("EDGE_CYCLE_ID") or None),
         "checked_at": _now_iso(),
     }
 
@@ -160,9 +186,39 @@ def validate_write(args: argparse.Namespace) -> int:
 
     if args.require_dispatched_heartbeat and publish_root is not None:
         heartbeat, state_source = _active_heartbeat_state()
-        if heartbeat and heartbeat.get("active") and not _is_stale(heartbeat.get("started_at")) and not heartbeat.get("skill_dispatched"):
+        if heartbeat and heartbeat.get("active"):
+            current_cycle_id = str(heartbeat.get("cycle_id") or "")
+            publisher_cycle_id = str(args.cycle_id or os.environ.get("EDGE_CYCLE_ID") or "").strip()
+            if _is_stale(heartbeat):
+                result = {"ok": True, "reason": "expired_heartbeat_cycle", "state_source": state_source, **payload}
+                if args.json:
+                    print(json.dumps(result, indent=2, ensure_ascii=False))
+                return 0
+            if not current_cycle_id or not publisher_cycle_id or publisher_cycle_id != current_cycle_id:
+                result = {
+                    "ok": True,
+                    "reason": "different_or_unscoped_cycle",
+                    "state_source": state_source,
+                    "current_cycle_id": current_cycle_id or None,
+                    **payload,
+                }
+                if args.json:
+                    print(json.dumps(result, indent=2, ensure_ascii=False))
+                return 0
+            if heartbeat.get("skill_dispatched"):
+                result = {"ok": True, "reason": "heartbeat_skill_dispatched", "state_source": state_source, **payload}
+                if args.json:
+                    print(json.dumps(result, indent=2, ensure_ascii=False))
+                return 0
             reason = "heartbeat_dispatch_required"
-            payload.update({"reason": reason, "state_source": state_source, "skill": heartbeat.get("skill") or ""})
+            payload.update(
+                {
+                    "reason": reason,
+                    "state_source": state_source,
+                    "skill": heartbeat.get("skill") or "",
+                    "current_cycle_id": current_cycle_id or None,
+                }
+            )
             _emit_decision("ArtifactWriteRejected", artifact=artifact, payload=payload)
             message = (
                 "BLOCK(edge-cmd): heartbeat is active but no skill has been dispatched yet.\n"
@@ -227,6 +283,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--tool", default="unknown")
     validate.add_argument("--operation", default="write")
     validate.add_argument("--source", default="edge-cmd")
+    validate.add_argument("--cycle-id", default="", help="Publishing cycle id; defaults to EDGE_CYCLE_ID")
     validate.add_argument("--require-dispatched-heartbeat", action="store_true")
     validate.add_argument("--heartbeat-only", action="store_true", help="Only enforce heartbeat dispatch, not the general protected-write boundary")
     validate.add_argument("--json", action="store_true")

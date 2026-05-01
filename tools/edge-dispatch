@@ -21,7 +21,7 @@ import socket
 import sys
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -37,9 +37,22 @@ from _shared.dispatch_runtime import (  # noqa: E402
 from _shared.telemetry import current_actor, emit_shadow_event, log_event  # noqa: E402
 from _shared.skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
 
+DEFAULT_DISPATCH_TTL_SECONDS = 7200
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def dispatch_ttl_seconds() -> int | None:
+    raw = os.environ.get("EDGE_DISPATCH_TTL_SEC", str(DEFAULT_DISPATCH_TTL_SECONDS))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_DISPATCH_TTL_SECONDS
+    if value <= 0:
+        return None
+    return value
 
 
 def make_cycle_id() -> str:
@@ -282,7 +295,10 @@ def cmd_open(args: argparse.Namespace) -> int:
     postflight_profile = args.postflight_profile or "standard"
     request_args = parse_args_items(args.arg, args.args_json)
     primary_thread_id = resolve_primary_thread_id(request_args)
-    opened_at = now_iso()
+    opened = datetime.now(timezone.utc)
+    opened_at = opened.isoformat()
+    ttl = dispatch_ttl_seconds()
+    expires_at = (opened + timedelta(seconds=ttl)).isoformat() if ttl is not None else None
 
     state = {
         "version": 1,
@@ -311,6 +327,7 @@ def cmd_open(args: argparse.Namespace) -> int:
             "dispatched_at": None,
             "closed_at": None,
             "close_reason": None,
+            "expires_at": expires_at,
             **owner_metadata(),
         },
     }
