@@ -126,6 +126,7 @@ def _render_preflight_protocol(cfg: dict) -> str:
             {"id": "claims-refresh", "kind": "claims.refresh"},
             {"id": "primitives-status", "kind": "primitives.status"},
             {"id": "capabilities-status", "kind": "capabilities.status"},
+            {"id": "source-bindings", "kind": "source.bindings"},
             {"id": "corpus-lookup", "kind": "corpus.lookup"},
             {"id": "workflow-status", "kind": "workflow.status"},
             {"id": "queue-status", "kind": "queue.status"},

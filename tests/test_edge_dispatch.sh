@@ -41,6 +41,8 @@ procedures:
     kind: primitives.status
   - id: capabilities
     kind: capabilities.status
+  - id: source-bindings
+    kind: source.bindings
   - id: corpus
     kind: corpus.lookup
   - id: workflows
@@ -75,6 +77,17 @@ YAML
 export EDGE_REPO_DIR="$EDGE_DIR"
 export EDGE_STATE_DIR="$TMP_EDGE"
 export EDGE_CODENAME="test-agent"
+
+cat >"$TMP_EDGE/state/sources-manifest.yaml" <<'YAML'
+sources:
+  - name: exa
+    description: Web search
+    roles: [search]
+    primary: true
+  - name: meta
+    description: Campaign state
+    roles: [signals]
+YAML
 
 DISPATCH_TOOL="$EDGE_DIR/tools/edge-dispatch"
 GUARD_TOOL="$EDGE_DIR/bin/heartbeat-dispatch-guard.sh"
@@ -178,6 +191,18 @@ assert "raw_chat" in request["delta_prerequisite"]["inputs"]
 assert "surface_baselines" in request["delta_prerequisite"]["inputs"]["surfaces"]
 assert "configured_integrations" in request
 assert "unbound_integrations" in request
+assert "source_bindings" in request
+assert "unbound_source_bindings" in request
+assert "source_binding_warnings" in request
+source_bindings = {item["source"]: item for item in request["source_bindings"]}
+assert source_bindings["exa"]["binding_status"] == "present"
+assert source_bindings["exa"]["binding_mode"] == "sources.aggregate"
+assert source_bindings["meta"]["binding_status"] == "absent"
+assert request["unbound_source_bindings"][0]["source"] == "meta"
+assert request["source_binding_warnings"][0]["warning"] == "configured_integration_without_binding"
+source_step = next(item for item in request["preflight_evidence"] if item["kind"] == "source.bindings")
+assert source_step["satisfied"] is False
+assert source_step["unbound_total"] == 1
 corpus_step = next(item for item in request["preflight_evidence"] if item["kind"] == "corpus.lookup")
 assert corpus_step["satisfied"] is False
 assert corpus_step["missing_required_types"] == ["workflow", "memory"]

@@ -12,6 +12,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.capability_runtime import (  # noqa: E402
     build_capability_status,
+    build_source_bindings,
     get_capability,
     invoke_capability,
     probe_capability,
@@ -40,14 +41,52 @@ def _print_status(payload: dict[str, object]) -> None:
             f"{row.get('effective_status'):16} "
             f"invoke30d={row.get('invoke_30d', row.get('usage_30d', 0))}"
         )
+    source_bindings = payload.get("source_bindings") or {}
+    source_summary = source_bindings.get("summary") if isinstance(source_bindings, dict) else {}
+    if source_summary:
+        print(
+            "source-bindings:"
+            f" sources={source_summary.get('source_total', 0)}"
+            f" bound={source_summary.get('bound_total', 0)}"
+            f" unbound={source_summary.get('unbound_total', 0)}"
+            f" degraded={source_summary.get('degraded_total', 0)}"
+            f" health={source_summary.get('health_status', 'unknown')}"
+        )
+        for item in (source_bindings.get("warnings") or [])[:10]:
+            print(f"  - {item.get('source')}: {item.get('warning')} ({item.get('capability')})")
 
 
 def cmd_status(args: argparse.Namespace) -> int:
     payload = build_capability_status(skill=args.skill)
+    payload["source_bindings"] = build_source_bindings(skill=args.skill)
     if args.json:
         print(json.dumps(payload, ensure_ascii=False))
         return 0
     _print_status(payload)
+    return 0
+
+
+def cmd_source_bindings(args: argparse.Namespace) -> int:
+    payload = build_source_bindings(skill=args.skill)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+        return 0
+    summary = payload.get("summary") or {}
+    print(
+        "source-bindings:"
+        f" sources={summary.get('source_total', 0)}"
+        f" bound={summary.get('bound_total', 0)}"
+        f" unbound={summary.get('unbound_total', 0)}"
+        f" degraded={summary.get('degraded_total', 0)}"
+        f" health={summary.get('health_status', 'unknown')}"
+    )
+    for item in payload.get("bindings") or []:
+        print(
+            f"{item.get('source'):24} "
+            f"{item.get('binding_status'):10} "
+            f"{item.get('binding_mode'):18} "
+            f"{item.get('capability')}"
+        )
     return 0
 
 
@@ -103,6 +142,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_status.add_argument("--skill", default="", help="Optional skill hint for recommendations")
     p_status.add_argument("--json", action="store_true")
 
+    p_sources = sub.add_parser("source-bindings", help="Resolve source manifest intents to capability bindings")
+    p_sources.add_argument("--skill", default="", help="Optional skill hint for recommendations")
+    p_sources.add_argument("--json", action="store_true")
+
     p_invoke = sub.add_parser("invoke", help="Invoke a capability by name")
     p_invoke.add_argument("name")
     p_invoke.add_argument("--skill", default="", help="Optional skill hint for telemetry")
@@ -119,6 +162,8 @@ def main() -> int:
     args = build_parser().parse_args()
     if args.cmd == "status":
         return cmd_status(args)
+    if args.cmd == "source-bindings":
+        return cmd_source_bindings(args)
     if args.cmd == "invoke":
         return cmd_invoke(args)
     if args.cmd == "probe":
