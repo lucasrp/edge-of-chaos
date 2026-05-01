@@ -8,6 +8,7 @@ TMP_BIN="$TMP_BASE/bin"
 TMP_ENTRY="$TMP_STATE/blog/entries/test-entry.md"
 TMP_REPORT="$TMP_STATE/reports/test-spec.yaml"
 TMP_REPORT_HTML="$TMP_STATE/reports/test-report.html"
+TEST_LOG="$TMP_BASE/test-consolidate-adversarial.log"
 PASS=0
 FAIL=0
 
@@ -116,7 +117,7 @@ echo ""
 
 echo "--- Test 1: missing review.json triggers phase-0.3 generation ---"
 set +e
-"$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >/tmp/test-consolidate-adversarial.log 2>&1
+"$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >"$TEST_LOG" 2>&1
 STATUS=$?
 set -e
 if python3 - <<'PY' "$STATUS" "$TMP_REPORT" "$EVENTS_MIRROR_FILE"
@@ -140,12 +141,12 @@ PY
 then
     pass "phase-0.3 generates review and blocks until resolved"
 else
-    cat /tmp/test-consolidate-adversarial.log
+    cat "$TEST_LOG"
     fail "phase-0.3 generates review and blocks until resolved"
 fi
 
 touch "${TMP_REPORT%.yaml}.resolved"
-if "$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >/tmp/test-consolidate-adversarial.log 2>&1; then
+if "$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >"$TEST_LOG" 2>&1; then
     if python3 - <<'PY' "$TMP_REPORT" "$EVENTS_MIRROR_FILE"
 import json, pathlib, sys
 report = pathlib.Path(sys.argv[1])
@@ -171,14 +172,14 @@ PY
         fail "resolved adversarial review allows review-only completion"
     fi
 else
-    cat /tmp/test-consolidate-adversarial.log
+    cat "$TEST_LOG"
     fail "review-only publish with resolved review succeeds"
 fi
 
 echo "--- Test 2: unresolved existing review.json still blocks ---"
 rm -f "${TMP_REPORT%.yaml}.resolved"
 set +e
-"$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >/tmp/test-consolidate-adversarial.log 2>&1
+"$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >"$TEST_LOG" 2>&1
 STATUS=$?
 set -e
 if python3 - <<'PY' "$STATUS" "$EVENTS_MIRROR_FILE"
@@ -194,13 +195,13 @@ PY
 then
     pass "unresolved existing review still blocks phase-0.3"
 else
-    cat /tmp/test-consolidate-adversarial.log
+    cat "$TEST_LOG"
     fail "unresolved existing review still blocks phase-0.3"
 fi
 
 echo "--- Test 3: HTML report path also runs mandatory gates ---"
 set +e
-"$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT_HTML" --review-only >/tmp/test-consolidate-adversarial.log 2>&1
+"$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT_HTML" --review-only >"$TEST_LOG" 2>&1
 STATUS=$?
 set -e
 if python3 - <<'PY' "$STATUS" "$TMP_REPORT_HTML"
@@ -217,12 +218,12 @@ PY
 then
     pass "HTML report path generates review and blocks until resolved"
 else
-    cat /tmp/test-consolidate-adversarial.log
+    cat "$TEST_LOG"
     fail "HTML report path generates review and blocks until resolved"
 fi
 
 touch "${TMP_REPORT_HTML%.html}.resolved"
-if "$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT_HTML" --review-only >/tmp/test-consolidate-adversarial.log 2>&1; then
+if "$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT_HTML" --review-only >"$TEST_LOG" 2>&1; then
     if python3 - <<'PY' "$TMP_REPORT_HTML" "$EVENTS_MIRROR_FILE"
 import json, pathlib, sys
 report = pathlib.Path(sys.argv[1])
@@ -246,11 +247,11 @@ PY
     then
         pass "HTML report path runs adversarial, Feynman, and review gates"
     else
-        cat /tmp/test-consolidate-adversarial.log
+        cat "$TEST_LOG"
         fail "HTML report path runs adversarial, Feynman, and review gates"
     fi
 else
-    cat /tmp/test-consolidate-adversarial.log
+    cat "$TEST_LOG"
     fail "review-only HTML publish with generated review succeeds"
 fi
 
