@@ -39,7 +39,7 @@ from paths import (  # noqa: E402
     WORKFLOW_HEALTH_FILE,
 )
 from .continuity import refresh_continuity_projections  # noqa: E402
-from .capability_runtime import build_capability_status, build_configured_integrations, invoke_capability, probe_capability  # noqa: E402
+from .capability_runtime import build_capability_status, build_configured_integrations, build_source_bindings, invoke_capability, probe_capability  # noqa: E402
 from .operator_pressure import read_or_refresh_operator_pressure_projection  # noqa: E402
 from .protocol_runtime import emit_protocol_step_observed, ensure_compiled_protocol, protocol_context  # noqa: E402
 from .search_runtime import search_runtime_summary  # noqa: E402
@@ -989,6 +989,9 @@ def build_delta_prerequisite(state: dict[str, Any], *, skill: str | None, stage:
             "surfaces": {
                 "configured_integrations": request.get("configured_integrations", [])[:12],
                 "unbound_integrations": request.get("unbound_integrations", [])[:12],
+                "source_bindings": request.get("source_bindings", [])[:12],
+                "unbound_source_bindings": request.get("unbound_source_bindings", [])[:12],
+                "source_binding_warnings": request.get("source_binding_warnings", [])[:12],
                 "capabilities_status": request.get("capabilities_status", {}),
                 "search_runtime": request.get("search_runtime", {}),
                 "surface_baselines": previous.get("surface_baselines", {}),
@@ -1571,6 +1574,34 @@ def _execute_preflight_step(
         request["unbound_integrations"] = capabilities.get("unbound_integrations") or []
         return _step_result(step, status="ok", satisfied=True, detail=f"health={capabilities.get('health_status', 'unknown')}")
 
+    if kind == "source.bindings":
+        bindings = build_source_bindings(skill=skill)
+        summary = bindings.get("summary") or {}
+        request["source_bindings"] = bindings.get("bindings") or []
+        request["unbound_source_bindings"] = bindings.get("unbound_source_bindings") or []
+        request["degraded_source_bindings"] = bindings.get("degraded_source_bindings") or []
+        request["source_binding_warnings"] = bindings.get("warnings") or []
+        unbound_total = int(summary.get("unbound_total", 0) or 0)
+        degraded_total = int(summary.get("degraded_total", 0) or 0)
+        satisfied = unbound_total == 0 and degraded_total == 0
+        return _step_result(
+            step,
+            status="ok" if satisfied else "warning",
+            satisfied=satisfied,
+            detail=(
+                f"sources={summary.get('source_total', 0)} "
+                f"bound={summary.get('bound_total', 0)} "
+                f"unbound={unbound_total} degraded={degraded_total}"
+            ),
+            extra={
+                "source_total": int(summary.get("source_total", 0) or 0),
+                "bound_total": int(summary.get("bound_total", 0) or 0),
+                "unbound_total": unbound_total,
+                "degraded_total": degraded_total,
+                "warnings": bindings.get("warnings") or [],
+            },
+        )
+
     if kind == "signals.context":
         signal_query = str(step.get("query") or "").strip()
         if not signal_query:
@@ -1750,6 +1781,10 @@ def enrich_dispatch_state(
     request.setdefault("corpus_hits", [])
     request.setdefault("configured_integrations", [])
     request.setdefault("unbound_integrations", [])
+    request.setdefault("source_bindings", [])
+    request.setdefault("unbound_source_bindings", [])
+    request.setdefault("degraded_source_bindings", [])
+    request.setdefault("source_binding_warnings", [])
     request["search_runtime"] = search_runtime_summary()
     request.setdefault("operator_pressure", {"summary": {}, "digest": {}, "redigest": {}})
     request.setdefault("operator_pressure_digest", {})
@@ -1791,6 +1826,9 @@ def enrich_dispatch_state(
         "missing_required_corpus_types": list((request.get("corpus_coverage") or {}).get("missing_required_types") or []),
         "configured_integrations": len(request.get("configured_integrations") or []),
         "unbound_integrations": len(request.get("unbound_integrations") or []),
+        "source_bindings": len(request.get("source_bindings") or []),
+        "unbound_source_bindings": len(request.get("unbound_source_bindings") or []),
+        "source_binding_warnings": len(request.get("source_binding_warnings") or []),
         "builtin_web_search": (request.get("search_runtime") or {}).get("builtin_web_search"),
         "web_provider": (request.get("search_runtime") or {}).get("web_provider"),
         "operator_pressure_items": (request.get("operator_pressure_summary") or {}).get("item_total", 0),
@@ -1881,6 +1919,9 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "delta_prerequisite": delta_prerequisite,
         "configured_integrations": request.get("configured_integrations", [])[:12],
         "unbound_integrations": request.get("unbound_integrations", [])[:12],
+        "source_bindings": request.get("source_bindings", [])[:12],
+        "unbound_source_bindings": request.get("unbound_source_bindings", [])[:12],
+        "source_binding_warnings": request.get("source_binding_warnings", [])[:12],
         "search_runtime": request.get("search_runtime", {}),
         "search_protocol": request.get("search_protocol", {}),
         "epistemic_protocol": request.get("epistemic_protocol", {}),
@@ -1920,7 +1961,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "Before any substantive decision, synthesis, or artifact drafting in non-heartbeat skills, read `exploration_pack` first. "
         "The runtime has already performed the mandatory read-only exploration loop: memory retrieval, source/signal fan-out, adversarial Feynman interpretation, and a targeted second round. "
         "Use the pack as the minimum evidence base, surface its warnings, and only run additional search if the pack is missing, stale, or leaves a decision-blocking gap.\n"
-        "Configured integrations may exist without a capability binding; those are visible in `configured_integrations` / `unbound_integrations` and may be used ad hoc when explicitly needed, but they do not count as canonical capability use.\n\n"
+        "Configured integrations and source intents may exist without a capability binding; those are visible in `configured_integrations` / `unbound_integrations` and `source_bindings` / `source_binding_warnings`. Use bound capabilities as canonical; unbound entries are warning evidence, not completed substrate.\n\n"
         "```json\n"
         f"{json.dumps(summary, indent=2, ensure_ascii=False)}\n"
         "```"

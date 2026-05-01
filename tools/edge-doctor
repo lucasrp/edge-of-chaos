@@ -542,6 +542,49 @@ def check_primitives_status():
         _record_check("projection:primitives-status", "ok", detail, artifact=artifact)
 
 
+def check_source_bindings():
+    tool = Path(__file__).resolve().parent / "edge-cap"
+    if not tool.exists():
+        warn("source bindings indisponível: edge-cap não encontrado")
+        _record_check("projection:source-bindings", "warn", "source bindings indisponível: edge-cap não encontrado", artifact=tool)
+        return
+    try:
+        result = subprocess.run(
+            [sys.executable, str(tool), "source-bindings", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        warn(f"source bindings indisponível: {exc}")
+        _record_check("projection:source-bindings", "warn", f"source bindings indisponível: {exc}", artifact=tool)
+        return
+    if result.returncode != 0:
+        warn(f"source bindings falhou: {result.stderr.strip() or result.stdout.strip()}")
+        _record_check(
+            "projection:source-bindings",
+            "warn",
+            f"source bindings falhou: {result.stderr.strip() or result.stdout.strip()}",
+            artifact=tool,
+        )
+        return
+    payload = json.loads(result.stdout) if result.stdout.strip() else {}
+    summary = payload.get("summary", {}) or {}
+    detail = (
+        "source-bindings: "
+        f"sources={summary.get('source_total', 0)}, "
+        f"bound={summary.get('bound_total', 0)}, "
+        f"unbound={summary.get('unbound_total', 0)}, "
+        f"degraded={summary.get('degraded_total', 0)}"
+    )
+    if summary.get("unbound_total", 0) or summary.get("degraded_total", 0):
+        warn(detail)
+        _record_check("projection:source-bindings", "warn", detail, artifact=tool)
+    else:
+        ok(detail)
+        _record_check("projection:source-bindings", "ok", detail, artifact=tool)
+
+
 def main():
     global CURRENT_SECTION
 
@@ -691,6 +734,7 @@ def main():
     CURRENT_SECTION = "projection"
     print("\033[1m[8/8] Projection\033[0m")
     check_primitives_status()
+    check_source_bindings()
     check_pipeline_state()
     check_render_install_drift()
     print()

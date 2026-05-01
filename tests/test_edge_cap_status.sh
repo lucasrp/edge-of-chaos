@@ -87,6 +87,10 @@ assert names["repo.status"]["effective_status"] == "available"
 assert names["repo.sync"]["effective_status"] == "available"
 assert names["storage.sync"]["effective_status"] == "degraded"
 assert names["source.arxiv"]["effective_status"] in {"active", "probed"}
+source_bindings = payload["source_bindings"]
+assert source_bindings["summary"]["source_total"] == 1
+assert source_bindings["bindings"][0]["source"] == "arxiv"
+assert source_bindings["bindings"][0]["binding_status"] == "present"
 recommended = {item["name"] for item in payload["recommended"]}
 assert "search.corpus" in recommended
 assert "sources.aggregate" in recommended
@@ -95,6 +99,21 @@ then
   pass "status merges static and primitive capabilities"
 else
   fail "status merges static and primitive capabilities"
+fi
+
+SOURCE_BINDINGS_OUTPUT=$(PATH="$TMP_BIN" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="captest" \
+  /usr/bin/python3 "$EDGE_DIR/tools/edge-cap" source-bindings --json --skill research)
+if python3 - <<'PY' "$SOURCE_BINDINGS_OUTPUT"
+import json, sys
+payload = json.loads(sys.argv[1])
+assert payload["summary"]["source_total"] == 1
+assert payload["summary"]["bound_total"] == 1
+assert payload["bindings"][0]["capability"] == "sources.aggregate"
+PY
+then
+  pass "source binding surface resolves manifest sources"
+else
+  fail "source binding surface resolves manifest sources"
 fi
 
 if [[ -f "$TMP_STATE/state/capabilities-status.json" ]]; then

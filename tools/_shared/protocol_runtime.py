@@ -17,10 +17,13 @@ sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
 from paths import (  # noqa: E402
     POSTFLIGHT_COMPILED_FILE,
     POSTFLIGHT_PROTOCOL_FILE,
+    CAPABILITIES_CONFIG_FILE,
     PREFLIGHT_COMPILED_FILE,
     PREFLIGHT_PROTOCOL_FILE,
+    PRIMITIVES_STATUS_FILE,
+    SOURCES_MANIFEST_FILE,
 )
-from .capability_runtime import build_capability_status  # noqa: E402
+from .capability_runtime import build_capability_status, build_source_bindings  # noqa: E402
 from .telemetry import emit_shadow_event, log_event  # noqa: E402
 
 PROTOCOL_VERSION = 1
@@ -32,6 +35,7 @@ _ALLOWED_KINDS: dict[str, set[str]] = {
         "claims.refresh",
         "primitives.status",
         "capabilities.status",
+        "source.bindings",
         "signals.context",
         "corpus.lookup",
         "workflow.status",
@@ -68,6 +72,45 @@ def _now_iso() -> str:
 
 def _hash_text(content: str) -> str:
     return f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
+
+
+def _hash_file(path: Path) -> str:
+    if not path.exists():
+        return "missing"
+    try:
+        return _hash_text(path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return "unreadable"
+
+
+def _hash_primitives_binding_inputs(path: Path) -> str:
+    if not path.exists():
+        return "missing"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return _hash_file(path)
+    sources = payload.get("sources") if isinstance(payload, dict) else []
+    if not isinstance(sources, list):
+        sources = []
+    relevant = []
+    for item in sources:
+        if not isinstance(item, dict):
+            continue
+        relevant.append(
+            {
+                "name": item.get("name"),
+                "roles": list(item.get("roles") or []),
+                "primary": bool(item.get("primary")),
+                "effective_status": item.get("effective_status"),
+                "problems": list(item.get("problems") or []),
+                "manifest_status": item.get("manifest_status"),
+                "binary_exists": bool(item.get("binary_exists")),
+                "binary_path": item.get("binary_path"),
+            }
+        )
+    relevant.sort(key=lambda item: str(item.get("name") or ""))
+    return _hash_text(json.dumps({"sources": relevant}, sort_keys=True, ensure_ascii=False))
 
 
 def _protocol_paths(protocol: str) -> tuple[Path, Path]:
@@ -109,6 +152,26 @@ def _known_capability_rows() -> dict[str, dict[str, Any]]:
         for item in rows
         if isinstance(item, dict) and str(item.get("name") or "").strip()
     }
+
+
+def _dependency_hashes(protocol: str, payload: dict[str, Any]) -> dict[str, str]:
+    raw_steps = payload.get("procedures")
+    if raw_steps is None:
+        raw_steps = payload.get("steps")
+    if not isinstance(raw_steps, list):
+        raw_steps = []
+    kinds = {
+        str(item.get("kind") or "").strip()
+        for item in raw_steps
+        if isinstance(item, dict)
+    }
+    dependencies: dict[str, str] = {}
+    if kinds & {"capability.invoke", "capability.probe", "source.bindings"}:
+        dependencies[str(CAPABILITIES_CONFIG_FILE)] = _hash_file(CAPABILITIES_CONFIG_FILE)
+    if "source.bindings" in kinds:
+        dependencies[str(SOURCES_MANIFEST_FILE)] = _hash_file(SOURCES_MANIFEST_FILE)
+        dependencies[str(PRIMITIVES_STATUS_FILE)] = _hash_primitives_binding_inputs(PRIMITIVES_STATUS_FILE)
+    return dependencies
 
 
 def _normalize_step(
@@ -174,6 +237,28 @@ def _normalize_step(
             raise ProtocolCompileError(f"{protocol} procedures[{index}] signals.context limit must be an integer") from exc
         step["refresh"] = bool(raw_step.get("refresh", False))
 
+    if kind == "source.bindings":
+        payload = build_source_bindings()
+        step["source_bindings"] = [
+            {
+                "source": item.get("source"),
+                "capability": item.get("capability"),
+                "binding_status": item.get("binding_status"),
+                "binding_mode": item.get("binding_mode"),
+                "primary": bool(item.get("primary")),
+                "roles": list(item.get("roles") or []),
+                "warning": item.get("warning") or "",
+            }
+            for item in payload.get("bindings") or []
+            if isinstance(item, dict)
+        ]
+        for item in payload.get("warnings") or []:
+            source = str(item.get("source") or "").strip()
+            warning = str(item.get("warning") or "").strip()
+            capability = str(item.get("capability") or "").strip()
+            if source and warning:
+                warnings.append(f"{source}: {warning}{f' ({capability})' if capability else ''}")
+
     return step, warnings
 
 
@@ -224,12 +309,14 @@ def compile_protocol(protocol: str) -> dict[str, Any]:
         steps.append(step)
         warnings.extend(step_warnings)
 
+    dependency_hashes = _dependency_hashes(protocol, payload)
     compiled: dict[str, Any] = {
         "version": int(payload.get("version") or PROTOCOL_VERSION),
         "protocol": protocol,
         "source_path": str(source_path),
         "compiled_path": str(compiled_path),
         "source_hash": source_hash,
+        "dependency_hashes": dependency_hashes,
         "compiled_at": _now_iso(),
         "context_notes": context_notes,
         "operator_notes": operator_notes,
@@ -274,16 +361,32 @@ def ensure_compiled_protocol(protocol: str) -> dict[str, Any]:
     source_path, compiled_path = _protocol_paths(protocol)
     if not source_path.exists():
         raise ProtocolCompileError(f"{source_path} not found")
-    current_source_hash = _hash_text(source_path.read_text(encoding="utf-8"))
+    source_text = source_path.read_text(encoding="utf-8")
+    current_source_hash = _hash_text(source_text)
+    try:
+        payload = yaml.safe_load(source_text) or {}
+    except yaml.YAMLError:
+        payload = {}
+    current_dependency_hashes = _dependency_hashes(protocol, payload if isinstance(payload, dict) else {})
     compiled = _read_compiled(compiled_path)
-    if compiled and compiled.get("source_hash") == current_source_hash and compiled.get("protocol") == protocol:
+    if (
+        compiled
+        and compiled.get("source_hash") == current_source_hash
+        and compiled.get("protocol") == protocol
+        and (compiled.get("dependency_hashes") or {}) == current_dependency_hashes
+    ):
         return compiled
 
     reason = "missing_compiled"
     previous_source_hash = ""
     if compiled is not None:
         previous_source_hash = str(compiled.get("source_hash") or "")
-        reason = "source_hash_changed" if previous_source_hash and previous_source_hash != current_source_hash else "invalid_compiled"
+        if previous_source_hash and previous_source_hash != current_source_hash:
+            reason = "source_hash_changed"
+        elif (compiled.get("dependency_hashes") or {}) != current_dependency_hashes:
+            reason = "dependency_hash_changed"
+        else:
+            reason = "invalid_compiled"
 
     emit_shadow_event(
         "ProtocolDriftObserved",
@@ -375,6 +478,7 @@ def protocol_context(protocol: dict[str, Any]) -> dict[str, Any]:
         "compiled_at": protocol.get("compiled_at"),
         "context_notes": list(protocol.get("context_notes") or []),
         "operator_notes": list(protocol.get("operator_notes") or []),
+        "warnings": list(protocol.get("warnings") or []),
         "steps": [
             {
                 "id": step.get("id"),

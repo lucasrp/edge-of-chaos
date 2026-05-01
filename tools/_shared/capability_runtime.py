@@ -23,6 +23,7 @@ from paths import (  # noqa: E402
     PRIMITIVES_STATUS_FILE,
     SEARCH_DIR,
     SECRETS_DIR,
+    SOURCES_MANIFEST_FILE,
     STATE_EVENTS_FILE,
     TOOLS_DIR,
 )
@@ -95,6 +96,13 @@ INTEGRATION_CATALOG: dict[str, dict[str, Any]] = {
         "roles": ["publish"],
         "candidate_capabilities": [],
     },
+    "meta": {
+        "name": "meta",
+        "label": "Meta Marketing API",
+        "kind": "ads_platform",
+        "roles": ["signals", "search", "external_context"],
+        "candidate_capabilities": ["source.meta"],
+    },
     "netlify": {
         "name": "netlify",
         "label": "Netlify",
@@ -138,6 +146,32 @@ INTEGRATION_CATALOG: dict[str, dict[str, Any]] = {
         "candidate_capabilities": [],
     },
 }
+
+AGGREGATE_SOURCE_ALIASES = {
+    "claude-web": "claude_builtin",
+    "claude_web": "claude_builtin",
+    "claude": "claude_builtin",
+    "hackernews": "hn",
+    "hacker-news": "hn",
+    "semanticscholar": "semantic_scholar",
+    "semantic-scholar": "semantic_scholar",
+    "semscholar": "semantic_scholar",
+    "huggingface": "hf_papers",
+    "hf": "hf_papers",
+}
+AGGREGATE_SOURCE_PROVIDERS = {
+    "arxiv",
+    "claude_builtin",
+    "exa",
+    "github",
+    "hf_papers",
+    "hn",
+    "reddit",
+    "semantic_scholar",
+    "x",
+}
+BOUND_STATUSES = {"available", "active", "probed"}
+DEGRADED_STATUSES = {"degraded", "broken"}
 
 
 def _normalize_effective_status(value: Any) -> str:
@@ -220,6 +254,22 @@ def _parse_env_file(path: Path) -> list[str]:
         if key and value:
             vars_present.append(key)
     return sorted(set(vars_present))
+
+
+def _canonical_source_provider(name: str) -> str:
+    key = str(name or "").strip().lower().replace(" ", "_")
+    return AGGREGATE_SOURCE_ALIASES.get(key, key)
+
+
+def _load_sources_manifest() -> list[dict[str, Any]]:
+    if not SOURCES_MANIFEST_FILE.exists():
+        return []
+    try:
+        raw = yaml.safe_load(SOURCES_MANIFEST_FILE.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return []
+    items = raw.get("sources") if isinstance(raw, dict) else []
+    return [item for item in items if isinstance(item, dict) and str(item.get("name") or "").strip()] if isinstance(items, list) else []
 
 
 def _load_static_registry() -> list[dict[str, Any]]:
@@ -385,6 +435,9 @@ def _primitive_capability_row(item: dict[str, Any], *, invocations: dict[str, An
     invocation_event = invocations.get(name, {})
     effective_status = _normalize_effective_status(item.get("effective_status"))
     normalized_skill = _normalize_skill(skill)
+    roles = _normalize_roles(item.get("roles")) or ["search"]
+    if "source" not in roles:
+        roles.append("source")
     return {
         "name": name,
         "kind": "primitive",
@@ -392,7 +445,7 @@ def _primitive_capability_row(item: dict[str, Any], *, invocations: dict[str, An
         "primitive_name": item.get("name"),
         "description": str(item.get("description") or "").strip(),
         "required": False,
-        "roles": ["search", "source"],
+        "roles": roles,
         "skills": ["sources", "research", "discovery", "report", "strategy", "planner", "autonomy"],
         "recommended_for_skill": bool(normalized_skill and normalized_skill in {"sources", "research", "discovery", "report", "strategy", "planner", "autonomy"}),
         "configured_command": [str(item.get("binary_path") or "")] if item.get("binary_path") else [],
@@ -534,6 +587,112 @@ def build_configured_integrations(*, skill: str | None = None) -> dict[str, Any]
         "summary": summary,
         "configured_integrations": integrations,
         "unbound_integrations": unbound,
+    }
+
+
+def build_source_bindings(*, skill: str | None = None) -> dict[str, Any]:
+    """Resolve runtime-declared source intents into executable capability bindings."""
+    now = _now()
+    capability_payload = build_capability_status(skill=skill)
+    capability_rows = {
+        str(item.get("name") or "").strip(): item
+        for item in (capability_payload.get("capabilities") or [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    }
+    aggregate = capability_rows.get("sources.aggregate") or {}
+    aggregate_status = str(aggregate.get("effective_status") or "unknown")
+    aggregate_available = aggregate_status in BOUND_STATUSES
+    sources = _load_sources_manifest()
+    bindings: list[dict[str, Any]] = []
+
+    for source in sources:
+        source_name = str(source.get("name") or "").strip()
+        if not source_name:
+            continue
+        roles = _normalize_roles(source.get("roles"))
+        primary = bool(source.get("primary", False))
+        primitive_name = f"source.{source_name}"
+        primitive = capability_rows.get(primitive_name) or {}
+        primitive_status = str(primitive.get("effective_status") or "unknown")
+        provider = _canonical_source_provider(source_name)
+        source_roles_search = not roles or "search" in roles or "source" in roles
+
+        binding_status = "absent"
+        binding_mode = "none"
+        capability = primitive_name
+        problems = list(primitive.get("problems") or [])
+        evidence: dict[str, Any] = {
+            "primitive_status": primitive_status,
+            "aggregate_status": aggregate_status,
+            "manifest_status": source.get("status") or "",
+        }
+
+        if source_roles_search and provider in AGGREGATE_SOURCE_PROVIDERS and aggregate_available:
+            binding_status = "present"
+            binding_mode = "sources.aggregate"
+            capability = "sources.aggregate"
+            evidence["aggregate_provider"] = provider
+        elif primitive_status in BOUND_STATUSES:
+            binding_status = "present"
+            binding_mode = "primitive"
+        elif primitive_status in DEGRADED_STATUSES:
+            binding_status = "degraded"
+            binding_mode = "primitive"
+        else:
+            binding_status = "absent"
+            binding_mode = "primitive" if primitive else "none"
+            if "declared_unbound" not in problems:
+                problems.append("declared_unbound")
+
+        warning = ""
+        if binding_status == "absent":
+            warning = "configured_integration_without_binding"
+        elif binding_status == "degraded":
+            warning = "configured_integration_binding_degraded"
+
+        bindings.append(
+            {
+                "source": source_name,
+                "description": str(source.get("description") or ""),
+                "roles": roles,
+                "primary": primary,
+                "capability": capability,
+                "binding_status": binding_status,
+                "binding_mode": binding_mode,
+                "problems": problems,
+                "warning": warning,
+                "evidence": evidence,
+            }
+        )
+
+    counts = Counter(item["binding_status"] for item in bindings)
+    unbound = [item for item in bindings if item.get("binding_status") == "absent"]
+    degraded = [item for item in bindings if item.get("binding_status") == "degraded"]
+    summary = {
+        "generated_at": now.isoformat(),
+        "source_total": len(bindings),
+        "bound_total": counts.get("present", 0),
+        "unbound_total": counts.get("absent", 0),
+        "degraded_total": counts.get("degraded", 0),
+        "counts_by_binding_status": dict(sorted(counts.items())),
+        "health_status": "fail" if unbound else "degraded" if degraded else "ok",
+        "source_path": str(SOURCES_MANIFEST_FILE),
+    }
+    return {
+        "summary": summary,
+        "bindings": bindings,
+        "unbound_source_bindings": unbound,
+        "degraded_source_bindings": degraded,
+        "warnings": [
+            {
+                "source": item["source"],
+                "warning": item["warning"],
+                "capability": item["capability"],
+                "problems": item.get("problems") or [],
+            }
+            for item in bindings
+            if item.get("warning")
+        ],
     }
 
 
