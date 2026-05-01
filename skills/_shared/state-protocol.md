@@ -5,14 +5,19 @@ Each skill references this file instead of having its own state management instr
 
 **Autonomy decisions:** see `~/edge/autonomy/autonomy-policy.md` (when to execute vs ask).
 **Audit tool:** `edge-state-audit` (snapshot, propose, audit, scan).
-**Step tracking:** `edge-skill-step` (records steps executed/skipped per skill).
+**Semantic checkpoint tracking:** `edge-skill-step` (records skill-specific checkpoints only).
 **Status consistency:** `edge-state-lint` (detects drift between memory files).
 
 ---
 
-## Step Tracking (MANDATORY in skills with protocol)
+## Semantic Checkpoint Tracking
 
-When executing a skill with numbered steps, log each executed step:
+Runtime/CQRS owns lifecycle evidence: preflight, dispatch, inbox capture,
+exploration pack, publication/review gates, postflight, and cycle close. Do not
+mirror those rites with `edge-skill-step`.
+
+When a skill has semantic checkpoints in `tools/skill-steps-registry.yaml`, log
+the checkpoints it actually completes:
 
 ```bash
 edge-skill-step <skill> <step_id>              # step executed
@@ -20,9 +25,17 @@ edge-skill-step <skill> skip <step_id> [reason]  # step explicitly skipped
 edge-skill-step <skill> end                     # summary (detects silent skips)
 ```
 
-**Rule:** call `edge-skill-step <skill> end` when finishing the skill. The tool compares logged steps against the registry (`~/edge/tools/skill-steps-registry.yaml`) and reports silently skipped steps.
+**Rule:** call `edge-skill-step <skill> end` when finishing the skill. The tool
+emits completion evidence for the runtime close path. If the skill has semantic
+checkpoints in the registry, it also compares logged checkpoints and reports
+silently skipped semantic work. Skills without a registry contract are allowed;
+they emit completion evidence without registry warnings.
 
-If a step is skipped for a valid reason (e.g.: cache hit, already ran this session), use `skip` with a reason. A step not logged as either executed or skipped = **silent skip** = /ed-reflection will flag it.
+If a checkpoint is skipped for a valid reason, use `skip` with a reason. A
+registered checkpoint not logged as either executed or skipped = **silent
+skip** = /ed-reflection will flag it. Do not add preflight, postflight, corpus,
+health, or dispatch checks to the registry; those belong to runtime events and
+projections.
 
 ---
 

@@ -27,25 +27,13 @@ from _shared.telemetry import current_cycle_id, emit_shadow_event
 
 LOG = LOGS_DIR / "skill-steps.jsonl"
 REGISTRY = Path(__file__).resolve().parent / "skill-steps-registry.yaml"
-SKILL_ALIASES = {
-    "research": "ed-pesquisa",
-    "pesquisa": "ed-pesquisa",
-    "discovery": "ed-descoberta",
-    "descoberta": "ed-descoberta",
-    "heartbeat": "ed-heartbeat",
-    "strategy": "ed-estrategia",
-    "estrategia": "ed-estrategia",
-    "autonomy": "ed-autonomia",
-    "autonomia": "ed-autonomia",
-    "report": "ed-relatorio",
-    "relatorio": "ed-relatorio",
-    "planner": "ed-planejar",
-    "planejar": "ed-planejar",
-    "plan": "ed-planejar",
-    "reflection-hn": "ed-reflexao-HN",
-    "reflexao-hn": "ed-reflexao-HN",
-    "reflection-m": "ed-reflexao-M",
-    "reflexao-m": "ed-reflexao-M",
+REGISTRY_META_KEYS = {
+    "version",
+    "contract",
+    "default_unregistered",
+    "runtime_owned_lifecycle",
+    "aliases",
+    "skills",
 }
 
 
@@ -54,6 +42,60 @@ def _load_registry():
         with open(REGISTRY) as f:
             return yaml.safe_load(f) or {}
     return {}
+
+
+def _registry_skill_map(reg=None):
+    reg = reg if reg is not None else _load_registry()
+    if not isinstance(reg, dict):
+        return {}
+    skills = reg.get("skills")
+    if isinstance(skills, dict):
+        return skills
+    return {
+        key: value
+        for key, value in reg.items()
+        if key not in REGISTRY_META_KEYS and isinstance(value, list)
+    }
+
+
+def _registry_alias_map(reg=None):
+    reg = reg if reg is not None else _load_registry()
+    aliases = reg.get("aliases") if isinstance(reg, dict) else {}
+    if not isinstance(aliases, dict):
+        return {}
+    return {
+        str(key).strip().lower(): str(value).strip()
+        for key, value in aliases.items()
+        if str(key).strip() and str(value).strip()
+    }
+
+
+def _registry_contract(reg=None):
+    reg = reg if reg is not None else _load_registry()
+    if not isinstance(reg, dict):
+        return "legacy_steps"
+    return str(reg.get("contract") or "legacy_steps").strip() or "legacy_steps"
+
+
+def _unregistered_optional(reg=None):
+    reg = reg if reg is not None else _load_registry()
+    if not isinstance(reg, dict):
+        return False
+    return str(reg.get("default_unregistered") or "").strip().lower() == "optional"
+
+
+def _parse_step_entry(entry):
+    if isinstance(entry, dict):
+        step_id = str(entry.get("id") or "").strip()
+        label = str(entry.get("label") or entry.get("description") or step_id).strip()
+        return step_id, label
+    text = str(entry or "").strip()
+    if not text:
+        return "", ""
+    if ":" in text:
+        step_id, label = text.split(":", 1)
+        return step_id.strip(), label.strip()
+    return text, text
 
 
 def _log(data):
@@ -72,10 +114,16 @@ def _read_log():
 def _candidate_skill_names(skill):
     raw = (skill or "").strip()
     normalized = raw.lstrip("/")
-    candidates = [raw, normalized, normalized.lower()]
+    normalized_lower = normalized.lower()
+    candidates = [raw, normalized, normalized_lower]
+    if normalized_lower.startswith("ed-"):
+        candidates.append(normalized_lower[3:])
+    elif normalized_lower:
+        candidates.append(f"ed-{normalized_lower}")
     if "-" in normalized:
         _, suffix = normalized.split("-", 1)
-        candidates.extend([suffix, suffix.lower()])
+        suffix_lower = suffix.lower()
+        candidates.extend([suffix, suffix_lower, f"ed-{suffix_lower}"])
     seen = set()
     ordered = []
     for candidate in candidates:
@@ -87,12 +135,18 @@ def _candidate_skill_names(skill):
 
 def _resolve_registry_skill(skill):
     reg = _load_registry()
+    skills = _registry_skill_map(reg)
+    aliases = _registry_alias_map(reg)
     raw = (skill or "").strip()
     for candidate in _candidate_skill_names(raw):
-        if candidate in reg:
-            return raw, candidate
-        alias = SKILL_ALIASES.get(candidate.lower())
-        if alias and alias in reg:
+        candidate_key = candidate.strip()
+        candidate_lower = candidate_key.lower()
+        if candidate_key in skills:
+            return raw, candidate_key
+        if candidate_lower in skills:
+            return raw, candidate_lower
+        alias = aliases.get(candidate_lower)
+        if alias and alias in skills:
             return raw, alias
     return raw, None
 
@@ -100,11 +154,18 @@ def _resolve_registry_skill(skill):
 def _registry_steps(skill):
     """Get expected step IDs for a skill from registry."""
     reg = _load_registry()
+    skills = _registry_skill_map(reg)
     raw_skill, registry_skill = _resolve_registry_skill(skill)
     if not registry_skill:
         return [], {}, raw_skill, None
-    entries = reg.get(registry_skill, [])
-    return [s.split(":")[0] for s in entries], {s.split(":")[0]: s for s in entries}, raw_skill, registry_skill
+    parsed = [_parse_step_entry(entry) for entry in skills.get(registry_skill, [])]
+    parsed = [(step_id, label) for step_id, label in parsed if step_id]
+    return (
+        [step_id for step_id, _ in parsed],
+        {step_id: f"{step_id}:{label}" for step_id, label in parsed},
+        raw_skill,
+        registry_skill,
+    )
 
 
 def _entry_for_skill(skill, *, event, **extra):
@@ -158,20 +219,15 @@ def cmd_end(skill):
     """End a skill run. Compare logged steps against registry."""
     expected_ids, step_names, raw_skill, registry_skill = _registry_steps(skill)
 
-    if not expected_ids:
-        entry = _entry_for_skill(skill, event="end", warning=f"skill '{raw_skill}' not in registry")
-        _log(entry)
-        print(f"⚠ Skill '{raw_skill}' não está no registry. Nada para comparar.")
-        return
-
     # Read log backwards to find steps for this skill since last 'end' event
     all_entries = _read_log()
     recorded_done = set()
     recorded_skip = {}
+    target_skill = registry_skill or raw_skill
 
     for entry in reversed(all_entries):
         entry_skill = entry.get("registry_skill") or entry.get("skill")
-        if entry_skill != registry_skill:
+        if entry_skill != target_skill:
             continue
         if entry.get("event") == "end":
             break  # stop at previous end
@@ -182,7 +238,41 @@ def cmd_end(skill):
             elif entry.get("status") == "skipped":
                 recorded_skip[sid] = entry.get("reason", "")
 
-    all_accounted = recorded_done | set(recorded_skip.keys())
+    reg = _load_registry()
+    contract = _registry_contract(reg)
+    if not expected_ids:
+        summary = {
+            "skill": raw_skill,
+            "event": "end",
+            "expected": 0,
+            "done": len(recorded_done),
+            "explicit_skips": len(recorded_skip),
+            "silent_skips": [],
+            "completion_pct": 100,
+            "registry_status": "unregistered" if not registry_skill else "empty_contract",
+            "contract": contract,
+        }
+        if registry_skill:
+            summary["registry_skill"] = registry_skill
+        if recorded_skip:
+            summary["skip_details"] = recorded_skip
+        _log(summary)
+        emit_shadow_event(
+            "SkillRunCompleted",
+            actor="edge-skill-step",
+            cycle_id=current_cycle_id(),
+            payload=summary,
+        )
+        if _unregistered_optional(reg):
+            print(f"✓ {raw_skill}: sem contrato semântico no registry; lifecycle é medido pelo runtime")
+        else:
+            print(f"⚠ Skill '{raw_skill}' não está no registry. Nada para comparar.")
+        return
+
+    expected_set = set(expected_ids)
+    expected_done = recorded_done & expected_set
+    expected_skip = {sid: reason for sid, reason in recorded_skip.items() if sid in expected_set}
+    all_accounted = expected_done | set(expected_skip.keys())
     silent_skips = [s for s in expected_ids if s not in all_accounted]
 
     summary = {
@@ -190,13 +280,17 @@ def cmd_end(skill):
         "registry_skill": registry_skill,
         "event": "end",
         "expected": len(expected_ids),
-        "done": len(recorded_done),
-        "explicit_skips": len(recorded_skip),
+        "done": len(expected_done),
+        "explicit_skips": len(expected_skip),
         "silent_skips": silent_skips,
-        "completion_pct": round(len(recorded_done) / len(expected_ids) * 100) if expected_ids else 0,
+        "completion_pct": round(len(expected_done) / len(expected_ids) * 100) if expected_ids else 0,
+        "contract": contract,
     }
-    if recorded_skip:
-        summary["skip_details"] = recorded_skip
+    extra_steps = sorted((recorded_done | set(recorded_skip.keys())) - expected_set)
+    if expected_skip:
+        summary["skip_details"] = expected_skip
+    if extra_steps:
+        summary["extra_steps"] = extra_steps
     _log(summary)
     emit_shadow_event(
         "SkillRunCompleted",
@@ -211,8 +305,8 @@ def cmd_end(skill):
         print(f"⚠ {raw_skill}: {len(silent_skips)} passos silenciosamente pulados:")
         for s in named:
             print(f"  - {s}")
-    if recorded_skip:
-        print(f"  ({len(recorded_skip)} skip(s) explícito(s))")
+    if expected_skip:
+        print(f"  ({len(expected_skip)} skip(s) explícito(s))")
     display_skill = raw_skill if raw_skill == registry_skill else f"{raw_skill} -> {registry_skill}"
     print(f"✓ {display_skill}: {summary['done']}/{summary['expected']} passos "
           f"({summary['completion_pct']}%)")
@@ -221,7 +315,14 @@ def cmd_end(skill):
 def cmd_report(last_n=20):
     """Summary report for /ed-reflexao."""
     entries = _read_log()
-    ends = [e for e in entries if e.get("event") == "end" and "expected" in e]
+    ends = [
+        e
+        for e in entries
+        if e.get("event") == "end"
+        and "expected" in e
+        and e.get("registry_status") != "unregistered"
+        and int(e.get("expected", 0) or 0) > 0
+    ]
 
     if not ends:
         print("Sem dados de execução de skills.")

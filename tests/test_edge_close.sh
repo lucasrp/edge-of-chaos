@@ -116,7 +116,9 @@ fi
 echo "--- Test 1b: edge-close refuses to close a different EDGE_CYCLE_ID ---"
 "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-mismatch --force >/dev/null
 "$DISPATCH_TOOL" dispatch --skill discovery >/dev/null
-EDGE_CYCLE_ID=cycle-close-mismatch "$STEP_TOOL" discovery start >/dev/null
+for step in direction explore application persistence; do
+    EDGE_CYCLE_ID=cycle-close-mismatch "$STEP_TOOL" discovery "$step" >/dev/null
+done
 EDGE_CYCLE_ID=cycle-close-mismatch "$STEP_TOOL" discovery end >/dev/null
 set +e
 EDGE_CYCLE_ID=cycle-other "$CLOSE_TOOL" --status completed >/dev/null 2>/dev/null
@@ -146,7 +148,9 @@ EDGE_CYCLE_ID=cycle-close-mismatch "$DISPATCH_TOOL" close --status aborted >/dev
 echo "--- Test 2: completed close succeeds with skill end evidence and postflight ---"
 "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-complete --force >/dev/null
 "$DISPATCH_TOOL" dispatch --skill discovery >/dev/null
-EDGE_CYCLE_ID=cycle-close-complete "$STEP_TOOL" discovery start >/dev/null
+for step in direction explore application persistence; do
+    EDGE_CYCLE_ID=cycle-close-complete "$STEP_TOOL" discovery "$step" >/dev/null
+done
 EDGE_CYCLE_ID=cycle-close-complete "$STEP_TOOL" discovery end >/dev/null
 "$CLOSE_TOOL" --status completed >/dev/null
 
@@ -189,7 +193,9 @@ cat >"$TMP_EDGE/reports/2026-04-22-warning.html" <<'EOF'
 EOF
 "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-warning --force >/dev/null
 "$DISPATCH_TOOL" dispatch --skill discovery >/dev/null
-EDGE_CYCLE_ID=cycle-close-warning "$STEP_TOOL" discovery start >/dev/null
+for step in direction explore application persistence; do
+    EDGE_CYCLE_ID=cycle-close-warning "$STEP_TOOL" discovery "$step" >/dev/null
+done
 EDGE_CYCLE_ID=cycle-close-warning "$STEP_TOOL" discovery end >/dev/null
 "$CLOSE_TOOL" --status completed >/dev/null
 
