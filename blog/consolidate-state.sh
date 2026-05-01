@@ -868,7 +868,7 @@ fi
 if [[ -n "$REPORT_HTML" && "$REPORT_RESULT" == "ok" ]]; then
     if [[ -f "$REPORT_HTML" ]]; then
         SIZE=$(du -h "$REPORT_HTML" | cut -f1)
-        RENDER_ERRORS=$(grep -c 'ERRO bloco' "$REPORT_HTML" 2>/dev/null)
+        RENDER_ERRORS=$(grep -c 'ERRO bloco' "$REPORT_HTML" 2>/dev/null || true)
         RENDER_ERRORS=${RENDER_ERRORS:-0}
         if [[ "$RENDER_ERRORS" -gt 0 ]]; then
             fail "Report has $RENDER_ERRORS render error(s). Fix the YAML and regenerate."
