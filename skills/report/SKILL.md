@@ -91,6 +91,8 @@ Use visual structure when it makes the report easier to reason about.
 Prefer:
 
 - tables for exact reference;
+- `bar-chart` blocks for 3+ comparable values, risks, options, costs, or scores;
+- `line-chart` blocks for trends, sequences, or before/during/after movement;
 - comparison blocks for before/after or option trade-offs;
 - flow examples for input -> output transformations;
 - diagrams for architecture, process, dependencies, or feedback loops;
@@ -98,6 +100,8 @@ Prefer:
 - charts for numeric comparison.
 
 If the reader would need to draw something on paper to understand it, include a visualization.
+When a report has more than one analytical comparison or operational trade-off,
+use more than one visualization instead of forcing the whole argument into prose.
 
 ## Output Contract
 
@@ -109,6 +113,7 @@ The artifact should include:
 - concise executive summary;
 - sections with narrative flow;
 - at least one structured element when useful: table, comparison, diagram, timeline, flow example, or chart;
+- SVG/table chart pairs for routine numerical comparisons;
 - references for external or non-obvious claims;
 - explicit risks and unknowns;
 - next steps.

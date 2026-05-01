@@ -16,11 +16,11 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
 
 1. **Generate YAML** with the sections from the calling skill, using the block types below
 2. **Write YAML** to `/tmp/spec-[skill]-[slug].yaml`
-3. **Write the blog entry as a light invitation, then include claims in
-   frontmatter** (compaction — MANDATORY). The entry body should be only a few
-   concise paragraphs: lead with what changed or what was learned, invite the
-   reader into the work, and leave implementation depth to the report. Do not
-   duplicate the YAML/report structure in the blog body.
+3. **Write the blog entry as a light strategic invitation, then include claims
+   in frontmatter** (compaction — MANDATORY). The entry body should be only a
+   few concise paragraphs: frame why this matters now, explain what the
+   operator gains by opening the report, and leave implementation depth to the
+   report. Do not duplicate the YAML/report structure in the blog body.
    ```yaml
    claims:
      - "Verified fact I learned"
@@ -103,6 +103,8 @@ bibliography:
 | `template-block` | Example template | title, description?, content, note? |
 | `next-steps-grid` | Visual roadmap | steps[{number,title,description}] |
 | `metrics-grid` | Inline KPIs | items[{value,label}] |
+| `bar-chart` | Quantitative comparison with SVG + table | title?, unit?, items[{label,value,variant?}] |
+| `line-chart` | Trend/sequence with SVG + table | title?, unit?, points[{label,value,variant?}] |
 | `list` | ul/ol list | items, ordered? |
 | `diff-block` | Before/after diff | header?, lines[{type(insert/delete/context),text}] |
 | `raw-html` | HTML passthrough | content |
@@ -130,7 +132,7 @@ If there is no relevant prior work, state explicitly: "First work on this topic.
 
 SVG is not just for numbers — any information that communicates better as an image deserves SVG. Rule: if the reader would need to draw on paper to understand, generate SVG.
 
-**When to generate SVG:**
+**When to generate SVG/chart blocks:**
 - Comparison of 3+ values: horizontal/vertical bars
 - Statistical distribution: box plot (whiskers + median + mean)
 - Trend over time: bars grouped by period
@@ -142,7 +144,7 @@ SVG is not just for numbers — any information that communicates better as an i
 - Hierarchy/taxonomy: tree diagram
 - Cycle/loop: circular diagram (feedback loops, iterative cycles)
 
-**SVG standard:** fixed viewBox (`700 280` charts, `700 400` diagrams), `font-family:'Segoe UI',sans-serif`, semantic colors (`#e53e3e` danger, `#2b6cb0` normal, `#38a169` success, `#ed8936` warning, `#805ad5` highlight, `#718096` neutral), inline legend, `max-width:100%`, `<title>` for accessibility. Numerical data: SVG + table = mandatory pair. Relationship/flow diagrams do not need a table. Minimum 1 SVG per report.
+**SVG standard:** fixed viewBox (`700 280` charts, `700 400` diagrams), `font-family:'Segoe UI',sans-serif`, semantic colors (`#e53e3e` danger, `#2b6cb0` normal, `#38a169` success, `#ed8936` warning, `#805ad5` highlight, `#718096` neutral), inline legend, `max-width:100%`, `<title>` for accessibility. Numerical data: SVG + table = mandatory pair. Relationship/flow diagrams do not need a table. Minimum 1 SVG per report; for reports with multiple comparisons, trends, risks, or operational trade-offs, default to 2+ visual encodings. Prefer the structured `bar-chart` and `line-chart` blocks for routine numerical comparisons, and `raw-html` SVG for diagrams that need custom layout.
 
 ---
 
@@ -212,7 +214,7 @@ review-gate /tmp/spec-[skill]-[slug].yaml --skill [skill]
 # If PASS: publish
 ```
 
-The review gate evaluates 6 dimensions (structural_completeness, content_depth, writing_quality, visualization, intellectual_honesty, internal_consistency) via GPT-4o-mini. Cost: ~$0.002/review. Threshold: 3.5/5.
+The review gate evaluates structural completeness, content depth, storytelling, Feynman reasoning, writing quality, visualization, intellectual honesty, internal consistency, and didactic clarity via the configured review router. Cost depends on the configured provider. Threshold: 3.5/5.
 
 **IMPORTANT:** `consolidate-state` runs the review gate automatically (Phase 0.5). If the YAML doesn't pass, publication is blocked — fix the YAML and re-run. (Enforcement #218: there is no bypass flag anymore — address the feedback.)
 
