@@ -16,8 +16,9 @@
 #   0.3 Adversarial review enforcement (edge-consult --gate; YAML or HTML)
 #   0.45 Feynman judge (YAML or HTML)
 #   0.5 Review gate (LLM-as-judge, content report only; YAML or HTML)
+#   0.9 Content report materialization before publish (mandatory — #245)
 #   1.  Blog entry (blog-publish.sh)
-#   2.  Content report (generate_report.py, mandatory — #245)
+#   2.  Content report indexing/confirmation
 #   3.  Verificação (API, frontmatter, files)
 #   3.4 LLM cost injection
 #   4.  Meta-report (state delta + scratchpad + adversarial → cognitive mirror)
@@ -241,6 +242,80 @@ NC='\033[0m'
 ok()   { echo -e "  ${GREEN}OK${NC}: $1"; }
 warn() { echo -e "  ${YELLOW}WARN${NC}: $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}: $1"; }
+
+materialize_report_before_publish() {
+    if [[ -z "$REPORT_INPUT" ]]; then
+        REPORT_RESULT="skip"
+        return 0
+    fi
+    if [[ ! -f "$REPORT_INPUT" ]]; then
+        fail "Report not found: $REPORT_INPUT"
+        REPORT_RESULT="fail"
+        return 1
+    fi
+    if [[ -z "$REPORT_FILENAME" ]]; then
+        fail "Unsupported report format: $REPORT_INPUT"
+        REPORT_RESULT="fail"
+        return 1
+    fi
+
+    REPORT_HTML="$REPORTS_DIR/$REPORT_FILENAME"
+    mkdir -p "$REPORTS_DIR"
+
+    if [[ "$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml ]]; then
+        local render_output=""
+        echo "  Generating HTML from $(basename "$REPORT_INPUT") before publishing entry..."
+        if render_output=$(python3 "$TOOLS_DIR/generate_report.py" --yaml "$REPORT_INPUT" --output "$REPORT_HTML" 2>&1); then
+            [[ -n "$render_output" ]] && echo "$render_output"
+            ok "Report generated: $REPORT_FILENAME"
+            REPORT_RESULT="ok"
+            return 0
+        fi
+        [[ -n "$render_output" ]] && echo "$render_output"
+        fail "generate_report.py failed"
+        REPORT_RESULT="fail"
+        return 1
+    fi
+
+    if [[ "$REPORT_INPUT" == *.html ]]; then
+        if [[ "$(dirname "$REPORT_INPUT")" != "$REPORTS_DIR" ]]; then
+            cp "$REPORT_INPUT" "$REPORT_HTML"
+        fi
+        if [[ -f "$REPORT_HTML" ]]; then
+            ok "Report HTML: $REPORT_FILENAME"
+            REPORT_RESULT="ok"
+            return 0
+        fi
+        fail "Report HTML not found"
+        REPORT_RESULT="fail"
+        return 1
+    fi
+
+    fail "Unsupported report format: $REPORT_INPUT"
+    REPORT_RESULT="fail"
+    return 1
+}
+
+index_materialized_report() {
+    if [[ "$REPORT_RESULT" != "ok" || -z "$REPORT_HTML" || ! -f "$REPORT_HTML" ]]; then
+        fail "Report was not materialized before publish"
+        REPORT_RESULT="fail"
+        return 1
+    fi
+
+    ok "Report ready before publish: $REPORT_FILENAME"
+    echo "  Indexing report..."
+    if command -v edge-index &>/dev/null; then
+        if edge-index "$REPORT_HTML" 2>/dev/null; then
+            ok "Report indexed"
+        else
+            warn "edge-index returned error (non-fatal)"
+        fi
+    else
+        warn "edge-index not found"
+    fi
+    return 0
+}
 
 # Log pipeline failure to JSONL (bash phases)
 FAILURES_LOG="$LOGS_DIR/pipeline-failures.jsonl"
@@ -701,6 +776,21 @@ if suggestions:
     echo ""
 fi
 
+# ─── PHASE 0.9: Report materialization before publishing entry ───
+if [[ -n "$REPORT_INPUT" ]]; then
+    echo "── Phase 0.9: Report Materialization ──"
+    ledger_record "phase-0.9" "ok"
+    emit_run_step_event "phase-0.9" "started" "report_materialization" ""
+    if materialize_report_before_publish; then
+        emit_run_step_event "phase-0.9" "completed" "report_materialization" ""
+    else
+        log_failure "0.9" "report_materialization" "report materialization failed before blog publish"
+        emit_run_step_event "phase-0.9" "failed" "report_materialization" "report materialization failed before blog publish"
+        exit 1
+    fi
+    echo ""
+fi
+
 # ─── PHASE 1: Blog entry ───
 echo "── Phase 1: Blog Entry ──"
 ledger_record "phase-1" "ok"
@@ -720,50 +810,8 @@ if [[ -n "$REPORT_INPUT" ]]; then
     echo "── Phase 2: Report ──"
     emit_run_step_event "phase-2" "started" "report_generation" ""
 
-    if [[ ! -f "$REPORT_INPUT" ]]; then
-        fail "Report not found: $REPORT_INPUT"
-        REPORT_RESULT="fail"
-    elif [[ "$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml ]]; then
-        # Generate HTML from YAML
-        REPORT_HTML="$REPORTS_DIR/$REPORT_FILENAME"
-        echo "  Generating HTML from $(basename "$REPORT_INPUT")..."
-        if python3 "$TOOLS_DIR/generate_report.py" --yaml "$REPORT_INPUT" --output "$REPORT_HTML" 2>&1; then
-            ok "Report generated: $REPORT_FILENAME"
-            REPORT_RESULT="ok"
-        else
-            fail "generate_report.py failed"
-            REPORT_RESULT="fail"
-        fi
-    elif [[ "$REPORT_INPUT" == *.html ]]; then
-        # Pre-generated HTML — copy to reports dir if not already there
-        if [[ "$(dirname "$REPORT_INPUT")" != "$REPORTS_DIR" ]]; then
-            cp "$REPORT_INPUT" "$REPORTS_DIR/$REPORT_FILENAME"
-        fi
-        REPORT_HTML="$REPORTS_DIR/$REPORT_FILENAME"
-        if [[ -f "$REPORT_HTML" ]]; then
-            ok "Report HTML: $REPORT_FILENAME"
-            REPORT_RESULT="ok"
-        else
-            fail "Report HTML not found"
-            REPORT_RESULT="fail"
-        fi
-    else
-        warn "Unrecognized report format: $REPORT_INPUT"
-        REPORT_RESULT="fail"
-    fi
-
-    # Index report
-    if [[ "$REPORT_RESULT" == "ok" && -n "$REPORT_HTML" ]]; then
-        echo "  Indexing report..."
-        if command -v edge-index &>/dev/null; then
-            if edge-index "$REPORT_HTML" 2>/dev/null; then
-                ok "Report indexed"
-            else
-                warn "edge-index returned error (non-fatal)"
-            fi
-        else
-            warn "edge-index not found"
-        fi
+    if ! index_materialized_report; then
+        log_failure "2" "report_generation" "report was not materialized before publish"
     fi
     if [[ "$REPORT_RESULT" == "ok" ]]; then
         emit_run_step_event "phase-2" "completed" "report_generation" ""

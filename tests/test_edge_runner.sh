@@ -110,6 +110,24 @@ fi
 if [ "${MOCK_CLAUDE_HEARTBEAT_FLOW:-0}" = "1" ]; then
   if [[ "$PROMPT" == *"/ed-heartbeat"* ]]; then
     "${EDGE_REPO_DIR:?}/tools/edge-dispatch" dispatch --skill discovery >/dev/null
+    if [ "${MOCK_CLAUDE_HEARTBEAT_INLINE_DONE:-0}" = "1" ]; then
+      python3 - <<'PY'
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+path = Path(os.environ["EDGE_STATE_DIR"]) / "state" / "current-dispatch.json"
+state = json.loads(path.read_text(encoding="utf-8"))
+now = datetime.now(timezone.utc).isoformat()
+state_block = state.setdefault("state", {})
+state_block["postflight_status"] = "warning"
+state_block["postflight_reason"] = "inline_substantive_work"
+state_block["postflight_checked_at"] = now
+state_block["updated_at"] = now
+path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+PY
+    fi
   elif [[ "$PROMPT" == *"/discovery"* ]]; then
     for step in direction explore application persistence; do
       "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery "$step" >/dev/null
@@ -259,6 +277,73 @@ then
     pass "heartbeat run dispatches and executes the follow-on skill before closing the cycle"
 else
     fail "heartbeat run dispatches and executes the follow-on skill before closing the cycle"
+fi
+
+echo "--- Test 1b: inline heartbeat work skips duplicate follow-on invocation ---"
+export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id-inline.txt"
+export MOCK_CLAUDE_ARGS_OUT="$TMP_BASE/args-inline.txt"
+rm -f "$MOCK_CLAUDE_ENV_OUT" "$MOCK_CLAUDE_ARGS_OUT"
+export MOCK_CLAUDE_HEARTBEAT_FLOW=1
+export MOCK_CLAUDE_HEARTBEAT_INLINE_DONE=1
+"$RUNNER_TOOL" skill \
+    --skill /ed-heartbeat \
+    --dispatch-trigger heartbeat \
+    --dispatch-policy autonomous \
+    --dispatch-routing-mode auto \
+    --dispatch-preflight-profile heartbeat_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force >/dev/null
+unset MOCK_CLAUDE_HEARTBEAT_INLINE_DONE || true
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$TMP_EDGE/logs/events.jsonl" "$TMP_BASE/cycle-id-inline.txt" "$TMP_BASE/args-inline.txt"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+run_events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8") if line.strip()]
+cycle_ids = [line.strip() for line in open(sys.argv[4], encoding="utf-8") if line.strip()]
+invocations = []
+current = []
+for raw_line in open(sys.argv[5], encoding="utf-8"):
+    line = raw_line.rstrip("\n")
+    if line == "__INVOCATION__":
+        current = []
+        continue
+    if line == "__END__":
+        invocations.append("\n".join(current))
+        current = []
+        continue
+    current.append(line)
+
+assert len(cycle_ids) == 1
+assert len(invocations) == 1
+assert "/ed-heartbeat" in invocations[0]
+assert dispatch["request"]["skill"] == "discovery"
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+assert dispatch["state"]["postflight_status"] in {"completed", "warning"}
+completion_events = [
+    e for e in events
+    if e.get("type") == "SkillRunCompleted"
+    and e.get("cycle_id") == dispatch["cycle_id"]
+]
+assert completion_events
+assert completion_events[-1]["payload"]["skill"] == "discovery"
+handoff_events = [
+    e for e in run_events
+    if e.get("type") == "run_step"
+    and e.get("run_kind") == "edge-runner"
+    and e.get("phase") == "handoff"
+    and e.get("status") == "completed"
+    and e.get("close_reason") == "follow_on_already_progressed"
+]
+assert handoff_events
+PY
+then
+    pass "inline heartbeat work skips duplicate follow-on invocation"
+else
+    fail "inline heartbeat work skips duplicate follow-on invocation"
 fi
 
 echo "--- Test 2: success without skill completion evidence closes as failed ---"

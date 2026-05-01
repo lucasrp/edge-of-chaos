@@ -467,6 +467,31 @@ def dispatched_follow_on_skill(args: argparse.Namespace, cycle_id: str | None) -
     return dispatched_skill
 
 
+def cycle_progressed_beyond_router(cycle_id: str | None) -> bool:
+    """Return true when the heartbeat backend already did substantive work.
+
+    Heartbeat is supposed to route only, but the model can still execute the
+    dispatched skill inline. If postflight or close state already exists after
+    the heartbeat backend returns, starting the follow-on skill again would
+    duplicate publication in the same cycle.
+    """
+    if not cycle_id:
+        return False
+    state = dispatch_state_matches(cycle_id)
+    if not state:
+        return False
+    state_block = state.get("state", {}) or {}
+    postflight_status = str(state_block.get("postflight_status") or "").strip().lower()
+    close_status = str(state_block.get("close_status") or "").strip().lower()
+    if postflight_status and postflight_status != "pending":
+        return True
+    if close_status:
+        return True
+    if state_block.get("active") is False:
+        return True
+    return False
+
+
 def make_follow_on_skill_args(args: argparse.Namespace, skill_name: str) -> argparse.Namespace:
     follow_on = argparse.Namespace(**vars(args))
     follow_on.skill = f"/{normalize_skill_name(skill_name)}"
@@ -672,35 +697,49 @@ def main() -> int:
 
         follow_on_skill = dispatched_follow_on_skill(args, cycle_id)
         if follow_on_skill and exit_code == 0:
-            maybe_run_exploration(args, env, cycle_id, follow_on_skill)
-            maybe_run_autonomy_primitive_checkup(args, env, cycle_id, follow_on_skill)
-            log_run_step(
-                "edge-runner",
-                "handoff",
-                "started",
-                run_id=cycle_id,
-                backend=args.backend,
-                mode=args.cmd,
-                target=follow_on_skill,
-            )
-            follow_on_args = make_follow_on_skill_args(args, follow_on_skill)
-            follow_on_exit = invoke_backend(follow_on_args, env, cycle_id=cycle_id)
-            maybe_mark_skill_completion(follow_on_skill, cycle_id, follow_on_exit)
-            final_status = "completed" if follow_on_exit == 0 else "failed"
-            log_run_step(
-                "edge-runner",
-                "handoff",
-                final_status,
-                run_id=cycle_id,
-                backend=args.backend,
-                mode="skill",
-                target=follow_on_skill,
-                exit_code=follow_on_exit,
-            )
-            if follow_on_exit != 0:
-                exit_code = follow_on_exit
-                close_status = "failed"
-                close_reason = f"dispatched_backend_exit_{follow_on_exit}"
+            if cycle_progressed_beyond_router(cycle_id):
+                maybe_mark_skill_completion(follow_on_skill, cycle_id, 0)
+                log_run_step(
+                    "edge-runner",
+                    "handoff",
+                    "completed",
+                    run_id=cycle_id,
+                    backend=args.backend,
+                    mode="skill",
+                    target=follow_on_skill,
+                    exit_code=0,
+                    close_reason="follow_on_already_progressed",
+                )
+            else:
+                maybe_run_exploration(args, env, cycle_id, follow_on_skill)
+                maybe_run_autonomy_primitive_checkup(args, env, cycle_id, follow_on_skill)
+                log_run_step(
+                    "edge-runner",
+                    "handoff",
+                    "started",
+                    run_id=cycle_id,
+                    backend=args.backend,
+                    mode=args.cmd,
+                    target=follow_on_skill,
+                )
+                follow_on_args = make_follow_on_skill_args(args, follow_on_skill)
+                follow_on_exit = invoke_backend(follow_on_args, env, cycle_id=cycle_id)
+                maybe_mark_skill_completion(follow_on_skill, cycle_id, follow_on_exit)
+                final_status = "completed" if follow_on_exit == 0 else "failed"
+                log_run_step(
+                    "edge-runner",
+                    "handoff",
+                    final_status,
+                    run_id=cycle_id,
+                    backend=args.backend,
+                    mode="skill",
+                    target=follow_on_skill,
+                    exit_code=follow_on_exit,
+                )
+                if follow_on_exit != 0:
+                    exit_code = follow_on_exit
+                    close_status = "failed"
+                    close_reason = f"dispatched_backend_exit_{follow_on_exit}"
         if exit_code != 0:
             close_status = "failed"
             close_reason = close_reason or f"backend_exit_{exit_code}"

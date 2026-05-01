@@ -25,6 +25,11 @@ audit_use = first_index('if audit_path.exists():')
 non_git_diff_guard = first_index('skipping scoped diff')
 non_git_commit_guard = first_index('skipping git commit')
 partial_degraded = first_index('emit_run_step_event "pipeline" "degraded" "pipeline_end" "partial publication"')
+report_materialization = first_index('emit_run_step_event "phase-0.9" "started" "report_materialization"')
+blog_publish = first_index('emit_run_step_event "phase-1" "started" "blog_publish"')
+report_confirmation = first_index('emit_run_step_event "phase-2" "started" "report_generation"')
+materialize_function = first_index('materialize_report_before_publish()')
+index_function = first_index('index_materialized_report()')
 
 assert phase6_start < definition < first_use, (
     f"proposal_path must be defined before phase-6 allowlist use "
@@ -37,6 +42,12 @@ assert phase6_start < audit_definition < audit_use, (
 assert phase6_start < non_git_diff_guard, "non-git EDGE_REPO_DIR must skip scoped diff in phase 6"
 assert phase6_start < non_git_commit_guard, "non-git EDGE_REPO_DIR must skip git commit in phase 6"
 assert phase6_start < partial_degraded, "partial publication must be degraded, not a hard pipeline failure"
+assert materialize_function < report_materialization < blog_publish, (
+    "report materialization must happen before blog publish so entries cannot be published without reports"
+)
+assert index_function < report_confirmation and blog_publish < report_confirmation, (
+    "phase-2 should confirm/index the already materialized report after blog publish"
+)
 PY
 
 echo "PASS: consolidate-state phase-6 paths are initialized before use"
