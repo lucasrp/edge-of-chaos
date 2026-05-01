@@ -49,6 +49,7 @@ GROK_MODEL = "grok-4.20-multi-agent-beta-0309"
 # config/runtime-routers.yaml routers.<purpose>.model — respecting per-agent configuration (Azure, OpenAI,
 # xAI, etc.) instead of hardcoding a model slug.
 DEFAULT_PURPOSE = "chat"
+REVIEW_GATE_LLM_TIMEOUT = int(os.environ.get("EDGE_REVIEW_GATE_LLM_TIMEOUT_SEC", "120"))
 
 # Models that require the Responses API instead of Chat Completions
 RESPONSES_API_MODELS = {GROK_MODEL, "gpt-5.4-pro"}
@@ -546,7 +547,12 @@ def coauthor(yaml_path: str, skill: str = None, model: str = None,
              purpose: str = DEFAULT_PURPOSE,
              entry_path: str = None, brief: str = None) -> dict:
     """Run co-author phase with tool use. Returns enrichment suggestions."""
-    client, model = make_client(purpose=purpose, model=model)
+    client, model = make_client(
+        purpose=purpose,
+        model=model,
+        timeout=REVIEW_GATE_LLM_TIMEOUT,
+        max_retries=0,
+    )
 
     yaml_content = Path(yaml_path).read_text(encoding="utf-8")
 
@@ -697,7 +703,12 @@ def review(yaml_path: str, skill: str = None, model: str = None,
            threshold: float = 3.0, entry_path: str = None) -> dict:
     """Run review phase. Returns structured feedback dict."""
     try:
-        client, model = make_client(purpose=purpose, model=model)
+        client, model = make_client(
+            purpose=purpose,
+            model=model,
+            timeout=REVIEW_GATE_LLM_TIMEOUT,
+            max_retries=0,
+        )
     except Exception as e:
         raise RuntimeError(f"router setup failed for purpose={purpose} model={model}: {e}") from e
 
@@ -803,7 +814,12 @@ def review(yaml_path: str, skill: str = None, model: str = None,
 def refine(yaml_path: str, review_result: dict, model: str = None,
            purpose: str = DEFAULT_PURPOSE) -> dict:
     """Apply reviewer feedback to YAML. Rewrites the file in-place. Returns metadata."""
-    client, model = make_client(purpose=purpose, model=model)
+    client, model = make_client(
+        purpose=purpose,
+        model=model,
+        timeout=REVIEW_GATE_LLM_TIMEOUT,
+        max_retries=0,
+    )
 
     yaml_content = Path(yaml_path).read_text(encoding="utf-8")
 
