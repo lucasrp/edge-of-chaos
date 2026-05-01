@@ -87,8 +87,7 @@ def build_backend_command(args: argparse.Namespace) -> list[str]:
     if args.backend != "claude":
         raise ValueError(f"unsupported backend: {args.backend}")
 
-    content = args.skill if args.cmd == "skill" else args.prompt
-    cmd = [resolve_claude_bin(), "-p", content]
+    cmd = [resolve_claude_bin(), "-p", "-"]
     if args.max_turns is not None:
         cmd.extend(["--max-turns", str(args.max_turns)])
     if args.allowed_tools:
@@ -492,28 +491,25 @@ def resolve_skill_timeout_seconds() -> int | None:
 
 def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: str | None = None) -> int:
     content = build_backend_content(args, cycle_id)
-    original = args.skill if args.cmd == "skill" else args.prompt
-    if content != original:
-        backend_args = argparse.Namespace(**vars(args))
-        if args.cmd == "skill":
-            backend_args.skill = content
-        else:
-            backend_args.prompt = content
-        cmd = build_backend_command(backend_args)
-    else:
-        cmd = build_backend_command(args)
+    cmd = build_backend_command(args)
 
     timeout_seconds = resolve_skill_timeout_seconds()
     if timeout_seconds is None:
-        result = subprocess.run(cmd, env=env, cwd=resolve_cwd(args.cwd))
+        result = subprocess.run(cmd, env=env, cwd=resolve_cwd(args.cwd), input=content, text=True)
         return result.returncode
 
-    popen_kwargs: dict = {"env": env, "cwd": resolve_cwd(args.cwd)}
+    popen_kwargs: dict = {
+        "env": env,
+        "cwd": resolve_cwd(args.cwd),
+        "stdin": subprocess.PIPE,
+        "text": True,
+    }
     if os.name == "posix":
         popen_kwargs["start_new_session"] = True
     proc = subprocess.Popen(cmd, **popen_kwargs)
     try:
-        return proc.wait(timeout=timeout_seconds)
+        proc.communicate(input=content, timeout=timeout_seconds)
+        return proc.returncode
     except subprocess.TimeoutExpired:
         target = args.skill if args.cmd == "skill" else "prompt"
         emit_shadow_event(

@@ -98,17 +98,19 @@ RUNNER_TOOL="$EDGE_DIR/tools/edge-runner"
 cat >"$TMP_HOME/.local/bin/claude" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+PROMPT="$(cat)"
 printf '%s\n' "$EDGE_CYCLE_ID" >> "${MOCK_CLAUDE_ENV_OUT:?}"
 printf '__INVOCATION__\n' >> "${MOCK_CLAUDE_ARGS_OUT:?}"
-printf '%s\n' "$*" >> "${MOCK_CLAUDE_ARGS_OUT:?}"
+printf 'ARGS: %s\n' "$*" >> "${MOCK_CLAUDE_ARGS_OUT:?}"
+printf 'STDIN:\n%s\n' "$PROMPT" >> "${MOCK_CLAUDE_ARGS_OUT:?}"
 printf '__END__\n' >> "${MOCK_CLAUDE_ARGS_OUT:?}"
 if [ -n "${MOCK_CLAUDE_SLEEP_SECONDS:-}" ]; then
   sleep "${MOCK_CLAUDE_SLEEP_SECONDS}"
 fi
 if [ "${MOCK_CLAUDE_HEARTBEAT_FLOW:-0}" = "1" ]; then
-  if [[ "$*" == *"/ed-heartbeat"* ]]; then
+  if [[ "$PROMPT" == *"/ed-heartbeat"* ]]; then
     "${EDGE_REPO_DIR:?}/tools/edge-dispatch" dispatch --skill discovery >/dev/null
-  elif [[ "$*" == *"/discovery"* ]]; then
+  elif [[ "$PROMPT" == *"/discovery"* ]]; then
     "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery start >/dev/null
     "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery end >/dev/null
   fi
@@ -244,6 +246,8 @@ assert any(event["type"] == "ExplorationPackPublished" for event in events)
 assert any(event["type"] == "SkillRunCompleted" for event in events)
 assert any(event["type"] == "CycleClosed" for event in events)
 assert len(invocations) == 2
+assert invocations[0].splitlines()[0] == "ARGS: -p -"
+assert invocations[1].splitlines()[0] == "ARGS: -p -"
 assert "/ed-heartbeat" in invocations[0]
 assert "/discovery" in invocations[1]
 assert "Dispatch runtime context below" in invocations[0]
@@ -484,6 +488,75 @@ then
     pass "watchdog kills hung backend and closes cycle as skill_subprocess_timeout"
 else
     fail "watchdog kills hung backend and closes cycle as skill_subprocess_timeout"
+fi
+
+echo "--- Test 9: backend prompt is delivered through stdin, not argv ---"
+if python3 - <<'PY' "$EDGE_DIR"
+import argparse
+import importlib.machinery
+import importlib.util
+import os
+import sys
+
+edge_dir = sys.argv[1]
+loader = importlib.machinery.SourceFileLoader("edge_runner", f"{edge_dir}/tools/edge-runner")
+spec = importlib.util.spec_from_loader("edge_runner", loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+
+large_prompt = "prompt-line\n" + ("x" * (3 * 1024 * 1024))
+args = argparse.Namespace(
+    cmd="prompt",
+    prompt=large_prompt,
+    skill="",
+    backend="claude",
+    cwd=None,
+    max_turns=2,
+    allowed_tools="Bash",
+    output_format="json",
+    dangerously_skip_permissions=True,
+)
+captured = {}
+
+class Result:
+    returncode = 0
+
+def fake_run(cmd, *, env, cwd, input, text):
+    captured["cmd"] = cmd
+    captured["input"] = input
+    captured["text"] = text
+    captured["cwd"] = cwd
+    return Result()
+
+module.resolve_claude_bin = lambda: "/mock/claude"
+module.subprocess.run = fake_run
+os.environ["EDGE_RUNNER_SKILL_TIMEOUT_SEC"] = "0"
+try:
+    status = module.invoke_backend(args, {"EDGE_REPO_DIR": edge_dir}, cycle_id=None)
+finally:
+    os.environ.pop("EDGE_RUNNER_SKILL_TIMEOUT_SEC", None)
+
+assert status == 0
+assert captured["cmd"] == [
+    "/mock/claude",
+    "-p",
+    "-",
+    "--max-turns",
+    "2",
+    "--allowedTools",
+    "Bash",
+    "--output-format",
+    "json",
+    "--dangerously-skip-permissions",
+]
+assert captured["input"] == large_prompt
+assert large_prompt not in captured["cmd"]
+assert captured["text"] is True
+PY
+then
+    pass "large backend prompt is streamed through stdin"
+else
+    fail "large backend prompt is streamed through stdin"
 fi
 
 echo ""
