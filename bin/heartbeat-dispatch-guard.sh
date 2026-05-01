@@ -47,6 +47,29 @@ DISPATCH_FILE="${EDGE_ROOT}/state/current-dispatch.json"
 
 # Read PreToolUse payload from stdin
 TOOL_INPUT=$(cat)
+TOOL_NAME=$(python3 -c 'import json,sys; print((json.loads(sys.stdin.read() or "{}").get("tool_name") or ""))' <<<"$TOOL_INPUT" 2>/dev/null || true)
+PATH_ARG=$(python3 -c '
+import json, sys
+try:
+    d = json.loads(sys.stdin.read() or "{}").get("tool_input", {}) or {}
+    print(d.get("file_path") or d.get("notebook_path") or "")
+except Exception:
+    print("")
+' <<<"$TOOL_INPUT" 2>/dev/null || true)
+
+EDGE_CMD="${EDGE_REPO_DIR:-$EDGE_ROOT}/tools/edge-cmd"
+if [ -n "$PATH_ARG" ] && [ -x "$EDGE_CMD" ]; then
+  set +e
+  "$EDGE_CMD" validate-write \
+    --tool "${TOOL_NAME:-unknown}" \
+    --path "$PATH_ARG" \
+    --source heartbeat-dispatch-guard \
+    --require-dispatched-heartbeat \
+    --heartbeat-only
+  STATUS=$?
+  set -e
+  exit "$STATUS"
+fi
 
 # Fast path: if neither state file exists, not in heartbeat → allow immediately
 if [ ! -f "$STATE_FILE" ] && [ ! -f "$DISPATCH_FILE" ]; then

@@ -7,6 +7,8 @@ procedures:
     kind: validate.recent
   - id: claims
     kind: claims.refresh
+  - id: pipeline-state
+    kind: pipeline_state.refresh
   - id: primitives
     kind: primitives.status
   - id: capabilities

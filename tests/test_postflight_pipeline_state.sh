@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+EDGE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+TMP_BASE="$(mktemp -d /tmp/edge-postflight-pipeline-XXXXXX)"
+TMP_STATE="$TMP_BASE/state"
+TMP_HOME="$TMP_BASE/home"
+PASS=0
+FAIL=0
+
+pass() { echo "  PASS: $1"; PASS=$((PASS + 1)); }
+fail() { echo "  FAIL: $1"; FAIL=$((FAIL + 1)); }
+
+cleanup() {
+    rm -rf "$TMP_BASE"
+}
+trap cleanup EXIT
+
+mkdir -p "$TMP_STATE/state/events" "$TMP_STATE/state/projections" "$TMP_STATE/logs" "$TMP_HOME"
+
+export HOME="$TMP_HOME"
+export EDGE_REPO_DIR="$EDGE_DIR"
+export EDGE_STATE_DIR="$TMP_STATE"
+export EDGE_CODENAME="postflight-pipeline-test"
+
+cat >"$TMP_STATE/state/events/log.jsonl" <<'JSONL'
+{"ts":"2026-04-26T10:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-ok","artifact":"blog/entries/ok.md","payload":{"pipeline":"consolidate-state","phase":"pipeline","ok":true},"prev_hash":"sha256:root"}
+{"ts":"2026-04-26T10:01:00+00:00","type":"ArtifactPublished","actor":"continuity","cycle_id":"cycle-ok","artifact":"blog/entries/ok.md","payload":{"source_skill":"research"},"prev_hash":"sha256:a"}
+{"ts":"2026-04-26T11:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-bad","artifact":"blog/entries/bad.md","payload":{"pipeline":"consolidate-state","phase":"3","ok":false,"reason":"verification failed"},"prev_hash":"sha256:b"}
+JSONL
+
+echo "=== postflight pipeline-state Smoke Test ==="
+echo "Temp state: $TMP_STATE"
+echo ""
+
+echo "--- Test 1: clean cycle satisfies pipeline-state step ---"
+if python3 - <<'PY' "$EDGE_DIR"
+import importlib.machinery
+import importlib.util
+import sys
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+loader = importlib.machinery.SourceFileLoader("edge_postflight", str(edge_dir / "tools" / "edge-postflight"))
+spec = importlib.util.spec_from_loader("edge_postflight", loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+
+result = module._execute_postflight_step(
+    {"id": "pipeline-state", "kind": "pipeline_state.refresh"},
+    {"cycle_id": "cycle-ok", "request": {}, "state": {}},
+)
+assert result["status"] == "ok", result
+assert result["satisfied"] is True, result
+assert result["payload"]["summary"]["counts_by_status"]["complete"] == 1
+PY
+then
+    pass "postflight pipeline-state step is OK for a complete cycle"
+else
+    fail "postflight pipeline-state step is OK for a complete cycle"
+fi
+
+echo "--- Test 2: current-cycle pipeline attention becomes a soft warning ---"
+if python3 - <<'PY' "$EDGE_DIR"
+import importlib.machinery
+import importlib.util
+import sys
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+loader = importlib.machinery.SourceFileLoader("edge_postflight", str(edge_dir / "tools" / "edge-postflight"))
+spec = importlib.util.spec_from_loader("edge_postflight", loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+
+result = module._execute_postflight_step(
+    {"id": "pipeline-state", "kind": "pipeline_state.refresh"},
+    {"cycle_id": "cycle-bad", "request": {}, "state": {}},
+)
+assert result["status"] == "warning", result
+assert result["satisfied"] is False, result
+assert result["current_attention"][0]["artifact"] == "blog/entries/bad.md"
+PY
+then
+    pass "postflight pipeline-state step warns on current-cycle blocked artifacts"
+else
+    fail "postflight pipeline-state step warns on current-cycle blocked artifacts"
+fi
+
+echo ""
+echo "=== Results ==="
+echo "PASS: $PASS  FAIL: $FAIL"
+if [[ "$FAIL" -eq 0 ]]; then
+    echo "ALL TESTS PASSED"
+    exit 0
+else
+    echo "SOME TESTS FAILED"
+    exit 1
+fi

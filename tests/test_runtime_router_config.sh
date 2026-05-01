@@ -81,11 +81,12 @@ assert payload["routers"]["review"]["base_url"] == "https://api.x.ai/v1"
 assert payload["routers"]["chat"]["model"] == "gpt-5.4"
 postflight = yaml.safe_load((repo / "config" / "postflight.yaml").read_text(encoding="utf-8"))
 assert any(item["kind"] == "source_affordance.digest" for item in postflight["procedures"])
+assert any(item["kind"] == "pipeline_state.refresh" for item in postflight["procedures"])
 PY
 then
-    pass "edge-render materializes runtime routers and source affordance postflight"
+    pass "edge-render materializes runtime routers and projection postflight"
 else
-    fail "edge-render materializes runtime routers and source affordance postflight"
+    fail "edge-render materializes runtime routers and projection postflight"
 fi
 
 echo "--- Test 2: router_client reads runtime routers without agent.yaml ---"

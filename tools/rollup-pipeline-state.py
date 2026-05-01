@@ -21,6 +21,7 @@ from paths import PIPELINE_STATE_FILE, STATE_EVENTS_FILE  # noqa: E402
 PIPELINE_EVENT_TYPES = {"PhaseCompleted", "ArtifactPublished"}
 TRUE_VALUES = {"1", "true", "yes", "ok", "success", "succeeded", "completed", "pass", "passed"}
 FALSE_VALUES = {"0", "false", "no", "fail", "failed", "error", "blocked", "aborted"}
+TERMINAL_PHASES = {"pipeline", "pipeline-end", "pipeline_end"}
 
 
 def iter_events(path: Path = STATE_EVENTS_FILE):
@@ -85,6 +86,8 @@ def _build_empty_artifact(artifact: str) -> dict[str, Any]:
         "last_event_at": "",
         "published_at": "",
         "published": False,
+        "terminal_phase_status": "",
+        "terminal_phase_at": "",
         "phase_counts": {"ok": 0, "failed": 0, "unknown": 0},
         "phases": [],
         "event_counts": {"PhaseCompleted": 0, "ArtifactPublished": 0},
@@ -137,6 +140,10 @@ def _apply_phase_completed(record: dict[str, Any], event: dict[str, Any], payloa
             "line": int(event.get("_line") or 0),
         }
     )
+    phase_name = str(payload.get("phase") or "").strip().lower()
+    if phase_name in TERMINAL_PHASES:
+        record["terminal_phase_status"] = phase_status
+        record["terminal_phase_at"] = _timestamp(event)
 
 
 def _apply_artifact_published(record: dict[str, Any], event: dict[str, Any], payload: dict[str, Any]) -> None:
@@ -153,13 +160,18 @@ def _classify(record: dict[str, Any]) -> str:
     phase_total = int(record["event_counts"].get("PhaseCompleted") or 0)
     published = bool(record.get("published"))
     failed = int((record.get("phase_counts") or {}).get("failed") or 0) > 0
+    terminal = str(record.get("terminal_phase_status") or "").strip()
 
     if published and phase_total == 0:
         return "orphaned_publish"
+    if terminal == "ok":
+        return "complete" if published else "partial"
+    if terminal == "failed":
+        return "failed" if published else "blocked"
     if published and failed:
         return "failed"
     if published and phase_total > 0:
-        return "complete"
+        return "partial"
     if failed:
         return "blocked"
     if phase_total > 0:

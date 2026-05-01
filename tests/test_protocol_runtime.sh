@@ -47,6 +47,8 @@ operator_notes:
 procedures:
   - id: source-affordances
     kind: source_affordance.digest
+  - id: pipeline-state
+    kind: pipeline_state.refresh
   - id: briefing-refresh
     kind: briefing.refresh
   - id: async-inbox-response
@@ -124,11 +126,13 @@ compiled = ensure_compiled_protocol("postflight")
 assert compiled["protocol"] == "postflight"
 kinds = [item["kind"] for item in compiled["procedures"]]
 assert "source_affordance.digest" in kinds
+assert "pipeline_state.refresh" in kinds
 assert "async_inbox.respond" in kinds
 compiled_path = Path(state_dir) / "state" / "runtime" / "postflight.compiled.json"
 assert compiled_path.exists()
 saved = json.loads(compiled_path.read_text(encoding="utf-8"))
 assert any(item["kind"] == "source_affordance.digest" for item in saved["procedures"])
+assert any(item["kind"] == "pipeline_state.refresh" for item in saved["procedures"])
 assert any(item["kind"] == "async_inbox.respond" for item in saved["procedures"])
 PY
 then

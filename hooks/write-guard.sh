@@ -45,6 +45,7 @@ except Exception:
 [[ -z "$PATH_ARG" ]] && exit 0
 
 EDGE_ROOT="${EDGE_DIR:-$HOME/edge}"
+EDGE_CMD="${EDGE_REPO_DIR:-$EDGE_ROOT}/tools/edge-cmd"
 
 # Canonicalize
 ABS_PATH="$PATH_ARG"
@@ -54,6 +55,11 @@ ABS_PATH="$PATH_ARG"
 case "$ABS_PATH" in
     "$HOME/.claude/projects/"*/memory/*) exit 0 ;;
 esac
+
+if [[ -x "$EDGE_CMD" ]]; then
+    "$EDGE_CMD" validate-write --tool "$TOOL_NAME" --path "$PATH_ARG" --source write-guard
+    exit $?
+fi
 
 for sub in blog/entries state reports meta-reports threads health logs; do
     prefix="$EDGE_ROOT/$sub"

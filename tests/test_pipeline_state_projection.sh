@@ -10,6 +10,7 @@ cat >"$TMP_STATE/state/events/log.jsonl" <<'JSONL'
 {"ts":"2026-04-26T10:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-complete","artifact":"blog/entries/complete.md","payload":{"pipeline":"consolidate-state","phase":"1","ok":true},"prev_hash":"sha256:root"}
 {"ts":"2026-04-26T10:02:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-complete","artifact":"blog/entries/complete.md","payload":{"pipeline":"consolidate-state","phase":"4","ok":true},"prev_hash":"sha256:a"}
 {"ts":"2026-04-26T10:03:00+00:00","type":"ArtifactPublished","actor":"continuity","cycle_id":"cycle-complete","artifact":"blog/entries/complete.md","payload":{"hash":"sha256:complete","source_skill":"research"},"prev_hash":"sha256:b"}
+{"ts":"2026-04-26T10:04:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-complete","artifact":"blog/entries/complete.md","payload":{"pipeline":"consolidate-state","phase":"pipeline","ok":true},"prev_hash":"sha256:b2"}
 {"ts":"2026-04-26T11:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-partial","artifact":"blog/entries/partial.md","payload":{"pipeline":"consolidate-state","phase":"1","ok":true},"prev_hash":"sha256:c"}
 {"ts":"2026-04-26T12:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-blocked","artifact":"blog/entries/blocked.md","payload":{"pipeline":"consolidate-state","phase":"3","ok":false,"reason":"review_gate_failed"},"prev_hash":"sha256:d"}
 {"ts":"2026-04-26T13:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-failed","artifact":"blog/entries/failed.md","payload":{"pipeline":"consolidate-state","phase":"4","ok":false,"reason":"meta_report_failed"},"prev_hash":"sha256:e"}
@@ -44,7 +45,8 @@ assert summary["counts_by_status"]["orphaned_publish"] == 1, summary
 complete = by_artifact["blog/entries/complete.md"]
 assert complete["status"] == "complete"
 assert complete["published"] is True
-assert complete["phase_counts"]["ok"] == 2
+assert complete["phase_counts"]["ok"] == 3
+assert complete["terminal_phase_status"] == "ok"
 assert complete["source_skill"] == "research"
 
 partial = by_artifact["blog/entries/partial.md"]
