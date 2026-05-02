@@ -165,7 +165,7 @@ PY
     publish_mock_artifact discovery
   fi
 fi
-if [ "${MOCK_CLAUDE_EXIT_CODE:-0}" = "0" ] && [[ "$PROMPT" == *"/autonomy"* ]]; then
+if [ -z "${MOCK_CLAUDE_ARTIFACT_MARKDOWN:-}" ] && [ "${MOCK_CLAUDE_EXIT_CODE:-0}" = "0" ] && [[ "$PROMPT" == *"/autonomy"* ]]; then
   publish_mock_artifact autonomy
 fi
 if [ -n "${MOCK_CLAUDE_ARTIFACT_MARKDOWN:-}" ]; then
@@ -382,8 +382,8 @@ else
     fail "inline heartbeat work skips duplicate follow-on invocation"
 fi
 
-echo "--- Test 1c: artifact-producing skills publish stdout through the shared runtime bridge ---"
-PUBLISH_SKILLS=(discovery research report strategy planner)
+echo "--- Test 1c: non-heartbeat skills publish stdout through the shared runtime bridge ---"
+PUBLISH_SKILLS=(discovery research report strategy planner autonomy reflection sources map test-agent-autonomy)
 PUBLISH_OK=1
 for skill in "${PUBLISH_SKILLS[@]}"; do
     export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id-publish-$skill.txt"
@@ -418,7 +418,10 @@ reports_dir = Path(sys.argv[4])
 skill = sys.argv[5]
 cycle_id = dispatch["cycle_id"]
 
-assert dispatch["request"]["skill"] == skill
+expected_skill = skill
+expected_source_skill = "autonomy" if skill == "test-agent-autonomy" else skill
+
+assert dispatch["request"]["skill"] == expected_skill
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["close_reason"] != "missing_artifact_published"
@@ -427,7 +430,7 @@ published = [
     event for event in events
     if event.get("cycle_id") == cycle_id
     and event.get("type") == "ArtifactPublished"
-    and (event.get("payload") or {}).get("source_skill") == skill
+    and (event.get("payload") or {}).get("source_skill") == expected_source_skill
     and (event.get("payload") or {}).get("auto_published") is True
 ]
 assert published, f"no auto-published artifact for {skill}"
@@ -437,7 +440,7 @@ entry_path = entries_dir / Path(artifact).name
 assert entry_path.exists()
 entry = entry_path.read_text(encoding="utf-8")
 assert "runtime-published" in entry
-assert f"source_skill: {skill}" in entry
+assert f"source_skill: {expected_source_skill}" in entry
 report_name = (published[-1].get("payload") or {})["report"]
 assert (reports_dir / report_name).exists()
 
@@ -457,9 +460,9 @@ done
 unset MOCK_CLAUDE_ARTIFACT_MARKDOWN || true
 
 if [[ "$PUBLISH_OK" -eq 1 ]]; then
-    pass "artifact-producing skills publish stdout through the shared runtime bridge"
+    pass "non-heartbeat skills publish stdout through the shared runtime bridge"
 else
-    fail "artifact-producing skills publish stdout through the shared runtime bridge"
+    fail "non-heartbeat skills publish stdout through the shared runtime bridge"
 fi
 
 echo "--- Test 2: success without skill completion evidence closes as failed ---"
