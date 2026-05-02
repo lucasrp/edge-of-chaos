@@ -508,7 +508,7 @@ fi
 emit_run_step_event "phase-0a" "completed" "state_snapshot" ""
 echo ""
 
-# ─── PHASE 0: Inject report: in frontmatter if needed ───
+# ─── PHASE 0: Sync report: in staging frontmatter before publish ───
 if [[ -n "$REPORT_INPUT" ]]; then
     # Determine report filename
     if [[ "$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml ]]; then
@@ -518,46 +518,19 @@ if [[ -n "$REPORT_INPUT" ]]; then
     fi
 
     if [[ -n "$REPORT_FILENAME" ]]; then
-        # Check if frontmatter already has report: field
-        HAS_REPORT=$(python3 -c "
-import yaml
-raw = open('$ENTRY_PATH').read()
-parts = raw.split('---', 2)
-if len(parts) >= 3:
-    fm = yaml.safe_load(parts[1]) or {}
-    print('yes' if fm.get('report') else 'no')
-else:
-    print('no')
-" 2>/dev/null)
-
-        if [[ "$HAS_REPORT" == "no" ]]; then
-            echo "── Phase 0: Frontmatter ──"
-            emit_run_step_event "phase-0" "started" "frontmatter_injection" ""
-            # Inject report: field after the last frontmatter field (before closing ---)
-            if python3 -c "
-try:
-    raw = open('$ENTRY_PATH').read()
-    parts = raw.split('---', 2)
-    if len(parts) >= 3:
-        fm_text = parts[1].rstrip()
-        fm_text += '\nreport: $REPORT_FILENAME\n'
-        result = '---' + fm_text + '---' + parts[2]
-        open('$ENTRY_PATH', 'w').write(result)
-        print('  OK: report: $REPORT_FILENAME injected into frontmatter')
-    else:
-        print('  WARN: frontmatter not found (no --- delimiters)')
-        exit(1)
-except Exception as e:
-    print(f'  FAIL: frontmatter injection: {e}')
-    exit(1)
-" 2>&1; then
-                :
-            else
-                log_failure "0" "frontmatter_injection" "Failed to inject report: field"
-            fi
-            emit_run_step_event "phase-0" "completed" "frontmatter_injection" ""
-            echo ""
+        echo "── Phase 0: Frontmatter ──"
+        emit_run_step_event "phase-0" "started" "frontmatter_report_sync" ""
+        if REPORT_SYNC_OUTPUT=$(python3 "$TOOLS_DIR/sync-report-frontmatter.py" "$ENTRY_PATH" "$REPORT_FILENAME" 2>&1); then
+            ok "report: $REPORT_SYNC_OUTPUT"
+        else
+            fail "Failed to sync report field"
+            echo "$REPORT_SYNC_OUTPUT" >&2
+            log_failure "0" "frontmatter_report_sync" "Failed to sync report: field"
+            emit_run_step_event "phase-0" "failed" "frontmatter_report_sync" "Failed to sync report: field"
+            exit 1
         fi
+        emit_run_step_event "phase-0" "completed" "frontmatter_report_sync" ""
+        echo ""
     fi
 fi
 
@@ -879,9 +852,11 @@ fi
 
 # Report linked in frontmatter?
 if [[ -n "$REPORT_FILENAME" ]]; then
+    VERIFY_ENTRY_PATH="$ENTRIES_DIR/$SLUG.md"
+    [[ -f "$VERIFY_ENTRY_PATH" ]] || VERIFY_ENTRY_PATH="$ENTRY_PATH"
     HAS_REPORT=$(python3 -c "
 import yaml
-raw = open('$ENTRY_PATH').read()
+raw = open('$VERIFY_ENTRY_PATH').read()
 parts = raw.split('---', 2)
 fm = yaml.safe_load(parts[1]) or {}
 r = fm.get('report', '')
@@ -891,8 +866,11 @@ print('OK' if r == '$REPORT_FILENAME' else f'MISMATCH: {r}')
         ok "Frontmatter report: $REPORT_FILENAME"
     else
         warn "Frontmatter report: $HAS_REPORT"
-        # Auto-fix: update frontmatter report field to match actual generated filename
-        sed -i "s|^report: .*|report: $REPORT_FILENAME|" "$ENTRY_PATH"
+        # Auto-fix both the staging file and the already-published entry.
+        python3 "$TOOLS_DIR/sync-report-frontmatter.py" "$ENTRY_PATH" "$REPORT_FILENAME" >/dev/null 2>&1 || true
+        if [[ "$VERIFY_ENTRY_PATH" != "$ENTRY_PATH" ]]; then
+            python3 "$TOOLS_DIR/sync-report-frontmatter.py" "$VERIFY_ENTRY_PATH" "$REPORT_FILENAME" >/dev/null 2>&1 || true
+        fi
         ok "FIXED: report: $REPORT_FILENAME"
     fi
 fi
