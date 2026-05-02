@@ -53,13 +53,10 @@ RECENT_DUPLICATE_HOURS = 36
 CORPUS_REQUIRED_TYPES = ["workflow", "memory"]
 CORPUS_OPTIONAL_TYPES = ["topic"]
 HEARTBEAT_FAIRNESS_SKILLS = (
-    "autonomy",
-    "reflection",
     "report",
     "research",
-    "map",
     "discovery",
-    "strategy",
+    "planner",
 )
 
 _QUERY_KEYS = (
@@ -375,6 +372,17 @@ def _priority_hints_for_heartbeat(state: dict[str, Any]) -> list[dict[str, Any]]
                 "reason": "async_inbox_priority",
                 "skill": "reflection",
                 "priority": priority or "high",
+            }
+        )
+
+    self_healing = request.get("self_healing") or {}
+    needs_llm = self_healing.get("needs_llm") or []
+    if needs_llm:
+        hints.append(
+            {
+                "reason": "self_healing_needs_llm",
+                "skill": "autonomy",
+                "primitive_count": len(needs_llm),
             }
         )
 
@@ -1224,6 +1232,34 @@ def _primitives_status() -> dict[str, Any]:
     }
 
 
+def _primitive_self_healing() -> dict[str, Any]:
+    code, stdout, stderr = _run_subprocess(
+        [sys.executable, str(EDGE_REPO_DIR / "tools" / "edge-self-healing"), "--json"],
+        timeout=45,
+    )
+    if code != 0 or not stdout:
+        return {
+            "ok": False,
+            "status": "failed",
+            "summary": {"broken_total": 0, "recovered_total": 0, "known_skip_total": 0, "needs_llm_total": 0},
+            "needs_llm": [],
+            "actions": [],
+            "error": stderr or stdout or f"edge-self-healing exited {code}",
+        }
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        return {
+            "ok": False,
+            "status": "failed",
+            "summary": {"broken_total": 0, "recovered_total": 0, "known_skip_total": 0, "needs_llm_total": 0},
+            "needs_llm": [],
+            "actions": [],
+            "error": f"invalid self-healing json: {exc}",
+        }
+    return payload if isinstance(payload, dict) else {"ok": False, "status": "failed", "summary": {}, "needs_llm": [], "actions": []}
+
+
 def _workflow_status() -> dict[str, Any]:
     status = build_workflow_status()
     return {
@@ -1723,6 +1759,30 @@ def _execute_preflight_step(
             },
         )
 
+    if kind == "self_healing.primitives":
+        self_healing = _primitive_self_healing()
+        request["self_healing"] = self_healing
+        summary = self_healing.get("summary") or {}
+        needs_llm = int(summary.get("needs_llm_total", 0) or 0)
+        failed = not bool(self_healing.get("ok", False))
+        return _step_result(
+            step,
+            status="failed" if failed else "warning" if needs_llm else "ok",
+            satisfied=not failed,
+            detail=(
+                f"broken={summary.get('broken_total', 0)} "
+                f"recovered={summary.get('recovered_total', 0)} "
+                f"needs_llm={needs_llm}"
+            ),
+            extra={
+                "broken_total": int(summary.get("broken_total", 0) or 0),
+                "recovered_total": int(summary.get("recovered_total", 0) or 0),
+                "known_skip_total": int(summary.get("known_skip_total", 0) or 0),
+                "needs_llm_total": needs_llm,
+                "error": str(self_healing.get("error") or ""),
+            },
+        )
+
     if kind == "primitives.status":
         primitives = _primitives_status()
         request["primitives_status"] = primitives
@@ -1999,6 +2059,8 @@ def enrich_dispatch_state(
         "operator_pressure_pre_skill_context": (request.get("operator_pressure_summary") or {}).get("pre_skill_context", 0),
         "operator_pressure_workflow_candidates": (request.get("operator_pressure_summary") or {}).get("workflow_candidates", 0),
         "operator_pressure_substrate_gap_requests": (request.get("operator_pressure_summary") or {}).get("substrate_gap_requests", 0),
+        "self_healing_needs_llm": ((request.get("self_healing") or {}).get("summary") or {}).get("needs_llm_total", 0),
+        "self_healing_recovered": ((request.get("self_healing") or {}).get("summary") or {}).get("recovered_total", 0),
         "beat_launch_operator_signals": len((request.get("beat_launch_context") or {}).get("signal_from_operator_now") or []),
         "beat_launch_edge_state_signals": len((request.get("beat_launch_context") or {}).get("signal_from_edge_state_now") or []),
         "delta_prerequisite_required": bool((request.get("delta_prerequisite") or {}).get("required")),
@@ -2091,6 +2153,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "exploration_pack": request.get("exploration_pack", {}),
         "claims_summary": request.get("claims_summary", {}),
         "orphan_claims_summary": request.get("orphan_claims_summary", {}),
+        "self_healing": request.get("self_healing", {}),
         "primitives_status": request.get("primitives_status", {}),
         "capabilities_status": request.get("capabilities_status", {}),
         "workflow_status": request.get("workflow_status", {}),

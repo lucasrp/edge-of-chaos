@@ -33,6 +33,7 @@ _ALLOWED_KINDS: dict[str, set[str]] = {
         "inbox.snapshot",
         "claude.sessions.digest",
         "claims.refresh",
+        "self_healing.primitives",
         "primitives.status",
         "capabilities.status",
         "source.bindings",

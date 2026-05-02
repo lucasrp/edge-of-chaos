@@ -124,6 +124,7 @@ def _render_preflight_protocol(cfg: dict) -> str:
             {"id": "async-inbox", "kind": "inbox.snapshot"},
             {"id": "claude-sessions-digest", "kind": "claude.sessions.digest"},
             {"id": "claims-refresh", "kind": "claims.refresh"},
+            {"id": "self-healing", "kind": "self_healing.primitives"},
             {"id": "primitives-status", "kind": "primitives.status"},
             {"id": "capabilities-status", "kind": "capabilities.status"},
             {"id": "source-bindings", "kind": "source.bindings"},

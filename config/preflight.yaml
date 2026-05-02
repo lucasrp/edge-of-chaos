@@ -11,6 +11,8 @@ procedures:
     kind: claude.sessions.digest
   - id: claims
     kind: claims.refresh
+  - id: self-healing
+    kind: self_healing.primitives
   - id: primitives
     kind: primitives.status
   - id: capabilities

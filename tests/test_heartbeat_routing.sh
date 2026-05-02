@@ -28,7 +28,7 @@ echo "=== heartbeat routing Smoke Test ==="
 echo "Temp state: $TMP_STATE"
 echo ""
 
-echo "--- Test 1: heartbeat routing exposes explicit fairness lane without procedural curation skill ---"
+echo "--- Test 1: heartbeat routing exposes explicit action-skill fairness lane ---"
 if python3 - <<'PY' "$EDGE_DIR"
 import sys
 
@@ -49,13 +49,13 @@ state = {
 routing = prepare_heartbeat_routing(state, skill="heartbeat")
 assert routing is not None
 assert tuple(routing["round_robin_skills"]) == HEARTBEAT_FAIRNESS_SKILLS
-assert routing["suggested_skill"] == "autonomy"
+assert routing["suggested_skill"] == "report"
 assert routing["priority_hints"] == []
 PY
 then
-    pass "heartbeat routing exposes explicit fairness lane without procedural curation skill"
+    pass "heartbeat routing exposes explicit action-skill fairness lane"
 else
-    fail "heartbeat routing exposes explicit fairness lane without procedural curation skill"
+    fail "heartbeat routing exposes explicit action-skill fairness lane"
 fi
 
 echo "--- Test 2: fairness cursor only advances when the suggested skill is actually dispatched ---"
@@ -84,12 +84,12 @@ assert ack is not None
 assert ack["acknowledged"] is False
 assert not Path(rotation_path).exists()
 
-ack = acknowledge_heartbeat_routing(state, dispatched_skill="autonomy", dispatch_mode="normal")
+ack = acknowledge_heartbeat_routing(state, dispatched_skill="report", dispatch_mode="normal")
 assert ack is not None
 assert ack["acknowledged"] is True
 saved = json.loads(Path(rotation_path).read_text(encoding="utf-8"))
 assert saved["cursor"] == 1
-assert saved["last_acknowledged_skill"] == "autonomy"
+assert saved["last_acknowledged_skill"] == "report"
 
 next_state = {
     "cycle_id": "cycle-routing-3",
@@ -103,7 +103,7 @@ next_state = {
 }
 next_routing = prepare_heartbeat_routing(next_state, skill="heartbeat")
 assert next_routing is not None
-assert next_routing["suggested_skill"] == "reflection"
+assert next_routing["suggested_skill"] == "research"
 PY
 then
     pass "fairness cursor only advances when the suggested skill is actually dispatched"
@@ -140,6 +140,35 @@ then
     pass "priority hints override fairness when queue or inbox is hot"
 else
     fail "priority hints override fairness when queue or inbox is hot"
+fi
+
+echo "--- Test 4: self-healing unknown primitive failures hint autonomy ---"
+if python3 - <<'PY' "$EDGE_DIR"
+import sys
+
+edge_dir = sys.argv[1]
+sys.path.insert(0, f"{edge_dir}/tools")
+from _shared.dispatch_runtime import prepare_heartbeat_routing
+
+state = {
+    "cycle_id": "cycle-routing-5",
+    "request": {
+        "trigger": "heartbeat",
+        "skill": "heartbeat",
+        "async_inbox": {"priority": "normal", "direct_messages": [], "steering_intents": []},
+        "dispatch_queue_summary": {"pending_total": 0, "head": None},
+        "self_healing": {"needs_llm": [{"primitive": "exa"}]},
+    },
+    "state": {},
+}
+routing = prepare_heartbeat_routing(state, skill="heartbeat")
+assert routing is not None
+assert any(item["reason"] == "self_healing_needs_llm" and item["skill"] == "autonomy" for item in routing["priority_hints"])
+PY
+then
+    pass "self-healing unknown primitive failures hint autonomy"
+else
+    fail "self-healing unknown primitive failures hint autonomy"
 fi
 
 echo ""

@@ -111,6 +111,30 @@ Output ONLY the script content, no explanation." > "${stub_path}.new" 2>/dev/nul
   fi
 fi
 
+# 0c. Primitive self-healing — deterministic reprobe before LLM dispatch
+SELF_HEALING_BIN="$TOOLS_DIR/edge-self-healing"
+if [ -x "$SELF_HEALING_BIN" ]; then
+  self_healing_json=$("$SELF_HEALING_BIN" --json 2>/dev/null || true)
+  self_healing_signal=$(python3 -c "
+import json, sys
+try:
+    payload = json.loads(sys.stdin.read() or '{}')
+    summary = payload.get('summary') or {}
+    recovered = int(summary.get('recovered_total') or 0)
+    needs = payload.get('needs_llm') or []
+    if needs:
+        names = ','.join(str(item.get('primitive') or '') for item in needs if item.get('primitive'))
+        print(f'SELF_HEALING:NEEDS_LLM {len(needs)} primitives ({names})')
+    elif recovered:
+        print(f'SELF_HEALING:RECOVERED {recovered} primitives')
+except Exception:
+    pass
+" <<< "$self_healing_json" 2>/dev/null)
+  if [ -n "$self_healing_signal" ]; then
+    SIGNALS+=("$self_healing_signal")
+  fi
+fi
+
 # 1. Pending chat?
 chat_pending=$(curl -s --max-time 3 $CURL_AUTH "http://localhost:${BLOG_PORT}/api/chat?unprocessed=true" 2>/dev/null | \
   python3 -c "
