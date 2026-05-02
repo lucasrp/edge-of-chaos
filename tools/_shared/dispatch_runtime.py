@@ -39,7 +39,6 @@ from paths import (  # noqa: E402
     THREADS_DIR,
     WORKFLOW_HEALTH_FILE,
 )
-from .continuity import refresh_continuity_projections  # noqa: E402
 from .capability_runtime import build_capability_status, build_configured_integrations, build_source_bindings, invoke_capability, probe_capability  # noqa: E402
 from .operator_pressure import read_or_refresh_operator_pressure_projection  # noqa: E402
 from .protocol_runtime import emit_protocol_step_observed, ensure_compiled_protocol, protocol_context  # noqa: E402
@@ -99,6 +98,7 @@ DELTA_OPEN_WORK_LIMIT = int(os.environ.get("EDGE_DELTA_OPEN_WORK_LIMIT", "20") o
 DELTA_CHAT_ITEM_LIMIT = int(os.environ.get("EDGE_DELTA_CHAT_ITEM_LIMIT", "12") or "12")
 DELTA_EVENT_LIMIT = int(os.environ.get("EDGE_DELTA_EVENT_LIMIT", "8") or "8")
 DEFAULT_HEALTH_CHECK_TIMEOUT_SECONDS = 45
+DEFAULT_CLAIMS_PROJECTION_MAX_AGE_SECONDS = 6 * 60 * 60
 
 EXTERNAL_SEARCH_INTENTS = {
     "autonomy": "strategy",
@@ -588,10 +588,42 @@ def _health_snapshot() -> dict[str, Any]:
     }
 
 
+def _claims_projection_max_age_seconds() -> int | None:
+    raw = os.environ.get("EDGE_PREFLIGHT_CLAIMS_MAX_AGE_SEC", str(DEFAULT_CLAIMS_PROJECTION_MAX_AGE_SECONDS))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_CLAIMS_PROJECTION_MAX_AGE_SECONDS
+    if value <= 0:
+        return None
+    return value
+
+
+def _projection_cache_status(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"projection_status": "missing", "projection_age_seconds": None}
+    try:
+        mtime = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+        age_seconds = max(0, int((datetime.now(timezone.utc) - mtime).total_seconds()))
+    except OSError:
+        return {"projection_status": "unknown", "projection_age_seconds": None}
+    max_age = _claims_projection_max_age_seconds()
+    if max_age is not None and age_seconds > max_age:
+        status = "stale_cached"
+    else:
+        status = "cached"
+    return {"projection_status": status, "projection_age_seconds": age_seconds}
+
+
 def _claims_summary() -> tuple[dict[str, Any], dict[str, Any]]:
-    projections = refresh_continuity_projections()
-    digest = projections.get("digest") or {}
-    orphans = projections.get("orphans") or {}
+    digest = _read_json(CLAIMS_DIGEST_FILE, {})
+    orphans = _read_json(ORPHAN_CLAIMS_FILE, {})
+    if not isinstance(digest, dict):
+        digest = {}
+    if not isinstance(orphans, dict):
+        orphans = {}
+    digest_cache = _projection_cache_status(CLAIMS_DIGEST_FILE)
+    orphan_cache = _projection_cache_status(ORPHAN_CLAIMS_FILE)
     return (
         {
             "open_total": digest.get("open_total", 0),
@@ -603,6 +635,7 @@ def _claims_summary() -> tuple[dict[str, Any], dict[str, Any]]:
             "hot_threads_by_open_claims": digest.get("hot_threads_by_open_claims", [])[:5],
             "oldest_open_claims": digest.get("oldest_open_claims", [])[:5],
             "source_path": str(CLAIMS_DIGEST_FILE),
+            **digest_cache,
         },
         {
             "orphan_total": orphans.get("orphan_total", 0),
@@ -611,6 +644,7 @@ def _claims_summary() -> tuple[dict[str, Any], dict[str, Any]]:
             "multi_artifact_orphan_total": orphans.get("multi_artifact_orphan_total", 0),
             "candidate_clusters": orphans.get("candidate_clusters", [])[:5],
             "source_path": str(ORPHAN_CLAIMS_FILE),
+            **orphan_cache,
         },
     )
 
@@ -1627,11 +1661,23 @@ def _execute_preflight_step(
         claims_summary, orphan_summary = _claims_summary()
         request["claims_summary"] = claims_summary
         request["orphan_claims_summary"] = orphan_summary
+        cache_statuses = {
+            str(claims_summary.get("projection_status") or ""),
+            str(orphan_summary.get("projection_status") or ""),
+        }
+        satisfied = "missing" not in cache_statuses
+        status = "warning" if (not satisfied or "stale_cached" in cache_statuses) else "ok"
         return _step_result(
             step,
-            status="ok",
-            satisfied=True,
+            status=status,
+            satisfied=satisfied,
             detail=f"open={claims_summary.get('open_total', 0)} orphans={orphan_summary.get('orphan_total', 0)}",
+            extra={
+                "claims_projection_status": claims_summary.get("projection_status"),
+                "claims_projection_age_seconds": claims_summary.get("projection_age_seconds"),
+                "orphan_projection_status": orphan_summary.get("projection_status"),
+                "orphan_projection_age_seconds": orphan_summary.get("projection_age_seconds"),
+            },
         )
 
     if kind == "primitives.status":
