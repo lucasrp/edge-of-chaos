@@ -35,7 +35,29 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
    - `!` prefix = "I don't know" — open gap, candidate for future research.
    - `threads:` = related investigation threads (see `~/edge/threads/`).
    - `consolidate-state` warns if claims are missing.
+   - Every claim must be valid YAML. Quote the whole claim when it contains
+     `:`, `!`, backticks, brackets, quotes, or other punctuation that YAML may
+     interpret structurally. For open gaps, keep the `!` inside the string:
+     `- "!Open gap: what is still unknown"`.
 5. **Publish atomically** (blog entry + report HTML + meta-report + state commit):
+   Validate the staging entry frontmatter and YAML spec before publishing. Do
+   not run `consolidate-state` until this command exits cleanly:
+   ```bash
+   python3 - <<'PY'
+   from pathlib import Path
+   import sys, yaml
+
+   entry = Path("/tmp/entry-[skill]-[slug].md")
+   spec = Path("/tmp/spec-[skill]-[slug].yaml")
+
+   raw = entry.read_text(encoding="utf-8")
+   parts = raw.split("---", 2)
+   if len(parts) < 3:
+       sys.exit(f"missing frontmatter in {entry}")
+   yaml.safe_load(parts[1]) or {}
+   yaml.safe_load(spec.read_text(encoding="utf-8")) or {}
+   PY
+   ```
    ```bash
    consolidate-state /tmp/entry-[skill]-[slug].md /tmp/spec-[skill]-[slug].yaml
    ```

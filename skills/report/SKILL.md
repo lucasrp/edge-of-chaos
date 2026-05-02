@@ -30,6 +30,10 @@ Draft the YAML and staging entry, then let `consolidate-state` own the adversari
 Feynman, review-gate, publication, meta-report, and post-state phases. If
 `consolidate-state` blocks on feedback, address that feedback and rerun the
 pipeline; do not create a separate pre-publication review loop inside this skill.
+Before running `consolidate-state`, validate the staging entry frontmatter and
+YAML spec exactly as described in `skills/_shared/report-template.md`. Claims
+containing `:`, `!`, backticks, quotes, or other YAML-significant punctuation
+must be quoted as complete strings.
 
 Publishing is not optional once `/ed-report` has chosen a topic. Files staged in
 `/tmp` are drafts, not the report artifact. Do not close by asking the operator

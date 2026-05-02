@@ -11,10 +11,13 @@ grep -q "Publishing is not optional once \`/ed-report\` has chosen a topic" "$RE
 grep -q "Files staged in" "$REPORT_SKILL"
 grep -q "staging-only exit" "$REPORT_SKILL"
 grep -q "concrete failing command and reason" "$REPORT_SKILL"
+grep -q "validate the staging entry frontmatter" "$REPORT_SKILL"
 
 grep -q "Staging is not completion" "$TEMPLATE"
 grep -q "must not close with only" "$TEMPLATE"
 grep -q "Run \`consolidate-state\` in this" "$TEMPLATE"
 grep -q "concrete failing command and" "$TEMPLATE"
+grep -q "Every claim must be valid YAML" "$TEMPLATE"
+grep -q "Validate the staging entry frontmatter" "$TEMPLATE"
 
 echo "PASS: ed-report cannot treat /tmp staging as a completed report"

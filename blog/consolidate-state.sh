@@ -338,6 +338,33 @@ with open('$FAILURES_LOG', 'a') as f:
     emit_run_step_event "phase-$phase" "failed" "$operation" "$error"
 }
 
+validate_entry_frontmatter() {
+    local entry_path="$1"
+    python3 - "$entry_path" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+path = Path(sys.argv[1])
+try:
+    raw = path.read_text(encoding="utf-8")
+except Exception as exc:
+    print(f"Invalid entry frontmatter YAML in {path}: cannot read file: {exc}", file=sys.stderr)
+    sys.exit(65)
+
+parts = raw.split("---", 2)
+if len(parts) < 3:
+    sys.exit(0)
+
+try:
+    yaml.safe_load(parts[1]) or {}
+except Exception as exc:
+    print(f"Invalid entry frontmatter YAML in {path}: {exc}", file=sys.stderr)
+    sys.exit(65)
+PY
+}
+
 if [[ "$RECOVER" == "false" ]]; then
     if [[ -z "$ENTRY_PATH" ]]; then
         echo "Usage: consolidate-state <entry.md> <report.yaml|report.html>" >&2
@@ -451,6 +478,12 @@ echo "========================================="
 echo " consolidate-state: $SLUG"
 echo "========================================="
 echo ""
+
+if ! FRONTMATTER_CHECK=$(validate_entry_frontmatter "$ENTRY_PATH" 2>&1); then
+    fail "$FRONTMATTER_CHECK"
+    log_failure "0" "frontmatter_parse" "$FRONTMATTER_CHECK"
+    exit 1
+fi
 
 # ─── PHASE 0a: State snapshot (PRE — capture protected files before anything changes) ───
 # If agent already took snapshot (before making state changes), skip.
