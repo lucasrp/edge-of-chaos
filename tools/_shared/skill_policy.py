@@ -17,23 +17,11 @@ KNOWN_SKILLS = {
     "strategy",
 }
 
-ARTIFACT_PIPELINE_SKILLS = {
-    "discovery",
-    "planner",
-    "report",
-    "research",
-    "strategy",
-}
-
-ARTIFACT_OPTIONAL_SKILLS = {
-    "autonomy",
+ARTIFACT_EXEMPT_SKILLS = {
     "delta",
     "heartbeat",
     "loader",
-    "map",
     "prompt",
-    "reflection",
-    "sources",
 }
 
 
@@ -59,7 +47,8 @@ def canonical_skill_id(value: object, *, instance: object = "") -> str:
 
 
 def skill_requires_artifact_publication(skill: object, *, instance: object = "") -> bool:
-    return canonical_skill_id(skill, instance=instance) in ARTIFACT_PIPELINE_SKILLS
+    normalized = canonical_skill_id(skill, instance=instance)
+    return bool(normalized and normalized not in ARTIFACT_EXEMPT_SKILLS)
 
 
 def skill_accepts_stdout_artifact(skill: object, *, instance: object = "") -> bool:

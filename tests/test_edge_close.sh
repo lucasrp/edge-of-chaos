@@ -105,6 +105,36 @@ with open(path, "a", encoding="utf-8") as fh:
 PY
 }
 
+append_skill_completed() {
+    local cycle_id="$1"
+    local skill="$2"
+    python3 - <<'PY' "$TMP_EDGE/state/events/log.jsonl" "$cycle_id" "$skill"
+import json
+import sys
+from datetime import datetime, timezone
+
+path, cycle_id, skill = sys.argv[1:4]
+event = {
+    "ts": datetime.now(timezone.utc).isoformat(),
+    "type": "SkillRunCompleted",
+    "actor": "edge-runner",
+    "cycle_id": cycle_id,
+    "payload": {
+        "skill": skill,
+        "registry_skill": skill,
+        "event": "end",
+        "expected": 1,
+        "done": 1,
+        "explicit_skips": 0,
+        "silent_skips": [],
+        "completion_pct": 100,
+    },
+}
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(event) + "\n")
+PY
+}
+
 echo "=== edge-close Smoke Test ==="
 echo "Temp state: $TMP_EDGE"
 echo ""
@@ -199,11 +229,10 @@ else
     fail "edge-close requires artifact publication for publishing skills"
 fi
 
-echo "--- Test 2b: operational skills close without artifact publication evidence ---"
-"$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-operational --force >/dev/null
-"$DISPATCH_TOOL" dispatch --skill roberto-autonomy >/dev/null
-EDGE_CYCLE_ID=cycle-close-operational "$STEP_TOOL" /roberto-autonomy diagnosis >/dev/null
-EDGE_CYCLE_ID=cycle-close-operational "$STEP_TOOL" /roberto-autonomy end >/dev/null
+echo "--- Test 2b: heartbeat router closes without artifact publication evidence ---"
+"$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-heartbeat-router --force >/dev/null
+"$DISPATCH_TOOL" dispatch --skill roberto-heartbeat >/dev/null
+append_skill_completed cycle-close-heartbeat-router roberto-heartbeat
 "$CLOSE_TOOL" --status completed >/dev/null
 
 if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/logs/post-skill.log"
@@ -214,7 +243,7 @@ dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 postflight = open(sys.argv[2], encoding="utf-8").read()
 steps = dispatch["state"].get("postflight_steps", [])
 
-assert dispatch["request"]["skill"] == "roberto-autonomy"
+assert dispatch["request"]["skill"] == "roberto-heartbeat"
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["close_reason"] != "missing_artifact_published"
@@ -223,9 +252,64 @@ assert "procedure: artifact_published | status: OK" not in postflight
 assert len(steps) >= 6
 PY
 then
-    pass "edge-close exempts prefixed operational skills from artifact publication"
+    pass "edge-close exempts heartbeat router from artifact publication"
 else
-    fail "edge-close exempts prefixed operational skills from artifact publication"
+    fail "edge-close exempts heartbeat router from artifact publication"
+fi
+
+echo "--- Test 2c: non-heartbeat skills require artifact publication regardless of prefix ---"
+"$DISPATCH_TOOL" open --trigger operator --cycle-id cycle-close-prefixed-no-artifact --force >/dev/null
+"$DISPATCH_TOOL" dispatch --skill roberto-autonomy >/dev/null
+EDGE_CYCLE_ID=cycle-close-prefixed-no-artifact "$STEP_TOOL" /roberto-autonomy diagnosis >/dev/null
+EDGE_CYCLE_ID=cycle-close-prefixed-no-artifact "$STEP_TOOL" /roberto-autonomy end >/dev/null
+set +e
+"$CLOSE_TOOL" --status completed >/dev/null
+STATUS=$?
+set -e
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$STATUS"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+status = int(sys.argv[2])
+
+assert status == 1
+assert dispatch["request"]["trigger"] == "operator"
+assert dispatch["request"]["skill"] == "roberto-autonomy"
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "failed"
+assert dispatch["state"]["close_reason"] == "missing_artifact_published"
+assert dispatch["state"]["postflight_status"] == "failed"
+PY
+then
+    pass "edge-close requires artifact publication for prefixed non-heartbeat skills"
+else
+    fail "edge-close requires artifact publication for prefixed non-heartbeat skills"
+fi
+
+echo "--- Test 2d: delta and loader support skills are artifact-exempt ---"
+if python3 - <<'PY' "$EDGE_DIR"
+import sys
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+sys.path.insert(0, str(edge_dir / "tools"))
+from _shared.skill_policy import skill_requires_artifact_publication
+
+assert not skill_requires_artifact_publication("delta")
+assert not skill_requires_artifact_publication("ed-delta", instance="ed")
+assert not skill_requires_artifact_publication("loader")
+assert not skill_requires_artifact_publication("ed-loader", instance="ed")
+assert not skill_requires_artifact_publication("heartbeat")
+assert skill_requires_artifact_publication("autonomy")
+assert skill_requires_artifact_publication("ed-autonomy", instance="ed")
+assert skill_requires_artifact_publication("reflection")
+PY
+then
+    pass "edge-close policy exempts delta and loader support skills only"
+else
+    fail "edge-close policy exempts delta and loader support skills only"
 fi
 
 echo "--- Test 3: completed close succeeds with skill end evidence, artifact publication, and postflight ---"
