@@ -25,8 +25,8 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import EDGE_INSTANCE, EDGE_REPO_DIR, ENTRIES_DIR, REPORTS_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.artifact_runtime import publish_stdout_artifact  # noqa: E402
-from _shared.dispatch_runtime import read_dispatch_state, render_skill_runtime_prompt, write_dispatch_state  # noqa: E402
-from _shared.skill_policy import skill_accepts_stdout_artifact  # noqa: E402
+from _shared.dispatch_runtime import HEARTBEAT_FAIRNESS_SKILLS, read_dispatch_state, render_skill_runtime_prompt, write_dispatch_state  # noqa: E402
+from _shared.skill_policy import skill_accepts_stdout_artifact, skill_requires_artifact_publication  # noqa: E402
 from _shared.telemetry import emit_shadow_event  # noqa: E402
 from _shared.telemetry import log_run_step  # noqa: E402
 
@@ -206,6 +206,75 @@ def maybe_dispatch_skill(args: argparse.Namespace, env: dict[str, str], cycle_id
     else:
         skill_name = "prompt"
     run_edge_tool("edge-dispatch", ["dispatch", "--skill", skill_name], env)
+
+
+def _valid_heartbeat_target(skill: str | None) -> str:
+    normalized = normalize_skill_name(skill).strip()
+    if not normalized:
+        return ""
+    if normalized in {"heartbeat", "delta", "loader", "prompt"} or normalized.endswith("heartbeat"):
+        return ""
+    if not skill_requires_artifact_publication(normalized, instance=EDGE_INSTANCE):
+        return ""
+    return normalized
+
+
+def heartbeat_dispatch_target(state: dict) -> str:
+    request = state.get("request", {}) or {}
+    routing = request.get("heartbeat_routing") or {}
+    queue_summary = request.get("dispatch_queue_summary") or {}
+    candidates: list[str | None] = []
+
+    if isinstance(queue_summary, dict):
+        head = queue_summary.get("head")
+        if isinstance(head, dict):
+            candidates.append(head.get("skill"))
+
+    if isinstance(routing, dict):
+        for hint in routing.get("priority_hints") or []:
+            if isinstance(hint, dict):
+                candidates.append(hint.get("skill"))
+        candidates.append(routing.get("selected_skill"))
+        candidates.append(routing.get("suggested_skill"))
+        candidates.extend(routing.get("round_robin_skills") or [])
+
+    candidates.extend(HEARTBEAT_FAIRNESS_SKILLS)
+    for candidate in candidates:
+        target = _valid_heartbeat_target(candidate)
+        if not target:
+            continue
+        return target
+    raise RunnerAbort("heartbeat_dispatch_target_missing", "heartbeat routing did not yield a dispatchable skill")
+
+
+def maybe_dispatch_heartbeat_router(args: argparse.Namespace, env: dict[str, str], cycle_id: str | None) -> str | None:
+    if not cycle_id or args.cmd != "skill":
+        return None
+    initial_skill = normalize_skill_name(args.skill)
+    if not initial_skill.endswith("heartbeat"):
+        return None
+    state = dispatch_state_matches(cycle_id)
+    if not state:
+        return None
+    if (state.get("state", {}) or {}).get("skill_dispatched"):
+        return None
+
+    target = heartbeat_dispatch_target(state)
+    run_edge_tool(
+        "edge-dispatch",
+        ["dispatch", "--skill", target, "--dispatch-mode", "deterministic_heartbeat_router"],
+        env,
+    )
+    log_run_step(
+        "edge-runner",
+        "heartbeat_router_dispatch",
+        "completed",
+        run_id=cycle_id,
+        backend="runtime",
+        mode="skill",
+        target=target,
+    )
+    return target
 
 
 def exploration_disabled() -> bool:
@@ -747,26 +816,41 @@ def main() -> int:
         cycle_id = maybe_open_cycle(args, env)
         maybe_run_preflight(args, env, cycle_id)
         maybe_dispatch_skill(args, env, cycle_id)
+        routed_heartbeat_skill = maybe_dispatch_heartbeat_router(args, env, cycle_id)
         if args.cmd == "prompt":
             maybe_run_exploration(args, env, cycle_id, "prompt")
         elif args.cmd == "skill" and not normalize_skill_name(args.skill).endswith("heartbeat"):
             maybe_run_exploration(args, env, cycle_id, args.skill)
             maybe_run_autonomy_primitive_checkup(args, env, cycle_id, args.skill)
-        if cycle_id:
+        if routed_heartbeat_skill:
+            backend_output = ""
             log_run_step(
                 "edge-runner",
                 "invoke",
-                "started",
+                "skipped",
                 run_id=cycle_id,
                 backend=args.backend,
                 mode=args.cmd,
-                target=args.skill if args.cmd == "skill" else "prompt",
+                target=args.skill,
+                close_reason="deterministic_heartbeat_router",
+                follow_on_target=routed_heartbeat_skill,
             )
+        else:
+            if cycle_id:
+                log_run_step(
+                    "edge-runner",
+                    "invoke",
+                    "started",
+                    run_id=cycle_id,
+                    backend=args.backend,
+                    mode=args.cmd,
+                    target=args.skill if args.cmd == "skill" else "prompt",
+                )
 
-        exit_code, backend_output = invoke_backend(args, env, cycle_id=cycle_id)
+            exit_code, backend_output = invoke_backend(args, env, cycle_id=cycle_id)
         if args.cmd == "prompt":
             maybe_mark_skill_completion("prompt", cycle_id, exit_code)
-        elif args.cmd == "skill":
+        elif args.cmd == "skill" and not routed_heartbeat_skill:
             maybe_mark_skill_completion(args.skill, cycle_id, exit_code)
             maybe_publish_stdout_artifact(args.skill, cycle_id, exit_code, backend_output)
 

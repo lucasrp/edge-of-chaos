@@ -163,9 +163,16 @@ PY
     done
     "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery end >/dev/null
     publish_mock_artifact discovery
+  elif [ -z "${MOCK_CLAUDE_ARTIFACT_MARKDOWN:-}" ]; then
+    for skill in autonomy reflection report research map strategy planner sources; do
+      if [[ "$PROMPT" == *"/$skill"* ]]; then
+        publish_mock_artifact "$skill"
+        break
+      fi
+    done
   fi
 fi
-if [ -z "${MOCK_CLAUDE_ARTIFACT_MARKDOWN:-}" ] && [ "${MOCK_CLAUDE_EXIT_CODE:-0}" = "0" ] && [[ "$PROMPT" == *"/autonomy"* ]]; then
+if [ -z "${MOCK_CLAUDE_ARTIFACT_MARKDOWN:-}" ] && [ "${MOCK_CLAUDE_EXIT_CODE:-0}" = "0" ] && [ "${MOCK_CLAUDE_HEARTBEAT_FLOW:-0}" != "1" ] && [[ "$PROMPT" == *"/autonomy"* ]]; then
   publish_mock_artifact autonomy
 fi
 if [ -n "${MOCK_CLAUDE_ARTIFACT_MARKDOWN:-}" ]; then
@@ -217,10 +224,10 @@ for raw_line in open(sys.argv[5], encoding="utf-8"):
     current.append(line)
 request = dispatch["request"]
 
-assert len(cycle_ids) == 2
+assert len(cycle_ids) == 1
 assert cycle_ids[0] == dispatch["cycle_id"]
-assert cycle_ids[1] == dispatch["cycle_id"]
 assert request["trigger"] == "heartbeat"
+assert request["skill"] == "autonomy"
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["preflight_status"] == "warning"
@@ -262,10 +269,13 @@ assert request["delta_prerequisite"]["required"] is True
 assert request["delta_prerequisite"]["digest_update_required"] is False
 assert request["delta_prerequisite"]["inputs"]["raw_chat"]["available"] is True
 assert request["delta_prerequisite"]["inputs"]["raw_chat"]["recent_items"]
-assert request["exploration_pack"]["skill"] == "discovery"
+assert request["exploration_pack"]["skill"] == "autonomy"
 assert request["exploration_pack"]["status"] in ("ready", "degraded")
 assert request["exploration_pack"]["path"].endswith("/pack.json")
 assert request["heartbeat_routing"]["suggested_skill"] == "autonomy"
+assert request["heartbeat_routing"]["selected_skill"] == "autonomy"
+assert request["heartbeat_routing"]["dispatch_mode"] == "deterministic_heartbeat_router"
+assert request["heartbeat_routing"]["acknowledged"] is True
 assert request["heartbeat_routing"]["round_robin_skills"] == [
     "autonomy",
     "reflection",
@@ -275,6 +285,10 @@ assert request["heartbeat_routing"]["round_robin_skills"] == [
     "discovery",
     "strategy",
 ]
+assert len(invocations) == 1
+assert invocations[0].splitlines()[0] == "ARGS: -p -"
+assert "/ed-heartbeat" not in invocations[0]
+assert "/autonomy" in invocations[0]
 assert "Dispatch runtime context below" in invocations[0]
 assert "health_snapshot" in invocations[0]
 assert "pre_skill_context" in invocations[0]
@@ -286,11 +300,11 @@ assert "delta_prerequisite" in invocations[0]
 assert "DELTA PREREQUISITE" in invocations[0]
 assert "search_protocol" in invocations[0]
 assert "epistemic_protocol" in invocations[0]
-assert "exploration_pack" in invocations[1]
-assert "delta_prerequisite" in invocations[1]
+assert "exploration_pack" in invocations[0]
 assert "Adversarial Feynman" in open(request["exploration_pack"]["markdown_path"], encoding="utf-8").read()
 assert "configured_integrations" in invocations[0]
 assert "heartbeat_routing" in invocations[0]
+assert "autonomy_primitives_checkup" in request
 assert request["primitives_status"]["summary"]["health_status"] == "ok"
 assert "workflow_status" in request
 assert "claims_summary" in request
@@ -301,13 +315,6 @@ assert any(event["type"] == "SkillDispatched" for event in events)
 assert any(event["type"] == "ExplorationPackPublished" for event in events)
 assert any(event["type"] == "SkillRunCompleted" for event in events)
 assert any(event["type"] == "CycleClosed" for event in events)
-assert len(invocations) == 2
-assert invocations[0].splitlines()[0] == "ARGS: -p -"
-assert invocations[1].splitlines()[0] == "ARGS: -p -"
-assert "/ed-heartbeat" in invocations[0]
-assert "/discovery" in invocations[1]
-assert "Dispatch runtime context below" in invocations[0]
-assert "Dispatch runtime context below" in invocations[1]
 PY
 then
     pass "heartbeat run dispatches and executes the follow-on skill before closing the cycle"
@@ -315,12 +322,22 @@ else
     fail "heartbeat run dispatches and executes the follow-on skill before closing the cycle"
 fi
 
-echo "--- Test 1b: inline heartbeat work skips duplicate follow-on invocation ---"
+echo "--- Test 1b: heartbeat router prioritizes queued dispatch before fairness ---"
 export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id-inline.txt"
 export MOCK_CLAUDE_ARGS_OUT="$TMP_BASE/args-inline.txt"
 rm -f "$MOCK_CLAUDE_ENV_OUT" "$MOCK_CLAUDE_ARGS_OUT"
+cat >"$TMP_EDGE/state/dispatch-queue.json" <<'JSON'
+[
+  {
+    "entry_id": "queue-report-1",
+    "source": "test-suite",
+    "skill": "report",
+    "reason": "exercise deterministic heartbeat queue priority"
+  }
+]
+JSON
 export MOCK_CLAUDE_HEARTBEAT_FLOW=1
-export MOCK_CLAUDE_HEARTBEAT_INLINE_DONE=1
+export MOCK_CLAUDE_ARTIFACT_MARKDOWN=$'# Queued Report Priority\n\nThis queued report artifact is intentionally long enough for the stdout publication bridge to accept it as a valid runtime artifact during the deterministic heartbeat routing test.'
 "$RUNNER_TOOL" skill \
     --skill /ed-heartbeat \
     --dispatch-trigger heartbeat \
@@ -329,9 +346,9 @@ export MOCK_CLAUDE_HEARTBEAT_INLINE_DONE=1
     --dispatch-preflight-profile heartbeat_default \
     --dispatch-postflight-profile standard \
     --dispatch-force >/dev/null
-unset MOCK_CLAUDE_HEARTBEAT_INLINE_DONE || true
+unset MOCK_CLAUDE_ARTIFACT_MARKDOWN || true
 
-if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$TMP_EDGE/logs/events.jsonl" "$TMP_BASE/cycle-id-inline.txt" "$TMP_BASE/args-inline.txt"
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$TMP_EDGE/logs/events.jsonl" "$TMP_BASE/cycle-id-inline.txt" "$TMP_BASE/args-inline.txt" "$TMP_EDGE/state/dispatch-queue.json"
 import json
 import sys
 
@@ -339,6 +356,7 @@ dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
 run_events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8") if line.strip()]
 cycle_ids = [line.strip() for line in open(sys.argv[4], encoding="utf-8") if line.strip()]
+queue = json.load(open(sys.argv[6], encoding="utf-8"))
 invocations = []
 current = []
 for raw_line in open(sys.argv[5], encoding="utf-8"):
@@ -354,32 +372,39 @@ for raw_line in open(sys.argv[5], encoding="utf-8"):
 
 assert len(cycle_ids) == 1
 assert len(invocations) == 1
-assert "/ed-heartbeat" in invocations[0]
-assert dispatch["request"]["skill"] == "discovery"
+assert "/ed-heartbeat" not in invocations[0]
+assert "/report" in invocations[0]
+assert dispatch["request"]["skill"] == "report"
+assert dispatch["request"]["heartbeat_routing"]["selected_skill"] == "report"
+assert dispatch["request"]["heartbeat_routing"]["dispatch_mode"] == "deterministic_heartbeat_router"
+assert dispatch["request"]["heartbeat_routing"]["acknowledged"] is False
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["postflight_status"] in {"completed", "warning"}
+assert dispatch["state"]["dispatch_queue_ack"]["removed"] is True
+assert dispatch["state"]["dispatch_queue_ack"]["skill"] == "report"
+assert queue == []
 completion_events = [
     e for e in events
     if e.get("type") == "SkillRunCompleted"
     and e.get("cycle_id") == dispatch["cycle_id"]
 ]
 assert completion_events
-assert completion_events[-1]["payload"]["skill"] == "discovery"
+assert completion_events[-1]["payload"]["skill"] == "report"
 handoff_events = [
     e for e in run_events
     if e.get("type") == "run_step"
     and e.get("run_kind") == "edge-runner"
     and e.get("phase") == "handoff"
     and e.get("status") == "completed"
-    and e.get("close_reason") == "follow_on_already_progressed"
+    and e.get("target") == "report"
 ]
 assert handoff_events
 PY
 then
-    pass "inline heartbeat work skips duplicate follow-on invocation"
+    pass "heartbeat router prioritizes queued dispatch before fairness"
 else
-    fail "inline heartbeat work skips duplicate follow-on invocation"
+    fail "heartbeat router prioritizes queued dispatch before fairness"
 fi
 
 echo "--- Test 1c: non-heartbeat skills publish stdout through the shared runtime bridge ---"
@@ -465,8 +490,18 @@ else
     fail "non-heartbeat skills publish stdout through the shared runtime bridge"
 fi
 
-echo "--- Test 2: success without skill completion evidence closes as failed ---"
+echo "--- Test 2: dispatched skill success without artifact closes as failed ---"
 unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
+cat >"$TMP_EDGE/state/dispatch-queue.json" <<'JSON'
+[
+  {
+    "entry_id": "queue-map-no-artifact",
+    "source": "test-suite",
+    "skill": "map",
+    "reason": "exercise missing artifact close gate"
+  }
+]
+JSON
 set +e
 "$RUNNER_TOOL" skill \
     --skill /ed-heartbeat \
@@ -487,15 +522,18 @@ dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 status = int(sys.argv[2])
 
 assert status == 1
+assert dispatch["request"]["skill"] == "map"
+assert dispatch["state"]["skill_dispatched"] is True
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "failed"
-assert dispatch["state"]["close_reason"] == "missing_dispatch"
+assert dispatch["state"]["close_reason"] == "missing_artifact_published"
 PY
 then
-    pass "runner downgrades heartbeat success to failed when the skill never completes"
+    pass "runner downgrades artifactless dispatched skill success to failed"
 else
-    fail "runner downgrades heartbeat success to failed when the skill never completes"
+    fail "runner downgrades artifactless dispatched skill success to failed"
 fi
+printf '[]\n' >"$TMP_EDGE/state/dispatch-queue.json"
 
 echo "--- Test 3: failed backend closes cycle as failed ---"
 export MOCK_CLAUDE_EXIT_CODE=7
