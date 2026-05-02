@@ -46,12 +46,15 @@ Do use the shared uniform report pipeline as the publication path for every
 research deliverable. A stdout-only research answer is not a completed
 `/ed-research` run. Before drafting, read `skills/_shared/report-template.md`
 from the active edge repo, write a YAML report spec and a light staging blog
-entry in `/tmp`, then run `consolidate-state` so the research becomes a durable
-blog entry, HTML report, and meta-report. If a gate blocks, address the specific
-feedback and rerun `consolidate-state`. Do not close by asking the operator
-whether to publish, by recommending a future publication pass, or by handing off
-with only prose or staging files. If publication cannot complete, surface the
-concrete failing command and reason instead of reporting success.
+entry in `/tmp`, validate both files as described there, then run
+`consolidate-state` so the research becomes a durable blog entry, HTML report,
+and meta-report. Quote frontmatter claims as complete YAML strings whenever
+they contain `:`, `!`, backticks, quotes, or other YAML-significant punctuation.
+If a gate blocks, address the specific feedback and rerun `consolidate-state`.
+Do not close by asking the operator whether to publish, by recommending a future
+publication pass, or by handing off with only prose or staging files. If
+publication cannot complete, surface the concrete failing command and reason
+instead of reporting success.
 
 ## Research Method
 
