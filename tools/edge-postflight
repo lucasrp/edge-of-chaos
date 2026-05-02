@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -18,9 +19,8 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import EDGE_REPO_DIR, LOGS_DIR  # noqa: E402
+from paths import CLAIMS_DIGEST_FILE, EDGE_REPO_DIR, LOGS_DIR, ORPHAN_CLAIMS_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
-from _shared.continuity import refresh_continuity_projections  # noqa: E402
 from _shared.capability_runtime import build_capability_status, invoke_capability, probe_capability  # noqa: E402
 from _shared.dispatch_runtime import read_dispatch_state, write_dispatch_state  # noqa: E402
 from _shared.health_runtime import observe_cycle_health_events  # noqa: E402
@@ -30,6 +30,7 @@ from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
 from _shared.workflow_runtime import build_workflow_status  # noqa: E402
 
 POST_SKILL_LOG = LOGS_DIR / "post-skill.log"
+DEFAULT_CLAIMS_PROJECTION_MAX_AGE_SECONDS = 6 * 60 * 60
 
 
 def now_iso() -> str:
@@ -48,6 +49,58 @@ def append_postskill_log(name: str, status: str, detail: str = "") -> None:
 def run_subprocess(cmd: list[str]) -> tuple[int, str, str]:
     result = subprocess.run(cmd, cwd=str(EDGE_REPO_DIR), capture_output=True, text=True)
     return result.returncode, (result.stdout or "").strip(), (result.stderr or "").strip()
+
+
+def _read_json_file(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return default
+
+
+def _claims_projection_max_age_seconds() -> int | None:
+    raw = (
+        os.environ.get("EDGE_POSTFLIGHT_CLAIMS_MAX_AGE_SEC")
+        or os.environ.get("EDGE_PREFLIGHT_CLAIMS_MAX_AGE_SEC")
+        or str(DEFAULT_CLAIMS_PROJECTION_MAX_AGE_SECONDS)
+    )
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_CLAIMS_PROJECTION_MAX_AGE_SECONDS
+    if value <= 0:
+        return None
+    return value
+
+
+def _projection_cache_status(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"projection_status": "missing", "projection_age_seconds": None}
+    try:
+        mtime = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+        age_seconds = max(0, int((datetime.now(timezone.utc) - mtime).total_seconds()))
+    except OSError:
+        return {"projection_status": "unknown", "projection_age_seconds": None}
+
+    max_age = _claims_projection_max_age_seconds()
+    status = "stale_cached" if max_age is not None and age_seconds > max_age else "cached"
+    return {"projection_status": status, "projection_age_seconds": age_seconds}
+
+
+def _combined_claims_cache_status(digest_cache: dict[str, Any], orphan_cache: dict[str, Any]) -> str:
+    statuses = {
+        str(digest_cache.get("projection_status") or "unknown"),
+        str(orphan_cache.get("projection_status") or "unknown"),
+    }
+    if statuses == {"cached"}:
+        return "cached"
+    if "missing" in statuses:
+        return "missing" if statuses == {"missing"} else "partial_cached"
+    if "stale_cached" in statuses:
+        return "stale_cached"
+    return "unknown"
 
 
 def before_snapshot(state: dict[str, Any]) -> dict[str, Any]:
@@ -232,11 +285,48 @@ def refresh_capabilities_status(skill: str | None = None) -> dict[str, Any]:
 
 
 def refresh_claims_status() -> dict[str, Any]:
-    projections = refresh_continuity_projections()
-    digest = projections.get("digest") or {}
-    detail = f"open={digest.get('open_total', 0)} orphans={digest.get('unthreaded_count', 0)}"
-    append_postskill_log("claims_digest", "OK", detail)
-    return {"ok": True, "detail": detail, "payload": projections}
+    digest = _read_json_file(CLAIMS_DIGEST_FILE, {})
+    orphans = _read_json_file(ORPHAN_CLAIMS_FILE, {})
+    if not isinstance(digest, dict):
+        digest = {}
+    if not isinstance(orphans, dict):
+        orphans = {}
+
+    digest_cache = _projection_cache_status(CLAIMS_DIGEST_FILE)
+    orphan_cache = _projection_cache_status(ORPHAN_CLAIMS_FILE)
+    cache_status = _combined_claims_cache_status(digest_cache, orphan_cache)
+    cache_age = digest_cache.get("projection_age_seconds")
+    detail = (
+        f"open={digest.get('open_total', 0)} "
+        f"orphans={orphans.get('orphan_total', digest.get('unthreaded_count', 0))} "
+        f"cache={cache_status}"
+    )
+    if cache_age is not None:
+        detail += f" age={cache_age}s"
+
+    status = "ok" if cache_status == "cached" else "warning"
+    append_postskill_log("claims_digest", "OK" if status == "ok" else "WARN", detail)
+    return {
+        "ok": cache_status not in {"missing", "partial_cached", "unknown"},
+        "status": status,
+        "detail": detail,
+        "payload": {
+            "digest": digest,
+            "orphans": orphans,
+            "cache": {
+                "status": cache_status,
+                "claims_digest": {
+                    "source_path": str(CLAIMS_DIGEST_FILE),
+                    **digest_cache,
+                },
+                "orphan_claims": {
+                    "source_path": str(ORPHAN_CLAIMS_FILE),
+                    **orphan_cache,
+                },
+                "max_age_seconds": _claims_projection_max_age_seconds(),
+            },
+        },
+    }
 
 
 def refresh_pipeline_state(cycle_id: str | None = None) -> dict[str, Any]:
@@ -346,7 +436,14 @@ def _execute_postflight_step(step: dict[str, Any], state: dict[str, Any]) -> dic
 
     if kind == "claims.refresh":
         refreshed = refresh_claims_status()
-        return _protocol_step(step, status="ok", satisfied=bool(refreshed.get("ok", False)), detail=str(refreshed.get("detail") or ""), extra={"payload": refreshed.get("payload") or {}})
+        refreshed_status = str(refreshed.get("status") or ("ok" if refreshed.get("ok") else "warning"))
+        return _protocol_step(
+            step,
+            status=refreshed_status,
+            satisfied=bool(refreshed.get("ok", False)),
+            detail=str(refreshed.get("detail") or ""),
+            extra={"payload": refreshed.get("payload") or {}},
+        )
 
     if kind == "pipeline_state.refresh":
         refreshed = refresh_pipeline_state(cycle_id=state.get("cycle_id"))
