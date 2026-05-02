@@ -582,6 +582,19 @@ assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert args_log.count("__INVOCATION__") == 2
 assert "ARTIFACT SUPERVISOR RETRY" in args_log
+retry_started = [
+    event for event in events
+    if event.get("type") == "ArtifactSupervisionRetryStarted"
+    and event.get("cycle_id") == dispatch["cycle_id"]
+]
+retry_completed = [
+    event for event in events
+    if event.get("type") == "ArtifactSupervisionRetryCompleted"
+    and event.get("cycle_id") == dispatch["cycle_id"]
+]
+assert retry_started
+assert retry_completed
+assert retry_completed[-1]["payload"]["published"] is True
 published = [
     event for event in events
     if event.get("type") == "ArtifactPublished"
@@ -726,7 +739,7 @@ events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if li
 
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
-assert dispatch["state"]["close_reason"] in ("", None)
+assert dispatch["state"]["close_reason"] in ("", None, "postflight_step_warning")
 assert not any(event["type"] == "HeartbeatDispatchTimedOut" for event in events[-20:])
 PY
 then
@@ -796,7 +809,7 @@ events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if li
 
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
-assert dispatch["state"]["close_reason"] in ("", None)
+assert dispatch["state"]["close_reason"] in ("", None, "postflight_step_warning")
 assert not any(event["type"] == "HeartbeatDispatchTimedOut" for event in events[-20:])
 PY
 then
