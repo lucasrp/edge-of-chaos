@@ -264,6 +264,8 @@ _OPERATOR_PRESSURE_SECTIONS = (
     "operator_pains_resolvable_now",
     "mistakes_to_avoid_now",
     "implicit_needs_hypotheses",
+    "memory_updates",
+    "pre_skill_context",
 )
 
 _OPERATOR_SECTION_WEIGHT = {
@@ -274,6 +276,8 @@ _OPERATOR_SECTION_WEIGHT = {
     "operator_toil_optimizable_now": 7,
     "operator_pains_resolvable_now": 6,
     "mistakes_to_avoid_now": 5,
+    "memory_updates": 9,
+    "pre_skill_context": 9,
     "implicit_needs_hypotheses": 3,
 }
 
@@ -382,6 +386,20 @@ _OPERATOR_CONCEPT_RULES: list[tuple[re.Pattern[str], str, str]] = [
     ),
 ]
 
+_PRE_SKILL_CONTEXT_RE = re.compile(
+    r"\b("
+    r"pre[- ]?skill|contexto pre[- ]?skill|context_notes|operating context|"
+    r"sempre|nunca|todo beat|todos os beats|toda skill|todas as skills|"
+    r"always|never|before every skill|before each skill|"
+    r"must|must not|deve|devem|nao deve|nao devem|tem que|por default|by default"
+    r")\b",
+    re.I,
+)
+_PROCEDURAL_WORKFLOW_RE = re.compile(
+    r"\b(workflow|procedur\w*|procedimento|pipeline|passos?|steps?|rotina|runbook|playbook|checklist|sequencia|rito)\b",
+    re.I,
+)
+
 
 def _compact_operator_text(text: str, limit: int = 220) -> str:
     compact = re.sub(r"\s+", " ", str(text or "").strip())
@@ -422,6 +440,8 @@ def _coerce_operator_pressure_item(raw: Any, section: str, index: int) -> dict[s
             "repeat_count": int(raw.get("repeat_count") or 0),
             "status": str(raw.get("status") or "active").strip(),
             "entities": _coerce_list(raw.get("entities")),
+            "source_kinds": _coerce_list(raw.get("source_kinds")),
+            "scope": str(raw.get("scope") or "").strip(),
             "last_seen_at": str(raw.get("last_seen_at") or "").strip(),
         }
     text = _compact_operator_text(str(raw or ""))
@@ -436,6 +456,8 @@ def _coerce_operator_pressure_item(raw: Any, section: str, index: int) -> dict[s
         "repeat_count": 0,
         "status": "active",
         "entities": [],
+        "source_kinds": [],
+        "scope": "",
         "last_seen_at": "",
         "synthetic_id": f"{section}:{index}",
     }
@@ -463,6 +485,8 @@ def _operator_pressure_items(operator_digest: dict[str, Any]) -> list[dict[str, 
                     "repeat_count": 0,
                     "status": item.get("status") or "active",
                     "entities": [],
+                    "source_kinds": [],
+                    "scope": item.get("scope") or "",
                     "last_seen_at": item.get("last_seen_at") or "",
                     "score": 0,
                 },
@@ -479,9 +503,16 @@ def _operator_pressure_items(operator_digest: dict[str, Any]) -> list[dict[str, 
                 if entity not in entities:
                     entities.append(entity)
             existing["entities"] = entities[:8]
+            source_kinds = list(existing.get("source_kinds") or [])
+            for source_kind in _coerce_list(item.get("source_kinds")):
+                if source_kind not in source_kinds:
+                    source_kinds.append(source_kind)
+            existing["source_kinds"] = source_kinds[:6]
             for key_name in ("target", "kind", "status"):
                 if item.get(key_name) and not existing.get(key_name):
                     existing[key_name] = item.get(key_name)
+            if item.get("scope") and not existing.get("scope"):
+                existing["scope"] = item.get("scope")
     return sorted(
         merged.values(),
         key=lambda item: (-int(item.get("score") or 0), str(item.get("last_seen_at") or ""), str(item.get("text") or "")),
@@ -520,10 +551,29 @@ def _operator_concept_for_item(item: dict[str, Any]) -> tuple[str, str]:
     return slug, _slug_title(slug)
 
 
+def _is_operator_pre_skill_context_item(item: dict[str, Any]) -> bool:
+    sections = set(_coerce_list(item.get("sections")))
+    if "pre_skill_context" in sections:
+        return True
+    text = str(item.get("text") or "")
+    target = str(item.get("target") or "").strip().lower()
+    scope = str(item.get("scope") or "").strip().lower()
+    entities = " ".join(_coerce_list(item.get("entities")))
+    haystack = " ".join([text, target, scope, entities])
+    normalized_text = _normalize_ascii(text)
+    if not _PRE_SKILL_CONTEXT_RE.search(haystack):
+        return False
+    if target in {"workflow", "procedure"} or _PROCEDURAL_WORKFLOW_RE.search(normalized_text):
+        return bool(re.search(r"\bpre[- ]?skill|contexto pre[- ]?skill|context_notes|operating context\b", haystack, re.I))
+    return True
+
+
 def _operator_pressure_groups(operator_digest: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
     items = _operator_pressure_items(operator_digest)
     groups: dict[str, dict[str, Any]] = {}
     for item in items:
+        if _is_operator_pre_skill_context_item(item):
+            continue
         slug, title = _operator_concept_for_item(item)
         group = groups.setdefault(
             slug,
@@ -534,6 +584,7 @@ def _operator_pressure_groups(operator_digest: dict[str, Any]) -> tuple[list[dic
                 "sections": Counter(),
                 "item_ids": set(),
                 "entities": set(),
+                "source_kinds": set(),
                 "evidence": [],
             },
         )
@@ -544,6 +595,8 @@ def _operator_pressure_groups(operator_digest: dict[str, Any]) -> tuple[list[dic
             group["item_ids"].add(str(item.get("item_id")))
         for entity in _coerce_list(item.get("entities")):
             group["entities"].add(entity)
+        for source_kind in _coerce_list(item.get("source_kinds")):
+            group.setdefault("source_kinds", set()).add(source_kind)
         evidence_key = str(item.get("item_id") or item.get("text") or "").casefold()
         if evidence_key and evidence_key not in {str(existing.get("key") or "") for existing in group["evidence"]}:
             group["evidence"].append(
@@ -554,6 +607,7 @@ def _operator_pressure_groups(operator_digest: dict[str, Any]) -> tuple[list[dic
                     "target": item.get("target") or "",
                     "kind": item.get("kind") or "",
                     "repeat_count": int(item.get("repeat_count") or 0),
+                    "source_kinds": _coerce_list(item.get("source_kinds")),
                     "last_seen_at": item.get("last_seen_at") or "",
                 }
             )
@@ -569,6 +623,7 @@ def _operator_pressure_groups(operator_digest: dict[str, Any]) -> tuple[list[dic
                 "sections": dict(sorted(sections.items())),
                 "item_ids": sorted(group["item_ids"]),
                 "entities": sorted(group["entities"]),
+                "source_kinds": sorted(group.get("source_kinds", set())),
                 "evidence": [
                     {key: value for key, value in evidence.items() if key != "key"}
                     for evidence in group["evidence"][:6]
@@ -589,6 +644,9 @@ def _operator_evidence_lines(group: dict[str, Any]) -> list[str]:
             suffix_parts.append(f"target={evidence.get('target')}")
         if evidence.get("kind"):
             suffix_parts.append(f"kind={evidence.get('kind')}")
+        source_kinds = _coerce_list(evidence.get("source_kinds"))
+        if source_kinds:
+            suffix_parts.append(f"source={'+'.join(source_kinds[:2])}")
         suffix = f" ({', '.join(suffix_parts)})" if suffix_parts else ""
         lines.append(f"- [{sections}] {text}{suffix}")
     return lines or ["- No operator evidence details available yet."]
@@ -660,6 +718,144 @@ def _write_operator_topic_stub(group: dict[str, Any]) -> Path:
     return path
 
 
+def _is_memory_workflow_item(item: dict[str, Any]) -> bool:
+    sections = set(_coerce_list(item.get("sections")))
+    source_kinds = set(_coerce_list(item.get("source_kinds")))
+    text = str(item.get("text") or "")
+    target = str(item.get("target") or "").strip().lower()
+    if "memory_updates" not in sections and "memory" not in source_kinds:
+        return False
+    if _is_operator_pre_skill_context_item(item):
+        return False
+    if target in {"workflow", "procedure"}:
+        return True
+    if target == "policy" and _PROCEDURAL_WORKFLOW_RE.search(_normalize_ascii(text)):
+        return True
+    return bool(re.search(r"\b(workflow|procedure|procedimento|steps?|passos?|rito|rotina)\b", _normalize_ascii(text), re.I))
+
+
+def _workflow_keywords(text: str) -> list[str]:
+    keywords = _operator_keywords(text)[:8]
+    return keywords or ["memory", "workflow"]
+
+
+def _write_memory_workflow(item: dict[str, Any]) -> Path | None:
+    text = _compact_operator_text(str(item.get("text") or ""), limit=360)
+    if not text:
+        return None
+    today = datetime.now(timezone.utc).date().isoformat()
+    slug = _slugify(f"memory {text}")[:80].rstrip("-")
+    filename = f"{today}-{slug}.md"
+    existing = list(ENTRIES_DIR.glob(f"*-{slug}.md"))
+    if existing:
+        return None
+    title_slug = _slugify(text)[:54].rstrip("-") or "memory-workflow"
+    title = f"workflow: {_slug_title(title_slug)}"
+    keywords = _workflow_keywords(text)
+    thread_ids = []
+    target = str(item.get("target") or "").strip()
+    if target in {"workflow", "procedure", "policy"}:
+        thread_ids.append(_slugify(text)[:50].rstrip("-") or "memory-workflow")
+    lines = [
+        "---",
+        f"title: {json.dumps(title, ensure_ascii=False)}",
+        f"date: {today}",
+        "tags: [workflow, memory-derived, operator-pressure]",
+        "trigger: memory/MEMORY.md update",
+        "claims:",
+        f"  - {json.dumps('Memory update introduced an operator-authored workflow: ' + text[:180], ensure_ascii=False)}",
+        f"threads: [{', '.join(thread_ids)}]" if thread_ids else "threads: []",
+        f"keywords: [{', '.join(keywords)}]",
+        "workflows_used: []",
+        "workflows_broken: []",
+        f"source_memory_item: {json.dumps(str(item.get('item_id') or ''), ensure_ascii=False)}",
+        "---",
+        "",
+        "## Memory Signal",
+        "",
+        text,
+        "",
+        "## Workflow",
+        "",
+        "### Trigger",
+        "",
+        "Use this workflow when the same operating situation appears in pre-skill context or operator pressure.",
+        "",
+        "### Steps",
+        "",
+        "- Read the memory signal as durable operator guidance, not casual chat.",
+        "- Apply the rule directly in the matching skill run.",
+        "- Cite this workflow in `workflows_used` once it is followed successfully; cite it in `workflows_broken` if it proves too vague or wrong.",
+        "",
+        "### Success Checks",
+        "",
+        "- A future skill can recall this workflow before acting.",
+        "- The next matching run either reinforces it or marks it broken.",
+        "",
+    ]
+    ENTRIES_DIR.mkdir(parents=True, exist_ok=True)
+    path = ENTRIES_DIR / filename
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def _curate_memory_workflows(operator_digest: dict[str, Any]) -> dict[str, Any]:
+    items = _operator_pressure_items(operator_digest)
+    created: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        if not _is_memory_workflow_item(item):
+            continue
+        key = str(item.get("item_id") or _slugify(item.get("text", "")))
+        if key in seen:
+            continue
+        seen.add(key)
+        candidate = {
+            "item_id": str(item.get("item_id") or ""),
+            "text": item.get("text"),
+            "target": item.get("target") or "",
+            "sections": item.get("sections") or [],
+            "judgement": "workflow",
+        }
+        candidates.append(candidate)
+        path = _write_memory_workflow(item)
+        if path:
+            created.append({"item_id": candidate["item_id"], "path": str(path)})
+    return {
+        "candidate_total": len(candidates),
+        "created_total": len(created),
+        "created": created,
+        "candidates": candidates[:12],
+    }
+
+
+def _curate_pre_skill_context(operator_digest: dict[str, Any]) -> dict[str, Any]:
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in _operator_pressure_items(operator_digest):
+        if not _is_operator_pre_skill_context_item(item):
+            continue
+        key = str(item.get("item_id") or _slugify(item.get("text", "")))
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(
+            {
+                "item_id": str(item.get("item_id") or ""),
+                "text": item.get("text"),
+                "target": item.get("target") or "",
+                "sections": item.get("sections") or [],
+                "source_kinds": _coerce_list(item.get("source_kinds")),
+                "judgement": "pre_skill_context",
+            }
+        )
+    return {
+        "candidate_total": len(candidates),
+        "candidates": candidates[:12],
+    }
+
+
 def _curate_operator_pressure(operator_digest: dict[str, Any]) -> dict[str, Any]:
     thread_files = _read_thread_files()
     topic_files = _read_topic_files()
@@ -669,6 +865,8 @@ def _curate_operator_pressure(operator_digest: dict[str, Any]) -> dict[str, Any]
         for thread_id in _coerce_list(topic.get("threads"))
     }
     groups, item_total = _operator_pressure_groups(operator_digest)
+    memory_workflows = _curate_memory_workflows(operator_digest)
+    pre_skill_context = _curate_pre_skill_context(operator_digest)
 
     created_threads: list[dict[str, Any]] = []
     created_topics: list[dict[str, Any]] = []
@@ -715,9 +913,13 @@ def _curate_operator_pressure(operator_digest: dict[str, Any]) -> dict[str, Any]
         "groups_total": len(groups),
         "threads_created": len(created_threads),
         "topics_created": len(created_topics),
+        "workflows_created": int(memory_workflows.get("created_total") or 0),
+        "pre_skill_context_total": int(pre_skill_context.get("candidate_total") or 0),
         "missing_topic_candidates_total": len(missing_topic_candidates),
         "created_threads": created_threads,
         "created_topics": created_topics,
+        "memory_workflows": memory_workflows,
+        "pre_skill_context": pre_skill_context,
         "missing_topic_candidates": missing_topic_candidates[:12],
         "groups": [
             {
@@ -727,6 +929,7 @@ def _curate_operator_pressure(operator_digest: dict[str, Any]) -> dict[str, Any]
                 "sections": group.get("sections"),
                 "item_ids": group.get("item_ids"),
                 "entities": group.get("entities"),
+                "source_kinds": group.get("source_kinds"),
                 "evidence": group.get("evidence"),
             }
             for group in groups[:12]
@@ -1093,6 +1296,8 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
             "operator_pressure_items": operator_pressure["items_total"],
             "operator_pressure_topics_created": operator_pressure["topics_created"],
             "operator_pressure_threads_created": operator_pressure["threads_created"],
+            "operator_pressure_workflows_created": operator_pressure["workflows_created"],
+            "operator_pressure_pre_skill_context": operator_pressure["pre_skill_context_total"],
             "stale_candidates": digest["corpus"]["stale_candidates"],
         },
     )
@@ -1108,6 +1313,8 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
         operator_pressure_items=operator_pressure["items_total"],
         operator_pressure_topics_created=operator_pressure["topics_created"],
         operator_pressure_threads_created=operator_pressure["threads_created"],
+        operator_pressure_workflows_created=operator_pressure["workflows_created"],
+        operator_pressure_pre_skill_context=operator_pressure["pre_skill_context_total"],
         stale_candidates=digest["corpus"]["stale_candidates"],
     )
     return digest

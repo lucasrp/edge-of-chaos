@@ -260,7 +260,9 @@ def refresh_curation_digest() -> dict[str, Any]:
         f"topics_created={hot_topics.get('created_total', 0)} "
         f"operator_items={operator_pressure.get('items_total', 0)} "
         f"operator_threads_created={operator_pressure.get('threads_created', 0)} "
-        f"operator_topics_created={operator_pressure.get('topics_created', 0)}"
+        f"operator_topics_created={operator_pressure.get('topics_created', 0)} "
+        f"operator_workflows_created={operator_pressure.get('workflows_created', 0)} "
+        f"operator_pre_skill_context={operator_pressure.get('pre_skill_context_total', 0)}"
     )
     append_postskill_log("curation_digest", "WARN" if status == "warning" else "OK", detail)
     return {
@@ -769,6 +771,8 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
             "operator_pressure_items": int((curation_payload.get("operator_pressure") or {}).get("items_total", 0) or 0),
             "operator_threads_created": int((curation_payload.get("operator_pressure") or {}).get("threads_created", 0) or 0),
             "operator_topics_created": int((curation_payload.get("operator_pressure") or {}).get("topics_created", 0) or 0),
+            "operator_workflows_created": int((curation_payload.get("operator_pressure") or {}).get("workflows_created", 0) or 0),
+            "operator_pre_skill_context": int((curation_payload.get("operator_pressure") or {}).get("pre_skill_context_total", 0) or 0),
             "operator_missing_topic_candidates": int((curation_payload.get("operator_pressure") or {}).get("missing_topic_candidates_total", 0) or 0),
         } if curation_payload else {},
         "async_inbox": {

@@ -250,11 +250,13 @@ assert corpus_step["missing_required_types"] == ["workflow", "memory"]
 assert request["operator_pressure_summary"]["item_total"] >= 3
 assert request["operator_pressure_summary"]["signal_from_operator_now"] >= 1
 assert request["operator_pressure_summary"]["operator_toil_optimizable_now"] >= 1
+assert request["operator_pressure_summary"]["pre_skill_context"] >= 1
 assert request["operator_pressure_summary"]["workflow_candidates"] >= 1
 assert request["operator_pressure_summary"]["capability_candidates"] >= 1
 assert request["operator_pressure_summary"]["substrate_gap_requests"] >= 1
 assert request["operator_pressure_digest"]["signal_from_operator_now"]
 assert request["operator_pressure_digest"]["operator_toil_optimizable_now"]
+assert request["operator_pressure_digest"]["pre_skill_context"]
 assert request["operator_pressure_digest"]["substrate_gap_requests"]
 assert "mistakes_to_avoid_now" in request["operator_pressure_digest"]
 assert request["operator_pressure_digest"]["active_entities"]
@@ -263,7 +265,9 @@ assert request["operator_pressure"]["projection"]["path"].endswith("/state/proje
 assert request["delta_prerequisite"]["inputs"]["raw_chat"]["source_paths"]["projection"].endswith("/state/projections/operator-pressure.json")
 assert request["beat_launch_context"]["signal_from_operator_now"]
 assert request["beat_launch_context"]["signal_from_edge_state_now"]
+assert request["beat_launch_context"]["pre_skill_context"]
 assert request["beat_launch_context"]["substrate_gap_requests"]
+assert any("Operator pressure pre-skill rule" in note for note in request["pre_skill_context"]["context_notes"])
 assert request["beat_launch_context"]["decision_blend"] == {
     "operator_min_weight": 0.20,
     "edge_state_min_weight": 0.20,

@@ -166,7 +166,7 @@ JSON
 
 cat >"$TMP_STATE/state/operator-pressure/hot-digest.json" <<'JSON'
 {
-  "schema_version": 3,
+  "schema_version": 5,
   "generated_at": "2026-04-24T00:00:00+00:00",
   "summary": "operator feedback asks for hot-state curation",
   "signal_from_operator_now": [
@@ -187,9 +187,46 @@ cat >"$TMP_STATE/state/operator-pressure/hot-digest.json" <<'JSON'
   "implicit_needs_hypotheses": [],
   "workflow_candidates": [],
   "capability_candidates": [],
+  "memory_updates": [
+    {
+      "item_id": "pressure-memory-workflow",
+      "text": "workflow para reports deve introduzir contexto antes de tabelas densas",
+      "target": "workflow",
+      "kind": "memory_update",
+      "repeat_count": 1,
+      "status": "active",
+      "entities": ["memory", "report"],
+      "source_kinds": ["memory"],
+      "last_seen_at": ""
+    },
+    {
+      "item_id": "pressure-memory-preskill",
+      "text": "sempre introduza tabelas densas antes de renderizar seco",
+      "target": "policy",
+      "kind": "memory_update",
+      "repeat_count": 1,
+      "status": "active",
+      "entities": ["memory", "report"],
+      "source_kinds": ["memory"],
+      "last_seen_at": ""
+    }
+  ],
+  "pre_skill_context": [
+    {
+      "item_id": "pressure-memory-preskill",
+      "text": "sempre introduza tabelas densas antes de renderizar seco",
+      "target": "policy",
+      "kind": "memory_update",
+      "repeat_count": 1,
+      "status": "active",
+      "entities": ["memory", "report"],
+      "source_kinds": ["memory"],
+      "last_seen_at": ""
+    }
+  ],
   "substrate_gap_requests": [],
   "active_entities": ["topic"],
-  "item_ids": ["pressure-hot-state"]
+  "item_ids": ["pressure-hot-state", "pressure-memory-workflow", "pressure-memory-preskill"]
 }
 JSON
 
@@ -212,6 +249,7 @@ echo ""
 echo "--- Test 1: sync builds procedure-curation and digest ---"
 if python3 - <<'PY' "$TMP_REPO/tools/edge-curation" "$TMP_STATE/state/procedure-curation.json" "$TMP_STATE/state/curation-digest.json"
 import json
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -221,35 +259,70 @@ result = subprocess.run([tool, "sync", "--json"], capture_output=True, text=True
 payload = json.loads(result.stdout)
 proc = json.loads(Path(proc_path).read_text(encoding="utf-8"))
 digest = json.loads(Path(digest_path).read_text(encoding="utf-8"))
+repo_root = Path(tool).parents[1]
+module = runpy.run_path(tool)
+assert module["_is_memory_workflow_item"]({
+    "sections": ["memory_updates"],
+    "source_kinds": ["memory"],
+    "target": "workflow",
+    "text": "workflow para reports deve introduzir contexto",
+}) is True
+assert module["_is_memory_workflow_item"]({
+    "sections": ["memory_updates"],
+    "source_kinds": ["memory"],
+    "target": "capability",
+    "text": "Google Drive e a pasta edge sao o lugar padrao de upload",
+}) is False
+assert module["_is_operator_pre_skill_context_item"]({
+    "sections": ["memory_updates", "pre_skill_context"],
+    "source_kinds": ["memory"],
+    "target": "policy",
+    "text": "sempre introduza tabelas densas antes de renderizar seco",
+}) is True
+assert module["_is_memory_workflow_item"]({
+    "sections": ["memory_updates", "pre_skill_context"],
+    "source_kinds": ["memory"],
+    "target": "policy",
+    "text": "sempre introduza tabelas densas antes de renderizar seco",
+}) is False
 
 assert payload["procedures"]["candidate_total"] == 1
 assert proc["crystallization_candidates"][0]["claim_count"] == 3
 assert digest["corpus"]["stale_candidates"] == 2
-assert digest["topics"]["total"] == 4
+assert digest["topics"]["total"] == 5
 assert digest["hot_state"]["threads"]["referenced_total"] == 2
 assert digest["hot_state"]["threads"]["created_total"] == 1
 assert digest["hot_state"]["topics"]["created_total"] == 2
-assert digest["operator_pressure"]["items_total"] == 1
-assert digest["operator_pressure"]["groups_total"] == 1
-assert digest["operator_pressure"]["threads_created"] == 1
-assert digest["operator_pressure"]["topics_created"] == 1
+assert digest["operator_pressure"]["items_total"] == 3
+assert digest["operator_pressure"]["groups_total"] == 2
+assert digest["operator_pressure"]["threads_created"] == 2
+assert digest["operator_pressure"]["topics_created"] == 2
+assert digest["operator_pressure"]["workflows_created"] == 1
+assert digest["operator_pressure"]["pre_skill_context_total"] == 1
 state_root = Path(digest_path).parents[1]
 assert (state_root / "threads" / "search-substrate.md").exists()
 assert (state_root / "threads" / "threads-topics-hot-state.md").exists()
 assert (state_root / "topics" / "search-substrate.md").exists()
 assert (state_root / "topics" / "runtime-observability.md").exists()
 assert (state_root / "topics" / "threads-topics-hot-state.md").exists()
+workflows = list((repo_root / "blog" / "entries").glob("*memory-workflow-para-reports*.md"))
+assert workflows
+workflow_text = workflows[0].read_text(encoding="utf-8")
+assert "tags: [workflow, memory-derived, operator-pressure]" in workflow_text
+assert "workflow-draft" not in workflow_text
 assert "funnel_tracked_total" in digest["workflow_health"]
 assert "topics" in Path(f"{Path(digest_path).parent}/topics-index.args").read_text(encoding="utf-8")
 
 second = subprocess.run([tool, "sync", "--json"], capture_output=True, text=True, check=True)
 second_payload = json.loads(second.stdout)
 second_digest = json.loads(Path(digest_path).read_text(encoding="utf-8"))
-assert second_payload["topics"]["total"] == 4
+assert second_payload["topics"]["total"] == 5
 assert second_digest["hot_state"]["threads"]["created_total"] == 0
 assert second_digest["hot_state"]["topics"]["created_total"] == 0
 assert second_digest["operator_pressure"]["threads_created"] == 0
 assert second_digest["operator_pressure"]["topics_created"] == 0
+assert second_digest["operator_pressure"]["workflows_created"] == 0
+assert second_digest["operator_pressure"]["pre_skill_context_total"] == 1
 PY
 then
     pass "sync builds procedure-curation and digest"

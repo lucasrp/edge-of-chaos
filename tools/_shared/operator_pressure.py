@@ -25,6 +25,7 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
 from paths import (  # noqa: E402
+    EDGE_REPO_DIR,
     OPERATOR_PRESSURE_ATOMS_FILE,
     OPERATOR_PRESSURE_HOT_DIGEST_FILE,
     OPERATOR_PRESSURE_LEDGER_FILE,
@@ -36,15 +37,17 @@ from paths import (  # noqa: E402
 from .router_client import make_client  # noqa: E402
 from .telemetry import emit_shadow_event, log_event  # noqa: E402
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 LEDGER_WINDOW_DAYS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_WINDOW_DAYS", "7") or "7")
 MAX_SESSIONS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_SESSIONS", "8") or "8")
 MAX_MESSAGES = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_MESSAGES", "48") or "48")
+MAX_MEMORY_ITEMS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_MEMORY_ITEMS", "24") or "24")
 SECTION_LIMIT = int(os.environ.get("EDGE_OPERATOR_PRESSURE_SECTION_LIMIT", "4") or "4")
 REDIGEST_INTERVAL_HOURS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_REDIGEST_INTERVAL_HOURS", "24") or "24")
 PROJECTION_MAX_AGE_MINUTES = int(os.environ.get("EDGE_OPERATOR_PRESSURE_PROJECTION_MAX_AGE_MINUTES", "30") or "30")
 LLM_DISABLED = os.environ.get("EDGE_OPERATOR_PRESSURE_DISABLE_LLM", "").strip() in {"1", "true", "yes"}
 LLM_MODEL = os.environ.get("EDGE_OPERATOR_PRESSURE_MODEL", "gpt-5.4").strip() or "gpt-5.4"
+MEMORY_PRESSURE_FILE = Path(os.environ.get("EDGE_OPERATOR_PRESSURE_MEMORY_FILE") or (EDGE_REPO_DIR / "memory" / "MEMORY.md"))
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _PUNCT_RE = re.compile(r"[^a-z0-9]+")
@@ -69,6 +72,19 @@ _GLOBAL_SCOPE_RE = re.compile(
     re.I,
 )
 _STRONG_IMPERATIVE_RE = re.compile(r"\b(tem que|quero que|sempre|nunca|fa[cç]a|adicione|tire|remova|coloque|implemente|corrija|ajuste)\b", re.I)
+_PRE_SKILL_CONTEXT_RE = re.compile(
+    r"\b("
+    r"pre[- ]?skill|contexto pre[- ]?skill|context_notes|operating context|"
+    r"sempre|nunca|todo beat|todos os beats|toda skill|todas as skills|"
+    r"always|never|before every skill|before each skill|"
+    r"must|must not|deve|devem|nao deve|n[aã]o deve|tem que|por default|by default"
+    r")\b",
+    re.I,
+)
+_PROCEDURAL_WORKFLOW_RE = re.compile(
+    r"\b(workflow|procedur\w*|procedimento|pipeline|passos?|steps?|rotina|runbook|playbook|checklist|sequ[eê]ncia|rito)\b",
+    re.I,
+)
 _SUBSTRATE_GAP_RULES: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(
@@ -104,6 +120,7 @@ _TARGET_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(workflow|routines?|preflight|postflight|protocolo)\b", re.I), "workflow"),
     (re.compile(r"\b(procedure|procedural|procedimento)\b", re.I), "procedure"),
     (re.compile(r"\b(capability|primitive|primitiva|repo\.sync|exa|grafana|github|meta|whatsapp)\b", re.I), "capability"),
+    (re.compile(r"\b(memory|mem[oó]ria|rules-core|personality|metodo)\b", re.I), "memory"),
     (re.compile(r"\b(policy|politica|policy|regra|guardrail)\b", re.I), "policy"),
     (re.compile(r"\b(skill|heartbeat|autonomy|reflection|report|research|strategy|map|discovery)\b", re.I), "skill"),
     (re.compile(r"\b(thread|topic|topics|claim|claims)\b", re.I), "thread"),
@@ -161,6 +178,8 @@ _HOT_DIGEST_KEYS = {
     "operator_toil_optimizable_now",
     "mistakes_to_avoid_now",
     "implicit_needs_hypotheses",
+    "memory_updates",
+    "pre_skill_context",
     "workflow_candidates",
     "capability_candidates",
     "substrate_gap_requests",
@@ -174,6 +193,8 @@ _DIGEST_SECTION_KEYS = (
     "operator_toil_optimizable_now",
     "mistakes_to_avoid_now",
     "implicit_needs_hypotheses",
+    "memory_updates",
+    "pre_skill_context",
     "workflow_candidates",
     "capability_candidates",
     "substrate_gap_requests",
@@ -338,6 +359,52 @@ def _iter_recent_user_messages(
     return rows[-max_messages:]
 
 
+def _clean_memory_entry_text(text: str) -> str:
+    value = str(text or "").strip()
+    value = re.sub(r"^[-*]\s+", "", value).strip()
+    value = re.sub(r"^#+\s*", "", value).strip()
+    value = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", value)
+    value = _WHITESPACE_RE.sub(" ", value).strip()
+    return value
+
+
+def _iter_memory_messages(memory_path: Path | None = None, *, max_items: int = MAX_MEMORY_ITEMS) -> list[dict[str, Any]]:
+    path = memory_path or MEMORY_PRESSURE_FILE
+    if not path.exists() or not path.is_file():
+        return []
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except Exception:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for idx, line in enumerate(raw.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped in {"---", "..."}:
+            continue
+        if not (stripped.startswith(("-", "*", "#"))):
+            continue
+        text = _clean_memory_entry_text(stripped)
+        if len(text) < 12:
+            continue
+        fingerprint = _fingerprint_text(f"{path.name}:{idx}:{text}")
+        rows.append(
+            {
+                "session_id": f"memory:{path.name}",
+                "message_idx": idx,
+                "timestamp": "",
+                "text": text[:600],
+                "source_file": str(path),
+                "cwd": str(path.parent),
+                "source_kind": "memory",
+                "source_id": str(path),
+                "line_number": idx,
+                "memory_fingerprint": fingerprint,
+            }
+        )
+    return rows[-max_items:]
+
+
 def _normalize_text(text: str) -> str:
     value = _WHITESPACE_RE.sub(" ", text.strip().lower())
     return value
@@ -446,6 +513,8 @@ def _imperative_strength(text: str, kind: str, *, explicit_operator_direction: b
 def _salience_for_item(item: dict[str, Any]) -> float:
     score = 0.15
     score += min(int(item.get("repeat_count") or 0) * 0.12, 0.36)
+    if "memory" in set(item.get("source_kinds") or []):
+        score += 0.18
     if item.get("explicit_operator_direction"):
         score += 0.20
     if str(item.get("kind") or "") in {"correction", "contradiction", "failure"}:
@@ -477,6 +546,7 @@ def _atom_hash(item: dict[str, Any]) -> str:
         "scope": item.get("scope"),
         "substrate_gap_signal": item.get("substrate_gap_signal"),
         "substrate_gap_reasons": item.get("substrate_gap_reasons"),
+        "source_kinds": item.get("source_kinds"),
         "supersedes": item.get("supersedes"),
         "promoted_to": item.get("promoted_to"),
     }
@@ -495,14 +565,15 @@ def _items_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
         text = str(message.get("text") or "").strip()
         if not text:
             continue
-        kind = _classify_kind(text)
+        source_kind = str(message.get("source_kind") or "session").strip() or "session"
+        kind = "memory_update" if source_kind == "memory" else _classify_kind(text)
         target = _infer_target(text)
         fingerprint = _fingerprint_text(text)
         item_id = f"pressure:{fingerprint}"
         item = grouped.get(item_id)
         if item is None:
             substrate_gap_reasons = _substrate_gap_reasons(text)
-            explicit_direction = _explicit_operator_direction(kind, text)
+            explicit_direction = source_kind == "memory" or _explicit_operator_direction(kind, text)
             item = {
                 "id": item_id,
                 "kind": kind,
@@ -518,10 +589,11 @@ def _items_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "salience": 0.0,
                 "explicit_operator_direction": explicit_direction,
                 "emotion": _infer_emotion(text, kind),
-                "imperative_strength": "low",
+                "imperative_strength": "high" if source_kind == "memory" else "low",
                 "scope": _infer_scope(text),
                 "substrate_gap_signal": bool(substrate_gap_reasons),
                 "substrate_gap_reasons": substrate_gap_reasons,
+                "source_kinds": [source_kind],
                 "provenance": [],
                 "supersedes": [],
                 "promoted_to": [],
@@ -531,17 +603,24 @@ def _items_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
         item["last_seen_at"] = message["timestamp"]
         item["kind"] = kind if item["repeat_count"] == 1 else item["kind"]
         item["target"] = target if item["repeat_count"] == 1 else item["target"]
+        source_kinds = set(item.get("source_kinds") or [])
+        source_kinds.add(source_kind)
+        item["source_kinds"] = sorted(source_kinds)
+        if source_kind == "memory":
+            item["explicit_operator_direction"] = True
         provenance = item.setdefault("provenance", [])
-        provenance.append(
-            {
-                "source_kind": "session",
-                "source_id": message["session_id"],
-                "message_range": [int(message["message_idx"]), int(message["message_idx"])],
-                "timestamp": message["timestamp"],
-                "source_file": message["source_file"],
-                "cwd": message.get("cwd") or "",
-            }
-        )
+        provenance_entry = {
+            "source_kind": source_kind,
+            "source_id": str(message.get("source_id") or message["session_id"]),
+            "message_range": [int(message["message_idx"]), int(message["message_idx"])],
+            "timestamp": message["timestamp"],
+            "source_file": message["source_file"],
+            "cwd": message.get("cwd") or "",
+        }
+        if source_kind == "memory":
+            provenance_entry["line_number"] = int(message.get("line_number") or message["message_idx"])
+            provenance_entry["memory_fingerprint"] = str(message.get("memory_fingerprint") or "")
+        provenance.append(provenance_entry)
         item["provenance"] = provenance[-5:]
         merged_entities = {entity["name"]: entity for entity in item.get("entities") or [] if isinstance(entity, dict)}
         for entity in _extract_entity_objects(text):
@@ -551,12 +630,15 @@ def _items_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
         merged_gap_reasons.update(_substrate_gap_reasons(text))
         item["substrate_gap_reasons"] = sorted(merged_gap_reasons)
         item["substrate_gap_signal"] = bool(item["substrate_gap_reasons"])
-        item["imperative_strength"] = _imperative_strength(
-            text,
-            kind,
-            explicit_operator_direction=bool(item.get("explicit_operator_direction")),
-            repeat_count=int(item.get("repeat_count") or 0),
-        )
+        if "memory" in item.get("source_kinds", []):
+            item["imperative_strength"] = "high"
+        else:
+            item["imperative_strength"] = _imperative_strength(
+                text,
+                kind,
+                explicit_operator_direction=bool(item.get("explicit_operator_direction")),
+                repeat_count=int(item.get("repeat_count") or 0),
+            )
     for item in grouped.values():
         item["salience"] = _salience_for_item(item)
         item["atom_hash"] = _atom_hash(item)
@@ -597,6 +679,7 @@ def _ledger_from_messages(messages: list[dict[str, Any]], *, project_dir: Path) 
             "scope": item["scope"],
             "substrate_gap_signal": item["substrate_gap_signal"],
             "substrate_gap_reasons": item["substrate_gap_reasons"],
+            "source_kinds": list(item.get("source_kinds") or []),
             "provenance": item["provenance"],
             "supersedes": item["supersedes"],
             "promoted_to": item["promoted_to"],
@@ -604,14 +687,34 @@ def _ledger_from_messages(messages: list[dict[str, Any]], *, project_dir: Path) 
         for item in items
     ]
     source_hash = _hash_payload(item_payload)
+    source_counts = Counter(str(row.get("source_kind") or "session") for row in messages)
+    memory_rows = [row for row in messages if str(row.get("source_kind") or "") == "memory"]
+    memory_path = str(memory_rows[0].get("source_file") or "") if memory_rows else str(MEMORY_PRESSURE_FILE)
     return {
         "schema_version": SCHEMA_VERSION,
         "store_kind": "operator_pressure_atom_store",
         "generated_at": _now_iso(),
         "project_dir": str(project_dir),
         "window_days": LEDGER_WINDOW_DAYS,
-        "message_total": len(messages),
-        "session_total": len({row["session_id"] for row in messages}),
+        "input_total": len(messages),
+        "message_total": int(source_counts.get("session", 0)),
+        "session_total": len({row["session_id"] for row in messages if str(row.get("source_kind") or "session") == "session"}),
+        "source_counts": dict(sorted(source_counts.items())),
+        "memory": {
+            "available": bool(memory_rows),
+            "path": memory_path,
+            "item_total": len(memory_rows),
+            "source_hash": _hash_payload(
+                [
+                    {
+                        "line_number": row.get("line_number"),
+                        "text": row.get("text"),
+                        "memory_fingerprint": row.get("memory_fingerprint"),
+                    }
+                    for row in memory_rows
+                ]
+            ) if memory_rows else "",
+        },
         "item_total": len(item_payload),
         "atom_total": len(item_payload),
         "source_hash": source_hash,
@@ -640,6 +743,8 @@ def _compact_item(item: dict[str, Any]) -> dict[str, Any]:
         "repeat_count": int(item.get("repeat_count") or 0),
         "status": item.get("status"),
         "entities": _entity_names(item.get("entities") or []),
+        "source_kinds": list(item.get("source_kinds") or []),
+        "scope": item.get("scope"),
         "last_seen_at": item.get("last_seen_at"),
     }
 
@@ -650,6 +755,31 @@ def _hot_digest_matches_schema(payload: dict[str, Any] | None) -> bool:
     if int(payload.get("schema_version") or 0) != SCHEMA_VERSION:
         return False
     return all(key in payload for key in _HOT_DIGEST_KEYS)
+
+
+def _is_pre_skill_context_item(item: dict[str, Any]) -> bool:
+    text = str(item.get("content") or item.get("text") or "")
+    target = str(item.get("target") or "").strip().lower()
+    scope = str(item.get("scope") or "").strip().lower()
+    entities = " ".join(_entity_names(item.get("entities") or []))
+    haystack = " ".join([text, target, scope, entities])
+    if not _PRE_SKILL_CONTEXT_RE.search(haystack):
+        return False
+    if target in {"workflow", "procedure"} or _PROCEDURAL_WORKFLOW_RE.search(text):
+        return bool(re.search(r"\bpre[- ]?skill|contexto pre[- ]?skill|context_notes|operating context\b", haystack, re.I))
+    return True
+
+
+def _is_workflow_candidate_item(item: dict[str, Any]) -> bool:
+    if _is_pre_skill_context_item(item):
+        return False
+    text = str(item.get("content") or item.get("text") or "")
+    target = str(item.get("target") or "").strip().lower()
+    if target in {"workflow", "procedure"}:
+        return True
+    if target == "policy" and _PROCEDURAL_WORKFLOW_RE.search(text):
+        return True
+    return False
 
 
 def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -676,8 +806,16 @@ def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str,
         for item in ranked
         if str(item.get("kind") or "") in {"tentative", "question"}
     ]
+    memory_updates = [
+        item for item in ranked if "memory" in set(item.get("source_kinds") or [])
+    ]
+    pre_skill_context = [
+        item for item in ranked if _is_pre_skill_context_item(item)
+    ]
     workflow_candidates = [
-        item for item in directives if str(item.get("target") or "") in {"workflow", "procedure", "policy"}
+        item
+        for item in directives
+        if _is_workflow_candidate_item(item)
     ]
     capability_candidates = [
         item for item in directives if str(item.get("target") or "") == "capability"
@@ -692,6 +830,10 @@ def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str,
         summary_parts.append(f"{len(toil)} recurring operator toil patterns")
     if mistakes:
         summary_parts.append(f"{len(mistakes)} recent mistakes to avoid")
+    if memory_updates:
+        summary_parts.append(f"{len(memory_updates)} memory-derived state signals")
+    if pre_skill_context:
+        summary_parts.append(f"{len(pre_skill_context)} pre-skill operating rules")
     if substrate_gap_requests:
         summary_parts.append(f"{len(substrate_gap_requests)} substrate gaps still requested by the operator")
     if not summary_parts:
@@ -709,6 +851,8 @@ def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str,
         "operator_toil_optimizable_now": [_compact_item(item) for item in toil[:SECTION_LIMIT]],
         "mistakes_to_avoid_now": [_compact_item(item) for item in mistakes[:SECTION_LIMIT]],
         "implicit_needs_hypotheses": [_compact_item(item) for item in hypotheses[:SECTION_LIMIT]],
+        "memory_updates": [_compact_item(item) for item in memory_updates[:SECTION_LIMIT]],
+        "pre_skill_context": [_compact_item(item) for item in pre_skill_context[:SECTION_LIMIT]],
         "workflow_candidates": [_compact_item(item) for item in workflow_candidates[:SECTION_LIMIT]],
         "capability_candidates": [_compact_item(item) for item in capability_candidates[:SECTION_LIMIT]],
         "substrate_gap_requests": [_compact_item(item) for item in substrate_gap_requests[:SECTION_LIMIT]],
@@ -742,11 +886,13 @@ def _llm_prompt(
         "Required JSON schema:\n"
         "{\n"
         '  "summary": "short paragraph",\n'
-        '  "signal_from_operator_now": [{"item_id":"...","text":"...","target":"...","kind":"...","repeat_count":1,"status":"active","entities":["..."],"last_seen_at":"..."}],\n'
+        '  "signal_from_operator_now": [{"item_id":"...","text":"...","target":"...","kind":"...","repeat_count":1,"status":"active","entities":["..."],"source_kinds":["session"],"last_seen_at":"..."}],\n'
         '  "operator_pains_resolvable_now": [same shape],\n'
         '  "operator_toil_optimizable_now": [same shape],\n'
         '  "mistakes_to_avoid_now": [same shape],\n'
         '  "implicit_needs_hypotheses": [same shape],\n'
+        '  "memory_updates": [same shape],\n'
+        '  "pre_skill_context": [same shape],\n'
         '  "workflow_candidates": [same shape],\n'
         '  "capability_candidates": [same shape],\n'
         '  "substrate_gap_requests": [same shape],\n'
@@ -755,6 +901,8 @@ def _llm_prompt(
         "Rules:\n"
         "- Keep lists bounded to the most important items already provided.\n"
         "- Do not invent workflow candidates unless they come from explicit operator direction.\n"
+        "- Treat memory_updates as durable operator-authored state changes from memory/MEMORY.md, not as casual chat.\n"
+        "- Put always-followed guidance in pre_skill_context; put repeatable procedural sequences in workflow_candidates.\n"
         "- Keep `text` concise but faithful.\n"
         "- Preserve item_id/target/kind/repeat_count/status/entities/last_seen_at from the inputs.\n"
         "- If a section has nothing useful, return an empty list.\n\n"
@@ -803,6 +951,8 @@ def _coerce_digest_shape(candidate: dict[str, Any], fallback: dict[str, Any]) ->
                         "repeat_count": int(item.get("repeat_count") or 0),
                         "status": str(item.get("status") or "active"),
                         "entities": [str(entity) for entity in (item.get("entities") or []) if str(entity).strip()],
+                        "source_kinds": [str(kind) for kind in (item.get("source_kinds") or []) if str(kind).strip()],
+                        "scope": str(item.get("scope") or ""),
                         "last_seen_at": str(item.get("last_seen_at") or ""),
                     }
                 )
@@ -838,6 +988,8 @@ def _render_hot_digest_with_llm(
         "operator_toil_optimizable_now": fallback.get("operator_toil_optimizable_now", []),
         "mistakes_to_avoid_now": fallback.get("mistakes_to_avoid_now", []),
         "implicit_needs_hypotheses": fallback.get("implicit_needs_hypotheses", []),
+        "memory_updates": fallback.get("memory_updates", []),
+        "pre_skill_context": fallback.get("pre_skill_context", []),
         "workflow_candidates": fallback.get("workflow_candidates", []),
         "capability_candidates": fallback.get("capability_candidates", []),
         "substrate_gap_requests": fallback.get("substrate_gap_requests", []),
@@ -949,6 +1101,7 @@ def _append_atom_store(ledger: dict[str, Any], *, atoms_path: Path) -> dict[str,
                 "scope": item.get("scope"),
                 "substrate_gap_signal": bool(item.get("substrate_gap_signal")),
                 "substrate_gap_reasons": list(item.get("substrate_gap_reasons") or []),
+                "source_kinds": list(item.get("source_kinds") or []),
                 "provenance": item.get("provenance") or [],
                 "supersedes": item.get("supersedes") or [],
                 "promoted_to": item.get("promoted_to") or [],
@@ -974,6 +1127,8 @@ def _build_redigest(ledger: dict[str, Any], hot_digest: dict[str, Any], previous
         "operator_toil_optimizable_now",
         "mistakes_to_avoid_now",
         "implicit_needs_hypotheses",
+        "memory_updates",
+        "pre_skill_context",
         "workflow_candidates",
         "capability_candidates",
         "substrate_gap_requests",
@@ -1006,6 +1161,7 @@ def _build_redigest(ledger: dict[str, Any], hot_digest: dict[str, Any], previous
                 "emotion": str(item.get("emotion") or ""),
                 "imperative_strength": str(item.get("imperative_strength") or ""),
                 "scope": str(item.get("scope") or ""),
+                "source_kinds": list(item.get("source_kinds") or []),
                 "entities": _entity_names(item.get("entities") or []),
                 "entity_refs": list(item.get("entities") or []),
                 "valid_from": str(item.get("valid_from") or item.get("created_at") or ""),
@@ -1094,8 +1250,14 @@ def _projection_summary(
         "schema_version": SCHEMA_VERSION,
         "generated_at": _now_iso(),
         "project_dir": str(project_dir),
+        "input_total": ledger.get("input_total", ledger.get("message_total", 0)),
         "message_total": ledger.get("message_total", 0),
         "session_total": ledger.get("session_total", 0),
+        "source_counts": ledger.get("source_counts") or {},
+        "memory_update_items": len(hot_digest.get("memory_updates") or []),
+        "pre_skill_context_items": len(hot_digest.get("pre_skill_context") or []),
+        "memory_item_total": int(((ledger.get("memory") or {}).get("item_total") or 0)),
+        "memory_path": str(((ledger.get("memory") or {}).get("path") or MEMORY_PRESSURE_FILE)),
         "item_total": ledger.get("item_total", 0),
         "active_entities": hot_digest.get("active_entities", []),
         "signal_from_operator_now": len(hot_digest.get("signal_from_operator_now") or []),
@@ -1103,6 +1265,8 @@ def _projection_summary(
         "operator_toil_optimizable_now": len(hot_digest.get("operator_toil_optimizable_now") or []),
         "mistakes_to_avoid_now": len(hot_digest.get("mistakes_to_avoid_now") or []),
         "implicit_needs_hypotheses": len(hot_digest.get("implicit_needs_hypotheses") or []),
+        "memory_updates": len(hot_digest.get("memory_updates") or []),
+        "pre_skill_context": len(hot_digest.get("pre_skill_context") or []),
         "workflow_candidates": len(hot_digest.get("workflow_candidates") or []),
         "capability_candidates": len(hot_digest.get("capability_candidates") or []),
         "substrate_gap_requests": len(hot_digest.get("substrate_gap_requests") or []),
@@ -1120,6 +1284,7 @@ def _projection_summary(
 def build_operator_pressure_layers(
     *,
     project_dir: Path | None = None,
+    memory_path: Path | None = None,
     ledger_path: Path | None = None,
     hot_digest_path: Path | None = None,
     redigest_dir: Path | None = None,
@@ -1135,7 +1300,9 @@ def build_operator_pressure_layers(
     redigest_dir = redigest_dir or OPERATOR_PRESSURE_REDIGEST_DIR
     atoms_path = atoms_path or ((explicit_ledger_path.parent / "pressure-ledger.jsonl") if explicit_ledger_path else OPERATOR_PRESSURE_ATOMS_FILE)
 
-    messages = _iter_recent_user_messages(project_dir=project_dir)
+    session_messages = _iter_recent_user_messages(project_dir=project_dir)
+    memory_messages = _iter_memory_messages(memory_path)
+    messages = session_messages + memory_messages
     ledger = _ledger_from_messages(messages, project_dir=project_dir)
     previous_digest = _read_json(hot_digest_path)
     if _hot_digest_matches_schema(previous_digest) and previous_digest.get("source_hash") == ledger.get("source_hash"):
@@ -1199,6 +1366,8 @@ def build_operator_pressure_layers(
             render_mode=summary["render_mode"],
             signal_from_operator_now=summary["signal_from_operator_now"],
             operator_toil_optimizable_now=summary["operator_toil_optimizable_now"],
+            memory_updates=summary["memory_updates"],
+            pre_skill_context=summary["pre_skill_context"],
             workflow_candidates=summary["workflow_candidates"],
             capability_candidates=summary["capability_candidates"],
             substrate_gap_requests=summary["substrate_gap_requests"],
@@ -1240,17 +1409,20 @@ def operator_pressure_projection_is_stale(
 def _raw_chat_from_ledger(ledger: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
     return {
         "available": bool(ledger.get("items") or ledger.get("atoms")),
+        "input_total": int(ledger.get("input_total") or summary.get("input_total") or 0),
         "message_total": int(ledger.get("message_total") or summary.get("message_total") or 0),
         "session_total": int(ledger.get("session_total") or summary.get("session_total") or 0),
         "item_total": int(ledger.get("item_total") or summary.get("item_total") or 0),
         "window_days": ledger.get("window_days"),
         "project_dir": ledger.get("project_dir") or summary.get("project_dir"),
+        "memory": ledger.get("memory") or {},
     }
 
 
 def build_operator_pressure_projection(
     *,
     project_dir: Path | None = None,
+    memory_path: Path | None = None,
     projection_path: Path | None = None,
     write_layers: bool = True,
     emit_events: bool = False,
@@ -1259,6 +1431,7 @@ def build_operator_pressure_projection(
     projection_path = projection_path or OPERATOR_PRESSURE_PROJECTION_FILE
     layers = build_operator_pressure_layers(
         project_dir=project_dir,
+        memory_path=memory_path,
         write=write_layers,
         emit_events=False,
         allow_llm=allow_llm,
@@ -1277,17 +1450,20 @@ def build_operator_pressure_projection(
             "project_dir": summary.get("project_dir"),
             "source_hash": summary.get("source_hash"),
             "window_days": ledger.get("window_days"),
+            "source_counts": ledger.get("source_counts") or {},
         },
         "summary": summary,
         "ledger": ledger,
         "hot_digest": hot_digest,
         "redigest": redigest,
         "raw_chat": _raw_chat_from_ledger(ledger, summary),
+        "memory": ledger.get("memory") or {},
         "source_paths": {
             "ledger": summary.get("ledger_path"),
             "atoms": summary.get("atoms_path"),
             "hot_digest": summary.get("hot_digest_path"),
             "redigest": summary.get("redigest_path"),
+            "memory": (ledger.get("memory") or {}).get("path"),
             "projection": str(projection_path),
         },
     }
@@ -1309,6 +1485,7 @@ def build_operator_pressure_projection(
 def write_operator_pressure_projection(
     *,
     project_dir: Path | None = None,
+    memory_path: Path | None = None,
     projection_path: Path | None = None,
     allow_llm: bool = True,
 ) -> dict[str, Any]:
@@ -1316,6 +1493,7 @@ def write_operator_pressure_projection(
     try:
         payload = build_operator_pressure_projection(
             project_dir=project_dir,
+            memory_path=memory_path,
             projection_path=projection_path,
             write_layers=True,
             emit_events=False,
@@ -1342,6 +1520,8 @@ def write_operator_pressure_projection(
             item_total=summary.get("item_total", 0),
             session_total=summary.get("session_total", 0),
             render_mode=summary.get("render_mode"),
+            memory_updates=summary.get("memory_updates", 0),
+            pre_skill_context=summary.get("pre_skill_context", 0),
             source_hash=summary.get("source_hash"),
         )
         return payload
@@ -1365,6 +1545,7 @@ def write_operator_pressure_projection(
             "hot_digest": _deterministic_hot_digest({"items": [], "source_hash": ""}),
             "redigest": {},
             "raw_chat": {"available": False, "message_total": 0, "session_total": 0, "item_total": 0},
+            "memory": {"available": False, "item_total": 0, "path": str(memory_path or MEMORY_PRESSURE_FILE)},
             "source_paths": {"projection": str(projection_path)},
         }
         _write_json(projection_path, failed)

@@ -668,6 +668,7 @@ def _operator_pressure_digest() -> dict[str, Any]:
                 "text": str(item.get("content") or "")[:360],
                 "last_seen_at": item.get("last_seen_at"),
                 "repeat_count": int(item.get("repeat_count") or 0),
+                "source_kinds": list(item.get("source_kinds") or []),
                 "provenance": list(item.get("provenance") or [])[:3],
             }
         )
@@ -687,16 +688,19 @@ def _operator_pressure_digest() -> dict[str, Any]:
         },
         "raw_chat": {
             "available": bool(raw_items),
+            "input_total": int(ledger.get("input_total") or summary.get("input_total") or 0),
             "message_total": int(ledger.get("message_total") or summary.get("message_total") or 0),
             "session_total": int(ledger.get("session_total") or summary.get("session_total") or 0),
             "item_total": int(ledger.get("item_total") or summary.get("item_total") or 0),
             "window_days": ledger.get("window_days"),
             "project_dir": ledger.get("project_dir") or summary.get("project_dir"),
+            "memory": ledger.get("memory") or projection.get("memory") or {},
             "source_paths": {
                 "ledger": source_paths.get("ledger") or summary.get("ledger_path"),
                 "atoms": source_paths.get("atoms") or summary.get("atoms_path") or str(OPERATOR_PRESSURE_ATOMS_FILE),
                 "hot_digest": source_paths.get("hot_digest") or summary.get("hot_digest_path") or str(OPERATOR_PRESSURE_HOT_DIGEST_FILE),
                 "redigest": source_paths.get("redigest") or summary.get("redigest_path") or str(OPERATOR_PRESSURE_REDIGEST_DIR / "latest.json"),
+                "memory": source_paths.get("memory") or summary.get("memory_path"),
                 "projection": source_paths.get("projection") or str(OPERATOR_PRESSURE_PROJECTION_FILE),
             },
             "recent_items": raw_items,
@@ -735,6 +739,32 @@ def _item_texts(items: Any, *, limit: int = BEAT_LAUNCH_SECTION_LIMIT) -> list[s
             if text:
                 texts.append(text)
     return _unique_compact_strings(texts, limit=limit)
+
+
+def _operator_pressure_pre_skill_context(request: dict[str, Any], digest: dict[str, Any]) -> list[str]:
+    texts = _item_texts(digest.get("pre_skill_context"))
+    if not texts:
+        return []
+    context = request.setdefault("pre_skill_context", {})
+    notes = list(context.get("context_notes") or [])
+    existing = {re.sub(r"\s+", " ", str(note or "").strip()).casefold() for note in notes}
+    added: list[str] = []
+    for text in texts:
+        note = f"Operator pressure pre-skill rule: {text}"
+        key = re.sub(r"\s+", " ", note.strip()).casefold()
+        if key in existing:
+            continue
+        existing.add(key)
+        notes.append(note)
+        added.append(text)
+    if added:
+        context["context_notes"] = notes
+        context["operator_pressure_pre_skill_context"] = added
+        sources = list(context.get("dynamic_context_sources") or [])
+        if "operator_pressure.pre_skill_context" not in sources:
+            sources.append("operator_pressure.pre_skill_context")
+        context["dynamic_context_sources"] = sources
+    return added
 
 
 def _edge_state_signals(request: dict[str, Any]) -> list[str]:
@@ -790,6 +820,8 @@ def _expected_state_change(request: dict[str, Any], operator_signal: list[str], 
     changes: list[str] = []
     if operator_signal:
         changes.append("Reduce at least one active operator pressure item with a concrete state change in this beat.")
+    if (request.get("operator_pressure_digest") or {}).get("memory_updates"):
+        changes.append("Translate at least one memory.md update into the right state surface: active workflow, thread/topic, or pre-skill operating context.")
     if (request.get("operator_pressure_digest") or {}).get("substrate_gap_requests"):
         changes.append("Make at least one missing native-support gap more explicit, narrower, or better materialized than it was before this beat.")
     if int((request.get("async_inbox") or {}).get("unprocessed_total", 0) or 0) > 0:
@@ -827,6 +859,8 @@ def build_beat_launch_context(request: dict[str, Any]) -> dict[str, Any]:
         "signal_from_edge_state_now": edge_signal,
         "operator_pains_resolvable_now": _item_texts(digest.get("operator_pains_resolvable_now")),
         "operator_toil_optimizable_now": _item_texts(digest.get("operator_toil_optimizable_now")),
+        "memory_updates": _item_texts(digest.get("memory_updates")),
+        "pre_skill_context": _item_texts(digest.get("pre_skill_context")),
         "substrate_gap_requests": _item_texts(digest.get("substrate_gap_requests")),
         "mistakes_to_avoid_now": _item_texts(digest.get("mistakes_to_avoid_now")),
         "implicit_needs_hypotheses": _item_texts(digest.get("implicit_needs_hypotheses")),
@@ -1015,6 +1049,7 @@ def _delta_raw_chat_context(request: dict[str, Any]) -> dict[str, Any]:
             "atoms": summary.get("atoms_path") or str(OPERATOR_PRESSURE_ATOMS_FILE),
             "hot_digest": summary.get("hot_digest_path") or str(OPERATOR_PRESSURE_HOT_DIGEST_FILE),
             "redigest": summary.get("redigest_path") or str(OPERATOR_PRESSURE_REDIGEST_DIR / "latest.json"),
+            "memory": summary.get("memory_path"),
             "projection": str(OPERATOR_PRESSURE_PROJECTION_FILE),
         }
     recent_items = raw.get("recent_items")
@@ -1022,11 +1057,13 @@ def _delta_raw_chat_context(request: dict[str, Any]) -> dict[str, Any]:
         recent_items = []
     return {
         "available": bool(raw.get("available") or recent_items or summary.get("item_total")),
+        "input_total": int(raw.get("input_total") or summary.get("input_total") or 0),
         "message_total": int(raw.get("message_total") or summary.get("message_total") or 0),
         "session_total": int(raw.get("session_total") or summary.get("session_total") or 0),
         "item_total": int(raw.get("item_total") or summary.get("item_total") or 0),
         "window_days": raw.get("window_days"),
         "project_dir": raw.get("project_dir") or summary.get("project_dir"),
+        "memory": raw.get("memory") or {"path": summary.get("memory_path"), "item_total": summary.get("memory_item_total", 0)},
         "source_paths": source_paths,
         "recent_items": recent_items[:DELTA_CHAT_ITEM_LIMIT],
         "contract": "raw chat is the source of what the operator actually said; structured state is the source of what the system already persisted",
@@ -1632,6 +1669,7 @@ def _execute_preflight_step(
         request["operator_pressure"] = pressure
         request["operator_pressure_digest"] = digest
         request["operator_pressure_summary"] = summary
+        pre_skill_notes = _operator_pressure_pre_skill_context(request, digest)
         return _step_result(
             step,
             status="ok",
@@ -1640,6 +1678,8 @@ def _execute_preflight_step(
                 f"items={summary.get('item_total', 0)} "
                 f"operator_signal={summary.get('signal_from_operator_now', 0)} "
                 f"toil={summary.get('operator_toil_optimizable_now', 0)} "
+                f"memory_updates={summary.get('memory_updates', 0)} "
+                f"pre_skill_context={summary.get('pre_skill_context', 0)} "
                 f"workflow_candidates={summary.get('workflow_candidates', 0)} "
                 f"capability_candidates={summary.get('capability_candidates', 0)} "
                 f"substrate_gap_requests={summary.get('substrate_gap_requests', 0)} "
@@ -1649,6 +1689,9 @@ def _execute_preflight_step(
                 "item_total": int(summary.get("item_total", 0) or 0),
                 "signal_from_operator_now": int(summary.get("signal_from_operator_now", 0) or 0),
                 "operator_toil_optimizable_now": int(summary.get("operator_toil_optimizable_now", 0) or 0),
+                "memory_updates": int(summary.get("memory_updates", 0) or 0),
+                "pre_skill_context": int(summary.get("pre_skill_context", 0) or 0),
+                "pre_skill_context_notes_added": len(pre_skill_notes),
                 "workflow_candidates": int(summary.get("workflow_candidates", 0) or 0),
                 "capability_candidates": int(summary.get("capability_candidates", 0) or 0),
                 "substrate_gap_requests": int(summary.get("substrate_gap_requests", 0) or 0),
@@ -1952,6 +1995,8 @@ def enrich_dispatch_state(
         "operator_pressure_items": (request.get("operator_pressure_summary") or {}).get("item_total", 0),
         "operator_pressure_signal_from_operator_now": (request.get("operator_pressure_summary") or {}).get("signal_from_operator_now", 0),
         "operator_pressure_operator_toil_optimizable_now": (request.get("operator_pressure_summary") or {}).get("operator_toil_optimizable_now", 0),
+        "operator_pressure_memory_updates": (request.get("operator_pressure_summary") or {}).get("memory_updates", 0),
+        "operator_pressure_pre_skill_context": (request.get("operator_pressure_summary") or {}).get("pre_skill_context", 0),
         "operator_pressure_workflow_candidates": (request.get("operator_pressure_summary") or {}).get("workflow_candidates", 0),
         "operator_pressure_substrate_gap_requests": (request.get("operator_pressure_summary") or {}).get("substrate_gap_requests", 0),
         "beat_launch_operator_signals": len((request.get("beat_launch_context") or {}).get("signal_from_operator_now") or []),
