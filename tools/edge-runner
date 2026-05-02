@@ -806,6 +806,34 @@ def should_echo_backend_output(skill: str | None) -> bool:
     return not skill_accepts_stdout_artifact(normalized, instance=EDGE_INSTANCE)
 
 
+def emit_artifact_retry_event(
+    event_type: str,
+    *,
+    skill: str | None,
+    cycle_id: str | None,
+    reason: str,
+    publish_result: dict | None = None,
+    exit_code: int | None = None,
+) -> None:
+    if not cycle_id:
+        return
+    result = publish_result or {}
+    emit_shadow_event(
+        event_type,
+        actor="edge-runner",
+        artifact=str(result.get("artifact") or "") or None,
+        cycle_id=cycle_id,
+        payload={
+            "skill": normalize_skill_name(skill),
+            "reason": reason,
+            "published": bool(result.get("published")),
+            "artifact": result.get("artifact") or "",
+            "publish_reason": result.get("reason") or "",
+            "exit_code": exit_code,
+        },
+    )
+
+
 def print_artifact_publish_result(result: dict, output: str) -> None:
     if result.get("published"):
         artifact = result.get("artifact")
@@ -911,6 +939,14 @@ def main() -> int:
             publish_result = maybe_publish_stdout_artifact(args.skill, cycle_id, exit_code, backend_output)
             if should_retry_artifact_skill(args.skill, cycle_id, exit_code, publish_result):
                 retry_reason = str(publish_result.get("reason") or close_reason or f"backend_exit_{exit_code}")
+                emit_artifact_retry_event(
+                    "ArtifactSupervisionRetryStarted",
+                    skill=args.skill,
+                    cycle_id=cycle_id,
+                    reason=retry_reason,
+                    publish_result=publish_result,
+                    exit_code=exit_code,
+                )
                 log_run_step(
                     "edge-runner",
                     "artifact_supervisor_retry",
@@ -935,6 +971,14 @@ def main() -> int:
                     content_override=retry_prompt,
                 )
                 publish_result = maybe_publish_stdout_artifact(args.skill, cycle_id, exit_code, backend_output)
+                emit_artifact_retry_event(
+                    "ArtifactSupervisionRetryCompleted",
+                    skill=args.skill,
+                    cycle_id=cycle_id,
+                    reason=retry_reason,
+                    publish_result=publish_result,
+                    exit_code=exit_code,
+                )
                 log_run_step(
                     "edge-runner",
                     "artifact_supervisor_retry",
@@ -989,6 +1033,14 @@ def main() -> int:
                 follow_on_publish_result = maybe_publish_stdout_artifact(follow_on_skill, cycle_id, follow_on_exit, follow_on_output)
                 if should_retry_artifact_skill(follow_on_skill, cycle_id, follow_on_exit, follow_on_publish_result):
                     retry_reason = str(follow_on_publish_result.get("reason") or f"backend_exit_{follow_on_exit}")
+                    emit_artifact_retry_event(
+                        "ArtifactSupervisionRetryStarted",
+                        skill=follow_on_skill,
+                        cycle_id=cycle_id,
+                        reason=retry_reason,
+                        publish_result=follow_on_publish_result,
+                        exit_code=follow_on_exit,
+                    )
                     log_run_step(
                         "edge-runner",
                         "artifact_supervisor_retry",
@@ -1015,6 +1067,14 @@ def main() -> int:
                     )
                     maybe_mark_skill_completion(follow_on_skill, cycle_id, follow_on_exit)
                     follow_on_publish_result = maybe_publish_stdout_artifact(follow_on_skill, cycle_id, follow_on_exit, follow_on_output)
+                    emit_artifact_retry_event(
+                        "ArtifactSupervisionRetryCompleted",
+                        skill=follow_on_skill,
+                        cycle_id=cycle_id,
+                        reason=retry_reason,
+                        publish_result=follow_on_publish_result,
+                        exit_code=follow_on_exit,
+                    )
                     log_run_step(
                         "edge-runner",
                         "artifact_supervisor_retry",

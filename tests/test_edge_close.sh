@@ -105,6 +105,34 @@ with open(path, "a", encoding="utf-8") as fh:
 PY
 }
 
+append_phase_failed() {
+    local cycle_id="$1"
+    local slug="$2"
+    local reason="$3"
+    python3 - <<'PY' "$TMP_EDGE/state/events/log.jsonl" "$cycle_id" "$slug" "$reason"
+import json
+import sys
+from datetime import datetime, timezone
+
+path, cycle_id, slug, reason = sys.argv[1:5]
+event = {
+    "ts": datetime.now(timezone.utc).isoformat(),
+    "type": "PhaseCompleted",
+    "actor": "consolidate-state",
+    "cycle_id": cycle_id,
+    "artifact": f"blog/entries/{slug}.md",
+    "payload": {
+        "pipeline": "consolidate-state",
+        "phase": "review",
+        "ok": False,
+        "reason": reason,
+    },
+}
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(event) + "\n")
+PY
+}
+
 append_skill_completed() {
     local cycle_id="$1"
     local skill="$2"
@@ -210,18 +238,31 @@ set +e
 STATUS=$?
 set -e
 
-if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$STATUS"
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$STATUS"
 import json
 import sys
 
 dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
-status = int(sys.argv[2])
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+status = int(sys.argv[3])
 
 assert status == 1
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "failed"
 assert dispatch["state"]["close_reason"] == "missing_artifact_published"
 assert dispatch["state"]["postflight_status"] == "failed"
+assert dispatch["state"]["artifact_supervision_status"] == "blocked"
+assert dispatch["state"]["artifact_supervision_reason"] == "missing_artifact_published"
+assert dispatch["state"]["artifact_supervision_required"] is True
+blocked = [
+    event for event in events
+    if event.get("cycle_id") == "cycle-close-no-artifact"
+    and event.get("type") == "ArtifactSupervisionBlocked"
+]
+assert blocked
+payload = blocked[-1]["payload"]
+assert payload["required"] is True
+assert payload["reason"] == "missing_artifact_published"
 PY
 then
     pass "edge-close requires artifact publication for publishing skills"
@@ -235,12 +276,13 @@ echo "--- Test 2b: heartbeat router closes without artifact publication evidence
 append_skill_completed cycle-close-heartbeat-router roberto-heartbeat
 "$CLOSE_TOOL" --status completed >/dev/null
 
-if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/logs/post-skill.log"
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/logs/post-skill.log" "$TMP_EDGE/state/events/log.jsonl"
 import json
 import sys
 
 dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 postflight = open(sys.argv[2], encoding="utf-8").read()
+events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8") if line.strip()]
 steps = dispatch["state"].get("postflight_steps", [])
 
 assert dispatch["request"]["skill"] == "roberto-heartbeat"
@@ -248,7 +290,14 @@ assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["close_reason"] != "missing_artifact_published"
 assert dispatch["state"]["postflight_status"] in {"completed", "warning"}
-assert "procedure: artifact_published | status: OK" not in postflight
+assert "procedure: artifact_supervision | status: OK" not in postflight
+assert dispatch["state"]["artifact_supervision_status"] == "not_required"
+assert dispatch["state"]["artifact_supervision_required"] is False
+assert any(
+    event.get("cycle_id") == "cycle-close-heartbeat-router"
+    and event.get("type") == "ArtifactSupervisionSkipped"
+    for event in events
+)
 assert len(steps) >= 6
 PY
 then
@@ -281,6 +330,8 @@ assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "failed"
 assert dispatch["state"]["close_reason"] == "missing_artifact_published"
 assert dispatch["state"]["postflight_status"] == "failed"
+assert dispatch["state"]["artifact_supervision_status"] == "blocked"
+assert dispatch["state"]["artifact_supervision_required"] is True
 PY
 then
     pass "edge-close requires artifact publication for prefixed non-heartbeat skills"
@@ -312,6 +363,48 @@ else
     fail "edge-close policy exempts delta and loader support skills only"
 fi
 
+echo "--- Test 2e: failed publication pipeline is reported by artifact supervision ---"
+"$DISPATCH_TOOL" open --trigger operator --cycle-id cycle-close-pipeline-blocked --force >/dev/null
+"$DISPATCH_TOOL" dispatch --skill research >/dev/null
+append_skill_completed cycle-close-pipeline-blocked research
+append_phase_failed cycle-close-pipeline-blocked blocked-report review_gate_failed
+set +e
+"$CLOSE_TOOL" --status completed >/dev/null
+STATUS=$?
+set -e
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$STATUS"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+status = int(sys.argv[3])
+
+assert status == 1
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "failed"
+assert dispatch["state"]["close_reason"] == "pipeline_blocked_before_publish"
+assert dispatch["state"]["artifact_supervision_status"] == "blocked"
+assert dispatch["state"]["artifact_supervision_reason"] == "pipeline_blocked_before_publish"
+evidence = dispatch["state"]["artifact_supervision_evidence"]
+assert evidence["artifact"] == "blog/entries/blocked-report.md"
+assert evidence["reason"] == "review_gate_failed"
+blocked = [
+    event for event in events
+    if event.get("cycle_id") == "cycle-close-pipeline-blocked"
+    and event.get("type") == "ArtifactSupervisionBlocked"
+]
+assert blocked
+payload = blocked[-1]["payload"]
+assert payload["pipeline_evidence"]["reason"] == "review_gate_failed"
+PY
+then
+    pass "edge-close reports failed pipeline evidence through artifact supervision"
+else
+    fail "edge-close reports failed pipeline evidence through artifact supervision"
+fi
+
 echo "--- Test 3: completed close succeeds with skill end evidence, artifact publication, and postflight ---"
 "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-complete --force >/dev/null
 "$DISPATCH_TOOL" dispatch --skill discovery >/dev/null
@@ -322,18 +415,28 @@ EDGE_CYCLE_ID=cycle-close-complete "$STEP_TOOL" discovery end >/dev/null
 append_artifact_published cycle-close-complete discovery complete
 "$CLOSE_TOOL" --status completed >/dev/null
 
-if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/logs/post-skill.log"
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/logs/post-skill.log" "$TMP_EDGE/state/events/log.jsonl"
 import json
 import sys
 
 dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 postflight = open(sys.argv[2], encoding="utf-8").read()
+events = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8") if line.strip()]
 steps = dispatch["state"].get("postflight_steps", [])
 delta = dispatch["state"].get("postflight_delta", {})
 
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["postflight_status"] in {"completed", "warning"}
+assert dispatch["state"]["artifact_supervision_status"] == "published"
+assert dispatch["state"]["artifact_supervision_reason"] == "artifact_published"
+assert dispatch["state"]["artifact_supervision_artifact"] == "blog/entries/complete.md"
+assert any(
+    event.get("cycle_id") == "cycle-close-complete"
+    and event.get("type") == "ArtifactSupervisionCompleted"
+    and event.get("artifact") == "blog/entries/complete.md"
+    for event in events
+)
 assert postflight.strip()
 assert len(steps) >= 6
 assert "claims_open_delta" in delta
