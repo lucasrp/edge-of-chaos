@@ -1106,6 +1106,21 @@ _validation_error_count = 0
 _RENDER_LOG = Path(os.environ.get("YAML_RENDER_LOG", str(LOGS_DIR / "yaml-render.jsonl")))
 _current_source: str | None = None  # set by caller (main or external)
 
+STRUCTURAL_LEAD_BLOCKS = {
+    "ascii-diagram",
+    "bar-chart",
+    "comparison",
+    "comparison-table",
+    "concept-grid",
+    "gap-table",
+    "line-chart",
+    "metrics-grid",
+    "next-steps-grid",
+    "raw-html",
+    "risk-table",
+    "table",
+}
+
 
 def _log_render_event(block_type: str, event: str, detail: str, fields: list[str] | None = None):
     """Append a structured event to the persistent render log."""
@@ -1252,6 +1267,45 @@ def render_block(block: dict) -> str:
     return error_html + result if error_html else result
 
 
+def _canonical_block_type(block: dict) -> str:
+    block_type = str(block.get("type", "paragraph") or "paragraph")
+    return _BLOCK_TYPE_ALIASES.get(block_type, block_type)
+
+
+def _section_narrative_errors(section: dict, blocks: list) -> list[str]:
+    title = str(section.get("title") or "(sem titulo)")
+    lead = str(section.get("lead") or "").strip()
+    if not blocks:
+        return []
+    if len(blocks) == 1 and _canonical_block_type(blocks[0]) == "bibliography":
+        return []
+
+    first_type = _canonical_block_type(blocks[0])
+    if first_type in STRUCTURAL_LEAD_BLOCKS and not lead:
+        return [
+            f"Secao '{title}' comeca com bloco estrutural '{first_type}' sem lead narrativo. "
+            "Adicione section.lead ou um primeiro bloco paragraph explicando como ler a evidencia."
+        ]
+    return []
+
+
+def _render_section_errors(errors: list[str]) -> str:
+    global _validation_error_count
+    if not errors:
+        return ""
+    _validation_error_count += len(errors)
+    for error in errors:
+        print(f"ERRO secao: {error}", file=sys.stderr)
+        _log_render_event("section", "missing_narrative_lead", error)
+    return (
+        '<div style="border:2px solid #DC2626;background:#FEF2F2;padding:8px;'
+        'border-radius:6px;margin:8px 0;font-size:13px;color:#991B1B;">'
+        'ERRO secao: '
+        + "<br>".join(html.escape(error) for error in errors)
+        + '</div>'
+    )
+
+
 def _normalize_section_blocks(section: dict) -> list:
     """Extract blocks from a section, handling alternate YAML formats.
 
@@ -1323,7 +1377,10 @@ def render_section(section: dict) -> str:
     parts = ['<div class="section">']
     if section.get("title"):
         parts.append(f'<h2 class="section-title">{render_text(section["title"])}</h2>')
+    if section.get("lead"):
+        parts.append(f'<p class="section-lead">{render_text(section["lead"])}</p>')
     blocks = _normalize_section_blocks(section)
+    parts.append(_render_section_errors(_section_narrative_errors(section, blocks)))
     if not blocks and section.get("title"):
         print(f"AVISO: secao '{section['title']}' sem conteudo (sem blocks, sem type/content). "
               f"Verifique o YAML.", file=sys.stderr)
