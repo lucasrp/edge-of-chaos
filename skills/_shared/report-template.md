@@ -52,6 +52,13 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
    entry without a YAML spec skips Phase 2 (content report), producing no
    HTML. That path is forbidden by the uniform rite.
 
+   **Single review owner:** do not run standalone `edge-consult` or
+   `review-gate` before this command during the normal publication path.
+   `consolidate-state` owns the mandatory adversarial, Feynman, review-gate,
+   publication, meta-report, and state-commit phases. If a gate blocks, address
+   the emitted feedback and rerun `consolidate-state`; do not build a parallel
+   pre-publication review loop in the skill backend.
+
    Useful flags: `--scratchpad PATH`, `--reason TEXT`
    (Enforcement #218: bypass flags `--skip-review`, `--no-adversarial`, `--no-meta` were removed — all phases run unconditionally.)
 6. **Read meta-report** (`~/edge/meta-reports/<slug>-meta.md`) BEFORE editing status
@@ -181,46 +188,30 @@ SVG is not just for numbers — any information that communicates better as an i
 
 ---
 
-## Adversarial Sanity Check (edge-consult — MANDATORY in EVERY skill)
+## Review Ownership (MANDATORY)
 
-BEFORE generating the report YAML, submit the conclusions/recommendations to `edge-consult` for cross-model deliberation. GPT-5.4 (different model from the author) finds flaws, biases, weak premises.
+`consolidate-state` is the single owner of publication review. It runs:
 
-```bash
-# Adversarial (default) — synthesize conclusions in 2-3 sentences
-edge-consult "Summary: [conclusions]. Where is this reasoning weakest?" --context /tmp/spec.yaml
+- Phase 0.3: adversarial review;
+- Phase 0.45: Feynman judge;
+- Phase 0.5: review gate;
+- Phase 1-6: publication, report materialization, verification, meta-report,
+  state commit, audit, and git trail.
 
-# Collaborative (when stuck on direction)
-edge-consult --mode collab "I'm stuck on X, what angles to explore?"
-```
+Do not call `edge-consult` or `review-gate` manually before publishing in the
+normal skill backend. Manual review calls are allowed only for a genuinely
+decision-blocking research question, and their output must be summarized
+compactly rather than pasted into the prompt. Routine report quality gates
+belong to `consolidate-state`.
 
-**Response protocol:**
-1. Read the critique honestly
-2. If the argument is valid → adjust conclusions/YAML
-3. If maintaining position → record in the report as `callout` variant=info: "Sanity check GPT-5.4: [objection]. Response: [why I maintain my position]."
-
-**In the report:** include a block showing what was challenged and how you responded. Tested conviction > unchallenged conviction.
-
-**Cost:** ~$0.02/query. **Log:** ~/edge/logs/consult/ (for /ed-reflection to review).
+If `consolidate-state` blocks on review feedback, fix the specific YAML issues
+it reports and rerun `consolidate-state`. Do not regenerate the whole report
+or run a second standalone review loop unless the gate explicitly needs a new
+draft.
 
 ---
 
 ## Post-Report Steps (MANDATORY)
-
-### Review Gate (LLM-as-judge — RUN BEFORE publishing)
-
-Before calling `consolidate-state`, run the review gate for semantic validation:
-
-```bash
-# Standalone review (refinement loop)
-review-gate /tmp/spec-[skill]-[slug].yaml --skill [skill]
-
-# If FAIL: adjust YAML based on feedback, re-run until PASS
-# If PASS: publish
-```
-
-The review gate evaluates structural completeness, content depth, storytelling, Feynman reasoning, writing quality, visualization, intellectual honesty, internal consistency, and didactic clarity via the configured review router. Cost depends on the configured provider. Threshold: 3.5/5.
-
-**IMPORTANT:** `consolidate-state` runs the review gate automatically (Phase 0.5). If the YAML doesn't pass, publication is blocked — fix the YAML and re-run. (Enforcement #218: there is no bypass flag anymore — address the feedback.)
 
 ### Validation Gate (DO NOT SKIP)
 

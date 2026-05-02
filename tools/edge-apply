@@ -1846,9 +1846,9 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
     workflow_entries = [
         {
             "slug": "workflow-research-pipeline",
-            "title": "workflow: sources → consult → report",
-            "tags": ["workflow", "research", "sources", "edge-consult"],
-            "keywords": ["edge-sources", "edge-consult", "research", "pipeline"],
+            "title": "workflow: sources → research → report pipeline",
+            "tags": ["workflow", "research", "sources", "consolidate-state"],
+            "keywords": ["edge-sources", "consolidate-state", "research", "pipeline"],
             "secrets": ["openai.env"],
             "cost_estimate": "~$0.15/execution",
             "body": (
@@ -1857,10 +1857,10 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
                 "## Steps\n"
                 '1. `edge-sources "topic" --intent research` → source collection\n'
                 "2. LLM curation → filter signal from noise\n"
-                "3. `edge-consult` → adversarial review of draft\n"
-                "4. Blog entry + HTML report via `consolidate-state`\n\n"
+                "3. Draft YAML spec + light blog entry\n"
+                "4. `consolidate-state` → adversarial/Feynman/review gates + blog entry + HTML report + meta-report\n\n"
                 "## Secrets\n"
-                "- `openai.env` — adversarial review in step 3\n\n"
+                "- `openai.env` — review gates inside `consolidate-state`\n\n"
                 "## When it works\n"
                 "Technical-scientific topics with good coverage in sources.\n\n"
                 "## When it fails\n"
@@ -1871,21 +1871,21 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
         },
         {
             "slug": "workflow-adversarial-review",
-            "title": "workflow: adversarial review before publishing",
-            "tags": ["workflow", "quality", "edge-consult", "review-gate"],
-            "keywords": ["edge-consult", "review-gate", "adversarial", "quality"],
+            "title": "workflow: consolidate-state review gates before publishing",
+            "tags": ["workflow", "quality", "consolidate-state", "review-gate"],
+            "keywords": ["consolidate-state", "review-gate", "adversarial", "quality"],
             "secrets": ["openai.env"],
             "cost_estimate": "~$0.10/execution",
             "body": (
                 "## Trigger\n"
-                "Every blog entry and report before publication.\n\n"
+                "Every blog entry and report before publication, via `consolidate-state`.\n\n"
                 "## Steps\n"
                 "1. Draft blog entry with claims, threads, procedures\n"
-                "2. `edge-consult` with entry content → adversarial critique\n"
-                "3. If valid criticism found → adjust conclusions before building report\n"
-                "4. Build report YAML → `consolidate-state` publishes\n\n"
+                "2. Draft report YAML\n"
+                "3. `consolidate-state` runs adversarial/Feynman/review gates\n"
+                "4. Address valid gate critique and rerun `consolidate-state` if blocked\n\n"
                 "## Secrets\n"
-                "- `openai.env` — adversarial model (GPT)\n\n"
+                "- `openai.env` — review models used by `consolidate-state`\n\n"
                 "## When it works\n"
                 "Always. The adversarial catch rate justifies the cost.\n\n"
                 "## When it fails\n"
