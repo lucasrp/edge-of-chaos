@@ -3,10 +3,10 @@
 
 Usage:
   edge-dispatch open --trigger heartbeat --policy autonomous
-  edge-dispatch open --trigger operator --skill reflection --arg topic=enforcement
+  edge-dispatch open --trigger operator --skill planner --arg topic=enforcement
   edge-dispatch dispatch --skill research
   edge-dispatch close --status completed
-  edge-dispatch ack --skill reflection --source state-anchor-monitor
+  edge-dispatch ack --skill planner --source state-anchor-monitor
   edge-dispatch status
 """
 

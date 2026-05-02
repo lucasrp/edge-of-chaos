@@ -18,8 +18,10 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
 from paths import (  # noqa: E402
+    BEAT_CONTEXT_FILE,
     CAPABILITIES_STATUS_FILE,
     CONTINUITY_DELTAS_DIR,
+    CURATION_DIGEST_FILE,
     CURRENT_DISPATCH_FILE,
     DISPATCH_QUEUE_FILE,
     EDGE_INSTANCE,
@@ -72,12 +74,9 @@ _QUERY_KEYS = (
 
 SUBSTANTIVE_SKILLS = {
     "autonomy",
-    "reflection",
     "report",
     "research",
-    "map",
     "discovery",
-    "strategy",
     "planner",
 }
 
@@ -97,14 +96,11 @@ DEFAULT_HEALTH_CHECK_TIMEOUT_SECONDS = 45
 DEFAULT_OPEN_GAPS_PROJECTION_MAX_AGE_SECONDS = 6 * 60 * 60
 
 EXTERNAL_SEARCH_INTENTS = {
-    "autonomy": "strategy",
+    "autonomy": "research",
     "discovery": "discovery",
-    "map": "research",
     "planner": "planner",
-    "reflection": "reflection",
     "report": "report",
     "research": "research",
-    "strategy": "strategy",
 }
 
 
@@ -369,7 +365,7 @@ def _priority_hints_for_heartbeat(state: dict[str, Any]) -> list[dict[str, Any]]
         hints.append(
             {
                 "reason": "async_inbox_priority",
-                "skill": "reflection",
+                "skill": "planner",
                 "priority": priority or "high",
             }
         )
@@ -382,6 +378,17 @@ def _priority_hints_for_heartbeat(state: dict[str, Any]) -> list[dict[str, Any]]
                 "reason": "self_healing_needs_llm",
                 "skill": "autonomy",
                 "primitive_count": len(needs_llm),
+            }
+        )
+
+    beat_context = request.get("beat_context") or {}
+    curation_skill = _normalize_skill_name(beat_context.get("dispatch_recommendation"))
+    if curation_skill in set(HEARTBEAT_FAIRNESS_SKILLS) | {"autonomy"}:
+        hints.append(
+            {
+                "reason": "internal_curation_recommendation",
+                "skill": curation_skill,
+                "detail": str(beat_context.get("dispatch_recommendation_reason") or ""),
             }
         )
 
@@ -525,7 +532,7 @@ def _resolve_runtime_policy(skill: str | None, args: dict[str, Any]) -> dict[str
         corpus_policy = explicit
     elif normalized in {"research", "report", "discovery"}:
         corpus_policy = "warn"
-    elif normalized in {"heartbeat", "reflection", "autonomy", "strategy", "blog"}:
+    elif normalized in {"heartbeat", "autonomy", "blog"}:
         corpus_policy = "off"
     else:
         corpus_policy = "warn"
@@ -860,6 +867,120 @@ def build_beat_launch_context(request: dict[str, Any]) -> dict[str, Any]:
     return context
 
 
+def _strategy_preview(limit: int = 320) -> str:
+    path = EDGE_REPO_DIR / "config" / "strategy.md"
+    if not path.exists():
+        return ""
+    try:
+        lines = []
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            text = raw.strip()
+            if not text or text.startswith("#") or text.startswith("<!--"):
+                continue
+            lines.append(text)
+            if len(" ".join(lines)) >= limit:
+                break
+        return " ".join(lines)[:limit]
+    except Exception:
+        return ""
+
+
+def _first_text(values: Any) -> str:
+    if isinstance(values, list):
+        for item in values:
+            if isinstance(item, dict):
+                text = str(item.get("text") or item.get("summary") or item.get("title") or "").strip()
+            else:
+                text = str(item or "").strip()
+            if text:
+                return text
+    if isinstance(values, str):
+        return values.strip()
+    return ""
+
+
+def _recommend_action_skill(request: dict[str, Any], beat_launch: dict[str, Any]) -> tuple[str, str]:
+    rotation = _read_heartbeat_rotation_state()
+    cursor = int(rotation.get("cursor") or 0) % len(HEARTBEAT_FAIRNESS_SKILLS)
+    fairness_candidate = HEARTBEAT_FAIRNESS_SKILLS[cursor]
+    self_healing = request.get("self_healing") or {}
+    if self_healing.get("needs_llm"):
+        return "autonomy", "primitive self-healing needs an LLM repair lane"
+
+    operator_text = " ".join(beat_launch.get("signal_from_operator_now") or []).lower()
+    open_gaps = int((request.get("open_gaps_summary") or {}).get("open_total", 0) or 0)
+    if any(token in operator_text for token in ("implementar", "implement", "pr ", "issue", "fix", "corrija", "deploy")):
+        return "planner", "operator pressure is asking for concrete execution sequencing"
+    if any(token in operator_text for token in ("relatorio", "report", "publique", "sintese", "summary")):
+        return "report", "operator pressure is asking for synthesis"
+    if open_gaps or "gap" in operator_text:
+        return "research", "open gaps are the dominant unresolved state"
+    return fairness_candidate, "no dominant curation override; follow action-skill rotation"
+
+
+def run_internal_heartbeat_curation(state: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
+    beat_launch = request.get("beat_launch_context") or {}
+    curation_digest = _read_json(CURATION_DIGEST_FILE, {})
+    if not isinstance(curation_digest, dict):
+        curation_digest = {}
+    open_gaps = request.get("open_gaps_summary") or {}
+    health = request.get("health_snapshot") or {}
+    recommendation, reason = _recommend_action_skill(request, beat_launch)
+
+    broken = _first_text(beat_launch.get("signal_from_edge_state_now"))
+    if not broken and str(health.get("status") or "").lower() not in {"", "ok", "healthy"}:
+        broken = str(health.get("detail") or health.get("status") or "").strip()
+    if not broken:
+        broken = "No dominant broken state surfaced in preflight."
+
+    matters = _first_text(beat_launch.get("signal_from_operator_now")) or _strategy_preview()
+    if not matters:
+        matters = "No dominant operator pressure; follow action-skill rotation."
+
+    recent_gaps = open_gaps.get("recent_open_gaps") or []
+    gap_text = _first_text(recent_gaps)
+    injected = _first_text(beat_launch.get("pre_skill_context")) or gap_text or matters
+
+    beat_context = {
+        "schema_version": 1,
+        "generated_at": _now_iso(),
+        "ephemeral": True,
+        "what_is_broken": broken[:500],
+        "what_matters_now": matters[:500],
+        "dispatch_recommendation": recommendation,
+        "dispatch_recommendation_reason": reason,
+        "injected_context": injected[:800],
+        "open_gaps_total": int(open_gaps.get("open_total", 0) or 0),
+        "topics_total": int((curation_digest.get("topics") or {}).get("total", 0) or 0),
+        "curation_digest": str(CURATION_DIGEST_FILE),
+        "strategy_input": str(EDGE_REPO_DIR / "config" / "strategy.md"),
+    }
+    _write_json(BEAT_CONTEXT_FILE, beat_context)
+    request["beat_context"] = beat_context
+    emit_shadow_event(
+        "HeartbeatInternalCurationCompleted",
+        actor="edge-preflight",
+        artifact=str(BEAT_CONTEXT_FILE),
+        cycle_id=state.get("cycle_id"),
+        payload={
+            "dispatch_recommendation": recommendation,
+            "open_gaps_total": beat_context["open_gaps_total"],
+            "topics_total": beat_context["topics_total"],
+        },
+    )
+    log_event(
+        "heartbeat_internal_curation",
+        actor="edge-preflight",
+        cycle_id=state.get("cycle_id"),
+        action="completed",
+        dispatch_recommendation=recommendation,
+        open_gaps_total=beat_context["open_gaps_total"],
+        topics_total=beat_context["topics_total"],
+        artifact=str(BEAT_CONTEXT_FILE),
+    )
+    return beat_context
+
+
 def _delta_required_for_skill(skill: str | None) -> bool:
     normalized = _normalize_skill_name(skill)
     return normalized in SUBSTANTIVE_SKILLS
@@ -949,11 +1070,6 @@ def _compact_handoff_section(payload: Any) -> dict[str, Any]:
 
 
 def _delta_digest_update_owner(skill: str | None) -> str | None:
-    normalized = _normalize_skill_name(skill)
-    if normalized == "strategy":
-        return "work"
-    if normalized == "reflection":
-        return "learning"
     return None
 
 
@@ -1095,8 +1211,8 @@ def build_delta_prerequisite(state: dict[str, Any], *, skill: str | None, stage:
         "digest_update_contract": {
             "required_for_current_skill": digest_update_owner is not None,
             "owner_section": digest_update_owner,
-            "cli": "edge-delta update --skill <strategy|reflection> --payload-file <json>",
-            "policy": "strategy curates work; reflection curates learning; both may refresh short handoff guidance",
+            "cli": "edge-delta update --skill <skill> --payload-file <json>",
+            "policy": "delta persistence is optional; heartbeat curation owns ephemeral beat context",
             "no_op": "edge-delta update --skill <skill> --no-op --summary '<why nothing changed>'",
         },
         "inputs": {
@@ -1166,8 +1282,8 @@ def build_delta_prerequisite(state: dict[str, Any], *, skill: str | None, stage:
                 },
             },
             "new_delta_digest": {
-                "work": "strategy-owned open work, archives, priority threads, and surface baselines",
-                "learning": "reflection-owned recent failures, durable rules, protocol gaps, and skill patch candidates",
+                "work": "open work, archives, priority threads, and surface baselines",
+                "learning": "recent failures, durable rules, protocol gaps, and skill patch candidates",
                 "handoff": "short guidance to inject into the next skill",
                 "summary": "short continuity digest for the next beat",
             },
@@ -1997,6 +2113,7 @@ def enrich_dispatch_state(
     request["beat_launch_context"] = build_beat_launch_context(request)
     request["delta_prerequisite"] = build_delta_prerequisite(state, skill=skill, stage=stage)
     if _heartbeat_skill_active(state, skill):
+        run_internal_heartbeat_curation(state, request)
         prepare_heartbeat_routing(state, skill=skill)
     state_block["preflight_status"] = "warning" if failed_steps else "completed"
     state_block["preflight_checked_at"] = _now_iso()
@@ -2039,6 +2156,7 @@ def enrich_dispatch_state(
         "self_healing_recovered": ((request.get("self_healing") or {}).get("summary") or {}).get("recovered_total", 0),
         "beat_launch_operator_signals": len((request.get("beat_launch_context") or {}).get("signal_from_operator_now") or []),
         "beat_launch_edge_state_signals": len((request.get("beat_launch_context") or {}).get("signal_from_edge_state_now") or []),
+        "beat_context_recommendation": (request.get("beat_context") or {}).get("dispatch_recommendation"),
         "delta_prerequisite_required": bool((request.get("delta_prerequisite") or {}).get("required")),
         "delta_digest_update_required": bool((request.get("delta_prerequisite") or {}).get("digest_update_required")),
         "delta_digest_update_owner": (request.get("delta_prerequisite") or {}).get("digest_update_owner"),
@@ -2117,6 +2235,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "operator_pressure_digest": request.get("operator_pressure_digest", {}),
         "operator_pressure_summary": request.get("operator_pressure_summary", {}),
         "beat_launch_context": request.get("beat_launch_context", {}),
+        "beat_context": request.get("beat_context", {}),
         "delta_prerequisite": delta_prerequisite,
         "configured_integrations": request.get("configured_integrations", [])[:12],
         "unbound_integrations": request.get("unbound_integrations", [])[:12],
@@ -2167,7 +2286,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "The `operator_pressure_digest` captures recent operator signal only. The `beat_launch_context` is the ephemeral composition of that operator signal with current edge-state signals and the exploration budget for this beat. Treat those two together as the launch frame for what matters now.\n\n"
         "DELTA PREREQUISITE:\n"
         "For substantive non-heartbeat skills, `request.delta_prerequisite.required` is true. Before the main skill performs substantive work, execute the internal `ed-delta` pass over `request.delta_prerequisite`: reconcile previous_delta_digest, raw chat, structured preflight state, events, and relevant work surfaces; produce a `delta_frame`; and carry `delta_frame.work_continuity.inject_to_next_skill` into the main skill. The delta pass runs in this same backend invocation, so its explored text and frame remain available to the dispatched skill. If no real delta is found, state that explicitly and continue with an empty delta frame.\n\n"
-        "If `request.delta_prerequisite.digest_update_required` is true, persist a compact curated update before closing the skill: `strategy` owns the digest `work` section, `reflection` owns the digest `learning` section, and both may update short `handoff` guidance. Use `edge-delta update --skill <skill> --payload-file <json>` or record an explicit no-op with `edge-delta update --skill <skill> --no-op --summary <reason>`.\n\n"
+        "If `request.delta_prerequisite.digest_update_required` is true, persist a compact curated update before closing the skill with `edge-delta update --skill <skill> --payload-file <json>` or record an explicit no-op with `edge-delta update --skill <skill> --no-op --summary <reason>`. Heartbeat curation normally owns ephemeral beat context, so most action skills can leave this false.\n\n"
         "Prefer `edge-cap invoke <capability> -- ...` over direct CLI/tool calls when a capability exists in `capabilities_status`.\n\n"
         "Before any substantive decision, synthesis, or artifact drafting in non-heartbeat skills, read `exploration_pack` first. "
         "The runtime has already performed the mandatory read-only exploration loop: memory retrieval, source/signal fan-out, adversarial Feynman interpretation, and a targeted second round. "

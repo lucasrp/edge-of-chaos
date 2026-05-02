@@ -215,13 +215,10 @@ Skills are Claude Code slash commands in `~/.claude/skills/PREFIX-NAME/SKILL.md`
 - `heartbeat` — autonomous dispatcher
 - `research` — directed deep research
 - `discovery` — lateral exploration and practical discoveries
-- `reflection` — operational learning loop
-- `strategy` — cross-project strategic curation
 - `planner` — concrete development-cycle proposals
 - `autonomy` — operational substrate improvement
 - `report` — structured analytical reports
 - `sources` — source/signal workflow curation
-- `map` — internal relationship mapping
 - `loader` — manual session resume
 
 ### Creating New Skills

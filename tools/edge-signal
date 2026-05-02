@@ -102,6 +102,6 @@ PYEOF
 if [[ -f "$FILE" ]]; then
     LINES=$(wc -l < "$FILE")
     if [[ "$LINES" -gt 100 ]]; then
-        echo "WARN: $TYPE.md has $LINES lines (>100). Run /ed-reflection to compress."
+        echo "WARN: $TYPE.md has $LINES lines (>100). Let heartbeat curation compress or route it."
     fi
 fi

@@ -5,7 +5,7 @@ Reads `logs/events.jsonl`, filters `type == "llm_call"`, aggregates into
 `state/cost-rollup.json` with per-day, per-skill, per-model breakdowns and
 a monthly burn estimate.
 
-Consumers: /ed-strategy (budget gating), /ed-autonomy (per-artifact cost).
+Consumers: heartbeat curation (budget gating), /ed-autonomy (per-artifact cost).
 """
 
 from __future__ import annotations

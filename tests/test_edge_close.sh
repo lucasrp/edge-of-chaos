@@ -355,7 +355,7 @@ assert not skill_requires_artifact_publication("ed-loader", instance="ed")
 assert not skill_requires_artifact_publication("heartbeat")
 assert skill_requires_artifact_publication("autonomy")
 assert skill_requires_artifact_publication("ed-autonomy", instance="ed")
-assert skill_requires_artifact_publication("reflection")
+assert skill_requires_artifact_publication("planner")
 PY
 then
     pass "edge-close policy exempts delta and loader support skills only"

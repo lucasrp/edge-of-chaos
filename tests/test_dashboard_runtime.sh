@@ -43,7 +43,7 @@ cat >"$TMP_STATE/state/current-dispatch.json" <<'JSON'
   "cycle_id": "cycle-20260420T210000Z-test01",
   "request": {
     "trigger": "heartbeat",
-    "skill": "reflection",
+    "skill": "planner",
     "policy": "autonomous"
   },
   "state": {
@@ -71,7 +71,7 @@ cat >"$TMP_STATE/state/events/log.jsonl" <<'JSONL'
 JSONL
 
 cat >"$TMP_STATE/logs/skill-steps.jsonl" <<'JSONL'
-{"skill":"reflection","event":"end","expected":5,"done":4,"explicit_skips":1,"silent_skips":["crossref"],"completion_pct":80,"ts":"2026-04-20T20:02:00"}
+{"skill":"planner","event":"end","expected":5,"done":4,"explicit_skips":1,"silent_skips":["crossref"],"completion_pct":80,"ts":"2026-04-20T20:02:00"}
 {"skill":"research","event":"end","expected":6,"done":6,"explicit_skips":0,"silent_skips":[],"completion_pct":100,"ts":"2026-04-20T20:32:00"}
 JSONL
 
@@ -175,7 +175,7 @@ assert runtime.status_code == 200, runtime.status_code
 data = runtime.get_json()
 
 assert data["runtime_current_cycle"]["active"] is True
-assert data["runtime_current_cycle"]["skill"] == "reflection"
+assert data["runtime_current_cycle"]["skill"] == "planner"
 assert data["runtime_skill_evidence"]["pre_skill"]["status"] == "gap"
 assert data["runtime_skill_evidence"]["post_skill"]["status"] == "gap"
 assert data["runtime_skill_evidence"]["skill_runs_total"] == 2
@@ -193,7 +193,7 @@ partial = client.get("/partials/runtime")
 assert partial.status_code == 200, partial.status_code
 text = partial.get_data(as_text=True)
 assert "runtime transparency" in text
-assert "reflection" in text
+assert "planner" in text
 assert "primitives status" in text
 assert "degraded" in text
 assert "broken" in text

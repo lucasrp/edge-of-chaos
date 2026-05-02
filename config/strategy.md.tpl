@@ -23,12 +23,12 @@
 
 ## Proposals (agent — pending approval)
 
-<!-- ed-strategy writes here. Operator accepts/rejects. -->
+<!-- Operator-owned strategic direction. Heartbeat curation reads this. -->
 
 _No proposals pending._
 
 ## Context (agent — informational)
 
-<!-- Data that informs strategy. Updated by ed-strategy. -->
+<!-- Data that informs strategy. Updated manually or by explicit operator action. -->
 
-_Awaiting first strategy cycle._
+_Awaiting operator direction._

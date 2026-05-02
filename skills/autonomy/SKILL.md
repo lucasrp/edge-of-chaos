@@ -8,7 +8,7 @@ user-invocable: true
 
 Use this skill when the agent should improve its own ability to work.
 
-Autonomy is not strategy, reflection, or project execution. It evaluates the current capability substrate, finds missing or wasteful operational affordances, and attempts every substrate improvement it can reach.
+Autonomy is not planning, reporting, or project execution. It evaluates the current capability substrate, finds missing or wasteful operational affordances, and attempts every substrate improvement it can reach.
 
 ## Responsibility
 
@@ -29,7 +29,7 @@ A run is incomplete if it only observes missing capability and leaves no decisio
 - `probe`: validate an existing primitive or capability;
 - `workflow`: update or route a repeatable agent-owned workflow;
 - `blocked`: tried, but a command, credential, permission, dependency, verification, or runtime error prevented completion;
-- `route`: send product, strategy, planning, or reflection work to the right skill.
+- `route`: send product, planning, or reporting work to the right skill.
 
 Autonomy does not own project delivery, product code, broad refactors, or skill creation.
 
@@ -62,7 +62,7 @@ Also inspect when relevant:
 - `state/source-affordance-digest.json`;
 - runtime capability and workflow status;
 - `request.self_healing` from preflight;
-- operational signals such as autonomy, friction, cost, reflection, and serendipity;
+- operational signals such as autonomy, friction, cost, review, and serendipity;
 - recent failed or repeated tool/search/signal paths;
 - local workflow and primitive usage evidence.
 
@@ -191,11 +191,11 @@ Do not run `consolidate-state` for autonomy unless the operator explicitly asked
 
 ## Routing
 
-- repeated mistake or stale operating rule -> `ed-reflection`;
-- stale claims, project sequencing, or action queue -> `ed-strategy`;
+- repeated mistake or stale operating rule -> heartbeat curation or `ed-planner`;
+- stale gaps, project sequencing, or action queue -> `ed-planner`;
 - external-practice question after local attempt fails -> `ed-research`;
 - product or implementation plan -> `ed-planner`;
-- internal relationships between capabilities, workflows, and projects -> `ed-map`;
+- internal relationships between capabilities, workflows, and projects -> `ed-research`;
 - current state summary -> status/context tool.
 
 ## Invariants

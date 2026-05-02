@@ -261,7 +261,7 @@ fi
 echo "=== PREFLIGHT $(date +%H:%M) ==="
 if [ ${#SIGNALS[@]} -eq 0 ]; then
   echo "PREFLIGHT_CLEAN"
-  echo "No signals detected. Use round-robin rotation (2 content + 1 meta every 3rd beat)."
+  echo "No signals detected. Use action-skill rotation with heartbeat curation context."
 else
   echo "PREFLIGHT_WORK (${#SIGNALS[@]} signals)"
   for s in "${SIGNALS[@]}"; do

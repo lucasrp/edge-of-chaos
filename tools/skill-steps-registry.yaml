@@ -24,9 +24,6 @@ aliases:
   discovery: ed-discovery
   descoberta: ed-discovery
   ed-descoberta: ed-discovery
-  strategy: ed-strategy
-  estrategia: ed-strategy
-  ed-estrategia: ed-strategy
   autonomy: ed-autonomy
   autonomia: ed-autonomy
   ed-autonomia: ed-autonomy
@@ -37,15 +34,10 @@ aliases:
   plan: ed-planner
   planejar: ed-planner
   ed-planejar: ed-planner
-  reflection: ed-reflection
-  reflexao: ed-reflection
-  ed-reflexao-HN: ed-reflection
-  ed-reflexao-M: ed-reflection
   sources: ed-sources
   fontes: ed-sources
   heartbeat: ed-heartbeat
   loader: ed-loader
-  map: ed-map
   delta: ed-delta
 
 skills:
@@ -60,12 +52,6 @@ skills:
     - "explore:Find a non-obvious tool, model, pattern, or analogy"
     - "application:Explain what changes because of the discovery"
     - "persistence:Record or route the discovery when it should affect future work"
-
-  ed-strategy:
-    - "state:Review active projects, claims, threads, and constraints"
-    - "classify:Classify work as move, block, merge, park, archive, or route"
-    - "decision:Produce an action queue with ownership and rationale"
-    - "handoff:Update or route the strategic digest when needed"
 
   ed-autonomy:
     - "diagnosis:Identify a substrate capability, primitive, workflow, or friction gap"
@@ -85,12 +71,6 @@ skills:
     - "risks:Name dependencies, risks, and validation gates"
     - "handoff:Produce a proposal/action handoff without executing the plan"
 
-  ed-reflection:
-    - "evidence:Inspect repeated failures, feedback, stale rules, or contradictory state"
-    - "diagnosis:Identify the operational lesson or root cause"
-    - "correction:Apply, route, archive, or monitor the correction explicitly"
-    - "learning:Persist the durable rule or no-op rationale in the right place"
-
   ed-sources:
     - "history:Inspect source/search/signal evidence or feedback"
     - "assessment:Grade channel/query/workflow usefulness and failure modes"
@@ -106,12 +86,6 @@ skills:
     - "briefing:Regenerate/read the current briefing or equivalent persisted summary"
     - "inbox:Inspect loader-relevant operator input"
     - "summary:Return compact current context and active threads"
-
-  ed-map:
-    - "nodes:Identify relevant internal nodes"
-    - "edges:Extract evidence-backed relationships and inferred links separately"
-    - "view:Surface paths, clusters, conflicts, duplicates, or gaps"
-    - "route:Route stale, missing, or strategic follow-up work"
 
   ed-delta:
     - "inputs:Load previous digest, raw chat, preflight state, events, and surfaces"

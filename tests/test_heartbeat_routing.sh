@@ -125,7 +125,7 @@ state = {
         "trigger": "heartbeat",
         "skill": "heartbeat",
         "async_inbox": {"priority": "high", "direct_messages": [{"id": "m1"}], "steering_intents": []},
-        "dispatch_queue_summary": {"pending_total": 1, "head": {"skill": "strategy", "source": "reflection"}},
+        "dispatch_queue_summary": {"pending_total": 1, "head": {"skill": "planner", "source": "internal-curation"}},
     },
     "state": {},
 }
@@ -133,8 +133,8 @@ routing = prepare_heartbeat_routing(state, skill="heartbeat")
 assert routing is not None
 hints = routing["priority_hints"]
 assert hints[0]["reason"] == "dispatch_queue_pending"
-assert hints[0]["skill"] == "strategy"
-assert any(item["reason"] == "async_inbox_priority" and item["skill"] == "reflection" for item in hints)
+assert hints[0]["skill"] == "planner"
+assert any(item["reason"] == "async_inbox_priority" and item["skill"] == "planner" for item in hints)
 PY
 then
     pass "priority hints override fairness when queue or inbox is hot"

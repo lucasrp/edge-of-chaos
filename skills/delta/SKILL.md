@@ -6,7 +6,7 @@ user-invocable: false
 
 # Delta - Work Continuity Frame
 
-Use this skill only as an internal prerequisite before a substantive skill (`ed-research`, `ed-strategy`, `ed-planner`, `ed-autonomy`, `ed-reflection`, `ed-report`, `ed-map`, or `ed-discovery`) begins its own work.
+Use this skill only as an internal prerequisite before a substantive skill (`ed-research`, `ed-planner`, `ed-autonomy`, `ed-report`, or `ed-discovery`) begins its own work.
 
 Its job is to answer: what changed since the last useful work frame, what is still open, and what must the next skill carry forward?
 
@@ -16,7 +16,7 @@ The delta pass runs inside the same backend invocation as the dispatched skill. 
 
 Use `request.delta_prerequisite` as the contract. It contains:
 
-- `previous_delta_digest`: curated `work`, `learning`, and `handoff` state from prior strategy/reflection runs.
+- `previous_delta_digest`: curated `work`, `learning`, and `handoff` state from prior delta runs.
 - `raw_chat`: recent operator messages and source refs.
 - `strategic_context`: beat launch context, operator pressure, queue, and open gaps.
 - `surfaces`: configured integrations, capabilities, previous baselines, and open work.
@@ -35,7 +35,7 @@ If `previous_delta_digest` is missing from runtime context, use `edge-delta show
 4. Probe only as much as needed to establish whether a real delta exists.
 5. Classify each checked surface as `delta`, `non_delta`, or `unverified`.
 6. Curate open work: keep, create, merge, block, complete, or archive.
-7. Produce `delta_frame` for the next skill. Strategy/reflection own persistence through `edge-delta update`.
+7. Produce `delta_frame` for the next skill. Persistence through `edge-delta update` is optional unless runtime explicitly requires it.
 
 ## Delta Rules
 
@@ -54,9 +54,9 @@ Do not call something a delta just because context exists. If a surface was chec
 
 The digest has three curated sections:
 
-- `work`: open work, archived work, priority threads, and surface baselines. Strategy owns this.
-- `learning`: recent failures, durable rules, protocol gaps, and skill patch candidates. Reflection owns this.
-- `handoff`: short guidance to inject into the next skill. Strategy and reflection may both update this.
+- `work`: open work, archived work, priority threads, and surface baselines.
+- `learning`: recent failures, durable rules, protocol gaps, and skill patch candidates.
+- `handoff`: short guidance to inject into the next skill.
 
 Open work may contain many entries, but it is not a passive backlog.
 

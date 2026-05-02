@@ -61,7 +61,7 @@ Useful feedback is structured. For each search/signal episode, capture:
 
 | Field | Meaning |
 |---|---|
-| Task intent | research, discovery, strategy, heartbeat, reflection, planner, report, etc. |
+| Task intent | research, discovery, heartbeat, planner, report, etc. |
 | Query pattern | exact query shape or source route tested |
 | Source/channel | e.g. `source.hn`, `source.x`, `source.exa`, `signal.friction`, `search.corpus` |
 | Affordance | novelty, confirmation, continuity, operational_signal, implementation_pattern, primary_source, counterexample |

@@ -98,7 +98,7 @@ Every change goes through one question: is this genotype or phenotype?
 
 **Heartbeat**
 
-The agent wakes every 2h via systemd timer. It evaluates context (sessions, threads, tasks, health) and dispatches one skill — research, discovery, creative break, reflection, strategy, or execution.
+The agent wakes every 2h via systemd timer. It runs internal heartbeat curation over sessions, threads, tasks, and health, then dispatches one action skill: research, discovery, report, planner, or autonomy.
 
 **Adversarial Review**
 

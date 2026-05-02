@@ -98,7 +98,7 @@ else
     fail "substantive skills get explicit search/epistemic runtime protocol"
 fi
 
-echo "--- Test 1b: strategy/reflection own curated delta digest updates ---"
+echo "--- Test 1b: heartbeat curation owns ephemeral context; action skills do not require digest writes ---"
 if python3 - <<'PY' "$EDGE_DIR"
 import sys
 from pathlib import Path
@@ -108,24 +108,21 @@ sys.path.insert(0, str(edge_dir / "tools"))
 
 from _shared.dispatch_runtime import build_delta_prerequisite
 
-strategy = build_delta_prerequisite({"request": {"skill": "strategy"}}, skill="strategy", stage="dispatch")
-reflection = build_delta_prerequisite({"request": {"skill": "reflection"}}, skill="reflection", stage="dispatch")
+planner = build_delta_prerequisite({"request": {"skill": "planner"}}, skill="planner", stage="dispatch")
+report = build_delta_prerequisite({"request": {"skill": "report"}}, skill="report", stage="dispatch")
 research = build_delta_prerequisite({"request": {"skill": "research"}}, skill="research", stage="dispatch")
 
-assert strategy["digest_update_required"] is True
-assert strategy["digest_update_owner"] == "work"
-assert strategy["digest_update_contract"]["cli"].startswith("edge-delta update")
-assert reflection["digest_update_required"] is True
-assert reflection["digest_update_owner"] == "learning"
-assert research["digest_update_required"] is False
-assert research["digest_update_owner"] is None
-assert "curated_learning" in strategy["inputs"]["surfaces"]
-assert "curated_handoff" in strategy["inputs"]["surfaces"]
+for item in (planner, report, research):
+    assert item["required"] is True
+    assert item["digest_update_required"] is False
+    assert item["digest_update_owner"] is None
+    assert item["digest_update_contract"]["required_for_current_skill"] is False
+    assert "heartbeat curation owns ephemeral beat context" in item["digest_update_contract"]["policy"]
 PY
 then
-    pass "strategy/reflection own curated delta digest updates"
+    pass "heartbeat curation owns ephemeral context; action skills do not require digest writes"
 else
-    fail "strategy/reflection own curated delta digest updates"
+    fail "heartbeat curation owns ephemeral context; action skills do not require digest writes"
 fi
 
 echo "--- Test 2: heartbeat is exempt from the substantive protocol ---"
