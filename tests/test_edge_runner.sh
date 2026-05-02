@@ -901,6 +901,52 @@ else
     fail "health snapshot refresh timeout falls back to the last snapshot"
 fi
 
+echo "--- Test 11: preflight claims summary uses cached projections ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_BASE"
+import importlib
+import json
+import os
+import sys
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+tmp_base = Path(sys.argv[2])
+runtime = tmp_base / "claims-cache-runtime"
+projection_dir = runtime / "state" / "projections"
+projection_dir.mkdir(parents=True, exist_ok=True)
+claims_path = projection_dir / "claims-digest.json"
+orphans_path = projection_dir / "orphan-claims.json"
+claims_path.write_text(json.dumps({"open_total": 2, "verified_total": 5, "attention_count": 1}), encoding="utf-8")
+orphans_path.write_text(json.dumps({"orphan_total": 3, "open_orphan_total": 1}), encoding="utf-8")
+
+sys.path.insert(0, str(edge_dir / "tools"))
+module = importlib.import_module("_shared.dispatch_runtime")
+module.CLAIMS_DIGEST_FILE = claims_path
+module.ORPHAN_CLAIMS_FILE = orphans_path
+if hasattr(module, "refresh_continuity_projections"):
+    def _explode():
+        raise AssertionError("preflight claims summary must not refresh continuity projections")
+    module.refresh_continuity_projections = _explode
+
+os.environ["EDGE_PREFLIGHT_CLAIMS_MAX_AGE_SEC"] = "86400"
+try:
+    claims, orphans = module._claims_summary()
+finally:
+    os.environ.pop("EDGE_PREFLIGHT_CLAIMS_MAX_AGE_SEC", None)
+
+assert claims["open_total"] == 2
+assert claims["verified_total"] == 5
+assert claims["projection_status"] == "cached"
+assert orphans["orphan_total"] == 3
+assert orphans["open_orphan_total"] == 1
+assert orphans["projection_status"] == "cached"
+PY
+then
+    pass "preflight claims summary uses cached projections"
+else
+    fail "preflight claims summary uses cached projections"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"
