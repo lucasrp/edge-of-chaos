@@ -194,9 +194,38 @@ assert dispatch["state"]["close_reason"] == "missing_artifact_published"
 assert dispatch["state"]["postflight_status"] == "failed"
 PY
 then
-    pass "edge-close requires artifact publication for every completed skill"
+    pass "edge-close requires artifact publication for publishing skills"
 else
-    fail "edge-close requires artifact publication for every completed skill"
+    fail "edge-close requires artifact publication for publishing skills"
+fi
+
+echo "--- Test 2b: operational skills close without artifact publication evidence ---"
+"$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-operational --force >/dev/null
+"$DISPATCH_TOOL" dispatch --skill roberto-autonomy >/dev/null
+EDGE_CYCLE_ID=cycle-close-operational "$STEP_TOOL" /roberto-autonomy diagnosis >/dev/null
+EDGE_CYCLE_ID=cycle-close-operational "$STEP_TOOL" /roberto-autonomy end >/dev/null
+"$CLOSE_TOOL" --status completed >/dev/null
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/logs/post-skill.log"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+postflight = open(sys.argv[2], encoding="utf-8").read()
+steps = dispatch["state"].get("postflight_steps", [])
+
+assert dispatch["request"]["skill"] == "roberto-autonomy"
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+assert dispatch["state"]["close_reason"] != "missing_artifact_published"
+assert dispatch["state"]["postflight_status"] in {"completed", "warning"}
+assert "procedure: artifact_published | status: OK" not in postflight
+assert len(steps) >= 6
+PY
+then
+    pass "edge-close exempts prefixed operational skills from artifact publication"
+else
+    fail "edge-close exempts prefixed operational skills from artifact publication"
 fi
 
 echo "--- Test 3: completed close succeeds with skill end evidence, artifact publication, and postflight ---"
