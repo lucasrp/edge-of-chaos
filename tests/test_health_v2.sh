@@ -199,6 +199,53 @@ else
   fail "rollup-health-v2 execution failed"
 fi
 
+echo "--- Test 2: cycle health observation scans bounded JSONL tails ---"
+if env HOME="$TMP_HOME" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" EDGE_JSONL_TAIL_BYTES=8192 python3 - "$EDGE_DIR" "$TMP_BASE" <<'PY'
+import importlib
+import json
+import sys
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+tmp_base = Path(sys.argv[2])
+state_dir = tmp_base / "cycle-health-tail" / "state" / "events"
+state_dir.mkdir(parents=True, exist_ok=True)
+events_path = state_dir / "log.jsonl"
+
+cycle_id = "cycle-health-tail-proof"
+large_payload = "x" * 2048
+with events_path.open("w", encoding="utf-8") as handle:
+    for index in range(5000):
+        handle.write(json.dumps({
+            "ts": "2026-05-01T00:00:00+00:00",
+            "type": "PrimitiveInvocationObserved",
+            "cycle_id": "old-cycle",
+            "payload": {"source": "old", "noise": large_payload, "index": index},
+        }) + "\n")
+    handle.write(json.dumps({
+        "ts": "2026-05-02T00:01:00+00:00",
+        "type": "PrimitiveInvocationObserved",
+        "cycle_id": cycle_id,
+        "payload": {"source": "exa"},
+    }) + "\n")
+
+sys.path.insert(0, str(edge_dir / "tools"))
+module = importlib.import_module("_shared.health_runtime")
+
+def fail_full_read(path):
+    raise AssertionError("cycle health must not read the full JSONL file")
+
+module._read_jsonl = fail_full_read
+observations = module.observe_cycle_health_events({"cycle_id": cycle_id}, path=events_path)
+assert observations["primitive_bypass"] == 1
+assert events_path.stat().st_size > 8 * 1024 * 1024
+PY
+then
+  pass "cycle health observation scans bounded JSONL tails"
+else
+  fail "cycle health observation scans bounded JSONL tails"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"
