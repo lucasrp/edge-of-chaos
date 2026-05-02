@@ -290,6 +290,46 @@ else
     fail "close finalizes state and emits CycleClosed"
 fi
 
+echo "--- Test 4a: dispatch skips heavy preflight enrichment when preflight already ran ---"
+"$DISPATCH_TOOL" open --trigger operator --cycle-id cycle-preflight-ready --skill research >/dev/null
+python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json"
+import json
+import sys
+
+path = sys.argv[1]
+dispatch = json.load(open(path, encoding="utf-8"))
+dispatch["state"]["preflight_status"] = "completed"
+dispatch["state"]["preflight_checked_at"] = "2026-05-02T00:00:00+00:00"
+dispatch["request"]["schema_version"] = 1
+dispatch["request"]["preflight_evidence"] = [{"id": "sentinel", "kind": "sentinel.preflight"}]
+dispatch["request"]["health_snapshot"] = {"status": "cached", "score": 100}
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(dispatch, handle, indent=2)
+PY
+EDGE_CYCLE_ID=cycle-preflight-ready "$DISPATCH_TOOL" dispatch --skill research >/dev/null
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+cycle_events = [event for event in events if event.get("cycle_id") == "cycle-preflight-ready"]
+
+assert dispatch["state"]["skill_dispatched"] is True
+assert dispatch["state"]["phase"] == "skill_dispatched"
+assert dispatch["request"]["preflight_evidence"] == [{"id": "sentinel", "kind": "sentinel.preflight"}]
+assert not [event for event in cycle_events if event["type"] == "PreSkillContextLoaded"]
+assert [event for event in cycle_events if event["type"] == "SkillDispatched"]
+PY
+then
+    pass "dispatch skips heavy preflight enrichment when preflight already ran"
+else
+    fail "dispatch skips heavy preflight enrichment when preflight already ran"
+fi
+
+EDGE_CYCLE_ID=cycle-preflight-ready "$DISPATCH_TOOL" close --status aborted >/dev/null
+
 echo "--- Test 4b: force does not replace an active cycle owned by a live runner ---"
 EDGE_RUNNER_PID=$$ "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-active-owner >/dev/null
 set +e

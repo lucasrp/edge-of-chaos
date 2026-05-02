@@ -2065,12 +2065,22 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
             "- After dispatch, the substantive skill owns search, synthesis, publication, and postflight.\n"
             "- Inline artifact publication before dispatch is a protocol violation and is mechanically blocked.\n\n"
         )
+    artifact_contract = ""
+    if normalized_skill and normalized_skill not in {"heartbeat", "delta", "loader", "prompt"} and not normalized_skill.endswith("heartbeat"):
+        artifact_contract = (
+            "ARTIFACT SKILL CONTRACT:\n"
+            "- This invocation must end with a durable artifact or a concrete failure report artifact. Acknowledgement-only text, standby text, topic-choice lists, or deference to another session is not completion.\n"
+            "- If no explicit topic was supplied, infer one bounded target from `exploration_pack`, `beat_launch_context`, `operator_pressure`, health, claims, queue, or recent failures.\n"
+            "- If another persona/session appears active, treat that as context only; the runtime already prevented unsafe concurrent dispatch ownership before invoking you.\n"
+            "- If the full publication pipeline cannot run, emit a complete Markdown artifact in stdout with a top-level `#` heading so the runtime can publish it.\n\n"
+        )
     return (
         f"{skill}\n\n"
         "Dispatch runtime context below is authoritative for cross-cutting checks already handled by CLI "
         "(health, inbox, corpus, claims, primitives, workflows, queue, onboarding, protocol execution).\n"
         "Do not re-derive those manually unless a field is missing or obviously stale.\n\n"
         f"{heartbeat_contract}"
+        f"{artifact_contract}"
         "The `operator_pressure_digest` captures recent operator signal only. The `beat_launch_context` is the ephemeral composition of that operator signal with current edge-state signals and the exploration budget for this beat. Treat those two together as the launch frame for what matters now.\n\n"
         "DELTA PREREQUISITE:\n"
         "For substantive non-heartbeat skills, `request.delta_prerequisite.required` is true. Before the main skill performs substantive work, execute the internal `ed-delta` pass over `request.delta_prerequisite`: reconcile previous_delta_digest, raw chat, structured preflight state, events, and relevant work surfaces; produce a `delta_frame`; and carry `delta_frame.work_continuity.inject_to_next_skill` into the main skill. The delta pass runs in this same backend invocation, so its explored text and frame remain available to the dispatched skill. If no real delta is found, state that explicitly and continue with an empty delta frame.\n\n"

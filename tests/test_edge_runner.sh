@@ -135,6 +135,13 @@ printf '__END__\n' >> "${MOCK_CLAUDE_ARGS_OUT:?}"
 if [ -n "${MOCK_CLAUDE_SLEEP_SECONDS:-}" ]; then
   sleep "${MOCK_CLAUDE_SLEEP_SECONDS}"
 fi
+if [ "${MOCK_CLAUDE_FAIL_ONCE:-0}" = "1" ]; then
+  INVOCATIONS="$(grep -c '^__INVOCATION__$' "${MOCK_CLAUDE_ARGS_OUT:?}" 2>/dev/null || true)"
+  if [ "$INVOCATIONS" = "1" ]; then
+    printf '%s\n' "${MOCK_CLAUDE_FAIL_ONCE_OUTPUT:-Acknowledged — standing by.}"
+    exit "${MOCK_CLAUDE_FAIL_ONCE_EXIT_CODE:-1}"
+  fi
+fi
 if [ "${MOCK_CLAUDE_HEARTBEAT_FLOW:-0}" = "1" ]; then
   if [[ "$PROMPT" == *"/ed-heartbeat"* ]]; then
     "${EDGE_REPO_DIR:?}/tools/edge-dispatch" dispatch --skill discovery >/dev/null
@@ -536,6 +543,57 @@ then
     pass "plain terminal prose is captured as an artifact without dumping the body"
 else
     fail "plain terminal prose is captured as an artifact without dumping the body"
+fi
+
+echo "--- Test 1e: artifact supervisor retries acknowledgement-only backend failure ---"
+export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id-retry.txt"
+export MOCK_CLAUDE_ARGS_OUT="$TMP_BASE/args-retry.txt"
+rm -f "$MOCK_CLAUDE_ENV_OUT" "$MOCK_CLAUDE_ARGS_OUT" "$TMP_BASE/retry.out"
+export MOCK_CLAUDE_FAIL_ONCE=1
+export MOCK_CLAUDE_FAIL_ONCE_OUTPUT="Acknowledged — staying out of Frostpeck's way."
+export MOCK_CLAUDE_ARTIFACT_MARKDOWN=$'# Retry Published Report\n\nThe artifact supervisor retried a backend response that only acknowledged and did not publish. This second attempt produces a complete runtime-published report artifact.'
+"$RUNNER_TOOL" skill \
+    --skill /research \
+    --dispatch-trigger operator \
+    --dispatch-policy operator \
+    --dispatch-routing-mode explicit \
+    --dispatch-preflight-profile heartbeat_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force >"$TMP_BASE/retry.out"
+unset MOCK_CLAUDE_FAIL_ONCE MOCK_CLAUDE_FAIL_ONCE_OUTPUT MOCK_CLAUDE_ARTIFACT_MARKDOWN || true
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$TMP_EDGE/blog/entries" "$TMP_BASE/retry.out" "$TMP_BASE/args-retry.txt"
+import json
+import sys
+from pathlib import Path
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+entries_dir = Path(sys.argv[3])
+runner_stdout = Path(sys.argv[4]).read_text(encoding="utf-8")
+args_log = Path(sys.argv[5]).read_text(encoding="utf-8")
+
+assert dispatch["request"]["skill"] == "research"
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+assert args_log.count("__INVOCATION__") == 2
+assert "ARTIFACT SUPERVISOR RETRY" in args_log
+published = [
+    event for event in events
+    if event.get("type") == "ArtifactPublished"
+    and event.get("cycle_id") == dispatch["cycle_id"]
+]
+assert published
+artifact = published[-1]["artifact"]
+entry = entries_dir / Path(artifact).name
+assert "Retry Published Report" in entry.read_text(encoding="utf-8")
+assert "edge-runner: published artifact blog/entries/" in runner_stdout
+assert "Frostpeck" not in runner_stdout
+PY
+then
+    pass "artifact supervisor retries acknowledgement-only backend failure"
+else
+    fail "artifact supervisor retries acknowledgement-only backend failure"
 fi
 
 echo "--- Test 2: dispatched skill success without artifact closes as failed ---"
