@@ -2,8 +2,8 @@
 """edge-close — gated cycle finalization for dispatch runs.
 
 Closes the active dispatch cycle, but only allows `completed` when there is
-mechanical evidence that the skill finished, published an artifact, and the
-postflight profile ran.
+mechanical evidence that the skill finished, published an artifact when
+required, and the postflight profile ran.
 """
 
 from __future__ import annotations
@@ -88,9 +88,42 @@ def normalize_skill_id(value: object) -> str:
     return str(value or "").strip().lstrip("/").lower()
 
 
+KNOWN_SKILLS = {
+    "autonomy",
+    "delta",
+    "discovery",
+    "heartbeat",
+    "loader",
+    "map",
+    "planner",
+    "reflection",
+    "report",
+    "research",
+    "sources",
+    "strategy",
+}
+
+ARTIFACT_OPTIONAL_SKILLS = {
+    "autonomy",
+    "heartbeat",
+    "prompt",
+    "reflection",
+}
+
+
+def canonical_skill_id(value: object) -> str:
+    normalized = normalize_skill_id(value)
+    if normalized in KNOWN_SKILLS or normalized == "prompt":
+        return normalized
+    for skill in KNOWN_SKILLS:
+        if normalized.endswith(f"-{skill}"):
+            return skill
+    return normalized
+
+
 def skill_requires_artifact_publication(skill: object) -> bool:
-    normalized = normalize_skill_id(skill)
-    return bool(normalized and normalized != "prompt")
+    normalized = canonical_skill_id(skill)
+    return bool(normalized and normalized not in ARTIFACT_OPTIONAL_SKILLS)
 
 
 def iso_ge(left: str | None, right: str | None) -> bool:
