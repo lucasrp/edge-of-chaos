@@ -20,7 +20,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$TMP_STATE"/{blog/entries,reports,meta-reports,logs,state/events,state/runtime,health,db,threads,topics,notes,builds,search,config,search} "$TMP_BIN"
+mkdir -p "$TMP_STATE"/{blog/entries,reports,logs,state/events,state/runtime,state/audits,health,db,threads,topics,notes,builds,search,config,search} "$TMP_BIN"
 
 cat >"$TMP_ENTRY" <<'EOF'
 ---
@@ -168,6 +168,12 @@ assert ("phase-0.5", "completed") in phase05
 PY
     then
         pass "resolved adversarial review allows review-only completion"
+        if python3 "$EDGE_DIR/tools/generate_report.py" --yaml "$TMP_REPORT" --output "$TMP_STATE/reports/rendered.html" >/dev/null 2>&1 \
+          && grep -q "Desafio Adversarial" "$TMP_STATE/reports/rendered.html"; then
+            pass "YAML report render includes adversarial section"
+        else
+            fail "YAML report render includes adversarial section"
+        fi
     else
         fail "resolved adversarial review allows review-only completion"
     fi

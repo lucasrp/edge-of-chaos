@@ -37,7 +37,7 @@ Heartbeat identifies relevant topic, or user requests /ed-research.
 1. `edge-sources "topic" --intent research` → source collection (Exa + X + HN)
 2. LLM curation → filter signal from noise
 3. Draft YAML spec + light blog entry
-4. `consolidate-state` → adversarial/Feynman/review gates + blog entry + HTML report + meta-report
+4. `consolidate-state` → adversarial/Feynman/review gates + blog entry + HTML report + state commit
 
 ## Secrets
 - `exa.env` — semantic search in step 1

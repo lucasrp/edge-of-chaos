@@ -36,10 +36,9 @@
   {% endif %}
 
   {# Report links + LLM cost #}
-  {% if entry.report or entry.meta_report or entry.state_audit or entry.llm_cost %}
+  {% if entry.report or entry.state_audit or entry.llm_cost %}
     <div class="entry-report">
       {% if entry.report %}<a href="/reports/{{ entry.report }}" target="_blank">relatorio &rarr;</a>{% endif %}
-      {% if entry.meta_report %}<a href="/meta-reports/{{ entry.meta_report }}" target="_blank">meta &rarr;</a>{% endif %}
       {% if entry.state_audit %}<span class="state-badge" title="State audit: proposta validada contra execucao">state: ok</span>{% endif %}
       {% if entry.llm_cost %}<span class="llm-cost" title="Custo de LLM para gerar este artefato">LLM: {{ entry.llm_cost }}</span>{% endif %}
     </div>

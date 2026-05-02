@@ -450,9 +450,9 @@ def phase_dirs(cfg, dry_run):
     edge = Path(cfg["edge_home_expanded"])
     dirs = [
         edge / "blog" / "entries", edge / "blog" / "diffs",
-        edge / "reports", edge / "meta-reports", edge / "logs",
+        edge / "reports", edge / "logs",
         edge / "notes", edge / "threads", edge / "state",
-        edge / "state" / "signals", edge / "state-snapshots", edge / "scratchpads",
+        edge / "state" / "signals", edge / "state" / "audits", edge / "state-snapshots", edge / "scratchpads",
         edge / "secrets", edge / "search", edge / "libexec" / cfg["codename"],
         edge / "health" / "raw", edge / "health" / "last_success",
         edge / "autonomy", edge / "config", edge / "templates",
@@ -1860,7 +1860,7 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
                 '1. `edge-sources "topic" --intent research` → source collection\n'
                 "2. LLM curation → filter signal from noise\n"
                 "3. Draft YAML spec + light blog entry\n"
-                "4. `consolidate-state` → adversarial/Feynman/review gates + blog entry + HTML report + meta-report\n\n"
+                "4. `consolidate-state` → adversarial/Feynman/review gates + blog entry + HTML report + state commit\n\n"
                 "## Secrets\n"
                 "- `openai.env` — review gates inside `consolidate-state`\n\n"
                 "## When it works\n"

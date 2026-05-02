@@ -17,7 +17,6 @@ STATE_ONLY_PREFIXES = (
     "blog/diffs/",
     "health/",
     "logs/",
-    "meta-reports/",
     "notes/",
     "reports/",
     "scratchpads/",

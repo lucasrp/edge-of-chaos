@@ -9,8 +9,8 @@ Three modes:
 Protected files: MEMORY.md, capabilities.md, debugging.md, personality.md, skills/**/*.md
 
 Usage:
-  edge-state-audit snapshot --slug SLUG          # Phase 4a step 1: save PRE hashes
-  edge-state-audit propose --slug SLUG --file PATH  # Phase 4a step 2: register proposal (called by agent)
+  edge-state-audit snapshot --slug SLUG          # capture PRE hashes
+  edge-state-audit propose --slug SLUG --file PATH  # register proposal (called by agent)
   edge-state-audit audit --slug SLUG             # Phase 5b: compare PRE vs POST, validate proposal
 
 Exit codes:
@@ -35,7 +35,7 @@ from glob import glob
 HOME = Path.home()
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import META_DIR, SNAPSHOT_DIR, MEMORY_DIR, AUTONOMY_DIR, SKILLS_DIR
+from paths import AUDITS_DIR, SNAPSHOT_DIR, MEMORY_DIR, AUTONOMY_DIR, SKILLS_DIR
 
 # Protected paths — any change here MUST be proposed
 PROTECTED_PATTERNS = [
@@ -135,7 +135,7 @@ def cmd_propose(slug: str, proposals: list[dict]):
 
     Each proposal: {path: str, action: add|modify|delete, reason: str, sections: [str]?}
     """
-    META_DIR.mkdir(parents=True, exist_ok=True)
+    AUDITS_DIR.mkdir(parents=True, exist_ok=True)
 
     proposal = {
         "slug": slug,
@@ -153,7 +153,7 @@ def cmd_propose(slug: str, proposals: list[dict]):
             entry["sections"] = p["sections"]
         proposal["changes"].append(entry)
 
-    out_path = META_DIR / f"{slug}.state-proposal.yaml"
+    out_path = AUDITS_DIR / f"{slug}.state-proposal.yaml"
     out_path.write_text(yaml.dump(proposal, allow_unicode=True, default_flow_style=False, sort_keys=False))
     ok(f"Proposta: {len(proposals)} mudanças → {out_path.name}")
     return str(out_path)
@@ -173,7 +173,7 @@ def cmd_audit(slug: str) -> int:
     pre = yaml.safe_load(pre_path.read_text())
 
     # Load proposal (optional — if missing, ANY change to protected file is violation)
-    proposal_path = META_DIR / f"{slug}.state-proposal.yaml"
+    proposal_path = AUDITS_DIR / f"{slug}.state-proposal.yaml"
     if proposal_path.exists():
         proposal = yaml.safe_load(proposal_path.read_text())
         proposed_changes = {c["path"]: c for c in proposal.get("changes", [])}
@@ -278,7 +278,8 @@ def cmd_audit(slug: str) -> int:
         "results": results,
     }
 
-    audit_path = META_DIR / f"{slug}.state-audit.yaml"
+    AUDITS_DIR.mkdir(parents=True, exist_ok=True)
+    audit_path = AUDITS_DIR / f"{slug}.state-audit.yaml"
     audit_path.write_text(yaml.dump(audit, allow_unicode=True, default_flow_style=False, sort_keys=False))
 
     # Summary

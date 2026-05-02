@@ -110,7 +110,7 @@ New agents produce from the first heartbeat. A checklist tracks progress (identi
 
 **Publication Pipeline (consolidate-state)**
 
-8-phase atomic publication: state snapshot → adversarial review → quality gate → entry publish → HTML report → meta-report → state commit → git commit.
+Atomic publication: state snapshot → adversarial review → quality gate → entry publish → HTML report → state commit → git commit.
 
 ## Tools
 

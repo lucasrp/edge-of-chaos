@@ -39,8 +39,8 @@ assert is_entry_published({"status": "pending"}, ["workflow"]) is False
 assert is_entry_published({"status": "pendente"}, ["workflow"]) is False
 assert is_entry_published({}, ["workflow-draft"]) is False
 
-assert "pipeline_complete = bool(meta_report)" in source
-assert '"pipeline_status": "complete" if pipeline_complete else "missing_meta_report"' in source
+assert "pipeline_complete = bool(report_name and (REPORTS_DIR / report_name).exists())" in source
+assert '"pipeline_status": "complete" if pipeline_complete else "missing_report"' in source
 assert "published = is_entry_published(fm, tags_list)" in source
 PY
 

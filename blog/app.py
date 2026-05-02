@@ -32,7 +32,7 @@ from paths import (  # noqa: E402
     EDGE_REPO_DIR,
     ENTRIES_DIR,
     FRONTIER_FILE,
-    META_REPORTS_DIR,
+    AUDITS_DIR,
     NOTES_DIR,
     PROPOSALS_FILE,
     REPORTS_DIR,
@@ -273,23 +273,18 @@ def load_entries():
         if not isinstance(keywords_list, list):
             keywords_list = []
 
-        # Meta-report detection
-        meta_report = ""
-        meta_path = META_REPORTS_DIR / f"{fp.stem}-meta.md"
-        if meta_path.exists():
-            meta_report = meta_path.name
-
         # State audit detection
         state_proposal = ""
         state_audit = ""
-        proposal_path = META_REPORTS_DIR / f"{fp.stem}.state-proposal.yaml"
-        audit_path = META_REPORTS_DIR / f"{fp.stem}.state-audit.yaml"
+        proposal_path = AUDITS_DIR / f"{fp.stem}.state-proposal.yaml"
+        audit_path = AUDITS_DIR / f"{fp.stem}.state-audit.yaml"
         if proposal_path.exists():
             state_proposal = proposal_path.name
         if audit_path.exists():
             state_audit = audit_path.name
 
-        pipeline_complete = bool(meta_report)
+        report_name = os.path.basename(fm.get("report", "")) if fm.get("report") else ""
+        pipeline_complete = bool(report_name and (REPORTS_DIR / report_name).exists())
         published = is_entry_published(fm, tags_list)
 
         entries.append({
@@ -298,10 +293,9 @@ def load_entries():
             "tags": tags_list,
             "date": str(fm.get("date", "")),
             "context": fm.get("context", ""),
-            "report": os.path.basename(fm.get("report", "")) if fm.get("report") else "",
-            "meta_report": meta_report,
+            "report": report_name,
             "pipeline_complete": pipeline_complete,
-            "pipeline_status": "complete" if pipeline_complete else "missing_meta_report",
+            "pipeline_status": "complete" if pipeline_complete else "missing_report",
             "published": published,
             "state_proposal": state_proposal,
             "state_audit": state_audit,
@@ -442,7 +436,7 @@ def filter_entries(entries, comments_data, cat=None, temp=None, status=None,
 
     for e in entries:
         # Hide explicit drafts/unpublished entries unless explicitly requested.
-        # Missing meta-report is tracked separately as pipeline_status.
+        # Missing report artifacts are tracked separately as pipeline_status.
         if not show_pending and not e.get("published"):
             continue
 
@@ -794,7 +788,6 @@ def entries_json():
             "break_number": e["break_number"],
             "category_number": e["category_number"],
             "report": e.get("report", ""),
-            "meta_report": e.get("meta_report", ""),
             "pipeline_complete": e.get("pipeline_complete", False),
             "pipeline_status": e.get("pipeline_status", ""),
             "published": e.get("published", False),
@@ -1316,11 +1309,6 @@ def serve_blog_entry_file(filename):
 @app.route("/blog/diffs/<path:filename>")
 def serve_diffs(filename):
     return send_from_directory(str(DIFFS_DIR), filename)
-
-
-@app.route("/meta-reports/<path:filename>")
-def serve_meta_reports(filename):
-    return send_from_directory(str(META_REPORTS_DIR), filename)
 
 
 # ─── Dashboard ───

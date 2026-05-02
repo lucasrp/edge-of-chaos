@@ -1403,6 +1403,59 @@ def render_executive_summary(items: list) -> str:
     return "\n".join(parts)
 
 
+def render_adversarial_review_section(report_path: str) -> str:
+    """Render the resolved adversarial review as the final report section."""
+    path = Path(report_path)
+    review_path = path.with_suffix(".review.json")
+    if not review_path.exists():
+        return ""
+
+    try:
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return render_section({
+            "title": "Desafio Adversarial",
+            "lead": "A revisão adversarial existe, mas não pôde ser lida pelo gerador do relatório.",
+            "blocks": [{
+                "type": "callout",
+                "variant": "warning",
+                "title": "Leitura do review falhou",
+                "text": f"{review_path.name}: {exc}",
+            }],
+        })
+
+    resolved = bool(review.get("resolved")) or path.with_suffix(".resolved").exists()
+    response = str(
+        review.get("response")
+        or review.get("review")
+        or review.get("summary")
+        or ""
+    ).strip()
+    if not response:
+        response = "(review adversarial sem corpo textual)"
+
+    max_chars = 10000
+    if len(response) > max_chars:
+        response = response[:max_chars].rstrip() + "\n\n[truncado para renderizacao]"
+
+    status = "resolvido" if resolved else "pendente"
+    status_variant = "success" if resolved else "warning"
+    parts = [
+        '<div class="section adversarial-review" id="desafio-adversarial">',
+        '<h2 class="section-title">Desafio Adversarial</h2>',
+        '<p class="section-lead">Critica adversarial incorporada ao report para que a revisao fique junto do artefato publicado, em vez de viver num arquivo lateral.</p>',
+        '<div class="callout callout-info">',
+        f'<strong>Status:</strong> {badge_html(status, status_variant)} ',
+        f'<span>{render_text(review_path.name)}</span>',
+        '</div>',
+        '<pre class="adversarial-review-body">',
+        render_pre(response),
+        '</pre>',
+        '</div>',
+    ]
+    return "\n".join(parts)
+
+
 def _render_metrics_items(items: list) -> str:
     """Render a metrics grid from a list of {value, label} items."""
     parts = ['<div class="metrics-grid">']
@@ -1454,6 +1507,10 @@ def yaml_to_html(yaml_path: str) -> str:
             }],
         }
         parts.append(render_section(bib_section))
+
+    adversarial_section = render_adversarial_review_section(yaml_path)
+    if adversarial_section:
+        parts.append(adversarial_section)
 
     return "\n\n".join(parts)
 

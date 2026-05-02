@@ -50,7 +50,7 @@ research deliverable. A stdout-only research answer is not a completed
 from the active edge repo, write a YAML report spec and a light staging blog
 entry in `/tmp`, validate both files as described there, then run
 `consolidate-state` so the research becomes a durable blog entry, HTML report,
-and meta-report. Quote frontmatter claims as complete YAML strings whenever
+and state commit. Quote frontmatter claims as complete YAML strings whenever
 they contain `:`, `!`, backticks, quotes, or other YAML-significant punctuation.
 If a gate blocks, address the specific feedback and rerun `consolidate-state`.
 Do not close by asking the operator whether to publish, by recommending a future
@@ -159,7 +159,7 @@ Synthesis must include:
 
 Produce a research artifact suitable for the uniform report pipeline.
 The artifact is complete only after `consolidate-state` succeeds and the
-generated HTML report, blog entry, and meta-report have been verified. The final
+generated HTML report and blog entry have been verified. The final
 chat response should summarize the published paths and key finding; it must not
 be the only place where the research exists.
 

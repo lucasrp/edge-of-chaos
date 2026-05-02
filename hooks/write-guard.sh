@@ -8,7 +8,6 @@
 #   - blog/entries/          blog posts (phenotype output, only via pipeline)
 #   - state/                 signals, claims, threads
 #   - reports/               generated HTML reports
-#   - meta-reports/          cognitive mirrors
 #   - threads/               thread state
 #   - health/                health markers
 #   - logs/                  pipeline logs
@@ -61,7 +60,7 @@ if [[ -x "$EDGE_CMD" ]]; then
     exit $?
 fi
 
-for sub in blog/entries state reports meta-reports threads health logs; do
+for sub in blog/entries state reports threads health logs; do
     prefix="$EDGE_ROOT/$sub"
     case "$ABS_PATH" in
         "$prefix"/*|"$prefix")

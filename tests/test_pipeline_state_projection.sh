@@ -8,12 +8,12 @@ trap 'rm -rf "$TMP_STATE"' EXIT
 mkdir -p "$TMP_STATE/state/events" "$TMP_STATE/state/projections"
 cat >"$TMP_STATE/state/events/log.jsonl" <<'JSONL'
 {"ts":"2026-04-26T10:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-complete","artifact":"blog/entries/complete.md","payload":{"pipeline":"consolidate-state","phase":"1","ok":true},"prev_hash":"sha256:root"}
-{"ts":"2026-04-26T10:02:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-complete","artifact":"blog/entries/complete.md","payload":{"pipeline":"consolidate-state","phase":"4","ok":true},"prev_hash":"sha256:a"}
+{"ts":"2026-04-26T10:02:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-complete","artifact":"blog/entries/complete.md","payload":{"pipeline":"consolidate-state","phase":"5","ok":true},"prev_hash":"sha256:a"}
 {"ts":"2026-04-26T10:03:00+00:00","type":"ArtifactPublished","actor":"continuity","cycle_id":"cycle-complete","artifact":"blog/entries/complete.md","payload":{"hash":"sha256:complete","source_skill":"research"},"prev_hash":"sha256:b"}
 {"ts":"2026-04-26T10:04:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-complete","artifact":"blog/entries/complete.md","payload":{"pipeline":"consolidate-state","phase":"pipeline","ok":true},"prev_hash":"sha256:b2"}
 {"ts":"2026-04-26T11:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-partial","artifact":"blog/entries/partial.md","payload":{"pipeline":"consolidate-state","phase":"1","ok":true},"prev_hash":"sha256:c"}
 {"ts":"2026-04-26T12:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-blocked","artifact":"blog/entries/blocked.md","payload":{"pipeline":"consolidate-state","phase":"3","ok":false,"reason":"review_gate_failed"},"prev_hash":"sha256:d"}
-{"ts":"2026-04-26T13:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-failed","artifact":"blog/entries/failed.md","payload":{"pipeline":"consolidate-state","phase":"4","ok":false,"reason":"meta_report_failed"},"prev_hash":"sha256:e"}
+{"ts":"2026-04-26T13:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-failed","artifact":"blog/entries/failed.md","payload":{"pipeline":"consolidate-state","phase":"5b","ok":false,"reason":"state_audit_failed"},"prev_hash":"sha256:e"}
 {"ts":"2026-04-26T13:01:00+00:00","type":"ArtifactPublished","actor":"continuity","cycle_id":"cycle-failed","artifact":"blog/entries/failed.md","payload":{"hash":"sha256:failed","source_skill":"report"},"prev_hash":"sha256:f"}
 {"ts":"2026-04-26T14:00:00+00:00","type":"ArtifactPublished","actor":"continuity","cycle_id":"cycle-orphan","artifact":"blog/entries/orphan.md","payload":{"hash":"sha256:orphan","source_skill":"reflection"},"prev_hash":"sha256:g"}
 {"ts":"2026-04-26T15:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-no-artifact","payload":{"pipeline":"consolidate-state","phase":"1","ok":true},"prev_hash":"sha256:h"}
@@ -60,7 +60,7 @@ assert blocked["reasons"] == ["review_gate_failed"]
 failed = by_artifact["blog/entries/failed.md"]
 assert failed["status"] == "failed"
 assert failed["published"] is True
-assert failed["reasons"] == ["meta_report_failed"]
+assert failed["reasons"] == ["state_audit_failed"]
 
 orphaned = by_artifact["blog/entries/orphan.md"]
 assert orphaned["status"] == "orphaned_publish"

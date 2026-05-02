@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """edge-scratch — Session scratchpad for observations.
 
-Accumulates observations during a session. Fed into meta-report at publication.
-Archived after processing (~/edge/scratchpads/) for future reflections.
+Accumulates observations during a session. Archived by consolidate-state
+(~/edge/scratchpads/) for future reflections.
 
 Usage:
   edge-scratch add "observation"              # append to active scratchpad

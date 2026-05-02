@@ -13,7 +13,7 @@
 #   ?      = speculative / hypothesis
 #
 # Examples:
-#   edge-signal friction "consolidate-state failed on Phase 4"
+#   edge-signal friction "consolidate-state failed during verification"
 #   edge-signal decision "Operator approved pip install" --source runtime
 #   edge-signal serendipity "Corpus search found a perfect 3-week-old note"
 #   edge-signal autonomy "?Slack MCP would enable direct notification" --source pace-layering

@@ -112,7 +112,7 @@ fi
 if [[ -z "${CALLED_FROM_CONSOLIDAR_ESTADO:-}" && -z "${CALLED_FROM_FULL_PUBLISH:-}" ]]; then
     echo "ERROR: blog-publish.sh cannot be called directly."
     echo "       Use: consolidate-state <entry.md> [report.yaml]"
-    echo "       Reason: every publication requires meta-report + state audit."
+    echo "       Reason: every publication requires the consolidated report pipeline + state audit."
     exit 1
 fi
 

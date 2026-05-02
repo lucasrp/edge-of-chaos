@@ -36,16 +36,16 @@ else
   fail "survival-lib could not be sourced"
 fi
 
-echo "--- Test 2: check-infra uses state sqlite/meta paths ---"
-mkdir -p "$TMP_STATE/health" "$TMP_STATE/meta-reports" "$TMP_STATE/search"
-printf 'meta\n' > "$TMP_STATE/meta-reports/test-meta.md"
+echo "--- Test 2: check-infra uses state sqlite/report paths ---"
+mkdir -p "$TMP_STATE/health" "$TMP_STATE/reports" "$TMP_STATE/search"
+printf '<html><body>report</body></html>\n' > "$TMP_STATE/reports/test-report.html"
 if command -v sqlite3 >/dev/null 2>&1; then
   sqlite3 "$TMP_STATE/search/edge-memory.db" "create table if not exists t(x integer); insert into t values (1);" >/dev/null
 fi
 if env HOME="$TMP_HOME" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" bash "$EDGE_DIR/bin/check-infra.sh" >/dev/null 2>&1; then
   consolidate_status=$(jq -r '.status' "$TMP_STATE/health/raw/consolidate.json" 2>/dev/null || echo "missing")
   if [[ "$consolidate_status" == "ok" || "$consolidate_status" == "degraded" || "$consolidate_status" == "fail" ]]; then
-    pass "check-infra reads meta-reports from state root"
+    pass "check-infra reads reports from state root"
   else
     fail "check-infra consolidate status unexpected: $consolidate_status"
   fi
