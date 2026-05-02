@@ -151,6 +151,61 @@ else
     fail "unchanged ledger reuses the cached hot digest"
 fi
 
+echo "--- Test 2b: changed source hash refreshes redigest inside interval ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_BASE"
+import json
+import sys
+from pathlib import Path
+
+edge_dir, tmp_base = sys.argv[1:]
+sys.path.insert(0, f"{edge_dir}/tools")
+
+from _shared.operator_pressure import build_operator_pressure_layers
+
+tmp_base = Path(tmp_base)
+project = tmp_base / "redigest-project"
+state = tmp_base / "redigest-state"
+project.mkdir(parents=True, exist_ok=True)
+state.mkdir(parents=True, exist_ok=True)
+session = project / "session-redigest.jsonl"
+session.write_text(
+    '{"type":"user","timestamp":"2026-04-23T10:00:00Z","sessionId":"redigest","message":{"role":"user","content":"workflow automatico so com orientacao explicita do operador"}}\n',
+    encoding="utf-8",
+)
+
+kwargs = {
+    "project_dir": project,
+    "memory_path": state / "missing-memory.md",
+    "ledger_path": state / "operator-pressure" / "ledger.json",
+    "hot_digest_path": state / "operator-pressure" / "hot-digest.json",
+    "redigest_dir": state / "operator-pressure" / "redigests",
+    "allow_llm": False,
+}
+first = build_operator_pressure_layers(**kwargs)
+latest_path = state / "operator-pressure" / "redigests" / "latest.json"
+first_latest = json.loads(latest_path.read_text(encoding="utf-8"))
+
+with session.open("a", encoding="utf-8") as handle:
+    handle.write(
+        '{"type":"user","timestamp":"2026-04-23T10:01:00Z","sessionId":"redigest","message":{"role":"user","content":"corrija o install do edge e rode heartbeat depois"}}\n'
+    )
+
+second = build_operator_pressure_layers(**kwargs)
+second_latest = json.loads(latest_path.read_text(encoding="utf-8"))
+
+assert first["ledger"]["source_hash"] != second["ledger"]["source_hash"]
+assert first_latest["source_hash"] == first["ledger"]["source_hash"]
+assert second_latest["source_hash"] == second["ledger"]["source_hash"]
+assert second_latest["snapshot_hash"] != first_latest["snapshot_hash"]
+assert second_latest["item_total"] == second["ledger"]["item_total"]
+assert len(second_latest["segments"]) == second["ledger"]["item_total"]
+PY
+then
+    pass "changed source hash refreshes redigest inside interval"
+else
+    fail "changed source hash refreshes redigest inside interval"
+fi
+
 echo "--- Test 3: CQRS projection wraps the pressure layers ---"
 if python3 - <<'PY' "$EDGE_DIR" "$TMP_PROJECT" "$TMP_STATE"
 import json
@@ -287,6 +342,51 @@ rows = [
         "sessionId": "noise",
         "message": {
             "role": "user",
+            "content": "## System\n\nYou are a rigorous, intellectually honest critic. Your job is to find the flaws in the reasoning presented."
+        },
+    },
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:08:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
+            "content": "## System\n\nYou validate claim extraction quality for a continuity graph. Return strict JSON only.\n\n## User\n\n{\"title\":\"demo\"}"
+        },
+    },
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:09:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
+            "content": "## System\n\nYou are a co-author helping an autonomous AI agent improve a YAML report specification before publication."
+        },
+    },
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:10:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
+            "content": "<task-notification>\n<task-id>demo</task-id>\n<output-file>/tmp/demo.md</output-file>"
+        },
+    },
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:11:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
+            "content": "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion."
+        },
+    },
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:12:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
             "content": "corrija o install do edge e rode heartbeat depois"
         },
     },
@@ -376,6 +476,101 @@ then
     pass "empty ledger skips LLM renderer even with sticky previous digest"
 else
     fail "empty ledger skips LLM renderer even with sticky previous digest"
+fi
+
+echo "--- Test 5b: LLM renderer omits unsupported temperature override ---"
+if python3 - <<'PY' "$EDGE_DIR"
+import json
+import sys
+from types import SimpleNamespace
+
+edge_dir = sys.argv[1]
+sys.path.insert(0, f"{edge_dir}/tools")
+
+from _shared import operator_pressure as mod
+
+class FakeCompletions:
+    def create(self, **kwargs):
+        assert "temperature" not in kwargs, kwargs
+        payload = {
+            "summary": "operator pressure rendered",
+            "signal_from_operator_now": [
+                {
+                    "item_id": "pressure:demo",
+                    "text": "corrija o install do edge",
+                    "target": "workflow",
+                    "kind": "directive",
+                    "repeat_count": 1,
+                    "status": "active",
+                    "entities": ["workflow"],
+                    "source_kinds": ["session"],
+                    "last_seen_at": "2026-04-23T10:00:00+00:00",
+                }
+            ],
+            "operator_pains_resolvable_now": [],
+            "operator_toil_optimizable_now": [],
+            "mistakes_to_avoid_now": [],
+            "implicit_needs_hypotheses": [],
+            "memory_updates": [],
+            "pre_skill_context": [],
+            "workflow_candidates": [],
+            "capability_candidates": [],
+            "substrate_gap_requests": [],
+            "active_entities": ["workflow"],
+        }
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload)))
+            ]
+        )
+
+class FakeChat:
+    def __init__(self):
+        self.completions = FakeCompletions()
+
+class FakeClient:
+    def __init__(self):
+        self.chat = FakeChat()
+
+def fake_client(*_args, **_kwargs):
+    return FakeClient(), "gpt-5.4"
+
+mod.LLM_DISABLED = False
+mod.make_client = fake_client
+
+ledger = {
+    "source_hash": "sha256:demo",
+    "item_total": 1,
+    "session_total": 1,
+    "items": [
+        {
+            "id": "pressure:demo",
+            "content": "corrija o install do edge",
+            "target": "workflow",
+            "kind": "directive",
+            "status": "active",
+            "repeat_count": 1,
+            "last_seen_at": "2026-04-23T10:00:00+00:00",
+            "entities": [{"name": "workflow", "type": "workflow"}],
+            "source_kinds": ["session"],
+            "explicit_operator_direction": True,
+            "scope": "global",
+            "substrate_gap_signal": False,
+            "substrate_gap_reasons": [],
+        }
+    ],
+}
+
+digest = mod._render_hot_digest_with_llm(ledger, previous_digest=None, delta_items=[])
+assert digest["render_mode"] == "gpt-5"
+assert digest["model"] == "gpt-5.4"
+assert digest["summary"] == "operator pressure rendered"
+assert digest["signal_from_operator_now"]
+PY
+then
+    pass "LLM renderer omits unsupported temperature override"
+else
+    fail "LLM renderer omits unsupported temperature override"
 fi
 
 echo "--- Test 6: memory.md updates enter pressure digest as state signals ---"

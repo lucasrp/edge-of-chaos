@@ -209,9 +209,14 @@ _RUNTIME_PRESSURE_NOISE_RE = (
     re.compile(r"^\s*Base directory for this skill:\s+\S*\.claude/skills/", re.I),
     re.compile(r"^\s*## System\s*\n\s*You compress operator pressure into compact structured JSON\b", re.I),
     re.compile(r"^\s*## System\s*\n\s*You are a quality reviewer for report artifacts\b", re.I),
+    re.compile(r"^\s*## System\s*\n\s*You are a rigorous, intellectually honest critic\b", re.I),
+    re.compile(r"^\s*## System\s*\n\s*You validate claim extraction quality for a continuity graph\b", re.I),
+    re.compile(r"^\s*## System\s*\n\s*You are a co-author helping an autonomous AI agent\b", re.I),
     re.compile(r"^\s*You are converting an operator's free-form description of a research or work routine\b", re.I),
     re.compile(r"^\s*You are bootstrapping an autonomous AI agent\. Generate seed content\b", re.I),
     re.compile(r"^\s*You are implementing a source primitive for an autonomous agent\b", re.I),
+    re.compile(r"^\s*<task-notification>", re.I),
+    re.compile(r"^\s*This session is being continued from a previous conversation that ran out of context\.", re.I),
 )
 
 
@@ -1002,7 +1007,6 @@ def _render_hot_digest_with_llm(
         client, model = make_client("chat", model=LLM_MODEL, timeout=90)
         response = client.chat.completions.create(
             model=model,
-            temperature=0.2,
             messages=[
                 {"role": "system", "content": "You compress operator pressure into compact structured JSON for runtime use."},
                 {"role": "user", "content": prompt},
@@ -1202,7 +1206,12 @@ def _maybe_write_redigest(ledger: dict[str, Any], hot_digest: dict[str, Any], *,
     latest = _read_json(latest_path)
     if latest:
         previous_ts = _parse_ts(str(latest.get("generated_at") or ""))
-        if previous_ts and (_now() - previous_ts) < timedelta(hours=REDIGEST_INTERVAL_HOURS):
+        source_changed = str(latest.get("source_hash") or "") != str(ledger.get("source_hash") or "")
+        if (
+            not source_changed
+            and previous_ts
+            and (_now() - previous_ts) < timedelta(hours=REDIGEST_INTERVAL_HOURS)
+        ):
             return latest
     snapshot = _build_redigest(ledger, hot_digest, previous_latest=latest)
     stamp = _now().strftime("%Y%m%dT%H%M%SZ")
