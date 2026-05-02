@@ -20,20 +20,20 @@ Follow the shared source lookup protocol when the proposal depends on external t
 
 Use `ed-planner` when:
 
-- strategy selected `plan`;
+- heartbeat curation or the operator selected `plan`;
 - a user asks for a proposal or development cycle;
 - an idea from research/discovery needs an implementation shape;
 - a project needs scope, deliverables, risks, and success criteria before execution;
 - implementation would be premature because the work is not yet decomposed.
 
-For missing understanding, use `ed-research`. For cross-project priority decisions, use `ed-strategy`. For a concrete implementation handoff, produce a clear `operator_action` rather than routing to an execution skill.
+For missing understanding, use `ed-research`. For cross-project priority decisions, read `config/strategy.md` and current state directly. For a concrete implementation handoff, produce a clear `operator_action` rather than routing to an execution skill.
 
 ## Inputs
 
 Use relevant context:
 
 - target project or idea;
-- strategy action queue;
+- current action queue;
 - existing issues, proposals, reports, and prior executions;
 - repository/project state when available;
 - operator constraints;

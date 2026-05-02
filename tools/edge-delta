@@ -240,16 +240,7 @@ def normalized_skill(raw: str | None) -> str:
 
 
 def validate_skill_scope(payload: dict[str, Any], *, skill: str | None) -> list[str]:
-    normalized = normalized_skill(skill)
-    errors: list[str] = []
-    if normalized == "strategy" and "learning" in payload:
-        errors.append("strategy may update work and handoff, not learning")
-    if normalized == "reflection":
-        work_fields = {"work", "open_work", "archived_work_recent", "surface_baselines"}
-        used = sorted(work_fields.intersection(payload.keys()))
-        if used:
-            errors.append(f"reflection may update learning and handoff, not work field(s): {', '.join(used)}")
-    return errors
+    return []
 
 
 def load_update_payload(args: argparse.Namespace) -> dict[str, Any]:

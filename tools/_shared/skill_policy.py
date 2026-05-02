@@ -8,13 +8,10 @@ KNOWN_SKILLS = {
     "discovery",
     "heartbeat",
     "loader",
-    "map",
     "planner",
-    "reflection",
     "report",
     "research",
     "sources",
-    "strategy",
 }
 
 ARTIFACT_EXEMPT_SKILLS = {

@@ -4,7 +4,7 @@
 Reads `telemetry_snapshots` table (one row per primitive call) and writes
 `state/primitive-usage-rollup.json` with 30-day per-source counters.
 
-Consumers: /ed-autonomy (fan-out check), /ed-reflection (failure rates).
+Consumers: /ed-autonomy (fan-out check), heartbeat curation (failure rates).
 """
 
 from __future__ import annotations

@@ -122,7 +122,7 @@ _TARGET_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(capability|primitive|primitiva|repo\.sync|exa|grafana|github|meta|whatsapp)\b", re.I), "capability"),
     (re.compile(r"\b(memory|mem[oó]ria|rules-core|personality|metodo)\b", re.I), "memory"),
     (re.compile(r"\b(policy|politica|policy|regra|guardrail)\b", re.I), "policy"),
-    (re.compile(r"\b(skill|heartbeat|autonomy|reflection|report|research|strategy|map|discovery)\b", re.I), "skill"),
+    (re.compile(r"\b(skill|heartbeat|autonomy|report|research|planner|discovery)\b", re.I), "skill"),
     (re.compile(r"\b(thread|topic|topics|claim|claims)\b", re.I), "thread"),
     (re.compile(r"\b(research|pesquisa|investigar|investiga[cç][aã]o|search)\b", re.I), "research"),
 ]
@@ -139,12 +139,10 @@ _ENTITY_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bpreflight\b", re.I), "preflight"),
     (re.compile(r"\bpostflight\b", re.I), "postflight"),
     (re.compile(r"\bheartbeat\b", re.I), "heartbeat"),
-    (re.compile(r"\breflection\b", re.I), "reflection"),
     (re.compile(r"\bautonomy\b", re.I), "autonomy"),
     (re.compile(r"\breport\b", re.I), "report"),
     (re.compile(r"\bresearch\b", re.I), "research"),
-    (re.compile(r"\bstrategy\b", re.I), "strategy"),
-    (re.compile(r"\bmap\b", re.I), "map"),
+    (re.compile(r"\bplanner\b", re.I), "planner"),
     (re.compile(r"\bclaude\b", re.I), "claude"),
     (re.compile(r"\bopenai\b", re.I), "openai"),
 ]
@@ -163,12 +161,10 @@ _ENTITY_TYPE_MAP = {
     "preflight": "protocol",
     "postflight": "protocol",
     "heartbeat": "skill",
-    "reflection": "skill",
     "autonomy": "skill",
     "report": "skill",
     "research": "skill",
-    "strategy": "skill",
-    "map": "skill",
+    "planner": "skill",
 }
 
 _HOT_DIGEST_KEYS = {

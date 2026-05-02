@@ -83,8 +83,8 @@ edge-close --status completed
 ```
 
 ```bash
-edge-dispatch open --trigger operator --skill reflection --arg topic=enforcement
-edge-dispatch dispatch --skill reflection
+edge-dispatch open --trigger operator --skill planner --arg topic=enforcement
+edge-dispatch dispatch --skill planner
 edge-close --status completed
 ```
 

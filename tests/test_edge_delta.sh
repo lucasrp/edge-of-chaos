@@ -43,8 +43,8 @@ else
     fail "show normalizes an empty digest"
 fi
 
-echo "--- Test 2: strategy update persists work and handoff sections ---"
-cat >"$TMP_BASE/strategy.json" <<'JSON'
+echo "--- Test 2: planner update persists work and handoff sections ---"
+cat >"$TMP_BASE/planner.json" <<'JSON'
 {
   "summary": "runtime delta work is active",
   "work": {
@@ -80,8 +80,8 @@ cat >"$TMP_BASE/strategy.json" <<'JSON'
 }
 JSON
 
-if "$DELTA_TOOL" validate --payload-file "$TMP_BASE/strategy.json" >/dev/null \
-    && "$DELTA_TOOL" update --skill strategy --payload-file "$TMP_BASE/strategy.json" >"$TMP_BASE/strategy-update.json" \
+if "$DELTA_TOOL" validate --payload-file "$TMP_BASE/planner.json" >/dev/null \
+    && "$DELTA_TOOL" update --skill planner --payload-file "$TMP_BASE/planner.json" >"$TMP_BASE/planner-update.json" \
     && python3 - <<'PY' "$TMP_STATE/state/projections/continuity-deltas/runtime-latest.json"
 import json
 import sys
@@ -92,17 +92,17 @@ assert payload["work"]["open_work"][0]["id"] == "work-delta"
 assert payload["open_work"][0]["id"] == "work-delta"
 assert payload["surface_baselines"]["github:lucasrp/edge-of-chaos"]["last_seen_ref"] == "abc123"
 assert payload["handoff"]["inject_to_next_skill"][0]["summary"] == "keep delta_frame in context"
-assert payload["updates"][-1]["skill"] == "strategy"
+assert payload["updates"][-1]["skill"] == "planner"
 assert payload["digest_hash"].startswith("sha256:")
 PY
 then
-    pass "strategy update persists work and handoff"
+    pass "planner update persists work and handoff"
 else
-    fail "strategy update persists work and handoff"
+    fail "planner update persists work and handoff"
 fi
 
-echo "--- Test 3: reflection update preserves work and updates learning ---"
-cat >"$TMP_BASE/reflection.json" <<'JSON'
+echo "--- Test 3: research update preserves work and updates learning ---"
+cat >"$TMP_BASE/research.json" <<'JSON'
 {
   "summary": "learning digest updated",
   "learning": {
@@ -114,14 +114,14 @@ cat >"$TMP_BASE/reflection.json" <<'JSON'
     ],
     "protocol_gaps": [],
     "skill_patch_candidates": [
-      {"id": "patch-strategy", "summary": "strategy must update work digest", "status": "active"}
+      {"id": "patch-planner", "summary": "planner must preserve curation context", "status": "active"}
     ],
     "archived_guidance_recent": []
   }
 }
 JSON
 
-if "$DELTA_TOOL" update --skill reflection --payload-file "$TMP_BASE/reflection.json" >/dev/null \
+if "$DELTA_TOOL" update --skill research --payload-file "$TMP_BASE/research.json" >/dev/null \
     && python3 - <<'PY' "$TMP_STATE/state/projections/continuity-deltas/runtime-latest.json"
 import json
 import sys
@@ -131,12 +131,12 @@ assert payload["summary"] == "learning digest updated"
 assert payload["work"]["open_work"][0]["id"] == "work-delta"
 assert payload["learning"]["recent_failures"][0]["id"] == "failure-repeat"
 assert payload["learning"]["rules_to_preserve"][0]["id"] == "rule-delta"
-assert payload["updates"][-1]["skill"] == "reflection"
+assert payload["updates"][-1]["skill"] == "research"
 PY
 then
-    pass "reflection update preserves work and updates learning"
+    pass "research update preserves work and updates learning"
 else
-    fail "reflection update preserves work and updates learning"
+    fail "research update preserves work and updates learning"
 fi
 
 echo "--- Test 4: invalid payload is rejected ---"
@@ -145,7 +145,7 @@ cat >"$TMP_BASE/bad.json" <<'JSON'
 JSON
 
 set +e
-"$DELTA_TOOL" validate --skill strategy --payload-file "$TMP_BASE/bad.json" >/dev/null 2>&1
+"$DELTA_TOOL" validate --skill planner --payload-file "$TMP_BASE/bad.json" >/dev/null 2>&1
 STATUS=$?
 set -e
 if [[ "$STATUS" -ne 0 ]]; then
@@ -154,30 +154,49 @@ else
     fail "invalid payload is rejected"
 fi
 
-echo "--- Test 5: skill ownership is enforced ---"
-cat >"$TMP_BASE/wrong-owner.json" <<'JSON'
-{"learning": {"recent_failures": []}}
+echo "--- Test 5: action-skill update accepts mixed digest sections ---"
+cat >"$TMP_BASE/mixed.json" <<'JSON'
+{
+  "summary": "mixed digest update from action skill",
+  "work": {
+    "priority_threads": [
+      {"id": "thread-action", "summary": "action skills can curate work", "status": "active"}
+    ]
+  },
+  "learning": {
+    "recent_failures": [
+      {"id": "failure-action", "summary": "action skills can record learning", "status": "active"}
+    ]
+  }
+}
 JSON
 
-set +e
-"$DELTA_TOOL" update --skill strategy --payload-file "$TMP_BASE/wrong-owner.json" >/dev/null 2>&1
-STATUS=$?
-set -e
-if [[ "$STATUS" -ne 0 ]]; then
-    pass "skill ownership is enforced"
+if "$DELTA_TOOL" update --skill report --payload-file "$TMP_BASE/mixed.json" >/dev/null \
+    && python3 - <<'PY' "$TMP_STATE/state/projections/continuity-deltas/runtime-latest.json"
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+assert payload["summary"] == "mixed digest update from action skill"
+assert payload["work"]["priority_threads"][0]["id"] == "thread-action"
+assert payload["learning"]["recent_failures"][0]["id"] == "failure-action"
+assert payload["updates"][-1]["skill"] == "report"
+PY
+then
+    pass "action-skill update accepts mixed digest sections"
 else
-    fail "skill ownership is enforced"
+    fail "action-skill update accepts mixed digest sections"
 fi
 
 echo "--- Test 6: no-op update records explicit continuity decision ---"
-if "$DELTA_TOOL" update --skill strategy --no-op --summary "no strategic digest changes" >/dev/null \
+if "$DELTA_TOOL" update --skill planner --no-op --summary "no heartbeat curation changes" >/dev/null \
     && python3 - <<'PY' "$TMP_STATE/state/projections/continuity-deltas/runtime-latest.json"
 import json
 import sys
 
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
 assert payload["updates"][-1]["no_op"] is True
-assert payload["updates"][-1]["summary"] == "no strategic digest changes"
+assert payload["updates"][-1]["summary"] == "no heartbeat curation changes"
 PY
 then
     pass "no-op update records explicit continuity decision"

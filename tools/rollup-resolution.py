@@ -7,7 +7,7 @@ Reads `*_resolved` events from `logs/events.jsonl` and produces
 that were opened > 30d ago and are still unresolved (best-effort — works
 when an `obj_open` event matched the id).
 
-Consumers: /ed-reflection (resolution decay), /ed-autonomy (stale resurface).
+Consumers: heartbeat curation (resolution decay), /ed-autonomy (stale resurface).
 """
 
 from __future__ import annotations

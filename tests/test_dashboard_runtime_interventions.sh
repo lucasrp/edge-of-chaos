@@ -43,7 +43,7 @@ cat >"$TMP_STATE/state/current-dispatch.json" <<'JSON'
   "cycle_id": "cycle-20260420T220000Z-runtime",
   "request": {
     "trigger": "heartbeat",
-    "skill": "reflection",
+    "skill": "planner",
     "policy": "autonomous"
   },
   "state": {
@@ -70,7 +70,7 @@ cat >"$TMP_STATE/state/events/log.jsonl" <<'JSONL'
 JSONL
 
 cat >"$TMP_STATE/logs/skill-steps.jsonl" <<'JSONL'
-{"skill":"reflection","event":"end","expected":5,"done":4,"explicit_skips":1,"silent_skips":["crossref"],"completion_pct":80,"ts":"2026-04-20T22:02:00"}
+{"skill":"planner","event":"end","expected":5,"done":4,"explicit_skips":1,"silent_skips":["crossref"],"completion_pct":80,"ts":"2026-04-20T22:02:00"}
 JSONL
 
 cat >"$TMP_STATE/state/primitives-status.json" <<'JSON'
@@ -206,7 +206,7 @@ dispatch = client.post(
     json={
         "action": "require-review",
         "reason": "cycle needs explicit human review before continuation",
-        "label": "reflection",
+        "label": "planner",
         "reference": cycle_id,
     },
 )

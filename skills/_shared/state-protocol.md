@@ -33,7 +33,7 @@ they emit completion evidence without registry warnings.
 
 If a checkpoint is skipped for a valid reason, use `skip` with a reason. A
 registered checkpoint not logged as either executed or skipped = **silent
-skip** = /ed-reflection will flag it. Do not add preflight, postflight, corpus,
+skip** = heartbeat curation will flag it. Do not add preflight, postflight, corpus,
 health, or dispatch checks to the registry; those belong to runtime events and
 projections.
 
@@ -119,7 +119,7 @@ invoked.
 
 Rules:
 - If the operator invoked a concrete skill (`/ed-research`, `/ed-planner`,
-  `/ed-reflection`, etc.), infer reasonable scope from the request and current
+  an action skill), infer reasonable scope from the request and current
   context, state assumptions in the final output, and continue through the
   skill contract.
 - If a method has bounded internal loops, run those loops autonomously within

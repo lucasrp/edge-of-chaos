@@ -1522,7 +1522,7 @@ Generate EXACTLY this JSON structure (no markdown, no explanation, just valid JS
     {{"id": "slug-name", "title": "Thread Title", "description": "What this workstream is about — 1 sentence", "status": "active"}},
     "... 2-3 concrete workstreams derived from the short-term goal, NOT from interests (interests are too broad)"
   ],
-  "briefing": "A day-1 briefing in markdown: what the agent knows, what it doesn't, where to start. 5-10 lines. End with: '<!-- SYNTHETIC — replace on first /ed-strategy run -->'"
+  "briefing": "A day-1 briefing in markdown: what the agent knows, what it doesn't, where to start. 5-10 lines. End with: '<!-- SYNTHETIC — replace on first heartbeat curation -->'"
 }}
 
 Each signal should be a short sentence (under 120 chars). Use ! prefix for open gaps, ? for speculative ideas.
@@ -1649,7 +1649,7 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
                 f"Day 1. Mission: {mission}\n\n"
                 f"Goal: {goal}\n\n"
                 f"No data yet. First heartbeat will populate this.\n\n"
-                f"<!-- SYNTHETIC — replace on first /ed-strategy run -->\n"
+                f"<!-- SYNTHETIC — replace on first heartbeat curation -->\n"
                 ,
                 phase="seed",
                 source_template="generated:seed:briefing",
@@ -1697,7 +1697,7 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
     if not ref_log.exists() or ref_log.stat().st_size == 0:
         _write_text(
             ref_log,
-            "# Reflection — Execution Log\n\n---\n\n_Initialized on install. First reflection will populate this._\n",
+            "# Reflection — Execution Log\n\n---\n\n_Initialized on install. Heartbeat curation may route concrete corrections here._\n",
             phase="seed",
             source_template="generated:seed:reflection-log",
             dry_run=False,

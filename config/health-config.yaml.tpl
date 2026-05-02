@@ -12,7 +12,7 @@ monitored_files:
     glob: "*.md"
     category: threads
     threshold_days: 7
-    remedy_skill: "/{{ SKILL_PREFIX }}-strategy"
+    remedy_skill: "/{{ SKILL_PREFIX }}-planner"
 
   - path: "{{ WORK_DIR }}/reports"
     glob: "*.html"

@@ -466,7 +466,7 @@ echo "--- Test 4e: ack removes an exact dispatch queue entry ---"
 cat >"$TMP_EDGE/state/dispatch-queue.json" <<'JSON'
 [
   {
-    "skill": "reflection",
+    "skill": "planner",
     "source": "state-anchor-monitor",
     "entry_id": "state-anchor-monitor:abc123",
     "reason": "state anchor changed",
@@ -474,9 +474,9 @@ cat >"$TMP_EDGE/state/dispatch-queue.json" <<'JSON'
     "payload": {"changed_files": [{"path": "memory/MEMORY.md"}]}
   },
   {
-    "skill": "strategy",
-    "source": "reflection",
-    "entry_id": "reflection:def456",
+    "skill": "research",
+    "source": "planner",
+    "entry_id": "planner:def456",
     "reason": "handoff",
     "created_at": "2026-04-29T00:01:00+00:00",
     "payload": {}
@@ -485,7 +485,7 @@ cat >"$TMP_EDGE/state/dispatch-queue.json" <<'JSON'
 JSON
 
 ACK_OUTPUT=$("$DISPATCH_TOOL" ack \
-    --skill reflection \
+    --skill planner \
     --source state-anchor-monitor \
     --entry-id state-anchor-monitor:abc123 \
     --cycle-id cycle-queue-ack \
@@ -502,7 +502,7 @@ ack = json.loads(sys.argv[3])
 assert ack["removed"] is True
 assert ack["entry_id"] == "state-anchor-monitor:abc123"
 assert len(queue) == 1
-assert queue[0]["skill"] == "strategy"
+assert queue[0]["skill"] == "research"
 event = [item for item in events if item["type"] == "DispatchQueueEntryAcknowledged"][-1]
 assert event["cycle_id"] == "cycle-queue-ack"
 assert event["payload"]["reason"] == "test_ack"
@@ -517,7 +517,7 @@ echo "--- Test 4f: completed cycle auto-acks the captured queue head ---"
 cat >"$TMP_EDGE/state/dispatch-queue.json" <<'JSON'
 [
   {
-    "skill": "reflection",
+    "skill": "planner",
     "source": "state-anchor-monitor",
     "entry_id": "state-anchor-monitor:autoack",
     "reason": "state anchor changed",
@@ -528,7 +528,7 @@ cat >"$TMP_EDGE/state/dispatch-queue.json" <<'JSON'
 JSON
 
 "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-queue-autoack >/dev/null
-"$DISPATCH_TOOL" dispatch --skill reflection >/dev/null
+"$DISPATCH_TOOL" dispatch --skill planner >/dev/null
 "$DISPATCH_TOOL" close --status completed >/dev/null
 
 if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/dispatch-queue.json" "$TMP_EDGE/state/events/log.jsonl"
@@ -570,7 +570,7 @@ PY
 "$DISPATCH_TOOL" open \
     --trigger operator \
     --cycle-id cycle-test-operator \
-    --skill reflection \
+    --skill planner \
     --arg topic=enforcement >/dev/null
 
 if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json"
@@ -579,7 +579,7 @@ import sys
 
 dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 assert dispatch["request"]["trigger"] == "operator"
-assert dispatch["request"]["skill"] == "reflection"
+assert dispatch["request"]["skill"] == "planner"
 assert dispatch["request"]["preflight_profile"] == "operator_default"
 assert dispatch["request"]["args"]["topic"] == "enforcement"
 PY

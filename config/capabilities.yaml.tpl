@@ -7,7 +7,7 @@ capabilities:
     probe: ["edge-sources", "--help"]
     required: true
     roles: ["search", "source", "external_context"]
-    skills: ["sources", "research", "discovery", "report", "strategy", "planner", "heartbeat"]
+    skills: ["sources", "research", "discovery", "report", "planner", "heartbeat"]
 
   - name: signals.aggregate
     kind: external_cli
@@ -17,7 +17,7 @@ capabilities:
     probe: ["edge-signals", "--help"]
     required: true
     roles: ["signals", "observe", "routing", "health"]
-    skills: ["heartbeat", "reflection", "autonomy", "report", "research", "strategy", "planner", "discovery"]
+    skills: ["heartbeat", "autonomy", "report", "research", "planner", "discovery"]
 
   - name: context.aggregate
     kind: external_cli
@@ -27,7 +27,7 @@ capabilities:
     probe: ["edge-context", "--help"]
     required: true
     roles: ["signals", "search", "context"]
-    skills: ["heartbeat", "reflection", "autonomy", "report", "research", "strategy", "planner", "discovery"]
+    skills: ["heartbeat", "autonomy", "report", "research", "planner", "discovery"]
 
   - name: search.corpus
     kind: external_cli
@@ -36,7 +36,7 @@ capabilities:
     passthrough: true
     probe: ["edge-search", "--help"]
     required: true
-    skills: ["research", "discovery", "report", "planner", "strategy", "reflection", "autonomy"]
+    skills: ["research", "discovery", "report", "planner", "autonomy"]
 
   - name: repo.status
     kind: external_cli
@@ -45,7 +45,7 @@ capabilities:
     passthrough: false
     probe: ["git", "--version"]
     required: true
-    skills: ["reflection", "autonomy", "heartbeat"]
+    skills: ["autonomy", "heartbeat"]
 
   - name: repo.sync
     kind: external_cli
@@ -55,7 +55,7 @@ capabilities:
     probe: ["edge-repo-sync", "--help"]
     required: true
     roles: ["sync", "audit", "repository"]
-    skills: ["reflection", "autonomy", "heartbeat"]
+    skills: ["autonomy", "heartbeat"]
 
   - name: storage.sync
     kind: external_cli

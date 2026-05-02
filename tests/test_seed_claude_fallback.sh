@@ -87,7 +87,7 @@ router_client.call_claude_cli_text = lambda prompt, timeout=60: json.dumps(
                 "status": "active",
             }
         ],
-        "briefing": "# Briefing\n\nFallback worked.\n\n<!-- SYNTHETIC — replace on first /ed-strategy run -->",
+        "briefing": "# Briefing\n\nFallback worked.\n\n<!-- SYNTHETIC — replace on first heartbeat curation -->",
     }
 )
 

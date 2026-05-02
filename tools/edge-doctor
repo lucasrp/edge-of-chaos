@@ -718,7 +718,7 @@ def main():
     print("\033[1m[7/8] Skills\033[0m")
     skills_dir = Path.home() / ".claude" / "skills"
     prefix = cfg.get("skill_prefix", codename)
-    expected_skills = ["heartbeat", "research", "discovery", "reflection", "report"]
+    expected_skills = ["heartbeat", "research", "discovery", "report", "planner"]
     for skill in expected_skills:
         skill_path = skills_dir / f"{prefix}-{skill}"
         if skill_path.is_dir():

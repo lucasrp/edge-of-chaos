@@ -213,6 +213,8 @@ def _valid_heartbeat_target(skill: str | None) -> str:
     normalized = normalize_skill_name(skill).strip()
     if not normalized:
         return ""
+    if normalized in {"strategy", "reflection", "map"}:
+        return ""
     if normalized in {"heartbeat", "delta", "loader", "prompt"} or normalized.endswith("heartbeat"):
         return ""
     if not skill_requires_artifact_publication(normalized, instance=EDGE_INSTANCE):

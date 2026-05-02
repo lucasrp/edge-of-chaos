@@ -3,7 +3,7 @@
 
 Usage:
     edge-sources "topic"                          # default intent: research
-    edge-sources "topic" --intent strategy        # routing by intent
+    edge-sources "topic" --intent planner         # routing by intent
     edge-sources "topic" --sources x,hn,arxiv     # override source selection
     edge-sources --front-page                     # headlines only (for heartbeat)
     edge-sources "topic" --json                   # JSON output
@@ -41,9 +41,7 @@ from _shared.search_runtime import (
 ROUTING = {
     'research':   {'primary': ['hn', 'arxiv', 'semantic_scholar', 'exa'], 'secondary': ['x', 'reddit', 'github', 'hf_papers']},
     'discovery':  {'primary': ['x', 'hn', 'reddit', 'exa'],              'secondary': ['hf_papers', 'arxiv']},
-    'strategy':   {'primary': ['x', 'hn', 'github', 'exa'],              'secondary': ['reddit', 'semantic_scholar']},
     'heartbeat':  {'primary': ['hn', 'reddit'],                           'secondary': ['x', 'github', 'exa']},
-    'reflection': {'primary': ['hn', 'reddit'],                           'secondary': ['semantic_scholar', 'exa']},
     'planner':    {'primary': ['hn', 'github', 'exa'],                    'secondary': ['arxiv', 'hf_papers']},
     'report':     {'primary': ['hn', 'arxiv', 'semantic_scholar', 'exa'], 'secondary': ['x', 'reddit', 'github', 'hf_papers']},
 }
@@ -749,7 +747,7 @@ def front_page():
 def main():
     parser = argparse.ArgumentParser(
         description="Unified external source search",
-        epilog="Intents: research, discovery, strategy, heartbeat, reflection, planner, report"
+        epilog="Intents: research, discovery, heartbeat, planner, report"
     )
     parser.add_argument("topic", nargs="?", default="", help="Search topic")
     parser.add_argument("--intent", "-i", default="research", choices=list(ROUTING.keys()),

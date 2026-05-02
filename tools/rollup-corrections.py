@@ -9,7 +9,7 @@ produces `state/operator-corrections.json` with the 30d trend.
 Idempotent: tracks last-processed message id per session in
 `state/.corrections-cursor.json` so re-running doesn't double-count.
 
-Consumer: /ed-reflection.
+Consumer: heartbeat curation.
 """
 
 from __future__ import annotations

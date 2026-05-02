@@ -171,7 +171,7 @@ PY
     "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery end >/dev/null
     publish_mock_artifact discovery
   elif [ -z "${MOCK_CLAUDE_ARTIFACT_MARKDOWN:-}" ]; then
-    for skill in autonomy reflection report research map strategy planner sources; do
+    for skill in autonomy report research planner sources; do
       if [[ "$PROMPT" == *"/$skill"* ]]; then
         publish_mock_artifact "$skill"
         break
@@ -234,7 +234,7 @@ request = dispatch["request"]
 assert len(cycle_ids) == 1
 assert cycle_ids[0] == dispatch["cycle_id"]
 assert request["trigger"] == "heartbeat"
-assert request["skill"] == "report"
+assert request["skill"] == "planner"
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["preflight_status"] == "warning"
@@ -280,13 +280,13 @@ assert request["delta_prerequisite"]["required"] is True
 assert request["delta_prerequisite"]["digest_update_required"] is False
 assert request["delta_prerequisite"]["inputs"]["raw_chat"]["available"] is True
 assert request["delta_prerequisite"]["inputs"]["raw_chat"]["recent_items"]
-assert request["exploration_pack"]["skill"] == "report"
+assert request["exploration_pack"]["skill"] == "planner"
 assert request["exploration_pack"]["status"] in ("ready", "degraded")
 assert request["exploration_pack"]["path"].endswith("/pack.json")
 assert request["heartbeat_routing"]["suggested_skill"] == "report"
-assert request["heartbeat_routing"]["selected_skill"] == "report"
+assert request["heartbeat_routing"]["selected_skill"] == "planner"
 assert request["heartbeat_routing"]["dispatch_mode"] == "deterministic_heartbeat_router"
-assert request["heartbeat_routing"]["acknowledged"] is True
+assert request["heartbeat_routing"]["acknowledged"] is False
 assert request["heartbeat_routing"]["round_robin_skills"] == [
     "report",
     "research",
@@ -296,7 +296,7 @@ assert request["heartbeat_routing"]["round_robin_skills"] == [
 assert len(invocations) == 1
 assert invocations[0].splitlines()[0] == "ARGS: -p -"
 assert "/ed-heartbeat" not in invocations[0]
-assert "/report" in invocations[0]
+assert "/planner" in invocations[0]
 assert "Dispatch runtime context below" in invocations[0]
 assert "health_snapshot" in invocations[0]
 assert "pre_skill_context" in invocations[0]
@@ -385,7 +385,7 @@ assert "/report" in invocations[0]
 assert dispatch["request"]["skill"] == "report"
 assert dispatch["request"]["heartbeat_routing"]["selected_skill"] == "report"
 assert dispatch["request"]["heartbeat_routing"]["dispatch_mode"] == "deterministic_heartbeat_router"
-assert dispatch["request"]["heartbeat_routing"]["acknowledged"] is False
+assert dispatch["request"]["heartbeat_routing"]["acknowledged"] is True
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["postflight_status"] in {"completed", "warning"}
@@ -416,7 +416,7 @@ else
 fi
 
 echo "--- Test 1c: non-heartbeat skills publish stdout through the shared runtime bridge ---"
-PUBLISH_SKILLS=(discovery research report strategy planner autonomy reflection sources map test-agent-autonomy)
+PUBLISH_SKILLS=(discovery research report planner autonomy sources test-agent-autonomy)
 PUBLISH_OK=1
 for skill in "${PUBLISH_SKILLS[@]}"; do
     export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id-publish-$skill.txt"
@@ -615,9 +615,9 @@ unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
 cat >"$TMP_EDGE/state/dispatch-queue.json" <<'JSON'
 [
   {
-    "entry_id": "queue-map-no-artifact",
+    "entry_id": "queue-planner-no-artifact",
     "source": "test-suite",
-    "skill": "map",
+    "skill": "planner",
     "reason": "exercise missing artifact close gate"
   }
 ]
@@ -642,7 +642,7 @@ dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 status = int(sys.argv[2])
 
 assert status == 1
-assert dispatch["request"]["skill"] == "map"
+assert dispatch["request"]["skill"] == "planner"
 assert dispatch["state"]["skill_dispatched"] is True
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "failed"
@@ -1052,7 +1052,7 @@ with events_path.open("w", encoding="utf-8") as handle:
         "ts": "2026-05-02T00:01:00+00:00",
         "type": "SkillRunCompleted",
         "cycle_id": cycle_id,
-        "payload": {"skill": "strategy", "registry_skill": "strategy"},
+        "payload": {"skill": "planner", "registry_skill": "planner"},
     }) + "\n")
     handle.write(json.dumps({
         "ts": "2026-05-02T00:02:00+00:00",
@@ -1072,12 +1072,12 @@ module.STATE_EVENTS_FILE = events_path
 module.SKILL_STEPS_FILE = steps_path
 module.read_dispatch_state = lambda: {
     "cycle_id": cycle_id,
-    "request": {"skill": "strategy"},
+    "request": {"skill": "planner"},
     "state": {"skill_dispatched": True, "dispatched_at": threshold},
 }
 os.environ["EDGE_JSONL_TAIL_BYTES"] = "8192"
 try:
-    assert module.skill_run_completed_for_cycle(cycle_id, "strategy") is True
+    assert module.skill_run_completed_for_cycle(cycle_id, "planner") is True
     assert module.artifact_published_for_cycle(cycle_id) is True
 finally:
     os.environ.pop("EDGE_JSONL_TAIL_BYTES", None)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Detect deterministic state anchor changes and queue a reflection dispatch.
+"""Detect deterministic state anchor changes and queue a planner dispatch.
 
 Anchors:
 - repo memory/MEMORY.md
@@ -9,7 +9,7 @@ Anchors:
 
 The detector stores the last observed version, writes a unified diff when a
 change is found, optionally runs edge-state-lint, and updates the persistent
-dispatch queue so the next heartbeat routes into reflection.
+dispatch queue so the next heartbeat routes into planner.
 """
 
 from __future__ import annotations
@@ -177,14 +177,14 @@ def upsert_dispatch(reason: str, payload: dict, created_at: str) -> str:
     entry_id = dispatch_entry_id(source, payload)
     existing = None
     for item in queue:
-        if item.get("skill") == "reflection" and item.get("source") == source:
+        if item.get("skill") == "planner" and item.get("source") == source:
             existing = item
             break
 
     if existing is None:
         queue.append(
             {
-                "skill": "reflection",
+                "skill": "planner",
                 "source": source,
                 "entry_id": entry_id,
                 "reason": reason,
@@ -373,7 +373,7 @@ def main() -> int:
         + ", ".join(f"{item['label']} ({item['change']})" for item in changed)
     )
     print(
-        f"STATE_QUEUE reflection {queue_status} | lint_errors={lint_errors} lint_warnings={lint_warnings}"
+        f"STATE_QUEUE planner {queue_status} | lint_errors={lint_errors} lint_warnings={lint_warnings}"
     )
     for item in changed:
         print(f"STATE_DIFF {item['label']} -> {item['diff']}")
