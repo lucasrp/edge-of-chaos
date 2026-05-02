@@ -178,6 +178,53 @@ def active_cycle_error(existing: dict, *, reason: str) -> dict:
     }
 
 
+def operator_can_preempt_active_cycle(existing: dict, *, trigger: str) -> bool:
+    if trigger != "operator":
+        return False
+    request = existing.get("request", {}) or {}
+    existing_trigger = canonical_trigger(str(request.get("trigger") or ""))
+    existing_policy = str(request.get("policy") or "").strip()
+    return existing_trigger == "heartbeat" or existing_policy == "autonomous"
+
+
+def mark_cycle_preempted(existing: dict, *, reason: str) -> None:
+    request = existing.setdefault("request", {})
+    state_block = existing.setdefault("state", {})
+    timestamp = now_iso()
+    state_block["active"] = False
+    state_block["phase"] = "closed"
+    state_block["close_status"] = "aborted"
+    state_block["close_reason"] = reason
+    state_block["closed_at"] = timestamp
+    state_block["updated_at"] = timestamp
+    if state_block.get("skill_status") == "running":
+        state_block["skill_status"] = "aborted"
+    write_json(CURRENT_DISPATCH_FILE, existing)
+    mirror_heartbeat_guard(existing)
+    emit_shadow_event(
+        "CycleClosed",
+        actor="edge-dispatch",
+        cycle_id=existing.get("cycle_id"),
+        payload={
+            "trigger": request.get("trigger"),
+            "skill": request.get("skill"),
+            "thread_id": request.get("primary_thread_id"),
+            "primary_thread_id": request.get("primary_thread_id"),
+            "close_status": "aborted",
+            "reason": reason,
+        },
+    )
+    log_event(
+        "dispatch_cycle",
+        action="closed",
+        cycle_id=existing.get("cycle_id"),
+        trigger=request.get("trigger"),
+        skill=request.get("skill") or "",
+        close_status="aborted",
+        reason=reason,
+    )
+
+
 def mirror_heartbeat_guard(state: dict) -> None:
     request = state.get("request", {}) or {}
     if request.get("trigger") != "heartbeat":
@@ -272,10 +319,14 @@ def touch_thread(thread_id: str, *, reason: str, cycle_id: str | None) -> None:
 
 
 def cmd_open(args: argparse.Namespace) -> int:
+    requested_trigger = args.trigger
+    trigger = canonical_trigger(requested_trigger)
     existing = read_state(require_exists=False)
     if existing and state_active(existing):
         alive = owner_alive(existing)
-        if args.force and alive is False:
+        if operator_can_preempt_active_cycle(existing, trigger=trigger):
+            mark_cycle_preempted(existing, reason="superseded_by_operator_dispatch")
+        elif args.force and alive is False:
             pass
         else:
             reason = "active dispatch cycle already exists"
@@ -287,8 +338,6 @@ def cmd_open(args: argparse.Namespace) -> int:
             return 1
 
     cycle_id = args.cycle_id or make_cycle_id()
-    requested_trigger = args.trigger
-    trigger = canonical_trigger(requested_trigger)
     policy = args.policy or ("autonomous" if trigger == "heartbeat" else "operator")
     routing_mode = args.routing_mode or ("auto" if trigger == "heartbeat" else "explicit")
     preflight_profile = args.preflight_profile or ("heartbeat_default" if trigger == "heartbeat" else "operator_default")
@@ -618,7 +667,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_open.add_argument("--cycle-id", help="Override generated cycle id")
     p_open.add_argument("--arg", action="append", help="Request arg (key=value). Repeatable.")
     p_open.add_argument("--args-json", help="JSON object with request args")
-    p_open.add_argument("--force", action="store_true", help="Replace only stale active cycles whose owner process is gone")
+    p_open.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace stale active cycles whose owner process is gone",
+    )
 
     p_dispatch = sub.add_parser("dispatch", help="Mark the current cycle as skill-dispatched")
     p_dispatch.add_argument("--skill", help="Dispatched skill name")

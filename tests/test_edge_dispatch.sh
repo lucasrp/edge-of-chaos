@@ -316,7 +316,61 @@ else
     fail "force refuses to overwrite a live active cycle"
 fi
 
-EDGE_CYCLE_ID=cycle-active-owner "$DISPATCH_TOOL" close --status aborted >/dev/null
+echo "--- Test 4b2: operator dispatch preempts a live heartbeat cycle without force ---"
+EDGE_RUNNER_PID=$$ "$DISPATCH_TOOL" open --trigger operator --cycle-id cycle-operator-preempt --skill report >/dev/null
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+closed = [
+    event for event in events
+    if event["type"] == "CycleClosed" and event.get("cycle_id") == "cycle-active-owner"
+][-1]
+
+assert dispatch["cycle_id"] == "cycle-operator-preempt"
+assert dispatch["request"]["trigger"] == "operator"
+assert dispatch["state"]["active"] is True
+assert closed["payload"]["close_status"] == "aborted"
+assert closed["payload"]["reason"] == "superseded_by_operator_dispatch"
+PY
+then
+    pass "operator dispatch preempts live heartbeat without force"
+else
+    fail "operator dispatch preempts live heartbeat without force"
+fi
+
+EDGE_CYCLE_ID=cycle-operator-preempt "$DISPATCH_TOOL" close --status aborted >/dev/null
+
+echo "--- Test 4b3: operator dispatch does not preempt a live operator cycle ---"
+EDGE_RUNNER_PID=$$ "$DISPATCH_TOOL" open --trigger operator --cycle-id cycle-operator-owner >/dev/null
+set +e
+OPERATOR_REPLACE_OUTPUT=$(EDGE_RUNNER_PID=$$ "$DISPATCH_TOOL" open --trigger operator --cycle-id cycle-operator-replacement --skill research 2>&1)
+OPERATOR_REPLACE_STATUS=$?
+set -e
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$OPERATOR_REPLACE_STATUS" "$OPERATOR_REPLACE_OUTPUT"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+status = int(sys.argv[2])
+output = sys.argv[3]
+
+assert status == 1
+assert dispatch["cycle_id"] == "cycle-operator-owner"
+assert dispatch["state"]["active"] is True
+assert "active dispatch cycle already exists" in output or "running process" in output
+PY
+then
+    pass "operator dispatch cannot overwrite another live operator cycle"
+else
+    fail "operator dispatch cannot overwrite another live operator cycle"
+fi
+
+EDGE_CYCLE_ID=cycle-operator-owner "$DISPATCH_TOOL" close --status aborted >/dev/null
 
 echo "--- Test 4c: force can replace a stale active cycle whose owner pid is gone ---"
 STALE_PID=99999999
