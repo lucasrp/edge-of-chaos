@@ -2,7 +2,7 @@
 """edge-digest — gera briefing.md a partir de dados estruturados.
 
 Determinístico. Zero tokens. Roda após consolidate-state.
-Lê: events.jsonl, threads/*.md, claims abertas, últimos beats, erros ativos.
+Lê: events.jsonl, threads/*.md, open_gaps dos entries, últimos beats, erros ativos.
 Gera: ~/edge/briefing.md — o ÚNICO arquivo que sessões precisam ler.
 
 Uso:
@@ -25,7 +25,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (EVENTS_FILE, THREADS_DIR, ENTRIES_DIR as BLOG_DIR,
                    LOGS_DIR, STATE_DIR, DEBUGGING_FILE as DEBUG_FILE,
                    INSIGHTS_FILE, BRIEFING_FILE as OUTPUT_FILE,
-                   CLAIMS_DIGEST_FILE, ORPHAN_CLAIMS_FILE)
+                   OPEN_GAPS_DIGEST_FILE)
 HEARTBEAT_LOG = LOGS_DIR / f"heartbeat-{datetime.now().strftime('%Y-%m-%d')}.log"
 OBSERVABILITY_FILE = STATE_DIR / "observability-rollup.json"
 
@@ -84,11 +84,11 @@ def read_events(limit=30):
     return events[-limit:]
 
 
-def read_open_claims():
-    """Claims abertas (!) de todos os entries."""
-    claims = []
+def read_open_gaps():
+    """Gaps abertos declarados no frontmatter dos entries."""
+    gaps = []
     if not BLOG_DIR.exists():
-        return claims
+        return gaps
     for f in sorted(BLOG_DIR.glob("*.md"), reverse=True):
         try:
             raw = f.read_text()
@@ -96,43 +96,26 @@ def read_open_claims():
             if len(parts) < 3:
                 continue
             fm = yaml.safe_load(parts[1])
-            if not fm or "claims" not in fm:
+            if not fm:
                 continue
-            for c in fm.get("claims", []):
-                # Normalize: accept str ("!claim") or dict ({claim, status})
-                if isinstance(c, dict):
-                    status = c.get("status", "").lower()
-                    if status in ("unverified", "open", "disputed"):
-                        claims.append({
-                            "claim": c.get("claim", ""),
-                            "source": fm.get("title", f.name),
-                            "threads": fm.get("threads", []),
-                        })
-                elif isinstance(c, str) and c.startswith("!"):
-                    claims.append({
-                        "claim": c.lstrip("! "),
+            for gap in fm.get("open_gaps", []) or []:
+                text = str(gap.get("text") if isinstance(gap, dict) else gap).strip()
+                if text:
+                    gaps.append({
+                        "gap": text,
                         "source": fm.get("title", f.name),
                         "threads": fm.get("threads", []),
                     })
         except Exception:
             continue
-    return claims
+    return gaps
 
 
-def read_claims_digest():
-    if not CLAIMS_DIGEST_FILE.exists():
+def read_open_gaps_digest():
+    if not OPEN_GAPS_DIGEST_FILE.exists():
         return {}
     try:
-        return json.loads(CLAIMS_DIGEST_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def read_orphan_claims():
-    if not ORPHAN_CLAIMS_FILE.exists():
-        return {}
-    try:
-        return json.loads(ORPHAN_CLAIMS_FILE.read_text(encoding="utf-8"))
+        return json.loads(OPEN_GAPS_DIGEST_FILE.read_text(encoding="utf-8"))
     except Exception:
         return {}
 
@@ -170,11 +153,11 @@ def read_unread_insights():
 
 
 def count_blog_entries():
-    """Contagem de entries com e sem claims."""
+    """Contagem de entries com e sem open_gaps."""
     if not BLOG_DIR.exists():
         return 0, 0
     total = 0
-    with_claims = 0
+    with_gaps = 0
     for f in BLOG_DIR.glob("*.md"):
         total += 1
         try:
@@ -182,11 +165,11 @@ def count_blog_entries():
             parts = raw.split("---", 2)
             if len(parts) >= 3:
                 fm = yaml.safe_load(parts[1])
-                if fm and fm.get("claims"):
-                    with_claims += 1
+                if fm and fm.get("open_gaps"):
+                    with_gaps += 1
         except Exception:
             continue
-    return total, with_claims
+    return total, with_gaps
 
 
 def read_observability():
@@ -204,13 +187,12 @@ def generate_briefing():
     refresh_rollups()
     threads = read_threads()
     events = read_events(20)
-    open_claims = read_open_claims()
-    claims_digest = read_claims_digest()
-    orphan_claims = read_orphan_claims()
+    open_gaps = read_open_gaps()
+    open_gaps_digest = read_open_gaps_digest()
     beats = read_beats()
     errors = read_open_errors()
     insights = read_unread_insights()
-    total_entries, entries_with_claims = count_blog_entries()
+    total_entries, entries_with_gaps = count_blog_entries()
     observability = read_observability()
 
     lines = []
@@ -256,53 +238,31 @@ def generate_briefing():
     lines.append("")
 
     # ── O que não sei ──
-    if open_claims:
-        lines.append(f"## O que não sei ({len(open_claims)} gaps)")
-        for c in open_claims[:7]:
-            fios = ", ".join(c["threads"]) if c["threads"] else "sem fio"
-            lines.append(f"- ? {c['claim']} ← {c['source']} ({fios})")
+    if open_gaps:
+        lines.append(f"## O que não sei ({len(open_gaps)} gaps)")
+        for gap in open_gaps[:7]:
+            fios = ", ".join(gap["threads"]) if gap["threads"] else "sem fio"
+            lines.append(f"- ? {gap['gap']} ← {gap['source']} ({fios})")
         lines.append("")
 
-    if claims_digest:
-        lines.append("## Continuidade de claims")
+    if open_gaps_digest:
+        lines.append("## Continuidade de gaps")
         lines.append(
-            f"- Claims: {claims_digest.get('verified_total', 0)} verificadas, "
-            f"{claims_digest.get('open_total', 0)} abertas, "
-            f"{claims_digest.get('unthreaded_count', 0)} órfãs, "
-            f"{claims_digest.get('stale_count', 0)} stale"
+            f"- Entries com gaps: {open_gaps_digest.get('entries_with_gaps', 0)}; "
+            f"gaps abertos: {open_gaps_digest.get('open_total', 0)}"
         )
-        lines.append(
-            f"- Fanout 30d: {claims_digest.get('opened_30d', 0)} abertas / "
-            f"{claims_digest.get('resolved_30d', 0)} resolvidas "
-            f"(ratio {claims_digest.get('fanout_ratio', 0)})"
-        )
-        hot_threads = claims_digest.get("hot_threads_by_open_claims") or []
+        hot_threads = open_gaps_digest.get("hot_threads_by_open_gaps") or []
         if hot_threads:
             top = ", ".join(
-                f"{item.get('thread_id')}:{item.get('open_claims')}"
+                f"{item.get('thread_id')}:{item.get('open_gaps')}"
                 for item in hot_threads[:4]
             )
             lines.append(f"- Threads quentes: {top}")
-        oldest_open = claims_digest.get("oldest_open_claims") or []
+        oldest_open = open_gaps_digest.get("oldest_open_gaps") or []
         if oldest_open:
             for item in oldest_open[:3]:
                 threads = ", ".join(item.get("threads") or []) or "sem fio"
                 lines.append(f"- antigo: {item.get('text')} ({threads})")
-        lines.append("")
-
-    if orphan_claims:
-        lines.append("## Órfãs")
-        lines.append(
-            f"- Órfãs: {orphan_claims.get('orphan_total', 0)} total, "
-            f"{orphan_claims.get('open_orphan_total', 0)} abertas, "
-            f"{orphan_claims.get('stale_orphan_total', 0)} stale"
-        )
-        candidates = orphan_claims.get("candidate_clusters") or []
-        for cluster in candidates[:3]:
-            lines.append(
-                f"- candidato: {cluster.get('cluster_key')} "
-                f"(score {cluster.get('score')}, {cluster.get('claim_count')} claims)"
-            )
         lines.append("")
 
     # ── Últimos eventos ──
@@ -345,9 +305,9 @@ def generate_briefing():
 
     # ── Métricas ──
     lines.append("## Métricas")
-    lines.append(f"- Entries: {total_entries} total, {entries_with_claims} com claims ({int(entries_with_claims/max(total_entries,1)*100)}%)")
+    lines.append(f"- Entries: {total_entries} total, {entries_with_gaps} com gaps ({int(entries_with_gaps/max(total_entries,1)*100)}%)")
     lines.append(f"- Threads: {len(active_threads)} ativos, {len(waiting_threads)} esperando")
-    lines.append(f"- Gaps abertos: {len(open_claims)}")
+    lines.append(f"- Gaps abertos: {len(open_gaps)}")
     lines.append(f"- Erros ativos: {len(errors)}")
     lines.append("")
 
@@ -374,7 +334,7 @@ def generate_briefing():
             f"- Backlog: {backlog.get('active_threads', 0)} threads ativos, "
             f"{backlog.get('waiting_threads', 0)} waiting, "
             f"{backlog.get('resurface_due', 0)} resurface vencidos, "
-            f"{backlog.get('open_claims', 0)} claims abertas"
+            f"{backlog.get('open_gaps', 0)} gaps abertos"
         )
         if stale:
             lines.append(f"- Atores stale: {', '.join(stale)}")

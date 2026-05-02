@@ -24,13 +24,13 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (  # noqa: E402
     BRIEFING_FILE,
     CAPABILITIES_STATUS_FILE,
-    CLAIMS_DIGEST_FILE,
     CURATION_DIGEST_FILE,
     CURRENT_DISPATCH_FILE,
     EDGE_REPO_DIR,
     EXPLORATIONS_DIR,
     GIT_SIGNALS_FILE,
     HEALTH_CURRENT_FILE,
+    OPEN_GAPS_DIGEST_FILE,
     PRIMITIVES_STATUS_FILE,
     REPORTS_DIR,
     TOPICS_DIR,
@@ -248,7 +248,7 @@ def collect_signals(skill: str, cycle_id: str | None, warnings: list[str]) -> li
         ("capabilities", CAPABILITIES_STATUS_FILE),
         ("primitives", PRIMITIVES_STATUS_FILE),
         ("workflow_health", WORKFLOW_HEALTH_FILE),
-        ("claims", CLAIMS_DIGEST_FILE),
+        ("open_gaps", OPEN_GAPS_DIGEST_FILE),
         ("curation", CURATION_DIGEST_FILE),
         ("git", GIT_SIGNALS_FILE),
     ]
@@ -292,12 +292,11 @@ def compact_signal(name: str, payload: Any) -> Any:
         return payload.get("summary") or {}
     if name == "workflow_health":
         return payload.get("summary") or payload
-    if name == "claims":
+    if name == "open_gaps":
         return {
             "open_total": payload.get("open_total"),
-            "verified_total": payload.get("verified_total"),
-            "attention_count": payload.get("attention_count"),
-            "unthreaded_count": payload.get("unthreaded_count"),
+            "entries_with_gaps": payload.get("entries_with_gaps"),
+            "hot_threads_by_open_gaps": payload.get("hot_threads_by_open_gaps"),
         }
     if name == "curation":
         return {

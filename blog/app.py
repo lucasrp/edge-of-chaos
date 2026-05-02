@@ -258,10 +258,10 @@ def load_entries():
         if isinstance(tags_list, str):
             tags_list = [t.strip() for t in tags_list.split(",")]
 
-        # Claims
-        claims_list = fm.get("claims", [])
-        if not isinstance(claims_list, list):
-            claims_list = []
+        # Open gaps
+        open_gaps_list = fm.get("open_gaps", [])
+        if not isinstance(open_gaps_list, list):
+            open_gaps_list = []
 
         # Threads
         threads_list = fm.get("threads", [])
@@ -300,7 +300,7 @@ def load_entries():
             "state_proposal": state_proposal,
             "state_audit": state_audit,
             "llm_cost": fm.get("llm_cost", ""),
-            "claims": claims_list,
+            "open_gaps": open_gaps_list,
             "threads": threads_list,
             "keywords": keywords_list,
             "altered": altered,
@@ -795,7 +795,7 @@ def entries_json():
             "state_audit": e.get("state_audit", ""),
             "llm_cost": e.get("llm_cost", ""),
             "context": e.get("context", ""),
-            "claims": e.get("claims", []),
+            "open_gaps": e.get("open_gaps", []),
             "threads": e.get("threads", []),
             "keywords": e.get("keywords", []),
             "diffs": e.get("diffs", []),
@@ -1120,42 +1120,9 @@ def api_threads():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/claims")
-def api_claims():
-    """Aggregated claims workbench for epistemic triage."""
-    try:
-        from blog.services import load_claims_dashboard
-        return jsonify(load_claims_dashboard(limit=12))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/claims/<claim_id>/detail")
-def api_claim_detail(claim_id):
-    """Full claim detail: support, threads, reports, and steering history."""
-    try:
-        from blog.services import load_claim_detail
-        detail = load_claim_detail(claim_id)
-        if detail is None:
-            return jsonify({"error": f"Claim '{claim_id}' not found"}), 404
-        return jsonify(detail)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/claim/<claim_id>")
-def claim_page(claim_id):
-    """Render claim detail page."""
-    from blog.services import load_claim_detail
-    detail = load_claim_detail(claim_id)
-    if detail is None:
-        abort(404)
-    return render_template("claim_detail.html", claim=detail)
-
-
 @app.route("/api/threads/<thread_id>/detail")
 def api_thread_detail(thread_id):
-    """Full thread detail: metadata, body, linked entries, reports, claims."""
+    """Full thread detail: metadata, body, linked entries, reports, and gaps."""
     try:
         from blog.services import load_thread_detail
         detail = load_thread_detail(thread_id)
@@ -1366,8 +1333,8 @@ def get_health_data(entries):
         "last_heartbeat": "?",
         "heartbeat_ok": False,
         "last_pub": "?",
-        "claims_total": 0,
-        "claims_open": 0,
+        "open_gaps_total": 0,
+        "entries_with_gaps": 0,
     }
     today_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -1382,24 +1349,11 @@ def get_health_data(entries):
             if "heartbeat" in title_lower:
                 health["beats_today"] += 1
 
-    # Claims from snapshot (edge-claims uses blog entries)
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["edge-claims", "stats"],
-            capture_output=True, text=True, timeout=5
-        )
-        for line in result.stdout.splitlines():
-            if "total" in line.lower() or "Total" in line:
-                nums = [int(x) for x in line.split() if x.isdigit()]
-                if nums:
-                    health["claims_total"] = nums[0]
-            if "open" in line.lower() or "aberta" in line.lower():
-                nums = [int(x) for x in line.split() if x.isdigit()]
-                if nums:
-                    health["claims_open"] = nums[0]
-    except Exception:
-        pass
+    for e in entries:
+        gaps = e.get("open_gaps") or []
+        if isinstance(gaps, list) and gaps:
+            health["entries_with_gaps"] += 1
+            health["open_gaps_total"] += len(gaps)
 
     # Heartbeat: check systemd timer
     try:

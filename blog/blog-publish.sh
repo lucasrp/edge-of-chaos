@@ -147,9 +147,6 @@ tags = fm.get('tags', [])
 if not tags or (isinstance(tags, list) and len(tags) == 0):
     if not fm.get('tag'):
         errors.append('Missing field: tags — add tags: [tag1, tag2, ...]')
-claims = fm.get('claims', [])
-if not claims or (isinstance(claims, list) and len(claims) == 0):
-    errors.append('Missing field: claims — add claims: with at least 1 verified claim')
 threads = fm.get('threads', [])
 if not threads or (isinstance(threads, list) and len(threads) == 0):
     errors.append('Missing field: threads — add threads: [related-thread]')

@@ -35,8 +35,8 @@ procedures:
     kind: health.snapshot
   - id: inbox
     kind: inbox.snapshot
-  - id: claims
-    kind: claims.refresh
+  - id: open-gaps
+    kind: open_gaps.refresh
   - id: primitives
     kind: primitives.status
   - id: capabilities
@@ -60,8 +60,8 @@ operator_notes: []
 procedures:
   - id: validate-recent
     kind: validate.recent
-  - id: claims
-    kind: claims.refresh
+  - id: open-gaps
+    kind: open_gaps.refresh
   - id: primitives
     kind: primitives.status
   - id: capabilities
@@ -174,7 +174,7 @@ assert legacy["skill_dispatched"] is True
 assert legacy["skill"] == "research"
 assert request["schema_version"] == 1
 assert "health_snapshot" in request
-assert "claims_summary" in request
+assert "open_gaps_summary" in request
 assert "primitives_status" in request
 assert "workflow_status" in request
 assert "corpus_hits" in request

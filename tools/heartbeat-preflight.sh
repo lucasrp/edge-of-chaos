@@ -173,24 +173,17 @@ if [ -f "$debug_file" ]; then
   fi
 fi
 
-# 4. Corpus curation — run every beat, lightweight
-CURATION_FILE="$PROCEDURE_CURATION_FILE"
-if command -v edge-crystallize &>/dev/null; then
-  # Regenerate curation if stale (>2h) or missing
-  curation_stale=false
-  if [ ! -f "$CURATION_FILE" ]; then
-    curation_stale=true
-  else
-    curation_age=$(( $(date +%s) - $(stat -c %Y "$CURATION_FILE" 2>/dev/null || echo 0) ))
-    if [ "$curation_age" -gt 7200 ] 2>/dev/null; then
-      curation_stale=true
-    fi
-  fi
-
-  if [ "$curation_stale" = true ]; then
-    # Probe deterministic workflow crystallization signals (silent, no LLM)
-    edge-crystallize --dry-run 2>/dev/null | grep -q "candidate" && \
-      SIGNALS+=("CURATION:crystallization candidates detected")
+# 4. Open-gap continuity pressure — lightweight projection check
+OPEN_GAPS_FILE="$PROJECTIONS_DIR/open-gaps-digest.json"
+if [ -f "$OPEN_GAPS_FILE" ]; then
+  open_gaps_count=$(python3 -c "
+import json
+from pathlib import Path
+data = json.loads(Path('$OPEN_GAPS_FILE').read_text())
+print(int(data.get('open_total') or 0))
+" 2>/dev/null || echo 0)
+  if [ "$open_gaps_count" -gt 0 ] 2>/dev/null; then
+    SIGNALS+=("GAPS:${open_gaps_count} open gaps")
   fi
 fi
 

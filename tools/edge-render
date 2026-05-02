@@ -123,7 +123,7 @@ def _render_preflight_protocol(cfg: dict) -> str:
             {"id": "health-snapshot", "kind": "health.snapshot"},
             {"id": "async-inbox", "kind": "inbox.snapshot"},
             {"id": "claude-sessions-digest", "kind": "claude.sessions.digest"},
-            {"id": "claims-refresh", "kind": "claims.refresh"},
+            {"id": "open-gaps-refresh", "kind": "open_gaps.refresh"},
             {"id": "self-healing", "kind": "self_healing.primitives"},
             {"id": "primitives-status", "kind": "primitives.status"},
             {"id": "capabilities-status", "kind": "capabilities.status"},
@@ -145,7 +145,7 @@ def _render_postflight_protocol(cfg: dict) -> str:
         "operator_notes": list(cfg["fan_out"]),
         "procedures": [
             {"id": "validate-recent", "kind": "validate.recent"},
-            {"id": "claims-refresh", "kind": "claims.refresh"},
+            {"id": "open-gaps-refresh", "kind": "open_gaps.refresh"},
             {"id": "pipeline-state", "kind": "pipeline_state.refresh"},
             {"id": "primitives-status", "kind": "primitives.status"},
             {"id": "capabilities-status", "kind": "capabilities.status"},

@@ -34,11 +34,10 @@ from pathlib import Path
 
 EDGE_REPO_DIR = Path(os.environ["EDGE_REPO_DIR"])
 EDGE_STATE_DIR = Path(os.environ["EDGE_STATE_DIR"])
-CLAIMS_DIGEST_FILE = EDGE_STATE_DIR / "state" / "projections" / "claims-digest.json"
 CURADORIA_CANDIDATES_FILE = EDGE_STATE_DIR / "state" / "curadoria-candidates.json"
 CURATION_DIGEST_FILE = EDGE_STATE_DIR / "state" / "curation-digest.json"
 ENTRIES_DIR = EDGE_REPO_DIR / "blog" / "entries"
-ORPHAN_CLAIMS_FILE = EDGE_STATE_DIR / "state" / "projections" / "orphan-claims.json"
+OPEN_GAPS_DIGEST_FILE = EDGE_STATE_DIR / "state" / "projections" / "open-gaps-digest.json"
 OPERATOR_PRESSURE_HOT_DIGEST_FILE = EDGE_STATE_DIR / "state" / "operator-pressure" / "hot-digest.json"
 PROCEDURE_CURATION_FILE = EDGE_STATE_DIR / "state" / "procedure-curation.json"
 THREADS_DIR = EDGE_STATE_DIR / "threads"
@@ -128,39 +127,30 @@ cat >"$TMP_STATE/topics/topic-a.md" <<'EOF'
 # Topic A
 EOF
 
-cat >"$TMP_STATE/state/projections/claims-digest.json" <<'JSON'
+cat >"$TMP_STATE/state/projections/open-gaps-digest.json" <<'JSON'
 {
-  "claims": [
+  "open_total": 2,
+  "entries_with_gaps": 2,
+  "gaps": [
     {
-      "claim_id": "claim-alpha",
+      "gap_id": "gap-alpha",
       "text": "Search substrate still has no topic producer.",
-      "kind": "gap",
       "threads": ["search-substrate"],
-      "support_count": 1,
-      "latest_artifact_filename": "2026-04-24-research-topic-contract.md",
-      "latest_date": "2026-04-24T00:00:00+00:00"
+      "artifact_filename": "2026-04-24-research-topic-contract.md",
+      "date": "2026-04-24T00:00:00+00:00"
     },
     {
-      "claim_id": "claim-beta",
+      "gap_id": "gap-beta",
       "text": "Runtime observability needs a canonical hot-state loop.",
-      "kind": "gap",
       "threads": ["runtime-observability"],
-      "support_count": 1,
-      "latest_artifact_filename": "2026-04-24-runtime.md",
-      "latest_date": "2026-04-24T00:00:00+00:00"
+      "artifact_filename": "2026-04-24-runtime.md",
+      "date": "2026-04-24T00:00:00+00:00"
     }
   ],
-  "hot_threads_by_open_claims": [
-    {"thread_id": "search-substrate", "open_claims": 1},
-    {"thread_id": "runtime-observability", "open_claims": 1}
+  "hot_threads_by_open_gaps": [
+    {"thread_id": "search-substrate", "open_gaps": 1},
+    {"thread_id": "runtime-observability", "open_gaps": 1}
   ]
-}
-JSON
-
-cat >"$TMP_STATE/state/projections/orphan-claims.json" <<'JSON'
-{
-  "orphan_total": 0,
-  "candidate_clusters": []
 }
 JSON
 
@@ -287,7 +277,7 @@ assert module["_is_memory_workflow_item"]({
 }) is False
 
 assert payload["procedures"]["candidate_total"] == 1
-assert proc["crystallization_candidates"][0]["claim_count"] == 3
+assert proc["workflow_candidates"][0]["procedure_count"] == 3
 assert digest["corpus"]["stale_candidates"] == 2
 assert digest["topics"]["total"] == 5
 assert digest["hot_state"]["threads"]["referenced_total"] == 2

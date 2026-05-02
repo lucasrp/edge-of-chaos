@@ -50,8 +50,9 @@ research deliverable. A stdout-only research answer is not a completed
 from the active edge repo, write a YAML report spec and a light staging blog
 entry in `/tmp`, validate both files as described there, then run
 `consolidate-state` so the research becomes a durable blog entry, HTML report,
-and state commit. Quote frontmatter claims as complete YAML strings whenever
-they contain `:`, `!`, backticks, quotes, or other YAML-significant punctuation.
+and state commit. Quote frontmatter `open_gaps` entries as complete YAML
+strings whenever they contain `:`, backticks, quotes, or other
+YAML-significant punctuation.
 If a gate blocks, address the specific feedback and rerun `consolidate-state`.
 Do not close by asking the operator whether to publish, by recommending a future
 publication pass, or by handing off with only prose or staging files. If
@@ -73,8 +74,8 @@ when the injected runtime frame contains plausible candidates.
 If no argument was supplied:
 
 1. Inspect `delta_prerequisite`, `beat_launch_context`,
-   `operator_pressure_digest`, `health_snapshot`, `claims_summary`,
-   `exploration_pack`, recent pipeline failures, stale claims, and current
+   `operator_pressure_digest`, `health_snapshot`, `open_gaps_summary`,
+   `exploration_pack`, recent pipeline failures, stale gaps, and current
    git/runtime drift.
 2. Infer 1-3 concrete research targets from current context friction.
 3. Select the highest-leverage target with enough evidence to study now.

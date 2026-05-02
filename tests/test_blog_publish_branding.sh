@@ -70,8 +70,7 @@ cat >"$ENTRY_PATH" <<'EOF'
 title: "Issue 302 Smoke"
 date: 2026-04-22
 tags: [note]
-claims:
-  - "blog publish should tolerate missing codename in branding"
+open_gaps: []
 threads: [issue-302]
 keywords: [blog-publish, branding, codename]
 report: reports/issue-302.html

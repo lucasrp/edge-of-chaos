@@ -131,7 +131,6 @@ def heartbeat_trigger():
 VALID_THREAD_ACTIONS = {"active", "waiting", "dormant", "done"}
 VALID_STEERING_ACTIONS = {
     "proposal": {"approve", "reject", "defer", "request-revision"},
-    "claim": {"promote", "verified", "disputed", "stale"},
     "topic": {"promote", "prioritize", "defer"},
     "objective": {"attach", "retire", "defer"},
     "strategy": {"align", "reprioritize", "redirect", "review-drift"},

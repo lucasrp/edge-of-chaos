@@ -16,10 +16,9 @@ import sys
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
 from paths import (  # noqa: E402
     CAPABILITIES_STATUS_FILE,
-    CLAIMS_DIGEST_FILE,
     HEALTH_CURRENT_FILE,
     HEALTH_DIR,
-    ORPHAN_CLAIMS_FILE,
+    OPEN_GAPS_DIGEST_FILE,
     PRIMITIVES_STATUS_FILE,
     STATE_EVENTS_FILE,
     THREADS_DIR,
@@ -309,15 +308,27 @@ def _thread_touch_counts(events: list[dict[str, Any]], *, days: int = 7) -> tupl
     return len(touched), sorted(touched)
 
 
-def _continuity_dimension(events: list[dict[str, Any]], claims_digest: dict[str, Any], orphan_claims: dict[str, Any]) -> dict[str, Any]:
+def _continuity_dimension(events: list[dict[str, Any]], open_gaps_digest: dict[str, Any]) -> dict[str, Any]:
     active_threads, due_threads = _active_threads()
     touched_7d, touched_threads = _thread_touch_counts(events, days=7)
     renewal_rate = touched_7d / active_threads if active_threads else 1.0
-    open_total = int(claims_digest.get("open_total", 0) or 0)
-    orphan_total = int(orphan_claims.get("orphan_total", 0) or 0)
-    stale_total = int(claims_digest.get("stale_count", 0) or 0)
-    fanout_ratio = float(claims_digest.get("fanout_ratio", 0) or 0)
-    if active_threads == 0 and open_total == 0 and orphan_total == 0 and stale_total == 0:
+    open_total = int(open_gaps_digest.get("open_total", 0) or 0)
+    entries_with_gaps = int(open_gaps_digest.get("entries_with_gaps", 0) or 0)
+    hot_threads = open_gaps_digest.get("hot_threads_by_open_gaps") or []
+    gaps = open_gaps_digest.get("gaps") or []
+    cutoff = _now() - timedelta(days=30)
+    stale_total = 0
+    thread_refs = 0
+    if isinstance(gaps, list):
+        for item in gaps:
+            if not isinstance(item, dict):
+                continue
+            dt = _parse_ts(item.get("date"))
+            if dt and dt < cutoff:
+                stale_total += 1
+            thread_refs += len(item.get("threads") or [])
+    fanout_ratio = thread_refs / open_total if open_total else 0.0
+    if active_threads == 0 and open_total == 0 and stale_total == 0:
         return {
             "status": "unknown",
             "score": 50,
@@ -328,12 +339,11 @@ def _continuity_dimension(events: list[dict[str, Any]], claims_digest: dict[str,
                 "touched_thread_ids_7d": [],
                 "renewal_rate_7d": 0.0,
                 "due_threads": 0,
-                "open_claims": 0,
-                "orphan_claims": 0,
-                "stale_claims": 0,
+                "open_gaps": 0,
+                "entries_with_gaps": 0,
+                "stale_open_gaps": 0,
+                "hot_threads_with_gaps": 0,
                 "fanout_ratio_30d": 0.0,
-                "resolved_30d": 0,
-                "opened_30d": 0,
             },
         }
 
@@ -341,10 +351,6 @@ def _continuity_dimension(events: list[dict[str, Any]], claims_digest: dict[str,
     if fanout_ratio > 2.0:
         score -= 25
     elif fanout_ratio > 1.2:
-        score -= 10
-    if orphan_total > 20:
-        score -= 20
-    elif orphan_total > 5:
         score -= 10
     if stale_total > 10:
         score -= 20
@@ -364,7 +370,7 @@ def _continuity_dimension(events: list[dict[str, Any]], claims_digest: dict[str,
         "status": _dimension_status(score),
         "score": score,
         "detail": (
-            f"open={open_total} orphans={orphan_total} stale={stale_total} "
+            f"open_gaps={open_total} entries_with_gaps={entries_with_gaps} stale={stale_total} "
             f"threads_active={active_threads} touched_7d={touched_7d} due={due_threads}"
         ),
         "metrics": {
@@ -373,12 +379,11 @@ def _continuity_dimension(events: list[dict[str, Any]], claims_digest: dict[str,
             "touched_thread_ids_7d": touched_threads[:10],
             "renewal_rate_7d": round(renewal_rate, 3),
             "due_threads": due_threads,
-            "open_claims": open_total,
-            "orphan_claims": orphan_total,
-            "stale_claims": stale_total,
+            "open_gaps": open_total,
+            "entries_with_gaps": entries_with_gaps,
+            "stale_open_gaps": stale_total,
+            "hot_threads_with_gaps": len(hot_threads),
             "fanout_ratio_30d": round(fanout_ratio, 2),
-            "resolved_30d": int(claims_digest.get("resolved_30d", 0) or 0),
-            "opened_30d": int(claims_digest.get("opened_30d", 0) or 0),
         },
     }
 
@@ -546,19 +551,20 @@ def _workflow_dimension(events: list[dict[str, Any]], workflow_status: dict[str,
     }
 
 
-def _renewal_dimension(events: list[dict[str, Any]], claims_digest: dict[str, Any]) -> dict[str, Any]:
+def _renewal_dimension(events: list[dict[str, Any]], open_gaps_digest: dict[str, Any]) -> dict[str, Any]:
     rows = _cycle_window(events, days=30)
     counts = Counter(row.get("type") for row in rows)
     threads_touched_30d, _ = _thread_touch_counts(events, days=30)
     active_threads, _ = _active_threads()
     cluster_touch_rate = threads_touched_30d / active_threads if active_threads else 1.0
-    opened_30d = int(claims_digest.get("opened_30d", 0) or 0)
-    resolved_30d = int(claims_digest.get("resolved_30d", 0) or 0)
-    fanout_ratio = float(claims_digest.get("fanout_ratio", 0) or 0)
+    open_total = int(open_gaps_digest.get("open_total", 0) or 0)
+    gaps = open_gaps_digest.get("gaps") or []
+    thread_refs = sum(len(item.get("threads") or []) for item in gaps if isinstance(item, dict))
+    fanout_ratio = thread_refs / open_total if open_total else 0.0
+    observed_30d = counts.get("OpenGapObserved", 0)
     primitive_updates = counts.get("PrimitiveManifestUpdated", 0) + counts.get("PrimitiveMaterialized", 0)
     primitive_probes = counts.get("PrimitiveProbeCompleted", 0)
-    thread_promotions = counts.get("ClaimPromotedToThread", 0)
-    if active_threads == 0 and threads_touched_30d == 0 and opened_30d == 0 and resolved_30d == 0 and primitive_updates == 0 and primitive_probes == 0:
+    if active_threads == 0 and threads_touched_30d == 0 and open_total == 0 and observed_30d == 0 and primitive_updates == 0 and primitive_probes == 0:
         return {
             "status": "unknown",
             "score": 50,
@@ -567,10 +573,9 @@ def _renewal_dimension(events: list[dict[str, Any]], claims_digest: dict[str, An
                 "cluster_touch_rate_30d": 0.0,
                 "threads_touched_30d": 0,
                 "active_clusters": 0,
-                "opened_30d": 0,
-                "resolved_30d": 0,
+                "open_gaps": 0,
+                "observed_open_gaps_30d": 0,
                 "fanout_ratio_30d": round(fanout_ratio, 2),
-                "orphan_promotions_30d": 0,
                 "primitive_updates_30d": 0,
                 "primitive_probes_30d": 0,
             },
@@ -587,8 +592,10 @@ def _renewal_dimension(events: list[dict[str, Any]], claims_digest: dict[str, An
         score -= 10
     if primitive_updates == 0 and primitive_probes == 0:
         score -= 10
-    if opened_30d > resolved_30d:
-        score -= min((opened_30d - resolved_30d) * 2, 20)
+    if open_total > 50:
+        score -= 20
+    elif open_total > 20:
+        score -= 10
     score = max(0, min(100, score))
 
     return {
@@ -596,16 +603,15 @@ def _renewal_dimension(events: list[dict[str, Any]], claims_digest: dict[str, An
         "score": score,
         "detail": (
             f"clusters_touched_30d={threads_touched_30d} active_clusters={active_threads} "
-            f"opened_30d={opened_30d} resolved_30d={resolved_30d} primitive_updates_30d={primitive_updates}"
+            f"open_gaps={open_total} observed_30d={observed_30d} primitive_updates_30d={primitive_updates}"
         ),
         "metrics": {
             "cluster_touch_rate_30d": round(cluster_touch_rate, 3),
             "threads_touched_30d": threads_touched_30d,
             "active_clusters": active_threads,
-            "opened_30d": opened_30d,
-            "resolved_30d": resolved_30d,
+            "open_gaps": open_total,
+            "observed_open_gaps_30d": observed_30d,
             "fanout_ratio_30d": round(fanout_ratio, 2),
-            "orphan_promotions_30d": thread_promotions,
             "primitive_updates_30d": primitive_updates,
             "primitive_probes_30d": primitive_probes,
         },
@@ -725,7 +731,7 @@ def _remediation_queue(dimensions: dict[str, dict[str, Any]], raw: dict[str, dic
     if dimensions["runtime_flow"]["status"] != "ok":
         queue.append({"domain": "runtime_flow", "priority": 1, "action": "inspect dispatch lifecycle stalls/timeouts", "detail": dimensions["runtime_flow"]["detail"]})
     if dimensions["continuity"]["status"] != "ok":
-        queue.append({"domain": "continuity", "priority": 2, "action": "recycle overdue threads and reduce orphan claims", "detail": dimensions["continuity"]["detail"]})
+        queue.append({"domain": "continuity", "priority": 2, "action": "recycle overdue threads and close or route open gaps", "detail": dimensions["continuity"]["detail"]})
     if dimensions["capabilities"]["status"] != "ok":
         queue.append({"domain": "capabilities", "priority": 2, "action": "repair broken capabilities/primitives and improve adoption", "detail": dimensions["capabilities"]["detail"]})
     if dimensions["workflows"]["status"] != "ok":
@@ -749,8 +755,7 @@ def build_health_snapshot() -> dict[str, Any]:
     raw = _load_raw_components()
     events = _iter_events(STATE_EVENTS_FILE)
     infra, hard_fail = _infra_dimension(raw)
-    claims_digest = _read_json(CLAIMS_DIGEST_FILE, {})
-    orphan_claims = _read_json(ORPHAN_CLAIMS_FILE, {})
+    open_gaps_digest = _read_json(OPEN_GAPS_DIGEST_FILE, {})
     capabilities_status = _read_json(CAPABILITIES_STATUS_FILE, {})
     if not isinstance(capabilities_status, dict) or "summary" not in capabilities_status:
         capabilities_status = build_capability_status()
@@ -760,10 +765,10 @@ def build_health_snapshot() -> dict[str, Any]:
     dimensions = {
         "infra": infra,
         "runtime_flow": _runtime_flow_dimension(events),
-        "continuity": _continuity_dimension(events, claims_digest, orphan_claims),
+        "continuity": _continuity_dimension(events, open_gaps_digest),
         "capabilities": _capabilities_dimension(events, capabilities_status, primitives_status),
         "workflows": _workflow_dimension(events, workflow_status),
-        "renewal": _renewal_dimension(events, claims_digest),
+        "renewal": _renewal_dimension(events, open_gaps_digest),
         "substrate_discipline": _substrate_discipline_dimension(events),
         "api_runtime": _api_runtime_dimension(raw, events),
     }

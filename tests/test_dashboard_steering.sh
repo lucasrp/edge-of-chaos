@@ -51,9 +51,8 @@ cat >"$TMP_STATE/blog/entries/2026-04-20-claims-a.md" <<'MD'
 ---
 title: "Dispatch evidence review"
 date: "2026-04-20"
-claims:
-  - "Dispatch cycles need explicit close evidence"
-  - "!Pre-skill is still not instrumented"
+open_gaps:
+  - "Pre-skill is still not instrumented"
 threads:
   - runtime-transparency
 report: dispatch-evidence.html
@@ -112,8 +111,6 @@ seed = client.get("/api/dashboard/epistemics")
 assert seed.status_code == 200, seed.status_code
 seed_data = seed.get_json()
 
-claim_id = seed_data["ep_claims"]["recent"][0]["claim_id"]
-claim_label = seed_data["ep_claims"]["recent"][0]["text"]
 proposal_id = seed_data["ep_proposals"]["active"][0]["id"]
 proposal_label = seed_data["ep_proposals"]["active"][0]["title"]
 topic_id = seed_data["ep_strategy"]["topics"][0]["id"]
@@ -145,17 +142,6 @@ proposal_dup = client.post(
 )
 assert proposal_dup.status_code == 200, proposal_dup.status_code
 assert proposal_dup.get_json()["duplicate"] is True
-
-claim = client.post(
-    f"/api/steering/claim/{claim_id}/action",
-    json={
-        "action": "disputed",
-        "reason": "pre-skill evidence is still incomplete",
-        "label": claim_label,
-        "reference": "2026-04-20-claims-a.md",
-    },
-)
-assert claim.status_code == 200, claim.status_code
 
 topic = client.post(
     f"/api/steering/topic/{topic_id}/action",
@@ -196,9 +182,8 @@ assert strategy_data["resulting_state"] == "queued"
 
 messages = client.get("/api/chat?unprocessed=1").get_json()["messages"]
 intents = [m for m in messages if m["author"] == "user" and m["text"].startswith("[steering-intent]")]
-assert len(intents) == 5
+assert len(intents) == 4
 assert any("target_type: proposal" in m["text"] for m in intents)
-assert any("target_type: claim" in m["text"] for m in intents)
 assert any("target_type: topic" in m["text"] for m in intents)
 assert any("target_type: objective" in m["text"] for m in intents)
 assert any("target_type: strategy" in m["text"] for m in intents)
@@ -217,12 +202,11 @@ assert operator_log[-1]["apply"] == "next-dispatch"
 resp = client.get("/api/dashboard/epistemics")
 assert resp.status_code == 200, resp.status_code
 data = resp.get_json()
-assert data["ep_queued_steering_count"] == 5
-assert {item["target_type"] for item in data["ep_queued_steering"]} == {"proposal", "claim", "topic", "objective", "strategy"}
-assert data["ep_steering_trace_count"] == 5
+assert data["ep_queued_steering_count"] == 4
+assert {item["target_type"] for item in data["ep_queued_steering"]} == {"proposal", "topic", "objective", "strategy"}
+assert data["ep_steering_trace_count"] == 4
 assert {item["action"] for item in data["ep_steering_trace"]} == {
     "steering:approve",
-    "steering:disputed",
     "steering:prioritize",
     "steering:attach",
     "steering:redirect",

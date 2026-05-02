@@ -90,7 +90,7 @@ def _rollup_backlog(today: str) -> dict:
     active = 0
     waiting = 0
     due = 0
-    open_claims = 0
+    open_gaps = 0
     workflow_drafts = 0
 
     for path in THREADS_DIR.glob("*.md"):
@@ -109,18 +109,15 @@ def _rollup_backlog(today: str) -> dict:
         tags = fm.get("tags", [])
         if isinstance(tags, list) and "workflow-draft" in tags:
             workflow_drafts += 1
-        for claim in fm.get("claims", []) or []:
-            if isinstance(claim, dict):
-                if str(claim.get("status", "")).lower() in {"open", "unverified", "disputed"}:
-                    open_claims += 1
-            elif isinstance(claim, str) and claim.startswith("!"):
-                open_claims += 1
+        gaps = fm.get("open_gaps", []) or []
+        if isinstance(gaps, list):
+            open_gaps += len(gaps)
 
     return {
         "active_threads": active,
         "waiting_threads": waiting,
         "resurface_due": due,
-        "open_claims": open_claims,
+        "open_gaps": open_gaps,
         "workflow_drafts": workflow_drafts,
     }
 

@@ -50,25 +50,15 @@ resurface: 2026-04-24
 ---
 MD
 
-cat >"$TMP_STATE/state/projections/claims-digest.json" <<'JSON'
+cat >"$TMP_STATE/state/projections/open-gaps-digest.json" <<'JSON'
 {
   "open_total": 8,
-  "verified_total": 13,
-  "attention_count": 6,
-  "unthreaded_count": 3,
-  "stale_count": 4,
-  "opened_30d": 6,
-  "resolved_30d": 2,
-  "fanout_ratio": 3.0,
-  "hot_threads_by_open_claims": [{"thread_id":"alpha-thread","open_claims":5}]
-}
-JSON
-cat >"$TMP_STATE/state/projections/orphan-claims.json" <<'JSON'
-{
-  "orphan_total": 3,
-  "open_orphan_total": 2,
-  "stale_orphan_total": 1,
-  "candidate_clusters": [{"cluster_key":"alpha beta","score":6}]
+  "entries_with_gaps": 3,
+  "hot_threads_by_open_gaps": [{"thread_id":"alpha-thread","open_gaps":5}],
+  "gaps": [
+    {"text":"alpha","threads":["alpha-thread"],"date":"2026-04-01T00:00:00+00:00"},
+    {"text":"beta","threads":["alpha-thread"],"date":"2026-04-02T00:00:00+00:00"}
+  ]
 }
 JSON
 
@@ -151,7 +141,7 @@ cat >"$TMP_STATE/state/events/log.jsonl" <<JSONL
 {"ts":"$ts_recent_2","type":"HeartbeatDispatchTimedOut","cycle_id":"cycle-2","payload":{}}
 {"ts":"$ts_recent_3","type":"PostflightFailed","cycle_id":"cycle-2","payload":{}}
 {"ts":"$ts_recent_4","type":"ThreadTouched","payload":{"thread_id":"alpha-thread"}}
-{"ts":"$ts_recent_5","type":"ClaimPromotedToThread","payload":{"claim_id":"claim-x"}}
+{"ts":"$ts_recent_5","type":"OpenGapObserved","payload":{"text":"gap-x","threads":["alpha-thread"]}}
 {"ts":"$ts_recent_6","type":"WorkflowUsedObserved","payload":{"slug":"2026-04-01-sources-research-consult-report"}}
 {"ts":"$ts_recent_7","type":"PrimitiveManifestUpdated","payload":{"source":"grafana"}}
 {"ts":"$ts_recent_7","type":"PrimitiveMaterialized","payload":{"source":"grafana"}}

@@ -5,8 +5,8 @@ operator_notes: []
 procedures:
   - id: validate-recent
     kind: validate.recent
-  - id: claims
-    kind: claims.refresh
+  - id: open-gaps
+    kind: open_gaps.refresh
   - id: pipeline-state
     kind: pipeline_state.refresh
   - id: primitives

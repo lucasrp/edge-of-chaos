@@ -9,7 +9,7 @@ Usage:
 Reads git log from ~/edge/, parses structured commit fields,
 and outputs ~/edge/state/git-signals.json with:
 fix chains, duplicate slugs, pipeline failures, state violations,
-thread coverage, skill distribution, claims summary.
+thread coverage, skill distribution, open-gap summary.
 """
 
 import argparse
@@ -268,8 +268,8 @@ def compute_skill_distribution(commits):
     return dict(sorted(tag_counts.items(), key=lambda x: -x[1]))
 
 
-def compute_claims_summary(commits):
-    """Compute total learned, total gaps, persistent gaps."""
+def compute_open_gaps_summary(commits):
+    """Compute total learned signals, total gaps, and persistent gaps."""
     total_learned = 0
     total_gaps = 0
     gap_occurrences = defaultdict(int)
@@ -309,7 +309,7 @@ def main():
     state_violations = detect_state_violations(commits)
     thread_coverage = compute_thread_coverage(commits)
     skill_distribution = compute_skill_distribution(commits)
-    claims_summary, gap_occurrences = compute_claims_summary(commits)
+    open_gaps_summary, gap_occurrences = compute_open_gaps_summary(commits)
 
     persistent_gaps = [
         {"gap_prefix": gap, "occurrences": count}
@@ -327,7 +327,7 @@ def main():
         "state_violations": state_violations,
         "thread_coverage": thread_coverage,
         "skill_distribution": skill_distribution,
-        "claims_summary": claims_summary,
+        "open_gaps_summary": open_gaps_summary,
         "persistent_gaps": persistent_gaps,
     }
 

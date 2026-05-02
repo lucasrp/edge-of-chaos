@@ -114,7 +114,7 @@ with open('$HOME/edge/state/git-signals.json') as f:
     d = json.load(f)
 for field in ['generated_at','window','total_commits','fix_chains','duplicate_slugs',
               'pipeline_failures','state_violations','thread_coverage',
-              'skill_distribution','claims_summary','persistent_gaps']:
+              'skill_distribution','open_gaps_summary','persistent_gaps']:
     assert field in d, f'missing {field}'
 " 2>/dev/null; then
         pass "git_signals.py produces valid git-signals.json"

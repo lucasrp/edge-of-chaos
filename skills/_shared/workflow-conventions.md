@@ -24,8 +24,7 @@ title: "workflow: sources → research → report pipeline"
 date: 2026-03-24
 tags: [workflow, research, sources, consolidate-state]
 keywords: [edge-sources, ed-research, consolidate-state, exa, pipeline]
-claims:
-  - "Combining source lookup with the consolidate-state report pipeline improves output quality without duplicating review loops"
+open_gaps: []
 secrets: [exa.env, openai.env]
 cost_estimate: "~$0.15/execution"
 ---
@@ -61,9 +60,8 @@ title: "anti-pattern: playwright screenshot loop to validate report"
 date: 2026-03-24
 tags: [workflow, anti-pattern, chrome, playwright, reports]
 keywords: [playwright, screenshot, chrome, report-validation, visual-feedback]
-claims:
-  - "Screenshot loop with Playwright is fragile — tab management disconnects frequently"
-  - "!Gap — reliable alternative for visual report validation"
+open_gaps:
+  - "Reliable alternative for visual report validation"
 secrets: []
 cost_estimate: "~$0 (local)"
 ---
@@ -129,7 +127,7 @@ procedure:
   - "!When edge-search returns empty for workflows, log it as evidence the system needs seeding"
 ```
 
-- `!` prefix marks anti-patterns (procedures to AVOID), same convention as claims
+- `!` prefix marks anti-patterns (procedures to AVOID)
 - Format: "When [context], do/avoid [action] -- [reason/result]"
 - Each procedure is an atom — a single observation, not a full workflow
 
@@ -142,7 +140,7 @@ procedure:
 - Mark as anti-pattern (if the workflow is fundamentally broken)
 - Archive (if the workflow is obsolete)
 
-**`procedure:`** — `edge-curation sync` clusters repeated procedure-claims deterministically. When 3+ claims converge on the same topic, it proposes crystallization into a full workflow entry.
+**`procedure:`** — `edge-curation sync` clusters repeated procedure atoms deterministically. When 3+ atoms converge on the same topic, it proposes a full workflow entry.
 
 ### Full example
 
@@ -151,8 +149,7 @@ procedure:
 title: "Research: Secret Management for Agents"
 date: 2026-03-27
 tags: [research, security]
-claims:
-  - "Zero-knowledge proxy prevents credential exfiltration"
+open_gaps: []
 threads: [agent-security]
 procedure:
   - "When researching a new topic, search internal corpus first (edge-search) -- prevents rediscovery"
@@ -167,7 +164,7 @@ workflows_broken: [playwright-screenshot-validation]
 
 ## Capture: Two levels
 
-### Level 1: Procedure-claims (atoms — in EVERY entry)
+### Level 1: Procedure Atoms (in EVERY entry)
 
 Capture in the `procedure:` field when:
 - Used a combination of tools/steps that was NOT covered by workflows recalled from RAG
@@ -180,7 +177,7 @@ Do NOT capture:
 ### Level 2: Workflow entries (molecules — when atoms crystallize)
 
 Create a full workflow entry when:
-1. **3+ similar procedure-claims** already exist in the corpus (detected by `edge-curation sync`)
+1. **3+ similar procedure atoms** already exist in the corpus (detected by `edge-curation sync`)
 2. **The session combined 2+ capabilities** in a significant way that justifies immediate documentation
 3. **A combination failed** in an instructive way — the anti-pattern prevents rediscovery of the failure
 
@@ -212,7 +209,7 @@ This is **MANDATORY** before executing any skill (see state-protocol.md).
 
 ## Broken workflow = bug
 
-A workflow that fails during execution should be recorded in `debugging.md` and marked as stale (claim `"!Gap"` or new anti-pattern).
+A workflow that fails during execution should be recorded in `debugging.md` and marked as stale with an `open_gaps:` entry or new anti-pattern.
 
 ---
 

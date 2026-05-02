@@ -21,7 +21,7 @@ required = [
     "`beat_launch_context`",
     "`operator_pressure_digest`",
     "`health_snapshot`",
-    "`claims_summary`",
+    "`open_gaps_summary`",
     "`exploration_pack`",
     "Select the highest-leverage report target",
     "State the inferred target and why it was selected.",

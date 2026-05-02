@@ -20,25 +20,21 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
    `/tmp/entry-[skill]-[slug].md`. Do not write directly into
    `~/edge/blog/entries/`; protected artifact paths are only writable by the
    `consolidate-state` pipeline.
-4. **Write the blog entry as a light strategic invitation, then include claims
-   in frontmatter** (compaction — MANDATORY). The entry body should be only a
+4. **Write the blog entry as a light strategic invitation, then include open
+   gaps in frontmatter when something remains unresolved.** The entry body should be only a
    few concise paragraphs: frame why this matters now, explain what the
    operator gains by opening the report, and leave implementation depth to the
    report. Do not duplicate the YAML/report structure in the blog body.
    ```yaml
-   claims:
-     - "Verified fact I learned"
-     - "!Thing I still don't know — knowledge gap"
+   open_gaps:
+     - "Thing I still don't know — knowledge gap"
    threads: [related-thread-1, related-thread-2]
    ```
-   - Claims = durable knowledge extracted from the entry. What survives without rereading the full text.
-   - `!` prefix = "I don't know" — open gap, candidate for future research.
+   - `open_gaps:` = unresolved questions or implementation gaps that should remain visible.
    - `threads:` = related investigation threads (see `~/edge/threads/`).
-   - `consolidate-state` warns if claims are missing.
-   - Every claim must be valid YAML. Quote the whole claim when it contains
-     `:`, `!`, backticks, brackets, quotes, or other punctuation that YAML may
-     interpret structurally. For open gaps, keep the `!` inside the string:
-     `- "!Open gap: what is still unknown"`.
+   - Every gap must be valid YAML. Quote the whole gap when it contains
+     `:`, backticks, brackets, quotes, or other punctuation that YAML may
+     interpret structurally.
 5. **Publish atomically** (blog entry + report HTML + state commit):
    Validate the staging entry frontmatter and YAML spec before publishing. Do
    not run `consolidate-state` until this command exits cleanly:
@@ -66,7 +62,7 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
    - Phase 1: Blog entry (blog-publish.sh)
    - Phase 2: Content report (generate_report.py → ~/edge/reports/)
    - Phase 3/3.4: Verification + LLM cost
-   - Phase 5: State commit (claims, threads, events, digest)
+   - Phase 5: State commit (open gaps, threads, events, digest)
    - Phase 6: Diffs + git commit
 
    **YAML spec is MANDATORY — never publish without it.** Publishing a blog

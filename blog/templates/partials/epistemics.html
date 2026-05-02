@@ -3,7 +3,7 @@
   <div class="thread-console-head">
     <div class="thread-console-title-row">
       <span class="runtime-pill runtime-pill-{{ item.kind_color }}">{{ item.judgment_label }}</span>
-      <a href="/claim/{{ item.claim_id }}" class="thread-console-title">{{ item.text }}</a>
+      <span class="thread-console-title">{{ item.text }}</span>
       <span class="thread-console-chip">{{ item.evidence_strength_label }}</span>
     </div>
     <div class="thread-console-meta-row">
@@ -154,7 +154,7 @@
   {% endif %}
   {% if proposal.linked_claims %}
   <div class="runtime-meta">
-    claims:
+    evidence:
     {% for item in proposal.linked_claims[:3] %}
       <a href="{{ item.href }}" style="color:inherit">{{ item.text }}</a>{% if not loop.last %}, {% endif %}
     {% endfor %}
@@ -184,49 +184,36 @@
 
   <div class="runtime-grid">
     <div class="runtime-card">
-      <div class="runtime-card-title">claims workbench</div>
+      <div class="runtime-card-title">open gaps</div>
       <div class="runtime-row">
-        <strong>verified</strong>
-        <span class="runtime-meta">{{ ep_claims.verified_total }}</span>
+        <strong>open</strong>
+        <span class="runtime-meta">{{ ep_open_gaps.open_total }}</span>
       </div>
       <div class="runtime-row">
-        <strong>open / disputed</strong>
-        <span class="runtime-meta">{{ ep_claims.open_total }}</span>
+        <strong>entries</strong>
+        <span class="runtime-meta">{{ ep_open_gaps.entries_with_gaps }}</span>
       </div>
       <div class="runtime-row">
         <strong>need attention</strong>
-        <span class="runtime-meta">{{ ep_claims.attention_count }}</span>
+        <span class="runtime-meta">{{ ep_open_gaps.attention_count }}</span>
       </div>
-      <div class="runtime-row">
-        <strong>unthreaded</strong>
-        <span class="runtime-meta">{{ ep_claims.unthreaded_count }}</span>
-      </div>
-      <div class="runtime-row">
-        <strong>no report</strong>
-        <span class="runtime-meta">{{ ep_claims.no_report_count }}</span>
-      </div>
-      <div class="runtime-row">
-        <strong>queued steering</strong>
-        <span class="runtime-meta">{{ ep_claims.queued_count }}</span>
-      </div>
-      {% if ep_claims.attention %}
+      {% if ep_open_gaps.attention %}
       <div class="runtime-subtitle">needs attention</div>
       <div class="thread-console-list">
-        {% for item in ep_claims.attention %}
-          {{ claim_card(item, true) }}
+        {% for item in ep_open_gaps.attention %}
+        <div class="thread-console-card">
+          <div class="thread-console-card-head">
+            <a href="{{ item.entry_href }}" class="thread-console-title">{{ item.text }}</a>
+          </div>
+          <div class="thread-console-line"><strong>entry</strong><span>{{ item.entry_title }}</span></div>
+          {% if item.threads %}
+          <div class="thread-console-line"><strong>threads</strong><span>{{ item.threads|join(", ") }}</span></div>
+          {% endif %}
+        </div>
         {% endfor %}
       </div>
       {% else %}
-      <div class="runtime-empty">no claims indexed from entries yet</div>
-      {% endif %}
-
-      {% if ep_claims.verified_recent %}
-      <div class="runtime-subtitle">supported and linked</div>
-      <div class="thread-console-list">
-        {% for item in ep_claims.verified_recent %}
-          {{ claim_card(item, false) }}
-        {% endfor %}
-      </div>
+      <div class="runtime-empty">no open gaps indexed from entries yet</div>
       {% endif %}
     </div>
 

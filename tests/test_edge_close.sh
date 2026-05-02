@@ -35,8 +35,8 @@ procedures:
     kind: health.snapshot
   - id: inbox
     kind: inbox.snapshot
-  - id: claims
-    kind: claims.refresh
+  - id: open-gaps
+    kind: open_gaps.refresh
   - id: primitives
     kind: primitives.status
   - id: capabilities
@@ -58,8 +58,8 @@ operator_notes: []
 procedures:
   - id: validate-recent
     kind: validate.recent
-  - id: claims
-    kind: claims.refresh
+  - id: open-gaps
+    kind: open_gaps.refresh
   - id: primitives
     kind: primitives.status
   - id: capabilities
@@ -439,7 +439,7 @@ assert any(
 )
 assert postflight.strip()
 assert len(steps) >= 6
-assert "claims_open_delta" in delta
+assert "open_gaps_delta" in delta
 PY
 then
     pass "edge-close completes only after skill end evidence, artifact publication, and enriched postflight"

@@ -70,7 +70,7 @@ If no explicit topic, question, or args are present:
 
 1. Inspect the injected runtime frame: `delta_prerequisite`,
    `beat_launch_context`, `operator_pressure_digest`, `health_snapshot`,
-   `claims_summary`, `exploration_pack`, recent pipeline failures, and current
+   `open_gaps_summary`, `exploration_pack`, recent pipeline failures, and current
    git/runtime drift.
 2. Select the highest-leverage report target that would reduce operator
    uncertainty or make the next engineering action clear.

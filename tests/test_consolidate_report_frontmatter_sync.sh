@@ -16,8 +16,8 @@ title: "Research Contract"
 date: 2026-05-02
 tags: [research]
 report: "research-contract.html"
-claims:
-  - "Claim: quoted because YAML punctuation matters"
+open_gaps:
+  - "Gap: quoted because YAML punctuation matters"
 ---
 
 Body.
@@ -36,7 +36,7 @@ import yaml
 raw = Path(sys.argv[1]).read_text(encoding="utf-8")
 fm = yaml.safe_load(raw.split("---", 2)[1]) or {}
 assert fm["report"] == "entry-research-contract.html"
-assert fm["claims"] == ["Claim: quoted because YAML punctuation matters"]
+assert fm["open_gaps"] == ["Gap: quoted because YAML punctuation matters"]
 PY
 
 cat >"$ENTRY" <<'EOF'
@@ -44,7 +44,7 @@ cat >"$ENTRY" <<'EOF'
 title: "Research Contract"
 date: 2026-05-02
 tags: [research]
-claims:
+open_gaps:
   - "Still valid"
 ---
 
@@ -61,14 +61,12 @@ title: "Reflection R6 — Sinal Emergente de missing_artifact_published"
 date: 2026-05-02
 type: note
 tags: [reflection, runtime, health, failure-analysis]
-claims:
-  - id: claim-r6-missing-artifact
+open_gaps:
+  - id: gap-r6-missing-artifact
     text: "missing_artifact_published apareceu em 4/5 falhas"
-    kind: open
     threads: [infrastructure-security]
-  - id: claim-r6-work-stagnation
+  - id: gap-r6-work-stagnation
     text: "0/4 open work items avancaram em 5 dias"
-    kind: verified
     threads: [infrastructure-security, analise-processual]
 ---
 

@@ -133,9 +133,8 @@ title: "Measured queue latency"
 date: 2026-04-20
 threads:
   - healthy-thread
-claims:
-  - "Queue latency doubles under load"
-  - "!Need benchmark on smaller archive"
+open_gaps:
+  - "Need benchmark on smaller archive"
 report: healthy-report.html
 note: healthy-note.md
 ---
@@ -149,8 +148,7 @@ title: "Collected external sample"
 date: 2026-04-20
 threads:
   - waiting-thread
-claims:
-  - "External sample is pending verification"
+open_gaps: []
 ---
 
 Waiting for the external benchmark to land.

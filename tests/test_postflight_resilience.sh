@@ -52,8 +52,7 @@ try:
     }
     module._execute_postflight_step = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
     module.before_snapshot = lambda _state: {
-        "claims_open_total": 0,
-        "orphans_total": 0,
+        "open_gaps_total": 0,
         "primitive_broken_total": 0,
         "primitive_degraded_total": 0,
         "capability_broken_total": 0,
@@ -61,7 +60,7 @@ try:
         "workflow_broken_total": 0,
         "workflow_stale_total": 0,
     }
-    module.compute_delta = lambda before, **_kwargs: {"claims_open_delta": 0}
+    module.compute_delta = lambda before, **_kwargs: {"open_gaps_delta": 0}
     state = {"cycle_id": "cycle-postflight", "request": {"skill": "research"}, "state": {}}
     ok, postflight_status, reason, steps, delta = module.run_standard(state, "standard")
     assert ok is True
@@ -69,7 +68,7 @@ try:
     assert reason == "postflight_step_warning"
     assert steps[0]["status"] == "warning"
     assert steps[0]["failure_mode"] == "exception"
-    assert delta["claims_open_delta"] == 0
+    assert delta["open_gaps_delta"] == 0
 finally:
     module.ensure_compiled_protocol = original_protocol
     module._execute_postflight_step = original_execute
@@ -191,7 +190,7 @@ else
     fail "async inbox response failures degrade to warning"
 fi
 
-echo "--- Test 4: claims refresh uses cached projections without continuity rebuild ---"
+echo "--- Test 4: open-gaps refresh uses cached projection without continuity rebuild ---"
 if python3 - <<'PY' "$EDGE_DIR"
 import importlib.machinery
 import importlib.util
@@ -207,31 +206,27 @@ assert spec and spec.loader
 spec.loader.exec_module(module)
 
 assert not hasattr(module, "refresh_continuity_projections")
-module.CLAIMS_DIGEST_FILE.parent.mkdir(parents=True, exist_ok=True)
-module.CLAIMS_DIGEST_FILE.write_text(
-    json.dumps({"open_total": 3, "verified_total": 7, "unthreaded_count": 1}),
-    encoding="utf-8",
-)
-module.ORPHAN_CLAIMS_FILE.write_text(
-    json.dumps({"orphan_total": 2, "open_orphan_total": 1}),
+module.OPEN_GAPS_DIGEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+module.OPEN_GAPS_DIGEST_FILE.write_text(
+    json.dumps({"open_total": 3, "entries_with_gaps": 2}),
     encoding="utf-8",
 )
 
 result = module._execute_postflight_step(
-    {"id": "claims", "kind": "claims.refresh"},
-    {"cycle_id": "cycle-postflight-claims", "request": {}, "state": {}},
+    {"id": "open-gaps", "kind": "open_gaps.refresh"},
+    {"cycle_id": "cycle-postflight-open-gaps", "request": {}, "state": {}},
 )
 
 assert result["status"] == "ok", result
 assert result["satisfied"] is True, result
-assert result["payload"]["digest"]["open_total"] == 3
-assert result["payload"]["orphans"]["orphan_total"] == 2
+assert result["payload"]["open_gaps"]["open_total"] == 3
+assert result["payload"]["open_gaps"]["entries_with_gaps"] == 2
 assert result["payload"]["cache"]["status"] == "cached"
 PY
 then
-    pass "claims refresh reads cached projection files"
+    pass "open-gaps refresh reads cached projection file"
 else
-    fail "claims refresh reads cached projection files"
+    fail "open-gaps refresh reads cached projection file"
 fi
 
 echo ""
