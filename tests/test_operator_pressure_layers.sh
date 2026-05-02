@@ -195,6 +195,145 @@ else
     fail "operator pressure projection supports no-write preview and materialized read model"
 fi
 
+echo "--- Test 4: runtime-injected user messages are excluded from pressure atoms ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_BASE"
+import json
+import sys
+from pathlib import Path
+
+edge_dir, tmp_base = sys.argv[1:]
+sys.path.insert(0, f"{edge_dir}/tools")
+
+from _shared.operator_pressure import build_operator_pressure_layers
+
+tmp_base = Path(tmp_base)
+project = tmp_base / "noise-project"
+state = tmp_base / "noise-state"
+project.mkdir(parents=True, exist_ok=True)
+state.mkdir(parents=True, exist_ok=True)
+session = project / "session-noise.jsonl"
+rows = [
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:00:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
+            "content": "-\n/ed-research\n\nDispatch runtime context below is authoritative for cross-cutting checks already handled by CLI."
+        },
+    },
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:01:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
+            "content": "Base directory for this skill: /home/vboxuser/.claude/skills/ed-report"
+        },
+    },
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:02:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
+            "content": "## System\n\nYou are a quality reviewer for report artifacts in this repository."
+        },
+    },
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:03:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
+            "content": "corrija o install do edge e rode heartbeat depois"
+        },
+    },
+]
+session.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+payload = build_operator_pressure_layers(
+    project_dir=project,
+    ledger_path=state / "operator-pressure" / "ledger.json",
+    hot_digest_path=state / "operator-pressure" / "hot-digest.json",
+    redigest_dir=state / "operator-pressure" / "redigests",
+    allow_llm=False,
+)
+ledger = payload["ledger"]
+assert ledger["message_total"] == 1, ledger["message_total"]
+assert ledger["item_total"] == 1, ledger["item_total"]
+content = ledger["items"][0]["content"]
+assert content == "corrija o install do edge e rode heartbeat depois", content
+assert "Dispatch runtime context below" not in content
+PY
+then
+    pass "runtime-injected user messages are excluded from pressure atoms"
+else
+    fail "runtime-injected user messages are excluded from pressure atoms"
+fi
+
+echo "--- Test 5: empty ledger skips LLM renderer even with sticky previous digest ---"
+if python3 - <<'PY' "$EDGE_DIR"
+import sys
+
+edge_dir = sys.argv[1]
+sys.path.insert(0, f"{edge_dir}/tools")
+
+from _shared import operator_pressure as mod
+
+def fail_client(*_args, **_kwargs):
+    raise AssertionError("LLM should not be called for empty pressure input")
+
+mod.LLM_DISABLED = False
+mod.make_client = fail_client
+
+previous = {
+    "schema_version": mod.SCHEMA_VERSION,
+    "digest_hash": "sha256:previous",
+    "signal_from_operator_now": [
+        {"item_id": "pressure:sticky", "text": "sticky directive", "target": "workflow", "kind": "directive"}
+    ],
+    "operator_pains_resolvable_now": [
+        {"item_id": "pressure:pain", "text": "sticky pain", "target": "workflow", "kind": "failure"}
+    ],
+}
+ledger = {
+    "source_hash": "sha256:empty",
+    "item_total": 0,
+    "session_total": 0,
+    "items": [],
+}
+digest = mod._render_hot_digest_with_llm(
+    ledger,
+    previous_digest=previous,
+    delta_items=[
+        {"item_id": "pressure:sticky", "text": "sticky directive", "target": "workflow", "kind": "directive"}
+    ],
+)
+
+assert digest["render_mode"] == "deterministic", digest
+assert digest["summary"] == "no strong recent operator pressure detected", digest["summary"]
+for key in (
+    "signal_from_operator_now",
+    "operator_pains_resolvable_now",
+    "operator_toil_optimizable_now",
+    "mistakes_to_avoid_now",
+    "implicit_needs_hypotheses",
+    "workflow_candidates",
+    "capability_candidates",
+    "substrate_gap_requests",
+    "active_entities",
+    "item_ids",
+):
+    assert digest[key] == [], (key, digest[key])
+assert "render_warning" not in digest
+PY
+then
+    pass "empty ledger skips LLM renderer even with sticky previous digest"
+else
+    fail "empty ledger skips LLM renderer even with sticky previous digest"
+fi
+
 echo ""
 echo "Passed: $PASS"
 echo "Failed: $FAIL"

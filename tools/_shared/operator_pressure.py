@@ -168,6 +168,27 @@ _HOT_DIGEST_KEYS = {
     "item_ids",
 }
 
+_DIGEST_SECTION_KEYS = (
+    "signal_from_operator_now",
+    "operator_pains_resolvable_now",
+    "operator_toil_optimizable_now",
+    "mistakes_to_avoid_now",
+    "implicit_needs_hypotheses",
+    "workflow_candidates",
+    "capability_candidates",
+    "substrate_gap_requests",
+)
+
+_RUNTIME_PRESSURE_NOISE_RE = (
+    re.compile(
+        r"^\s*(?:-\s*\n\s*)?/[a-z0-9_.-]+\s*\n\s*\n"
+        r"Dispatch runtime context below is authoritative for\b",
+        re.I,
+    ),
+    re.compile(r"^\s*Base directory for this skill:\s+\S*\.claude/skills/", re.I),
+    re.compile(r"^\s*## System\s*\n\s*You are a quality reviewer for report artifacts\b", re.I),
+)
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -255,6 +276,10 @@ def _extract_user_text(message: dict[str, Any]) -> str:
     return str(content or "").strip()
 
 
+def _is_runtime_pressure_noise(text: str) -> bool:
+    return any(pattern.search(text) for pattern in _RUNTIME_PRESSURE_NOISE_RE)
+
+
 def _iter_recent_user_messages(
     *,
     project_dir: Path,
@@ -289,6 +314,8 @@ def _iter_recent_user_messages(
                     continue
                 text = _extract_user_text(payload)
                 if not text or len(text) < 8:
+                    continue
+                if _is_runtime_pressure_noise(text):
                     continue
                 ts = _parse_ts(str(payload.get("timestamp") or ""))
                 if ts and ts < cutoff:
@@ -756,16 +783,7 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
 def _coerce_digest_shape(candidate: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
     digest = dict(fallback)
     digest["summary"] = str(candidate.get("summary") or fallback.get("summary") or "").strip()
-    for key in (
-        "signal_from_operator_now",
-        "operator_pains_resolvable_now",
-        "operator_toil_optimizable_now",
-        "mistakes_to_avoid_now",
-        "implicit_needs_hypotheses",
-        "workflow_candidates",
-        "capability_candidates",
-        "substrate_gap_requests",
-    ):
+    for key in _DIGEST_SECTION_KEYS:
         items = candidate.get(key)
         if isinstance(items, list):
             normalized: list[dict[str, Any]] = []
@@ -791,6 +809,13 @@ def _coerce_digest_shape(candidate: dict[str, Any], fallback: dict[str, Any]) ->
     return digest
 
 
+def _render_input_has_pressure(render_input: dict[str, Any]) -> bool:
+    for key in _DIGEST_SECTION_KEYS:
+        if render_input.get(key):
+            return True
+    return bool(render_input.get("active_entities"))
+
+
 def _render_hot_digest_with_llm(
     ledger: dict[str, Any],
     *,
@@ -814,6 +839,8 @@ def _render_hot_digest_with_llm(
         "substrate_gap_requests": fallback.get("substrate_gap_requests", []),
         "active_entities": fallback.get("active_entities", []),
     }
+    if int(ledger.get("item_total") or 0) == 0 and not _render_input_has_pressure(render_input):
+        return fallback
     prompt = _llm_prompt(render_input, previous_digest=previous_digest, delta_items=delta_items[:SECTION_LIMIT])
     try:
         client, model = make_client("chat", model=LLM_MODEL, timeout=90)
