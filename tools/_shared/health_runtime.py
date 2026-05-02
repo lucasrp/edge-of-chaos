@@ -26,6 +26,7 @@ from paths import (  # noqa: E402
     WORKFLOW_HEALTH_FILE,
 )
 from .capability_runtime import build_capability_status  # noqa: E402
+from .jsonl_runtime import iter_jsonl_reverse  # noqa: E402
 from .telemetry import emit_shadow_event  # noqa: E402
 from .workflow_runtime import build_workflow_status  # noqa: E402
 
@@ -819,7 +820,7 @@ def write_health_snapshot(path: Path = HEALTH_CURRENT_FILE) -> dict[str, Any]:
 
 
 def _events_for_cycle(cycle_id: str, path: Path = STATE_EVENTS_FILE) -> list[dict[str, Any]]:
-    return [row for row in _read_jsonl(path) if str(row.get("cycle_id") or "") == cycle_id]
+    return [row for row in iter_jsonl_reverse(path) if str(row.get("cycle_id") or "") == cycle_id]
 
 
 def observe_cycle_health_events(state: dict[str, Any], *, path: Path = STATE_EVENTS_FILE) -> dict[str, Any]:
