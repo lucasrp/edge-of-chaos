@@ -26,6 +26,7 @@ from paths import EDGE_INSTANCE, EDGE_REPO_DIR, ENTRIES_DIR, REPORTS_DIR, SKILL_
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.artifact_runtime import publish_stdout_artifact  # noqa: E402
 from _shared.dispatch_runtime import HEARTBEAT_FAIRNESS_SKILLS, read_dispatch_state, render_skill_runtime_prompt, write_dispatch_state  # noqa: E402
+from _shared.jsonl_runtime import iter_jsonl_reverse  # noqa: E402
 from _shared.skill_policy import skill_accepts_stdout_artifact, skill_requires_artifact_publication  # noqa: E402
 from _shared.telemetry import emit_shadow_event  # noqa: E402
 from _shared.telemetry import log_run_step  # noqa: E402
@@ -446,20 +447,6 @@ def dispatch_state_matches(cycle_id: str) -> dict | None:
     return state
 
 
-def iter_jsonl(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return rows
-
-
 def iso_ge(left: str | None, right: str | None) -> bool:
     if not left or not right:
         return False
@@ -494,7 +481,7 @@ def skill_run_completed_for_cycle(cycle_id: str, skill: str | None) -> bool:
     threshold = state_block.get("dispatched_at") or state_block.get("opened_at")
 
     accepted = {requested_skill, f"/{requested_skill}"}
-    for event in reversed(iter_jsonl(STATE_EVENTS_FILE)):
+    for event in iter_jsonl_reverse(STATE_EVENTS_FILE):
         if event.get("type") != "SkillRunCompleted":
             continue
         if event.get("cycle_id") != cycle_id:
@@ -508,7 +495,7 @@ def skill_run_completed_for_cycle(cycle_id: str, skill: str | None) -> bool:
             continue
         return True
 
-    for row in reversed(iter_jsonl(SKILL_STEPS_FILE)):
+    for row in iter_jsonl_reverse(SKILL_STEPS_FILE):
         if row.get("event") != "end":
             continue
         if normalize_skill_name(row.get("skill")) not in accepted and normalize_skill_name(row.get("registry_skill")) not in accepted:
@@ -730,7 +717,7 @@ def artifact_published_for_cycle(cycle_id: str | None) -> bool:
     if state:
         state_block = state.get("state", {}) or {}
         threshold = state_block.get("dispatched_at") or state_block.get("opened_at")
-    for event in reversed(iter_jsonl(STATE_EVENTS_FILE)):
+    for event in iter_jsonl_reverse(STATE_EVENTS_FILE):
         if event.get("type") != "ArtifactPublished":
             continue
         if event.get("cycle_id") != cycle_id:

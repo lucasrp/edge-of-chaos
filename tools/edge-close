@@ -19,6 +19,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import CURRENT_DISPATCH_FILE, EDGE_REPO_DIR, LOGS_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.jsonl_runtime import iter_jsonl_reverse  # noqa: E402
 from _shared.skill_policy import skill_requires_artifact_publication  # noqa: E402
 from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
 
@@ -71,20 +72,6 @@ def append_postskill_log(name: str, status: str, detail: str = "") -> None:
         f.write(message + "\n")
 
 
-def iter_jsonl(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return rows
-
-
 def iso_ge(left: str | None, right: str | None) -> bool:
     if not left or not right:
         return False
@@ -110,7 +97,7 @@ def check_skill_completion(state: dict) -> tuple[bool, str, dict]:
     if not state_block.get("skill_dispatched") or not skill:
         return False, "missing_dispatch", {"skill": skill or "", "cycle_id": cycle_id}
 
-    for event in reversed(iter_jsonl(STATE_EVENTS_FILE)):
+    for event in iter_jsonl_reverse(STATE_EVENTS_FILE):
         if event.get("type") != "SkillRunCompleted":
             continue
         if event.get("cycle_id") != cycle_id:
@@ -135,7 +122,7 @@ def check_skill_completion(state: dict) -> tuple[bool, str, dict]:
 
     # Backwards-compatible fallback: allow the step log's end marker if the
     # shadow event is missing.
-    for row in reversed(iter_jsonl(SKILL_STEPS_FILE)):
+    for row in iter_jsonl_reverse(SKILL_STEPS_FILE):
         if row.get("event") != "end":
             continue
         row_skill = row.get("skill") or ""
@@ -164,7 +151,7 @@ def check_artifact_publication(state: dict) -> tuple[bool, str, dict]:
     if not skill_requires_artifact_publication(skill):
         return True, "artifact_not_required", {"skill": skill or "", "cycle_id": cycle_id}
 
-    for event in reversed(iter_jsonl(STATE_EVENTS_FILE)):
+    for event in iter_jsonl_reverse(STATE_EVENTS_FILE):
         if event.get("type") != "ArtifactPublished":
             continue
         if event.get("cycle_id") != cycle_id:

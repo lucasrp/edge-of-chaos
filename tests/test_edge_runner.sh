@@ -1005,6 +1005,79 @@ else
     fail "preflight claims summary uses cached projections"
 fi
 
+echo "--- Test 12: runner evidence gates scan bounded JSONL tails ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_BASE"
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+tmp_base = Path(sys.argv[2])
+state_dir = tmp_base / "runner-tail-runtime" / "state" / "events"
+state_dir.mkdir(parents=True, exist_ok=True)
+events_path = state_dir / "log.jsonl"
+steps_path = tmp_base / "runner-tail-runtime" / "logs" / "skill-steps.jsonl"
+steps_path.parent.mkdir(parents=True, exist_ok=True)
+
+cycle_id = "cycle-tail-proof"
+old_cycle = "cycle-old"
+threshold = "2026-05-02T00:00:00+00:00"
+large_payload = "x" * 2048
+with events_path.open("w", encoding="utf-8") as handle:
+    for index in range(5000):
+        handle.write(json.dumps({
+            "ts": "2026-05-01T00:00:00+00:00",
+            "type": "ArtifactPublished",
+            "cycle_id": old_cycle,
+            "artifact": f"blog/entries/old-{index}.md",
+            "payload": {"noise": large_payload},
+        }) + "\n")
+    handle.write(json.dumps({
+        "ts": "2026-05-02T00:01:00+00:00",
+        "type": "SkillRunCompleted",
+        "cycle_id": cycle_id,
+        "payload": {"skill": "strategy", "registry_skill": "strategy"},
+    }) + "\n")
+    handle.write(json.dumps({
+        "ts": "2026-05-02T00:02:00+00:00",
+        "type": "ArtifactPublished",
+        "cycle_id": cycle_id,
+        "artifact": "blog/entries/current.md",
+        "payload": {"artifact": "blog/entries/current.md"},
+    }) + "\n")
+
+loader = importlib.machinery.SourceFileLoader("edge_runner", str(edge_dir / "tools" / "edge-runner"))
+spec = importlib.util.spec_from_loader("edge_runner", loader)
+module = importlib.util.module_from_spec(spec)
+assert spec and spec.loader
+spec.loader.exec_module(module)
+
+module.STATE_EVENTS_FILE = events_path
+module.SKILL_STEPS_FILE = steps_path
+module.read_dispatch_state = lambda: {
+    "cycle_id": cycle_id,
+    "request": {"skill": "strategy"},
+    "state": {"skill_dispatched": True, "dispatched_at": threshold},
+}
+os.environ["EDGE_JSONL_TAIL_BYTES"] = "8192"
+try:
+    assert module.skill_run_completed_for_cycle(cycle_id, "strategy") is True
+    assert module.artifact_published_for_cycle(cycle_id) is True
+finally:
+    os.environ.pop("EDGE_JSONL_TAIL_BYTES", None)
+
+assert events_path.stat().st_size > 8 * 1024 * 1024
+PY
+then
+    pass "runner evidence gates scan bounded JSONL tails"
+else
+    fail "runner evidence gates scan bounded JSONL tails"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"
