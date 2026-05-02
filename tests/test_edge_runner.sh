@@ -490,6 +490,54 @@ else
     fail "non-heartbeat skills publish stdout through the shared runtime bridge"
 fi
 
+echo "--- Test 1d: plain terminal prose is captured as an artifact without dumping the body ---"
+export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id-plain-stdout.txt"
+export MOCK_CLAUDE_ARGS_OUT="$TMP_BASE/args-plain-stdout.txt"
+rm -f "$MOCK_CLAUDE_ENV_OUT" "$MOCK_CLAUDE_ARGS_OUT" "$TMP_BASE/plain-stdout.out"
+export MOCK_CLAUDE_ARTIFACT_MARKDOWN=$'Plain Runtime Report\n\nThis report intentionally has no markdown heading. The runtime should still capture the terminal prose as a durable artifact instead of letting an artifact-producing skill close with text only in stdout. The body is long enough to satisfy the artifact bridge threshold.'
+"$RUNNER_TOOL" skill \
+    --skill /report \
+    --dispatch-trigger operator \
+    --dispatch-policy operator \
+    --dispatch-routing-mode explicit \
+    --dispatch-preflight-profile heartbeat_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force >"$TMP_BASE/plain-stdout.out"
+unset MOCK_CLAUDE_ARTIFACT_MARKDOWN || true
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$TMP_EDGE/blog/entries" "$TMP_BASE/plain-stdout.out"
+import json
+import sys
+from pathlib import Path
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+entries_dir = Path(sys.argv[3])
+runner_stdout = Path(sys.argv[4]).read_text(encoding="utf-8")
+
+assert dispatch["request"]["skill"] == "report"
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+published = [
+    event for event in events
+    if event.get("type") == "ArtifactPublished"
+    and event.get("cycle_id") == dispatch["cycle_id"]
+]
+assert published
+artifact = published[-1]["artifact"]
+entry = entries_dir / Path(artifact).name
+text = entry.read_text(encoding="utf-8")
+assert "# Plain Runtime Report" in text
+assert "artifact-producing skill close with text only in stdout" in text
+assert "edge-runner: published artifact blog/entries/" in runner_stdout
+assert "artifact-producing skill close with text only in stdout" not in runner_stdout
+PY
+then
+    pass "plain terminal prose is captured as an artifact without dumping the body"
+else
+    fail "plain terminal prose is captured as an artifact without dumping the body"
+fi
+
 echo "--- Test 2: dispatched skill success without artifact closes as failed ---"
 unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
 cat >"$TMP_EDGE/state/dispatch-queue.json" <<'JSON'
@@ -806,6 +854,51 @@ then
     pass "large backend prompt is streamed through stdin"
 else
     fail "large backend prompt is streamed through stdin"
+fi
+
+echo "--- Test 10: health snapshot refresh timeout falls back to the last snapshot ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_BASE"
+import importlib
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+tmp_base = Path(sys.argv[2])
+runtime = tmp_base / "health-timeout-runtime"
+(runtime / "bin").mkdir(parents=True, exist_ok=True)
+(runtime / "health").mkdir(parents=True, exist_ok=True)
+(runtime / "bin" / "edge-check.sh").write_text("#!/usr/bin/env bash\nsleep 10\n", encoding="utf-8")
+(runtime / "bin" / "edge-check.sh").chmod(0o755)
+(runtime / "health" / "current.json").write_text(
+    json.dumps({"status": "degraded", "score": 67, "ts": "2026-05-02T00:00:00+00:00"}),
+    encoding="utf-8",
+)
+
+sys.path.insert(0, str(edge_dir / "tools"))
+module = importlib.import_module("_shared.dispatch_runtime")
+module.EDGE_REPO_DIR = runtime
+module.HEALTH_CURRENT_FILE = runtime / "health" / "current.json"
+os.environ["EDGE_PREFLIGHT_HEALTH_TIMEOUT_SEC"] = "1"
+started = time.monotonic()
+try:
+    snapshot = module._health_snapshot()
+finally:
+    os.environ.pop("EDGE_PREFLIGHT_HEALTH_TIMEOUT_SEC", None)
+elapsed = time.monotonic() - started
+
+assert elapsed < 4, elapsed
+assert snapshot["status"] == "degraded"
+assert snapshot["score"] == 67
+assert snapshot["refresh_status"] == "stale_timeout"
+assert "timeout" in snapshot["refresh_reason"]
+PY
+then
+    pass "health snapshot refresh timeout falls back to the last snapshot"
+else
+    fail "health snapshot refresh timeout falls back to the last snapshot"
 fi
 
 echo ""

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import fcntl
@@ -97,6 +98,7 @@ DELTA_HISTORY_DIR = CONTINUITY_DELTAS_DIR / "runtime-history"
 DELTA_OPEN_WORK_LIMIT = int(os.environ.get("EDGE_DELTA_OPEN_WORK_LIMIT", "20") or "20")
 DELTA_CHAT_ITEM_LIMIT = int(os.environ.get("EDGE_DELTA_CHAT_ITEM_LIMIT", "12") or "12")
 DELTA_EVENT_LIMIT = int(os.environ.get("EDGE_DELTA_EVENT_LIMIT", "8") or "8")
+DEFAULT_HEALTH_CHECK_TIMEOUT_SECONDS = 45
 
 EXTERNAL_SEARCH_INTENTS = {
     "autonomy": "strategy",
@@ -158,14 +160,52 @@ def _append_preflight_log(name: str, status: str, detail: str = "") -> None:
         handle.write(line + "\n")
 
 
-def _run_subprocess(cmd: list[str], *, cwd: Path | None = None) -> tuple[int, str, str]:
-    result = subprocess.run(
+def _health_check_timeout_seconds() -> int | None:
+    raw = os.environ.get("EDGE_PREFLIGHT_HEALTH_TIMEOUT_SEC", str(DEFAULT_HEALTH_CHECK_TIMEOUT_SECONDS))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_HEALTH_CHECK_TIMEOUT_SECONDS
+    if value <= 0:
+        return None
+    return value
+
+
+def _run_subprocess(
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout: int | None = None,
+) -> tuple[int, str, str]:
+    proc = subprocess.Popen(
         cmd,
         cwd=str(cwd or EDGE_REPO_DIR),
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
+        start_new_session=timeout is not None,
     )
-    return result.returncode, result.stdout.strip(), result.stderr.strip()
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return proc.returncode, (stdout or "").strip(), (stderr or "").strip()
+    except subprocess.TimeoutExpired:
+        if timeout is not None:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                proc.terminate()
+        try:
+            stdout, stderr = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            if timeout is not None:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    proc.kill()
+            stdout, stderr = proc.communicate()
+        detail = f"timeout after {timeout}s" if timeout is not None else "timeout"
+        stderr = "\n".join(part for part in [(stderr or "").strip(), detail] if part)
+        return 124, (stdout or "").strip(), stderr
 
 
 def _normalize_skill_name(skill: str | None) -> str:
@@ -492,8 +532,38 @@ def _resolve_runtime_policy(skill: str | None, args: dict[str, Any]) -> dict[str
 
 def _health_snapshot() -> dict[str, Any]:
     check_script = EDGE_REPO_DIR / "bin" / "edge-check.sh"
+    refresh_status = "missing"
+    refresh_reason = ""
     if check_script.exists():
-        _run_subprocess([str(check_script)], cwd=EDGE_REPO_DIR)
+        status, _stdout, stderr = _run_subprocess(
+            [str(check_script)],
+            cwd=EDGE_REPO_DIR,
+            timeout=_health_check_timeout_seconds(),
+        )
+        if status == 0:
+            refresh_status = "refreshed"
+        elif status == 124:
+            refresh_status = "stale_timeout"
+            refresh_reason = stderr or "health check timed out"
+            emit_shadow_event(
+                "HealthSnapshotRefreshTimedOut",
+                actor="edge-preflight",
+                payload={
+                    "script": str(check_script),
+                    "timeout_seconds": _health_check_timeout_seconds(),
+                    "fallback": str(HEALTH_CURRENT_FILE),
+                },
+            )
+            log_event(
+                "health_snapshot",
+                actor="edge-preflight",
+                action="refresh_timeout",
+                script=str(check_script),
+                timeout_seconds=_health_check_timeout_seconds() or 0,
+            )
+        else:
+            refresh_status = "stale_error"
+            refresh_reason = stderr or f"edge-check exited {status}"
     payload = _read_json(HEALTH_CURRENT_FILE, {})
     if not isinstance(payload, dict):
         payload = {}
@@ -504,6 +574,8 @@ def _health_snapshot() -> dict[str, Any]:
         "score": int(payload.get("score", 100) or 100),
         "hard_fail": bool(payload.get("hard_fail", False)),
         "updated_at": payload.get("ts") or payload.get("updated_at") or "",
+        "refresh_status": refresh_status,
+        "refresh_reason": refresh_reason,
         "remediation_count": len(remediation) if isinstance(remediation, list) else 0,
         "dimensions": {
             name: {
