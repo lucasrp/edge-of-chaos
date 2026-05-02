@@ -234,7 +234,7 @@ request = dispatch["request"]
 assert len(cycle_ids) == 1
 assert cycle_ids[0] == dispatch["cycle_id"]
 assert request["trigger"] == "heartbeat"
-assert request["skill"] == "autonomy"
+assert request["skill"] == "report"
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["preflight_status"] == "warning"
@@ -280,26 +280,23 @@ assert request["delta_prerequisite"]["required"] is True
 assert request["delta_prerequisite"]["digest_update_required"] is False
 assert request["delta_prerequisite"]["inputs"]["raw_chat"]["available"] is True
 assert request["delta_prerequisite"]["inputs"]["raw_chat"]["recent_items"]
-assert request["exploration_pack"]["skill"] == "autonomy"
+assert request["exploration_pack"]["skill"] == "report"
 assert request["exploration_pack"]["status"] in ("ready", "degraded")
 assert request["exploration_pack"]["path"].endswith("/pack.json")
-assert request["heartbeat_routing"]["suggested_skill"] == "autonomy"
-assert request["heartbeat_routing"]["selected_skill"] == "autonomy"
+assert request["heartbeat_routing"]["suggested_skill"] == "report"
+assert request["heartbeat_routing"]["selected_skill"] == "report"
 assert request["heartbeat_routing"]["dispatch_mode"] == "deterministic_heartbeat_router"
 assert request["heartbeat_routing"]["acknowledged"] is True
 assert request["heartbeat_routing"]["round_robin_skills"] == [
-    "autonomy",
-    "reflection",
     "report",
     "research",
-    "map",
     "discovery",
-    "strategy",
+    "planner",
 ]
 assert len(invocations) == 1
 assert invocations[0].splitlines()[0] == "ARGS: -p -"
 assert "/ed-heartbeat" not in invocations[0]
-assert "/autonomy" in invocations[0]
+assert "/report" in invocations[0]
 assert "Dispatch runtime context below" in invocations[0]
 assert "health_snapshot" in invocations[0]
 assert "pre_skill_context" in invocations[0]
@@ -315,7 +312,7 @@ assert "exploration_pack" in invocations[0]
 assert "Adversarial Feynman" in open(request["exploration_pack"]["markdown_path"], encoding="utf-8").read()
 assert "configured_integrations" in invocations[0]
 assert "heartbeat_routing" in invocations[0]
-assert "autonomy_primitives_checkup" in request
+assert "autonomy_primitives_checkup" not in request
 assert request["primitives_status"]["summary"]["health_status"] == "ok"
 assert "workflow_status" in request
 assert "claims_summary" in request

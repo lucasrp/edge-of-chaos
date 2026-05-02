@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""edge-self-healing — deterministic primitive recovery for heartbeat preflight."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
+from paths import EDGE_REPO_DIR  # noqa: E402
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
+
+KNOWN_REMEDIATIONS: tuple[tuple[str, str, str], ...] = (
+    ("auth_expired", r"\b(401|403|unauthori[sz]ed|forbidden|invalid api key|expired token)\b", "skip_auth"),
+    ("timeout", r"\b(timeout|timed out|deadline exceeded)\b", "skip_timeout"),
+    ("service_down", r"\b(connection refused|could not connect|connection reset|temporarily unavailable|503|502|504)\b", "skip_service_down"),
+    ("missing_dependency", r"\b(command not found|no such file|module not found|importerror|modulenotfounderror)\b", "skip_missing_dependency"),
+)
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def run(cmd: list[str], *, timeout: int = 30) -> tuple[int, str, str]:
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(EDGE_REPO_DIR),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return proc.returncode, (proc.stdout or "").strip(), (proc.stderr or "").strip()
+    except subprocess.TimeoutExpired as exc:
+        return 124, (exc.stdout or "").strip() if isinstance(exc.stdout, str) else "", f"timeout after {timeout}s"
+    except Exception as exc:
+        return 1, "", str(exc)
+
+
+def load_primitive_status() -> dict[str, Any]:
+    code, stdout, stderr = run([sys.executable, str(SCRIPT_DIR / "edge-primitives"), "status", "--json"])
+    if code != 0 or not stdout:
+        return {
+            "ok": False,
+            "error": stderr or stdout or f"edge-primitives status exited {code}",
+            "summary": {},
+            "sources": [],
+        }
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        return {"ok": False, "error": f"invalid primitives status json: {exc}", "summary": {}, "sources": []}
+    payload["ok"] = True
+    return payload
+
+
+def classify_failure(text: str) -> tuple[str, str]:
+    lowered = str(text or "").lower()
+    for classification, pattern, action in KNOWN_REMEDIATIONS:
+        if re.search(pattern, lowered, flags=re.I):
+            return classification, action
+    return "unknown", "needs_llm"
+
+
+def log_self_healing(action: dict[str, Any], *, cycle_id: str | None = None) -> None:
+    payload = dict(action)
+    emit_shadow_event(
+        "PrimitiveSelfHealingObserved",
+        actor="edge-self-healing",
+        cycle_id=cycle_id,
+        payload=payload,
+    )
+    log_event(
+        "self_healing",
+        actor="edge-self-healing",
+        cycle_id=cycle_id,
+        primitive=payload.get("primitive") or "",
+        action=payload.get("action") or "",
+        classification=payload.get("classification") or "",
+        exit_code=payload.get("exit_code"),
+        detail=str(payload.get("detail") or "")[:500],
+    )
+
+
+def reprobe_primitive(row: dict[str, Any], *, cycle_id: str | None = None) -> dict[str, Any]:
+    name = str(row.get("name") or "").strip()
+    binary_path = str(row.get("binary_path") or "").strip()
+    if not name:
+        return {"primitive": "", "action": "skipped", "classification": "invalid_name", "detail": "missing primitive name"}
+    if not binary_path or not row.get("binary_exists"):
+        action = {
+            "primitive": name,
+            "action": "needs_llm",
+            "classification": "missing_binary",
+            "detail": "broken primitive has no materialized binary",
+        }
+        log_self_healing(action, cycle_id=cycle_id)
+        return action
+
+    cmd = [
+        sys.executable,
+        str(SCRIPT_DIR / "edge-primitive-lifecycle"),
+        "probe",
+        name,
+        "--operation",
+        "search",
+        "--command",
+        binary_path,
+        "--help",
+    ]
+    code, stdout, stderr = run(cmd, timeout=30)
+    detail = (stderr or stdout or f"exit={code}").splitlines()[-1][:500]
+    if code == 0:
+        action = {
+            "primitive": name,
+            "action": "reprobe_success",
+            "classification": "recovered",
+            "exit_code": code,
+            "detail": detail,
+        }
+    else:
+        classification, next_action = classify_failure(f"{stdout}\n{stderr}")
+        action = {
+            "primitive": name,
+            "action": next_action,
+            "classification": classification,
+            "exit_code": code,
+            "detail": detail,
+        }
+    log_self_healing(action, cycle_id=cycle_id)
+    return action
+
+
+def build_result(*, skip_reprobe: bool = False, cycle_id: str | None = None) -> dict[str, Any]:
+    status = load_primitive_status()
+    if not status.get("ok"):
+        payload = {
+            "ok": False,
+            "status": "failed",
+            "generated_at": now_iso(),
+            "error": status.get("error") or "unknown primitives status error",
+            "actions": [],
+            "summary": {
+                "broken_total": 0,
+                "recovered_total": 0,
+                "known_skip_total": 0,
+                "needs_llm_total": 0,
+            },
+        }
+        log_self_healing({"primitive": "", "action": "status_failed", "classification": "status_error", "detail": payload["error"]}, cycle_id=cycle_id)
+        return payload
+
+    broken = [
+        row
+        for row in status.get("sources") or []
+        if isinstance(row, dict) and str(row.get("effective_status") or "") == "broken"
+    ]
+    actions: list[dict[str, Any]] = []
+    if not skip_reprobe:
+        for row in broken:
+            actions.append(reprobe_primitive(row, cycle_id=cycle_id))
+
+    recovered = [item for item in actions if item.get("action") == "reprobe_success"]
+    needs_llm = [item for item in actions if item.get("action") == "needs_llm"]
+    known_skip = [
+        item
+        for item in actions
+        if str(item.get("action") or "").startswith("skip_")
+    ]
+    payload = {
+        "ok": True,
+        "status": "warning" if needs_llm else "ok",
+        "generated_at": now_iso(),
+        "broken_before_total": len(broken),
+        "actions": actions,
+        "needs_llm": needs_llm,
+        "summary": {
+            "broken_total": len(broken),
+            "recovered_total": len(recovered),
+            "known_skip_total": len(known_skip),
+            "needs_llm_total": len(needs_llm),
+        },
+    }
+    emit_shadow_event(
+        "PrimitiveSelfHealingCompleted",
+        actor="edge-self-healing",
+        cycle_id=cycle_id,
+        payload=payload["summary"],
+    )
+    return payload
+
+
+def print_human(payload: dict[str, Any]) -> None:
+    summary = payload.get("summary") or {}
+    print(
+        "self-healing:"
+        f" broken={summary.get('broken_total', 0)}"
+        f" recovered={summary.get('recovered_total', 0)}"
+        f" known_skip={summary.get('known_skip_total', 0)}"
+        f" needs_llm={summary.get('needs_llm_total', 0)}"
+        f" status={payload.get('status')}"
+    )
+    for item in payload.get("actions") or []:
+        print(
+            f"{item.get('primitive')}: {item.get('action')}"
+            f" classification={item.get('classification')}"
+            f" detail={item.get('detail') or ''}"
+        )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Deterministic primitive self-healing")
+    parser.add_argument("--json", action="store_true", help="Emit JSON")
+    parser.add_argument("--skip-reprobe", action="store_true", help="Only inspect broken primitives")
+    parser.add_argument("--cycle-id", default="", help="Cycle id for telemetry")
+    args = parser.parse_args()
+
+    payload = build_result(skip_reprobe=args.skip_reprobe, cycle_id=args.cycle_id or None)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        print_human(payload)
+    return 0 if payload.get("ok") else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

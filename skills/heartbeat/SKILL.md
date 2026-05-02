@@ -36,6 +36,7 @@ Use the prepared request fields:
 
 - `request.dispatch_queue_summary`
 - `request.heartbeat_routing`
+- `request.self_healing`
 - `request.beat_launch_context`
 - `request.async_inbox`
 - `request.health_snapshot`
@@ -43,27 +44,28 @@ Use the prepared request fields:
 
 `beat_launch_context` is the short-lived launch frame for the beat. Use it to compare operator pressure, edge-state pressure, and exploration budget.
 
+Primitive self-healing has already run deterministically in preflight. If `request.self_healing.needs_llm` is non-empty, dispatch `autonomy` as the exceptional repair lane; autonomy must investigate/log the primitive failure without producing a publication artifact.
+
 ## Routing Order
 
 Choose the next skill in this order:
 
 1. `dispatch_queue_summary.head`: explicit queued work wins.
-2. `heartbeat_routing.priority_hints`: runtime/inbox hints beat fairness.
-3. `beat_launch_context.signal_from_operator_now`: reduce immediate operator pressure.
-4. `beat_launch_context.signal_from_edge_state_now`: address the strongest internal state signal.
-5. `heartbeat_routing.suggested_skill`: fall back to the round-robin candidate.
+2. `request.self_healing.needs_llm`: unknown primitive failure dispatches `autonomy`.
+3. `heartbeat_routing.priority_hints`: runtime/inbox hints beat fairness.
+4. `beat_launch_context.signal_from_operator_now`: reduce immediate operator pressure.
+5. `beat_launch_context.signal_from_edge_state_now`: address the strongest internal state signal.
+6. `heartbeat_routing.suggested_skill`: fall back to the action-skill rotation candidate.
 
 If routing data is missing or stale, dispatch `discovery`.
 
 ## Skill Heuristics
 
-- `reflection`: correction, confusion, contradictory state, diagnosis.
-- `autonomy`: operational change, substrate adjustment, concrete internal action.
+- `autonomy`: exceptional primitive repair from self-healing or concrete substrate action requested by operator/runtime.
 - `report`: clear synthesis for operator consumption.
 - `research`: unresolved question, evidence gap, investigation before action.
-- `map`: landscape, structure, taxonomy, comparison.
 - `discovery`: no dominant signal, open exploration.
-- `strategy`: sequencing, prioritization, medium-horizon direction.
+- `planner`: sequencing, implementation plan, next concrete project step.
 
 If multiple skills are plausible, choose the one that best reduces immediate operator pain, then the strongest edge-state signal, then the fairness candidate.
 

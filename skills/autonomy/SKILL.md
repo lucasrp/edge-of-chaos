@@ -33,7 +33,9 @@ A run is incomplete if it only observes missing capability and leaves no decisio
 
 Autonomy does not own project delivery, product code, broad refactors, or skill creation.
 
-It still reports every run. The difference is that the report is an operational accountability record, not a separate publication ritual. If autonomy acts, the report must make the action auditable: decision, evidence, changed surface, verification readback, residual risk, and next route.
+Autonomy is no longer a publication ritual. It records operational accountability through lifecycle events, status readbacks, and a concise terminal report. Do not create a blog entry, HTML report, meta-report, adversarial review, or general publication artifact for routine autonomy work.
+
+When invoked from heartbeat self-healing, autonomy is a secondary subroutine: investigate only the primitives listed in `request.self_healing.needs_llm`, attempt the smallest reversible repair or diagnosis, log what happened, then let the heartbeat continue to its normal action dispatch.
 
 ## Boundary
 
@@ -50,6 +52,7 @@ Use read models first:
 ```bash
 edge-cap status --json --skill autonomy
 edge-primitives status --json
+edge-self-healing --json
 ```
 
 These are the canonical sources for capability and primitive state. They combine configuration, materialized primitives, probe results, and recent usage.
@@ -58,6 +61,7 @@ Also inspect when relevant:
 
 - `state/source-affordance-digest.json`;
 - runtime capability and workflow status;
+- `request.self_healing` from preflight;
 - operational signals such as autonomy, friction, cost, reflection, and serendipity;
 - recent failed or repeated tool/search/signal paths;
 - local workflow and primitive usage evidence.
@@ -127,7 +131,7 @@ The readback is the proof. Do not infer success from the file edit alone.
 
 ### 1. Read The Substrate
 
-Start from capability and primitive read models. Identify degraded, broken, unprobed, unused, duplicated, or high-friction items.
+Start from capability and primitive read models. If `request.self_healing.needs_llm` is present, start with those primitives before sweeping the broader substrate. Identify degraded, broken, unprobed, unused, duplicated, or high-friction items.
 
 ### 2. Build The Attempt Queue
 
@@ -160,7 +164,7 @@ After each mutation, run the relevant probe or status readback. If one item fail
 
 ### 5. Close With Decision
 
-Return a concise operational report:
+Return a concise operational terminal report:
 
 ```markdown
 Autonomy Sweep: <scope>
@@ -176,6 +180,14 @@ Routed:
 Residual Risk: <what may still be wrong>
 Next: <remaining work or next sweep focus>
 ```
+
+Also log durable facts for actions that matter:
+
+```bash
+edge-event log --type maintenance --summary "<primitive/action/result>"
+```
+
+Do not run `consolidate-state` for autonomy unless the operator explicitly asked for a published artifact.
 
 ## Routing
 
@@ -193,4 +205,5 @@ Next: <remaining work or next sweep focus>
 - Do not skip because priority, demand, or evidence seems weak.
 - Only mark work not done after a concrete failed attempt or hard blocker.
 - Do not create skill proposals.
+- Do not create routine autonomy publication artifacts.
 - Verification readback is part of the action, not optional.
