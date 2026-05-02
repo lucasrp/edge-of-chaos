@@ -15,7 +15,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$TMP_EDGE/state" "$TMP_EDGE/logs" "$TMP_EDGE/search"
+mkdir -p "$TMP_EDGE/state/projections" "$TMP_EDGE/logs" "$TMP_EDGE/search"
 
 export EDGE_REPO_DIR="$EDGE_DIR"
 export EDGE_STATE_DIR="$TMP_EDGE"
@@ -189,6 +189,49 @@ then
     pass "async inbox response failures degrade to warning"
 else
     fail "async inbox response failures degrade to warning"
+fi
+
+echo "--- Test 4: claims refresh uses cached projections without continuity rebuild ---"
+if python3 - <<'PY' "$EDGE_DIR"
+import importlib.machinery
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+loader = importlib.machinery.SourceFileLoader("edge_postflight", str(edge_dir / "tools" / "edge-postflight"))
+spec = importlib.util.spec_from_loader("edge_postflight", loader)
+module = importlib.util.module_from_spec(spec)
+assert spec and spec.loader
+spec.loader.exec_module(module)
+
+assert not hasattr(module, "refresh_continuity_projections")
+module.CLAIMS_DIGEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+module.CLAIMS_DIGEST_FILE.write_text(
+    json.dumps({"open_total": 3, "verified_total": 7, "unthreaded_count": 1}),
+    encoding="utf-8",
+)
+module.ORPHAN_CLAIMS_FILE.write_text(
+    json.dumps({"orphan_total": 2, "open_orphan_total": 1}),
+    encoding="utf-8",
+)
+
+result = module._execute_postflight_step(
+    {"id": "claims", "kind": "claims.refresh"},
+    {"cycle_id": "cycle-postflight-claims", "request": {}, "state": {}},
+)
+
+assert result["status"] == "ok", result
+assert result["satisfied"] is True, result
+assert result["payload"]["digest"]["open_total"] == 3
+assert result["payload"]["orphans"]["orphan_total"] == 2
+assert result["payload"]["cache"]["status"] == "cached"
+PY
+then
+    pass "claims refresh reads cached projection files"
+else
+    fail "claims refresh reads cached projection files"
 fi
 
 echo ""
