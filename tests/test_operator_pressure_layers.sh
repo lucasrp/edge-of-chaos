@@ -60,6 +60,7 @@ redigest_dir = state_dir / "operator-pressure" / "redigests"
 
 payload = build_operator_pressure_layers(
     project_dir=Path(project_dir),
+    memory_path=state_dir / "missing-memory.md",
     ledger_path=ledger_path,
     hot_digest_path=hot_path,
     redigest_dir=redigest_dir,
@@ -127,12 +128,14 @@ redigest_dir = state_dir / "operator-pressure" / "redigests"
 
 first = build_operator_pressure_layers(
     project_dir=Path(project_dir),
+    memory_path=state_dir / "missing-memory.md",
     ledger_path=ledger_path,
     hot_digest_path=hot_path,
     redigest_dir=redigest_dir,
 )
 second = build_operator_pressure_layers(
     project_dir=Path(project_dir),
+    memory_path=state_dir / "missing-memory.md",
     ledger_path=ledger_path,
     hot_digest_path=hot_path,
     redigest_dir=redigest_dir,
@@ -168,6 +171,7 @@ projection_path = state_dir / "projections" / "operator-pressure.json"
 
 preview = build_operator_pressure_projection(
     project_dir=Path(project_dir),
+    memory_path=state_dir / "missing-memory.md",
     projection_path=projection_path,
     write_layers=False,
     allow_llm=False,
@@ -178,6 +182,7 @@ assert not projection_path.exists()
 
 payload = write_operator_pressure_projection(
     project_dir=Path(project_dir),
+    memory_path=state_dir / "missing-memory.md",
     projection_path=projection_path,
     allow_llm=False,
 )
@@ -290,6 +295,7 @@ session.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="
 
 payload = build_operator_pressure_layers(
     project_dir=project,
+    memory_path=state / "missing-memory.md",
     ledger_path=state / "operator-pressure" / "ledger.json",
     hot_digest_path=state / "operator-pressure" / "hot-digest.json",
     redigest_dir=state / "operator-pressure" / "redigests",
@@ -355,6 +361,8 @@ for key in (
     "operator_toil_optimizable_now",
     "mistakes_to_avoid_now",
     "implicit_needs_hypotheses",
+    "memory_updates",
+    "pre_skill_context",
     "workflow_candidates",
     "capability_candidates",
     "substrate_gap_requests",
@@ -368,6 +376,77 @@ then
     pass "empty ledger skips LLM renderer even with sticky previous digest"
 else
     fail "empty ledger skips LLM renderer even with sticky previous digest"
+fi
+
+echo "--- Test 6: memory.md updates enter pressure digest as state signals ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_BASE"
+import json
+import sys
+from pathlib import Path
+
+edge_dir, tmp_base = sys.argv[1:]
+sys.path.insert(0, f"{edge_dir}/tools")
+
+from _shared.operator_pressure import build_operator_pressure_layers, build_operator_pressure_projection
+
+tmp_base = Path(tmp_base)
+project = tmp_base / "memory-project"
+state = tmp_base / "memory-state"
+memory = tmp_base / "memory" / "MEMORY.md"
+project.mkdir(parents=True, exist_ok=True)
+state.mkdir(parents=True, exist_ok=True)
+memory.parent.mkdir(parents=True, exist_ok=True)
+(project / "session-empty.jsonl").write_text("", encoding="utf-8")
+memory.write_text(
+    "- [Report narrative workflow](report-narrative.md) - report sections must introduce dense tables before rendering them\n"
+    "- [Pre-skill memory context](pre-skill-memory.md) - memory updates should appear in pre-skill context before execution\n",
+    encoding="utf-8",
+)
+
+payload = build_operator_pressure_layers(
+    project_dir=project,
+    memory_path=memory,
+    ledger_path=state / "operator-pressure" / "ledger.json",
+    hot_digest_path=state / "operator-pressure" / "hot-digest.json",
+    redigest_dir=state / "operator-pressure" / "redigests",
+    allow_llm=False,
+)
+ledger = payload["ledger"]
+hot = payload["hot_digest"]
+summary = payload["summary"]
+atoms_path = state / "operator-pressure" / "pressure-ledger.jsonl"
+atom_entries = [json.loads(line) for line in atoms_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+assert ledger["memory"]["available"] is True
+assert ledger["memory"]["item_total"] == 2
+assert ledger["source_counts"]["memory"] == 2
+assert summary["memory_updates"] >= 1
+assert summary["pre_skill_context"] >= 1
+assert summary["memory_item_total"] == 2
+assert hot["memory_updates"]
+assert hot["pre_skill_context"]
+assert any("memory" in item.get("source_kinds", []) for item in hot["memory_updates"])
+assert any("pre-skill" in item.get("text", "").lower() for item in hot["pre_skill_context"])
+assert any("memory" in item.get("source_kinds", []) for item in ledger["items"])
+assert any((entry.get("source_kinds") or []) == ["memory"] for entry in atom_entries)
+assert any((prov.get("source_kind") == "memory") for item in ledger["items"] for prov in item["provenance"])
+
+projection = build_operator_pressure_projection(
+    project_dir=project,
+    memory_path=memory,
+    projection_path=state / "projections" / "operator-pressure.json",
+    write_layers=False,
+    allow_llm=False,
+)
+assert projection["memory"]["available"] is True
+assert projection["source_paths"]["memory"] == str(memory)
+assert projection["hot_digest"]["memory_updates"]
+assert projection["hot_digest"]["pre_skill_context"]
+PY
+then
+    pass "memory.md updates become pressure digest state signals"
+else
+    fail "memory.md updates become pressure digest state signals"
 fi
 
 echo ""
