@@ -594,7 +594,13 @@ def _print_backend_output(output: str) -> None:
     sys.stdout.flush()
 
 
-def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: str | None = None) -> tuple[int, str]:
+def invoke_backend(
+    args: argparse.Namespace,
+    env: dict[str, str],
+    *,
+    cycle_id: str | None = None,
+    echo_output: bool = True,
+) -> tuple[int, str]:
     content = build_backend_content(args, cycle_id)
     cmd = build_backend_command(args)
 
@@ -609,7 +615,8 @@ def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: s
             capture_output=True,
         )
         output = (result.stdout or "") + (result.stderr or "")
-        _print_backend_output(output)
+        if echo_output:
+            _print_backend_output(output)
         return result.returncode, output
 
     popen_kwargs: dict = {
@@ -626,7 +633,8 @@ def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: s
     try:
         output, _ = proc.communicate(input=content, timeout=timeout_seconds)
         output = output or ""
-        _print_backend_output(output)
+        if echo_output:
+            _print_backend_output(output)
         return proc.returncode, output
     except subprocess.TimeoutExpired:
         target = args.skill if args.cmd == "skill" else "prompt"
@@ -734,14 +742,14 @@ def artifact_published_for_cycle(cycle_id: str | None) -> bool:
     return False
 
 
-def maybe_publish_stdout_artifact(skill: str, cycle_id: str | None, exit_code: int, output: str) -> None:
+def maybe_publish_stdout_artifact(skill: str, cycle_id: str | None, exit_code: int, output: str) -> dict:
     if not cycle_id or exit_code != 0:
-        return
+        return {"published": False, "reason": "not_publishable_exit", "skill": normalize_skill_name(skill)}
     normalized = normalize_skill_name(skill)
     if not skill_accepts_stdout_artifact(normalized, instance=EDGE_INSTANCE):
-        return
+        return {"published": False, "reason": "skill_not_artifact_pipeline", "skill": normalized}
     if artifact_published_for_cycle(cycle_id):
-        return
+        return {"published": True, "reason": "already_published", "skill": normalized}
     result = publish_stdout_artifact(
         skill=normalized,
         cycle_id=cycle_id,
@@ -761,6 +769,25 @@ def maybe_publish_stdout_artifact(skill: str, cycle_id: str | None, exit_code: i
         target=normalized,
         close_reason=str(result.get("reason") or ""),
     )
+    return result
+
+
+def should_echo_backend_output(skill: str | None) -> bool:
+    normalized = normalize_skill_name(skill)
+    return not skill_accepts_stdout_artifact(normalized, instance=EDGE_INSTANCE)
+
+
+def print_artifact_publish_result(result: dict, output: str) -> None:
+    if result.get("published"):
+        artifact = result.get("artifact")
+        report_path = result.get("report_path")
+        if artifact:
+            message = f"edge-runner: published artifact {artifact}"
+            if report_path:
+                message += f" ({report_path})"
+            print(message)
+        return
+    _print_backend_output(output)
 
 
 def add_common_arguments(parser: argparse.ArgumentParser) -> None:
@@ -836,6 +863,7 @@ def main() -> int:
                 follow_on_target=routed_heartbeat_skill,
             )
         else:
+            echo_output = args.cmd != "skill" or should_echo_backend_output(args.skill)
             if cycle_id:
                 log_run_step(
                     "edge-runner",
@@ -847,12 +875,14 @@ def main() -> int:
                     target=args.skill if args.cmd == "skill" else "prompt",
                 )
 
-            exit_code, backend_output = invoke_backend(args, env, cycle_id=cycle_id)
+            exit_code, backend_output = invoke_backend(args, env, cycle_id=cycle_id, echo_output=echo_output)
         if args.cmd == "prompt":
             maybe_mark_skill_completion("prompt", cycle_id, exit_code)
         elif args.cmd == "skill" and not routed_heartbeat_skill:
             maybe_mark_skill_completion(args.skill, cycle_id, exit_code)
-            maybe_publish_stdout_artifact(args.skill, cycle_id, exit_code, backend_output)
+            publish_result = maybe_publish_stdout_artifact(args.skill, cycle_id, exit_code, backend_output)
+            if not should_echo_backend_output(args.skill):
+                print_artifact_publish_result(publish_result, backend_output)
 
         follow_on_skill = dispatched_follow_on_skill(args, cycle_id)
         if follow_on_skill and exit_code == 0:
@@ -882,9 +912,17 @@ def main() -> int:
                     target=follow_on_skill,
                 )
                 follow_on_args = make_follow_on_skill_args(args, follow_on_skill)
-                follow_on_exit, follow_on_output = invoke_backend(follow_on_args, env, cycle_id=cycle_id)
+                follow_on_echo_output = should_echo_backend_output(follow_on_skill)
+                follow_on_exit, follow_on_output = invoke_backend(
+                    follow_on_args,
+                    env,
+                    cycle_id=cycle_id,
+                    echo_output=follow_on_echo_output,
+                )
                 maybe_mark_skill_completion(follow_on_skill, cycle_id, follow_on_exit)
-                maybe_publish_stdout_artifact(follow_on_skill, cycle_id, follow_on_exit, follow_on_output)
+                follow_on_publish_result = maybe_publish_stdout_artifact(follow_on_skill, cycle_id, follow_on_exit, follow_on_output)
+                if not follow_on_echo_output:
+                    print_artifact_publish_result(follow_on_publish_result, follow_on_output)
                 final_status = "completed" if follow_on_exit == 0 else "failed"
                 log_run_step(
                     "edge-runner",

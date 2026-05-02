@@ -55,6 +55,25 @@ def _extract_markdown_artifact(output: str) -> tuple[str, str] | None:
     return title or "Untitled artifact", body
 
 
+def _extract_plaintext_artifact(output: str) -> tuple[str, str] | None:
+    cleaned = _strip_ansi(output).replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not cleaned:
+        return None
+    words = re.findall(r"\w+", cleaned)
+    if len(cleaned) < 120 or len(words) < 20:
+        return None
+
+    first_line = ""
+    for line in cleaned.splitlines():
+        candidate = line.strip().strip("#").strip()
+        if candidate:
+            first_line = candidate
+            break
+    title = first_line[:96].strip(" :-\t") or "Runtime captured artifact"
+    body = f"# {title}\n\n{cleaned}\n"
+    return title, body
+
+
 def _unique_path(path: Path) -> Path:
     if not path.exists():
         return path
@@ -104,7 +123,7 @@ def publish_stdout_artifact(
     if not skill_accepts_stdout_artifact(canonical_skill):
         return {"published": False, "reason": "skill_not_artifact_pipeline", "skill": canonical_skill}
 
-    extracted = _extract_markdown_artifact(output)
+    extracted = _extract_markdown_artifact(output) or _extract_plaintext_artifact(output)
     if not extracted:
         return {"published": False, "reason": "missing_markdown_artifact", "skill": canonical_skill}
     title, body = extracted
