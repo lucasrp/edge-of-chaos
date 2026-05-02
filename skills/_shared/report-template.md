@@ -52,6 +52,14 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
    entry without a YAML spec skips Phase 2 (content report), producing no
    HTML. That path is forbidden by the uniform rite.
 
+   **Staging is not completion.** A skill invocation must not close with only
+   `/tmp/spec-*` and `/tmp/entry-*` files. Do not ask the operator whether to
+   publish, recommend a later `consolidate-state` run as the final answer, or
+   hand off because older drafts are blocked. Run `consolidate-state` in this
+   invocation, fix gate feedback if it blocks, and verify the generated report.
+   If publication cannot complete, report the concrete failing command and
+   failure reason rather than presenting the run as successful.
+
    **Single review owner:** do not run standalone `edge-consult` or
    `review-gate` before this command during the normal publication path.
    `consolidate-state` owns the mandatory adversarial, Feynman, review-gate,
