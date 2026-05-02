@@ -31,6 +31,16 @@ Feynman, review-gate, publication, meta-report, and post-state phases. If
 `consolidate-state` blocks on feedback, address that feedback and rerun the
 pipeline; do not create a separate pre-publication review loop inside this skill.
 
+Publishing is not optional once `/ed-report` has chosen a topic. Files staged in
+`/tmp` are drafts, not the report artifact. Do not close by asking the operator
+whether to publish, by recommending a future `consolidate-state` run, or by
+handing off because earlier drafts are blocked. Prior blocked drafts are evidence
+for the report and may justify a tighter scope, but they do not authorize a
+staging-only exit. The skill is complete only after `consolidate-state` succeeds
+and the generated HTML report, blog entry, and meta-report have been verified; if
+that cannot be achieved, surface the concrete failing command and reason instead
+of reporting success.
+
 Follow the shared source lookup protocol when external evidence, current information, examples, papers, repositories, or public discussion are relevant.
 
 ## Method
