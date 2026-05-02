@@ -1,16 +1,18 @@
 ---
 name: ed-strategy
-description: "Strategic planning across all projects. Analyze state, curate claims and threads, choose action modes, and route next work. Triggers on: strategy, estrategia, planeje, plan ahead, big picture, quadro geral."
+description: "Domain-first strategic planning from operator direction, real project progress, blockers, and next deliverables. Triggers on: strategy, estrategia, planeje, plan ahead, big picture, quadro geral."
 user-invocable: true
 ---
 
-# Strategy — Active Strategic Curation
+# Strategy — Domain Strategy
 
-Use this skill to look across projects, threads, claims, and signals, then decide what should happen next.
+Use this skill to turn the operator's real priorities into a short strategic plan for the next work cycles.
 
-Strategy is not passive recommendation. It makes decisions over the agent-owned substrate: classify work, curate stale knowledge, route next skills, and produce an action queue.
+Strategy is about the operator's domain work: projects, deployed services, repositories, customer or research objectives, deliverables, blockers, and decisions. Internal edge-of-chaos substrate only matters when it changes what should happen in the domain.
 
 It does not execute project work directly.
+
+Prime rule: at least 70% of the artifact must be about domain work. Substrate curation is capped at 30%, and should be omitted entirely when it does not affect domain priorities.
 
 ## Boundary
 
@@ -22,96 +24,88 @@ Follow the shared source lookup protocol when external trends, platform changes,
 
 Produce a strategic action artifact that answers:
 
-- What should move now?
-- What is blocked?
-- What needs research, planning, or execution?
-- Which threads should stay active, be merged, be parked, or be archived?
-- Which claims are still useful, disputed, stale, or dead?
-- Which stale claims should be archived because no work is derived from them?
-- What should be routed to another skill next?
+- What does `config/strategy.md` say the operator is trying to achieve now?
+- Which real projects or deliverables moved since the last strategy pass?
+- What is blocked, stale, or unclear in the operator's work?
+- Which milestone should be next for each priority project?
+- What needs research, planning, execution, or an operator decision?
 - What decisions belong to the operator?
+- Which internal substrate issues, if any, materially block the above?
 
 ## Inputs
 
-Use relevant internal state:
+Start with operator direction:
+
+- `config/strategy.md`;
+- explicit operator messages in the current session;
+- active GitHub issues, PRs, repositories, deployed services, dashboards, data assets, and project notes;
+- recent reports and decisions that changed the domain plan.
+
+Then use relevant internal state only as support:
 
 - current session context;
-- project status and repositories;
-- issues, boards, proposals, and threads;
-- claims and their supporting artifacts;
-- recent reports and decisions;
-- operational signals such as friction, autonomy, decision, reflection, and serendipity;
-- prior strategy artifacts.
+- proposals, threads, topics, and open gaps;
+- operational signals such as friction, decision, and runtime health;
+- prior strategy artifacts and delta digest.
 
 Use external sources only when the strategy depends on current ecosystem information or outside examples.
 
 ## Action Modes
 
-Every project, thread, or meaningful claim cluster should receive one of these modes:
+Every real project or meaningful deliverable should receive one of these modes:
 
 - `advance`: move it forward now.
 - `unblock`: remove a concrete blocker.
 - `research`: evidence or understanding is missing.
 - `plan`: turn it into a proposal or implementation cycle.
 - `operator_action`: enough is known; hand off for implementation or human decision.
-- `reflect`: update memory, correct drift, or process feedback.
-- `merge`: combine duplicates or overlapping threads/claims.
 - `park`: keep it, but do not spend work now.
 - `archive`: remove from active attention.
 - `operator_decision`: requires human choice before progress.
 
 Each active mode needs a next skill or next action.
 
-## Thread Curation
+## Substrate Triage
 
-For each active or resurfacing thread, decide:
+Substrate triage is a brief final section, not the main body.
 
-- keep active;
-- merge with another thread;
-- route to `ed-research`, `ed-planner`, `ed-reflection`, `ed-map`, or `operator_action`;
-- park with a concrete reactivation condition;
-- archive because it no longer produces useful work.
+Include internal thread/topic/open-gap/runtime notes only when one of these is true:
 
-A thread should not remain active only because it exists. If it has no current objective, no next action, and no useful pressure on a project, archive it.
+- it blocks a domain milestone;
+- it risks misleading future work;
+- it should change the next dispatch;
+- the operator explicitly asked for substrate cleanup.
 
-## Claim Curation
+Do not produce an edge-of-chaos status dashboard. If the artifact reads mostly like a claims, threads, or health report, it failed.
 
-Claims are working knowledge, not a museum.
-
-Classify old, stale, weak, duplicated, or unsupported claims explicitly:
-
-- `keep`: still useful and connected to live work.
-- `refresh`: still important, but source/evidence may be stale.
-- `dispute`: contradicted or no longer trusted.
-- `merge`: duplicate or near-duplicate of a stronger claim.
-- `promote`: should become workflow, proposal, issue, or thread.
-- `archive`: stale or inactive with no derived work.
-
-Archive a claim when all are true:
-
-- it is old or marked stale;
-- no active thread, proposal, issue, workflow, or project action depends on it;
-- it is not needed as evidence for a current decision;
-- refreshing it would not unblock concrete work.
-
-Do not keep stale claims around as passive context. If no work is derived from them, archive them.
-
-If a stale claim still matters, do not archive it silently. Route it to `refresh` or `research` and state what decision depends on it.
+When substrate must be touched, prefer routing a small concrete fix instead of expanding the strategy artifact.
 
 ## Method
 
-### 1. Establish The Big Picture
+### 1. Anchor In Operator Direction
 
-Start with the current state of the ecosystem:
+Read `config/strategy.md` first. Extract:
+
+- current phase;
+- top priorities;
+- explicit non-goals;
+- project constraints;
+- decisions waiting on the operator.
+
+Quote or paraphrase the relevant parts before interpreting anything else.
+
+### 2. Establish The Domain Picture
+
+Summarize the current state of the operator's work:
 
 - active projects;
 - blocked projects;
+- deployed services or repos that matter;
 - recently changed priorities;
-- operator pressure;
-- runtime pressure;
-- stale or overloaded knowledge surfaces.
+- recent decisions;
+- measurable progress or lack of progress.
 
-### 2. Analyze Projects
+### 3. Analyze Projects
 
 For every relevant project, evaluate:
 
@@ -123,17 +117,6 @@ For every relevant project, evaluate:
 | Risk | What degrades if ignored? |
 | Dependencies | What does it need from other projects? |
 | Action mode | advance, unblock, research, plan, operator_action, park, archive, or operator_decision? |
-
-### 3. Curate Threads And Claims
-
-Review threads and claim clusters as part of strategy, not as a separate housekeeping task.
-
-For each item, decide:
-
-- current status;
-- whether it is still strategically useful;
-- what work is derived from it;
-- whether it should be archived, merged, refreshed, promoted, or routed.
 
 ### 4. Map Dependencies
 
@@ -147,9 +130,19 @@ Identify:
 
 Use a diagram or table when the graph is non-trivial.
 
-### 5. Produce The Action Queue
+### 5. Add Brief Substrate Notes
 
-End with an explicit queue:
+Only after the domain strategy is clear, include a compact substrate note:
+
+- runtime or publication blockers that can derail project work;
+- stale topics/open gaps that materially affect a project;
+- recommended route for the next skill.
+
+If there is no material substrate issue, write one sentence saying so.
+
+### 6. Produce The Action Queue
+
+End with an explicit domain action queue:
 
 ```text
 Strategic Actions
@@ -159,7 +152,7 @@ Strategic Actions
 
 The queue should be short enough to act on.
 
-### 6. Curate The Delta Digest
+### 7. Curate The Delta Digest
 
 Every strategy run must update the curated delta digest, even if the update is an explicit no-op.
 
@@ -205,12 +198,13 @@ The payload shape is:
 
 ## Quality Criteria
 
-- Strategy must be grounded in actual project, thread, and claim state.
-- Every active item needs an action mode.
-- Every `advance`, `unblock`, `research`, `plan`, `operator_action`, or `reflect` item needs a next skill or concrete action.
+- Strategy must be grounded in `config/strategy.md` and actual project state.
+- At least 70% of the artifact must discuss domain work, not internal substrate.
+- Every active project or deliverable needs an action mode.
+- Every `advance`, `unblock`, `research`, `plan`, or `operator_action` item needs a next skill or concrete action.
 - Every `park` item needs a reactivation condition.
 - Every `archive` decision needs a short reason.
-- Stale claims without derived work should be archived, not carried forward.
+- Substrate notes must be brief and tied to project impact.
 - Priority means something else is not first; state the trade-off.
 - Do not turn strategy into implementation.
 - Do not edit operator-owned direction or priority files directly from this skill.
@@ -224,22 +218,21 @@ Produce a strategy artifact suitable for the uniform report pipeline.
 
 Recommended sections:
 
-1. Big Picture
-2. Project Action Modes
-3. Thread Curation
-4. Claim Curation
-5. Dependencies And Conflicts
+1. Operator Direction
+2. Domain Progress
+3. Next Milestones
+4. Blockers And Dependencies
+5. Recommendations
 6. Strategic Action Queue
-7. Delta Digest Update
+7. Substrate Notes
 8. Operator Decisions
-9. Risks
-10. References
+9. Delta Digest Update
+10. Risks
+11. References
 
 Useful structures:
 
 - project cards with action-mode badges;
-- thread table;
-- claim curation table;
 - dependency diagram;
 - action queue;
 - risk table.
