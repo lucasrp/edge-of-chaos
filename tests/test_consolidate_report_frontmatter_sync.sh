@@ -24,7 +24,7 @@ Body.
 EOF
 
 python3 "$TOOL" "$ENTRY" "entry-research-contract.html" >"$OUT"
-grep -q "updated:research-contract.html->entry-research-contract.html" "$OUT"
+grep -q "report=updated:research-contract.html->entry-research-contract.html" "$OUT"
 grep -q "^report: entry-research-contract.html$" "$ENTRY"
 
 python3 - "$ENTRY" <<'PY'
@@ -52,8 +52,34 @@ Body.
 EOF
 
 python3 "$TOOL" "$ENTRY" "entry-research-contract.html" >"$OUT"
-grep -q "updated:<missing>->entry-research-contract.html" "$OUT"
+grep -q "report=updated:<missing>->entry-research-contract.html" "$OUT"
 grep -q "^report: entry-research-contract.html$" "$ENTRY"
+
+cat >"$ENTRY" <<'EOF'
+---
+title: "Reflection R6 — Sinal Emergente de missing_artifact_published"
+date: 2026-05-02
+type: note
+tags: [reflection, runtime, health, failure-analysis]
+claims:
+  - id: claim-r6-missing-artifact
+    text: "missing_artifact_published apareceu em 4/5 falhas"
+    kind: open
+    threads: [infrastructure-security]
+  - id: claim-r6-work-stagnation
+    text: "0/4 open work items avancaram em 5 dias"
+    kind: verified
+    threads: [infrastructure-security, analise-processual]
+---
+
+Body.
+EOF
+
+python3 "$TOOL" "$ENTRY" "edge-reflection-R6-entry.html" >"$OUT"
+grep -q "threads=derived:2" "$OUT"
+grep -q "keywords=derived:" "$OUT"
+grep -q "^threads: \\[infrastructure-security, analise-processual\\]$" "$ENTRY"
+grep -q "^keywords: " "$ENTRY"
 
 grep -q 'sync-report-frontmatter.py" "$ENTRY_PATH" "$REPORT_FILENAME"' "$SCRIPT"
 grep -q 'VERIFY_ENTRY_PATH="$ENTRIES_DIR/$SLUG.md"' "$SCRIPT"
