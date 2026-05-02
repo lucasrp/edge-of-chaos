@@ -246,6 +246,42 @@ rows = [
         "sessionId": "noise",
         "message": {
             "role": "user",
+            "content": "## System\n\nYou compress operator pressure into compact structured JSON for runtime use.\n\n## User\n\nYou are rendering an operator-pressure digest for runtime preflight."
+        },
+    },
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:04:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
+            "content": "You are converting an operator's free-form description of a research or work routine into a structured workflow entry. The operator's prose is verbatim text."
+        },
+    },
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:05:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
+            "content": "You are bootstrapping an autonomous AI agent. Generate seed content for its operational memory.\n\nAgent: roberto"
+        },
+    },
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:06:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
+            "content": "You are implementing a source primitive for an autonomous agent.\n\nSource: test"
+        },
+    },
+    {
+        "type": "user",
+        "timestamp": "2026-05-01T12:07:00Z",
+        "sessionId": "noise",
+        "message": {
+            "role": "user",
             "content": "corrija o install do edge e rode heartbeat depois"
         },
     },
