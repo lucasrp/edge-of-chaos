@@ -304,10 +304,10 @@ def refresh_claims_status() -> dict[str, Any]:
     if cache_age is not None:
         detail += f" age={cache_age}s"
 
-    status = "ok" if cache_status == "cached" else "warning"
-    append_postskill_log("claims_digest", "OK" if status == "ok" else "WARN", detail)
+    status = "warning" if cache_status in {"partial_cached", "stale_cached", "unknown"} else "ok"
+    append_postskill_log("claims_digest", "OK" if cache_status in {"cached", "missing"} else "WARN", detail)
     return {
-        "ok": cache_status not in {"missing", "partial_cached", "unknown"},
+        "ok": cache_status != "unknown",
         "status": status,
         "detail": detail,
         "payload": {
