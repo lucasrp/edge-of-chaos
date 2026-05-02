@@ -39,8 +39,8 @@ procedures:
     kind: inbox.snapshot
   - id: claude-sessions
     kind: claude.sessions.digest
-  - id: claims
-    kind: claims.refresh
+  - id: open-gaps
+    kind: open_gaps.refresh
   - id: primitives
     kind: primitives.status
   - id: capabilities
@@ -70,8 +70,8 @@ operator_notes: []
 procedures:
   - id: validate-recent
     kind: validate.recent
-  - id: claims
-    kind: claims.refresh
+  - id: open-gaps
+    kind: open_gaps.refresh
   - id: primitives
     kind: primitives.status
   - id: capabilities
@@ -315,7 +315,7 @@ assert "heartbeat_routing" in invocations[0]
 assert "autonomy_primitives_checkup" not in request
 assert request["primitives_status"]["summary"]["health_status"] == "ok"
 assert "workflow_status" in request
-assert "claims_summary" in request
+assert "open_gaps_summary" in request
 assert beat_mirror["active"] is False
 assert any(event["type"] == "CycleStarted" for event in events)
 assert any(event["type"] == "PreflightCompleted" for event in events)
@@ -973,7 +973,7 @@ else
     fail "health snapshot refresh timeout falls back to the last snapshot"
 fi
 
-echo "--- Test 11: preflight claims summary uses cached projections ---"
+echo "--- Test 11: preflight open-gaps summary uses cached projection ---"
 if python3 - <<'PY' "$EDGE_DIR" "$TMP_BASE"
 import importlib
 import json
@@ -983,40 +983,38 @@ from pathlib import Path
 
 edge_dir = Path(sys.argv[1])
 tmp_base = Path(sys.argv[2])
-runtime = tmp_base / "claims-cache-runtime"
+runtime = tmp_base / "open-gaps-cache-runtime"
 projection_dir = runtime / "state" / "projections"
 projection_dir.mkdir(parents=True, exist_ok=True)
-claims_path = projection_dir / "claims-digest.json"
-orphans_path = projection_dir / "orphan-claims.json"
-claims_path.write_text(json.dumps({"open_total": 2, "verified_total": 5, "attention_count": 1}), encoding="utf-8")
-orphans_path.write_text(json.dumps({"orphan_total": 3, "open_orphan_total": 1}), encoding="utf-8")
+open_gaps_path = projection_dir / "open-gaps-digest.json"
+open_gaps_path.write_text(
+    json.dumps({"open_total": 2, "entries_with_gaps": 1, "hot_threads_by_open_gaps": [{"thread_id": "alpha", "open_gaps": 2}]}),
+    encoding="utf-8",
+)
 
 sys.path.insert(0, str(edge_dir / "tools"))
 module = importlib.import_module("_shared.dispatch_runtime")
-module.CLAIMS_DIGEST_FILE = claims_path
-module.ORPHAN_CLAIMS_FILE = orphans_path
+module.OPEN_GAPS_DIGEST_FILE = open_gaps_path
 if hasattr(module, "refresh_continuity_projections"):
     def _explode():
-        raise AssertionError("preflight claims summary must not refresh continuity projections")
+        raise AssertionError("preflight open-gaps summary must not refresh continuity projections")
     module.refresh_continuity_projections = _explode
 
-os.environ["EDGE_PREFLIGHT_CLAIMS_MAX_AGE_SEC"] = "86400"
+os.environ["EDGE_PREFLIGHT_OPEN_GAPS_MAX_AGE_SEC"] = "86400"
 try:
-    claims, orphans = module._claims_summary()
+    open_gaps = module._open_gaps_summary()
 finally:
-    os.environ.pop("EDGE_PREFLIGHT_CLAIMS_MAX_AGE_SEC", None)
+    os.environ.pop("EDGE_PREFLIGHT_OPEN_GAPS_MAX_AGE_SEC", None)
 
-assert claims["open_total"] == 2
-assert claims["verified_total"] == 5
-assert claims["projection_status"] == "cached"
-assert orphans["orphan_total"] == 3
-assert orphans["open_orphan_total"] == 1
-assert orphans["projection_status"] == "cached"
+assert open_gaps["open_total"] == 2
+assert open_gaps["entries_with_gaps"] == 1
+assert open_gaps["projection_status"] == "cached"
+assert open_gaps["hot_threads_by_open_gaps"][0]["thread_id"] == "alpha"
 PY
 then
-    pass "preflight claims summary uses cached projections"
+    pass "preflight open-gaps summary uses cached projection"
 else
-    fail "preflight claims summary uses cached projections"
+    fail "preflight open-gaps summary uses cached projection"
 fi
 
 echo "--- Test 12: runner evidence gates scan bounded JSONL tails ---"

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 EDGE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-TMP_BASE="$(mktemp -d /tmp/edge-claims-continuity-XXXXXX)"
+TMP_BASE="$(mktemp -d /tmp/edge-open-gaps-continuity-XXXXXX)"
 TMP_STATE="$TMP_BASE/state-root"
 
 cleanup() {
@@ -26,9 +26,8 @@ title: "Threaded continuity note"
 date: "2026-04-21"
 threads:
   - alpha-thread
-claims:
-  - "Boundedness is stable under the current operator setup"
-  - "!The critical case still lacks a closure argument"
+open_gaps:
+  - "The critical case still lacks a closure argument"
 report: alpha.html
 ---
 This artifact advances alpha-thread and records one explicit unresolved gap.
@@ -38,8 +37,8 @@ cat >"$TMP_STATE/blog/entries/2026-04-20-orphan-a.md" <<'MD'
 ---
 title: "Orphan continuity A"
 date: "2026-04-20"
-claims:
-  - "!Judge calibration drift still appears in multi-turn runs"
+open_gaps:
+  - "Judge calibration drift still appears in multi-turn runs"
 ---
 This artifact mentions judge calibration drift but does not anchor it to a thread.
 MD
@@ -48,7 +47,7 @@ cat >"$TMP_STATE/blog/entries/2026-04-21-orphan-b.md" <<'MD'
 ---
 title: "Orphan continuity B"
 date: "2026-04-21"
-claims:
+open_gaps:
   - "Judge calibration drift still appears in multi-turn runs"
 ---
 Second artifact with the same orphan continuity pressure.
@@ -104,41 +103,29 @@ from _shared.continuity import process_publication_continuity
 entry = Path(os.environ["EDGE_STATE_DIR"]) / "blog" / "entries" / "2026-04-21-threaded.md"
 result = process_publication_continuity(entry, primary_thread_id="alpha-thread", cycle_id=os.environ["EDGE_CYCLE_ID"])
 assert result["delta"]["primary_thread"] == "alpha-thread"
-assert result["facts"]["claims_count"] == 2
+assert result["facts"]["open_gaps_count"] == 1
 PY
 
-DIGEST_JSON="$("$EDGE_DIR/tools/edge-claims" --digest --json)"
-ORPHANS_JSON="$("$EDGE_DIR/tools/edge-claims" --orphans --json)"
-
-python3 - <<'PY' "$TMP_STATE" "$DIGEST_JSON" "$ORPHANS_JSON"
+python3 - <<'PY' "$TMP_STATE"
 import json
 import sys
 from pathlib import Path
 
 state_root = Path(sys.argv[1])
-digest = json.loads(sys.argv[2])
-orphans = json.loads(sys.argv[3])
+digest = json.loads((state_root / "state" / "projections" / "open-gaps-digest.json").read_text())
 
-assert digest["open_total"] == 2, digest
-assert digest["verified_total"] == 1, digest
-assert digest["unthreaded_count"] == 1, digest
-assert digest["hot_threads_by_open_claims"][0]["thread_id"] == "alpha-thread", digest
-
-assert orphans["orphan_total"] == 1, orphans
-assert orphans["open_orphan_total"] == 1, orphans
-assert orphans["multi_artifact_orphan_total"] == 1, orphans
-assert orphans["candidate_clusters"], orphans
+assert digest["open_total"] == 3, digest
+assert digest["entries_with_gaps"] == 3, digest
+assert digest["hot_threads_by_open_gaps"][0]["thread_id"] == "alpha-thread", digest
 
 delta = json.loads((state_root / "state" / "projections" / "continuity-deltas" / "2026-04-21-threaded.json").read_text())
 assert delta["primary_thread"] == "alpha-thread", delta
+assert delta["open_gaps_total"] == 1, delta
 assert "alpha-thread" in delta["summary"], delta
-
-validation = json.loads((state_root / "state" / "projections" / "claims-validation.json").read_text())
-assert validation["entries"][0]["slug"] == "2026-04-21-threaded", validation
 
 events = [json.loads(line) for line in (state_root / "state" / "events" / "log.jsonl").read_text().splitlines() if line.strip()]
 types = {item["type"] for item in events}
-for expected in {"ArtifactPublished", "ThreadTouched", "ClaimObserved", "ClaimLinkedToThread", "ClaimsValidationObserved"}:
+for expected in {"ArtifactPublished", "ThreadTouched", "OpenGapObserved"}:
     assert expected in types, types
 print("ok")
 PY

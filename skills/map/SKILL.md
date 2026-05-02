@@ -36,7 +36,7 @@ Use `ed-map` for:
 
 - concept-to-project relationships;
 - project-to-project dependencies;
-- claim, thread, or workflow overlap;
+- open-gap, thread, or workflow overlap;
 - "where does this idea appear?";
 - "what connects A to B?";
 - taxonomy, cluster, or divergence views;
@@ -54,7 +54,7 @@ Do not use it for:
 
 - `concept`: map all internal connections around one concept.
 - `path`: explain how concept A connects to concept B.
-- `cluster`: group related concepts, projects, claims, or workflows.
+- `cluster`: group related concepts, projects, open gaps, or workflows.
 - `divergence`: show where similar processes or ideas branch.
 - `coverage`: show which parts of a project or argument are covered or missing.
 
@@ -66,7 +66,7 @@ Prefer structured or indexed sources over broad reading:
 
 - local corpus search and workflow search;
 - project notes and CLAUDE files;
-- reports, blog entries, claims, threads, and proposals;
+- reports, blog entries, open gaps, threads, and proposals;
 - memory files such as debugging, reflection, workflows, and discoveries;
 - repository docs when the relationship concerns code or architecture.
 

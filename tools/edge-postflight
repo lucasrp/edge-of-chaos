@@ -19,7 +19,7 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import CLAIMS_DIGEST_FILE, EDGE_REPO_DIR, LOGS_DIR, ORPHAN_CLAIMS_FILE  # noqa: E402
+from paths import EDGE_REPO_DIR, LOGS_DIR, OPEN_GAPS_DIGEST_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.capability_runtime import build_capability_status, invoke_capability, probe_capability  # noqa: E402
 from _shared.dispatch_runtime import read_dispatch_state, write_dispatch_state  # noqa: E402
@@ -30,7 +30,7 @@ from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
 from _shared.workflow_runtime import build_workflow_status  # noqa: E402
 
 POST_SKILL_LOG = LOGS_DIR / "post-skill.log"
-DEFAULT_CLAIMS_PROJECTION_MAX_AGE_SECONDS = 6 * 60 * 60
+DEFAULT_OPEN_GAPS_PROJECTION_MAX_AGE_SECONDS = 6 * 60 * 60
 
 
 def now_iso() -> str:
@@ -60,16 +60,16 @@ def _read_json_file(path: Path, default: Any) -> Any:
         return default
 
 
-def _claims_projection_max_age_seconds() -> int | None:
+def _open_gaps_projection_max_age_seconds() -> int | None:
     raw = (
-        os.environ.get("EDGE_POSTFLIGHT_CLAIMS_MAX_AGE_SEC")
-        or os.environ.get("EDGE_PREFLIGHT_CLAIMS_MAX_AGE_SEC")
-        or str(DEFAULT_CLAIMS_PROJECTION_MAX_AGE_SECONDS)
+        os.environ.get("EDGE_POSTFLIGHT_OPEN_GAPS_MAX_AGE_SEC")
+        or os.environ.get("EDGE_PREFLIGHT_OPEN_GAPS_MAX_AGE_SEC")
+        or str(DEFAULT_OPEN_GAPS_PROJECTION_MAX_AGE_SECONDS)
     )
     try:
         value = int(raw)
     except (TypeError, ValueError):
-        return DEFAULT_CLAIMS_PROJECTION_MAX_AGE_SECONDS
+        return DEFAULT_OPEN_GAPS_PROJECTION_MAX_AGE_SECONDS
     if value <= 0:
         return None
     return value
@@ -84,23 +84,9 @@ def _projection_cache_status(path: Path) -> dict[str, Any]:
     except OSError:
         return {"projection_status": "unknown", "projection_age_seconds": None}
 
-    max_age = _claims_projection_max_age_seconds()
+    max_age = _open_gaps_projection_max_age_seconds()
     status = "stale_cached" if max_age is not None and age_seconds > max_age else "cached"
     return {"projection_status": status, "projection_age_seconds": age_seconds}
-
-
-def _combined_claims_cache_status(digest_cache: dict[str, Any], orphan_cache: dict[str, Any]) -> str:
-    statuses = {
-        str(digest_cache.get("projection_status") or "unknown"),
-        str(orphan_cache.get("projection_status") or "unknown"),
-    }
-    if statuses == {"cached"}:
-        return "cached"
-    if "missing" in statuses:
-        return "missing" if statuses == {"missing"} else "partial_cached"
-    if "stale_cached" in statuses:
-        return "stale_cached"
-    return "unknown"
 
 
 def before_snapshot(state: dict[str, Any]) -> dict[str, Any]:
@@ -108,11 +94,9 @@ def before_snapshot(state: dict[str, Any]) -> dict[str, Any]:
     workflow_status = request.get("workflow_status") or {}
     capabilities_status = request.get("capabilities_status") or {}
     primitives_status = request.get("primitives_status") or {}
-    claims_summary = request.get("claims_summary") or {}
-    orphan_summary = request.get("orphan_claims_summary") or {}
+    open_gaps_summary = request.get("open_gaps_summary") or {}
     return {
-        "claims_open_total": int(claims_summary.get("open_total", 0) or 0),
-        "orphans_total": int(orphan_summary.get("orphan_total", 0) or 0),
+        "open_gaps_total": int(open_gaps_summary.get("open_total", 0) or 0),
         "primitive_broken_total": int((primitives_status.get("summary") or {}).get("broken_total", 0) or 0),
         "primitive_degraded_total": int((primitives_status.get("summary") or {}).get("degraded_total", 0) or 0),
         "capability_broken_total": int((capabilities_status.get("summary") or {}).get("broken_total", 0) or 0),
@@ -286,46 +270,37 @@ def refresh_capabilities_status(skill: str | None = None) -> dict[str, Any]:
     return {"ok": True, "detail": detail, "payload": payload}
 
 
-def refresh_claims_status() -> dict[str, Any]:
-    digest = _read_json_file(CLAIMS_DIGEST_FILE, {})
-    orphans = _read_json_file(ORPHAN_CLAIMS_FILE, {})
+def refresh_open_gaps_status() -> dict[str, Any]:
+    digest = _read_json_file(OPEN_GAPS_DIGEST_FILE, {})
     if not isinstance(digest, dict):
         digest = {}
-    if not isinstance(orphans, dict):
-        orphans = {}
 
-    digest_cache = _projection_cache_status(CLAIMS_DIGEST_FILE)
-    orphan_cache = _projection_cache_status(ORPHAN_CLAIMS_FILE)
-    cache_status = _combined_claims_cache_status(digest_cache, orphan_cache)
-    cache_age = digest_cache.get("projection_age_seconds")
+    cache = _projection_cache_status(OPEN_GAPS_DIGEST_FILE)
+    cache_status = str(cache.get("projection_status") or "unknown")
+    cache_age = cache.get("projection_age_seconds")
     detail = (
         f"open={digest.get('open_total', 0)} "
-        f"orphans={orphans.get('orphan_total', digest.get('unthreaded_count', 0))} "
+        f"entries={digest.get('entries_with_gaps', 0)} "
         f"cache={cache_status}"
     )
     if cache_age is not None:
         detail += f" age={cache_age}s"
 
-    status = "warning" if cache_status in {"partial_cached", "stale_cached", "unknown"} else "ok"
-    append_postskill_log("claims_digest", "OK" if cache_status in {"cached", "missing"} else "WARN", detail)
+    status = "warning" if cache_status in {"stale_cached", "unknown"} else "ok"
+    append_postskill_log("open_gaps_digest", "OK" if cache_status in {"cached", "missing"} else "WARN", detail)
     return {
         "ok": cache_status != "unknown",
         "status": status,
         "detail": detail,
         "payload": {
-            "digest": digest,
-            "orphans": orphans,
+            "open_gaps": digest,
             "cache": {
                 "status": cache_status,
-                "claims_digest": {
-                    "source_path": str(CLAIMS_DIGEST_FILE),
-                    **digest_cache,
+                "open_gaps_digest": {
+                    "source_path": str(OPEN_GAPS_DIGEST_FILE),
+                    **cache,
                 },
-                "orphan_claims": {
-                    "source_path": str(ORPHAN_CLAIMS_FILE),
-                    **orphan_cache,
-                },
-                "max_age_seconds": _claims_projection_max_age_seconds(),
+                "max_age_seconds": _open_gaps_projection_max_age_seconds(),
             },
         },
     }
@@ -379,19 +354,17 @@ def refresh_briefing() -> dict[str, Any]:
 def compute_delta(
     before: dict[str, Any],
     *,
-    claims: dict[str, Any],
+    open_gaps: dict[str, Any],
     primitives: dict[str, Any],
     workflows: dict[str, Any],
     capabilities: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    digest = claims.get("digest") or {}
-    orphans = claims.get("orphans") or {}
+    gaps_digest = open_gaps.get("open_gaps") or {}
     primitives_summary = (primitives.get("summary") or {})
     workflow_summary = (workflows.get("summary") or {})
     capabilities_summary = ((capabilities or {}).get("summary") or {})
     return {
-        "claims_open_delta": int(digest.get("open_total", 0) or 0) - before["claims_open_total"],
-        "orphans_delta": int(orphans.get("orphan_total", 0) or 0) - before["orphans_total"],
+        "open_gaps_delta": int(gaps_digest.get("open_total", 0) or 0) - before["open_gaps_total"],
         "primitive_broken_delta": int(primitives_summary.get("broken_total", 0) or 0) - before["primitive_broken_total"],
         "primitive_degraded_delta": int(primitives_summary.get("degraded_total", 0) or 0) - before["primitive_degraded_total"],
         "capability_broken_delta": int(capabilities_summary.get("broken_total", 0) or 0) - before["capability_broken_total"],
@@ -436,8 +409,8 @@ def _execute_postflight_step(step: dict[str, Any], state: dict[str, Any]) -> dic
             },
         )
 
-    if kind == "claims.refresh":
-        refreshed = refresh_claims_status()
+    if kind == "open_gaps.refresh":
+        refreshed = refresh_open_gaps_status()
         refreshed_status = str(refreshed.get("status") or ("ok" if refreshed.get("ok") else "warning"))
         return _protocol_step(
             step,
@@ -603,7 +576,7 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
     )
 
     failed_steps = 0
-    claims_payload: dict[str, Any] = {}
+    open_gaps_payload: dict[str, Any] = {}
     primitives_payload: dict[str, Any] = {}
     workflows_payload: dict[str, Any] = {}
     capabilities_payload: dict[str, Any] = {}
@@ -641,8 +614,8 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
 
         payload = result.get("payload") or {}
         kind = str(step.get("kind") or "")
-        if kind == "claims.refresh" and isinstance(payload, dict):
-            claims_payload = payload
+        if kind == "open_gaps.refresh" and isinstance(payload, dict):
+            open_gaps_payload = payload
         elif kind == "pipeline_state.refresh" and isinstance(payload, dict):
             pipeline_state_payload = payload
             pipeline_state_attention = list(result.get("current_attention") or [])
@@ -657,29 +630,18 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
         elif kind == "async_inbox.respond" and isinstance(payload, dict):
             async_inbox_payload = payload
 
-    digest = claims_payload.get("digest") or {}
-    orphans = claims_payload.get("orphans") or {}
+    gaps_digest = open_gaps_payload.get("open_gaps") or {}
     primitives_summary = (primitives_payload.get("summary") or {})
     workflow_summary = (workflows_payload.get("summary") or {})
     capabilities_summary = (capabilities_payload.get("summary") or {})
 
-    if claims_payload:
-        request["claims_summary"] = {
-            "open_total": digest.get("open_total", 0),
-            "verified_total": digest.get("verified_total", 0),
-            "attention_count": digest.get("attention_count", 0),
-            "unthreaded_count": digest.get("unthreaded_count", 0),
-            "stale_count": digest.get("stale_count", 0),
-            "fanout_ratio": digest.get("fanout_ratio", 0),
-            "hot_threads_by_open_claims": (digest.get("hot_threads_by_open_claims") or [])[:5],
-            "oldest_open_claims": (digest.get("oldest_open_claims") or [])[:5],
-        }
-        request["orphan_claims_summary"] = {
-            "orphan_total": orphans.get("orphan_total", 0),
-            "open_orphan_total": orphans.get("open_orphan_total", 0),
-            "stale_orphan_total": orphans.get("stale_orphan_total", 0),
-            "multi_artifact_orphan_total": orphans.get("multi_artifact_orphan_total", 0),
-            "candidate_clusters": (orphans.get("candidate_clusters") or [])[:5],
+    if open_gaps_payload:
+        request["open_gaps_summary"] = {
+            "open_total": gaps_digest.get("open_total", 0),
+            "entries_with_gaps": gaps_digest.get("entries_with_gaps", 0),
+            "hot_threads_by_open_gaps": (gaps_digest.get("hot_threads_by_open_gaps") or [])[:5],
+            "oldest_open_gaps": (gaps_digest.get("oldest_open_gaps") or [])[:5],
+            "recent_open_gaps": (gaps_digest.get("recent_open_gaps") or [])[:5],
         }
     if primitives_payload:
         request["primitives_status"] = {
@@ -743,7 +705,7 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
 
     delta = compute_delta(
         before,
-        claims=claims_payload,
+        open_gaps=open_gaps_payload,
         primitives=primitives_payload,
         workflows=workflows_payload,
         capabilities=capabilities_payload,

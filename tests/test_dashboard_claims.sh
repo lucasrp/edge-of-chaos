@@ -30,8 +30,8 @@ cat >"$TMP_STATE/blog/entries/2026-04-20-claim-gap.md" <<'MD'
 ---
 title: "Queue close audit"
 date: "2026-04-20"
-claims:
-  - "!Queue close evidence is still missing"
+open_gaps:
+  - "Queue close evidence is still missing"
 ---
 body
 MD
@@ -40,8 +40,7 @@ cat >"$TMP_STATE/blog/entries/2026-04-20-claim-verified-a.md" <<'MD'
 ---
 title: "Operator visibility note"
 date: "2026-04-20"
-claims:
-  - "Operator notes should land in visible tasks"
+open_gaps: []
 threads:
   - ops-visibility
 report: ops-visible.html
@@ -53,8 +52,7 @@ cat >"$TMP_STATE/blog/entries/2026-04-21-claim-verified-b.md" <<'MD'
 ---
 title: "Follow-up on visible tasks"
 date: "2026-04-21"
-claims:
-  - "Operator notes should land in visible tasks"
+open_gaps: []
 threads:
   - ops-visibility
 ---
@@ -94,47 +92,20 @@ resp = client.get("/api/dashboard/epistemics")
 assert resp.status_code == 200, resp.status_code
 data = resp.get_json()
 
-claims = data["ep_claims"]
-assert claims["verified_total"] == 1
-assert claims["open_total"] == 1
-assert claims["attention_count"] == 1
-assert claims["unthreaded_count"] == 1
-assert claims["no_report_count"] == 1
-assert claims["verified_recent"][0]["support_count"] == 2
+gaps = data["ep_open_gaps"]
+assert gaps["open_total"] == 1
+assert gaps["entries_with_gaps"] == 1
+assert gaps["attention_count"] == 1
 
-attention_claim = claims["attention"][0]
-assert attention_claim["text"] == "Queue close evidence is still missing"
-assert attention_claim["no_thread"] is True
-assert attention_claim["no_report"] is True
-
-detail = client.get(f"/claim/{attention_claim['claim_id']}")
-assert detail.status_code == 200, detail.status_code
-detail_html = detail.get_data(as_text=True)
-assert "Current Judgment" in detail_html
-assert "Evidence Timeline" in detail_html
-assert "Why this is here" in detail_html
-assert "Queue close audit" in detail_html
-
-steer = client.post(
-    f"/api/steering/claim/{attention_claim['claim_id']}/action",
-    json={
-        "action": "disputed",
-        "reason": "close evidence still has a blind spot",
-        "label": attention_claim["text"],
-        "reference": attention_claim["reference"],
-    },
-)
-assert steer.status_code == 200, steer.status_code
+attention_gap = gaps["attention"][0]
+assert attention_gap["text"] == "Queue close evidence is still missing"
+assert attention_gap["entry_title"] == "Queue close audit"
 
 partial = client.get("/partials/epistemics")
 assert partial.status_code == 200, partial.status_code
 text = partial.get_data(as_text=True)
-assert "claims workbench" in text
+assert "open gaps" in text
 assert "needs attention" in text
-assert "supported and linked" in text
-assert "Operator notes should land in visible tasks" in text
-assert "Queued for next dispatch: Mark contested" in text
-assert "Turn into proposal" in text
-assert "Needs fresh evidence" in text
+assert "Queue close evidence is still missing" in text
 print("ok")
 PY

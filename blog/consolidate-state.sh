@@ -21,7 +21,7 @@
 #   2.  Content report indexing/confirmation
 #   3.  Verificação (API, frontmatter, files)
 #   3.4 LLM cost injection
-#   5.  State commit (claims + threads + event + digest)
+#   5.  State commit (threads + event + digest)
 #   5b. State audit
 #   6.  Diffs + Git commit (audit trail)
 #
@@ -999,48 +999,6 @@ except:
     fi
 }
 
-# ─── PHASE 3.35: Crystallization gate (curation entries only) ───
-CRYST_CHECK=$(python3 -c "
-import yaml, json, os, glob, sys
-try:
-    raw = open('$ENTRY_PATH').read()
-    parts = raw.split('---', 2)
-    fm = yaml.safe_load(parts[1]) or {}
-    tags = fm.get('tags', [])
-    if not ('curation' in tags or 'procedures' in tags):
-        print('SKIP')
-        sys.exit(0)
-    pc = os.environ.get('PROCEDURE_CURATION_FILE', os.path.expanduser('~/edge/state/procedure-curation.json'))
-    if not os.path.exists(pc):
-        print('SKIP')
-        sys.exit(0)
-    data = json.load(open(pc))
-    candidates = [c for c in data.get('crystallization_candidates', []) if c.get('claim_count', len(c.get('claims', []))) >= 3]
-    if not candidates:
-        print('SKIP')
-        sys.exit(0)
-    entries = glob.glob(os.path.join(os.environ.get('ENTRIES_DIR', os.path.expanduser('~/edge/blog/entries')), '*workflow*.md'))
-    drafts = 0
-    for e in entries:
-        head = open(e).read()[:500]
-        if 'workflow-draft' in head or 'workflow' in head.split('tags:')[1].split(chr(10))[0] if 'tags:' in head else False:
-            drafts += 1
-    if drafts < len(candidates):
-        print(f'MISSING:{len(candidates) - drafts}')
-    else:
-        print('OK')
-except Exception as e:
-    print('SKIP')
-" 2>/dev/null)
-case "$CRYST_CHECK" in
-    MISSING:*)
-        N="${CRYST_CHECK#MISSING:}"
-        warn "Curation has $N uncrystallized candidates — run 'edge-crystallize' to create workflow-draft entries"
-        ;;
-    OK) ;;
-    *) ;;
-esac
-
 # ─── PHASE 3.4: Inject review metadata into frontmatter ───
 if [[ -n "${TOTAL_LLM_COST:-}" && "$TOTAL_LLM_COST" != "0" ]] || [[ -n "${REVIEW_SCORE:-}" ]] || [[ -n "${FEYNMAN_SCORE:-}" ]]; then
     if TOTAL_LLM_COST_VALUE="${TOTAL_LLM_COST:-}" REVIEW_SCORE_VALUE="${REVIEW_SCORE:-}" FEYNMAN_SCORE_VALUE="${FEYNMAN_SCORE:-}" python3 - "$ENTRY_PATH" "$ENTRIES_DIR/$SLUG.md" <<'PY' 2>/dev/null
@@ -1107,7 +1065,7 @@ fi
 archive_scratchpad_if_present
 echo ""
 
-# ─── PHASE 5: State commit (claims + threads + event + digest) ───
+# ─── PHASE 5: State commit (threads + event + digest) ───
 # Tudo acontece aqui. Zero LLM. Um script, uma leitura do frontmatter.
 echo "── Phase 5: State Commit ──"
 ledger_record "phase-5" "ok"
@@ -1170,29 +1128,23 @@ except Exception as e:
     log_failure("5", "read_frontmatter", e, traceback.format_exc())
     warn(f"Frontmatter not read: {e}")
 
-claims = fm.get("claims", [])
 threads = fm.get("threads", [])
+open_gaps = fm.get("open_gaps", [])
 procedures = fm.get("procedure", [])
 workflows_used = fm.get("workflows_used", [])
 workflows_broken = fm.get("workflows_broken", [])
 title = fm.get("title", slug)
 today = datetime.now().strftime("%Y-%m-%d")
 
-def _is_open(c):
-    if isinstance(c, dict):
-        return c.get("status", "").lower() in ("unverified", "open", "disputed")
-    return isinstance(c, str) and c.startswith("!")
-
-# ── 1. Claims check ──
+# ── 1. Gaps/thread check ──
 try:
-    if claims:
-        open_count = sum(1 for c in claims if _is_open(c))
-        ok(f"Claims: {len(claims)} ({open_count} open), {len(threads)} threads")
+    if open_gaps:
+        ok(f"Open gaps: {len(open_gaps)}, {len(threads)} threads")
     else:
-        warn("No claims. Add claims: and threads: to compact knowledge.")
+        ok(f"No open gaps, {len(threads)} threads")
 except Exception as e:
-    log_failure("5", "claims_check", e, traceback.format_exc())
-    warn(f"Claims check failed: {e}")
+    log_failure("5", "open_gaps_check", e, traceback.format_exc())
+    warn(f"Open gaps check failed: {e}")
 
 # ── 2. Thread update ──
 try:
@@ -1337,9 +1289,8 @@ try:
         }
         if threads:
             event["thread_id"] = threads[0]
-        if len(claims) > 0:
-            event["claims_count"] = len(claims)
-            event["open_claims"] = sum(1 for c in claims if _is_open(c))
+        if open_gaps:
+            event["open_gaps_count"] = len(open_gaps)
         if procedures:
             event["procedures_count"] = len(procedures)
         if workflows_used:
@@ -1381,13 +1332,10 @@ try:
         cycle_id=os.environ.get("EDGE_CYCLE_ID"),
     )
     delta = continuity.get("delta", {}) or {}
-    validation = continuity.get("validation", {}) or {}
-    judge = validation.get("judge", {}) or {}
     ok(
         "continuity: "
-        f"{continuity.get('facts', {}).get('claims_count', 0)} claims, "
+        f"{continuity.get('facts', {}).get('open_gaps_count', 0)} open gaps, "
         f"{len(continuity.get('facts', {}).get('threads', []))} threads, "
-        f"judge={judge.get('status', 'unknown')}, "
         f"primary_thread={delta.get('primary_thread') or 'none'}"
     )
 
@@ -1516,28 +1464,15 @@ except Exception as e:
     warn(f"Frontmatter not read in Phase 6: {e}")
 
 title = fm.get("title", slug)
-raw_claims = fm.get("claims", [])
 threads = fm.get("threads", [])
+open_gaps = fm.get("open_gaps", [])
 tags = fm.get("tags", [])
 audits_dir = Path(os.environ.get("AUDITS_DIR", os.path.expanduser("~/edge/state/audits")))
 proposal_path = audits_dir / f"{slug}.state-proposal.yaml"
 audit_path = audits_dir / f"{slug}.state-audit.yaml"
 
-# Normalize claims: accept both str ("!claim") and dict ({claim, status})
-def _is_open(c):
-    if isinstance(c, dict):
-        return c.get("status", "").lower() in ("unverified", "open", "disputed")
-    return isinstance(c, str) and c.startswith("!")
-
-claims = raw_claims
-verified = [c for c in claims if not _is_open(c)]
-open_claims = [c for c in claims if _is_open(c)]
-
-def _claim_text(c):
-    """Extract claim text from str or dict format."""
-    if isinstance(c, dict):
-        return c.get("claim", c.get("text", str(c)))
-    return str(c).lstrip("! ")
+if not isinstance(open_gaps, list):
+    open_gaps = []
 
 # ── 1. Captura diffs dos mini-repos (memory, skills, notes) ──
 _edge_repo_dir = os.environ.get("EDGE_REPO_DIR", os.environ.get("EDGE_DIR", os.path.expanduser("~/edge")))
@@ -1763,16 +1698,10 @@ if audit_path.exists():
         log_failure("6", "audit_summary", e, traceback.format_exc())
         warn(f"Audit summary failed: {e}")
 
-if verified:
-    lines.append(f"learned ({len(verified)}):")
-    for c in verified:
-        lines.append(f"  - {_claim_text(c)}")
-    lines.append("")
-
-if open_claims:
-    lines.append(f"gaps ({len(open_claims)}):")
-    for c in open_claims:
-        lines.append(f"  - {_claim_text(c)}")
+if open_gaps:
+    lines.append(f"open-gaps ({len(open_gaps)}):")
+    for gap in open_gaps:
+        lines.append(f"  - {gap}")
     lines.append("")
 
 procedures = fm.get("procedure", [])
@@ -1834,8 +1763,7 @@ except Exception:
 lines.append("")
 meta = {
     "title": title,
-    "claims": len(claims),
-    "open": len(open_claims),
+    "open_gaps": len(open_gaps),
     "procedures": len(procedures),
     "workflows_used": wf_used,
     "workflows_broken": wf_broken,

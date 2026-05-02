@@ -209,27 +209,18 @@
   </ul>
   {% endif %}
 
-  {% if thread.claims_verified %}
-  <h2 class="section-title">Verified ({{ thread.verified_count }})</h2>
-  <ul class="claims-list">
-    {% for c in thread.claims_verified %}
-    <li>{{ c }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-
-  {% if thread.claims_gaps %}
+  {% if thread.open_gaps %}
   <h2 class="section-title">Gaps abertos ({{ thread.gaps_count }})</h2>
   <ul class="claims-list">
-    {% for c in thread.claims_gaps %}
+    {% for c in thread.open_gaps %}
     <li class="claim-gap">{{ c }}</li>
     {% endfor %}
   </ul>
   {% endif %}
 
-  {% if not thread.claims %}
-  <h2 class="section-title">Claims</h2>
-  <p class="empty-state">Nenhuma claim registrada nas entries desta thread.</p>
+  {% if not thread.open_gaps %}
+  <h2 class="section-title">Gaps</h2>
+  <p class="empty-state">Nenhum gap aberto registrado nas entries desta thread.</p>
   {% endif %}
 </div>
 </body>

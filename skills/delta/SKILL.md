@@ -18,7 +18,7 @@ Use `request.delta_prerequisite` as the contract. It contains:
 
 - `previous_delta_digest`: curated `work`, `learning`, and `handoff` state from prior strategy/reflection runs.
 - `raw_chat`: recent operator messages and source refs.
-- `strategic_context`: beat launch context, operator pressure, claims, queue, and open gaps.
+- `strategic_context`: beat launch context, operator pressure, queue, and open gaps.
 - `surfaces`: configured integrations, capabilities, previous baselines, and open work.
 - `preflight`: health, workflow, primitives, and other runtime checks.
 - `events`: recent edge runtime events.

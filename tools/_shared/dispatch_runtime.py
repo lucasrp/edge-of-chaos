@@ -18,7 +18,6 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
 from paths import (  # noqa: E402
-    CLAIMS_DIGEST_FILE,
     CAPABILITIES_STATUS_FILE,
     CONTINUITY_DELTAS_DIR,
     CURRENT_DISPATCH_FILE,
@@ -29,7 +28,7 @@ from paths import (  # noqa: E402
     FIRST_STEPS_FILE,
     HEARTBEAT_ROTATION_FILE,
     HEALTH_CURRENT_FILE,
-    ORPHAN_CLAIMS_FILE,
+    OPEN_GAPS_DIGEST_FILE,
     OPERATOR_PRESSURE_ATOMS_FILE,
     OPERATOR_PRESSURE_HOT_DIGEST_FILE,
     OPERATOR_PRESSURE_PROJECTION_FILE,
@@ -95,7 +94,7 @@ DELTA_OPEN_WORK_LIMIT = int(os.environ.get("EDGE_DELTA_OPEN_WORK_LIMIT", "20") o
 DELTA_CHAT_ITEM_LIMIT = int(os.environ.get("EDGE_DELTA_CHAT_ITEM_LIMIT", "12") or "12")
 DELTA_EVENT_LIMIT = int(os.environ.get("EDGE_DELTA_EVENT_LIMIT", "8") or "8")
 DEFAULT_HEALTH_CHECK_TIMEOUT_SECONDS = 45
-DEFAULT_CLAIMS_PROJECTION_MAX_AGE_SECONDS = 6 * 60 * 60
+DEFAULT_OPEN_GAPS_PROJECTION_MAX_AGE_SECONDS = 6 * 60 * 60
 
 EXTERNAL_SEARCH_INTENTS = {
     "autonomy": "strategy",
@@ -596,12 +595,12 @@ def _health_snapshot() -> dict[str, Any]:
     }
 
 
-def _claims_projection_max_age_seconds() -> int | None:
-    raw = os.environ.get("EDGE_PREFLIGHT_CLAIMS_MAX_AGE_SEC", str(DEFAULT_CLAIMS_PROJECTION_MAX_AGE_SECONDS))
+def _open_gaps_projection_max_age_seconds() -> int | None:
+    raw = os.environ.get("EDGE_PREFLIGHT_OPEN_GAPS_MAX_AGE_SEC", str(DEFAULT_OPEN_GAPS_PROJECTION_MAX_AGE_SECONDS))
     try:
         value = int(raw)
     except (TypeError, ValueError):
-        return DEFAULT_CLAIMS_PROJECTION_MAX_AGE_SECONDS
+        return DEFAULT_OPEN_GAPS_PROJECTION_MAX_AGE_SECONDS
     if value <= 0:
         return None
     return value
@@ -615,7 +614,7 @@ def _projection_cache_status(path: Path) -> dict[str, Any]:
         age_seconds = max(0, int((datetime.now(timezone.utc) - mtime).total_seconds()))
     except OSError:
         return {"projection_status": "unknown", "projection_age_seconds": None}
-    max_age = _claims_projection_max_age_seconds()
+    max_age = _open_gaps_projection_max_age_seconds()
     if max_age is not None and age_seconds > max_age:
         status = "stale_cached"
     else:
@@ -623,38 +622,20 @@ def _projection_cache_status(path: Path) -> dict[str, Any]:
     return {"projection_status": status, "projection_age_seconds": age_seconds}
 
 
-def _claims_summary() -> tuple[dict[str, Any], dict[str, Any]]:
-    digest = _read_json(CLAIMS_DIGEST_FILE, {})
-    orphans = _read_json(ORPHAN_CLAIMS_FILE, {})
+def _open_gaps_summary() -> dict[str, Any]:
+    digest = _read_json(OPEN_GAPS_DIGEST_FILE, {})
     if not isinstance(digest, dict):
         digest = {}
-    if not isinstance(orphans, dict):
-        orphans = {}
-    digest_cache = _projection_cache_status(CLAIMS_DIGEST_FILE)
-    orphan_cache = _projection_cache_status(ORPHAN_CLAIMS_FILE)
-    return (
-        {
-            "open_total": digest.get("open_total", 0),
-            "verified_total": digest.get("verified_total", 0),
-            "attention_count": digest.get("attention_count", 0),
-            "unthreaded_count": digest.get("unthreaded_count", 0),
-            "stale_count": digest.get("stale_count", 0),
-            "fanout_ratio": digest.get("fanout_ratio", 0),
-            "hot_threads_by_open_claims": digest.get("hot_threads_by_open_claims", [])[:5],
-            "oldest_open_claims": digest.get("oldest_open_claims", [])[:5],
-            "source_path": str(CLAIMS_DIGEST_FILE),
-            **digest_cache,
-        },
-        {
-            "orphan_total": orphans.get("orphan_total", 0),
-            "open_orphan_total": orphans.get("open_orphan_total", 0),
-            "stale_orphan_total": orphans.get("stale_orphan_total", 0),
-            "multi_artifact_orphan_total": orphans.get("multi_artifact_orphan_total", 0),
-            "candidate_clusters": orphans.get("candidate_clusters", [])[:5],
-            "source_path": str(ORPHAN_CLAIMS_FILE),
-            **orphan_cache,
-        },
-    )
+    cache = _projection_cache_status(OPEN_GAPS_DIGEST_FILE)
+    return {
+        "open_total": digest.get("open_total", 0),
+        "entries_with_gaps": digest.get("entries_with_gaps", 0),
+        "hot_threads_by_open_gaps": digest.get("hot_threads_by_open_gaps", [])[:5],
+        "oldest_open_gaps": digest.get("oldest_open_gaps", [])[:5],
+        "recent_open_gaps": digest.get("recent_open_gaps", [])[:5],
+        "source_path": str(OPEN_GAPS_DIGEST_FILE),
+        **cache,
+    }
 
 
 def _operator_pressure_digest() -> dict[str, Any]:
@@ -1132,8 +1113,7 @@ def build_delta_prerequisite(state: dict[str, Any], *, skill: str | None, stage:
                 "beat_launch_context": request.get("beat_launch_context", {}),
                 "operator_pressure_digest": operator_digest,
                 "operator_pressure_summary": request.get("operator_pressure_summary", {}),
-                "claims_summary": request.get("claims_summary", {}),
-                "orphan_claims_summary": request.get("orphan_claims_summary", {}),
+                "open_gaps_summary": request.get("open_gaps_summary", {}),
                 "dispatch_queue_summary": request.get("dispatch_queue_summary", {}),
             },
             "raw_chat": _delta_raw_chat_context(request),
@@ -1736,26 +1716,23 @@ def _execute_preflight_step(
             },
         )
 
-    if kind == "claims.refresh":
-        claims_summary, orphan_summary = _claims_summary()
-        request["claims_summary"] = claims_summary
-        request["orphan_claims_summary"] = orphan_summary
-        cache_statuses = {
-            str(claims_summary.get("projection_status") or ""),
-            str(orphan_summary.get("projection_status") or ""),
-        }
+    if kind == "open_gaps.refresh":
+        open_gaps_summary = _open_gaps_summary()
+        request["open_gaps_summary"] = open_gaps_summary
+        cache_statuses = {str(open_gaps_summary.get("projection_status") or "")}
         satisfied = "missing" not in cache_statuses
         status = "warning" if (not satisfied or "stale_cached" in cache_statuses) else "ok"
         return _step_result(
             step,
             status=status,
             satisfied=satisfied,
-            detail=f"open={claims_summary.get('open_total', 0)} orphans={orphan_summary.get('orphan_total', 0)}",
+            detail=(
+                f"open={open_gaps_summary.get('open_total', 0)} "
+                f"entries={open_gaps_summary.get('entries_with_gaps', 0)}"
+            ),
             extra={
-                "claims_projection_status": claims_summary.get("projection_status"),
-                "claims_projection_age_seconds": claims_summary.get("projection_age_seconds"),
-                "orphan_projection_status": orphan_summary.get("projection_status"),
-                "orphan_projection_age_seconds": orphan_summary.get("projection_age_seconds"),
+                "open_gaps_projection_status": open_gaps_summary.get("projection_status"),
+                "open_gaps_projection_age_seconds": open_gaps_summary.get("projection_age_seconds"),
             },
         )
 
@@ -2027,8 +2004,7 @@ def enrich_dispatch_state(
     if state_block.get("phase") in {"opened", "preflight_failed"}:
         state_block["phase"] = "preflight_completed"
 
-    claims_summary = request.get("claims_summary") or {}
-    orphan_summary = request.get("orphan_claims_summary") or {}
+    open_gaps_summary = request.get("open_gaps_summary") or {}
     summary = {
         "schema_version": REQUEST_SCHEMA_VERSION,
         "skill": skill,
@@ -2067,8 +2043,8 @@ def enrich_dispatch_state(
         "delta_digest_update_required": bool((request.get("delta_prerequisite") or {}).get("digest_update_required")),
         "delta_digest_update_owner": (request.get("delta_prerequisite") or {}).get("digest_update_owner"),
         "delta_open_work": len(((request.get("delta_prerequisite") or {}).get("previous_delta_digest") or {}).get("open_work") or []),
-        "open_claims": claims_summary.get("open_total", 0),
-        "orphans": orphan_summary.get("orphan_total", 0),
+        "open_gaps": open_gaps_summary.get("open_total", 0),
+        "entries_with_gaps": open_gaps_summary.get("entries_with_gaps", 0),
         "primitive_health": (request.get("primitives_status") or {}).get("health_status"),
         "capability_health": (request.get("capabilities_status") or {}).get("health_status"),
         "queue_pending": (request.get("dispatch_queue_summary") or {}).get("pending_total", 0),
@@ -2151,8 +2127,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "search_protocol": request.get("search_protocol", {}),
         "epistemic_protocol": request.get("epistemic_protocol", {}),
         "exploration_pack": request.get("exploration_pack", {}),
-        "claims_summary": request.get("claims_summary", {}),
-        "orphan_claims_summary": request.get("orphan_claims_summary", {}),
+        "open_gaps_summary": request.get("open_gaps_summary", {}),
         "self_healing": request.get("self_healing", {}),
         "primitives_status": request.get("primitives_status", {}),
         "capabilities_status": request.get("capabilities_status", {}),
@@ -2178,14 +2153,14 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         artifact_contract = (
             "ARTIFACT SKILL CONTRACT:\n"
             "- This invocation must end with a durable artifact or a concrete failure report artifact. Acknowledgement-only text, standby text, topic-choice lists, or deference to another session is not completion.\n"
-            "- If no explicit topic was supplied, infer one bounded target from `exploration_pack`, `beat_launch_context`, `operator_pressure`, health, claims, queue, or recent failures.\n"
+            "- If no explicit topic was supplied, infer one bounded target from `exploration_pack`, `beat_launch_context`, `operator_pressure`, health, open gaps, queue, or recent failures.\n"
             "- If another persona/session appears active, treat that as context only; the runtime already prevented unsafe concurrent dispatch ownership before invoking you.\n"
             "- If the full publication pipeline cannot run, emit a complete Markdown artifact in stdout with a top-level `#` heading so the runtime can publish it.\n\n"
         )
     return (
         f"{skill}\n\n"
         "Dispatch runtime context below is authoritative for cross-cutting checks already handled by CLI "
-        "(health, inbox, corpus, claims, primitives, workflows, queue, onboarding, protocol execution).\n"
+        "(health, inbox, corpus, open gaps, primitives, workflows, queue, onboarding, protocol execution).\n"
         "Do not re-derive those manually unless a field is missing or obviously stale.\n\n"
         f"{heartbeat_contract}"
         f"{artifact_contract}"

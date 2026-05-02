@@ -19,12 +19,11 @@ import yaml
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (  # noqa: E402
-    CLAIMS_DIGEST_FILE,
     CURADORIA_CANDIDATES_FILE,
     CURATION_DIGEST_FILE,
     EDGE_REPO_DIR,
     ENTRIES_DIR,
-    ORPHAN_CLAIMS_FILE,
+    OPEN_GAPS_DIGEST_FILE,
     OPERATOR_PRESSURE_HOT_DIGEST_FILE,
     PROCEDURE_CURATION_FILE,
     STATE_DIR,
@@ -99,23 +98,21 @@ def _first_heading(raw: str) -> str:
     return ""
 
 
-def _claim_refs_for_thread(claims_digest: dict[str, Any], thread_id: str) -> list[dict[str, Any]]:
-    claims = claims_digest.get("claims") or []
+def _gap_refs_for_thread(open_gaps_digest: dict[str, Any], thread_id: str) -> list[dict[str, Any]]:
+    gaps = open_gaps_digest.get("gaps") or []
     refs: list[dict[str, Any]] = []
-    for item in claims:
+    for item in gaps:
         if thread_id not in _coerce_list(item.get("threads")):
             continue
         refs.append(
             {
-                "claim_id": item.get("claim_id"),
+                "gap_id": item.get("gap_id"),
                 "text": item.get("text"),
-                "kind": item.get("kind"),
-                "support_count": item.get("support_count", 0),
-                "latest_artifact": item.get("latest_artifact_filename"),
-                "latest_date": item.get("latest_date"),
+                "artifact": item.get("artifact_filename"),
+                "date": item.get("date"),
             }
         )
-    refs.sort(key=lambda item: (item.get("kind") != "gap", item.get("latest_date") or ""))
+    refs.sort(key=lambda item: item.get("date") or "")
     return refs[:8]
 
 
@@ -167,10 +164,10 @@ def _read_topic_files() -> dict[str, dict[str, Any]]:
     return topics
 
 
-def _write_thread_stub(thread_id: str, claims_digest: dict[str, Any]) -> Path:
+def _write_thread_stub(thread_id: str, open_gaps_digest: dict[str, Any]) -> Path:
     today = datetime.now(timezone.utc).date().isoformat()
     title = _slug_title(thread_id)
-    refs = _claim_refs_for_thread(claims_digest, thread_id)
+    refs = _gap_refs_for_thread(open_gaps_digest, thread_id)
     lines = [
         "---",
         f"id: {thread_id}",
@@ -181,19 +178,18 @@ def _write_thread_stub(thread_id: str, claims_digest: dict[str, Any]) -> Path:
         "generated_by: edge-curation",
         "---",
         "",
-        f"{title} is a hot direction thread generated from recurring claims.",
+        f"{title} is a hot direction thread generated from recurring open gaps.",
         "",
-        "## Hot claims",
+        "## Hot open gaps",
     ]
     if refs:
         for ref in refs:
-            marker = "gap" if ref.get("kind") == "gap" else "verified"
             text = str(ref.get("text") or "").strip()
-            artifact = str(ref.get("latest_artifact") or "").strip()
+            artifact = str(ref.get("artifact") or "").strip()
             suffix = f" ({artifact})" if artifact else ""
-            lines.append(f"- [{marker}] {text}{suffix}")
+            lines.append(f"- {text}{suffix}")
     else:
-        lines.append("- No claim details available yet.")
+        lines.append("- No open-gap details available yet.")
     lines.extend(
         [
             "",
@@ -208,10 +204,10 @@ def _write_thread_stub(thread_id: str, claims_digest: dict[str, Any]) -> Path:
     return path
 
 
-def _write_topic_stub(thread_id: str, claims_digest: dict[str, Any], thread_title: str) -> Path:
+def _write_topic_stub(thread_id: str, open_gaps_digest: dict[str, Any], thread_title: str) -> Path:
     today = datetime.now(timezone.utc).date().isoformat()
     slug = _slugify(thread_id)
-    refs = _claim_refs_for_thread(claims_digest, thread_id)
+    refs = _gap_refs_for_thread(open_gaps_digest, thread_id)
     lines = [
         "---",
         f"title: {thread_title}",
@@ -231,18 +227,17 @@ def _write_topic_stub(thread_id: str, claims_digest: dict[str, Any], thread_titl
     ]
     if refs:
         for ref in refs:
-            marker = "gap" if ref.get("kind") == "gap" else "verified"
             text = str(ref.get("text") or "").strip()
-            artifact = str(ref.get("latest_artifact") or "").strip()
+            artifact = str(ref.get("artifact") or "").strip()
             suffix = f" ({artifact})" if artifact else ""
-            lines.append(f"- [{marker}] {text}{suffix}")
+            lines.append(f"- {text}{suffix}")
     else:
-        lines.append("- No claim details available yet.")
+        lines.append("- No open-gap details available yet.")
     lines.extend(
         [
             "",
             "## Curation rule",
-            "- Quando este topico aparecer em preflight ou postflight, consolidate novas claims aqui em vez de criar conceitos paralelos.",
+            "- Quando este topico aparecer em preflight ou postflight, consolide novos gaps aqui em vez de criar conceitos paralelos.",
             "",
             "## Next consolidation",
             "- Human or skill curation should replace this generated summary with a durable abstraction.",
@@ -762,8 +757,7 @@ def _write_memory_workflow(item: dict[str, Any]) -> Path | None:
         f"date: {today}",
         "tags: [workflow, memory-derived, operator-pressure]",
         "trigger: memory/MEMORY.md update",
-        "claims:",
-        f"  - {json.dumps('Memory update introduced an operator-authored workflow: ' + text[:180], ensure_ascii=False)}",
+        "open_gaps: []",
         f"threads: [{', '.join(thread_ids)}]" if thread_ids else "threads: []",
         f"keywords: [{', '.join(keywords)}]",
         "workflows_used: []",
@@ -937,15 +931,15 @@ def _curate_operator_pressure(operator_digest: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def _curate_hot_state(claims_digest: dict[str, Any], orphan_claims: dict[str, Any]) -> dict[str, Any]:
+def _curate_hot_state(open_gaps_digest: dict[str, Any]) -> dict[str, Any]:
     thread_files = _read_thread_files()
     topic_files = _read_topic_files()
-    hot_threads = claims_digest.get("hot_threads_by_open_claims") or []
+    hot_threads = open_gaps_digest.get("hot_threads_by_open_gaps") or []
     referenced_threads = sorted(
         {
             thread_id
-            for claim in claims_digest.get("claims") or []
-            for thread_id in _coerce_list(claim.get("threads"))
+            for gap in open_gaps_digest.get("gaps") or []
+            for thread_id in _coerce_list(gap.get("threads"))
         }
     )
     existing_topic_threads = {
@@ -960,7 +954,7 @@ def _curate_hot_state(claims_digest: dict[str, Any], orphan_claims: dict[str, An
         if thread_id in thread_files:
             continue
         missing_thread_files.append({"thread_id": thread_id, "title": _slug_title(thread_id)})
-        path = _write_thread_stub(thread_id, claims_digest)
+        path = _write_thread_stub(thread_id, open_gaps_digest)
         thread_files[thread_id] = {
             "id": thread_id,
             "title": _slug_title(thread_id),
@@ -976,14 +970,14 @@ def _curate_hot_state(claims_digest: dict[str, Any], orphan_claims: dict[str, An
         thread_id = str(item.get("thread_id") or "").strip()
         if not thread_id:
             continue
-        open_claims = int(item.get("open_claims", 0) or 0)
+        open_gaps = int(item.get("open_gaps", 0) or 0)
         thread_title = (thread_files.get(thread_id) or {}).get("title") or _slug_title(thread_id)
         if thread_id in existing_topic_threads:
             continue
         candidate = {
             "thread_id": thread_id,
             "title": thread_title,
-            "open_claims": open_claims,
+            "open_gaps": open_gaps,
             "reason": "hot_thread_without_topic",
         }
         missing_topic_candidates.append(candidate)
@@ -992,7 +986,7 @@ def _curate_hot_state(claims_digest: dict[str, Any], orphan_claims: dict[str, An
             candidate["reason"] = "topic_file_exists_without_thread_link"
             candidate["path"] = str(target_path)
             continue
-        path = _write_topic_stub(thread_id, claims_digest, str(thread_title))
+        path = _write_topic_stub(thread_id, open_gaps_digest, str(thread_title))
         existing_topic_threads.add(thread_id)
         created_topics.append({"thread_id": thread_id, "path": str(path)})
 
@@ -1031,9 +1025,10 @@ def _curate_hot_state(claims_digest: dict[str, Any], orphan_claims: dict[str, An
             "created": created_topics,
             "stale": stale_topics[:12],
         },
-        "orphan_claims": {
-            "total": int(orphan_claims.get("orphan_total", 0) or 0),
-            "candidate_clusters": (orphan_claims.get("candidate_clusters") or [])[:8],
+        "open_gaps": {
+            "total": int(open_gaps_digest.get("open_total", 0) or 0),
+            "entries_with_gaps": int(open_gaps_digest.get("entries_with_gaps", 0) or 0),
+            "recent": (open_gaps_digest.get("recent_open_gaps") or [])[:8],
         },
     }
 
@@ -1102,12 +1097,12 @@ def _build_procedure_curation(window_days: int) -> dict[str, Any]:
                 key,
                 {
                     "representative": item,
-                    "claims": [],
+                    "procedures": [],
                     "source_entries": [],
                     "anti_pattern": item.startswith("!"),
                 },
             )
-            group["claims"].append(item)
+            group["procedures"].append(item)
             if entry_name not in group["source_entries"]:
                 group["source_entries"].append(entry_name)
 
@@ -1136,19 +1131,19 @@ def _build_procedure_curation(window_days: int) -> dict[str, Any]:
 
     candidates: list[dict[str, Any]] = []
     for cluster_id, (key, group) in enumerate(
-        sorted(groups.items(), key=lambda item: (-len(item[1]["claims"]), item[1]["representative"].lower())),
+        sorted(groups.items(), key=lambda item: (-len(item[1]["procedures"]), item[1]["representative"].lower())),
         start=1,
     ):
-        claim_count = len(group["claims"])
-        if claim_count < 3:
+        procedure_count = len(group["procedures"])
+        if procedure_count < 3:
             continue
         representative = str(group["representative"] or "")
         candidates.append(
             {
                 "cluster_id": cluster_id,
                 "theme": representative,
-                "claims": list(group["claims"]),
-                "claim_count": claim_count,
+                "procedures": list(group["procedures"]),
+                "procedure_count": procedure_count,
                 "source_entries": list(group["source_entries"]),
                 "median_sim_estimate": 1.0,
                 "anti_pattern": bool(group.get("anti_pattern")),
@@ -1169,7 +1164,7 @@ def _build_procedure_curation(window_days: int) -> dict[str, Any]:
         "total_procedures": total_procedures,
         "total_workflows_used": total_workflows_used,
         "total_workflows_broken": total_workflows_broken,
-        "crystallization_candidates": candidates,
+        "workflow_candidates": candidates,
         "broken_workflows": sorted(broken_counts.values(), key=lambda item: (-int(item["broken_count"]), item["slug"])),
         "never_cited_workflows": never_cited,
     }
@@ -1231,10 +1226,9 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
     corpus_payload, corpus_warnings = _refresh_corpus_health()
     procedure_payload = _build_procedure_curation(window_days)
     funnel_payload, funnel_warnings = _refresh_workflow_funnel()
-    claims_digest = _read_json(CLAIMS_DIGEST_FILE, {})
-    orphan_claims = _read_json(ORPHAN_CLAIMS_FILE, {})
+    open_gaps_digest = _read_json(OPEN_GAPS_DIGEST_FILE, {})
     operator_pressure_digest = _read_json(OPERATOR_PRESSURE_HOT_DIGEST_FILE, {})
-    hot_state = _curate_hot_state(claims_digest, orphan_claims)
+    hot_state = _curate_hot_state(open_gaps_digest)
     operator_pressure = _curate_operator_pressure(operator_pressure_digest)
     topic_index_warnings = _refresh_topics_index()
     workflow_health = _read_json(WORKFLOW_HEALTH_FILE, {})
@@ -1258,7 +1252,7 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
         "procedures": {
             "total_entries": int(procedure_payload.get("total_entries", 0) or 0),
             "total_procedures": int(procedure_payload.get("total_procedures", 0) or 0),
-            "candidate_total": len(procedure_payload.get("crystallization_candidates") or []),
+            "candidate_total": len(procedure_payload.get("workflow_candidates") or []),
             "broken_workflow_total": len(procedure_payload.get("broken_workflows") or []),
             "never_cited_total": len(procedure_payload.get("never_cited_workflows") or []),
         },
@@ -1275,8 +1269,7 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
             "procedure_curation": str(PROCEDURE_CURATION_FILE),
             "workflow_health": str(WORKFLOW_HEALTH_FILE),
             "curation_digest": str(CURATION_DIGEST_FILE),
-            "claims_digest": str(CLAIMS_DIGEST_FILE),
-            "orphan_claims": str(ORPHAN_CLAIMS_FILE),
+            "open_gaps_digest": str(OPEN_GAPS_DIGEST_FILE),
             "operator_pressure_hot_digest": str(OPERATOR_PRESSURE_HOT_DIGEST_FILE),
         },
     }

@@ -35,8 +35,7 @@ cat >"$TMP_STATE/blog/entries/2026-04-20-dispatch.md" <<'MD'
 ---
 title: "Dispatch evidence review"
 date: "2026-04-20"
-claims:
-  - "Dispatch cycles need explicit close evidence"
+open_gaps: []
 threads:
   - runtime-transparency
 report: dispatch-evidence.html
@@ -48,8 +47,8 @@ cat >"$TMP_STATE/blog/entries/2026-04-20-gap.md" <<'MD'
 ---
 title: "Gap tracking note"
 date: "2026-04-20"
-claims:
-  - "!Pre-skill is still not instrumented"
+open_gaps:
+  - "Pre-skill is still not instrumented"
 threads:
   - runtime-transparency
 ---
@@ -90,13 +89,13 @@ cat >"$TMP_STATE/state/proposals.json" <<'JSON'
   },
   {
     "id": "prop-2",
-    "title": "Promote claim gap tracker",
+    "title": "Promote open gap tracker",
     "type": "experiment",
     "status": "active",
     "created": "2026-04-20T20:05:00+00:00",
     "updated": "2026-04-20T20:12:00+00:00",
-    "hypothesis": "Gap claims should ask for revision instead of silently aging.",
-    "action": "Turn gap claims into revision queues.",
+    "hypothesis": "Open gaps should ask for revision instead of silently aging.",
+    "action": "Turn open gaps into revision queues.",
     "evidence": ["Pre-skill is still not instrumented"],
     "cost": "low"
   },
@@ -152,7 +151,6 @@ assert proposals["deferred_count"] == 1
 assert proposals["low_evidence_count"] == 3
 
 prop_1 = next(item for item in proposals["needs_decision"] if item["id"] == "prop-1")
-assert prop_1["linked_claims_count"] >= 1
 assert prop_1["linked_threads_count"] >= 1
 
 revision = client.post(
@@ -160,7 +158,7 @@ revision = client.post(
     json={
         "action": "request-revision",
         "reason": "the evidence is still too thin for a direct approval",
-        "label": "Promote claim gap tracker",
+        "label": "Promote open gap tracker",
         "reference": "Pre-skill is still not instrumented",
     },
 )

@@ -999,11 +999,11 @@ def _entry_records():
             if len(parts) < 3:
                 continue
             fm = yaml.safe_load(parts[1]) or {}
-            claims = fm.get("claims", [])
-            if isinstance(claims, str):
-                claims = [claims]
-            if not isinstance(claims, list):
-                claims = []
+            open_gaps = fm.get("open_gaps", [])
+            if isinstance(open_gaps, str):
+                open_gaps = [open_gaps]
+            if not isinstance(open_gaps, list):
+                open_gaps = []
             threads = fm.get("threads", [])
             if isinstance(threads, str):
                 threads = [t.strip() for t in threads.split(",") if t.strip()]
@@ -1015,7 +1015,8 @@ def _entry_records():
                 "slug": fp.stem,
                 "title": fm.get("title", fp.stem),
                 "date": str(fm.get("date", "")),
-                "claims": claims,
+                "claims": [],
+                "open_gaps": open_gaps,
                 "threads": [str(t).strip() for t in threads if str(t).strip()],
                 "report": fm.get("report"),
             })
@@ -1365,7 +1366,7 @@ def _claim_records():
     return records
 
 
-def load_claims_dashboard(limit=6):
+def _load_legacy_claims_dashboard(limit=6):
     """Summarize claims into an operator-facing dashboard workbench."""
     claims = _claim_records()
     verified_total = len([item for item in claims if item["kind"] == "verified"])
@@ -1384,6 +1385,36 @@ def load_claims_dashboard(limit=6):
         "attention": attention[:limit],
         "verified_recent": verified_recent[:limit],
         "recent": claims[:limit],
+    }
+
+
+def load_open_gaps_dashboard(limit=6):
+    """Summarize unresolved open gaps from entry frontmatter."""
+    gaps = []
+    entries_with_gaps = 0
+    for entry in _entry_records():
+        entry_gaps = entry.get("open_gaps") or []
+        if entry_gaps:
+            entries_with_gaps += 1
+        for position, gap in enumerate(entry_gaps):
+            text = str(gap.get("text") if isinstance(gap, dict) else gap).strip()
+            if not text:
+                continue
+            gaps.append({
+                "gap_id": _surface_id("gap", f"{entry['filename']}:{position}:{text}"),
+                "text": text,
+                "entry_title": entry["title"],
+                "entry_href": f"/entry/{entry['slug']}",
+                "reference": entry["filename"],
+                "threads": entry.get("threads") or [],
+                "date": entry.get("date"),
+            })
+    return {
+        "open_total": len(gaps),
+        "entries_with_gaps": entries_with_gaps,
+        "attention_count": len(gaps),
+        "attention": gaps[:limit],
+        "recent": gaps[:limit],
     }
 
 
@@ -1580,7 +1611,7 @@ def _proposal_records():
             if key:
                 thread_lookup[key] = thread_id
 
-    claim_items = _claim_records()
+    claim_items = []
     claim_by_text = {}
     claim_by_id = {}
     for claim in claim_items:
@@ -1668,15 +1699,15 @@ def _proposal_records():
                     "href": f"/thread/{thread_id}",
                 }
 
-        explicit_claims = _normalize_string_list(proposal.get("claims") or proposal.get("claim"))
-        for raw_claim in explicit_claims:
+        explicit_legacy_refs = _normalize_string_list(proposal.get("claims") or proposal.get("claim"))
+        for raw_claim in explicit_legacy_refs:
             claim = claim_by_id.get(raw_claim) or claim_by_text.get(raw_claim.lstrip("! ").strip().lower())
             if claim:
                 linked_claims[claim["claim_id"]] = {
                     "claim_id": claim["claim_id"],
                     "text": claim["text"],
                     "kind": claim["kind"],
-                    "href": f"/claim/{claim['claim_id']}",
+                    "href": "#",
                 }
 
         for evidence in evidence_items:
@@ -1710,19 +1741,19 @@ def _proposal_records():
                             "claim_id": matched_claim["claim_id"],
                             "text": matched_claim["text"],
                             "kind": matched_claim["kind"],
-                            "href": f"/claim/{matched_claim['claim_id']}",
+                            "href": "#",
                         }
             elif claim:
                 evidence_links.append({
                     "label": claim["text"],
-                    "href": f"/claim/{claim['claim_id']}",
+                    "href": "#",
                     "kind": "claim",
                 })
                 linked_claims[claim["claim_id"]] = {
                     "claim_id": claim["claim_id"],
                     "text": claim["text"],
                     "kind": claim["kind"],
-                    "href": f"/claim/{claim['claim_id']}",
+                    "href": "#",
                 }
                 for thread_id in claim.get("threads", []):
                     thread = thread_items.get(thread_id)
@@ -1948,7 +1979,7 @@ def load_git_signals():
         "fix_chains": [], "duplicate_slugs": [],
         "pipeline_failures": [], "state_violations": [],
         "thread_coverage": {}, "skill_distribution": {},
-        "claims_summary": {}, "persistent_gaps": []
+        "open_gaps_summary": {}, "persistent_gaps": []
     })
 
 
@@ -2185,9 +2216,8 @@ def _build_thread_entry_rollup():
             if not thread_ids:
                 continue
 
-            claims = _normalize_string_list(fm.get("claims", []))
-            verified_count = sum(1 for claim in claims if not str(claim).startswith("!"))
-            gaps_count = len(claims) - verified_count
+            open_gaps = _normalize_string_list(fm.get("open_gaps", []))
+            gaps_count = len(open_gaps)
             report_file = str(fm.get("report") or "").strip() or None
             note_file = str(fm.get("note") or "").strip() or None
             entry_date = str(fm.get("date") or "").strip() or None
@@ -2206,15 +2236,13 @@ def _build_thread_entry_rollup():
             for thread_id in thread_ids:
                 bucket = rollup.setdefault(thread_id, {
                     "entries_count": 0,
-                    "claims_count": 0,
-                    "verified_count": 0,
+                    "open_gaps_count": 0,
                     "gaps_count": 0,
                     "report_files": set(),
                     "last_evidence": None,
                 })
                 bucket["entries_count"] += 1
-                bucket["claims_count"] += len(claims)
-                bucket["verified_count"] += verified_count
+                bucket["open_gaps_count"] += gaps_count
                 bucket["gaps_count"] += gaps_count
                 if report_file:
                     bucket["report_files"].add(report_file)
@@ -2557,7 +2585,7 @@ def load_thread_detail(thread_id):
 
     # Collect all entries linked to this thread
     entries = []
-    all_claims = []
+    all_gaps = []
     reports_set = set()
     if ENTRIES_DIR.exists():
         for fp in sorted(ENTRIES_DIR.glob("*.md"), key=lambda p: p.name, reverse=True):
@@ -2576,11 +2604,11 @@ def load_thread_detail(thread_id):
                     continue
                 if thread_id not in [str(t).strip() for t in threads]:
                     continue
-                entry_claims = efm.get("claims", [])
-                if isinstance(entry_claims, str):
-                    entry_claims = [entry_claims]
-                if not isinstance(entry_claims, list):
-                    entry_claims = []
+                entry_gaps = efm.get("open_gaps", [])
+                if isinstance(entry_gaps, str):
+                    entry_gaps = [entry_gaps]
+                if not isinstance(entry_gaps, list):
+                    entry_gaps = []
                 report_file = efm.get("report", "")
                 note_file = efm.get("note", "")
                 if report_file:
@@ -2590,11 +2618,11 @@ def load_thread_detail(thread_id):
                     "title": efm.get("title", fp.stem),
                     "date": str(efm.get("date", "")),
                     "tags": efm.get("tags", []),
-                    "claims": entry_claims,
+                    "open_gaps": entry_gaps,
                     "report": report_file,
                     "note": note_file,
                 })
-                all_claims.extend(entry_claims)
+                all_gaps.extend(entry_gaps)
             except Exception:
                 continue
 
@@ -2607,10 +2635,6 @@ def load_thread_detail(thread_id):
             "exists": rpath.exists(),
             "url": f"/reports/{rf}" if rpath.exists() else None,
         })
-
-    # Separate claims by type
-    verified = [c for c in all_claims if not str(c).startswith("!")]
-    gaps = [c for c in all_claims if str(c).startswith("!")]
 
     return {
         "id": fm.get("id", thread_id),
@@ -2637,12 +2661,13 @@ def load_thread_detail(thread_id):
         "entries": entries,
         "entries_count": len(entries),
         "reports": reports,
-        "claims": all_claims,
-        "claims_verified": verified,
-        "claims_gaps": gaps,
-        "claims_count": len(all_claims),
-        "verified_count": len(verified),
-        "gaps_count": len(gaps),
+        "open_gaps": all_gaps,
+        "claims": [],
+        "claims_verified": [],
+        "claims_gaps": all_gaps,
+        "claims_count": 0,
+        "verified_count": 0,
+        "gaps_count": len(all_gaps),
         "event_history": event_history,
         "operator_actions": operator_actions,
     }

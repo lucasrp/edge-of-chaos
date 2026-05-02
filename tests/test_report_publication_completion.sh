@@ -17,7 +17,7 @@ grep -q "Staging is not completion" "$TEMPLATE"
 grep -q "must not close with only" "$TEMPLATE"
 grep -q "Run \`consolidate-state\` in this" "$TEMPLATE"
 grep -q "concrete failing command and" "$TEMPLATE"
-grep -q "Every claim must be valid YAML" "$TEMPLATE"
+grep -q "Every gap must be valid YAML" "$TEMPLATE"
 grep -q "Validate the staging entry frontmatter" "$TEMPLATE"
 
 echo "PASS: ed-report cannot treat /tmp staging as a completed report"

@@ -51,9 +51,8 @@ cat >"$TMP_STATE/blog/entries/2026-04-20-claims-a.md" <<'MD'
 ---
 title: "Dispatch evidence review"
 date: "2026-04-20"
-claims:
-  - "Dispatch cycles need explicit close evidence"
-  - "!Pre-skill is still not instrumented"
+open_gaps:
+  - "Pre-skill is still not instrumented"
 threads:
   - runtime-transparency
 report: dispatch-evidence.html
@@ -65,8 +64,7 @@ cat >"$TMP_STATE/blog/entries/2026-04-20-claims-b.md" <<'MD'
 ---
 title: "Strategy alignment note"
 date: "2026-04-20"
-claims:
-  - "Threads should be linked to operator-visible objectives"
+open_gaps: []
 threads:
   - strategy-alignment
 ---
@@ -100,7 +98,7 @@ MD
 cat >"$TMP_STATE/state/proposals.json" <<'JSON'
 [
   {"id":"prop-1","title":"Surface lineage in dashboard","type":"execution","status":"active","created":"2026-04-20T20:00:00+00:00","updated":"2026-04-20T20:10:00+00:00","evidence":["Dispatch evidence review","Strategy alignment note"],"cost":"medium"},
-  {"id":"prop-2","title":"Promote claim gap tracker","type":"experiment","status":"active","created":"2026-04-20T20:05:00+00:00","updated":"2026-04-20T20:12:00+00:00","evidence":["Pre-skill is still not instrumented"]}
+  {"id":"prop-2","title":"Promote open gap tracker","type":"experiment","status":"active","created":"2026-04-20T20:05:00+00:00","updated":"2026-04-20T20:12:00+00:00","evidence":["Pre-skill is still not instrumented"]}
 ]
 JSON
 
@@ -125,8 +123,8 @@ resp = client.get("/api/dashboard/epistemics")
 assert resp.status_code == 200, resp.status_code
 data = resp.get_json()
 
-assert data["ep_claims"]["verified_total"] == 2
-assert data["ep_claims"]["open_total"] == 1
+assert data["ep_open_gaps"]["open_total"] == 1
+assert data["ep_open_gaps"]["entries_with_gaps"] == 1
 assert data["ep_strategy"]["available"] is True
 assert data["ep_strategy"]["topics_total"] == 2
 assert len(data["ep_strategy"]["objectives"]) >= 2

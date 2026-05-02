@@ -13,8 +13,8 @@ OUT="$TMP_DIR/out.txt"
 cat >"$ENTRY" <<'EOF'
 ---
 title: "Invalid frontmatter"
-claims:
-- This claim embeds `async_inbox.source: 'blog-chat'` without quotes
+open_gaps:
+- This gap embeds `async_inbox.source: 'blog-chat'` without quotes
 ---
 
 Body.

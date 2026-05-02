@@ -27,8 +27,7 @@ cat >"$TMP_ENTRY" <<'EOF'
 title: "Test entry"
 date: "2026-04-23"
 tags: [test]
-claims:
-  - "Verified test claim"
+open_gaps: []
 threads: [test-thread]
 ---
 

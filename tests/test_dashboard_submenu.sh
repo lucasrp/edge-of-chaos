@@ -31,8 +31,7 @@ cat >"$TMP_STATE/blog/entries/2026-04-21-dashboard.md" <<'MD'
 ---
 title: "Dashboard shakedown"
 date: "2026-04-21"
-claims:
-  - "Dashboard sections should load independently"
+open_gaps: []
 threads:
   - dashboard-split
 report: dashboard-shakedown.html

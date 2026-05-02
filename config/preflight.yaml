@@ -9,8 +9,8 @@ procedures:
     kind: inbox.snapshot
   - id: claude-sessions
     kind: claude.sessions.digest
-  - id: claims
-    kind: claims.refresh
+  - id: open-gaps
+    kind: open_gaps.refresh
   - id: self-healing
     kind: self_healing.primitives
   - id: primitives

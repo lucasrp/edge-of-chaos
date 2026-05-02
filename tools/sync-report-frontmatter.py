@@ -32,14 +32,14 @@ def _as_list(value: object) -> list[str]:
     return []
 
 
-def _claim_threads(frontmatter: dict) -> list[str]:
+def _open_gap_threads(frontmatter: dict) -> list[str]:
     threads: list[str] = []
-    claims = frontmatter.get("claims", [])
-    if isinstance(claims, list):
-        for claim in claims:
-            if not isinstance(claim, dict):
+    open_gaps = frontmatter.get("open_gaps", [])
+    if isinstance(open_gaps, list):
+        for gap in open_gaps:
+            if not isinstance(gap, dict):
                 continue
-            threads.extend(_as_list(claim.get("threads")))
+            threads.extend(_as_list(gap.get("threads")))
     seen: set[str] = set()
     unique: list[str] = []
     for thread in threads:
@@ -131,7 +131,7 @@ def sync_report(entry_path: Path, expected_report: str) -> str:
 
     threads = _as_list(parsed.get("threads"))
     if not threads:
-        threads = _claim_threads(parsed)
+        threads = _open_gap_threads(parsed)
         if threads:
             updated_lines, _ = _replace_or_append(
                 updated_lines,

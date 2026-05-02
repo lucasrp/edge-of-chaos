@@ -6,7 +6,7 @@ from blog.services import (
     load_hotspots, load_git_signals, load_curadoria, load_threads_enriched,
     get_publish_commits, get_error_pressure_24h,
     get_heartbeat_status, get_production_stats, get_briefing_html,
-    load_claims_dashboard, load_lineage_dashboard, load_proposals_dashboard,
+    load_lineage_dashboard, load_open_gaps_dashboard, load_proposals_dashboard,
     load_autonomy_summary, load_current_dispatch_state, load_primitive_runtime_summary,
     load_recent_dispatch_cycles, load_skill_evidence_summary, load_strategy_dashboard,
     load_task_interventions, load_epistemic_steering, load_runtime_interventions,
@@ -31,8 +31,7 @@ def overview():
     if pipeline_failures:
         last_pipeline_status = pipeline_failures[0].get("pipeline_status", "failed")
 
-    # Claims
-    claims = signals.get("claims_summary", {})
+    open_gaps = load_open_gaps_dashboard(limit=0)
 
     # Thread count from thread_coverage
     active_threads = len(signals.get("thread_coverage", {}))
@@ -63,9 +62,9 @@ def overview():
                 "published_today": production["published_today"],
             },
             "error_pressure": error_pressure,
-            "claims_threads": {
-                "claims_total": claims.get("total_learned", 0),
-                "claims_open": claims.get("total_gaps", 0),
+            "gaps_threads": {
+                "open_gaps_total": open_gaps.get("open_total", 0),
+                "entries_with_gaps": open_gaps.get("entries_with_gaps", 0),
                 "active_threads": active_threads,
             },
         },
@@ -369,7 +368,7 @@ def _build_status_strip_data():
     heartbeat = get_heartbeat_status()
     error_pressure = get_error_pressure_24h()
     production = get_production_stats()
-    claims = signals.get("claims_summary", {})
+    open_gaps = load_open_gaps_dashboard(limit=0)
     thread_data = load_threads_enriched()
     thread_stats = thread_data.get("stats", {})
 
@@ -394,8 +393,8 @@ def _build_status_strip_data():
         "published_today": production["published_today"],
         "failures_24h": error_pressure["failures_24h"],
         "top_failing_tool": error_pressure["top_failing_tool"],
-        "claims_total": claims.get("total_learned", 0),
-        "claims_open": claims.get("total_gaps", 0),
+        "open_gaps_total": open_gaps.get("open_total", 0),
+        "entries_with_gaps": open_gaps.get("entries_with_gaps", 0),
         "threads_active_count": thread_stats.get("active", 0),
         "threads_waiting_count": thread_stats.get("waiting", 0),
         "threads_proposed_count": thread_stats.get("proposed", 0),
@@ -463,7 +462,7 @@ def _build_epistemic_data():
     """Build context dict for epistemic and steering surfaces."""
     steering = load_epistemic_steering(limit_actions=8)
     return {
-        "ep_claims": load_claims_dashboard(limit=6),
+        "ep_open_gaps": load_open_gaps_dashboard(limit=6),
         "ep_strategy": load_strategy_dashboard(limit_topics=5, limit_objectives=5),
         "ep_proposals": load_proposals_dashboard(limit=8),
         "ep_lineage": load_lineage_dashboard(limit=6),
@@ -476,7 +475,7 @@ def _build_epistemic_data():
 
 @dashboard_bp.route("/api/dashboard/epistemics")
 def epistemics():
-    """Epistemic and steering read model for claims, strategy, proposals, and lineage."""
+    """Epistemic and steering read model for open gaps, strategy, proposals, and lineage."""
     return jsonify(_build_epistemic_data())
 
 

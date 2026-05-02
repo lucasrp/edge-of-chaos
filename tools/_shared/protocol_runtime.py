@@ -32,7 +32,7 @@ _ALLOWED_KINDS: dict[str, set[str]] = {
         "health.snapshot",
         "inbox.snapshot",
         "claude.sessions.digest",
-        "claims.refresh",
+        "open_gaps.refresh",
         "self_healing.primitives",
         "primitives.status",
         "capabilities.status",
@@ -47,7 +47,7 @@ _ALLOWED_KINDS: dict[str, set[str]] = {
     },
     "postflight": {
         "validate.recent",
-        "claims.refresh",
+        "open_gaps.refresh",
         "pipeline_state.refresh",
         "primitives.status",
         "capabilities.status",
