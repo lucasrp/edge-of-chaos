@@ -35,9 +35,11 @@ Run at most two gap-resolution loops before publishing the remaining uncertainty
 Do not pause after the first gap pass to ask whether to continue. A direct
 `/ed-research` dispatch already authorizes the bounded Feynman cycle. If the
 topic is underspecified, infer a reasonable scope from current context and say
-what you assumed in the final artifact. Ask the operator only when the target
-cannot be inferred enough to begin, required access is missing, or the next
-step requires an external/destructive mutation rather than research.
+what you assumed in the final artifact. Do not close by listing candidate
+topics and asking the operator to choose when the runtime frame contains enough
+signal to pick one. Ask the operator only when no defensible research target can
+be inferred, required access is missing, or the next step requires an
+external/destructive mutation rather than research.
 
 ## Boundary
 
@@ -62,7 +64,25 @@ instead of reporting success.
 
 If the user supplied a topic or problem, use it directly.
 
-If no argument was supplied, infer 1-3 concrete research targets from current context friction.
+### Bare Invocation / Missing Topic
+
+A bare `/ed-research` dispatch is already authorization to choose one concrete
+research target. Do not end the skill by asking the operator which topic to use
+when the injected runtime frame contains plausible candidates.
+
+If no argument was supplied:
+
+1. Inspect `delta_prerequisite`, `beat_launch_context`,
+   `operator_pressure_digest`, `health_snapshot`, `claims_summary`,
+   `exploration_pack`, recent pipeline failures, stale claims, and current
+   git/runtime drift.
+2. Infer 1-3 concrete research targets from current context friction.
+3. Select the highest-leverage target with enough evidence to study now.
+4. State the inferred target and why it was selected.
+5. Produce and publish the research artifact through `consolidate-state`.
+
+Ask the operator for a target only when the runtime frame contains no reasonable
+candidate and any inferred research would be misleading. That should be rare.
 
 Prefer targets with practical downstream value:
 
