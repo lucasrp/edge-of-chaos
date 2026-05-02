@@ -168,6 +168,9 @@ fi
 if [ "${MOCK_CLAUDE_EXIT_CODE:-0}" = "0" ] && [[ "$PROMPT" == *"/autonomy"* ]]; then
   publish_mock_artifact autonomy
 fi
+if [ -n "${MOCK_CLAUDE_ARTIFACT_MARKDOWN:-}" ]; then
+  printf '%b\n' "$MOCK_CLAUDE_ARTIFACT_MARKDOWN"
+fi
 exit "${MOCK_CLAUDE_EXIT_CODE:-0}"
 SH
 chmod +x "$TMP_HOME/.local/bin/claude"
@@ -377,6 +380,86 @@ then
     pass "inline heartbeat work skips duplicate follow-on invocation"
 else
     fail "inline heartbeat work skips duplicate follow-on invocation"
+fi
+
+echo "--- Test 1c: artifact-producing skills publish stdout through the shared runtime bridge ---"
+PUBLISH_SKILLS=(discovery research report strategy planner)
+PUBLISH_OK=1
+for skill in "${PUBLISH_SKILLS[@]}"; do
+    export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id-publish-$skill.txt"
+    export MOCK_CLAUDE_ARGS_OUT="$TMP_BASE/args-publish-$skill.txt"
+    rm -f "$MOCK_CLAUDE_ENV_OUT" "$MOCK_CLAUDE_ARGS_OUT"
+    unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
+    export MOCK_CLAUDE_ARTIFACT_MARKDOWN="# Runtime Artifact ${skill}
+
+This is a complete markdown artifact emitted by the backend for ${skill}.
+
+It should be published by the runtime bridge, not by the individual skill."
+    if ! "$RUNNER_TOOL" skill \
+        --skill "$skill" \
+        --dispatch-trigger operator \
+        --dispatch-policy operator \
+        --dispatch-routing-mode explicit \
+        --dispatch-preflight-profile standard \
+        --dispatch-postflight-profile standard \
+        --dispatch-force >/dev/null; then
+        PUBLISH_OK=0
+        break
+    fi
+    if ! python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$TMP_EDGE/blog/entries" "$TMP_EDGE/reports" "$skill"; then
+import json
+import sys
+from pathlib import Path
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+entries_dir = Path(sys.argv[3])
+reports_dir = Path(sys.argv[4])
+skill = sys.argv[5]
+cycle_id = dispatch["cycle_id"]
+
+assert dispatch["request"]["skill"] == skill
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+assert dispatch["state"]["close_reason"] != "missing_artifact_published"
+
+published = [
+    event for event in events
+    if event.get("cycle_id") == cycle_id
+    and event.get("type") == "ArtifactPublished"
+    and (event.get("payload") or {}).get("source_skill") == skill
+    and (event.get("payload") or {}).get("auto_published") is True
+]
+assert published, f"no auto-published artifact for {skill}"
+artifact = published[-1]["artifact"]
+assert artifact.startswith("blog/entries/")
+entry_path = entries_dir / Path(artifact).name
+assert entry_path.exists()
+entry = entry_path.read_text(encoding="utf-8")
+assert "runtime-published" in entry
+assert f"source_skill: {skill}" in entry
+report_name = (published[-1].get("payload") or {})["report"]
+assert (reports_dir / report_name).exists()
+
+phase_events = [
+    event for event in events
+    if event.get("cycle_id") == cycle_id
+    and event.get("type") == "PhaseCompleted"
+    and (event.get("payload") or {}).get("pipeline") == "runtime-stdout-artifact"
+    and (event.get("payload") or {}).get("ok") is True
+]
+assert phase_events
+PY
+        PUBLISH_OK=0
+        break
+    fi
+done
+unset MOCK_CLAUDE_ARTIFACT_MARKDOWN || true
+
+if [[ "$PUBLISH_OK" -eq 1 ]]; then
+    pass "artifact-producing skills publish stdout through the shared runtime bridge"
+else
+    fail "artifact-producing skills publish stdout through the shared runtime bridge"
 fi
 
 echo "--- Test 2: success without skill completion evidence closes as failed ---"
@@ -640,19 +723,22 @@ captured = {}
 
 class Result:
     returncode = 0
+    stdout = ""
+    stderr = ""
 
-def fake_run(cmd, *, env, cwd, input, text):
+def fake_run(cmd, *, env, cwd, input, text, capture_output):
     captured["cmd"] = cmd
     captured["input"] = input
     captured["text"] = text
     captured["cwd"] = cwd
+    captured["capture_output"] = capture_output
     return Result()
 
 module.resolve_claude_bin = lambda: "/mock/claude"
 module.subprocess.run = fake_run
 os.environ["EDGE_RUNNER_SKILL_TIMEOUT_SEC"] = "0"
 try:
-    status = module.invoke_backend(args, {"EDGE_REPO_DIR": edge_dir}, cycle_id=None)
+    status, output = module.invoke_backend(args, {"EDGE_REPO_DIR": edge_dir}, cycle_id=None)
 finally:
     os.environ.pop("EDGE_RUNNER_SKILL_TIMEOUT_SEC", None)
 
@@ -672,6 +758,8 @@ assert captured["cmd"] == [
 assert captured["input"] == large_prompt
 assert large_prompt not in captured["cmd"]
 assert captured["text"] is True
+assert captured["capture_output"] is True
+assert output == ""
 PY
 then
     pass "large backend prompt is streamed through stdin"

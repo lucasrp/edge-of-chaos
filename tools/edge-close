@@ -19,6 +19,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import CURRENT_DISPATCH_FILE, EDGE_REPO_DIR, LOGS_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.skill_policy import skill_requires_artifact_publication  # noqa: E402
 from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
 
 POST_SKILL_LOG = LOGS_DIR / "post-skill.log"
@@ -82,48 +83,6 @@ def iter_jsonl(path: Path) -> list[dict]:
         except json.JSONDecodeError:
             continue
     return rows
-
-
-def normalize_skill_id(value: object) -> str:
-    return str(value or "").strip().lstrip("/").lower()
-
-
-KNOWN_SKILLS = {
-    "autonomy",
-    "delta",
-    "discovery",
-    "heartbeat",
-    "loader",
-    "map",
-    "planner",
-    "reflection",
-    "report",
-    "research",
-    "sources",
-    "strategy",
-}
-
-ARTIFACT_OPTIONAL_SKILLS = {
-    "autonomy",
-    "heartbeat",
-    "prompt",
-    "reflection",
-}
-
-
-def canonical_skill_id(value: object) -> str:
-    normalized = normalize_skill_id(value)
-    if normalized in KNOWN_SKILLS or normalized == "prompt":
-        return normalized
-    for skill in KNOWN_SKILLS:
-        if normalized.endswith(f"-{skill}"):
-            return skill
-    return normalized
-
-
-def skill_requires_artifact_publication(skill: object) -> bool:
-    normalized = canonical_skill_id(skill)
-    return bool(normalized and normalized not in ARTIFACT_OPTIONAL_SKILLS)
 
 
 def iso_ge(left: str | None, right: str | None) -> bool:
