@@ -75,6 +75,10 @@ def canonical_trigger(value: str) -> str:
     return value
 
 
+def comparable_skill(value: object) -> str:
+    return str(value or "").strip().lstrip("/")
+
+
 def parse_args_items(items: list[str] | None, args_json: str | None) -> dict[str, object]:
     merged: dict[str, object] = {}
     if args_json:
@@ -447,6 +451,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
         print(json.dumps({"ok": False, "error": "dispatch requires a skill"}, indent=2), file=sys.stderr)
         return 1
 
+    previous_skill = request.get("skill")
     if state_block.get("skill_dispatched"):
         existing_skill = request.get("skill")
         existing_args = request.get("args", {})
@@ -473,6 +478,11 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     request["skill"] = requested_skill
     request["args"] = requested_args
     request["primary_thread_id"] = primary_thread_id
+    preflight_already_enriched = bool(
+        state_block.get("preflight_checked_at")
+        and request.get("preflight_evidence")
+        and comparable_skill(previous_skill) == comparable_skill(requested_skill)
+    )
     acknowledge_heartbeat_routing(
         state,
         dispatched_skill=requested_skill,
@@ -484,12 +494,13 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     state_block["dispatched_at"] = timestamp
     state_block["updated_at"] = timestamp
     inbox = attach_snapshot_to_dispatch(state, skill=requested_skill)
-    enrich_dispatch_state(
-        state,
-        skill=requested_skill,
-        stage="dispatch",
-        profile=request.get("preflight_profile"),
-    )
+    if not preflight_already_enriched:
+        enrich_dispatch_state(
+            state,
+            skill=requested_skill,
+            stage="dispatch",
+            profile=request.get("preflight_profile"),
+        )
     state_block["phase"] = "skill_dispatched"
     state_block["skill_status"] = "running"
     state_block["dispatched_at"] = timestamp
