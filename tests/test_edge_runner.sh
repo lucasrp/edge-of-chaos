@@ -98,6 +98,34 @@ RUNNER_TOOL="$EDGE_DIR/tools/edge-runner"
 cat >"$TMP_HOME/.local/bin/claude" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+publish_mock_artifact() {
+  local skill="$1"
+  python3 - "$skill" <<'PY'
+import json
+import os
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+skill = sys.argv[1].strip().lstrip("/") or "skill"
+cycle_id = os.environ.get("EDGE_CYCLE_ID", "")
+state_dir = Path(os.environ["EDGE_STATE_DIR"])
+events = state_dir / "state" / "events" / "log.jsonl"
+events.parent.mkdir(parents=True, exist_ok=True)
+safe_skill = re.sub(r"[^a-z0-9-]+", "-", skill.lower()).strip("-") or "skill"
+event = {
+    "ts": datetime.now(timezone.utc).isoformat(),
+    "type": "ArtifactPublished",
+    "actor": "continuity",
+    "cycle_id": cycle_id,
+    "artifact": f"blog/entries/mock-{safe_skill}-{cycle_id}.md",
+    "payload": {"source_skill": safe_skill},
+}
+with open(events, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(event) + "\n")
+PY
+}
 PROMPT="$(cat)"
 printf '%s\n' "$EDGE_CYCLE_ID" >> "${MOCK_CLAUDE_ENV_OUT:?}"
 printf '__INVOCATION__\n' >> "${MOCK_CLAUDE_ARGS_OUT:?}"
@@ -127,13 +155,18 @@ state_block["postflight_checked_at"] = now
 state_block["updated_at"] = now
 path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY
+      publish_mock_artifact discovery
     fi
   elif [[ "$PROMPT" == *"/discovery"* ]]; then
     for step in direction explore application persistence; do
       "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery "$step" >/dev/null
     done
     "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery end >/dev/null
+    publish_mock_artifact discovery
   fi
+fi
+if [ "${MOCK_CLAUDE_EXIT_CODE:-0}" = "0" ] && [[ "$PROMPT" == *"/autonomy"* ]]; then
+  publish_mock_artifact autonomy
 fi
 exit "${MOCK_CLAUDE_EXIT_CODE:-0}"
 SH

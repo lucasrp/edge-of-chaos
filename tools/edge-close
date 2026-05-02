@@ -2,8 +2,8 @@
 """edge-close — gated cycle finalization for dispatch runs.
 
 Closes the active dispatch cycle, but only allows `completed` when there is
-mechanical evidence that the skill actually finished and the postflight profile
-ran.
+mechanical evidence that the skill finished, published an artifact, and the
+postflight profile ran.
 """
 
 from __future__ import annotations
@@ -84,6 +84,15 @@ def iter_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+def normalize_skill_id(value: object) -> str:
+    return str(value or "").strip().lstrip("/").lower()
+
+
+def skill_requires_artifact_publication(skill: object) -> bool:
+    normalized = normalize_skill_id(skill)
+    return bool(normalized and normalized != "prompt")
+
+
 def iso_ge(left: str | None, right: str | None) -> bool:
     if not left or not right:
         return False
@@ -152,6 +161,61 @@ def check_skill_completion(state: dict) -> tuple[bool, str, dict]:
 
     return False, "missing_skill_run_completed", {"skill": skill, "cycle_id": cycle_id}
 
+
+def check_artifact_publication(state: dict) -> tuple[bool, str, dict]:
+    cycle_id = state.get("cycle_id")
+    request = state.get("request", {}) or {}
+    state_block = state.get("state", {}) or {}
+    skill = request.get("skill")
+    threshold = state_block.get("dispatched_at") or state_block.get("opened_at")
+
+    if not skill_requires_artifact_publication(skill):
+        return True, "artifact_not_required", {"skill": skill or "", "cycle_id": cycle_id}
+
+    for event in reversed(iter_jsonl(STATE_EVENTS_FILE)):
+        if event.get("type") != "ArtifactPublished":
+            continue
+        if event.get("cycle_id") != cycle_id:
+            continue
+        if threshold and not iso_ge(event.get("ts"), threshold):
+            continue
+        artifact = str(event.get("artifact") or (event.get("payload", {}) or {}).get("artifact") or "")
+        if not artifact or not artifact.startswith("blog/entries/"):
+            continue
+        return True, "artifact_published", {
+            "skill": skill,
+            "artifact": artifact,
+            "ts": event.get("ts"),
+        }
+
+    return False, "missing_artifact_published", {"skill": skill, "cycle_id": cycle_id}
+
+
+def fail_close_with_postflight_reason(state: dict, *, profile: str, reason: str, step: dict) -> None:
+    append_postskill_log(step.get("step", "postflight_gate"), "FAIL", reason)
+    state_block = state.setdefault("state", {})
+    state_block["postflight_status"] = "failed"
+    state_block["postflight_checked_at"] = now_iso()
+    state_block["updated_at"] = state_block["postflight_checked_at"]
+    state_block["postflight_reason"] = reason
+    state_block["postflight_steps"] = [step]
+    write_state(state)
+    emit_shadow_event(
+        "PostflightFailed",
+        actor="edge-close",
+        cycle_id=state.get("cycle_id"),
+        payload={"profile": profile, "reason": reason, "steps": state_block["postflight_steps"]},
+    )
+    log_event(
+        "dispatch_postflight",
+        actor="edge-close",
+        cycle_id=state.get("cycle_id"),
+        profile=profile,
+        status="failed",
+        reason=reason,
+    )
+
+
 def close_dispatch(status: str, reason: str | None) -> tuple[int, dict]:
     import subprocess
 
@@ -203,40 +267,38 @@ def main() -> int:
     if requested_status == "completed":
         skill_ok, skill_reason, skill_detail = check_skill_completion(state)
         if not skill_ok:
-            append_postskill_log("skill_run_completed", "FAIL", skill_reason)
-            state_block = state.setdefault("state", {})
-            state_block["postflight_status"] = "failed"
-            state_block["postflight_checked_at"] = now_iso()
-            state_block["updated_at"] = state_block["postflight_checked_at"]
-            state_block["postflight_reason"] = skill_reason
-            state_block["postflight_steps"] = [{"step": "skill_run_completed", "status": "failed", **skill_detail}]
-            write_state(state)
-            emit_shadow_event(
-                "PostflightFailed",
-                actor="edge-close",
-                cycle_id=state.get("cycle_id"),
-                payload={"profile": profile, "reason": skill_reason, "steps": state_block["postflight_steps"]},
-            )
-            log_event(
-                "dispatch_postflight",
-                actor="edge-close",
-                cycle_id=state.get("cycle_id"),
+            fail_close_with_postflight_reason(
+                state,
                 profile=profile,
-                status="failed",
                 reason=skill_reason,
+                step={"step": "skill_run_completed", "status": "failed", **skill_detail},
             )
             effective_status = "failed"
             effective_reason = effective_reason or skill_reason
             exit_code = 1
         else:
             append_postskill_log("skill_run_completed", "OK", skill_reason)
-            post_ok, post_status, post_reason, post_steps = run_postflight(profile)
-            if post_ok and post_status == "warning":
-                effective_reason = effective_reason or post_reason
-            if not post_ok:
+            artifact_ok, artifact_reason, artifact_detail = check_artifact_publication(state)
+            if not artifact_ok:
+                fail_close_with_postflight_reason(
+                    state,
+                    profile=profile,
+                    reason=artifact_reason,
+                    step={"step": "artifact_published", "status": "failed", **artifact_detail},
+                )
                 effective_status = "failed"
-                effective_reason = effective_reason or post_reason
+                effective_reason = effective_reason or artifact_reason
                 exit_code = 1
+            else:
+                if skill_requires_artifact_publication(request.get("skill")):
+                    append_postskill_log("artifact_published", "OK", artifact_reason)
+                post_ok, post_status, post_reason, post_steps = run_postflight(profile)
+                if post_ok and post_status == "warning":
+                    effective_reason = effective_reason or post_reason
+                if not post_ok:
+                    effective_status = "failed"
+                    effective_reason = effective_reason or post_reason
+                    exit_code = 1
     else:
         state_block = state.setdefault("state", {})
         state_block["postflight_status"] = "skipped"

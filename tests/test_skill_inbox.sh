@@ -26,6 +26,32 @@ CLOSE_TOOL="$EDGE_DIR/tools/edge-close"
 STEP_TOOL="$EDGE_DIR/tools/edge-skill-step"
 INBOX_TOOL="$EDGE_DIR/tools/edge-skill-inbox"
 
+append_artifact_published() {
+    local cycle_id="$1"
+    local skill="$2"
+    local slug="$3"
+    python3 - <<'PY' "$TMP_EDGE/state/events/log.jsonl" "$cycle_id" "$skill" "$slug"
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+path = Path(sys.argv[1])
+cycle_id, skill, slug = sys.argv[2:5]
+path.parent.mkdir(parents=True, exist_ok=True)
+event = {
+    "ts": datetime.now(timezone.utc).isoformat(),
+    "type": "ArtifactPublished",
+    "actor": "continuity",
+    "cycle_id": cycle_id,
+    "artifact": f"blog/entries/{slug}.md",
+    "payload": {"source_skill": skill},
+}
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(event) + "\n")
+PY
+}
+
 echo "=== edge-skill-inbox Smoke Test ==="
 echo "Temp state: $TMP_EDGE"
 echo ""
@@ -184,6 +210,7 @@ state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", en
 print(json.dumps(result, ensure_ascii=False))
 PY
 )
+append_artifact_published cycle-skill-inbox research inbox
 "$CLOSE_TOOL" --status completed >/dev/null
 
 if python3 - <<'PY' "$EDGE_DIR" "$SEED_OUTPUT" "$LATE_OUTPUT" "$TMP_EDGE/state/current-dispatch.json" "$ACK_OUTPUT"

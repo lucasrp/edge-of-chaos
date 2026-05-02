@@ -27,6 +27,11 @@ required = [
     "State the inferred target and why it was selected.",
     "Produce the report artifact.",
     "Ask the operator for a topic only when the runtime frame contains no reasonable",
+    "If the runtime frame yields one or more candidates, choose the strongest one",
+    "must not finish with candidate options instead of an",
+    "What topic do you want",
+    "A few candidates",
+    "must name the published blog entry, HTML report, and",
 ]
 for needle in required:
     assert needle in text, needle

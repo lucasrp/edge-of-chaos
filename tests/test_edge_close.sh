@@ -82,6 +82,29 @@ DISPATCH_TOOL="$EDGE_DIR/tools/edge-dispatch"
 CLOSE_TOOL="$EDGE_DIR/tools/edge-close"
 STEP_TOOL="$EDGE_DIR/tools/edge-skill-step"
 
+append_artifact_published() {
+    local cycle_id="$1"
+    local skill="$2"
+    local slug="$3"
+    python3 - <<'PY' "$TMP_EDGE/state/events/log.jsonl" "$cycle_id" "$skill" "$slug"
+import json
+import sys
+from datetime import datetime, timezone
+
+path, cycle_id, skill, slug = sys.argv[1:5]
+event = {
+    "ts": datetime.now(timezone.utc).isoformat(),
+    "type": "ArtifactPublished",
+    "actor": "continuity",
+    "cycle_id": cycle_id,
+    "artifact": f"blog/entries/{slug}.md",
+    "payload": {"source_skill": skill},
+}
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(event) + "\n")
+PY
+}
+
 echo "=== edge-close Smoke Test ==="
 echo "Temp state: $TMP_EDGE"
 echo ""
@@ -145,13 +168,45 @@ fi
 
 EDGE_CYCLE_ID=cycle-close-mismatch "$DISPATCH_TOOL" close --status aborted >/dev/null
 
-echo "--- Test 2: completed close succeeds with skill end evidence and postflight ---"
+echo "--- Test 2: completed close is rejected without artifact publication evidence ---"
+"$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-no-artifact --force >/dev/null
+"$DISPATCH_TOOL" dispatch --skill discovery >/dev/null
+for step in direction explore application persistence; do
+    EDGE_CYCLE_ID=cycle-close-no-artifact "$STEP_TOOL" discovery "$step" >/dev/null
+done
+EDGE_CYCLE_ID=cycle-close-no-artifact "$STEP_TOOL" discovery end >/dev/null
+set +e
+"$CLOSE_TOOL" --status completed >/dev/null
+STATUS=$?
+set -e
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$STATUS"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+status = int(sys.argv[2])
+
+assert status == 1
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "failed"
+assert dispatch["state"]["close_reason"] == "missing_artifact_published"
+assert dispatch["state"]["postflight_status"] == "failed"
+PY
+then
+    pass "edge-close requires artifact publication for every completed skill"
+else
+    fail "edge-close requires artifact publication for every completed skill"
+fi
+
+echo "--- Test 3: completed close succeeds with skill end evidence, artifact publication, and postflight ---"
 "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-complete --force >/dev/null
 "$DISPATCH_TOOL" dispatch --skill discovery >/dev/null
 for step in direction explore application persistence; do
     EDGE_CYCLE_ID=cycle-close-complete "$STEP_TOOL" discovery "$step" >/dev/null
 done
 EDGE_CYCLE_ID=cycle-close-complete "$STEP_TOOL" discovery end >/dev/null
+append_artifact_published cycle-close-complete discovery complete
 "$CLOSE_TOOL" --status completed >/dev/null
 
 if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/logs/post-skill.log"
@@ -171,12 +226,12 @@ assert len(steps) >= 6
 assert "claims_open_delta" in delta
 PY
 then
-    pass "edge-close completes only after skill end evidence and enriched postflight"
+    pass "edge-close completes only after skill end evidence, artifact publication, and enriched postflight"
 else
-    fail "edge-close completes only after skill end evidence and enriched postflight"
+    fail "edge-close completes only after skill end evidence, artifact publication, and enriched postflight"
 fi
 
-echo "--- Test 3: autofixable validate_recent becomes warning, not failed close ---"
+echo "--- Test 4: autofixable validate_recent becomes warning, not failed close ---"
 TODAY="$(date +%Y-%m-%d)"
 cat >"$TMP_EDGE/blog/entries/2026-04-22-warning.md" <<EOF
 ---
@@ -197,6 +252,7 @@ for step in direction explore application persistence; do
     EDGE_CYCLE_ID=cycle-close-warning "$STEP_TOOL" discovery "$step" >/dev/null
 done
 EDGE_CYCLE_ID=cycle-close-warning "$STEP_TOOL" discovery end >/dev/null
+append_artifact_published cycle-close-warning discovery warning
 "$CLOSE_TOOL" --status completed >/dev/null
 
 if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/blog/entries/2026-04-22-warning.md"
@@ -218,7 +274,7 @@ else
     fail "autofixable validate_recent closes as completed with warning"
 fi
 
-echo "--- Test 4: mixed aware/naive completion timestamps still close successfully ---"
+echo "--- Test 5: mixed aware/naive completion timestamps still close successfully ---"
 "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-naive-mixed --force >/dev/null
 "$DISPATCH_TOOL" dispatch --skill discovery >/dev/null
 python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl"
@@ -243,6 +299,16 @@ event = {
 }
 with open(events_path, "a", encoding="utf-8") as fh:
     fh.write(json.dumps(event) + "\n")
+artifact = {
+    "ts": "2026-04-22T00:00:03",
+    "type": "ArtifactPublished",
+    "actor": "continuity",
+    "cycle_id": "cycle-close-naive-mixed",
+    "artifact": "blog/entries/naive-mixed.md",
+    "payload": {"source_skill": "discovery"},
+}
+with open(events_path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(artifact) + "\n")
 PY
 "$CLOSE_TOOL" --status completed >/dev/null
 

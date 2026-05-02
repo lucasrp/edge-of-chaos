@@ -80,6 +80,14 @@ If no explicit topic, question, or args are present:
 Ask the operator for a topic only when the runtime frame contains no reasonable
 candidate and any inferred report would be misleading. That should be rare.
 
+If the runtime frame yields one or more candidates, choose the strongest one and
+publish. A bare invocation must not finish with candidate options instead of an
+artifact. Do not end with prompts such as "What topic do you want", "What report
+should I generate", or "A few candidates" when any defensible topic can be
+selected from runtime evidence. The final chat response for a successful
+`/ed-report` run must name the published blog entry, HTML report, and
+meta-report paths.
+
 ### 2. Gather Evidence
 
 Use the right sources for the topic:
