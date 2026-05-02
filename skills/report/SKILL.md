@@ -27,7 +27,7 @@ If the answer fits cleanly in a few paragraphs, do not inflate it into a report.
 Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill.
 Do not call `edge-consult` or `review-gate` manually as part of the normal report path.
 Draft the YAML and staging entry, then let `consolidate-state` own the adversarial,
-Feynman, review-gate, publication, meta-report, and post-state phases. If
+Feynman, review-gate, publication, and state-commit phases. If
 `consolidate-state` blocks on feedback, address that feedback and rerun the
 pipeline; do not create a separate pre-publication review loop inside this skill.
 Before running `consolidate-state`, validate the staging entry frontmatter and
@@ -41,7 +41,7 @@ whether to publish, by recommending a future `consolidate-state` run, or by
 handing off because earlier drafts are blocked. Prior blocked drafts are evidence
 for the report and may justify a tighter scope, but they do not authorize a
 staging-only exit. The skill is complete only after `consolidate-state` succeeds
-and the generated HTML report, blog entry, and meta-report have been verified; if
+and the generated HTML report and blog entry have been verified; if
 that cannot be achieved, surface the concrete failing command and reason instead
 of reporting success.
 
@@ -85,8 +85,7 @@ publish. A bare invocation must not finish with candidate options instead of an
 artifact. Do not end with prompts such as "What topic do you want", "What report
 should I generate", or "A few candidates" when any defensible topic can be
 selected from runtime evidence. The final chat response for a successful
-`/ed-report` run must name the published blog entry, HTML report, and
-meta-report paths.
+`/ed-report` run must name the published blog entry and HTML report paths.
 
 ### 2. Gather Evidence
 

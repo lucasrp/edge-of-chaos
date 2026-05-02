@@ -18,9 +18,9 @@ def first_index(needle: str) -> int:
     raise AssertionError(f"missing {needle!r}")
 
 phase6_start = first_index('emit_run_step_event "phase-6" "started"')
-definition = first_index('proposal_path = meta_dir / f"{slug}.state-proposal.yaml"')
+definition = first_index('proposal_path = audits_dir / f"{slug}.state-proposal.yaml"')
 first_use = first_index('if proposal_path.exists():')
-audit_definition = first_index('audit_path = meta_dir / f"{slug}.state-audit.yaml"')
+audit_definition = first_index('audit_path = audits_dir / f"{slug}.state-audit.yaml"')
 audit_use = first_index('if audit_path.exists():')
 non_git_diff_guard = first_index('skipping scoped diff')
 non_git_commit_guard = first_index('skipping git commit')
@@ -32,6 +32,10 @@ render_error_count = first_index("RENDER_ERRORS=$(grep -c 'ERRO bloco' \"$REPORT
 materialize_function = first_index('materialize_report_before_publish()')
 index_function = first_index('index_materialized_report()')
 
+retired_tool = "edge-" + "meta-" + "report"
+retired_phase = "post_state_" + "meta_" + "report"
+assert not any(retired_tool in line for line in lines), "consolidate-state must not call retired report-mirror tool"
+assert not any(retired_phase in line for line in lines), "post-state report-mirror phase must be removed"
 assert phase6_start < definition < first_use, (
     f"proposal_path must be defined before phase-6 allowlist use "
     f"(phase6={phase6_start}, definition={definition}, use={first_use})"

@@ -119,19 +119,19 @@ check_index() {
 # --- consolidate-state ---
 check_consolidate() {
   local latest
-  latest=$(find "$META_DIR" -name '*meta*' -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+  latest=$(find "$REPORTS_DIR" -name '*.html' -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
   if [[ -z "$latest" ]]; then
-    emit_component consolidate unknown "no meta-reports found"
+    emit_component consolidate unknown "no reports found"
     return
   fi
   local days
   days=$(days_since_mtime "$latest")
   if [[ "$days" -le 2 ]]; then
-    emit_component consolidate ok "last meta-report ${days}d ago"
+    emit_component consolidate ok "last report ${days}d ago"
   elif [[ "$days" -le 5 ]]; then
-    emit_component consolidate degraded "last meta-report ${days}d ago"
+    emit_component consolidate degraded "last report ${days}d ago"
   else
-    emit_component consolidate fail "last meta-report ${days}d ago"
+    emit_component consolidate fail "last report ${days}d ago"
   fi
 }
 
@@ -199,9 +199,9 @@ check_mini_repos() {
   if [[ "$dirty" -eq 0 ]]; then
     emit_component mini_repos ok "claude config repo clean"
   elif [[ "$dirty" -lt 10 ]]; then
-    emit_component mini_repos degraded "${dirty} uncommitted in .claude — meta-report noise"
+    emit_component mini_repos degraded "${dirty} uncommitted in .claude"
   else
-    emit_component mini_repos fail "${dirty} uncommitted in .claude — heavy meta-report noise"
+    emit_component mini_repos fail "${dirty} uncommitted in .claude"
   fi
 }
 

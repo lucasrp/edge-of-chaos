@@ -31,7 +31,7 @@ required = [
     "must not finish with candidate options instead of an",
     "What topic do you want",
     "A few candidates",
-    "must name the published blog entry, HTML report, and",
+    "must name the published blog entry and HTML report paths",
 ]
 for needle in required:
     assert needle in text, needle

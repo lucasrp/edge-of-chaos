@@ -6,30 +6,40 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/survival-lib.sh"
 
 ENTRIES_DIR="${ENTRIES_DIR:-$(read_yaml_key blog_entries_dir 2>/dev/null || echo "$HOME/edge/blog/entries")}"
-META_DIR="${META_DIR:-$(read_yaml_key meta_reports_dir 2>/dev/null || echo "$HOME/edge/meta-reports")}"
+REPORTS_DIR="${REPORTS_DIR:-$(read_yaml_key reports_dir 2>/dev/null || echo "$HOME/edge/reports")}"
 SECRETS_DIR="${SECRETS_DIR:-$(read_yaml_key secrets_dir 2>/dev/null || echo "$HOME/edge/secrets")}"
 
 # --- Adversarial rate (last 7 days) ---
 adversarial_rate=0
-total_meta_7d=0
-meta_with_adversarial=0
+total_reports_7d=0
+reports_with_adversarial=0
+latest_report_mtime=0
+latest_report_has_adversarial=false
 
 check_adversarial() {
   local cutoff
   cutoff=$(date -d '7 days ago' +%s 2>/dev/null || date -v-7d +%s 2>/dev/null || echo 0)
 
-  while IFS= read -r f; do
-    local mtime
-    mtime=$(stat -c %Y "$f" 2>/dev/null || echo 0)
-    [[ "$mtime" -lt "$cutoff" ]] && continue
-    total_meta_7d=$((total_meta_7d + 1))
-    if grep -q 'edge-consult' "$f" 2>/dev/null; then
-      meta_with_adversarial=$((meta_with_adversarial + 1))
-    fi
-  done < <(find "$META_DIR" -name '*meta*' -type f 2>/dev/null)
+	  while IFS= read -r f; do
+	    local mtime
+	    mtime=$(stat -c %Y "$f" 2>/dev/null || echo 0)
+	    [[ "$mtime" -lt "$cutoff" ]] && continue
+	    total_reports_7d=$((total_reports_7d + 1))
+	    if grep -qE 'Desafio Adversarial|adversarial-review' "$f" 2>/dev/null; then
+	      reports_with_adversarial=$((reports_with_adversarial + 1))
+	      if [[ "$mtime" -gt "$latest_report_mtime" ]]; then
+	        latest_report_has_adversarial=true
+	      fi
+	    elif [[ "$mtime" -gt "$latest_report_mtime" ]]; then
+	      latest_report_has_adversarial=false
+	    fi
+	    if [[ "$mtime" -gt "$latest_report_mtime" ]]; then
+	      latest_report_mtime="$mtime"
+	    fi
+	  done < <(find "$REPORTS_DIR" -name '*.html' -type f 2>/dev/null)
 
-  if [[ "$total_meta_7d" -gt 0 ]]; then
-    adversarial_rate=$(( meta_with_adversarial * 100 / total_meta_7d ))
+  if [[ "$total_reports_7d" -gt 0 ]]; then
+    adversarial_rate=$(( reports_with_adversarial * 100 / total_reports_7d ))
   fi
 }
 
@@ -63,20 +73,27 @@ check_fontes() {
 
 # --- Review gate active ---
 review_gate_active=false
+latest_entry_mtime=0
+latest_entry_has_review_gate=false
 
 check_review_gate() {
   local cutoff
   cutoff=$(date -d '7 days ago' +%s 2>/dev/null || echo 0)
 
-  while IFS= read -r f; do
-    local mtime
-    mtime=$(stat -c %Y "$f" 2>/dev/null || echo 0)
-    [[ "$mtime" -lt "$cutoff" ]] && continue
-    if grep -qE 'overall|review.*score|Review Gate' "$f" 2>/dev/null; then
-      review_gate_active=true
-      return
-    fi
-  done < <(find "$META_DIR" -name '*meta*' -type f 2>/dev/null)
+	  while IFS= read -r f; do
+	    local mtime
+	    local has_review_gate=false
+	    mtime=$(stat -c %Y "$f" 2>/dev/null || echo 0)
+	    [[ "$mtime" -lt "$cutoff" ]] && continue
+	    if grep -qE '^review_score:|review.*score|Review Gate' "$f" 2>/dev/null; then
+	      review_gate_active=true
+	      has_review_gate=true
+	    fi
+	    if [[ "$mtime" -gt "$latest_entry_mtime" ]]; then
+	      latest_entry_mtime="$mtime"
+	      latest_entry_has_review_gate="$has_review_gate"
+	    fi
+	  done < <(find "$ENTRIES_DIR" -name '2026-*.md' -type f 2>/dev/null)
 }
 
 # --- Provider health ---
@@ -157,27 +174,29 @@ check_providers
 generate_backfill
 
 # Determine status
-# If no entries/meta-reports exist yet, quality is not applicable (ok)
-if [[ "$total_meta_7d" -eq 0 ]] && [[ "$total_q2q3_7d" -eq 0 ]]; then
+# If no entries/reports exist yet, quality is not applicable.
+if [[ "$total_reports_7d" -eq 0 ]] && [[ "$total_q2q3_7d" -eq 0 ]]; then
   local_status="unknown"
 else
   local_status="ok"
-  if [[ "$total_meta_7d" -gt 0 ]]; then
-    if [[ "$adversarial_rate" -lt 50 ]]; then local_status="degraded"; fi
-    if [[ "$adversarial_rate" -lt 15 ]]; then local_status="fail"; fi
+  script_mtime=$(stat -c %Y "$0" 2>/dev/null || echo 0)
+  if [[ "$latest_report_mtime" -gt "$script_mtime" ]] && [[ "$latest_report_has_adversarial" == "false" ]]; then
+    local_status="fail"
   fi
   if [[ "$total_q2q3_7d" -gt 0 ]]; then
     if [[ "$fontes_rate" -lt 30 ]] && [[ "$local_status" != "fail" ]]; then local_status="degraded"; fi
     if [[ "$fontes_rate" -lt 10 ]]; then local_status="fail"; fi
   fi
-  if [[ "$total_meta_7d" -gt 0 ]] && [[ "$review_gate_active" == "false" ]]; then
+  if [[ "$latest_entry_mtime" -gt "$script_mtime" ]] && [[ "$latest_entry_has_review_gate" == "false" ]]; then
     local_status="fail"
   fi
 fi
 
-detail="adversarial=${adversarial_rate}% (${meta_with_adversarial}/${total_meta_7d})"
+detail="adversarial=${adversarial_rate}% (${reports_with_adversarial}/${total_reports_7d})"
 detail+=" fontes=${fontes_rate}% (${q2q3_with_fontes}/${total_q2q3_7d})"
 detail+=" review_gate=${review_gate_active}"
+detail+=" latest_report_adversarial=${latest_report_has_adversarial}"
+detail+=" latest_entry_review_gate=${latest_entry_has_review_gate}"
 detail+=" exa=${exa_status} openai=${openai_status}"
 
 emit_component quality "$local_status" "$detail"

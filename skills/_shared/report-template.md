@@ -7,7 +7,7 @@ blackout-degraded variants (see `memory/rules-core.md` → Production).
 
 Each skill contributes its own section titles and domain-specific YAML
 blocks. This file defines the **uniform floor** every skill must meet:
-blog entry + YAML spec + HTML report + meta-report + adversarial review,
+blog entry + YAML spec + HTML report + adversarial review,
 with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
 
 ---
@@ -39,7 +39,7 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
      `:`, `!`, backticks, brackets, quotes, or other punctuation that YAML may
      interpret structurally. For open gaps, keep the `!` inside the string:
      `- "!Open gap: what is still unknown"`.
-5. **Publish atomically** (blog entry + report HTML + meta-report + state commit):
+5. **Publish atomically** (blog entry + report HTML + state commit):
    Validate the staging entry frontmatter and YAML spec before publishing. Do
    not run `consolidate-state` until this command exits cleanly:
    ```bash
@@ -61,12 +61,11 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
    ```bash
    consolidate-state /tmp/entry-[skill]-[slug].md /tmp/spec-[skill]-[slug].yaml
    ```
-   `consolidate-state` handles everything in 7 phases:
+   `consolidate-state` handles the full publication pipeline:
    - Phase 0/0.5: Frontmatter + review gate
    - Phase 1: Blog entry (blog-publish.sh)
    - Phase 2: Content report (generate_report.py → ~/edge/reports/)
    - Phase 3/3.4: Verification + LLM cost
-   - **Phase 4: Meta-report** (state delta + scratchpad + adversarial → ~/edge/meta-reports/)
    - Phase 5: State commit (claims, threads, events, digest)
    - Phase 6: Diffs + git commit
 
@@ -85,14 +84,13 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
    **Single review owner:** do not run standalone `edge-consult` or
    `review-gate` before this command during the normal publication path.
    `consolidate-state` owns the mandatory adversarial, Feynman, review-gate,
-   publication, meta-report, and state-commit phases. If a gate blocks, address
+   publication, and state-commit phases. If a gate blocks, address
    the emitted feedback and rerun `consolidate-state`; do not build a parallel
    pre-publication review loop in the skill backend.
 
    Useful flags: `--scratchpad PATH`, `--reason TEXT`
    (Enforcement #218: bypass flags `--skip-review`, `--no-adversarial`, `--no-meta` were removed — all phases run unconditionally.)
-6. **Read meta-report** (`~/edge/meta-reports/<slug>-meta.md`) BEFORE editing status
-7. **Read the generated HTML** (`~/edge/reports/<file>.html`) for verification
+6. **Read the generated HTML** (`~/edge/reports/<file>.html`) for verification
 
 ---
 
@@ -273,8 +271,8 @@ SVG is not just for numbers — any information that communicates better as an i
 - Phase 0.3: adversarial review;
 - Phase 0.45: Feynman judge;
 - Phase 0.5: review gate;
-- Phase 1-6: publication, report materialization, verification, meta-report,
-  state commit, audit, and git trail.
+- Phase 1-6: publication, report materialization, verification, state commit,
+  audit, and git trail.
 
 Do not call `edge-consult` or `review-gate` manually before publishing in the
 normal skill backend. Manual review calls are allowed only for a genuinely

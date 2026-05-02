@@ -84,7 +84,7 @@ emit_component() {
 compute_score() {
   local total=0 max=0
   local -A weights
-  weights=( [heartbeat]=20 [sqlite]=20 [blog]=15 [index]=15 [consolidate]=15 [git]=10 [meta_report]=5 [primitives]=10 )
+  weights=( [heartbeat]=20 [sqlite]=20 [blog]=15 [index]=15 [consolidate]=15 [git]=10 [primitives]=10 )
 
   for comp in "${!weights[@]}"; do
     local w="${weights[$comp]}"

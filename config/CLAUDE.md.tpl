@@ -73,7 +73,7 @@ Genotype changes require the issue -> clone -> PR -> merge -> propagate loop.
 **Epigenetics (your runtime state — produce freely):**
 - `blog/entries/` — your blog posts
 - `reports/` — your HTML reports
-- `logs/`, `threads/`, `state/`, `meta-reports/`
+- `logs/`, `threads/`, `state/`
 
 **The test:** "If I change this, does it affect other instances?" YES -> genotype -> use the genotype change loop.
 

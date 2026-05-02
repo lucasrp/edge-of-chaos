@@ -33,7 +33,7 @@ A run is incomplete if it only observes missing capability and leaves no decisio
 
 Autonomy does not own project delivery, product code, broad refactors, or skill creation.
 
-Autonomy is no longer a publication ritual. It records operational accountability through lifecycle events, status readbacks, and a concise terminal report. Do not create a blog entry, HTML report, meta-report, adversarial review, or general publication artifact for routine autonomy work.
+Autonomy is no longer a publication ritual. It records operational accountability through lifecycle events, status readbacks, and a concise terminal report. Do not create a blog entry, HTML report, adversarial review, or general publication artifact for routine autonomy work.
 
 When invoked from heartbeat self-healing, autonomy is a secondary subroutine: investigate only the primitives listed in `request.self_healing.needs_llm`, attempt the smallest reversible repair or diagnosis, log what happened, then let the heartbeat continue to its normal action dispatch.
 

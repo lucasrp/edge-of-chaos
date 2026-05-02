@@ -16,8 +16,9 @@ mkdir -p \
     "$TMP_STATE/reports" \
     "$TMP_STATE/state/events" \
     "$TMP_STATE/state/projections/continuity-deltas" \
+    "$TMP_STATE/state/audits" \
     "$TMP_STATE/logs" \
-    "$TMP_STATE/meta-reports"
+    "$TMP_STATE/scratchpads"
 
 cat >"$TMP_STATE/blog/entries/2026-04-21-threaded.md" <<'MD'
 ---

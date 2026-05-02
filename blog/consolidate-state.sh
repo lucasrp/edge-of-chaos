@@ -1,16 +1,16 @@
 #!/bin/bash
-# consolidate-state — Pipeline completo: entry + report + meta-report + state commit
+# consolidate-state — Pipeline completo: entry + report + state commit
 #
 # Uso:
-#   consolidate-state <entry.md> <report.yaml>         # entry + content report + meta-report
-#   consolidate-state <entry.md> <report.html>         # entry + content report pre-gerado + meta-report
+#   consolidate-state <entry.md> <report.yaml>         # entry + content report
+#   consolidate-state <entry.md> <report.html>         # entry + content report pre-gerado
 #
 # Enforcement #245: content report (YAML ou HTML pre-gerado) é MANDATÓRIO.
 # Publicar sem content report viola o rito uniforme em
 # skills/_shared/report-template.md. Se o provedor adversarial externo estiver
 # indisponível, use o fallback Claude (#235) — não pule o rito.
 #
-# Pipeline (8 fases):
+# Pipeline:
 #   0.  Frontmatter injection (report: field)
 #   0b. Note link injection (note: field, if matching note exists)
 #   0.3 Adversarial review enforcement (edge-consult --gate; YAML or HTML)
@@ -21,8 +21,8 @@
 #   2.  Content report indexing/confirmation
 #   3.  Verificação (API, frontmatter, files)
 #   3.4 LLM cost injection
-#   4.  Meta-report (state delta + scratchpad + adversarial → cognitive mirror)
 #   5.  State commit (claims + threads + event + digest)
+#   5b. State audit
 #   6.  Diffs + Git commit (audit trail)
 #
 # Exit codes: 0 = tudo OK, 1 = erro fatal, 2 = parcial, 3 = review gate falhou
@@ -30,7 +30,7 @@
 # Flags:
 #   --review-only      Rodar so o review gate, sem publicar
 #   --recover          Detect and re-run pipeline for incomplete publications
-#   --scratchpad PATH  Scratchpad para meta-report (default: /tmp/edge-scratch-active.md)
+#   --scratchpad PATH  Scratchpad para arquivar (default: /tmp/edge-scratch-active.md)
 #   --reason TEXT      Custom commit message reason
 #
 # Enforcement #218: bypass flags (--skip-review, --no-adversarial, --no-meta)
@@ -211,7 +211,7 @@ while [[ $# -gt 0 ]]; do
             echo "Flags:"
             echo "  --review-only      Run only the review gate, without publishing"
             echo "  --recover          Detect and re-run pipeline for incomplete publications"
-            echo "  --scratchpad PATH  Scratchpad for meta-report (default: /tmp/edge-scratch-active.md)"
+            echo "  --scratchpad PATH  Scratchpad to archive (default: /tmp/edge-scratch-active.md)"
             echo "  --reason TEXT      Custom commit message reason"
             echo "  --help, -h         Show this help"
             echo ""
@@ -242,6 +242,82 @@ NC='\033[0m'
 ok()   { echo -e "  ${GREEN}OK${NC}: $1"; }
 warn() { echo -e "  ${YELLOW}WARN${NC}: $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}: $1"; }
+
+inject_adversarial_review_into_html() {
+    local html_path="$1"
+    local review_path="${2:-}"
+    local resolved_path="${3:-}"
+    [[ -f "$html_path" && -n "$review_path" && -f "$review_path" ]] || return 0
+
+    python3 - "$html_path" "$review_path" "$resolved_path" <<'PY'
+import html
+import json
+import sys
+from pathlib import Path
+
+html_path = Path(sys.argv[1])
+review_path = Path(sys.argv[2])
+resolved_path = Path(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
+
+document = html_path.read_text(encoding="utf-8")
+if "id=\"desafio-adversarial\"" in document or "Desafio Adversarial" in document:
+    sys.exit(0)
+
+try:
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+except Exception as exc:
+    response = f"Review adversarial indisponivel para renderizacao: {exc}"
+    resolved = False
+else:
+    response = str(
+        review.get("response")
+        or review.get("review")
+        or review.get("summary")
+        or "(review adversarial sem corpo textual)"
+    ).strip()
+    resolved = bool(review.get("resolved")) or bool(resolved_path and resolved_path.exists())
+
+if len(response) > 10000:
+    response = response[:10000].rstrip() + "\n\n[truncado para renderizacao]"
+
+status = "resolvido" if resolved else "pendente"
+section = f"""
+  <section class="section adversarial-review" id="desafio-adversarial">
+    <h2 class="section-title">Desafio Adversarial</h2>
+    <p class="section-lead">Critica adversarial incorporada ao report para que a revisao fique junto do artefato publicado, em vez de viver num arquivo lateral.</p>
+    <div class="callout callout-info"><strong>Status:</strong> {html.escape(status)} <span>{html.escape(review_path.name)}</span></div>
+    <pre class="adversarial-review-body">{html.escape(response)}</pre>
+  </section>
+"""
+
+lower = document.lower()
+for marker in ("</main>", "</body>"):
+    idx = lower.rfind(marker)
+    if idx != -1:
+        document = document[:idx] + section + "\n" + document[idx:]
+        break
+else:
+    document = document.rstrip() + "\n" + section + "\n"
+
+html_path.write_text(document, encoding="utf-8")
+PY
+}
+
+archive_scratchpad_if_present() {
+    local scratchpad_path="${SCRATCHPAD:-/tmp/edge-scratch-active.md}"
+    [[ -f "$scratchpad_path" && -s "$scratchpad_path" ]] || return 0
+
+    mkdir -p "$SCRATCHPADS_DIR"
+    local ts archived
+    ts="$(date -u +%Y%m%dT%H%M%SZ)"
+    archived="$SCRATCHPADS_DIR/${SLUG}-${ts}.md"
+    if mv "$scratchpad_path" "$archived"; then
+        ok "Scratchpad archived: $(basename "$archived")"
+    else
+        warn "Scratchpad archival failed: $scratchpad_path"
+        log_failure "scratchpad" "archive" "failed to archive scratchpad"
+    fi
+}
 
 materialize_report_before_publish() {
     if [[ -z "$REPORT_INPUT" ]]; then
@@ -282,6 +358,7 @@ materialize_report_before_publish() {
             cp "$REPORT_INPUT" "$REPORT_HTML"
         fi
         if [[ -f "$REPORT_HTML" ]]; then
+            inject_adversarial_review_into_html "$REPORT_HTML" "${REVIEW_JSON_FILE:-}" "${RESOLVED_FILE:-}"
             ok "Report HTML: $REPORT_FILENAME"
             REPORT_RESULT="ok"
             return 0
@@ -369,7 +446,7 @@ if [[ "$RECOVER" == "false" ]]; then
     if [[ -z "$ENTRY_PATH" ]]; then
         echo "Usage: consolidate-state <entry.md> <report.yaml|report.html>" >&2
         echo "  --recover          Detect and re-run pipeline for incomplete publications" >&2
-        echo "  --scratchpad PATH  Scratchpad for meta-report" >&2
+        echo "  --scratchpad PATH  Scratchpad to archive" >&2
         echo "  --reason TEXT      Custom commit message reason" >&2
         echo "  (Enforcement #218: --skip-review / --no-adversarial / --no-meta removed.)" >&2
         exit 1
@@ -462,8 +539,6 @@ REPORT_HTML=""
 REPORT_FILENAME=""
 REPORT_RESULT="skip"
 TOTAL_LLM_COST="0"
-META_REPORT_PATH=""
-
 ledger_record "pipeline-start" "ok"
 
 # Enforcement #245: content report (YAML/HTML) is MANDATORY — validated
@@ -966,30 +1041,57 @@ case "$CRYST_CHECK" in
     *) ;;
 esac
 
-# ─── PHASE 3.4: Inject llm_cost into frontmatter ───
-if [[ "$TOTAL_LLM_COST" != "0" && "$TOTAL_LLM_COST" != "" ]]; then
-    if python3 -c "
-import yaml, sys
+# ─── PHASE 3.4: Inject review metadata into frontmatter ───
+if [[ -n "${TOTAL_LLM_COST:-}" && "$TOTAL_LLM_COST" != "0" ]] || [[ -n "${REVIEW_SCORE:-}" ]] || [[ -n "${FEYNMAN_SCORE:-}" ]]; then
+    if TOTAL_LLM_COST_VALUE="${TOTAL_LLM_COST:-}" REVIEW_SCORE_VALUE="${REVIEW_SCORE:-}" FEYNMAN_SCORE_VALUE="${FEYNMAN_SCORE:-}" python3 - "$ENTRY_PATH" "$ENTRIES_DIR/$SLUG.md" <<'PY' 2>/dev/null
+import os
+import sys
+from pathlib import Path
+
+import yaml
+
 try:
-    raw = open('$ENTRY_PATH').read()
-    parts = raw.split('---', 2)
-    if len(parts) >= 3:
-        fm = yaml.safe_load(parts[1]) or {}
-        fm['llm_cost'] = '\$$TOTAL_LLM_COST'
-        fm_text = yaml.dump(fm, allow_unicode=True, default_flow_style=False, sort_keys=False)
-        result = '---\n' + fm_text + '---' + parts[2]
-        open('$ENTRY_PATH', 'w').write(result)
-    else:
-        print('WARN: no frontmatter delimiters', file=sys.stderr)
+    targets = []
+    seen = set()
+    for raw_path in sys.argv[1:]:
+        path = Path(raw_path)
+        key = str(path.resolve(strict=False))
+        if key in seen or not path.exists():
+            continue
+        seen.add(key)
+        targets.append(path)
+    if not targets:
+        print("WARN: no entry paths found", file=sys.stderr)
         sys.exit(1)
+
+    for path in targets:
+        raw = path.read_text(encoding="utf-8")
+        parts = raw.split("---", 2)
+        if len(parts) < 3:
+            print(f"WARN: no frontmatter delimiters in {path}", file=sys.stderr)
+            sys.exit(1)
+        fm = yaml.safe_load(parts[1]) or {}
+        llm_cost = os.environ.get("TOTAL_LLM_COST_VALUE", "")
+        review_score = os.environ.get("REVIEW_SCORE_VALUE", "")
+        feynman_score = os.environ.get("FEYNMAN_SCORE_VALUE", "")
+        if llm_cost and llm_cost != "0":
+            fm["llm_cost"] = f"${llm_cost}"
+        if review_score:
+            fm["review_score"] = str(review_score)
+        if feynman_score:
+            fm["feynman_score"] = str(feynman_score)
+        fm_text = yaml.dump(fm, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        result = "---\n" + fm_text + "---" + parts[2]
+        path.write_text(result, encoding="utf-8")
 except Exception as e:
-    print(f'FAIL: {e}', file=sys.stderr)
+    print(f"FAIL: {e}", file=sys.stderr)
     sys.exit(1)
-" 2>/dev/null; then
-        ok "llm_cost: \$$TOTAL_LLM_COST injected into frontmatter"
+PY
+    then
+        ok "Review metadata injected into frontmatter"
     else
-        warn "llm_cost injection failed"
-        log_failure "3.4" "llm_cost_injection" "Failed to inject llm_cost into frontmatter"
+        warn "Review metadata injection failed"
+        log_failure "3.4" "review_metadata_injection" "Failed to inject review metadata into frontmatter"
     fi
 fi
 if $ALL_OK && [[ "$REPORT_RESULT" != "fail" ]]; then
@@ -1002,91 +1104,7 @@ else
     exit 2
 fi
 
-# ─── PHASE 4: Meta-report (cognitive mirror) ───
-# Captures state delta + scratchpad + adversarial BEFORE state commit.
-# Agent reads this before making manual state changes (MEMORY.md, debugging.md, etc.)
-# Enforcement #218: always runs (bypass flag --no-meta removed).
-echo ""
-echo "── Phase 4: Meta-report ──"
-ledger_record "phase-4" "ok"
-emit_run_step_event "phase-4" "started" "meta_report" ""
-PHASE4_OK=true
-if command -v edge-meta-report &>/dev/null || [[ -x "$TOOLS_DIR/edge-meta-report" ]]; then
-    META_CMD="edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
-    # Use tools dir if not in PATH
-    command -v edge-meta-report &>/dev/null || META_CMD="$TOOLS_DIR/edge-meta-report --slug $SLUG --entry $ENTRY_PATH"
-
-    [[ -n "$SCRATCHPAD" ]] && META_CMD="$META_CMD --scratchpad $SCRATCHPAD"
-
-    META_OUTPUT=$($META_CMD 2>&1)
-    META_EXIT=$?
-
-    if [[ $META_EXIT -eq 0 ]]; then
-        META_REPORT_PATH=$(echo "$META_OUTPUT" | head -1 | sed 's/^OK: //')
-        META_BASENAME=$(basename "$META_REPORT_PATH")
-        ok "Meta-report: $META_BASENAME"
-        # Inject meta_report field into entry frontmatter
-        if ! grep -q "^meta_report:" "$ENTRY_PATH" 2>/dev/null; then
-            if python3 -c "
-import sys
-try:
-    path, meta = sys.argv[1], sys.argv[2]
-    text = open(path).read()
-    parts = text.split('---', 2)
-    if len(parts) >= 3 and 'meta_report:' not in parts[1]:
-        parts[1] = parts[1].rstrip() + '\nmeta_report: ' + meta + '\n'
-        open(path, 'w').write('---'.join(parts))
-        print('ADDED')
-    else:
-        print('SKIP')
-except Exception as e:
-    print(f'FAIL: {e}', file=sys.stderr)
-    sys.exit(1)
-" "$ENTRY_PATH" "$META_BASENAME" 2>/dev/null; then
-                ok "Added meta_report: $META_BASENAME to entry frontmatter"
-            else
-                warn "meta_report injection failed"
-                log_failure "4" "meta_report_injection" "Failed to inject meta_report into frontmatter"
-            fi
-        fi
-        if echo "$META_OUTPUT" | grep -q "Scratchpad:"; then
-            ARCHIVED=$(echo "$META_OUTPUT" | grep "Scratchpad:" | sed 's/.*Scratchpad: //')
-            ok "Scratchpad archived: $(basename "$ARCHIVED")"
-        fi
-        # Inject review-gate results into meta-report (so check-quality can find them)
-        if [[ -n "${REVIEW_SCORE:-}" && -f "$META_REPORT_PATH" ]]; then
-            cat >> "$META_REPORT_PATH" <<REVIEW_EOF
-
-## Review Gate
-
-- overall review score: ${REVIEW_SCORE}/5.0
-- review cost: \$${REVIEW_COST}
-REVIEW_EOF
-            ok "Review gate results injected into meta-report"
-        fi
-        if [[ -n "${FEYNMAN_SCORE:-}" && -f "$META_REPORT_PATH" ]]; then
-            cat >> "$META_REPORT_PATH" <<FEYNMAN_EOF
-
-## Feynman Judge
-
-- feynman score: ${FEYNMAN_SCORE}/5.0
-- review file: $(basename "${FEYNMAN_REVIEW_FILE:-}")
-FEYNMAN_EOF
-            ok "Feynman judge results injected into meta-report"
-        fi
-    else
-        warn "edge-meta-report failed (exit $META_EXIT)"
-        log_failure "4" "meta_report_generation" "edge-meta-report exit $META_EXIT"
-        PHASE4_OK=false
-    fi
-else
-    warn "edge-meta-report not found — skipping"
-    log_failure "4" "meta_report_missing" "edge-meta-report tool not available"
-    PHASE4_OK=false
-fi
-if $PHASE4_OK; then
-    emit_run_step_event "phase-4" "completed" "meta_report" ""
-fi
+archive_scratchpad_if_present
 echo ""
 
 # ─── PHASE 5: State commit (claims + threads + event + digest) ───
@@ -1394,7 +1412,7 @@ ledger_record "phase-5b" "ok"
 emit_run_step_event "phase-5b" "started" "state_audit" ""
 if command -v edge-state-audit &>/dev/null; then
     # Check if proposal exists (agent should have written it during the session)
-    PROPOSAL_FILE="$META_DIR/${SLUG}.state-proposal.yaml"
+    PROPOSAL_FILE="$AUDITS_DIR/${SLUG}.state-proposal.yaml"
     if [[ -f "$PROPOSAL_FILE" ]]; then
         ok "Proposal found: $(basename "$PROPOSAL_FILE")"
     else
@@ -1409,7 +1427,7 @@ if command -v edge-state-audit &>/dev/null; then
         echo "========================================="
         echo -e " ${RED}ABORTED${NC}: State audit detected violation"
         echo "  Proposal: $PROPOSAL_FILE"
-        echo "  Audit: $META_DIR/${SLUG}.state-audit.yaml"
+        echo "  Audit: $AUDITS_DIR/${SLUG}.state-audit.yaml"
         echo "========================================="
         emit_run_step_event "phase-5b" "failed" "state_audit" "state audit violation or divergence"
         exit 5
@@ -1422,35 +1440,6 @@ else
 fi
 echo ""
 
-# ─── PHASE 5c: Post-state meta-report (what actually changed) ───
-echo "── Phase 5c: Post-state meta-report ──"
-ledger_record "phase-5c" "ok"
-emit_run_step_event "phase-5c" "started" "post_state_meta_report" ""
-PHASE5C_OK=true
-if command -v edge-meta-report &>/dev/null || [[ -x "$TOOLS_DIR/edge-meta-report" ]]; then
-    POST_CMD="edge-meta-report --slug $SLUG --post-state"
-    command -v edge-meta-report &>/dev/null || POST_CMD="$TOOLS_DIR/edge-meta-report --slug $SLUG --post-state"
-    [[ -n "$ENTRY_PATH" ]] && POST_CMD="$POST_CMD --entry $ENTRY_PATH"
-
-    POST_OUTPUT=$($POST_CMD 2>&1)
-    POST_EXIT=$?
-    if [[ $POST_EXIT -eq 0 ]]; then
-        ok "$(echo "$POST_OUTPUT" | head -1)"
-    else
-        warn "post-state meta-report failed (exit $POST_EXIT)"
-        PHASE5C_OK=false
-    fi
-else
-    warn "edge-meta-report not found -- skipping post-state"
-    PHASE5C_OK=false
-fi
-if $PHASE5C_OK; then
-    emit_run_step_event "phase-5c" "completed" "post_state_meta_report" ""
-else
-    emit_run_step_event "phase-5c" "failed" "post_state_meta_report" "post-state meta-report unavailable or failed"
-fi
-echo ""
-
 # ─── PHASE 6: Diffs + Git commit (audit trail) ───
 echo "── Phase 6: Diffs + Git Commit ──"
 ledger_record "phase-6" "ok"
@@ -1458,7 +1447,7 @@ emit_run_step_event "phase-6" "started" "diffs_and_git_commit" ""
 
 # Note: BLOG_PORT, BLOG_AUTH_USER, BLOG_AUTH_PASS already exported by paths.sh
 
-if python3 - "$ENTRY_PATH" "$SLUG" "$REPORT_FOR_COMMIT" "$COMMIT_REASON" "$STATE_AUDIT_EXIT" "$REPORT_RESULT" "$REPORT_HTML" "$META_REPORT_PATH" <<'PYPHASE5'
+if python3 - "$ENTRY_PATH" "$SLUG" "$REPORT_FOR_COMMIT" "$COMMIT_REASON" "$STATE_AUDIT_EXIT" "$REPORT_RESULT" "$REPORT_HTML" <<'PYPHASE5'
 import sys, yaml, json, os, subprocess, urllib.request, traceback
 from pathlib import Path
 from datetime import datetime, timezone
@@ -1467,7 +1456,6 @@ entry_path, slug, report, reason = sys.argv[1], sys.argv[2], sys.argv[3], sys.ar
 state_audit_exit = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5].isdigit() else -1
 report_result = sys.argv[6] if len(sys.argv) > 6 else "skip"
 report_html = sys.argv[7] if len(sys.argv) > 7 else ""
-meta_report_path = sys.argv[8] if len(sys.argv) > 8 else ""
 
 GREEN = "\033[0;32m"
 YELLOW = "\033[1;33m"
@@ -1531,9 +1519,9 @@ title = fm.get("title", slug)
 raw_claims = fm.get("claims", [])
 threads = fm.get("threads", [])
 tags = fm.get("tags", [])
-meta_dir = Path(os.environ.get("META_DIR", os.path.expanduser("~/edge/meta-reports")))
-proposal_path = meta_dir / f"{slug}.state-proposal.yaml"
-audit_path = meta_dir / f"{slug}.state-audit.yaml"
+audits_dir = Path(os.environ.get("AUDITS_DIR", os.path.expanduser("~/edge/state/audits")))
+proposal_path = audits_dir / f"{slug}.state-proposal.yaml"
+audit_path = audits_dir / f"{slug}.state-audit.yaml"
 
 # Normalize claims: accept both str ("!claim") and dict ({claim, status})
 def _is_open(c):
@@ -1619,11 +1607,13 @@ try:
     else:
         tool_path = Path(edge_dir) / "tools" / "edge-publish-scope"
         changelog_path = Path(os.environ.get("BLOG_CHANGELOG_FILE", "")).expanduser()
+        entries_dir = Path(os.environ.get("ENTRIES_DIR", os.path.expanduser("~/edge/blog/entries")))
+        canonical_entry_path = entries_dir / f"{slug}.md"
         allowed_paths = [entry_path]
+        if canonical_entry_path.exists() and str(canonical_entry_path) != entry_path:
+            allowed_paths.append(str(canonical_entry_path))
         if report_html:
             allowed_paths.append(report_html)
-        if meta_report_path:
-            allowed_paths.append(meta_report_path)
         if proposal_path.exists():
             allowed_paths.append(str(proposal_path))
         if audit_path.exists():
@@ -1901,9 +1891,6 @@ echo "========================================="
 if $ALL_OK && [[ "$REPORT_RESULT" != "fail" ]]; then
     echo -e " ${GREEN}PUBLISHED COMPLETE${NC}: $SLUG"
     [[ -n "$REPORT_FILENAME" ]] && echo " Content report: $REPORT_FILENAME"
-    [[ -n "$META_REPORT_PATH" ]] && echo " Meta-report: $META_REPORT_PATH"
-    [[ -n "$META_REPORT_PATH" ]] && echo ""
-    [[ -n "$META_REPORT_PATH" ]] && echo -e " ${YELLOW}→ Read meta-report BEFORE editing state${NC}"
     echo "========================================="
     # Survival instinct: write success marker
     HEALTH_OK="$HEALTH_DIR/last_success"
@@ -1914,7 +1901,6 @@ if $ALL_OK && [[ "$REPORT_RESULT" != "fail" ]]; then
     exit 0
 elif $ALL_OK; then
     echo -e " ${YELLOW}PARTIAL${NC}: Entry OK, report with issues"
-    [[ -n "$META_REPORT_PATH" ]] && echo " Meta-report: $META_REPORT_PATH"
     echo "========================================="
     ledger_record "pipeline-end" "partial"
     emit_run_step_event "pipeline" "degraded" "pipeline_end" "partial publication"
