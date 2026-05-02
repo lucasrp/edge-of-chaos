@@ -186,7 +186,11 @@ _RUNTIME_PRESSURE_NOISE_RE = (
         re.I,
     ),
     re.compile(r"^\s*Base directory for this skill:\s+\S*\.claude/skills/", re.I),
+    re.compile(r"^\s*## System\s*\n\s*You compress operator pressure into compact structured JSON\b", re.I),
     re.compile(r"^\s*## System\s*\n\s*You are a quality reviewer for report artifacts\b", re.I),
+    re.compile(r"^\s*You are converting an operator's free-form description of a research or work routine\b", re.I),
+    re.compile(r"^\s*You are bootstrapping an autonomous AI agent\. Generate seed content\b", re.I),
+    re.compile(r"^\s*You are implementing a source primitive for an autonomous agent\b", re.I),
 )
 
 
