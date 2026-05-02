@@ -274,6 +274,7 @@ DIMENSIONS = {
         "There is a narrative arc: setup (why this matters) → tension (the problem/question) "
         "→ exploration (what was tried/discovered) → resolution (what changed). "
         "Sections flow into each other with cause-effect or temporal logic. "
+        "Each section has a narrative lead or opening paragraph before dense evidence blocks. "
         "The reader should want to keep reading — not just scanning headers. "
         "The title and executive_summary hook the reader. "
         "Analogies and concrete scenarios make abstract ideas tangible. "
@@ -294,6 +295,7 @@ DIMENSIONS = {
     "writing_quality": (
         "Text in paragraph blocks is fluido (flowing prose), not telegráfico "
         "(bullet-point-only). Transitions between ideas. "
+        "Tables and charts are introduced and then interpreted; they do not appear as raw evidence dumps. "
         "Reflective tone, not didactic or robotic. "
         "Blockquotes sound like crystallized thoughts. "
         "Titles are evocative, not descriptive."
@@ -441,6 +443,8 @@ Flag as critical_issues if ANY of these:
 - Zero SVG-capable visualizations in entire spec (no bar-chart, line-chart, or raw-html inline SVG)
 - A report compares 3+ items/steps/metrics/risks/alternatives but has no chart, flow, matrix, timeline, or diagram representing that comparison visually
 - A report has multiple quantitative/trade-off comparisons but only one visual encoding and no clear reason for keeping the rest textual
+- Any non-reference section begins directly with a table, chart, metrics grid, diagram, comparison matrix, or gap table without a narrative `lead` or opening paragraph that explains how to read it
+- A dense evidence block such as a table, chart, matrix, or diagram is left without nearby interpretation of what the reader should conclude, decide, or keep uncertain
 - Associated blog entry duplicates the report structure or does not explain the operator gain from opening the report (if blog entry provided)
 - "O que Nao Sei" is clearly boilerplate (vague generic text, not specific to this report's topic)
 - Sections reference data/events not present elsewhere in the spec (internal contradiction)
@@ -489,6 +493,9 @@ Language: Portuguese (PT-BR). Output: ONLY the complete, corrected YAML. No mark
 - If an SVG/chart is missing and the reviewer flagged it, add a simple but real visualization; use `bar-chart` or `line-chart` for routine numerical data, and raw-html SVG for custom diagrams
 - If the report compares 3+ things, add a visual encoding of the comparison: bar-chart, line-chart, timeline, funnel, matrix, causal map, risk heatmap, before/after, or flow diagram
 - If the report has several analytical comparisons or operational trade-offs, add multiple visual encodings rather than one decorative chart
+- If a section starts with a table/chart/diagram/metrics grid, add a 2-4 sentence `lead` or opening paragraph that frames the question, relevance, and reading frame
+- After dense evidence blocks, add a concise paragraph or callout interpreting what the reader should conclude, decide, or keep uncertain
+- Do not make these additions by weakening analysis: preserve sources, gaps, derivation, recommendations, and concrete examples; compress oversized tables instead
 - If "O que Nao Sei" is flagged as boilerplate, rewrite with genuine, specific gaps
 - Keep all existing metadata intact (title, date, etc.)
 
@@ -498,6 +505,7 @@ Language: Portuguese (PT-BR). Output: ONLY the complete, corrected YAML. No mark
 - At least 1 SVG visualization (`bar-chart`, `line-chart`, or inline raw-html SVG); comparisons with 3+ values need a chart/diagram, not only a table
 - Reports with multiple comparisons/trends/trade-offs should use 2+ visual encodings when useful
 - Tables paired with charts when 3+ values compared
+- Each non-reference section needs a narrative lead or opening paragraph before dense evidence, and dense evidence needs interpretation after it
 """
 
 

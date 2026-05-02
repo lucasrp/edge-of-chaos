@@ -124,12 +124,21 @@ Adapt titles to the topic, but preserve the arc: context -> evidence -> analysis
 ## Report Quality
 
 - Sections should build on each other; order matters.
+- Each section should open with a short narrative lead or an initial paragraph
+  that explains the question, why it matters now, and how to read the evidence.
 - Tables beat prose when 3+ comparable items exist.
+- Tables, charts, diagrams, and matrices are evidence blocks, not substitutes
+  for explanation. Put a short interpretation after dense evidence so the
+  reader knows what changed, what decision it supports, or what remains
+  uncertain.
 - Comparisons beat paragraphs when alternatives have trade-offs.
 - Callouts should mark insights, risks, caveats, or decisions the reader should not miss.
 - Claims should be traceable to sources, files, or explicit reasoning.
 - Uncertainty should be visible, not hidden.
 - Recommendations should be concrete enough to execute or test.
+- Do not pay for narrative scaffolding by deleting sources, gaps, derivation,
+  or recommendations. If space is tight, compress oversized tables and remove
+  duplicate rows before weakening the analysis.
 
 ## Visuals
 

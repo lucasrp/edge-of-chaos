@@ -109,6 +109,14 @@ body {
   margin-bottom: 20px;
 }
 
+.section-lead {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--gray-700);
+  margin: -4px 0 18px;
+  max-width: 860px;
+}
+
 .subsection-title {
   font-size: 18px;
   font-weight: 600;

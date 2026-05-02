@@ -113,6 +113,7 @@ metrics:
 
 sections:
   - title: "1. [Skill section]"
+    lead: "Two to four sentences that frame the section's question, why it matters now, and how to read the evidence below."
     blocks: [...]
 
 # MANDATORY — auto-renders as the last section "References"
@@ -125,6 +126,26 @@ bibliography:
 ---
 
 ## Available Block Types
+
+Sections also support a top-level `lead` field. Use it for the short narrative
+bridge between the section title and the evidence blocks:
+
+```yaml
+sections:
+  - title: "2. What changed in the runtime"
+    lead: >
+      This section separates legitimate long-running work from actual stalls.
+      The table is evidence, not the argument: read it as a status map of
+      process liveness, event progress, and artifact completion.
+    blocks:
+      - type: table
+        headers: [...]
+        rows: [...]
+      - type: paragraph
+        text: >
+          The operational conclusion is that duration alone should not become
+          a failure signal when the owner process and event stream are alive.
+```
 
 | Type | Usage | Main fields |
 |------|-------|-------------|
@@ -166,6 +187,33 @@ The FIRST section of every report MUST include a block showing the chain of reas
 Include: previous reports, breaks, discoveries, proposals, research, executions, conversations with the user — any action that informed this work. Cite by name/number (e.g.: "Break #26 — tradecraft", "Research pipeline-minimo-viavel").
 
 If there is no relevant prior work, state explicitly: "First work on this topic."
+
+---
+
+## Golden Rule 1: Narrative Scaffolding (ALL skills)
+
+Do not make tables, charts, matrices, diagrams, metrics grids, or gap tables do
+the explanatory work alone. The reader needs a small interpretive bridge before
+dense evidence appears.
+
+Every non-reference section MUST satisfy one of these:
+
+- section has a `lead` with 2-4 concrete sentences;
+- or the first block is `paragraph` and explains the section's question,
+  relevance, and reading frame.
+
+If a section contains `table`, `comparison-table`, `risk-table`, `bar-chart`,
+`line-chart`, `comparison`, `metrics-grid`, `gap-table`, `raw-html` diagram, or
+similar dense evidence block, add reader guidance around it:
+
+- before: what question the evidence answers;
+- after: what the reader should conclude, decide, or keep uncertain.
+
+This is not permission to inflate the artifact. Preserve analytical depth,
+sources, gaps, and recommendations by shortening oversized tables, merging
+duplicate rows, and moving low-value detail into fewer, better explained blocks.
+Do not compensate for narrative leads by deleting evidence, citations,
+uncertainties, or executable next steps.
 
 ---
 
