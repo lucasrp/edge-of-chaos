@@ -207,6 +207,62 @@ else
     fail "phase_identity migrates legacy topics into state topics dir"
 fi
 
+echo "--- Test 4: _copy_file logs content hash when destination is symlink ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_HOME" "$TMP_REPO" "$TMP_STATE"
+import hashlib
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+edge_dir, home_dir, repo_dir, state_dir = sys.argv[1:]
+os.environ["HOME"] = home_dir
+os.environ["EDGE_STATE_DIR"] = state_dir
+os.environ["EDGE_CODENAME"] = "drift-test"
+os.environ["EDGE_CYCLE_ID"] = "install:test-copy-symlink-hash"
+
+loader = importlib.machinery.SourceFileLoader("edge_apply_mod", f"{edge_dir}/tools/edge-apply")
+spec = importlib.util.spec_from_loader(loader.name, loader)
+mod = importlib.util.module_from_spec(spec)
+loader.exec_module(mod)
+mod.REPO_ROOT = Path(repo_dir)
+
+src = Path(repo_dir) / "config" / "heartbeat.sh"
+src.write_text("#!/bin/sh\necho rendered-heartbeat\n", encoding="utf-8")
+target = Path(home_dir) / "actual-heartbeat.sh"
+target.write_text("stale\n", encoding="utf-8")
+dst = Path(home_dir) / ".local" / "bin" / "heartbeat.sh"
+dst.parent.mkdir(parents=True, exist_ok=True)
+dst.symlink_to(target)
+
+mod._copy_file(src, dst, phase="systemd", dry_run=False, chmod=0o755)
+
+expected_hash = "sha256:" + hashlib.sha256(src.read_bytes()).hexdigest()
+symlink_target_hash = "sha256:" + hashlib.sha256(os.readlink(dst).encode("utf-8")).hexdigest()
+events = [
+    json.loads(line)
+    for line in (Path(state_dir) / "state" / "events" / "log.jsonl").read_text(encoding="utf-8").splitlines()
+    if line.strip()
+]
+match = next(
+    event for event in reversed(events)
+    if event.get("type") == "InstallApplied"
+    and event.get("cycle_id") == "install:test-copy-symlink-hash"
+    and event.get("artifact") == str(dst)
+)
+payload_hash = (match.get("payload") or {}).get("hash")
+assert payload_hash == expected_hash, payload_hash
+assert payload_hash != symlink_target_hash
+assert target.read_bytes() == src.read_bytes()
+PY
+then
+    pass "_copy_file logs content hash through symlink destinations"
+else
+    fail "_copy_file logs content hash through symlink destinations"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"

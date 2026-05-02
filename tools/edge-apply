@@ -57,9 +57,9 @@ def _hash_text(content: str) -> str:
     return f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
 
 
-def _hash_path(path: Path) -> str | None:
+def _hash_path(path: Path, *, follow_symlinks: bool = False) -> str | None:
     try:
-        if path.is_symlink():
+        if path.is_symlink() and not follow_symlinks:
             target = os.readlink(path)
             return f"sha256:{hashlib.sha256(target.encode('utf-8')).hexdigest()}"
         if path.is_file():
@@ -163,7 +163,9 @@ def _copy_file(
         source_template=_repo_relative(src),
         action="copy",
         kind="file",
-        hash_value=_hash_path(dst),
+        # shutil.copy2 follows an existing destination symlink; the install
+        # event must match the bytes edge-doctor reads from the artifact path.
+        hash_value=_hash_path(dst, follow_symlinks=True),
         phase=phase,
         dry_run=False,
         executable=bool(chmod),
