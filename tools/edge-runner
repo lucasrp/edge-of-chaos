@@ -22,9 +22,11 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import EDGE_INSTANCE, EDGE_REPO_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
+from paths import EDGE_INSTANCE, EDGE_REPO_DIR, ENTRIES_DIR, REPORTS_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.artifact_runtime import publish_stdout_artifact  # noqa: E402
 from _shared.dispatch_runtime import read_dispatch_state, render_skill_runtime_prompt, write_dispatch_state  # noqa: E402
+from _shared.skill_policy import skill_accepts_stdout_artifact  # noqa: E402
 from _shared.telemetry import emit_shadow_event  # noqa: E402
 from _shared.telemetry import log_run_step  # noqa: E402
 
@@ -514,27 +516,49 @@ def resolve_skill_timeout_seconds() -> int | None:
     return value
 
 
-def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: str | None = None) -> int:
+def _print_backend_output(output: str) -> None:
+    if not output:
+        return
+    sys.stdout.write(output)
+    if not output.endswith("\n"):
+        sys.stdout.write("\n")
+    sys.stdout.flush()
+
+
+def invoke_backend(args: argparse.Namespace, env: dict[str, str], *, cycle_id: str | None = None) -> tuple[int, str]:
     content = build_backend_content(args, cycle_id)
     cmd = build_backend_command(args)
 
     timeout_seconds = resolve_skill_timeout_seconds()
     if timeout_seconds is None:
-        result = subprocess.run(cmd, env=env, cwd=resolve_cwd(args.cwd), input=content, text=True)
-        return result.returncode
+        result = subprocess.run(
+            cmd,
+            env=env,
+            cwd=resolve_cwd(args.cwd),
+            input=content,
+            text=True,
+            capture_output=True,
+        )
+        output = (result.stdout or "") + (result.stderr or "")
+        _print_backend_output(output)
+        return result.returncode, output
 
     popen_kwargs: dict = {
         "env": env,
         "cwd": resolve_cwd(args.cwd),
         "stdin": subprocess.PIPE,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
         "text": True,
     }
     if os.name == "posix":
         popen_kwargs["start_new_session"] = True
     proc = subprocess.Popen(cmd, **popen_kwargs)
     try:
-        proc.communicate(input=content, timeout=timeout_seconds)
-        return proc.returncode
+        output, _ = proc.communicate(input=content, timeout=timeout_seconds)
+        output = output or ""
+        _print_backend_output(output)
+        return proc.returncode, output
     except subprocess.TimeoutExpired:
         target = args.skill if args.cmd == "skill" else "prompt"
         emit_shadow_event(
@@ -620,6 +644,56 @@ def maybe_mark_skill_completion(skill: str, cycle_id: str | None, exit_code: int
     )
 
 
+def artifact_published_for_cycle(cycle_id: str | None) -> bool:
+    if not cycle_id:
+        return False
+    state = dispatch_state_matches(cycle_id)
+    threshold = None
+    if state:
+        state_block = state.get("state", {}) or {}
+        threshold = state_block.get("dispatched_at") or state_block.get("opened_at")
+    for event in reversed(iter_jsonl(STATE_EVENTS_FILE)):
+        if event.get("type") != "ArtifactPublished":
+            continue
+        if event.get("cycle_id") != cycle_id:
+            continue
+        if threshold and not iso_ge(event.get("ts"), threshold):
+            continue
+        artifact = str(event.get("artifact") or (event.get("payload", {}) or {}).get("artifact") or "")
+        if artifact.startswith("blog/entries/"):
+            return True
+    return False
+
+
+def maybe_publish_stdout_artifact(skill: str, cycle_id: str | None, exit_code: int, output: str) -> None:
+    if not cycle_id or exit_code != 0:
+        return
+    normalized = normalize_skill_name(skill)
+    if not skill_accepts_stdout_artifact(normalized, instance=EDGE_INSTANCE):
+        return
+    if artifact_published_for_cycle(cycle_id):
+        return
+    result = publish_stdout_artifact(
+        skill=normalized,
+        cycle_id=cycle_id,
+        output=output,
+        entries_dir=ENTRIES_DIR,
+        reports_dir=REPORTS_DIR,
+        instance=EDGE_INSTANCE,
+    )
+    status = "completed" if result.get("published") else "warning"
+    log_run_step(
+        "edge-runner",
+        "stdout_artifact_publish",
+        status,
+        run_id=cycle_id,
+        backend="runtime",
+        mode="artifact",
+        target=normalized,
+        close_reason=str(result.get("reason") or ""),
+    )
+
+
 def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--backend", default="claude", choices=["claude"])
     parser.add_argument("--cwd", help="Working directory for the backend invocation")
@@ -689,11 +763,12 @@ def main() -> int:
                 target=args.skill if args.cmd == "skill" else "prompt",
             )
 
-        exit_code = invoke_backend(args, env, cycle_id=cycle_id)
+        exit_code, backend_output = invoke_backend(args, env, cycle_id=cycle_id)
         if args.cmd == "prompt":
             maybe_mark_skill_completion("prompt", cycle_id, exit_code)
         elif args.cmd == "skill":
             maybe_mark_skill_completion(args.skill, cycle_id, exit_code)
+            maybe_publish_stdout_artifact(args.skill, cycle_id, exit_code, backend_output)
 
         follow_on_skill = dispatched_follow_on_skill(args, cycle_id)
         if follow_on_skill and exit_code == 0:
@@ -723,8 +798,9 @@ def main() -> int:
                     target=follow_on_skill,
                 )
                 follow_on_args = make_follow_on_skill_args(args, follow_on_skill)
-                follow_on_exit = invoke_backend(follow_on_args, env, cycle_id=cycle_id)
+                follow_on_exit, follow_on_output = invoke_backend(follow_on_args, env, cycle_id=cycle_id)
                 maybe_mark_skill_completion(follow_on_skill, cycle_id, follow_on_exit)
+                maybe_publish_stdout_artifact(follow_on_skill, cycle_id, follow_on_exit, follow_on_output)
                 final_status = "completed" if follow_on_exit == 0 else "failed"
                 log_run_step(
                     "edge-runner",
