@@ -42,6 +42,16 @@ step requires an external/destructive mutation rather than research.
 ## Boundary
 
 Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill.
+Do use the shared uniform report pipeline as the publication path for every
+research deliverable. A stdout-only research answer is not a completed
+`/ed-research` run. Before drafting, read `skills/_shared/report-template.md`
+from the active edge repo, write a YAML report spec and a light staging blog
+entry in `/tmp`, then run `consolidate-state` so the research becomes a durable
+blog entry, HTML report, and meta-report. If a gate blocks, address the specific
+feedback and rerun `consolidate-state`. Do not close by asking the operator
+whether to publish, by recommending a future publication pass, or by handing off
+with only prose or staging files. If publication cannot complete, surface the
+concrete failing command and reason instead of reporting success.
 
 ## Research Method
 
@@ -125,6 +135,10 @@ Synthesis must include:
 ## Output Contract
 
 Produce a research artifact suitable for the uniform report pipeline.
+The artifact is complete only after `consolidate-state` succeeds and the
+generated HTML report, blog entry, and meta-report have been verified. The final
+chat response should summarize the published paths and key finding; it must not
+be the only place where the research exists.
 
 Recommended sections:
 
