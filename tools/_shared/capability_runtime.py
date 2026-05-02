@@ -545,7 +545,7 @@ def build_configured_integrations(*, skill: str | None = None) -> dict[str, Any]
 
     def _binding_status(candidate_capabilities: list[str]) -> str:
         if not candidate_capabilities:
-            return "absent"
+            return "not_applicable"
         matched = [capability_rows.get(name) for name in candidate_capabilities if capability_rows.get(name)]
         if not matched:
             return "absent"
@@ -576,12 +576,17 @@ def build_configured_integrations(*, skill: str | None = None) -> dict[str, Any]
             integrations.append(integration)
 
     integrations.sort(key=lambda item: (item.get("capability_binding") != "absent", str(item.get("name") or "")))
-    unbound = [item for item in integrations if item.get("capability_binding") == "absent"]
+    unbound = [
+        item
+        for item in integrations
+        if item.get("capability_binding") == "absent" and item.get("candidate_capabilities")
+    ]
     summary = {
         "integration_total": len(integrations),
         "unbound_total": len(unbound),
         "bound_total": sum(1 for item in integrations if item.get("capability_binding") == "present"),
         "degraded_total": sum(1 for item in integrations if item.get("capability_binding") == "degraded"),
+        "not_applicable_total": sum(1 for item in integrations if item.get("capability_binding") == "not_applicable"),
     }
     return {
         "summary": summary,
