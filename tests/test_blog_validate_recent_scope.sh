@@ -48,6 +48,10 @@ cat > "$TMP/reports/${old_day}-old-wrong-format.html" <<'EOF'
 <html><body>old report</body></html>
 EOF
 
+cat > "$TMP/reports/spec-legacy-orphan.html" <<'EOF'
+<html><body>undated legacy orphan</body></html>
+EOF
+
 if ! EDGE_REPO_DIR="$ROOT" EDGE_STATE_DIR="$TMP" python3 "$ROOT/blog/validate.py" --recent > "$TMP/recent.out"; then
   cat "$TMP/recent.out"
   echo "expected --recent to ignore historical broken refs" >&2
@@ -63,3 +67,17 @@ fi
 grep -q "ALL CLEAR" "$TMP/recent.out"
 grep -q "BROKEN REFS" "$TMP/full.out"
 grep -q "WRONG FORMAT" "$TMP/full.out"
+grep -q "spec-legacy-orphan.html" "$TMP/full.out"
+
+cat > "$TMP/reports/${today}-orphan-report.html" <<'EOF'
+<html><body>recent orphan</body></html>
+EOF
+
+if EDGE_REPO_DIR="$ROOT" EDGE_STATE_DIR="$TMP" python3 "$ROOT/blog/validate.py" --recent > "$TMP/recent-orphan.out"; then
+  cat "$TMP/recent-orphan.out"
+  echo "expected --recent to report dated recent orphan reports" >&2
+  exit 1
+fi
+
+grep -q "ORPHAN REPORTS" "$TMP/recent-orphan.out"
+grep -q "${today}-orphan-report.html" "$TMP/recent-orphan.out"
