@@ -114,6 +114,7 @@ def build_delta_source_manifest(config: RuntimeConfig) -> list[dict[str, Any]]:
     )
     manifest.extend(
         [
+            {"name": "chat_digest", "kind": "genotypic_context_projection", "enabled": True, "available": config.chat_digest_path.exists(), "path": str(config.chat_digest_path)},
             {"name": "threads", "kind": "state_projection", "enabled": True, "available": config.threads_dir.exists(), "path": str(config.threads_dir)},
             {"name": "reports", "kind": "state_projection", "enabled": True, "available": config.reports_dir.exists(), "path": str(config.reports_dir)},
             {"name": "events", "kind": "ledger", "enabled": True, "available": config.ledger_path.exists(), "path": str(config.ledger_path)},
@@ -229,6 +230,15 @@ def load_claude_sessions(config: RuntimeConfig) -> list[Observation]:
     return observations
 
 
+def load_chat_digest(config: RuntimeConfig) -> list[Observation]:
+    if not config.chat_digest_path.exists():
+        return []
+    snippet = _read_snippet(config.chat_digest_path, limit=2400)
+    if not snippet:
+        return []
+    return [Observation("chat_digest", "Claude chat digest", snippet, str(config.chat_digest_path))]
+
+
 def load_threads(config: RuntimeConfig) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     if not config.threads_dir.exists():
@@ -255,7 +265,7 @@ def assemble_context(config: RuntimeConfig, ledger: Ledger, *, kind: str, reques
     observations = []
     observations.append(Observation("request", "current request", request or f"autonomous {kind} beat"))
     observations.extend(load_workspace_observations(config))
-    observations.extend(load_claude_sessions(config))
+    observations.extend(load_chat_digest(config))
     return ContextPacket(
         request=request or f"Run a {kind} beat",
         kind=kind,

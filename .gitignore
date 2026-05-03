@@ -1,4 +1,5 @@
 agent.yaml
+.env
 bin/
 config/*
 !config/.gitkeep

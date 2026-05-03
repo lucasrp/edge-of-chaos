@@ -76,7 +76,7 @@ Continuar com uma consulta privada rica, ancorada no delta e sem mutar o workspa
 
 
 def revise_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str, draft: str, reviews: list[ReviewResult], *, stage: str) -> str:
-    client = LLMClient()
+    client = LLMClient(role="report")
     feedback = [
         {
             "reviewer": review.reviewer,
@@ -164,7 +164,7 @@ def build_blog(config: RuntimeConfig) -> Path:
 
 
 def _llm_draft_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str) -> str | None:
-    client = LLMClient()
+    client = LLMClient(role="report")
     prompt = {
         "kind": packet.kind,
         "request": packet.request,

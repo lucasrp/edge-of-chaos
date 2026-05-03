@@ -24,23 +24,29 @@ class ReviewResult:
 
 
 class LLMClient:
-    def __init__(self) -> None:
+    def __init__(self, *, role: str = "default") -> None:
         self.api_key = os.environ.get("OPENAI_API_KEY")
         self.base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        role_key = "EDGE_MODEL_" + re.sub(r"[^A-Z0-9]+", "_", role.upper()).strip("_")
         self.model = (
-            os.environ.get("OPENAI_MODEL")
-            or os.environ.get("EDGE_MODEL_DIALOGUE")
-            or os.environ.get("EDGE_MODEL_ADVERSARIAL_OPENAI")
-            or "gpt-5.4"
+            os.environ.get(role_key)
+            or os.environ.get("OPENAI_MODEL")
+            or os.environ.get("EDGE_OPENAI_MODEL")
+            or ""
         )
         if self.base_url.rstrip("/") == "https://api.openai.com/v1" and self.model.startswith("gpt_"):
             self.model = self.model.replace("gpt_", "gpt-", 1).replace("_", ".")
+        self.last_provider = "none"
+        self.last_error = ""
 
     def available(self) -> bool:
         return bool(self.api_key)
 
     def complete_json(self, *, system: str, prompt: str) -> dict[str, Any] | None:
         if not self.available():
+            return self._complete_claude_json(system=system, prompt=prompt)
+        if not self.model:
+            self.last_error = "openai:model-not-configured"
             return self._complete_claude_json(system=system, prompt=prompt)
         body = {
             "model": self.model,
@@ -59,16 +65,26 @@ class LLMClient:
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        except urllib.error.HTTPError as exc:
+            self.last_error = self._http_error(exc)
+            return self._complete_claude_json(system=system, prompt=prompt)
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            self.last_error = f"openai:{type(exc).__name__}"
             return self._complete_claude_json(system=system, prompt=prompt)
         content = (((payload.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
         parsed = self._parse_json_object(content)
         if parsed is not None:
+            self.last_provider = f"openai:{self.model}"
+            self.last_error = ""
             return parsed
+        self.last_error = "openai:invalid-json"
         return self._complete_claude_json(system=system, prompt=prompt)
 
     def complete_text(self, *, system: str, prompt: str) -> str | None:
         if not self.available():
+            return self._complete_claude_text(system=system, prompt=prompt)
+        if not self.model:
+            self.last_error = "openai:model-not-configured"
             return self._complete_claude_text(system=system, prompt=prompt)
         body = {
             "model": self.model,
@@ -86,9 +102,18 @@ class LLMClient:
         try:
             with urllib.request.urlopen(request, timeout=45) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        except urllib.error.HTTPError as exc:
+            self.last_error = self._http_error(exc)
+            return self._complete_claude_text(system=system, prompt=prompt)
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            self.last_error = f"openai:{type(exc).__name__}"
             return self._complete_claude_text(system=system, prompt=prompt)
         content = (((payload.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+        if content:
+            self.last_provider = f"openai:{self.model}"
+            self.last_error = ""
+            return content
+        self.last_error = "openai:empty-response"
         return content or self._complete_claude_text(system=system, prompt=prompt)
 
     def _complete_claude_json(self, *, system: str, prompt: str) -> dict[str, Any] | None:
@@ -105,6 +130,7 @@ class LLMClient:
             return None
         claude = shutil.which("claude")
         if not claude:
+            self.last_error = self.last_error or "claude:not-found"
             return None
         full_prompt = f"{system}\n\n{prompt}"
         try:
@@ -114,11 +140,25 @@ class LLMClient:
                 text=True,
                 timeout=int(os.environ.get("EDGE_CLAUDE_TIMEOUT_SEC", "120")),
             )
-        except (OSError, subprocess.TimeoutExpired):
+        except subprocess.TimeoutExpired:
+            self.last_error = "claude:timeout"
+            return None
+        except OSError as exc:
+            self.last_error = f"claude:{type(exc).__name__}"
             return None
         if result.returncode != 0:
+            self.last_error = f"claude:exit-{result.returncode}"
             return None
+        self.last_provider = "claude-cli"
         return (result.stdout or "").strip() or None
+
+    @staticmethod
+    def _http_error(exc: urllib.error.HTTPError) -> str:
+        try:
+            body = exc.read().decode("utf-8", errors="ignore")
+        except OSError:
+            body = ""
+        return truncate(f"openai:http-{exc.code} {body}", 500)
 
     @staticmethod
     def _parse_json_object(content: str) -> dict[str, Any] | None:
@@ -146,7 +186,7 @@ class LLMClient:
 
 
 def context_search_review(packet: ContextPacket, searches: list[SearchResult], *, round_index: int) -> ReviewResult:
-    client = LLMClient()
+    client = LLMClient(role="review")
     prompt = json.dumps(
         {
             "round": round_index,
@@ -167,6 +207,9 @@ def context_search_review(packet: ContextPacket, searches: list[SearchResult], *
     )
     if llm:
         llm["round"] = round_index
+        llm["_llm_provider"] = client.last_provider
+        if client.last_error:
+            llm["_llm_error"] = client.last_error
         return ReviewResult("completed", "llm:context-search", str(llm.get("summary") or llm.get("reason") or "context/search reviewed"), llm)
 
     has_observations = len(packet.observations) >= 2
@@ -218,7 +261,7 @@ def context_readiness(packet: ContextPacket, *, attempt: int) -> ReviewResult:
 
 
 def adversarial_review(report: str, packet: ContextPacket | None = None, searches: list[SearchResult] | None = None, *, round_index: int = 1) -> ReviewResult:
-    client = LLMClient()
+    client = LLMClient(role="review")
     payload: Any = report[:16000]
     if packet is not None:
         payload = {
@@ -237,13 +280,16 @@ def adversarial_review(report: str, packet: ContextPacket | None = None, searche
     )
     if llm:
         llm["round"] = round_index
+        llm["_llm_provider"] = client.last_provider
+        if client.last_error:
+            llm["_llm_error"] = client.last_error
         return ReviewResult("completed", "llm:adversarial", str(llm.get("summary") or "adversarial review completed"), llm)
     summary = "Local fallback: challenge generic claims, missing source diversity, weak continuity, and recommendations not tied to the observed delta."
     return ReviewResult("completed", "local:adversarial", summary, {"summary": summary, "mode": "local-fallback", "round": round_index, "suggested_queries": []})
 
 
 def feynman_review(report: str, packet: ContextPacket | None = None, searches: list[SearchResult] | None = None) -> ReviewResult:
-    client = LLMClient()
+    client = LLMClient(role="review")
     payload: Any = report[:16000]
     if packet is not None:
         payload = {
@@ -260,6 +306,9 @@ def feynman_review(report: str, packet: ContextPacket | None = None, searches: l
         prompt=json.dumps(payload, ensure_ascii=False)[:22000] if isinstance(payload, dict) else payload,
     )
     if llm:
+        llm["_llm_provider"] = client.last_provider
+        if client.last_error:
+            llm["_llm_error"] = client.last_error
         return ReviewResult("completed", "llm:feynman-review", str(llm.get("summary") or "Feynman review completed"), llm)
     has_gap = "gap" in report.lower() or "lacuna" in report.lower()
     summary = "Local fallback: explanation is acceptable if it states the simple model, evidence, gaps, and next step."
@@ -269,7 +318,7 @@ def feynman_review(report: str, packet: ContextPacket | None = None, searches: l
 
 
 def classify_report_utility(report: str, packet: ContextPacket, reviews: list[ReviewResult]) -> ReviewResult:
-    client = LLMClient()
+    client = LLMClient(role="utility")
     llm = client.complete_json(
         system=(
             "Classify this generated mentor report for future curation. Return JSON with utility_score 0-5, "
@@ -286,6 +335,9 @@ def classify_report_utility(report: str, packet: ContextPacket, reviews: list[Re
         )[:22000],
     )
     if llm:
+        llm["_llm_provider"] = client.last_provider
+        if client.last_error:
+            llm["_llm_error"] = client.last_error
         return ReviewResult("completed", "llm:report-utility", str(llm.get("summary") or "utility classified"), llm)
     score = 2 if "degraded local fallback" in report.lower() else 3
     data = {

@@ -35,6 +35,9 @@ workspaces:
   - name: fixture
     path: "."
     kind: repo
+context:
+  claude_sessions:
+    enabled: false
 sources:
   - name: hackernews
     enabled: false
@@ -77,6 +80,7 @@ interests:
         self.assertTrue((self.tmp / "state" / "report-utility.jsonl").exists())
         ledger = (self.tmp / "state" / "events.jsonl").read_text(encoding="utf-8")
         self.assertIn("StateLoaded", ledger)
+        self.assertIn("ChatDigestRefreshed", ledger)
         self.assertIn("ContinuitySearchReviewed", ledger)
         self.assertIn("BroadSearchCompleted", ledger)
         self.assertIn("ReportDrafted", ledger)
@@ -90,6 +94,7 @@ interests:
     def test_rite_requires_two_context_search_reviews(self) -> None:
         events = [
             {"type": "CycleOpened"},
+            {"type": "ChatDigestRefreshed"},
             {"type": "StateLoaded"},
             {"type": "DeliveryCompleted", "stage": "context-pack"},
             {"type": "ContinuitySearchReviewed", "reviewer": "llm:context-search"},

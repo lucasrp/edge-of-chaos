@@ -21,6 +21,7 @@ These are fixed and cannot be configured away:
 - Feynman principles govern reasoning: derive, simplify, expose gaps.
 - Skills are consultive by default and do not mutate mentee workspaces.
 - Every beat runs the minimum rite:
+  - refresh the LLM-maintained digest of Claude chat deltas;
   - load state and delta source manifest;
   - continuity/context/search review twice;
   - broad search after reviewer search suggestions;
@@ -44,6 +45,9 @@ These are fixed and cannot be configured away:
 
 It does not decide whether Edge is a mentor. That belongs to the genotype.
 
+Model defaults are non-secret phenotype defaults in `.env.defaults`, not Python
+constants. Instance-specific overrides belong in `.env` or `keys/*.env`.
+
 ## Context And Search Reviews
 
 The old system tried to enforce prose with primitives, capabilities, and many
@@ -51,8 +55,8 @@ deterministic checks. v2 keeps the execution guarantee but removes the ontology.
 
 The runtime always assembles a context pack with two source manifests:
 
-- `delta_source_manifest`: workspaces, Claude sessions, threads, reports,
-  events, first steps, seed threads, interests;
+- `delta_source_manifest`: workspaces, Claude sessions, chat digest, threads,
+  reports, events, first steps, seed threads, interests;
 - `search_source_manifest`: Exa, Hacker News, X, GitHub, configured status, and
   credential availability without exposing secrets.
 
@@ -73,7 +77,7 @@ The deterministic part is the `Rite Gate`. Before a cycle can close, the ledger
 must show the required events in order:
 
 ```text
-CycleOpened -> StateLoaded -> DeliveryCompleted(context-pack) ->
+CycleOpened -> ChatDigestRefreshed -> StateLoaded -> DeliveryCompleted(context-pack) ->
 ContinuitySearchReviewed -> BroadSearchCompleted ->
 DeliveryCompleted(evidence-pack-v1) ->
 ContinuitySearchReviewed -> BroadSearchCompleted ->
@@ -106,6 +110,7 @@ state/events.jsonl
 Threads, digests, and blog indexes are read models or applied projections:
 
 ```text
+state/chat-digest.md
 state/threads/
 state/digests/
 state/report-utility.jsonl
@@ -116,6 +121,12 @@ blog/entries/
 Reports are the rich deliverable. Threads are compact continuity. Report utility
 classification is a lightweight projection for future curation of generated
 content.
+
+`state/chat-digest.md` is the compact genotypic projection of Claude chats. A
+digest LLM reads the previous digest and only new session deltas, ignores
+runtime/reviewer boilerplate, and writes a fresh summary of operator direction,
+domain vocabulary, open threads, decisions, mistakes to avoid, and the recent
+delta. Beats consume this digest instead of raw chat logs.
 
 ## Blog
 

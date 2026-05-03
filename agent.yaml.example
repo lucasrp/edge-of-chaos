@@ -27,6 +27,10 @@ context:
   claude_sessions:
     enabled: true
     max_files: 6
+    digest:
+      enabled: true
+      max_delta_files: 8
+      max_delta_chars: 28000
   shell_history:
     enabled: false
   recent_files:

@@ -6,6 +6,7 @@ from typing import Any
 
 REQUIRED_ORDER = [
     "CycleOpened",
+    "ChatDigestRefreshed",
     "StateLoaded",
     "DeliveryCompleted",
     "ContinuitySearchReviewed",

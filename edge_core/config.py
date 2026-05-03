@@ -55,6 +55,14 @@ class RuntimeConfig:
     def ledger_path(self) -> Path:
         return self.state_dir / "events.jsonl"
 
+    @property
+    def chat_digest_path(self) -> Path:
+        return self.state_dir / "chat-digest.md"
+
+    @property
+    def chat_digest_cursor_path(self) -> Path:
+        return self.state_dir / "chat-digest-cursor.json"
+
 
 def repo_root(start: Path | None = None) -> Path:
     current = (start or Path.cwd()).resolve()
@@ -104,6 +112,7 @@ def load_local_env(root: Path) -> None:
         Path.home() / "edge" / "secrets" / "exa.env",
         Path.home() / "edge" / "secrets" / "x-api.env",
         Path.home() / "edge" / "secrets" / "keys.env",
+        root / ".env.defaults",
     ]
     for path in candidates:
         _load_env_file(path)

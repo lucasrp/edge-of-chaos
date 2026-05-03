@@ -4,6 +4,7 @@ import uuid
 from typing import Any
 from dataclasses import dataclass
 
+from .chat_digest import refresh_chat_digest
 from .config import RuntimeConfig, ensure_runtime_dirs
 from .context import assemble_context
 from .ledger import Ledger
@@ -61,6 +62,8 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
     cycle_id = f"cycle-{now_iso()}-{uuid.uuid4().hex[:8]}"
     record("CycleOpened", kind=kind, request=request)
 
+    chat_digest = refresh_chat_digest(config)
+    record("ChatDigestRefreshed", **chat_digest)
     packet = assemble_context(config, ledger, kind=kind, request=request)
     record(
         "StateLoaded",
