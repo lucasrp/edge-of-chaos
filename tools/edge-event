@@ -16,7 +16,7 @@ Tipos de evento:
   thread_updated     — fio atualizado (resurface, status, decisão)
   claim_resolved     — claim aberta (!) resolvida
   user_directive     — pedido do usuário recebido
-  error_logged       — erro registrado no debugging.md
+  error_logged       — erro registrado na observabilidade/operator-pressure
   maintenance        — compactação, indexação, cleanup
 """
 

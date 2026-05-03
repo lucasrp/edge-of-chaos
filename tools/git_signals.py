@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""git_signals.py — Extract structured signals from git log for reflexao.
+"""git_signals.py — Extract structured signals from git log for runtime curation.
 
 Usage:
   python3 git_signals.py                  # default: 7d window
@@ -291,7 +291,7 @@ def compute_open_gaps_summary(commits):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Extract structured signals from git log for reflexao"
+        description="Extract structured signals from git log for runtime curation"
     )
     parser.add_argument(
         "--since",

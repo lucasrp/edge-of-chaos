@@ -601,8 +601,7 @@ def phase_identity(cfg, dry_run):
 
     # Memory → ~/.claude/projects/{project}/memory/ (only if not exists)
     mem_dst = Path.home() / ".claude" / "projects" / cfg["memory_project_dir"] / "memory"
-    mem_files = ["personality.md", "rules-core.md", "metodo.md",
-                 "debugging.md", "knowledge-design.md"]
+    mem_files = ["personality.md", "rules-core.md", "metodo.md", "knowledge-design.md"]
     created = 0
     for f in mem_files:
         src = REPO_ROOT / "memory" / f
@@ -1678,28 +1677,6 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
             "\n".join(lines),
             phase="seed",
             source_template="generated:seed:interests",
-            dry_run=False,
-        )
-        seeded += 1
-
-    # --- memory/reflection-log.md ---
-    rl = Path.home() / ".claude" / "projects"
-    mem_dir = None
-    for d in rl.iterdir() if rl.exists() else []:
-        mem_candidate = d / "memory"
-        if mem_candidate.exists():
-            mem_dir = mem_candidate
-            break
-    if mem_dir is None:
-        mem_dir = edge / "memory"
-
-    ref_log = mem_dir / "reflection-log.md"
-    if not ref_log.exists() or ref_log.stat().st_size == 0:
-        _write_text(
-            ref_log,
-            "# Reflection — Execution Log\n\n---\n\n_Initialized on install. Heartbeat curation may route concrete corrections here._\n",
-            phase="seed",
-            source_template="generated:seed:reflection-log",
             dry_run=False,
         )
         seeded += 1

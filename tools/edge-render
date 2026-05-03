@@ -441,7 +441,7 @@ def build_placeholder_map(cfg: dict) -> dict:
         "RUNTIME_ROUTERS_FILE": _render_runtime_routers_file(cfg["routers"]),
         # Phenotype content (defaults, operator customizes post-install)
         "VOICE": cfg["voice"],
-        "PROJECT_CONTEXT": "(no projects configured — updated by /reflexao)",
+        "PROJECT_CONTEXT": "(no projects configured — updated by planner/heartbeat)",
         "SHARED_PROFILE": cfg["bio"],
         "INTERESTS_TABLE": "| Area | Connection |\n|------|--------|\n| (TBD) | (TBD) |",
         "INTERSECTION_EXAMPLES": "- (TBD after domain reconnaissance)",

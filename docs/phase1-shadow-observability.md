@@ -108,7 +108,7 @@ Health exists across:
 - `logs/pipeline-failures.jsonl`
 - `logs/execution-ledger.jsonl`
 - operator actions
-- reflection / debugging artifacts
+- operator-pressure and dispatch-cycle projections
 
 ## Emitter Map
 

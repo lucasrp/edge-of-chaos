@@ -209,7 +209,7 @@ This is **MANDATORY** before executing any skill (see state-protocol.md).
 
 ## Broken workflow = bug
 
-A workflow that fails during execution should be recorded in `debugging.md` and marked as stale with an `open_gaps:` entry or new anti-pattern.
+A workflow that fails during execution should be handled inline, visible through observability/operator-pressure, and marked as stale with an `open_gaps:` entry or new anti-pattern when the failure implies a reusable correction.
 
 ---
 

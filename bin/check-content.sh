@@ -90,7 +90,7 @@ if len(stable_dates) > 1:
     all_same = all(abs(first - day) <= 2 for day in stable_dates)
     if all_same and first > 7:
         stale_files.append(f"STABLE_GROUP:{first}d")
-        remediation.append({"file": "stable_group", "days_stale": first, "remedy_skill": "/ed-reflexao", "priority": 1})
+        remediation.append({"file": "stable_group", "days_stale": first, "remedy_skill": "/ed-planner", "priority": 1})
 
 print(json.dumps({
     "total_monitored": len(expanded),

@@ -1738,28 +1738,6 @@ if proposal_path.exists():
 if audit_path.exists():
     lines.append(f"audit: {audit_path.name}")
 
-# ── Execution summary from ops-hotspots.json ──
-try:
-    hotspots_path = Path(os.environ.get("OPS_HOTSPOTS", os.path.expanduser("~/edge/state/ops-hotspots.json")))
-    if hotspots_path.exists():
-        hotspots = json.loads(hotspots_path.read_text())
-        incidents = hotspots.get("incidents", [])
-        # Filter to failure incidents (signature contains non-success error_class)
-        fail_incidents = [i for i in incidents if ":success:" not in i.get("signature", "")]
-        if fail_incidents:
-            total_retries = sum(i.get("count", 0) for i in fail_incidents)
-            total_wasted = sum(i.get("total_wasted_ms", 0) for i in fail_incidents)
-            # Extract tool names with counts from signatures (tool:error_class:phase)
-            tool_counts = {}
-            for i in fail_incidents:
-                tool_name = i.get("signature", "").split(":")[0]
-                if tool_name:
-                    tool_counts[tool_name] = tool_counts.get(tool_name, 0) + i.get("count", 0)
-            tools_str = ",".join(f"{t}({c})" for t, c in sorted(tool_counts.items(), key=lambda x: -x[1]))
-            lines.append(f"execution-summary: retries={total_retries} tools_failed={tools_str} wasted_ms={total_wasted}")
-except Exception:
-    pass  # Backwards compatible — omit on any error
-
 lines.append("")
 meta = {
     "title": title,

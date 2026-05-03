@@ -6,7 +6,7 @@ monitored_files:
     glob: "*.md"
     category: blog
     threshold_days: 3
-    remedy_skill: "/{{ SKILL_PREFIX }}-reflexao"
+    remedy_skill: "/{{ SKILL_PREFIX }}-planner"
 
   - path: "{{ WORK_DIR }}/threads"
     glob: "*.md"

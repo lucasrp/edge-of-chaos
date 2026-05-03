@@ -3,11 +3,10 @@
 
 Usage:
     edge-state-lint              # Run all checks, human-readable output
-    edge-state-lint --json       # JSON output for /ed-reflexao
-    edge-state-lint --check X    # Run specific check (gaps, threads, refs, breaks)
+    edge-state-lint --json       # JSON output for runtime/ops console
+    edge-state-lint --check X    # Run specific check (threads, refs, breaks)
 
 Checks:
-    gaps     — frontier.md GAP statuses vs debugging.md mentions
     threads  — overdue resurface dates, missing fields, stale threads
     refs     — file path references in memory/*.md → existence check
     breaks   — breaks-active.md staleness (entries > 7 days old)
@@ -27,9 +26,7 @@ except ImportError:
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import (MEMORY_DIR, FRONTIER_FILE as FRONTIER,
-                   DEBUGGING_FILE as DEBUGGING, THREADS_DIR, BREAKS_ACTIVE,
-                   LOGS_DIR)
+from paths import MEMORY_DIR, THREADS_DIR, BREAKS_ACTIVE, LOGS_DIR
 TODAY = datetime.date.today()
 
 findings = []
@@ -44,71 +41,7 @@ def finding(check, severity, message, detail=None):
 
 
 # ---------------------------------------------------------------------------
-# Check 1: GAP cross-reference (frontier.md vs debugging.md)
-# ---------------------------------------------------------------------------
-
-def check_gaps():
-    """Compare GAP statuses between frontier.md and debugging.md."""
-    if not FRONTIER.exists():
-        finding("gaps", "warn", "frontier.md não encontrado", str(FRONTIER))
-        return
-    if not DEBUGGING.exists():
-        finding("gaps", "warn", "debugging.md não encontrado", str(DEBUGGING))
-        return
-
-    frontier_text = FRONTIER.read_text()
-    debug_text = DEBUGGING.read_text()
-
-    # Parse frontier.md GAP entries
-    # Patterns: "### GAP-N: ...", "### ~~GAP-N: ...~~ RESOLVIDO"
-    frontier_gaps = {}
-    for m in re.finditer(
-        r'###\s+(?:~~)?GAP-(\d+)[:\s]+(.+?)(?:~~)?\s*(?:—|RESOLVIDO|PARCIALMENTE|$)',
-        frontier_text
-    ):
-        gap_id = f"GAP-{m.group(1)}"
-        line = m.group(0)
-        if "~~" in line and "RESOLVIDO" in line.upper():
-            frontier_gaps[gap_id] = "RESOLVIDO"
-        elif "PARCIALMENTE" in line.upper():
-            frontier_gaps[gap_id] = "PARCIALMENTE"
-        elif "MELHORANDO" in line.upper():
-            frontier_gaps[gap_id] = "MELHORANDO"
-        else:
-            frontier_gaps[gap_id] = "ABERTO"
-
-    # Check debugging.md for mentions of each GAP
-    for gap_id, frontier_status in frontier_gaps.items():
-        # Find mentions in debugging.md
-        gap_mentions = [line for line in debug_text.split("\n")
-                        if gap_id in line]
-        if not gap_mentions:
-            continue
-
-        # Check for resolution language in debugging.md
-        debug_resolved = any(
-            re.search(r'RESOLVIDO|CORRIGIDO|fix\s+sistêmico|RESOLVIDO', line, re.IGNORECASE)
-            for line in gap_mentions
-        )
-
-        if debug_resolved and frontier_status not in ("RESOLVIDO",):
-            finding("gaps", "error",
-                    f"{gap_id}: debugging.md diz RESOLVIDO mas frontier.md diz {frontier_status}",
-                    {"frontier": frontier_status, "debugging": "resolved language found"})
-
-        # Check opposite: frontier says resolved but debugging still has active entry
-        if frontier_status == "RESOLVIDO":
-            debug_active = any(
-                re.search(r'Erros Ativos|RECORRENTE|não resolvido', line, re.IGNORECASE)
-                for line in gap_mentions
-            )
-            if debug_active:
-                finding("gaps", "warn",
-                        f"{gap_id}: frontier.md diz RESOLVIDO mas debugging.md tem entrada ativa")
-
-
-# ---------------------------------------------------------------------------
-# Check 2: Thread consistency
+# Check 1: Thread consistency
 # ---------------------------------------------------------------------------
 
 def check_threads():
@@ -229,7 +162,7 @@ def check_threads():
 
 
 # ---------------------------------------------------------------------------
-# Check 3: File references
+# Check 2: File references
 # ---------------------------------------------------------------------------
 
 def check_refs():
@@ -273,7 +206,7 @@ def check_refs():
 
 
 # ---------------------------------------------------------------------------
-# Check 4: Breaks staleness
+# Check 3: Breaks staleness
 # ---------------------------------------------------------------------------
 
 def check_breaks():
@@ -341,7 +274,7 @@ def print_findings(as_json=False):
             print(f"  {icon} {item['message']}")
         print()
 
-    # Save to log for /ed-reflexao
+    # Save to runtime state-lint log
     log_path = LOGS_DIR / "state-lint.jsonl"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     entry = {
@@ -361,14 +294,12 @@ def main():
     args = sys.argv[1:]
     as_json = "--json" in args
 
-    checks_to_run = {"gaps", "threads", "refs", "breaks"}
+    checks_to_run = {"threads", "refs", "breaks"}
     if "--check" in args:
         idx = args.index("--check")
         if idx + 1 < len(args):
             checks_to_run = {args[idx + 1]}
 
-    if "gaps" in checks_to_run:
-        check_gaps()
     if "threads" in checks_to_run:
         check_threads()
     if "refs" in checks_to_run:
