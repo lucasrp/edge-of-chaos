@@ -62,6 +62,7 @@ import json
 print(json.dumps({
   "final_review": {
     "overall": 4.2,
+    "pass": True,
     "critical_issues": [],
     "suggestions": [],
     "_meta": {"cost_estimate": "$0.0010"}
@@ -260,7 +261,74 @@ else
     fail "review-only HTML publish with generated review succeeds"
 fi
 
-echo "--- Test 4: heartbeat review-gate degradation records metadata and continues ---"
+echo "--- Test 4: review-gate pass=false blocks publication ---"
+TMP_FAIL_ENTRY="$TMP_STATE/blog/entries/failing-review-entry.md"
+TMP_FAIL_REPORT="$TMP_STATE/reports/spec-report-failing-review.yaml"
+cat >"$TMP_FAIL_ENTRY" <<'EOF'
+---
+title: "Failing review entry"
+date: "2026-04-23"
+tags: [test]
+open_gaps: []
+threads: [test-thread]
+---
+
+Test body for review-gate failure.
+EOF
+cat >"$TMP_FAIL_REPORT" <<'EOF'
+title: "Failing review report"
+subtitle: "Review gate false smoke"
+date: "23/04/2026"
+sections:
+  - title: "1. Test"
+    content: "This report should be blocked by review-gate pass=false."
+EOF
+cat >"${TMP_FAIL_REPORT%.yaml}.review.json" <<'EOF'
+{"resolved": true, "response": "already resolved"}
+EOF
+touch "${TMP_FAIL_REPORT%.yaml}.resolved"
+cat >"$TMP_BIN/review-gate" <<'EOF'
+#!/usr/bin/env python3
+import json
+print(json.dumps({
+  "final_review": {
+    "overall": 2.2,
+    "pass": False,
+    "critical_issues": ["blocking issue"],
+    "suggestions": ["fix the report"],
+    "_meta": {"cost_estimate": "$0.0010"}
+  },
+  "coauthor": {
+    "suggestions": [],
+    "_meta": {"cost_estimate": "$0.0010"}
+  },
+  "rounds": []
+}))
+EOF
+chmod +x "$TMP_BIN/review-gate"
+set +e
+"$CONSOLIDATE" "$TMP_FAIL_ENTRY" "$TMP_FAIL_REPORT" --review-only >"$TEST_LOG" 2>&1
+STATUS=$?
+set -e
+if python3 - <<'PY' "$STATUS" "$EVENTS_MIRROR_FILE"
+import json, pathlib, sys
+status = int(sys.argv[1])
+events_path = pathlib.Path(sys.argv[2])
+assert status == 3
+events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+steps = [e for e in events if e.get("type") == "run_step"]
+phase05 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.5"]
+assert ("phase-0.5", "started", "review_gate") in phase05
+assert ("phase-0.5", "failed", "review_gate") in phase05
+PY
+then
+    pass "review-gate pass=false blocks phase-0.5"
+else
+    cat "$TEST_LOG"
+    fail "review-gate pass=false blocks phase-0.5"
+fi
+
+echo "--- Test 5: heartbeat review-gate degradation records metadata and continues ---"
 TMP_DEGRADED_ENTRY="$TMP_STATE/blog/entries/degraded-entry.md"
 TMP_DEGRADED_REPORT="$TMP_STATE/reports/spec-report-degraded-gate.yaml"
 cat >"$TMP_DEGRADED_ENTRY" <<'EOF'

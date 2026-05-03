@@ -956,6 +956,16 @@ try:
 except Exception:
     print(0)
 " 2>/dev/null)
+    REVIEW_PASS=$(echo "$REVIEW_JSON" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    fr = d.get('final_review', d)
+    value = fr.get('pass', d.get('pass', None))
+    print('true' if value is True else 'false')
+except Exception:
+    print('false')
+" 2>/dev/null)
     REVIEW_COST=$(echo "$REVIEW_JSON" | python3 -c "
 import json, sys, re
 try:
@@ -1006,6 +1016,12 @@ if suggestions:
         print(f'    - {str(s)[:120]}')
 " 2>/dev/null
         echo "  Feedback: $FEEDBACK_FILE"
+    fi
+
+    if [[ "$REVIEW_GATE_STATUS" != "degraded" && "$REVIEW_PASS" != "true" ]]; then
+        fail "Review gate failed: pass=false, score ${REVIEW_SCORE}/5.0"
+        emit_run_step_event "phase-0.5" "failed" "review_gate" "review-gate pass=false"
+        exit 3
     fi
 
     if [[ "$REVIEW_ONLY" == "true" ]]; then
