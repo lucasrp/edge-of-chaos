@@ -171,6 +171,66 @@ else
     fail "self-healing unknown primitive failures hint autonomy"
 fi
 
+echo "--- Test 5: policy-only memory does not force planner routing ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_STATE/state/heartbeat-rotation.json"
+import sys
+from pathlib import Path
+
+edge_dir, rotation_path = sys.argv[1:]
+Path(rotation_path).unlink(missing_ok=True)
+sys.path.insert(0, f"{edge_dir}/tools")
+from _shared.dispatch_runtime import _recommend_action_skill, build_beat_launch_context
+
+policy_request = {
+    "operator_pressure_digest": {
+        "signal_from_operator_now": [
+            {
+                "kind": "memory_update",
+                "target": "policy",
+                "source_kinds": ["memory"],
+                "text": "Genotype workflow: issue -> clone -> PR -> merge -> close -> deploy",
+            }
+        ],
+        "memory_updates": [
+            {
+                "kind": "memory_update",
+                "target": "policy",
+                "source_kinds": ["memory"],
+                "text": "Genotype workflow: issue -> clone -> PR -> merge -> close -> deploy",
+            }
+        ],
+    },
+    "open_gaps_summary": {"open_total": 0},
+}
+beat_launch = build_beat_launch_context(policy_request)
+skill, reason = _recommend_action_skill(policy_request, beat_launch)
+assert skill == "report"
+assert "no dominant" in reason
+
+actionable_request = {
+    "operator_pressure_digest": {
+        "signal_from_operator_now": [
+            {
+                "kind": "task_intent",
+                "target": "repo",
+                "source_kinds": ["session"],
+                "text": "Corrija a issue 499, abra PR e deploy.",
+            }
+        ],
+    },
+    "open_gaps_summary": {"open_total": 0},
+}
+beat_launch = build_beat_launch_context(actionable_request)
+skill, reason = _recommend_action_skill(actionable_request, beat_launch)
+assert skill == "planner"
+assert "execution sequencing" in reason
+PY
+then
+    pass "policy-only memory does not force planner routing"
+else
+    fail "policy-only memory does not force planner routing"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"

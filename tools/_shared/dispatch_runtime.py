@@ -898,6 +898,34 @@ def _first_text(values: Any) -> str:
     return ""
 
 
+def _operator_pressure_text(item: Any) -> str:
+    if isinstance(item, dict):
+        return str(item.get("text") or item.get("summary") or item.get("title") or "").strip()
+    return str(item or "").strip()
+
+
+def _policy_only_operator_signal(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    kind = str(item.get("kind") or "").strip().lower()
+    target = str(item.get("target") or "").strip().lower()
+    source_kinds = [str(value or "").strip().lower() for value in item.get("source_kinds") or []]
+    if kind == "memory_update" and target in {"", "policy", "guardrail"}:
+        return True
+    if target in {"policy", "guardrail"} and "memory" in source_kinds:
+        return True
+    return False
+
+
+def _actionable_operator_text(request: dict[str, Any], beat_launch: dict[str, Any]) -> str:
+    digest = request.get("operator_pressure_digest") or {}
+    raw_items = digest.get("signal_from_operator_now")
+    if isinstance(raw_items, list):
+        texts = [_operator_pressure_text(item) for item in raw_items if not _policy_only_operator_signal(item)]
+        return " ".join(text for text in texts if text).lower()
+    return " ".join(beat_launch.get("signal_from_operator_now") or []).lower()
+
+
 def _recommend_action_skill(request: dict[str, Any], beat_launch: dict[str, Any]) -> tuple[str, str]:
     rotation = _read_heartbeat_rotation_state()
     cursor = int(rotation.get("cursor") or 0) % len(HEARTBEAT_FAIRNESS_SKILLS)
@@ -906,7 +934,7 @@ def _recommend_action_skill(request: dict[str, Any], beat_launch: dict[str, Any]
     if self_healing.get("needs_llm"):
         return "autonomy", "primitive self-healing needs an LLM repair lane"
 
-    operator_text = " ".join(beat_launch.get("signal_from_operator_now") or []).lower()
+    operator_text = _actionable_operator_text(request, beat_launch)
     open_gaps = int((request.get("open_gaps_summary") or {}).get("open_total", 0) or 0)
     if any(token in operator_text for token in ("implementar", "implement", "pr ", "issue", "fix", "corrija", "deploy")):
         return "planner", "operator pressure is asking for concrete execution sequencing"
