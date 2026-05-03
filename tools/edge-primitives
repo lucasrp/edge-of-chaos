@@ -219,6 +219,10 @@ def _effective_status(
     binary_exists: bool,
     probe_ok: bool | None,
 ) -> tuple[str, list[str]]:
+    # Suspended primitives are explicitly parked — do not count as broken.
+    if manifest_status == "suspended":
+        return "suspended", []
+
     problems: list[str] = []
     if manifest_exists and manifest_status in {"contract-only", "active", "probed"} and not meta_exists:
         problems.append("manifest_requires_meta")
