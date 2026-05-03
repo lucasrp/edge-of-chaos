@@ -323,8 +323,8 @@ DIMENSIONS = {
         "Title matches actual scope. Numbers consistent throughout. "
         "Linhagem references real prior work, not generic placeholders. "
         "Blog entry (if provided) is consistent with report content and acts as a light strategic invitation: "
-        "it contextualizes why the work matters, states what the operator gains by opening the report, and leaves "
-        "technical depth to the report instead of duplicating it."
+        "it contextualizes why the work matters for a Roberto-class reader outside the runtime, states what the "
+        "operator gains by opening the report, and leaves technical depth to the report instead of duplicating it."
     ),
     "didactic_clarity": (
         "Every concept, acronym, and technical term is explained on first use. "
@@ -445,6 +445,7 @@ Flag as critical_issues if ANY of these:
 - Any non-reference section begins directly with a table, chart, metrics grid, diagram, comparison matrix, or gap table without a narrative `lead` or opening paragraph that explains how to read it
 - A dense evidence block such as a table, chart, matrix, or diagram is left without nearby interpretation of what the reader should conclude, decide, or keep uncertain
 - Associated blog entry duplicates the report structure or does not explain the operator gain from opening the report (if blog entry provided)
+- Associated blog entry begins with raw report scaffolding, scope/mode banners, internal cycle/gap/commit vocabulary, or process chatter before explaining why a non-runtime reader should care (if blog entry provided)
 - "O que Nao Sei" is clearly boilerplate (vague generic text, not specific to this report's topic)
 - Sections reference data/events not present elsewhere in the spec (internal contradiction)
 - Blog entry says one thing, report says another (if blog entry provided)

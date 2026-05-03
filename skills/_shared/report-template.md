@@ -22,9 +22,11 @@ with Lineage, Gaps, Glossary, Bibliography, ≥1 SVG all MANDATORY.
    `consolidate-state` pipeline.
 4. **Write the blog entry as a light strategic invitation, then include open
    gaps in frontmatter when something remains unresolved.** The entry body should be only a
-   few concise paragraphs: frame why this matters now, explain what the
-   operator gains by opening the report, and leave implementation depth to the
-   report. Do not duplicate the YAML/report structure in the blog body.
+   few concise paragraphs for a Roberto-class external reader: frame why this
+   matters now in plain language, explain what the operator gains by opening the
+   report, and leave implementation depth to the report. Do not duplicate the
+   YAML/report structure, raw scope blocks, evidence lists, or internal process
+   chatter in the blog body.
    ```yaml
    open_gaps:
      - "Thing I still don't know — knowledge gap"
