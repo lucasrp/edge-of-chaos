@@ -109,6 +109,52 @@ else
     fail "blog-publish reaches the normal publish flow without codename"
 fi
 
+echo "--- Test 3: blog-publish skips same-file canonical copy ---"
+mkdir -p "$TMP_RUNTIME/blog/entries"
+CANONICAL_ENTRY="$TMP_RUNTIME/blog/entries/same-file-smoke.md"
+cat >"$CANONICAL_ENTRY" <<'EOF'
+---
+title: "Same File Smoke"
+date: 2026-05-03
+tags: [blog-publish]
+threads: [issue-516]
+keywords: [blog-publish, same-file, canonical]
+report: reports/same-file.html
+---
+
+This smoke test entry is already inside the canonical blog entries directory.
+Publishing it must not try to copy the file onto itself.
+EOF
+
+set +e
+OUTPUT=$(env -u EDGE_STATE_DIR -u EDGE_HOME -u EDGE_CODENAME -u EDGE_INSTANCE HOME="$TMP_HOME" EDGE_REPO_DIR="$TMP_RUNTIME" CALLED_FROM_CONSOLIDAR_ESTADO=1 bash "$EDGE_DIR/blog/blog-publish.sh" "$CANONICAL_ENTRY" 2>&1)
+STATUS=$?
+set -e
+
+if python3 - <<'PY' "$STATUS" "$OUTPUT" "$TMP_RUNTIME/blog/changelog.md" "$CANONICAL_ENTRY"
+import pathlib
+import sys
+
+status = int(sys.argv[1])
+output = sys.argv[2]
+changelog = pathlib.Path(sys.argv[3])
+entry = pathlib.Path(sys.argv[4])
+
+assert status == 1
+assert "=== blog-publish: same-file-smoke ===" in output
+assert "are the same file" not in output.lower()
+assert "cp:" not in output.lower()
+assert "Publish verification failed" in output
+assert entry.exists()
+assert "Same File Smoke" in changelog.read_text(encoding="utf-8")
+PY
+then
+    pass "blog-publish treats canonical same-file publish as idempotent"
+else
+    echo "$OUTPUT"
+    fail "blog-publish treats canonical same-file publish as idempotent"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"
