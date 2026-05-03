@@ -56,6 +56,13 @@ chmod +x "$TMP_REPO/tools/edge-state-lint"
 echo "=== edge-state-dispatch Test ==="
 echo ""
 
+echo "--- Test 0: edge-state-dispatch is directly executable ---"
+if [[ -x "$EDGE_DIR/tools/edge-state-dispatch" ]]; then
+    pass "edge-state-dispatch is directly executable"
+else
+    fail "edge-state-dispatch is directly executable"
+fi
+
 echo "--- Test 1: stale state-anchor queue clears when lint has no errors ---"
 if "$TMP_REPO/tools/edge-state-dispatch" >/tmp/edge-state-dispatch.out && python3 - <<'PY' "$TMP_STATE/state/dispatch-queue.json" /tmp/edge-state-dispatch.out
 import json
