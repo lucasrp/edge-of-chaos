@@ -101,6 +101,36 @@ with open(path, "a", encoding="utf-8") as fh:
 PY
 }
 
+append_standdown_recorded() {
+    local cycle_id="$1"
+    local skill="$2"
+    local slug="$3"
+    mkdir -p "$TMP_EDGE/state/runtime/standdowns"
+    printf 'standdown for %s\n' "$skill" >"$TMP_EDGE/state/runtime/standdowns/$slug.md"
+    python3 - <<'PY' "$TMP_EDGE/state/events/log.jsonl" "$cycle_id" "$skill" "$slug"
+import json
+import sys
+from datetime import datetime, timezone
+
+path, cycle_id, skill, slug = sys.argv[1:5]
+event = {
+    "ts": datetime.now(timezone.utc).isoformat(),
+    "type": "ArtifactStanddownRecorded",
+    "actor": "edge-runner",
+    "cycle_id": cycle_id,
+    "artifact": f"state/runtime/standdowns/{slug}.md",
+    "payload": {
+        "source_skill": skill,
+        "skill": skill,
+        "status": "standdown",
+        "reason": "principled_standdown",
+    },
+}
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(event) + "\n")
+PY
+}
+
 append_phase_failed() {
     local cycle_id="$1"
     local slug="$2"
@@ -300,6 +330,44 @@ then
     pass "edge-close exempts heartbeat router from artifact publication"
 else
     fail "edge-close exempts heartbeat router from artifact publication"
+fi
+
+echo "--- Test 2b2: heartbeat standdown evidence satisfies artifact supervision ---"
+"$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-standdown --force >/dev/null
+"$DISPATCH_TOOL" dispatch --skill research >/dev/null
+for step in direction explore application persistence; do
+    EDGE_CYCLE_ID=cycle-close-standdown "$STEP_TOOL" research "$step" >/dev/null
+done
+EDGE_CYCLE_ID=cycle-close-standdown "$STEP_TOOL" research end >/dev/null
+append_standdown_recorded cycle-close-standdown research research-standdown
+"$CLOSE_TOOL" --status completed >/dev/null
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+
+assert dispatch["request"]["skill"] == "research"
+assert dispatch["request"]["trigger"] == "heartbeat"
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+assert dispatch["state"]["postflight_status"] in {"completed", "warning"}
+assert dispatch["state"]["artifact_supervision_status"] == "standdown"
+assert dispatch["state"]["artifact_supervision_reason"] == "principled_standdown"
+assert dispatch["state"]["artifact_supervision_required"] is True
+assert any(
+    event.get("cycle_id") == "cycle-close-standdown"
+    and event.get("type") == "ArtifactSupervisionCompleted"
+    and (event.get("payload") or {}).get("status") == "standdown"
+    for event in events
+)
+PY
+then
+    pass "edge-close accepts durable heartbeat standdown evidence"
+else
+    fail "edge-close accepts durable heartbeat standdown evidence"
 fi
 
 echo "--- Test 2c: non-heartbeat skills require artifact publication regardless of prefix ---"

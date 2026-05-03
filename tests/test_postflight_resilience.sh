@@ -15,7 +15,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$TMP_EDGE/state/projections" "$TMP_EDGE/logs" "$TMP_EDGE/search"
+mkdir -p "$TMP_EDGE/state/projections" "$TMP_EDGE/logs" "$TMP_EDGE/search" "$TMP_EDGE/blog/entries"
 
 export EDGE_REPO_DIR="$EDGE_DIR"
 export EDGE_STATE_DIR="$TMP_EDGE"
@@ -77,6 +77,55 @@ then
     pass "postflight exceptions degrade to warning instead of aborting"
 else
     fail "postflight exceptions degrade to warning instead of aborting"
+fi
+
+echo "--- Test 1b: open-gaps refresh rebuilds stale projection before warning ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_EDGE"
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+state_dir = Path(sys.argv[2])
+entry = state_dir / "blog" / "entries" / "entry-with-gap.md"
+entry.write_text(
+    "---\n"
+    "title: Entry With Gap\n"
+    "threads: [runtime-observability]\n"
+    "open_gaps:\n"
+    "  - verify stale open gaps refresh\n"
+    "---\n\nbody\n",
+    encoding="utf-8",
+)
+digest = state_dir / "state" / "projections" / "open-gaps-digest.json"
+digest.parent.mkdir(parents=True, exist_ok=True)
+digest.write_text(json.dumps({"built_at": "old", "open_total": 0, "entries_with_gaps": 0}), encoding="utf-8")
+old = time.time() - 8 * 60 * 60
+os.utime(digest, (old, old))
+
+loader = importlib.machinery.SourceFileLoader("edge_postflight", str(edge_dir / "tools" / "edge-postflight"))
+spec = importlib.util.spec_from_loader("edge_postflight", loader)
+module = importlib.util.module_from_spec(spec)
+assert spec and spec.loader
+spec.loader.exec_module(module)
+
+result = module.refresh_open_gaps_status()
+payload = result["payload"]
+assert result["status"] == "ok", result
+assert result["ok"] is True, result
+assert "rebuilt=true" in result["detail"], result
+assert payload["cache"]["status"] == "cached", payload
+assert payload["open_gaps"]["open_total"] == 1, payload
+assert payload["open_gaps"]["entries_with_gaps"] == 1, payload
+PY
+then
+    pass "open-gaps refresh rebuilds stale projection"
+else
+    fail "open-gaps refresh rebuilds stale projection"
 fi
 
 echo "--- Test 2: async inbox postflight responds before consuming captured chat ---"
@@ -203,7 +252,7 @@ module = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
 spec.loader.exec_module(module)
 
-assert not hasattr(module, "refresh_continuity_projections")
+assert hasattr(module, "refresh_continuity_projections")
 module.OPEN_GAPS_DIGEST_FILE.parent.mkdir(parents=True, exist_ok=True)
 module.OPEN_GAPS_DIGEST_FILE.write_text(
     json.dumps({"open_total": 3, "entries_with_gaps": 2}),

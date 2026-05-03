@@ -1068,6 +1068,7 @@ echo "── Phase 3: Verification ──"
 ledger_record "phase-3" "ok"
 emit_run_step_event "phase-3" "started" "verification" ""
 ALL_OK=true
+API_VISIBILITY_WARNING=false
 
 # Entry visible?
 VISIBLE=$(curl -s -m 5 $CURL_AUTH "${BLOG_URL}/blog/entries/" 2>/dev/null | python3 -c "
@@ -1083,7 +1084,7 @@ if [[ "$VISIBLE" == "OK" ]]; then
     ok "Entry visible in API"
 else
     warn "Entry NOT visible in API ($VISIBLE)"
-    ALL_OK=false
+    API_VISIBILITY_WARNING=true
 fi
 
 # Report linked in frontmatter?
@@ -1184,7 +1185,11 @@ PY
     fi
 fi
 if $ALL_OK && [[ "$REPORT_RESULT" != "fail" ]]; then
-    emit_run_step_event "phase-3" "completed" "verification" ""
+    if [[ "$API_VISIBILITY_WARNING" == "true" ]]; then
+        emit_run_step_event "phase-3" "degraded" "verification" "blog API visibility check failed after file publish"
+    else
+        emit_run_step_event "phase-3" "completed" "verification" ""
+    fi
 else
     emit_run_step_event "phase-3" "failed" "verification" "verification ended with warnings or failures"
     fail "Verification failed before state commit; publication will not be recorded as Published"

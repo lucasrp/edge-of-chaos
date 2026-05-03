@@ -22,6 +22,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import EDGE_REPO_DIR, LOGS_DIR, OPEN_GAPS_DIGEST_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.capability_runtime import build_capability_status, invoke_capability, probe_capability  # noqa: E402
+from _shared.continuity import refresh_continuity_projections  # noqa: E402
 from _shared.dispatch_runtime import read_dispatch_state, write_dispatch_state  # noqa: E402
 from _shared.health_runtime import observe_cycle_health_events  # noqa: E402
 from _shared.protocol_runtime import emit_protocol_step_observed, ensure_compiled_protocol, protocol_context  # noqa: E402
@@ -258,6 +259,17 @@ def refresh_capabilities_status(skill: str | None = None) -> dict[str, Any]:
 
 
 def refresh_open_gaps_status() -> dict[str, Any]:
+    rebuilt = False
+    rebuild_error = ""
+    cache = _projection_cache_status(OPEN_GAPS_DIGEST_FILE)
+    cache_status = str(cache.get("projection_status") or "unknown")
+    if cache_status in {"missing", "stale_cached", "unknown"}:
+        try:
+            refresh_continuity_projections()
+            rebuilt = True
+        except Exception as exc:  # pragma: no cover - defensive
+            rebuild_error = str(exc)
+
     digest = _read_json_file(OPEN_GAPS_DIGEST_FILE, {})
     if not isinstance(digest, dict):
         digest = {}
@@ -272,8 +284,12 @@ def refresh_open_gaps_status() -> dict[str, Any]:
     )
     if cache_age is not None:
         detail += f" age={cache_age}s"
+    if rebuilt:
+        detail += " rebuilt=true"
+    if rebuild_error:
+        detail += f" rebuild_error={rebuild_error}"
 
-    status = "warning" if cache_status in {"stale_cached", "unknown"} else "ok"
+    status = "warning" if cache_status in {"stale_cached", "unknown"} or rebuild_error else "ok"
     append_postskill_log("open_gaps_digest", "OK" if cache_status in {"cached", "missing"} else "WARN", detail)
     return {
         "ok": cache_status != "unknown",

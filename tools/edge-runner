@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -22,7 +23,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import EDGE_INSTANCE, EDGE_REPO_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
+from paths import EDGE_INSTANCE, EDGE_REPO_DIR, SKILL_STEPS_FILE, STATE_DIR, STATE_EVENTS_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.dispatch_runtime import HEARTBEAT_FAIRNESS_SKILLS, read_dispatch_state, render_skill_runtime_prompt, write_dispatch_state  # noqa: E402
 from _shared.jsonl_runtime import iter_jsonl_reverse  # noqa: E402
@@ -822,12 +823,141 @@ def artifact_published_for_cycle(cycle_id: str | None) -> bool:
     return False
 
 
+def standdown_recorded_for_cycle(cycle_id: str | None) -> bool:
+    if not cycle_id:
+        return False
+    state = dispatch_state_matches(cycle_id)
+    threshold = None
+    if state:
+        state_block = state.get("state", {}) or {}
+        threshold = state_block.get("dispatched_at") or state_block.get("opened_at")
+    for event in iter_jsonl_reverse(STATE_EVENTS_FILE):
+        if event.get("type") != "ArtifactStanddownRecorded":
+            continue
+        if event.get("cycle_id") != cycle_id:
+            continue
+        if threshold and not iso_ge(event.get("ts"), threshold):
+            continue
+        payload = event.get("payload", {}) or {}
+        if str(payload.get("status") or "").strip().lower() != "standdown":
+            continue
+        artifact = str(event.get("artifact") or payload.get("artifact") or payload.get("path") or "")
+        if artifact:
+            return True
+    return False
+
+
+def artifact_terminal_evidence_for_cycle(cycle_id: str | None) -> bool:
+    return artifact_published_for_cycle(cycle_id) or standdown_recorded_for_cycle(cycle_id)
+
+
 def _is_runtime_stdout_artifact(payload: dict) -> bool:
     payload = payload or {}
     return bool(
         payload.get("auto_published") is True
         or str(payload.get("pipeline") or "") == "runtime-stdout-artifact"
     )
+
+
+def _looks_like_principled_standdown(output: str) -> bool:
+    text = (output or "").strip()
+    if len(text) < 500:
+        return False
+    lower = text.lower()
+    decision_markers = [
+        "standdown",
+        "stand down",
+        "decline publication",
+        "decline the publication",
+        "not publishing",
+        "not calling consolidate-state",
+        "no artifact written",
+    ]
+    evidence_markers = [
+        "already satisfied",
+        "already published",
+        "duplicate",
+        "duplicat",
+        "saturation",
+        "saturação",
+        "operator pressure",
+        "no operator",
+        "no new signal",
+        "canonical",
+        "verified",
+        "ground truth",
+        "evidence",
+        "invariant",
+    ]
+    has_decision = any(marker in lower for marker in decision_markers)
+    has_evidence = any(marker in lower for marker in evidence_markers)
+    has_section_shape = bool(re.search(r"(?m)^#{1,3}\s+|^\*\*[^*\n]+:\*\*", text))
+    return has_decision and has_evidence and has_section_shape
+
+
+def _standdown_artifact_path(cycle_id: str, skill: str) -> tuple[Path, str]:
+    safe_skill = re.sub(r"[^a-z0-9-]+", "-", skill.lower()).strip("-") or "skill"
+    filename = f"{cycle_id}-{safe_skill}.md"
+    path = STATE_DIR / "runtime" / "standdowns" / filename
+    try:
+        artifact = str(path.relative_to(EDGE_REPO_DIR))
+    except ValueError:
+        artifact = str(path)
+    return path, artifact
+
+
+def maybe_record_standdown_artifact(skill: str, cycle_id: str | None, exit_code: int, output: str) -> dict:
+    normalized = normalize_skill_name(skill)
+    if not cycle_id or exit_code != 0:
+        return {"recorded": False, "reason": "not_standdown_exit", "skill": normalized}
+    if artifact_terminal_evidence_for_cycle(cycle_id):
+        return {"recorded": False, "reason": "artifact_evidence_already_present", "skill": normalized}
+    if not skill_requires_artifact_publication(normalized, instance=EDGE_INSTANCE):
+        return {"recorded": False, "reason": "skill_not_artifact_pipeline", "skill": normalized}
+    state = dispatch_state_matches(cycle_id) or {}
+    request = state.get("request", {}) or {}
+    if str(request.get("trigger") or "").strip() != "heartbeat":
+        return {"recorded": False, "reason": "standdown_only_allowed_for_heartbeat", "skill": normalized}
+    if not _looks_like_principled_standdown(output):
+        return {"recorded": False, "reason": "standdown_marker_missing", "skill": normalized}
+
+    path, artifact = _standdown_artifact_path(cycle_id, normalized)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = (output or "").strip() + "\n"
+    path.write_text(
+        f"---\ncycle_id: {cycle_id}\nskill: {normalized}\nstatus: standdown\n---\n\n{body}",
+        encoding="utf-8",
+    )
+    emit_shadow_event(
+        "ArtifactStanddownRecorded",
+        actor="edge-runner",
+        artifact=artifact,
+        cycle_id=cycle_id,
+        payload={
+            "skill": normalized,
+            "source_skill": normalized,
+            "status": "standdown",
+            "reason": "principled_standdown",
+            "artifact": artifact,
+            "bytes": len(body.encode("utf-8", errors="replace")),
+        },
+    )
+    log_run_step(
+        "edge-runner",
+        "standdown_artifact",
+        "completed",
+        run_id=cycle_id,
+        backend="runtime",
+        mode="artifact",
+        target=normalized,
+        close_reason="principled_standdown",
+    )
+    return {
+        "recorded": True,
+        "reason": "standdown_recorded",
+        "skill": normalized,
+        "artifact": artifact,
+    }
 
 
 def maybe_publish_stdout_artifact(skill: str, cycle_id: str | None, exit_code: int, output: str) -> dict:
@@ -838,6 +968,17 @@ def maybe_publish_stdout_artifact(skill: str, cycle_id: str | None, exit_code: i
         return {"published": False, "reason": "skill_not_artifact_pipeline", "skill": normalized}
     if artifact_published_for_cycle(cycle_id):
         return {"published": True, "reason": "already_published", "skill": normalized}
+    standdown_result = maybe_record_standdown_artifact(normalized, cycle_id, exit_code, output)
+    if standdown_result.get("recorded"):
+        return {
+            "published": False,
+            "satisfied": True,
+            "reason": "standdown_recorded",
+            "skill": normalized,
+            "artifact": standdown_result.get("artifact"),
+        }
+    if standdown_recorded_for_cycle(cycle_id):
+        return {"published": False, "satisfied": True, "reason": "standdown_recorded", "skill": normalized}
     result = {"published": False, "reason": "stdout_artifact_disabled", "skill": normalized}
     emit_shadow_event(
         "ArtifactStdoutPublicationRejected",
@@ -897,9 +1038,9 @@ def should_retry_artifact_skill(skill: str | None, cycle_id: str | None, exit_co
     normalized = normalize_skill_name(skill)
     if not skill_requires_artifact_publication(normalized, instance=EDGE_INSTANCE):
         return False
-    if artifact_published_for_cycle(cycle_id):
+    if artifact_terminal_evidence_for_cycle(cycle_id):
         return False
-    return not bool(publish_result.get("published"))
+    return not bool(publish_result.get("published") or publish_result.get("satisfied"))
 
 
 def should_echo_backend_output(skill: str | None) -> bool:

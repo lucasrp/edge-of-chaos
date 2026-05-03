@@ -162,6 +162,21 @@ def supervise_artifact_publication(
             )
             return result
 
+        if etype == "ArtifactStanddownRecorded":
+            status = str(payload.get("status") or "").strip().lower()
+            if status == "standdown" and artifact:
+                result.update(
+                    {
+                        "ok": True,
+                        "status": "standdown",
+                        "reason": str(payload.get("reason") or "principled_standdown"),
+                        "artifact": artifact,
+                        "artifact_published_at": event.get("ts") or "",
+                        "source_skill": payload.get("source_skill") or payload.get("skill") or "",
+                    }
+                )
+                return result
+
         if etype == "ArtifactWriteRejected" and pipeline_failure is None:
             pipeline_failure = _pipeline_failure_evidence(event, payload)
         elif etype == "PhaseCompleted" and _phase_ok(payload) is False and pipeline_failure is None:
