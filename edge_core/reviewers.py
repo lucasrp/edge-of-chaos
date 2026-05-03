@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
+import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -37,7 +40,7 @@ class LLMClient:
 
     def complete_json(self, *, system: str, prompt: str) -> dict[str, Any] | None:
         if not self.available():
-            return None
+            return self._complete_claude_json(system=system, prompt=prompt)
         body = {
             "model": self.model,
             "messages": [
@@ -56,17 +59,16 @@ class LLMClient:
             with urllib.request.urlopen(request, timeout=30) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-            return None
+            return self._complete_claude_json(system=system, prompt=prompt)
         content = (((payload.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError:
-            return None
-        return parsed if isinstance(parsed, dict) else None
+        parsed = self._parse_json_object(content)
+        if parsed is not None:
+            return parsed
+        return self._complete_claude_json(system=system, prompt=prompt)
 
     def complete_text(self, *, system: str, prompt: str) -> str | None:
         if not self.available():
-            return None
+            return self._complete_claude_text(system=system, prompt=prompt)
         body = {
             "model": self.model,
             "messages": [
@@ -84,9 +86,62 @@ class LLMClient:
             with urllib.request.urlopen(request, timeout=45) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-            return None
+            return self._complete_claude_text(system=system, prompt=prompt)
         content = (((payload.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
-        return content or None
+        return content or self._complete_claude_text(system=system, prompt=prompt)
+
+    def _complete_claude_json(self, *, system: str, prompt: str) -> dict[str, Any] | None:
+        text = self._complete_claude_text(
+            system=system + "\nReturn only one valid JSON object. No Markdown fences.",
+            prompt=prompt,
+        )
+        if not text:
+            return None
+        return self._parse_json_object(text)
+
+    def _complete_claude_text(self, *, system: str, prompt: str) -> str | None:
+        if os.environ.get("EDGE_DISABLE_CLAUDE_FALLBACK") == "1":
+            return None
+        claude = shutil.which("claude")
+        if not claude:
+            return None
+        full_prompt = f"{system}\n\n{prompt}"
+        try:
+            result = subprocess.run(
+                [claude, "-p", full_prompt, "--max-turns", "1"],
+                capture_output=True,
+                text=True,
+                timeout=int(os.environ.get("EDGE_CLAUDE_TIMEOUT_SEC", "120")),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if result.returncode != 0:
+            return None
+        return (result.stdout or "").strip() or None
+
+    @staticmethod
+    def _parse_json_object(content: str) -> dict[str, Any] | None:
+        try:
+            parsed = json.loads(content)
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            pass
+        fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, flags=re.S)
+        if fenced:
+            try:
+                parsed = json.loads(fenced.group(1))
+                return parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                pass
+        start = content.find("{")
+        end = content.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                parsed = json.loads(content[start : end + 1])
+                return parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                return None
+        return None
 
 
 def context_readiness(packet: ContextPacket, *, attempt: int) -> ReviewResult:
