@@ -8,7 +8,8 @@ import unittest
 from pathlib import Path
 
 from edge_core.rite import verify_rite
-from edge_core.threads import primary_thread_from_review
+from edge_core.config import load_config
+from edge_core.threads import initial_seed_thread, primary_thread_from_review
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -128,6 +129,12 @@ interests:
         primary = primary_thread_from_review({"primary_thread": "Mentoria privada persistente"}, "heartbeat")
         self.assertEqual(primary["thread_id"], "mentoria-privada-persistente")
         self.assertEqual(primary["title"], "Mentoria privada persistente")
+
+    def test_initial_seed_thread_is_fixed_fallback(self) -> None:
+        config = load_config(self.tmp)
+        primary = initial_seed_thread(config)
+        self.assertEqual(primary["title"], "Ajudar o mentorado na melhor forma possivel com o trabalho atual dele")
+        self.assertEqual(primary["thread_id"], "ajudar-o-mentorado-na-melhor-forma-possivel-com-o-trabalho-atual-dele")
 
 
 if __name__ == "__main__":

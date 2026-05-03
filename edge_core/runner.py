@@ -12,7 +12,7 @@ from .reports import append_report_utility, build_blog, draft_report, finalize_r
 from .reviewers import ReviewResult, adversarial_review, classify_report_utility, context_search_review, feynman_review
 from .rite import verify_rite
 from .search import broad_search
-from .threads import primary_thread_from_review, rebuild_digest, thread_id_from_review, update_thread
+from .threads import initial_seed_thread, primary_thread_from_review, rebuild_digest, update_thread
 from .util import now_iso
 
 
@@ -88,7 +88,11 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
     record("BroadSearchCompleted", round=2, sources=sorted({result.source for result in searches_2}), results=len(searches_2))
     record("DeliveryCompleted", stage="evidence-pack-v2", search_results=len(searches))
 
-    thread_id = thread_id_from_review(context_review_2.data, packet.request)
+    if packet.thread_candidates:
+        primary_thread = primary_thread_from_review(context_review_2.data, packet.request)
+    else:
+        primary_thread = initial_seed_thread(config)
+    thread_id = primary_thread["thread_id"]
     draft_1 = draft_report(packet, searches, thread_id)
     record("ReportDrafted", version=1, chars=len(draft_1), thread_id=thread_id)
     record("DeliveryCompleted", stage="draft-v1", chars=len(draft_1))
@@ -119,7 +123,6 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
     utility = classify_report_utility(final_report, packet, reviews)
     utility_path = append_report_utility(config, report_path=report_path, utility=utility)
     record("ReportUtilityClassified", reviewer=utility.reviewer, summary=utility.summary, data=utility.data, path=str(utility_path))
-    primary_thread = primary_thread_from_review(context_review_2.data, packet.request)
     utility_data = utility.data if isinstance(utility.data, dict) else {}
 
     thread_path = update_thread(

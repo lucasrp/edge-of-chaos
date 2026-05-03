@@ -21,9 +21,13 @@ def primary_thread_from_review(review_data: dict[str, Any], request: str) -> dic
     return {"action": "create", "thread_id": slugify(title, "general-continuity")[:90], "title": title}
 
 
-def thread_id_from_review(review_data: dict[str, Any], request: str) -> str:
-    return primary_thread_from_review(review_data, request)["thread_id"]
-
+def initial_seed_thread(config: RuntimeConfig) -> dict[str, str]:
+    seeds = [item for item in (config.agent.get("seed_threads") or []) if isinstance(item, dict)]
+    if seeds:
+        title = str(seeds[0].get("title") or "Ajudar o mentorado na melhor forma possivel com o trabalho atual dele")
+    else:
+        title = "Ajudar o mentorado na melhor forma possivel com o trabalho atual dele"
+    return {"action": "create", "thread_id": slugify(title, "mentor-general-thread")[:90], "title": title}
 
 
 def update_thread(config: RuntimeConfig, *, thread_id: str, title: str, report_path: Path, summary: str, decisions: list[str], next_steps: list[str]) -> Path:

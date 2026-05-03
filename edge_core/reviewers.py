@@ -218,16 +218,6 @@ def context_search_review(packet: ContextPacket, searches: list[SearchResult], *
         llm["_llm_provider"] = client.last_provider
         if client.last_error:
             llm["_llm_error"] = client.last_error
-        if not packet.thread_candidates and packet.seed_threads and packet.kind == "heartbeat":
-            seed = packet.seed_threads[0]
-            title = str(seed.get("title") or "Ajudar o mentorado na melhor forma possivel com o trabalho atual dele")
-            llm["primary_thread"] = {
-                "action": "create",
-                "thread_id": slugify(title, "mentor-general-thread")[:80],
-                "title": title,
-                "basis": "initial heartbeat with no projected thread candidates; use the configured generic mentor thread instead of inventing a commit-derived thread",
-                "reviewer_suggestion": llm.get("primary_thread"),
-            }
         return ReviewResult("completed", "llm:context-search", str(llm.get("summary") or llm.get("reason") or "context/search reviewed"), llm)
 
     has_observations = len(packet.observations) >= 2
