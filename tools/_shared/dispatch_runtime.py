@@ -2361,7 +2361,8 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
             "- This invocation must end with a durable artifact or a concrete failure report artifact. Acknowledgement-only text, standby text, topic-choice lists, or deference to another session is not completion.\n"
             "- If no explicit topic was supplied, infer one bounded target from `exploration_pack`, `beat_launch_context`, `operator_pressure`, health, open gaps, queue, or recent failures.\n"
             "- If another persona/session appears active, treat that as context only; the runtime already prevented unsafe concurrent dispatch ownership before invoking you.\n"
-            "- If the full publication pipeline cannot run, emit a complete Markdown artifact in stdout with a top-level `#` heading so the runtime can publish it.\n\n"
+            "- Publish by running `consolidate-state` or an equivalent first-class artifact publisher that emits real blog entry and report artifacts.\n"
+            "- Stdout-only prose is diagnostic output only; the runtime will not promote it to publication and it does not satisfy the artifact gate.\n\n"
         )
     return (
         f"{skill}\n\n"

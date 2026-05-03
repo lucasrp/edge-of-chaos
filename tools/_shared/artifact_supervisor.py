@@ -79,6 +79,13 @@ def _pipeline_failure_evidence(event: dict[str, Any], payload: dict[str, Any]) -
     }
 
 
+def _is_runtime_stdout_artifact(payload: dict[str, Any]) -> bool:
+    return bool(
+        payload.get("auto_published") is True
+        or str(payload.get("pipeline") or "") == "runtime-stdout-artifact"
+    )
+
+
 def _base_result(state: dict[str, Any], *, instance: object) -> dict[str, Any]:
     request = state.get("request", {}) or {}
     state_block = state.get("state", {}) or {}
@@ -132,6 +139,17 @@ def supervise_artifact_publication(
         artifact = _artifact(event, payload)
 
         if etype == "ArtifactPublished" and artifact.startswith("blog/entries/"):
+            if _is_runtime_stdout_artifact(payload):
+                if pipeline_failure is None:
+                    pipeline_failure = {
+                        "event_type": etype,
+                        "ts": event.get("ts") or "",
+                        "artifact": artifact,
+                        "pipeline": str(payload.get("pipeline") or "runtime-stdout-artifact"),
+                        "phase": "",
+                        "reason": "runtime_stdout_artifact_rejected",
+                    }
+                continue
             result.update(
                 {
                     "ok": True,

@@ -49,4 +49,11 @@ def skill_requires_artifact_publication(skill: object, *, instance: object = "")
 
 
 def skill_accepts_stdout_artifact(skill: object, *, instance: object = "") -> bool:
-    return skill_requires_artifact_publication(skill, instance=instance)
+    """Return whether stdout can be auto-promoted to a durable artifact.
+
+    Artifact-producing skills must publish through the real artifact pipeline
+    (`consolidate-state` or an equivalent first-class publisher). Capturing
+    terminal prose into a minimal runtime HTML wrapper hides publication
+    failures and lets poor reports bypass review/render gates.
+    """
+    return False
