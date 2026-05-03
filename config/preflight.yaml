@@ -17,6 +17,8 @@ procedures:
     kind: primitives.status
   - id: capabilities
     kind: capabilities.status
+  - id: asset-inventory
+    kind: asset_inventory.status
   - id: source-bindings
     kind: source.bindings
   - id: corpus

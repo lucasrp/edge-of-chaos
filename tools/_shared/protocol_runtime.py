@@ -15,6 +15,7 @@ import yaml
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
 from paths import (  # noqa: E402
+    ASSET_INVENTORY_FILE,
     POSTFLIGHT_COMPILED_FILE,
     POSTFLIGHT_PROTOCOL_FILE,
     CAPABILITIES_CONFIG_FILE,
@@ -36,6 +37,7 @@ _ALLOWED_KINDS: dict[str, set[str]] = {
         "self_healing.primitives",
         "primitives.status",
         "capabilities.status",
+        "asset_inventory.status",
         "source.bindings",
         "signals.context",
         "corpus.lookup",
@@ -172,6 +174,8 @@ def _dependency_hashes(protocol: str, payload: dict[str, Any]) -> dict[str, str]
     if "source.bindings" in kinds:
         dependencies[str(SOURCES_MANIFEST_FILE)] = _hash_file(SOURCES_MANIFEST_FILE)
         dependencies[str(PRIMITIVES_STATUS_FILE)] = _hash_primitives_binding_inputs(PRIMITIVES_STATUS_FILE)
+    if "asset_inventory.status" in kinds:
+        dependencies[str(ASSET_INVENTORY_FILE)] = _hash_file(ASSET_INVENTORY_FILE)
     return dependencies
 
 

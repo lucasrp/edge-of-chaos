@@ -41,6 +41,8 @@ procedures:
     kind: primitives.status
   - id: capabilities
     kind: capabilities.status
+  - id: asset-inventory
+    kind: asset_inventory.status
   - id: source-bindings
     kind: source.bindings
   - id: corpus
@@ -77,6 +79,8 @@ YAML
 export EDGE_REPO_DIR="$EDGE_DIR"
 export EDGE_STATE_DIR="$TMP_EDGE"
 export EDGE_CODENAME="test-agent"
+export EDGE_ASSET_REPO_SCAN_ROOTS="$TMP_EDGE"
+export EDGE_ASSET_DB_SCAN_ROOTS="$TMP_EDGE/db"
 
 cat >"$TMP_EDGE/state/sources-manifest.yaml" <<'YAML'
 sources:
@@ -177,6 +181,7 @@ assert "health_snapshot" in request
 assert "open_gaps_summary" in request
 assert "primitives_status" in request
 assert "workflow_status" in request
+assert "asset_inventory" in request
 assert "corpus_hits" in request
 assert "corpus_coverage" in request
 assert request["corpus_coverage"]["required_covered"] is False
@@ -203,6 +208,9 @@ assert request["source_binding_warnings"][0]["warning"] == "configured_integrati
 source_step = next(item for item in request["preflight_evidence"] if item["kind"] == "source.bindings")
 assert source_step["satisfied"] is False
 assert source_step["unbound_total"] == 1
+asset_step = next(item for item in request["preflight_evidence"] if item["kind"] == "asset_inventory.status")
+assert asset_step["satisfied"] is True
+assert request["asset_inventory"]["summary"]["host_total"] >= 1
 corpus_step = next(item for item in request["preflight_evidence"] if item["kind"] == "corpus.lookup")
 assert corpus_step["satisfied"] is False
 assert corpus_step["missing_required_types"] == ["workflow", "memory"]
