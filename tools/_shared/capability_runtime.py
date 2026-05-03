@@ -743,7 +743,7 @@ def probe_capability(name: str, *, skill: str | None = None) -> subprocess.Compl
         command = list(capability.get("resolved_command") or [])
         if not command:
             raise RuntimeError(f"primitive capability unavailable: {name}")
-        probe_cmd = command + ["--help"]
+        probe_cmd = command + ["probe"]
     else:
         probe_cmd = list(capability.get("resolved_command") or capability.get("configured_command") or [])
         resolved_probe = list(_normalize_command(capability.get("resolved_probe")))

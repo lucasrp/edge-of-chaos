@@ -115,7 +115,7 @@ def reprobe_primitive(row: dict[str, Any], *, cycle_id: str | None = None) -> di
         "search",
         "--command",
         binary_path,
-        "--help",
+        "probe",
     ]
     code, stdout, stderr = run(cmd, timeout=30)
     detail = (stderr or stdout or f"exit={code}").splitlines()[-1][:500]
