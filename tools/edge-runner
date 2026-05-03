@@ -892,6 +892,11 @@ def main() -> int:
     env["EDGE_RUNNER_MODE"] = args.cmd
     env["EDGE_RUNNER_PID"] = str(os.getpid())
     env["EDGE_RUNNER_STARTED_AT"] = now_iso()
+    env["EDGE_DISPATCH_TRIGGER"] = args.dispatch_trigger or ""
+    env["EDGE_DISPATCH_POLICY"] = args.dispatch_policy or ""
+    env["EDGE_DISPATCH_ROUTING_MODE"] = args.dispatch_routing_mode or ""
+    if args.dispatch_trigger == "heartbeat":
+        env.setdefault("EDGE_CONSOLIDATE_REVIEW_GATE_DEGRADED_OK", "1")
 
     cycle_id = None
     exit_code = 0

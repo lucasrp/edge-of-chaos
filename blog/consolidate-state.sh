@@ -181,6 +181,7 @@ run_review_gate() {
     local artifact="$1"
     local skill_name="${2:-}"
     local review_cmd=()
+    local review_env=()
     if command -v review-gate &>/dev/null; then
         review_cmd=(review-gate "$artifact" --json)
     elif [[ -x "$TOOLS_DIR/review-gate.py" ]]; then
@@ -190,7 +191,67 @@ run_review_gate() {
     fi
     [[ -n "$skill_name" ]] && review_cmd+=(--skill "$skill_name")
     [[ -n "${ENTRY_PATH:-}" ]] && review_cmd+=(--entry "$ENTRY_PATH")
-    "${review_cmd[@]}"
+    if review_gate_degraded_allowed; then
+        review_env+=("EDGE_REVIEW_GATE_LLM_TIMEOUT_SEC=${EDGE_REVIEW_GATE_HEARTBEAT_TIMEOUT_SEC:-30}")
+    fi
+    env "${review_env[@]}" "${review_cmd[@]}"
+}
+
+review_gate_degraded_allowed() {
+    case "${EDGE_CONSOLIDATE_REVIEW_GATE_DEGRADED_OK:-}" in
+        0|false|FALSE|no|NO|off|OFF) return 1 ;;
+        1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    esac
+    [[ "${EDGE_DISPATCH_TRIGGER:-}" == "heartbeat" ]]
+}
+
+build_degraded_review_gate_json() {
+    local artifact="$1"
+    local skill_name="${2:-}"
+    local review_exit="${3:-}"
+    python3 - "$artifact" "$skill_name" "$review_exit" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+artifact = sys.argv[1]
+skill = sys.argv[2]
+review_exit = sys.argv[3]
+payload = {
+    "final_review": {
+        "overall": 0,
+        "status": "degraded",
+        "critical_issues": [
+            "review-gate unavailable during heartbeat publication; artifact published with degraded review metadata"
+        ],
+        "suggestions": [
+            "Re-run review-gate when providers recover and update the artifact if the review finds blocking issues."
+        ],
+        "_meta": {
+            "phase": "review",
+            "model": "unavailable",
+            "cost_estimate": "$0",
+            "degraded": True,
+            "artifact": str(Path(artifact).name),
+            "skill": skill,
+            "exit_code": review_exit,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    },
+    "coauthor": {
+        "suggestions": [],
+        "_meta": {
+            "phase": "co-author",
+            "model": "unavailable",
+            "cost_estimate": "$0",
+            "degraded": True,
+        },
+    },
+    "rounds": [],
+}
+print(json.dumps(payload, ensure_ascii=False))
+PY
 }
 
 # Parse flags
@@ -778,12 +839,25 @@ except Exception:
         SKILL_NAME="${BASH_REMATCH[1]}"
     fi
 
+    REVIEW_GATE_STATUS="completed"
+    REVIEW_GATE_REASON=""
+    set +e
     REVIEW_JSON=$(run_review_gate "$REPORT_INPUT" "$SKILL_NAME" 2>/dev/null)
     REVIEW_EXIT=$?
+    set -e
     if [[ $REVIEW_EXIT -ne 0 ]]; then
-        fail "review-gate unavailable or failed (exit $REVIEW_EXIT)"
-        emit_run_step_event "phase-0.5" "failed" "review_gate" "review-gate unavailable or failed"
-        exit 3
+        if review_gate_degraded_allowed; then
+            REVIEW_JSON=$(build_degraded_review_gate_json "$REPORT_INPUT" "$SKILL_NAME" "$REVIEW_EXIT")
+            FEEDBACK_FILE="${REPORT_ARTIFACT_STEM}.feedback.json"
+            printf '%s\n' "$REVIEW_JSON" > "$FEEDBACK_FILE"
+            REVIEW_GATE_STATUS="degraded"
+            REVIEW_GATE_REASON="review-gate unavailable during heartbeat publication"
+            warn "review-gate degraded (exit $REVIEW_EXIT); continuing with degraded review metadata"
+        else
+            fail "review-gate unavailable or failed (exit $REVIEW_EXIT)"
+            emit_run_step_event "phase-0.5" "failed" "review_gate" "review-gate unavailable or failed"
+            exit 3
+        fi
     fi
 
     REVIEW_SCORE=$(echo "$REVIEW_JSON" | python3 -c "
@@ -848,12 +922,12 @@ if suggestions:
     fi
 
     if [[ "$REVIEW_ONLY" == "true" ]]; then
-        emit_run_step_event "phase-0.5" "completed" "review_gate" ""
+        emit_run_step_event "phase-0.5" "$REVIEW_GATE_STATUS" "review_gate" "$REVIEW_GATE_REASON"
         echo ""
         echo "Review-only mode. Nothing published."
         exit 0
     fi
-    emit_run_step_event "phase-0.5" "completed" "review_gate" ""
+    emit_run_step_event "phase-0.5" "$REVIEW_GATE_STATUS" "review_gate" "$REVIEW_GATE_REASON"
     echo ""
 fi
 
