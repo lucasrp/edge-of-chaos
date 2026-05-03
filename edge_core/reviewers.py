@@ -75,17 +75,38 @@ def context_readiness(packet: ContextPacket, *, attempt: int) -> ReviewResult:
 
     has_observations = len(packet.observations) >= 2
     thread_id = "general-continuity"
+    title = "General Continuity"
     action = "create"
+    default_heartbeat = packet.kind == "heartbeat" and packet.request == "Run a heartbeat beat"
+    seed_text = ""
+    if packet.seed_threads:
+        seed = packet.seed_threads[0]
+        seed_text = f"{seed.get('title', '')} {seed.get('context', '')}"
+    request_text = (seed_text if default_heartbeat and seed_text else packet.request).lower()
     if packet.thread_candidates:
-        thread_id = str(packet.thread_candidates[0].get("id") or thread_id)
-        action = "continue"
-    elif packet.request:
+        scored: list[tuple[int, dict[str, Any]]] = []
+        request_terms = {term for term in slugify(request_text).split("-") if len(term) > 3}
+        for candidate in packet.thread_candidates:
+            haystack = slugify(f"{candidate.get('id', '')} {candidate.get('summary', '')}")
+            score = sum(1 for term in request_terms if term in haystack)
+            scored.append((score, candidate))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        if scored and scored[0][0] > 0:
+            thread_id = str(scored[0][1].get("id") or thread_id)
+            title = thread_id.replace("-", " ").title()
+            action = "continue"
+    if action == "create" and (default_heartbeat or not packet.request) and packet.seed_threads:
+        seed = packet.seed_threads[0]
+        title = str(seed.get("title") or "Seed Thread")
+        thread_id = slugify(title, "seed-thread")[:80]
+    elif action == "create" and packet.request:
         thread_id = slugify(packet.request, "general-continuity")[:80]
+        title = thread_id.replace("-", " ").title()
     status = "pass" if has_observations else ("repair_needed" if attempt == 1 else "fail")
     data = {
         "status": status,
-        "primary_thread": {"action": action, "thread_id": thread_id, "title": thread_id.replace("-", " ").title()},
-        "continuity_assessment": "local fallback selected the most recent thread or created a thread from the request.",
+        "primary_thread": {"action": action, "thread_id": thread_id, "title": title},
+        "continuity_assessment": "local fallback continues a thread only on textual overlap; otherwise it creates from request or seed_threads.",
         "loader_sufficiency": {"status": "sufficient" if has_observations else "insufficient"},
         "missing_context": [] if has_observations else ["No workspace or session observations were available."],
         "repair_instructions": [] if has_observations else ["Check configured workspaces and agent.yaml."],

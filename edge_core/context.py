@@ -28,6 +28,7 @@ class ContextPacket:
     report_candidates: list[dict[str, Any]] = field(default_factory=list)
     recent_events: list[dict[str, Any]] = field(default_factory=list)
     first_steps: list[str] = field(default_factory=list)
+    seed_threads: list[dict[str, Any]] = field(default_factory=list)
     interests: list[dict[str, Any]] = field(default_factory=list)
     routines: list[str] = field(default_factory=list)
 
@@ -40,6 +41,7 @@ class ContextPacket:
             "report_candidates": self.report_candidates,
             "recent_events": self.recent_events,
             "first_steps": self.first_steps,
+            "seed_threads": self.seed_threads,
             "interests": self.interests,
             "routines": self.routines,
         }
@@ -147,6 +149,7 @@ def assemble_context(config: RuntimeConfig, ledger: Ledger, *, kind: str, reques
         report_candidates=load_reports(config),
         recent_events=ledger.read_recent(25),
         first_steps=[str(item) for item in (config.agent.get("first_steps") or [])],
+        seed_threads=[item for item in (config.agent.get("seed_threads") or []) if isinstance(item, dict)],
         interests=[item for item in (config.agent.get("interests") or []) if isinstance(item, dict)],
         routines=[str(item) for item in (config.agent.get("routines") or [])],
     )
