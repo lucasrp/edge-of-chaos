@@ -541,7 +541,8 @@ assert published
 artifact = published[-1]["artifact"]
 entry = entries_dir / Path(artifact).name
 text = entry.read_text(encoding="utf-8")
-assert "# Plain Runtime Report" in text
+assert "Plain Runtime Report" in text
+assert "\n# Plain Runtime Report" not in text
 assert "artifact-producing skill close with text only in stdout" in text
 assert "edge-runner: published artifact blog/entries/" in runner_stdout
 assert "artifact-producing skill close with text only in stdout" not in runner_stdout

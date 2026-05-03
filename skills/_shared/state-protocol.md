@@ -260,9 +260,15 @@ light strategic read that helps the operator remember why this work matters,
 what decision or leverage the report enables, and whether to open the attached
 report.
 
+Reader model: a Roberto-class reader is intelligent and curious but outside the
+runtime. Do not assume they know the current cycle, queue, internal gap IDs,
+skill names, commit hashes, or protocol vocabulary. Use those details only after
+the plain-language reason to care is already clear.
+
 Required voice:
 - Keep the body to a few concise paragraphs; default to 2-4 paragraphs.
-- Lead with what changed, what was learned, or what door this opens.
+- Lead with what changed, what was learned, or what door this opens in a
+  sentence a reader outside the system can follow.
 - Explain the operator gain: the decision, risk reduction, context, or next
   move the report makes easier.
 - Use plain language and an exploratory tone; avoid implementation dumps,
@@ -270,6 +276,9 @@ Required voice:
 - Put technical depth in the report, notes, procedures, and metadata.
 - End by pointing toward the reader-visible report or next question when useful,
   without turning the entry into a summary of every report section.
+- Never publish raw report scaffolding in the feed body: no duplicate H1, scope
+  blocks, mode banners, evidence lists, or "writing the map/report" process
+  chatter.
 
 If a publication needs heavy detail, the entry should summarize the shape of the
 finding and let the content report carry the technical load.

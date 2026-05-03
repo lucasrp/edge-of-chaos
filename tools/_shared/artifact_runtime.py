@@ -16,6 +16,18 @@ from .telemetry import emit_shadow_event
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 SLUG_RE = re.compile(r"[^a-z0-9]+")
+HEADING_RE = re.compile(r"^#{1,6}\s+")
+LIST_RE = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)")
+BANNER_RE = re.compile(r"^\*\*(?:map mode|scope|mode|status|frame|evidence|gap|next)\b", re.I)
+BOLD_LABEL_RE = re.compile(r"^\*\*[^*]{1,80}:\*\*")
+PROCESS_CHATTER_RE = re.compile(
+    r"\b(?:Now I have what I need\.?|Writing (?:the )?(?:map|report)\.?|End of (?:map|report)\.?)",
+    re.I,
+)
+TECH_TOKEN_RE = re.compile(
+    r"\b(?:cycle-\d+|GAP-\d+|G\d+[a-z]?|P\d+|sha256:[a-f0-9]+|[a-f0-9]{7,40})\b|`[^`]+`",
+    re.I,
+)
 
 
 def _now() -> datetime:
@@ -108,6 +120,93 @@ def _render_report_html(*, title: str, body: str, skill: str, cycle_id: str) -> 
     )
 
 
+def _norm_title(value: str) -> str:
+    return re.sub(r"\s+", " ", value or "").strip().strip("#").strip().lower()
+
+
+def _without_leading_title(body: str, title: str) -> str:
+    lines = body.replace("\r\n", "\n").replace("\r", "\n").strip().splitlines()
+    if not lines:
+        return ""
+    first = lines[0].strip()
+    if first.startswith("# ") and _norm_title(first[2:]) == _norm_title(title):
+        lines = lines[1:]
+        while lines and not lines[0].strip():
+            lines = lines[1:]
+    return "\n".join(lines).strip()
+
+
+def _paragraph_blocks(markdown: str) -> list[str]:
+    return [block.strip() for block in re.split(r"\n\s*\n", markdown.strip()) if block.strip()]
+
+
+def _is_reader_paragraph(block: str) -> bool:
+    lines = [line.strip() for line in block.splitlines() if line.strip()]
+    if not lines:
+        return False
+    first = lines[0]
+    if first == "---" or first.startswith("```") or first.startswith("|"):
+        return False
+    if HEADING_RE.match(first) or LIST_RE.match(first) or BANNER_RE.match(first) or BOLD_LABEL_RE.match(first):
+        return False
+    if len(lines) > 4:
+        return False
+    text = " ".join(lines)
+    if len(text) > 760:
+        return False
+    if text.count("|") >= 4 or text.count("`") >= 8:
+        return False
+    return True
+
+
+def _technical_density(text: str) -> float:
+    words = re.findall(r"\w+", text)
+    if not words:
+        return 0.0
+    return len(TECH_TOKEN_RE.findall(text)) / max(len(words), 1)
+
+
+def _trim_sentence(text: str, *, limit: int = 420) -> str:
+    value = PROCESS_CHATTER_RE.sub("", text or "")
+    value = re.sub(r"\s+", " ", value).strip()
+    if len(value) <= limit:
+        return value
+    clipped = value[:limit].rstrip()
+    end = max(clipped.rfind("."), clipped.rfind("!"), clipped.rfind("?"))
+    if end >= 120:
+        return clipped[: end + 1]
+    return clipped.rstrip(" ,;:") + "."
+
+
+def _reader_title(title: str) -> str:
+    value = re.sub(r"^(report|research|strategy|discovery|autonomy|map)\s*:\s*", "", title or "", flags=re.I)
+    return _trim_sentence(value.strip() or "este artefato", limit=180)
+
+
+def _build_entry_body(title: str, body: str) -> str:
+    """Return the public feed invitation; keep the full artifact in the report."""
+    content = _without_leading_title(body, title)
+    blocks = _paragraph_blocks(content)
+    reader_blocks = [block for block in blocks if _is_reader_paragraph(block)]
+    dense = len(blocks) > 4 or any(not _is_reader_paragraph(block) for block in blocks)
+    dense = dense or _technical_density(" ".join(reader_blocks[:2])) > 0.035
+
+    if not dense and 1 <= len(reader_blocks) <= 4:
+        return "\n\n".join(reader_blocks).strip() + "\n"
+
+    selected = [_trim_sentence(block) for block in reader_blocks[:2]]
+    if not selected:
+        selected = [
+            f"Este ciclo registrou {_reader_title(title)}.",
+            "A entrada curta fica aqui como porta de entrada; o relatório preserva a evidência e os detalhes técnicos.",
+        ]
+    elif len(selected) == 1:
+        selected.append("O relatório preserva a evidência completa, as decisões e os detalhes técnicos.")
+    selected = selected[:3]
+    selected.append("Abra o relatório para ver a evidência, os detalhes técnicos e os próximos passos.")
+    return "\n\n".join(selected).strip() + "\n"
+
+
 def publish_stdout_artifact(
     *,
     skill: object,
@@ -127,6 +226,7 @@ def publish_stdout_artifact(
     if not extracted:
         return {"published": False, "reason": "missing_markdown_artifact", "skill": canonical_skill}
     title, body = extracted
+    entry_body = _build_entry_body(title, body)
 
     now = _now()
     date = now.date().isoformat()
@@ -156,7 +256,7 @@ def publish_stdout_artifact(
         f"cycle_id: {cycle_id}\n"
         f"hash: {artifact_hash}\n"
         "---\n\n"
-        f"{body}",
+        f"{entry_body}",
         encoding="utf-8",
     )
 
