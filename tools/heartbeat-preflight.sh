@@ -164,16 +164,7 @@ for f in "$THREADS_DIR"/*.md; do
   fi
 done
 
-# 3. Pending errors in debugging.md?
-debug_file="${MEMORY_BASE}/debugging.md"
-if [ -f "$debug_file" ]; then
-  open_errors=$(grep -ci 'status:.*aberto\|status:.*open\|\[ \]' "$debug_file" 2>/dev/null || echo 0)
-  if [ "$open_errors" -gt 0 ] 2>/dev/null; then
-    SIGNALS+=("ERROR:${open_errors} pending errors")
-  fi
-fi
-
-# 4. Open-gap continuity pressure — lightweight projection check
+# 3. Open-gap continuity pressure — lightweight projection check
 OPEN_GAPS_FILE="$PROJECTIONS_DIR/open-gaps-digest.json"
 if [ -f "$OPEN_GAPS_FILE" ]; then
   open_gaps_count=$(python3 -c "

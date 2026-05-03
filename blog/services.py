@@ -26,7 +26,7 @@ from paths import (  # noqa: E402
     FRONTIER_FILE,
     GIT_SIGNALS_FILE as GIT_SIGNALS,
     LOGS_DIR,
-    OPS_HOTSPOTS,
+    OPERATOR_PRESSURE_HOT_DIGEST_FILE,
     PRIMITIVES_STATUS_FILE,
     PROPOSALS_FILE,
     REPORTS_DIR,
@@ -1968,10 +1968,43 @@ def load_lineage_dashboard(limit=6):
 
 
 def load_hotspots():
-    return load_json_safe(OPS_HOTSPOTS, {
-        "incidents": [], "top_pain": [],
-        "recovered_but_unstable": [], "codify_now": []
-    })
+    """Compatibility read model backed by operator-pressure, not a standalone rollup."""
+    digest = load_json_safe(OPERATOR_PRESSURE_HOT_DIGEST_FILE, {})
+
+    def coerce_items(raw_items):
+        items = []
+        for raw in raw_items or []:
+            if not isinstance(raw, dict):
+                continue
+            signature = str(raw.get("text") or raw.get("content") or raw.get("item_id") or "").strip()
+            if not signature:
+                continue
+            items.append({
+                "signature": signature,
+                "count": int(raw.get("repeat_count", 0) or raw.get("count", 0) or 0),
+                "last_seen": raw.get("last_seen_at") or raw.get("last_seen"),
+                "source_id": raw.get("item_id"),
+                "target": raw.get("target"),
+            })
+        return items
+
+    codify_raw = []
+    for key in ("workflow_candidates", "capability_candidates", "substrate_gap_requests"):
+        value = digest.get(key, [])
+        if isinstance(value, list):
+            codify_raw.extend(value)
+
+    return {
+        "generated_at": digest.get("generated_at"),
+        "window": f"{digest.get('window_days') or 7}d",
+        "incidents": [],
+        "top_pain": coerce_items(digest.get("operator_pains_resolvable_now", [])),
+        "recovered_but_unstable": coerce_items(
+            (digest.get("operator_toil_optimizable_now", []) or [])
+            + (digest.get("mistakes_to_avoid_now", []) or [])
+        ),
+        "codify_now": coerce_items(codify_raw),
+    }
 
 
 def load_git_signals():

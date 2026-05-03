@@ -34,7 +34,7 @@ Read on demand, according to the task:
 | `memory/rules-core.md` | Cross-cutting mandates |
 | `memory/personality.md` | Core identity and cognitive profile |
 | `memory/metodo.md` | Feynman method |
-| `memory/debugging.md` | Errors that must not recur |
+| `briefing.md` | Compiled runtime context and open continuity pressure |
 | `config/strategy.md` | Operator direction (phase, priorities, constraints) |
 | `config/preflight.yaml` / `config/postflight.yaml` | Runtime lifecycle source |
 

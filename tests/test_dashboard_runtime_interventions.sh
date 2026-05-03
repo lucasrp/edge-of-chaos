@@ -32,7 +32,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$TMP_STATE/state/events" "$TMP_STATE/logs" "$TMP_STATE/blog/entries" "$TMP_STATE/state/signals" "$TMP_STATE/search" "$AUTONOMY_DIR"
+mkdir -p "$TMP_STATE/state/events" "$TMP_STATE/logs" "$TMP_STATE/blog/entries" "$TMP_STATE/state/signals" "$TMP_STATE/state/operator-pressure" "$TMP_STATE/search" "$AUTONOMY_DIR"
 
 if [ -f "$CAP_FILE" ]; then cp "$CAP_FILE" "$CAP_BACKUP"; fi
 if [ -f "$FRONTIER_FILE" ]; then cp "$FRONTIER_FILE" "$FRONTIER_BACKUP"; fi
@@ -111,24 +111,30 @@ cat >"$TMP_STATE/state/primitives-status.json" <<'JSON'
 }
 JSON
 
-cat >"$TMP_STATE/state/ops-hotspots.json" <<'JSON'
+cat >"$TMP_STATE/state/operator-pressure/hot-digest.json" <<'JSON'
 {
+  "schema_version": 5,
   "generated_at": "2026-04-20T22:12:00+00:00",
-  "window": "48h",
-  "incidents": [],
-  "top_pain": [],
-  "recovered_but_unstable": [
+  "window_days": 2,
+  "operator_pains_resolvable_now": [],
+  "operator_toil_optimizable_now": [
     {
-      "signature": "exa timeout on retry",
-      "count": 3,
-      "last_seen": "2026-04-20T22:05:00+00:00"
+      "item_id": "pressure-exa-timeout",
+      "text": "exa timeout on retry",
+      "repeat_count": 3,
+      "last_seen_at": "2026-04-20T22:05:00+00:00"
     }
   ],
-  "codify_now": [
+  "mistakes_to_avoid_now": [],
+  "workflow_candidates": [],
+  "capability_candidates": [],
+  "substrate_gap_requests": [
     {
-      "signature": "missing pre-skill evidence guardrail",
-      "count": 4,
-      "last_seen": "2026-04-20T22:06:00+00:00"
+      "item_id": "pressure-pre-skill-guardrail",
+      "text": "missing pre-skill evidence guardrail",
+      "repeat_count": 4,
+      "last_seen_at": "2026-04-20T22:06:00+00:00",
+      "target": "capability"
     }
   ]
 }

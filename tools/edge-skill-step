@@ -5,7 +5,7 @@ Usage:
     edge-skill-step <skill> <step_id>          # Log step as done
     edge-skill-step <skill> skip <step_id> [reason]  # Log explicit skip
     edge-skill-step <skill> end                # Compute summary (missing steps)
-    edge-skill-step report [--last N]          # Summary for /ed-reflexao
+    edge-skill-step report [--last N]          # Summary for runtime observability
 """
 
 import datetime
@@ -313,7 +313,7 @@ def cmd_end(skill):
 
 
 def cmd_report(last_n=20):
-    """Summary report for /ed-reflexao."""
+    """Summary report for runtime observability."""
     entries = _read_log()
     ends = [
         e

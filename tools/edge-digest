@@ -2,7 +2,7 @@
 """edge-digest — gera briefing.md a partir de dados estruturados.
 
 Determinístico. Zero tokens. Roda após consolidate-state.
-Lê: events.jsonl, threads/*.md, open_gaps dos entries, últimos beats, erros ativos.
+Lê: events.jsonl, threads/*.md, open_gaps dos entries, últimos beats e observabilidade.
 Gera: ~/edge/briefing.md — o ÚNICO arquivo que sessões precisam ler.
 
 Uso:
@@ -13,7 +13,6 @@ Uso:
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 import yaml
@@ -23,7 +22,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import (EVENTS_FILE, THREADS_DIR, ENTRIES_DIR as BLOG_DIR,
-                   LOGS_DIR, STATE_DIR, DEBUGGING_FILE as DEBUG_FILE,
+                   LOGS_DIR, STATE_DIR,
                    INSIGHTS_FILE, BRIEFING_FILE as OUTPUT_FILE,
                    OPEN_GAPS_DIGEST_FILE)
 HEARTBEAT_LOG = LOGS_DIR / f"heartbeat-{datetime.now().strftime('%Y-%m-%d')}.log"
@@ -128,18 +127,6 @@ def read_beats():
     return lines[-5:]  # últimos 5
 
 
-def read_open_errors():
-    """Erros abertos no debugging.md."""
-    if not DEBUG_FILE.exists():
-        return []
-    content = DEBUG_FILE.read_text()
-    errors = []
-    for line in content.split("\n"):
-        if re.search(r'status:\s*(aberto|open)|\[ \]', line, re.IGNORECASE):
-            errors.append(line.strip()[:120])
-    return errors[:5]
-
-
 def read_unread_insights():
     """Insights sem [LIDO]."""
     if not INSIGHTS_FILE.exists():
@@ -190,7 +177,6 @@ def generate_briefing():
     open_gaps = read_open_gaps()
     open_gaps_digest = read_open_gaps_digest()
     beats = read_beats()
-    errors = read_open_errors()
     insights = read_unread_insights()
     total_entries, entries_with_gaps = count_blog_entries()
     observability = read_observability()
@@ -289,13 +275,6 @@ def generate_briefing():
             lines.append(f"- {b}")
         lines.append("")
 
-    # ── Erros ativos ──
-    if errors:
-        lines.append(f"## Erros ativos ({len(errors)})")
-        for e in errors:
-            lines.append(f"- {e}")
-        lines.append("")
-
     # ── Insights não lidos ──
     if insights:
         lines.append(f"## Insights novos ({len(insights)})")
@@ -308,7 +287,6 @@ def generate_briefing():
     lines.append(f"- Entries: {total_entries} total, {entries_with_gaps} com gaps ({int(entries_with_gaps/max(total_entries,1)*100)}%)")
     lines.append(f"- Threads: {len(active_threads)} ativos, {len(waiting_threads)} esperando")
     lines.append(f"- Gaps abertos: {len(open_gaps)}")
-    lines.append(f"- Erros ativos: {len(errors)}")
     lines.append("")
 
     if observability:

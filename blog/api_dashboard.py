@@ -165,15 +165,15 @@ def _build_alerts_data():
             "source": "git-signals",
         })
 
-    # Ops hotspots: top_pain = high
+    # Operator-pressure hotspots: top_pain = high
     for tp in hotspots.get("top_pain", []):
         alert_cards.append({
             "title": f"Pain: {tp.get('signature', '')}",
             "severity": "high",
-            "detail": f"Count: {tp.get('count', 0)}, wasted: {tp.get('total_wasted_ms', 0)}ms",
+            "detail": f"Count: {tp.get('count', 0)}",
             "count": tp.get("count", 0),
             "last_seen": tp.get("last_seen"),
-            "source": "ops-hotspots",
+            "source": "operator-pressure",
         })
 
     # recovered_but_unstable = medium
@@ -184,7 +184,7 @@ def _build_alerts_data():
             "detail": f"Recovered but unstable. Count: {ru.get('count', 0)}",
             "count": ru.get("count", 0),
             "last_seen": ru.get("last_seen"),
-            "source": "ops-hotspots",
+            "source": "operator-pressure",
         })
 
     # codify_now = medium
@@ -192,10 +192,10 @@ def _build_alerts_data():
         alert_cards.append({
             "title": f"Codify: {cn.get('signature', '')}",
             "severity": "medium",
-            "detail": "Workaround known, should be codified",
+            "detail": "Operator-pressure signal should be codified",
             "count": cn.get("count", 0),
             "last_seen": cn.get("last_seen"),
-            "source": "ops-hotspots",
+            "source": "operator-pressure",
         })
 
     # Sort by severity
@@ -296,7 +296,7 @@ def partial_pipeline():
 
 @dashboard_bp.route("/api/dashboard/hotspots")
 def hotspots():
-    """Operational hotspots from ops-hotspots.json."""
+    """Operational hotspots derived from operator-pressure."""
     data = load_hotspots()
     return jsonify({
         "generated_at": data.get("generated_at"),

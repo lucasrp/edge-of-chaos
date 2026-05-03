@@ -396,7 +396,7 @@ SYSTEM_FILES = [
         "group_label": "Estado do agente",
         "purpose": "Fonte canônica do protocolo pré-skill — contexto a absorver e procedimentos a tentar antes de cada beat.",
         "owner": "agent",
-        "managed_by": "/ed-reflexao",
+        "managed_by": "runtime protocol",
     },
     {
         "path": "MEMORY.md",
@@ -405,14 +405,6 @@ SYSTEM_FILES = [
         "purpose": "Índice de memória persistente. Ponteiros para arquivos de memória. Gerenciado automaticamente",
         "owner": "agent",
         "managed_by": "auto-memory",
-    },
-    {
-        "path": "memory/debugging.md",
-        "group": "agent_state",
-        "group_label": "Estado do agente",
-        "purpose": "Erros operacionais que não podem recorrer. Adicionados pela reflexão e heartbeat quando detectam falhas",
-        "owner": "agent",
-        "managed_by": "/ed-reflexao + heartbeat",
     },
     {
         "path": "memory/breaks-active.md",
@@ -471,14 +463,6 @@ SYSTEM_FILES = [
         "managed_by": "git_signals",
     },
     {
-        "path": "state/ops-hotspots.json",
-        "group": "agent_state",
-        "group_label": "Estado do agente",
-        "purpose": "Hotspots operacionais — incidentes, top pain, recovered unstable, codify now",
-        "owner": "agent",
-        "managed_by": "ledger_rollup",
-    },
-    {
         "path": "state/curadoria-candidates.json",
         "group": "agent_state",
         "group_label": "Estado do agente",
@@ -527,9 +511,9 @@ SYSTEM_FILES = [
         "path": "state/",
         "group": "production",
         "group_label": "Produção do agente",
-        "purpose": "JSON de estado — tasks, ops-hotspots, git-signals, curadoria-candidates. Telemetria operacional",
+        "purpose": "JSON de estado — tasks, operator-pressure, git-signals, curadoria-candidates. Telemetria operacional",
         "owner": "agent",
-        "managed_by": "tools de telemetria (ledger_rollup, git_signals, curadoria_compute)",
+        "managed_by": "tools de telemetria (operator-pressure, git_signals, curadoria_compute)",
         "is_dir": True,
     },
     {

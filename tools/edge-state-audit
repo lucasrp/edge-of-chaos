@@ -6,7 +6,7 @@ Three modes:
   propose   — write state-proposal.yaml with intended changes
   audit     — compare PRE snapshot vs POST state, validate against proposal
 
-Protected files: MEMORY.md, capabilities.md, debugging.md, personality.md, skills/**/*.md
+Protected files: MEMORY.md, capabilities.md, personality.md, skills/**/*.md
 
 Usage:
   edge-state-audit snapshot --slug SLUG          # capture PRE hashes
@@ -40,7 +40,6 @@ from paths import AUDITS_DIR, SNAPSHOT_DIR, MEMORY_DIR, AUTONOMY_DIR, SKILLS_DIR
 # Protected paths — any change here MUST be proposed
 PROTECTED_PATTERNS = [
     str(MEMORY_DIR / "MEMORY.md"),
-    str(MEMORY_DIR / "debugging.md"),
     str(MEMORY_DIR / "personality.md"),
     str(MEMORY_DIR / "insights.md"),
     str(AUTONOMY_DIR / "capabilities.md"),

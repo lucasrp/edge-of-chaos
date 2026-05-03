@@ -1,2 +1,1 @@
 - [Genotype workflow: issue → clone → PR → merge → close → propagate](feedback_genotype_workflow.md) — 7-step loop for any ~/edge/ genotype change; close-issue is a completion gate, not an afterthought
-- [Reflection execution log](reflection-log.md) — running log of /ed-reflection runs and decisions taken
