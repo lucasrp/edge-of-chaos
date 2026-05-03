@@ -56,7 +56,7 @@ def check_threads():
         return
 
     required_fields = {"id", "title", "status", "owner", "created", "updated", "resurface"}
-    valid_statuses = {"active", "dormant", "waiting", "done"}
+    valid_statuses = {"active", "dormant", "waiting", "done", "parked", "archived"}
     # Read agent name from agent.yaml to allow fleet instance owners
     agent_name = "edge"
     try:

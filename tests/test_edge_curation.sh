@@ -18,6 +18,7 @@ trap cleanup EXIT
 
 mkdir -p "$TMP_REPO/tools" "$TMP_REPO/config" "$TMP_REPO/threads" "$TMP_REPO/topics" "$TMP_REPO/blog/entries" "$TMP_STATE/state/operator-pressure" "$TMP_STATE/state/projections"
 cp "$EDGE_DIR/tools/edge-curation" "$TMP_REPO/tools/edge-curation"
+cp "$EDGE_DIR/tools/edge-state-lint" "$TMP_REPO/tools/edge-state-lint"
 cp -R "$EDGE_DIR/tools/_shared" "$TMP_REPO/tools/_shared"
 cp "$EDGE_DIR/config/paths.py" "$TMP_REPO/config/paths.py"
 cp "$EDGE_DIR/config/branding.py" "$TMP_REPO/config/branding.py"
@@ -30,7 +31,7 @@ cat >"$EDGE_STATE_DIR/state/curadoria-candidates.json" <<'JSON'
 {"total_docs": 3, "stale_candidates": 1, "archive_auto": [], "merge_review": [], "strengthen_targets": []}
 JSON
 SH
-chmod +x "$TMP_REPO/tools/curadoria-compute" "$TMP_REPO/tools/edge-curation"
+chmod +x "$TMP_REPO/tools/curadoria-compute" "$TMP_REPO/tools/edge-curation" "$TMP_REPO/tools/edge-state-lint"
 
 cat >"$TMP_REPO/search-edge-index" <<'SH'
 #!/usr/bin/env bash
@@ -56,6 +57,53 @@ generated_by: edge-curation
 ---
 
 Existing generated curation stub.
+MD
+cat >"$TMP_STATE/threads/legacy-active.md" <<'MD'
+---
+id: legacy-active
+title: Legacy Active
+status: active
+created: 2026-05-01
+updated: 2026-05-01
+---
+
+Legacy active thread missing required metadata.
+MD
+cat >"$TMP_STATE/threads/colon-title.md" <<'MD'
+---
+id: colon-title
+title: Artigo: Indexacao de Instrucoes
+status: active
+created: 2026-05-01
+updated: 2026-05-01
+---
+
+Legacy thread with a colon title that needs YAML quoting.
+MD
+cat >"$TMP_STATE/threads/-.md" <<'MD'
+---
+id: -
+title:
+status: active
+created: 2026-05-01
+updated: 2026-05-01
+generated_by: edge-curation
+---
+
+Generated thread with a dash id and blank title.
+MD
+cat >"$TMP_STATE/threads/parked-thread.md" <<'MD'
+---
+id: parked-thread
+title: Parked Thread
+status: parked
+owner: edge
+created: 2026-05-01
+updated: 2026-05-01
+resurface: null
+---
+
+Parked legacy thread.
 MD
 
 cat >"$TMP_STATE/state/operator-pressure/hot-digest.json" <<'JSON'
@@ -128,17 +176,25 @@ assert digest["operator_pressure"]["pre_skill_context_total"] == 1
 assert digest["operator_pressure"]["topics_created"] >= 1
 assert digest["operator_pressure"]["threads_created"] >= 1
 assert digest["operator_pressure"]["pre_skill_context"]["candidates"][0]["judgement"] == "pre_skill_context"
-assert digest["hot_state"]["threads"]["repaired_total"] == 1
+assert digest["hot_state"]["threads"]["repaired_total"] >= 4
 assert not list((state_root / "blog" / "entries").glob("*.md"))
 for thread_path in [
     state_root / "threads" / "meta-evidence.md",
     state_root / "threads" / "existing-generated.md",
+    state_root / "threads" / "legacy-active.md",
+    state_root / "threads" / "colon-title.md",
+    state_root / "threads" / "-.md",
 ]:
     assert thread_path.exists()
     text = thread_path.read_text(encoding="utf-8")
     assert "\nowner: edge\n" in text
     assert "\nresurface:" in text
+assert "title: Generated Thread" in (state_root / "threads" / "-.md").read_text(encoding="utf-8")
+assert "title: 'Artigo: Indexacao de Instrucoes'" in (state_root / "threads" / "colon-title.md").read_text(encoding="utf-8")
 assert (state_root / "topics" / "meta-evidence.md").exists()
+code, stdout, stderr = module._run([str(Path(os.environ["EDGE_REPO_DIR"]) / "tools" / "edge-state-lint"), "--json", "--check", "threads"])
+lint = json.loads(stdout)
+assert lint.get("by_severity", {}).get("error", 0) == 0, lint
 PY
 then
     pass "sync builds digest and migrates operator guidance to topics/pre-skill context"

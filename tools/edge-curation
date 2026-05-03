@@ -69,7 +69,21 @@ def _load_frontmatter(path: Path) -> dict[str, Any]:
     parts = raw.split("---", 2)
     if len(parts) < 3:
         return {}
-    payload = yaml.safe_load(parts[1]) or {}
+    frontmatter = parts[1]
+    try:
+        payload = yaml.safe_load(frontmatter) or {}
+    except Exception:
+        payload = {}
+        for line in frontmatter.splitlines():
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            key = key.strip()
+            if not key:
+                continue
+            payload[key] = value.strip().strip('"').strip("'")
+        if payload:
+            payload["_frontmatter_repair_required"] = True
     return payload if isinstance(payload, dict) else {}
 
 
@@ -84,7 +98,7 @@ def _coerce_list(value: Any) -> list[str]:
 
 
 def _slug_title(slug: str) -> str:
-    return re.sub(r"[-_]+", " ", str(slug or "").strip()).strip().title()
+    return re.sub(r"[-_]+", " ", str(slug or "").strip()).strip().title() or "Generated Thread"
 
 
 def _normalize_ascii(value: str) -> str:
@@ -214,11 +228,15 @@ def _write_thread_stub(thread_id: str, open_gaps_digest: dict[str, Any]) -> Path
 
 
 def _frontmatter_scalar(value: Any) -> str:
-    if isinstance(value, list):
-        return "[" + ", ".join(str(item) for item in value) + "]"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    return str(value)
+    dumped = yaml.safe_dump(
+        value,
+        allow_unicode=True,
+        default_flow_style=True,
+        sort_keys=False,
+    ).strip()
+    if "\n..." in dumped:
+        dumped = dumped.split("\n...", 1)[0].strip()
+    return dumped
 
 
 def _rewrite_frontmatter(raw: str, frontmatter: dict[str, Any]) -> str:
@@ -234,7 +252,7 @@ def _rewrite_frontmatter(raw: str, frontmatter: dict[str, Any]) -> str:
     return "\n".join(lines) + body
 
 
-def _repair_generated_thread_stubs() -> list[dict[str, str]]:
+def _repair_thread_frontmatter() -> list[dict[str, str]]:
     repairs: list[dict[str, str]] = []
     if not THREADS_DIR.exists():
         return repairs
@@ -247,19 +265,29 @@ def _repair_generated_thread_stubs() -> list[dict[str, str]]:
             fm = _load_frontmatter(path)
         except Exception:
             continue
-        if str(fm.get("generated_by") or "") != "edge-curation":
-            continue
 
         updated: list[str] = []
+        if fm.pop("_frontmatter_repair_required", False):
+            updated.append("yaml")
+        if not str(fm.get("title") or "").strip():
+            fm["title"] = _slug_title(path.stem)
+            updated.append("title")
+
+        status = str(fm.get("status") or "").strip().lower()
+        resurface_default: Any = None if status in {"archived", "parked", "done", "dormant"} else resurface
         defaults = {
             "owner": "edge",
             "created": today,
             "updated": today,
-            "resurface": resurface,
+            "resurface": resurface_default,
         }
         for key, value in defaults.items():
-            if str(fm.get(key) or "").strip():
-                continue
+            if key in fm:
+                current = fm.get(key)
+                if key == "resurface" and current is None and value is None:
+                    continue
+                if str(current or "").strip():
+                    continue
             fm[key] = value
             updated.append(key)
 
@@ -1028,7 +1056,7 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
     corpus_payload, corpus_warnings = _refresh_corpus_health()
     open_gaps_digest = _read_json(OPEN_GAPS_DIGEST_FILE, {})
     operator_pressure_digest = _read_json(OPERATOR_PRESSURE_HOT_DIGEST_FILE, {})
-    thread_repairs = _repair_generated_thread_stubs()
+    thread_repairs = _repair_thread_frontmatter()
     hot_state = _curate_hot_state(open_gaps_digest)
     operator_pressure = _curate_operator_pressure(operator_pressure_digest)
     hot_state.setdefault("threads", {})["repaired_total"] = len(thread_repairs)
