@@ -196,7 +196,41 @@ else
     fail "status reports degraded when active binary disappears"
 fi
 
-echo "--- Test 6: checkup probes capabilities and reports candidate actions without aborting ---"
+echo "--- Test 6: checkup probes materialized primitives with probe operation ---"
+cat >"$LIBEXEC_DIR/arxiv" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "probe" ]]; then
+  printf '{"ok": true, "probe": true}\n'
+  exit 0
+fi
+printf 'expected probe operation, got %s\n' "${1:-}" >&2
+exit 1
+SH
+chmod +x "$LIBEXEC_DIR/arxiv"
+EDGE_CYCLE_ID="primitive-status:test-rematerialize" "$LIFECYCLE_TOOL" materialize arxiv --ensure-executable >/dev/null
+
+if OUTPUT=$("$STATUS_TOOL" status --json --checkup --skill autonomy --skip-capability-probes); then
+    if python3 - <<'PY' "$OUTPUT"
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+checkup = payload["checkup"]
+probes = {item["name"]: item for item in checkup["primitive_probes"]}
+assert probes["arxiv"]["status"] == "ok"
+assert probes["arxiv"]["command"][-1] == "probe"
+assert checkup["failed_probe_total"] == 0
+PY
+    then
+        pass "checkup probes materialized primitives with probe operation"
+    else
+        fail "checkup probes materialized primitives with probe operation"
+    fi
+else
+    fail "checkup probes materialized primitives with probe operation"
+fi
+
+echo "--- Test 7: checkup probes capabilities and reports candidate actions without aborting ---"
 if OUTPUT=$("$STATUS_TOOL" status --json --checkup --skill autonomy --skip-primitive-probes); then
     if python3 - <<'PY' "$OUTPUT"
 import json

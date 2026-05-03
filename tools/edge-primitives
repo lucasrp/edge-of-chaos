@@ -367,10 +367,10 @@ def _probe_primitives(payload: dict, *, skip: bool = False) -> list[dict]:
             "probe",
             name,
             "--operation",
-            "search",
+            "probe",
             "--command",
             binary_path,
-            "--help",
+            "probe",
         ]
         try:
             result = subprocess.run(cmd, cwd=str(EDGE_REPO_DIR), capture_output=True, text=True)
