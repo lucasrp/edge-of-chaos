@@ -170,8 +170,12 @@ if [ "${MOCK_CLAUDE_FAIL_ONCE:-0}" = "1" ]; then
     exit "${MOCK_CLAUDE_FAIL_ONCE_EXIT_CODE:-1}"
   fi
 fi
+prompt_has_skill() {
+  local skill="$1"
+  [[ "$PROMPT" == *"/$skill"* || "$PROMPT" == "$skill"$'\n'* ]]
+}
 if [ "${MOCK_CLAUDE_HEARTBEAT_FLOW:-0}" = "1" ]; then
-  if [[ "$PROMPT" == *"/ed-heartbeat"* ]]; then
+  if prompt_has_skill "ed-heartbeat"; then
     "${EDGE_REPO_DIR:?}/tools/edge-dispatch" dispatch --skill discovery >/dev/null
     if [ "${MOCK_CLAUDE_HEARTBEAT_INLINE_DONE:-0}" = "1" ]; then
       python3 - <<'PY'
@@ -192,7 +196,7 @@ path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding
 PY
       publish_mock_artifact discovery
     fi
-  elif [[ "$PROMPT" == *"/discovery"* ]]; then
+  elif prompt_has_skill "discovery"; then
     for step in direction explore application persistence; do
       "${EDGE_REPO_DIR:?}/tools/edge-skill-step" discovery "$step" >/dev/null
     done
@@ -200,7 +204,7 @@ PY
     publish_mock_artifact discovery
   elif [ -z "${MOCK_CLAUDE_ARTIFACT_MARKDOWN:-}" ]; then
     for skill in autonomy report research planner sources; do
-      if [[ "$PROMPT" == *"/$skill"* ]]; then
+      if prompt_has_skill "$skill"; then
         publish_mock_artifact "$skill"
         break
       fi
@@ -334,6 +338,8 @@ assert "operator_pressure_digest" in invocations[0]
 assert "beat_launch_context" in invocations[0]
 assert "delta_prerequisite" in invocations[0]
 assert "DELTA PREREQUISITE" in invocations[0]
+assert "Stdout-only prose is diagnostic output only" in invocations[0]
+assert "runtime can publish it" not in invocations[0]
 assert "search_protocol" in invocations[0]
 assert "epistemic_protocol" in invocations[0]
 assert "exploration_pack" in invocations[0]
@@ -374,7 +380,6 @@ cat >"$TMP_EDGE/state/dispatch-queue.json" <<'JSON'
 ]
 JSON
 export MOCK_CLAUDE_HEARTBEAT_FLOW=1
-export MOCK_CLAUDE_ARTIFACT_MARKDOWN=$'# Queued Report Priority\n\nThis queued report artifact is intentionally long enough for the stdout publication bridge to accept it as a valid runtime artifact during the deterministic heartbeat routing test.'
 "$RUNNER_TOOL" skill \
     --skill /ed-heartbeat \
     --dispatch-trigger heartbeat \
@@ -383,7 +388,6 @@ export MOCK_CLAUDE_ARTIFACT_MARKDOWN=$'# Queued Report Priority\n\nThis queued r
     --dispatch-preflight-profile heartbeat_default \
     --dispatch-postflight-profile standard \
     --dispatch-force >/dev/null
-unset MOCK_CLAUDE_ARTIFACT_MARKDOWN || true
 
 if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$TMP_EDGE/logs/events.jsonl" "$TMP_BASE/cycle-id-inline.txt" "$TMP_BASE/args-inline.txt" "$TMP_EDGE/state/dispatch-queue.json"
 import json
@@ -444,19 +448,14 @@ else
     fail "heartbeat router prioritizes queued dispatch before fairness"
 fi
 
-echo "--- Test 1c: non-heartbeat skills publish stdout through the shared runtime bridge ---"
-PUBLISH_SKILLS=(discovery research report planner autonomy sources test-agent-autonomy)
+echo "--- Test 1c: non-heartbeat skills must publish durable artifacts themselves ---"
+PUBLISH_SKILLS=(discovery research report planner autonomy sources)
 PUBLISH_OK=1
 for skill in "${PUBLISH_SKILLS[@]}"; do
     export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id-publish-$skill.txt"
     export MOCK_CLAUDE_ARGS_OUT="$TMP_BASE/args-publish-$skill.txt"
     rm -f "$MOCK_CLAUDE_ENV_OUT" "$MOCK_CLAUDE_ARGS_OUT"
-    unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
-    export MOCK_CLAUDE_ARTIFACT_MARKDOWN="# Runtime Artifact ${skill}
-
-This is a complete markdown artifact emitted by the backend for ${skill}.
-
-It should be published by the runtime bridge, not by the individual skill."
+    export MOCK_CLAUDE_HEARTBEAT_FLOW=1
     if ! "$RUNNER_TOOL" skill \
         --skill "$skill" \
         --dispatch-trigger operator \
@@ -481,7 +480,7 @@ skill = sys.argv[5]
 cycle_id = dispatch["cycle_id"]
 
 expected_skill = skill
-expected_source_skill = "autonomy" if skill == "test-agent-autonomy" else skill
+expected_source_skill = skill
 
 assert dispatch["request"]["skill"] == expected_skill
 assert dispatch["state"]["active"] is False
@@ -493,45 +492,39 @@ published = [
     if event.get("cycle_id") == cycle_id
     and event.get("type") == "ArtifactPublished"
     and (event.get("payload") or {}).get("source_skill") == expected_source_skill
-    and (event.get("payload") or {}).get("auto_published") is True
+    and (event.get("payload") or {}).get("auto_published") is not True
+    and (event.get("payload") or {}).get("pipeline") != "runtime-stdout-artifact"
 ]
-assert published, f"no auto-published artifact for {skill}"
+assert published, f"no durable artifact for {skill}"
 artifact = published[-1]["artifact"]
 assert artifact.startswith("blog/entries/")
-entry_path = entries_dir / Path(artifact).name
-assert entry_path.exists()
-entry = entry_path.read_text(encoding="utf-8")
-assert "runtime-published" in entry
-assert f"source_skill: {expected_source_skill}" in entry
-report_name = (published[-1].get("payload") or {})["report"]
-assert (reports_dir / report_name).exists()
 
 phase_events = [
     event for event in events
     if event.get("cycle_id") == cycle_id
     and event.get("type") == "PhaseCompleted"
     and (event.get("payload") or {}).get("pipeline") == "runtime-stdout-artifact"
-    and (event.get("payload") or {}).get("ok") is True
 ]
-assert phase_events
+assert not phase_events
 PY
         PUBLISH_OK=0
         break
     fi
 done
-unset MOCK_CLAUDE_ARTIFACT_MARKDOWN || true
+unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
 
 if [[ "$PUBLISH_OK" -eq 1 ]]; then
-    pass "non-heartbeat skills publish stdout through the shared runtime bridge"
+    pass "non-heartbeat skills close only after durable artifact publication"
 else
-    fail "non-heartbeat skills publish stdout through the shared runtime bridge"
+    fail "non-heartbeat skills close only after durable artifact publication"
 fi
 
-echo "--- Test 1d: plain terminal prose is captured as an artifact without dumping the body ---"
+echo "--- Test 1d: stdout-only prose does not satisfy the artifact gate ---"
 export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id-plain-stdout.txt"
 export MOCK_CLAUDE_ARGS_OUT="$TMP_BASE/args-plain-stdout.txt"
 rm -f "$MOCK_CLAUDE_ENV_OUT" "$MOCK_CLAUDE_ARGS_OUT" "$TMP_BASE/plain-stdout.out"
-export MOCK_CLAUDE_ARTIFACT_MARKDOWN=$'Plain Runtime Report\n\nThis report intentionally has no markdown heading. The runtime should still capture the terminal prose as a durable artifact instead of letting an artifact-producing skill close with text only in stdout. The body is long enough to satisfy the artifact bridge threshold.'
+export MOCK_CLAUDE_ARTIFACT_MARKDOWN=$'Plain Runtime Report\n\nThis report intentionally has no markdown heading. The runtime must not capture terminal prose as a durable artifact or let an artifact-producing skill close with text only in stdout. The body is long enough to prove stdout is only diagnostic output.'
+set +e
 "$RUNNER_TOOL" skill \
     --skill /report \
     --dispatch-trigger operator \
@@ -540,9 +533,11 @@ export MOCK_CLAUDE_ARTIFACT_MARKDOWN=$'Plain Runtime Report\n\nThis report inten
     --dispatch-preflight-profile heartbeat_default \
     --dispatch-postflight-profile standard \
     --dispatch-force >"$TMP_BASE/plain-stdout.out"
+STATUS=$?
+set -e
 unset MOCK_CLAUDE_ARTIFACT_MARKDOWN || true
 
-if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$TMP_EDGE/blog/entries" "$TMP_BASE/plain-stdout.out"
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$TMP_EDGE/blog/entries" "$TMP_BASE/plain-stdout.out" "$STATUS"
 import json
 import sys
 from pathlib import Path
@@ -551,93 +546,107 @@ dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
 events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
 entries_dir = Path(sys.argv[3])
 runner_stdout = Path(sys.argv[4]).read_text(encoding="utf-8")
+status = int(sys.argv[5])
 
 assert dispatch["request"]["skill"] == "report"
 assert dispatch["state"]["active"] is False
-assert dispatch["state"]["close_status"] == "completed"
+assert dispatch["state"]["close_status"] == "failed"
+assert dispatch["state"]["close_reason"] == "missing_artifact_published"
+assert status == 1
 published = [
     event for event in events
     if event.get("type") == "ArtifactPublished"
     and event.get("cycle_id") == dispatch["cycle_id"]
 ]
-assert published
-artifact = published[-1]["artifact"]
-entry = entries_dir / Path(artifact).name
-text = entry.read_text(encoding="utf-8")
-assert "Plain Runtime Report" in text
-assert "\n# Plain Runtime Report" not in text
-assert "artifact-producing skill close with text only in stdout" in text
-assert "edge-runner: published artifact blog/entries/" in runner_stdout
-assert "artifact-producing skill close with text only in stdout" not in runner_stdout
+auto_published = [
+    event for event in published
+    if (event.get("payload") or {}).get("auto_published") is True
+    or (event.get("payload") or {}).get("pipeline") == "runtime-stdout-artifact"
+]
+assert not auto_published
+assert not any("Plain Runtime Report" in path.read_text(encoding="utf-8") for path in entries_dir.glob("*.md"))
+assert "edge-runner: published artifact blog/entries/" not in runner_stdout
+assert "artifact-producing skill close with text only in stdout" in runner_stdout
 PY
 then
-    pass "plain terminal prose is captured as an artifact without dumping the body"
+    pass "stdout-only prose is rejected as publication evidence"
 else
-    fail "plain terminal prose is captured as an artifact without dumping the body"
+    fail "stdout-only prose is rejected as publication evidence"
 fi
 
-echo "--- Test 1e: artifact supervisor retries acknowledgement-only backend failure ---"
-export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id-retry.txt"
-export MOCK_CLAUDE_ARGS_OUT="$TMP_BASE/args-retry.txt"
-rm -f "$MOCK_CLAUDE_ENV_OUT" "$MOCK_CLAUDE_ARGS_OUT" "$TMP_BASE/retry.out"
-export MOCK_CLAUDE_FAIL_ONCE=1
-export MOCK_CLAUDE_FAIL_ONCE_OUTPUT="Acknowledged — staying out of Frostpeck's way."
-export MOCK_CLAUDE_ARTIFACT_MARKDOWN=$'# Retry Published Report\n\nThe artifact supervisor retried a backend response that only acknowledged and did not publish. This second attempt produces a complete runtime-published report artifact.'
-"$RUNNER_TOOL" skill \
-    --skill /research \
-    --dispatch-trigger operator \
-    --dispatch-policy operator \
-    --dispatch-routing-mode explicit \
-    --dispatch-preflight-profile heartbeat_default \
-    --dispatch-postflight-profile standard \
-    --dispatch-force >"$TMP_BASE/retry.out"
-unset MOCK_CLAUDE_FAIL_ONCE MOCK_CLAUDE_FAIL_ONCE_OUTPUT MOCK_CLAUDE_ARTIFACT_MARKDOWN || true
-
-if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$TMP_EDGE/blog/entries" "$TMP_BASE/retry.out" "$TMP_BASE/args-retry.txt"
+echo "--- Test 1e: runtime-stdout ArtifactPublished evidence is rejected ---"
+if python3 - <<'PY' "$EDGE_DIR" "$TMP_BASE/runtime-stdout-events.jsonl"
+import importlib.machinery
+import importlib.util
 import json
+import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
-dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
-events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
-entries_dir = Path(sys.argv[3])
-runner_stdout = Path(sys.argv[4]).read_text(encoding="utf-8")
-args_log = Path(sys.argv[5]).read_text(encoding="utf-8")
+edge_dir = Path(sys.argv[1])
+events_path = Path(sys.argv[2])
+cycle_id = "cycle-runtime-stdout"
+events_path.write_text(
+    json.dumps({
+        "ts": "2026-05-03T00:00:10+00:00",
+        "type": "PhaseCompleted",
+        "cycle_id": cycle_id,
+        "artifact": "blog/entries/runtime.md",
+        "payload": {
+            "pipeline": "runtime-stdout-artifact",
+            "phase": "pipeline",
+            "ok": True,
+            "auto_published": True,
+        },
+    }) + "\n" +
+    json.dumps({
+        "ts": "2026-05-03T00:00:11+00:00",
+        "type": "ArtifactPublished",
+        "cycle_id": cycle_id,
+        "artifact": "blog/entries/runtime.md",
+        "payload": {
+            "source_skill": "report",
+            "pipeline": "runtime-stdout-artifact",
+            "auto_published": True,
+        },
+    }) + "\n",
+    encoding="utf-8",
+)
 
-assert dispatch["request"]["skill"] == "research"
-assert dispatch["state"]["active"] is False
-assert dispatch["state"]["close_status"] == "completed"
-assert args_log.count("__INVOCATION__") == 2
-assert "ARTIFACT SUPERVISOR RETRY" in args_log
-retry_started = [
-    event for event in events
-    if event.get("type") == "ArtifactSupervisionRetryStarted"
-    and event.get("cycle_id") == dispatch["cycle_id"]
-]
-retry_completed = [
-    event for event in events
-    if event.get("type") == "ArtifactSupervisionRetryCompleted"
-    and event.get("cycle_id") == dispatch["cycle_id"]
-]
-assert retry_started
-assert retry_completed
-assert retry_completed[-1]["payload"]["published"] is True
-published = [
-    event for event in events
-    if event.get("type") == "ArtifactPublished"
-    and event.get("cycle_id") == dispatch["cycle_id"]
-]
-assert published
-artifact = published[-1]["artifact"]
-entry = entries_dir / Path(artifact).name
-assert "Retry Published Report" in entry.read_text(encoding="utf-8")
-assert "edge-runner: published artifact blog/entries/" in runner_stdout
-assert "Frostpeck" not in runner_stdout
+loader = importlib.machinery.SourceFileLoader("edge_runner", str(edge_dir / "tools" / "edge-runner"))
+spec = importlib.util.spec_from_loader("edge_runner", loader)
+module = importlib.util.module_from_spec(spec)
+assert spec and spec.loader
+spec.loader.exec_module(module)
+module.STATE_EVENTS_FILE = events_path
+module.read_dispatch_state = lambda: {
+    "cycle_id": cycle_id,
+    "request": {"skill": "report"},
+    "state": {"skill_dispatched": True, "dispatched_at": "2026-05-03T00:00:00+00:00"},
+}
+assert module.artifact_published_for_cycle(cycle_id) is False
+
+sys.path.insert(0, str(edge_dir / "tools"))
+from _shared.artifact_supervisor import supervise_artifact_publication
+
+result = supervise_artifact_publication(
+    {
+        "cycle_id": cycle_id,
+        "request": {"skill": "report"},
+        "state": {"skill_dispatched": True, "dispatched_at": "2026-05-03T00:00:00+00:00"},
+    },
+    events_path=events_path,
+)
+assert result["ok"] is False
+assert result["status"] == "blocked"
+assert result["reason"] == "pipeline_blocked_before_publish"
+assert result["pipeline_evidence"]["reason"] == "runtime_stdout_artifact_rejected"
 PY
 then
-    pass "artifact supervisor retries acknowledgement-only backend failure"
+    pass "runtime-stdout ArtifactPublished is rejected as publication evidence"
 else
-    fail "artifact supervisor retries acknowledgement-only backend failure"
+    fail "runtime-stdout ArtifactPublished is rejected as publication evidence"
 fi
 
 echo "--- Test 2: dispatched skill success without artifact closes as failed ---"
@@ -889,7 +898,7 @@ unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
 unset MOCK_CLAUDE_EXIT_CODE || true
 export MOCK_CLAUDE_SLEEP_SECONDS=2
 export MOCK_CLAUDE_PHASE_PROGRESS_ON_START=1
-export MOCK_CLAUDE_ARTIFACT_MARKDOWN=$'# Progress Grace Report\n\nThis artifact proves the backend was allowed to finish after the initial timeout because consolidate-state had recent phase progress.'
+export MOCK_CLAUDE_HEARTBEAT_FLOW=1
 export EDGE_RUNNER_SKILL_TIMEOUT_SEC=1
 export EDGE_RUNNER_TIMEOUT_PROGRESS_GRACE_SEC=4
 export EDGE_RUNNER_TIMEOUT_PROGRESS_MAX_EXTENSIONS=1
@@ -903,7 +912,7 @@ export EDGE_RUNNER_TIMEOUT_PROGRESS_MAX_EXTENSIONS=1
     --dispatch-force >/dev/null
 unset MOCK_CLAUDE_SLEEP_SECONDS || true
 unset MOCK_CLAUDE_PHASE_PROGRESS_ON_START || true
-unset MOCK_CLAUDE_ARTIFACT_MARKDOWN || true
+unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
 unset EDGE_RUNNER_SKILL_TIMEOUT_SEC || true
 unset EDGE_RUNNER_TIMEOUT_PROGRESS_GRACE_SEC || true
 unset EDGE_RUNNER_TIMEOUT_PROGRESS_MAX_EXTENSIONS || true

@@ -22,9 +22,8 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import EDGE_INSTANCE, EDGE_REPO_DIR, ENTRIES_DIR, REPORTS_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
+from paths import EDGE_INSTANCE, EDGE_REPO_DIR, SKILL_STEPS_FILE, STATE_EVENTS_FILE  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
-from _shared.artifact_runtime import publish_stdout_artifact  # noqa: E402
 from _shared.dispatch_runtime import HEARTBEAT_FAIRNESS_SKILLS, read_dispatch_state, render_skill_runtime_prompt, write_dispatch_state  # noqa: E402
 from _shared.jsonl_runtime import iter_jsonl_reverse  # noqa: E402
 from _shared.skill_policy import skill_accepts_stdout_artifact, skill_requires_artifact_publication  # noqa: E402
@@ -816,33 +815,44 @@ def artifact_published_for_cycle(cycle_id: str | None) -> bool:
             continue
         if threshold and not iso_ge(event.get("ts"), threshold):
             continue
-        artifact = str(event.get("artifact") or (event.get("payload", {}) or {}).get("artifact") or "")
-        if artifact.startswith("blog/entries/"):
+        payload = event.get("payload", {}) or {}
+        artifact = str(event.get("artifact") or payload.get("artifact") or "")
+        if artifact.startswith("blog/entries/") and not _is_runtime_stdout_artifact(payload):
             return True
     return False
+
+
+def _is_runtime_stdout_artifact(payload: dict) -> bool:
+    payload = payload or {}
+    return bool(
+        payload.get("auto_published") is True
+        or str(payload.get("pipeline") or "") == "runtime-stdout-artifact"
+    )
 
 
 def maybe_publish_stdout_artifact(skill: str, cycle_id: str | None, exit_code: int, output: str) -> dict:
     if not cycle_id or exit_code != 0:
         return {"published": False, "reason": "not_publishable_exit", "skill": normalize_skill_name(skill)}
     normalized = normalize_skill_name(skill)
-    if not skill_accepts_stdout_artifact(normalized, instance=EDGE_INSTANCE):
+    if not skill_requires_artifact_publication(normalized, instance=EDGE_INSTANCE):
         return {"published": False, "reason": "skill_not_artifact_pipeline", "skill": normalized}
     if artifact_published_for_cycle(cycle_id):
         return {"published": True, "reason": "already_published", "skill": normalized}
-    result = publish_stdout_artifact(
-        skill=normalized,
+    result = {"published": False, "reason": "stdout_artifact_disabled", "skill": normalized}
+    emit_shadow_event(
+        "ArtifactStdoutPublicationRejected",
+        actor="edge-runner",
         cycle_id=cycle_id,
-        output=output,
-        entries_dir=ENTRIES_DIR,
-        reports_dir=REPORTS_DIR,
-        instance=EDGE_INSTANCE,
+        payload={
+            "skill": normalized,
+            "reason": "stdout_artifact_disabled",
+            "output_bytes": len((output or "").encode("utf-8", errors="replace")),
+        },
     )
-    status = "completed" if result.get("published") else "warning"
     log_run_step(
         "edge-runner",
         "stdout_artifact_publish",
-        status,
+        "blocked",
         run_id=cycle_id,
         backend="runtime",
         mode="artifact",
@@ -871,7 +881,8 @@ def build_artifact_supervisor_retry_prompt(
         "- This is a substantive artifact-producing skill invocation, not an acknowledgement channel.\n"
         "- Do not answer with only deference, standby text, topic choices, or a refusal to act because another persona/session appears active.\n"
         "- If no explicit topic was supplied, infer one bounded target from the runtime frame: exploration_pack, beat_launch_context, operator_pressure, health, open gaps, queue, or recent failures.\n"
-        "- Produce a durable artifact now. If the full publication pipeline is unavailable, emit a complete Markdown artifact in stdout with a top-level `#` heading so the runtime can publish it.\n"
+        "- Produce a durable artifact now by running `consolidate-state` with a real blog entry and report artifact.\n"
+        "- Stdout-only prose is diagnostic output only; it does not publish and does not satisfy the artifact gate.\n"
         "- If a real blocker remains, the artifact must be a failure report with the concrete command, missing access, or invariant that blocked completion.\n\n"
         "Previous backend output:\n"
         "```text\n"

@@ -74,6 +74,13 @@ def _phase_ok(payload: dict[str, Any]) -> bool | None:
     return None
 
 
+def _is_runtime_stdout_artifact(payload: dict[str, Any]) -> bool:
+    return bool(
+        payload.get("auto_published") is True
+        or str(payload.get("pipeline") or "") == "runtime-stdout-artifact"
+    )
+
+
 def _build_empty_artifact(artifact: str) -> dict[str, Any]:
     return {
         "artifact": artifact,
@@ -86,6 +93,7 @@ def _build_empty_artifact(artifact: str) -> dict[str, Any]:
         "last_event_at": "",
         "published_at": "",
         "published": False,
+        "runtime_stdout_artifact": False,
         "terminal_phase_status": "",
         "terminal_phase_at": "",
         "phase_counts": {"ok": 0, "failed": 0, "unknown": 0},
@@ -116,7 +124,10 @@ def _apply_phase_completed(record: dict[str, Any], event: dict[str, Any], payloa
     record["event_counts"]["PhaseCompleted"] = int(record["event_counts"].get("PhaseCompleted") or 0) + 1
     _merge_first(record, "pipeline", payload.get("pipeline"))
 
-    ok = _phase_ok(payload)
+    runtime_stdout = _is_runtime_stdout_artifact(payload)
+    if runtime_stdout:
+        record["runtime_stdout_artifact"] = True
+    ok = False if runtime_stdout else _phase_ok(payload)
     if ok is True:
         phase_status = "ok"
     elif ok is False:
@@ -126,6 +137,8 @@ def _apply_phase_completed(record: dict[str, Any], event: dict[str, Any], payloa
     record["phase_counts"][phase_status] = int(record["phase_counts"].get(phase_status) or 0) + 1
 
     reason = str(payload.get("reason") or payload.get("error") or "").strip()
+    if runtime_stdout and not reason:
+        reason = "runtime_stdout_artifact_rejected"
     if reason:
         record["reasons"].append(reason)
 
@@ -149,7 +162,13 @@ def _apply_phase_completed(record: dict[str, Any], event: dict[str, Any], payloa
 def _apply_artifact_published(record: dict[str, Any], event: dict[str, Any], payload: dict[str, Any]) -> None:
     _touch_artifact(record, event)
     record["event_counts"]["ArtifactPublished"] = int(record["event_counts"].get("ArtifactPublished") or 0) + 1
-    record["published"] = True
+    runtime_stdout = _is_runtime_stdout_artifact(payload)
+    if runtime_stdout:
+        record["runtime_stdout_artifact"] = True
+        if "runtime_stdout_artifact_rejected" not in record["reasons"]:
+            record["reasons"].append("runtime_stdout_artifact_rejected")
+    else:
+        record["published"] = True
     if not record.get("published_at") or _timestamp(event) >= str(record.get("published_at") or ""):
         record["published_at"] = _timestamp(event)
     _merge_first(record, "source_skill", payload.get("source_skill") or payload.get("skill"))
@@ -162,6 +181,8 @@ def _classify(record: dict[str, Any]) -> str:
     failed = int((record.get("phase_counts") or {}).get("failed") or 0) > 0
     terminal = str(record.get("terminal_phase_status") or "").strip()
 
+    if record.get("runtime_stdout_artifact"):
+        return "runtime_bypass"
     if published and phase_total == 0:
         return "orphaned_publish"
     if terminal == "ok":
@@ -213,7 +234,7 @@ def build_projection(limit: int = 50, events_path: Path = STATE_EVENTS_FILE) -> 
         key=lambda item: item.get("last_event_at") or item.get("published_at") or item.get("first_event_at") or "",
         reverse=True,
     )
-    attention_statuses = {"partial", "blocked", "failed", "orphaned_publish", "unknown"}
+    attention_statuses = {"partial", "blocked", "failed", "orphaned_publish", "runtime_bypass", "unknown"}
     attention = [item for item in ordered if item.get("status") in attention_statuses]
     counts_by_status: dict[str, int] = {}
     counts_by_pipeline: dict[str, int] = {}
