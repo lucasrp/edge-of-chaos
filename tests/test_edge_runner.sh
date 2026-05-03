@@ -234,7 +234,7 @@ request = dispatch["request"]
 assert len(cycle_ids) == 1
 assert cycle_ids[0] == dispatch["cycle_id"]
 assert request["trigger"] == "heartbeat"
-assert request["skill"] == "planner"
+assert request["skill"] == "report"
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["preflight_status"] == "warning"
@@ -279,13 +279,14 @@ assert request["delta_prerequisite"]["required"] is True
 assert request["delta_prerequisite"]["digest_update_required"] is False
 assert request["delta_prerequisite"]["inputs"]["raw_chat"]["available"] is True
 assert request["delta_prerequisite"]["inputs"]["raw_chat"]["recent_items"]
-assert request["exploration_pack"]["skill"] == "planner"
+assert request["exploration_pack"]["skill"] == "report"
 assert request["exploration_pack"]["status"] in ("ready", "degraded")
 assert request["exploration_pack"]["path"].endswith("/pack.json")
 assert request["heartbeat_routing"]["suggested_skill"] == "report"
-assert request["heartbeat_routing"]["selected_skill"] == "planner"
+assert request["heartbeat_routing"]["selected_skill"] == "report"
 assert request["heartbeat_routing"]["dispatch_mode"] == "deterministic_heartbeat_router"
-assert request["heartbeat_routing"]["acknowledged"] is False
+assert request["heartbeat_routing"]["acknowledged"] is True
+assert request["heartbeat_routing"]["next_suggested_skill"] == "research"
 assert request["heartbeat_routing"]["round_robin_skills"] == [
     "report",
     "research",
@@ -295,7 +296,7 @@ assert request["heartbeat_routing"]["round_robin_skills"] == [
 assert len(invocations) == 1
 assert invocations[0].splitlines()[0] == "ARGS: -p -"
 assert "/ed-heartbeat" not in invocations[0]
-assert "/planner" in invocations[0]
+assert "/report" in invocations[0]
 assert "Dispatch runtime context below" in invocations[0]
 assert "health_snapshot" in invocations[0]
 assert "pre_skill_context" in invocations[0]
@@ -385,7 +386,7 @@ assert "/report" in invocations[0]
 assert dispatch["request"]["skill"] == "report"
 assert dispatch["request"]["heartbeat_routing"]["selected_skill"] == "report"
 assert dispatch["request"]["heartbeat_routing"]["dispatch_mode"] == "deterministic_heartbeat_router"
-assert dispatch["request"]["heartbeat_routing"]["acknowledged"] is True
+assert dispatch["request"]["heartbeat_routing"]["acknowledged"] is False
 assert dispatch["state"]["active"] is False
 assert dispatch["state"]["close_status"] == "completed"
 assert dispatch["state"]["postflight_status"] in {"completed", "warning"}
