@@ -3,7 +3,7 @@
 
 Reads `*_resolved` events from `logs/events.jsonl` and produces
 `state/resolution-rollup.json` with median, p95 and counts per object type
-(claim, friction, workflow_broken, issue, thread). Also reports stale items
+(claim, friction, issue, thread). Also reports stale items
 that were opened > 30d ago and are still unresolved (best-effort — works
 when an `obj_open` event matched the id).
 
@@ -26,7 +26,7 @@ from paths import EVENTS_FILE, STATE_DIR  # noqa: E402
 OUT_PATH = STATE_DIR / "resolution-rollup.json"
 WINDOW_DAYS = 90
 
-OBJ_TYPES = ("claim", "friction", "workflow_broken", "issue", "thread")
+OBJ_TYPES = ("claim", "friction", "issue", "thread")
 
 
 def _iter_events():

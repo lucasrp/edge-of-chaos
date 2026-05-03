@@ -8,7 +8,7 @@ entries. Focus areas:
 - freshness by actor
 - backlog/open loop
 - structured blog_publish failure classes
-- primitives, sources, workflow queries/lifecycle
+- primitives, sources, and search queries
 - database reads/writes
 """
 
@@ -30,7 +30,6 @@ from paths import ENTRIES_DIR, EVENTS_FILE, LOGS_DIR, STATE_DIR, THREADS_DIR  # 
 
 OUT_PATH = STATE_DIR / "observability-rollup.json"
 WINDOW_DAYS = 30
-WORKFLOW_WINDOW_DAYS = 120
 
 
 def _iter_jsonl(path: Path):
@@ -91,7 +90,6 @@ def _rollup_backlog(today: str) -> dict:
     waiting = 0
     due = 0
     open_gaps = 0
-    workflow_drafts = 0
 
     for path in THREADS_DIR.glob("*.md"):
         fm = _frontmatter(path)
@@ -106,9 +104,6 @@ def _rollup_backlog(today: str) -> dict:
 
     for path in ENTRIES_DIR.glob("*.md"):
         fm = _frontmatter(path)
-        tags = fm.get("tags", [])
-        if isinstance(tags, list) and "workflow-draft" in tags:
-            workflow_drafts += 1
         gaps = fm.get("open_gaps", []) or []
         if isinstance(gaps, list):
             open_gaps += len(gaps)
@@ -118,14 +113,12 @@ def _rollup_backlog(today: str) -> dict:
         "waiting_threads": waiting,
         "resurface_due": due,
         "open_gaps": open_gaps,
-        "workflow_drafts": workflow_drafts,
     }
 
 
 def main() -> int:
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=WINDOW_DAYS)
-    workflow_cutoff = now - timedelta(days=WORKFLOW_WINDOW_DAYS)
 
     lifecycle: dict[str, dict[str, dict[str, int]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     phase_outcomes: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -133,11 +126,9 @@ def main() -> int:
     primitive_by_source: dict[str, dict] = defaultdict(lambda: {"calls": 0, "ok": 0, "fail": 0, "latencies": [], "last_ts": None})
     primitive_usage_by_source: dict[str, dict] = defaultdict(lambda: {"events": 0, "start": 0, "end": 0, "last_ts": None})
     source_queries: dict[str, dict] = defaultdict(lambda: {"started": 0, "completed": 0, "failed": 0, "total_results": 0, "last_ts": None})
-    workflow_queries = {"total": 0, "with_hits": 0, "workflow_only": 0, "workflow_hits": 0}
+    search_queries = {"total": 0, "with_sidecar": 0, "sidecar_hits": 0}
     db_by_table: dict[str, dict] = defaultdict(lambda: {"reads": 0, "writes": 0, "fail": 0, "latencies": []})
     db_by_op: dict[str, int] = defaultdict(int)
-    workflow_transitions: dict[str, int] = defaultdict(int)
-    workflow_state_by_slug: dict[str, str] = {}
 
     for ev in _iter_jsonl(EVENTS_FILE):
         ts = _parse_ts(ev.get("ts") or ev.get("timestamp"))
@@ -150,8 +141,7 @@ def main() -> int:
 
         etype = ev.get("type")
         if ts < cutoff:
-            if etype != "workflow_transition" or ts < workflow_cutoff:
-                continue
+            continue
 
         if etype == "run_step":
             run_kind = ev.get("run_kind") or "unknown"
@@ -186,12 +176,11 @@ def main() -> int:
             bucket["total_results"] += int(ev.get("total_results") or 0)
             bucket["last_ts"] = ev.get("ts")
         elif etype == "search_query":
-            workflow_queries["total"] += 1
-            if int(ev.get("workflow_count") or 0) > 0:
-                workflow_queries["with_hits"] += 1
-            workflow_queries["workflow_hits"] += int(ev.get("workflow_count") or 0)
-            if (ev.get("doc_type") or "") == "workflow":
-                workflow_queries["workflow_only"] += 1
+            search_queries["total"] += 1
+            sidecar_count = int(ev.get("sidecar_count") or 0)
+            if sidecar_count > 0:
+                search_queries["with_sidecar"] += 1
+            search_queries["sidecar_hits"] += sidecar_count
         elif etype == "db_query":
             table = ev.get("table") or "unknown"
             bucket = db_by_table[table]
@@ -206,14 +195,6 @@ def main() -> int:
                 bucket["latencies"].append(int(latency))
             op = ev.get("op") or "unknown"
             db_by_op[op] += 1
-        elif etype == "workflow_transition":
-            frm = ev.get("from") or "unknown"
-            to = ev.get("to") or "unknown"
-            workflow_transitions[f"{frm}->{to}"] += 1
-            slug = ev.get("slug") or ""
-            if slug:
-                workflow_state_by_slug[slug] = to
-
     freshness = {
         actor: {
             "last_ts": dt.isoformat(),
@@ -265,10 +246,6 @@ def main() -> int:
     blog_publish["recent"] = blog_publish["recent"][-10:]
     blog_publish["by_class"] = dict(sorted(blog_publish["by_class"].items(), key=lambda item: -item[1]))
 
-    workflow_states = defaultdict(int)
-    for state in workflow_state_by_slug.values():
-        workflow_states[state] += 1
-
     payload = {
         "window_days": WINDOW_DAYS,
         "generated_at": now.isoformat(),
@@ -287,11 +264,8 @@ def main() -> int:
         "sources": {
             "queries_by_intent": dict(sorted(source_queries.items())),
         },
-        "workflows": {
-            "query_stats": workflow_queries,
-            "transitions": dict(sorted(workflow_transitions.items(), key=lambda item: -item[1])),
-            "current_state": dict(sorted(workflow_states.items(), key=lambda item: -item[1])),
-            "tracked_workflows": len(workflow_state_by_slug),
+        "search": {
+            "query_stats": search_queries,
         },
         "database": {
             "by_table": dict(sorted(db_payload.items(), key=lambda item: -(item[1]["reads"] + item[1]["writes"]))),

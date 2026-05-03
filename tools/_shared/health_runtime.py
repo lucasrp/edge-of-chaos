@@ -22,12 +22,10 @@ from paths import (  # noqa: E402
     PRIMITIVES_STATUS_FILE,
     STATE_EVENTS_FILE,
     THREADS_DIR,
-    WORKFLOW_HEALTH_FILE,
 )
 from .capability_runtime import build_capability_status  # noqa: E402
 from .jsonl_runtime import iter_jsonl_reverse  # noqa: E402
 from .telemetry import emit_shadow_event  # noqa: E402
-from .workflow_runtime import build_workflow_status  # noqa: E402
 
 
 def _now() -> datetime:
@@ -503,54 +501,6 @@ def _capabilities_dimension(events: list[dict[str, Any]], capabilities_status: d
     }
 
 
-def _workflow_dimension(events: list[dict[str, Any]], workflow_status: dict[str, Any]) -> dict[str, Any]:
-    rows = _cycle_window(events, days=30)
-    counts = Counter(row.get("type") for row in rows)
-    used = counts.get("WorkflowUsedObserved", 0)
-    broken = counts.get("WorkflowBrokenObserved", 0)
-    summary = workflow_status.get("summary") or {}
-    stale_total = int(summary.get("stale_total", 0) or 0)
-    broken_total = int(summary.get("broken_total", 0) or 0)
-    workflow_total = int(summary.get("workflow_total", 0) or 0)
-    if workflow_total == 0 and used == 0 and broken == 0:
-        return {
-            "status": "unknown",
-            "score": 50,
-            "detail": "no workflow evidence yet",
-            "metrics": {
-                "workflow_total": 0,
-                "workflow_cited_total": 0,
-                "workflow_broken_total": 0,
-                "workflow_stale_total": 0,
-                "used_30d": 0,
-                "broken_30d": 0,
-                "citation_events_30d": 0,
-            },
-        }
-
-    score = 100
-    score -= min(broken_total * 10, 30)
-    score -= min(stale_total * 3, 20)
-    score = max(0, min(100, score))
-
-    return {
-        "status": _dimension_status(score),
-        "score": score,
-        "detail": (
-            f"used_30d={used} broken_30d={broken} stale={stale_total} broken_total={broken_total}"
-        ),
-        "metrics": {
-            "workflow_total": workflow_total,
-            "workflow_cited_total": int(summary.get("cited_total", 0) or 0),
-            "workflow_broken_total": broken_total,
-            "workflow_stale_total": stale_total,
-            "used_30d": used,
-            "broken_30d": broken,
-            "citation_events_30d": used + broken,
-        },
-    }
-
-
 def _renewal_dimension(events: list[dict[str, Any]], open_gaps_digest: dict[str, Any]) -> dict[str, Any]:
     rows = _cycle_window(events, days=30)
     counts = Counter(row.get("type") for row in rows)
@@ -734,8 +684,6 @@ def _remediation_queue(dimensions: dict[str, dict[str, Any]], raw: dict[str, dic
         queue.append({"domain": "continuity", "priority": 2, "action": "recycle overdue threads and close or route open gaps", "detail": dimensions["continuity"]["detail"]})
     if dimensions["capabilities"]["status"] != "ok":
         queue.append({"domain": "capabilities", "priority": 2, "action": "repair broken capabilities/primitives and improve adoption", "detail": dimensions["capabilities"]["detail"]})
-    if dimensions["workflows"]["status"] != "ok":
-        queue.append({"domain": "workflows", "priority": 3, "action": "review stale/broken human workflows", "detail": dimensions["workflows"]["detail"]})
     if dimensions["substrate_discipline"]["status"] != "ok":
         queue.append({"domain": "substrate_discipline", "priority": 2, "action": "reduce raw primitive/capability bypasses", "detail": dimensions["substrate_discipline"]["detail"]})
     if dimensions["api_runtime"]["status"] != "ok":
@@ -760,14 +708,12 @@ def build_health_snapshot() -> dict[str, Any]:
     if not isinstance(capabilities_status, dict) or "summary" not in capabilities_status:
         capabilities_status = build_capability_status()
     primitives_status = _read_json(PRIMITIVES_STATUS_FILE, {})
-    workflow_status = build_workflow_status()
 
     dimensions = {
         "infra": infra,
         "runtime_flow": _runtime_flow_dimension(events),
         "continuity": _continuity_dimension(events, open_gaps_digest),
         "capabilities": _capabilities_dimension(events, capabilities_status, primitives_status),
-        "workflows": _workflow_dimension(events, workflow_status),
         "renewal": _renewal_dimension(events, open_gaps_digest),
         "substrate_discipline": _substrate_discipline_dimension(events),
         "api_runtime": _api_runtime_dimension(raw, events),
@@ -777,8 +723,7 @@ def build_health_snapshot() -> dict[str, Any]:
         "infra": 15,
         "runtime_flow": 20,
         "continuity": 18,
-        "capabilities": 15,
-        "workflows": 10,
+        "capabilities": 20,
         "renewal": 12,
         "substrate_discipline": 5,
         "api_runtime": 5,

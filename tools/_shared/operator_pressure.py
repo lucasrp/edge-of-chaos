@@ -37,7 +37,7 @@ from paths import (  # noqa: E402
 from .router_client import make_client  # noqa: E402
 from .telemetry import emit_shadow_event, log_event  # noqa: E402
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 LEDGER_WINDOW_DAYS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_WINDOW_DAYS", "7") or "7")
 MAX_SESSIONS = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_SESSIONS", "8") or "8")
 MAX_MESSAGES = int(os.environ.get("EDGE_OPERATOR_PRESSURE_MAX_MESSAGES", "48") or "48")
@@ -68,7 +68,7 @@ _OUTBURST_RE = re.compile(r"\b(merda|shit|porra|caralho|droga)\b", re.I)
 _FRUSTRATED_RE = re.compile(r"\b(merda|shit|porra|caralho|de novo|sempre|deveria funcionar|nao aguento)\b", re.I)
 _SARCASTIC_RE = re.compile(r"(^aham\b|/s\b|\".*\"\s*$)", re.I)
 _GLOBAL_SCOPE_RE = re.compile(
-    r"\b(sempre|nunca|todo beat|every beat|todas as skills|all skills|install|instal[a-z]*|runtime|sistema|system|workflow|policy|capability|primitive|primitiva|preflight|postflight|heartbeat)\b",
+    r"\b(sempre|nunca|todo beat|every beat|todas as skills|all skills|install|instal[a-z]*|runtime|sistema|system|policy|capability|primitive|primitiva|preflight|postflight|heartbeat)\b",
     re.I,
 )
 _STRONG_IMPERATIVE_RE = re.compile(r"\b(tem que|quero que|sempre|nunca|fa[cç]a|adicione|tire|remova|coloque|implemente|corrija|ajuste)\b", re.I)
@@ -81,8 +81,8 @@ _PRE_SKILL_CONTEXT_RE = re.compile(
     r")\b",
     re.I,
 )
-_PROCEDURAL_WORKFLOW_RE = re.compile(
-    r"\b(workflow|procedur\w*|procedimento|pipeline|passos?|steps?|rotina|runbook|playbook|checklist|sequ[eê]ncia|rito)\b",
+_PROCEDURAL_CONTEXT_RE = re.compile(
+    r"\b(procedur\w*|procedimento|pipeline|passos?|steps?|rotina|routine|runbook|playbook|checklist|sequ[eê]ncia|rito)\b",
     re.I,
 )
 _SUBSTRATE_GAP_RULES: list[tuple[re.Pattern[str], str]] = [
@@ -117,8 +117,7 @@ _SUBSTRATE_GAP_RULES: list[tuple[re.Pattern[str], str]] = [
 ]
 
 _TARGET_RULES: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"\b(workflow|routines?|preflight|postflight|protocolo)\b", re.I), "workflow"),
-    (re.compile(r"\b(procedure|procedural|procedimento)\b", re.I), "procedure"),
+    (re.compile(r"\b(routines?|procedure|procedural|procedimento|preflight|postflight|protocolo)\b", re.I), "pre_skill_context"),
     (re.compile(r"\b(capability|primitive|primitiva|repo\.sync|exa|grafana|github|meta|whatsapp)\b", re.I), "capability"),
     (re.compile(r"\b(memory|mem[oó]ria|rules-core|personality|metodo)\b", re.I), "memory"),
     (re.compile(r"\b(policy|politica|policy|regra|guardrail)\b", re.I), "policy"),
@@ -133,7 +132,6 @@ _ENTITY_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bgrafana\b", re.I), "grafana"),
     (re.compile(r"\bexa\b", re.I), "exa"),
     (re.compile(r"\bgithub\b", re.I), "github"),
-    (re.compile(r"\bworkflow\b", re.I), "workflow"),
     (re.compile(r"\btopic[s]?\b", re.I), "topic"),
     (re.compile(r"\bmemory\b", re.I), "memory"),
     (re.compile(r"\bpreflight\b", re.I), "preflight"),
@@ -155,7 +153,6 @@ _ENTITY_TYPE_MAP = {
     "github": "surface",
     "claude": "system",
     "openai": "surface",
-    "workflow": "workflow",
     "topic": "memory",
     "memory": "memory",
     "preflight": "protocol",
@@ -176,7 +173,6 @@ _HOT_DIGEST_KEYS = {
     "implicit_needs_hypotheses",
     "memory_updates",
     "pre_skill_context",
-    "workflow_candidates",
     "capability_candidates",
     "substrate_gap_requests",
     "active_entities",
@@ -191,7 +187,6 @@ _DIGEST_SECTION_KEYS = (
     "implicit_needs_hypotheses",
     "memory_updates",
     "pre_skill_context",
-    "workflow_candidates",
     "capability_candidates",
     "substrate_gap_requests",
 )
@@ -764,23 +759,11 @@ def _is_pre_skill_context_item(item: dict[str, Any]) -> bool:
     scope = str(item.get("scope") or "").strip().lower()
     entities = " ".join(_entity_names(item.get("entities") or []))
     haystack = " ".join([text, target, scope, entities])
-    if not _PRE_SKILL_CONTEXT_RE.search(haystack):
-        return False
-    if target in {"workflow", "procedure"} or _PROCEDURAL_WORKFLOW_RE.search(text):
-        return bool(re.search(r"\bpre[- ]?skill|contexto pre[- ]?skill|context_notes|operating context\b", haystack, re.I))
-    return True
-
-
-def _is_workflow_candidate_item(item: dict[str, Any]) -> bool:
-    if _is_pre_skill_context_item(item):
-        return False
-    text = str(item.get("content") or item.get("text") or "")
-    target = str(item.get("target") or "").strip().lower()
-    if target in {"workflow", "procedure"}:
+    if target == "pre_skill_context":
         return True
-    if target == "policy" and _PROCEDURAL_WORKFLOW_RE.search(text):
+    if _PRE_SKILL_CONTEXT_RE.search(haystack):
         return True
-    return False
+    return bool(item.get("explicit_operator_direction") and _PROCEDURAL_CONTEXT_RE.search(text))
 
 
 def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -812,11 +795,6 @@ def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str,
     ]
     pre_skill_context = [
         item for item in ranked if _is_pre_skill_context_item(item)
-    ]
-    workflow_candidates = [
-        item
-        for item in directives
-        if _is_workflow_candidate_item(item)
     ]
     capability_candidates = [
         item for item in directives if str(item.get("target") or "") == "capability"
@@ -854,7 +832,6 @@ def _deterministic_hot_digest(ledger: dict[str, Any], previous_digest: dict[str,
         "implicit_needs_hypotheses": [_compact_item(item) for item in hypotheses[:SECTION_LIMIT]],
         "memory_updates": [_compact_item(item) for item in memory_updates[:SECTION_LIMIT]],
         "pre_skill_context": [_compact_item(item) for item in pre_skill_context[:SECTION_LIMIT]],
-        "workflow_candidates": [_compact_item(item) for item in workflow_candidates[:SECTION_LIMIT]],
         "capability_candidates": [_compact_item(item) for item in capability_candidates[:SECTION_LIMIT]],
         "substrate_gap_requests": [_compact_item(item) for item in substrate_gap_requests[:SECTION_LIMIT]],
         "active_entities": top_entities,
@@ -894,16 +871,14 @@ def _llm_prompt(
         '  "implicit_needs_hypotheses": [same shape],\n'
         '  "memory_updates": [same shape],\n'
         '  "pre_skill_context": [same shape],\n'
-        '  "workflow_candidates": [same shape],\n'
         '  "capability_candidates": [same shape],\n'
         '  "substrate_gap_requests": [same shape],\n'
         '  "active_entities": ["..."]\n'
         "}\n\n"
         "Rules:\n"
         "- Keep lists bounded to the most important items already provided.\n"
-        "- Do not invent workflow candidates unless they come from explicit operator direction.\n"
         "- Treat memory_updates as durable operator-authored state changes from memory/MEMORY.md, not as casual chat.\n"
-        "- Put always-followed guidance in pre_skill_context; put repeatable procedural sequences in workflow_candidates.\n"
+        "- Put always-followed guidance and repeatable procedural sequences in pre_skill_context.\n"
         "- Keep `text` concise but faithful.\n"
         "- Preserve item_id/target/kind/repeat_count/status/entities/last_seen_at from the inputs.\n"
         "- If a section has nothing useful, return an empty list.\n\n"
@@ -991,7 +966,6 @@ def _render_hot_digest_with_llm(
         "implicit_needs_hypotheses": fallback.get("implicit_needs_hypotheses", []),
         "memory_updates": fallback.get("memory_updates", []),
         "pre_skill_context": fallback.get("pre_skill_context", []),
-        "workflow_candidates": fallback.get("workflow_candidates", []),
         "capability_candidates": fallback.get("capability_candidates", []),
         "substrate_gap_requests": fallback.get("substrate_gap_requests", []),
         "active_entities": fallback.get("active_entities", []),
@@ -1129,7 +1103,6 @@ def _build_redigest(ledger: dict[str, Any], hot_digest: dict[str, Any], previous
         "implicit_needs_hypotheses",
         "memory_updates",
         "pre_skill_context",
-        "workflow_candidates",
         "capability_candidates",
         "substrate_gap_requests",
     ):
@@ -1272,7 +1245,6 @@ def _projection_summary(
         "implicit_needs_hypotheses": len(hot_digest.get("implicit_needs_hypotheses") or []),
         "memory_updates": len(hot_digest.get("memory_updates") or []),
         "pre_skill_context": len(hot_digest.get("pre_skill_context") or []),
-        "workflow_candidates": len(hot_digest.get("workflow_candidates") or []),
         "capability_candidates": len(hot_digest.get("capability_candidates") or []),
         "substrate_gap_requests": len(hot_digest.get("substrate_gap_requests") or []),
         "render_mode": hot_digest.get("render_mode", "deterministic"),
@@ -1373,7 +1345,6 @@ def build_operator_pressure_layers(
             operator_toil_optimizable_now=summary["operator_toil_optimizable_now"],
             memory_updates=summary["memory_updates"],
             pre_skill_context=summary["pre_skill_context"],
-            workflow_candidates=summary["workflow_candidates"],
             capability_candidates=summary["capability_candidates"],
             substrate_gap_requests=summary["substrate_gap_requests"],
             mistakes_to_avoid_now=summary["mistakes_to_avoid_now"],

@@ -29,14 +29,6 @@ cat >"$TMP_REPO/tools/edge-sources" <<'EOF'
 #!/usr/bin/env bash
 printf 'SOURCES:%s\n' "$*"
 EOF
-cat >"$TMP_REPO/tools/edge-workflows" <<'EOF'
-#!/usr/bin/env bash
-if [[ "${1:-}" == "status" ]]; then
-  echo '{"summary":{"workflow_total":1,"cited_total":1,"broken_total":0,"stale_total":0,"top_used":[],"top_broken":[]},"workflows":[]}'
-else
-  printf 'WF:%s\n' "$*"
-fi
-EOF
 cat >"$TMP_BIN/git" <<'EOF'
 #!/usr/bin/env bash
 printf 'git version test\n'
@@ -51,7 +43,7 @@ else
   echo "edge-repo-sync $*"
 fi
 EOF
-chmod +x "$TMP_REPO/search/edge-search" "$TMP_REPO/tools/edge-sources" "$TMP_REPO/tools/edge-workflows" "$TMP_REPO/tools/edge-repo-sync" "$TMP_BIN/git"
+chmod +x "$TMP_REPO/search/edge-search" "$TMP_REPO/tools/edge-sources" "$TMP_REPO/tools/edge-repo-sync" "$TMP_BIN/git"
 
 cat >"$TMP_STATE/state/sources-manifest.yaml" <<'YAML'
 sources:
@@ -97,8 +89,8 @@ PY
 echo "=== edge-cap invoke/probe Smoke Test ==="
 
 SEARCH_OUT=$(env PATH="$TMP_BIN:/bin" EDGE_REPO_DIR="$TMP_REPO" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="captest" \
-  /usr/bin/python3 "$EDGE_DIR/tools/edge-cap" invoke search.corpus -- --type workflow -k 2 "prompt recall")
-if grep -q 'SEARCH:--type workflow -k 2 prompt recall' <<<"$SEARCH_OUT"; then
+  /usr/bin/python3 "$EDGE_DIR/tools/edge-cap" invoke search.corpus -- --require-type topic --require-type memory -k 2 "prompt recall")
+if grep -q 'SEARCH:--require-type topic --require-type memory -k 2 prompt recall' <<<"$SEARCH_OUT"; then
   pass "invoke forwards args to static capability"
 else
   fail "invoke forwards args to static capability"

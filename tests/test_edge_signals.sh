@@ -81,12 +81,6 @@ cat >"$TMP_STATE/state/dispatch-queue.json" <<'JSON'
 ]
 JSON
 
-cat >"$TMP_STATE/state/workflow-health.json" <<'JSON'
-{
-  "summary": {"broken_total": 1, "stale_total": 0, "ignored_30d": 2}
-}
-JSON
-
 cat >"$TMP_STATE/state/render-install-drift.json" <<'JSON'
 {
   "summary": {"rendered_without_install": 0, "install_without_render": 0, "hash_mismatches": 0, "missing_on_disk": 0, "doctor_warn": 1, "doctor_fail": 0}

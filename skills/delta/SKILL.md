@@ -20,7 +20,7 @@ Use `request.delta_prerequisite` as the contract. It contains:
 - `raw_chat`: recent operator messages and source refs.
 - `strategic_context`: beat launch context, operator pressure, queue, and open gaps.
 - `surfaces`: configured integrations, capabilities, previous baselines, and open work.
-- `preflight`: health, workflow, primitives, and other runtime checks.
+- `preflight`: health, corpus, primitives, and other runtime checks.
 - `events`: recent edge runtime events.
 
 Structured state is authoritative for what was persisted. Raw chat is authoritative for what the operator actually said. Reconcile the two before acting.

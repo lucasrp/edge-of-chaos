@@ -1,6 +1,6 @@
 ---
 name: ed-autonomy
-description: "Evaluate and improve the agent-owned operational substrate: capabilities, primitives, source/signal workflows, and local reversible automation. It does not create skill proposals or do product implementation."
+description: "Evaluate and improve the agent-owned operational substrate: capabilities, primitives, source/signal patterns, and local reversible automation. It does not create skill proposals or do product implementation."
 user-invocable: true
 ---
 
@@ -17,7 +17,7 @@ Autonomy owns the agent-owned operational substrate.
 It is responsible for:
 
 - capability and primitive coverage;
-- source and signal workflows;
+- source and signal patterns;
 - local wrappers and probes;
 - operational affordance learning;
 - reducing repeated tool/search/signal friction;
@@ -27,7 +27,7 @@ A run is incomplete if it only observes missing capability and leaves no decisio
 
 - `act`: make local, reversible substrate improvements;
 - `probe`: validate an existing primitive or capability;
-- `workflow`: update or route a repeatable agent-owned workflow;
+- `context`: update or route durable pre-skill context or topic guidance;
 - `blocked`: tried, but a command, credential, permission, dependency, verification, or runtime error prevented completion;
 - `route`: send product, planning, or reporting work to the right skill.
 
@@ -60,11 +60,11 @@ These are the canonical sources for capability and primitive state. They combine
 Also inspect when relevant:
 
 - `state/source-affordance-digest.json`;
-- runtime capability and workflow status;
+- runtime capability status;
 - `request.self_healing` from preflight;
 - operational signals such as autonomy, friction, cost, review, and serendipity;
 - recent failed or repeated tool/search/signal paths;
-- local workflow and primitive usage evidence.
+- local primitive usage evidence.
 
 Read raw manifests or logs only when the read model cannot answer the question.
 
@@ -90,10 +90,10 @@ Candidate examples:
 
 - broken or degraded primitives blocking current work;
 - active primitives that have never been probed;
-- repeated manual search/signal/tool pattern that can become a local workflow;
+- repeated manual search/signal/tool pattern that can become a local wrapper, topic, or pre-skill context;
 - source/channel affordance repeatedly confirmed by actual use;
 - local wrapper that removes recurring operational friction;
-- stale primitive or workflow that is confusing routing or wasting effort.
+- stale primitive or context that is confusing routing or wasting effort.
 
 Weak demand is not a reason to skip. If a candidate can be attempted cheaply inside the agent-owned substrate, try it. If the attempt fails, record the exact failure and continue.
 
@@ -150,7 +150,7 @@ Attempt every substrate action found in the sweep:
 
 - probe existing capability;
 - materialize or improve local primitives;
-- update local source/signal workflows;
+- update local source/signal patterns;
 - remove or archive stale substrate items;
 - route the issue elsewhere.
 
@@ -195,7 +195,7 @@ Do not run `consolidate-state` for autonomy unless the operator explicitly asked
 - stale gaps, project sequencing, or action queue -> `ed-planner`;
 - external-practice question after local attempt fails -> `ed-research`;
 - product or implementation plan -> `ed-planner`;
-- internal relationships between capabilities, workflows, and projects -> `ed-research`;
+- internal relationships between capabilities, context, and projects -> `ed-research`;
 - current state summary -> status/context tool.
 
 ## Invariants

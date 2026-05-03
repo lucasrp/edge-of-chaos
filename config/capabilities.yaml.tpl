@@ -31,7 +31,7 @@ capabilities:
 
   - name: search.corpus
     kind: external_cli
-    description: Corpus and workflow-aware local search wrapper over edge-search.
+    description: Corpus-aware local search wrapper over edge-search.
     command: ["edge-search"]
     passthrough: true
     probe: ["edge-search", "--help"]

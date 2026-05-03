@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""edge-curation — deterministic corpus/workflow curation sync and digest."""
+"""edge-curation — deterministic corpus, topic, and pre-skill context curation."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import subprocess
 import sys
 import unicodedata
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -22,14 +22,10 @@ from paths import (  # noqa: E402
     CURADORIA_CANDIDATES_FILE,
     CURATION_DIGEST_FILE,
     EDGE_REPO_DIR,
-    ENTRIES_DIR,
     OPEN_GAPS_DIGEST_FILE,
     OPERATOR_PRESSURE_HOT_DIGEST_FILE,
-    PROCEDURE_CURATION_FILE,
-    STATE_DIR,
     THREADS_DIR,
     TOPICS_DIR,
-    WORKFLOW_HEALTH_FILE,
 )
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
@@ -253,7 +249,6 @@ def _write_topic_stub(thread_id: str, open_gaps_digest: dict[str, Any], thread_t
 _OPERATOR_PRESSURE_SECTIONS = (
     "signal_from_operator_now",
     "substrate_gap_requests",
-    "workflow_candidates",
     "capability_candidates",
     "operator_toil_optimizable_now",
     "operator_pains_resolvable_now",
@@ -266,7 +261,6 @@ _OPERATOR_PRESSURE_SECTIONS = (
 _OPERATOR_SECTION_WEIGHT = {
     "signal_from_operator_now": 10,
     "substrate_gap_requests": 9,
-    "workflow_candidates": 8,
     "capability_candidates": 8,
     "operator_toil_optimizable_now": 7,
     "operator_pains_resolvable_now": 6,
@@ -390,8 +384,8 @@ _PRE_SKILL_CONTEXT_RE = re.compile(
     r")\b",
     re.I,
 )
-_PROCEDURAL_WORKFLOW_RE = re.compile(
-    r"\b(workflow|procedur\w*|procedimento|pipeline|passos?|steps?|rotina|runbook|playbook|checklist|sequencia|rito)\b",
+_PROCEDURAL_CONTEXT_RE = re.compile(
+    r"\b(procedur\w*|procedimento|pipeline|passos?|steps?|rotina|routine|runbook|playbook|checklist|sequencia|rito)\b",
     re.I,
 )
 
@@ -524,7 +518,7 @@ def _operator_concept_for_item(item: dict[str, Any]) -> tuple[str, str]:
 
     tokens: list[str] = []
     target = _slugify(str(item.get("target") or ""))
-    if target in {"workflow", "procedure", "policy", "capability", "thread", "research", "skill"}:
+    if target in {"policy", "capability", "thread", "research", "skill"}:
         tokens.append(target)
     for entity in entities:
         slug = _slugify(entity)
@@ -558,7 +552,7 @@ def _is_operator_pre_skill_context_item(item: dict[str, Any]) -> bool:
     normalized_text = _normalize_ascii(text)
     if not _PRE_SKILL_CONTEXT_RE.search(haystack):
         return False
-    if target in {"workflow", "procedure"} or _PROCEDURAL_WORKFLOW_RE.search(normalized_text):
+    if target == "procedure" or _PROCEDURAL_CONTEXT_RE.search(normalized_text):
         return bool(re.search(r"\bpre[- ]?skill|contexto pre[- ]?skill|context_notes|operating context\b", haystack, re.I))
     return True
 
@@ -668,7 +662,7 @@ def _write_operator_thread_stub(group: dict[str, Any]) -> Path:
         *_operator_evidence_lines(group),
         "",
         "## Direction",
-        "- Turn this hot feedback into an explicit research question, runtime change, or durable procedure before it goes cold.",
+        "- Turn this hot feedback into an explicit research question, runtime change, topic update, or pre-skill context before it goes cold.",
         "",
     ]
     THREADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -713,117 +707,6 @@ def _write_operator_topic_stub(group: dict[str, Any]) -> Path:
     return path
 
 
-def _is_memory_workflow_item(item: dict[str, Any]) -> bool:
-    sections = set(_coerce_list(item.get("sections")))
-    source_kinds = set(_coerce_list(item.get("source_kinds")))
-    text = str(item.get("text") or "")
-    target = str(item.get("target") or "").strip().lower()
-    if "memory_updates" not in sections and "memory" not in source_kinds:
-        return False
-    if _is_operator_pre_skill_context_item(item):
-        return False
-    if target in {"workflow", "procedure"}:
-        return True
-    if target == "policy" and _PROCEDURAL_WORKFLOW_RE.search(_normalize_ascii(text)):
-        return True
-    return bool(re.search(r"\b(workflow|procedure|procedimento|steps?|passos?|rito|rotina)\b", _normalize_ascii(text), re.I))
-
-
-def _workflow_keywords(text: str) -> list[str]:
-    keywords = _operator_keywords(text)[:8]
-    return keywords or ["memory", "workflow"]
-
-
-def _write_memory_workflow(item: dict[str, Any]) -> Path | None:
-    text = _compact_operator_text(str(item.get("text") or ""), limit=360)
-    if not text:
-        return None
-    today = datetime.now(timezone.utc).date().isoformat()
-    slug = _slugify(f"memory {text}")[:80].rstrip("-")
-    filename = f"{today}-{slug}.md"
-    existing = list(ENTRIES_DIR.glob(f"*-{slug}.md"))
-    if existing:
-        return None
-    title_slug = _slugify(text)[:54].rstrip("-") or "memory-workflow"
-    title = f"workflow: {_slug_title(title_slug)}"
-    keywords = _workflow_keywords(text)
-    thread_ids = []
-    target = str(item.get("target") or "").strip()
-    if target in {"workflow", "procedure", "policy"}:
-        thread_ids.append(_slugify(text)[:50].rstrip("-") or "memory-workflow")
-    lines = [
-        "---",
-        f"title: {json.dumps(title, ensure_ascii=False)}",
-        f"date: {today}",
-        "tags: [workflow, memory-derived, operator-pressure]",
-        "trigger: memory/MEMORY.md update",
-        "open_gaps: []",
-        f"threads: [{', '.join(thread_ids)}]" if thread_ids else "threads: []",
-        f"keywords: [{', '.join(keywords)}]",
-        "workflows_used: []",
-        "workflows_broken: []",
-        f"source_memory_item: {json.dumps(str(item.get('item_id') or ''), ensure_ascii=False)}",
-        "---",
-        "",
-        "## Memory Signal",
-        "",
-        text,
-        "",
-        "## Workflow",
-        "",
-        "### Trigger",
-        "",
-        "Use this workflow when the same operating situation appears in pre-skill context or operator pressure.",
-        "",
-        "### Steps",
-        "",
-        "- Read the memory signal as durable operator guidance, not casual chat.",
-        "- Apply the rule directly in the matching skill run.",
-        "- Cite this workflow in `workflows_used` once it is followed successfully; cite it in `workflows_broken` if it proves too vague or wrong.",
-        "",
-        "### Success Checks",
-        "",
-        "- A future skill can recall this workflow before acting.",
-        "- The next matching run either reinforces it or marks it broken.",
-        "",
-    ]
-    ENTRIES_DIR.mkdir(parents=True, exist_ok=True)
-    path = ENTRIES_DIR / filename
-    path.write_text("\n".join(lines), encoding="utf-8")
-    return path
-
-
-def _curate_memory_workflows(operator_digest: dict[str, Any]) -> dict[str, Any]:
-    items = _operator_pressure_items(operator_digest)
-    created: list[dict[str, Any]] = []
-    candidates: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for item in items:
-        if not _is_memory_workflow_item(item):
-            continue
-        key = str(item.get("item_id") or _slugify(item.get("text", "")))
-        if key in seen:
-            continue
-        seen.add(key)
-        candidate = {
-            "item_id": str(item.get("item_id") or ""),
-            "text": item.get("text"),
-            "target": item.get("target") or "",
-            "sections": item.get("sections") or [],
-            "judgement": "workflow",
-        }
-        candidates.append(candidate)
-        path = _write_memory_workflow(item)
-        if path:
-            created.append({"item_id": candidate["item_id"], "path": str(path)})
-    return {
-        "candidate_total": len(candidates),
-        "created_total": len(created),
-        "created": created,
-        "candidates": candidates[:12],
-    }
-
-
 def _curate_pre_skill_context(operator_digest: dict[str, Any]) -> dict[str, Any]:
     candidates: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -859,7 +742,6 @@ def _curate_operator_pressure(operator_digest: dict[str, Any]) -> dict[str, Any]
         for thread_id in _coerce_list(topic.get("threads"))
     }
     groups, item_total = _operator_pressure_groups(operator_digest)
-    memory_workflows = _curate_memory_workflows(operator_digest)
     pre_skill_context = _curate_pre_skill_context(operator_digest)
 
     created_threads: list[dict[str, Any]] = []
@@ -907,12 +789,10 @@ def _curate_operator_pressure(operator_digest: dict[str, Any]) -> dict[str, Any]
         "groups_total": len(groups),
         "threads_created": len(created_threads),
         "topics_created": len(created_topics),
-        "workflows_created": int(memory_workflows.get("created_total") or 0),
         "pre_skill_context_total": int(pre_skill_context.get("candidate_total") or 0),
         "missing_topic_candidates_total": len(missing_topic_candidates),
         "created_threads": created_threads,
         "created_topics": created_topics,
-        "memory_workflows": memory_workflows,
         "pre_skill_context": pre_skill_context,
         "missing_topic_candidates": missing_topic_candidates[:12],
         "groups": [
@@ -1033,145 +913,6 @@ def _curate_hot_state(open_gaps_digest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _entry_date(frontmatter: dict[str, Any], path: Path) -> datetime:
-    raw = str(frontmatter.get("date") or "").strip()
-    if raw:
-        try:
-            if len(raw) == 10:
-                return datetime.fromisoformat(raw).replace(tzinfo=timezone.utc)
-            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-        except Exception:
-            pass
-    return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
-
-
-def _normalize_procedure(text: str) -> str:
-    normalized = re.sub(r"\s+", " ", text.strip().lower())
-    normalized = re.sub(r"[“”\"'`]+", "", normalized)
-    return normalized
-
-
-def _workflow_title_from_procedure(text: str) -> str:
-    plain = text.lstrip("!").strip()
-    plain = re.sub(r"\s+", " ", plain)
-    if len(plain) > 96:
-        plain = plain[:93].rstrip() + "..."
-    if not plain.lower().startswith("workflow:"):
-        plain = f"workflow: {plain}"
-    return plain
-
-
-def _iter_recent_entries(window_days: int) -> list[tuple[Path, dict[str, Any], datetime]]:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
-    rows: list[tuple[Path, dict[str, Any], datetime]] = []
-    if not ENTRIES_DIR.exists():
-        return rows
-    for path in sorted(ENTRIES_DIR.glob("*.md")):
-        try:
-            frontmatter = _load_frontmatter(path)
-        except Exception:
-            continue
-        dt = _entry_date(frontmatter, path)
-        if dt >= cutoff:
-            rows.append((path, frontmatter, dt))
-    return rows
-
-
-def _build_procedure_curation(window_days: int) -> dict[str, Any]:
-    rows = _iter_recent_entries(window_days)
-    groups: dict[str, dict[str, Any]] = {}
-    broken_counts: dict[str, dict[str, Any]] = {}
-    workflow_used_counts: Counter[str] = Counter()
-    recent_workflow_entries: dict[str, datetime] = {}
-    total_procedures = 0
-    total_workflows_used = 0
-    total_workflows_broken = 0
-
-    for path, frontmatter, dt in rows:
-        entry_name = path.name
-        for item in _coerce_list(frontmatter.get("procedure")):
-            total_procedures += 1
-            key = _normalize_procedure(item)
-            group = groups.setdefault(
-                key,
-                {
-                    "representative": item,
-                    "procedures": [],
-                    "source_entries": [],
-                    "anti_pattern": item.startswith("!"),
-                },
-            )
-            group["procedures"].append(item)
-            if entry_name not in group["source_entries"]:
-                group["source_entries"].append(entry_name)
-
-        for slug in _coerce_list(frontmatter.get("workflows_used")):
-            total_workflows_used += 1
-            workflow_used_counts[slug] += 1
-
-        for slug in _coerce_list(frontmatter.get("workflows_broken")):
-            total_workflows_broken += 1
-            record = broken_counts.setdefault(slug, {"slug": slug, "broken_count": 0, "citing_entries": []})
-            record["broken_count"] += 1
-            if entry_name not in record["citing_entries"]:
-                record["citing_entries"].append(entry_name)
-
-    if ENTRIES_DIR.exists():
-        for path in sorted(ENTRIES_DIR.glob("*.md")):
-            try:
-                frontmatter = _load_frontmatter(path)
-            except Exception:
-                continue
-            tags = {str(tag).strip() for tag in _coerce_list(frontmatter.get("tags"))}
-            if not ({"workflow", "workflow-draft"} & tags):
-                continue
-            slug = path.stem.split("-", 3)[-1]
-            recent_workflow_entries[slug] = _entry_date(frontmatter, path)
-
-    candidates: list[dict[str, Any]] = []
-    for cluster_id, (key, group) in enumerate(
-        sorted(groups.items(), key=lambda item: (-len(item[1]["procedures"]), item[1]["representative"].lower())),
-        start=1,
-    ):
-        procedure_count = len(group["procedures"])
-        if procedure_count < 3:
-            continue
-        representative = str(group["representative"] or "")
-        candidates.append(
-            {
-                "cluster_id": cluster_id,
-                "theme": representative,
-                "procedures": list(group["procedures"]),
-                "procedure_count": procedure_count,
-                "source_entries": list(group["source_entries"]),
-                "median_sim_estimate": 1.0,
-                "anti_pattern": bool(group.get("anti_pattern")),
-                "suggested_workflow_title": _workflow_title_from_procedure(representative),
-            }
-        )
-
-    never_cited: list[dict[str, Any]] = []
-    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
-    for slug, dt in sorted(recent_workflow_entries.items()):
-        if workflow_used_counts.get(slug, 0) == 0 and dt < cutoff:
-            never_cited.append({"slug": slug, "age_days": int((datetime.now(timezone.utc) - dt).days)})
-
-    payload = {
-        "generated_at": _now_iso(),
-        "window_days": window_days,
-        "total_entries": len(rows),
-        "total_procedures": total_procedures,
-        "total_workflows_used": total_workflows_used,
-        "total_workflows_broken": total_workflows_broken,
-        "workflow_candidates": candidates,
-        "broken_workflows": sorted(broken_counts.values(), key=lambda item: (-int(item["broken_count"]), item["slug"])),
-        "never_cited_workflows": never_cited,
-    }
-    _write_json(PROCEDURE_CURATION_FILE, payload)
-    return payload
-
-
 def _refresh_corpus_health() -> tuple[dict[str, Any], list[str]]:
     warnings: list[str] = []
     wrapper = EDGE_REPO_DIR / "tools" / "curadoria-compute"
@@ -1183,18 +924,6 @@ def _refresh_corpus_health() -> tuple[dict[str, Any], list[str]]:
         detail = (stderr or stdout or f"exit={code}").splitlines()[-1]
         warnings.append(f"corpus_lite_failed:{detail}")
     return _read_json(CURADORIA_CANDIDATES_FILE, {}), warnings
-
-
-def _refresh_workflow_funnel() -> tuple[dict[str, Any], list[str]]:
-    warnings: list[str] = []
-    tool = EDGE_REPO_DIR / "tools" / "rollup-workflow-funnel.py"
-    out_path = STATE_DIR / "workflow-funnel.json"
-    code, stdout, stderr = _run([sys.executable, str(tool)])
-    if code != 0:
-        detail = (stderr or stdout or f"exit={code}").splitlines()[-1]
-        warnings.append(f"workflow_funnel_failed:{detail}")
-    payload = _read_json(out_path, {})
-    return payload, warnings
 
 
 def _refresh_topics_index() -> list[str]:
@@ -1224,17 +953,14 @@ def _topics_summary() -> dict[str, Any]:
 
 def build_curation_digest(window_days: int) -> dict[str, Any]:
     corpus_payload, corpus_warnings = _refresh_corpus_health()
-    procedure_payload = _build_procedure_curation(window_days)
-    funnel_payload, funnel_warnings = _refresh_workflow_funnel()
     open_gaps_digest = _read_json(OPEN_GAPS_DIGEST_FILE, {})
     operator_pressure_digest = _read_json(OPERATOR_PRESSURE_HOT_DIGEST_FILE, {})
     hot_state = _curate_hot_state(open_gaps_digest)
     operator_pressure = _curate_operator_pressure(operator_pressure_digest)
     topic_index_warnings = _refresh_topics_index()
-    workflow_health = _read_json(WORKFLOW_HEALTH_FILE, {})
     topics = _topics_summary()
 
-    warnings = corpus_warnings + funnel_warnings + topic_index_warnings
+    warnings = corpus_warnings + topic_index_warnings
     status = "warning" if warnings else "ok"
     digest = {
         "generated_at": _now_iso(),
@@ -1244,30 +970,16 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
             "total_docs": int(corpus_payload.get("total_docs", 0) or 0),
             "stale_candidates": int(corpus_payload.get("stale_candidates", 0) or 0)
             if isinstance(corpus_payload.get("stale_candidates"), int)
-            else len(corpus_payload.get("stale_candidates") or []),
+                else len(corpus_payload.get("stale_candidates") or []),
             "archive_auto": len(corpus_payload.get("archive_auto") or []),
             "merge_review": len(corpus_payload.get("merge_review") or []),
             "strengthen_targets": len(corpus_payload.get("strengthen_targets") or []),
         },
-        "procedures": {
-            "total_entries": int(procedure_payload.get("total_entries", 0) or 0),
-            "total_procedures": int(procedure_payload.get("total_procedures", 0) or 0),
-            "candidate_total": len(procedure_payload.get("workflow_candidates") or []),
-            "broken_workflow_total": len(procedure_payload.get("broken_workflows") or []),
-            "never_cited_total": len(procedure_payload.get("never_cited_workflows") or []),
-        },
         "topics": topics,
         "hot_state": hot_state,
         "operator_pressure": operator_pressure,
-        "workflow_health": {
-            "citation_total": len((workflow_health.get("citations") or {})),
-            "funnel_tracked_total": int(funnel_payload.get("tracked_workflows", 0) or 0),
-            "funnel_states": dict(funnel_payload.get("current_state") or {}),
-        },
         "files": {
             "curadoria_candidates": str(CURADORIA_CANDIDATES_FILE),
-            "procedure_curation": str(PROCEDURE_CURATION_FILE),
-            "workflow_health": str(WORKFLOW_HEALTH_FILE),
             "curation_digest": str(CURATION_DIGEST_FILE),
             "open_gaps_digest": str(OPEN_GAPS_DIGEST_FILE),
             "operator_pressure_hot_digest": str(OPERATOR_PRESSURE_HOT_DIGEST_FILE),
@@ -1282,14 +994,12 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
         payload={
             "status": status,
             "warning_count": len(warnings),
-            "candidate_total": digest["procedures"]["candidate_total"],
             "topics_total": digest["topics"]["total"],
             "topics_created": hot_state["topics"]["created_total"],
             "threads_created": hot_state["threads"]["created_total"],
             "operator_pressure_items": operator_pressure["items_total"],
             "operator_pressure_topics_created": operator_pressure["topics_created"],
             "operator_pressure_threads_created": operator_pressure["threads_created"],
-            "operator_pressure_workflows_created": operator_pressure["workflows_created"],
             "operator_pressure_pre_skill_context": operator_pressure["pre_skill_context_total"],
             "stale_candidates": digest["corpus"]["stale_candidates"],
         },
@@ -1299,14 +1009,12 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
         actor="edge-curation",
         status=status,
         warning_count=len(warnings),
-        candidate_total=digest["procedures"]["candidate_total"],
         topics_total=digest["topics"]["total"],
         topics_created=hot_state["topics"]["created_total"],
         threads_created=hot_state["threads"]["created_total"],
         operator_pressure_items=operator_pressure["items_total"],
         operator_pressure_topics_created=operator_pressure["topics_created"],
         operator_pressure_threads_created=operator_pressure["threads_created"],
-        operator_pressure_workflows_created=operator_pressure["workflows_created"],
         operator_pressure_pre_skill_context=operator_pressure["pre_skill_context_total"],
         stale_candidates=digest["corpus"]["stale_candidates"],
     )
@@ -1314,7 +1022,7 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Deterministic corpus/workflow curation maintenance")
+    parser = argparse.ArgumentParser(description="Deterministic corpus, topic, and pre-skill context curation maintenance")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sync = sub.add_parser("sync", help="Refresh curation state and digest")

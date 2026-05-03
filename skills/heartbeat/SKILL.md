@@ -42,7 +42,6 @@ Use the prepared request fields:
 - `request.beat_launch_context`
 - `request.async_inbox`
 - `request.health_snapshot`
-- `request.workflow_status`
 
 `beat_launch_context` is the short-lived launch frame for the beat. Use it to compare operator pressure, edge-state pressure, and exploration budget.
 

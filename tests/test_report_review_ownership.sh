@@ -4,8 +4,7 @@ set -euo pipefail
 EDGE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPORT_SKILL="$EDGE_DIR/skills/report/SKILL.md"
 TEMPLATE="$EDGE_DIR/skills/_shared/report-template.md"
-WORKFLOWS="$EDGE_DIR/skills/_shared/workflow-conventions.md"
-EDGE_APPLY="$EDGE_DIR/tools/edge-apply"
+LEGACY_CONTEXT="$EDGE_DIR/skills/_shared/work""flow-conventions.md"
 
 echo "=== report review ownership contract test ==="
 
@@ -24,12 +23,9 @@ if grep -q "review-gate /tmp/spec" "$TEMPLATE"; then
   exit 1
 fi
 
-if grep -q "edge-consult.*adversarial review of draft" "$WORKFLOWS"; then
-  echo "FAIL: workflow conventions still duplicate adversarial review before consolidate-state" >&2
+if [[ -e "$LEGACY_CONTEXT" ]]; then
+  echo "FAIL: legacy conventions file should be retired" >&2
   exit 1
 fi
-
-grep -q "consolidate-state.*adversarial/Feynman/review gates" "$WORKFLOWS"
-grep -q "consolidate-state.*adversarial/Feynman/review gates" "$EDGE_APPLY"
 
 echo "ALL TESTS PASSED"

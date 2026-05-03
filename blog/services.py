@@ -1009,13 +1009,18 @@ def _entry_records():
                 threads = [t.strip() for t in threads.split(",") if t.strip()]
             if not isinstance(threads, list):
                 threads = []
+            claims = fm.get("claims", [])
+            if isinstance(claims, (str, dict)):
+                claims = [claims]
+            if not isinstance(claims, list):
+                claims = []
             records.append({
                 "path": fp,
                 "filename": fp.name,
                 "slug": fp.stem,
                 "title": fm.get("title", fp.stem),
                 "date": str(fm.get("date", "")),
-                "claims": [],
+                "claims": claims,
                 "open_gaps": open_gaps,
                 "threads": [str(t).strip() for t in threads if str(t).strip()],
                 "report": fm.get("report"),
@@ -1989,7 +1994,7 @@ def load_hotspots():
         return items
 
     codify_raw = []
-    for key in ("workflow_candidates", "capability_candidates", "substrate_gap_requests"):
+    for key in ("capability_candidates", "substrate_gap_requests", "pre_skill_context"):
         value = digest.get(key, [])
         if isinstance(value, list):
             codify_raw.extend(value)
@@ -2708,7 +2713,7 @@ def load_thread_detail(thread_id):
 
 _GENERIC_TAGS = {
     "pesquisa", "descoberta", "lazer", "reflexao", "execucao", "estrategia",
-    "planejamento", "workflow", "anti-pattern", "relatorio", "calibracao",
+    "planejamento", "relatorio", "calibracao",
     "blog", "heartbeat", "auditoria",
 }
 

@@ -83,8 +83,8 @@ blog_auth_pass: ""              # default for new agents: generate a password
 # BOOTSTRAP: first heartbeats, primitives are created as side-effect of
 # the work. Rough and minimal — just enough to unblock the task.
 #
-# STEADY-STATE: autonomy reviews primitives, proposes improvements,
-# workflows, removals — all based on state/source-usage.jsonl evidence.
+# STEADY-STATE: autonomy reviews primitives, proposes improvements and
+# removals, all based on state/source-usage.jsonl evidence.
 #
 # ANTI-PATTERN: pre_skill_procedure as a mechanical cookbook listing every
 # source ("query arxiv, check hn, search reddit"). Inflates context, fires
@@ -143,36 +143,27 @@ pre_skill_procedure:
 #     from the sources: manifest and log which one was most useful."
 # Remove this once state/source-usage.jsonl shows diverse invocation patterns.
 
-# --- Workflow seeds ---
+# --- Legacy routine guidance ---
 # Research/work habits you ALREADY have established — the things you'd do
 # on autopilot if someone asked you about a topic. Write in natural prose,
 # like you're explaining it to a new colleague on day 1.
 #
-# At install time, edge-apply converts each routine via LLM (Claude Code CLI
-# preferred, OpenAI fallback) into a blog entry with status:approved,
-# authored_by:operator. These enter the workflow reinforcement loop from day
-# 0 — instead of waiting for the agent to discover the routine later via
-# procedure-claim clustering.
-#
-# Runtime does NOT operate on `routines:` directly. This field is bootstrap
-# input only. After install, the live objects are workflow entries plus their
-# runtime reinforcement signals.
+# At render time, each routine is appended to `pre_skill_context` as durable
+# injected knowledge. New agents should prefer writing this guidance directly
+# under `pre_skill_context`.
 #
 # Writing tips:
 #   - Say WHEN you use this (the trigger)
 #   - Say WHERE you go first and why
 #   - Say WHAT you do when the first source fails
 #   - Mention any source you AVOID and why (highest signal — becomes the
-#     `when_it_fails` section of the generated workflow)
+#     "what to avoid" part of the injected context)
 #   - Don't try to be exhaustive — 3-5 sentences per routine is enough
 #
 # Rule: if you don't do this weekly, don't put it here. A seed is what's
 # already a reflex, not a wish list.
 #
-# Install-time rendering: no API key required if you have `claude` CLI on
-# PATH (Claude Code subscription path). If neither `claude` nor OPENAI_API_KEY
-# is available at install, routines are deferred to state/pending-routines.yaml
-# and the first heartbeat renders them.
+# Install-time rendering is deterministic and does not require an LLM.
 
 routines:
   - |

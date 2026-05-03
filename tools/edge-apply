@@ -30,12 +30,6 @@ TOOLS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS_DIR))
 sys.path.insert(0, str(TOOLS_DIR / "_shared"))
 from intervals import parse_interval  # noqa: E402
-from routines import (  # noqa: E402
-    build_entry_markdown,
-    render_routine,
-    slugify_title,
-    source_hash,
-)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GREEN = "\033[32m"
@@ -1819,102 +1813,6 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
         seeded += 1
     ok(f"sources-manifest: {len(manifest['sources'])} declared source(s)")
 
-    # --- seed workflow blog entries (static, no LLM cost) ---
-    prefix = cfg.get("skill_prefix", cfg.get("codename", "ed"))
-    workflow_entries = [
-        {
-            "slug": "workflow-research-pipeline",
-            "title": "workflow: sources → research → report pipeline",
-            "tags": ["workflow", "research", "sources", "consolidate-state"],
-            "keywords": ["edge-sources", "consolidate-state", "research", "pipeline"],
-            "secrets": ["openai.env"],
-            "cost_estimate": "~$0.15/execution",
-            "body": (
-                "## Trigger\n"
-                f"Heartbeat identifies relevant topic, or user requests /{prefix}-research.\n\n"
-                "## Steps\n"
-                '1. `edge-sources "topic" --intent research` → source collection\n'
-                "2. LLM curation → filter signal from noise\n"
-                "3. Draft YAML spec + light blog entry\n"
-                "4. `consolidate-state` → adversarial/Feynman/review gates + blog entry + HTML report + state commit\n\n"
-                "## Secrets\n"
-                "- `openai.env` — review gates inside `consolidate-state`\n\n"
-                "## When it works\n"
-                "Technical-scientific topics with good coverage in sources.\n\n"
-                "## When it fails\n"
-                "Very niche topics where sources return little signal.\n\n"
-                "## Cost\n"
-                "~$0.15/execution (OpenAI consult: ~$0.10, margin)\n"
-            ),
-        },
-        {
-            "slug": "workflow-adversarial-review",
-            "title": "workflow: consolidate-state review gates before publishing",
-            "tags": ["workflow", "quality", "consolidate-state", "review-gate"],
-            "keywords": ["consolidate-state", "review-gate", "adversarial", "quality"],
-            "secrets": ["openai.env"],
-            "cost_estimate": "~$0.10/execution",
-            "body": (
-                "## Trigger\n"
-                "Every blog entry and report before publication, via `consolidate-state`.\n\n"
-                "## Steps\n"
-                "1. Draft blog entry with open gaps, threads, procedures\n"
-                "2. Draft report YAML\n"
-                "3. `consolidate-state` runs adversarial/Feynman/review gates\n"
-                "4. Address valid gate critique and rerun `consolidate-state` if blocked\n\n"
-                "## Secrets\n"
-                "- `openai.env` — review models used by `consolidate-state`\n\n"
-                "## When it works\n"
-                "Always. The adversarial catch rate justifies the cost.\n\n"
-                "## When it fails\n"
-                "When the adversarial prompt is too generic — task-specific prompts improve precision.\n\n"
-                "## Cost\n"
-                "~$0.10/execution (OpenAI consult)\n"
-            ),
-        },
-    ]
-
-    wf_created = 0
-    # Check if any entry already has tags: [workflow] (not just "workflow" in filename)
-    has_workflow_entries = False
-    for f in entries_dir.glob("*.md"):
-        try:
-            head = f.read_text()[:500]
-            if "tags:" in head and "workflow" in head.split("tags:")[1].split("\n")[0]:
-                has_workflow_entries = True
-                break
-        except Exception:
-            pass
-    for wf in workflow_entries:
-        wf_file = entries_dir / f"{today}-{wf['slug']}.md"
-        if has_workflow_entries or wf_file.exists():
-            break
-        tags_str = ", ".join(wf["tags"])
-        kw_str = ", ".join(wf["keywords"])
-        secrets_str = ", ".join(wf["secrets"])
-        _write_text(
-            wf_file,
-            f"---\n"
-            f"title: \"{wf['title']}\"\n"
-            f"date: {today}\n"
-            f"tags: [{tags_str}]\n"
-            f"keywords: [{kw_str}]\n"
-            f"open_gaps: []\n"
-            f"threads: []\n"
-            f"secrets: [{secrets_str}]\n"
-            f"cost_estimate: \"{wf['cost_estimate']}\"\n"
-            f"---\n\n"
-            f"{wf['body']}"
-            ,
-            phase="seed",
-            source_template=f"generated:seed:{wf['slug']}",
-            dry_run=False,
-        )
-        wf_created += 1
-    if wf_created:
-        ok(f"{wf_created} seed workflow entries created")
-        seeded += wf_created
-
     status_ok, status_detail = _refresh_primitives_status(cfg.get("_config_path"))
     if status_ok:
         ok("primitives-status refreshed")
@@ -1935,169 +1833,22 @@ Threads should be concrete workstreams (e.g. 'competitive-landscape', 'positioni
     return True
 
 
-# ─── Phase 11: Workflow seeds (legacy field name: routines) ───
+# ─── Phase 11: Legacy routine guidance ───
 
 def phase_routines(cfg, dry_run):
-    """Render `routines:` free-form prose into operator-authored workflow entries.
-
-    Closes #90 (feature) and #91 (claude -p preferred over OpenAI).
-
-    For each prose string in `agent.yaml:routines`, converts it via LLM
-    (Claude Code CLI → OpenAI fallback → defer) into a blog entry with
-    frontmatter status:approved, authored_by:operator. Idempotent via
-    source_hash in the generated frontmatter — re-runs skip unchanged prose.
-
-    If both LLM providers are unavailable, the prose is appended to
-    state/pending-routines.yaml for the first heartbeat to pick up — install
-    never blocks on routine rendering.
-    """
-    header("11/11 Workflow seeds (legacy field name: routines)")
+    """Keep the legacy phase visible while `routines:` maps to pre-skill context."""
+    header("11/11 Legacy routine guidance")
 
     routines = cfg.get("routines", [])
     if not isinstance(routines, list):
-        warn("agent.yaml `routines:` is not a list — skipping")
+        warn("agent.yaml `routines:` is not a list - skipping")
         return True
     routines = [r for r in routines if isinstance(r, str) and r.strip()]
     if not routines:
-        ok("No workflow seeds declared in agent.yaml — skipping")
+        ok("No legacy routines declared in agent.yaml - skipping")
         return True
 
-    if dry_run:
-        ok(f"[DRY RUN] Would render {len(routines)} workflow seed(s)")
-        return True
-
-    edge = Path(cfg["edge_home_expanded"])
-    entries_dir = edge / "blog" / "entries"
-    _ensure_dir(entries_dir, phase="routines", dry_run=dry_run, source_template="generated:routines:entries")
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    # Index existing entries by source_hash (from frontmatter) to detect
-    # idempotent skips and operator-edits (hash mismatch means someone edited
-    # the generated file — we leave it alone and log the friction).
-    existing_by_hash: dict[str, Path] = {}
-    for entry in entries_dir.glob("*-workflow-*.md"):
-        try:
-            text = entry.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        m = re.search(r'^source_hash:\s*"([^"]+)"', text, re.MULTILINE)
-        if m:
-            existing_by_hash[m.group(1)] = entry
-
-    rendered = 0
-    skipped = 0
-    deferred: list[dict] = []
-    operator_edited = 0
-
-    for idx, prose in enumerate(routines):
-        h = source_hash(prose)
-        if h in existing_by_hash:
-            skipped += 1
-            continue
-
-        parsed, provider = render_routine(prose)
-        if parsed is None:
-            deferred.append({
-                "prose": prose,
-                "source_hash": h,
-                "index": idx,
-                "added_at": datetime.now().isoformat(timespec="seconds"),
-            })
-            continue
-
-        slug = slugify_title(parsed["title"])
-        filename = f"{today}-workflow-{slug}.md"
-        entry_path = entries_dir / filename
-
-        # Slug collision: if a file with the same slug exists but different
-        # hash, it means the operator edited the yaml prose and we need to
-        # regenerate. Preserve citation history by reusing the same slug.
-        if entry_path.exists():
-            existing_text = entry_path.read_text(encoding="utf-8")
-            existing_hash_m = re.search(r'^source_hash:\s*"([^"]+)"', existing_text, re.MULTILINE)
-            if existing_hash_m and existing_hash_m.group(1) != h:
-                # Check if there's a hash at all in the existing — if not,
-                # the operator may have hand-edited; respect that.
-                pass  # fall through to overwrite (regeneration path)
-            elif not existing_hash_m:
-                operator_edited += 1
-                warn(f"Routine {idx}: {filename} exists without source_hash — operator-edited, skipping to avoid overwrite")
-                continue
-
-        markdown = build_entry_markdown(
-            prose=prose,
-            parsed=parsed,
-            source_hash_value=h,
-            index=idx,
-            date_str=today,
-            provider=provider or "unknown",
-        )
-        _write_text(
-            entry_path,
-            markdown,
-            phase="routines",
-            source_template=f"generated:routine:{h}",
-            dry_run=False,
-        )
-        rendered += 1
-
-    # Write defer file if any routines couldn't be rendered
-    pending_file = edge / "state" / "pending-routines.yaml"
-    if deferred:
-        _ensure_dir(pending_file.parent, phase="routines", dry_run=False, source_template="generated:routines:pending")
-        # If pending file exists, merge (avoid duplicates by hash)
-        existing_pending = []
-        if pending_file.exists():
-            try:
-                existing_pending = yaml.safe_load(pending_file.read_text()) or []
-            except yaml.YAMLError:
-                existing_pending = []
-        existing_hashes = {d.get("source_hash") for d in existing_pending if isinstance(d, dict)}
-        for d in deferred:
-            if d["source_hash"] not in existing_hashes:
-                existing_pending.append(d)
-        _write_text(
-            pending_file,
-            yaml.safe_dump(existing_pending, allow_unicode=True, sort_keys=False),
-            phase="routines",
-            source_template="generated:routines:pending",
-            dry_run=False,
-        )
-        warn(
-            f"{len(deferred)} routine(s) deferred to {pending_file.relative_to(edge)} — "
-            f"no LLM provider available (install `claude` CLI or set OPENAI_API_KEY). "
-            f"First heartbeat will render them."
-        )
-    elif pending_file.exists():
-        # All routines rendered successfully — clean up stale pending entries
-        # whose hashes we just rendered.
-        try:
-            existing_pending = yaml.safe_load(pending_file.read_text()) or []
-            rendered_hashes = {source_hash(r) for r in routines}
-            remaining = [d for d in existing_pending if isinstance(d, dict) and d.get("source_hash") not in rendered_hashes]
-            if remaining:
-                _write_text(
-                    pending_file,
-                    yaml.safe_dump(remaining, allow_unicode=True, sort_keys=False),
-                    phase="routines",
-                    source_template="generated:routines:pending",
-                    dry_run=False,
-                )
-            else:
-                pending_file.unlink()
-        except yaml.YAMLError:
-            pass
-
-    parts = []
-    if rendered:
-        parts.append(f"{rendered} rendered")
-    if skipped:
-        parts.append(f"{skipped} skipped (unchanged)")
-    if operator_edited:
-        parts.append(f"{operator_edited} operator-edited")
-    if deferred:
-        parts.append(f"{len(deferred)} deferred")
-    ok(f"Routines: {', '.join(parts) if parts else 'nothing to do'}")
+    ok(f"{len(routines)} routine(s) mapped into pre_skill_context by edge-render")
     return True
 
 

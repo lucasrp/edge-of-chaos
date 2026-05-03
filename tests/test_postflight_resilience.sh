@@ -57,8 +57,6 @@ try:
         "primitive_degraded_total": 0,
         "capability_broken_total": 0,
         "capability_degraded_total": 0,
-        "workflow_broken_total": 0,
-        "workflow_stale_total": 0,
     }
     module.compute_delta = lambda before, **_kwargs: {"open_gaps_delta": 0}
     state = {"cycle_id": "cycle-postflight", "request": {"skill": "research"}, "state": {}}

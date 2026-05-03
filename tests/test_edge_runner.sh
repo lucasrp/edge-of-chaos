@@ -49,8 +49,6 @@ procedures:
     kind: asset_inventory.status
   - id: corpus
     kind: corpus.lookup
-  - id: workflows
-    kind: workflow.status
   - id: queue
     kind: queue.status
   - id: onboarding
@@ -59,7 +57,7 @@ YAML
 
 cat >"$TMP_HOME/.claude/projects/test-project/session-1.jsonl" <<'JSONL'
 {"type":"user","timestamp":"2026-04-23T10:00:00Z","sessionId":"session-1","message":{"role":"user","content":"topics deve ser consultado no edge search em todo beat"}}
-{"type":"user","timestamp":"2026-04-23T10:05:00Z","sessionId":"session-1","message":{"role":"user","content":"workflow automatico deve acontecer so com orientacao explicita do operador"}}
+{"type":"user","timestamp":"2026-04-23T10:05:00Z","sessionId":"session-1","message":{"role":"user","content":"pre-skill context automatico deve acontecer so com orientacao explicita do operador"}}
 {"type":"user","timestamp":"2026-04-23T10:10:00Z","sessionId":"session-1","message":{"role":"user","content":"a primitive do exa no ed deveria mencionar deep research"}}
 {"type":"user","timestamp":"2026-04-23T10:15:00Z","sessionId":"session-1","message":{"role":"user","content":"topics deve ser consultado no edge search em todo beat"}}
 {"type":"user","timestamp":"2026-04-23T10:20:00Z","sessionId":"session-1","message":{"role":"user","content":"eu nao deveria ter que repetir esse passo; isso deveria vir no install"}}
@@ -78,8 +76,6 @@ procedures:
     kind: primitives.status
   - id: capabilities
     kind: capabilities.status
-  - id: workflows
-    kind: workflow.status
   - id: briefing
     kind: briefing.refresh
   - id: cycle-health
@@ -250,12 +246,11 @@ assert any(item["kind"] == "health.snapshot" for item in request["preflight_evid
 assert any(item["kind"] == "claude.sessions.digest" for item in request["preflight_evidence"])
 corpus_step = next(item for item in request["preflight_evidence"] if item["kind"] == "corpus.lookup")
 assert corpus_step["satisfied"] is False
-assert corpus_step["missing_required_types"] == ["workflow", "memory"]
+assert corpus_step["missing_required_types"] == ["topic", "memory"]
 assert request["operator_pressure_summary"]["item_total"] >= 3
 assert request["operator_pressure_summary"]["signal_from_operator_now"] >= 1
 assert request["operator_pressure_summary"]["operator_toil_optimizable_now"] >= 1
 assert request["operator_pressure_summary"]["pre_skill_context"] >= 1
-assert request["operator_pressure_summary"]["workflow_candidates"] >= 1
 assert request["operator_pressure_summary"]["capability_candidates"] >= 1
 assert request["operator_pressure_summary"]["substrate_gap_requests"] >= 1
 assert request["operator_pressure_digest"]["signal_from_operator_now"]
@@ -319,7 +314,6 @@ assert "asset_inventory" in invocations[0]
 assert "heartbeat_routing" in invocations[0]
 assert "autonomy_primitives_checkup" not in request
 assert request["primitives_status"]["summary"]["health_status"] == "ok"
-assert "workflow_status" in request
 assert request["asset_inventory"]["summary"]["host_total"] >= 1
 assert "open_gaps_summary" in request
 assert beat_mirror["active"] is False

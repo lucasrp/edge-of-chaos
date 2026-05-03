@@ -111,7 +111,7 @@ cat >"$TMP_STATE/state/proposals.json" <<'JSON'
   },
   {
     "id": "prop-4",
-    "title": "Archive old workflow board",
+    "title": "Archive old planning board",
     "type": "execution",
     "status": "deferred",
     "created": "2026-04-18T12:00:00+00:00",
@@ -123,7 +123,7 @@ JSON
 
 cat >"$TMP_STATE/state/signals/decision.md" <<'MD'
 - Approved dashboard lineage slice
-- Deferred workflow board cleanup
+- Deferred planning board cleanup
 MD
 
 HOME="$TMP_HOME" MEMORY_PROJECT_DIR="test-project" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" "$VENV_PY" - <<'PY'

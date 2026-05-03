@@ -34,14 +34,6 @@ cat >"$TMP_BIN/edge-context" <<'EOF'
 #!/usr/bin/env bash
 echo "edge-context $*"
 EOF
-cat >"$TMP_BIN/edge-workflows" <<'EOF'
-#!/usr/bin/env bash
-if [[ "${1:-}" == "status" ]]; then
-  echo '{"summary":{"workflow_total":1,"cited_total":1,"broken_total":0,"stale_total":0,"top_used":[],"top_broken":[]},"workflows":[]}'
-else
-  echo "edge-workflows $*"
-fi
-EOF
 cat >"$TMP_BIN/git" <<'EOF'
 #!/usr/bin/env bash
 echo "git $*"
@@ -50,7 +42,7 @@ cat >"$TMP_BIN/edge-repo-sync" <<'EOF'
 #!/usr/bin/env bash
 echo "edge-repo-sync $*"
 EOF
-chmod +x "$TMP_BIN/edge-search" "$TMP_BIN/edge-sources" "$TMP_BIN/edge-signals" "$TMP_BIN/edge-context" "$TMP_BIN/edge-workflows" "$TMP_BIN/git" "$TMP_BIN/edge-repo-sync"
+chmod +x "$TMP_BIN/edge-search" "$TMP_BIN/edge-sources" "$TMP_BIN/edge-signals" "$TMP_BIN/edge-context" "$TMP_BIN/git" "$TMP_BIN/edge-repo-sync"
 
 cat >"$TMP_STATE/state/sources-manifest.yaml" <<'YAML'
 sources:

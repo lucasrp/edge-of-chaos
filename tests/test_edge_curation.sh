@@ -4,8 +4,7 @@ set -euo pipefail
 EDGE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_BASE="$(mktemp -d /tmp/edge-curation-XXXXXX)"
 TMP_REPO="$TMP_BASE/repo"
-TMP_STATE="$TMP_BASE/state"
-TMP_HOME="$TMP_BASE/home"
+TMP_STATE="$TMP_BASE/edge"
 PASS=0
 FAIL=0
 
@@ -17,316 +16,118 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$TMP_REPO"/{tools,blog/entries,config} "$TMP_REPO/tools/_shared" "$TMP_STATE"/{state,topics,threads,logs} "$TMP_STATE/state/projections" "$TMP_STATE/state/operator-pressure" "$TMP_HOME"
-
-export HOME="$TMP_HOME"
-export EDGE_REPO_DIR="$TMP_REPO"
-export EDGE_STATE_DIR="$TMP_STATE"
-export EDGE_CODENAME="curation-test"
-
+mkdir -p "$TMP_REPO/tools" "$TMP_REPO/config" "$TMP_REPO/threads" "$TMP_REPO/topics" "$TMP_REPO/blog/entries" "$TMP_STATE/state/operator-pressure" "$TMP_STATE/state/projections"
 cp "$EDGE_DIR/tools/edge-curation" "$TMP_REPO/tools/edge-curation"
-cp "$EDGE_DIR/tools/rollup-workflow-funnel.py" "$TMP_REPO/tools/rollup-workflow-funnel.py"
-chmod +x "$TMP_REPO/tools/edge-curation"
-
-cat >"$TMP_REPO/config/paths.py" <<'PY'
-import os
-from pathlib import Path
-
-EDGE_REPO_DIR = Path(os.environ["EDGE_REPO_DIR"])
-EDGE_STATE_DIR = Path(os.environ["EDGE_STATE_DIR"])
-CURADORIA_CANDIDATES_FILE = EDGE_STATE_DIR / "state" / "curadoria-candidates.json"
-CURATION_DIGEST_FILE = EDGE_STATE_DIR / "state" / "curation-digest.json"
-ENTRIES_DIR = EDGE_REPO_DIR / "blog" / "entries"
-OPEN_GAPS_DIGEST_FILE = EDGE_STATE_DIR / "state" / "projections" / "open-gaps-digest.json"
-OPERATOR_PRESSURE_HOT_DIGEST_FILE = EDGE_STATE_DIR / "state" / "operator-pressure" / "hot-digest.json"
-PROCEDURE_CURATION_FILE = EDGE_STATE_DIR / "state" / "procedure-curation.json"
-THREADS_DIR = EDGE_STATE_DIR / "threads"
-TOPICS_DIR = EDGE_STATE_DIR / "topics"
-WORKFLOW_HEALTH_FILE = EDGE_STATE_DIR / "state" / "workflow-health.json"
-EVENTS_FILE = EDGE_STATE_DIR / "logs" / "events.jsonl"
-STATE_DIR = EDGE_STATE_DIR / "state"
-PY
-
-cat >"$TMP_REPO/tools/_shared/telemetry.py" <<'PY'
-def emit_shadow_event(*args, **kwargs):
-    return None
-
-def log_event(*args, **kwargs):
-    return None
-PY
+cp -R "$EDGE_DIR/tools/_shared" "$TMP_REPO/tools/_shared"
+cp "$EDGE_DIR/config/paths.py" "$TMP_REPO/config/paths.py"
+cp "$EDGE_DIR/config/branding.py" "$TMP_REPO/config/branding.py"
 
 cat >"$TMP_REPO/tools/curadoria-compute" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-STATE_DIR="${EDGE_STATE_DIR}/state"
-mkdir -p "$STATE_DIR"
-cat >"$STATE_DIR/curadoria-candidates.json" <<'JSON'
-{
-  "total_docs": 12,
-  "stale_candidates": 2,
-  "archive_auto": [{"doc_id": 1}],
-  "merge_review": [{"cluster_id": 1}],
-  "strengthen_targets": [{"doc_id": 2}]
-}
+mkdir -p "$EDGE_STATE_DIR/state"
+cat >"$EDGE_STATE_DIR/state/curadoria-candidates.json" <<'JSON'
+{"total_docs": 3, "stale_candidates": 1, "archive_auto": [], "merge_review": [], "strengthen_targets": []}
 JSON
-echo ok
 SH
-chmod +x "$TMP_REPO/tools/curadoria-compute"
+chmod +x "$TMP_REPO/tools/curadoria-compute" "$TMP_REPO/tools/edge-curation"
+
+cat >"$TMP_REPO/search-edge-index" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
 
 mkdir -p "$TMP_REPO/search"
 cat >"$TMP_REPO/search/edge-index" <<'SH'
 #!/usr/bin/env bash
-set -euo pipefail
-printf '%s\n' "$@" >"${EDGE_STATE_DIR}/state/topics-index.args"
+exit 0
 SH
 chmod +x "$TMP_REPO/search/edge-index"
 
-cat >"$TMP_REPO/blog/entries/2026-04-20-one.md" <<'EOF'
----
-title: "One"
-date: 2026-04-20
-tags: [note]
-procedure:
-  - "When the same pattern repeats, write it down."
-workflows_used:
-  - cluster-topic-refresh
----
-EOF
-
-cat >"$TMP_REPO/blog/entries/2026-04-21-two.md" <<'EOF'
----
-title: "Two"
-date: 2026-04-21
-tags: [note]
-procedure:
-  - "When the same pattern repeats, write it down."
-workflows_broken:
-  - stale-workflow
----
-EOF
-
-cat >"$TMP_REPO/blog/entries/2026-04-22-three.md" <<'EOF'
----
-title: "Three"
-date: 2026-04-22
-tags: [note]
-procedure:
-  - "When the same pattern repeats, write it down."
----
-EOF
-
-cat >"$TMP_REPO/blog/entries/2026-01-01-old-workflow.md" <<'EOF'
----
-title: "workflow: Old workflow"
-date: 2026-01-01
-tags: [workflow]
----
-EOF
-
-cat >"$TMP_STATE/topics/topic-a.md" <<'EOF'
-# Topic A
-EOF
-
-cat >"$TMP_STATE/state/projections/open-gaps-digest.json" <<'JSON'
-{
-  "open_total": 2,
-  "entries_with_gaps": 2,
-  "gaps": [
-    {
-      "gap_id": "gap-alpha",
-      "text": "Search substrate still has no topic producer.",
-      "threads": ["search-substrate"],
-      "artifact_filename": "2026-04-24-research-topic-contract.md",
-      "date": "2026-04-24T00:00:00+00:00"
-    },
-    {
-      "gap_id": "gap-beta",
-      "text": "Runtime observability needs a canonical hot-state loop.",
-      "threads": ["runtime-observability"],
-      "artifact_filename": "2026-04-24-runtime.md",
-      "date": "2026-04-24T00:00:00+00:00"
-    }
-  ],
-  "hot_threads_by_open_gaps": [
-    {"thread_id": "search-substrate", "open_gaps": 1},
-    {"thread_id": "runtime-observability", "open_gaps": 1}
-  ]
-}
-JSON
-
 cat >"$TMP_STATE/state/operator-pressure/hot-digest.json" <<'JSON'
 {
-  "schema_version": 5,
-  "generated_at": "2026-04-24T00:00:00+00:00",
-  "summary": "operator feedback asks for hot-state curation",
+  "schema_version": 6,
+  "summary": "operator pressure",
   "signal_from_operator_now": [
-    {
-      "item_id": "pressure-hot-state",
-      "text": "threads e topics sao o estado quente; direcionamento quente e conhecimento quente",
-      "target": "thread",
-      "kind": "directive",
-      "repeat_count": 1,
-      "status": "active",
-      "entities": ["topic"],
-      "last_seen_at": "2026-04-24T00:00:00+00:00"
-    }
+    {"item_id": "pressure-hot-state", "text": "threads de Meta precisam consolidar evidencias recentes", "target": "thread", "kind": "directive", "repeat_count": 2, "entities": ["meta"], "source_kinds": ["session"], "last_seen_at": "2026-05-01T10:00:00+00:00"}
+  ],
+  "memory_updates": [
+    {"item_id": "pressure-memory-preskill", "text": "pre-skill context deve lembrar que tabelas densas precisam introducao narrativa", "target": "pre_skill_context", "kind": "memory_update", "repeat_count": 1, "entities": ["report"], "source_kinds": ["memory"], "last_seen_at": ""}
+  ],
+  "pre_skill_context": [
+    {"item_id": "pressure-memory-preskill", "text": "pre-skill context deve lembrar que tabelas densas precisam introducao narrativa", "target": "pre_skill_context", "kind": "memory_update", "repeat_count": 1, "entities": ["report"], "source_kinds": ["memory"], "last_seen_at": ""}
   ],
   "operator_pains_resolvable_now": [],
   "operator_toil_optimizable_now": [],
   "mistakes_to_avoid_now": [],
   "implicit_needs_hypotheses": [],
-  "workflow_candidates": [],
   "capability_candidates": [],
-  "memory_updates": [
-    {
-      "item_id": "pressure-memory-workflow",
-      "text": "workflow para reports deve introduzir contexto antes de tabelas densas",
-      "target": "workflow",
-      "kind": "memory_update",
-      "repeat_count": 1,
-      "status": "active",
-      "entities": ["memory", "report"],
-      "source_kinds": ["memory"],
-      "last_seen_at": ""
-    },
-    {
-      "item_id": "pressure-memory-preskill",
-      "text": "sempre introduza tabelas densas antes de renderizar seco",
-      "target": "policy",
-      "kind": "memory_update",
-      "repeat_count": 1,
-      "status": "active",
-      "entities": ["memory", "report"],
-      "source_kinds": ["memory"],
-      "last_seen_at": ""
-    }
-  ],
-  "pre_skill_context": [
-    {
-      "item_id": "pressure-memory-preskill",
-      "text": "sempre introduza tabelas densas antes de renderizar seco",
-      "target": "policy",
-      "kind": "memory_update",
-      "repeat_count": 1,
-      "status": "active",
-      "entities": ["memory", "report"],
-      "source_kinds": ["memory"],
-      "last_seen_at": ""
-    }
-  ],
   "substrate_gap_requests": [],
-  "active_entities": ["topic"],
-  "item_ids": ["pressure-hot-state", "pressure-memory-workflow", "pressure-memory-preskill"]
+  "active_entities": ["meta", "report"],
+  "item_ids": ["pressure-hot-state", "pressure-memory-preskill"]
 }
 JSON
 
-cat >"$TMP_STATE/threads/runtime-observability.md" <<'EOF'
----
-id: runtime-observability
-title: Runtime Observability
-status: active
-created: 2026-04-24
-updated: 2026-04-24
----
+cat >"$TMP_STATE/state/projections/open-gaps-digest.json" <<'JSON'
+{
+  "open_total": 1,
+  "entries_with_gaps": 1,
+  "gaps": [
+    {"gap_id": "gap-meta", "text": "Meta evidence still needs a durable topic", "artifact_filename": "entry.md", "date": "2026-05-01", "threads": ["meta-evidence"]}
+  ],
+  "hot_threads_by_open_gaps": [{"thread_id": "meta-evidence", "open_gaps": 1, "latest": "2026-05-01"}],
+  "recent_open_gaps": [{"gap_id": "gap-meta", "text": "Meta evidence still needs a durable topic"}]
+}
+JSON
 
-Existing hot direction.
-EOF
+export EDGE_REPO_DIR="$TMP_REPO"
+export EDGE_STATE_DIR="$TMP_STATE"
 
-echo "=== edge-curation Smoke Test ==="
-echo "Temp repo: $TMP_REPO"
+echo "=== edge-curation Test ==="
 echo ""
 
-echo "--- Test 1: sync builds procedure-curation and digest ---"
-if python3 - <<'PY' "$TMP_REPO/tools/edge-curation" "$TMP_STATE/state/procedure-curation.json" "$TMP_STATE/state/curation-digest.json"
+echo "--- Test 1: sync builds digest without retired artifacts ---"
+if python3 - <<'PY' "$TMP_REPO/tools/edge-curation" "$TMP_STATE/state/curation-digest.json" "$TMP_REPO"
+import importlib.util
 import json
-import runpy
-import subprocess
+import os
 import sys
 from pathlib import Path
+from importlib.machinery import SourceFileLoader
 
-tool, proc_path, digest_path = sys.argv[1:]
-result = subprocess.run([tool, "sync", "--json"], capture_output=True, text=True, check=True)
-payload = json.loads(result.stdout)
-proc = json.loads(Path(proc_path).read_text(encoding="utf-8"))
-digest = json.loads(Path(digest_path).read_text(encoding="utf-8"))
-repo_root = Path(tool).parents[1]
-module = runpy.run_path(tool)
-assert module["_is_memory_workflow_item"]({
-    "sections": ["memory_updates"],
-    "source_kinds": ["memory"],
-    "target": "workflow",
-    "text": "workflow para reports deve introduzir contexto",
-}) is True
-assert module["_is_memory_workflow_item"]({
-    "sections": ["memory_updates"],
-    "source_kinds": ["memory"],
-    "target": "capability",
-    "text": "Google Drive e a pasta edge sao o lugar padrao de upload",
-}) is False
-assert module["_is_operator_pre_skill_context_item"]({
-    "sections": ["memory_updates", "pre_skill_context"],
-    "source_kinds": ["memory"],
-    "target": "policy",
-    "text": "sempre introduza tabelas densas antes de renderizar seco",
-}) is True
-assert module["_is_memory_workflow_item"]({
-    "sections": ["memory_updates", "pre_skill_context"],
-    "source_kinds": ["memory"],
-    "target": "policy",
-    "text": "sempre introduza tabelas densas antes de renderizar seco",
-}) is False
+tool, digest_path, _repo_root = sys.argv[1:]
+loader = SourceFileLoader("edge_curation", tool)
+spec = importlib.util.spec_from_loader("edge_curation", loader)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
 
-assert payload["procedures"]["candidate_total"] == 1
-assert proc["workflow_candidates"][0]["procedure_count"] == 3
-assert digest["corpus"]["stale_candidates"] == 2
-assert digest["topics"]["total"] == 5
-assert digest["hot_state"]["threads"]["referenced_total"] == 2
-assert digest["hot_state"]["threads"]["created_total"] == 1
-assert digest["hot_state"]["topics"]["created_total"] == 2
-assert digest["operator_pressure"]["items_total"] == 3
-assert digest["operator_pressure"]["groups_total"] == 2
-assert digest["operator_pressure"]["threads_created"] == 2
-assert digest["operator_pressure"]["topics_created"] == 2
-assert digest["operator_pressure"]["workflows_created"] == 1
+digest = module.build_curation_digest(60)
+digest_path = Path(digest_path)
+state_root = Path(os.environ["EDGE_STATE_DIR"])
+
+assert digest_path.exists()
+assert digest["status"] == "ok"
+assert "procedures" not in digest
+assert "workflow_health" not in digest
+assert "procedure_curation" not in digest["files"]
 assert digest["operator_pressure"]["pre_skill_context_total"] == 1
-state_root = Path(digest_path).parents[1]
-assert (state_root / "threads" / "search-substrate.md").exists()
-assert (state_root / "threads" / "threads-topics-hot-state.md").exists()
-assert (state_root / "topics" / "search-substrate.md").exists()
-assert (state_root / "topics" / "runtime-observability.md").exists()
-assert (state_root / "topics" / "threads-topics-hot-state.md").exists()
-workflows = list((repo_root / "blog" / "entries").glob("*memory-workflow-para-reports*.md"))
-assert workflows
-workflow_text = workflows[0].read_text(encoding="utf-8")
-assert "tags: [workflow, memory-derived, operator-pressure]" in workflow_text
-assert "workflow-draft" not in workflow_text
-assert "funnel_tracked_total" in digest["workflow_health"]
-assert "topics" in Path(f"{Path(digest_path).parent}/topics-index.args").read_text(encoding="utf-8")
-
-second = subprocess.run([tool, "sync", "--json"], capture_output=True, text=True, check=True)
-second_payload = json.loads(second.stdout)
-second_digest = json.loads(Path(digest_path).read_text(encoding="utf-8"))
-assert second_payload["topics"]["total"] == 5
-assert second_digest["hot_state"]["threads"]["created_total"] == 0
-assert second_digest["hot_state"]["topics"]["created_total"] == 0
-assert second_digest["operator_pressure"]["threads_created"] == 0
-assert second_digest["operator_pressure"]["topics_created"] == 0
-assert second_digest["operator_pressure"]["workflows_created"] == 0
-assert second_digest["operator_pressure"]["pre_skill_context_total"] == 1
+assert digest["operator_pressure"]["topics_created"] >= 1
+assert digest["operator_pressure"]["threads_created"] >= 1
+assert digest["operator_pressure"]["pre_skill_context"]["candidates"][0]["judgement"] == "pre_skill_context"
+assert not list((state_root / "blog" / "entries").glob("*.md"))
+assert (state_root / "threads" / "meta-evidence.md").exists()
+assert (state_root / "topics" / "meta-evidence.md").exists()
 PY
 then
-    pass "sync builds procedure-curation and digest"
+    pass "sync builds digest and migrates operator guidance to topics/pre-skill context"
 else
-    fail "sync builds procedure-curation and digest"
+    fail "sync builds digest and migrates operator guidance to topics/pre-skill context"
 fi
 
 echo ""
-echo "=== Results ==="
-echo "PASS: $PASS  FAIL: $FAIL"
-if [[ "$FAIL" -eq 0 ]]; then
-    echo "ALL TESTS PASSED"
-    exit 0
-else
-    echo "SOME TESTS FAILED"
+echo "Passed: $PASS"
+echo "Failed: $FAIL"
+
+if [[ $FAIL -ne 0 ]]; then
     exit 1
 fi

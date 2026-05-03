@@ -39,7 +39,6 @@ from paths import (  # noqa: E402
     PREFLIGHT_LOG_FILE,
     STATE_EVENTS_FILE,
     THREADS_DIR,
-    WORKFLOW_HEALTH_FILE,
 )
 from .capability_runtime import build_capability_status, build_configured_integrations, build_source_bindings, invoke_capability, probe_capability  # noqa: E402
 from .operator_pressure import read_or_refresh_operator_pressure_projection  # noqa: E402
@@ -48,12 +47,11 @@ from .search_runtime import search_runtime_summary  # noqa: E402
 from .signal_runtime import build_signal_context  # noqa: E402
 from .skill_inbox import attach_snapshot_to_dispatch  # noqa: E402
 from .telemetry import emit_shadow_event, log_event, log_run_step  # noqa: E402
-from .workflow_runtime import build_workflow_status  # noqa: E402
 
 REQUEST_SCHEMA_VERSION = 1
 RECENT_DUPLICATE_HOURS = 36
-CORPUS_REQUIRED_TYPES = ["workflow", "memory"]
-CORPUS_OPTIONAL_TYPES = ["topic"]
+CORPUS_REQUIRED_TYPES = ["topic", "memory"]
+CORPUS_OPTIONAL_TYPES: list[str] = []
 HEARTBEAT_FAIRNESS_SKILLS = (
     "report",
     "research",
@@ -818,7 +816,7 @@ def _expected_state_change(request: dict[str, Any], operator_signal: list[str], 
     if operator_signal:
         changes.append("Reduce at least one active operator pressure item with a concrete state change in this beat.")
     if (request.get("operator_pressure_digest") or {}).get("memory_updates"):
-        changes.append("Translate at least one memory.md update into the right state surface: active workflow, thread/topic, or pre-skill operating context.")
+        changes.append("Translate at least one memory.md update into the right state surface: thread/topic or pre-skill operating context.")
     if (request.get("operator_pressure_digest") or {}).get("substrate_gap_requests"):
         changes.append("Make at least one missing native-support gap more explicit, narrower, or better materialized than it was before this beat.")
     if int((request.get("async_inbox") or {}).get("unprocessed_total", 0) or 0) > 0:
@@ -1252,7 +1250,6 @@ def build_delta_prerequisite(state: dict[str, Any], *, skill: str | None, stage:
                 "constraints": request.get("constraints", {}),
                 "evidence": request.get("preflight_evidence", []),
                 "health_snapshot": request.get("health_snapshot", {}),
-                "workflow_status": request.get("workflow_status", {}),
                 "primitives_status": request.get("primitives_status", {}),
             },
             "events": {
@@ -1355,19 +1352,6 @@ def _primitive_self_healing() -> dict[str, Any]:
             "error": f"invalid self-healing json: {exc}",
         }
     return payload if isinstance(payload, dict) else {"ok": False, "status": "failed", "summary": {}, "needs_llm": [], "actions": []}
-
-
-def _workflow_status() -> dict[str, Any]:
-    status = build_workflow_status()
-    return {
-        "workflow_total": status.get("summary", {}).get("workflow_total", 0),
-        "cited_total": status.get("summary", {}).get("cited_total", 0),
-        "broken_total": status.get("summary", {}).get("broken_total", 0),
-        "stale_total": status.get("summary", {}).get("stale_total", 0),
-        "top_used": status.get("summary", {}).get("top_used", []),
-        "top_broken": status.get("summary", {}).get("top_broken", []),
-        "source_path": str(WORKFLOW_HEALTH_FILE),
-    }
 
 
 def _compact_asset_inventory(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1494,7 +1478,7 @@ def _search_protocol(skill: str | None, request: dict[str, Any]) -> dict[str, An
                     "optional_types": list(CORPUS_OPTIONAL_TYPES),
                     "multiple_sources_required": True,
                     "notes": [
-                        "Run edge-search with required coverage for workflow and memory; topic coverage is useful but optional until a topic producer exists.",
+                        "Run edge-search with required coverage for topics and memory before synthesis.",
                         "Branch into at least one follow-up internal query if the first pass is vague or low-signal.",
                     ],
                 },
@@ -1715,11 +1699,9 @@ def corpus_lookup(query: str | None, *, skill: str | None = None, corpus_policy:
                 str(EDGE_REPO_DIR / "search" / "edge-search"),
                 "--json",
                 "--require-type",
-                "workflow",
+                "topic",
                 "--require-type",
                 "memory",
-                "--optional-type",
-                "topic",
                 "-k",
                 "6",
                 query,
@@ -1869,7 +1851,6 @@ def _execute_preflight_step(
                 f"toil={summary.get('operator_toil_optimizable_now', 0)} "
                 f"memory_updates={summary.get('memory_updates', 0)} "
                 f"pre_skill_context={summary.get('pre_skill_context', 0)} "
-                f"workflow_candidates={summary.get('workflow_candidates', 0)} "
                 f"capability_candidates={summary.get('capability_candidates', 0)} "
                 f"substrate_gap_requests={summary.get('substrate_gap_requests', 0)} "
                 f"projection={projection.get('projection_status') or projection.get('status') or 'unknown'}"
@@ -1881,7 +1862,6 @@ def _execute_preflight_step(
                 "memory_updates": int(summary.get("memory_updates", 0) or 0),
                 "pre_skill_context": int(summary.get("pre_skill_context", 0) or 0),
                 "pre_skill_context_notes_added": len(pre_skill_notes),
-                "workflow_candidates": int(summary.get("workflow_candidates", 0) or 0),
                 "capability_candidates": int(summary.get("capability_candidates", 0) or 0),
                 "substrate_gap_requests": int(summary.get("substrate_gap_requests", 0) or 0),
                 "render_mode": str(summary.get("render_mode") or ""),
@@ -2060,16 +2040,6 @@ def _execute_preflight_step(
             },
         )
 
-    if kind == "workflow.status":
-        workflow_status = _workflow_status()
-        request["workflow_status"] = workflow_status
-        return _step_result(
-            step,
-            status="ok",
-            satisfied=True,
-            detail=f"broken={workflow_status.get('broken_total', 0)} stale={workflow_status.get('stale_total', 0)}",
-        )
-
     if kind == "queue.status":
         queue_summary = _dispatch_queue_summary()
         request["dispatch_queue_summary"] = queue_summary
@@ -2236,7 +2206,6 @@ def enrich_dispatch_state(
         "operator_pressure_operator_toil_optimizable_now": (request.get("operator_pressure_summary") or {}).get("operator_toil_optimizable_now", 0),
         "operator_pressure_memory_updates": (request.get("operator_pressure_summary") or {}).get("memory_updates", 0),
         "operator_pressure_pre_skill_context": (request.get("operator_pressure_summary") or {}).get("pre_skill_context", 0),
-        "operator_pressure_workflow_candidates": (request.get("operator_pressure_summary") or {}).get("workflow_candidates", 0),
         "operator_pressure_substrate_gap_requests": (request.get("operator_pressure_summary") or {}).get("substrate_gap_requests", 0),
         "self_healing_needs_llm": ((request.get("self_healing") or {}).get("summary") or {}).get("needs_llm_total", 0),
         "self_healing_recovered": ((request.get("self_healing") or {}).get("summary") or {}).get("recovered_total", 0),
@@ -2341,7 +2310,6 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "primitives_status": request.get("primitives_status", {}),
         "capabilities_status": request.get("capabilities_status", {}),
         "asset_inventory": request.get("asset_inventory", {}),
-        "workflow_status": request.get("workflow_status", {}),
         "heartbeat_routing": request.get("heartbeat_routing", {}),
         "dispatch_queue_summary": request.get("dispatch_queue_summary", {}),
         "onboarding_summary": request.get("onboarding_summary", {}),
@@ -2370,7 +2338,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
     return (
         f"{skill}\n\n"
         "Dispatch runtime context below is authoritative for cross-cutting checks already handled by CLI "
-        "(health, inbox, corpus, open gaps, primitives, workflows, queue, onboarding, protocol execution).\n"
+        "(health, inbox, corpus, open gaps, primitives, queue, onboarding, protocol execution).\n"
         "Do not re-derive those manually unless a field is missing or obviously stale.\n\n"
         f"{heartbeat_contract}"
         f"{artifact_contract}"

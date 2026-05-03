@@ -19,7 +19,6 @@ from embed import embed_text
 
 TYPE_GROUPS: dict[str, tuple[str, ...]] = {
     "topic": ("topic",),
-    "workflow": ("workflow",),
     "memory": ("note", "blog", "report"),
 }
 
@@ -341,9 +340,8 @@ def search_with_coverage(
             _collect(spec, target=coverage_optional)
 
         general_results: list[dict] = []
-        workflows: list[dict] = []
         if len(grouped_results) == 0 or sum(len(items) for items in grouped_results.values()) < limit:
-            general_results, workflows = search_with_sidecar(query, limit=limit, conn=conn)
+            general_results, _ = search_with_sidecar(query, limit=limit, conn=conn)
 
         combined: list[dict] = []
         seen_ids: set[int] = set()
@@ -379,7 +377,7 @@ def search_with_coverage(
         }
 
         _enrich_with_notes(combined)
-        return combined[:limit], coverage, workflows
+        return combined[:limit], coverage, []
     finally:
         if own_conn:
             conn.close()
@@ -389,14 +387,11 @@ def search_with_sidecar(
     query: str,
     limit: int = 10,
     doc_type: str | None = None,
-    wf_limit: int = 3,
-    min_wf_score: float = -0.15,
     conn=None,
 ) -> tuple[list[dict], list[dict]]:
-    """Hybrid search + automatic workflow sidecar.
+    """Hybrid search with a stable two-list return shape.
 
-    Returns (results, workflows). The workflow lookup reuses the same
-    embedding — zero extra API cost, ~1ms extra latency.
+    The second list is kept for API compatibility and is always empty.
     """
     own_conn = conn is None
     if own_conn:
@@ -415,22 +410,8 @@ def search_with_sidecar(
             _query_embedding=query_embedding, conn=conn,
         )
 
-        # Workflow sidecar (skip if already filtering by workflow)
-        workflows = []
-        if doc_type != "workflow" and query_embedding is not None:
-            # IDs already in main results (avoids duplicates)
-            main_ids = {r["id"] for r in results}
-            wf_raw = vec_search(
-                query_embedding, limit=wf_limit + len(main_ids),
-                doc_type="workflow", conn=conn,
-            )
-            workflows = [
-                r for r in wf_raw
-                if r["score"] > min_wf_score and r["id"] not in main_ids
-            ][:wf_limit]
-
         _enrich_with_notes(results)
-        return results, workflows
+        return results, []
     finally:
         if own_conn:
             conn.close()
@@ -521,11 +502,11 @@ def doc_stats(conn=None) -> list[dict]:
 def format_results(
     results: list[dict],
     mode: str = "hybrid",
-    workflows: list[dict] | None = None,
+    sidecar: list[dict] | None = None,
     coverage: dict[str, object] | None = None,
 ) -> str:
     """Format search results for terminal output."""
-    if not results and not workflows:
+    if not results and not sidecar:
         return "No results found."
 
     lines = []
@@ -557,18 +538,6 @@ def format_results(
             if r.get("snippet"):
                 snippet = r["snippet"].replace("\n", " ")[:120]
                 lines.append(f"       {' ' * 8}  {' ' * 8} ...{snippet}...")
-            lines.append("")
-
-    if workflows:
-        lines.append(f"  Workflows relevantes ({len(workflows)}):\n")
-        for i, r in enumerate(workflows, 1):
-            path = Path(r["path"])
-            name = path.name
-            score = r.get("score", 0)
-            title = r.get("title", "")
-            lines.append(f"  #{i:<3} {score:>8.4f}  workflow {name}")
-            if title and title != path.stem:
-                lines.append(f"       {' ' * 8}  {' ' * 8} {title[:80]}")
             lines.append("")
 
     return "\n".join(lines)
@@ -616,7 +585,7 @@ def main():
         action="append",
         dest="required_types",
         default=[],
-        help="Require coverage from a type or type-group (topic, workflow, memory, note, blog, report). May be repeated.",
+        help="Require coverage from a type or type-group (topic, memory, note, blog, report). May be repeated.",
     )
     parser.add_argument(
         "--optional-type",
@@ -631,7 +600,7 @@ def main():
         "--no-telemetry", action="store_true", help="Skip search telemetry logging"
     )
     parser.add_argument(
-        "--no-sidecar", action="store_true", help="Disable automatic workflow sidecar"
+        "--no-sidecar", action="store_true", help="Disable compatibility sidecar output"
     )
     parser.add_argument(
         "--doc-stats", action="store_true", help="Show per-doc retrieval stats"
@@ -673,7 +642,7 @@ def main():
         sys.exit(1)
 
     conn = ensure_db()
-    workflows = []
+    sidecar = []
     coverage = None
     run_id = f"search:{uuid.uuid4().hex[:8]}"
 
@@ -698,7 +667,7 @@ def main():
             )
             mode = "semantic"
         elif args.required_types or args.optional_types:
-            results, coverage, workflows = search_with_coverage(
+            results, coverage, sidecar = search_with_coverage(
                 query,
                 limit=args.k,
                 required_types=args.required_types,
@@ -706,8 +675,8 @@ def main():
                 conn=conn,
             )
             mode = "hybrid-coverage"
-        elif not args.no_sidecar and args.doc_type != "workflow":
-            results, workflows = search_with_sidecar(
+        elif not args.no_sidecar:
+            results, sidecar = search_with_sidecar(
                 query, limit=args.k, doc_type=args.doc_type, conn=conn
             )
             mode = "hybrid"
@@ -717,21 +686,21 @@ def main():
             )
             mode = "hybrid"
 
-        observe_search_odis(query, results + workflows, mode=mode, run_id=run_id)
+        observe_search_odis(query, results + sidecar, mode=mode, run_id=run_id)
 
         if args.json_output:
             payload = {
                 "mode": mode,
                 "query": query,
                 "results": results,
-                "workflows": workflows,
+                "sidecar": sidecar,
                 "coverage": coverage or {},
             }
             print(json.dumps(payload, ensure_ascii=False))
         else:
-            print(format_results(results, mode, workflows=workflows, coverage=coverage))
+            print(format_results(results, mode, sidecar=sidecar, coverage=coverage))
 
-        all_results = results + workflows
+        all_results = results + sidecar
         if not args.no_telemetry and all_results:
             log_search_telemetry(query, all_results, conn=conn)
 
@@ -741,7 +710,7 @@ def main():
                 mode=mode,
                 status="completed",
                 result_count=len(results),
-                workflow_count=len(workflows),
+                sidecar_count=len(sidecar),
                 doc_type=args.doc_type,
                 run_id=run_id,
                 no_sidecar=bool(args.no_sidecar),
@@ -754,7 +723,7 @@ def main():
                 run_id=run_id,
                 mode=mode,
                 result_count=len(results),
-                workflow_count=len(workflows),
+                sidecar_count=len(sidecar),
             )
     except Exception as exc:
         if log_search_query is not None:
@@ -763,7 +732,7 @@ def main():
                 mode="unknown",
                 status="failed",
                 result_count=0,
-                workflow_count=0,
+                sidecar_count=0,
                 doc_type=args.doc_type,
                 run_id=run_id,
                 error=str(exc),

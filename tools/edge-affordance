@@ -47,7 +47,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Record contextual grades for atomic sources/channels, not wrapper-level workflows."
+        description="Record contextual grades for atomic sources/channels, not wrapper-level routes."
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 

@@ -44,7 +44,6 @@ PROTECTED_PATTERNS = [
     str(MEMORY_DIR / "insights.md"),
     str(AUTONOMY_DIR / "capabilities.md"),
     str(AUTONOMY_DIR / "frontier.md"),
-    str(AUTONOMY_DIR / "workflows.md"),
     str(AUTONOMY_DIR / "metrics.md"),
     str(AUTONOMY_DIR / "log.md"),
     str(AUTONOMY_DIR / "autonomy-policy.md"),

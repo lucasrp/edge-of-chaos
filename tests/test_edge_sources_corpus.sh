@@ -25,7 +25,7 @@ cat <<'JSON'
     {"id":"r1","path":"/edge/notes/prior-research.md","type":"note","title":"Prior research on the topic","score":0.0167,"snippet":"This note already covered most of it."},
     {"id":"r2","path":"/edge/blog/entries/2026-01-01.md","type":"blog","title":"Earlier exploration","score":0.0142,"snippet":"Open gap: dimension X never validated."}
   ],
-  "workflows": [],
+  "sidecar": [],
   "coverage": {}
 }
 JSON

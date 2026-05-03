@@ -27,7 +27,7 @@ Examples:
 
 - Tool: "prompt tuning by hand can become an optimization loop with DSPy."
 - Concept: "Andon cord maps to fail-fast pipeline interruption."
-- Industry pattern: "aviation checklists clarify handoff risk in agent workflows."
+- Industry pattern: "aviation checklists clarify handoff risk in agent processes."
 - Cultural concept: "genchi genbutsu means go see the real system, not the proxy."
 
 Not enough: "this is interesting." The discovery must answer: what changes because we know this?
@@ -80,7 +80,7 @@ This is the central requirement.
 
 Explain concretely:
 
-- which project or workflow it affects;
+- which project or work stream it affects;
 - what current friction it addresses;
 - how things work now;
 - how they would work with the discovery;

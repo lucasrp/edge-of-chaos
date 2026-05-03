@@ -34,7 +34,6 @@ from paths import (  # noqa: E402
     PRIMITIVES_STATUS_FILE,
     REPORTS_DIR,
     TOPICS_DIR,
-    WORKFLOW_HEALTH_FILE,
 )
 
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -201,8 +200,6 @@ def collect_memory(query: str, skill: str, warnings: list[str]) -> dict[str, Any
         "--require-type",
         "topic",
         "--require-type",
-        "workflow",
-        "--require-type",
         "memory",
         "-k",
         "8",
@@ -244,7 +241,6 @@ def collect_signals(skill: str, cycle_id: str | None, warnings: list[str]) -> li
         ("health", HEALTH_CURRENT_FILE),
         ("capabilities", CAPABILITIES_STATUS_FILE),
         ("primitives", PRIMITIVES_STATUS_FILE),
-        ("workflow_health", WORKFLOW_HEALTH_FILE),
         ("open_gaps", OPEN_GAPS_DIGEST_FILE),
         ("curation", CURATION_DIGEST_FILE),
         ("git", GIT_SIGNALS_FILE),
@@ -287,8 +283,6 @@ def compact_signal(name: str, payload: Any) -> Any:
         }
     if name in {"capabilities", "primitives"}:
         return payload.get("summary") or {}
-    if name == "workflow_health":
-        return payload.get("summary") or payload
     if name == "open_gaps":
         return {
             "open_total": payload.get("open_total"),
@@ -298,8 +292,8 @@ def compact_signal(name: str, payload: Any) -> Any:
     if name == "curation":
         return {
             "topics": (payload.get("topics") or {}).get("total"),
-            "procedure_candidates": (payload.get("procedures") or {}).get("candidate_total"),
             "stale_candidates": (payload.get("corpus") or {}).get("stale_candidates"),
+            "pre_skill_context": ((payload.get("operator_pressure") or {}).get("pre_skill_context_total")),
         }
     return {key: payload.get(key) for key in list(payload)[:8]}
 
@@ -553,7 +547,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         "query": query,
         "generated_at": now_iso(),
         "intent": intent,
-        "memory_required": ["topics", "workflows", "reports"],
+        "memory_required": ["topics", "reports"],
         "signals": signals,
         "rounds": rounds,
         "adversarial_feynman": adversarial,

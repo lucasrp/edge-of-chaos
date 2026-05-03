@@ -64,9 +64,9 @@ cat >"$TMP_STATE/state/events/log.jsonl" <<'JSONL'
 {"ts":"2026-04-20T21:00:00+00:00","type":"CycleStarted","cycle_id":"cycle-a","payload":{"trigger":"heartbeat"}}
 {"ts":"2026-04-20T21:01:00+00:00","type":"SkillDispatched","cycle_id":"cycle-a","payload":{"trigger":"heartbeat","skill":"planner","dispatch_mode":"normal"}}
 {"ts":"2026-04-20T21:20:00+00:00","type":"CycleClosed","cycle_id":"cycle-a","payload":{"trigger":"heartbeat","skill":"planner","close_status":"completed"}}
-{"ts":"2026-04-21T01:00:00+00:00","type":"CycleStarted","cycle_id":"cycle-followup","payload":{"trigger":"operator"}}
-{"ts":"2026-04-21T01:01:00+00:00","type":"SkillDispatched","cycle_id":"cycle-followup","payload":{"trigger":"operator","skill":"repair","dispatch_mode":"normal"}}
-{"ts":"2026-04-21T01:15:00+00:00","type":"CycleClosed","cycle_id":"cycle-followup","payload":{"trigger":"operator","skill":"repair","close_status":"completed"}}
+{"ts":"2099-01-01T01:00:00+00:00","type":"CycleStarted","cycle_id":"cycle-followup","payload":{"trigger":"operator"}}
+{"ts":"2099-01-01T01:01:00+00:00","type":"SkillDispatched","cycle_id":"cycle-followup","payload":{"trigger":"operator","skill":"repair","dispatch_mode":"normal"}}
+{"ts":"2099-01-01T01:15:00+00:00","type":"CycleClosed","cycle_id":"cycle-followup","payload":{"trigger":"operator","skill":"repair","close_status":"completed"}}
 JSONL
 
 cat >"$TMP_STATE/logs/skill-steps.jsonl" <<'JSONL'
@@ -113,7 +113,7 @@ JSON
 
 cat >"$TMP_STATE/state/operator-pressure/hot-digest.json" <<'JSON'
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "generated_at": "2026-04-20T22:12:00+00:00",
   "window_days": 2,
   "operator_pains_resolvable_now": [],
@@ -126,7 +126,7 @@ cat >"$TMP_STATE/state/operator-pressure/hot-digest.json" <<'JSON'
     }
   ],
   "mistakes_to_avoid_now": [],
-  "workflow_candidates": [],
+  "pre_skill_context": [],
   "capability_candidates": [],
   "substrate_gap_requests": [
     {

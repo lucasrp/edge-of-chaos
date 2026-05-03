@@ -27,7 +27,6 @@ from _shared.health_runtime import observe_cycle_health_events  # noqa: E402
 from _shared.protocol_runtime import emit_protocol_step_observed, ensure_compiled_protocol, protocol_context  # noqa: E402
 from _shared.skill_inbox import acknowledge_captured_inbox  # noqa: E402
 from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
-from _shared.workflow_runtime import build_workflow_status  # noqa: E402
 
 POST_SKILL_LOG = LOGS_DIR / "post-skill.log"
 DEFAULT_OPEN_GAPS_PROJECTION_MAX_AGE_SECONDS = 6 * 60 * 60
@@ -91,7 +90,6 @@ def _projection_cache_status(path: Path) -> dict[str, Any]:
 
 def before_snapshot(state: dict[str, Any]) -> dict[str, Any]:
     request = state.get("request", {}) or {}
-    workflow_status = request.get("workflow_status") or {}
     capabilities_status = request.get("capabilities_status") or {}
     primitives_status = request.get("primitives_status") or {}
     open_gaps_summary = request.get("open_gaps_summary") or {}
@@ -101,8 +99,6 @@ def before_snapshot(state: dict[str, Any]) -> dict[str, Any]:
         "primitive_degraded_total": int((primitives_status.get("summary") or {}).get("degraded_total", 0) or 0),
         "capability_broken_total": int((capabilities_status.get("summary") or {}).get("broken_total", 0) or 0),
         "capability_degraded_total": int((capabilities_status.get("summary") or {}).get("degraded_total", 0) or 0),
-        "workflow_broken_total": int(workflow_status.get("broken_total", 0) or 0),
-        "workflow_stale_total": int(workflow_status.get("stale_total", 0) or 0),
     }
 
 
@@ -205,14 +201,6 @@ def refresh_primitives_status() -> dict[str, Any]:
     return {"ok": True, "detail": detail, "payload": payload}
 
 
-def refresh_workflow_status() -> dict[str, Any]:
-    payload = build_workflow_status()
-    summary = payload.get("summary") or {}
-    detail = f"broken={summary.get('broken_total', 0)} stale={summary.get('stale_total', 0)}"
-    append_postskill_log("workflow_status", "OK", detail)
-    return {"ok": True, "detail": detail, "payload": payload}
-
-
 def refresh_source_affordance_digest() -> dict[str, Any]:
     code, stdout, stderr = run_subprocess([sys.executable, str(EDGE_REPO_DIR / "tools" / "rollup-affordances.py")])
     if code != 0:
@@ -238,14 +226,13 @@ def refresh_curation_digest() -> dict[str, Any]:
     operator_pressure = payload.get("operator_pressure") or {}
     detail = (
         f"topics={((payload.get('topics') or {}).get('total', 0))} "
-        f"candidates={((payload.get('procedures') or {}).get('candidate_total', 0))} "
+        f"pre_skill_context={operator_pressure.get('pre_skill_context_total', 0)} "
         f"stale={((payload.get('corpus') or {}).get('stale_candidates', 0))} "
         f"threads_created={hot_threads.get('created_total', 0)} "
         f"topics_created={hot_topics.get('created_total', 0)} "
         f"operator_items={operator_pressure.get('items_total', 0)} "
         f"operator_threads_created={operator_pressure.get('threads_created', 0)} "
         f"operator_topics_created={operator_pressure.get('topics_created', 0)} "
-        f"operator_workflows_created={operator_pressure.get('workflows_created', 0)} "
         f"operator_pre_skill_context={operator_pressure.get('pre_skill_context_total', 0)}"
     )
     append_postskill_log("curation_digest", "WARN" if status == "warning" else "OK", detail)
@@ -356,12 +343,10 @@ def compute_delta(
     *,
     open_gaps: dict[str, Any],
     primitives: dict[str, Any],
-    workflows: dict[str, Any],
     capabilities: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     gaps_digest = open_gaps.get("open_gaps") or {}
     primitives_summary = (primitives.get("summary") or {})
-    workflow_summary = (workflows.get("summary") or {})
     capabilities_summary = ((capabilities or {}).get("summary") or {})
     return {
         "open_gaps_delta": int(gaps_digest.get("open_total", 0) or 0) - before["open_gaps_total"],
@@ -369,8 +354,6 @@ def compute_delta(
         "primitive_degraded_delta": int(primitives_summary.get("degraded_total", 0) or 0) - before["primitive_degraded_total"],
         "capability_broken_delta": int(capabilities_summary.get("broken_total", 0) or 0) - before["capability_broken_total"],
         "capability_degraded_delta": int(capabilities_summary.get("degraded_total", 0) or 0) - before["capability_degraded_total"],
-        "workflow_broken_delta": int(workflow_summary.get("broken_total", 0) or 0) - before["workflow_broken_total"],
-        "workflow_stale_delta": int(workflow_summary.get("stale_total", 0) or 0) - before["workflow_stale_total"],
     }
 
 
@@ -436,10 +419,6 @@ def _execute_postflight_step(step: dict[str, Any], state: dict[str, Any]) -> dic
     if kind == "primitives.status":
         refreshed = refresh_primitives_status()
         return _protocol_step(step, status="ok" if refreshed.get("ok") else "failed", satisfied=bool(refreshed.get("ok", False)), detail=str(refreshed.get("detail") or ""), extra={"payload": refreshed.get("payload") or {}})
-
-    if kind == "workflow.status":
-        refreshed = refresh_workflow_status()
-        return _protocol_step(step, status="ok", satisfied=True, detail=str(refreshed.get("detail") or ""), extra={"payload": refreshed.get("payload") or {}})
 
     if kind == "curation.digest":
         refreshed = refresh_curation_digest()
@@ -578,7 +557,6 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
     failed_steps = 0
     open_gaps_payload: dict[str, Any] = {}
     primitives_payload: dict[str, Any] = {}
-    workflows_payload: dict[str, Any] = {}
     capabilities_payload: dict[str, Any] = {}
     pipeline_state_payload: dict[str, Any] = {}
     pipeline_state_attention: list[dict[str, Any]] = []
@@ -621,8 +599,6 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
             pipeline_state_attention = list(result.get("current_attention") or [])
         elif kind == "primitives.status" and isinstance(payload, dict):
             primitives_payload = payload
-        elif kind == "workflow.status" and isinstance(payload, dict):
-            workflows_payload = payload
         elif kind == "capabilities.status" and isinstance(payload, dict):
             capabilities_payload = payload
         elif kind == "curation.digest" and isinstance(payload, dict):
@@ -632,7 +608,6 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
 
     gaps_digest = open_gaps_payload.get("open_gaps") or {}
     primitives_summary = (primitives_payload.get("summary") or {})
-    workflow_summary = (workflows_payload.get("summary") or {})
     capabilities_summary = (capabilities_payload.get("summary") or {})
 
     if open_gaps_payload:
@@ -674,15 +649,6 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
                 if item.get("effective_status") in {"broken", "degraded"}
             ][:5],
         }
-    if workflows_payload:
-        request["workflow_status"] = {
-            "workflow_total": workflow_summary.get("workflow_total", 0),
-            "cited_total": workflow_summary.get("cited_total", 0),
-            "broken_total": workflow_summary.get("broken_total", 0),
-            "stale_total": workflow_summary.get("stale_total", 0),
-            "top_used": workflow_summary.get("top_used", []),
-            "top_broken": workflow_summary.get("top_broken", []),
-        }
     if pipeline_state_payload:
         pipeline_summary = pipeline_state_payload.get("summary") or {}
         request["pipeline_state_summary"] = {
@@ -707,7 +673,6 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
         before,
         open_gaps=open_gaps_payload,
         primitives=primitives_payload,
-        workflows=workflows_payload,
         capabilities=capabilities_payload,
     )
     request["postflight_evidence"] = steps
@@ -724,7 +689,6 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
         "curation": {
             "topics_total": int((curation_payload.get("topics") or {}).get("total", 0) or 0),
             "stale_candidates": int((curation_payload.get("corpus") or {}).get("stale_candidates", 0) or 0),
-            "procedure_candidates": int((curation_payload.get("procedures") or {}).get("candidate_total", 0) or 0),
             "hot_threads": int(((curation_payload.get("hot_state") or {}).get("threads") or {}).get("hot_total", 0) or 0),
             "threads_created": int(((curation_payload.get("hot_state") or {}).get("threads") or {}).get("created_total", 0) or 0),
             "topics_created": int(((curation_payload.get("hot_state") or {}).get("topics") or {}).get("created_total", 0) or 0),
@@ -733,7 +697,6 @@ def run_standard(state: dict[str, Any], profile: str) -> tuple[bool, str, str, l
             "operator_pressure_items": int((curation_payload.get("operator_pressure") or {}).get("items_total", 0) or 0),
             "operator_threads_created": int((curation_payload.get("operator_pressure") or {}).get("threads_created", 0) or 0),
             "operator_topics_created": int((curation_payload.get("operator_pressure") or {}).get("topics_created", 0) or 0),
-            "operator_workflows_created": int((curation_payload.get("operator_pressure") or {}).get("workflows_created", 0) or 0),
             "operator_pre_skill_context": int((curation_payload.get("operator_pressure") or {}).get("pre_skill_context_total", 0) or 0),
             "operator_missing_topic_candidates": int((curation_payload.get("operator_pressure") or {}).get("missing_topic_candidates_total", 0) or 0),
         } if curation_payload else {},
