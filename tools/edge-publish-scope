@@ -14,6 +14,12 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.telemetry import emit_shadow_event  # noqa: E402
 
+RUNTIME_TELEMETRY_PATHS = {
+    "logs/events.jsonl",
+    "logs/pipeline-failures.jsonl",
+    "state/events/log.jsonl",
+}
+
 
 def repo_root() -> Path:
     return Path(os.environ.get("EDGE_REPO_DIR") or os.getcwd()).expanduser().resolve()
@@ -55,6 +61,21 @@ def stage_paths(paths: list[str]) -> None:
     subprocess.run(["git", "add", "--", *paths], cwd=str(repo_root()), check=True, capture_output=True, text=True)
 
 
+def unstage_paths(paths: list[str]) -> None:
+    if not paths:
+        return
+    root = str(repo_root())
+    result = subprocess.run(
+        ["git", "restore", "--staged", "--", *paths],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return
+    subprocess.run(["git", "reset", "-q", "HEAD", "--", *paths], cwd=root, check=True, capture_output=True, text=True)
+
+
 def staged_files() -> list[str]:
     result = subprocess.run(
         ["git", "diff", "--cached", "--name-only"],
@@ -69,16 +90,24 @@ def staged_files() -> list[str]:
 def cmd_stage(args: argparse.Namespace) -> int:
     allowed_paths = normalize_paths(args.allow or [])
     stageable = [path for path in allowed_paths if not is_ignored(path)]
+
+    allowed_set = set(stageable)
+    runtime_to_unstage = [
+        path for path in staged_files() if path in RUNTIME_TELEMETRY_PATHS and path not in allowed_set
+    ]
+    if runtime_to_unstage:
+        unstage_paths(runtime_to_unstage)
+
     if stageable:
         stage_paths(stageable)
 
     staged = staged_files()
-    allowed_set = set(stageable)
     illegal = sorted(path for path in staged if path not in allowed_set)
     payload = {
         "slug": args.slug,
         "allowed_paths": allowed_paths,
         "stageable_paths": stageable,
+        "unstaged_runtime_paths": runtime_to_unstage,
         "staged_files": staged,
         "illegal_files": illegal,
     }
