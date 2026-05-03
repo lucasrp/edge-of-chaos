@@ -45,6 +45,8 @@ procedures:
     kind: primitives.status
   - id: capabilities
     kind: capabilities.status
+  - id: asset-inventory
+    kind: asset_inventory.status
   - id: corpus
     kind: corpus.lookup
   - id: workflows
@@ -92,6 +94,8 @@ export MEMORY_PROJECT_DIR="test-project"
 export HOME="$TMP_HOME"
 export EDGE_OPERATOR_PRESSURE_DISABLE_LLM=1
 export EDGE_OPERATOR_PRESSURE_WINDOW_DAYS=30
+export EDGE_ASSET_REPO_SCAN_ROOTS="$TMP_EDGE"
+export EDGE_ASSET_DB_SCAN_ROOTS="$TMP_EDGE/db"
 
 RUNNER_TOOL="$EDGE_DIR/tools/edge-runner"
 
@@ -311,10 +315,12 @@ assert "epistemic_protocol" in invocations[0]
 assert "exploration_pack" in invocations[0]
 assert "Adversarial Feynman" in open(request["exploration_pack"]["markdown_path"], encoding="utf-8").read()
 assert "configured_integrations" in invocations[0]
+assert "asset_inventory" in invocations[0]
 assert "heartbeat_routing" in invocations[0]
 assert "autonomy_primitives_checkup" not in request
 assert request["primitives_status"]["summary"]["health_status"] == "ok"
 assert "workflow_status" in request
+assert request["asset_inventory"]["summary"]["host_total"] >= 1
 assert "open_gaps_summary" in request
 assert beat_mirror["active"] is False
 assert any(event["type"] == "CycleStarted" for event in events)

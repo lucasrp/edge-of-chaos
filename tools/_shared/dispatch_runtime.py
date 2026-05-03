@@ -18,6 +18,7 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent / "config"))
 from paths import (  # noqa: E402
+    ASSET_INVENTORY_FILE,
     BEAT_CONTEXT_FILE,
     CAPABILITIES_STATUS_FILE,
     CONTINUITY_DELTAS_DIR,
@@ -1369,6 +1370,62 @@ def _workflow_status() -> dict[str, Any]:
     }
 
 
+def _compact_asset_inventory(payload: dict[str, Any]) -> dict[str, Any]:
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    hosts_raw = payload.get("hosts") if isinstance(payload.get("hosts"), dict) else {}
+    hosts: dict[str, Any] = {}
+    for name in sorted(hosts_raw.keys())[:8]:
+        host = hosts_raw.get(name)
+        if not isinstance(host, dict):
+            continue
+        hosts[str(name)] = {
+            "role": host.get("role") or "",
+            "ssh": bool(host.get("ssh")),
+            "ssh_status": host.get("ssh_status") or "",
+            "services": (host.get("services") or [])[:8],
+            "ports": (host.get("ports") or [])[:12],
+            "databases": (host.get("databases") or [])[:8],
+            "repos": (host.get("repos") or [])[:8],
+            "keys": list(host.get("keys") or [])[:40],
+        }
+    keys = payload.get("keys") if isinstance(payload.get("keys"), dict) else {}
+    return {
+        "schema_version": payload.get("schema_version", 1),
+        "generated_at": payload.get("generated_at"),
+        "source_path": str(ASSET_INVENTORY_FILE),
+        "summary": summary,
+        "hosts": hosts,
+        "keys": {str(group): list(values or [])[:40] for group, values in sorted(keys.items())[:16] if isinstance(values, list)},
+        "last_ssh_success": payload.get("last_ssh_success") or {},
+        "ssh_errors": payload.get("ssh_errors") or {},
+        "security": payload.get("security") or {"keys_are_names_only": True},
+    }
+
+
+def _asset_inventory_status() -> dict[str, Any]:
+    payload = _read_json(ASSET_INVENTORY_FILE, {})
+    generated = False
+    if not isinstance(payload, dict) or not payload:
+        tool = EDGE_REPO_DIR / "tools" / "rollup-asset-inventory.sh"
+        code, _stdout, _stderr = _run_subprocess([str(tool), "--no-ssh", "--quiet"], timeout=20)
+        generated = code == 0
+        payload = _read_json(ASSET_INVENTORY_FILE, {})
+    if not isinstance(payload, dict) or not payload:
+        return {
+            "status": "missing",
+            "generated": generated,
+            "summary": {"host_total": 0, "service_total": 0, "database_total": 0, "repo_total": 0, "key_total": 0, "stale_host_total": 0},
+            "hosts": {},
+            "keys": {},
+            "source_path": str(ASSET_INVENTORY_FILE),
+            "security": {"keys_are_names_only": True},
+        }
+    compact = _compact_asset_inventory(payload)
+    compact["status"] = "ok"
+    compact["generated"] = generated
+    return compact
+
+
 def _capabilities_status(skill: str | None = None) -> dict[str, Any]:
     payload = build_capability_status(skill=skill)
     integrations = build_configured_integrations(skill=skill)
@@ -1888,6 +1945,34 @@ def _execute_preflight_step(
         request["unbound_integrations"] = capabilities.get("unbound_integrations") or []
         return _step_result(step, status="ok", satisfied=True, detail=f"health={capabilities.get('health_status', 'unknown')}")
 
+    if kind == "asset_inventory.status":
+        inventory = _asset_inventory_status()
+        request["asset_inventory"] = inventory
+        summary = inventory.get("summary") or {}
+        stale_total = int(summary.get("stale_host_total", 0) or 0)
+        missing = inventory.get("status") == "missing"
+        return _step_result(
+            step,
+            status="warning" if missing or stale_total else "ok",
+            satisfied=not missing,
+            detail=(
+                f"hosts={summary.get('host_total', 0)} "
+                f"services={summary.get('service_total', 0)} "
+                f"dbs={summary.get('database_total', 0)} "
+                f"keys={summary.get('key_total', 0)}"
+            ),
+            extra={
+                "host_total": int(summary.get("host_total", 0) or 0),
+                "service_total": int(summary.get("service_total", 0) or 0),
+                "database_total": int(summary.get("database_total", 0) or 0),
+                "repo_total": int(summary.get("repo_total", 0) or 0),
+                "key_total": int(summary.get("key_total", 0) or 0),
+                "stale_host_total": stale_total,
+                "generated": bool(inventory.get("generated")),
+                "source_path": inventory.get("source_path"),
+            },
+        )
+
     if kind == "source.bindings":
         bindings = build_source_bindings(skill=skill)
         summary = bindings.get("summary") or {}
@@ -2099,6 +2184,7 @@ def enrich_dispatch_state(
     request.setdefault("unbound_source_bindings", [])
     request.setdefault("degraded_source_bindings", [])
     request.setdefault("source_binding_warnings", [])
+    request.setdefault("asset_inventory", {})
     request["search_runtime"] = search_runtime_summary()
     request.setdefault("operator_pressure", {"summary": {}, "digest": {}, "redigest": {}})
     request.setdefault("operator_pressure_digest", {})
@@ -2165,6 +2251,10 @@ def enrich_dispatch_state(
         "entries_with_gaps": open_gaps_summary.get("entries_with_gaps", 0),
         "primitive_health": (request.get("primitives_status") or {}).get("health_status"),
         "capability_health": (request.get("capabilities_status") or {}).get("health_status"),
+        "asset_hosts": ((request.get("asset_inventory") or {}).get("summary") or {}).get("host_total", 0),
+        "asset_services": ((request.get("asset_inventory") or {}).get("summary") or {}).get("service_total", 0),
+        "asset_databases": ((request.get("asset_inventory") or {}).get("summary") or {}).get("database_total", 0),
+        "asset_keys": ((request.get("asset_inventory") or {}).get("summary") or {}).get("key_total", 0),
         "queue_pending": (request.get("dispatch_queue_summary") or {}).get("pending_total", 0),
         "onboarding_pending": (request.get("onboarding_summary") or {}).get("pending_total", 0),
     }
@@ -2250,6 +2340,7 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
         "self_healing": request.get("self_healing", {}),
         "primitives_status": request.get("primitives_status", {}),
         "capabilities_status": request.get("capabilities_status", {}),
+        "asset_inventory": request.get("asset_inventory", {}),
         "workflow_status": request.get("workflow_status", {}),
         "heartbeat_routing": request.get("heartbeat_routing", {}),
         "dispatch_queue_summary": request.get("dispatch_queue_summary", {}),

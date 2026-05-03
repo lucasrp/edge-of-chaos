@@ -38,6 +38,8 @@ procedures:
     capability: storage.sync
   - id: source-bindings
     kind: source.bindings
+  - id: asset-inventory
+    kind: asset_inventory.status
 YAML
 
 cat >"$TMP_REPO/config/postflight.yaml" <<'YAML'
@@ -134,7 +136,7 @@ compiled_path = Path(state_dir) / "state" / "runtime" / "preflight.compiled.json
 assert compiled_path.exists()
 saved = json.loads(compiled_path.read_text(encoding="utf-8"))
 assert saved["source_hash"] == compiled["source_hash"]
-assert len(saved["procedures"]) == 4
+assert len(saved["procedures"]) == 5
 signal_step = next(item for item in saved["procedures"] if item["kind"] == "signals.context")
 assert signal_step["scope"] == "routing"
 assert signal_step["limit"] == 5
@@ -149,6 +151,8 @@ assert any("meta: configured_integration_without_binding" in item for item in sa
 assert saved["dependency_hashes"]
 primitive_hash = saved["dependency_hashes"][str(Path(state_dir) / "state" / "primitives-status.json")]
 assert primitive_hash.startswith("sha256:")
+asset_hash = saved["dependency_hashes"][str(Path(state_dir) / "state" / "asset-inventory.json")]
+assert asset_hash == "missing"
 PY
 then
     pass "ensure_compiled_protocol writes compiled JSON with hashes"
