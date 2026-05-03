@@ -158,7 +158,15 @@ class LLMClient:
             body = exc.read().decode("utf-8", errors="ignore")
         except OSError:
             body = ""
-        return truncate(f"openai:http-{exc.code} {body}", 500)
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            return f"openai:http-{exc.code}"
+        error = payload.get("error") if isinstance(payload, dict) else {}
+        if not isinstance(error, dict):
+            return f"openai:http-{exc.code}"
+        code = str(error.get("code") or error.get("type") or "").strip()
+        return f"openai:http-{exc.code}" + (f":{code}" if code else "")
 
     @staticmethod
     def _parse_json_object(content: str) -> dict[str, Any] | None:

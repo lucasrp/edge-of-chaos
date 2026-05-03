@@ -103,15 +103,15 @@ def load_local_env(root: Path) -> None:
     candidates = [
         root / ".env",
         root / "secrets" / "keys.env",
-        root.parent / "keys" / "openai.env",
-        root.parent / "keys" / "xai.env",
-        root.parent / "keys" / "exa.env",
-        root.parent / "keys" / "keys.env",
         Path.home() / "edge" / "secrets" / "openai.env",
         Path.home() / "edge" / "secrets" / "xai.env",
         Path.home() / "edge" / "secrets" / "exa.env",
         Path.home() / "edge" / "secrets" / "x-api.env",
         Path.home() / "edge" / "secrets" / "keys.env",
+        root.parent / "keys" / "openai.env",
+        root.parent / "keys" / "xai.env",
+        root.parent / "keys" / "exa.env",
+        root.parent / "keys" / "keys.env",
         root / ".env.defaults",
     ]
     for path in candidates:
