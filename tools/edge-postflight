@@ -328,6 +328,7 @@ def refresh_pipeline_state(cycle_id: str | None = None) -> dict[str, Any]:
         f"artifacts={summary.get('artifacts_total', 0)} "
         f"attention={summary.get('artifacts_attention', 0)} "
         f"complete={counts.get('complete', 0)} "
+        f"standdown={counts.get('standdown', 0)} "
         f"blocked={counts.get('blocked', 0)} "
         f"failed={counts.get('failed', 0)} "
         f"current_attention={len(attention)}"

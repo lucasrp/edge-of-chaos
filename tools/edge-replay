@@ -117,6 +117,7 @@ def cmd_pipeline_state(args: argparse.Namespace) -> int:
             f"attention={summary['artifacts_attention']} "
             f"complete={counts.get('complete', 0)} "
             f"partial={counts.get('partial', 0)} "
+            f"standdown={counts.get('standdown', 0)} "
             f"blocked={counts.get('blocked', 0)} "
             f"failed={counts.get('failed', 0)} "
             f"orphaned_publish={counts.get('orphaned_publish', 0)}"

@@ -478,6 +478,7 @@ def check_pipeline_state():
         f"attention={summary.get('artifacts_attention', 0)}, "
         f"complete={counts.get('complete', 0)}, "
         f"partial={counts.get('partial', 0)}, "
+        f"standdown={counts.get('standdown', 0)}, "
         f"blocked={counts.get('blocked', 0)}, "
         f"failed={counts.get('failed', 0)}, "
         f"orphaned_publish={counts.get('orphaned_publish', 0)}"
