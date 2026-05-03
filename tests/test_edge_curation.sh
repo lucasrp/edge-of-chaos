@@ -44,6 +44,20 @@ exit 0
 SH
 chmod +x "$TMP_REPO/search/edge-index"
 
+mkdir -p "$TMP_STATE/threads"
+cat >"$TMP_STATE/threads/existing-generated.md" <<'MD'
+---
+id: existing-generated
+title: Existing Generated
+status: active
+created: 2026-05-01
+updated: 2026-05-01
+generated_by: edge-curation
+---
+
+Existing generated curation stub.
+MD
+
 cat >"$TMP_STATE/state/operator-pressure/hot-digest.json" <<'JSON'
 {
   "schema_version": 6,
@@ -114,8 +128,16 @@ assert digest["operator_pressure"]["pre_skill_context_total"] == 1
 assert digest["operator_pressure"]["topics_created"] >= 1
 assert digest["operator_pressure"]["threads_created"] >= 1
 assert digest["operator_pressure"]["pre_skill_context"]["candidates"][0]["judgement"] == "pre_skill_context"
+assert digest["hot_state"]["threads"]["repaired_total"] == 1
 assert not list((state_root / "blog" / "entries").glob("*.md"))
-assert (state_root / "threads" / "meta-evidence.md").exists()
+for thread_path in [
+    state_root / "threads" / "meta-evidence.md",
+    state_root / "threads" / "existing-generated.md",
+]:
+    assert thread_path.exists()
+    text = thread_path.read_text(encoding="utf-8")
+    assert "\nowner: edge\n" in text
+    assert "\nresurface:" in text
 assert (state_root / "topics" / "meta-evidence.md").exists()
 PY
 then
