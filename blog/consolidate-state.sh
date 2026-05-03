@@ -141,6 +141,93 @@ if status in {"completed", "failed", "degraded"} and (phase == "pipeline" or pha
 PYEOF
 }
 
+emit_artifact_published_event() {
+    python3 - "$SLUG" "${REPORT_FILENAME:-}" "$ENTRIES_DIR" "$ENTRY_PATH" <<'PYEOF' 2>/dev/null || true
+import hashlib
+import os
+import sys
+from pathlib import Path
+
+slug, report_filename, entries_dir, staging_entry = sys.argv[1:5]
+tools_dir = Path(
+    os.environ.get("TOOLS_DIR")
+    or (
+        Path(
+            os.environ.get(
+                "EDGE_REPO_DIR",
+                os.environ.get("EDGE_DIR", str(Path.home() / "edge")),
+            )
+        ).expanduser()
+        / "tools"
+    )
+)
+sys.path.insert(0, str(tools_dir))
+try:
+    from _shared.telemetry import emit_shadow_event
+except Exception:
+    sys.exit(0)
+
+entry_path = Path(entries_dir) / f"{slug}.md"
+if not entry_path.exists() and staging_entry:
+    entry_path = Path(staging_entry)
+if not entry_path.exists():
+    sys.exit(0)
+
+raw_bytes = entry_path.read_bytes()
+raw = raw_bytes.decode("utf-8", errors="replace")
+frontmatter = {}
+if raw.startswith("---"):
+    try:
+        import yaml
+
+        parts = raw.split("---", 2)
+        frontmatter = yaml.safe_load(parts[1]) or {} if len(parts) >= 3 else {}
+    except Exception:
+        frontmatter = {}
+
+if not isinstance(frontmatter, dict):
+    frontmatter = {}
+
+source_skill = str(frontmatter.get("source_skill") or frontmatter.get("skill") or "").strip()
+if not source_skill:
+    known_skills = {"autonomy", "discovery", "planner", "report", "research", "sources"}
+    tags = frontmatter.get("tags") or []
+    if isinstance(tags, str):
+        tags = [tags]
+    for value in list(tags) + slug.split("-"):
+        token = str(value).strip()
+        if token in known_skills:
+            source_skill = token
+            break
+
+threads = frontmatter.get("threads") or []
+if isinstance(threads, str):
+    threads = [threads]
+elif not isinstance(threads, list):
+    threads = []
+
+digest = hashlib.sha256(raw_bytes).hexdigest()
+payload = {
+    "hash": f"sha256:{digest}",
+    "source_skill": source_skill,
+    "title": str(frontmatter.get("title") or entry_path.stem).strip(),
+    "pipeline": "consolidate-state",
+    "slug": slug,
+    "threads": [str(thread).strip() for thread in threads if str(thread).strip()],
+}
+if report_filename:
+    payload["report"] = report_filename
+
+emit_shadow_event(
+    "ArtifactPublished",
+    actor="consolidate-state",
+    artifact=f"blog/entries/{slug}.md",
+    cycle_id=os.environ.get("EDGE_CYCLE_ID") or None,
+    payload=payload,
+)
+PYEOF
+}
+
 run_adversarial_gate_review() {
     local review_question="${1:-}"
     local review_output=""
@@ -1759,6 +1846,7 @@ if $ALL_OK && [[ "$REPORT_RESULT" != "fail" ]]; then
     mkdir -p "$HEALTH_OK"
     printf '{"ts":"%s","slug":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SLUG" > "$HEALTH_OK/consolidate.ok"
     ledger_record "pipeline-end" "ok"
+    emit_artifact_published_event
     emit_run_step_event "pipeline" "completed" "pipeline_end" ""
     exit 0
 elif $ALL_OK; then
