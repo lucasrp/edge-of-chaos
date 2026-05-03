@@ -89,6 +89,37 @@ else
     fail "scope detects staged file outside allowlist and emits event"
 fi
 
+git -C "$TMP_REPO" reset -q HEAD -- .
+mkdir -p "$TMP_REPO/state/events"
+cat >"$TMP_REPO/state/events/log.jsonl" <<'EOF'
+{"type":"OldEvent"}
+EOF
+git -C "$TMP_REPO" add state/events/log.jsonl
+git -C "$TMP_REPO" commit -q -m "add telemetry"
+
+echo "allowed newer" >"$TMP_REPO/allowed.txt"
+printf '%s\n' '{"type":"RuntimeEvent"}' >>"$TMP_REPO/state/events/log.jsonl"
+git -C "$TMP_REPO" add state/events/log.jsonl
+
+echo "--- Test 3: unstages runtime telemetry before scope validation ---"
+OUTPUT=$("$SCOPE_TOOL" stage --slug demo --allow "$TMP_REPO/allowed.txt" --json)
+if python3 - <<'PY' "$OUTPUT" "$TMP_REPO"
+import json
+import subprocess
+import sys
+payload = json.loads(sys.argv[1])
+repo = sys.argv[2]
+staged = subprocess.check_output(["git", "diff", "--cached", "--name-only"], cwd=repo, text=True).splitlines()
+assert payload["illegal_files"] == []
+assert payload["unstaged_runtime_paths"] == ["state/events/log.jsonl"]
+assert staged == ["allowed.txt"], staged
+PY
+then
+    pass "scope ignores staged runtime telemetry while preserving artifact allowlist"
+else
+    fail "scope ignores staged runtime telemetry while preserving artifact allowlist"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"
