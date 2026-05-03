@@ -68,7 +68,7 @@ class UnionFind:
 # --- Doc health metrics ---
 
 def get_doc_health(conn):
-    """Per-doc health metrics combining documents and search_events."""
+    """Per-doc health metrics combining documents, search events, and citations."""
     rows = conn.execute("""
         SELECT d.id, d.path, d.type, d.title, d.created_at,
                COALESCE(se.retrieved_count, 0) AS retrieved_count,
@@ -77,7 +77,10 @@ def get_doc_health(conn):
                COALESCE(se.query_diversity, 0) AS query_diversity,
                CAST(julianday('now') - julianday(d.created_at) AS INTEGER) AS age_days,
                COALESCE(se30.retrieved_30d, 0) AS retrieved_30d,
-               COALESCE(se30.top3_30d, 0) AS top3_30d
+               COALESCE(se30.top3_30d, 0) AS top3_30d,
+               COALESCE(c.citation_count, 0) AS citation_count,
+               COALESCE(c.cited_30d, 0) AS cited_30d,
+               c.last_cited
         FROM documents d
         LEFT JOIN (
             SELECT doc_id,
@@ -96,6 +99,14 @@ def get_doc_health(conn):
             WHERE ts >= datetime('now', '-30 days')
             GROUP BY doc_id
         ) se30 ON se30.doc_id = d.id
+        LEFT JOIN (
+            SELECT cited_path,
+                   COUNT(*) AS citation_count,
+                   SUM(CASE WHEN ts >= datetime('now', '-30 days') THEN 1 ELSE 0 END) AS cited_30d,
+                   MAX(ts) AS last_cited
+            FROM citations
+            GROUP BY cited_path
+        ) c ON c.cited_path = d.path
         ORDER BY retrieved_count DESC
     """).fetchall()
     return [dict(r) for r in rows]
@@ -105,9 +116,27 @@ def get_stale_candidates(docs):
     """Docs with age > 45 days and no recent retrieval or no top-3 in 30d."""
     stale = []
     for d in docs:
+        if int(d.get("cited_30d") or 0) > 0 or int(d.get("citation_count") or 0) >= 3:
+            continue
         if d["age_days"] > 45 and (d["retrieved_30d"] == 0 or d["top3_30d"] == 0):
             stale.append(d)
     return stale
+
+
+def get_high_value_cited(docs, limit=12):
+    cited = [d for d in docs if int(d.get("citation_count") or 0) > 0]
+    cited.sort(key=lambda item: (-int(item.get("citation_count") or 0), str(item.get("title") or "")))
+    return [
+        {
+            "doc_id": d["id"],
+            "path": d.get("path", ""),
+            "title": d.get("title", ""),
+            "type": d.get("type", ""),
+            "citation_count": int(d.get("citation_count") or 0),
+            "last_cited": d.get("last_cited"),
+        }
+        for d in cited[:limit]
+    ]
 
 
 # --- Self-probes ---
@@ -406,6 +435,7 @@ def main():
             "mode": "stats",
             "total_docs": len(docs),
             "docs": docs,
+            "high_value_cited": get_high_value_cited(docs),
         }
         OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
         OUTPUT_FILE.write_text(json.dumps(output, indent=2, ensure_ascii=False) + "\n")
@@ -431,9 +461,12 @@ def main():
                     "retrieved_count": d["retrieved_count"],
                     "retrieved_30d": d["retrieved_30d"],
                     "top3_30d": d["top3_30d"],
+                    "citation_count": d.get("citation_count", 0),
+                    "cited_30d": d.get("cited_30d", 0),
                 }
                 for d in stale
             ],
+            "high_value_cited": get_high_value_cited(docs),
         }
         OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
         OUTPUT_FILE.write_text(json.dumps(output, indent=2, ensure_ascii=False) + "\n")
@@ -465,6 +498,7 @@ def main():
         "merge_review": merge_review,
         "strengthen_targets": strengthen_targets,
         "suppressed_due_to_active_thread": suppressed,
+        "high_value_cited": get_high_value_cited(docs),
     }
 
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)

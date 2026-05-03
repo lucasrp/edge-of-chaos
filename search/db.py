@@ -163,6 +163,23 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_search_events_ts ON search_events(ts);
     """)
 
+    # Curated corpus citations. These are explicitly selected references that
+    # informed a produced artifact, not every document returned by search.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS citations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_path TEXT NOT NULL,
+            cited_path TEXT NOT NULL,
+            ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now')),
+            context TEXT DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_citations_cited ON citations(cited_path);
+        CREATE INDEX IF NOT EXISTS idx_citations_source ON citations(source_path);
+        CREATE INDEX IF NOT EXISTS idx_citations_ts ON citations(ts);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_citations_unique
+            ON citations(source_path, cited_path, context);
+    """)
+
     # Primitive call telemetry (#226 item 2). One row per call, rolled up
     # by tools/rollup-primitives.py into state/primitive-usage-rollup.json.
     conn.executescript("""

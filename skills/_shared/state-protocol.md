@@ -144,6 +144,21 @@ Use direct web search only as a complement when the source capability does not c
 
 The output artifact should say which source routes were used and how they changed the analysis. If source lookup is unavailable or degraded, surface that limitation instead of silently proceeding as if external context was checked.
 
+When corpus results materially inform a published artifact, add curated corpus
+references to the entry/report metadata before `consolidate-state`:
+
+```yaml
+corpus_references:
+  - path: blog/entries/example-prior-work.md
+    context: primary_reference
+  - path: reports/example-supporting-report.html
+    context: background
+```
+
+List only entries/reports that changed content, decisions, or framing. Do not
+record every search result. `consolidate-state` records these references in the
+search DB as citations; `edge-search` uses the counts as a relevance boost.
+
 ---
 
 ## Full Flow (with status changes)

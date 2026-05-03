@@ -21,7 +21,7 @@
 #   2.  Content report indexing/confirmation
 #   3.  Verificação (API, frontmatter, files)
 #   3.4 LLM cost injection
-#   5.  State commit (threads + event + digest)
+#   5.  State commit (threads + event + curated corpus citations + digest)
 #   5b. State audit
 #   6.  Diffs + Git commit (audit trail)
 #
@@ -1035,13 +1035,13 @@ fi
 archive_scratchpad_if_present
 echo ""
 
-# ─── PHASE 5: State commit (threads + event + digest) ───
+# ─── PHASE 5: State commit (threads + event + curated corpus citations + digest) ───
 # Tudo acontece aqui. Zero LLM. Um script, uma leitura do frontmatter.
 echo "── Phase 5: State Commit ──"
 ledger_record "phase-5" "ok"
 emit_run_step_event "phase-5" "started" "state_commit" ""
 REPORT_FOR_COMMIT="${REPORT_FILENAME:-}"
-python3 - "$ENTRY_PATH" "$SLUG" "$REPORT_FOR_COMMIT" <<'PYEOF'
+python3 - "$ENTRY_PATH" "$SLUG" "$REPORT_FOR_COMMIT" "${REPORT_INPUT:-}" <<'PYEOF'
 import sys, json, yaml, re, os, traceback, subprocess
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -1050,6 +1050,7 @@ import uuid
 entry_path = sys.argv[1]
 slug = sys.argv[2]
 report_filename = sys.argv[3] if len(sys.argv) > 3 else ""
+report_input = sys.argv[4] if len(sys.argv) > 4 else ""
 
 GREEN = "\033[0;32m"
 YELLOW = "\033[1;33m"
@@ -1186,6 +1187,32 @@ try:
 except Exception as e:
     log_failure("5", "event_log", e, traceback.format_exc())
     fail(f"Event log failed: {e}")
+
+# ── 3b. Curated corpus citations ──
+try:
+    search_dir = Path(os.environ.get("SEARCH_DIR", Path(os.environ.get("EDGE_REPO_DIR", "") or ".") / "search"))
+    if str(search_dir) not in sys.path:
+        sys.path.insert(0, str(search_dir))
+    from citations import record_citations, references_from_artifacts  # type: ignore
+
+    artifact_paths = [Path(entry_path)]
+    if report_input and Path(report_input).suffix.lower() in {".yaml", ".yml"}:
+        artifact_paths.append(Path(report_input))
+    refs = references_from_artifacts(artifact_paths)
+    published_entry = Path(os.environ.get("ENTRIES_DIR", "")) / f"{slug}.md"
+    source_path = published_entry if published_entry.exists() else Path(entry_path)
+    result = record_citations(str(source_path), refs)
+    inserted = int(result.get("inserted") or 0)
+    unknown = len(result.get("unknown") or [])
+    if inserted:
+        ok(f"Corpus citations recorded: {inserted}")
+    elif refs:
+        warn(f"Corpus citations found but not indexed: {unknown} unknown path(s)")
+    else:
+        ok("Corpus citations: none declared")
+except Exception as e:
+    log_failure("5", "corpus_citations", e, traceback.format_exc())
+    warn(f"Corpus citations failed: {e}")
 
 # ── 4. Digest (gera briefing.md) ──
 try:
