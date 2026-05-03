@@ -47,7 +47,7 @@ def _exa_search(query: str) -> list[SearchResult]:
     request = urllib.request.Request(
         "https://api.exa.ai/search",
         data=json.dumps(body).encode("utf-8"),
-        headers={"x-api-key": key, "Content-Type": "application/json"},
+        headers={"x-api-key": key, "Content-Type": "application/json", "User-Agent": "edge-of-chaos/2.0"},
         method="POST",
     )
     try:
