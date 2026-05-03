@@ -581,6 +581,61 @@ else
     fail "stdout-only prose is rejected as publication evidence"
 fi
 
+echo "--- Test 1d2: principled heartbeat standdown records durable terminal evidence ---"
+export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id-standdown.txt"
+export MOCK_CLAUDE_ARGS_OUT="$TMP_BASE/args-standdown.txt"
+rm -f "$MOCK_CLAUDE_ENV_OUT" "$MOCK_CLAUDE_ARGS_OUT" "$TMP_BASE/standdown.out"
+export MOCK_CLAUDE_ARTIFACT_MARKDOWN=$'# Research standdown\n\n**Decision:** not publishing because the operator pressure is already satisfied and republishing would be duplicate saturation.\n\n## Evidence\n\nVerified ground truth: the requested topic was already published today, there is no new signal, and the canonical feedback says to decline publication instead of manufacturing a duplicate artifact. This is a principled standdown, not a short acknowledgement. The runtime should record this as durable standdown evidence for the heartbeat cycle without emitting ArtifactPublished.'
+"$RUNNER_TOOL" skill \
+    --skill /research \
+    --dispatch-trigger heartbeat \
+    --dispatch-policy autonomous \
+    --dispatch-routing-mode explicit \
+    --dispatch-preflight-profile heartbeat_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force >"$TMP_BASE/standdown.out"
+unset MOCK_CLAUDE_ARTIFACT_MARKDOWN || true
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$TMP_EDGE/state/runtime/standdowns" "$TMP_BASE/args-standdown.txt"
+import json
+import sys
+from pathlib import Path
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+standdowns_dir = Path(sys.argv[3])
+args_log = Path(sys.argv[4]).read_text(encoding="utf-8")
+cycle_id = dispatch["cycle_id"]
+
+assert dispatch["request"]["skill"] == "research"
+assert dispatch["request"]["trigger"] == "heartbeat"
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+assert dispatch["state"]["artifact_supervision_status"] == "standdown"
+assert dispatch["state"]["artifact_supervision_reason"] == "principled_standdown"
+assert args_log.count("__INVOCATION__") == 1
+standdown_events = [
+    event for event in events
+    if event.get("type") == "ArtifactStanddownRecorded"
+    and event.get("cycle_id") == cycle_id
+]
+assert standdown_events
+artifact = standdown_events[-1]["artifact"]
+standdown_file = standdowns_dir / Path(artifact).name
+assert standdown_file.exists()
+assert "not publishing" in standdown_file.read_text(encoding="utf-8")
+assert not any(
+    event.get("type") == "ArtifactPublished"
+    and event.get("cycle_id") == cycle_id
+    for event in events
+)
+PY
+then
+    pass "heartbeat standdown records durable terminal evidence"
+else
+    fail "heartbeat standdown records durable terminal evidence"
+fi
+
 echo "--- Test 1e: runtime-stdout ArtifactPublished evidence is rejected ---"
 if python3 - <<'PY' "$EDGE_DIR" "$TMP_BASE/runtime-stdout-events.jsonl"
 import importlib.machinery
