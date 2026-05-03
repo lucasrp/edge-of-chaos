@@ -38,7 +38,7 @@ routers:
   review:
     base_url: https://api.x.ai/v1
     secret_ref: xai.env:XAI_API_KEY
-    model: grok-4.20-multi-agent-beta-0309
+    model: grok-4.3
 YAML
 
 export HOME="$TMP_HOME"
@@ -111,7 +111,7 @@ routers:
   review:
     base_url: https://api.x.ai/v1
     secret_ref: xai.env:XAI_API_KEY
-    model: grok-4.20-multi-agent-beta-0309
+    model: grok-4.3
 YAML
 cat >"$TMP_RUNTIME/secrets/openai.env" <<'ENV'
 OPENAI_API_KEY=test-openai-key
@@ -129,7 +129,7 @@ from _shared.router_client import find_router_for_model, load_router_config
 
 review = load_router_config("review")
 assert review["base_url"] == "https://api.x.ai/v1"
-assert review["model"] == "grok-4.20-multi-agent-beta-0309"
+assert review["model"] == "grok-4.3"
 name, chat = find_router_for_model("gpt-5.4")
 assert name == "chat"
 assert chat["secret_ref"] == "openai.env:OPENAI_API_KEY"

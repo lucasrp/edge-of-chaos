@@ -43,7 +43,7 @@ from paths import (ENTRIES_DIR, MEMORY_DIR, REPORTS_DIR, NOTES_DIR, SKILLS_DIR, 
 from _shared.router_client import make_client  # noqa: E402
 _AGENT_NAME = load_branding().get("agent_name", "agent")
 _SKILL_PREFIX = load_branding().get("skill_prefix", "agent")
-GROK_MODEL = "grok-4.20-multi-agent-beta-0309"
+GROK_MODEL = "grok-4.3"
 
 # Router purpose used by default. The actual model comes from
 # config/runtime-routers.yaml routers.<purpose>.model — respecting per-agent configuration (Azure, OpenAI,
@@ -932,7 +932,7 @@ def _estimate_cost(model: str, usage) -> str:
         "gpt-4.1-nano": (0.10, 0.40),
         "gpt-5.4": (2.50, 15.00),
         "gpt-5.4-pro": (30.00, 180.00),
-        "grok-4.20-multi-agent-beta-0309": (2.00, 6.00),
+        "grok-4.3": (2.00, 6.00),
         "grok-4-0709": (3.00, 15.00),
         "grok-3": (3.00, 15.00),
     }

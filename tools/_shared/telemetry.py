@@ -43,7 +43,7 @@ _PRICE_PER_M: dict[str, tuple[float, float]] = {
     "gpt-4o-mini":             (0.15, 0.60),
     "text-embedding-3-small":  (0.02, 0.00),
     "text-embedding-3-large":  (0.13, 0.00),
-    "grok-4.20-multi-agent-beta-0309": (5.00, 15.00),
+    "grok-4.3": (5.00, 15.00),
 }
 
 

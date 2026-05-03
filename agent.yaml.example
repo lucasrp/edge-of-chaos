@@ -224,7 +224,7 @@ repo_name: "edge-of-chaos"     # GitHub repo name
 # router_client.py falls back to these when routers: is missing.
 openai_model: "gpt-5.4"                    # edge-consult primary, review-gate
 openai_model_mini: "gpt-4.1-mini"          # seed generation, cheap tasks
-grok_model: "grok-4.20-multi-agent-beta-0309"  # edge-consult secondary
+grok_model: "grok-4.3"  # edge-consult secondary
 image_model: "gpt-image-1"                 # avatar generation
 
 # --- Routers (agnostic LLM handler — issue #222) ---
@@ -273,7 +273,7 @@ routers:
   review:
     base_url: https://api.x.ai/v1
     secret_ref: xai.env:XAI_API_KEY
-    model: grok-4.20-multi-agent-beta-0309
+    model: grok-4.3
   embedding:
     base_url: https://api.openai.com/v1
     secret_ref: openai.env:OPENAI_API_KEY

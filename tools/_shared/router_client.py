@@ -59,7 +59,7 @@ _LEGACY_DEFAULTS: dict[str, dict[str, Any]] = {
         "base_url": "https://api.x.ai/v1",
         "secret_ref": "xai.env:XAI_API_KEY",
         "model_key": "grok_model",
-        "model_default": "grok-4.20-multi-agent-beta-0309",
+        "model_default": "grok-4.3",
     },
     "embedding": {
         "base_url": "https://api.openai.com/v1",

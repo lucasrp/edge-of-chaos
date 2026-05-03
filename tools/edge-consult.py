@@ -173,7 +173,7 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> str
         "gpt-4.1-nano": (0.10, 0.40),
         "gpt-5.4": (2.50, 15.00),
         "gpt-5.4-pro": (30.00, 180.00),
-        "grok-4.20-multi-agent-beta-0309": (2.00, 6.00),
+        "grok-4.3": (2.00, 6.00),
         "grok-4-0709": (3.00, 15.00),
         "grok-4": (3.00, 15.00),
         "grok-3": (3.00, 15.00),
@@ -248,7 +248,7 @@ def log_consultation(mode: str, question: str, context_files: list,
 # Dual-model consultation (always both GPT + Grok)
 # ---------------------------------------------------------------------------
 
-DUAL_MODELS = ["gpt-5.4", "grok-4.20-multi-agent-beta-0309"]
+DUAL_MODELS = ["gpt-5.4", "grok-4.3"]
 
 
 def _build_user_msg(question: str, context_files: list = None,
@@ -277,7 +277,7 @@ def _build_user_msg(question: str, context_files: list = None,
 
 
 # Models that require Responses API instead of Chat Completions
-RESPONSES_API_MODELS = {"grok-4.20-multi-agent-beta-0309", "gpt-5.4-pro"}
+RESPONSES_API_MODELS = {"grok-4.3", "gpt-5.4-pro"}
 
 
 CLAUDE_FALLBACK_MODEL = "claude-cli"
@@ -370,7 +370,7 @@ def _call_model(model: str, system: str, user_msg: str,
 
 def consult(question: str, mode: str = "adversarial", context_files: list = None,
             stdin_content: str = None, gate_spec: str = None) -> str:
-    """Send consultation to BOTH GPT-5.4 and Grok-4.20 and return combined response.
+    """Send consultation to both configured review models and return combined response.
 
     If gate_spec is provided, saves review as {spec}.review.json for
     consolidate-state to enforce resolution before publishing.
