@@ -175,6 +175,10 @@ def load_workspace_observations(config: RuntimeConfig) -> list[Observation]:
             code, stat = _run(["git", "diff", "--stat", "HEAD~5..HEAD"], path)
             if code == 0 and stat:
                 observations.append(Observation("git", f"{name}: recent commit diff stat", truncate(stat, 1200), str(path)))
+            code, changed = _run(["git", "diff", "--name-only", "HEAD~5..HEAD"], path)
+            changed_files = [line.strip() for line in changed.splitlines() if line.strip()] if code == 0 else []
+        else:
+            changed_files = []
         recent_files: list[str] = []
         try:
             files = [p for p in path.rglob("*") if p.is_file() and not _is_noise_path(p)]
@@ -185,7 +189,11 @@ def load_workspace_observations(config: RuntimeConfig) -> list[Observation]:
         if recent_files:
             observations.append(Observation("filesystem", f"{name}: recent files", "\n".join(recent_files), str(path)))
         snippets = []
-        for relative in recent_files:
+        snippet_candidates = []
+        for relative in [*changed_files, *recent_files]:
+            if relative not in snippet_candidates:
+                snippet_candidates.append(relative)
+        for relative in snippet_candidates:
             candidate = path / relative
             if _is_context_file(candidate):
                 snippet = _read_snippet(candidate)
