@@ -116,11 +116,22 @@ if [[ -z "${CALLED_FROM_CONSOLIDAR_ESTADO:-}" && -z "${CALLED_FROM_FULL_PUBLISH:
     exit 1
 fi
 
-if [[ "$ENTRY_PATH" != "$CANONICAL_ENTRY_PATH" ]]; then
-    mkdir -p "$ENTRIES_DIR"
+resolve_publish_path() {
+    python3 - "$1" <<'PYEOF'
+import sys
+from pathlib import Path
+
+print(Path(sys.argv[1]).expanduser().resolve(strict=False))
+PYEOF
+}
+
+mkdir -p "$ENTRIES_DIR"
+ENTRY_REAL_PATH="$(resolve_publish_path "$ENTRY_PATH")"
+CANONICAL_REAL_PATH="$(resolve_publish_path "$CANONICAL_ENTRY_PATH")"
+if [[ "$ENTRY_REAL_PATH" != "$CANONICAL_REAL_PATH" ]]; then
     cp "$ENTRY_PATH" "$CANONICAL_ENTRY_PATH"
-    ENTRY_PATH="$CANONICAL_ENTRY_PATH"
 fi
+ENTRY_PATH="$CANONICAL_ENTRY_PATH"
 
 echo "=== blog-publish: $SLUG ==="
 emit_publish_event "started" "publish_start" ""
