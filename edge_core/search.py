@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -66,14 +67,20 @@ def _x_search(query: str) -> list[SearchResult]:
     if not token:
         suffix = " XAI_API_KEY is present, but that is a Grok/xAI credential, not an X search bearer token." if os.environ.get("XAI_API_KEY") else ""
         return [SearchResult("x", "X unavailable", "", "X_BEARER_TOKEN not configured; source recorded as unavailable." + suffix)]
+    terms = [
+        term
+        for term in re.findall(r"[A-Za-z][A-Za-z0-9]{2,}", query)
+        if term.lower() not in {"current", "request", "recent", "files", "commits", "jsonl"}
+    ]
+    x_query = " ".join(terms[:12]) or query
     url = "https://api.twitter.com/2/tweets/search/recent?" + urllib.parse.urlencode(
         {
-            "query": query,
+            "query": x_query,
             "max_results": 10,
             "tweet.fields": "created_at,public_metrics,author_id",
         }
     )
-    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "User-Agent": "edge-of-chaos/2.0"})
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
             payload = json.loads(response.read().decode("utf-8"))
