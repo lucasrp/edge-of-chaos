@@ -29,6 +29,8 @@ class LLMClient:
             or os.environ.get("EDGE_MODEL_ADVERSARIAL_OPENAI")
             or "gpt-5.4"
         )
+        if self.base_url.rstrip("/") == "https://api.openai.com/v1" and self.model.startswith("gpt_"):
+            self.model = self.model.replace("gpt_", "gpt-", 1).replace("_", ".")
 
     def available(self) -> bool:
         return bool(self.api_key)
