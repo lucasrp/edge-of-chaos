@@ -401,6 +401,38 @@ else
     fail "edge-close reports failed pipeline evidence through artifact supervision"
 fi
 
+echo "--- Test 2f: durable publication overrides earlier failed phase evidence ---"
+"$DISPATCH_TOOL" open --trigger operator --cycle-id cycle-close-published-after-failure --force >/dev/null
+"$DISPATCH_TOOL" dispatch --skill research >/dev/null
+append_skill_completed cycle-close-published-after-failure research
+append_phase_failed cycle-close-published-after-failure recovered-report scratchpad_archive_failed
+append_artifact_published cycle-close-published-after-failure research recovered-report
+"$CLOSE_TOOL" --status completed >/dev/null
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+assert dispatch["state"].get("artifact_supervision_status") == "published"
+completed = [
+    event for event in events
+    if event.get("cycle_id") == "cycle-close-published-after-failure"
+    and event.get("type") == "ArtifactSupervisionCompleted"
+]
+assert completed
+assert completed[-1]["artifact"] == "blog/entries/recovered-report.md"
+PY
+then
+    pass "durable publication wins over earlier failed phase evidence"
+else
+    fail "durable publication wins over earlier failed phase evidence"
+fi
+
 echo "--- Test 3: completed close succeeds with skill end evidence, artifact publication, and postflight ---"
 "$DISPATCH_TOOL" open --trigger heartbeat --cycle-id cycle-close-complete --force >/dev/null
 "$DISPATCH_TOOL" dispatch --skill discovery >/dev/null

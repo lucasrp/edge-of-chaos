@@ -25,6 +25,8 @@ audit_use = first_index('if audit_path.exists():')
 non_git_diff_guard = first_index('skipping scoped diff')
 non_git_commit_guard = first_index('skipping git commit')
 partial_degraded = first_index('emit_run_step_event "pipeline" "degraded" "pipeline_end" "partial publication"')
+complete_artifact_published = first_index('    emit_artifact_published_event')
+complete_pipeline_end = first_index('emit_run_step_event "pipeline" "completed" "pipeline_end" ""')
 report_materialization = first_index('emit_run_step_event "phase-0.9" "started" "report_materialization"')
 blog_publish = first_index('emit_run_step_event "phase-1" "started" "blog_publish"')
 report_confirmation = first_index('emit_run_step_event "phase-2" "started" "report_generation"')
@@ -47,6 +49,9 @@ assert phase6_start < audit_definition < audit_use, (
 assert phase6_start < non_git_diff_guard, "non-git EDGE_REPO_DIR must skip scoped diff in phase 6"
 assert phase6_start < non_git_commit_guard, "non-git EDGE_REPO_DIR must skip git commit in phase 6"
 assert phase6_start < partial_degraded, "partial publication must be degraded, not a hard pipeline failure"
+assert complete_artifact_published < complete_pipeline_end, (
+    "complete consolidate-state publications must emit ArtifactPublished before terminal pipeline_end"
+)
 assert materialize_function < report_materialization < blog_publish, (
     "report materialization must happen before blog publish so entries cannot be published without reports"
 )
