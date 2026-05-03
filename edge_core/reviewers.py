@@ -23,7 +23,12 @@ class LLMClient:
     def __init__(self) -> None:
         self.api_key = os.environ.get("OPENAI_API_KEY")
         self.base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        self.model = os.environ.get("OPENAI_MODEL", "gpt-5.4")
+        self.model = (
+            os.environ.get("OPENAI_MODEL")
+            or os.environ.get("EDGE_MODEL_DIALOGUE")
+            or os.environ.get("EDGE_MODEL_ADVERSARIAL_OPENAI")
+            or "gpt-5.4"
+        )
 
     def available(self) -> bool:
         return bool(self.api_key)
@@ -56,6 +61,30 @@ class LLMClient:
         except json.JSONDecodeError:
             return None
         return parsed if isinstance(parsed, dict) else None
+
+    def complete_text(self, *, system: str, prompt: str) -> str | None:
+        if not self.available():
+            return None
+        body = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        request = urllib.request.Request(
+            f"{self.base_url.rstrip('/')}/chat/completions",
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=45) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+            return None
+        content = (((payload.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+        return content or None
 
 
 def context_readiness(packet: ContextPacket, *, attempt: int) -> ReviewResult:

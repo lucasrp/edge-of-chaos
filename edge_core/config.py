@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any
 
@@ -74,8 +75,36 @@ def load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def load_local_env(root: Path) -> None:
+    candidates = [
+        root / ".env",
+        root / "secrets" / "keys.env",
+        root.parent / "keys" / "openai.env",
+        root.parent / "keys" / "xai.env",
+        root.parent / "keys" / "exa.env",
+        root.parent / "keys" / "keys.env",
+    ]
+    for path in candidates:
+        _load_env_file(path)
+
+
 def load_config(root: Path | None = None) -> RuntimeConfig:
     root = repo_root(root)
+    load_local_env(root)
     config_path = root / "agent.yaml"
     if not config_path.exists():
         config_path = root / "agent.yaml.example"

@@ -6,17 +6,22 @@ from pathlib import Path
 
 from .config import RuntimeConfig
 from .context import ContextPacket
-from .reviewers import ReviewResult, summarize_reviews
+from .reviewers import LLMClient, ReviewResult, summarize_reviews
 from .search import SearchResult
 from .util import date_slug, slugify, truncate
 
 
 def draft_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str) -> str:
+    llm_report = _llm_draft_report(packet, searches, thread_id)
+    if llm_report:
+        return llm_report
     observations = "\n".join(f"- **{obs.source}:** {obs.title} — {truncate(obs.detail, 300)}" for obs in packet.observations[:12])
     reports = "\n".join(f"- {item.get('title')} ({item.get('path')})" for item in packet.report_candidates[:6]) or "- Nenhum report anterior encontrado."
     search_lines = "\n".join(f"- **{result.source}:** {result.title} {result.url} — {truncate(result.summary, 250)}" for result in searches)
     interests = "\n".join(f"- {item.get('area')}: {item.get('connection')}" for item in packet.interests[:5])
     return f"""# {packet.kind.title()}: {packet.request}
+
+> Status: degraded local fallback. This is a smoke-test report, not a validated rich mentor report.
 
 ## Thread
 
@@ -100,3 +105,37 @@ def build_blog(config: RuntimeConfig) -> Path:
         encoding="utf-8",
     )
     return index
+
+
+def _llm_draft_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str) -> str | None:
+    client = LLMClient()
+    if not client.available():
+        return None
+    prompt = {
+        "kind": packet.kind,
+        "request": packet.request,
+        "thread_id": thread_id,
+        "observations": [obs.__dict__ for obs in packet.observations[:12]],
+        "thread_candidates": packet.thread_candidates[:6],
+        "report_candidates": packet.report_candidates[:6],
+        "first_steps": packet.first_steps,
+        "seed_threads": packet.seed_threads,
+        "interests": packet.interests,
+        "routines": packet.routines,
+        "search_results": [result.__dict__ for result in searches[:10]],
+    }
+    text = client.complete_text(
+        system=(
+            "You are edge-of-chaos v2, a private Feynman mentor. Write a rich private mentor report in Markdown. "
+            "Do not write dashboard copy. Do not sound like a product brochure. "
+            "The report must be situated in the observed work, continue or justify the thread, explain the simple model, "
+            "derive the reasoning, cite search/source evidence including unavailable sources, state gaps, give pushback, "
+            "and end with concrete next steps. Keep it useful, specific, and honest."
+        ),
+        prompt=str(prompt)[:22000],
+    )
+    if not text:
+        return None
+    if not text.lstrip().startswith("#"):
+        text = f"# {packet.kind.title()}: {packet.request}\n\n{text}"
+    return text
