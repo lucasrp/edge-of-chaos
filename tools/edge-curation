@@ -10,7 +10,7 @@ import subprocess
 import sys
 import unicodedata
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -30,9 +30,19 @@ from paths import (  # noqa: E402
 sys.path.insert(0, str(SCRIPT_DIR))
 from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
 
+THREAD_STUB_RESURFACE_DAYS = 7
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _today_iso() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _thread_stub_resurface_iso() -> str:
+    return (datetime.now(timezone.utc).date() + timedelta(days=THREAD_STUB_RESURFACE_DAYS)).isoformat()
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -161,7 +171,8 @@ def _read_topic_files() -> dict[str, dict[str, Any]]:
 
 
 def _write_thread_stub(thread_id: str, open_gaps_digest: dict[str, Any]) -> Path:
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = _today_iso()
+    resurface = _thread_stub_resurface_iso()
     title = _slug_title(thread_id)
     refs = _gap_refs_for_thread(open_gaps_digest, thread_id)
     lines = [
@@ -169,8 +180,10 @@ def _write_thread_stub(thread_id: str, open_gaps_digest: dict[str, Any]) -> Path
         f"id: {thread_id}",
         f"title: {title}",
         "status: active",
+        "owner: edge",
         f"created: {today}",
         f"updated: {today}",
+        f"resurface: {resurface}",
         "generated_by: edge-curation",
         "---",
         "",
@@ -198,6 +211,63 @@ def _write_thread_stub(thread_id: str, open_gaps_digest: dict[str, Any]) -> Path
     path = THREADS_DIR / f"{thread_id}.md"
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
+
+
+def _frontmatter_scalar(value: Any) -> str:
+    if isinstance(value, list):
+        return "[" + ", ".join(str(item) for item in value) + "]"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _rewrite_frontmatter(raw: str, frontmatter: dict[str, Any]) -> str:
+    match = re.match(r"^---\s*\n(.*?)\n---\s*\n?", raw, re.DOTALL)
+    body = raw[match.end():] if match else raw
+    preferred = ["id", "title", "status", "owner", "created", "updated", "resurface", "generated_by", "source"]
+    ordered_keys = [key for key in preferred if key in frontmatter]
+    ordered_keys.extend(key for key in frontmatter.keys() if key not in set(ordered_keys))
+    lines = ["---"]
+    for key in ordered_keys:
+        lines.append(f"{key}: {_frontmatter_scalar(frontmatter[key])}")
+    lines.extend(["---", ""])
+    return "\n".join(lines) + body
+
+
+def _repair_generated_thread_stubs() -> list[dict[str, str]]:
+    repairs: list[dict[str, str]] = []
+    if not THREADS_DIR.exists():
+        return repairs
+
+    today = _today_iso()
+    resurface = _thread_stub_resurface_iso()
+    for path in sorted(THREADS_DIR.glob("*.md")):
+        try:
+            raw = path.read_text(encoding="utf-8")
+            fm = _load_frontmatter(path)
+        except Exception:
+            continue
+        if str(fm.get("generated_by") or "") != "edge-curation":
+            continue
+
+        updated: list[str] = []
+        defaults = {
+            "owner": "edge",
+            "created": today,
+            "updated": today,
+            "resurface": resurface,
+        }
+        for key, value in defaults.items():
+            if str(fm.get(key) or "").strip():
+                continue
+            fm[key] = value
+            updated.append(key)
+
+        if not updated:
+            continue
+        path.write_text(_rewrite_frontmatter(raw, fm), encoding="utf-8")
+        repairs.append({"thread_id": path.stem, "path": str(path), "fields": ",".join(updated)})
+    return repairs
 
 
 def _write_topic_stub(thread_id: str, open_gaps_digest: dict[str, Any], thread_title: str) -> Path:
@@ -642,7 +712,8 @@ def _operator_evidence_lines(group: dict[str, Any]) -> list[str]:
 
 
 def _write_operator_thread_stub(group: dict[str, Any]) -> Path:
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = _today_iso()
+    resurface = _thread_stub_resurface_iso()
     thread_id = str(group.get("thread_id") or "operator-pressure").strip()
     title = str(group.get("title") or _slug_title(thread_id)).strip()
     lines = [
@@ -650,8 +721,10 @@ def _write_operator_thread_stub(group: dict[str, Any]) -> Path:
         f"id: {thread_id}",
         f"title: {title}",
         "status: active",
+        "owner: edge",
         f"created: {today}",
         f"updated: {today}",
+        f"resurface: {resurface}",
         "generated_by: edge-curation",
         "source: operator-pressure",
         "---",
@@ -955,8 +1028,11 @@ def build_curation_digest(window_days: int) -> dict[str, Any]:
     corpus_payload, corpus_warnings = _refresh_corpus_health()
     open_gaps_digest = _read_json(OPEN_GAPS_DIGEST_FILE, {})
     operator_pressure_digest = _read_json(OPERATOR_PRESSURE_HOT_DIGEST_FILE, {})
+    thread_repairs = _repair_generated_thread_stubs()
     hot_state = _curate_hot_state(open_gaps_digest)
     operator_pressure = _curate_operator_pressure(operator_pressure_digest)
+    hot_state.setdefault("threads", {})["repaired_total"] = len(thread_repairs)
+    hot_state.setdefault("threads", {})["repaired"] = thread_repairs[:20]
     topic_index_warnings = _refresh_topics_index()
     topics = _topics_summary()
 

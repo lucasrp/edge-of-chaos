@@ -79,6 +79,62 @@ def write_json(path: Path, payload: dict | list) -> None:
     )
 
 
+def state_anchor_queue_present() -> bool:
+    queue = load_json(QUEUE_PATH, [])
+    if not isinstance(queue, list):
+        return False
+    return any(item.get("source") == "state-anchor-monitor" for item in queue if isinstance(item, dict))
+
+
+def lint_counts(lint: dict) -> tuple[int, int]:
+    by_severity = lint.get("by_severity", {}) if isinstance(lint, dict) else {}
+    errors = int(by_severity.get("error", 0)) if isinstance(by_severity.get("error", 0), int) else 0
+    warnings = int(by_severity.get("warn", 0)) if isinstance(by_severity.get("warn", 0), int) else 0
+    return errors, warnings
+
+
+def clear_state_anchor_dispatch_if_lint_clean(lint: dict, checked_at: str) -> dict:
+    if lint.get("error"):
+        return {"removed": 0, "reason": "lint_unavailable"}
+    lint_errors, lint_warnings = lint_counts(lint)
+    if lint_errors != 0:
+        return {"removed": 0, "reason": "lint_errors_remain", "lint_errors": lint_errors, "lint_warnings": lint_warnings}
+
+    queue = load_json(QUEUE_PATH, [])
+    if not isinstance(queue, list):
+        return {"removed": 0, "reason": "queue_invalid", "lint_errors": lint_errors, "lint_warnings": lint_warnings}
+
+    kept = [item for item in queue if not (isinstance(item, dict) and item.get("source") == "state-anchor-monitor")]
+    removed = len(queue) - len(kept)
+    if not removed:
+        return {"removed": 0, "reason": "no_state_anchor_queue", "lint_errors": lint_errors, "lint_warnings": lint_warnings}
+
+    write_json(QUEUE_PATH, kept)
+    log_event(
+        "dispatch_queue_cleared",
+        actor="edge-state-dispatch",
+        source="state-anchor-monitor",
+        checked_at=checked_at,
+        removed=removed,
+        reason="lint_clean",
+        lint_errors=lint_errors,
+        lint_warnings=lint_warnings,
+    )
+    emit_shadow_event(
+        "DispatchQueueEntryCleared",
+        actor="edge-state-dispatch",
+        payload={
+            "source": "state-anchor-monitor",
+            "removed": removed,
+            "reason": "lint_clean",
+            "lint_errors": lint_errors,
+            "lint_warnings": lint_warnings,
+            "checked_at": checked_at,
+        },
+    )
+    return {"removed": removed, "reason": "lint_clean", "lint_errors": lint_errors, "lint_warnings": lint_warnings}
+
+
 def ensure_dirs() -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -345,13 +401,22 @@ def main() -> int:
         print("STATE_BASELINE " + ", ".join(baselined))
 
     if not changed:
+        if state_anchor_queue_present():
+            lint = run_lint()
+            cleared = clear_state_anchor_dispatch_if_lint_clean(lint, checked_at)
+            if cleared.get("removed"):
+                print("STATE_CLEAN")
+                print(
+                    "STATE_QUEUE planner cleared "
+                    f"| lint_errors={cleared.get('lint_errors', 0)} "
+                    f"lint_warnings={cleared.get('lint_warnings', 0)}"
+                )
+                return 0
         print("STATE_CLEAN")
         return 0
 
     lint = run_lint()
-    by_severity = lint.get("by_severity", {}) if isinstance(lint, dict) else {}
-    lint_errors = int(by_severity.get("error", 0)) if isinstance(by_severity.get("error", 0), int) else 0
-    lint_warnings = int(by_severity.get("warn", 0)) if isinstance(by_severity.get("warn", 0), int) else 0
+    lint_errors, lint_warnings = lint_counts(lint)
     changed_labels = [item["label"] for item in changed]
 
     reason = "State anchors changed: " + ", ".join(changed_labels)
