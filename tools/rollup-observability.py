@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import statistics
 import sys
 from collections import defaultdict
@@ -26,7 +27,7 @@ import yaml
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
-from paths import ENTRIES_DIR, EVENTS_FILE, LOGS_DIR, STATE_DIR, THREADS_DIR  # noqa: E402
+from paths import ENTRIES_DIR, EVENTS_FILE, LOGS_DIR, SEARCH_DB_FILE, STATE_DIR, THREADS_DIR  # noqa: E402
 
 OUT_PATH = STATE_DIR / "observability-rollup.json"
 WINDOW_DAYS = 30
@@ -114,6 +115,79 @@ def _rollup_backlog(today: str) -> dict:
         "resurface_due": due,
         "open_gaps": open_gaps,
     }
+
+
+def _rollup_citations(now: datetime) -> dict:
+    empty = {
+        "available": False,
+        "total": 0,
+        "top_cited": [],
+        "never_cited_30d": 0,
+        "recently_cited_7d": 0,
+    }
+    if not SEARCH_DB_FILE.exists():
+        return empty
+    try:
+        conn = sqlite3.connect(f"file:{SEARCH_DB_FILE}?mode=ro", uri=True, timeout=2)
+        conn.row_factory = sqlite3.Row
+    except Exception:
+        return empty
+    try:
+        has_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='citations'"
+        ).fetchone()
+        if not has_table:
+            return empty
+        total = int(conn.execute("SELECT COUNT(*) FROM citations").fetchone()[0])
+        top_cited = [
+            {
+                "path": row["cited_path"],
+                "citations": int(row["citations"]),
+                "last_cited": row["last_cited"],
+            }
+            for row in conn.execute(
+                """
+                SELECT cited_path, COUNT(*) AS citations, MAX(ts) AS last_cited
+                FROM citations
+                GROUP BY cited_path
+                ORDER BY citations DESC, last_cited DESC
+                LIMIT 10
+                """
+            ).fetchall()
+        ]
+        cutoff_30 = (now - timedelta(days=30)).isoformat()
+        cutoff_7 = (now - timedelta(days=7)).isoformat()
+        never_cited_30d = int(
+            conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM documents d
+                WHERE d.type IN ('blog', 'report')
+                  AND d.updated_at >= ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM citations c WHERE c.cited_path = d.path
+                  )
+                """,
+                (cutoff_30,),
+            ).fetchone()[0]
+        )
+        recently_cited_7d = int(
+            conn.execute(
+                "SELECT COUNT(DISTINCT cited_path) FROM citations WHERE ts >= ?",
+                (cutoff_7,),
+            ).fetchone()[0]
+        )
+        return {
+            "available": True,
+            "total": total,
+            "top_cited": top_cited,
+            "never_cited_30d": never_cited_30d,
+            "recently_cited_7d": recently_cited_7d,
+        }
+    except Exception:
+        return empty
+    finally:
+        conn.close()
 
 
 def main() -> int:
@@ -267,6 +341,7 @@ def main() -> int:
         "search": {
             "query_stats": search_queries,
         },
+        "citations": _rollup_citations(now),
         "database": {
             "by_table": dict(sorted(db_payload.items(), key=lambda item: -(item[1]["reads"] + item[1]["writes"]))),
             "by_op": dict(sorted(db_by_op.items(), key=lambda item: -item[1])),

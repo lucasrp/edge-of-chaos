@@ -16,6 +16,7 @@ from paths import EDGE_STATE_DIR, NOTES_DIR  # noqa: E402
 
 from db import EMBEDDING_DIM, ensure_db
 from embed import embed_text
+from citations import apply_citation_boost
 
 TYPE_GROUPS: dict[str, tuple[str, ...]] = {
     "topic": ("topic",),
@@ -231,8 +232,10 @@ def hybrid_search(
             if doc_id not in doc_info:
                 doc_info[doc_id] = doc
 
-        # Sort by RRF score
-        ranked = sorted(scores.items(), key=lambda x: -x[1])[:limit]
+        # Sort by RRF score, then apply curated citation boost inside that
+        # candidate pool so frequently used corpus artifacts can overtake
+        # nearby uncited matches without overriding query relevance entirely.
+        ranked = sorted(scores.items(), key=lambda x: -x[1])[: max(limit * 3, limit)]
 
         results = []
         for doc_id, score in ranked:
@@ -246,6 +249,7 @@ def hybrid_search(
                 "snippet": info.get("snippet"),
             })
 
+        results = apply_citation_boost(results, conn)[:limit]
         _enrich_with_notes(results)
         return results
     finally:
@@ -538,6 +542,11 @@ def format_results(
             if r.get("snippet"):
                 snippet = r["snippet"].replace("\n", " ")[:120]
                 lines.append(f"       {' ' * 8}  {' ' * 8} ...{snippet}...")
+            if int(r.get("citation_count") or 0) > 0:
+                lines.append(
+                    f"       {' ' * 8}  {' ' * 8} citations={int(r.get('citation_count') or 0)} "
+                    f"base={float(r.get('base_score') or 0.0):.4f}"
+                )
             lines.append("")
 
     return "\n".join(lines)

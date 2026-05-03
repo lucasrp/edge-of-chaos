@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 sys.path.insert(0, str(SCRIPT_DIR.parent / "tools"))
-from paths import EDGE_REPO_DIR, TOOLS_DIR, SECRETS_DIR, SOURCES_MANIFEST_FILE
+from paths import EDGE_REPO_DIR, TOOLS_DIR, SECRETS_DIR, SOURCES_MANIFEST_FILE, STATE_DIR
 from _shared.telemetry import make_odi_id, log_odi_observed, log_primitive_call, log_run_step, log_source_query
 from _shared.search_runtime import (
     clear_builtin_web_search_allowance,
@@ -336,6 +336,9 @@ def search_corpus(topic):
         score_val = int(float(entry.get("score") or 0) * 1000)
         title = str(entry.get("title") or entry.get("id") or "")[:200]
         snippet = str(entry.get("snippet") or "")[:240]
+        citation_count = int(entry.get("citation_count") or 0)
+        if citation_count > 0:
+            snippet = f"citations={citation_count}. {snippet}".strip()
         doc_type = str(entry.get("type") or "")
         path = str(entry.get("path") or "")
         items.append({
@@ -344,8 +347,33 @@ def search_corpus(topic):
             "source": "Corpus",
             "detail": snippet,
             "score": score_val,
+            "citation_count": citation_count,
         })
     return items
+
+
+def corpus_playbook():
+    """Return corpus source guidance learned from citation-weighted search."""
+    playbook = {
+        "query_tips": "Hybrid (FTS + semantic). PT-BR and EN. Citation-boosted when curated references exist.",
+        "high_value_entries": [],
+        "decay_note": "",
+    }
+    path = STATE_DIR / "observability-rollup.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return playbook
+    citations = data.get("citations") or {}
+    for item in (citations.get("top_cited") or [])[:8]:
+        cited_path = str(item.get("path") or "")
+        count = int(item.get("citations") or 0)
+        if cited_path:
+            playbook["high_value_entries"].append(f"{Path(cited_path).name} ({count} citations)")
+    never = int(citations.get("never_cited_30d") or 0)
+    if never:
+        playbook["decay_note"] = f"{never} recent blog/report docs have no curated citations; search deprioritizes them naturally."
+    return playbook
 
 
 # --- Dispatcher ---
@@ -705,6 +733,9 @@ def format_feedback_json(
         },
         "summary": summary,
         "results_by_source": results_by_source,
+        "source_playbook": {
+            "corpus": corpus_playbook(),
+        },
         "feedback_contract": {
             "grade_command": "edge-affordance evaluate <source_id> --affordance <affordance> --score <1-5> --context <intent/context> --query <query> --reason <reason> --odi <odi_id> --episode-id <episode_id>",
             "grade_atomic_sources": True,

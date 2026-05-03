@@ -140,6 +140,7 @@ Test variants such as:
 For each test, record what changed in the answer quality.
 
 Use `--feedback-json` when curating. It returns the run id, episode id, selected route, source summaries, ODI ids, and a feedback contract for `edge-affordance`.
+For corpus routing, it also includes `source_playbook.corpus` with citation-weighted query guidance, high-value entries, and decay notes from the observability rollup.
 
 ### 4. Grade Source/Signal Affordances
 
@@ -154,6 +155,10 @@ Score guidance:
 - `1`: failed, misleading, stale, or unavailable.
 
 Grade atomic sources/channels, not wrappers. Prefer `source.hn`, `source.exa`, `source.github`, `signal.friction`, `search.corpus` over `edge-sources`.
+
+When a corpus result directly informs an artifact, make sure the publishing
+skill records it under `corpus_references` so future search ranking can learn
+from actual use.
 
 ### 5. Curate The Pattern Set
 

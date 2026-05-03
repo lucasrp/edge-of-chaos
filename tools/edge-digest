@@ -299,6 +299,7 @@ def generate_briefing():
         ][:5]
         publish = observability.get("blog_publish_failures", {}).get("by_class", {})
         lifecycle = observability.get("lifecycle", {})
+        citations = observability.get("citations", {})
         failed_steps = []
         for run_kind, phases in lifecycle.items():
             for phase, statuses in phases.items():
@@ -322,6 +323,13 @@ def generate_briefing():
         if failed_steps:
             top_failed = ", ".join(f"{rk}/{ph}:{n}" for n, rk, ph in failed_steps[:4])
             lines.append(f"- Lifecycle failures: {top_failed}")
+        if citations.get("available"):
+            top_cited = citations.get("top_cited") or []
+            top_label = Path(str(top_cited[0].get("path"))).name if top_cited else "none"
+            lines.append(
+                f"- Corpus citations: {citations.get('total', 0)} total, "
+                f"{citations.get('recently_cited_7d', 0)} docs cited in 7d, top={top_label}"
+            )
         lines.append("")
 
     return "\n".join(lines)
