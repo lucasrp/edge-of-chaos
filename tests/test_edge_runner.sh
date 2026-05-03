@@ -132,6 +132,34 @@ printf '__INVOCATION__\n' >> "${MOCK_CLAUDE_ARGS_OUT:?}"
 printf 'ARGS: %s\n' "$*" >> "${MOCK_CLAUDE_ARGS_OUT:?}"
 printf 'STDIN:\n%s\n' "$PROMPT" >> "${MOCK_CLAUDE_ARGS_OUT:?}"
 printf '__END__\n' >> "${MOCK_CLAUDE_ARGS_OUT:?}"
+if [ "${MOCK_CLAUDE_PHASE_PROGRESS_ON_START:-0}" = "1" ]; then
+  python3 - <<'PY'
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+state_dir = Path(os.environ["EDGE_STATE_DIR"])
+events = state_dir / "state" / "events" / "log.jsonl"
+events.parent.mkdir(parents=True, exist_ok=True)
+event = {
+    "ts": datetime.now(timezone.utc).isoformat(),
+    "type": "PhaseCompleted",
+    "actor": "consolidate-state",
+    "cycle_id": os.environ.get("EDGE_CYCLE_ID", ""),
+    "artifact": "blog/entries/mock-progress.md",
+    "payload": {
+        "pipeline": "consolidate-state",
+        "phase": "1",
+        "operation": "blog_publish",
+        "status": "completed",
+        "ok": True,
+    },
+}
+with open(events, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(event) + "\n")
+PY
+fi
 if [ -n "${MOCK_CLAUDE_SLEEP_SECONDS:-}" ]; then
   sleep "${MOCK_CLAUDE_SLEEP_SECONDS}"
 fi
@@ -854,6 +882,50 @@ then
     pass "watchdog kills hung backend and closes cycle as skill_subprocess_timeout"
 else
     fail "watchdog kills hung backend and closes cycle as skill_subprocess_timeout"
+fi
+
+echo "--- Test 8b: watchdog extends once when consolidate-state is still progressing ---"
+unset MOCK_CLAUDE_HEARTBEAT_FLOW || true
+unset MOCK_CLAUDE_EXIT_CODE || true
+export MOCK_CLAUDE_SLEEP_SECONDS=2
+export MOCK_CLAUDE_PHASE_PROGRESS_ON_START=1
+export MOCK_CLAUDE_ARTIFACT_MARKDOWN=$'# Progress Grace Report\n\nThis artifact proves the backend was allowed to finish after the initial timeout because consolidate-state had recent phase progress.'
+export EDGE_RUNNER_SKILL_TIMEOUT_SEC=1
+export EDGE_RUNNER_TIMEOUT_PROGRESS_GRACE_SEC=4
+export EDGE_RUNNER_TIMEOUT_PROGRESS_MAX_EXTENSIONS=1
+"$RUNNER_TOOL" skill \
+    --skill /report \
+    --dispatch-trigger heartbeat \
+    --dispatch-policy autonomous \
+    --dispatch-routing-mode explicit \
+    --dispatch-preflight-profile heartbeat_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force >/dev/null
+unset MOCK_CLAUDE_SLEEP_SECONDS || true
+unset MOCK_CLAUDE_PHASE_PROGRESS_ON_START || true
+unset MOCK_CLAUDE_ARTIFACT_MARKDOWN || true
+unset EDGE_RUNNER_SKILL_TIMEOUT_SEC || true
+unset EDGE_RUNNER_TIMEOUT_PROGRESS_GRACE_SEC || true
+unset EDGE_RUNNER_TIMEOUT_PROGRESS_MAX_EXTENSIONS || true
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+cycle_id = dispatch["cycle_id"]
+cycle_events = [e for e in events if e.get("cycle_id") == cycle_id]
+
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+assert any(e["type"] == "SkillSubprocessTimeoutExtended" for e in cycle_events)
+assert not any(e["type"] == "SkillSubprocessTimeout" for e in cycle_events)
+PY
+then
+    pass "watchdog grants bounded grace for active consolidate-state progress"
+else
+    fail "watchdog grants bounded grace for active consolidate-state progress"
 fi
 
 echo "--- Test 9: backend prompt is delivered through stdin, not argv ---"
