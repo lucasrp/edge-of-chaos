@@ -1,6 +1,6 @@
 ---
 name: ed-sources
-description: "Curate and improve source/signal workflows. Use when reviewing search quality, source usefulness, query patterns, source affordances, edge-sources/edge-signals feedback, or consolidating source workflows."
+description: "Curate and improve source/signal patterns. Use when reviewing search quality, source usefulness, query patterns, source affordances, or edge-sources/edge-signals feedback."
 user-invocable: true
 ---
 
@@ -17,22 +17,20 @@ edge-signals --help
 edge-context --mode sources "topic" --intent <intent>
 ```
 
-The skill owns the feedback loop around those tools: what worked, what failed, which query patterns are worth keeping, and which source/signal workflows should be archived.
+The skill owns the feedback loop around those tools: what worked, what failed, and which query patterns are worth keeping.
 
 ## Responsibility
 
-Sources owns source/signal workflow curation.
+Sources owns source/signal pattern curation.
 
 It is responsible for:
 
 - mining source/search/signal history for useful feedback;
 - testing new source and query patterns;
 - grading source/channel affordances;
-- consolidating repeated source/signal procedures into workflows;
-- archiving stale, duplicated, or low-use source workflows;
-- keeping the active source/signal workflow set at **10 or fewer**.
-
-If adding a new source/signal workflow would make more than 10 active workflows, first merge, archive, or delete an old one. More than 10 active workflows means the skill failed its curation job.
+- consolidating repeated source/signal behavior into topics or pre-skill context;
+- archiving stale, duplicated, or low-use source patterns;
+- keeping source guidance compact enough to stay useful.
 
 ## Boundary
 
@@ -48,7 +46,7 @@ Use these in order:
 - recent source and signal events from `state/events.jsonl`;
 - `edge-cap status --json --skill sources`;
 - `edge-primitives status --json`;
-- existing source/signal workflows from corpus search;
+- existing source/signal topics and notes from corpus search;
 - recent reports or skill outputs that cite sources;
 - failed or degraded `edge-sources`, `edge-signals`, or `edge-context` calls;
 - operator feedback about source quality.
@@ -68,7 +66,7 @@ Useful feedback is structured. For each search/signal episode, capture:
 | Usefulness | score 1-5 |
 | Evidence | ODI/result URL, artifact, event id, or output snippet |
 | Reason | why it helped, failed, or misled |
-| Follow-up | keep, merge, archive, retest, or create workflow |
+| Follow-up | keep, merge, archive, retest, or promote to topic/pre-skill context |
 
 Record affordance judgments with:
 
@@ -97,23 +95,23 @@ Answer:
 - Which query patterns repeatedly work?
 - Which source/signal calls fail or degrade?
 
-### 2. Find Existing Workflows
+### 2. Find Existing Source Patterns
 
-Search for current source/signal workflows:
+Search for current source/signal patterns:
 
 ```bash
-edge-cap invoke search.corpus -- "sources signals workflow edge-sources edge-signals" --type workflow -k 20
+edge-cap invoke search.corpus -- "sources signals edge-sources edge-signals" --require-type topic --require-type memory -k 20
 ```
 
-Classify each workflow:
+Classify each pattern:
 
 - `keep`: still useful and distinct;
-- `merge`: overlaps with another workflow;
+- `merge`: overlaps with another topic or note;
 - `archive`: stale, unused, too broad, or contradicted by current tools;
 - `retest`: promising but unproven;
 - `replace`: superseded by a better route.
 
-Keep at most 10 active source/signal workflows.
+Keep the active source/signal pattern set short and specific.
 
 ### 3. Test Patterns
 
@@ -157,18 +155,18 @@ Score guidance:
 
 Grade atomic sources/channels, not wrappers. Prefer `source.hn`, `source.exa`, `source.github`, `signal.friction`, `search.corpus` over `edge-sources`.
 
-### 5. Curate The Workflow Set
+### 5. Curate The Pattern Set
 
-Create or update workflows only when the tested pattern is repeatable.
+Promote a pattern only when it is repeatable.
 
-Before adding a workflow:
+Before adding durable guidance:
 
 - check active count;
 - merge duplicates;
-- archive stale workflows;
-- ensure the new workflow has a clear trigger, steps, failure modes, and evidence from tests.
+- archive stale guidance;
+- ensure the new topic or pre-skill context has a clear trigger, failure mode, and evidence from tests.
 
-Hard cap: **10 active source/signal workflows**. If count would become 11, remove one first.
+Hard cap: keep only guidance that will affect future source routing.
 
 ### 6. Close With A Curation Report
 
@@ -176,7 +174,7 @@ Return:
 
 ```markdown
 Sources Curation
-Scope: <history window / workflows / patterns tested>
+Scope: <history window / patterns tested>
 
 Affordance Updates:
 - <source/channel> -> <affordance> -> <score> -> <reason>
@@ -184,18 +182,17 @@ Affordance Updates:
 Patterns Tested:
 - <pattern> -> <result> -> <keep/archive/retest>
 
-Workflow Curation:
+Pattern Curation:
 - kept:
 - merged:
 - archived:
-- created:
-- active count: N/10
+- promoted:
 
 Failures / Blockers:
 - <source/signal route> -> <exact error or degradation>
 
 Next:
-- <next test or workflow cleanup>
+- <next test or pattern cleanup>
 ```
 
 ## Invariants
@@ -203,6 +200,6 @@ Next:
 - The CLI runs searches; the skill curates learning from searches.
 - Feedback must be structured enough to improve future routing.
 - Grade atomic sources/channels, not only wrapper commands.
-- Do not keep more than 10 active source/signal workflows.
-- Do not create a new workflow without testing the pattern.
-- Archive old source workflows when they no longer produce useful work.
+- Do not keep stale or duplicated source patterns.
+- Do not promote a pattern without testing it.
+- Archive old source guidance when it no longer produces useful work.

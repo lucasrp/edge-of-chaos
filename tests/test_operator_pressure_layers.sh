@@ -21,14 +21,14 @@ mkdir -p "$TMP_PROJECT" "$TMP_STATE"
 
 cat >"$TMP_PROJECT/session-a.jsonl" <<'JSONL'
 {"type":"user","timestamp":"2026-04-23T10:00:00Z","sessionId":"session-a","message":{"role":"user","content":"topics deve ser consultado no edge search em todo beat"}}
-{"type":"user","timestamp":"2026-04-23T10:05:00Z","sessionId":"session-a","message":{"role":"user","content":"workflow automatico so com orientacao explicita do operador"}}
+{"type":"user","timestamp":"2026-04-23T10:05:00Z","sessionId":"session-a","message":{"role":"user","content":"pre-skill context automatico so com orientacao explicita do operador"}}
 {"type":"user","timestamp":"2026-04-23T10:10:00Z","sessionId":"session-a","message":{"role":"user","content":"a primitive do exa no ed deveria mencionar deep research"}}
 {"type":"user","timestamp":"2026-04-23T10:15:00Z","sessionId":"session-a","message":{"role":"user","content":"eu nao deveria ter que repetir esse passo; isso deveria vir no install"}}
 JSONL
 
 cat >"$TMP_PROJECT/session-b.jsonl" <<'JSONL'
 {"type":"user","timestamp":"2026-04-23T11:00:00Z","sessionId":"session-b","message":{"role":"user","content":"topics deve ser consultado no edge search em todo beat"}}
-{"type":"user","timestamp":"2026-04-23T11:05:00Z","sessionId":"session-b","message":{"role":"user","content":"na verdade workflow automatico sem direcao explicita deve ficar dormente"}}
+{"type":"user","timestamp":"2026-04-23T11:05:00Z","sessionId":"session-b","message":{"role":"user","content":"na verdade pre-skill context automatico sem direcao explicita deve ficar dormente"}}
 {"type":"user","timestamp":"2026-04-23T11:10:00Z","sessionId":"session-b","message":{"role":"user","content":"eu fico tendo que pedir para voce usar essa API toda vez"}}
 JSONL
 
@@ -80,7 +80,7 @@ assert ledger["atom_total"] == ledger["item_total"]
 assert summary["item_total"] >= 3
 assert summary["signal_from_operator_now"] >= 1
 assert summary["operator_toil_optimizable_now"] >= 1
-assert summary["workflow_candidates"] >= 1
+assert summary["pre_skill_context"] >= 1
 assert summary["capability_candidates"] >= 1
 assert summary["substrate_gap_requests"] >= 1
 assert summary["atom_entries_appended"] >= 1
@@ -90,7 +90,7 @@ assert hot["operator_pains_resolvable_now"]
 assert hot["operator_toil_optimizable_now"]
 assert hot["mistakes_to_avoid_now"]
 assert hot["substrate_gap_requests"]
-assert any(item["target"] == "workflow" for item in hot["workflow_candidates"])
+assert any("pre-skill" in item["text"] for item in hot["pre_skill_context"])
 assert any(item["target"] == "capability" for item in hot["capability_candidates"])
 assert any(item.get("substrate_gap_signal") for item in ledger["atoms"])
 assert all(isinstance(entity, dict) for item in ledger["atoms"] for entity in item["entities"])
@@ -169,7 +169,7 @@ project.mkdir(parents=True, exist_ok=True)
 state.mkdir(parents=True, exist_ok=True)
 session = project / "session-redigest.jsonl"
 session.write_text(
-    '{"type":"user","timestamp":"2026-04-23T10:00:00Z","sessionId":"redigest","message":{"role":"user","content":"workflow automatico so com orientacao explicita do operador"}}\n',
+    '{"type":"user","timestamp":"2026-04-23T10:00:00Z","sessionId":"redigest","message":{"role":"user","content":"pre-skill context automatico so com orientacao explicita do operador"}}\n',
     encoding="utf-8",
 )
 
@@ -315,7 +315,7 @@ rows = [
         "sessionId": "noise",
         "message": {
             "role": "user",
-            "content": "You are converting an operator's free-form description of a research or work routine into a structured workflow entry. The operator's prose is verbatim text."
+            "content": "You are converting an operator's free-form description of a research or work routine into structured pre-skill context. The operator's prose is verbatim text."
         },
     },
     {
@@ -433,10 +433,10 @@ previous = {
     "schema_version": mod.SCHEMA_VERSION,
     "digest_hash": "sha256:previous",
     "signal_from_operator_now": [
-        {"item_id": "pressure:sticky", "text": "sticky directive", "target": "workflow", "kind": "directive"}
+        {"item_id": "pressure:sticky", "text": "sticky directive", "target": "pre_skill_context", "kind": "directive"}
     ],
     "operator_pains_resolvable_now": [
-        {"item_id": "pressure:pain", "text": "sticky pain", "target": "workflow", "kind": "failure"}
+        {"item_id": "pressure:pain", "text": "sticky pain", "target": "pre_skill_context", "kind": "failure"}
     ],
 }
 ledger = {
@@ -449,7 +449,7 @@ digest = mod._render_hot_digest_with_llm(
     ledger,
     previous_digest=previous,
     delta_items=[
-        {"item_id": "pressure:sticky", "text": "sticky directive", "target": "workflow", "kind": "directive"}
+        {"item_id": "pressure:sticky", "text": "sticky directive", "target": "pre_skill_context", "kind": "directive"}
     ],
 )
 
@@ -463,7 +463,6 @@ for key in (
     "implicit_needs_hypotheses",
     "memory_updates",
     "pre_skill_context",
-    "workflow_candidates",
     "capability_candidates",
     "substrate_gap_requests",
     "active_entities",
@@ -498,11 +497,11 @@ class FakeCompletions:
                 {
                     "item_id": "pressure:demo",
                     "text": "corrija o install do edge",
-                    "target": "workflow",
+                    "target": "pre_skill_context",
                     "kind": "directive",
                     "repeat_count": 1,
                     "status": "active",
-                    "entities": ["workflow"],
+                    "entities": ["pre_skill_context"],
                     "source_kinds": ["session"],
                     "last_seen_at": "2026-04-23T10:00:00+00:00",
                 }
@@ -513,10 +512,9 @@ class FakeCompletions:
             "implicit_needs_hypotheses": [],
             "memory_updates": [],
             "pre_skill_context": [],
-            "workflow_candidates": [],
             "capability_candidates": [],
             "substrate_gap_requests": [],
-            "active_entities": ["workflow"],
+            "active_entities": ["pre_skill_context"],
         }
         return SimpleNamespace(
             choices=[
@@ -546,12 +544,12 @@ ledger = {
         {
             "id": "pressure:demo",
             "content": "corrija o install do edge",
-            "target": "workflow",
+            "target": "pre_skill_context",
             "kind": "directive",
             "status": "active",
             "repeat_count": 1,
             "last_seen_at": "2026-04-23T10:00:00+00:00",
-            "entities": [{"name": "workflow", "type": "workflow"}],
+            "entities": [{"name": "pre_skill_context", "type": "memory"}],
             "source_kinds": ["session"],
             "explicit_operator_direction": True,
             "scope": "global",
@@ -593,7 +591,7 @@ state.mkdir(parents=True, exist_ok=True)
 memory.parent.mkdir(parents=True, exist_ok=True)
 (project / "session-empty.jsonl").write_text("", encoding="utf-8")
 memory.write_text(
-    "- [Report narrative workflow](report-narrative.md) - report sections must introduce dense tables before rendering them\n"
+    "- [Report narrative context](report-narrative.md) - report sections must introduce dense tables before rendering them\n"
     "- [Pre-skill memory context](pre-skill-memory.md) - memory updates should appear in pre-skill context before execution\n",
     encoding="utf-8",
 )

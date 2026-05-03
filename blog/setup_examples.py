@@ -543,14 +543,6 @@ SYSTEM_FILES = [
         "managed_by": "/ed-autonomia",
     },
     {
-        "path": "autonomy/workflows.md",
-        "group": "autonomy",
-        "group_label": "Autonomia",
-        "purpose": "Workflows emergentes — combinações de capacidades que produzem resultados melhores que isoladas",
-        "owner": "agent",
-        "managed_by": "/ed-autonomia",
-    },
-    {
         "path": "autonomy/autonomy-policy.md",
         "group": "autonomy",
         "group_label": "Autonomia",

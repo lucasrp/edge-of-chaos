@@ -45,7 +45,7 @@ edge-skill-inbox read --skill loader 2>/dev/null
 
 Use judgment. The sweep may include:
 
-- `edge-search` over memory, reports, notes, workflows, open gaps, and prior outputs;
+- `edge-search` over memory, topics, reports, notes, open gaps, and prior outputs;
 - GitHub issues, PRs, boards, or project artifacts;
 - local repository status and recent commits;
 - recent session logs;

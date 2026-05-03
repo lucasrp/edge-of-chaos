@@ -22,7 +22,6 @@ from paths import (  # noqa: E402
     PRIMITIVES_STATUS_FILE,
     RENDER_INSTALL_DRIFT_FILE,
     STATE_EVENTS_FILE,
-    WORKFLOW_HEALTH_FILE,
 )
 from .capability_runtime import build_capability_status, build_configured_integrations  # noqa: E402
 
@@ -400,27 +399,6 @@ def collect_dispatch_signals(signals: list[dict[str, Any]]) -> None:
         )
 
 
-def collect_workflow_signal(signals: list[dict[str, Any]]) -> None:
-    payload = read_json(WORKFLOW_HEALTH_FILE, {})
-    if not isinstance(payload, dict) or not payload:
-        return
-    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else payload
-    broken = int(summary.get("broken_total", 0) or 0)
-    stale = int(summary.get("stale_total", 0) or 0)
-    severity = "warning" if broken or stale else "info"
-    signals.append(
-        make_signal(
-            signal_id="workflow.health",
-            source="workflow",
-            kind="status",
-            summary=f"Workflow health: broken={broken} stale={stale}.",
-            severity=severity,
-            decision_effect="route" if severity == "warning" else "inform",
-            evidence={"summary": summary, "path": str(WORKFLOW_HEALTH_FILE)},
-        )
-    )
-
-
 def collect_render_install_signal(signals: list[dict[str, Any]]) -> None:
     payload = read_json(RENDER_INSTALL_DRIFT_FILE, {})
     if not isinstance(payload, dict) or not payload:
@@ -563,7 +541,6 @@ def build_signal_context(
     collect_primitives_signal(signals, refresh=refresh)
     collect_capabilities_signal(signals, skill=skill, refresh=refresh)
     collect_dispatch_signals(signals)
-    collect_workflow_signal(signals)
     collect_render_install_signal(signals)
     collect_recent_event_signals(signals)
 

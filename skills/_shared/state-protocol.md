@@ -63,7 +63,6 @@ Any change to these files is monitored by `edge-state-audit`:
 **Autonomy:**
 - `~/edge/autonomy/capabilities.md`
 - `~/edge/autonomy/frontier.md`
-- `~/edge/autonomy/workflows.md`
 - `~/edge/autonomy/metrics.md`
 - `~/edge/autonomy/autonomy-policy.md`
 
@@ -130,54 +129,6 @@ Rules:
 For research skills specifically: Feynman gap-resolution loops are part of the
 contract. Complete them autonomously, then publish remaining
 `[STILL DON'T UNDERSTAND: ...]` gaps if they remain.
-
----
-
-## Workflow Lookup (MANDATORY, before execution)
-
-Before starting any skill, look up relevant workflows and save the results:
-
-```bash
-edge-cap invoke search.corpus -- "terms relevant to what I'm about to do" --type workflow -k 3 | tee /tmp/edge-recalled-workflows.txt
-```
-
-Returns validated workflows (steps, secrets, when it works/fails) and anti-patterns (what didn't work and why). The results are saved to `/tmp/edge-recalled-workflows.txt` so they're available at entry-creation time (recall happens early, entry is written late).
-
-### Procedure capture in frontmatter (MANDATORY in every entry)
-
-When creating the blog entry, **read `/tmp/edge-recalled-workflows.txt`** to fill in citations:
-
-```bash
-# Recall what workflows were returned at the start of the skill
-cat /tmp/edge-recalled-workflows.txt 2>/dev/null
-```
-
-Then include procedure capture fields in frontmatter:
-
-```yaml
-# Recalled workflows that were followed and worked (MANDATORY if workflows were recalled):
-workflows_used: [workflow-slug-1, workflow-slug-2]
-
-# Recalled workflows that failed or are outdated:
-workflows_broken: [broken-workflow-slug]
-
-# If no workflows were recalled, use empty lists:
-workflows_used: []
-workflows_broken: []
-
-# NEW procedures (not covered by recalled workflows):
-procedure:
-  - "When [context], do [action] -- [result/reason]"
-  - "!When [context], avoid [action] -- [failure reason]"
-```
-
-**Rule:** `procedure:` only captures the DELTA — procedures NOT covered by the recall. If the procedure already exists as a workflow, cite in `workflows_used:` (reinforcement) or `workflows_broken:` (healing).
-
-**Note:** `consolidate-state` warns if `procedure:` is present but `workflows_used:` is missing — the pipeline expects both.
-
-See `~/.claude/skills/_shared/workflow-conventions.md` for lifecycle details.
-
----
 
 ## Source Lookup
 
@@ -251,7 +202,7 @@ If during editing you realize you need to change a file NOT proposed:
 - **Stop.** Update the proposal with `edge-state-audit propose` again.
 - Or accept that the audit will record it as a violation.
 
-### Step 5: Create blog entry + open gaps + procedures
+### Step 5: Create blog entry + open gaps
 
 #### Blog Entry Voice Contract
 
@@ -273,7 +224,7 @@ Required voice:
   move the report makes easier.
 - Use plain language and an exploratory tone; avoid implementation dumps,
   acronyms, long lists, stack traces, and dense protocol detail in the body.
-- Put technical depth in the report, notes, procedures, and metadata.
+- Put technical depth in the report, notes, and metadata.
 - End by pointing toward the reader-visible report or next question when useful,
   without turning the entry into a summary of every report section.
 - Never publish raw report scaffolding in the feed body: no duplicate H1, scope
@@ -288,17 +239,11 @@ open_gaps:
   - "Gap — thing I still don't know"
 threads: [related-thread]
 keywords: [kw1, kw2]
-
-# Procedure capture (see workflow-conventions.md)
-workflows_used: [slug-of-workflow-that-worked]
-workflows_broken: [slug-of-workflow-that-failed]
-procedure:
-  - "When [context], do [action] -- [result]"
-  - "!When [context], avoid [action] -- [reason]"
 ```
 
-Open gaps are unresolved work or uncertainty. Procedures are operational knowledge (the HOW).
-`procedure:` only captures the delta — procedures NOT covered by recalled workflows.
+Open gaps are unresolved work or uncertainty. Durable operational guidance
+belongs in topics, typed signals, or pre-skill context rather than entry-local
+procedure fields.
 
 ### Step 5b: Emit operational signals (MANDATORY — minimum 2)
 
@@ -350,11 +295,10 @@ The pipeline automatically handles:
 
 If the skill does NOT change any protected file (e.g.: pure blog entry, research):
 
-1. Look up relevant workflows (`edge-cap invoke search.corpus -- "terms" --type workflow -k 3`)
-2. Execute skill
-3. Note in scratchpad
-4. Create blog entry with open gaps when needed (+ blog entry with tag `workflow` if a new combination emerged)
-5. `consolidate-state` (Phase 0a captures snapshot, Phase 5b confirms nothing changed — OK)
+1. Execute skill with the runtime-provided exploration pack and corpus context.
+2. Note in scratchpad.
+3. Create blog entry with open gaps when needed.
+4. `consolidate-state` (Phase 0a captures snapshot, Phase 5b confirms nothing changed — OK)
 
 No proposal needed. The pipeline is backwards-compatible.
 

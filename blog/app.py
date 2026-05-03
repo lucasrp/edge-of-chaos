@@ -109,7 +109,7 @@ TAG_MAP = {
 }
 
 UNPUBLISHED_STATUSES = {"draft", "pending", "pendente", "unpublished", "private", "hidden"}
-UNPUBLISHED_TAGS = {"draft", "workflow-draft", "unpublished"}
+UNPUBLISHED_TAGS = {"draft", "unpublished"}
 
 
 def _normalized_token(value):
@@ -499,9 +499,9 @@ def root_redirect():
 @app.route("/blog/")
 @app.route("/blog")
 def blog_index():
-    """Legacy compatibility surface for feed/chat/workflow views."""
+    """Legacy compatibility surface for feed/chat views."""
     tab = request.args.get("tab", "feed")
-    if tab not in ("feed", "chat", "workflows"):
+    if tab not in ("feed", "chat"):
         tab = "feed"
 
     entries = get_entries()
@@ -567,77 +567,9 @@ def blog_index():
                                view=view,
                                is_htmx=request.headers.get("HX-Request") == "true")
 
-    elif tab == "workflows":
-        all_wf = [e for e in entries if any(t in e.get("tags", []) for t in ("workflow", "anti-pattern", "workflow-draft"))]
-        pending = [e for e in all_wf if "workflow-draft" in e.get("tags", [])]
-        approved = [e for e in all_wf if "workflow-draft" not in e.get("tags", [])]
-        sort_by = request.args.get("sort", "date")
-        if sort_by == "views":
-            approved.sort(key=lambda e: e.get("view_count", 0), reverse=True)
-        # Load proposals
-        proposals = _load_proposals()
-        return render_template("workflows.html", tab=tab, pending=pending,
-                               entries=approved, proposals=proposals,
-                               sort_by=sort_by, stats=stats,
-                               is_htmx=request.headers.get("HX-Request") == "true")
-
     elif tab == "chat":
         return render_template("chat.html", tab=tab, stats=stats,
                                is_htmx=request.headers.get("HX-Request") == "true")
-
-
-@app.route("/htmx/workflow/<slug>")
-def htmx_workflow_detail(slug):
-    entries = get_entries()
-    entry = next((e for e in entries if e.get("slug") == slug), None)
-    if not entry:
-        return "<p>Workflow not found.</p>", 404
-    render_page_html([entry])
-    return render_template("partials/workflow_detail.html", entry=entry)
-
-
-@app.route("/workflows/<slug>/approve", methods=["POST"])
-def workflow_approve(slug):
-    """Approve a workflow draft: change tag from workflow-draft to workflow.
-
-    Accepts optional JSON body with edited content:
-      {"body_md": "new markdown content"}
-    """
-    entries_dir = ENTRIES_DIR
-    path = next(entries_dir.glob(f"*{slug}*"), None)
-    if not path:
-        return jsonify({"error": "not found"}), 404
-    text = path.read_text()
-    parts = text.split("---", 2)
-    if len(parts) >= 3:
-        parts[1] = parts[1].replace("workflow-draft", "workflow")
-        # Apply edited body if provided
-        try:
-            data = request.get_json(silent=True) or {}
-            new_body = data.get("body_md")
-            if new_body is not None:
-                parts[2] = "\n\n" + new_body.strip() + "\n"
-        except Exception:
-            pass
-        path.write_text("---".join(parts))
-    invalidate_cache()
-    return "", 204
-
-
-@app.route("/workflows/<slug>/reject", methods=["POST"])
-def workflow_reject(slug):
-    """Reject a workflow draft: change tag to workflow-rejected."""
-    entries_dir = ENTRIES_DIR
-    path = next(entries_dir.glob(f"*{slug}*"), None)
-    if not path:
-        return jsonify({"error": "not found"}), 404
-    text = path.read_text()
-    parts = text.split("---", 2)
-    if len(parts) >= 3:
-        parts[1] = parts[1].replace("workflow-draft", "workflow-rejected")
-        path.write_text("---".join(parts))
-    invalidate_cache()
-    return "", 204
 
 
 @app.route("/proposals/<proposal_id>/approve", methods=["POST"])
@@ -1094,17 +1026,14 @@ def api_diffs():
 @app.route("/api/search")
 def api_search():
     try:
-        from search import search_with_sidecar, hybrid_search
+        from search import search_with_sidecar
         q = request.args.get("q", "")
         limit = int(request.args.get("limit", "10"))
         doc_type = request.args.get("type")
         if not q:
             return jsonify({"error": "q parameter is required"}), 400
-        if doc_type == "workflow":
-            results = hybrid_search(q, limit=limit, doc_type=doc_type)
-            return jsonify({"results": results, "workflows": []})
-        results, workflows = search_with_sidecar(q, limit=limit, doc_type=doc_type)
-        return jsonify({"results": results, "workflows": workflows})
+        results, sidecar = search_with_sidecar(q, limit=limit, doc_type=doc_type)
+        return jsonify({"results": results, "sidecar": sidecar})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

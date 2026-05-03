@@ -18,8 +18,8 @@ trap cleanup EXIT
 mkdir -p "$TMP_STATE/state/events"
 
 cat >"$TMP_STATE/state/events/log.jsonl" <<'JSONL'
-{"ts":"2026-04-24T01:00:00+00:00","type":"OdiObserved","payload":{"odi_id":"odi-hn-1","source_id":"source.hn","primitive":"edge-sources","context":"discovery","query":"agent search workflows","title":"HN discussion","url":"https://news.ycombinator.com/item?id=1","rank":1,"score":120}}
-{"ts":"2026-04-24T01:01:00+00:00","type":"OdiObserved","payload":{"odi_id":"odi-docs-1","source_id":"source.docs","primitive":"edge-sources","context":"confirmation","query":"agent search workflows","title":"Official docs","url":"https://example.com/docs","rank":1,"score":10}}
+{"ts":"2026-04-24T01:00:00+00:00","type":"OdiObserved","payload":{"odi_id":"odi-hn-1","source_id":"source.hn","primitive":"edge-sources","context":"discovery","query":"agent search patterns","title":"HN discussion","url":"https://news.ycombinator.com/item?id=1","rank":1,"score":120}}
+{"ts":"2026-04-24T01:01:00+00:00","type":"OdiObserved","payload":{"odi_id":"odi-docs-1","source_id":"source.docs","primitive":"edge-sources","context":"confirmation","query":"agent search patterns","title":"Official docs","url":"https://example.com/docs","rank":1,"score":10}}
 JSONL
 
 echo "=== source affordance digest Smoke Test ==="
@@ -30,8 +30,8 @@ EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="afftest" \
   --score 5 \
   --context "early technical signal" \
   --odi odi-hn-1 \
-  --query "agent search workflows" \
-  --reason "surfaced a new workflow pattern before official docs" >/dev/null
+  --query "agent search patterns" \
+  --reason "surfaced a new source pattern before official docs" >/dev/null
 
 EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="afftest" \
   "$EDGE_DIR/tools/edge-affordance" evaluate source.docs \
@@ -39,7 +39,7 @@ EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="afftest" \
   --score 4 \
   --context "primary evidence" \
   --odi odi-docs-1 \
-  --query "agent search workflows" \
+  --query "agent search patterns" \
   --reason "confirmed exact behavior" >/dev/null
 
 if EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="afftest" \

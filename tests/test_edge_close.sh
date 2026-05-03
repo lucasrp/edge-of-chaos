@@ -43,8 +43,6 @@ procedures:
     kind: capabilities.status
   - id: corpus
     kind: corpus.lookup
-  - id: workflows
-    kind: workflow.status
   - id: queue
     kind: queue.status
   - id: onboarding
@@ -64,8 +62,6 @@ procedures:
     kind: primitives.status
   - id: capabilities
     kind: capabilities.status
-  - id: workflows
-    kind: workflow.status
   - id: curation
     kind: curation.digest
   - id: briefing

@@ -23,8 +23,6 @@ procedures:
     kind: source.bindings
   - id: corpus
     kind: corpus.lookup
-  - id: workflows
-    kind: workflow.status
   - id: queue
     kind: queue.status
   - id: onboarding

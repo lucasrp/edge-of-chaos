@@ -969,37 +969,7 @@ if [[ -n "$REPORT_HTML" && "$REPORT_RESULT" == "ok" ]]; then
     fi
 fi
 
-# ─── PHASE 3.3: Workflow citation check ───
-python3 -c "
-import yaml, sys
-try:
-    raw = open('$ENTRY_PATH').read()
-    parts = raw.split('---', 2)
-    if len(parts) >= 3:
-        fm = yaml.safe_load(parts[1]) or {}
-        has_procedure = bool(fm.get('procedure'))
-        has_wf_used = 'workflows_used' in fm
-        has_wf_broken = 'workflows_broken' in fm
-        if has_procedure and not has_wf_used and not has_wf_broken:
-            print('MISSING_CITATIONS')
-        else:
-            print('OK')
-    else:
-        print('OK')
-except:
-    print('OK')
-" 2>/dev/null | {
-    read WF_CHECK
-    if [[ "$WF_CHECK" == "MISSING_CITATIONS" ]]; then
-        warn "Entry has procedure: but no workflows_used:/workflows_broken: — check /tmp/edge-recalled-workflows.txt and add citations"
-        # Record as friction signal so reflection catches it across sessions
-        if command -v edge-signal &>/dev/null; then
-            edge-signal friction "Entry $SLUG: procedure without workflows_used/broken citations" --source consolidate-state 2>/dev/null || true
-        fi
-    fi
-}
-
-# ─── PHASE 3.4: Inject review metadata into frontmatter ───
+# ─── PHASE 3.3: Inject review metadata into frontmatter ───
 if [[ -n "${TOTAL_LLM_COST:-}" && "$TOTAL_LLM_COST" != "0" ]] || [[ -n "${REVIEW_SCORE:-}" ]] || [[ -n "${FEYNMAN_SCORE:-}" ]]; then
     if TOTAL_LLM_COST_VALUE="${TOTAL_LLM_COST:-}" REVIEW_SCORE_VALUE="${REVIEW_SCORE:-}" FEYNMAN_SCORE_VALUE="${FEYNMAN_SCORE:-}" python3 - "$ENTRY_PATH" "$ENTRIES_DIR/$SLUG.md" <<'PY' 2>/dev/null
 import os
@@ -1092,14 +1062,6 @@ def fail(msg): print(f"  {RED}FAIL{NC}: {msg}")
 FAILURES_FILE = Path(os.environ.get("PIPELINE_FAILURES_FILE", os.path.expanduser("~/edge/logs/pipeline-failures.jsonl")))
 FAILURES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-tools_dir = Path(os.environ.get("TOOLS_DIR", str(Path.home() / "edge" / "tools")))
-if str(tools_dir) not in sys.path:
-    sys.path.insert(0, str(tools_dir))
-try:
-    from _shared.telemetry import log_workflow_observed  # type: ignore
-except Exception:
-    log_workflow_observed = None
-
 def log_failure(phase, operation, error, tb=None):
     """Log pipeline failure to persistent JSONL for post-mortem analysis."""
     entry = {
@@ -1130,9 +1092,6 @@ except Exception as e:
 
 threads = fm.get("threads", [])
 open_gaps = fm.get("open_gaps", [])
-procedures = fm.get("procedure", [])
-workflows_used = fm.get("workflows_used", [])
-workflows_broken = fm.get("workflows_broken", [])
 title = fm.get("title", slug)
 today = datetime.now().strftime("%Y-%m-%d")
 
@@ -1165,78 +1124,7 @@ except Exception as e:
     log_failure("5", "thread_update", e, traceback.format_exc())
     warn(f"Thread update failed: {e}")
 
-# ── 2b. Procedure & workflow signals ──
-try:
-    state_dir = Path(os.environ.get("STATE_DIR", os.path.expanduser("~/edge/state")))
-    state_dir.mkdir(parents=True, exist_ok=True)
-    health_file = state_dir / "workflow-health.json"
-
-    # Load existing health data
-    health = {}
-    if health_file.exists():
-        try:
-            health = json.loads(health_file.read_text())
-        except Exception:
-            health = {}
-
-    citations = health.get("citations", {})
-    updated = False
-
-    # Process workflows_used (reinforcement)
-    for wslug in workflows_used:
-        if wslug not in citations:
-            citations[wslug] = {"used": 0, "broken": 0, "last_cited": ""}
-        citations[wslug]["used"] += 1
-        citations[wslug]["last_cited"] = today
-        updated = True
-        if log_workflow_observed is not None:
-            log_workflow_observed(
-                wslug,
-                mode="used",
-                artifact=f"blog/entries/{slug}.md",
-                cycle_id=os.environ.get("EDGE_CYCLE_ID"),
-                title=title,
-            )
-
-    # Process workflows_broken (healing signal)
-    for wslug in workflows_broken:
-        if wslug not in citations:
-            citations[wslug] = {"used": 0, "broken": 0, "last_cited": ""}
-        citations[wslug]["broken"] += 1
-        citations[wslug]["last_cited"] = today
-        updated = True
-        if log_workflow_observed is not None:
-            log_workflow_observed(
-                wslug,
-                mode="broken",
-                artifact=f"blog/entries/{slug}.md",
-                cycle_id=os.environ.get("EDGE_CYCLE_ID"),
-                title=title,
-            )
-
-    if updated:
-        health["citations"] = citations
-        health["updated_at"] = datetime.now(timezone.utc).isoformat()
-        health_file.write_text(json.dumps(health, indent=2, ensure_ascii=False))
-
-    # Report
-    proc_anti = sum(1 for p in procedures if isinstance(p, str) and p.startswith("!"))
-    parts = []
-    if procedures:
-        parts.append(f"Procedures: {len(procedures)} ({proc_anti} anti-patterns)")
-    if workflows_used:
-        parts.append(f"Workflows used: {', '.join(workflows_used)}")
-    if workflows_broken:
-        parts.append(f"Workflows broken: {', '.join(workflows_broken)}")
-    if parts:
-        ok("; ".join(parts))
-    # No warning if empty — procedures are delta-only, not mandatory every time
-
-except Exception as e:
-    log_failure("5", "procedure_workflow", e, traceback.format_exc())
-    warn(f"Procedure/workflow processing failed: {e}")
-
-# ── 2c. Typed signals (edge-signal) ──
+# ── 2b. Typed signals (edge-signal) ──
 try:
     signal_types = ["autonomy", "strategy", "reflection", "friction", "decision", "serendipity"]
     signal_count = 0
@@ -1291,13 +1179,6 @@ try:
             event["thread_id"] = threads[0]
         if open_gaps:
             event["open_gaps_count"] = len(open_gaps)
-        if procedures:
-            event["procedures_count"] = len(procedures)
-        if workflows_used:
-            event["workflows_used"] = workflows_used
-        if workflows_broken:
-            event["workflows_broken"] = workflows_broken
-
         events_file.parent.mkdir(parents=True, exist_ok=True)
         with open(events_file, "a") as f:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
@@ -1704,29 +1585,6 @@ if open_gaps:
         lines.append(f"  - {gap}")
     lines.append("")
 
-procedures = fm.get("procedure", [])
-wf_used = fm.get("workflows_used", [])
-wf_broken = fm.get("workflows_broken", [])
-
-if procedures:
-    proc_new = [p for p in procedures if isinstance(p, str) and not p.startswith("!")]
-    proc_anti = [p for p in procedures if isinstance(p, str) and p.startswith("!")]
-    if proc_new:
-        lines.append(f"procedures ({len(proc_new)}):")
-        for p in proc_new:
-            lines.append(f"  - {p}")
-        lines.append("")
-    if proc_anti:
-        lines.append(f"anti-patterns ({len(proc_anti)}):")
-        for p in proc_anti:
-            lines.append(f"  - {p.lstrip('! ')}")
-        lines.append("")
-
-if wf_used:
-    lines.append(f"workflows-used: {', '.join(wf_used)}")
-if wf_broken:
-    lines.append(f"workflows-broken: {', '.join(wf_broken)}")
-
 if threads:
     lines.append(f"threads: {', '.join(threads)}")
 if tags:
@@ -1742,9 +1600,6 @@ lines.append("")
 meta = {
     "title": title,
     "open_gaps": len(open_gaps),
-    "procedures": len(procedures),
-    "workflows_used": wf_used,
-    "workflows_broken": wf_broken,
     "threads": threads,
     "tags": tags,
     "state": state_label,

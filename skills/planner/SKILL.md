@@ -57,7 +57,7 @@ Do not create the repository or scaffold files from this skill. Define what shou
 
 ### Repair Cycle
 
-Use when the goal is to fix drift, broken runtime behavior, stale artifacts, or degraded workflow.
+Use when the goal is to fix drift, broken runtime behavior, stale artifacts, or degraded execution.
 
 Make the failure mode and regression test explicit.
 
@@ -108,7 +108,7 @@ The proposal must make the future work visible.
 
 Include concrete examples:
 
-- before/after for behavior, workflow, UI, data, or file structure;
+- before/after for behavior, UI, data, or file structure;
 - input -> output examples for key pipeline pieces;
 - example config, schema, command, API payload, or file content;
 - mock success/failure result when useful.

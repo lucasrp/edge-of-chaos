@@ -80,16 +80,7 @@ def _extract_html_text(html: str) -> tuple[str | None, str]:
 
 def _detect_type(path: Path, meta: dict | None = None) -> str:
     """Detect document type from path and frontmatter metadata.
-
-    Workflow entries are blog entries with 'workflow' in their tags.
-    Frontmatter-based detection takes priority over path-based for workflows.
     """
-    # Check frontmatter tags for workflow type
-    if meta:
-        tags = meta.get("tags", [])
-        if isinstance(tags, list) and "workflow" in tags:
-            return "workflow"
-
     s = str(path)
     if "/notes/" in s:
         return "note"

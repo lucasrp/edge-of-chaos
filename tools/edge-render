@@ -129,7 +129,6 @@ def _render_preflight_protocol(cfg: dict) -> str:
             {"id": "capabilities-status", "kind": "capabilities.status"},
             {"id": "source-bindings", "kind": "source.bindings"},
             {"id": "corpus-lookup", "kind": "corpus.lookup"},
-            {"id": "workflow-status", "kind": "workflow.status"},
             {"id": "queue-status", "kind": "queue.status"},
             {"id": "onboarding-status", "kind": "onboarding.status"},
         ],
@@ -149,7 +148,6 @@ def _render_postflight_protocol(cfg: dict) -> str:
             {"id": "pipeline-state", "kind": "pipeline_state.refresh"},
             {"id": "primitives-status", "kind": "primitives.status"},
             {"id": "capabilities-status", "kind": "capabilities.status"},
-            {"id": "workflow-status", "kind": "workflow.status"},
             {"id": "source-affordances", "kind": "source_affordance.digest"},
             {"id": "curation-digest", "kind": "curation.digest"},
             {"id": "briefing-refresh", "kind": "briefing.refresh"},
@@ -269,9 +267,8 @@ def load_agent_yaml(path: Path) -> dict:
         item for item in _normalize_list(cfg.get("agent_mandates")) if str(item).strip()
     ]
 
-    # Normalize `routines:` (free-form operator-authored workflows, #90).
-    # Rendered later by edge-apply's phase_routines — here we just preserve
-    # the list for downstream reads.
+    # Normalize legacy `routines:` as pre-skill context. They are bootstrap
+    # operator guidance, not a separate artifact category.
     cfg["routines"] = [
         r for r in _normalize_list(cfg.get("routines")) if r and r.strip()
     ]
@@ -318,7 +315,8 @@ def load_agent_yaml(path: Path) -> dict:
         pre_procedure = pre_alias
         pre_alias = []
 
-    cfg["pre_skill_context"] = pre_context
+    routine_context = [f"Operator routine: {item}" for item in cfg["routines"]]
+    cfg["pre_skill_context"] = pre_context + routine_context
     cfg["pre_skill_procedure"] = pre_procedure
     # `pre_skill` kept as the combined list for any downstream consumer that
     # still reads it as a flat sequence (docs, old tooling, etc.).

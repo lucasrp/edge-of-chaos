@@ -11,7 +11,7 @@ runtime_owned_lifecycle:
   - preflight
   - dispatch
   - async inbox capture
-  - corpus/workflow/health projections
+  - corpus/health projections
   - exploration pack
   - publication/review gates
   - postflight
@@ -54,8 +54,8 @@ skills:
     - "persistence:Record or route the discovery when it should affect future work"
 
   ed-autonomy:
-    - "diagnosis:Identify a substrate capability, primitive, workflow, or friction gap"
-    - "decision:Classify each finding as act, probe, workflow, blocked, or route"
+    - "diagnosis:Identify a substrate capability, primitive, pre-skill-context, or friction gap"
+    - "decision:Classify each finding as act, probe, context, blocked, or route"
     - "change:Apply or attempt reachable reversible substrate improvements"
     - "verification:Read back evidence, residual risk, and next route"
 
@@ -73,8 +73,8 @@ skills:
 
   ed-sources:
     - "history:Inspect source/search/signal evidence or feedback"
-    - "assessment:Grade channel/query/workflow usefulness and failure modes"
-    - "curation:Merge, archive, repair, or add source workflows within the active limit"
+    - "assessment:Grade channel/query usefulness and failure modes"
+    - "curation:Merge, archive, repair, or add source patterns within the active limit"
     - "verification:Verify the source surface or record why it remains blocked"
 
   ed-heartbeat:

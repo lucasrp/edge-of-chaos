@@ -380,11 +380,11 @@ def log_search_query(
     mode: str,
     status: str,
     result_count: int = 0,
-    workflow_count: int = 0,
+    sidecar_count: int = 0,
     doc_type: str | None = None,
     **extra: Any,
 ) -> None:
-    """Structured search/workflow-recall event."""
+    """Structured search event."""
     query_norm = re.sub(r"\s+", " ", query.lower()).strip()
     extra.setdefault("skill", current_skill())
     extra.setdefault("beat", current_beat())
@@ -395,7 +395,7 @@ def log_search_query(
         mode=mode,
         status=status,
         result_count=result_count,
-        workflow_count=workflow_count,
+        sidecar_count=sidecar_count,
         doc_type=doc_type or "",
         **extra,
     )
@@ -997,58 +997,9 @@ def time_primitive(source: str, notes: dict[str, Any] | None = None):
         log_primitive_call(source, ok=ok, latency_ms=dt_ms, notes=notes)
 
 
-def log_workflow_transition(
-    slug: str,
-    from_state: str,
-    to_state: str,
-    *,
-    approved_by: str | None = None,
-    **extra: Any,
-) -> None:
-    """Workflow lifecycle event: claim → cluster → draft → approved → cited → broken → healed → retired."""
-    extra.setdefault("skill", current_skill())
-    extra.setdefault("beat", current_beat())
-    log_event(
-        "workflow_transition",
-        slug=slug,
-        **{"from": from_state, "to": to_state},
-        approved_by=approved_by,
-        **extra,
-    )
-
-
-def log_workflow_observed(
-    slug: str,
-    *,
-    mode: str,
-    artifact: str | None = None,
-    **extra: Any,
-) -> None:
-    """Record that a workflow was cited as used or broken by an artifact."""
-    shadow_type = "WorkflowBrokenObserved" if mode == "broken" else "WorkflowUsedObserved"
-    log_event(
-        "workflow_observed",
-        slug=slug,
-        mode=mode,
-        artifact=artifact or "",
-        **extra,
-    )
-    emit_shadow_event(
-        shadow_type,
-        actor=_detect_caller(),
-        artifact=artifact,
-        cycle_id=extra.get("cycle_id"),
-        payload={
-            "slug": slug,
-            "mode": mode,
-            **{k: v for k, v in extra.items() if k not in {"cycle_id", "artifact"}},
-        },
-    )
-
-
 def log_resolution(
     *,
-    obj_type: str,  # claim | friction | workflow_broken | issue | thread
+    obj_type: str,  # claim | friction | issue | thread
     obj_id: str,
     opened_at: str | None,
     resolution: str,
@@ -1108,9 +1059,7 @@ __all__ = [
     "log_odi_observed",
     "log_source_affordance_evaluated",
     "log_exploration_event",
-    "log_workflow_observed",
     "time_primitive",
-    "log_workflow_transition",
     "log_resolution",
     "log_operator_correction",
     "estimate_cost_usd",

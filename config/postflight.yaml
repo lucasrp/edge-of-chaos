@@ -13,8 +13,6 @@ procedures:
     kind: primitives.status
   - id: capabilities
     kind: capabilities.status
-  - id: workflows
-    kind: workflow.status
   - id: source-affordances
     kind: source_affordance.digest
   - id: briefing

@@ -32,12 +32,12 @@ exec(compile(module, path, "exec"), namespace)
 
 is_entry_published = namespace["is_entry_published"]
 
-assert is_entry_published({}, ["workflow"]) is True
-assert is_entry_published({"status": "approved"}, ["workflow", "operator-authored"]) is True
-assert is_entry_published({"status": "draft"}, ["workflow"]) is False
-assert is_entry_published({"status": "pending"}, ["workflow"]) is False
-assert is_entry_published({"status": "pendente"}, ["workflow"]) is False
-assert is_entry_published({}, ["workflow-draft"]) is False
+assert is_entry_published({}, ["report"]) is True
+assert is_entry_published({"status": "approved"}, ["operator-authored"]) is True
+assert is_entry_published({"status": "draft"}, ["report"]) is False
+assert is_entry_published({"status": "pending"}, ["report"]) is False
+assert is_entry_published({"status": "pendente"}, ["report"]) is False
+assert is_entry_published({}, ["draft"]) is False
 
 assert "pipeline_complete = bool(report_name and (REPORTS_DIR / report_name).exists())" in source
 assert '"pipeline_status": "complete" if pipeline_complete else "missing_report"' in source

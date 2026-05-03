@@ -99,20 +99,6 @@ cat >"$TMP_STATE/state/capabilities-status.json" <<'JSON'
 }
 JSON
 
-cat >"$TMP_STATE/blog/entries/2026-04-01-sources-research-consult-report.md" <<'MD'
----
-title: Sources Research Consult Report
-date: 2026-04-01
-tags: [workflow]
----
-MD
-cat >"$TMP_STATE/blog/entries/2026-04-01-stale-playwright-validation.md" <<'MD'
----
-title: Stale Playwright Validation
-date: 2026-04-01
-tags: [workflow]
----
-MD
 ts_recent_1="$(date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%S+00:00)"
 ts_recent_2="$(date -u -d '5 hours ago' +%Y-%m-%dT%H:%M:%S+00:00)"
 ts_recent_3="$(date -u -d '4 hours ago' +%Y-%m-%dT%H:%M:%S+00:00)"
@@ -120,16 +106,6 @@ ts_recent_4="$(date -u -d '3 hours ago' +%Y-%m-%dT%H:%M:%S+00:00)"
 ts_recent_5="$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%S+00:00)"
 ts_recent_6="$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S+00:00)"
 ts_recent_7="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%S+00:00)"
-ts_old="$(date -u -d '120 days ago' +%Y-%m-%dT%H:%M:%S+00:00)"
-
-cat >"$TMP_STATE/state/workflow-health.json" <<JSON
-{
-  "citations": {
-    "2026-04-01-sources-research-consult-report": {"used": 2, "broken": 0, "last_cited": "$ts_recent_1"},
-    "2026-04-01-stale-playwright-validation": {"used": 1, "broken": 3, "last_cited": "$ts_old"}
-  }
-}
-JSON
 
 cat >"$TMP_STATE/state/events/log.jsonl" <<JSONL
 {"ts":"$ts_recent_1","type":"CycleStarted","cycle_id":"cycle-1","payload":{}}
@@ -142,7 +118,6 @@ cat >"$TMP_STATE/state/events/log.jsonl" <<JSONL
 {"ts":"$ts_recent_3","type":"PostflightFailed","cycle_id":"cycle-2","payload":{}}
 {"ts":"$ts_recent_4","type":"ThreadTouched","payload":{"thread_id":"alpha-thread"}}
 {"ts":"$ts_recent_5","type":"OpenGapObserved","payload":{"text":"gap-x","threads":["alpha-thread"]}}
-{"ts":"$ts_recent_6","type":"WorkflowUsedObserved","payload":{"slug":"2026-04-01-sources-research-consult-report"}}
 {"ts":"$ts_recent_7","type":"PrimitiveManifestUpdated","payload":{"source":"grafana"}}
 {"ts":"$ts_recent_7","type":"PrimitiveMaterialized","payload":{"source":"grafana"}}
 {"ts":"$ts_recent_7","type":"PrimitiveProbeCompleted","payload":{"source":"grafana","ok":true}}
@@ -160,7 +135,7 @@ if env HOME="$TMP_HOME" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" py
   else
     fail "schema_version was not 2"
   fi
-  if jq -e '.dimensions.runtime_flow and .dimensions.continuity and .dimensions.capabilities and .dimensions.workflows and .dimensions.renewal and .dimensions.substrate_discipline and .dimensions.api_runtime' "$TMP_STATE/health/current.json" >/dev/null; then
+  if jq -e '.dimensions.runtime_flow and .dimensions.continuity and .dimensions.capabilities and .dimensions.renewal and .dimensions.substrate_discipline and .dimensions.api_runtime' "$TMP_STATE/health/current.json" >/dev/null; then
     pass "health v2 dimensions are present"
   else
     fail "health v2 dimensions missing"
@@ -169,11 +144,6 @@ if env HOME="$TMP_HOME" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" py
     pass "runtime_flow captured heartbeat timeouts"
   else
     fail "runtime_flow did not capture heartbeat timeouts"
-  fi
-  if [[ "$(jq -r '.dimensions.workflows.metrics.citation_events_30d' "$TMP_STATE/health/current.json")" == "1" ]]; then
-    pass "workflow dimension captured workflow citation events"
-  else
-    fail "workflow citation count wrong"
   fi
   if [[ "$(jq -r '.dimensions.substrate_discipline.metrics.primitive_bypass_30d' "$TMP_STATE/health/current.json")" == "1" ]]; then
     pass "substrate discipline captured primitive bypass"
