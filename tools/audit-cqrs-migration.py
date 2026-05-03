@@ -68,6 +68,7 @@ def _run_projection() -> Check:
         f"artifacts={summary.get('artifacts_total', 0)} "
         f"attention={summary.get('artifacts_attention', 0)} "
         f"complete={counts.get('complete', 0)} "
+        f"standdown={counts.get('standdown', 0)} "
         f"blocked={counts.get('blocked', 0)} "
         f"failed={counts.get('failed', 0)} "
         f"orphaned_publish={counts.get('orphaned_publish', 0)}"

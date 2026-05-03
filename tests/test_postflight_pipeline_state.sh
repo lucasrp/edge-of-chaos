@@ -27,6 +27,7 @@ cat >"$TMP_STATE/state/events/log.jsonl" <<'JSONL'
 {"ts":"2026-04-26T10:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-ok","artifact":"blog/entries/ok.md","payload":{"pipeline":"consolidate-state","phase":"pipeline","ok":true},"prev_hash":"sha256:root"}
 {"ts":"2026-04-26T10:01:00+00:00","type":"ArtifactPublished","actor":"continuity","cycle_id":"cycle-ok","artifact":"blog/entries/ok.md","payload":{"source_skill":"research"},"prev_hash":"sha256:a"}
 {"ts":"2026-04-26T11:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-bad","artifact":"blog/entries/bad.md","payload":{"pipeline":"consolidate-state","phase":"3","ok":false,"reason":"verification failed"},"prev_hash":"sha256:b"}
+{"ts":"2026-04-26T12:00:00+00:00","type":"ArtifactStanddownRecorded","actor":"edge-runner","cycle_id":"cycle-standdown","artifact":"state/runtime/standdowns/cycle-standdown-discovery.md","payload":{"source_skill":"discovery","skill":"discovery","status":"standdown","reason":"principled_standdown"},"prev_hash":"sha256:c"}
 JSONL
 
 echo "=== postflight pipeline-state Smoke Test ==="
@@ -85,6 +86,34 @@ then
     pass "postflight pipeline-state step warns on current-cycle blocked artifacts"
 else
     fail "postflight pipeline-state step warns on current-cycle blocked artifacts"
+fi
+
+echo "--- Test 3: current-cycle accepted standdown satisfies pipeline-state step ---"
+if python3 - <<'PY' "$EDGE_DIR"
+import importlib.machinery
+import importlib.util
+import sys
+from pathlib import Path
+
+edge_dir = Path(sys.argv[1])
+loader = importlib.machinery.SourceFileLoader("edge_postflight", str(edge_dir / "tools" / "edge-postflight"))
+spec = importlib.util.spec_from_loader("edge_postflight", loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+
+result = module._execute_postflight_step(
+    {"id": "pipeline-state", "kind": "pipeline_state.refresh"},
+    {"cycle_id": "cycle-standdown", "request": {}, "state": {}},
+)
+assert result["status"] == "ok", result
+assert result["satisfied"] is True, result
+assert result["payload"]["summary"]["counts_by_status"]["standdown"] == 1
+assert result.get("current_attention") in (None, []), result
+PY
+then
+    pass "postflight pipeline-state step is OK for accepted standdown cycles"
+else
+    fail "postflight pipeline-state step is OK for accepted standdown cycles"
 fi
 
 echo ""

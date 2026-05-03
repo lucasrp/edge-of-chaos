@@ -18,7 +18,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / "config"))
 from paths import PIPELINE_STATE_FILE, STATE_EVENTS_FILE  # noqa: E402
 
-PIPELINE_EVENT_TYPES = {"PhaseCompleted", "ArtifactPublished"}
+PIPELINE_EVENT_TYPES = {"PhaseCompleted", "ArtifactPublished", "ArtifactStanddownRecorded"}
 TRUE_VALUES = {"1", "true", "yes", "ok", "success", "succeeded", "completed", "pass", "passed"}
 FALSE_VALUES = {"0", "false", "no", "fail", "failed", "error", "blocked", "aborted"}
 TERMINAL_PHASES = {"pipeline", "pipeline-end", "pipeline_end"}
@@ -93,12 +93,15 @@ def _build_empty_artifact(artifact: str) -> dict[str, Any]:
         "last_event_at": "",
         "published_at": "",
         "published": False,
+        "standdown": False,
+        "standdown_at": "",
+        "standdown_reason": "",
         "runtime_stdout_artifact": False,
         "terminal_phase_status": "",
         "terminal_phase_at": "",
         "phase_counts": {"ok": 0, "failed": 0, "unknown": 0},
         "phases": [],
-        "event_counts": {"PhaseCompleted": 0, "ArtifactPublished": 0},
+        "event_counts": {"PhaseCompleted": 0, "ArtifactPublished": 0, "ArtifactStanddownRecorded": 0},
         "event_lines": [],
         "reasons": [],
     }
@@ -175,6 +178,23 @@ def _apply_artifact_published(record: dict[str, Any], event: dict[str, Any], pay
     _merge_first(record, "hash", payload.get("hash"))
 
 
+def _apply_artifact_standdown(record: dict[str, Any], event: dict[str, Any], payload: dict[str, Any]) -> None:
+    _touch_artifact(record, event)
+    record["event_counts"]["ArtifactStanddownRecorded"] = (
+        int(record["event_counts"].get("ArtifactStanddownRecorded") or 0) + 1
+    )
+    record["standdown"] = True
+    if not record.get("standdown_at") or _timestamp(event) >= str(record.get("standdown_at") or ""):
+        record["standdown_at"] = _timestamp(event)
+    _merge_first(record, "pipeline", payload.get("pipeline") or event.get("actor"))
+    _merge_first(record, "source_skill", payload.get("source_skill") or payload.get("skill"))
+
+    reason = str(payload.get("reason") or payload.get("status") or "standdown").strip()
+    if reason:
+        record["standdown_reason"] = reason
+        record["reasons"].append(reason)
+
+
 def _classify(record: dict[str, Any]) -> str:
     phase_total = int(record["event_counts"].get("PhaseCompleted") or 0)
     published = bool(record.get("published"))
@@ -183,6 +203,8 @@ def _classify(record: dict[str, Any]) -> str:
 
     if record.get("runtime_stdout_artifact"):
         return "runtime_bypass"
+    if record.get("standdown"):
+        return "standdown"
     if published and phase_total == 0:
         return "orphaned_publish"
     if terminal == "ok":
@@ -223,6 +245,8 @@ def build_projection(limit: int = 50, events_path: Path = STATE_EVENTS_FILE) -> 
             _apply_phase_completed(record, event, payload)
         elif etype == "ArtifactPublished":
             _apply_artifact_published(record, event, payload)
+        elif etype == "ArtifactStanddownRecorded":
+            _apply_artifact_standdown(record, event, payload)
 
     for record in artifacts.values():
         record["status"] = _classify(record)
@@ -294,6 +318,7 @@ def main() -> int:
             f"attention={summary['artifacts_attention']} "
             f"complete={counts.get('complete', 0)} "
             f"partial={counts.get('partial', 0)} "
+            f"standdown={counts.get('standdown', 0)} "
             f"blocked={counts.get('blocked', 0)} "
             f"failed={counts.get('failed', 0)} "
             f"orphaned_publish={counts.get('orphaned_publish', 0)})"

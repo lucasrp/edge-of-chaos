@@ -19,6 +19,7 @@ cat >"$TMP_STATE/state/events/log.jsonl" <<'JSONL'
 {"ts":"2026-04-26T15:00:00+00:00","type":"PhaseCompleted","actor":"consolidate-state","cycle_id":"cycle-no-artifact","payload":{"pipeline":"consolidate-state","phase":"1","ok":true},"prev_hash":"sha256:h"}
 {"ts":"2026-04-26T16:00:00+00:00","type":"PhaseCompleted","actor":"edge-runner","cycle_id":"cycle-runtime","artifact":"blog/entries/runtime.md","payload":{"pipeline":"runtime-stdout-artifact","phase":"pipeline","ok":true,"auto_published":true},"prev_hash":"sha256:i"}
 {"ts":"2026-04-26T16:01:00+00:00","type":"ArtifactPublished","actor":"continuity","cycle_id":"cycle-runtime","artifact":"blog/entries/runtime.md","payload":{"hash":"sha256:runtime","source_skill":"report","pipeline":"runtime-stdout-artifact","auto_published":true},"prev_hash":"sha256:j"}
+{"ts":"2026-04-26T17:00:00+00:00","type":"ArtifactStanddownRecorded","actor":"edge-runner","cycle_id":"cycle-standdown","artifact":"state/runtime/standdowns/cycle-standdown-research.md","payload":{"source_skill":"research","skill":"research","status":"standdown","reason":"principled_standdown"},"prev_hash":"sha256:k"}
 JSONL
 
 echo "=== pipeline state projection test ==="
@@ -35,11 +36,12 @@ projection = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 summary = projection["summary"]
 by_artifact = {item["artifact"]: item for item in projection["recent_artifacts"]}
 
-assert summary["artifacts_total"] == 6, summary
+assert summary["artifacts_total"] == 7, summary
 assert summary["artifacts_attention"] == 5, summary
 assert summary["orphan_events_without_artifact"] == 1, summary
 assert summary["counts_by_status"]["complete"] == 1, summary
 assert summary["counts_by_status"]["partial"] == 1, summary
+assert summary["counts_by_status"]["standdown"] == 1, summary
 assert summary["counts_by_status"]["blocked"] == 1, summary
 assert summary["counts_by_status"]["failed"] == 1, summary
 assert summary["counts_by_status"]["orphaned_publish"] == 1, summary
@@ -74,6 +76,13 @@ assert runtime["status"] == "runtime_bypass"
 assert runtime["published"] is False
 assert runtime["runtime_stdout_artifact"] is True
 assert runtime["reasons"] == ["runtime_stdout_artifact_rejected"]
+
+standdown = by_artifact["state/runtime/standdowns/cycle-standdown-research.md"]
+assert standdown["status"] == "standdown"
+assert standdown["standdown"] is True
+assert standdown["standdown_reason"] == "principled_standdown"
+assert standdown["source_skill"] == "research"
+assert standdown["event_counts"]["ArtifactStanddownRecorded"] == 1
 PY
 
 EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" \
@@ -83,12 +92,12 @@ python3 - <<'PY' /tmp/edge-replay-pipeline-state.json
 import json
 import sys
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
-assert payload["summary"]["artifacts_total"] == 6
+assert payload["summary"]["artifacts_total"] == 7
 assert payload["summary"]["artifacts_attention"] == 5
 PY
 
 SUMMARY_OUTPUT="$(EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" "$EDGE_DIR/tools/edge-replay" pipeline-state --no-write)"
-if echo "$SUMMARY_OUTPUT" | grep -q "complete=1" && echo "$SUMMARY_OUTPUT" | grep -q "blocked=1"; then
+if echo "$SUMMARY_OUTPUT" | grep -q "complete=1" && echo "$SUMMARY_OUTPUT" | grep -q "standdown=1" && echo "$SUMMARY_OUTPUT" | grep -q "blocked=1"; then
   echo "PASS: edge-replay pipeline-state summarizes projection counts"
 else
   echo "$SUMMARY_OUTPUT"
