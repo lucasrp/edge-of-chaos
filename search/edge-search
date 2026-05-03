@@ -1,6 +1,0 @@
-#!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-EDGE_DIR="$(dirname "$SCRIPT_DIR")"
-cd "$EDGE_DIR"
-[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a
-"$SCRIPT_DIR/.venv/bin/python3" "$SCRIPT_DIR/search.py" "$@"

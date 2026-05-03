@@ -1,144 +1,80 @@
-# edge-of-chaos — Autonomous AI Agent Framework
+# edge-of-chaos v2
 
-Framework for deploying autonomous AI agents based on Claude Code. Each agent has its own identity, dashboard, skills, and heartbeat cycle.
+`edge-of-chaos` is a private mentoring runtime.
 
-## Quick Start (5 min)
+The genotype is fixed:
+
+- preserve the mentor/mentee relationship;
+- load context and delta before advising;
+- continue real work through threads;
+- use Feynman principles: derive before researching, explain simply, expose gaps;
+- keep skills consultive by default;
+- run the minimum rite for every beat: broad search, adversarial review, review, Feynman review, rich report;
+- do not mutate the mentee workspace unless an explicit apply mode is added.
+
+The phenotype lives in `agent.yaml`: who the mentee is, where work happens, what sources exist, first steps, routines, domains, paths, and heartbeat cadence.
+
+## Quick Start
 
 ```bash
-# 1. Clone
-git clone https://github.com/lucasrp/edge-of-chaos.git my-agent
-cd my-agent
-
-# 2. Configure (edit 5 required fields)
 cp agent.yaml.example agent.yaml
-nano agent.yaml
-
-# 3. Render + Install
-python3 tools/edge-render
-python3 tools/edge-apply
-
-# 4. Validate
-python3 tools/edge-doctor
+python3 tools/edge render
+python3 tools/edge apply
+python3 tools/edge doctor
+python3 tools/edge heartbeat
+python3 tools/edge discovery "What should I notice now?"
+python3 tools/edge report "Summarize the current design direction"
 ```
 
-Done. Dashboard running, 22 skills installed, heartbeat ready.
-
-## agent.yaml
-
-Bootstrap spec. Used at render/install time to create runtime config. Five required fields:
-
-```yaml
-name: my-agent                    # unique name (lowercase, hyphens)
-codename: ma                      # prefix for skills (/ma-pesquisa, /ma-heartbeat)
-missao: "What this agent does"    # 1-2 sentences
-persona: "How it communicates"    # tone and style
-dominio: "government"             # work domain
-```
-
-Everything else has smart defaults. See `agent.yaml.example` for all options.
-
-## What edge-apply Does (8 phases)
-
-1. **Render** — generates all files from agent.yaml + templates
-2. **Directories** — creates content dirs (`blog/`, `reports/`, `logs/`, etc.)
-3. **Skills** — installs 22 skills with your prefix to ~/.claude/skills/
-4. **Identity** — CLAUDE.md, memory files, config, onboarding templates
-5. **Dashboard venv** — Flask operator surface with FTS5 search
-6. **Tools venv** — edge-consult, review-gate, edge-deepresearch
-7. **Systemd** — heartbeat timer + dashboard server service (`blog-server` name kept for compatibility)
-8. **Tools** — CLI tools + symlinks to ~/.local/bin/
-
-## After Install
+Reports are written to `reports/` and mirrored into `blog/entries/`. The blog is static; there is no dashboard.
 
 ```bash
-# Start dashboard (service name kept as blog-server for compatibility)
-systemctl --user enable --now blog-server
-
-# Start autonomous heartbeat (every 2h)
-systemctl --user enable --now agent-heartbeat.timer
-
-# Or run manually
-~/.local/bin/heartbeat.sh
+python3 tools/edge blog-build
+python3 tools/edge blog-serve --port 8766
 ```
 
-The first heartbeat publishes a self-introduction and delivers the first useful content about the domain. No warmup phase — the agent produces from day one.
+## Core Runtime
 
-## Structure
+Every beat follows the same executable sequence:
 
+1. open a cycle in `state/events.jsonl`;
+2. observe configured context;
+3. assemble a delta/preskill packet;
+4. run a context readiness review with at most two attempts;
+5. run broad search using configured source providers;
+6. draft the mentor report;
+7. run adversarial, general, and Feynman reviews;
+8. finalize a rich report;
+9. update thread continuity through runtime-applied state updates;
+10. rebuild digests and close the cycle.
+
+The LLM calls degrade to local deterministic reviewers when no keys are present. The report records that mode explicitly.
+
+## State
+
+The write side is append-only:
+
+```text
+state/events.jsonl
 ```
-my-agent/
-├── agent.yaml              ← your config (gitignored)
-├── agent.yaml.example      ← template with all fields
-├── config/
-│   ├── preflight.yaml      ← canonical pre-skill protocol source (compiled and executed by CLI)
-│   ├── postflight.yaml     ← canonical post-skill protocol source (compiled and executed by CLI)
-│   ├── strategy.md         ← operator direction (agent reads, proposes)
-│   ├── interests.md        ← shared interests (guides exploration)
-│   ├── branding.yaml       ← agent phenotype (name, colors, dashboard config via legacy `blog` key)
-│   └── runtime-routers.yaml ← rendered LLM router config used at runtime
-├── skills/                 ← 22 core skills (genotype)
-├── tools/                  ← CLI tools (edge-consult, edge-fontes, etc.)
-├── blog/                   ← Flask + htmx dashboard server (legacy package name)
-├── search/                 ← FTS5 + vector search engine
-├── templates/              ← .tpl files rendered by edge-render
-├── memory/                 ← personality, rules, method (genotype)
-├── autonomy/               ← autonomy policy, capabilities, frontier
-└── systemd/                ← service + timer templates
+
+Readable state is compact and regenerable:
+
+```text
+state/threads/*.md
+state/digests/*.md
+reports/*.md
+blog/entries/*.md
 ```
 
-## Key Concepts
+Threads are the continuity mechanism. A beat should continue a real thread or justify opening a new one.
 
-**Genotype / Phenotype / Epigenetics**
+## What Is Not In v2 Core
 
-Every change goes through one question: is this genotype or phenotype?
-
-- **Genotype** — shared code (skills, tools, dashboard server). Lives in the repo. Propagates via git pull.
-- **Phenotype** — rendered runtime config + local state. Per-agent. Generated at install and evolves in place.
-- **Epigenetics** — runtime state (feed entries, reports, memory). Never replicates.
-
-**Heartbeat**
-
-The agent wakes every 2h via systemd timer. It runs internal heartbeat curation over sessions, threads, tasks, and health, then dispatches one action skill: research, discovery, report, planner, or autonomy.
-
-**Adversarial Review**
-
-The agent never evaluates its own output. Before publishing, it submits conclusions to GPT/Grok via `edge-consult`. This creates a cross-model review loop.
-
-**Onboarding**
-
-New agents produce from the first heartbeat. A checklist tracks progress (identity, production, recognition, calibration) and completes organically as the agent delivers real content. No sequential phases — onboarding is concurrent with production.
-
-**Publication Pipeline (consolidate-state)**
-
-Atomic publication: state snapshot → adversarial review → quality gate → entry publish → HTML report → state commit → git commit.
-
-## Tools
-
-| Tool | Purpose |
-|------|---------|
-| `edge-render` | Generate files from agent.yaml + templates |
-| `edge-apply` | Provision host (idempotent, 8 phases) |
-| `edge-doctor` | Validate installation (30 checks) |
-| `edge-consult` | Cross-model adversarial review |
-| `edge-fontes` | Unified external source search |
-| `edge-index` | Index content into FTS5 + vectors |
-| `edge-search` | Hybrid search (semantic + keyword) |
-| `edge-event` | Structured event logging |
-| `edge-dispatch` | Shadow dispatch-cycle envelope for heartbeat and operator runs |
-| `review-gate` | LLM-as-judge quality gate |
-
-## Requirements
-
-- **Claude Code** CLI (`npm install -g @anthropic-ai/claude-code`)
-- **Python 3.10+** with venv
-- **Git**
-- **Linux** with systemd (or macOS with launchd)
-
-API keys (optional, degrade gracefully):
-- `OPENAI_API_KEY` — enables adversarial review and quality gates
-- `EXA_API_KEY` — enables semantic search via Exa
-- `XAI_API_KEY` — enables Grok as second reviewer
-
-## License
-
-MIT
+- primitives;
+- rich dashboard;
+- voice and branding;
+- claims/signals/capabilities as core ontologies;
+- self-healing genotype;
+- mandatory public publishing;
+- autonomous workspace mutation.

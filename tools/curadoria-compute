@@ -1,7 +1,0 @@
-#!/bin/bash
-# Wrapper for curadoria_compute.py — uses search venv (sqlite_vec dependency)
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-EDGE_DIR="$(dirname "$SCRIPT_DIR")"
-cd "$EDGE_DIR"
-[ -f "$EDGE_DIR/secrets/keys.env" ] && set -a && source "$EDGE_DIR/secrets/keys.env" && set +a
-"$EDGE_DIR/search/.venv/bin/python3" "$SCRIPT_DIR/curadoria_compute.py" "$@"
