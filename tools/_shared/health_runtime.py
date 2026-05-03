@@ -424,8 +424,25 @@ def _capabilities_dimension(events: list[dict[str, Any]], capabilities_status: d
 
     available = int(cap_summary.get("available_total", 0) or 0)
     degraded = int(cap_summary.get("degraded_total", 0) or 0)
-    broken = int(cap_summary.get("broken_total", 0) or 0)
-    primitive_broken = int(primitive_summary.get("broken_total", 0) or 0)
+    # Exclude capabilities whose underlying primitive is suspended from the broken count.
+    suspended_primitives = {
+        str(s.get("name", ""))
+        for s in sources
+        if str(s.get("manifest_status", "")) == "suspended"
+    }
+    broken = sum(
+        1
+        for row in cap_rows
+        if str(row.get("effective_status")) == "broken"
+        and str(row.get("manifest_status", "")) != "suspended"
+        and str(row.get("primitive_name", "")) not in suspended_primitives
+    ) if cap_rows else int(cap_summary.get("broken_total", 0) or 0)
+    primitive_broken = sum(
+        1
+        for s in sources
+        if str(s.get("effective_status")) == "broken"
+        and str(s.get("manifest_status", "")) != "suspended"
+    ) if sources else int(primitive_summary.get("broken_total", 0) or 0)
     primitive_degraded = int(primitive_summary.get("degraded_total", 0) or 0)
     never_used_available = sum(
         1
