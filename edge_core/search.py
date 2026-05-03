@@ -62,9 +62,34 @@ def _exa_search(query: str) -> list[SearchResult]:
 
 
 def _x_search(query: str) -> list[SearchResult]:
-    if not os.environ.get("X_BEARER_TOKEN"):
-        return [SearchResult("x", "X unavailable", "", "X_BEARER_TOKEN not configured; source recorded as unavailable.")]
-    return [SearchResult("x", "X configured", "", "X search adapter is intentionally read-only placeholder in v2 initial core.")]
+    token = os.environ.get("X_BEARER_TOKEN")
+    if not token:
+        suffix = " XAI_API_KEY is present, but that is a Grok/xAI credential, not an X search bearer token." if os.environ.get("XAI_API_KEY") else ""
+        return [SearchResult("x", "X unavailable", "", "X_BEARER_TOKEN not configured; source recorded as unavailable." + suffix)]
+    url = "https://api.twitter.com/2/tweets/search/recent?" + urllib.parse.urlencode(
+        {
+            "query": query,
+            "max_results": 10,
+            "tweet.fields": "created_at,public_metrics,author_id",
+        }
+    )
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return [SearchResult("x", "X request failed", "", "X bearer token was configured, but recent search did not respond cleanly.")]
+    results = []
+    for item in payload.get("data") or []:
+        metrics = item.get("public_metrics") or {}
+        summary = truncate(item.get("text") or "", 280)
+        if metrics:
+            summary += f" likes={metrics.get('like_count')}; reposts={metrics.get('retweet_count')}; replies={metrics.get('reply_count')}"
+        url = f"https://x.com/i/web/status/{item.get('id')}"
+        results.append(SearchResult("x", "X recent search result", url, summary))
+    if not results:
+        return [SearchResult("x", "No X results", "", "X recent search was attempted but returned no usable results.")]
+    return results[:3]
 
 
 def _github_context(config: RuntimeConfig) -> list[SearchResult]:

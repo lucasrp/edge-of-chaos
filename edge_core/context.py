@@ -120,13 +120,16 @@ def build_search_source_manifest(config: RuntimeConfig) -> list[dict[str, Any]]:
         name = str(item.get("name") or "")
         env_key = credential_env.get(name)
         available = True if env_key is None else bool(os.environ.get(env_key))
+        credential = "not_required" if env_key is None else ("configured" if available else "missing")
+        if name == "x" and not available and os.environ.get("XAI_API_KEY"):
+            credential = "missing_x_bearer_token_xai_key_present"
         manifest.append(
             {
                 "name": name,
                 "kind": str(item.get("kind") or "search"),
                 "enabled": item.get("enabled", True) is not False,
                 "available": available,
-                "credential": "not_required" if env_key is None else ("configured" if available else "missing"),
+                "credential": credential,
             }
         )
     return manifest

@@ -90,6 +90,8 @@ def _load_env_file(path: Path) -> None:
 
 
 def load_local_env(root: Path) -> None:
+    if os.environ.get("EDGE_DISABLE_LOCAL_ENV") == "1":
+        return
     candidates = [
         root / ".env",
         root / "secrets" / "keys.env",
@@ -97,6 +99,11 @@ def load_local_env(root: Path) -> None:
         root.parent / "keys" / "xai.env",
         root.parent / "keys" / "exa.env",
         root.parent / "keys" / "keys.env",
+        Path.home() / "edge" / "secrets" / "openai.env",
+        Path.home() / "edge" / "secrets" / "xai.env",
+        Path.home() / "edge" / "secrets" / "exa.env",
+        Path.home() / "edge" / "secrets" / "x-api.env",
+        Path.home() / "edge" / "secrets" / "keys.env",
     ]
     for path in candidates:
         _load_env_file(path)

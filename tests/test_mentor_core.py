@@ -53,6 +53,7 @@ interests:
     def run_edge(self, *args: str) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.pop("OPENAI_API_KEY", None)
+        env["EDGE_DISABLE_LOCAL_ENV"] = "1"
         env["EDGE_DISABLE_CLAUDE_FALLBACK"] = "1"
         return subprocess.run(
             ["python3", "tools/edge", *args],
