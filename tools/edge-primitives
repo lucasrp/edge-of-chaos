@@ -229,6 +229,8 @@ def _effective_status(
     if binary_exists and not meta_exists and manifest_exists:
         problems.append("binary_without_meta")
 
+    if manifest_status == "suspended":
+        return "suspended", problems
     if binary_exists and probe_ok is False:
         return "broken", problems + ["last_probe_failed"]
     if problems:

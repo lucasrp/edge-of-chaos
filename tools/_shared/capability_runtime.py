@@ -433,7 +433,11 @@ def _primitive_capability_row(item: dict[str, Any], *, invocations: dict[str, An
     name = f"source.{item.get('name')}"
     probe_event = probes.get(name, {})
     invocation_event = invocations.get(name, {})
-    effective_status = _normalize_effective_status(item.get("effective_status"))
+    manifest_status = str(item.get("manifest_status") or item.get("status") or "").strip()
+    if manifest_status == "suspended":
+        effective_status = "suspended"
+    else:
+        effective_status = _normalize_effective_status(item.get("effective_status"))
     normalized_skill = _normalize_skill(skill)
     roles = _normalize_roles(item.get("roles")) or ["search"]
     if "source" not in roles:
