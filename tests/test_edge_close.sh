@@ -73,6 +73,8 @@ YAML
 export EDGE_REPO_DIR="$EDGE_DIR"
 export EDGE_STATE_DIR="$TMP_EDGE"
 export EDGE_CODENAME="test-agent"
+export EDGE_ARTIFACT_SUPERVISION_SETTLE_ATTEMPTS=2
+export EDGE_ARTIFACT_SUPERVISION_SETTLE_INTERVAL_SEC=0
 
 DISPATCH_TOOL="$EDGE_DIR/tools/edge-dispatch"
 CLOSE_TOOL="$EDGE_DIR/tools/edge-close"
@@ -152,6 +154,34 @@ event = {
         "phase": "review",
         "ok": False,
         "reason": reason,
+    },
+}
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(event) + "\n")
+PY
+}
+
+append_phase_pending() {
+    local cycle_id="$1"
+    local slug="$2"
+    python3 - <<'PY' "$TMP_EDGE/state/events/log.jsonl" "$cycle_id" "$slug"
+import json
+import sys
+from datetime import datetime, timezone
+
+path, cycle_id, slug = sys.argv[1:4]
+event = {
+    "ts": datetime.now(timezone.utc).isoformat(),
+    "type": "PhaseCompleted",
+    "actor": "consolidate-state",
+    "cycle_id": cycle_id,
+    "artifact": f"blog/entries/{slug}.md",
+    "payload": {
+        "pipeline": "consolidate-state",
+        "phase": "0.3",
+        "operation": "adversarial_review_pending",
+        "ok": False,
+        "reason": "review generated; pending resolution",
     },
 }
 with open(path, "a", encoding="utf-8") as fh:
@@ -499,6 +529,47 @@ then
     pass "durable publication wins over earlier failed phase evidence"
 else
     fail "durable publication wins over earlier failed phase evidence"
+fi
+
+echo "--- Test 2g: pending publication pipeline is settled before close fails ---"
+"$DISPATCH_TOOL" open --trigger operator --cycle-id cycle-close-pipeline-pending --force >/dev/null
+"$DISPATCH_TOOL" dispatch --skill research >/dev/null
+append_skill_completed cycle-close-pipeline-pending research
+append_phase_pending cycle-close-pipeline-pending pending-report
+set +e
+"$CLOSE_TOOL" --status completed >/dev/null
+STATUS=$?
+set -e
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$STATUS"
+import json
+import sys
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+status = int(sys.argv[3])
+
+assert status == 1
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "failed"
+assert dispatch["state"]["close_reason"] == "pipeline_pending_before_publish"
+assert dispatch["state"]["artifact_supervision_status"] == "pending"
+assert dispatch["state"]["artifact_supervision_reason"] == "pipeline_pending_before_publish"
+step = dispatch["state"]["postflight_steps"][0]
+assert step["settle_attempts"] == 2
+assert step["pipeline_evidence"]["reason"] == "review generated; pending resolution"
+blocked = [
+    event for event in events
+    if event.get("cycle_id") == "cycle-close-pipeline-pending"
+    and event.get("type") == "ArtifactSupervisionBlocked"
+]
+assert blocked
+assert blocked[-1]["payload"]["reason"] == "pipeline_pending_before_publish"
+PY
+then
+    pass "edge-close settles pending pipeline evidence before failing"
+else
+    fail "edge-close settles pending pipeline evidence before failing"
 fi
 
 echo "--- Test 3: completed close succeeds with skill end evidence, artifact publication, and postflight ---"

@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -28,6 +29,8 @@ from _shared.jsonl_runtime import iter_jsonl_reverse  # noqa: E402
 from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
 
 POST_SKILL_LOG = LOGS_DIR / "post-skill.log"
+DEFAULT_ARTIFACT_SUPERVISION_SETTLE_ATTEMPTS = 12
+DEFAULT_ARTIFACT_SUPERVISION_SETTLE_INTERVAL_SECONDS = 30.0
 
 
 def now_iso() -> str:
@@ -74,6 +77,55 @@ def append_postskill_log(name: str, status: str, detail: str = "") -> None:
         message += f" | detail: {detail}"
     with open(POST_SKILL_LOG, "a", encoding="utf-8") as f:
         f.write(message + "\n")
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def supervise_artifact_publication_with_settle(state: dict) -> dict:
+    result = supervise_artifact_publication(
+        state,
+        events_path=STATE_EVENTS_FILE,
+        instance=EDGE_INSTANCE,
+    )
+    attempts = 0
+    max_attempts = max(
+        0,
+        _env_int("EDGE_ARTIFACT_SUPERVISION_SETTLE_ATTEMPTS", DEFAULT_ARTIFACT_SUPERVISION_SETTLE_ATTEMPTS),
+    )
+    interval = max(
+        0.0,
+        _env_float("EDGE_ARTIFACT_SUPERVISION_SETTLE_INTERVAL_SEC", DEFAULT_ARTIFACT_SUPERVISION_SETTLE_INTERVAL_SECONDS),
+    )
+    while result.get("status") == "pending" and attempts < max_attempts:
+        attempts += 1
+        evidence = result.get("pipeline_evidence") or {}
+        append_postskill_log(
+            "artifact_supervision",
+            "WAIT",
+            f"{result.get('reason') or 'pending'} artifact={evidence.get('artifact') or ''} attempt={attempts}",
+        )
+        if interval > 0:
+            time.sleep(interval)
+        result = supervise_artifact_publication(
+            state,
+            events_path=STATE_EVENTS_FILE,
+            instance=EDGE_INSTANCE,
+        )
+    if attempts:
+        result["settle_attempts"] = attempts
+    return result
 
 
 def check_skill_completion(state: dict) -> tuple[bool, str, dict]:
@@ -233,11 +285,7 @@ def main() -> int:
             exit_code = 1
         else:
             append_postskill_log("skill_run_completed", "OK", skill_reason)
-            artifact_result = supervise_artifact_publication(
-                state,
-                events_path=STATE_EVENTS_FILE,
-                instance=EDGE_INSTANCE,
-            )
+            artifact_result = supervise_artifact_publication_with_settle(state)
             record_artifact_supervision(state, artifact_result)
             if not artifact_result.get("ok"):
                 fail_close_with_postflight_reason(

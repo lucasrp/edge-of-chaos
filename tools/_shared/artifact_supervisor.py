@@ -13,6 +13,7 @@ from .telemetry import emit_shadow_event
 
 TRUE_VALUES = {"1", "true", "yes", "ok", "success", "succeeded", "completed", "pass", "passed"}
 FALSE_VALUES = {"0", "false", "no", "fail", "failed", "error", "blocked", "aborted"}
+PENDING_MARKERS = {"pending", "in flight", "in-flight"}
 
 
 def iso_ge(left: str | None, right: str | None) -> bool:
@@ -79,6 +80,14 @@ def _pipeline_failure_evidence(event: dict[str, Any], payload: dict[str, Any]) -
     }
 
 
+def _pipeline_evidence_is_pending(payload: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(payload.get(key) or "").strip().lower()
+        for key in ("operation", "reason", "status", "error")
+    )
+    return any(marker in text for marker in PENDING_MARKERS)
+
+
 def _is_runtime_stdout_artifact(payload: dict[str, Any]) -> bool:
     return bool(
         payload.get("auto_published") is True
@@ -128,6 +137,7 @@ def supervise_artifact_publication(
 
     threshold = str(result.get("threshold") or "") or None
     pipeline_failure: dict[str, Any] | None = None
+    pipeline_pending: dict[str, Any] | None = None
     for event in iter_jsonl_reverse(events_path):
         if event.get("cycle_id") != cycle_id:
             continue
@@ -177,10 +187,14 @@ def supervise_artifact_publication(
                 )
                 return result
 
-        if etype == "ArtifactWriteRejected" and pipeline_failure is None:
+        if etype == "ArtifactWriteRejected" and pipeline_failure is None and pipeline_pending is None:
             pipeline_failure = _pipeline_failure_evidence(event, payload)
-        elif etype == "PhaseCompleted" and _phase_ok(payload) is False and pipeline_failure is None:
-            pipeline_failure = _pipeline_failure_evidence(event, payload)
+        elif etype == "PhaseCompleted" and _phase_ok(payload) is False and pipeline_failure is None and pipeline_pending is None:
+            evidence = _pipeline_failure_evidence(event, payload)
+            if _pipeline_evidence_is_pending(payload):
+                pipeline_pending = evidence
+            else:
+                pipeline_failure = evidence
 
     if pipeline_failure:
         result.update(
@@ -188,6 +202,16 @@ def supervise_artifact_publication(
                 "status": "blocked",
                 "reason": "pipeline_blocked_before_publish",
                 "pipeline_evidence": pipeline_failure,
+            }
+        )
+        return result
+
+    if pipeline_pending:
+        result.update(
+            {
+                "status": "pending",
+                "reason": "pipeline_pending_before_publish",
+                "pipeline_evidence": pipeline_pending,
             }
         )
         return result

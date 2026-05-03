@@ -744,6 +744,8 @@ assert dispatch["state"]["close_status"] == "completed"
 assert args_log.count("__INVOCATION__") == 2
 assert "ARTIFACT SUPERVISOR RETRY" in args_log
 assert "Stdout-only prose is diagnostic output only" in args_log
+assert "review generated; pending resolution" in args_log
+assert "ArtifactPublished" in args_log
 assert "runtime can publish it" not in args_log
 retry_started = [
     event for event in events

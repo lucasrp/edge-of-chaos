@@ -1023,6 +1023,8 @@ def build_artifact_supervisor_retry_prompt(
         "- Do not answer with only deference, standby text, topic choices, or a refusal to act because another persona/session appears active.\n"
         "- If no explicit topic was supplied, infer one bounded target from the runtime frame: exploration_pack, beat_launch_context, operator_pressure, health, open gaps, queue, or recent failures.\n"
         "- Produce a durable artifact now by running `consolidate-state` with a real blog entry and report artifact.\n"
+        "- If `consolidate-state` stops at adversarial review pending, incorporate the review feedback and rerun it; do not stop at `review generated; pending resolution`.\n"
+        "- Continue until the event log contains `ArtifactPublished` for this cycle, or until you record an explicit `ArtifactStanddownRecorded` standdown/failure report.\n"
         "- Stdout-only prose is diagnostic output only; it does not publish and does not satisfy the artifact gate.\n"
         "- If a real blocker remains, the artifact must be a failure report with the concrete command, missing access, or invariant that blocked completion.\n\n"
         "Previous backend output:\n"
