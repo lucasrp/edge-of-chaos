@@ -51,8 +51,8 @@ first_steps:
   - "Sugerir uma primeira thread de acompanhamento quando o historico ainda estiver vazio."
 
 seed_threads:
-  - title: "Mentoria privada persistente"
-    context: "Preservar continuidade, Feynman, busca ampla, adversarial review e reports ricos."
+  - title: "Ajudar o mentorado na melhor forma possivel com o trabalho atual dele"
+    context: "Thread inicial generica: absorver o trabalho atual, preservar a relacao mentor-mentorado, aplicar Feynman, buscar bem, revisar criticamente e produzir orientacao privada util."
 
 sources:
   - name: exa
