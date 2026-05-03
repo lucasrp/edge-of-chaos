@@ -7,6 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from edge_core.rite import verify_rite
+from edge_core.threads import primary_thread_from_review
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -74,8 +77,35 @@ interests:
         self.assertIn("DeltaPrepared", ledger)
         self.assertIn("ContextReadinessReviewed", ledger)
         self.assertIn("BroadSearchCompleted", ledger)
+        self.assertIn("ReportDrafted", ledger)
         self.assertIn("ReportReviewed", ledger)
+        self.assertIn("method-review", ledger)
+        self.assertIn("RiteVerified", ledger)
         self.assertIn("CycleClosed", ledger)
+
+    def test_rite_requires_method_review(self) -> None:
+        events = [
+            {"type": "CycleOpened"},
+            {"type": "DeltaPrepared"},
+            {"type": "ContextReadinessReviewed"},
+            {"type": "BroadSearchCompleted", "results": 1},
+            {"type": "ReportDrafted"},
+            {"type": "ReportReviewed", "reviewer": "llm:adversarial"},
+            {"type": "ReportReviewed", "reviewer": "llm:general-review"},
+            {"type": "ReportReviewed", "reviewer": "llm:feynman-review"},
+            {"type": "ReportWritten"},
+            {"type": "ThreadUpdated"},
+            {"type": "DigestRebuilt"},
+            {"type": "BlogBuilt"},
+        ]
+        check = verify_rite(events)
+        self.assertFalse(check.passed)
+        self.assertIn("review:method-review", check.missing)
+
+    def test_primary_thread_accepts_llm_string(self) -> None:
+        primary = primary_thread_from_review({"primary_thread": "Mentoria privada persistente"}, "heartbeat")
+        self.assertEqual(primary["thread_id"], "mentoria-privada-persistente")
+        self.assertEqual(primary["title"], "Mentoria privada persistente")
 
 
 if __name__ == "__main__":

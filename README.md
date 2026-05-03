@@ -9,7 +9,7 @@ The genotype is fixed:
 - continue real work through threads;
 - use Feynman principles: derive before researching, explain simply, expose gaps;
 - keep skills consultive by default;
-- run the minimum rite for every beat: broad search, adversarial review, review, Feynman review, rich report;
+- run the minimum rite for every beat: broad search, adversarial review, review, Feynman review, method review, rich report;
 - do not mutate the mentee workspace unless an explicit apply mode is added.
 
 The phenotype lives in `agent.yaml`: who the mentee is, where work happens, what sources exist, first steps, routines, domains, paths, and heartbeat cadence.
@@ -43,12 +43,15 @@ Every beat follows the same executable sequence:
 4. run a context readiness review with at most two attempts;
 5. run broad search using configured source providers;
 6. draft the mentor report;
-7. run adversarial, general, and Feynman reviews;
+7. run adversarial, general, Feynman, and method reviews;
 8. finalize a rich report;
 9. update thread continuity through runtime-applied state updates;
-10. rebuild digests and close the cycle.
+10. rebuild digests;
+11. verify the rite in the ledger and close the cycle.
 
-The LLM calls degrade to local deterministic reviewers when no keys are present. The report records that mode explicitly.
+The orchestration is enforced by a small ledger gate, not by primitives. It requires the cycle events to appear in order and requires all four reviewers before `CycleClosed`.
+
+LLM calls use the configured primary provider first and fall back to the local `claude` CLI. If neither is available, the runtime degrades to explicit local reviewers and the report records that mode.
 
 ## State
 

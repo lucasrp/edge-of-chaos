@@ -109,8 +109,6 @@ def build_blog(config: RuntimeConfig) -> Path:
 
 def _llm_draft_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str) -> str | None:
     client = LLMClient()
-    if not client.available():
-        return None
     prompt = {
         "kind": packet.kind,
         "request": packet.request,

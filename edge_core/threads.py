@@ -7,9 +7,23 @@ from .config import RuntimeConfig
 from .util import now_iso, slugify, truncate
 
 
+def primary_thread_from_review(review_data: dict[str, Any], request: str) -> dict[str, str]:
+    raw = review_data.get("primary_thread") if isinstance(review_data, dict) else None
+    if isinstance(raw, dict):
+        title = str(raw.get("title") or raw.get("thread_id") or request or "General Continuity")
+        thread_id = slugify(str(raw.get("thread_id") or title), "general-continuity")[:90]
+        action = str(raw.get("action") or "continue")
+        return {"action": action, "thread_id": thread_id, "title": title}
+    if isinstance(raw, str) and raw.strip():
+        title = raw.strip()
+        return {"action": "continue", "thread_id": slugify(title, "general-continuity")[:90], "title": title}
+    title = request or "General Continuity"
+    return {"action": "create", "thread_id": slugify(title, "general-continuity")[:90], "title": title}
+
+
 def thread_id_from_review(review_data: dict[str, Any], request: str) -> str:
-    primary = review_data.get("primary_thread") or {}
-    return slugify(str(primary.get("thread_id") or primary.get("title") or request), "general-continuity")[:90]
+    return primary_thread_from_review(review_data, request)["thread_id"]
+
 
 
 def update_thread(config: RuntimeConfig, *, thread_id: str, title: str, report_path: Path, summary: str, decisions: list[str], next_steps: list[str]) -> Path:

@@ -241,5 +241,51 @@ def feynman_review(report: str) -> ReviewResult:
     return ReviewResult("completed", "local:feynman-review", summary, {"summary": summary, "mode": "local-fallback", "explicit_gap_seen": has_gap})
 
 
+def method_review(report: str, packet: ContextPacket, search_sources: list[str]) -> ReviewResult:
+    client = LLMClient()
+    llm = client.complete_json(
+        system=(
+            "You are the method reviewer for edge-of-chaos v2. Judge whether this mentor report honored the rite: "
+            "situated delta/context, continuity thread, broad search, adversarial posture, Feynman derivation, gaps, "
+            "and concrete next steps. Return JSON with status pass|repair_needed|fail, summary, violations, and repair."
+        ),
+        prompt=json.dumps(
+            {
+                "report": report[:14000],
+                "kind": packet.kind,
+                "request": packet.request,
+                "observations": [obs.__dict__ for obs in packet.observations[:8]],
+                "thread_candidates": packet.thread_candidates[:4],
+                "report_candidates": packet.report_candidates[:4],
+                "search_sources": search_sources,
+            },
+            ensure_ascii=False,
+        )[:18000],
+    )
+    if llm:
+        status = str(llm.get("status") or "completed")
+        return ReviewResult(status, "llm:method-review", str(llm.get("summary") or status), llm)
+    has_delta = "delta" in report.lower() or packet.request.lower() in report.lower()
+    has_gap = "gap" in report.lower() or "lacuna" in report.lower()
+    has_next = "next" in report.lower() or "proxim" in report.lower()
+    passed = has_delta and has_gap and has_next and bool(search_sources)
+    summary = "Local fallback: method markers present." if passed else "Local fallback: report is missing one or more method markers."
+    return ReviewResult(
+        "pass" if passed else "repair_needed",
+        "local:method-review",
+        summary,
+        {
+            "summary": summary,
+            "mode": "local-fallback",
+            "checks": {
+                "delta_or_request": has_delta,
+                "gaps": has_gap,
+                "next_steps": has_next,
+                "search_sources": bool(search_sources),
+            },
+        },
+    )
+
+
 def summarize_reviews(reviews: list[ReviewResult]) -> str:
     return "\n".join(f"- **{review.reviewer}:** {truncate(review.summary, 500)}" for review in reviews)

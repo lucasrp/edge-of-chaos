@@ -25,6 +25,7 @@ These are fixed and cannot be configured away:
   - adversarial review;
   - general review;
   - Feynman review;
+  - method review;
   - rich report.
 
 ## Phenotype
@@ -58,6 +59,34 @@ That review answers two qualitative questions:
 
 The runtime allows at most two attempts. If the second review fails, the beat
 must report the limitation instead of pretending confidence.
+
+## Method Enforcement
+
+v2 avoids primitives as a domain ontology, but it still enforces the beat rite.
+The simple split is:
+
+- deterministic enforcement for orchestration;
+- LLM review for judgment and quality.
+
+The deterministic part is the `Rite Gate`. Before a cycle can close, the ledger
+must show the required events in order:
+
+```text
+CycleOpened -> DeltaPrepared -> ContextReadinessReviewed ->
+BroadSearchCompleted -> ReportDrafted -> ReportReviewed ->
+ReportWritten -> ThreadUpdated -> DigestRebuilt -> BlogBuilt ->
+RiteVerified -> CycleClosed
+```
+
+The gate also requires four report reviewers to have run: adversarial, general,
+Feynman, and method. This is intentionally small. It proves the runtime followed
+the method without recreating primitives, capabilities, claims, or a large
+deterministic ontology.
+
+The LLM part judges whether the content actually honored the method: situated
+delta, continuity, broad search, adversarial posture, Feynman derivation, gaps,
+and concrete next steps. If the primary LLM provider is unavailable or returns an
+invalid response, runtime LLM calls fall back to the local `claude` CLI.
 
 ## State
 
