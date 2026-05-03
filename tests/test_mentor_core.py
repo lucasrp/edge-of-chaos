@@ -29,7 +29,7 @@ class MentorCoreTest(unittest.TestCase):
             """
 name: test
 codename: tst
-language: pt-BR
+language: en-US
 mission: "Mentor test"
 domain: "tests"
 workspaces:
@@ -126,15 +126,15 @@ interests:
         self.assertIn("continuity-search:rounds", check.missing)
 
     def test_primary_thread_accepts_llm_string(self) -> None:
-        primary = primary_thread_from_review({"primary_thread": "Mentoria privada persistente"}, "heartbeat")
-        self.assertEqual(primary["thread_id"], "mentoria-privada-persistente")
-        self.assertEqual(primary["title"], "Mentoria privada persistente")
+        primary = primary_thread_from_review({"primary_thread": "Persistent private mentorship"}, "heartbeat")
+        self.assertEqual(primary["thread_id"], "persistent-private-mentorship")
+        self.assertEqual(primary["title"], "Persistent private mentorship")
 
     def test_initial_seed_thread_is_fixed_fallback(self) -> None:
         config = load_config(self.tmp)
         primary = initial_seed_thread(config)
-        self.assertEqual(primary["title"], "Ajudar o mentorado na melhor forma possivel com o trabalho atual dele")
-        self.assertEqual(primary["thread_id"], "ajudar-o-mentorado-na-melhor-forma-possivel-com-o-trabalho-atual-dele")
+        self.assertEqual(primary["title"], "Help the mentee in the best possible way with their current work")
+        self.assertEqual(primary["thread_id"], "help-the-mentee-in-the-best-possible-way-with-their-current-work")
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ class RuntimeConfig:
 
     @property
     def language(self) -> str:
-        return str(self.agent.get("language") or "pt-BR")
+        return str(self.agent.get("language") or "en-US")
 
     @property
     def reports_dir(self) -> Path:

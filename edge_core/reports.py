@@ -17,7 +17,7 @@ def draft_report(packet: ContextPacket, searches: list[SearchResult], thread_id:
     if llm_report:
         return llm_report
     observations = "\n".join(f"- **{obs.source}:** {obs.title} — {truncate(obs.detail, 300)}" for obs in packet.observations[:12])
-    reports = "\n".join(f"- {item.get('title')} ({item.get('path')})" for item in packet.report_candidates[:6]) or "- Nenhum report anterior encontrado."
+    reports = "\n".join(f"- {item.get('title')} ({item.get('path')})" for item in packet.report_candidates[:6]) or "- No previous report found."
     search_lines = "\n".join(f"- **{result.source}:** {result.title} {result.url} — {truncate(result.summary, 250)}" for result in searches)
     interests = "\n".join(f"- {item.get('area')}: {item.get('connection')}" for item in packet.interests[:5])
     return f"""# {packet.kind.title()}: {packet.request}
@@ -28,50 +28,50 @@ def draft_report(packet: ContextPacket, searches: list[SearchResult], thread_id:
 
 This beat continues or creates thread `{thread_id}`.
 
-## Contexto Observado
+## Observed Context
 
 {observations}
 
-## Continuidade
+## Continuity
 
-Reports candidatos:
+Candidate reports:
 
 {reports}
 
-## Modelo Simples
+## Simple Model
 
-O mentor deve partir do trabalho real observado, identificar o delta e transformar isso em uma orientacao que ajude o mentorado a pensar e agir melhor. Se o contexto ainda estiver fino, o report deve dizer isso em vez de fabricar certeza.
+The mentor should start from the observed real work, identify the delta, and turn it into guidance that helps the mentee think and act better. If context is still thin, the report should say so instead of fabricating certainty.
 
-## Busca Ampla
+## Broad Search
 
 {search_lines}
 
-## Interesses Fenotipicos Relevantes
+## Relevant Phenotypic Interests
 
-{interests or "- Nenhum interesse configurado."}
+{interests or "- No configured interest."}
 
-## Derivacao
+## Derivation
 
-1. O pedido/beat atual aponta para: {packet.request}
-2. O contexto recente mostra evidencias do workspace, historico de reports, threads e sessoes.
-3. A recomendacao precisa continuar uma thread real ou abrir uma nova com justificativa.
-4. O report deve preservar o rito: busca ampla, adversarial, review, Feynman review e fechamento com proximos passos.
+1. The current request/beat points to: {packet.request}
+2. Recent context shows workspace evidence, report history, threads, and sessions.
+3. The recommendation must continue a real thread or open a new one with justification.
+4. The report must preserve the rite: broad search, adversarial review, Feynman review, and concrete next steps.
 
 ## Gaps
 
-- Confirmar se a thread escolhida representa a linha viva correta.
-- Confirmar se as fontes externas configuradas foram suficientes ou se houve fallback local.
-- Confirmar se ha report anterior que deveria ter sido recuperado e nao foi.
+- Confirm whether the selected thread represents the correct live line of work.
+- Confirm whether the configured external sources were sufficient or whether the runtime fell back locally.
+- Confirm whether there is a previous report that should have been recovered but was not.
 
-## Recomendacao
+## Recommendation
 
-Continuar com uma consulta privada rica, ancorada no delta e sem mutar o workspace do mentorado. O proximo passo e usar este report como base para atualizar a thread e melhorar a proxima consulta.
+Continue with a rich private consultation, anchored in the delta and without mutating the mentee workspace. The next step is to use this report as the basis for updating the thread and improving the next consultation.
 
-## Proximos Passos
+## Next Steps
 
-- Revisar a aderencia do report ao trabalho real observado.
-- Atualizar a thread compacta com o entendimento novo.
-- Se a busca ficou degradada por falta de credenciais, configurar as fontes do fenotipo.
+- Review whether the report adheres to the observed real work.
+- Update the compact thread with the new understanding.
+- If search degraded because credentials were missing, configure the phenotype sources.
 """
 
 

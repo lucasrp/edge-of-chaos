@@ -24,9 +24,9 @@ def primary_thread_from_review(review_data: dict[str, Any], request: str) -> dic
 def initial_seed_thread(config: RuntimeConfig) -> dict[str, str]:
     seeds = [item for item in (config.agent.get("seed_threads") or []) if isinstance(item, dict)]
     if seeds:
-        title = str(seeds[0].get("title") or "Ajudar o mentorado na melhor forma possivel com o trabalho atual dele")
+        title = str(seeds[0].get("title") or "Help the mentee in the best possible way with their current work")
     else:
-        title = "Ajudar o mentorado na melhor forma possivel com o trabalho atual dele"
+        title = "Help the mentee in the best possible way with their current work"
     return {"action": "create", "thread_id": slugify(title, "mentor-general-thread")[:90], "title": title}
 
 
