@@ -13,7 +13,7 @@ routers:
   review:
     base_url: https://api.x.ai/v1
     secret_ref: xai.env:XAI_API_KEY
-    model: grok-4.20-multi-agent-beta-0309
+    model: grok-4.3
   embedding:
     base_url: https://api.openai.com/v1
     secret_ref: openai.env:OPENAI_API_KEY
