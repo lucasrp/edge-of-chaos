@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 import shutil
 from pathlib import Path
 
@@ -74,6 +75,47 @@ Continuar com uma consulta privada rica, ancorada no delta e sem mutar o workspa
 """
 
 
+def revise_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str, draft: str, reviews: list[ReviewResult], *, stage: str) -> str:
+    client = LLMClient()
+    feedback = [
+        {
+            "reviewer": review.reviewer,
+            "status": review.status,
+            "summary": review.summary,
+            "data": review.data,
+        }
+        for review in reviews
+    ]
+    prompt = {
+        "kind": packet.kind,
+        "request": packet.request,
+        "thread_id": thread_id,
+        "stage": stage,
+        "draft": draft[:14000],
+        "review_feedback": feedback,
+        "observations": [obs.__dict__ for obs in packet.observations[:12]],
+        "thread_candidates": packet.thread_candidates[:6],
+        "report_candidates": packet.report_candidates[:6],
+        "search_results": [result.__dict__ for result in searches[:10]],
+        "first_steps": packet.first_steps,
+        "interests": packet.interests,
+    }
+    text = client.complete_text(
+        system=(
+            "You are edge-of-chaos v2 revising a mentor report in a fixed straight-line rite. "
+            "Rewrite the report in Markdown using the reviewer feedback as input, not as a pass/fail gate. "
+            "Keep the mentor/mentee relationship, situated delta, continuity, broad-search evidence, adversarial pushback, "
+            "Feynman derivation, explicit gaps, and concrete next steps. Return only the report."
+        ),
+        prompt=json.dumps(prompt, ensure_ascii=False)[:26000],
+    )
+    if not text:
+        return draft
+    if not text.lstrip().startswith("#"):
+        text = f"# {packet.kind.title()}: {packet.request}\n\n{text}"
+    return text
+
+
 def finalize_report(config: RuntimeConfig, *, packet: ContextPacket, draft: str, reviews: list[ReviewResult], thread_id: str) -> Path:
     config.reports_dir.mkdir(parents=True, exist_ok=True)
     slug = slugify(f"{packet.kind}-{packet.request}")[:90]
@@ -82,6 +124,20 @@ def finalize_report(config: RuntimeConfig, *, packet: ContextPacket, draft: str,
     path.write_text(final, encoding="utf-8")
     config.blog_entries_dir.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(path, config.blog_entries_dir / path.name)
+    return path
+
+
+def append_report_utility(config: RuntimeConfig, *, report_path: Path, utility: ReviewResult) -> Path:
+    path = config.state_dir / "report-utility.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    row = {
+        "report": str(report_path),
+        "reviewer": utility.reviewer,
+        "summary": utility.summary,
+        "data": utility.data,
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
     return path
 
 

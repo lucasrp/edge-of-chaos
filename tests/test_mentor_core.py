@@ -73,34 +73,50 @@ interests:
         self.assertTrue(list((self.tmp / "reports").glob("*.md")))
         self.assertTrue((self.tmp / "state" / "events.jsonl").exists())
         self.assertTrue(list((self.tmp / "state" / "threads").glob("*.md")))
+        self.assertTrue((self.tmp / "state" / "report-utility.jsonl").exists())
         ledger = (self.tmp / "state" / "events.jsonl").read_text(encoding="utf-8")
-        self.assertIn("DeltaPrepared", ledger)
-        self.assertIn("ContextReadinessReviewed", ledger)
+        self.assertIn("StateLoaded", ledger)
+        self.assertIn("ContinuitySearchReviewed", ledger)
         self.assertIn("BroadSearchCompleted", ledger)
         self.assertIn("ReportDrafted", ledger)
-        self.assertIn("ReportReviewed", ledger)
-        self.assertIn("method-review", ledger)
+        self.assertIn("AdversarialSearchReviewed", ledger)
+        self.assertIn("AdversarialReviewed", ledger)
+        self.assertIn("FeynmanReviewed", ledger)
+        self.assertIn("ReportUtilityClassified", ledger)
         self.assertIn("RiteVerified", ledger)
         self.assertIn("CycleClosed", ledger)
 
-    def test_rite_requires_method_review(self) -> None:
+    def test_rite_requires_two_context_search_reviews(self) -> None:
         events = [
             {"type": "CycleOpened"},
-            {"type": "DeltaPrepared"},
-            {"type": "ContextReadinessReviewed"},
+            {"type": "StateLoaded"},
+            {"type": "DeliveryCompleted", "stage": "context-pack"},
+            {"type": "ContinuitySearchReviewed", "reviewer": "llm:context-search"},
             {"type": "BroadSearchCompleted", "results": 1},
+            {"type": "DeliveryCompleted", "stage": "evidence-pack-v1"},
+            {"type": "BroadSearchCompleted", "results": 1},
+            {"type": "DeliveryCompleted", "stage": "evidence-pack-v2"},
             {"type": "ReportDrafted"},
-            {"type": "ReportReviewed", "reviewer": "llm:adversarial"},
-            {"type": "ReportReviewed", "reviewer": "llm:general-review"},
-            {"type": "ReportReviewed", "reviewer": "llm:feynman-review"},
+            {"type": "DeliveryCompleted", "stage": "draft-v1"},
+            {"type": "AdversarialSearchReviewed", "reviewer": "llm:adversarial"},
+            {"type": "BroadSearchCompleted", "results": 1},
+            {"type": "ReportRevised"},
+            {"type": "DeliveryCompleted", "stage": "draft-v2"},
+            {"type": "AdversarialReviewed", "reviewer": "llm:adversarial"},
+            {"type": "ReportRevised"},
+            {"type": "DeliveryCompleted", "stage": "draft-v3"},
+            {"type": "FeynmanReviewed", "reviewer": "llm:feynman-review"},
+            {"type": "FinalReportPrepared"},
             {"type": "ReportWritten"},
+            {"type": "ReportUtilityClassified"},
             {"type": "ThreadUpdated"},
             {"type": "DigestRebuilt"},
             {"type": "BlogBuilt"},
         ]
         check = verify_rite(events)
         self.assertFalse(check.passed)
-        self.assertIn("review:method-review", check.missing)
+        self.assertIn("ContinuitySearchReviewed", check.missing)
+        self.assertIn("continuity-search:rounds", check.missing)
 
     def test_primary_thread_accepts_llm_string(self) -> None:
         primary = primary_thread_from_review({"primary_thread": "Mentoria privada persistente"}, "heartbeat")

@@ -24,6 +24,8 @@ class ContextPacket:
     request: str
     kind: str
     observations: list[Observation] = field(default_factory=list)
+    delta_source_manifest: list[dict[str, Any]] = field(default_factory=list)
+    search_source_manifest: list[dict[str, Any]] = field(default_factory=list)
     thread_candidates: list[dict[str, Any]] = field(default_factory=list)
     report_candidates: list[dict[str, Any]] = field(default_factory=list)
     recent_events: list[dict[str, Any]] = field(default_factory=list)
@@ -37,6 +39,8 @@ class ContextPacket:
             "request": self.request,
             "kind": self.kind,
             "observations": [obs.__dict__ for obs in self.observations],
+            "delta_source_manifest": self.delta_source_manifest,
+            "search_source_manifest": self.search_source_manifest,
             "thread_candidates": self.thread_candidates,
             "report_candidates": self.report_candidates,
             "recent_events": self.recent_events,
@@ -60,6 +64,72 @@ def _workspace_path(root: Path, raw: str) -> Path:
     if not path.is_absolute():
         path = root / path
     return path.resolve()
+
+
+def build_delta_source_manifest(config: RuntimeConfig) -> list[dict[str, Any]]:
+    manifest: list[dict[str, Any]] = [{"name": "request", "kind": "runtime", "enabled": True, "available": True}]
+    for item in config.agent.get("workspaces") or []:
+        if not isinstance(item, dict):
+            continue
+        path = _workspace_path(config.root, str(item.get("path") or "."))
+        manifest.append(
+            {
+                "name": str(item.get("name") or item.get("path") or "workspace"),
+                "kind": str(item.get("kind") or "workspace"),
+                "enabled": True,
+                "available": path.exists(),
+                "path": str(path),
+            }
+        )
+    claude_settings = ((config.agent.get("context") or {}).get("claude_sessions") or {})
+    claude_base = Path.home() / ".claude" / "projects"
+    manifest.append(
+        {
+            "name": "claude_sessions",
+            "kind": "genotypic_context",
+            "enabled": claude_settings.get("enabled", True) is not False,
+            "available": claude_base.exists(),
+            "path": str(claude_base),
+        }
+    )
+    manifest.extend(
+        [
+            {"name": "threads", "kind": "state_projection", "enabled": True, "available": config.threads_dir.exists(), "path": str(config.threads_dir)},
+            {"name": "reports", "kind": "state_projection", "enabled": True, "available": config.reports_dir.exists(), "path": str(config.reports_dir)},
+            {"name": "events", "kind": "ledger", "enabled": True, "available": config.ledger_path.exists(), "path": str(config.ledger_path)},
+            {"name": "first_steps", "kind": "phenotype", "enabled": True, "available": bool(config.agent.get("first_steps"))},
+            {"name": "seed_threads", "kind": "phenotype", "enabled": True, "available": bool(config.agent.get("seed_threads"))},
+            {"name": "interests", "kind": "phenotype", "enabled": True, "available": bool(config.agent.get("interests"))},
+        ]
+    )
+    return manifest
+
+
+def build_search_source_manifest(config: RuntimeConfig) -> list[dict[str, Any]]:
+    credential_env = {
+        "exa": "EXA_API_KEY",
+        "x": "X_BEARER_TOKEN",
+        "github": None,
+        "hackernews": None,
+    }
+    configured = config.agent.get("sources") or []
+    manifest: list[dict[str, Any]] = []
+    for item in configured:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "")
+        env_key = credential_env.get(name)
+        available = True if env_key is None else bool(os.environ.get(env_key))
+        manifest.append(
+            {
+                "name": name,
+                "kind": str(item.get("kind") or "search"),
+                "enabled": item.get("enabled", True) is not False,
+                "available": available,
+                "credential": "not_required" if env_key is None else ("configured" if available else "missing"),
+            }
+        )
+    return manifest
 
 
 def load_workspace_observations(config: RuntimeConfig) -> list[Observation]:
@@ -145,6 +215,8 @@ def assemble_context(config: RuntimeConfig, ledger: Ledger, *, kind: str, reques
         request=request or f"Run a {kind} beat",
         kind=kind,
         observations=observations,
+        delta_source_manifest=build_delta_source_manifest(config),
+        search_source_manifest=build_search_source_manifest(config),
         thread_candidates=load_threads(config),
         report_candidates=load_reports(config),
         recent_events=ledger.read_recent(25),

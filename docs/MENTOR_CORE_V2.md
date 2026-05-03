@@ -21,12 +21,14 @@ These are fixed and cannot be configured away:
 - Feynman principles govern reasoning: derive, simplify, expose gaps.
 - Skills are consultive by default and do not mutate mentee workspaces.
 - Every beat runs the minimum rite:
-  - broad search;
-  - adversarial review;
-  - general review;
+  - load state and delta source manifest;
+  - continuity/context/search review twice;
+  - broad search after reviewer search suggestions;
+  - adversarial review twice;
   - Feynman review;
-  - method review;
-  - rich report.
+  - rich report;
+  - report utility classification;
+  - thread update.
 
 ## Phenotype
 
@@ -42,51 +44,56 @@ These are fixed and cannot be configured away:
 
 It does not decide whether Edge is a mentor. That belongs to the genotype.
 
-## Context Readiness
+## Context And Search Reviews
 
 The old system tried to enforce prose with primitives, capabilities, and many
 deterministic checks. v2 keeps the execution guarantee but removes the ontology.
 
-The runtime always assembles a delta/preskill packet, then runs one LLM-shaped
-gate: `Context Readiness Review`.
+The runtime always assembles a context pack with two source manifests:
 
-That review answers two qualitative questions:
+- `delta_source_manifest`: workspaces, Claude sessions, threads, reports,
+  events, first steps, seed threads, interests;
+- `search_source_manifest`: Exa, Hacker News, X, GitHub, configured status, and
+  credential availability without exposing secrets.
 
-1. continuity: does this continue an existing thread, reopen an old one, cross
-   threads, or justify a new thread?
-2. sufficiency: is the loaded context enough for a mentor to advise without
-   becoming generic?
+Every reviewer sees both manifests. Reviewers are responsible for judging
+whether the loader and the search attempts were adequate, suggesting search
+terms, and naming missing sources. The runtime does not convert that judgment
+into pass/fail branching; it feeds the suggestions into the next straight-line
+search/delivery step.
 
-The runtime allows at most two attempts. If the second review fails, the beat
-must report the limitation instead of pretending confidence.
+## Straight-Line Rite
 
 ## Method Enforcement
 
 v2 avoids primitives as a domain ontology, but it still enforces the beat rite.
-The simple split is:
-
-- deterministic enforcement for orchestration;
-- LLM review for judgment and quality.
+The simple split is deterministic orchestration plus LLM judgment.
 
 The deterministic part is the `Rite Gate`. Before a cycle can close, the ledger
 must show the required events in order:
 
 ```text
-CycleOpened -> DeltaPrepared -> ContextReadinessReviewed ->
-BroadSearchCompleted -> ReportDrafted -> ReportReviewed ->
-ReportWritten -> ThreadUpdated -> DigestRebuilt -> BlogBuilt ->
+CycleOpened -> StateLoaded -> DeliveryCompleted(context-pack) ->
+ContinuitySearchReviewed -> BroadSearchCompleted ->
+DeliveryCompleted(evidence-pack-v1) ->
+ContinuitySearchReviewed -> BroadSearchCompleted ->
+DeliveryCompleted(evidence-pack-v2) ->
+ReportDrafted -> DeliveryCompleted(draft-v1) ->
+AdversarialSearchReviewed -> BroadSearchCompleted ->
+ReportRevised -> DeliveryCompleted(draft-v2) ->
+AdversarialReviewed -> ReportRevised -> DeliveryCompleted(draft-v3) ->
+FeynmanReviewed -> FinalReportPrepared -> ReportWritten ->
+ReportUtilityClassified -> ThreadUpdated -> DigestRebuilt -> BlogBuilt ->
 RiteVerified -> CycleClosed
 ```
 
-The gate also requires four report reviewers to have run: adversarial, general,
-Feynman, and method. This is intentionally small. It proves the runtime followed
-the method without recreating primitives, capabilities, claims, or a large
-deterministic ontology.
+This is intentionally small. It proves the runtime followed the method without
+recreating primitives, capabilities, claims, or a large deterministic ontology.
 
-The LLM part judges whether the content actually honored the method: situated
-delta, continuity, broad search, adversarial posture, Feynman derivation, gaps,
-and concrete next steps. If the primary LLM provider is unavailable or returns an
-invalid response, runtime LLM calls fall back to the local `claude` CLI.
+The LLM part judges whether the content actually honored the method. Its
+judgment is carried into the next delivery, not turned into a control-flow
+branch. If the primary LLM provider is unavailable or returns an invalid
+response, runtime LLM calls fall back to the local `claude` CLI.
 
 ## State
 
@@ -101,11 +108,14 @@ Threads, digests, and blog indexes are read models or applied projections:
 ```text
 state/threads/
 state/digests/
+state/report-utility.jsonl
 reports/
 blog/entries/
 ```
 
-Reports are the rich deliverable. Threads are compact continuity.
+Reports are the rich deliverable. Threads are compact continuity. Report utility
+classification is a lightweight projection for future curation of generated
+content.
 
 ## Blog
 

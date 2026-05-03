@@ -6,22 +6,36 @@ from typing import Any
 
 REQUIRED_ORDER = [
     "CycleOpened",
-    "DeltaPrepared",
-    "ContextReadinessReviewed",
+    "StateLoaded",
+    "DeliveryCompleted",
+    "ContinuitySearchReviewed",
     "BroadSearchCompleted",
+    "DeliveryCompleted",
+    "ContinuitySearchReviewed",
+    "BroadSearchCompleted",
+    "DeliveryCompleted",
     "ReportDrafted",
-    "ReportReviewed",
+    "DeliveryCompleted",
+    "AdversarialSearchReviewed",
+    "BroadSearchCompleted",
+    "ReportRevised",
+    "DeliveryCompleted",
+    "AdversarialReviewed",
+    "ReportRevised",
+    "DeliveryCompleted",
+    "FeynmanReviewed",
+    "FinalReportPrepared",
     "ReportWritten",
+    "ReportUtilityClassified",
     "ThreadUpdated",
     "DigestRebuilt",
     "BlogBuilt",
 ]
 
 REQUIRED_REVIEW_MARKERS = [
+    "context-search",
     "adversarial",
-    "general-review",
     "feynman-review",
-    "method-review",
 ]
 
 
@@ -51,14 +65,24 @@ def verify_rite(events: list[dict[str, Any]]) -> RiteCheck:
         except ValueError:
             missing.append(event_type)
 
-    reviewers = [str(event.get("reviewer") or "") for event in events if event.get("type") == "ReportReviewed"]
+    reviewers = [
+        str(event.get("reviewer") or "")
+        for event in events
+        if event.get("type") in {"ContinuitySearchReviewed", "AdversarialSearchReviewed", "AdversarialReviewed", "FeynmanReviewed"}
+    ]
     for marker in REQUIRED_REVIEW_MARKERS:
         if not any(marker in reviewer for reviewer in reviewers):
             missing.append(f"review:{marker}")
 
     broad_search = [event for event in events if event.get("type") == "BroadSearchCompleted"]
-    if not broad_search or int(broad_search[-1].get("results") or 0) <= 0:
+    if len(broad_search) < 3:
+        missing.append("broad-search:rounds")
+    if any(int(event.get("results") or 0) <= 0 for event in broad_search):
         missing.append("broad-search:results")
+    if sum(1 for event in events if event.get("type") == "ContinuitySearchReviewed") < 2:
+        missing.append("continuity-search:rounds")
+    if sum(1 for event in events if event.get("type") in {"AdversarialSearchReviewed", "AdversarialReviewed"}) < 2:
+        missing.append("adversarial:rounds")
 
     return RiteCheck(
         passed=not missing,

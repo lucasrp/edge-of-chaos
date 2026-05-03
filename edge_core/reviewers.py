@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .context import ContextPacket
+from .search import SearchResult
 from .util import slugify, truncate
 
 
@@ -144,20 +145,29 @@ class LLMClient:
         return None
 
 
-def context_readiness(packet: ContextPacket, *, attempt: int) -> ReviewResult:
+def context_search_review(packet: ContextPacket, searches: list[SearchResult], *, round_index: int) -> ReviewResult:
     client = LLMClient()
-    prompt = json.dumps(packet.as_dict(), ensure_ascii=False)[:18000]
+    prompt = json.dumps(
+        {
+            "round": round_index,
+            "context": packet.as_dict(),
+            "search_results": [result.__dict__ for result in searches[:12]],
+        },
+        ensure_ascii=False,
+    )[:22000]
     llm = client.complete_json(
         system=(
-            "You are the context readiness reviewer for a private Feynman mentor. "
-            "Judge continuity and loader sufficiency. Return JSON with status "
-            "pass|repair_needed|fail, primary_thread, missing_context, repair_instructions, reason."
+            "You are the continuity/context/search reviewer for a private Feynman mentor. "
+            "Inspect the delta source manifest and the search source manifest. Judge continuity, loader sufficiency, "
+            "source coverage, search terms, and whether the right sources were attempted. Return JSON with "
+            "primary_thread, continuity_assessment, loader_notes, search_assessment, suggested_queries, suggested_sources, "
+            "missing_context, and summary. Do not decide pass/fail; give material for the next straight-line step."
         ),
         prompt=prompt,
     )
     if llm:
-        status = str(llm.get("status") or "repair_needed")
-        return ReviewResult(status, "llm:context-readiness", str(llm.get("reason") or status), llm)
+        llm["round"] = round_index
+        return ReviewResult("completed", "llm:context-search", str(llm.get("summary") or llm.get("reason") or "context/search reviewed"), llm)
 
     has_observations = len(packet.observations) >= 2
     thread_id = "general-continuity"
@@ -188,49 +198,66 @@ def context_readiness(packet: ContextPacket, *, attempt: int) -> ReviewResult:
     elif action == "create" and packet.request:
         thread_id = slugify(packet.request, "general-continuity")[:80]
         title = thread_id.replace("-", " ").title()
-    status = "pass" if has_observations else ("repair_needed" if attempt == 1 else "fail")
     data = {
-        "status": status,
+        "round": round_index,
         "primary_thread": {"action": action, "thread_id": thread_id, "title": title},
         "continuity_assessment": "local fallback continues a thread only on textual overlap; otherwise it creates from request or seed_threads.",
-        "loader_sufficiency": {"status": "sufficient" if has_observations else "insufficient"},
+        "loader_notes": "Context has enough observations for a situated beat." if has_observations else "Context is thin.",
+        "search_assessment": "Local fallback cannot judge source quality; it preserves configured source manifests for reviewers.",
+        "suggested_queries": [packet.request],
+        "suggested_sources": [item.get("name") for item in packet.search_source_manifest if item.get("enabled")],
         "missing_context": [] if has_observations else ["No workspace or session observations were available."],
-        "repair_instructions": [] if has_observations else ["Check configured workspaces and agent.yaml."],
-        "reason": "Context has enough observations for a situated mentor beat." if has_observations else "Context is too thin.",
+        "summary": "Local context/search review completed.",
         "mode": "local-fallback",
     }
-    return ReviewResult(status, "local:context-readiness", data["reason"], data)
+    return ReviewResult("completed", "local:context-search", data["summary"], data)
 
 
-def adversarial_review(report: str) -> ReviewResult:
+def context_readiness(packet: ContextPacket, *, attempt: int) -> ReviewResult:
+    return context_search_review(packet, [], round_index=attempt)
+
+
+def adversarial_review(report: str, packet: ContextPacket | None = None, searches: list[SearchResult] | None = None, *, round_index: int = 1) -> ReviewResult:
     client = LLMClient()
+    payload: Any = report[:16000]
+    if packet is not None:
+        payload = {
+            "round": round_index,
+            "report": report[:14000],
+            "context": packet.as_dict(),
+            "search_results": [result.__dict__ for result in (searches or [])[:12]],
+        }
     llm = client.complete_json(
-        system="You are an adversarial reviewer. Find weak assumptions, missing evidence, and overreach. Return JSON.",
-        prompt=report[:16000],
+        system=(
+            "You are an adversarial reviewer. Find weak assumptions, missing evidence, and overreach. "
+            "Also inspect the delta/search source manifests and current search results. Return JSON with summary, "
+            "weak_assumptions, missing_evidence, search_assessment, suggested_queries, suggested_sources, and recommended_repairs."
+        ),
+        prompt=json.dumps(payload, ensure_ascii=False)[:22000] if isinstance(payload, dict) else payload,
     )
     if llm:
+        llm["round"] = round_index
         return ReviewResult("completed", "llm:adversarial", str(llm.get("summary") or "adversarial review completed"), llm)
     summary = "Local fallback: challenge generic claims, missing source diversity, weak continuity, and recommendations not tied to the observed delta."
-    return ReviewResult("completed", "local:adversarial", summary, {"summary": summary, "mode": "local-fallback"})
+    return ReviewResult("completed", "local:adversarial", summary, {"summary": summary, "mode": "local-fallback", "round": round_index, "suggested_queries": []})
 
 
-def general_review(report: str, packet: ContextPacket) -> ReviewResult:
+def feynman_review(report: str, packet: ContextPacket | None = None, searches: list[SearchResult] | None = None) -> ReviewResult:
     client = LLMClient()
+    payload: Any = report[:16000]
+    if packet is not None:
+        payload = {
+            "report": report[:14000],
+            "context": packet.as_dict(),
+            "search_results": [result.__dict__ for result in (searches or [])[:12]],
+        }
     llm = client.complete_json(
-        system="You review whether the report answers the real current work context. Return JSON.",
-        prompt=json.dumps({"report": report[:14000], "context": packet.as_dict()}, ensure_ascii=False)[:18000],
-    )
-    if llm:
-        return ReviewResult("completed", "llm:general-review", str(llm.get("summary") or "review completed"), llm)
-    summary = "Local fallback: report should explicitly cite the current request, observed workspace delta, thread continuity, and next action."
-    return ReviewResult("completed", "local:general-review", summary, {"summary": summary, "mode": "local-fallback"})
-
-
-def feynman_review(report: str) -> ReviewResult:
-    client = LLMClient()
-    llm = client.complete_json(
-        system="You are a Feynman reviewer. Check simplicity, derivation, gaps, and honest uncertainty. Return JSON.",
-        prompt=report[:16000],
+        system=(
+            "You are a Feynman reviewer. Check simplicity, derivation, gaps, and honest uncertainty. "
+            "Also inspect whether the report's search/source use supports the explanation. Return JSON with summary, "
+            "simplicity, derivation, gaps, honest_uncertainty, search_assessment, suggested_queries, and repair_notes."
+        ),
+        prompt=json.dumps(payload, ensure_ascii=False)[:22000] if isinstance(payload, dict) else payload,
     )
     if llm:
         return ReviewResult("completed", "llm:feynman-review", str(llm.get("summary") or "Feynman review completed"), llm)
@@ -241,50 +268,35 @@ def feynman_review(report: str) -> ReviewResult:
     return ReviewResult("completed", "local:feynman-review", summary, {"summary": summary, "mode": "local-fallback", "explicit_gap_seen": has_gap})
 
 
-def method_review(report: str, packet: ContextPacket, search_sources: list[str]) -> ReviewResult:
+def classify_report_utility(report: str, packet: ContextPacket, reviews: list[ReviewResult]) -> ReviewResult:
     client = LLMClient()
     llm = client.complete_json(
         system=(
-            "You are the method reviewer for edge-of-chaos v2. Judge whether this mentor report honored the rite: "
-            "situated delta/context, continuity thread, broad search, adversarial posture, Feynman derivation, gaps, "
-            "and concrete next steps. Return JSON with status pass|repair_needed|fail, summary, violations, and repair."
+            "Classify this generated mentor report for future curation. Return JSON with utility_score 0-5, "
+            "utility_label, curation_tags, evergreen_value, actionability, novelty, continuity_value, summary, "
+            "recommended_followups. This classification never blocks publication."
         ),
         prompt=json.dumps(
             {
                 "report": report[:14000],
-                "kind": packet.kind,
-                "request": packet.request,
-                "observations": [obs.__dict__ for obs in packet.observations[:8]],
-                "thread_candidates": packet.thread_candidates[:4],
-                "report_candidates": packet.report_candidates[:4],
-                "search_sources": search_sources,
+                "context": packet.as_dict(),
+                "reviews": [{"reviewer": review.reviewer, "summary": review.summary, "data": review.data} for review in reviews],
             },
             ensure_ascii=False,
-        )[:18000],
+        )[:22000],
     )
     if llm:
-        status = str(llm.get("status") or "completed")
-        return ReviewResult(status, "llm:method-review", str(llm.get("summary") or status), llm)
-    has_delta = "delta" in report.lower() or packet.request.lower() in report.lower()
-    has_gap = "gap" in report.lower() or "lacuna" in report.lower()
-    has_next = "next" in report.lower() or "proxim" in report.lower()
-    passed = has_delta and has_gap and has_next and bool(search_sources)
-    summary = "Local fallback: method markers present." if passed else "Local fallback: report is missing one or more method markers."
-    return ReviewResult(
-        "pass" if passed else "repair_needed",
-        "local:method-review",
-        summary,
-        {
-            "summary": summary,
-            "mode": "local-fallback",
-            "checks": {
-                "delta_or_request": has_delta,
-                "gaps": has_gap,
-                "next_steps": has_next,
-                "search_sources": bool(search_sources),
-            },
-        },
-    )
+        return ReviewResult("completed", "llm:report-utility", str(llm.get("summary") or "utility classified"), llm)
+    score = 2 if "degraded local fallback" in report.lower() else 3
+    data = {
+        "utility_score": score,
+        "utility_label": "low" if score <= 2 else "medium",
+        "curation_tags": [packet.kind, "local-fallback" if score <= 2 else "mentor-report"],
+        "summary": "Local fallback utility classification.",
+        "recommended_followups": [],
+        "mode": "local-fallback",
+    }
+    return ReviewResult("completed", "local:report-utility", data["summary"], data)
 
 
 def summarize_reviews(reviews: list[ReviewResult]) -> str:

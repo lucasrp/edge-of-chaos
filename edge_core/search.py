@@ -72,15 +72,16 @@ def _github_context(config: RuntimeConfig) -> list[SearchResult]:
     return [SearchResult("github", str(repo), f"https://github.com/{repo}", "Configured GitHub repository for contextual lookup.") for repo in repos[:5]]
 
 
-def query_from_packet(packet: ContextPacket) -> str:
+def query_from_packet(packet: ContextPacket, hints: list[str] | None = None) -> str:
     terms = [packet.request]
+    terms.extend(hints or [])
     for obs in packet.observations[:5]:
         terms.append(obs.title)
     return " ".join(terms)[:240]
 
 
-def broad_search(config: RuntimeConfig, packet: ContextPacket) -> list[SearchResult]:
-    query = query_from_packet(packet)
+def broad_search(config: RuntimeConfig, packet: ContextPacket, hints: list[str] | None = None) -> list[SearchResult]:
+    query = query_from_packet(packet, hints)
     configured = {str(item.get("name")): item for item in (config.agent.get("sources") or []) if isinstance(item, dict) and item.get("enabled", True)}
     results: list[SearchResult] = []
     if "exa" in configured:
