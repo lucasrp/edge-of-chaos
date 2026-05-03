@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,9 @@ from _shared.telemetry import emit_shadow_event, log_event  # noqa: E402
 
 POST_SKILL_LOG = LOGS_DIR / "post-skill.log"
 DEFAULT_OPEN_GAPS_PROJECTION_MAX_AGE_SECONDS = 6 * 60 * 60
+DEFAULT_PIPELINE_SETTLE_ATTEMPTS = 12
+DEFAULT_PIPELINE_SETTLE_INTERVAL_SECONDS = 30.0
+DEFAULT_PIPELINE_SETTLE_MAX_EVENT_AGE_SECONDS = 10 * 60
 
 
 def now_iso() -> str:
@@ -49,6 +53,20 @@ def append_postskill_log(name: str, status: str, detail: str = "") -> None:
 def run_subprocess(cmd: list[str]) -> tuple[int, str, str]:
     result = subprocess.run(cmd, cwd=str(EDGE_REPO_DIR), capture_output=True, text=True)
     return result.returncode, (result.stdout or "").strip(), (result.stderr or "").strip()
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
 
 
 def _read_json_file(path: Path, default: Any) -> Any:
@@ -310,29 +328,111 @@ def refresh_open_gaps_status() -> dict[str, Any]:
 
 
 def refresh_pipeline_state(cycle_id: str | None = None) -> dict[str, Any]:
-    code, stdout, stderr = run_subprocess([sys.executable, str(EDGE_REPO_DIR / "tools" / "rollup-pipeline-state.py"), "--json"])
-    if code != 0:
-        detail = (stderr or stdout or f"exit={code}").splitlines()[-1]
-        append_postskill_log("pipeline_state", "FAIL", detail)
-        return {"ok": False, "status": "failed", "detail": detail, "payload": {}, "current_attention": []}
+    def run_rollup() -> tuple[dict[str, Any], str | None]:
+        code, stdout, stderr = run_subprocess([sys.executable, str(EDGE_REPO_DIR / "tools" / "rollup-pipeline-state.py"), "--json"])
+        if code != 0:
+            return {}, (stderr or stdout or f"exit={code}").splitlines()[-1]
+        try:
+            return (json.loads(stdout) if stdout else {}), None
+        except json.JSONDecodeError as exc:
+            return {}, str(exc)
 
-    payload = json.loads(stdout) if stdout else {}
-    summary = payload.get("summary") or {}
-    counts = summary.get("counts_by_status") or {}
-    attention = [
-        item
-        for item in (payload.get("attention_artifacts") or [])
-        if cycle_id and item.get("cycle_id") == cycle_id
-    ]
-    detail = (
-        f"artifacts={summary.get('artifacts_total', 0)} "
-        f"attention={summary.get('artifacts_attention', 0)} "
-        f"complete={counts.get('complete', 0)} "
-        f"standdown={counts.get('standdown', 0)} "
-        f"blocked={counts.get('blocked', 0)} "
-        f"failed={counts.get('failed', 0)} "
-        f"current_attention={len(attention)}"
-    )
+    def current_attention(payload: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            item
+            for item in (payload.get("attention_artifacts") or [])
+            if cycle_id and item.get("cycle_id") == cycle_id
+        ]
+
+    def parse_ts(value: Any) -> datetime | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    def is_recent_current_artifact(item: dict[str, Any]) -> bool:
+        max_age = _env_int(
+            "EDGE_POSTFLIGHT_PIPELINE_SETTLE_MAX_EVENT_AGE_SEC",
+            DEFAULT_PIPELINE_SETTLE_MAX_EVENT_AGE_SECONDS,
+        )
+        if max_age <= 0:
+            return True
+        last_seen = parse_ts(item.get("last_event_at") or item.get("published_at") or item.get("first_event_at"))
+        if last_seen is None:
+            return True
+        return (datetime.now(timezone.utc) - last_seen).total_seconds() <= max_age
+
+    def is_settleable(item: dict[str, Any]) -> bool:
+        if not is_recent_current_artifact(item):
+            return False
+        if str(item.get("pipeline") or "") != "consolidate-state":
+            return False
+        if item.get("published") or item.get("standdown"):
+            return False
+        status = str(item.get("status") or "")
+        if status not in {"partial", "blocked", "unknown"}:
+            return False
+        terminal = str(item.get("terminal_phase_status") or "").strip()
+        if terminal in {"ok", "failed"}:
+            return False
+        event_counts = item.get("event_counts") or {}
+        if int(event_counts.get("ArtifactPublished") or 0) > 0:
+            return False
+        reasons = " ".join(str(reason) for reason in (item.get("reasons") or [])).lower()
+        if "pending" in reasons or "in flight" in reasons or "in-flight" in reasons:
+            return True
+        phase_counts = item.get("phase_counts") or {}
+        return int(phase_counts.get("failed") or 0) == 0
+
+    def detail_for(payload: dict[str, Any], attention: list[dict[str, Any]], settle_attempts: int = 0) -> str:
+        summary = payload.get("summary") or {}
+        counts = summary.get("counts_by_status") or {}
+        detail = (
+            f"artifacts={summary.get('artifacts_total', 0)} "
+            f"attention={summary.get('artifacts_attention', 0)} "
+            f"complete={counts.get('complete', 0)} "
+            f"standdown={counts.get('standdown', 0)} "
+            f"blocked={counts.get('blocked', 0)} "
+            f"failed={counts.get('failed', 0)} "
+            f"current_attention={len(attention)}"
+        )
+        if settle_attempts:
+            detail += f" settle_attempts={settle_attempts}"
+        return detail
+
+    payload, error = run_rollup()
+    if error is not None:
+        append_postskill_log("pipeline_state", "FAIL", error)
+        return {"ok": False, "status": "failed", "detail": error, "payload": {}, "current_attention": []}
+
+    attention = current_attention(payload)
+    settle_attempts = 0
+    max_attempts = max(0, _env_int("EDGE_POSTFLIGHT_PIPELINE_SETTLE_ATTEMPTS", DEFAULT_PIPELINE_SETTLE_ATTEMPTS))
+    interval = max(0.0, _env_float("EDGE_POSTFLIGHT_PIPELINE_SETTLE_INTERVAL_SEC", DEFAULT_PIPELINE_SETTLE_INTERVAL_SECONDS))
+    while attention and settle_attempts < max_attempts and all(is_settleable(item) for item in attention):
+        settle_attempts += 1
+        append_postskill_log(
+            "pipeline_state",
+            "WAIT",
+            detail_for(payload, attention, settle_attempts),
+        )
+        if interval > 0:
+            time.sleep(interval)
+        payload, error = run_rollup()
+        if error is not None:
+            append_postskill_log("pipeline_state", "FAIL", error)
+            return {"ok": False, "status": "failed", "detail": error, "payload": {}, "current_attention": []}
+        attention = current_attention(payload)
+
+    detail = detail_for(payload, attention, settle_attempts)
     ok = len(attention) == 0
     append_postskill_log("pipeline_state", "OK" if ok else "WARN", detail)
     return {
