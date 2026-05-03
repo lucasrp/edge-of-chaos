@@ -170,6 +170,13 @@ if [ "${MOCK_CLAUDE_FAIL_ONCE:-0}" = "1" ]; then
     exit "${MOCK_CLAUDE_FAIL_ONCE_EXIT_CODE:-1}"
   fi
 fi
+if [ "${MOCK_CLAUDE_SKIP_ARTIFACT_ONCE:-0}" = "1" ]; then
+  INVOCATIONS="$(grep -c '^__INVOCATION__$' "${MOCK_CLAUDE_ARGS_OUT:?}" 2>/dev/null || true)"
+  if [ "$INVOCATIONS" = "1" ]; then
+    printf '%s\n' "${MOCK_CLAUDE_SKIP_ARTIFACT_ONCE_OUTPUT:-consolidate-state failed before durable publication; retry required}"
+    exit 0
+  fi
+fi
 prompt_has_skill() {
   local skill="$1"
   [[ "$PROMPT" == *"/$skill"* || "$PROMPT" == "$skill"$'\n'* ]]
@@ -647,6 +654,70 @@ then
     pass "runtime-stdout ArtifactPublished is rejected as publication evidence"
 else
     fail "runtime-stdout ArtifactPublished is rejected as publication evidence"
+fi
+
+echo "--- Test 1f: artifact supervisor retry still requires durable publication ---"
+export MOCK_CLAUDE_ENV_OUT="$TMP_BASE/cycle-id-durable-retry.txt"
+export MOCK_CLAUDE_ARGS_OUT="$TMP_BASE/args-durable-retry.txt"
+rm -f "$MOCK_CLAUDE_ENV_OUT" "$MOCK_CLAUDE_ARGS_OUT" "$TMP_BASE/durable-retry.out"
+export MOCK_CLAUDE_SKIP_ARTIFACT_ONCE=1
+export MOCK_CLAUDE_HEARTBEAT_FLOW=1
+"$RUNNER_TOOL" skill \
+    --skill /research \
+    --dispatch-trigger operator \
+    --dispatch-policy operator \
+    --dispatch-routing-mode explicit \
+    --dispatch-preflight-profile heartbeat_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force >"$TMP_BASE/durable-retry.out"
+unset MOCK_CLAUDE_SKIP_ARTIFACT_ONCE MOCK_CLAUDE_HEARTBEAT_FLOW || true
+
+if python3 - <<'PY' "$TMP_EDGE/state/current-dispatch.json" "$TMP_EDGE/state/events/log.jsonl" "$TMP_BASE/durable-retry.out" "$TMP_BASE/args-durable-retry.txt"
+import json
+import sys
+from pathlib import Path
+
+dispatch = json.load(open(sys.argv[1], encoding="utf-8"))
+events = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8") if line.strip()]
+runner_stdout = Path(sys.argv[3]).read_text(encoding="utf-8")
+args_log = Path(sys.argv[4]).read_text(encoding="utf-8")
+cycle_id = dispatch["cycle_id"]
+
+assert dispatch["request"]["skill"] == "research"
+assert dispatch["state"]["active"] is False
+assert dispatch["state"]["close_status"] == "completed"
+assert args_log.count("__INVOCATION__") == 2
+assert "ARTIFACT SUPERVISOR RETRY" in args_log
+assert "Stdout-only prose is diagnostic output only" in args_log
+assert "runtime can publish it" not in args_log
+retry_started = [
+    event for event in events
+    if event.get("type") == "ArtifactSupervisionRetryStarted"
+    and event.get("cycle_id") == cycle_id
+]
+retry_completed = [
+    event for event in events
+    if event.get("type") == "ArtifactSupervisionRetryCompleted"
+    and event.get("cycle_id") == cycle_id
+]
+assert retry_started
+assert retry_started[-1]["payload"]["publish_reason"] == "stdout_artifact_disabled"
+assert retry_completed
+assert retry_completed[-1]["payload"]["published"] is True
+published = [
+    event for event in events
+    if event.get("type") == "ArtifactPublished"
+    and event.get("cycle_id") == cycle_id
+]
+assert published
+assert all((event.get("payload") or {}).get("auto_published") is not True for event in published)
+assert all((event.get("payload") or {}).get("pipeline") != "runtime-stdout-artifact" for event in published)
+assert "edge-runner: published artifact blog/entries/" not in runner_stdout
+PY
+then
+    pass "artifact supervisor retry publishes only durable artifacts"
+else
+    fail "artifact supervisor retry publishes only durable artifacts"
 fi
 
 echo "--- Test 2: dispatched skill success without artifact closes as failed ---"

@@ -895,13 +895,11 @@ def should_retry_artifact_skill(skill: str | None, cycle_id: str | None, exit_co
     if not cycle_id:
         return False
     normalized = normalize_skill_name(skill)
-    if not skill_accepts_stdout_artifact(normalized, instance=EDGE_INSTANCE):
+    if not skill_requires_artifact_publication(normalized, instance=EDGE_INSTANCE):
         return False
     if artifact_published_for_cycle(cycle_id):
         return False
-    if exit_code != 0:
-        return True
-    return str(publish_result.get("reason") or "") == "missing_markdown_artifact"
+    return not bool(publish_result.get("published"))
 
 
 def should_echo_backend_output(skill: str | None) -> bool:
