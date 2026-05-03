@@ -260,6 +260,71 @@ else
     fail "review-only HTML publish with generated review succeeds"
 fi
 
+echo "--- Test 4: heartbeat review-gate degradation records metadata and continues ---"
+TMP_DEGRADED_ENTRY="$TMP_STATE/blog/entries/degraded-entry.md"
+TMP_DEGRADED_REPORT="$TMP_STATE/reports/spec-report-degraded-gate.yaml"
+cat >"$TMP_DEGRADED_ENTRY" <<'EOF'
+---
+title: "Degraded gate entry"
+date: "2026-04-23"
+tags: [test]
+open_gaps: []
+threads: [test-thread]
+---
+
+Test body for degraded review-gate.
+EOF
+cat >"$TMP_DEGRADED_REPORT" <<'EOF'
+title: "Degraded gate report"
+subtitle: "Heartbeat degraded review-gate smoke"
+date: "23/04/2026"
+sections:
+  - title: "1. Test"
+    content: "This report exists to test degraded review-gate metadata."
+EOF
+cat >"${TMP_DEGRADED_REPORT%.yaml}.review.json" <<'EOF'
+{"resolved": true, "response": "already resolved"}
+EOF
+touch "${TMP_DEGRADED_REPORT%.yaml}.resolved"
+cat >"$TMP_BIN/review-gate" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "${EDGE_REVIEW_GATE_LLM_TIMEOUT_SEC:-}" > "$EDGE_REVIEW_GATE_TIMEOUT_CAPTURE"
+echo "simulated review-gate provider failure" >&2
+exit 2
+EOF
+chmod +x "$TMP_BIN/review-gate"
+if EDGE_REVIEW_GATE_TIMEOUT_CAPTURE="$TMP_BASE/review-timeout-env" \
+   EDGE_CONSOLIDATE_REVIEW_GATE_DEGRADED_OK=1 \
+   EDGE_REVIEW_GATE_HEARTBEAT_TIMEOUT_SEC=11 \
+   "$CONSOLIDATE" "$TMP_DEGRADED_ENTRY" "$TMP_DEGRADED_REPORT" --review-only >"$TEST_LOG" 2>&1; then
+    if python3 - <<'PY' "$TMP_DEGRADED_REPORT" "$EVENTS_MIRROR_FILE" "$TMP_BASE/review-timeout-env"
+import json, pathlib, sys
+report = pathlib.Path(sys.argv[1])
+events_path = pathlib.Path(sys.argv[2])
+timeout_capture = pathlib.Path(sys.argv[3])
+feedback = pathlib.Path(str(report).replace(".yaml", ".feedback.json"))
+assert feedback.exists(), "degraded feedback json missing"
+data = json.loads(feedback.read_text(encoding="utf-8"))
+final = data["final_review"]
+assert final["status"] == "degraded", final
+assert final["_meta"]["degraded"] is True
+assert timeout_capture.read_text(encoding="utf-8").strip() == "11"
+events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+steps = [e for e in events if e.get("type") == "run_step"]
+phase05 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.5"]
+assert ("phase-0.5", "degraded", "review_gate") in phase05
+PY
+    then
+        pass "heartbeat degraded review-gate continues with explicit metadata"
+    else
+        cat "$TEST_LOG"
+        fail "heartbeat degraded review-gate continues with explicit metadata"
+    fi
+else
+    cat "$TEST_LOG"
+    fail "heartbeat degraded review-gate exits successfully"
+fi
+
 echo ""
 echo "=== Results ==="
 echo "PASS: $PASS  FAIL: $FAIL"
