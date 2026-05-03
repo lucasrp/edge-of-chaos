@@ -13,6 +13,7 @@ Usage:
 """
 
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -60,13 +61,30 @@ def normalize_report_ref(ref):
     return os.path.basename(ref.rstrip("/"))
 
 
+def extract_date(value):
+    """Return a YYYY-MM-DD date from the start of a metadata value or filename."""
+    match = re.match(r"^(\d{4}-\d{2}-\d{2})", str(value or ""))
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def is_recent_value(value, cutoff_date):
+    """Whether a dated value falls inside the recent validation window."""
+    parsed = extract_date(value)
+    return parsed is not None and parsed >= cutoff_date
+
+
 def validate(recent_only=False, fix=False):
     entries = load_entries()
     reports = {f.name for f in REPORTS_DIR.glob("*.html")}
 
-    cutoff = ""
+    cutoff_date = None
     if recent_only:
-        cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+        cutoff_date = (datetime.now() - timedelta(days=3)).date()
 
     # Track all issues
     orphan_reports = []
@@ -81,7 +99,7 @@ def validate(recent_only=False, fix=False):
             normalized = normalize_report_ref(ref)
             referenced.add(normalized)
 
-            if recent_only and entry["date"] < cutoff:
+            if recent_only and not is_recent_value(entry["date"], cutoff_date):
                 continue
 
             # Check wrong format (path instead of filename)
@@ -94,14 +112,14 @@ def validate(recent_only=False, fix=False):
 
     # Orphan reports
     for rname in sorted(reports):
-        if recent_only and not rname >= cutoff:
+        if recent_only and not is_recent_value(rname, cutoff_date):
             continue
         if rname not in referenced:
             orphan_reports.append(rname)
 
     # ALL blog entries MUST have a report field — no exceptions (Regra #0)
     for slug, entry in entries.items():
-        if recent_only and entry["date"] < cutoff:
+        if recent_only and not is_recent_value(entry["date"], cutoff_date):
             continue
         if not entry["report"]:
             candidates = [r for r in reports if slug in r or r.startswith(entry["date"])]
