@@ -70,7 +70,18 @@ cat >"$TMP_STATE/state/primitives-status.json" <<'JSON'
 JSON
 cat >"$TMP_STATE/libexec/captest/arxiv" <<'EOF'
 #!/usr/bin/env bash
-printf '{"query":"%s","source":"arxiv"}\n' "${2:-}"
+case "${1:-}" in
+  probe)
+    printf '{"ok":true,"source":"arxiv","probe":true}\n'
+    ;;
+  --query)
+    printf '{"query":"%s","source":"arxiv"}\n' "${2:-}"
+    ;;
+  *)
+    printf 'unknown operation: %s\n' "${1:-}" >&2
+    exit 1
+    ;;
+esac
 EOF
 chmod +x "$TMP_STATE/libexec/captest/arxiv"
 cat >"$TMP_STATE/libexec/captest/arxiv.meta.yaml" <<'YAML'
@@ -111,6 +122,13 @@ else
   fail "probe runs static capability probe"
 fi
 
+if env PATH="$TMP_BIN:/bin" EDGE_REPO_DIR="$TMP_REPO" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="captest" \
+  /usr/bin/python3 "$EDGE_DIR/tools/edge-cap" probe source.arxiv >/dev/null; then
+  pass "probe runs primitive capability probe"
+else
+  fail "probe runs primitive capability probe"
+fi
+
 SYNC_OUT=$(env PATH="$TMP_BIN:/bin" EDGE_REPO_DIR="$TMP_REPO" EDGE_STATE_DIR="$TMP_STATE" EDGE_CODENAME="captest" \
   /usr/bin/python3 "$EDGE_DIR/tools/edge-cap" invoke repo.sync -- status --json)
 if grep -q '"exact_code":true' <<<"$SYNC_OUT"; then
@@ -128,6 +146,7 @@ assert ("CapabilityInvocationObserved", "search.corpus") in types
 assert ("CapabilityInvocationObserved", "source.arxiv") in types
 assert ("CapabilityInvocationObserved", "repo.sync") in types
 assert ("CapabilityProbeCompleted", "repo.status") in types
+assert ("CapabilityProbeCompleted", "source.arxiv") in types
 PY
 then
   pass "capability telemetry is emitted"
