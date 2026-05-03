@@ -66,6 +66,26 @@ def _workspace_path(root: Path, raw: str) -> Path:
     return path.resolve()
 
 
+def _is_noise_path(path: Path) -> bool:
+    noise_parts = {".git", "__pycache__", ".pytest_cache", ".mypy_cache"}
+    if any(part in noise_parts for part in path.parts):
+        return True
+    if path.suffix in {".pyc", ".pyo", ".sqlite", ".db", ".png", ".jpg", ".jpeg", ".gif", ".zip"}:
+        return True
+    return False
+
+
+def _is_context_file(path: Path) -> bool:
+    return path.suffix.lower() in {".py", ".md", ".yaml", ".yml", ".json", ".toml", ".txt", ".sh"}
+
+
+def _read_snippet(path: Path, limit: int = 900) -> str:
+    try:
+        return truncate(path.read_text(encoding="utf-8", errors="ignore"), limit)
+    except OSError:
+        return ""
+
+
 def build_delta_source_manifest(config: RuntimeConfig) -> list[dict[str, Any]]:
     manifest: list[dict[str, Any]] = [{"name": "request", "kind": "runtime", "enabled": True, "available": True}]
     for item in config.agent.get("workspaces") or []:
@@ -152,15 +172,29 @@ def load_workspace_observations(config: RuntimeConfig) -> list[Observation]:
             code, log = _run(["git", "log", "--oneline", "--max-count=5"], path)
             if code == 0 and log:
                 observations.append(Observation("git", f"{name}: recent commits", truncate(log, 1200), str(path)))
+            code, stat = _run(["git", "diff", "--stat", "HEAD~5..HEAD"], path)
+            if code == 0 and stat:
+                observations.append(Observation("git", f"{name}: recent commit diff stat", truncate(stat, 1200), str(path)))
         recent_files: list[str] = []
         try:
-            files = [p for p in path.rglob("*") if p.is_file() and ".git" not in p.parts]
+            files = [p for p in path.rglob("*") if p.is_file() and not _is_noise_path(p)]
             files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
             recent_files = [str(p.relative_to(path)) for p in files[:8]]
         except OSError:
             recent_files = []
         if recent_files:
             observations.append(Observation("filesystem", f"{name}: recent files", "\n".join(recent_files), str(path)))
+        snippets = []
+        for relative in recent_files:
+            candidate = path / relative
+            if _is_context_file(candidate):
+                snippet = _read_snippet(candidate)
+                if snippet:
+                    snippets.append(f"## {relative}\n{snippet}")
+            if len(snippets) >= 5:
+                break
+        if snippets:
+            observations.append(Observation("filesystem", f"{name}: recent file snippets", "\n\n".join(snippets), str(path)))
     return observations
 
 
