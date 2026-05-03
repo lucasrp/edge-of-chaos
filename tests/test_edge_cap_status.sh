@@ -49,6 +49,9 @@ sources:
   - name: arxiv
     description: Academic preprints
     status: active
+  - name: publer
+    description: Social publishing
+    status: suspended
 YAML
 cat >"$TMP_STATE/libexec/captest/arxiv" <<'EOF'
 #!/usr/bin/env bash
@@ -58,6 +61,15 @@ chmod +x "$TMP_STATE/libexec/captest/arxiv"
 cat >"$TMP_STATE/libexec/captest/arxiv.meta.yaml" <<'YAML'
 name: arxiv
 description: Academic preprints
+YAML
+cat >"$TMP_STATE/libexec/captest/publer" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$TMP_STATE/libexec/captest/publer"
+cat >"$TMP_STATE/libexec/captest/publer.meta.yaml" <<'YAML'
+name: publer
+description: Social publishing
 YAML
 
 echo "=== edge-cap status Smoke Test ==="
@@ -79,10 +91,14 @@ assert names["repo.status"]["effective_status"] == "available"
 assert names["repo.sync"]["effective_status"] == "available"
 assert names["storage.sync"]["effective_status"] == "degraded"
 assert names["source.arxiv"]["effective_status"] in {"active", "probed"}
+assert names["source.publer"]["effective_status"] == "suspended"
+assert payload["summary"]["broken_total"] == 0
 source_bindings = payload["source_bindings"]
-assert source_bindings["summary"]["source_total"] == 1
-assert source_bindings["bindings"][0]["source"] == "arxiv"
-assert source_bindings["bindings"][0]["binding_status"] == "present"
+assert source_bindings["summary"]["source_total"] == 2
+bindings = {item["source"]: item for item in source_bindings["bindings"]}
+assert bindings["arxiv"]["binding_status"] == "present"
+assert bindings["publer"]["binding_status"] == "suspended"
+assert source_bindings["summary"]["suspended_total"] == 1
 recommended = {item["name"] for item in payload["recommended"]}
 assert "search.corpus" in recommended
 assert "sources.aggregate" in recommended
@@ -98,9 +114,12 @@ SOURCE_BINDINGS_OUTPUT=$(PATH="$TMP_BIN" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DI
 if python3 - <<'PY' "$SOURCE_BINDINGS_OUTPUT"
 import json, sys
 payload = json.loads(sys.argv[1])
-assert payload["summary"]["source_total"] == 1
+assert payload["summary"]["source_total"] == 2
 assert payload["summary"]["bound_total"] == 1
-assert payload["bindings"][0]["capability"] == "sources.aggregate"
+assert payload["summary"]["suspended_total"] == 1
+bindings = {item["source"]: item for item in payload["bindings"]}
+assert bindings["arxiv"]["capability"] == "sources.aggregate"
+assert bindings["publer"]["binding_status"] == "suspended"
 PY
 then
   pass "source binding surface resolves manifest sources"

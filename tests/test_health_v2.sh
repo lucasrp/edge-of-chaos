@@ -67,13 +67,14 @@ cat >"$TMP_STATE/state/primitives-status.json" <<'JSON'
   "summary": {
     "health_status": "degraded",
     "declared_total": 3,
-    "broken_total": 1,
+    "broken_total": 2,
     "degraded_total": 1,
     "usage_30d_total": 9
   },
   "sources": [
     {"name":"arxiv","effective_status":"active","usage_30d":4},
     {"name":"exa","effective_status":"broken","usage_30d":0},
+    {"name":"publer","effective_status":"broken","manifest_status":"suspended","usage_30d":0},
     {"name":"grafana","effective_status":"degraded","usage_30d":0}
   ]
 }
@@ -86,7 +87,7 @@ cat >"$TMP_STATE/state/capabilities-status.json" <<'JSON'
     "capability_total": 4,
     "available_total": 2,
     "degraded_total": 1,
-    "broken_total": 1,
+    "broken_total": 2,
     "required_degraded_total": 0,
     "optional_degraded_total": 1
   },
@@ -94,6 +95,7 @@ cat >"$TMP_STATE/state/capabilities-status.json" <<'JSON'
     {"name":"source.arxiv","effective_status":"available","invoke_30d":0},
     {"name":"source.github","effective_status":"available","invoke_30d":2},
     {"name":"search.corpus","effective_status":"broken","invoke_30d":1},
+    {"name":"source.publer","primitive_name":"publer","effective_status":"broken","manifest_status":"suspended","invoke_30d":0},
     {"name":"storage.sync","effective_status":"degraded","invoke_30d":0}
   ]
 }
@@ -149,6 +151,11 @@ if env HOME="$TMP_HOME" EDGE_REPO_DIR="$EDGE_DIR" EDGE_STATE_DIR="$TMP_STATE" py
     pass "substrate discipline captured primitive bypass"
   else
     fail "primitive bypass count wrong"
+  fi
+  if [[ "$(jq -r '.dimensions.capabilities.metrics.broken_capabilities' "$TMP_STATE/health/current.json")" == "1" && "$(jq -r '.dimensions.capabilities.metrics.broken_primitives' "$TMP_STATE/health/current.json")" == "1" ]]; then
+    pass "capabilities health excludes suspended broken rows"
+  else
+    fail "capabilities health counted suspended rows as broken"
   fi
   if grep -q '"type": "HealthSnapshotComputed"' "$TMP_STATE/state/events/log.jsonl"; then
     pass "health snapshot emission wrote HealthSnapshotComputed"
