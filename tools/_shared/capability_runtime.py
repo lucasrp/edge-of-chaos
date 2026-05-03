@@ -36,7 +36,8 @@ STATUS_ORDER = {
     "probed": 2,
     "active": 3,
     "available": 4,
-    "unknown": 5,
+    "suspended": 5,
+    "unknown": 6,
 }
 
 INTEGRATION_CATALOG: dict[str, dict[str, Any]] = {
@@ -433,7 +434,11 @@ def _primitive_capability_row(item: dict[str, Any], *, invocations: dict[str, An
     name = f"source.{item.get('name')}"
     probe_event = probes.get(name, {})
     invocation_event = invocations.get(name, {})
-    effective_status = _normalize_effective_status(item.get("effective_status"))
+    manifest_status = str(item.get("manifest_status") or item.get("status") or "").strip()
+    if manifest_status == "suspended":
+        effective_status = "suspended"
+    else:
+        effective_status = _normalize_effective_status(item.get("effective_status"))
     normalized_skill = _normalize_skill(skill)
     roles = _normalize_roles(item.get("roles")) or ["search"]
     if "source" not in roles:
@@ -619,6 +624,7 @@ def build_source_bindings(*, skill: str | None = None) -> dict[str, Any]:
         primitive_name = f"source.{source_name}"
         primitive = capability_rows.get(primitive_name) or {}
         primitive_status = str(primitive.get("effective_status") or "unknown")
+        manifest_status = str(source.get("status") or primitive.get("manifest_status") or "").strip()
         provider = _canonical_source_provider(source_name)
         source_roles_search = not roles or "search" in roles or "source" in roles
 
@@ -629,10 +635,14 @@ def build_source_bindings(*, skill: str | None = None) -> dict[str, Any]:
         evidence: dict[str, Any] = {
             "primitive_status": primitive_status,
             "aggregate_status": aggregate_status,
-            "manifest_status": source.get("status") or "",
+            "manifest_status": manifest_status,
         }
 
-        if source_roles_search and provider in AGGREGATE_SOURCE_PROVIDERS and aggregate_available:
+        if manifest_status == "suspended" or primitive_status == "suspended":
+            binding_status = "suspended"
+            binding_mode = "suspended"
+            problems = []
+        elif source_roles_search and provider in AGGREGATE_SOURCE_PROVIDERS and aggregate_available:
             binding_status = "present"
             binding_mode = "sources.aggregate"
             capability = "sources.aggregate"
@@ -677,6 +687,7 @@ def build_source_bindings(*, skill: str | None = None) -> dict[str, Any]:
         "generated_at": now.isoformat(),
         "source_total": len(bindings),
         "bound_total": counts.get("present", 0),
+        "suspended_total": counts.get("suspended", 0),
         "unbound_total": counts.get("absent", 0),
         "degraded_total": counts.get("degraded", 0),
         "counts_by_binding_status": dict(sorted(counts.items())),

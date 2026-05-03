@@ -196,7 +196,40 @@ else
     fail "status reports degraded when active binary disappears"
 fi
 
-echo "--- Test 6: checkup probes materialized primitives with probe operation ---"
+echo "--- Test 6: suspended primitives do not become broken after failed probes ---"
+cat >"$LIBEXEC_DIR/arxiv" <<'SH'
+#!/usr/bin/env bash
+printf 'suspended primitive should not count as broken\n' >&2
+exit 1
+SH
+chmod +x "$LIBEXEC_DIR/arxiv"
+EDGE_CYCLE_ID="primitive-status:test-suspended" "$LIFECYCLE_TOOL" materialize arxiv --status suspended --ensure-executable >/dev/null
+set +e
+EDGE_CYCLE_ID="primitive-status:test-suspended-probe" "$LIFECYCLE_TOOL" probe arxiv --operation search --command "$LIBEXEC_DIR/arxiv" >/dev/null 2>&1
+SUSPENDED_PROBE_RC=$?
+set -e
+
+if python3 - <<'PY' "$STATUS_TOOL" "$SUSPENDED_PROBE_RC"
+import json
+import subprocess
+import sys
+
+tool, probe_rc = sys.argv[1:]
+assert int(probe_rc) != 0
+payload = json.loads(subprocess.run([tool, "status", "--json"], capture_output=True, text=True, check=True).stdout)
+rows = {row["name"]: row for row in payload["sources"]}
+assert rows["arxiv"]["manifest_status"] == "suspended"
+assert rows["arxiv"]["effective_status"] == "suspended"
+assert payload["summary"]["broken_total"] == 0
+assert payload["summary"]["counts_by_effective_status"]["suspended"] == 1
+PY
+then
+    pass "suspended primitive is excluded from broken totals"
+else
+    fail "suspended primitive is excluded from broken totals"
+fi
+
+echo "--- Test 7: checkup probes materialized primitives with probe operation ---"
 cat >"$LIBEXEC_DIR/arxiv" <<'SH'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "probe" ]]; then
@@ -207,7 +240,7 @@ printf 'expected probe operation, got %s\n' "${1:-}" >&2
 exit 1
 SH
 chmod +x "$LIBEXEC_DIR/arxiv"
-EDGE_CYCLE_ID="primitive-status:test-rematerialize" "$LIFECYCLE_TOOL" materialize arxiv --ensure-executable >/dev/null
+EDGE_CYCLE_ID="primitive-status:test-rematerialize" "$LIFECYCLE_TOOL" materialize arxiv --status active --ensure-executable >/dev/null
 
 if OUTPUT=$("$STATUS_TOOL" status --json --checkup --skill autonomy --skip-capability-probes); then
     if python3 - <<'PY' "$OUTPUT"
@@ -230,7 +263,7 @@ else
     fail "checkup probes materialized primitives with probe operation"
 fi
 
-echo "--- Test 7: checkup probes capabilities and reports candidate actions without aborting ---"
+echo "--- Test 8: checkup probes capabilities and reports candidate actions without aborting ---"
 if OUTPUT=$("$STATUS_TOOL" status --json --checkup --skill autonomy --skip-primitive-probes); then
     if python3 - <<'PY' "$OUTPUT"
 import json

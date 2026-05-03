@@ -435,6 +435,7 @@ def _capabilities_dimension(events: list[dict[str, Any]], capabilities_status: d
         1
         for row in cap_rows
         if str(row.get("effective_status")) == "broken"
+        and str(row.get("manifest_status", "")).lower() != "suspended"
         and str(row.get("primitive_name") or row.get("name", "")) not in suspended_names
     )
     primitive_broken = sum(
