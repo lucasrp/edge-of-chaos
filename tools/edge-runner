@@ -574,6 +574,67 @@ def resolve_skill_timeout_seconds() -> int | None:
     return value
 
 
+def resolve_timeout_progress_grace_seconds() -> int:
+    raw = os.environ.get("EDGE_RUNNER_TIMEOUT_PROGRESS_GRACE_SEC", "300")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 300
+    return max(value, 0)
+
+
+def resolve_timeout_progress_max_extensions() -> int:
+    raw = os.environ.get("EDGE_RUNNER_TIMEOUT_PROGRESS_MAX_EXTENSIONS", "2")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 2
+    return max(value, 0)
+
+
+def _parse_iso_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def recent_consolidate_progress(cycle_id: str | None, *, within_seconds: int = 120) -> dict | None:
+    if not cycle_id or within_seconds <= 0:
+        return None
+    now = datetime.now(timezone.utc)
+    for event in iter_jsonl_reverse(STATE_EVENTS_FILE):
+        if event.get("type") != "PhaseCompleted":
+            continue
+        if event.get("cycle_id") != cycle_id:
+            continue
+        payload = event.get("payload", {}) or {}
+        if payload.get("pipeline") != "consolidate-state":
+            continue
+        if str(payload.get("status") or "").lower() not in {"completed", "degraded"}:
+            continue
+        ts = _parse_iso_timestamp(str(event.get("ts") or ""))
+        if ts is None:
+            continue
+        age_seconds = int((now - ts).total_seconds())
+        if age_seconds <= within_seconds:
+            return {
+                "age_seconds": age_seconds,
+                "artifact": event.get("artifact"),
+                "phase": payload.get("phase"),
+                "operation": payload.get("operation"),
+                "status": payload.get("status"),
+                "ts": event.get("ts"),
+            }
+        return None
+    return None
+
+
 def _print_backend_output(output: str) -> None:
     if not output:
         return
@@ -628,6 +689,35 @@ def invoke_backend(
         return proc.returncode, output
     except subprocess.TimeoutExpired:
         target = args.skill if args.cmd == "skill" else "prompt"
+        grace_seconds = resolve_timeout_progress_grace_seconds()
+        max_extensions = resolve_timeout_progress_max_extensions()
+        for extension_index in range(max_extensions):
+            progress = recent_consolidate_progress(cycle_id, within_seconds=120)
+            if not progress or grace_seconds <= 0:
+                break
+            emit_shadow_event(
+                "SkillSubprocessTimeoutExtended",
+                actor="edge-runner",
+                cycle_id=cycle_id,
+                payload={
+                    "target": target,
+                    "mode": args.cmd,
+                    "timeout_seconds": timeout_seconds,
+                    "grace_seconds": grace_seconds,
+                    "extension_index": extension_index + 1,
+                    "max_extensions": max_extensions,
+                    "pid": proc.pid,
+                    "progress": progress,
+                },
+            )
+            try:
+                output, _ = proc.communicate(timeout=grace_seconds)
+                output = output or ""
+                if echo_output:
+                    _print_backend_output(output)
+                return proc.returncode, output
+            except subprocess.TimeoutExpired:
+                continue
         emit_shadow_event(
             "SkillSubprocessTimeout",
             actor="edge-runner",
