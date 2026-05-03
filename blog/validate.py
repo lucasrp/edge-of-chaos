@@ -81,6 +81,9 @@ def validate(recent_only=False, fix=False):
             normalized = normalize_report_ref(ref)
             referenced.add(normalized)
 
+            if recent_only and entry["date"] < cutoff:
+                continue
+
             # Check wrong format (path instead of filename)
             if ref != normalized:
                 wrong_format_refs.append((slug, ref, normalized))
