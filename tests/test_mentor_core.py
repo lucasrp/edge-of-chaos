@@ -255,6 +255,16 @@ interests:
         self.assertEqual(primary["thread_id"], "judge-calibration")
         self.assertEqual(primary["title"], "Judge Calibration")
 
+    def test_single_thread_candidate_can_be_overridden_by_explicit_create(self) -> None:
+        primary = choose_primary_thread(
+            {"primary_thread": {"action": "create", "thread_id": "topic-models", "title": "Topic Models"}},
+            "heartbeat",
+            [{"id": "help-the-mentee-in-the-best-possible-way-with-their-current-work", "title": "Help the mentee in the best possible way with their current work", "summary": "..."}],
+        )
+        self.assertEqual(primary["action"], "create")
+        self.assertEqual(primary["thread_id"], "topic-models")
+        self.assertEqual(primary["title"], "Topic Models")
+
     def test_initial_seed_thread_is_fixed_fallback(self) -> None:
         config = load_config(self.tmp)
         primary = initial_seed_thread(config)

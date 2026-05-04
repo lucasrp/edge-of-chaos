@@ -219,7 +219,7 @@ def context_search_review(packet: ContextPacket, searches: list[SearchResult], *
             "source coverage, search terms, and whether the right sources were attempted. Also judge whether the loaded context is strong enough "
             "to support the mandatory report sections around problem framing, why-this-matters-now, broad search, and Feynman derivation. Return JSON with "
             "primary_thread, continuity_assessment, loader_notes, search_assessment, suggested_queries, suggested_sources, "
-            "missing_context, section_support, required_local_reads, and summary. Do not infer local thread/report contents from an empty directory alone: if authoritative_reads is empty and manifest item_count is 0, treat that as absent local evidence, not unread local evidence. Do not decide pass/fail; give material for the next straight-line step."
+            "missing_context, section_support, required_local_reads, and summary. If the only existing thread is generic, recursive, or clearly off-domain relative to the loaded work, you may propose primary_thread.action=create for a more concrete live line of work. Do not infer local thread/report contents from an empty directory alone: if authoritative_reads is empty and manifest item_count is 0, treat that as absent local evidence, not unread local evidence. Do not decide pass/fail; give material for the next straight-line step."
         ),
         prompt=prompt,
     )
