@@ -258,12 +258,42 @@ Wheth
                 "Contextualization and Glossary",
             ]],
             "bibliography": [{"text": "local-state", "url": "file:///tmp/local", "source": "local-state"}],
-            "evidence": {"thread_read_confirmed": False, "authoritative_paths": ["/tmp/state/events.jsonl"]},
+            "evidence": {"thread_read_confirmed": False, "thread_candidate_count": 1, "authoritative_paths": ["/tmp/state/events.jsonl"]},
             "blog_post": {"title": "Heartbeat", "paragraphs": ["Paragraph one.", "Paragraph two."]},
         }
         check = validate_report_spec(spec)
         self.assertFalse(check.passed)
         self.assertIn("continued thread lacks authoritative in-beat read", check.issues)
+
+    def test_report_spec_rejects_empty_thread_claim_when_candidates_exist(self) -> None:
+        spec = {
+            "title": "Private Mentor Report",
+            "subtitle": "Heartbeat beat",
+            "date": "2026-05-04",
+            "thread": {"id": "judge-calibration", "title": "Judge Calibration", "action": "continue"},
+            "executive_summary": ["one", "two", "three"],
+            "metrics": [{"value": "1", "label": "a"}, {"value": "2", "label": "b"}, {"value": "3", "label": "c"}],
+            "sections": [{"title": title, "markdown": f"{title} section has enough content to pass the minimum threshold and ends cleanly."} for title in [
+                "Lineage",
+                "Situated Delta",
+                "Problem Framing and Open Gaps",
+                "Simple Model",
+                "Feynman Derivation",
+                "Why This Matters Now",
+                "Broad Search",
+                "Adversarial Pushback",
+                "Recommended Next Steps",
+                "What I Don't Know",
+                "Contextualization and Glossary",
+            ]],
+            "bibliography": [{"text": "local-state", "url": "file:///tmp/local", "source": "local-state"}],
+            "evidence": {"thread_read_confirmed": True, "thread_candidate_count": 1, "authoritative_paths": ["/tmp/state/threads/judge-calibration.md"]},
+            "blog_post": {"title": "Heartbeat", "paragraphs": ["Paragraph one.", "Paragraph two."]},
+        }
+        spec["sections"][0]["markdown"] = "This beat says thread_candidates arrived empty even though evidence says otherwise and therefore should fail cleanly."
+        check = validate_report_spec(spec)
+        self.assertFalse(check.passed)
+        self.assertIn("report claims empty thread candidates despite non-empty evidence bundle", check.issues)
 
 
 if __name__ == "__main__":

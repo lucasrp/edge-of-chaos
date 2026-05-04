@@ -24,20 +24,25 @@ def required_report_shape_text() -> str:
     return "\n".join(f"## {title}" for title in REPORT_SECTION_TITLES)
 
 
-def draft_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str) -> ReportResult:
+def draft_report(packet: ContextPacket, searches: list[SearchResult], primary_thread: dict[str, str]) -> ReportResult:
     client = LLMClient(role="report")
-    llm_report = _llm_draft_report(client, packet, searches, thread_id)
+    llm_report = _llm_draft_report(client, packet, searches, primary_thread)
     if llm_report:
         return ReportResult(text=_normalize_report_text(packet, llm_report), mode="llm", provider=client.last_provider, error=client.last_error)
+    thread_id = primary_thread["thread_id"]
+    selected_thread = _selected_thread_payload(packet, primary_thread)
     observations = "\n".join(f"- **{obs.source}:** {obs.title} — {truncate(obs.detail, 300)}" for obs in packet.observations[:12])
     reports = "\n".join(f"- {item.get('title')} ({item.get('path')})" for item in packet.report_candidates[:6]) or "- No previous report found."
     search_lines = "\n".join(f"- **{result.source}:** {result.title} {result.url} — {truncate(result.summary, 250)}" for result in searches)
     interests = "\n".join(f"- {item.get('area')}: {item.get('connection')}" for item in packet.interests[:5])
+    lineage_line = f"This beat continues thread `{thread_id}` from the currently observed continuity evidence."
+    if selected_thread["grounded"]:
+        lineage_line = f"This beat continues thread `{thread_id}` from an authoritative thread read: {selected_thread['authoritative_excerpt']}"
     text = f"""# Private Mentor Report
 
 ## Lineage
 
-This beat continues or creates thread `{thread_id}` and starts from the currently observed continuity evidence.
+{lineage_line}
 
 ## Situated Delta
 
@@ -101,8 +106,9 @@ Context: this is a private mentor report for an active line of work, not a publi
     )
 
 
-def revise_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str, draft: str, reviews: list[ReviewResult], *, stage: str) -> ReportResult:
+def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_thread: dict[str, str], draft: str, reviews: list[ReviewResult], *, stage: str) -> ReportResult:
     client = LLMClient(role="report")
+    thread_id = primary_thread["thread_id"]
     feedback = [
         {
             "reviewer": review.reviewer,
@@ -116,6 +122,7 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], thread_id
         "kind": packet.kind,
         "request": packet.request,
         "thread_id": thread_id,
+        "selected_thread": _selected_thread_payload(packet, primary_thread),
         "stage": stage,
         "draft": draft[:14000],
         "review_feedback": feedback,
@@ -133,6 +140,9 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], thread_id
             "Rewrite the report in Markdown using the reviewer feedback as input, not as a pass/fail gate. "
             "Keep the mentor/mentee relationship, situated delta, continuity, problem framing before search, broad-search evidence, "
             "adversarial pushback, Feynman derivation, why-this-matters-now, explicit gaps, and concrete next steps. "
+            "If selected_thread.grounded is true, anchor the Lineage section to that concrete thread and its excerpt. "
+            "Do not claim thread_candidates is empty when the selected_thread says otherwise. "
+            "Do not call the selected thread a placeholder when selected_thread.grounded is true. "
             "Use this exact section order and titles:\n"
             f"{required_report_shape_text()}\n"
             "Return only the report."
@@ -160,11 +170,13 @@ def append_report_utility(config: RuntimeConfig, *, report_path: Path, utility: 
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
     return path
-def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[SearchResult], thread_id: str) -> str | None:
+def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[SearchResult], primary_thread: dict[str, str]) -> str | None:
+    thread_id = primary_thread["thread_id"]
     prompt = {
         "kind": packet.kind,
         "request": packet.request,
         "thread_id": thread_id,
+        "selected_thread": _selected_thread_payload(packet, primary_thread),
         "observations": [obs.__dict__ for obs in packet.observations[:12]],
         "thread_candidates": packet.thread_candidates[:6],
         "report_candidates": packet.report_candidates[:6],
@@ -182,6 +194,9 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
             "The report must be situated in the observed work, continue or justify the thread, formalize the problem and open gaps before search, "
             "explain the simple model, derive the reasoning in Feynman style, explain why this matters now, cite search/source evidence including "
             "unavailable sources, give adversarial pushback, state what is still unknown, and end with concrete next steps. "
+            "If selected_thread.grounded is true, the Lineage section must continue that exact thread concretely from its authoritative excerpt. "
+            "Do not say the thread list is empty when selected_thread.thread_candidate_count is non-zero. "
+            "Do not call the selected thread a placeholder when selected_thread.grounded is true. "
             "Use this exact section order and titles:\n"
             f"{required_report_shape_text()}\n"
             "Keep it useful, specific, and honest."
@@ -206,3 +221,17 @@ def _strip_fallback_status(text: str) -> str:
             continue
         lines.append(line)
     return "\n".join(lines).strip()
+
+
+def _selected_thread_payload(packet: ContextPacket, primary_thread: dict[str, str]) -> dict[str, object]:
+    thread_id = str(primary_thread.get("thread_id") or "")
+    thread_title = str(primary_thread.get("title") or thread_id)
+    read = next((item for item in packet.authoritative_reads if str(item.get("path") or "").endswith(f"/state/threads/{thread_id}.md")), None)
+    return {
+        "action": str(primary_thread.get("action") or "create"),
+        "thread_id": thread_id,
+        "title": thread_title,
+        "thread_candidate_count": len(packet.thread_candidates),
+        "grounded": read is not None,
+        "authoritative_excerpt": truncate(str((read or {}).get("excerpt") or ""), 500),
+    }

@@ -39,6 +39,7 @@ _BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
 _ITALIC_RE = re.compile(r"(?<!\*)\*([^*]+)\*(?!\*)")
 _LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
 _NUMBERED_RE = re.compile(r"^\d+\.\s+")
+_EMPTY_THREAD_CLAIM_RE = re.compile(r"(thread_candidates?\s+(?:arrived\s+)?empty|empty\s+thread_candidates?)", flags=re.I)
 
 
 def publish_artifact_bundle(
@@ -140,6 +141,7 @@ def build_report_spec(
         "bibliography": bibliography,
         "evidence": {
             "thread_read_confirmed": thread_read_confirmed,
+            "thread_candidate_count": len(packet.thread_candidates),
             "authoritative_paths": [str(item.get("path") or "") for item in packet.authoritative_reads[:12] if str(item.get("path") or "").strip()],
         },
         "blog_post": {
@@ -215,11 +217,17 @@ def validate_report_spec(spec: dict[str, Any]) -> ValidationResult:
         authoritative_paths = evidence.get("authoritative_paths")
         if not isinstance(authoritative_paths, list) or not authoritative_paths:
             issues.append("evidence.authoritative_paths must be non-empty")
+        thread_candidate_count = evidence.get("thread_candidate_count")
+        if not isinstance(thread_candidate_count, int) or thread_candidate_count < 0:
+            issues.append("evidence.thread_candidate_count must be a non-negative integer")
         thread_read_confirmed = evidence.get("thread_read_confirmed")
         if not isinstance(thread_read_confirmed, bool):
             issues.append("evidence.thread_read_confirmed must be boolean")
         elif isinstance(thread, dict) and str(thread.get("action") or "") == "continue" and not thread_read_confirmed:
             issues.append("continued thread lacks authoritative in-beat read")
+        joined_sections = "\n\n".join(str(item.get("markdown") or "") for item in (sections or []) if isinstance(item, dict))
+        if isinstance(thread_candidate_count, int) and thread_candidate_count > 0 and _EMPTY_THREAD_CLAIM_RE.search(joined_sections):
+            issues.append("report claims empty thread candidates despite non-empty evidence bundle")
 
     return ValidationResult(passed=not issues, issues=issues)
 

@@ -94,7 +94,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
     else:
         primary_thread = initial_seed_thread(config)
     thread_id = primary_thread["thread_id"]
-    draft_1_result = draft_report(packet, searches, thread_id)
+    draft_1_result = draft_report(packet, searches, primary_thread)
     draft_1 = draft_1_result.text
     record(
         "ReportDrafted",
@@ -114,7 +114,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
     searches_3 = broad_search(config, packet, hints=_search_hints([context_review_1, context_review_2, adversarial_1]))
     searches = searches + searches_3
     record("BroadSearchCompleted", round=3, sources=sorted({result.source for result in searches_3}), results=len(searches_3))
-    draft_2_result = revise_report(packet, searches, thread_id, draft_1, [shape_review_1, adversarial_1], stage="adversarial-search")
+    draft_2_result = revise_report(packet, searches, primary_thread, draft_1, [shape_review_1, adversarial_1], stage="adversarial-search")
     draft_2 = draft_2_result.text
     record(
         "ReportRevised",
@@ -131,7 +131,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
 
     adversarial_2 = adversarial_review(draft_2, packet, searches, round_index=2)
     record("AdversarialReviewed", round=2, reviewer=adversarial_2.reviewer, summary=adversarial_2.summary, data=adversarial_2.data)
-    draft_3_result = revise_report(packet, searches, thread_id, draft_2, [shape_review_2, adversarial_2], stage="adversarial")
+    draft_3_result = revise_report(packet, searches, primary_thread, draft_2, [shape_review_2, adversarial_2], stage="adversarial")
     draft_3 = draft_3_result.text
     record(
         "ReportRevised",
@@ -148,7 +148,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
 
     feynman = feynman_review(draft_3, packet, searches)
     record("FeynmanReviewed", reviewer=feynman.reviewer, summary=feynman.summary, data=feynman.data)
-    final_report_result = revise_report(packet, searches, thread_id, draft_3, [shape_review_3, feynman], stage="feynman-final")
+    final_report_result = revise_report(packet, searches, primary_thread, draft_3, [shape_review_3, feynman], stage="feynman-final")
     final_report = final_report_result.text
     record(
         "FinalReportPrepared",
