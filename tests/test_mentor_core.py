@@ -12,7 +12,10 @@ from edge_core.rite import verify_rite
 from edge_core.config import load_config
 from edge_core.publication import validate_report_spec
 from edge_core.report_shape import validate_report_markdown
+from edge_core.reports import _normalize_report_text
 from edge_core.threads import choose_primary_thread, initial_seed_thread, primary_thread_from_review
+from edge_core.report_shape import REPORT_SECTION_TITLES
+from edge_core.context import ContextPacket
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,6 +79,78 @@ interests:
             timeout=30,
         )
 
+    def _valid_section(self, title: str, body: str | None = None, *, broad_search: bool = False, glossary: bool = False, unknowns: bool = False) -> dict:
+        content = body or f"{title} section has enough content to pass the minimum threshold and ends cleanly with a complete sentence about the current domain context."
+        section = {
+            "title": title,
+            "lead": f"{title} explains why this part matters now, what evidence supports it, and how the reader should interpret the structured blocks that follow.",
+            "markdown": content,
+            "blocks": [{"type": "paragraph", "text": content}],
+        }
+        if broad_search:
+            section["blocks"] = [
+                {"type": "paragraph", "text": content},
+                {
+                    "type": "table",
+                    "title": "Search Surface Manifest",
+                    "headers": ["Surface", "Enabled", "Available", "Credential", "Notes"],
+                    "rows": [["exa", "yes", "yes", "configured", "Primary semantic search surface."]],
+                },
+                {"type": "bar-chart", "title": "Search Results by Source", "unit": "", "items": [{"label": "exa", "value": 3}]},
+                {"type": "callout", "variant": "info", "title": "Search Feedback — Continuity Round 1", "text": "Use industry vocabulary from the live workspace."},
+                {"type": "callout", "variant": "info", "title": "Search Feedback — Continuity Round 2", "text": "Expand to missed surfaces before closing the explanation."},
+                {"type": "callout", "variant": "warning", "title": "Search Feedback — Adversarial Round 1", "text": "Pressure-test the search set against missing disconfirming evidence."},
+                {"type": "callout", "variant": "warning", "title": "Search Feedback — Adversarial Round 2", "text": "Confirm whether the ignored surfaces were unavailable or simply missed."},
+                {"type": "callout", "variant": "info", "title": "Search Feedback — Feynman Review", "text": "Search should clarify the explanation, not just decorate it."},
+            ]
+        if unknowns:
+            section["blocks"] = [
+                {"type": "paragraph", "text": content},
+                {"type": "list", "items": ["Unknown one that still needs direct evidence.", "Unknown two that still needs a source-backed answer."]},
+                {"type": "callout", "variant": "danger", "title": "Open Gaps", "text": "These gaps should shape the next beat."},
+            ]
+        if glossary:
+            section["blocks"] = [
+                {"type": "paragraph", "text": content},
+                {"type": "glossary", "context": "Shared terms used in the report.", "terms": [{"term": "delta", "definition": "What changed in the current beat."}]},
+            ]
+        return section
+
+    def _valid_spec(self, *, continue_thread: bool = True) -> dict:
+        sections = []
+        for title in REPORT_SECTION_TITLES:
+            sections.append(
+                self._valid_section(
+                    title,
+                    broad_search=title == "Broad Search",
+                    unknowns=title == "What I Don't Know",
+                    glossary=title == "Contextualization and Glossary",
+                )
+            )
+        return {
+            "title": "Private Mentor Report",
+            "subtitle": "Heartbeat beat",
+            "date": "2026-05-04",
+            "thread": {"id": "judge-calibration", "title": "Judge Calibration", "action": "continue" if continue_thread else "create"},
+            "executive_summary": ["one complete summary sentence.", "two complete summary sentence.", "three complete summary sentence."],
+            "metrics": [
+                {"value": "1", "label": "a"},
+                {"value": "2", "label": "b"},
+                {"value": "3", "label": "c"},
+                {"value": "4", "label": "d"},
+            ],
+            "sections": sections,
+            "bibliography": [{"text": "local-state", "url": "https://example.invalid/local-state", "source": "local-state"}],
+            "evidence": {
+                "thread_read_confirmed": continue_thread,
+                "thread_candidate_count": 1,
+                "authoritative_paths": ["/tmp/state/threads/judge-calibration.md"],
+                "visualization_count": 1,
+                "search_feedback_rounds": 5,
+            },
+            "blog_post": {"title": "Heartbeat", "paragraphs": ["Paragraph one.", "Paragraph two."]},
+        }
+
     def test_render_apply_doctor_and_report(self) -> None:
         self.assertEqual(self.run_edge("render").returncode, 0)
         self.assertEqual(self.run_edge("apply").returncode, 0)
@@ -123,6 +198,9 @@ interests:
         self.assertIn("Problem Framing and Open Gaps", report_text)
         self.assertIn("Feynman Derivation", report_text)
         self.assertIn("Why This Matters Now", report_text)
+        self.assertIn("Search Surface Manifest", report_text)
+        self.assertIn("Search Feedback", report_text)
+        self.assertIn("<svg", report_text)
 
     def test_rite_requires_two_context_search_reviews(self) -> None:
         events = [
@@ -236,60 +314,20 @@ Wheth
         self.assertFalse(check.passed)
         self.assertIn("suspicious short tail: Contextualization and Glossary", check.issues)
 
+    def test_normalize_report_text_inserts_h1_before_section_heading(self) -> None:
+        packet = ContextPacket(request="artifact contract", kind="report")
+        text = _normalize_report_text(packet, "## Lineage\n\nThis section starts immediately with a level-two heading.")
+        self.assertTrue(text.startswith("# Private Mentor Report\n\n## Lineage"))
+
     def test_report_spec_requires_thread_read_for_continue(self) -> None:
-        spec = {
-            "title": "Private Mentor Report",
-            "subtitle": "Heartbeat beat",
-            "date": "2026-05-04",
-            "thread": {"id": "judge-calibration", "title": "Judge Calibration", "action": "continue"},
-            "executive_summary": ["one", "two", "three"],
-            "metrics": [{"value": "1", "label": "a"}, {"value": "2", "label": "b"}, {"value": "3", "label": "c"}],
-            "sections": [{"title": title, "markdown": f"{title} section has enough content to pass the minimum threshold and ends cleanly."} for title in [
-                "Lineage",
-                "Situated Delta",
-                "Problem Framing and Open Gaps",
-                "Simple Model",
-                "Feynman Derivation",
-                "Why This Matters Now",
-                "Broad Search",
-                "Adversarial Pushback",
-                "Recommended Next Steps",
-                "What I Don't Know",
-                "Contextualization and Glossary",
-            ]],
-            "bibliography": [{"text": "local-state", "url": "file:///tmp/local", "source": "local-state"}],
-            "evidence": {"thread_read_confirmed": False, "thread_candidate_count": 1, "authoritative_paths": ["/tmp/state/events.jsonl"]},
-            "blog_post": {"title": "Heartbeat", "paragraphs": ["Paragraph one.", "Paragraph two."]},
-        }
+        spec = self._valid_spec(continue_thread=True)
+        spec["evidence"]["thread_read_confirmed"] = False
         check = validate_report_spec(spec)
         self.assertFalse(check.passed)
         self.assertIn("continued thread lacks authoritative in-beat read", check.issues)
 
     def test_report_spec_rejects_empty_thread_claim_when_candidates_exist(self) -> None:
-        spec = {
-            "title": "Private Mentor Report",
-            "subtitle": "Heartbeat beat",
-            "date": "2026-05-04",
-            "thread": {"id": "judge-calibration", "title": "Judge Calibration", "action": "continue"},
-            "executive_summary": ["one", "two", "three"],
-            "metrics": [{"value": "1", "label": "a"}, {"value": "2", "label": "b"}, {"value": "3", "label": "c"}],
-            "sections": [{"title": title, "markdown": f"{title} section has enough content to pass the minimum threshold and ends cleanly."} for title in [
-                "Lineage",
-                "Situated Delta",
-                "Problem Framing and Open Gaps",
-                "Simple Model",
-                "Feynman Derivation",
-                "Why This Matters Now",
-                "Broad Search",
-                "Adversarial Pushback",
-                "Recommended Next Steps",
-                "What I Don't Know",
-                "Contextualization and Glossary",
-            ]],
-            "bibliography": [{"text": "local-state", "url": "file:///tmp/local", "source": "local-state"}],
-            "evidence": {"thread_read_confirmed": True, "thread_candidate_count": 1, "authoritative_paths": ["/tmp/state/threads/judge-calibration.md"]},
-            "blog_post": {"title": "Heartbeat", "paragraphs": ["Paragraph one.", "Paragraph two."]},
-        }
+        spec = self._valid_spec(continue_thread=True)
         spec["sections"][0]["markdown"] = "This beat says thread_candidates arrived empty even though evidence says otherwise and therefore should fail cleanly."
         check = validate_report_spec(spec)
         self.assertFalse(check.passed)

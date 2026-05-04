@@ -168,6 +168,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
         packet=packet,
         report_markdown=final_report,
         searches=searches,
+        reviews=reviews,
         thread_id=thread_id,
         thread_title=primary_thread["title"],
         thread_action=primary_thread["action"],

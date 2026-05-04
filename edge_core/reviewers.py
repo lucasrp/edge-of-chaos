@@ -298,8 +298,9 @@ def adversarial_review(report: str, packet: ContextPacket | None = None, searche
     llm = client.complete_json(
         system=(
             "You are an adversarial reviewer. Find weak assumptions, missing evidence, and overreach. "
-            "Also inspect the delta/search source manifests, current search results, and whether the mandatory report shape is being used meaningfully. Return JSON with summary, "
-            "weak_assumptions, missing_evidence, search_assessment, section_repairs, suggested_queries, suggested_sources, and recommended_repairs."
+            "Also inspect the delta/search source manifests, current search results, and whether the mandatory report shape is being used meaningfully. "
+            "Treat search broadly: surface coverage, API availability, missed angles, and domain vocabulary that should have been explored. "
+            "Return JSON with summary, weak_assumptions, missing_evidence, search_assessment, section_repairs, suggested_queries, suggested_sources, and recommended_repairs."
         ),
         prompt=json.dumps(payload, ensure_ascii=False)[:22000] if isinstance(payload, dict) else payload,
     )
@@ -309,8 +310,22 @@ def adversarial_review(report: str, packet: ContextPacket | None = None, searche
         if client.last_error:
             llm["_llm_error"] = client.last_error
         return ReviewResult("completed", "llm:adversarial", str(llm.get("summary") or "adversarial review completed"), llm)
+    configured_sources = [str(item.get("name")) for item in ((packet.search_source_manifest if packet else []) or []) if item.get("enabled")]
     summary = "Local fallback: challenge generic claims, missing source diversity, weak continuity, and recommendations not tied to the observed delta."
-    return ReviewResult("completed", "local:adversarial", summary, {"summary": summary, "mode": "local-fallback", "round": round_index, "suggested_queries": []})
+    return ReviewResult(
+        "completed",
+        "local:adversarial",
+        summary,
+        {
+            "summary": summary,
+            "mode": "local-fallback",
+            "round": round_index,
+            "search_assessment": "Local fallback cannot verify coverage quality, but it preserves the configured search surfaces for the next broad search pass.",
+            "suggested_queries": [packet.request] if packet and packet.request else [],
+            "suggested_sources": configured_sources,
+            "recommended_repairs": [],
+        },
+    )
 
 
 def feynman_review(report: str, packet: ContextPacket | None = None, searches: list[SearchResult] | None = None) -> ReviewResult:
@@ -325,8 +340,9 @@ def feynman_review(report: str, packet: ContextPacket | None = None, searches: l
     llm = client.complete_json(
         system=(
             "You are a Feynman reviewer. Check simplicity, derivation, gaps, and honest uncertainty. "
-            "Also inspect whether the report's search/source use supports the explanation and whether the mandatory sections actually carry useful reasoning. Return JSON with summary, "
-            "simplicity, derivation, gaps, honest_uncertainty, section_repairs, search_assessment, suggested_queries, and repair_notes."
+            "Also inspect whether the report's search/source use supports the explanation, whether the search manifests show missed exploration, and whether the mandatory sections actually carry useful reasoning. "
+            "Treat search broadly: terms, sources, APIs, and domain-specific surfaces that should have been touched. "
+            "Return JSON with summary, simplicity, derivation, gaps, honest_uncertainty, section_repairs, search_assessment, suggested_queries, suggested_sources, and repair_notes."
         ),
         prompt=json.dumps(payload, ensure_ascii=False)[:22000] if isinstance(payload, dict) else payload,
     )
@@ -339,7 +355,21 @@ def feynman_review(report: str, packet: ContextPacket | None = None, searches: l
     summary = "Local fallback: explanation is acceptable if it states the simple model, evidence, gaps, and next step."
     if not has_gap:
         summary += " Add an explicit gap section."
-    return ReviewResult("completed", "local:feynman-review", summary, {"summary": summary, "mode": "local-fallback", "explicit_gap_seen": has_gap})
+    configured_sources = [str(item.get("name")) for item in ((packet.search_source_manifest if packet else []) or []) if item.get("enabled")]
+    return ReviewResult(
+        "completed",
+        "local:feynman-review",
+        summary,
+        {
+            "summary": summary,
+            "mode": "local-fallback",
+            "explicit_gap_seen": has_gap,
+            "search_assessment": "Local fallback checks only whether the explanation acknowledges evidence and uncertainty; configured search surfaces are preserved for the next pass.",
+            "suggested_queries": [packet.request] if packet and packet.request else [],
+            "suggested_sources": configured_sources,
+            "repair_notes": [],
+        },
+    )
 
 
 def classify_report_utility(report: str, packet: ContextPacket, reviews: list[ReviewResult]) -> ReviewResult:

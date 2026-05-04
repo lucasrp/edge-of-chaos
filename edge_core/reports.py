@@ -140,6 +140,7 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_t
             "Rewrite the report in Markdown using the reviewer feedback as input, not as a pass/fail gate. "
             "Keep the mentor/mentee relationship, situated delta, continuity, problem framing before search, broad-search evidence, "
             "adversarial pushback, Feynman derivation, why-this-matters-now, explicit gaps, and concrete next steps. "
+            "Start with the exact Markdown title `# Private Mentor Report`. "
             "If selected_thread.grounded is true, anchor the Lineage section to that concrete thread and its excerpt. "
             "Do not claim thread_candidates is empty when the selected_thread says otherwise. "
             "Do not call the selected thread a placeholder when selected_thread.grounded is true. "
@@ -194,6 +195,7 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
             "The report must be situated in the observed work, continue or justify the thread, formalize the problem and open gaps before search, "
             "explain the simple model, derive the reasoning in Feynman style, explain why this matters now, cite search/source evidence including "
             "unavailable sources, give adversarial pushback, state what is still unknown, and end with concrete next steps. "
+            "Start with the exact Markdown title `# Private Mentor Report`. "
             "If selected_thread.grounded is true, the Lineage section must continue that exact thread concretely from its authoritative excerpt. "
             "Do not say the thread list is empty when selected_thread.thread_candidate_count is non-zero. "
             "Do not call the selected thread a placeholder when selected_thread.grounded is true. "
@@ -208,8 +210,12 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
 
 def _normalize_report_text(packet: ContextPacket, text: str) -> str:
     text = _strip_fallback_status(text.strip())
-    if not text.lstrip().startswith("#"):
-        text = f"# {packet.kind.title()}: {packet.request}\n\n{text}"
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    if not first_line.startswith("# "):
+        title = "Private Mentor Report"
+        if packet.request.strip():
+            title = "Private Mentor Report"
+        text = f"# {title}\n\n{text}"
     return text
 
 
