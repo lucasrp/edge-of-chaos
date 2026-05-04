@@ -24,6 +24,7 @@ class ContextPacket:
     request: str
     kind: str
     observations: list[Observation] = field(default_factory=list)
+    authoritative_reads: list[dict[str, Any]] = field(default_factory=list)
     delta_source_manifest: list[dict[str, Any]] = field(default_factory=list)
     search_source_manifest: list[dict[str, Any]] = field(default_factory=list)
     thread_candidates: list[dict[str, Any]] = field(default_factory=list)
@@ -39,6 +40,7 @@ class ContextPacket:
             "request": self.request,
             "kind": self.kind,
             "observations": [obs.__dict__ for obs in self.observations],
+            "authoritative_reads": self.authoritative_reads,
             "delta_source_manifest": self.delta_source_manifest,
             "search_source_manifest": self.search_source_manifest,
             "thread_candidates": self.thread_candidates,
@@ -86,6 +88,14 @@ def _read_snippet(path: Path, limit: int = 900) -> str:
         return ""
 
 
+def _recent_files(directory: Path, pattern: str, limit: int) -> list[Path]:
+    if not directory.exists():
+        return []
+    paths = list(directory.glob(pattern))
+    paths.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return paths[:limit]
+
+
 def build_delta_source_manifest(config: RuntimeConfig) -> list[dict[str, Any]]:
     manifest: list[dict[str, Any]] = [{"name": "request", "kind": "runtime", "enabled": True, "available": True}]
     for item in config.agent.get("workspaces") or []:
@@ -103,6 +113,8 @@ def build_delta_source_manifest(config: RuntimeConfig) -> list[dict[str, Any]]:
         )
     claude_settings = ((config.agent.get("context") or {}).get("claude_sessions") or {})
     claude_base = Path.home() / ".claude" / "projects"
+    thread_files = _recent_files(config.threads_dir, "*.md", 12)
+    report_files = _recent_files(config.reports_dir, "*.md", 12)
     manifest.append(
         {
             "name": "claude_sessions",
@@ -115,8 +127,24 @@ def build_delta_source_manifest(config: RuntimeConfig) -> list[dict[str, Any]]:
     manifest.extend(
         [
             {"name": "chat_digest", "kind": "genotypic_context_projection", "enabled": True, "available": config.chat_digest_path.exists(), "path": str(config.chat_digest_path)},
-            {"name": "threads", "kind": "state_projection", "enabled": True, "available": config.threads_dir.exists(), "path": str(config.threads_dir)},
-            {"name": "reports", "kind": "state_projection", "enabled": True, "available": config.reports_dir.exists(), "path": str(config.reports_dir)},
+            {
+                "name": "threads",
+                "kind": "state_projection",
+                "enabled": True,
+                "available": bool(thread_files),
+                "item_count": len(thread_files),
+                "path": str(config.threads_dir),
+                "sample_paths": [str(path.name) for path in thread_files[:3]],
+            },
+            {
+                "name": "reports",
+                "kind": "state_projection",
+                "enabled": True,
+                "available": bool(report_files),
+                "item_count": len(report_files),
+                "path": str(config.reports_dir),
+                "sample_paths": [str(path.name) for path in report_files[:3]],
+            },
             {"name": "events", "kind": "ledger", "enabled": True, "available": config.ledger_path.exists(), "path": str(config.ledger_path)},
             {"name": "first_steps", "kind": "phenotype", "enabled": True, "available": bool(config.agent.get("first_steps"))},
             {"name": "seed_threads", "kind": "phenotype", "enabled": True, "available": bool(config.agent.get("seed_threads"))},
@@ -243,7 +271,7 @@ def load_threads(config: RuntimeConfig) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     if not config.threads_dir.exists():
         return candidates
-    for path in sorted(config.threads_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)[:12]:
+    for path in _recent_files(config.threads_dir, "*.md", 12):
         text = path.read_text(encoding="utf-8", errors="ignore")
         candidates.append({"id": path.stem, "path": str(path), "summary": truncate(text, 1000)})
     return candidates
@@ -251,14 +279,69 @@ def load_threads(config: RuntimeConfig) -> list[dict[str, Any]]:
 
 def load_reports(config: RuntimeConfig) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
-    paths = list(config.reports_dir.glob("*.md")) if config.reports_dir.exists() else []
-    paths += list(config.blog_entries_dir.glob("*.md")) if config.blog_entries_dir.exists() else []
+    paths = _recent_files(config.reports_dir, "*.md", 12)
+    paths += _recent_files(config.reports_dir, "*.yaml", 12)
+    paths += _recent_files(config.blog_entries_dir, "*.md", 12)
     paths.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     for path in paths[:12]:
         text = path.read_text(encoding="utf-8", errors="ignore")
-        title = next((line.lstrip("# ").strip() for line in text.splitlines() if line.startswith("#")), path.stem)
+        title = next((line.lstrip("# ").strip() for line in text.splitlines() if line.startswith("#")), "")
+        if not title:
+            title = next((line.split(":", 1)[1].strip().strip("'\"") for line in text.splitlines() if line.startswith("title:")), path.stem)
         candidates.append({"title": title, "path": str(path), "summary": truncate(text, 900)})
     return candidates
+
+
+def load_authoritative_reads(config: RuntimeConfig, ledger: Ledger) -> list[dict[str, Any]]:
+    reads: list[dict[str, Any]] = []
+    for path in _recent_files(config.threads_dir, "*.md", 4):
+        reads.append(
+            {
+                "source": "thread",
+                "path": str(path),
+                "title": path.stem,
+                "excerpt": _read_snippet(path, limit=1200),
+            }
+        )
+    for path in _recent_files(config.reports_dir, "*.md", 4):
+        reads.append(
+            {
+                "source": "report",
+                "path": str(path),
+                "title": path.stem,
+                "excerpt": _read_snippet(path, limit=1000),
+            }
+        )
+    for path in _recent_files(config.reports_dir, "*.yaml", 4):
+        reads.append(
+            {
+                "source": "report_spec",
+                "path": str(path),
+                "title": path.stem,
+                "excerpt": _read_snippet(path, limit=1000),
+            }
+        )
+    if config.ledger_path.exists():
+        recent = ledger.read_recent(20)
+        if recent:
+            reads.append(
+                {
+                    "source": "events",
+                    "path": str(config.ledger_path),
+                    "title": "recent events",
+                    "excerpt": truncate("\n".join(str(item) for item in recent), 1200),
+                }
+            )
+    if config.chat_digest_cursor_path.exists():
+        reads.append(
+            {
+                "source": "chat_digest_cursor",
+                "path": str(config.chat_digest_cursor_path),
+                "title": "chat digest cursor",
+                "excerpt": _read_snippet(config.chat_digest_cursor_path, limit=400),
+            }
+        )
+    return reads
 
 
 def assemble_context(config: RuntimeConfig, ledger: Ledger, *, kind: str, request: str) -> ContextPacket:
@@ -270,6 +353,7 @@ def assemble_context(config: RuntimeConfig, ledger: Ledger, *, kind: str, reques
         request=request or f"Run a {kind} beat",
         kind=kind,
         observations=observations,
+        authoritative_reads=load_authoritative_reads(config, ledger),
         delta_source_manifest=build_delta_source_manifest(config),
         search_source_manifest=build_search_source_manifest(config),
         thread_candidates=load_threads(config),

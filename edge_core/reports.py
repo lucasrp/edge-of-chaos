@@ -123,6 +123,7 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], thread_id
         "thread_candidates": packet.thread_candidates[:6],
         "report_candidates": packet.report_candidates[:6],
         "search_results": [result.__dict__ for result in searches[:10]],
+        "authoritative_reads": packet.authoritative_reads[:10],
         "first_steps": packet.first_steps,
         "interests": packet.interests,
     }
@@ -171,6 +172,7 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
         "seed_threads": packet.seed_threads,
         "interests": packet.interests,
         "routines": packet.routines,
+        "authoritative_reads": packet.authoritative_reads[:10],
         "search_results": [result.__dict__ for result in searches[:10]],
     }
     text = client.complete_text(

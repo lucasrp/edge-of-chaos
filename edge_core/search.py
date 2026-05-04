@@ -112,10 +112,27 @@ def query_from_packet(packet: ContextPacket, hints: list[str] | None = None) -> 
     return " ".join(terms)[:240]
 
 
+def _local_authoritative_context(packet: ContextPacket) -> list[SearchResult]:
+    results: list[SearchResult] = []
+    for item in packet.authoritative_reads[:8]:
+        excerpt = str(item.get("excerpt") or "").strip()
+        if not excerpt:
+            continue
+        results.append(
+            SearchResult(
+                "local-state",
+                str(item.get("title") or item.get("path") or "local state"),
+                str(item.get("path") or ""),
+                truncate(excerpt, 500),
+            )
+        )
+    return results
+
+
 def broad_search(config: RuntimeConfig, packet: ContextPacket, hints: list[str] | None = None) -> list[SearchResult]:
     query = query_from_packet(packet, hints)
     configured = {str(item.get("name")): item for item in (config.agent.get("sources") or []) if isinstance(item, dict) and item.get("enabled", True)}
-    results: list[SearchResult] = []
+    results: list[SearchResult] = _local_authoritative_context(packet)
     if "exa" in configured:
         results.extend(_exa_search(query))
     if "hackernews" in configured:
