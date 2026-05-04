@@ -16,16 +16,21 @@ REQUIRED_ORDER = [
     "BroadSearchCompleted",
     "DeliveryCompleted",
     "ReportDrafted",
+    "ReportShapeReviewed",
     "DeliveryCompleted",
     "AdversarialSearchReviewed",
     "BroadSearchCompleted",
     "ReportRevised",
+    "ReportShapeReviewed",
     "DeliveryCompleted",
     "AdversarialReviewed",
     "ReportRevised",
+    "ReportShapeReviewed",
     "DeliveryCompleted",
     "FeynmanReviewed",
     "FinalReportPrepared",
+    "ReportShapeReviewed",
+    "ArtifactBundleValidated",
     "ReportWritten",
     "ReportUtilityClassified",
     "ThreadUpdated",
@@ -84,6 +89,13 @@ def verify_rite(events: list[dict[str, Any]]) -> RiteCheck:
         missing.append("continuity-search:rounds")
     if sum(1 for event in events if event.get("type") in {"AdversarialSearchReviewed", "AdversarialReviewed"}) < 2:
         missing.append("adversarial:rounds")
+    if sum(1 for event in events if event.get("type") == "ReportShapeReviewed") < 4:
+        missing.append("report-shape:rounds")
+    artifact_validation = [event for event in events if event.get("type") == "ArtifactBundleValidated"]
+    if not artifact_validation:
+        missing.append("artifact-bundle:validated")
+    elif any(not bool(event.get("report_spec_passed")) or not bool(event.get("blog_post_passed")) for event in artifact_validation):
+        missing.append("artifact-bundle:failed")
 
     return RiteCheck(
         passed=not missing,

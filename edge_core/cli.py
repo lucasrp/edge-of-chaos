@@ -5,7 +5,7 @@ import argparse
 from .blog import serve_blog
 from .config import load_config
 from .install import apply, doctor, render
-from .reports import build_blog
+from .publication import build_blog
 from .runner import run_beat
 
 

@@ -40,6 +40,10 @@ class RuntimeConfig:
         return self.root / "blog" / "entries"
 
     @property
+    def blog_reports_dir(self) -> Path:
+        return self.root / "blog" / "reports"
+
+    @property
     def state_dir(self) -> Path:
         return self.root / "state"
 
@@ -134,6 +138,7 @@ def ensure_runtime_dirs(config: RuntimeConfig) -> None:
         config.digests_dir,
         config.reports_dir,
         config.blog_entries_dir,
+        config.blog_reports_dir,
         config.root / "logs",
         config.root / "config",
     ]:

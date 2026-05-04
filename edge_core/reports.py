@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import html
 import json
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 from .config import RuntimeConfig
 from .context import ContextPacket
+from .report_shape import REPORT_SECTION_TITLES
 from .reviewers import LLMClient, ReviewResult, summarize_reviews
 from .search import SearchResult
-from .util import date_slug, slugify, truncate
+from .util import truncate
 
 
 @dataclass(frozen=True)
@@ -19,6 +18,10 @@ class ReportResult:
     mode: str
     provider: str
     error: str = ""
+
+
+def required_report_shape_text() -> str:
+    return "\n".join(f"## {title}" for title in REPORT_SECTION_TITLES)
 
 
 def draft_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str) -> ReportResult:
@@ -30,21 +33,19 @@ def draft_report(packet: ContextPacket, searches: list[SearchResult], thread_id:
     reports = "\n".join(f"- {item.get('title')} ({item.get('path')})" for item in packet.report_candidates[:6]) or "- No previous report found."
     search_lines = "\n".join(f"- **{result.source}:** {result.title} {result.url} — {truncate(result.summary, 250)}" for result in searches)
     interests = "\n".join(f"- {item.get('area')}: {item.get('connection')}" for item in packet.interests[:5])
-    text = f"""# {packet.kind.title()}: {packet.request}
+    text = f"""# Private Mentor Report
 
-> Status: deterministic scaffold fallback. No LLM returned report text for this draft; this output is only a structural smoke test.
+## Lineage
 
-## Thread
+This beat continues or creates thread `{thread_id}` and starts from the currently observed continuity evidence.
 
-This beat continues or creates thread `{thread_id}`.
-
-## Observed Context
+## Situated Delta
 
 {observations}
 
-## Continuity
+## Problem Framing and Open Gaps
 
-Candidate reports:
+Before broad search, the mentor should formalize the live problem and the gaps that keep the explanation weak. Candidate reports:
 
 {reports}
 
@@ -52,36 +53,45 @@ Candidate reports:
 
 The mentor should start from the observed real work, identify the delta, and turn it into guidance that helps the mentee think and act better. If context is still thin, the report should say so instead of fabricating certainty.
 
-## Broad Search
+## Feynman Derivation
 
-{search_lines}
-
-## Relevant Phenotypic Interests
-
-{interests or "- No configured interest."}
-
-## Derivation
-
-1. The current request/beat points to: {packet.request}
+1. The current request/beat points to: {packet.request or packet.kind}
 2. Recent context shows workspace evidence, report history, threads, and sessions.
 3. The recommendation must continue a real thread or open a new one with justification.
 4. The report must preserve the rite: broad search, adversarial review, Feynman review, and concrete next steps.
 
-## Gaps
+## Why This Matters Now
+
+If the mentor loses the live problem framing before search, the report drifts into generic advice. This section exists to keep the explanation tied to the mentee's current work.
+
+## Broad Search
+
+{search_lines}
+
+## Adversarial Pushback
+
+The current explanation is only as strong as the continuity evidence and search quality. If either is thin, the report must say so plainly.
+
+## Recommended Next Steps
+
+- Review whether the report adheres to the observed real work.
+- Update the compact thread with the new understanding.
+- If search degraded because credentials were missing, configure the phenotype sources.
+
+## What I Don't Know
 
 - Confirm whether the selected thread represents the correct live line of work.
 - Confirm whether the configured external sources were sufficient or whether the runtime fell back locally.
 - Confirm whether there is a previous report that should have been recovered but was not.
 
-## Recommendation
+## Contextualization and Glossary
 
-Continue with a rich private consultation, anchored in the delta and without mutating the mentee workspace. The next step is to use this report as the basis for updating the thread and improving the next consultation.
+Context: this is a private mentor report for an active line of work, not a public article.
 
-## Next Steps
-
-- Review whether the report adheres to the observed real work.
-- Update the compact thread with the new understanding.
-- If search degraded because credentials were missing, configure the phenotype sources.
+- `delta`: what changed in the mentee's current situation.
+- `thread`: the continuity line that carries the work across beats.
+- `Feynman`: derive simply, expose gaps, and only then widen the search.
+- `interests`: {interests or "No configured interest."}
 """
     return ReportResult(
         text=text,
@@ -120,8 +130,11 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], thread_id
         system=(
             "You are edge-of-chaos v2 revising a mentor report in a fixed straight-line rite. "
             "Rewrite the report in Markdown using the reviewer feedback as input, not as a pass/fail gate. "
-            "Keep the mentor/mentee relationship, situated delta, continuity, broad-search evidence, adversarial pushback, "
-            "Feynman derivation, explicit gaps, and concrete next steps. Return only the report."
+            "Keep the mentor/mentee relationship, situated delta, continuity, problem framing before search, broad-search evidence, "
+            "adversarial pushback, Feynman derivation, why-this-matters-now, explicit gaps, and concrete next steps. "
+            "Use this exact section order and titles:\n"
+            f"{required_report_shape_text()}\n"
+            "Return only the report."
         ),
         prompt=json.dumps(prompt, ensure_ascii=False)[:26000],
     )
@@ -133,18 +146,6 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], thread_id
             error=client.last_error or "llm:no-revised-text",
         )
     return ReportResult(text=_normalize_report_text(packet, text), mode="llm", provider=client.last_provider, error=client.last_error)
-
-
-def finalize_report(config: RuntimeConfig, *, packet: ContextPacket, draft: str, reviews: list[ReviewResult], thread_id: str) -> Path:
-    config.reports_dir.mkdir(parents=True, exist_ok=True)
-    slug = slugify(f"{packet.kind}-{packet.request}")[:90]
-    path = config.reports_dir / f"{date_slug()}-{slug}.md"
-    final = draft.rstrip() + "\n\n## Reviews\n\n" + summarize_reviews(reviews) + "\n"
-    path.write_text(final, encoding="utf-8")
-    config.blog_entries_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(path, config.blog_entries_dir / path.name)
-    return path
-
 
 def append_report_utility(config: RuntimeConfig, *, report_path: Path, utility: ReviewResult) -> Path:
     path = config.state_dir / "report-utility.jsonl"
@@ -158,30 +159,6 @@ def append_report_utility(config: RuntimeConfig, *, report_path: Path, utility: 
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
     return path
-
-
-def build_blog(config: RuntimeConfig) -> Path:
-    entries = sorted(config.blog_entries_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
-    rows = []
-    for path in entries:
-        title = path.stem
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        for line in text.splitlines():
-            if line.startswith("# "):
-                title = line[2:].strip()
-                break
-        rows.append(f'<li><a href="entries/{html.escape(path.name)}">{html.escape(title)}</a></li>')
-    index = config.root / "blog" / "index.html"
-    index.parent.mkdir(parents=True, exist_ok=True)
-    index.write_text(
-        "<!doctype html><meta charset='utf-8'><title>edge reports</title>"
-        "<style>body{font-family:system-ui;margin:3rem;max-width:820px}li{margin:.6rem 0}</style>"
-        "<h1>edge-of-chaos reports</h1><ul>" + "\n".join(rows) + "</ul>",
-        encoding="utf-8",
-    )
-    return index
-
-
 def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[SearchResult], thread_id: str) -> str | None:
     prompt = {
         "kind": packet.kind,
@@ -200,11 +177,14 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
         system=(
             "You are edge-of-chaos v2, a private Feynman mentor. Write a rich private mentor report in Markdown. "
             "Do not write dashboard copy. Do not sound like a product brochure. "
-            "The report must be situated in the observed work, continue or justify the thread, explain the simple model, "
-            "derive the reasoning, cite search/source evidence including unavailable sources, state gaps, give pushback, "
-            "and end with concrete next steps. Keep it useful, specific, and honest."
+            "The report must be situated in the observed work, continue or justify the thread, formalize the problem and open gaps before search, "
+            "explain the simple model, derive the reasoning in Feynman style, explain why this matters now, cite search/source evidence including "
+            "unavailable sources, give adversarial pushback, state what is still unknown, and end with concrete next steps. "
+            "Use this exact section order and titles:\n"
+            f"{required_report_shape_text()}\n"
+            "Keep it useful, specific, and honest."
         ),
-        prompt=str(prompt)[:22000],
+        prompt=json.dumps(prompt, ensure_ascii=False)[:22000],
     )
     return text or None
 

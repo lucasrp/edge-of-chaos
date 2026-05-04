@@ -8,8 +8,9 @@ from .chat_digest import refresh_chat_digest
 from .config import RuntimeConfig, ensure_runtime_dirs
 from .context import assemble_context
 from .ledger import Ledger
-from .reports import append_report_utility, build_blog, draft_report, finalize_report, revise_report
-from .reviewers import ReviewResult, adversarial_review, classify_report_utility, context_search_review, feynman_review
+from .publication import build_blog, build_report_spec, publish_artifact_bundle, validate_blog_post, validate_report_spec
+from .reports import append_report_utility, draft_report, revise_report
+from .reviewers import ReviewResult, adversarial_review, classify_report_utility, context_search_review, feynman_review, report_shape_review
 from .rite import verify_rite
 from .search import broad_search
 from .threads import initial_seed_thread, primary_thread_from_review, rebuild_digest, update_thread
@@ -104,6 +105,8 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
         llm_provider=draft_1_result.provider,
         llm_error=draft_1_result.error,
     )
+    shape_review_1 = report_shape_review(draft_1, stage="draft-v1")
+    record("ReportShapeReviewed", version=1, reviewer=shape_review_1.reviewer, summary=shape_review_1.summary, data=shape_review_1.data)
     record("DeliveryCompleted", stage="draft-v1", chars=len(draft_1))
 
     adversarial_1 = adversarial_review(draft_1, packet, searches, round_index=1)
@@ -111,7 +114,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
     searches_3 = broad_search(config, packet, hints=_search_hints([context_review_1, context_review_2, adversarial_1]))
     searches = searches + searches_3
     record("BroadSearchCompleted", round=3, sources=sorted({result.source for result in searches_3}), results=len(searches_3))
-    draft_2_result = revise_report(packet, searches, thread_id, draft_1, [adversarial_1], stage="adversarial-search")
+    draft_2_result = revise_report(packet, searches, thread_id, draft_1, [shape_review_1, adversarial_1], stage="adversarial-search")
     draft_2 = draft_2_result.text
     record(
         "ReportRevised",
@@ -122,11 +125,13 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
         llm_provider=draft_2_result.provider,
         llm_error=draft_2_result.error,
     )
+    shape_review_2 = report_shape_review(draft_2, stage="draft-v2")
+    record("ReportShapeReviewed", version=2, reviewer=shape_review_2.reviewer, summary=shape_review_2.summary, data=shape_review_2.data)
     record("DeliveryCompleted", stage="draft-v2", chars=len(draft_2))
 
     adversarial_2 = adversarial_review(draft_2, packet, searches, round_index=2)
     record("AdversarialReviewed", round=2, reviewer=adversarial_2.reviewer, summary=adversarial_2.summary, data=adversarial_2.data)
-    draft_3_result = revise_report(packet, searches, thread_id, draft_2, [adversarial_2], stage="adversarial")
+    draft_3_result = revise_report(packet, searches, thread_id, draft_2, [shape_review_2, adversarial_2], stage="adversarial")
     draft_3 = draft_3_result.text
     record(
         "ReportRevised",
@@ -137,11 +142,13 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
         llm_provider=draft_3_result.provider,
         llm_error=draft_3_result.error,
     )
+    shape_review_3 = report_shape_review(draft_3, stage="draft-v3")
+    record("ReportShapeReviewed", version=3, reviewer=shape_review_3.reviewer, summary=shape_review_3.summary, data=shape_review_3.data)
     record("DeliveryCompleted", stage="draft-v3", chars=len(draft_3))
 
     feynman = feynman_review(draft_3, packet, searches)
     record("FeynmanReviewed", reviewer=feynman.reviewer, summary=feynman.summary, data=feynman.data)
-    final_report_result = revise_report(packet, searches, thread_id, draft_3, [feynman], stage="feynman-final")
+    final_report_result = revise_report(packet, searches, thread_id, draft_3, [shape_review_3, feynman], stage="feynman-final")
     final_report = final_report_result.text
     record(
         "FinalReportPrepared",
@@ -150,12 +157,52 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
         llm_provider=final_report_result.provider,
         llm_error=final_report_result.error,
     )
+    final_shape_review = report_shape_review(final_report, stage="final")
+    record("ReportShapeReviewed", version=4, reviewer=final_shape_review.reviewer, summary=final_shape_review.summary, data=final_shape_review.data)
+    if not bool(final_shape_review.data.get("passed")):
+        record("ReportShapeValidationFailed", issues=final_shape_review.data.get("issues") or [])
+        raise RuntimeError(f"report shape validation failed: {', '.join(final_shape_review.data.get('issues') or [])}")
 
-    reviews = [context_review_1, context_review_2, adversarial_1, adversarial_2, feynman]
-    report_path = finalize_report(config, packet=packet, draft=final_report, reviews=reviews, thread_id=thread_id)
-    record("ReportWritten", path=str(report_path), thread_id=thread_id)
+    reviews = [context_review_1, context_review_2, shape_review_1, adversarial_1, shape_review_2, adversarial_2, shape_review_3, feynman, final_shape_review]
+    spec = build_report_spec(
+        packet=packet,
+        report_markdown=final_report,
+        searches=searches,
+        thread_id=thread_id,
+        thread_title=primary_thread["title"],
+    )
+    spec_check = validate_report_spec(spec)
+    blog_check = validate_blog_post(spec.get("blog_post"))
+    artifact_issues = [*spec_check.issues, *blog_check.issues]
+    record(
+        "ArtifactBundleValidated",
+        report_spec_passed=spec_check.passed,
+        blog_post_passed=blog_check.passed,
+        issues=artifact_issues,
+    )
+    if artifact_issues:
+        raise RuntimeError(f"artifact bundle validation failed: {', '.join(artifact_issues)}")
+
+    published = publish_artifact_bundle(
+        config,
+        packet=packet,
+        report_markdown=final_report,
+        searches=searches,
+        reviews=reviews,
+        thread_id=thread_id,
+        thread_title=primary_thread["title"],
+    )
+    record(
+        "ReportWritten",
+        path=str(published.report_html_path),
+        markdown_path=str(published.report_markdown_path),
+        spec_path=str(published.report_spec_path),
+        blog_entry_path=str(published.blog_entry_markdown_path),
+        blog_entry_html=str(published.blog_entry_html_path),
+        thread_id=thread_id,
+    )
     utility = classify_report_utility(final_report, packet, reviews)
-    utility_path = append_report_utility(config, report_path=report_path, utility=utility)
+    utility_path = append_report_utility(config, report_path=published.report_html_path, utility=utility)
     record("ReportUtilityClassified", reviewer=utility.reviewer, summary=utility.summary, data=utility.data, path=str(utility_path))
     utility_data = utility.data if isinstance(utility.data, dict) else {}
 
@@ -163,7 +210,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
         config,
         thread_id=thread_id,
         title=primary_thread["title"],
-        report_path=report_path,
+        report_path=published.report_markdown_path,
         summary=str(utility_data.get("summary") or f"{kind} beat: {packet.request}"),
         decisions=[f"Utility: {utility_data.get('utility_label', 'unclassified')}"],
         next_steps=_list_from_data(utility_data, "recommended_followups") or ["Continue the thread from the final report's next steps."],
@@ -179,4 +226,4 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
         raise RuntimeError(f"beat rite failed: {', '.join(rite.missing)}")
     record("RiteVerified", **rite.as_dict())
     record("CycleClosed", status="completed")
-    return BeatResult(cycle_id=cycle_id, report_path=str(report_path), thread_id=thread_id, status="completed")
+    return BeatResult(cycle_id=cycle_id, report_path=str(published.report_html_path), thread_id=thread_id, status="completed")

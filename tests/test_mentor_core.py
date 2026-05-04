@@ -26,6 +26,11 @@ class MentorCoreTest(unittest.TestCase):
                 shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
             else:
                 shutil.copy2(source, target)
+        shutil.rmtree(self.tmp / "blog", ignore_errors=True)
+        shutil.rmtree(self.tmp / "reports", ignore_errors=True)
+        shutil.rmtree(self.tmp / "state", ignore_errors=True)
+        for path in [self.tmp / "blog", self.tmp / "reports", self.tmp / "state", self.tmp / "config"]:
+            path.mkdir(parents=True, exist_ok=True)
         (self.tmp / "agent.yaml").write_text(
             """
 name: test
@@ -77,6 +82,12 @@ interests:
         report = self.run_edge("report", "testar continuidade")
         self.assertEqual(report.returncode, 0, report.stdout + report.stderr)
         self.assertTrue(list((self.tmp / "reports").glob("*.md")))
+        self.assertTrue(list((self.tmp / "reports").glob("*.yaml")))
+        self.assertTrue(list((self.tmp / "reports").glob("*.html")))
+        self.assertTrue(list((self.tmp / "blog" / "entries").glob("*.md")))
+        self.assertTrue(list((self.tmp / "blog" / "entries").glob("*.html")))
+        self.assertTrue(list((self.tmp / "blog" / "reports").glob("*.html")))
+        self.assertTrue((self.tmp / "blog" / "index.html").exists())
         self.assertTrue((self.tmp / "state" / "events.jsonl").exists())
         self.assertTrue(list((self.tmp / "state" / "threads").glob("*.md")))
         self.assertTrue((self.tmp / "state" / "report-utility.jsonl").exists())
@@ -87,18 +98,29 @@ interests:
         self.assertIn("ContinuitySearchReviewed", ledger)
         self.assertIn("BroadSearchCompleted", ledger)
         self.assertIn("ReportDrafted", ledger)
+        self.assertIn("ReportShapeReviewed", ledger)
         self.assertIn("AdversarialSearchReviewed", ledger)
         self.assertIn("AdversarialReviewed", ledger)
         self.assertIn("FeynmanReviewed", ledger)
+        self.assertIn("ArtifactBundleValidated", ledger)
         self.assertIn("ReportUtilityClassified", ledger)
         self.assertIn("RiteVerified", ledger)
         self.assertIn("CycleClosed", ledger)
         drafted = next(event for event in events if event["type"] == "ReportDrafted")
         final = next(event for event in events if event["type"] == "FinalReportPrepared")
+        written = next(event for event in events if event["type"] == "ReportWritten")
         self.assertEqual(drafted["mode"], "deterministic-scaffold")
         self.assertEqual(drafted["llm_error"], "claude:disabled")
         self.assertEqual(final["mode"], "unchanged")
         self.assertEqual(final["llm_error"], "claude:disabled")
+        self.assertTrue(written["path"].endswith(".html"))
+        self.assertTrue(written["markdown_path"].endswith(".md"))
+        self.assertTrue(written["spec_path"].endswith(".yaml"))
+        report_html = next((self.tmp / "reports").glob("*.html"))
+        report_text = report_html.read_text(encoding="utf-8")
+        self.assertIn("Problem Framing and Open Gaps", report_text)
+        self.assertIn("Feynman Derivation", report_text)
+        self.assertIn("Why This Matters Now", report_text)
 
     def test_rite_requires_two_context_search_reviews(self) -> None:
         events = [
@@ -112,16 +134,21 @@ interests:
             {"type": "BroadSearchCompleted", "results": 1},
             {"type": "DeliveryCompleted", "stage": "evidence-pack-v2"},
             {"type": "ReportDrafted"},
+            {"type": "ReportShapeReviewed"},
             {"type": "DeliveryCompleted", "stage": "draft-v1"},
             {"type": "AdversarialSearchReviewed", "reviewer": "llm:adversarial"},
             {"type": "BroadSearchCompleted", "results": 1},
             {"type": "ReportRevised"},
+            {"type": "ReportShapeReviewed"},
             {"type": "DeliveryCompleted", "stage": "draft-v2"},
             {"type": "AdversarialReviewed", "reviewer": "llm:adversarial"},
             {"type": "ReportRevised"},
+            {"type": "ReportShapeReviewed"},
             {"type": "DeliveryCompleted", "stage": "draft-v3"},
             {"type": "FeynmanReviewed", "reviewer": "llm:feynman-review"},
             {"type": "FinalReportPrepared"},
+            {"type": "ReportShapeReviewed"},
+            {"type": "ArtifactBundleValidated", "report_spec_passed": True, "blog_post_passed": True},
             {"type": "ReportWritten"},
             {"type": "ReportUtilityClassified"},
             {"type": "ThreadUpdated"},

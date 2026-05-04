@@ -5,7 +5,7 @@ import socketserver
 from functools import partial
 
 from .config import RuntimeConfig
-from .reports import build_blog
+from .publication import build_blog
 
 
 def serve_blog(config: RuntimeConfig, *, port: int) -> None:

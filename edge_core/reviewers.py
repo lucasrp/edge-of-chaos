@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .context import ContextPacket
+from .report_shape import REPORT_SECTION_TITLES, validate_report_markdown
 from .search import SearchResult
 from .util import slugify, truncate
 
@@ -196,11 +197,18 @@ class LLMClient:
 
 def context_search_review(packet: ContextPacket, searches: list[SearchResult], *, round_index: int) -> ReviewResult:
     client = LLMClient(role="review")
+    required_sections = [
+        "Problem Framing and Open Gaps",
+        "Why This Matters Now",
+        "Broad Search",
+        "Feynman Derivation",
+    ]
     prompt = json.dumps(
         {
             "round": round_index,
             "context": packet.as_dict(),
             "search_results": [result.__dict__ for result in searches[:12]],
+            "required_sections": required_sections,
         },
         ensure_ascii=False,
     )[:22000]
@@ -208,9 +216,10 @@ def context_search_review(packet: ContextPacket, searches: list[SearchResult], *
         system=(
             "You are the continuity/context/search reviewer for a private Feynman mentor. "
             "Inspect the delta source manifest and the search source manifest. Judge continuity, loader sufficiency, "
-            "source coverage, search terms, and whether the right sources were attempted. Return JSON with "
+            "source coverage, search terms, and whether the right sources were attempted. Also judge whether the loaded context is strong enough "
+            "to support the mandatory report sections around problem framing, why-this-matters-now, broad search, and Feynman derivation. Return JSON with "
             "primary_thread, continuity_assessment, loader_notes, search_assessment, suggested_queries, suggested_sources, "
-            "missing_context, and summary. Do not decide pass/fail; give material for the next straight-line step."
+            "missing_context, section_support, and summary. Do not decide pass/fail; give material for the next straight-line step."
         ),
         prompt=prompt,
     )
@@ -222,6 +231,7 @@ def context_search_review(packet: ContextPacket, searches: list[SearchResult], *
         return ReviewResult("completed", "llm:context-search", str(llm.get("summary") or llm.get("reason") or "context/search reviewed"), llm)
 
     has_observations = len(packet.observations) >= 2
+    search_count = len(searches)
     thread_id = "general-continuity"
     title = "General Continuity"
     action = "create"
@@ -259,6 +269,12 @@ def context_search_review(packet: ContextPacket, searches: list[SearchResult], *
         "suggested_queries": [packet.request],
         "suggested_sources": [item.get("name") for item in packet.search_source_manifest if item.get("enabled")],
         "missing_context": [] if has_observations else ["No workspace or session observations were available."],
+        "section_support": {
+            "Problem Framing and Open Gaps": "supported" if has_observations else "under-supported: thin live context",
+            "Why This Matters Now": "supported" if has_observations else "under-supported: unclear current delta",
+            "Broad Search": "supported" if search_count > 0 else "under-supported: no search results yet",
+            "Feynman Derivation": "supported" if has_observations and search_count > 0 else "under-supported: derivation will be weak until context and search are richer",
+        },
         "summary": "Local context/search review completed.",
         "mode": "local-fallback",
     }
@@ -282,8 +298,8 @@ def adversarial_review(report: str, packet: ContextPacket | None = None, searche
     llm = client.complete_json(
         system=(
             "You are an adversarial reviewer. Find weak assumptions, missing evidence, and overreach. "
-            "Also inspect the delta/search source manifests and current search results. Return JSON with summary, "
-            "weak_assumptions, missing_evidence, search_assessment, suggested_queries, suggested_sources, and recommended_repairs."
+            "Also inspect the delta/search source manifests, current search results, and whether the mandatory report shape is being used meaningfully. Return JSON with summary, "
+            "weak_assumptions, missing_evidence, search_assessment, section_repairs, suggested_queries, suggested_sources, and recommended_repairs."
         ),
         prompt=json.dumps(payload, ensure_ascii=False)[:22000] if isinstance(payload, dict) else payload,
     )
@@ -309,8 +325,8 @@ def feynman_review(report: str, packet: ContextPacket | None = None, searches: l
     llm = client.complete_json(
         system=(
             "You are a Feynman reviewer. Check simplicity, derivation, gaps, and honest uncertainty. "
-            "Also inspect whether the report's search/source use supports the explanation. Return JSON with summary, "
-            "simplicity, derivation, gaps, honest_uncertainty, search_assessment, suggested_queries, and repair_notes."
+            "Also inspect whether the report's search/source use supports the explanation and whether the mandatory sections actually carry useful reasoning. Return JSON with summary, "
+            "simplicity, derivation, gaps, honest_uncertainty, section_repairs, search_assessment, suggested_queries, and repair_notes."
         ),
         prompt=json.dumps(payload, ensure_ascii=False)[:22000] if isinstance(payload, dict) else payload,
     )
@@ -362,3 +378,22 @@ def classify_report_utility(report: str, packet: ContextPacket, reviews: list[Re
 
 def summarize_reviews(reviews: list[ReviewResult]) -> str:
     return "\n".join(f"- **{review.reviewer}:** {truncate(review.summary, 500)}" for review in reviews)
+
+
+def report_shape_review(report: str, *, stage: str) -> ReviewResult:
+    check = validate_report_markdown(report)
+    seen_titles = [title for title, _body in check.sections]
+    missing = [title for title in REPORT_SECTION_TITLES if title not in seen_titles]
+    summary = "Report shape satisfies the mandatory artifact sections." if check.passed else "Report shape is missing or weakening mandatory artifact sections."
+    data = {
+        "stage": stage,
+        "passed": check.passed,
+        "issues": check.issues,
+        "required_sections": REPORT_SECTION_TITLES,
+        "seen_sections": seen_titles,
+        "missing_sections": missing,
+        "title": check.title,
+        "summary": summary,
+        "mode": "deterministic-shape-check",
+    }
+    return ReviewResult("completed", "deterministic:report-shape", summary, data)
