@@ -13,6 +13,7 @@ from edge_core.config import load_config
 from edge_core.publication import validate_report_spec
 from edge_core.report_shape import validate_report_markdown
 from edge_core.reports import _normalize_report_text, _safe_scaffold_text
+from edge_core.search import broad_search
 from edge_core.threads import choose_primary_thread, initial_seed_thread, primary_thread_from_review
 from edge_core.report_shape import REPORT_SECTION_TITLES
 from edge_core.context import ContextPacket
@@ -270,6 +271,17 @@ interests:
         primary = initial_seed_thread(config)
         self.assertEqual(primary["title"], "Help the mentee in the best possible way with their current work")
         self.assertEqual(primary["thread_id"], "help-the-mentee-in-the-best-possible-way-with-their-current-work")
+
+    def test_broad_search_executes_local_workspace_queries(self) -> None:
+        os.environ["EDGE_DISABLE_LOCAL_ENV"] = "1"
+        os.environ["EDGE_DISABLE_CLAUDE_FALLBACK"] = "1"
+        config = load_config(self.tmp)
+        packet = ContextPacket(request="inspect the current mentor test configuration", kind="heartbeat")
+        results = broad_search(config, packet, hints=['grep -RIn "Mentor test" agent.yaml'], round_index=1)
+        local_hits = [item for item in results if item.source == "workspace-search" and item.status == "retrieved"]
+        self.assertTrue(local_hits)
+        self.assertTrue(any(item.fetch_status == "fetched" for item in local_hits))
+        self.assertTrue(any("Mentor test" in (item.fetched_excerpt or item.summary) for item in local_hits))
 
     def test_report_shape_rejects_truncated_tail(self) -> None:
         report = """# Private Mentor Report

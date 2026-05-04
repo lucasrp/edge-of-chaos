@@ -163,6 +163,23 @@ def build_search_source_manifest(config: RuntimeConfig) -> list[dict[str, Any]]:
     }
     configured = config.agent.get("sources") or []
     manifest: list[dict[str, Any]] = []
+    workspace_available = False
+    for item in config.agent.get("workspaces") or []:
+        if not isinstance(item, dict):
+            continue
+        path = _workspace_path(config.root, str(item.get("path") or "."))
+        if path.exists():
+            workspace_available = True
+            break
+    manifest.append(
+        {
+            "name": "workspace-search",
+            "kind": "search",
+            "enabled": workspace_available,
+            "available": workspace_available,
+            "credential": "not_required",
+        }
+    )
     for item in configured:
         if not isinstance(item, dict):
             continue

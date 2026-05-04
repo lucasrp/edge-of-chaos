@@ -3,16 +3,22 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
+import subprocess
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Any
 
 from .config import RuntimeConfig
 from .context import ContextPacket
 from .llm_client import LLMClient
 from .util import truncate
+
+_LOCAL_COMMAND_PREFIXES = ("git ", "rg ", "grep ", "find ", "ls ", "sed ", "head ")
 
 
 @dataclass
@@ -126,6 +132,15 @@ def _exa_search(query: str, *, round_index: int) -> list[SearchResult]:
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
             payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = f"HTTP {exc.code}"
+        try:
+            body = exc.read().decode("utf-8", errors="ignore")
+        except OSError:
+            body = ""
+        if exc.code == 402 and "exceeded your credits limit" in body.lower():
+            detail = "Exa credits exhausted"
+        return [_artifact("exa", "Exa request failed", "", f"Exa was configured but the request failed: {detail}.", query=query, status="failed", round_index=round_index)]
     except Exception:
         return [_artifact("exa", "Exa request failed", "", "Exa was configured but the request failed.", query=query, status="failed", round_index=round_index)]
     results = []
@@ -191,9 +206,30 @@ def _github_context(config: RuntimeConfig, query: str, *, round_index: int) -> l
     ]
 
 
+def _is_local_command_hint(value: str) -> bool:
+    lowered = value.strip().lower()
+    return any(lowered.startswith(prefix) for prefix in _LOCAL_COMMAND_PREFIXES)
+
+
+def _normalized_query_hint(value: str) -> str:
+    hint = re.sub(r"\s+", " ", value.strip())
+    if not hint:
+        return ""
+    if _is_local_command_hint(hint):
+        return ""
+    if hint[0] in "{[":
+        return ""
+    if "path/to" in hint or ("{" in hint and "}" in hint and ":" in hint):
+        return ""
+    return truncate(hint, 140)
+
+
 def query_from_packet(packet: ContextPacket, hints: list[str] | None = None) -> str:
     terms = [packet.request]
-    terms.extend(hints or [])
+    for hint in hints or []:
+        normalized = _normalized_query_hint(hint)
+        if normalized:
+            terms.append(normalized)
     for obs in packet.observations[:5]:
         terms.append(obs.title)
     return " ".join(term for term in terms if term).strip()[:240]
@@ -213,6 +249,138 @@ def _local_authoritative_context(packet: ContextPacket, query: str, *, round_ind
                 truncate(excerpt, 500),
                 query=query,
                 status="context",
+                round_index=round_index,
+            )
+        )
+    return results
+
+
+def _workspace_roots(config: RuntimeConfig, command: str) -> list[tuple[str, Path]]:
+    workspace_first = not any(token in command for token in ["state/", "reports/", "blog/", "agent.yaml", "tools/edge"])
+    workspace_roots: list[tuple[str, Path]] = []
+    for item in config.agent.get("workspaces") or []:
+        if not isinstance(item, dict):
+            continue
+        raw = str(item.get("path") or ".")
+        path = Path(os.path.expanduser(raw))
+        if not path.is_absolute():
+            path = config.root / path
+        workspace_roots.append((str(item.get("name") or raw), path.resolve()))
+    ordered = ([("edge", config.root.resolve())] + workspace_roots) if not workspace_first else (workspace_roots + [("edge", config.root.resolve())])
+    deduped: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    for name, path in ordered:
+        key = str(path)
+        if key in seen or not path.exists():
+            continue
+        seen.add(key)
+        deduped.append((name, path))
+    return deduped
+
+
+def _command_hints(hints: list[str] | None) -> list[str]:
+    commands: list[str] = []
+    for raw in hints or []:
+        command = re.sub(r"\s+", " ", raw.strip())
+        if not command or not _is_local_command_hint(command):
+            continue
+        if any(token in command for token in ["path/to", "<path", "..."]):
+            continue
+        if command not in commands:
+            commands.append(command)
+    return commands[:4]
+
+
+def _normalize_local_command(command: str) -> tuple[list[str] | None, str]:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None, "parse_error"
+    if not tokens:
+        return None, "empty_command"
+    name = tokens[0]
+    if name == "rg":
+        pattern = ""
+        paths: list[str] = []
+        for token in tokens[1:]:
+            if token.startswith("-"):
+                continue
+            if not pattern:
+                pattern = token
+            else:
+                paths.append(token)
+        if not pattern:
+            return None, "rg_missing_pattern"
+        return ["grep", "-RInE", pattern, *(paths or ["."])], ""
+    if name in {"git", "grep", "find", "ls", "sed", "head"}:
+        return tokens, ""
+    return None, "unsupported_command"
+
+
+def _run_local_command(argv: list[str], cwd: Path) -> tuple[int, str]:
+    env = os.environ.copy()
+    env.setdefault("GIT_PAGER", "cat")
+    try:
+        result = subprocess.run(argv, cwd=str(cwd), capture_output=True, text=True, timeout=20, env=env)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, str(exc)
+    output = (result.stdout or "").strip() or (result.stderr or "").strip()
+    return result.returncode, output
+
+
+def _local_workspace_search(config: RuntimeConfig, packet: ContextPacket, hints: list[str] | None, *, round_index: int) -> list[SearchResult]:
+    results: list[SearchResult] = []
+    for command in _command_hints(hints):
+        argv, error = _normalize_local_command(command)
+        if not argv:
+            results.append(
+                _artifact(
+                    "workspace-search",
+                    f"Local query skipped: {command}",
+                    "",
+                    f"Suggested local query was skipped: {error}.",
+                    query=command,
+                    status="failed",
+                    round_index=round_index,
+                )
+            )
+            continue
+        roots = _workspace_roots(config, command)
+        last_output = ""
+        hit = False
+        for root_name, root_path in roots:
+            code, output = _run_local_command(argv, root_path)
+            last_output = output or last_output
+            if code == 0 and output:
+                result = _artifact(
+                    "workspace-search",
+                    f"{root_name}: {command}",
+                    str(root_path),
+                    truncate(output, 500),
+                    query=command,
+                    status="retrieved",
+                    round_index=round_index,
+                )
+                result.fetch_status = "fetched"
+                result.fetched_excerpt = truncate(output, 900)
+                result.reading_note = _read_fetched_document(packet, result, output[:12000])
+                results.append(result)
+                hit = True
+                break
+            if code == 1 and argv[0] == "grep":
+                continue
+        if hit:
+            continue
+        status = "failed" if last_output else "no_results"
+        summary = last_output or f"Executed locally across {len(roots)} roots and found no matching evidence."
+        results.append(
+            _artifact(
+                "workspace-search",
+                f"Local search: {command}",
+                "",
+                truncate(summary, 500),
+                query=command,
+                status=status,
                 round_index=round_index,
             )
         )
@@ -460,6 +628,7 @@ def broad_search(config: RuntimeConfig, packet: ContextPacket, hints: list[str] 
     query = query_from_packet(packet, hints)
     configured = {str(item.get("name")): item for item in (config.agent.get("sources") or []) if isinstance(item, dict) and item.get("enabled", True)}
     results: list[SearchResult] = _local_authoritative_context(packet, query, round_index=round_index)
+    results.extend(_local_workspace_search(config, packet, hints, round_index=round_index))
     if "exa" in configured:
         results.extend(_exa_search(query, round_index=round_index))
     if "hackernews" in configured:
