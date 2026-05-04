@@ -152,6 +152,7 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_t
             "adversarial pushback, Feynman derivation, why-this-matters-now, explicit gaps, and concrete next steps. "
             "Search telemetry is not the same as search evidence: unavailable/no_results/failed entries constrain coverage, while fetched entries with reading_note carry substantive evidence. "
             "If fetched evidence exists, use it. Do not claim nothing was retrieved when fetched entries or search-digest entries are present. "
+            "When fetched workspace-search or search-digest evidence exists, the Broad Search section must name at least two concrete findings and explain how they changed the judgement. "
             "Start with the exact Markdown title `# Private Mentor Report`. "
             "If selected_thread.grounded is true, anchor the Lineage section to that concrete thread and its excerpt. "
             "Do not claim thread_candidates is empty when the selected_thread says otherwise. "
@@ -209,6 +210,7 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
             "unavailable sources, give adversarial pushback, state what is still unknown, and end with concrete next steps. "
             "Treat search telemetry separately from search evidence. Only fetched entries with reading notes or concrete local-state excerpts count as evidence. "
             "If fetched evidence exists, incorporate it into the explanation instead of leaving Broad Search as a to-do list. "
+            "When fetched workspace-search or search-digest evidence exists, the Broad Search section must name at least two concrete findings and explain how they changed the judgement. "
             "Start with the exact Markdown title `# Private Mentor Report`. "
             "If selected_thread.grounded is true, the Lineage section must continue that exact thread concretely from its authoritative excerpt. "
             "Do not say the thread list is empty when selected_thread.thread_candidate_count is non-zero. "
@@ -274,8 +276,46 @@ def _selected_thread_payload(packet: ContextPacket, primary_thread: dict[str, st
 
 
 def _search_payload(searches: list[SearchResult], *, limit: int) -> list[dict[str, Any]]:
+    def priority(result: SearchResult) -> tuple[int, int, str]:
+        if result.source == "search-digest":
+            rank = 0
+        elif result.fetch_status == "fetched" and result.reading_note:
+            rank = 1
+        elif result.fetch_status == "fetched":
+            rank = 2
+        elif result.source == "workspace-search" and result.status == "retrieved":
+            rank = 3
+        elif result.source == "local-state":
+            rank = 4
+        elif result.status in {"retrieved", "context"}:
+            rank = 5
+        else:
+            rank = 9
+        return (rank, -int(result.round_index or 0), result.source)
+
     payload: list[dict[str, Any]] = []
-    for result in searches[:limit]:
+    seen: set[tuple[str, str, str, int]] = set()
+    local_state_count = 0
+    telemetry_count = 0
+    ordered = sorted(searches, key=priority)
+    for result in ordered:
+        key = (
+            result.source,
+            result.title,
+            truncate(result.query or "", 120),
+            int(result.round_index or 0),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        if result.source == "local-state":
+            local_state_count += 1
+            if local_state_count > 4:
+                continue
+        if result.status in {"failed", "no_results", "unavailable"}:
+            telemetry_count += 1
+            if telemetry_count > 4:
+                continue
         payload.append(
             {
                 "source": result.source,
@@ -290,4 +330,6 @@ def _search_payload(searches: list[SearchResult], *, limit: int) -> list[dict[st
                 "reading_note": result.reading_note,
             }
         )
+        if len(payload) >= limit:
+            break
     return payload
