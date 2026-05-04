@@ -6,8 +6,9 @@ from pathlib import Path
 
 from .config import RuntimeConfig
 from .context import ContextPacket
+from .llm_client import LLMClient
 from .report_shape import REPORT_SECTION_TITLES
-from .reviewers import LLMClient, ReviewResult, summarize_reviews
+from .reviewers import ReviewResult, summarize_reviews
 from .search import SearchResult
 from .util import truncate
 
@@ -40,7 +41,7 @@ def draft_report(packet: ContextPacket, searches: list[SearchResult], primary_th
         for item in packet.report_candidates[:6]
     ) or "- No previous report found."
     search_lines = "\n".join(
-        f"- {_safe_scaffold_text(result.source)}: {_safe_scaffold_text(result.title)} {_safe_scaffold_text(result.url)} — {_safe_scaffold_text(truncate(result.summary, 250))}"
+        f"- {_safe_scaffold_text(result.source)} [{_safe_scaffold_text(result.status)} / {_safe_scaffold_text(result.fetch_status)}]: {_safe_scaffold_text(result.title)} {_safe_scaffold_text(result.url)} — {_safe_scaffold_text(truncate(result.summary, 250))}"
         for result in searches
     )
     interests = "\n".join(f"- {_safe_scaffold_text(str(item.get('area') or 'interest'))}: {_safe_scaffold_text(str(item.get('connection') or ''))}" for item in packet.interests[:5])
@@ -138,7 +139,7 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_t
         "observations": [obs.__dict__ for obs in packet.observations[:12]],
         "thread_candidates": packet.thread_candidates[:6],
         "report_candidates": packet.report_candidates[:6],
-        "search_results": [result.__dict__ for result in searches[:10]],
+        "search_results": _search_payload(searches, limit=14),
         "authoritative_reads": packet.authoritative_reads[:10],
         "first_steps": packet.first_steps,
         "interests": packet.interests,
@@ -149,6 +150,8 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_t
             "Rewrite the report in Markdown using the reviewer feedback as input, not as a pass/fail gate. "
             "Keep the mentor/mentee relationship, situated delta, continuity, problem framing before search, broad-search evidence, "
             "adversarial pushback, Feynman derivation, why-this-matters-now, explicit gaps, and concrete next steps. "
+            "Search telemetry is not the same as search evidence: unavailable/no_results/failed entries constrain coverage, while fetched entries with reading_note carry substantive evidence. "
+            "If fetched evidence exists, use it. Do not claim nothing was retrieved when fetched entries or search-digest entries are present. "
             "Start with the exact Markdown title `# Private Mentor Report`. "
             "If selected_thread.grounded is true, anchor the Lineage section to that concrete thread and its excerpt. "
             "Do not claim thread_candidates is empty when the selected_thread says otherwise. "
@@ -195,7 +198,7 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
         "interests": packet.interests,
         "routines": packet.routines,
         "authoritative_reads": packet.authoritative_reads[:10],
-        "search_results": [result.__dict__ for result in searches[:10]],
+        "search_results": _search_payload(searches, limit=14),
     }
     text = client.complete_text(
         system=(
@@ -204,6 +207,8 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
             "The report must be situated in the observed work, continue or justify the thread, formalize the problem and open gaps before search, "
             "explain the simple model, derive the reasoning in Feynman style, explain why this matters now, cite search/source evidence including "
             "unavailable sources, give adversarial pushback, state what is still unknown, and end with concrete next steps. "
+            "Treat search telemetry separately from search evidence. Only fetched entries with reading notes or concrete local-state excerpts count as evidence. "
+            "If fetched evidence exists, incorporate it into the explanation instead of leaving Broad Search as a to-do list. "
             "Start with the exact Markdown title `# Private Mentor Report`. "
             "If selected_thread.grounded is true, the Lineage section must continue that exact thread concretely from its authoritative excerpt. "
             "Do not say the thread list is empty when selected_thread.thread_candidate_count is non-zero. "
@@ -266,3 +271,23 @@ def _selected_thread_payload(packet: ContextPacket, primary_thread: dict[str, st
         "grounded": read is not None,
         "authoritative_excerpt": truncate(str((read or {}).get("excerpt") or ""), 500),
     }
+
+
+def _search_payload(searches: list[SearchResult], *, limit: int) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for result in searches[:limit]:
+        payload.append(
+            {
+                "source": result.source,
+                "title": result.title,
+                "url": result.url,
+                "query": result.query,
+                "status": result.status,
+                "round_index": result.round_index,
+                "fetch_status": result.fetch_status,
+                "summary": truncate(result.summary, 320),
+                "fetched_excerpt": truncate(result.fetched_excerpt, 420),
+                "reading_note": result.reading_note,
+            }
+        )
+    return payload

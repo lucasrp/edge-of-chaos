@@ -247,7 +247,7 @@ interests:
 
     def test_single_thread_candidate_is_continued_directly(self) -> None:
         primary = choose_primary_thread(
-            {"primary_thread": {"action": "create", "thread_id": "wrong", "title": "Wrong"}},
+            {"primary_thread": {"action": "continue", "thread_id": "judge-calibration", "title": "Judge Calibration"}},
             "heartbeat",
             [{"id": "judge-calibration", "title": "Judge Calibration", "summary": "..."},],
         )

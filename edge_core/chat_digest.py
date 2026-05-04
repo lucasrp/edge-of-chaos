@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import RuntimeConfig
-from .reviewers import LLMClient
+from .llm_client import LLMClient
 from .util import now_iso, truncate
 
 

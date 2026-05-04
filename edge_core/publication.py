@@ -427,10 +427,13 @@ def render_blog_entry_html(*, metadata: dict[str, Any], body: str, report_href: 
 
 def _build_metrics(packet: ContextPacket, searches: list[SearchResult], reviews: list[ReviewResult]) -> list[dict[str, str]]:
     feedback_count = _search_feedback_round_count(reviews)
+    raw_searches = [item for item in searches if item.source != "search-digest"]
+    fetched_count = sum(1 for item in raw_searches if item.fetch_status == "fetched")
     return [
         {"value": str(len(packet.observations)), "label": "Context observations"},
-        {"value": str(len(searches)), "label": "Search artifacts"},
-        {"value": str(len({item.source for item in searches})), "label": "Search sources"},
+        {"value": str(len(raw_searches)), "label": "Search artifacts"},
+        {"value": str(fetched_count), "label": "Fetched documents"},
+        {"value": str(len({item.source for item in raw_searches})), "label": "Search sources"},
         {"value": str(len(packet.thread_candidates)), "label": "Recovered threads"},
         {"value": str(feedback_count), "label": "Search feedback rounds"},
         {"value": str(len(packet.authoritative_reads)), "label": "Authoritative reads"},
@@ -499,13 +502,17 @@ def _build_broad_search_section(
     reviews: list[ReviewResult],
     metrics: list[dict[str, str]],
 ) -> dict[str, Any]:
-    counts = Counter(result.source for result in searches)
+    raw_searches = [result for result in searches if result.source != "search-digest"]
+    counts = Counter(result.source for result in raw_searches)
     feedback = _search_feedback_entries(reviews)
+    fetched = [result for result in raw_searches if result.fetch_status == "fetched"]
+    digests = [result for result in searches if result.source == "search-digest" and result.reading_note]
     blocks: list[dict[str, Any]] = [
         {
             "type": "metrics-grid",
             "items": [
-                {"value": str(len(searches)), "label": "Total search artifacts"},
+                {"value": str(len(raw_searches)), "label": "Total search artifacts"},
+                {"value": str(len(fetched)), "label": "Fetched documents"},
                 {"value": str(len(counts)), "label": "Sources touched"},
                 {"value": str(sum(1 for item in packet.search_source_manifest if item.get("available"))), "label": "Available surfaces"},
                 {"value": str(sum(1 for item in packet.search_source_manifest if not item.get("available"))), "label": "Unavailable surfaces"},
@@ -534,6 +541,65 @@ def _build_broad_search_section(
         },
     ]
     blocks.extend(_markdown_to_blocks(body))
+    if fetched:
+        rows = []
+        for result in fetched[:8]:
+            note = result.reading_note if isinstance(result.reading_note, dict) else {}
+            rows.append(
+                [
+                    result.source,
+                    truncate(result.title, 90),
+                    truncate(str(note.get("summary") or result.summary), 180),
+                    truncate(str(note.get("why_it_matters") or result.fetched_excerpt), 180),
+                ]
+            )
+        blocks.append(
+            {
+                "type": "table",
+                "title": "Fetched Evidence",
+                "headers": ["Source", "Document", "What It Says", "Why It Matters"],
+                "rows": rows,
+            }
+        )
+        for result in fetched[:4]:
+            note = result.reading_note if isinstance(result.reading_note, dict) else {}
+            claims = note.get("useful_claims") if isinstance(note, dict) else []
+            title_text = f"Reading Note — {result.source}: {truncate(result.title, 70)}"
+            blocks.append(
+                {
+                    "type": "callout",
+                    "variant": "info",
+                    "title": title_text,
+                    "text": truncate(str(note.get("summary") or result.summary), 420),
+                }
+            )
+            if claims:
+                blocks.append(
+                    {
+                        "type": "list",
+                        "title": f"{title_text} — Useful Claims",
+                        "items": [truncate(str(item), 240) for item in claims[:4]],
+                    }
+                )
+    for digest in digests[:3]:
+        note = digest.reading_note if isinstance(digest.reading_note, dict) else {}
+        blocks.append(
+            {
+                "type": "callout",
+                "variant": "info",
+                "title": digest.title,
+                "text": truncate(str(note.get("summary") or digest.summary), 500),
+            }
+        )
+        evidence = note.get("evidence_worth_using") if isinstance(note, dict) else []
+        if evidence:
+            blocks.append(
+                {
+                    "type": "list",
+                    "title": f"{digest.title} — Evidence Worth Using",
+                    "items": [truncate(str(item), 260) for item in evidence[:5]],
+                }
+            )
     for entry in feedback:
         blocks.append(
             {
@@ -560,7 +626,7 @@ def _build_broad_search_section(
                 }
             )
     source_rows = []
-    for result in searches[:12]:
+    for result in raw_searches[:12]:
         source_rows.append([result.source, truncate(result.title, 90), truncate(result.summary, 180)])
     if source_rows:
         blocks.append({"type": "table", "title": "Observed Search Artifacts", "headers": ["Source", "Artifact", "Signal"], "rows": source_rows})
@@ -611,6 +677,10 @@ def _build_bibliography(searches: list[SearchResult]) -> list[dict[str, str]]:
     seen: set[str] = set()
     items: list[dict[str, str]] = []
     for result in searches:
+        if result.source == "search-digest":
+            continue
+        if result.status not in {"retrieved", "context"}:
+            continue
         key = str(result.url).strip() or f"{result.source}:{result.title}"
         if key in seen:
             continue

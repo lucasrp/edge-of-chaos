@@ -11,7 +11,7 @@ def choose_primary_thread(review_data: dict[str, Any], request: str, thread_cand
     if len(thread_candidates) == 1:
         candidate = thread_candidates[0]
         reviewer_choice = primary_thread_from_review(review_data, request)
-        if reviewer_choice.get("action") == "create" and _is_generic_thread_candidate(candidate):
+        if reviewer_choice.get("action") == "create":
             return reviewer_choice
         title = str(candidate.get("title") or candidate.get("id") or "General Continuity")
         thread_id = str(candidate.get("id") or slugify(title, "general-continuity"))[:90]
@@ -78,14 +78,3 @@ def rebuild_digest(config: RuntimeConfig) -> Path:
     digest = config.digests_dir / "mentor-briefing.md"
     digest.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     return digest
-
-
-def _is_generic_thread_candidate(candidate: dict[str, Any]) -> bool:
-    haystack = slugify(f"{candidate.get('id', '')} {candidate.get('title', '')}", "")
-    generic_markers = {
-        "help-the-mentee-in-the-best-possible-way-with-their-current-work",
-        "general-continuity",
-        "persistent-private-mentorship",
-        "mentor-general-thread",
-    }
-    return any(marker and marker in haystack for marker in generic_markers)

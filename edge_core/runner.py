@@ -78,13 +78,13 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
 
     context_review_1 = context_search_review(packet, [], round_index=1)
     record("ContinuitySearchReviewed", round=1, reviewer=context_review_1.reviewer, summary=context_review_1.summary, data=context_review_1.data)
-    searches_1 = broad_search(config, packet, hints=_search_hints([context_review_1]))
+    searches_1 = broad_search(config, packet, hints=_search_hints([context_review_1]), round_index=1)
     record("BroadSearchCompleted", round=1, sources=sorted({result.source for result in searches_1}), results=len(searches_1))
     record("DeliveryCompleted", stage="evidence-pack-v1", search_results=len(searches_1))
 
     context_review_2 = context_search_review(packet, searches_1, round_index=2)
     record("ContinuitySearchReviewed", round=2, reviewer=context_review_2.reviewer, summary=context_review_2.summary, data=context_review_2.data)
-    searches_2 = broad_search(config, packet, hints=_search_hints([context_review_1, context_review_2]))
+    searches_2 = broad_search(config, packet, hints=_search_hints([context_review_1, context_review_2]), round_index=2)
     searches = searches_1 + searches_2
     record("BroadSearchCompleted", round=2, sources=sorted({result.source for result in searches_2}), results=len(searches_2))
     record("DeliveryCompleted", stage="evidence-pack-v2", search_results=len(searches))
@@ -111,7 +111,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
 
     adversarial_1 = adversarial_review(draft_1, packet, searches, round_index=1)
     record("AdversarialSearchReviewed", round=1, reviewer=adversarial_1.reviewer, summary=adversarial_1.summary, data=adversarial_1.data)
-    searches_3 = broad_search(config, packet, hints=_search_hints([context_review_1, context_review_2, adversarial_1]))
+    searches_3 = broad_search(config, packet, hints=_search_hints([context_review_1, context_review_2, adversarial_1]), round_index=3)
     searches = searches + searches_3
     record("BroadSearchCompleted", round=3, sources=sorted({result.source for result in searches_3}), results=len(searches_3))
     draft_2_result = revise_report(packet, searches, primary_thread, draft_1, [shape_review_1, adversarial_1], stage="adversarial-search")
