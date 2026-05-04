@@ -12,7 +12,7 @@ import yaml
 
 from .config import RuntimeConfig
 from .context import ContextPacket
-from .report_shape import REPORT_SECTION_TITLES, validate_report_markdown
+from .report_shape import REPORT_SECTION_TITLES, validate_report_markdown, validate_section_body
 from .reviewers import ReviewResult, summarize_reviews
 from .search import SearchResult
 from .util import date_slug, slugify, truncate
@@ -50,6 +50,7 @@ def publish_artifact_bundle(
     reviews: list[ReviewResult],
     thread_id: str,
     thread_title: str,
+    thread_action: str,
 ) -> PublishedArtifacts:
     request_slug = packet.request.strip() or f"run-a-{packet.kind}-beat"
     stem = f"{date_slug()}-{slugify(f'{packet.kind}-{request_slug}')[:90]}"
@@ -67,6 +68,7 @@ def publish_artifact_bundle(
         searches=searches,
         thread_id=thread_id,
         thread_title=thread_title,
+        thread_action=thread_action,
         shape=report_shape,
     )
     report_shape_result = validate_report_spec(spec)
@@ -110,6 +112,7 @@ def build_report_spec(
     searches: list[SearchResult],
     thread_id: str,
     thread_title: str,
+    thread_action: str,
     shape: Any | None = None,
 ) -> dict[str, Any]:
     shape = shape or validate_report_markdown(report_markdown)
@@ -123,17 +126,22 @@ def build_report_spec(
         {"value": str(len(packet.report_candidates)), "label": "Recovered reports"},
     ]
     bibliography = _build_bibliography(searches)
+    thread_read_confirmed = any(str(item.get("path") or "").endswith(f"/state/threads/{thread_id}.md") for item in packet.authoritative_reads)
     return {
         "title": shape.title or "Private Mentor Report",
         "subtitle": f"{packet.kind.title()} beat for thread '{thread_title}'",
         "date": date_slug(),
-        "thread": {"id": thread_id, "title": thread_title},
+        "thread": {"id": thread_id, "title": thread_title, "action": thread_action},
         "kind": packet.kind,
         "request": packet.request,
         "executive_summary": summary,
         "metrics": metrics,
         "sections": [{"title": title, "markdown": sections.get(title, "").strip()} for title in REPORT_SECTION_TITLES],
         "bibliography": bibliography,
+        "evidence": {
+            "thread_read_confirmed": thread_read_confirmed,
+            "authoritative_paths": [str(item.get("path") or "") for item in packet.authoritative_reads[:12] if str(item.get("path") or "").strip()],
+        },
         "blog_post": {
             "title": _blog_entry_title(packet=packet, thread_title=thread_title),
             "paragraphs": _build_blog_post_paragraphs(packet=packet, sections=sections, thread_title=thread_title),
@@ -143,12 +151,14 @@ def build_report_spec(
 
 def validate_report_spec(spec: dict[str, Any]) -> ValidationResult:
     issues: list[str] = []
-    for field in ["title", "subtitle", "date", "thread", "executive_summary", "metrics", "sections", "bibliography", "blog_post"]:
+    for field in ["title", "subtitle", "date", "thread", "executive_summary", "metrics", "sections", "bibliography", "evidence", "blog_post"]:
         if field not in spec:
             issues.append(f"missing spec field: {field}")
     thread = spec.get("thread")
     if not isinstance(thread, dict) or not str(thread.get("id") or "").strip() or not str(thread.get("title") or "").strip():
         issues.append("invalid spec.thread")
+    elif str(thread.get("action") or "").strip() not in {"create", "continue"}:
+        issues.append("invalid spec.thread.action")
 
     summary = spec.get("executive_summary")
     if not isinstance(summary, list) or len(summary) < 3 or any(not str(item).strip() for item in summary):
@@ -178,9 +188,12 @@ def validate_report_spec(spec: dict[str, Any]) -> ValidationResult:
             if not isinstance(item, dict):
                 issues.append("invalid section entry")
                 break
-            if not str(item.get("markdown") or "").strip():
+            title = str(item.get("title") or "").strip()
+            body = str(item.get("markdown") or "").strip()
+            if not body:
                 issues.append(f"empty spec section: {item.get('title')}")
                 break
+            issues.extend(validate_section_body(title, body))
 
     bibliography = spec.get("bibliography")
     if not isinstance(bibliography, list) or not bibliography:
@@ -194,6 +207,19 @@ def validate_report_spec(spec: dict[str, Any]) -> ValidationResult:
                 if not str(item.get(field) or "").strip():
                     issues.append(f"bibliography item missing {field}")
                     break
+
+    evidence = spec.get("evidence")
+    if not isinstance(evidence, dict):
+        issues.append("invalid evidence block")
+    else:
+        authoritative_paths = evidence.get("authoritative_paths")
+        if not isinstance(authoritative_paths, list) or not authoritative_paths:
+            issues.append("evidence.authoritative_paths must be non-empty")
+        thread_read_confirmed = evidence.get("thread_read_confirmed")
+        if not isinstance(thread_read_confirmed, bool):
+            issues.append("evidence.thread_read_confirmed must be boolean")
+        elif isinstance(thread, dict) and str(thread.get("action") or "") == "continue" and not thread_read_confirmed:
+            issues.append("continued thread lacks authoritative in-beat read")
 
     return ValidationResult(passed=not issues, issues=issues)
 

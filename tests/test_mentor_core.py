@@ -10,7 +10,9 @@ from pathlib import Path
 
 from edge_core.rite import verify_rite
 from edge_core.config import load_config
-from edge_core.threads import initial_seed_thread, primary_thread_from_review
+from edge_core.publication import validate_report_spec
+from edge_core.report_shape import validate_report_markdown
+from edge_core.threads import choose_primary_thread, initial_seed_thread, primary_thread_from_review
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -165,11 +167,103 @@ interests:
         self.assertEqual(primary["thread_id"], "persistent-private-mentorship")
         self.assertEqual(primary["title"], "Persistent private mentorship")
 
+    def test_single_thread_candidate_is_continued_directly(self) -> None:
+        primary = choose_primary_thread(
+            {"primary_thread": {"action": "create", "thread_id": "wrong", "title": "Wrong"}},
+            "heartbeat",
+            [{"id": "judge-calibration", "title": "Judge Calibration", "summary": "..."},],
+        )
+        self.assertEqual(primary["action"], "continue")
+        self.assertEqual(primary["thread_id"], "judge-calibration")
+        self.assertEqual(primary["title"], "Judge Calibration")
+
     def test_initial_seed_thread_is_fixed_fallback(self) -> None:
         config = load_config(self.tmp)
         primary = initial_seed_thread(config)
         self.assertEqual(primary["title"], "Help the mentee in the best possible way with their current work")
         self.assertEqual(primary["thread_id"], "help-the-mentee-in-the-best-possible-way-with-their-current-work")
+
+    def test_report_shape_rejects_truncated_tail(self) -> None:
+        report = """# Private Mentor Report
+
+## Lineage
+
+This section has enough content to pass the minimum threshold and ends cleanly.
+
+## Situated Delta
+
+This section has enough content to pass the minimum threshold and ends cleanly.
+
+## Problem Framing and Open Gaps
+
+This section has enough content to pass the minimum threshold and ends cleanly.
+
+## Simple Model
+
+This section has enough content to pass the minimum threshold and ends cleanly.
+
+## Feynman Derivation
+
+This section has enough content to pass the minimum threshold and ends cleanly.
+
+## Why This Matters Now
+
+This section has enough content to pass the minimum threshold and ends cleanly.
+
+## Broad Search
+
+This section has enough content to pass the minimum threshold and ends cleanly.
+
+## Adversarial Pushback
+
+This section has enough content to pass the minimum threshold and ends cleanly.
+
+## Recommended Next Steps
+
+This section has enough content to pass the minimum threshold and ends cleanly.
+
+## What I Don't Know
+
+This section has enough content to pass the minimum threshold and ends cleanly.
+
+## Contextualization and Glossary
+
+This section has enough content to pass the minimum threshold.
+
+Wheth
+"""
+        check = validate_report_markdown(report)
+        self.assertFalse(check.passed)
+        self.assertIn("suspicious short tail: Contextualization and Glossary", check.issues)
+
+    def test_report_spec_requires_thread_read_for_continue(self) -> None:
+        spec = {
+            "title": "Private Mentor Report",
+            "subtitle": "Heartbeat beat",
+            "date": "2026-05-04",
+            "thread": {"id": "judge-calibration", "title": "Judge Calibration", "action": "continue"},
+            "executive_summary": ["one", "two", "three"],
+            "metrics": [{"value": "1", "label": "a"}, {"value": "2", "label": "b"}, {"value": "3", "label": "c"}],
+            "sections": [{"title": title, "markdown": f"{title} section has enough content to pass the minimum threshold and ends cleanly."} for title in [
+                "Lineage",
+                "Situated Delta",
+                "Problem Framing and Open Gaps",
+                "Simple Model",
+                "Feynman Derivation",
+                "Why This Matters Now",
+                "Broad Search",
+                "Adversarial Pushback",
+                "Recommended Next Steps",
+                "What I Don't Know",
+                "Contextualization and Glossary",
+            ]],
+            "bibliography": [{"text": "local-state", "url": "file:///tmp/local", "source": "local-state"}],
+            "evidence": {"thread_read_confirmed": False, "authoritative_paths": ["/tmp/state/events.jsonl"]},
+            "blog_post": {"title": "Heartbeat", "paragraphs": ["Paragraph one.", "Paragraph two."]},
+        }
+        check = validate_report_spec(spec)
+        self.assertFalse(check.passed)
+        self.assertIn("continued thread lacks authoritative in-beat read", check.issues)
 
 
 if __name__ == "__main__":

@@ -273,7 +273,8 @@ def load_threads(config: RuntimeConfig) -> list[dict[str, Any]]:
         return candidates
     for path in _recent_files(config.threads_dir, "*.md", 12):
         text = path.read_text(encoding="utf-8", errors="ignore")
-        candidates.append({"id": path.stem, "path": str(path), "summary": truncate(text, 1000)})
+        title = next((line.lstrip("# ").strip() for line in text.splitlines() if line.startswith("# ")), path.stem.replace("-", " ").title())
+        candidates.append({"id": path.stem, "title": title, "path": str(path), "summary": truncate(text, 1000)})
     return candidates
 
 

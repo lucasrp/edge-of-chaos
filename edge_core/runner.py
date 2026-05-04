@@ -13,7 +13,7 @@ from .reports import append_report_utility, draft_report, revise_report
 from .reviewers import ReviewResult, adversarial_review, classify_report_utility, context_search_review, feynman_review, report_shape_review
 from .rite import verify_rite
 from .search import broad_search
-from .threads import initial_seed_thread, primary_thread_from_review, rebuild_digest, update_thread
+from .threads import choose_primary_thread, initial_seed_thread, rebuild_digest, update_thread
 from .util import now_iso
 
 
@@ -90,7 +90,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
     record("DeliveryCompleted", stage="evidence-pack-v2", search_results=len(searches))
 
     if packet.thread_candidates:
-        primary_thread = primary_thread_from_review(context_review_2.data, packet.request)
+        primary_thread = choose_primary_thread(context_review_2.data, packet.request, packet.thread_candidates)
     else:
         primary_thread = initial_seed_thread(config)
     thread_id = primary_thread["thread_id"]
@@ -170,6 +170,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
         searches=searches,
         thread_id=thread_id,
         thread_title=primary_thread["title"],
+        thread_action=primary_thread["action"],
     )
     spec_check = validate_report_spec(spec)
     blog_check = validate_blog_post(spec.get("blog_post"))
@@ -191,6 +192,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
         reviews=reviews,
         thread_id=thread_id,
         thread_title=primary_thread["title"],
+        thread_action=primary_thread["action"],
     )
     record(
         "ReportWritten",

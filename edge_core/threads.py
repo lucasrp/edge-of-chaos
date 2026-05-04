@@ -7,6 +7,15 @@ from .config import RuntimeConfig
 from .util import now_iso, slugify, truncate
 
 
+def choose_primary_thread(review_data: dict[str, Any], request: str, thread_candidates: list[dict[str, Any]]) -> dict[str, str]:
+    if len(thread_candidates) == 1:
+        candidate = thread_candidates[0]
+        title = str(candidate.get("title") or candidate.get("id") or "General Continuity")
+        thread_id = str(candidate.get("id") or slugify(title, "general-continuity"))[:90]
+        return {"action": "continue", "thread_id": thread_id, "title": title}
+    return primary_thread_from_review(review_data, request)
+
+
 def primary_thread_from_review(review_data: dict[str, Any], request: str) -> dict[str, str]:
     raw = review_data.get("primary_thread") if isinstance(review_data, dict) else None
     if isinstance(raw, dict):
