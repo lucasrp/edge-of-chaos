@@ -93,8 +93,17 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
     else:
         primary_thread = initial_seed_thread(config)
     thread_id = primary_thread["thread_id"]
-    draft_1 = draft_report(packet, searches, thread_id)
-    record("ReportDrafted", version=1, chars=len(draft_1), thread_id=thread_id)
+    draft_1_result = draft_report(packet, searches, thread_id)
+    draft_1 = draft_1_result.text
+    record(
+        "ReportDrafted",
+        version=1,
+        chars=len(draft_1),
+        thread_id=thread_id,
+        mode=draft_1_result.mode,
+        llm_provider=draft_1_result.provider,
+        llm_error=draft_1_result.error,
+    )
     record("DeliveryCompleted", stage="draft-v1", chars=len(draft_1))
 
     adversarial_1 = adversarial_review(draft_1, packet, searches, round_index=1)
@@ -102,20 +111,45 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
     searches_3 = broad_search(config, packet, hints=_search_hints([context_review_1, context_review_2, adversarial_1]))
     searches = searches + searches_3
     record("BroadSearchCompleted", round=3, sources=sorted({result.source for result in searches_3}), results=len(searches_3))
-    draft_2 = revise_report(packet, searches, thread_id, draft_1, [adversarial_1], stage="adversarial-search")
-    record("ReportRevised", version=2, chars=len(draft_2), source="adversarial-search")
+    draft_2_result = revise_report(packet, searches, thread_id, draft_1, [adversarial_1], stage="adversarial-search")
+    draft_2 = draft_2_result.text
+    record(
+        "ReportRevised",
+        version=2,
+        chars=len(draft_2),
+        source="adversarial-search",
+        mode=draft_2_result.mode,
+        llm_provider=draft_2_result.provider,
+        llm_error=draft_2_result.error,
+    )
     record("DeliveryCompleted", stage="draft-v2", chars=len(draft_2))
 
     adversarial_2 = adversarial_review(draft_2, packet, searches, round_index=2)
     record("AdversarialReviewed", round=2, reviewer=adversarial_2.reviewer, summary=adversarial_2.summary, data=adversarial_2.data)
-    draft_3 = revise_report(packet, searches, thread_id, draft_2, [adversarial_2], stage="adversarial")
-    record("ReportRevised", version=3, chars=len(draft_3), source="adversarial")
+    draft_3_result = revise_report(packet, searches, thread_id, draft_2, [adversarial_2], stage="adversarial")
+    draft_3 = draft_3_result.text
+    record(
+        "ReportRevised",
+        version=3,
+        chars=len(draft_3),
+        source="adversarial",
+        mode=draft_3_result.mode,
+        llm_provider=draft_3_result.provider,
+        llm_error=draft_3_result.error,
+    )
     record("DeliveryCompleted", stage="draft-v3", chars=len(draft_3))
 
     feynman = feynman_review(draft_3, packet, searches)
     record("FeynmanReviewed", reviewer=feynman.reviewer, summary=feynman.summary, data=feynman.data)
-    final_report = revise_report(packet, searches, thread_id, draft_3, [feynman], stage="feynman-final")
-    record("FinalReportPrepared", chars=len(final_report))
+    final_report_result = revise_report(packet, searches, thread_id, draft_3, [feynman], stage="feynman-final")
+    final_report = final_report_result.text
+    record(
+        "FinalReportPrepared",
+        chars=len(final_report),
+        mode=final_report_result.mode,
+        llm_provider=final_report_result.provider,
+        llm_error=final_report_result.error,
+    )
 
     reviews = [context_review_1, context_review_2, adversarial_1, adversarial_2, feynman]
     report_path = finalize_report(config, packet=packet, draft=final_report, reviews=reviews, thread_id=thread_id)

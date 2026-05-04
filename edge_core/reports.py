@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
 from .config import RuntimeConfig
@@ -12,17 +13,26 @@ from .search import SearchResult
 from .util import date_slug, slugify, truncate
 
 
-def draft_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str) -> str:
-    llm_report = _llm_draft_report(packet, searches, thread_id)
+@dataclass(frozen=True)
+class ReportResult:
+    text: str
+    mode: str
+    provider: str
+    error: str = ""
+
+
+def draft_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str) -> ReportResult:
+    client = LLMClient(role="report")
+    llm_report = _llm_draft_report(client, packet, searches, thread_id)
     if llm_report:
-        return llm_report
+        return ReportResult(text=_normalize_report_text(packet, llm_report), mode="llm", provider=client.last_provider, error=client.last_error)
     observations = "\n".join(f"- **{obs.source}:** {obs.title} — {truncate(obs.detail, 300)}" for obs in packet.observations[:12])
     reports = "\n".join(f"- {item.get('title')} ({item.get('path')})" for item in packet.report_candidates[:6]) or "- No previous report found."
     search_lines = "\n".join(f"- **{result.source}:** {result.title} {result.url} — {truncate(result.summary, 250)}" for result in searches)
     interests = "\n".join(f"- {item.get('area')}: {item.get('connection')}" for item in packet.interests[:5])
-    return f"""# {packet.kind.title()}: {packet.request}
+    text = f"""# {packet.kind.title()}: {packet.request}
 
-> Status: degraded local fallback. This is a smoke-test report, not a validated rich mentor report.
+> Status: deterministic scaffold fallback. No LLM returned report text for this draft; this output is only a structural smoke test.
 
 ## Thread
 
@@ -73,9 +83,15 @@ Continue with a rich private consultation, anchored in the delta and without mut
 - Update the compact thread with the new understanding.
 - If search degraded because credentials were missing, configure the phenotype sources.
 """
+    return ReportResult(
+        text=text,
+        mode="deterministic-scaffold",
+        provider=client.last_provider,
+        error=client.last_error or "llm:no-report-text",
+    )
 
 
-def revise_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str, draft: str, reviews: list[ReviewResult], *, stage: str) -> str:
+def revise_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str, draft: str, reviews: list[ReviewResult], *, stage: str) -> ReportResult:
     client = LLMClient(role="report")
     feedback = [
         {
@@ -110,10 +126,13 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], thread_id
         prompt=json.dumps(prompt, ensure_ascii=False)[:26000],
     )
     if not text:
-        return draft
-    if not text.lstrip().startswith("#"):
-        text = f"# {packet.kind.title()}: {packet.request}\n\n{text}"
-    return text
+        return ReportResult(
+            text=draft,
+            mode="unchanged",
+            provider=client.last_provider,
+            error=client.last_error or "llm:no-revised-text",
+        )
+    return ReportResult(text=_normalize_report_text(packet, text), mode="llm", provider=client.last_provider, error=client.last_error)
 
 
 def finalize_report(config: RuntimeConfig, *, packet: ContextPacket, draft: str, reviews: list[ReviewResult], thread_id: str) -> Path:
@@ -163,8 +182,7 @@ def build_blog(config: RuntimeConfig) -> Path:
     return index
 
 
-def _llm_draft_report(packet: ContextPacket, searches: list[SearchResult], thread_id: str) -> str | None:
-    client = LLMClient(role="report")
+def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[SearchResult], thread_id: str) -> str | None:
     prompt = {
         "kind": packet.kind,
         "request": packet.request,
@@ -188,8 +206,21 @@ def _llm_draft_report(packet: ContextPacket, searches: list[SearchResult], threa
         ),
         prompt=str(prompt)[:22000],
     )
-    if not text:
-        return None
+    return text or None
+
+
+def _normalize_report_text(packet: ContextPacket, text: str) -> str:
+    text = _strip_fallback_status(text.strip())
     if not text.lstrip().startswith("#"):
         text = f"# {packet.kind.title()}: {packet.request}\n\n{text}"
     return text
+
+
+def _strip_fallback_status(text: str) -> str:
+    lines = []
+    for line in text.splitlines():
+        lower = line.lower()
+        if lower.startswith("> status:") and ("fallback" in lower or "smoke-test" in lower):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()

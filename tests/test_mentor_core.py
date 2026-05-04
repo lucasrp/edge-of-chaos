@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import subprocess
 import tempfile
@@ -80,6 +81,7 @@ interests:
         self.assertTrue(list((self.tmp / "state" / "threads").glob("*.md")))
         self.assertTrue((self.tmp / "state" / "report-utility.jsonl").exists())
         ledger = (self.tmp / "state" / "events.jsonl").read_text(encoding="utf-8")
+        events = [json.loads(line) for line in ledger.splitlines() if line.strip()]
         self.assertIn("StateLoaded", ledger)
         self.assertIn("ChatDigestRefreshed", ledger)
         self.assertIn("ContinuitySearchReviewed", ledger)
@@ -91,6 +93,12 @@ interests:
         self.assertIn("ReportUtilityClassified", ledger)
         self.assertIn("RiteVerified", ledger)
         self.assertIn("CycleClosed", ledger)
+        drafted = next(event for event in events if event["type"] == "ReportDrafted")
+        final = next(event for event in events if event["type"] == "FinalReportPrepared")
+        self.assertEqual(drafted["mode"], "deterministic-scaffold")
+        self.assertEqual(drafted["llm_error"], "claude:disabled")
+        self.assertEqual(final["mode"], "unchanged")
+        self.assertEqual(final["llm_error"], "claude:disabled")
 
     def test_rite_requires_two_context_search_reviews(self) -> None:
         events = [

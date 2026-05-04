@@ -127,6 +127,7 @@ class LLMClient:
 
     def _complete_claude_text(self, *, system: str, prompt: str) -> str | None:
         if os.environ.get("EDGE_DISABLE_CLAUDE_FALLBACK") == "1":
+            self.last_error = self.last_error or "claude:disabled"
             return None
         claude = shutil.which("claude")
         if not claude:
@@ -347,7 +348,7 @@ def classify_report_utility(report: str, packet: ContextPacket, reviews: list[Re
         if client.last_error:
             llm["_llm_error"] = client.last_error
         return ReviewResult("completed", "llm:report-utility", str(llm.get("summary") or "utility classified"), llm)
-    score = 2 if "degraded local fallback" in report.lower() else 3
+    score = 2 if "deterministic scaffold fallback" in report.lower() else 3
     data = {
         "utility_score": score,
         "utility_label": "low" if score <= 2 else "medium",
