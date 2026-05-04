@@ -12,7 +12,7 @@ from edge_core.rite import verify_rite
 from edge_core.config import load_config
 from edge_core.publication import validate_report_spec
 from edge_core.report_shape import validate_report_markdown
-from edge_core.reports import _normalize_report_text
+from edge_core.reports import _normalize_report_text, _safe_scaffold_text
 from edge_core.threads import choose_primary_thread, initial_seed_thread, primary_thread_from_review
 from edge_core.report_shape import REPORT_SECTION_TITLES
 from edge_core.context import ContextPacket
@@ -318,6 +318,12 @@ Wheth
         packet = ContextPacket(request="artifact contract", kind="report")
         text = _normalize_report_text(packet, "## Lineage\n\nThis section starts immediately with a level-two heading.")
         self.assertTrue(text.startswith("# Private Mentor Report\n\n## Lineage"))
+
+    def test_safe_scaffold_text_strips_markdown_fence_fragments(self) -> None:
+        cleaned = _safe_scaffold_text("```python\n# heading\nvalue=`x`\n**bold**")
+        self.assertNotIn("```", cleaned)
+        self.assertNotIn("`", cleaned)
+        self.assertNotIn("**", cleaned)
 
     def test_report_spec_requires_thread_read_for_continue(self) -> None:
         spec = self._valid_spec(continue_thread=True)

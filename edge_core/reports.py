@@ -31,13 +31,22 @@ def draft_report(packet: ContextPacket, searches: list[SearchResult], primary_th
         return ReportResult(text=_normalize_report_text(packet, llm_report), mode="llm", provider=client.last_provider, error=client.last_error)
     thread_id = primary_thread["thread_id"]
     selected_thread = _selected_thread_payload(packet, primary_thread)
-    observations = "\n".join(f"- **{obs.source}:** {obs.title} — {truncate(obs.detail, 300)}" for obs in packet.observations[:12])
-    reports = "\n".join(f"- {item.get('title')} ({item.get('path')})" for item in packet.report_candidates[:6]) or "- No previous report found."
-    search_lines = "\n".join(f"- **{result.source}:** {result.title} {result.url} — {truncate(result.summary, 250)}" for result in searches)
-    interests = "\n".join(f"- {item.get('area')}: {item.get('connection')}" for item in packet.interests[:5])
+    observations = "\n".join(
+        f"- { _safe_scaffold_text(obs.source) }: { _safe_scaffold_text(obs.title) } — { _safe_scaffold_text(truncate(obs.detail, 300)) }"
+        for obs in packet.observations[:12]
+    )
+    reports = "\n".join(
+        f"- {_safe_scaffold_text(str(item.get('title') or 'report'))} ({_safe_scaffold_text(str(item.get('path') or ''))})"
+        for item in packet.report_candidates[:6]
+    ) or "- No previous report found."
+    search_lines = "\n".join(
+        f"- {_safe_scaffold_text(result.source)}: {_safe_scaffold_text(result.title)} {_safe_scaffold_text(result.url)} — {_safe_scaffold_text(truncate(result.summary, 250))}"
+        for result in searches
+    )
+    interests = "\n".join(f"- {_safe_scaffold_text(str(item.get('area') or 'interest'))}: {_safe_scaffold_text(str(item.get('connection') or ''))}" for item in packet.interests[:5])
     lineage_line = f"This beat continues thread `{thread_id}` from the currently observed continuity evidence."
     if selected_thread["grounded"]:
-        lineage_line = f"This beat continues thread `{thread_id}` from an authoritative thread read: {selected_thread['authoritative_excerpt']}"
+        lineage_line = f"This beat continues thread `{thread_id}` from an authoritative thread read: {_safe_scaffold_text(str(selected_thread['authoritative_excerpt']))}"
     text = f"""# Private Mentor Report
 
 ## Lineage
@@ -227,6 +236,22 @@ def _strip_fallback_status(text: str) -> str:
             continue
         lines.append(line)
     return "\n".join(lines).strip()
+
+
+def _safe_scaffold_text(text: str) -> str:
+    value = str(text or "")
+    value = value.replace("```", "'''")
+    value = value.replace("`", "'")
+    value = value.replace("**", "")
+    value = value.replace("__", "")
+    value = value.replace("\r\n", "\n").replace("\r", "\n")
+    cleaned_lines = []
+    for raw_line in value.splitlines():
+        line = raw_line.replace("\t", " ").rstrip()
+        if line.lstrip().startswith("#"):
+            line = line.lstrip("#").strip()
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines).strip()
 
 
 def _selected_thread_payload(packet: ContextPacket, primary_thread: dict[str, str]) -> dict[str, object]:
