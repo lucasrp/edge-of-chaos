@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .config import RuntimeConfig
 from .context import ContextPacket
 from .llm_client import LLMClient
-from .report_shape import REPORT_SECTION_TITLES
+from .report_shape import report_section_titles, required_report_shape_text
 from .reviewers import ReviewResult, summarize_reviews
 from .search import SearchResult
 from .util import truncate
@@ -21,108 +22,13 @@ class ReportResult:
     error: str = ""
 
 
-def required_report_shape_text() -> str:
-    return "\n".join(f"## {title}" for title in REPORT_SECTION_TITLES)
-
-
 def draft_report(packet: ContextPacket, searches: list[SearchResult], primary_thread: dict[str, str]) -> ReportResult:
     client = LLMClient(role="report")
     llm_report = _llm_draft_report(client, packet, searches, primary_thread)
     if llm_report:
         return ReportResult(text=_normalize_report_text(packet, llm_report), mode="llm", provider=client.last_provider, error=client.last_error)
-    thread_id = primary_thread["thread_id"]
-    selected_thread = _selected_thread_payload(packet, primary_thread)
-    observations = "\n".join(
-        f"- { _safe_scaffold_text(obs.source) }: { _safe_scaffold_text(obs.title) } — { _safe_scaffold_text(truncate(obs.detail, 300)) }"
-        for obs in packet.observations[:12]
-    )
-    reports = "\n".join(
-        f"- {_safe_scaffold_text(str(item.get('title') or 'report'))} ({_safe_scaffold_text(str(item.get('path') or ''))})"
-        for item in packet.report_candidates[:6]
-    ) or "- No previous report found."
-    operator_pressure = _safe_scaffold_text(packet.operator_pressure or "No explicit operator pressure was present for this beat.")
-    operator_chat = "\n".join(
-        f"- {_safe_scaffold_text(str(item.get('author') or 'user'))}: {_safe_scaffold_text(truncate(str(item.get('text') or ''), 220))}"
-        for item in packet.operator_messages[:6]
-    ) or "- No async operator chat message was present for this beat."
-    search_lines = "\n".join(
-        f"- {_safe_scaffold_text(result.source)} [{_safe_scaffold_text(result.status)} / {_safe_scaffold_text(result.fetch_status)}]: {_safe_scaffold_text(result.title)} {_safe_scaffold_text(result.url)} — {_safe_scaffold_text(truncate(result.summary, 250))}"
-        for result in searches
-    )
-    interests = "\n".join(f"- {_safe_scaffold_text(str(item.get('area') or 'interest'))}: {_safe_scaffold_text(str(item.get('connection') or ''))}" for item in packet.interests[:5])
-    lineage_line = f"This beat continues thread `{thread_id}` from the currently observed continuity evidence."
-    if selected_thread["grounded"]:
-        lineage_line = f"This beat continues thread `{thread_id}` from an authoritative thread read: {_safe_scaffold_text(str(selected_thread['authoritative_excerpt']))}"
-    text = f"""# Private Mentor Report
-
-## Lineage
-
-{lineage_line}
-
-## Situated Delta
-
-{observations}
-
-Operator pressure shaping this beat:
-
-{operator_pressure}
-
-Recent async operator chat:
-
-{operator_chat}
-
-## Problem Framing and Open Gaps
-
-Before broad search, the mentor should formalize the live problem and the gaps that keep the explanation weak. Candidate reports:
-
-{reports}
-
-## Simple Model
-
-The mentor should start from the observed real work, identify the delta, and turn it into guidance that helps the mentee think and act better. If context is still thin, the report should say so instead of fabricating certainty.
-
-## Feynman Derivation
-
-1. The current request/beat points to: {packet.request or packet.kind}
-2. Recent context shows workspace evidence, report history, threads, and sessions.
-3. The recommendation must continue a real thread or open a new one with justification.
-4. The report must preserve the rite: broad search, adversarial review, Feynman review, and concrete next steps.
-
-## Why This Matters Now
-
-If the mentor loses the live problem framing before search, the report drifts into generic advice. This section exists to keep the explanation tied to the mentee's current work.
-
-## Broad Search
-
-{search_lines}
-
-## Adversarial Pushback
-
-The current explanation is only as strong as the continuity evidence and search quality. If either is thin, the report must say so plainly.
-
-## Recommended Next Steps
-
-- Review whether the report adheres to the observed real work.
-- Update the compact thread with the new understanding.
-- If search degraded because credentials were missing, configure the phenotype sources.
-
-## What I Don't Know
-
-- Confirm whether the selected thread represents the correct live line of work.
-- Confirm whether the configured external sources were sufficient or whether the runtime fell back locally.
-- Confirm whether there is a previous report that should have been recovered but was not.
-
-## Contextualization and Glossary
-
-Context: this is a private mentor report for an active line of work, not a public article.
-
-- `delta`: what changed in the mentee's current situation.
-- `thread`: the continuity line that carries the work across beats.
-- `Feynman`: derive simply, expose gaps, and only then widen the search.
-- `interests`: {interests or "No configured interest."}
-"""
     return ReportResult(
-        text=text,
+        text=_normalize_report_text(packet, _deterministic_fallback_report(packet, searches, primary_thread)),
         mode="deterministic-scaffold",
         provider=client.last_provider,
         error=client.last_error or "llm:no-report-text",
@@ -131,24 +37,21 @@ Context: this is a private mentor report for an active line of work, not a publi
 
 def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_thread: dict[str, str], draft: str, reviews: list[ReviewResult], *, stage: str) -> ReportResult:
     client = LLMClient(role="report")
-    thread_id = primary_thread["thread_id"]
-    feedback = [
-        {
-            "reviewer": review.reviewer,
-            "status": review.status,
-            "summary": review.summary,
-            "data": review.data,
-        }
-        for review in reviews
-    ]
     prompt = {
         "kind": packet.kind,
         "request": packet.request,
-        "thread_id": thread_id,
         "selected_thread": _selected_thread_payload(packet, primary_thread),
         "stage": stage,
         "draft": draft[:14000],
-        "review_feedback": feedback,
+        "review_feedback": [
+            {
+                "reviewer": review.reviewer,
+                "status": review.status,
+                "summary": review.summary,
+                "data": review.data,
+            }
+            for review in reviews
+        ],
         "observations": [obs.__dict__ for obs in packet.observations[:12]],
         "thread_candidates": packet.thread_candidates[:6],
         "report_candidates": packet.report_candidates[:6],
@@ -160,23 +63,7 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_t
         "operator_messages": packet.operator_messages[:8],
     }
     text = client.complete_text(
-        system=(
-            "You are edge-of-chaos v2 revising a mentor report in a fixed straight-line rite. "
-            "Rewrite the report in Markdown using the reviewer feedback as input, not as a pass/fail gate. "
-            "Keep the mentor/mentee relationship, situated delta, continuity, problem framing before search, broad-search evidence, "
-            "adversarial pushback, Feynman derivation, why-this-matters-now, explicit gaps, and concrete next steps. "
-            "If async operator chat is present, quote or summarize at least one concrete operator message and explain how it constrained this beat. "
-            "Search telemetry is not the same as search evidence: unavailable/no_results/failed entries constrain coverage, while fetched entries with reading_note carry substantive evidence. "
-            "If fetched evidence exists, use it. Do not claim nothing was retrieved when fetched entries or search-digest entries are present. "
-            "When fetched workspace-search or search-digest evidence exists, the Broad Search section must name at least two concrete findings and explain how they changed the judgement. "
-            "Start with the exact Markdown title `# Private Mentor Report`. "
-            "If selected_thread.grounded is true, anchor the Lineage section to that concrete thread and its excerpt. "
-            "Do not claim thread_candidates is empty when the selected_thread says otherwise. "
-            "Do not call the selected thread a placeholder when selected_thread.grounded is true. "
-            "Use this exact section order and titles:\n"
-            f"{required_report_shape_text()}\n"
-            "Return only the report."
-        ),
+        system=_report_system_prompt(packet.kind, revision=True),
         prompt=json.dumps(prompt, ensure_ascii=False)[:26000],
     )
     if not text:
@@ -187,6 +74,7 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_t
             error=client.last_error or "llm:no-revised-text",
         )
     return ReportResult(text=_normalize_report_text(packet, text), mode="llm", provider=client.last_provider, error=client.last_error)
+
 
 def append_report_utility(config: RuntimeConfig, *, report_path: Path, utility: ReviewResult) -> Path:
     path = config.state_dir / "report-utility.jsonl"
@@ -200,12 +88,12 @@ def append_report_utility(config: RuntimeConfig, *, report_path: Path, utility: 
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
     return path
+
+
 def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[SearchResult], primary_thread: dict[str, str]) -> str | None:
-    thread_id = primary_thread["thread_id"]
     prompt = {
         "kind": packet.kind,
         "request": packet.request,
-        "thread_id": thread_id,
         "selected_thread": _selected_thread_payload(packet, primary_thread),
         "observations": [obs.__dict__ for obs in packet.observations[:12]],
         "thread_candidates": packet.thread_candidates[:6],
@@ -220,37 +108,156 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
         "operator_messages": packet.operator_messages[:8],
     }
     text = client.complete_text(
-        system=(
-            "You are edge-of-chaos v2, a private Feynman mentor. Write a rich private mentor report in Markdown. "
-            "Do not write dashboard copy. Do not sound like a product brochure. "
-            "The report must be situated in the observed work, continue or justify the thread, formalize the problem and open gaps before search, "
-            "explain the simple model, derive the reasoning in Feynman style, explain why this matters now, cite search/source evidence including "
-            "unavailable sources, give adversarial pushback, state what is still unknown, and end with concrete next steps. "
-            "If async operator chat is present, you must summarize at least one concrete operator message and connect it to the current judgement. "
-            "Treat search telemetry separately from search evidence. Only fetched entries with reading notes or concrete local-state excerpts count as evidence. "
-            "If fetched evidence exists, incorporate it into the explanation instead of leaving Broad Search as a to-do list. "
-            "When fetched workspace-search or search-digest evidence exists, the Broad Search section must name at least two concrete findings and explain how they changed the judgement. "
-            "Start with the exact Markdown title `# Private Mentor Report`. "
-            "If selected_thread.grounded is true, the Lineage section must continue that exact thread concretely from its authoritative excerpt. "
-            "Do not say the thread list is empty when selected_thread.thread_candidate_count is non-zero. "
-            "Do not call the selected thread a placeholder when selected_thread.grounded is true. "
-            "Use this exact section order and titles:\n"
-            f"{required_report_shape_text()}\n"
-            "Keep it useful, specific, and honest."
-        ),
+        system=_report_system_prompt(packet.kind, revision=False),
         prompt=json.dumps(prompt, ensure_ascii=False)[:22000],
     )
     return text or None
+
+
+def _report_system_prompt(kind: str, *, revision: bool) -> str:
+    shape = required_report_shape_text(kind)
+    narrative = _kind_narrative_contract(kind)
+    revision_line = "Revise the draft using the review feedback as input. " if revision else "Write the first full draft. "
+    return (
+        "You are edge-of-chaos v2 writing a private mentor artifact. "
+        "The rite already exists in code. Do not spend report space narrating preflight, broad-search ritual, review choreography, publication steps, or state management unless that process itself is the subject of the artifact. "
+        f"{revision_line}"
+        f"{narrative} "
+        "Use operator pressure, async chat, continuity, and search as background constraints. Mention them only when they materially change the topic, the judgement, or the confidence level. "
+        "Use concrete evidence from fetched documents, workspace reads, prior reports, and authoritative thread reads. "
+        "Treat unavailable or failed sources as limits on confidence, not as the main storyline. "
+        "Do not claim no evidence when fetched entries, reading notes, or concrete local excerpts are present. "
+        "If selected_thread.grounded is true, keep continuity consistent with that thread and excerpt, but do it inside the subject matter rather than creating meta chatter about the rite. "
+        "Start with the exact Markdown title `# Private Mentor Report`. "
+        "Use this exact section order and titles:\n"
+        f"{shape}\n"
+        "Return only the report."
+    )
+
+
+def _kind_narrative_contract(kind: str) -> str:
+    normalized = (kind or "").strip().lower()
+    if normalized == "research":
+        return (
+            "Produce a research artifact with the same substantive arc as the main branch: state the target, say what was already known, derive a first explanation, resolve the key gaps, teach the subject plainly, and end with practical recommendations, applications, risks, and next steps."
+        )
+    if normalized == "discovery":
+        return (
+            "Produce a discovery artifact with the same substantive arc as the main branch: frame the live friction, present one strong discovery, explain its original context, connect it to current work, show a before/after change, and end with practical getting-started advice plus risks."
+        )
+    return (
+        "Produce a report artifact with the same substantive arc as the main branch: establish context, define the central question, present evidence, analyze it, compare alternatives when relevant, and land on a recommendation with visible risks and next steps."
+    )
+
+
+def _deterministic_fallback_report(packet: ContextPacket, searches: list[SearchResult], primary_thread: dict[str, str]) -> str:
+    section_bodies = _fallback_sections(packet, searches, primary_thread)
+    parts = ["# Private Mentor Report"]
+    for title in report_section_titles(packet.kind):
+        parts.append(f"\n## {title}\n")
+        parts.append(section_bodies.get(title, "Evidence was thin in this beat, so this section stays explicit about the missing support instead of inventing confidence."))
+    return "\n".join(parts).strip() + "\n"
+
+
+def _fallback_sections(packet: ContextPacket, searches: list[SearchResult], primary_thread: dict[str, str]) -> dict[str, str]:
+    normalized = (packet.kind or "").strip().lower()
+    if normalized == "research":
+        return _fallback_research_sections(packet, searches, primary_thread)
+    if normalized == "discovery":
+        return _fallback_discovery_sections(packet, searches, primary_thread)
+    return _fallback_report_sections(packet, searches, primary_thread)
+
+
+def _fallback_report_sections(packet: ContextPacket, searches: list[SearchResult], primary_thread: dict[str, str]) -> dict[str, str]:
+    return {
+        "Context": _join_paragraphs(
+            _context_line(packet, primary_thread),
+            _observations_paragraph(packet),
+            _operator_constraint(packet),
+        ),
+        "Central Question": _join_paragraphs(
+            f"The central question in this beat is: {_request_sentence(packet)}",
+            _decision_pressure(packet, fallback="The report should reduce uncertainty enough to support the next concrete engineering move."),
+        ),
+        "Evidence": _join_paragraphs(
+            "The evidence base should stay anchored in concrete artifacts rather than in a narration of the rite.",
+            _markdown_list(_evidence_lines(packet, searches)),
+        ),
+        "Analysis": _join_paragraphs(
+            _analysis_sentence(packet, searches),
+            _confidence_line(searches),
+        ),
+        "Alternatives Or Comparisons": _join_paragraphs(
+            "The main comparison is between acting on the live evidence now and defaulting back to a generic explanation that ignores the freshest project signals.",
+            _markdown_list(_comparison_lines(packet, searches)),
+        ),
+        "Recommendation Or Synthesis": _join_paragraphs(
+            "The best synthesis is to preserve the concrete subject matter that the latest workspace evidence makes visible, then tighten only the parts that remain weak under direct inspection.",
+            _markdown_list(_recommendation_lines(packet, searches)),
+        ),
+        "Risks And Unknowns": _markdown_list(_risk_lines(packet, searches)),
+        "Next Steps": _markdown_list(_next_step_lines(packet, searches)),
+    }
+
+
+def _fallback_research_sections(packet: ContextPacket, searches: list[SearchResult], primary_thread: dict[str, str]) -> dict[str, str]:
+    return {
+        "Research Target": _join_paragraphs(
+            _context_line(packet, primary_thread),
+            f"The research target for this beat is: {_request_sentence(packet)}",
+        ),
+        "Existing Knowledge": _join_paragraphs(
+            "Before drawing conclusions, the research should separate what the local project history already knew from what the freshest evidence adds.",
+            _markdown_list(_existing_knowledge_lines(packet)),
+        ),
+        "Initial Derivation": _join_paragraphs(
+            _analysis_sentence(packet, searches),
+            "This first derivation should remain simple enough to expose where the explanation still depends on missing reads or unresolved comparisons.",
+        ),
+        "Gaps and Resolutions": _markdown_list(_gap_resolution_lines(packet, searches)),
+        "Explanation": _join_paragraphs(
+            "The explanation should teach the subject itself, using the live evidence as support instead of turning the artifact into a diary of the process.",
+            _markdown_list(_evidence_lines(packet, searches)),
+        ),
+        "Recommendations": _markdown_list(_recommendation_lines(packet, searches)),
+        "Applications to Work": _join_paragraphs(
+            "The project value comes from translating the research back into the current workspace rather than leaving it as detached background knowledge.",
+            _markdown_list(_application_lines(packet)),
+        ),
+        "Risks and Open Questions": _markdown_list(_risk_lines(packet, searches)),
+        "Next Steps": _markdown_list(_next_step_lines(packet, searches)),
+    }
+
+
+def _fallback_discovery_sections(packet: ContextPacket, searches: list[SearchResult], primary_thread: dict[str, str]) -> dict[str, str]:
+    return {
+        "The Problem Or Friction": _join_paragraphs(
+            _context_line(packet, primary_thread),
+            _decision_pressure(packet, fallback="The discovery should answer a real friction that showed up in the current project context."),
+        ),
+        "The Discovery": _join_paragraphs(
+            "A useful discovery is one that changes what the operator can try next, not just something novel for its own sake.",
+            _markdown_list(_evidence_lines(packet, searches)),
+        ),
+        "Original Context": _join_paragraphs(
+            "The artifact should explain where the discovery comes from and what problem it solved in its native setting before mapping it onto the current work.",
+            _markdown_list(_existing_knowledge_lines(packet)),
+        ),
+        "Application To Work": _join_paragraphs(
+            "The main test is whether the discovery makes the current line of work more legible or more executable.",
+            _markdown_list(_application_lines(packet)),
+        ),
+        "Before And After": _markdown_list(_comparison_lines(packet, searches)),
+        "Getting Started": _markdown_list(_next_step_lines(packet, searches)),
+        "Risks And Limits": _markdown_list(_risk_lines(packet, searches)),
+    }
 
 
 def _normalize_report_text(packet: ContextPacket, text: str) -> str:
     text = _strip_fallback_status(text.strip())
     first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
     if not first_line.startswith("# "):
-        title = "Private Mentor Report"
-        if packet.request.strip():
-            title = "Private Mentor Report"
-        text = f"# {title}\n\n{text}"
+        text = f"# Private Mentor Report\n\n{text}"
     return text
 
 
@@ -352,3 +359,183 @@ def _search_payload(searches: list[SearchResult], *, limit: int) -> list[dict[st
         if len(payload) >= limit:
             break
     return payload
+
+
+def _context_line(packet: ContextPacket, primary_thread: dict[str, str]) -> str:
+    thread_title = str(primary_thread.get("title") or primary_thread.get("thread_id") or "current work")
+    request = _request_sentence(packet)
+    return f"This artifact stays grounded in the thread '{_safe_scaffold_text(thread_title)}' while addressing the current focus: {request}"
+
+
+def _request_sentence(packet: ContextPacket) -> str:
+    request = _safe_scaffold_text(packet.request.strip() or f"{packet.kind} beat")
+    return request if request.endswith((".", "?", "!")) else f"{request}."
+
+
+def _observations_paragraph(packet: ContextPacket) -> str:
+    lines = _observation_lines(packet)
+    if not lines:
+        return "Live workspace evidence was thin, so the artifact should remain conservative about claims that depend on direct local inspection."
+    return "Recent workspace evidence highlights these live signals:\n" + _markdown_list(lines)
+
+
+def _operator_constraint(packet: ContextPacket) -> str:
+    pressure = _safe_scaffold_text(truncate(packet.operator_pressure, 320))
+    if not pressure:
+        return ""
+    return f"Current operator pressure matters only insofar as it changes the subject-level priority: {pressure}"
+
+
+def _decision_pressure(packet: ContextPacket, *, fallback: str) -> str:
+    if packet.operator_messages:
+        latest = packet.operator_messages[0]
+        text = _safe_scaffold_text(truncate(str(latest.get("text") or ""), 260))
+        if text:
+            return f"The latest operator message sharpens the decision pressure: {text}"
+    return fallback
+
+
+def _analysis_sentence(packet: ContextPacket, searches: list[SearchResult]) -> str:
+    evidence_count = len([item for item in searches if item.fetch_status == "fetched"])
+    if evidence_count >= 3:
+        return "The strongest reading of the current evidence is that the report should privilege the freshest inspected artifacts over generic prior framing."
+    if evidence_count >= 1:
+        return "The current evidence base is usable but still narrow, so the explanation should stay concrete without pretending the coverage is complete."
+    if packet.observations:
+        return "The workspace observations are enough to frame the issue, but the argument still needs more direct evidence than a purely generic summary would provide."
+    return "The explanation should remain narrow and honest because the current beat exposed more uncertainty than verified detail."
+
+
+def _confidence_line(searches: list[SearchResult]) -> str:
+    unavailable = [item for item in searches if item.status in {"failed", "no_results", "unavailable"}]
+    if unavailable:
+        return f"Confidence is limited by {len(unavailable)} search surfaces or attempts that did not produce usable evidence."
+    return "Confidence is highest where the report can point to fetched documents, direct workspace reads, or repeated signals across the evidence bundle."
+
+
+def _observation_lines(packet: ContextPacket) -> list[str]:
+    lines: list[str] = []
+    for obs in packet.observations[:6]:
+        detail = _safe_scaffold_text(truncate(obs.detail, 180))
+        lines.append(f"{obs.title}: {detail}")
+    return lines
+
+
+def _existing_knowledge_lines(packet: ContextPacket) -> list[str]:
+    lines: list[str] = []
+    for item in packet.report_candidates[:4]:
+        title = _safe_scaffold_text(str(item.get("title") or "previous report"))
+        summary = _safe_scaffold_text(truncate(str(item.get("summary") or ""), 180))
+        lines.append(f"{title}: {summary}")
+    for item in packet.authoritative_reads[:3]:
+        excerpt = _safe_scaffold_text(truncate(str(item.get("excerpt") or ""), 180))
+        title = _safe_scaffold_text(str(item.get("title") or item.get("path") or "authoritative read"))
+        lines.append(f"{title}: {excerpt}")
+    if not lines:
+        lines.append("No strong prior local artifact was recovered, so the explanation has to rely more heavily on the current beat's direct evidence.")
+    return lines[:6]
+
+
+def _evidence_lines(packet: ContextPacket, searches: list[SearchResult]) -> list[str]:
+    lines: list[str] = []
+    for result in searches:
+        if result.fetch_status == "fetched":
+            note = result.reading_note if isinstance(result.reading_note, dict) else {}
+            summary = note.get("summary") if isinstance(note, dict) else ""
+            excerpt = summary or result.fetched_excerpt or result.summary
+            if excerpt:
+                lines.append(f"{result.source}: {truncate(_safe_scaffold_text(str(excerpt)), 220)}")
+        elif result.status in {"retrieved", "context"} and result.summary:
+            lines.append(f"{result.source}: {truncate(_safe_scaffold_text(result.summary), 220)}")
+        if len(lines) >= 6:
+            break
+    if not lines:
+        lines.extend(_observation_lines(packet)[:4])
+    if not lines:
+        lines.append("No concrete evidence bundle was recovered beyond the request itself, so the report should stay explicit about that limit.")
+    return lines
+
+
+def _comparison_lines(packet: ContextPacket, searches: list[SearchResult]) -> list[str]:
+    lines = [
+        "Use the freshest inspected artifact as the default anchor instead of retelling the workflow that produced it.",
+        "Prefer subject-level evidence over generic background advice when the two pull in different directions.",
+    ]
+    if any(item.fetch_status == "fetched" for item in searches):
+        lines.append("Use fetched documents and direct reads to break ties between plausible interpretations instead of relying on prior assumptions.")
+    if packet.report_candidates:
+        lines.append("Compare the new evidence against the last durable report to isolate what truly changed rather than merely what was repeated.")
+    return lines[:4]
+
+
+def _recommendation_lines(packet: ContextPacket, searches: list[SearchResult]) -> list[str]:
+    lines = [
+        "Keep the artifact centered on the subject matter that the live evidence actually supports.",
+        "Trim any paragraph that explains the rite unless the process itself is the thing under investigation.",
+    ]
+    if any(item.fetch_status == "fetched" for item in searches):
+        lines.append("Quote the strongest inspected artifact in the relevant section instead of summarizing it only at a distance.")
+    if packet.thread_candidates:
+        lines.append("Continue the thread that is hottest in current evidence rather than defaulting to a stale generic continuity line.")
+    return lines[:4]
+
+
+def _application_lines(packet: ContextPacket) -> list[str]:
+    lines: list[str] = []
+    if packet.first_steps:
+        lines.extend(str(step) for step in packet.first_steps[:3] if str(step).strip())
+    if packet.interests:
+        for item in packet.interests[:2]:
+            area = _safe_scaffold_text(str(item.get("area") or "interest"))
+            connection = _safe_scaffold_text(str(item.get("connection") or ""))
+            lines.append(f"{area}: {connection}")
+    if not lines:
+        lines.append("Tie the insight back to the current workspace, recent artifacts, and the next engineering action instead of leaving it as detached theory.")
+    return lines[:4]
+
+
+def _gap_resolution_lines(packet: ContextPacket, searches: list[SearchResult]) -> list[str]:
+    lines = [
+        "Gap: identify which claim depends on a direct local read rather than on general memory or template knowledge.",
+        "Resolution: use fetched documents, workspace excerpts, or authoritative thread reads to answer that claim when possible.",
+    ]
+    if any(item.fetch_status == "fetched" for item in searches):
+        lines.append("Gap: decide whether the new evidence changes the initial model materially or only adds color.")
+        lines.append("Resolution: promote only the evidence that changes judgement into the final explanation.")
+    if packet.operator_messages:
+        lines.append("Gap: confirm whether the latest operator instruction changes scope, confidence, or urgency.")
+    return lines[:5]
+
+
+def _risk_lines(packet: ContextPacket, searches: list[SearchResult]) -> list[str]:
+    lines: list[str] = []
+    unavailable = [item for item in searches if item.status in {"failed", "no_results", "unavailable"}]
+    if unavailable:
+        lines.append("Source coverage is incomplete, so some conclusions may be narrower than the topic itself.")
+    if not any(item.fetch_status == "fetched" for item in searches):
+        lines.append("The report risks sounding more certain than the evidence bundle warrants if it does not mark thin coverage plainly.")
+    if not packet.observations:
+        lines.append("Live workspace context is thin, so continuity may overweight older artifacts.")
+    lines.append("A generic explanation would erase the actual project delta and make the artifact less useful than the main-branch standard.")
+    return lines[:4]
+
+
+def _next_step_lines(packet: ContextPacket, searches: list[SearchResult]) -> list[str]:
+    lines: list[str] = []
+    for step in packet.first_steps[:3]:
+        text = _safe_scaffold_text(str(step))
+        if text:
+            lines.append(text)
+    if any(item.fetch_status == "fetched" for item in searches):
+        lines.append("Update the next artifact to quote the most decisive inspected evidence directly in the section where it matters.")
+    lines.append("Remove any remaining process-heavy prose that does not change the substantive judgement.")
+    return lines[:4]
+
+
+def _join_paragraphs(*parts: str) -> str:
+    return "\n\n".join(part.strip() for part in parts if part and part.strip())
+
+
+def _markdown_list(items: list[str]) -> str:
+    cleaned = [item.strip() for item in items if item and item.strip()]
+    return "\n".join(f"- {item}" for item in cleaned)

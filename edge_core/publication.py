@@ -12,7 +12,7 @@ import yaml
 
 from .config import RuntimeConfig
 from .context import ContextPacket
-from .report_shape import REPORT_SECTION_TITLES, validate_report_markdown, validate_section_body
+from .report_shape import report_section_titles, validate_report_markdown, validate_section_body
 from .reviewers import ReviewResult, summarize_reviews
 from .search import SearchResult
 from .util import date_slug, slugify, truncate
@@ -63,7 +63,7 @@ def publish_artifact_bundle(
     blog_entry_html_path = config.blog_entries_dir / f"{stem}.html"
     blog_report_html_path = config.blog_reports_dir / report_html_path.name
 
-    report_shape = validate_report_markdown(report_markdown)
+    report_shape = validate_report_markdown(report_markdown, kind=packet.kind)
     spec = build_report_spec(
         packet=packet,
         report_markdown=report_markdown,
@@ -126,7 +126,7 @@ def build_report_spec(
     thread_action: str,
     shape: Any | None = None,
 ) -> dict[str, Any]:
-    shape = shape or validate_report_markdown(report_markdown)
+    shape = shape or validate_report_markdown(report_markdown, kind=packet.kind)
     section_map = shape.section_map()
     thread_read_confirmed = any(str(item.get("path") or "").endswith(f"/state/threads/{thread_id}.md") for item in packet.authoritative_reads)
     metrics = _build_metrics(packet, searches, reviews)
@@ -140,7 +140,7 @@ def build_report_spec(
         "thread": {"id": thread_id, "title": thread_title, "action": thread_action},
         "kind": packet.kind,
         "request": packet.request,
-        "executive_summary": _build_executive_summary(section_map),
+        "executive_summary": _build_executive_summary(section_map, kind=packet.kind),
         "metrics": metrics,
         "sections": sections,
         "bibliography": bibliography,
@@ -155,14 +155,16 @@ def build_report_spec(
             "title": _blog_entry_title(packet=packet, thread_title=thread_title),
             "deck": _build_blog_post_deck(packet=packet, sections=section_map, thread_title=thread_title),
             "paragraphs": _build_blog_post_paragraphs(packet=packet, sections=section_map, thread_title=thread_title),
-            "highlights": _build_blog_post_highlights(sections=section_map),
-            "section_cards": _build_blog_post_section_cards(sections=section_map),
+            "highlights": _build_blog_post_highlights(sections=section_map, kind=packet.kind),
+            "section_cards": _build_blog_post_section_cards(sections=section_map, kind=packet.kind),
         },
     }
 
 
 def validate_report_spec(spec: dict[str, Any]) -> ValidationResult:
     issues: list[str] = []
+    kind = str(spec.get("kind") or "report")
+    required_sections = list(report_section_titles(kind))
     for field in ["title", "subtitle", "date", "thread", "executive_summary", "metrics", "sections", "bibliography", "evidence", "blog_post"]:
         if field not in spec:
             issues.append(f"missing spec field: {field}")
@@ -189,13 +191,12 @@ def validate_report_spec(spec: dict[str, Any]) -> ValidationResult:
     sections = spec.get("sections")
     joined_markdown = ""
     visualization_count = 0
-    broad_search_feedback = 0
     if not isinstance(sections, list):
         issues.append("sections must be a list")
     else:
         titles = [str(item.get("title") or "").strip() for item in sections if isinstance(item, dict)]
         cursor = -1
-        for required in REPORT_SECTION_TITLES:
+        for required in required_sections:
             try:
                 cursor = titles.index(required, cursor + 1)
             except ValueError:
@@ -219,18 +220,16 @@ def validate_report_spec(spec: dict[str, Any]) -> ValidationResult:
                 issues.append(f"missing section blocks: {title}")
                 continue
             visualization_count += sum(1 for block in blocks if _is_visual_block(block))
-            if title == "Broad Search":
-                broad_search_feedback = sum(1 for block in blocks if str(block.get("type") or "") == "callout" and str(block.get("title") or "").startswith("Search Feedback"))
-            if title == "Contextualization and Glossary" and not any(str(block.get("type") or "") == "glossary" for block in blocks):
-                issues.append("last section must include glossary block")
-            if title == "What I Don't Know" and not any(str(block.get("type") or "") in {"list", "table", "callout"} for block in blocks):
-                issues.append("What I Don't Know needs explicit gap blocks")
-            if title == "Broad Search":
-                block_types = {str(block.get("type") or "") for block in blocks}
+            block_types = {str(block.get("type") or "") for block in blocks}
+            if title == _evidence_section_title(kind):
                 if "table" not in block_types:
-                    issues.append("Broad Search must include source coverage table")
+                    issues.append(f"{title} must include an evidence table")
                 if not block_types.intersection({"bar-chart", "line-chart", "raw-html"}):
-                    issues.append("Broad Search must include at least one visualization")
+                    issues.append(f"{title} must include at least one visualization")
+            if title == _risk_section_title(kind) and not block_types.intersection({"list", "table", "callout"}):
+                issues.append(f"{title} must include explicit risk or uncertainty blocks")
+            if title == _next_steps_section_title(kind) and not block_types.intersection({"list", "table"}):
+                issues.append(f"{title} must include executable next-step blocks")
 
     bibliography = spec.get("bibliography")
     if not isinstance(bibliography, list) or not bibliography:
@@ -264,13 +263,8 @@ def validate_report_spec(spec: dict[str, Any]) -> ValidationResult:
             issues.append("report claims empty thread candidates despite non-empty evidence bundle")
         if int(evidence.get("visualization_count") or 0) < 1:
             issues.append("report spec requires at least one visualization")
-        if int(evidence.get("search_feedback_rounds") or 0) < 5:
-            issues.append("report spec requires search feedback from every LLM review stage")
-
     if visualization_count < 1:
         issues.append("report spec requires at least one visualization block")
-    if broad_search_feedback < 5:
-        issues.append("Broad Search must preserve reviewer search feedback from every LLM review stage")
     return ValidationResult(passed=not issues, issues=issues)
 
 
@@ -507,52 +501,70 @@ def _build_sections(
     metrics: list[dict[str, str]],
 ) -> list[dict[str, Any]]:
     built: list[dict[str, Any]] = []
-    for title in REPORT_SECTION_TITLES:
+    kind = str(packet.kind or "report")
+    for title in report_section_titles(kind):
         body = sections.get(title, "").strip()
-        if title == "Lineage":
-            built.append(_build_lineage_section(packet, title, body))
-        elif title == "Broad Search":
-            built.append(_build_broad_search_section(packet, title, body, searches, reviews, metrics))
-        elif title == "Adversarial Pushback":
-            built.append(_build_adversarial_section(title, body, reviews))
-        elif title == "What I Don't Know":
-            built.append(_build_unknowns_section(title, body))
-        elif title == "Contextualization and Glossary":
-            built.append(_build_glossary_section(title, body))
+        role = _section_role(kind, title)
+        if role in {"evidence", "knowledge", "discovery"}:
+            built.append(_build_evidence_section(packet, title, body, searches, reviews, metrics))
+        elif role in {"risks", "gaps"}:
+            built.append(_build_explicit_list_section(title, body, lead=_section_lead(title, body)))
+        elif role == "next_steps":
+            built.append(_build_explicit_list_section(title, body, lead=_section_lead(title, body, fallback="This section turns the report into concrete movement by naming the smallest next actions worth testing or executing now.")))
         else:
             built.append(_build_generic_section(title, body))
     return built
 
 
-def _build_lineage_section(packet: ContextPacket, title: str, body: str) -> dict[str, Any]:
-    rows: list[list[str]] = []
-    for candidate in packet.report_candidates[:3]:
-        rows.append([
-            str(candidate.get("title") or Path(str(candidate.get("path") or "")).name),
-            _first_sentence(str(candidate.get("summary") or "")),
-            "Recent artifact that materially informs the current beat.",
-        ])
-    for item in packet.authoritative_reads[:2]:
-        if str(item.get("source") or "") == "thread":
-            rows.append([
-                str(item.get("title") or "thread"),
-                _first_sentence(str(item.get("excerpt") or "")),
-                "Authoritative thread read that grounds continuity.",
-            ])
-    blocks = _markdown_to_blocks(body)
-    if rows:
-        blocks.append(
-            {
-                "type": "table",
-                "title": "Reasoning Lineage",
-                "headers": ["Previous Action", "What It Brought", "Connection to This Work"],
-                "rows": rows,
-            }
-        )
-    return {"title": title, "lead": _section_lead(title, body), "markdown": body, "blocks": blocks}
+def _section_role(kind: str, title: str) -> str:
+    normalized = (kind or "").strip().lower()
+    roles = {
+        "report": {
+            "Evidence": "evidence",
+            "Risks And Unknowns": "risks",
+            "Next Steps": "next_steps",
+        },
+        "research": {
+            "Existing Knowledge": "knowledge",
+            "Gaps and Resolutions": "gaps",
+            "Risks and Open Questions": "risks",
+            "Next Steps": "next_steps",
+        },
+        "discovery": {
+            "The Discovery": "discovery",
+            "Risks And Limits": "risks",
+            "Getting Started": "next_steps",
+        },
+    }
+    return roles.get(normalized, roles["report"]).get(title, "body")
 
 
-def _build_broad_search_section(
+def _evidence_section_title(kind: str) -> str:
+    normalized = (kind or "").strip().lower()
+    if normalized == "research":
+        return "Existing Knowledge"
+    if normalized == "discovery":
+        return "The Discovery"
+    return "Evidence"
+
+
+def _risk_section_title(kind: str) -> str:
+    normalized = (kind or "").strip().lower()
+    if normalized == "research":
+        return "Risks and Open Questions"
+    if normalized == "discovery":
+        return "Risks And Limits"
+    return "Risks And Unknowns"
+
+
+def _next_steps_section_title(kind: str) -> str:
+    normalized = (kind or "").strip().lower()
+    if normalized == "discovery":
+        return "Getting Started"
+    return "Next Steps"
+
+
+def _build_evidence_section(
     packet: ContextPacket,
     title: str,
     body: str,
@@ -562,173 +574,103 @@ def _build_broad_search_section(
 ) -> dict[str, Any]:
     raw_searches = [result for result in searches if result.source != "search-digest"]
     counts = Counter(result.source for result in raw_searches)
-    feedback = _search_feedback_entries(reviews)
     fetched = [result for result in raw_searches if result.fetch_status == "fetched"]
-    digests = [result for result in searches if result.source == "search-digest" and result.reading_note]
-    blocks: list[dict[str, Any]] = [
-        {
-            "type": "metrics-grid",
-            "items": [
-                {"value": str(len(raw_searches)), "label": "Total search artifacts"},
-                {"value": str(len(fetched)), "label": "Fetched documents"},
-                {"value": str(len(counts)), "label": "Sources touched"},
-                {"value": str(sum(1 for item in packet.search_source_manifest if item.get("available"))), "label": "Available surfaces"},
-                {"value": str(sum(1 for item in packet.search_source_manifest if not item.get("available"))), "label": "Unavailable surfaces"},
-            ],
-        },
+    blocks = _markdown_to_blocks(body)
+
+    rows: list[list[str]] = []
+    for result in fetched[:8]:
+        note = result.reading_note if isinstance(result.reading_note, dict) else {}
+        summary = str(note.get("summary") or result.summary or result.fetched_excerpt)
+        why = str(note.get("why_it_matters") or result.fetched_excerpt or result.summary)
+        rows.append([result.source, truncate(result.title, 90), truncate(summary, 180), truncate(why, 180)])
+    if not rows:
+        for result in raw_searches[:8]:
+            rows.append([result.source, truncate(result.title, 90), truncate(result.summary, 180), result.status])
+    if not rows:
+        for obs in packet.observations[:6]:
+            rows.append([obs.source, truncate(obs.title, 90), truncate(obs.detail, 180), "workspace context"])
+    if not rows:
+        rows.append(["runtime", "Current request", truncate(packet.request or packet.kind, 180), "No richer evidence was available."])
+
+    blocks.append(
         {
             "type": "table",
-            "title": "Search Surface Manifest",
-            "headers": ["Surface", "Enabled", "Available", "Credential", "Notes"],
-            "rows": [
-                [
-                    str(item.get("name") or ""),
-                    "yes" if item.get("enabled", True) else "no",
-                    "yes" if item.get("available") else "no",
-                    str(item.get("credential") or "n/a"),
-                    _surface_note(item, metrics),
-                ]
-                for item in packet.search_source_manifest
-            ],
-        },
+            "title": "Substantive Evidence",
+            "headers": ["Source", "Artifact", "What It Says", "Why It Matters"],
+            "rows": rows,
+        }
+    )
+    chart_items = [{"label": source, "value": count} for source, count in counts.most_common()]
+    if not chart_items:
+        chart_items = [{"label": "context", "value": max(len(packet.observations), 1)}]
+    blocks.append(
         {
             "type": "bar-chart",
-            "title": "Search Results by Source",
-            "unit": "artifacts",
-            "items": [{"label": source, "value": count} for source, count in counts.most_common()],
-        },
-    ]
-    blocks.extend(_markdown_to_blocks(body))
-    if fetched:
-        rows = []
-        for result in fetched[:8]:
-            note = result.reading_note if isinstance(result.reading_note, dict) else {}
-            rows.append(
-                [
-                    result.source,
-                    truncate(result.title, 90),
-                    truncate(str(note.get("summary") or result.summary), 180),
-                    truncate(str(note.get("why_it_matters") or result.fetched_excerpt), 180),
-                ]
+            "title": "Evidence by Source",
+            "unit": " items",
+            "items": chart_items,
+        }
+    )
+    for result in fetched[:3]:
+        note = result.reading_note if isinstance(result.reading_note, dict) else {}
+        claims = note.get("useful_claims") if isinstance(note, dict) else []
+        if claims:
+            blocks.append(
+                {
+                    "type": "list",
+                    "title": f"Useful Claims — {truncate(result.title, 70)}",
+                    "items": [truncate(str(item), 240) for item in claims[:4]],
+                }
             )
-        blocks.append(
-            {
-                "type": "table",
-                "title": "Fetched Evidence",
-                "headers": ["Source", "Document", "What It Says", "Why It Matters"],
-                "rows": rows,
-            }
-        )
-        for result in fetched[:4]:
-            note = result.reading_note if isinstance(result.reading_note, dict) else {}
-            claims = note.get("useful_claims") if isinstance(note, dict) else []
-            title_text = f"Reading Note — {result.source}: {truncate(result.title, 70)}"
+    return {
+        "title": title,
+        "lead": _section_lead(
+            title,
+            body,
+            fallback="This section anchors the argument in inspected artifacts and concrete workspace evidence before the report moves into interpretation.",
+        ),
+        "markdown": body,
+        "blocks": blocks,
+    }
+
+
+def _build_explicit_list_section(title: str, body: str, *, lead: str) -> dict[str, Any]:
+    blocks = _markdown_to_blocks(body)
+    items = _extract_bullets(body) or _sentence_items(body)
+    if items:
+        blocks.append({"type": "list", "items": items[:8]})
+        if "risk" in title.lower() or "unknown" in title.lower() or "limit" in title.lower() or "question" in title.lower():
             blocks.append(
                 {
                     "type": "callout",
-                    "variant": "info",
-                    "title": title_text,
-                    "text": truncate(str(note.get("summary") or result.summary), 420),
+                    "variant": "warning",
+                    "title": "Uncertainty to Preserve",
+                    "text": "These limits should remain visible in the next decision rather than being hidden behind a confident summary.",
                 }
             )
-            if claims:
-                blocks.append(
-                    {
-                        "type": "list",
-                        "title": f"{title_text} — Useful Claims",
-                        "items": [truncate(str(item), 240) for item in claims[:4]],
-                    }
-                )
-    for digest in digests[:3]:
-        note = digest.reading_note if isinstance(digest.reading_note, dict) else {}
-        blocks.append(
-            {
-                "type": "callout",
-                "variant": "info",
-                "title": digest.title,
-                "text": truncate(str(note.get("summary") or digest.summary), 500),
-            }
-        )
-        evidence = note.get("evidence_worth_using") if isinstance(note, dict) else []
-        if evidence:
-            blocks.append(
-                {
-                    "type": "list",
-                    "title": f"{digest.title} — Evidence Worth Using",
-                    "items": [truncate(str(item), 260) for item in evidence[:5]],
-                }
-            )
-    for entry in feedback:
-        blocks.append(
-            {
-                "type": "callout",
-                "variant": "info",
-                "title": entry["title"],
-                "text": entry["summary"],
-            }
-        )
-        if entry["queries"]:
-            blocks.append(
-                {
-                    "type": "list",
-                    "title": f"{entry['title']} — Suggested Queries",
-                    "items": entry["queries"],
-                }
-            )
-        if entry["surfaces"]:
-            blocks.append(
-                {
-                    "type": "list",
-                    "title": f"{entry['title']} — Suggested Surfaces",
-                    "items": entry["surfaces"],
-                }
-            )
-    source_rows = []
-    for result in raw_searches[:12]:
-        source_rows.append([result.source, truncate(result.title, 90), truncate(result.summary, 180)])
-    if source_rows:
-        blocks.append({"type": "table", "title": "Observed Search Artifacts", "headers": ["Source", "Artifact", "Signal"], "rows": source_rows})
-    return {"title": title, "lead": _section_lead(title, body, fallback="This section preserves the multi-round search flow: surface availability, reviewer feedback about missed exploration, and the resulting evidence bundle that the report actually used."), "markdown": body, "blocks": blocks}
-
-
-def _build_adversarial_section(title: str, body: str, reviews: list[ReviewResult]) -> dict[str, Any]:
-    blocks = _markdown_to_blocks(body)
-    for review in reviews:
-        if "adversarial" not in review.reviewer:
-            continue
-        label = f"Adversarial Review Round {review.data.get('round')}" if isinstance(review.data, dict) and review.data.get("round") else "Adversarial Review"
-        blocks.append({"type": "callout", "variant": "warning", "title": label, "text": review.summary})
-    return {"title": title, "lead": _section_lead(title, body), "markdown": body, "blocks": blocks}
-
-
-def _build_unknowns_section(title: str, body: str) -> dict[str, Any]:
-    bullets = _extract_bullets(body)
-    blocks = _markdown_to_blocks(body)
-    if bullets:
-        rows = [[item, "Resolve with direct read, fresh search, or explicit operator confirmation."] for item in bullets]
-        blocks.append({"type": "table", "title": "Open Gaps", "headers": ["Unknown", "Need"], "rows": rows})
-    blocks.append({"type": "callout", "variant": "danger", "title": "Do Not Collapse Uncertainty", "text": "Unknowns remain first-class output. They should shape the next beat rather than being rounded away by prose."})
-    return {"title": title, "lead": _section_lead(title, body), "markdown": body, "blocks": blocks}
-
-
-def _build_glossary_section(title: str, body: str) -> dict[str, Any]:
-    blocks = _markdown_to_blocks(body)
-    glossary_terms = _extract_glossary_terms(body)
-    blocks.append({"type": "glossary", "context": "This section keeps the report readable even when the body stays dense and domain-specific.", "terms": glossary_terms})
-    return {"title": title, "lead": _section_lead(title, body), "markdown": body, "blocks": blocks}
+    return {"title": title, "lead": lead, "markdown": body, "blocks": blocks}
 
 
 def _build_generic_section(title: str, body: str) -> dict[str, Any]:
     return {"title": title, "lead": _section_lead(title, body), "markdown": body, "blocks": _markdown_to_blocks(body)}
 
 
-def _build_executive_summary(sections: dict[str, str]) -> list[str]:
-    desired = ["Situated Delta", "Problem Framing and Open Gaps", "Why This Matters Now"]
+def _build_executive_summary(sections: dict[str, str], *, kind: str = "report") -> list[str]:
+    desired = _summary_titles(kind)
     items = [_section_takeaway(sections.get(title, "")) for title in desired]
     filtered = [item for item in items if item]
     while len(filtered) < 3:
-        filtered.append("The beat preserved continuity, surfaced search pressure, and ended with concrete next steps.")
+        filtered.append("The artifact stays anchored in the live subject matter, keeps uncertainty visible, and ends with concrete next steps.")
     return filtered[:3]
+
+
+def _summary_titles(kind: str) -> list[str]:
+    normalized = (kind or "").strip().lower()
+    if normalized == "research":
+        return ["Research Target", "Explanation", "Recommendations"]
+    if normalized == "discovery":
+        return ["The Problem Or Friction", "The Discovery", "Application To Work"]
+    return ["Context", "Central Question", "Recommendation Or Synthesis"]
 
 
 def _build_bibliography(searches: list[SearchResult]) -> list[dict[str, str]]:
@@ -757,45 +699,48 @@ def _blog_entry_title(*, packet: ContextPacket, thread_title: str) -> str:
 
 
 def _build_blog_post_paragraphs(*, packet: ContextPacket, sections: dict[str, str], thread_title: str) -> list[str]:
-    delta = _section_takeaway(sections.get("Situated Delta", ""))
-    problem = _section_takeaway(sections.get("Problem Framing and Open Gaps", ""))
-    why_now = _section_takeaway(sections.get("Why This Matters Now", ""))
-    broad_search = _section_takeaway(sections.get("Broad Search", ""))
-    next_steps = _section_takeaway(sections.get("Recommended Next Steps", ""))
+    context_title, question_title, evidence_title, action_title = _blog_content_titles(packet.kind)
+    context = _section_takeaway(sections.get(context_title, ""))
+    question = _section_takeaway(sections.get(question_title, ""))
+    evidence = _section_takeaway(sections.get(evidence_title, ""))
+    action = _section_takeaway(sections.get(action_title, ""))
     request = packet.request.strip() or f"{packet.kind} beat"
-    operator_pressure = _section_takeaway(packet.operator_pressure)
     return [
-        f"This entry sits on the thread '{thread_title}' and captures what changed in the current {request}. {delta}",
-        f"The live problem stays explicit before the explanation widens: {problem}",
-        f"{why_now} {operator_pressure}".strip(),
-        f"The beat forced fresh search rather than relying on continuity alone. {broad_search}",
-        f"Open the full report for the formal derivation, reviewer pushback, and execution details. {next_steps}",
+        f"This entry continues the thread '{thread_title}' while staying focused on the live subject in {request}. {context}".strip(),
+        f"The main question stays concrete: {question}".strip(),
+        f"The report centers the strongest evidence and what it changes in practice. {evidence}".strip(),
+        f"Open the full report for the full analysis, trade-offs, and recommended next moves. {action}".strip(),
     ]
 
 
+def _blog_content_titles(kind: str) -> tuple[str, str, str, str]:
+    normalized = (kind or "").strip().lower()
+    if normalized == "research":
+        return ("Research Target", "Initial Derivation", "Existing Knowledge", "Recommendations")
+    if normalized == "discovery":
+        return ("The Problem Or Friction", "The Discovery", "Original Context", "Getting Started")
+    return ("Context", "Central Question", "Evidence", "Recommendation Or Synthesis")
+
+
 def _build_blog_post_deck(*, packet: ContextPacket, sections: dict[str, str], thread_title: str) -> str:
-    delta = _section_takeaway(sections.get("Situated Delta", ""))
-    why_now = _section_takeaway(sections.get("Why This Matters Now", ""))
+    context_title, question_title, _evidence_title, action_title = _blog_content_titles(packet.kind)
+    context = _section_takeaway(sections.get(context_title, ""))
+    question = _section_takeaway(sections.get(question_title, ""))
+    action = _section_takeaway(sections.get(action_title, ""))
     return truncate(
-        f"Thread '{thread_title}' stays live because the beat isolated the delta, carried operator pressure forward, and widened the search before closing on guidance. {delta} {why_now}",
+        f"Thread '{thread_title}' stays live because the artifact answers a concrete subject-level question with inspected evidence. {context} {question} {action}",
         320,
     )
 
 
-def _build_blog_post_highlights(*, sections: dict[str, str]) -> list[str]:
-    desired = [
-        "Situated Delta",
-        "Problem Framing and Open Gaps",
-        "Broad Search",
-        "Recommended Next Steps",
-        "What I Don't Know",
-    ]
+def _build_blog_post_highlights(*, sections: dict[str, str], kind: str = "report") -> list[str]:
+    desired = _blog_highlight_titles(kind)
     items = [_substantive_takeaway(sections.get(title, ""), minimum=20) for title in desired]
     highlights = [item for item in items if item]
     fallbacks = [
-        "The entry keeps the live delta visible before collapsing into generic guidance.",
-        "Fresh search happened again and materially shaped the report instead of serving as telemetry only.",
-        "The report ends with concrete next steps and preserves uncertainty as first-class output.",
+        "The entry stays on the subject matter and keeps the main judgement visible.",
+        "The report privileges concrete evidence over generic background framing.",
+        "The report ends with actionable next steps and visible uncertainty.",
     ]
     for fallback in fallbacks:
         if len(highlights) >= 5:
@@ -805,14 +750,17 @@ def _build_blog_post_highlights(*, sections: dict[str, str]) -> list[str]:
     return highlights[:5]
 
 
-def _build_blog_post_section_cards(*, sections: dict[str, str]) -> list[dict[str, str]]:
-    titles = [
-        "Problem Framing and Open Gaps",
-        "Simple Model",
-        "Broad Search",
-        "Recommended Next Steps",
-        "What I Don't Know",
-    ]
+def _blog_highlight_titles(kind: str) -> list[str]:
+    normalized = (kind or "").strip().lower()
+    if normalized == "research":
+        return ["Research Target", "Existing Knowledge", "Explanation", "Recommendations", "Risks and Open Questions"]
+    if normalized == "discovery":
+        return ["The Problem Or Friction", "The Discovery", "Application To Work", "Before And After", "Risks And Limits"]
+    return ["Context", "Central Question", "Evidence", "Recommendation Or Synthesis", "Risks And Unknowns"]
+
+
+def _build_blog_post_section_cards(*, sections: dict[str, str], kind: str = "report") -> list[dict[str, str]]:
+    titles = _blog_card_titles(kind)
     cards: list[dict[str, str]] = []
     for title in titles:
         section_text = sections.get(title, "")
@@ -820,6 +768,15 @@ def _build_blog_post_section_cards(*, sections: dict[str, str]) -> list[dict[str
         if body:
             cards.append({"title": title, "body": body})
     return cards[:5]
+
+
+def _blog_card_titles(kind: str) -> list[str]:
+    normalized = (kind or "").strip().lower()
+    if normalized == "research":
+        return ["Existing Knowledge", "Explanation", "Recommendations", "Applications to Work", "Risks and Open Questions"]
+    if normalized == "discovery":
+        return ["The Discovery", "Original Context", "Application To Work", "Before And After", "Getting Started"]
+    return ["Central Question", "Evidence", "Analysis", "Recommendation Or Synthesis", "Risks And Unknowns"]
 
 
 def _render_blog_entry_markdown(*, spec: dict[str, Any], report_html_name: str, report_md_name: str, report_spec_name: str, thread_id: str, kind: str) -> str:
@@ -893,17 +850,29 @@ def _section_lead(title: str, body: str, fallback: str | None = None) -> str:
     if fallback:
         return fallback
     return {
-        "Lineage": "This section shows the chain of prior artifacts and reads that made the current beat legible, so continuity remains evidence-backed rather than gestural.",
-        "Situated Delta": "This section isolates what changed in the current situation and separates concrete movement from background noise before the report widens its explanation.",
-        "Problem Framing and Open Gaps": "This section states the live problem before solutions expand and keeps the missing evidence visible instead of letting later prose flatten it.",
-        "Simple Model": "This section compresses the moving parts into a simple model that can survive scrutiny before the report adds search pressure or recommendations.",
-        "Feynman Derivation": "This section derives the explanation from first principles, showing where the reasoning holds and where it still depends on open questions.",
-        "Why This Matters Now": "This section explains the timing pressure: why the issue is worth attention in the current beat rather than as generic background context.",
-        "Broad Search": "This section preserves the broad search loop explicitly: surfaces available, reviewer feedback about missed exploration, and what evidence actually made it into the bundle.",
-        "Adversarial Pushback": "This section keeps the strongest objections inside the report so the final recommendation has to survive contact with criticism.",
-        "Recommended Next Steps": "This section turns the report into executable movement by naming the smallest next actions that would reduce uncertainty or improve the mentee's position.",
-        "What I Don't Know": "This section keeps unresolved uncertainty explicit so the report does not pretend to know more than the evidence can support.",
-        "Contextualization and Glossary": "This section translates the dense parts of the report back into shared context and practical definitions so the artifact stays reusable.",
+        "Context": "This section gives the reader enough situational grounding to understand why the question matters now and what evidence is in scope.",
+        "Central Question": "This section names the decision or understanding the report must enable, so the analysis has a concrete target.",
+        "Evidence": "This section anchors the argument in inspected artifacts, prior work, and source material before interpretation begins.",
+        "Analysis": "This section turns evidence into judgement by separating what follows directly from the facts from what remains inferential.",
+        "Alternatives Or Comparisons": "This section compares plausible paths or interpretations so the final synthesis does not hide trade-offs.",
+        "Recommendation Or Synthesis": "This section states the practical conclusion and the reason it follows from the evidence.",
+        "Risks And Unknowns": "This section keeps uncertainty visible and names what could change the recommendation.",
+        "Next Steps": "This section turns the report into executable movement by naming the smallest next actions worth taking.",
+        "Research Target": "This section states the research question, the practical reason for studying it, and the scope limits for the pass.",
+        "Existing Knowledge": "This section separates what the corpus already knew from what this pass still needed to learn.",
+        "Initial Derivation": "This section reconstructs the subject from first principles before imported source claims take over.",
+        "Gaps and Resolutions": "This section links each important gap to the evidence or reasoning that resolved it, or keeps it open.",
+        "Explanation": "This section teaches the subject plainly, including mechanics, limits, and concrete examples where possible.",
+        "Recommendations": "This section turns research into actions that can be executed or tested.",
+        "Applications to Work": "This section maps the research back to the current workstream and explains what changes in practice.",
+        "Risks and Open Questions": "This section names weak evidence, unresolved trade-offs, and questions that still need direct investigation.",
+        "The Problem Or Friction": "This section identifies the concrete friction that made the discovery useful now.",
+        "The Discovery": "This section explains the tool, concept, pattern, or model and why it matters.",
+        "Original Context": "This section explains where the discovery came from before transferring it to the current work.",
+        "Application To Work": "This section makes the practical connection specific enough to test.",
+        "Before And After": "This section shows what changes if the discovery is adopted instead of leaving the insight abstract.",
+        "Getting Started": "This section names the first practical step that would test the discovery.",
+        "Risks And Limits": "This section distinguishes useful transfer from overreach.",
     }.get(title, "This section explains what matters, what evidence was used, and how the reader should interpret the blocks below.")
 
 
@@ -933,20 +902,12 @@ def _extract_bullets(text: str) -> list[str]:
     return items
 
 
-def _extract_glossary_terms(text: str) -> list[dict[str, str]]:
-    terms: list[dict[str, str]] = []
-    for item in _extract_bullets(text):
-        clean = item
-        if clean.startswith("`") and "`:" in clean:
-            term, definition = clean.split("`:", 1)
-            terms.append({"term": term.strip("` ").strip(), "definition": definition.strip()})
-            continue
-        if ":" in clean:
-            term, definition = clean.split(":", 1)
-            terms.append({"term": term.strip("` ").strip(), "definition": definition.strip()})
-    if not terms:
-        terms.append({"term": "context", "definition": "No explicit glossary terms were parsed from the current report body; the glossary remains as a readable context anchor."})
-    return terms[:12]
+def _sentence_items(text: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", (text or "").strip())
+    if not normalized:
+        return []
+    items = [item.strip() for item in re.split(r"(?<=[.!?])\s+", normalized) if len(item.strip()) >= 24]
+    return items[:8]
 
 
 def _first_sentence(text: str) -> str:
@@ -959,73 +920,12 @@ def _first_sentence(text: str) -> str:
     return truncate(normalized, 280)
 
 
-def _search_feedback_entries(reviews: list[ReviewResult]) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    for review in reviews:
-        reviewer = str(review.reviewer)
-        data = review.data if isinstance(review.data, dict) else {}
-        if "context-search" not in reviewer and "adversarial" not in reviewer and "feynman-review" not in reviewer:
-            continue
-        round_label = data.get("round")
-        title = "Search Feedback"
-        if "context-search" in reviewer:
-            title = f"Search Feedback — Continuity Round {round_label or '?'}"
-        elif "adversarial" in reviewer:
-            title = f"Search Feedback — Adversarial Round {round_label or '?'}"
-        elif "feynman-review" in reviewer:
-            title = "Search Feedback — Feynman Review"
-        entries.append(
-            {
-                "title": title,
-                "summary": truncate(str(review.summary or ""), 420),
-                "queries": _normalize_suggestions(data, ["suggested_queries", "search_queries", "recommended_queries"]),
-                "surfaces": _normalize_suggestions(data, ["suggested_sources"]),
-            }
-        )
-    return entries
-
-
-def _normalize_suggestions(data: dict[str, Any], keys: list[str]) -> list[str]:
-    values: list[str] = []
-    for key in keys:
-        raw = data.get(key)
-        if isinstance(raw, list):
-            for item in raw:
-                if isinstance(item, dict):
-                    if item.get("query"):
-                        values.append(str(item.get("query")))
-                    elif item.get("name"):
-                        values.append(str(item.get("name")))
-                    elif item.get("source"):
-                        values.append(str(item.get("source")))
-                    elif item.get("why"):
-                        values.append(str(item.get("why")))
-                elif item:
-                    values.append(str(item))
-        elif isinstance(raw, str) and raw.strip():
-            values.append(raw.strip())
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        if value not in seen:
-            seen.add(value)
-            deduped.append(value)
-    return deduped[:6]
-
-
 def _search_feedback_round_count(reviews: list[ReviewResult]) -> int:
     count = 0
     for review in reviews:
         if "context-search" in review.reviewer or "adversarial" in review.reviewer or "feynman-review" in review.reviewer:
             count += 1
     return count
-
-
-def _surface_note(item: dict[str, Any], metrics: list[dict[str, str]]) -> str:
-    name = str(item.get("name") or "")
-    if item.get("available"):
-        return f"{name} was visible to the broad search loop and available for reviewer critique."
-    return f"{name} was unavailable; reviewers should treat missing exploration here as configuration or surface loss, not as silent success."
 
 
 def _count_visualizations(sections: list[dict[str, Any]]) -> int:

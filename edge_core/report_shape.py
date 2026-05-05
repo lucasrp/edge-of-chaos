@@ -2,21 +2,44 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from typing import Final
 
 
-REPORT_SECTION_TITLES = [
-    "Lineage",
-    "Situated Delta",
-    "Problem Framing and Open Gaps",
-    "Simple Model",
-    "Feynman Derivation",
-    "Why This Matters Now",
-    "Broad Search",
-    "Adversarial Pushback",
-    "Recommended Next Steps",
-    "What I Don't Know",
-    "Contextualization and Glossary",
-]
+REPORT_SECTION_TITLES_BY_KIND: Final[dict[str, tuple[str, ...]]] = {
+    "report": (
+        "Context",
+        "Central Question",
+        "Evidence",
+        "Analysis",
+        "Alternatives Or Comparisons",
+        "Recommendation Or Synthesis",
+        "Risks And Unknowns",
+        "Next Steps",
+    ),
+    "research": (
+        "Research Target",
+        "Existing Knowledge",
+        "Initial Derivation",
+        "Gaps and Resolutions",
+        "Explanation",
+        "Recommendations",
+        "Applications to Work",
+        "Risks and Open Questions",
+        "Next Steps",
+    ),
+    "discovery": (
+        "The Problem Or Friction",
+        "The Discovery",
+        "Original Context",
+        "Application To Work",
+        "Before And After",
+        "Getting Started",
+        "Risks And Limits",
+    ),
+}
+
+DEFAULT_REPORT_KIND = "report"
+REPORT_SECTION_TITLES = list(REPORT_SECTION_TITLES_BY_KIND[DEFAULT_REPORT_KIND])
 
 _TITLE_RE = re.compile(r"^#\s+(.+?)\s*$")
 _SECTION_RE = re.compile(r"^##\s+(.+?)\s*$")
@@ -30,12 +53,29 @@ class ReportShapeCheck:
     issues: list[str]
     title: str
     sections: list[tuple[str, str]]
+    kind: str
+    required_sections: tuple[str, ...]
 
     def section_map(self) -> dict[str, str]:
         return {title: body for title, body in self.sections}
 
 
-def validate_report_markdown(report: str) -> ReportShapeCheck:
+def normalize_report_kind(kind: str) -> str:
+    lowered = (kind or "").strip().lower()
+    return lowered if lowered in REPORT_SECTION_TITLES_BY_KIND else DEFAULT_REPORT_KIND
+
+
+def report_section_titles(kind: str) -> tuple[str, ...]:
+    return REPORT_SECTION_TITLES_BY_KIND[normalize_report_kind(kind)]
+
+
+def required_report_shape_text(kind: str) -> str:
+    return "\n".join(f"## {title}" for title in report_section_titles(kind))
+
+
+def validate_report_markdown(report: str, *, kind: str = DEFAULT_REPORT_KIND) -> ReportShapeCheck:
+    normalized_kind = normalize_report_kind(kind)
+    required_sections = report_section_titles(normalized_kind)
     title, sections = extract_report_sections(report)
     issues: list[str] = []
     if not title:
@@ -45,7 +85,7 @@ def validate_report_markdown(report: str) -> ReportShapeCheck:
 
     section_titles = [_canonicalize(title) for title, _body in sections]
     cursor = -1
-    for required in REPORT_SECTION_TITLES:
+    for required in required_sections:
         canonical = _canonicalize(required)
         try:
             cursor = section_titles.index(canonical, cursor + 1)
@@ -53,7 +93,7 @@ def validate_report_markdown(report: str) -> ReportShapeCheck:
             issues.append(f"missing section: {required}")
 
     section_map = {_canonicalize(item[0]): item[1].strip() for item in sections}
-    for required in REPORT_SECTION_TITLES:
+    for required in required_sections:
         body = section_map.get(_canonicalize(required), "")
         if not body:
             issues.append(f"empty section: {required}")
@@ -67,6 +107,8 @@ def validate_report_markdown(report: str) -> ReportShapeCheck:
         issues=issues,
         title=title,
         sections=sections,
+        kind=normalized_kind,
+        required_sections=required_sections,
     )
 
 

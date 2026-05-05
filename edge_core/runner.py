@@ -146,7 +146,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "", trigger: st
         llm_provider=draft_1_result.provider,
         llm_error=draft_1_result.error,
     )
-    shape_review_1 = report_shape_review(draft_1, stage="draft-v1")
+    shape_review_1 = report_shape_review(draft_1, kind=kind, stage="draft-v1")
     record("ReportShapeReviewed", version=1, reviewer=shape_review_1.reviewer, summary=shape_review_1.summary, data=shape_review_1.data)
     record("DeliveryCompleted", stage="draft-v1", chars=len(draft_1))
 
@@ -166,7 +166,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "", trigger: st
         llm_provider=draft_2_result.provider,
         llm_error=draft_2_result.error,
     )
-    shape_review_2 = report_shape_review(draft_2, stage="draft-v2")
+    shape_review_2 = report_shape_review(draft_2, kind=kind, stage="draft-v2")
     record("ReportShapeReviewed", version=2, reviewer=shape_review_2.reviewer, summary=shape_review_2.summary, data=shape_review_2.data)
     record("DeliveryCompleted", stage="draft-v2", chars=len(draft_2))
 
@@ -183,7 +183,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "", trigger: st
         llm_provider=draft_3_result.provider,
         llm_error=draft_3_result.error,
     )
-    shape_review_3 = report_shape_review(draft_3, stage="draft-v3")
+    shape_review_3 = report_shape_review(draft_3, kind=kind, stage="draft-v3")
     record("ReportShapeReviewed", version=3, reviewer=shape_review_3.reviewer, summary=shape_review_3.summary, data=shape_review_3.data)
     record("DeliveryCompleted", stage="draft-v3", chars=len(draft_3))
 
@@ -198,7 +198,7 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "", trigger: st
         llm_provider=final_report_result.provider,
         llm_error=final_report_result.error,
     )
-    final_shape_review = report_shape_review(final_report, stage="final")
+    final_shape_review = report_shape_review(final_report, kind=kind, stage="final")
     record("ReportShapeReviewed", version=4, reviewer=final_shape_review.reviewer, summary=final_shape_review.summary, data=final_shape_review.data)
     if not bool(final_shape_review.data.get("passed")):
         record("ReportShapeValidationFailed", issues=final_shape_review.data.get("issues") or [])

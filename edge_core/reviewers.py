@@ -7,7 +7,7 @@ from typing import Any
 
 from .context import ContextPacket
 from .llm_client import LLMClient
-from .report_shape import REPORT_SECTION_TITLES, validate_report_markdown
+from .report_shape import report_section_titles, validate_report_markdown
 from .search import SearchResult
 from .util import slugify, truncate
 
@@ -22,12 +22,7 @@ class ReviewResult:
 
 def context_search_review(packet: ContextPacket, searches: list[SearchResult], *, round_index: int) -> ReviewResult:
     client = LLMClient(role="review")
-    required_sections = [
-        "Problem Framing and Open Gaps",
-        "Why This Matters Now",
-        "Broad Search",
-        "Feynman Derivation",
-    ]
+    required_sections = _context_review_sections(packet.kind)
     prompt = json.dumps(
         {
             "round": round_index,
@@ -98,10 +93,8 @@ def context_search_review(packet: ContextPacket, searches: list[SearchResult], *
         "suggested_sources": [item.get("name") for item in packet.search_source_manifest if item.get("enabled")],
         "missing_context": [] if has_observations else ["No workspace or session observations were available."],
         "section_support": {
-            "Problem Framing and Open Gaps": "supported" if has_observations else "under-supported: thin live context",
-            "Why This Matters Now": "supported" if has_observations else "under-supported: unclear current delta",
-            "Broad Search": "supported" if search_count > 0 else "under-supported: no search results yet",
-            "Feynman Derivation": "supported" if has_observations and search_count > 0 else "under-supported: derivation will be weak until context and search are richer",
+            section: _section_support_label(section, has_observations=has_observations, search_count=search_count)
+            for section in required_sections
         },
         "summary": "Local context/search review completed.",
         "mode": "local-fallback",
@@ -238,16 +231,17 @@ def summarize_reviews(reviews: list[ReviewResult]) -> str:
     return "\n".join(f"- **{review.reviewer}:** {truncate(review.summary, 500)}" for review in reviews)
 
 
-def report_shape_review(report: str, *, stage: str) -> ReviewResult:
-    check = validate_report_markdown(report)
+def report_shape_review(report: str, *, kind: str, stage: str) -> ReviewResult:
+    required_sections = list(report_section_titles(kind))
+    check = validate_report_markdown(report, kind=kind)
     seen_titles = [title for title, _body in check.sections]
-    missing = [title for title in REPORT_SECTION_TITLES if title not in seen_titles]
+    missing = [title for title in required_sections if title not in seen_titles]
     summary = "Report shape satisfies the mandatory artifact sections." if check.passed else "Report shape is missing or weakening mandatory artifact sections."
     data = {
         "stage": stage,
         "passed": check.passed,
         "issues": check.issues,
-        "required_sections": REPORT_SECTION_TITLES,
+        "required_sections": required_sections,
         "seen_sections": seen_titles,
         "missing_sections": missing,
         "title": check.title,
@@ -255,3 +249,36 @@ def report_shape_review(report: str, *, stage: str) -> ReviewResult:
         "mode": "deterministic-shape-check",
     }
     return ReviewResult("completed", "deterministic:report-shape", summary, data)
+
+
+def _context_review_sections(kind: str) -> list[str]:
+    normalized = (kind or "").strip().lower()
+    if normalized == "research":
+        return [
+            "Research Target",
+            "Existing Knowledge",
+            "Initial Derivation",
+            "Explanation",
+        ]
+    if normalized == "discovery":
+        return [
+            "The Problem Or Friction",
+            "The Discovery",
+            "Original Context",
+            "Application To Work",
+        ]
+    return [
+        "Context",
+        "Central Question",
+        "Evidence",
+        "Analysis",
+    ]
+
+
+def _section_support_label(section: str, *, has_observations: bool, search_count: int) -> str:
+    lowered = section.lower()
+    if "evidence" in lowered or "existing knowledge" in lowered or "discovery" in lowered:
+        return "supported" if search_count > 0 else "under-supported: no search results yet"
+    if "analysis" in lowered or "derivation" in lowered or "explanation" in lowered:
+        return "supported" if has_observations and search_count > 0 else "under-supported: explanation will be weak until context and search are richer"
+    return "supported" if has_observations else "under-supported: thin live context"

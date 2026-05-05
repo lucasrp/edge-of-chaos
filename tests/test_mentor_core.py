@@ -11,11 +11,10 @@ from pathlib import Path
 from edge_core.rite import verify_rite
 from edge_core.config import load_config
 from edge_core.publication import validate_report_spec
-from edge_core.report_shape import validate_report_markdown
+from edge_core.report_shape import report_section_titles, validate_report_markdown
 from edge_core.reports import _normalize_report_text, _safe_scaffold_text
 from edge_core.search import broad_search
 from edge_core.threads import choose_primary_thread, initial_seed_thread, primary_thread_from_review
-from edge_core.report_shape import REPORT_SECTION_TITLES
 from edge_core.context import ContextPacket, Observation
 
 
@@ -84,7 +83,7 @@ interests:
             timeout=30,
         )
 
-    def _valid_section(self, title: str, body: str | None = None, *, broad_search: bool = False, glossary: bool = False, unknowns: bool = False) -> dict:
+    def _valid_section(self, title: str, body: str | None = None, *, evidence: bool = False, risks: bool = False, next_steps: bool = False) -> dict:
         content = body or f"{title} section has enough content to pass the minimum threshold and ends cleanly with a complete sentence about the current domain context."
         section = {
             "title": title,
@@ -92,50 +91,46 @@ interests:
             "markdown": content,
             "blocks": [{"type": "paragraph", "text": content}],
         }
-        if broad_search:
+        if evidence:
             section["blocks"] = [
                 {"type": "paragraph", "text": content},
                 {
                     "type": "table",
-                    "title": "Search Surface Manifest",
-                    "headers": ["Surface", "Enabled", "Available", "Credential", "Notes"],
-                    "rows": [["exa", "yes", "yes", "configured", "Primary semantic search surface."]],
+                    "title": "Substantive Evidence",
+                    "headers": ["Source", "Artifact", "What It Says", "Why It Matters"],
+                    "rows": [["workspace", "fixture", "Concrete evidence was inspected.", "It changes the current judgement."]],
                 },
-                {"type": "bar-chart", "title": "Search Results by Source", "unit": "", "items": [{"label": "exa", "value": 3}]},
-                {"type": "callout", "variant": "info", "title": "Search Feedback — Continuity Round 1", "text": "Use industry vocabulary from the live workspace."},
-                {"type": "callout", "variant": "info", "title": "Search Feedback — Continuity Round 2", "text": "Expand to missed surfaces before closing the explanation."},
-                {"type": "callout", "variant": "warning", "title": "Search Feedback — Adversarial Round 1", "text": "Pressure-test the search set against missing disconfirming evidence."},
-                {"type": "callout", "variant": "warning", "title": "Search Feedback — Adversarial Round 2", "text": "Confirm whether the ignored surfaces were unavailable or simply missed."},
-                {"type": "callout", "variant": "info", "title": "Search Feedback — Feynman Review", "text": "Search should clarify the explanation, not just decorate it."},
+                {"type": "bar-chart", "title": "Evidence by Source", "unit": "", "items": [{"label": "workspace", "value": 3}]},
             ]
-        if unknowns:
+        if risks:
             section["blocks"] = [
                 {"type": "paragraph", "text": content},
                 {"type": "list", "items": ["Unknown one that still needs direct evidence.", "Unknown two that still needs a source-backed answer."]},
                 {"type": "callout", "variant": "danger", "title": "Open Gaps", "text": "These gaps should shape the next beat."},
             ]
-        if glossary:
+        if next_steps:
             section["blocks"] = [
                 {"type": "paragraph", "text": content},
-                {"type": "glossary", "context": "Shared terms used in the report.", "terms": [{"term": "delta", "definition": "What changed in the current beat."}]},
+                {"type": "list", "items": ["Read the decisive artifact directly.", "Update the next artifact with the inspected evidence."]},
             ]
         return section
 
     def _valid_spec(self, *, continue_thread: bool = True) -> dict:
         sections = []
-        for title in REPORT_SECTION_TITLES:
+        for title in report_section_titles("report"):
             sections.append(
                 self._valid_section(
                     title,
-                    broad_search=title == "Broad Search",
-                    unknowns=title == "What I Don't Know",
-                    glossary=title == "Contextualization and Glossary",
+                    evidence=title == "Evidence",
+                    risks=title == "Risks And Unknowns",
+                    next_steps=title == "Next Steps",
                 )
             )
         return {
             "title": "Private Mentor Report",
             "subtitle": "Discovery beat",
             "date": "2026-05-04",
+            "kind": "report",
             "thread": {"id": "judge-calibration", "title": "Judge Calibration", "action": "continue" if continue_thread else "create"},
             "executive_summary": ["one complete summary sentence.", "two complete summary sentence.", "three complete summary sentence."],
             "metrics": [
@@ -151,7 +146,7 @@ interests:
                 "thread_candidate_count": 1,
                 "authoritative_paths": ["/tmp/state/threads/judge-calibration.md"],
                 "visualization_count": 1,
-                "search_feedback_rounds": 5,
+                "search_feedback_rounds": 0,
             },
             "blog_post": {
                 "title": "Discovery",
@@ -166,9 +161,9 @@ interests:
                     "Highlight two carries the search delta.",
                 ],
                 "section_cards": [
-                    {"title": "Problem Framing and Open Gaps", "body": "The compact entry still surfaces the live problem with enough detail to stay specific and useful."},
-                    {"title": "Broad Search", "body": "Fresh search happened in the beat and the compact entry preserves what shifted because of it."},
-                    {"title": "Recommended Next Steps", "body": "The compact entry keeps at least one concrete next step instead of collapsing into pure summary."},
+                    {"title": "Central Question", "body": "The compact entry still surfaces the live question with enough detail to stay specific and useful."},
+                    {"title": "Evidence", "body": "The compact entry preserves the concrete evidence that shifted the current judgement."},
+                    {"title": "Next Steps", "body": "The compact entry keeps at least one concrete next step instead of collapsing into pure summary."},
                 ],
             },
         }
@@ -221,14 +216,14 @@ interests:
         self.assertTrue(written["spec_path"].endswith(".yaml"))
         report_html = next((self.tmp / "reports").glob("*.html"))
         report_text = report_html.read_text(encoding="utf-8")
-        self.assertIn("Problem Framing and Open Gaps", report_text)
-        self.assertIn("Feynman Derivation", report_text)
-        self.assertIn("Why This Matters Now", report_text)
-        self.assertIn("Search Surface Manifest", report_text)
-        self.assertIn("Search Feedback", report_text)
+        self.assertIn("Central Question", report_text)
+        self.assertIn("Evidence", report_text)
+        self.assertIn("Recommendation Or Synthesis", report_text)
+        self.assertIn("Substantive Evidence", report_text)
+        self.assertNotIn("Search Feedback", report_text)
         self.assertIn("<svg", report_text)
         entry_html = next((self.tmp / "blog" / "entries").glob("*.html")).read_text(encoding="utf-8")
-        self.assertIn("Problem Framing and Open Gaps", entry_html)
+        self.assertIn("Central Question", entry_html)
         self.assertIn("Async Chat", entry_html)
         listed = self.run_edge("chat-list", "--json")
         self.assertEqual(listed.returncode, 0, listed.stdout + listed.stderr)
@@ -395,60 +390,48 @@ interests: []
     def test_report_shape_rejects_truncated_tail(self) -> None:
         report = """# Private Mentor Report
 
-## Lineage
+## Context
 
 This section has enough content to pass the minimum threshold and ends cleanly.
 
-## Situated Delta
+## Central Question
 
 This section has enough content to pass the minimum threshold and ends cleanly.
 
-## Problem Framing and Open Gaps
+## Evidence
 
 This section has enough content to pass the minimum threshold and ends cleanly.
 
-## Simple Model
+## Analysis
 
 This section has enough content to pass the minimum threshold and ends cleanly.
 
-## Feynman Derivation
+## Alternatives Or Comparisons
 
 This section has enough content to pass the minimum threshold and ends cleanly.
 
-## Why This Matters Now
+## Recommendation Or Synthesis
 
 This section has enough content to pass the minimum threshold and ends cleanly.
 
-## Broad Search
+## Risks And Unknowns
 
 This section has enough content to pass the minimum threshold and ends cleanly.
 
-## Adversarial Pushback
+## Next Steps
 
 This section has enough content to pass the minimum threshold and ends cleanly.
-
-## Recommended Next Steps
-
-This section has enough content to pass the minimum threshold and ends cleanly.
-
-## What I Don't Know
-
-This section has enough content to pass the minimum threshold and ends cleanly.
-
-## Contextualization and Glossary
-
-This section has enough content to pass the minimum threshold.
 
 Wheth
 """
         check = validate_report_markdown(report)
         self.assertFalse(check.passed)
-        self.assertIn("suspicious short tail: Contextualization and Glossary", check.issues)
+        self.assertIn("suspicious short tail: Next Steps", check.issues)
 
     def test_normalize_report_text_inserts_h1_before_section_heading(self) -> None:
         packet = ContextPacket(request="artifact contract", kind="report")
-        text = _normalize_report_text(packet, "## Lineage\n\nThis section starts immediately with a level-two heading.")
-        self.assertTrue(text.startswith("# Private Mentor Report\n\n## Lineage"))
+        text = _normalize_report_text(packet, "## Context\n\nThis section starts immediately with a level-two heading.")
+        self.assertTrue(text.startswith("# Private Mentor Report\n\n## Context"))
 
     def test_safe_scaffold_text_strips_markdown_fence_fragments(self) -> None:
         cleaned = _safe_scaffold_text("```python\n# heading\nvalue=`x`\n**bold**")
