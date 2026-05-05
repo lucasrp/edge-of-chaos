@@ -63,12 +63,12 @@ def context_search_review(packet: ContextPacket, searches: list[SearchResult], *
     thread_id = "general-continuity"
     title = "General Continuity"
     action = "create"
-    default_heartbeat = packet.kind == "heartbeat" and packet.request == "Run a heartbeat beat"
+    default_seed_request = packet.request in {"", f"Run a {packet.kind} beat"}
     seed_text = ""
     if packet.seed_threads:
         seed = packet.seed_threads[0]
         seed_text = f"{seed.get('title', '')} {seed.get('context', '')}"
-    request_text = (seed_text if default_heartbeat and seed_text else packet.request).lower()
+    request_text = (seed_text if default_seed_request and seed_text else packet.request).lower()
     if packet.thread_candidates:
         scored: list[tuple[int, dict[str, Any]]] = []
         request_terms = {term for term in slugify(request_text).split("-") if len(term) > 3}
@@ -81,7 +81,7 @@ def context_search_review(packet: ContextPacket, searches: list[SearchResult], *
             thread_id = str(scored[0][1].get("id") or thread_id)
             title = thread_id.replace("-", " ").title()
             action = "continue"
-    if action == "create" and (default_heartbeat or not packet.request) and packet.seed_threads:
+    if action == "create" and (default_seed_request or not packet.request) and packet.seed_threads:
         seed = packet.seed_threads[0]
         title = str(seed.get("title") or "Seed Thread")
         thread_id = slugify(title, "seed-thread")[:80]

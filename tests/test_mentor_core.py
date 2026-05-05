@@ -16,7 +16,7 @@ from edge_core.reports import _normalize_report_text, _safe_scaffold_text
 from edge_core.search import broad_search
 from edge_core.threads import choose_primary_thread, initial_seed_thread, primary_thread_from_review
 from edge_core.report_shape import REPORT_SECTION_TITLES
-from edge_core.context import ContextPacket
+from edge_core.context import ContextPacket, Observation
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -134,7 +134,7 @@ interests:
             )
         return {
             "title": "Private Mentor Report",
-            "subtitle": "Heartbeat beat",
+            "subtitle": "Discovery beat",
             "date": "2026-05-04",
             "thread": {"id": "judge-calibration", "title": "Judge Calibration", "action": "continue" if continue_thread else "create"},
             "executive_summary": ["one complete summary sentence.", "two complete summary sentence.", "three complete summary sentence."],
@@ -154,7 +154,7 @@ interests:
                 "search_feedback_rounds": 5,
             },
             "blog_post": {
-                "title": "Heartbeat",
+                "title": "Discovery",
                 "deck": "This deck gives enough context to explain why the compact entry exists and how it points back to the richer report.",
                 "paragraphs": [
                     "Paragraph one with enough detail to stand alone.",
@@ -277,7 +277,7 @@ interests: []
         self.assertIn("kind=discovery", result.stdout)
         ledger = (self.tmp / "state" / "events.jsonl").read_text(encoding="utf-8")
         self.assertIn("HeartbeatRouted", ledger)
-        self.assertIn('"requested_kind": "heartbeat"', ledger)
+        self.assertIn('"requested_kind": "heartbeat-router"', ledger)
 
     def test_rite_requires_two_context_search_reviews(self) -> None:
         events = [
@@ -352,12 +352,45 @@ interests: []
         os.environ["EDGE_DISABLE_LOCAL_ENV"] = "1"
         os.environ["EDGE_DISABLE_CLAUDE_FALLBACK"] = "1"
         config = load_config(self.tmp)
-        packet = ContextPacket(request="inspect the current mentor test configuration", kind="heartbeat")
+        packet = ContextPacket(request="inspect the current mentor test configuration", kind="discovery")
         results = broad_search(config, packet, hints=['grep -RIn "Mentor test" agent.yaml'], round_index=1)
         local_hits = [item for item in results if item.source == "workspace-search" and item.status == "retrieved"]
         self.assertTrue(local_hits)
         self.assertTrue(any(item.fetch_status == "fetched" for item in local_hits))
         self.assertTrue(any("Mentor test" in (item.fetched_excerpt or item.summary) for item in local_hits))
+
+    def test_broad_search_reads_recent_workspace_files_without_command_hints(self) -> None:
+        os.environ["EDGE_DISABLE_LOCAL_ENV"] = "1"
+        os.environ["EDGE_DISABLE_CLAUDE_FALLBACK"] = "1"
+        experiment_dir = self.tmp / "experimentos" / "tcu-analise-e2e" / "results" / "v8" / "2026-05-05T000000+0000" / "logs"
+        experiment_dir.mkdir(parents=True, exist_ok=True)
+        manifest = experiment_dir.parent / "run_manifest.json"
+        manifest.write_text('{"experiment":"e2e","status":"ok","budget":"b50000"}', encoding="utf-8")
+        (experiment_dir / "aggregate.log").write_text("pass_rate=0.81 latency=2.3 cost=14.2", encoding="utf-8")
+        packet = ContextPacket(
+            request="investigate the latest e2e experiment",
+            kind="research",
+            observations=[
+                Observation(
+                    "filesystem",
+                    "fixture: recent files",
+                    "\n".join(
+                        [
+                            "experimentos/tcu-analise-e2e/results/v8/2026-05-05T000000+0000/run_manifest.json",
+                            "experimentos/tcu-analise-e2e/results/v8/2026-05-05T000000+0000/logs/aggregate.log",
+                        ]
+                    ),
+                    str(self.tmp),
+                ),
+            ],
+        )
+        config = load_config(self.tmp)
+        results = broad_search(config, packet, round_index=1)
+        recent_reads = [item for item in results if item.source == "workspace-search" and item.fetch_status == "fetched"]
+        self.assertTrue(recent_reads)
+        joined = "\n".join((item.fetched_excerpt or item.summary) for item in recent_reads)
+        self.assertIn("budget", joined)
+        self.assertIn("pass_rate", joined)
 
     def test_report_shape_rejects_truncated_tail(self) -> None:
         report = """# Private Mentor Report

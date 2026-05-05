@@ -19,6 +19,7 @@ from .llm_client import LLMClient
 from .util import truncate
 
 _LOCAL_COMMAND_PREFIXES = ("git ", "rg ", "grep ", "find ", "ls ", "sed ", "head ")
+_WORKSPACE_TEXT_SUFFIXES = {".py", ".md", ".yaml", ".yml", ".json", ".toml", ".txt", ".sh", ".log", ".csv"}
 
 
 @dataclass
@@ -256,6 +257,89 @@ def _local_authoritative_context(packet: ContextPacket, query: str, *, round_ind
                 round_index=round_index,
             )
         )
+    return results
+
+
+def _workspace_candidate_paths(packet: ContextPacket) -> list[Path]:
+    candidates: list[Path] = []
+    seen: set[str] = set()
+    for observation in packet.observations:
+        root_text = str(observation.path or "").strip()
+        if observation.source == "filesystem" and observation.title.endswith(": recent files") and root_text:
+            root = Path(root_text)
+            for raw_line in observation.detail.splitlines():
+                relative = raw_line.strip()
+                if not relative:
+                    continue
+                path = (root / relative).resolve()
+                key = str(path)
+                if key in seen or not path.is_file() or path.suffix.lower() not in _WORKSPACE_TEXT_SUFFIXES:
+                    continue
+                seen.add(key)
+                candidates.append(path)
+            continue
+        if observation.source == "filesystem" and observation.title.endswith(": recent file snippets") and root_text:
+            root = Path(root_text)
+            for match in re.finditer(r"^##\s+(.+)$", observation.detail, flags=re.M):
+                relative = match.group(1).strip()
+                if not relative:
+                    continue
+                path = (root / relative).resolve()
+                key = str(path)
+                if key in seen or not path.is_file() or path.suffix.lower() not in _WORKSPACE_TEXT_SUFFIXES:
+                    continue
+                seen.add(key)
+                candidates.append(path)
+    return candidates
+
+
+def _score_workspace_candidate(path: Path, query: str) -> tuple[int, int]:
+    lowered_query = query.lower()
+    path_text = str(path).lower()
+    tokens = {token for token in re.findall(r"[a-z0-9_./-]{3,}", lowered_query) if token not in {"with", "this", "that", "from", "into"}}
+    overlap = sum(1 for token in tokens if token in path_text)
+    semantic_bonus = 0
+    for token in ["manifest", "aggregate", "log", "chat", "operator", "experiment", "result", "dispatch", "heartbeat", "workflow", "report"]:
+        if token in path_text:
+            semantic_bonus += 2
+    suffix_bonus = {
+        ".json": 4,
+        ".log": 4,
+        ".md": 3,
+        ".yaml": 3,
+        ".yml": 3,
+        ".sh": 2,
+        ".py": 2,
+    }.get(path.suffix.lower(), 1)
+    return (overlap + semantic_bonus + suffix_bonus, len(path_text))
+
+
+def _workspace_observation_reads(packet: ContextPacket, query: str, *, round_index: int) -> list[SearchResult]:
+    candidates = _workspace_candidate_paths(packet)
+    if not candidates:
+        return []
+    ordered = sorted(candidates, key=lambda path: _score_workspace_candidate(path, query), reverse=True)
+    results: list[SearchResult] = []
+    for path in ordered[:4]:
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if not content.strip():
+            continue
+        result = _artifact(
+            "workspace-search",
+            f"Workspace file: {path.name}",
+            str(path),
+            truncate(content, 500),
+            query=query,
+            status="retrieved",
+            round_index=round_index,
+        )
+        result.fetch_status = "fetched"
+        result.fetched_excerpt = truncate(content, 900)
+        result.reading_note = _read_fetched_document(packet, result, content[:12000])
+        results.append(result)
     return results
 
 
@@ -632,6 +716,7 @@ def broad_search(config: RuntimeConfig, packet: ContextPacket, hints: list[str] 
     query = query_from_packet(packet, hints)
     configured = {str(item.get("name")): item for item in (config.agent.get("sources") or []) if isinstance(item, dict) and item.get("enabled", True)}
     results: list[SearchResult] = _local_authoritative_context(packet, query, round_index=round_index)
+    results.extend(_workspace_observation_reads(packet, query, round_index=round_index))
     results.extend(_local_workspace_search(config, packet, hints, round_index=round_index))
     if "exa" in configured:
         results.extend(_exa_search(query, round_index=round_index))

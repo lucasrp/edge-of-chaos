@@ -285,4 +285,4 @@ def run_heartbeat(config: RuntimeConfig, *, request: str = "") -> BeatResult:
     kind, routed_request, reason = route_heartbeat(config, request=request)
     ledger = Ledger(config.ledger_path)
     ledger.append("HeartbeatRouted", requested=request, routed_kind=kind, routed_request=routed_request, reason=reason)
-    return run_beat(config, kind=kind, request=routed_request, trigger="heartbeat", requested_kind="heartbeat")
+    return run_beat(config, kind=kind, request=routed_request, trigger="heartbeat", requested_kind="heartbeat-router")

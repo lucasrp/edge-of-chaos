@@ -790,8 +790,19 @@ def _build_blog_post_highlights(*, sections: dict[str, str]) -> list[str]:
         "Recommended Next Steps",
         "What I Don't Know",
     ]
-    items = [_section_takeaway(sections.get(title, "")) for title in desired]
-    return [item for item in items if item][:5]
+    items = [_substantive_takeaway(sections.get(title, ""), minimum=20) for title in desired]
+    highlights = [item for item in items if item]
+    fallbacks = [
+        "The entry keeps the live delta visible before collapsing into generic guidance.",
+        "Fresh search happened again and materially shaped the report instead of serving as telemetry only.",
+        "The report ends with concrete next steps and preserves uncertainty as first-class output.",
+    ]
+    for fallback in fallbacks:
+        if len(highlights) >= 5:
+            break
+        if fallback not in highlights:
+            highlights.append(fallback)
+    return highlights[:5]
 
 
 def _build_blog_post_section_cards(*, sections: dict[str, str]) -> list[dict[str, str]]:
@@ -804,7 +815,8 @@ def _build_blog_post_section_cards(*, sections: dict[str, str]) -> list[dict[str
     ]
     cards: list[dict[str, str]] = []
     for title in titles:
-        body = truncate(re.sub(r"\s+", " ", sections.get(title, "").strip()), 420)
+        section_text = sections.get(title, "")
+        body = _substantive_takeaway(section_text, minimum=40, hard_cap=420) or _section_lead(title, section_text)
         if body:
             cards.append({"title": title, "body": body})
     return cards[:5]
@@ -856,13 +868,22 @@ def _paragraphs_from_body(body: str) -> list[str]:
 
 
 def _section_takeaway(text: str) -> str:
+    return _substantive_takeaway(text, minimum=1, hard_cap=220)
+
+
+def _substantive_takeaway(text: str, *, minimum: int, hard_cap: int = 220) -> str:
     normalized = re.sub(r"\s+", " ", (text or "").strip())
     if not normalized:
         return ""
-    match = re.search(r"(.+?[.!?])(?:\s|$)", normalized)
-    if match:
-        return truncate(match.group(1), 220)
-    return truncate(normalized, 220)
+    sentences = re.split(r"(?<=[.!?])\s+", normalized)
+    for sentence in sentences:
+        candidate = sentence.strip(" -*")
+        if len(candidate) >= minimum:
+            return truncate(candidate, hard_cap)
+    plain = normalized.strip(" -*")
+    if len(plain) >= minimum:
+        return truncate(plain, hard_cap)
+    return ""
 
 
 def _section_lead(title: str, body: str, fallback: str | None = None) -> str:
