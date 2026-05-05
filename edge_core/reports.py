@@ -56,6 +56,7 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_t
         "thread_candidates": packet.thread_candidates[:6],
         "report_candidates": packet.report_candidates[:6],
         "search_results": _search_payload(searches, limit=14),
+        "required_workspace_evidence": _workspace_evidence_payload(searches, limit=10),
         "authoritative_reads": packet.authoritative_reads[:10],
         "first_steps": packet.first_steps,
         "interests": packet.interests,
@@ -104,6 +105,7 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
         "routines": packet.routines,
         "authoritative_reads": packet.authoritative_reads[:10],
         "search_results": _search_payload(searches, limit=14),
+        "required_workspace_evidence": _workspace_evidence_payload(searches, limit=10),
         "operator_pressure": packet.operator_pressure,
         "operator_messages": packet.operator_messages[:8],
     }
@@ -125,6 +127,8 @@ def _report_system_prompt(kind: str, *, revision: bool) -> str:
         f"{narrative} "
         "Use operator pressure, async chat, continuity, and search as background constraints. Mention them only when they materially change the topic, the judgement, or the confidence level. "
         "Use concrete evidence from fetched documents, workspace reads, prior reports, and authoritative thread reads. "
+        "When required_workspace_evidence is present, treat it as the evidence floor: quote or paraphrase concrete fields and lines from those files in the subject sections, and do not merely say those files should be inspected. "
+        "If those excerpts show dry-run commands, missing outputs, dirty repos, return codes, budgets, variants, or timestamps, make those facts part of the substantive judgement. "
         "Treat unavailable or failed sources as limits on confidence, not as the main storyline. "
         "Do not claim no evidence when fetched entries, reading notes, or concrete local excerpts are present. "
         "If selected_thread.grounded is true, keep continuity consistent with that thread and excerpt, but do it inside the subject matter rather than creating meta chatter about the rite. "
@@ -303,18 +307,20 @@ def _selected_thread_payload(packet: ContextPacket, primary_thread: dict[str, st
 
 def _search_payload(searches: list[SearchResult], *, limit: int) -> list[dict[str, Any]]:
     def priority(result: SearchResult) -> tuple[int, int, str]:
-        if result.source == "search-digest":
+        if result.source == "workspace-read" and result.fetch_status == "fetched":
             rank = 0
-        elif result.fetch_status == "fetched" and result.reading_note:
+        elif result.source == "search-digest":
             rank = 1
-        elif result.fetch_status == "fetched":
+        elif result.fetch_status == "fetched" and result.reading_note:
             rank = 2
-        elif result.source == "workspace-search" and result.status == "retrieved":
+        elif result.fetch_status == "fetched":
             rank = 3
-        elif result.source == "local-state":
+        elif result.source == "workspace-search" and result.status == "retrieved":
             rank = 4
-        elif result.status in {"retrieved", "context"}:
+        elif result.source == "local-state":
             rank = 5
+        elif result.status in {"retrieved", "context"}:
+            rank = 6
         else:
             rank = 9
         return (rank, -int(result.round_index or 0), result.source)
@@ -353,6 +359,52 @@ def _search_payload(searches: list[SearchResult], *, limit: int) -> list[dict[st
                 "fetch_status": result.fetch_status,
                 "summary": truncate(result.summary, 320),
                 "fetched_excerpt": truncate(result.fetched_excerpt, 420),
+                "reading_note": result.reading_note,
+            }
+        )
+        if len(payload) >= limit:
+            break
+    return payload
+
+
+def _workspace_evidence_payload(searches: list[SearchResult], *, limit: int) -> list[dict[str, Any]]:
+    def priority(result: SearchResult) -> tuple[int, int, str]:
+        path = result.url.lower()
+        filename = Path(path).name
+        if filename == "run_manifest.json":
+            rank = 0
+        elif filename == "aggregate.log":
+            rank = 1
+        elif filename.startswith("run_v8_"):
+            rank = 2
+        elif filename.startswith("run_raw_"):
+            rank = 3
+        elif result.url:
+            rank = 4
+        else:
+            rank = 9
+        return (rank, -int(result.round_index or 0), result.url)
+
+    payload: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    candidates = [
+        result
+        for result in searches
+        if result.source == "workspace-read"
+        and result.fetch_status == "fetched"
+        and result.status == "retrieved"
+        and result.fetched_excerpt
+    ]
+    for result in sorted(candidates, key=priority):
+        if result.url in seen:
+            continue
+        seen.add(result.url)
+        payload.append(
+            {
+                "title": result.title,
+                "path": result.url,
+                "round_index": result.round_index,
+                "excerpt": truncate(result.fetched_excerpt, 1400),
                 "reading_note": result.reading_note,
             }
         )

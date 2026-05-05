@@ -12,8 +12,8 @@ from edge_core.rite import verify_rite
 from edge_core.config import load_config
 from edge_core.publication import validate_report_spec
 from edge_core.report_shape import report_section_titles, validate_report_markdown
-from edge_core.reports import _normalize_report_text, _safe_scaffold_text
-from edge_core.search import broad_search
+from edge_core.reports import _normalize_report_text, _safe_scaffold_text, _search_payload, _workspace_evidence_payload
+from edge_core.search import SearchResult, broad_search
 from edge_core.threads import choose_primary_thread, initial_seed_thread, primary_thread_from_review
 from edge_core.context import ContextPacket, Observation
 
@@ -425,6 +425,35 @@ interests: []
             self.assertFalse(any(item.source == "workspace-read" and item.url == str(outside) for item in results))
         finally:
             outside.unlink(missing_ok=True)
+
+    def test_report_payload_prioritizes_required_workspace_evidence(self) -> None:
+        manifest = SearchResult(
+            source="workspace-read",
+            title="Workspace file: run_manifest.json",
+            url="/tmp/run_manifest.json",
+            summary="manifest summary",
+            status="retrieved",
+            round_index=2,
+            fetch_status="fetched",
+            fetched_excerpt='{"name":"v8_3880_derradeiro","matrix":{"conditions":["raw","v8"],"budgets":[15000,25000,50000,75000]}}',
+            reading_note={"summary": "manifest read"},
+        )
+        digest = SearchResult(
+            source="search-digest",
+            title="Round synthesis",
+            url="",
+            summary="digest summary",
+            status="synthesized",
+            round_index=3,
+            fetch_status="fetched",
+            fetched_excerpt="abstract digest",
+            reading_note={"summary": "digest"},
+        )
+        payload = _search_payload([digest, manifest], limit=1)
+        self.assertEqual(payload[0]["source"], "workspace-read")
+        evidence = _workspace_evidence_payload([digest, manifest], limit=1)
+        self.assertEqual(evidence[0]["path"], "/tmp/run_manifest.json")
+        self.assertIn("v8_3880_derradeiro", evidence[0]["excerpt"])
 
     def test_report_shape_rejects_truncated_tail(self) -> None:
         report = """# Private Mentor Report
