@@ -12,7 +12,7 @@ from edge_core.rite import verify_rite
 from edge_core.config import load_config
 from edge_core.publication import validate_report_spec
 from edge_core.report_shape import report_section_titles, validate_report_markdown
-from edge_core.reports import _normalize_report_text, _safe_scaffold_text, _search_payload, _workspace_evidence_payload
+from edge_core.reports import _ensure_workspace_evidence_used, _normalize_report_text, _safe_scaffold_text, _search_payload, _workspace_evidence_payload
 from edge_core.search import SearchResult, broad_search
 from edge_core.threads import choose_primary_thread, initial_seed_thread, primary_thread_from_review
 from edge_core.context import ContextPacket, Observation
@@ -454,6 +454,83 @@ interests: []
         evidence = _workspace_evidence_payload([digest, manifest], limit=1)
         self.assertEqual(evidence[0]["path"], "/tmp/run_manifest.json")
         self.assertIn("v8_3880_derradeiro", evidence[0]["excerpt"])
+
+    def test_report_text_gets_observed_workspace_evidence_block(self) -> None:
+        run_dir = self.tmp / "results" / "v8_3880_derradeiro" / "2026-05-05T010000+0000"
+        logs_dir = run_dir / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = run_dir / "run_manifest.json"
+        log_path = logs_dir / "run_v8_b50000.log"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "name": "v8_3880_derradeiro",
+                    "description": "Compara raw e nuggets V8 em matriz 2x4.",
+                    "started_at": "2026-05-03T15:10:44+00:00",
+                    "config": {"matrix": {"conditions": ["raw", "v8"], "budgets": [15000, 25000, 50000, 75000]}},
+                    "steps": [{"name": "run_v8_b50000", "returncode": 0, "dry_run": True}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        log_path.write_text("DRY RUN: python3 run.py --condition v8 --budget 50000 --seed 42\n", encoding="utf-8")
+        packet = ContextPacket(request="e2e evidence", kind="discovery")
+        report = """# Private Mentor Report
+
+## The Problem Or Friction
+
+This section has enough content to pass.
+
+## The Discovery
+
+This section has enough content to pass.
+
+## Original Context
+
+This section has enough content to pass.
+
+## Application To Work
+
+This section has enough content to pass.
+
+## Before And After
+
+This section has enough content to pass.
+
+## Getting Started
+
+This section has enough content to pass.
+
+## Risks And Limits
+
+This section has enough content to pass.
+"""
+        searches = [
+            SearchResult(
+                source="workspace-read",
+                title="Workspace file: run_manifest.json",
+                url=str(manifest_path),
+                summary="manifest",
+                status="retrieved",
+                round_index=1,
+                fetch_status="fetched",
+                fetched_excerpt=manifest_path.read_text(encoding="utf-8"),
+            ),
+            SearchResult(
+                source="workspace-read",
+                title="Workspace file: run_v8_b50000.log",
+                url=str(log_path),
+                summary="log",
+                status="retrieved",
+                round_index=1,
+                fetch_status="fetched",
+                fetched_excerpt=log_path.read_text(encoding="utf-8"),
+            ),
+        ]
+        enriched = _ensure_workspace_evidence_used(packet, report, searches)
+        self.assertIn("### Observed Artifact Evidence", enriched)
+        self.assertIn("dry_run: true", enriched)
+        self.assertIn("--budget 50000", enriched)
 
     def test_report_shape_rejects_truncated_tail(self) -> None:
         report = """# Private Mentor Report

@@ -26,9 +26,10 @@ def draft_report(packet: ContextPacket, searches: list[SearchResult], primary_th
     client = LLMClient(role="report")
     llm_report = _llm_draft_report(client, packet, searches, primary_thread)
     if llm_report:
-        return ReportResult(text=_normalize_report_text(packet, llm_report), mode="llm", provider=client.last_provider, error=client.last_error)
+        text = _ensure_workspace_evidence_used(packet, _normalize_report_text(packet, llm_report), searches)
+        return ReportResult(text=text, mode="llm", provider=client.last_provider, error=client.last_error)
     return ReportResult(
-        text=_normalize_report_text(packet, _deterministic_fallback_report(packet, searches, primary_thread)),
+        text=_ensure_workspace_evidence_used(packet, _normalize_report_text(packet, _deterministic_fallback_report(packet, searches, primary_thread)), searches),
         mode="deterministic-scaffold",
         provider=client.last_provider,
         error=client.last_error or "llm:no-report-text",
@@ -42,6 +43,7 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_t
         "request": packet.request,
         "selected_thread": _selected_thread_payload(packet, primary_thread),
         "stage": stage,
+        "required_workspace_evidence": _workspace_evidence_payload(searches, limit=10),
         "draft": draft[:14000],
         "review_feedback": [
             {
@@ -56,7 +58,6 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_t
         "thread_candidates": packet.thread_candidates[:6],
         "report_candidates": packet.report_candidates[:6],
         "search_results": _search_payload(searches, limit=14),
-        "required_workspace_evidence": _workspace_evidence_payload(searches, limit=10),
         "authoritative_reads": packet.authoritative_reads[:10],
         "first_steps": packet.first_steps,
         "interests": packet.interests,
@@ -74,7 +75,8 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_t
             provider=client.last_provider,
             error=client.last_error or "llm:no-revised-text",
         )
-    return ReportResult(text=_normalize_report_text(packet, text), mode="llm", provider=client.last_provider, error=client.last_error)
+    final_text = _ensure_workspace_evidence_used(packet, _normalize_report_text(packet, text), searches)
+    return ReportResult(text=final_text, mode="llm", provider=client.last_provider, error=client.last_error)
 
 
 def append_report_utility(config: RuntimeConfig, *, report_path: Path, utility: ReviewResult) -> Path:
@@ -96,6 +98,7 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
         "kind": packet.kind,
         "request": packet.request,
         "selected_thread": _selected_thread_payload(packet, primary_thread),
+        "required_workspace_evidence": _workspace_evidence_payload(searches, limit=10),
         "observations": [obs.__dict__ for obs in packet.observations[:12]],
         "thread_candidates": packet.thread_candidates[:6],
         "report_candidates": packet.report_candidates[:6],
@@ -105,7 +108,6 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
         "routines": packet.routines,
         "authoritative_reads": packet.authoritative_reads[:10],
         "search_results": _search_payload(searches, limit=14),
-        "required_workspace_evidence": _workspace_evidence_payload(searches, limit=10),
         "operator_pressure": packet.operator_pressure,
         "operator_messages": packet.operator_messages[:8],
     }
@@ -263,6 +265,146 @@ def _normalize_report_text(packet: ContextPacket, text: str) -> str:
     if not first_line.startswith("# "):
         text = f"# Private Mentor Report\n\n{text}"
     return text
+
+
+def _ensure_workspace_evidence_used(packet: ContextPacket, text: str, searches: list[SearchResult]) -> str:
+    if "### Observed Artifact Evidence" in text:
+        return text
+    lines = _workspace_evidence_lines(searches)
+    if not lines:
+        return text
+    block = "### Observed Artifact Evidence\n\n" + _markdown_list(lines)
+    target_section = {
+        "discovery": "Application To Work",
+        "research": "Existing Knowledge",
+        "report": "Evidence",
+    }.get((packet.kind or "").strip().lower(), "Evidence")
+    return _insert_section_block(text, target_section, block)
+
+
+def _insert_section_block(text: str, section_title: str, block: str) -> str:
+    lines = text.splitlines()
+    heading = f"## {section_title}"
+    for index, line in enumerate(lines):
+        if line.strip() != heading:
+            continue
+        insert_at = index + 1
+        while insert_at < len(lines) and lines[insert_at].strip() == "":
+            insert_at += 1
+        while insert_at < len(lines) and not lines[insert_at].startswith("## "):
+            insert_at += 1
+        before = lines[:insert_at]
+        after = lines[insert_at:]
+        return "\n".join(before + ["", block, ""] + after).strip() + "\n"
+    return text.rstrip() + "\n\n" + block + "\n"
+
+
+def _workspace_evidence_lines(searches: list[SearchResult]) -> list[str]:
+    lines: list[str] = []
+    for result in _workspace_evidence_results(searches):
+        filename = Path(result.url).name
+        content = _workspace_result_content(result)
+        if not content:
+            continue
+        if filename == "run_manifest.json":
+            line = _manifest_evidence_line(result.url, content)
+        else:
+            line = _log_evidence_line(filename, content)
+        if line:
+            lines.append(line)
+        if len(lines) >= 6:
+            break
+    return lines
+
+
+def _workspace_evidence_results(searches: list[SearchResult]) -> list[SearchResult]:
+    def priority(result: SearchResult) -> tuple[int, int, str]:
+        filename = Path(result.url).name.lower()
+        if filename == "run_manifest.json":
+            rank = 0
+        elif filename == "aggregate.log":
+            rank = 1
+        elif filename.startswith("run_v8_b50000"):
+            rank = 2
+        elif filename.startswith("run_raw_b50000"):
+            rank = 3
+        elif filename.startswith("run_v8_"):
+            rank = 4
+        elif filename.startswith("run_raw_"):
+            rank = 5
+        else:
+            rank = 9
+        return (rank, -int(result.round_index or 0), result.url)
+
+    return sorted(
+        [
+            result
+            for result in searches
+            if result.source == "workspace-read"
+            and result.fetch_status == "fetched"
+            and result.status == "retrieved"
+            and result.url
+            and Path(result.url).name
+        ],
+        key=priority,
+    )
+
+
+def _workspace_result_content(result: SearchResult) -> str:
+    path = Path(result.url)
+    if path.exists() and path.is_file() and path.suffix.lower() in {".json", ".log", ".md", ".txt", ".yaml", ".yml"}:
+        try:
+            return path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            pass
+    return result.fetched_excerpt or result.summary
+
+
+def _manifest_evidence_line(path: str, content: str) -> str:
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError:
+        excerpt = _first_nonempty_line(content)
+        return f"`{Path(path).name}`: {truncate(_safe_scaffold_text(excerpt), 260)}" if excerpt else ""
+    if not isinstance(payload, dict):
+        return ""
+    name = payload.get("name") or Path(path).parent.name
+    description = str(payload.get("description") or "").strip()
+    started_at = str(payload.get("started_at") or "").strip()
+    matrix = payload.get("config", {}).get("matrix", {}) if isinstance(payload.get("config"), dict) else {}
+    conditions = matrix.get("conditions") if isinstance(matrix, dict) else None
+    budgets = matrix.get("budgets") if isinstance(matrix, dict) else None
+    steps = payload.get("steps") if isinstance(payload.get("steps"), list) else []
+    dry_runs = [step for step in steps if isinstance(step, dict) and step.get("dry_run") is True]
+    returncodes = sorted({str(step.get("returncode")) for step in steps if isinstance(step, dict) and "returncode" in step})
+    parts = [f"`run_manifest.json` names `{_safe_scaffold_text(str(name))}`"]
+    if description:
+        parts.append(truncate(_safe_scaffold_text(description), 160))
+    if started_at:
+        parts.append(f"started_at `{_safe_scaffold_text(started_at)}`")
+    if conditions or budgets:
+        parts.append(f"conditions `{conditions}` and budgets `{budgets}`")
+    if dry_runs:
+        parts.append(f"{len(dry_runs)}/{len(steps)} steps marked `dry_run: true`")
+    if returncodes:
+        parts.append(f"returncodes `{', '.join(returncodes)}`")
+    return "; ".join(parts) + "."
+
+
+def _log_evidence_line(filename: str, content: str) -> str:
+    candidates = [
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and any(token in line.lower() for token in ["dry run", "error", "returncode", "exit", "summary", "delta", "score", "budget", "condition"])
+    ]
+    line = candidates[0] if candidates else _first_nonempty_line(content)
+    if not line:
+        return ""
+    return f"`{filename}` shows `{truncate(_safe_scaffold_text(line), 260)}`."
+
+
+def _first_nonempty_line(content: str) -> str:
+    return next((line.strip() for line in content.splitlines() if line.strip()), "")
 
 
 def _strip_fallback_status(text: str) -> str:
