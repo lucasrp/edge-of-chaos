@@ -124,6 +124,7 @@ def load_local_env(root: Path) -> None:
         root.parent / "keys" / "openai.env",
         root.parent / "keys" / "xai.env",
         root.parent / "keys" / "exa.env",
+        root.parent / "keys" / "x-api.env",
         root.parent / "keys" / "keys.env",
         root / ".env.defaults",
     ]
