@@ -528,6 +528,7 @@ This section has enough content to pass.
             ),
         ]
         enriched = _ensure_workspace_evidence_used(packet, report, searches)
+        self.assertIn("### Candidate Comparison", enriched)
         self.assertIn("### Observed Artifact Evidence", enriched)
         self.assertIn("dry_run: true", enriched)
         self.assertIn("--budget 50000", enriched)

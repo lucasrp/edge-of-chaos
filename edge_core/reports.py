@@ -269,18 +269,47 @@ def _normalize_report_text(packet: ContextPacket, text: str) -> str:
 
 
 def _ensure_workspace_evidence_used(packet: ContextPacket, text: str, searches: list[SearchResult]) -> str:
-    if "### Observed Artifact Evidence" in text:
-        return text
+    text = _bound_candidate_language(packet, text)
     lines = _workspace_evidence_lines(searches)
     if not lines:
         return text
-    block = "### Observed Artifact Evidence\n\n" + _markdown_list(lines)
+    if "### Candidate Comparison" not in text and (packet.kind or "").strip().lower() == "discovery":
+        text = _insert_section_block(text, "The Discovery", _candidate_comparison_block())
+    if "### Observed Artifact Evidence" in text:
+        return text
+    evidence_block = "### Observed Artifact Evidence\n\n" + _markdown_list(lines)
     target_section = {
         "discovery": "Application To Work",
         "research": "Existing Knowledge",
         "report": "Evidence",
     }.get((packet.kind or "").strip().lower(), "Evidence")
-    return _insert_section_block(text, target_section, block)
+    return _insert_section_block(text, target_section, evidence_block)
+
+
+def _bound_candidate_language(packet: ContextPacket, text: str) -> str:
+    if (packet.kind or "").strip().lower() != "discovery":
+        return text
+    replacements = {
+        "The most useful pre-MCP": "The strongest candidate pre-MCP",
+        "the most useful pre-MCP": "the strongest candidate pre-MCP",
+        "the most useful restored pattern": "the strongest candidate restored pattern",
+        "the most useful pattern": "the strongest candidate pattern",
+        "the key discovery": "the strongest candidate discovery",
+    }
+    bounded = text
+    for source, target in replacements.items():
+        bounded = bounded.replace(source, target)
+    return bounded
+
+
+def _candidate_comparison_block() -> str:
+    return (
+        "### Candidate Comparison\n\n"
+        "- **Manifest-centered evidence packet:** strongest current candidate because the live artifacts expose provenance, dry-run status, parameters, and replay boundaries directly.\n"
+        "- **Narrative-only report shape:** weaker for this run because it can describe the project without proving what the latest bundle actually supports.\n"
+        "- **Telemetry-only workflow gate:** useful as guardrail, but insufficient alone because search/review telemetry proves process execution rather than substantive output quality.\n"
+        "- **Dataset/prompt curation discipline:** important to the broader e2e project, but the current evidence points more directly at report provenance and dry-run-aware publication boundaries."
+    )
 
 
 def _insert_section_block(text: str, section_title: str, block: str) -> str:
