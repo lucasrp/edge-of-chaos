@@ -131,6 +131,7 @@ def _report_system_prompt(kind: str, *, revision: bool) -> str:
         "Use concrete evidence from fetched documents, workspace reads, prior reports, and authoritative thread reads. "
         "When required_workspace_evidence is present, treat it as the evidence floor: quote or paraphrase concrete fields and lines from those files in the subject sections, and do not merely say those files should be inspected. "
         "If those excerpts show dry-run commands, missing outputs, dirty repos, return codes, budgets, variants, or timestamps, make those facts part of the substantive judgement. "
+        "When the evidence supports only one visible candidate rather than a real comparison among alternatives, call it the strongest candidate in the current evidence, not the proven best pattern. "
         "Treat unavailable or failed sources as limits on confidence, not as the main storyline. "
         "Do not claim no evidence when fetched entries, reading notes, or concrete local excerpts are present. "
         "If selected_thread.grounded is true, keep continuity consistent with that thread and excerpt, but do it inside the subject matter rather than creating meta chatter about the rite. "
@@ -314,6 +315,8 @@ def _workspace_evidence_lines(searches: list[SearchResult]) -> list[str]:
             lines.append(line)
         if len(lines) >= 6:
             break
+    if lines:
+        lines.append("Evidence boundary: these artifacts support orchestration, provenance, and dry-run status; they do not by themselves prove substantive output quality or eliminate every alternative pre-MCP pattern.")
     return lines
 
 
@@ -336,7 +339,7 @@ def _workspace_evidence_results(searches: list[SearchResult]) -> list[SearchResu
             rank = 9
         return (rank, -int(result.round_index or 0), result.url)
 
-    return sorted(
+    candidates = sorted(
         [
             result
             for result in searches
@@ -348,6 +351,14 @@ def _workspace_evidence_results(searches: list[SearchResult]) -> list[SearchResu
         ],
         key=priority,
     )
+    deduped: list[SearchResult] = []
+    seen: set[str] = set()
+    for result in candidates:
+        if result.url in seen:
+            continue
+        seen.add(result.url)
+        deduped.append(result)
+    return deduped
 
 
 def _workspace_result_content(result: SearchResult) -> str:

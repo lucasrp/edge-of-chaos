@@ -531,6 +531,7 @@ This section has enough content to pass.
         self.assertIn("### Observed Artifact Evidence", enriched)
         self.assertIn("dry_run: true", enriched)
         self.assertIn("--budget 50000", enriched)
+        self.assertIn("do not by themselves prove substantive output quality", enriched)
 
     def test_report_shape_rejects_truncated_tail(self) -> None:
         report = """# Private Mentor Report
