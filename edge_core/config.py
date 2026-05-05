@@ -18,6 +18,7 @@ else:
 class RuntimeConfig:
     root: Path
     agent: dict[str, Any]
+    agent_path: Path
 
     @property
     def name(self) -> str:
@@ -66,6 +67,14 @@ class RuntimeConfig:
     @property
     def chat_digest_cursor_path(self) -> Path:
         return self.state_dir / "chat-digest-cursor.json"
+
+    @property
+    def operator_pressure_path(self) -> Path:
+        return self.state_dir / "operator-pressure.md"
+
+    @property
+    def async_chat_path(self) -> Path:
+        return self.state_dir / "async-chat.jsonl"
 
 
 def repo_root(start: Path | None = None) -> Path:
@@ -122,13 +131,30 @@ def load_local_env(root: Path) -> None:
         _load_env_file(path)
 
 
+def resolve_agent_config_path(root: Path) -> Path:
+    override = os.environ.get("EDGE_AGENT_CONFIG")
+    candidates = []
+    if override:
+        candidates.append(Path(override).expanduser())
+    candidates.extend(
+        [
+            root / "agent.yaml",
+            root.parent / "agent.yaml",
+            root.parent / "keys" / "agent.yaml",
+            root / "agent.yaml.example",
+        ]
+    )
+    for path in candidates:
+        if path.exists():
+            return path
+    return root / "agent.yaml.example"
+
+
 def load_config(root: Path | None = None) -> RuntimeConfig:
     root = repo_root(root)
     load_local_env(root)
-    config_path = root / "agent.yaml"
-    if not config_path.exists():
-        config_path = root / "agent.yaml.example"
-    return RuntimeConfig(root=root, agent=load_yaml(config_path))
+    config_path = resolve_agent_config_path(root)
+    return RuntimeConfig(root=root, agent=load_yaml(config_path), agent_path=config_path)
 
 
 def ensure_runtime_dirs(config: RuntimeConfig) -> None:

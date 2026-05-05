@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .async_chat import inbox_snapshot, message_count, snapshot_excerpt
 from .config import RuntimeConfig
 from .ledger import Ledger
 from .util import truncate
@@ -34,6 +35,8 @@ class ContextPacket:
     seed_threads: list[dict[str, Any]] = field(default_factory=list)
     interests: list[dict[str, Any]] = field(default_factory=list)
     routines: list[str] = field(default_factory=list)
+    operator_pressure: str = ""
+    operator_messages: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +53,8 @@ class ContextPacket:
             "seed_threads": self.seed_threads,
             "interests": self.interests,
             "routines": self.routines,
+            "operator_pressure": self.operator_pressure,
+            "operator_messages": self.operator_messages,
         }
 
 
@@ -146,6 +151,21 @@ def build_delta_source_manifest(config: RuntimeConfig) -> list[dict[str, Any]]:
                 "sample_paths": [str(path.name) for path in report_files[:3]],
             },
             {"name": "events", "kind": "ledger", "enabled": True, "available": config.ledger_path.exists(), "path": str(config.ledger_path)},
+            {
+                "name": "operator_pressure",
+                "kind": "operator_signal",
+                "enabled": True,
+                "available": config.operator_pressure_path.exists(),
+                "path": str(config.operator_pressure_path),
+            },
+            {
+                "name": "async_chat",
+                "kind": "operator_input",
+                "enabled": True,
+                "available": config.async_chat_path.exists(),
+                "path": str(config.async_chat_path),
+                "item_count": message_count(config),
+            },
             {"name": "first_steps", "kind": "phenotype", "enabled": True, "available": bool(config.agent.get("first_steps"))},
             {"name": "seed_threads", "kind": "phenotype", "enabled": True, "available": bool(config.agent.get("seed_threads"))},
             {"name": "interests", "kind": "phenotype", "enabled": True, "available": bool(config.agent.get("interests"))},
@@ -284,6 +304,24 @@ def load_chat_digest(config: RuntimeConfig) -> list[Observation]:
     return [Observation("chat_digest", "Claude chat digest", snippet, str(config.chat_digest_path))]
 
 
+def load_operator_pressure(config: RuntimeConfig) -> tuple[str, list[Observation]]:
+    if not config.operator_pressure_path.exists():
+        return "", []
+    snippet = _read_snippet(config.operator_pressure_path, limit=2400)
+    if not snippet:
+        return "", []
+    return snippet, [Observation("operator_pressure", "Operator pressure", snippet, str(config.operator_pressure_path))]
+
+
+def load_async_chat(config: RuntimeConfig) -> tuple[list[dict[str, Any]], list[Observation]]:
+    snapshot = inbox_snapshot(config, limit=80)
+    messages = snapshot.get("messages") or []
+    if not messages:
+        return [], []
+    detail = snapshot_excerpt(messages, limit=8)
+    return messages, [Observation("async_chat", "Async operator chat", detail or "Async chat messages were present for this beat.", str(config.async_chat_path))]
+
+
 def load_threads(config: RuntimeConfig) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     if not config.threads_dir.exists():
@@ -359,6 +397,25 @@ def load_authoritative_reads(config: RuntimeConfig, ledger: Ledger) -> list[dict
                 "excerpt": _read_snippet(config.chat_digest_cursor_path, limit=400),
             }
         )
+    if config.operator_pressure_path.exists():
+        reads.append(
+            {
+                "source": "operator_pressure",
+                "path": str(config.operator_pressure_path),
+                "title": "operator pressure",
+                "excerpt": _read_snippet(config.operator_pressure_path, limit=1200),
+            }
+        )
+    async_snapshot = inbox_snapshot(config, limit=24)
+    if async_snapshot.get("messages"):
+        reads.append(
+            {
+                "source": "async_chat",
+                "path": str(config.async_chat_path),
+                "title": "async chat inbox",
+                "excerpt": snapshot_excerpt(async_snapshot.get("messages") or [], limit=8),
+            }
+        )
     return reads
 
 
@@ -367,6 +424,10 @@ def assemble_context(config: RuntimeConfig, ledger: Ledger, *, kind: str, reques
     observations.append(Observation("request", "current request", request or f"autonomous {kind} beat"))
     observations.extend(load_workspace_observations(config))
     observations.extend(load_chat_digest(config))
+    operator_pressure, operator_pressure_observations = load_operator_pressure(config)
+    observations.extend(operator_pressure_observations)
+    operator_messages, operator_chat_observations = load_async_chat(config)
+    observations.extend(operator_chat_observations)
     return ContextPacket(
         request=request or f"Run a {kind} beat",
         kind=kind,
@@ -381,4 +442,6 @@ def assemble_context(config: RuntimeConfig, ledger: Ledger, *, kind: str, reques
         seed_threads=[item for item in (config.agent.get("seed_threads") or []) if isinstance(item, dict)],
         interests=[item for item in (config.agent.get("interests") or []) if isinstance(item, dict)],
         routines=[str(item) for item in (config.agent.get("routines") or [])],
+        operator_pressure=operator_pressure,
+        operator_messages=operator_messages,
     )

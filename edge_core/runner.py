@@ -4,6 +4,7 @@ import uuid
 from typing import Any
 from dataclasses import dataclass
 
+from .async_chat import acknowledge_messages
 from .chat_digest import refresh_chat_digest
 from .config import RuntimeConfig, ensure_runtime_dirs
 from .context import assemble_context
@@ -19,10 +20,14 @@ from .util import now_iso
 
 @dataclass
 class BeatResult:
+    kind: str
     cycle_id: str
     report_path: str
     thread_id: str
     status: str
+
+
+ROUTED_BEAT_ORDER = ("discovery", "research", "report")
 
 
 def _search_hints(reviews: list[ReviewResult]) -> list[str]:
@@ -50,7 +55,38 @@ def _list_from_data(data: dict[str, Any], key: str) -> list[str]:
     return []
 
 
-def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResult:
+def route_heartbeat(config: RuntimeConfig, *, request: str = "") -> tuple[str, str, str]:
+    lowered = request.lower()
+    explicit_routes = [
+        ("research", ("research", "investigate", "e2e", "experiment")),
+        ("discovery", ("discovery", "discover", "notice", "inspect", "explore")),
+        ("report", ("report", "summarize", "summary", "synthesis")),
+    ]
+    for kind, tokens in explicit_routes:
+        if any(token in lowered for token in tokens):
+            return kind, request or f"Autonomous {kind} beat", f"request-explicit:{kind}"
+    ledger = Ledger(config.ledger_path)
+    recent = [
+        event
+        for event in ledger.read_recent(200)
+        if event.get("type") == "CycleOpened" and str(event.get("kind") or "") in ROUTED_BEAT_ORDER
+    ]
+    if recent:
+        last_kind = str(recent[-1].get("kind") or ROUTED_BEAT_ORDER[-1])
+        try:
+            next_index = (ROUTED_BEAT_ORDER.index(last_kind) + 1) % len(ROUTED_BEAT_ORDER)
+        except ValueError:
+            next_index = 0
+    else:
+        next_index = 0
+    kind = ROUTED_BEAT_ORDER[next_index]
+    routed_request = request or f"Autonomous {kind} beat"
+    return kind, routed_request, "round-robin"
+
+
+def run_beat(config: RuntimeConfig, *, kind: str, request: str = "", trigger: str = "direct", requested_kind: str | None = None) -> BeatResult:
+    if kind == "heartbeat":
+        raise ValueError("heartbeat is a router and must call run_heartbeat(), not run_beat().")
     ensure_runtime_dirs(config)
     ledger = Ledger(config.ledger_path)
     cycle_events = []
@@ -61,11 +97,16 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
         return event
 
     cycle_id = f"cycle-{now_iso()}-{uuid.uuid4().hex[:8]}"
-    record("CycleOpened", kind=kind, request=request)
+    record("CycleOpened", kind=kind, request=request, trigger=trigger, requested_kind=requested_kind or kind)
 
     chat_digest = refresh_chat_digest(config)
     record("ChatDigestRefreshed", **chat_digest)
     packet = assemble_context(config, ledger, kind=kind, request=request)
+    record(
+        "OperatorContextLoaded",
+        operator_pressure_present=bool(packet.operator_pressure.strip()),
+        async_chat_messages=len(packet.operator_messages),
+    )
     record(
         "StateLoaded",
         observations=len(packet.observations),
@@ -223,10 +264,25 @@ def run_beat(config: RuntimeConfig, *, kind: str, request: str = "") -> BeatResu
     record("DigestRebuilt", path=str(digest))
     index = build_blog(config)
     record("BlogBuilt", path=str(index))
+    async_ack = acknowledge_messages(config, messages=packet.operator_messages, cycle_id=cycle_id, kind=kind, request=packet.request)
+    if async_ack.get("processed_ids"):
+        record(
+            "AsyncChatAcknowledged",
+            processed=len(async_ack.get("processed_ids") or []),
+            processed_ids=async_ack.get("processed_ids") or [],
+            reply_id=async_ack.get("reply_id"),
+        )
     rite = verify_rite(cycle_events)
     if not rite.passed:
         record("RiteVerificationFailed", **rite.as_dict())
         raise RuntimeError(f"beat rite failed: {', '.join(rite.missing)}")
     record("RiteVerified", **rite.as_dict())
     record("CycleClosed", status="completed")
-    return BeatResult(cycle_id=cycle_id, report_path=str(published.report_html_path), thread_id=thread_id, status="completed")
+    return BeatResult(kind=kind, cycle_id=cycle_id, report_path=str(published.report_html_path), thread_id=thread_id, status="completed")
+
+
+def run_heartbeat(config: RuntimeConfig, *, request: str = "") -> BeatResult:
+    kind, routed_request, reason = route_heartbeat(config, request=request)
+    ledger = Ledger(config.ledger_path)
+    ledger.append("HeartbeatRouted", requested=request, routed_kind=kind, routed_request=routed_request, reason=reason)
+    return run_beat(config, kind=kind, request=routed_request, trigger="heartbeat", requested_kind="heartbeat")

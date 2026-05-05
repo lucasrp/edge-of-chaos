@@ -22,14 +22,17 @@ These are fixed and cannot be configured away:
 - Skills are consultive by default and do not mutate mentee workspaces.
 - Every beat runs the minimum rite:
   - refresh the LLM-maintained digest of Claude chat deltas;
-  - load state and delta source manifest;
+  - load state and delta source manifest, including operator pressure and async operator chat when present;
   - continuity/context/search review twice;
-  - broad search after reviewer search suggestions;
+  - fresh broad search after reviewer search suggestions;
   - adversarial review twice;
   - Feynman review;
   - rich report;
   - report utility classification;
   - thread update.
+
+`heartbeat` is not a beat kind. It is a router that selects a real beat kind
+and then hands off to the same common rite.
 
 ## Phenotype
 
@@ -56,7 +59,7 @@ deterministic checks. v2 keeps the execution guarantee but removes the ontology.
 The runtime always assembles a context pack with two source manifests:
 
 - `delta_source_manifest`: workspaces, Claude sessions, chat digest, threads,
-  reports, events, first steps, seed threads, interests;
+  reports, events, operator pressure, async chat, first steps, seed threads, interests;
 - `search_source_manifest`: Exa, Hacker News, X, GitHub, configured status, and
   credential availability without exposing secrets.
 
@@ -111,6 +114,8 @@ Threads, digests, and blog indexes are read models or applied projections:
 
 ```text
 state/chat-digest.md
+state/operator-pressure.md
+state/async-chat.jsonl
 state/threads/
 state/digests/
 state/report-utility.jsonl
@@ -131,8 +136,9 @@ delta. Beats consume this digest instead of raw chat logs.
 ## Blog
 
 The blog remains, but it is not a dashboard. It is a static archive of rich
-reports. Dashboard behavior, chat, interventions, metrics, and runtime controls
-are out of v2 core.
+reports plus a minimal async operator chat lane. The runtime reads that chat
+lane into the next beat and acknowledges what it consumed, but richer
+dashboard/runtime-control surfaces stay out of v2 core.
 
 ## Removed From Core
 

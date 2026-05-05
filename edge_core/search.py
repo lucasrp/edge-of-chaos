@@ -226,6 +226,10 @@ def _normalized_query_hint(value: str) -> str:
 
 def query_from_packet(packet: ContextPacket, hints: list[str] | None = None) -> str:
     terms = [packet.request]
+    if packet.operator_pressure:
+        terms.append(packet.operator_pressure[:220])
+    for message in packet.operator_messages[:3]:
+        terms.append(str(message.get("text") or "")[:180])
     for hint in hints or []:
         normalized = _normalized_query_hint(hint)
         if normalized:

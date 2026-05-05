@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .config import RuntimeConfig, ensure_runtime_dirs
+from .config import RuntimeConfig, ensure_runtime_dirs, resolve_agent_config_path
 
 
 def render(config: RuntimeConfig) -> list[Path]:
@@ -53,9 +53,12 @@ def apply(config: RuntimeConfig) -> list[Path]:
 def doctor(config: RuntimeConfig) -> tuple[bool, list[str]]:
     checks: list[str] = []
     ok = True
-    if not (config.root / "agent.yaml").exists() and not (config.root / "agent.yaml.example").exists():
+    agent_path = resolve_agent_config_path(config.root)
+    if not agent_path.exists():
         ok = False
-        checks.append("missing agent.yaml or agent.yaml.example")
+        checks.append("missing agent config")
+    else:
+        checks.append(f"ok: agent config -> {agent_path}")
     for path in [config.state_dir, config.reports_dir, config.root / "blog"]:
         if not path.exists():
             ok = False

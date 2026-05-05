@@ -40,6 +40,11 @@ def draft_report(packet: ContextPacket, searches: list[SearchResult], primary_th
         f"- {_safe_scaffold_text(str(item.get('title') or 'report'))} ({_safe_scaffold_text(str(item.get('path') or ''))})"
         for item in packet.report_candidates[:6]
     ) or "- No previous report found."
+    operator_pressure = _safe_scaffold_text(packet.operator_pressure or "No explicit operator pressure was present for this beat.")
+    operator_chat = "\n".join(
+        f"- {_safe_scaffold_text(str(item.get('author') or 'user'))}: {_safe_scaffold_text(truncate(str(item.get('text') or ''), 220))}"
+        for item in packet.operator_messages[:6]
+    ) or "- No async operator chat message was present for this beat."
     search_lines = "\n".join(
         f"- {_safe_scaffold_text(result.source)} [{_safe_scaffold_text(result.status)} / {_safe_scaffold_text(result.fetch_status)}]: {_safe_scaffold_text(result.title)} {_safe_scaffold_text(result.url)} — {_safe_scaffold_text(truncate(result.summary, 250))}"
         for result in searches
@@ -57,6 +62,14 @@ def draft_report(packet: ContextPacket, searches: list[SearchResult], primary_th
 ## Situated Delta
 
 {observations}
+
+Operator pressure shaping this beat:
+
+{operator_pressure}
+
+Recent async operator chat:
+
+{operator_chat}
 
 ## Problem Framing and Open Gaps
 
@@ -143,6 +156,8 @@ def revise_report(packet: ContextPacket, searches: list[SearchResult], primary_t
         "authoritative_reads": packet.authoritative_reads[:10],
         "first_steps": packet.first_steps,
         "interests": packet.interests,
+        "operator_pressure": packet.operator_pressure,
+        "operator_messages": packet.operator_messages[:8],
     }
     text = client.complete_text(
         system=(
@@ -200,6 +215,8 @@ def _llm_draft_report(client: LLMClient, packet: ContextPacket, searches: list[S
         "routines": packet.routines,
         "authoritative_reads": packet.authoritative_reads[:10],
         "search_results": _search_payload(searches, limit=14),
+        "operator_pressure": packet.operator_pressure,
+        "operator_messages": packet.operator_messages[:8],
     }
     text = client.complete_text(
         system=(

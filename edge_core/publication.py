@@ -153,7 +153,10 @@ def build_report_spec(
         },
         "blog_post": {
             "title": _blog_entry_title(packet=packet, thread_title=thread_title),
+            "deck": _build_blog_post_deck(packet=packet, sections=section_map, thread_title=thread_title),
             "paragraphs": _build_blog_post_paragraphs(packet=packet, sections=section_map, thread_title=thread_title),
+            "highlights": _build_blog_post_highlights(sections=section_map),
+            "section_cards": _build_blog_post_section_cards(sections=section_map),
         },
     }
 
@@ -277,9 +280,11 @@ def validate_blog_post(blog_post: Any) -> ValidationResult:
         return ValidationResult(False, ["blog_post must be a mapping"])
     if not str(blog_post.get("title") or "").strip():
         issues.append("blog_post.title is required")
+    if len(re.sub(r"\s+", " ", str(blog_post.get("deck") or "").strip())) < 40:
+        issues.append("blog_post.deck is required")
     paragraphs = blog_post.get("paragraphs")
-    if not isinstance(paragraphs, list) or not (2 <= len(paragraphs) <= 4):
-        issues.append("blog_post.paragraphs must have 2 to 4 items")
+    if not isinstance(paragraphs, list) or not (3 <= len(paragraphs) <= 5):
+        issues.append("blog_post.paragraphs must have 3 to 5 items")
     else:
         for paragraph in paragraphs:
             text = str(paragraph or "").strip()
@@ -288,6 +293,28 @@ def validate_blog_post(blog_post: Any) -> ValidationResult:
                 continue
             if text.startswith("#") or text.startswith("- ") or "```" in text:
                 issues.append("blog_post paragraphs must be plain invitation prose")
+                break
+    highlights = blog_post.get("highlights")
+    if not isinstance(highlights, list) or not (2 <= len(highlights) <= 6):
+        issues.append("blog_post.highlights must have 2 to 6 items")
+    else:
+        for item in highlights:
+            if len(re.sub(r"\s+", " ", str(item or "").strip())) < 20:
+                issues.append("blog_post highlights must be substantive")
+                break
+    section_cards = blog_post.get("section_cards")
+    if not isinstance(section_cards, list) or not (3 <= len(section_cards) <= 6):
+        issues.append("blog_post.section_cards must have 3 to 6 items")
+    else:
+        for card in section_cards:
+            if not isinstance(card, dict):
+                issues.append("blog_post.section_cards must contain mappings")
+                break
+            if not str(card.get("title") or "").strip():
+                issues.append("blog_post.section_cards title is required")
+                break
+            if len(re.sub(r"\s+", " ", str(card.get("body") or "").strip())) < 40:
+                issues.append("blog_post.section_cards body must be substantive")
                 break
     return ValidationResult(passed=not issues, issues=issues)
 
@@ -305,13 +332,16 @@ def build_blog(config: RuntimeConfig) -> Path:
             render_blog_entry_html(metadata=metadata, body=body, report_href=f"../reports/{report_html}" if report_html else "../"),
             encoding="utf-8",
         )
-        excerpt = truncate(" ".join(_paragraphs_from_body(body)[:1]), 180)
+        excerpt = truncate(str(metadata.get("deck") or " ".join(_paragraphs_from_body(body)[:1])), 220)
         date = str(metadata.get("date") or "")
+        highlights = metadata.get("highlights") or []
+        chip_line = "".join(f"<span class='entry-chip'>{html.escape(truncate(str(item), 56))}</span>" for item in highlights[:3])
         rows.append(
             "<article class='entry-card'>"
             f"<p class='entry-date'>{html.escape(date)}</p>"
             f"<h2><a href='entries/{html.escape(entry_html.name)}'>{html.escape(title)}</a></h2>"
             f"<p>{html.escape(excerpt)}</p>"
+            f"<div class='entry-chips'>{chip_line}</div>"
             "</article>"
         )
     index = config.root / "blog" / "index.html"
@@ -320,13 +350,18 @@ def build_blog(config: RuntimeConfig) -> Path:
         "<!doctype html><meta charset='utf-8'><title>edge reports</title>"
         "<style>"
         "@import url('https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&display=swap');"
-        "body{font-family:'Libre Franklin',system-ui,sans-serif;max-width:980px;margin:3rem auto;padding:0 1.4rem;line-height:1.65;color:#374151;background:#f9fafb}"
-        "h1{margin-bottom:1.75rem;color:#1a3560}.entry-card{padding:1.15rem 0;border-top:1px solid #dbe4f2}"
-        ".entry-card:first-of-type{border-top:0;padding-top:0}.entry-card h2{margin:.25rem 0;color:#1a3560}.entry-date{color:#6b7280;font-size:.92rem;margin:0}"
+        "body{font-family:'Libre Franklin',system-ui,sans-serif;max-width:1080px;margin:0 auto;padding:0 1.4rem 3rem;line-height:1.65;color:#223046;background:linear-gradient(180deg,#eef4fb 0,#f8fafc 280px,#f9fafb 100%)}"
+        "header{padding:3.2rem 0 2rem}.eyebrow{letter-spacing:.14em;text-transform:uppercase;font-size:.78rem;color:#52606d;margin:0 0 .7rem}"
+        "h1{margin:0 0 .7rem;color:#163765;font-size:2.4rem;line-height:1.08}.deck{max-width:760px;color:#415264;margin:0 0 1.15rem}"
+        "nav{display:flex;gap:.9rem;flex-wrap:wrap}.nav-link{display:inline-flex;padding:.55rem .85rem;border-radius:999px;background:#fff;border:1px solid #d8e2f0;color:#1c519b;text-decoration:none;font-weight:600}"
+        ".entry-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}.entry-card{padding:1.1rem 1.1rem 1rem;border:1px solid #d8e2f0;border-radius:16px;background:rgba(255,255,255,.92);box-shadow:0 12px 30px rgba(20,52,97,.06)}"
+        ".entry-card h2{margin:.3rem 0 .55rem;color:#163765;font-size:1.18rem}.entry-date{color:#6b7280;font-size:.92rem;margin:0}.entry-chips{display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.85rem}"
+        ".entry-chip{display:inline-flex;padding:.22rem .6rem;border-radius:999px;background:#edf4ff;color:#22426c;font-size:.78rem}"
         "a{color:#1c519b;text-decoration:none}a:hover{text-decoration:underline}"
         "</style>"
-        "<h1>edge-of-chaos reports</h1>"
-        + "\n".join(rows),
+        "<header><p class='eyebrow'>edge-of-chaos v2</p><h1>Private Mentor Reports</h1><p class='deck'>Static reports stay public to the operator, while the runtime keeps a separate async chat lane and explicit operator pressure inside the beat context.</p><nav><a class='nav-link' href='index.html'>Reports</a><a class='nav-link' href='chat'>Async Chat</a></nav></header><section class='entry-grid'>"
+        + "\n".join(rows)
+        + "</section>",
         encoding="utf-8",
     )
     return index
@@ -395,6 +430,9 @@ def render_report_html(spec: dict[str, Any]) -> str:
 def render_blog_entry_html(*, metadata: dict[str, Any], body: str, report_href: str) -> str:
     title = html.escape(str(metadata.get("title") or "edge-of-chaos entry"))
     paragraphs = _paragraphs_from_body(body)
+    deck = str(metadata.get("deck") or "")
+    highlights = metadata.get("highlights") or []
+    section_cards = metadata.get("section_cards") or []
     parts = [
         "<!doctype html>",
         "<html lang='en'>",
@@ -403,19 +441,39 @@ def render_blog_entry_html(*, metadata: dict[str, Any], body: str, report_href: 
         f"  <title>{title}</title>",
         "  <style>"
         "@import url('https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&display=swap');"
-        "body{font-family:'Libre Franklin',system-ui,sans-serif;max-width:760px;margin:2.5rem auto;padding:0 1.25rem;line-height:1.65;color:#17202a;background:#f9fafb}"
-        "header{margin-bottom:1.8rem}.meta{color:#52606d;font-size:.95rem}.cta{margin-top:1.6rem;padding:1rem 1.1rem;border:1px solid #d7dce4;border-radius:8px;background:#f8fafc}"
+        "body{font-family:'Libre Franklin',system-ui,sans-serif;max-width:980px;margin:0 auto;padding:2.6rem 1.25rem 3rem;line-height:1.7;color:#17202a;background:linear-gradient(180deg,#eef4fb 0,#f9fafb 320px)}"
+        "header{margin-bottom:1.8rem}.meta{color:#52606d;font-size:.95rem}.deck{max-width:760px;color:#3d536c}.cta{margin-top:1.6rem;padding:1rem 1.1rem;border:1px solid #d7dce4;border-radius:12px;background:#f8fafc}"
+        ".topnav{display:flex;gap:.8rem;flex-wrap:wrap;margin-bottom:1.35rem}.topnav a{display:inline-flex;padding:.5rem .8rem;border-radius:999px;background:#fff;border:1px solid #d7dce4;font-weight:600}"
+        ".highlight-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.85rem;padding:0;list-style:none;margin:1.35rem 0 1.8rem}.highlight-list li{margin:0;padding:.9rem 1rem;border-radius:12px;background:#fff;border:1px solid #d8e2f0;box-shadow:0 10px 20px rgba(20,52,97,.05)}"
+        ".section-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem;margin-top:1.5rem}.section-card{padding:1rem 1.05rem;border-radius:14px;background:#fff;border:1px solid #d8e2f0;box-shadow:0 10px 24px rgba(20,52,97,.05)}.section-card h2{font-size:1.05rem;color:#163765;margin:0 0 .55rem}"
         "a{color:#1c519b;text-decoration:none}a:hover{text-decoration:underline}"
         "  </style>",
         "</head>",
         "<body>",
+        "<nav class='topnav'><a href='../index.html'>Report Archive</a><a href='../chat'>Async Chat</a></nav>",
         "<header>",
         f"  <h1>{title}</h1>",
         f"  <p class='meta'>{html.escape(str(metadata.get('date') or ''))}</p>",
+        f"  <p class='deck'>{_render_inline(deck)}</p>" if deck else "",
         "</header>",
     ]
-    for paragraph in paragraphs:
+    if highlights:
+        parts.append("<ul class='highlight-list'>")
+        for item in highlights:
+            parts.append(f"<li>{_render_inline(str(item))}</li>")
+        parts.append("</ul>")
+    for paragraph in paragraphs[:4]:
         parts.append(f"<p>{_render_inline(paragraph)}</p>")
+    if section_cards:
+        parts.append("<section class='section-grid'>")
+        for card in section_cards:
+            parts.append(
+                "<article class='section-card'>"
+                f"<h2>{_render_inline(str(card.get('title') or 'Section'))}</h2>"
+                f"<p>{_render_inline(str(card.get('body') or ''))}</p>"
+                "</article>"
+            )
+        parts.append("</section>")
     parts.append(
         "<div class='cta'>"
         f"<p><strong>Open the full report:</strong> <a href='{html.escape(report_href)}'>{html.escape(str(metadata.get('report_html') or 'report.html'))}</a></p>"
@@ -700,22 +758,69 @@ def _blog_entry_title(*, packet: ContextPacket, thread_title: str) -> str:
 
 def _build_blog_post_paragraphs(*, packet: ContextPacket, sections: dict[str, str], thread_title: str) -> list[str]:
     delta = _section_takeaway(sections.get("Situated Delta", ""))
+    problem = _section_takeaway(sections.get("Problem Framing and Open Gaps", ""))
     why_now = _section_takeaway(sections.get("Why This Matters Now", ""))
+    broad_search = _section_takeaway(sections.get("Broad Search", ""))
     next_steps = _section_takeaway(sections.get("Recommended Next Steps", ""))
     request = packet.request.strip() or f"{packet.kind} beat"
+    operator_pressure = _section_takeaway(packet.operator_pressure)
     return [
         f"This entry sits on the thread '{thread_title}' and captures what changed in the current {request}. {delta}",
-        f"{why_now}",
-        f"Open the full report for the formal problem framing, the Feynman derivation, the search feedback loops, and the concrete next steps. {next_steps}",
+        f"The live problem stays explicit before the explanation widens: {problem}",
+        f"{why_now} {operator_pressure}".strip(),
+        f"The beat forced fresh search rather than relying on continuity alone. {broad_search}",
+        f"Open the full report for the formal derivation, reviewer pushback, and execution details. {next_steps}",
     ]
+
+
+def _build_blog_post_deck(*, packet: ContextPacket, sections: dict[str, str], thread_title: str) -> str:
+    delta = _section_takeaway(sections.get("Situated Delta", ""))
+    why_now = _section_takeaway(sections.get("Why This Matters Now", ""))
+    return truncate(
+        f"Thread '{thread_title}' stays live because the beat isolated the delta, carried operator pressure forward, and widened the search before closing on guidance. {delta} {why_now}",
+        320,
+    )
+
+
+def _build_blog_post_highlights(*, sections: dict[str, str]) -> list[str]:
+    desired = [
+        "Situated Delta",
+        "Problem Framing and Open Gaps",
+        "Broad Search",
+        "Recommended Next Steps",
+        "What I Don't Know",
+    ]
+    items = [_section_takeaway(sections.get(title, "")) for title in desired]
+    return [item for item in items if item][:5]
+
+
+def _build_blog_post_section_cards(*, sections: dict[str, str]) -> list[dict[str, str]]:
+    titles = [
+        "Problem Framing and Open Gaps",
+        "Simple Model",
+        "Broad Search",
+        "Recommended Next Steps",
+        "What I Don't Know",
+    ]
+    cards: list[dict[str, str]] = []
+    for title in titles:
+        body = truncate(re.sub(r"\s+", " ", sections.get(title, "").strip()), 420)
+        if body:
+            cards.append({"title": title, "body": body})
+    return cards[:5]
 
 
 def _render_blog_entry_markdown(*, spec: dict[str, Any], report_html_name: str, report_md_name: str, report_spec_name: str, thread_id: str, kind: str) -> str:
     blog_post = spec.get("blog_post") or {}
     paragraphs = blog_post.get("paragraphs") or []
+    highlights = blog_post.get("highlights") or []
+    section_cards = blog_post.get("section_cards") or []
     frontmatter = {
         "date": spec.get("date"),
         "title": blog_post.get("title"),
+        "deck": blog_post.get("deck"),
+        "highlights": highlights,
+        "section_cards": section_cards,
         "report_html": report_html_name,
         "report_markdown": report_md_name,
         "report_spec": report_spec_name,
@@ -723,7 +828,15 @@ def _render_blog_entry_markdown(*, spec: dict[str, Any], report_html_name: str, 
         "tags": [kind, "mentor-report"],
         "status": "approved",
     }
-    body = "\n\n".join(str(item).strip() for item in paragraphs if str(item).strip())
+    body_parts = [str(item).strip() for item in paragraphs if str(item).strip()]
+    if highlights:
+        body_parts.append("## Highlights\n\n" + "\n".join(f"- {str(item).strip()}" for item in highlights if str(item).strip()))
+    for card in section_cards:
+        title = str(card.get("title") or "").strip()
+        text = str(card.get("body") or "").strip()
+        if title and text:
+            body_parts.append(f"## {title}\n\n{text}")
+    body = "\n\n".join(body_parts)
     return f"---\n{yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip()}\n---\n\n{body}\n"
 
 

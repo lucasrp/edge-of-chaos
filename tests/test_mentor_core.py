@@ -62,6 +62,10 @@ interests:
 """,
             encoding="utf-8",
         )
+        (self.tmp / "state" / "operator-pressure.md").write_text(
+            "# Operator Pressure\n\nAlways do fresh search in the live beat and check async chat before closing the cycle.\n",
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp)
@@ -149,7 +153,24 @@ interests:
                 "visualization_count": 1,
                 "search_feedback_rounds": 5,
             },
-            "blog_post": {"title": "Heartbeat", "paragraphs": ["Paragraph one.", "Paragraph two."]},
+            "blog_post": {
+                "title": "Heartbeat",
+                "deck": "This deck gives enough context to explain why the compact entry exists and how it points back to the richer report.",
+                "paragraphs": [
+                    "Paragraph one with enough detail to stand alone.",
+                    "Paragraph two with clear continuation context.",
+                    "Paragraph three with enough substance to remain useful.",
+                ],
+                "highlights": [
+                    "Highlight one carries a concrete takeaway.",
+                    "Highlight two carries the search delta.",
+                ],
+                "section_cards": [
+                    {"title": "Problem Framing and Open Gaps", "body": "The compact entry still surfaces the live problem with enough detail to stay specific and useful."},
+                    {"title": "Broad Search", "body": "Fresh search happened in the beat and the compact entry preserves what shifted because of it."},
+                    {"title": "Recommended Next Steps", "body": "The compact entry keeps at least one concrete next step instead of collapsing into pure summary."},
+                ],
+            },
         }
 
     def test_render_apply_doctor_and_report(self) -> None:
@@ -157,6 +178,8 @@ interests:
         self.assertEqual(self.run_edge("apply").returncode, 0)
         doctor = self.run_edge("doctor")
         self.assertEqual(doctor.returncode, 0, doctor.stdout + doctor.stderr)
+        seeded = self.run_edge("chat-send", "Please", "check", "the", "async", "chat", "during", "this", "beat.")
+        self.assertEqual(seeded.returncode, 0, seeded.stdout + seeded.stderr)
         report = self.run_edge("report", "testar continuidade")
         self.assertEqual(report.returncode, 0, report.stdout + report.stderr)
         self.assertTrue(list((self.tmp / "reports").glob("*.md")))
@@ -173,6 +196,7 @@ interests:
         events = [json.loads(line) for line in ledger.splitlines() if line.strip()]
         self.assertIn("StateLoaded", ledger)
         self.assertIn("ChatDigestRefreshed", ledger)
+        self.assertIn("OperatorContextLoaded", ledger)
         self.assertIn("ContinuitySearchReviewed", ledger)
         self.assertIn("BroadSearchCompleted", ledger)
         self.assertIn("ReportDrafted", ledger)
@@ -182,6 +206,7 @@ interests:
         self.assertIn("FeynmanReviewed", ledger)
         self.assertIn("ArtifactBundleValidated", ledger)
         self.assertIn("ReportUtilityClassified", ledger)
+        self.assertIn("AsyncChatAcknowledged", ledger)
         self.assertIn("RiteVerified", ledger)
         self.assertIn("CycleClosed", ledger)
         drafted = next(event for event in events if event["type"] == "ReportDrafted")
@@ -202,6 +227,57 @@ interests:
         self.assertIn("Search Surface Manifest", report_text)
         self.assertIn("Search Feedback", report_text)
         self.assertIn("<svg", report_text)
+        entry_html = next((self.tmp / "blog" / "entries").glob("*.html")).read_text(encoding="utf-8")
+        self.assertIn("Problem Framing and Open Gaps", entry_html)
+        self.assertIn("Async Chat", entry_html)
+        listed = self.run_edge("chat-list", "--json")
+        self.assertEqual(listed.returncode, 0, listed.stdout + listed.stderr)
+        messages = json.loads(listed.stdout)
+        self.assertTrue(any(item.get("author") == "edge" for item in messages))
+
+    def test_load_config_accepts_agent_yaml_outside_repo(self) -> None:
+        (self.tmp / "agent.yaml").unlink()
+        (self.tmp.parent / "agent.yaml").write_text(
+            """
+name: external-test
+codename: ext
+language: en-US
+mission: "External config"
+domain: "tests"
+workspaces:
+  - name: fixture
+    path: "."
+    kind: repo
+context:
+  claude_sessions:
+    enabled: false
+sources: []
+first_steps:
+  - "Read context"
+interests: []
+""",
+            encoding="utf-8",
+        )
+        try:
+            config = load_config(self.tmp)
+            self.assertEqual(config.name, "external-test")
+            self.assertEqual(config.agent_path, self.tmp.parent / "agent.yaml")
+        finally:
+            (self.tmp.parent / "agent.yaml").unlink(missing_ok=True)
+
+    def test_research_command_runs_the_same_rite(self) -> None:
+        result = self.run_edge("research", "inspect", "the", "latest", "e2e", "delta")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        ledger = (self.tmp / "state" / "events.jsonl").read_text(encoding="utf-8")
+        self.assertIn('"kind": "research"', ledger)
+
+    def test_heartbeat_routes_to_real_beat(self) -> None:
+        result = self.run_edge("heartbeat")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("kind=discovery", result.stdout)
+        ledger = (self.tmp / "state" / "events.jsonl").read_text(encoding="utf-8")
+        self.assertIn("HeartbeatRouted", ledger)
+        self.assertIn('"requested_kind": "heartbeat"', ledger)
 
     def test_rite_requires_two_context_search_reviews(self) -> None:
         events = [
