@@ -20,6 +20,8 @@ from .util import truncate
 
 _LOCAL_COMMAND_PREFIXES = ("git ", "rg ", "grep ", "find ", "ls ", "sed ", "head ")
 _WORKSPACE_TEXT_SUFFIXES = {".py", ".md", ".yaml", ".yml", ".json", ".toml", ".txt", ".sh", ".log", ".csv"}
+_MAX_DIRECT_WORKSPACE_READS = 12
+_PATHLIKE_RE = re.compile(r"(?P<path>(?:~|/|\.\.?/)?[A-Za-z0-9_.~/*?\[\]+=-]+(?:/[A-Za-z0-9_.~/*?\[\]+=-]+)+)")
 
 
 @dataclass
@@ -364,6 +366,147 @@ def _workspace_roots(config: RuntimeConfig, command: str) -> list[tuple[str, Pat
         seen.add(key)
         deduped.append((name, path))
     return deduped
+
+
+def _path_is_under(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _direct_read_roots(config: RuntimeConfig) -> list[tuple[str, Path]]:
+    return _workspace_roots(config, "")
+
+
+def _extract_path_patterns(text: str) -> list[str]:
+    patterns: list[str] = []
+    for match in _PATHLIKE_RE.finditer(text):
+        raw = match.group("path").strip().strip("`'\"")
+        raw = raw.rstrip(".,;:)]}\"'")
+        if not raw or raw.startswith("//") or "://" in raw:
+            continue
+        if raw not in patterns:
+            patterns.append(raw)
+    return patterns
+
+
+def _direct_read_texts(packet: ContextPacket, hints: list[str] | None) -> list[str]:
+    texts = [packet.request, packet.operator_pressure]
+    texts.extend(str(message.get("text") or "") for message in packet.operator_messages[:6])
+    texts.extend(str(hint) for hint in hints or [])
+    for observation in packet.observations:
+        if observation.source in {"operator", "async-chat"}:
+            texts.append(observation.detail)
+    return [text for text in texts if text]
+
+
+def _expand_direct_read_pattern(raw: str, roots: list[tuple[str, Path]]) -> list[Path]:
+    raw_path = Path(os.path.expanduser(raw))
+    has_glob = any(char in raw for char in "*?[")
+    candidates: list[Path] = []
+    if raw_path.is_absolute():
+        if has_glob:
+            candidates.extend(Path(item) for item in sorted(Path("/").glob(str(raw_path).lstrip("/"))))
+        else:
+            candidates.append(raw_path)
+    else:
+        for _name, root in roots:
+            if has_glob:
+                candidates.extend(sorted(root.glob(raw)))
+            else:
+                candidates.append(root / raw)
+    resolved: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        try:
+            path = candidate.resolve()
+        except OSError:
+            continue
+        key = str(path)
+        if key in seen or not path.exists():
+            continue
+        if not any(_path_is_under(path, root) for _name, root in roots):
+            continue
+        seen.add(key)
+        resolved.append(path)
+        if len(resolved) >= _MAX_DIRECT_WORKSPACE_READS:
+            break
+    return resolved
+
+
+def _directory_summary(path: Path) -> str:
+    entries: list[tuple[float, str]] = []
+    try:
+        for child in path.iterdir():
+            try:
+                stat = child.stat()
+            except OSError:
+                continue
+            marker = "/" if child.is_dir() else ""
+            entries.append((stat.st_mtime, f"{child.name}{marker}\tsize={stat.st_size}"))
+    except OSError:
+        return ""
+    entries.sort(reverse=True)
+    return "\n".join(item for _mtime, item in entries[:40])
+
+
+def _read_workspace_path(packet: ContextPacket, path: Path, query: str, *, round_index: int) -> SearchResult | None:
+    if path.is_dir():
+        content = _directory_summary(path)
+        if not content:
+            return None
+        title = f"Workspace directory: {path.name}"
+    elif path.is_file() and path.suffix.lower() in _WORKSPACE_TEXT_SUFFIXES:
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return None
+        if not content.strip():
+            return None
+        title = f"Workspace file: {path.name}"
+    else:
+        return None
+    result = _artifact(
+        "workspace-read",
+        title,
+        str(path),
+        truncate(content, 500),
+        query=query,
+        status="retrieved",
+        round_index=round_index,
+    )
+    result.fetch_status = "fetched"
+    result.fetched_excerpt = truncate(content, 1200)
+    result.reading_note = _read_fetched_document(packet, result, content[:12000])
+    return result
+
+
+def _direct_workspace_reads(config: RuntimeConfig, packet: ContextPacket, hints: list[str] | None, query: str, *, round_index: int) -> list[SearchResult]:
+    roots = _direct_read_roots(config)
+    if not roots:
+        return []
+    patterns: list[str] = []
+    for text in _direct_read_texts(packet, hints):
+        for pattern in _extract_path_patterns(text):
+            if pattern not in patterns:
+                patterns.append(pattern)
+    results: list[SearchResult] = []
+    seen: set[str] = set()
+    for pattern in patterns:
+        for path in _expand_direct_read_pattern(pattern, roots):
+            key = str(path)
+            if key in seen:
+                continue
+            result = _read_workspace_path(packet, path, query, round_index=round_index)
+            if not result:
+                continue
+            seen.add(key)
+            results.append(result)
+            if len(results) >= _MAX_DIRECT_WORKSPACE_READS:
+                return results
+    return results
 
 
 def _command_hints(hints: list[str] | None) -> list[str]:
@@ -716,6 +859,7 @@ def broad_search(config: RuntimeConfig, packet: ContextPacket, hints: list[str] 
     query = query_from_packet(packet, hints)
     configured = {str(item.get("name")): item for item in (config.agent.get("sources") or []) if isinstance(item, dict) and item.get("enabled", True)}
     results: list[SearchResult] = _local_authoritative_context(packet, query, round_index=round_index)
+    results.extend(_direct_workspace_reads(config, packet, hints, query, round_index=round_index))
     results.extend(_workspace_observation_reads(packet, query, round_index=round_index))
     results.extend(_local_workspace_search(config, packet, hints, round_index=round_index))
     if "exa" in configured:

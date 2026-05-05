@@ -387,6 +387,45 @@ interests: []
         self.assertIn("budget", joined)
         self.assertIn("pass_rate", joined)
 
+    def test_broad_search_reads_required_absolute_local_paths_from_review_hints(self) -> None:
+        os.environ["EDGE_DISABLE_LOCAL_ENV"] = "1"
+        os.environ["EDGE_DISABLE_CLAUDE_FALLBACK"] = "1"
+        run_dir = self.tmp / "experimentos" / "tcu-analise-e2e" / "results" / "v8" / "2026-05-05T010000+0000"
+        logs_dir = run_dir / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        manifest = run_dir / "run_manifest.json"
+        manifest.write_text('{"run_count":8,"status":"complete","pairing_key":"budget"}', encoding="utf-8")
+        (logs_dir / "run_v8_b50000.log").write_text("v8 budget=50000 exit_code=0 paired=true", encoding="utf-8")
+        (logs_dir / "run_v8_b75000.log").write_text("v8 budget=75000 exit_code=0 paired=true", encoding="utf-8")
+        config = load_config(self.tmp)
+        packet = ContextPacket(request="latest e2e direct read", kind="research")
+        results = broad_search(
+            config,
+            packet,
+            hints=[f"required_local_reads: {manifest} {logs_dir / 'run_v8_*.log'}"],
+            round_index=2,
+        )
+        direct_reads = [item for item in results if item.source == "workspace-read" and item.fetch_status == "fetched"]
+        joined = "\n".join((item.fetched_excerpt or item.summary) for item in direct_reads)
+        self.assertIn("run_count", joined)
+        self.assertIn("budget=50000", joined)
+        self.assertIn("budget=75000", joined)
+
+    def test_broad_search_ignores_direct_reads_outside_configured_roots(self) -> None:
+        os.environ["EDGE_DISABLE_LOCAL_ENV"] = "1"
+        os.environ["EDGE_DISABLE_CLAUDE_FALLBACK"] = "1"
+        outside = self.tmp.parent / f"{self.tmp.name}-outside.json"
+        outside.write_text('{"secret":"must-not-read"}', encoding="utf-8")
+        try:
+            config = load_config(self.tmp)
+            packet = ContextPacket(request="ignore outside path", kind="research")
+            results = broad_search(config, packet, hints=[f"read {outside}"], round_index=1)
+            joined = "\n".join((item.fetched_excerpt or item.summary) for item in results)
+            self.assertNotIn("must-not-read", joined)
+            self.assertFalse(any(item.source == "workspace-read" and item.url == str(outside) for item in results))
+        finally:
+            outside.unlink(missing_ok=True)
+
     def test_report_shape_rejects_truncated_tail(self) -> None:
         report = """# Private Mentor Report
 

@@ -32,18 +32,41 @@ ROUTED_BEAT_ORDER = ("discovery", "research", "report")
 
 def _search_hints(reviews: list[ReviewResult]) -> list[str]:
     hints: list[str] = []
+
+    def append_hint(raw: Any) -> None:
+        if isinstance(raw, str):
+            value = raw.strip()
+            if value:
+                hints.append(value)
+            return
+        if isinstance(raw, dict):
+            value = " ".join(str(value) for value in raw.values() if value)
+            if value.strip():
+                hints.append(value.strip())
+            return
+        if isinstance(raw, list):
+            for item in raw:
+                append_hint(item)
+
     for review in reviews:
         data = review.data if isinstance(review.data, dict) else {}
-        for key in ["suggested_queries", "search_queries", "recommended_queries"]:
-            raw = data.get(key)
-            if isinstance(raw, list):
-                hints.extend(str(item) for item in raw if item)
-            elif isinstance(raw, str):
-                hints.append(raw)
-        sources = data.get("suggested_sources")
-        if isinstance(sources, list) and sources:
-            hints.append(" ".join(str(item) for item in sources if item))
-    return hints[:12]
+        for key in [
+            "suggested_queries",
+            "search_queries",
+            "recommended_queries",
+            "required_local_reads",
+            "missing_context",
+            "missing_evidence",
+            "recommended_repairs",
+            "repair_notes",
+            "suggested_sources",
+        ]:
+            append_hint(data.get(key))
+    deduped: list[str] = []
+    for hint in hints:
+        if hint not in deduped:
+            deduped.append(hint)
+    return deduped[:20]
 
 
 def _list_from_data(data: dict[str, Any], key: str) -> list[str]:
