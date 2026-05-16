@@ -12,7 +12,32 @@ Planner does not execute the cycle. It designs the work so a human, team, or exp
 
 ## Boundary
 
-Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill.
+Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill once it is running inside a dispatch cycle. The runtime owns those checks.
+
+## Launch Frame
+
+### Direct Slash Re-entry
+
+Assume lifecycle, preflight, exploration, artifact supervision, and postflight are owned by `edge-runner`.
+
+If `/ed-planner` is invoked directly without `EDGE_CYCLE_ID`, immediately re-enter through the canonical runner and then stop. Preserve the operator's slash-command arguments in the dispatch request:
+
+```bash
+if [ -z "${EDGE_CYCLE_ID:-}" ]; then
+  ~/.local/bin/edge-runner skill \
+    --skill /ed-planner \
+    --dispatch-trigger user \
+    --dispatch-policy operator \
+    --dispatch-routing-mode explicit \
+    --dispatch-preflight-profile operator_default \
+    --dispatch-postflight-profile standard \
+    --dispatch-force \
+    --dangerously-skip-permissions \
+    --arg prompt="<operator slash-command arguments>"
+fi
+```
+
+Replace `<operator slash-command arguments>` with the exact text the operator supplied after `/ed-planner`. Do not answer inline from the direct slash process after this command finishes. If `EDGE_CYCLE_ID` is already set, continue normally and produce the planner proposal artifact for the active cycle.
 
 Follow the shared source lookup protocol when the proposal depends on external tools, technical patterns, ecosystem examples, or implementation gotchas.
 

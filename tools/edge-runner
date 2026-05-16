@@ -170,6 +170,10 @@ def maybe_open_cycle(args: argparse.Namespace, env: dict[str, str]) -> str | Non
         dispatch_args.extend(["--preflight-profile", args.dispatch_preflight_profile])
     if args.dispatch_postflight_profile:
         dispatch_args.extend(["--postflight-profile", args.dispatch_postflight_profile])
+    for request_arg in getattr(args, "dispatch_args", None) or []:
+        dispatch_args.extend(["--arg", request_arg])
+    if getattr(args, "dispatch_args_json", None):
+        dispatch_args.extend(["--args-json", args.dispatch_args_json])
     if args.dispatch_force:
         dispatch_args.append("--force")
 
@@ -867,6 +871,17 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dispatch-postflight-profile")
     parser.add_argument("--dispatch-force", action="store_true")
     parser.add_argument("--cycle-id", help="Override the generated dispatch cycle id")
+    parser.add_argument(
+        "--arg",
+        dest="dispatch_args",
+        action="append",
+        help="Request arg to attach to the opened dispatch cycle (key=value). Repeatable.",
+    )
+    parser.add_argument(
+        "--args-json",
+        dest="dispatch_args_json",
+        help="JSON object with request args to attach to the opened dispatch cycle.",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
