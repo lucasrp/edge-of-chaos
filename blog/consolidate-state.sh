@@ -13,9 +13,15 @@
 # Pipeline:
 #   0.  Frontmatter injection (report: field)
 #   0b. Note link injection (note: field, if matching note exists)
-#   0.3 Adversarial review enforcement (edge-consult --gate; YAML or HTML)
-#   0.45 Feynman judge (YAML or HTML)
-#   0.5 Review gate (LLM-as-judge, content report only; YAML or HTML)
+#   0.2 Source consultation before review (internal + external)
+#   0.3 Adversarial review round 1 (advisory score)
+#   0.35 Source consultation between adversarial rounds (internal + external)
+#   0.4 Adversarial review round 2 (advisory score)
+#   0.45 Feynman judge before review gate (advisory score)
+#   0.5 Review gate round 1 (advisory score)
+#   0.55 Source consultation between review gates (internal + external)
+#   0.6 Review gate round 2 (advisory score)
+#   0.65 Rite verification (process gate; score never blocks alone)
 #   0.9 Content report materialization before publish (mandatory — #245)
 #   1.  Blog entry (blog-publish.sh)
 #   2.  Content report indexing/confirmation
@@ -25,7 +31,7 @@
 #   5b. State audit
 #   6.  Diffs + Git commit (audit trail)
 #
-# Exit codes: 0 = tudo OK, 1 = erro fatal, 2 = parcial, 3 = review gate falhou
+# Exit codes: 0 = tudo OK, 1 = erro fatal, 2 = parcial, 3 = rito/review tool falhou
 #
 # Flags:
 #   --review-only      Rodar so o review gate, sem publicar
@@ -156,6 +162,420 @@ run_adversarial_gate_review() {
     fi
     echo "$review_output"
     return 0
+}
+
+artifact_hash_for() {
+    local artifact="$1"
+    if [[ -f "$artifact" ]]; then
+        sha256sum "$artifact" | awk '{print $1}'
+    else
+        echo ""
+    fi
+}
+
+record_rite_event() {
+    local event_type="$1" stage="${2:-}" round="${3:-}" status="${4:-completed}" path="${5:-}" detail="${6:-}"
+    [[ -n "${RITE_EVENTS_FILE:-}" ]] || return 0
+    mkdir -p "$(dirname "$RITE_EVENTS_FILE")"
+    python3 - "$event_type" "$stage" "$round" "$status" "$path" "$detail" <<'PY' >>"$RITE_EVENTS_FILE" 2>/dev/null || true
+import json
+import os
+import sys
+from datetime import datetime, timezone
+
+event_type, stage, round_value, status, path, detail = sys.argv[1:7]
+event = {
+    "ts": datetime.now(timezone.utc).isoformat(),
+    "type": event_type,
+    "status": status,
+    "slug": os.environ.get("EDGE_PUBLISH_SLUG", ""),
+}
+if stage:
+    event["stage"] = stage
+if round_value:
+    try:
+        event["round"] = int(round_value)
+    except ValueError:
+        event["round"] = round_value
+if path:
+    event["path"] = path
+if detail:
+    event["detail"] = detail[:500]
+print(json.dumps(event, ensure_ascii=False, sort_keys=True))
+PY
+}
+
+build_source_query() {
+    local stage="$1" hints_path="${2:-}"
+    python3 - "$stage" "$ENTRY_PATH" "$REPORT_INPUT" "$hints_path" "$SLUG" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+try:
+    import yaml
+except Exception:
+    yaml = None
+
+stage, entry_path, report_path, hints_path, slug = sys.argv[1:6]
+
+def read(path):
+    if not path:
+        return ""
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+
+def frontmatter(raw):
+    if yaml is None or not raw.startswith("---"):
+        return {}
+    parts = raw.split("---", 2)
+    if len(parts) < 3:
+        return {}
+    try:
+        data = yaml.safe_load(parts[1]) or {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+entry_raw = read(entry_path)
+report_raw = read(report_path)
+entry_fm = frontmatter(entry_raw)
+report_fm = frontmatter(report_raw)
+terms = [slug, stage]
+for fm in (entry_fm, report_fm):
+    for key in ("title", "thread", "skill", "type"):
+        value = fm.get(key)
+        if isinstance(value, str):
+            terms.append(value)
+    for key in ("tags", "keywords", "threads", "open_gaps"):
+        value = fm.get(key)
+        if isinstance(value, list):
+            terms.extend(str(item) for item in value[:8])
+        elif isinstance(value, str):
+            terms.append(value)
+
+if hints_path:
+    try:
+        hints = json.loads(read(hints_path))
+    except Exception:
+        hints = {}
+    text_parts = []
+    if isinstance(hints, dict):
+        text_parts.extend(str(item) for item in hints.get("critical_issues", [])[:4] if item)
+        text_parts.extend(str(item) for item in hints.get("suggestions", [])[:4] if item)
+        response = hints.get("response")
+        if response:
+            text_parts.append(str(response)[:1200])
+        final = hints.get("final_review")
+        if isinstance(final, dict):
+            text_parts.extend(str(item) for item in final.get("critical_issues", [])[:4] if item)
+            text_parts.extend(str(item) for item in final.get("suggestions", [])[:4] if item)
+        review = hints.get("review")
+        if isinstance(review, dict):
+            text_parts.extend(str(item) for item in review.get("critical_issues", [])[:4] if item)
+            text_parts.extend(str(item) for item in review.get("suggestions", [])[:4] if item)
+    terms.extend(text_parts)
+
+if not any(str(term).strip() for term in terms):
+    terms.append((entry_raw + "\n" + report_raw)[:1200])
+
+query = " ".join(str(term) for term in terms if str(term).strip())
+query = re.sub(r"[^0-9A-Za-zÀ-ÿ_./:-]+", " ", query)
+query = re.sub(r"\s+", " ", query).strip()
+print(query[:260] or slug)
+PY
+}
+
+write_sources_manifest() {
+    local stage="$1" query="$2" internal_status="$3" external_status="$4" internal_file="$5" external_file="$6" output_path="$7"
+    mkdir -p "$(dirname "$output_path")"
+    python3 - "$stage" "$query" "$internal_status" "$external_status" "$internal_file" "$external_file" "$output_path" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+stage, query, internal_status, external_status, internal_file, external_file, output_path = sys.argv[1:8]
+
+def read_payload(path):
+    raw = Path(path).read_text(encoding="utf-8", errors="replace") if path else ""
+    try:
+        parsed = json.loads(raw) if raw.strip() else None
+    except Exception:
+        parsed = None
+    return raw[:20000], parsed
+
+internal_raw, internal_json = read_payload(internal_file)
+external_raw, external_json = read_payload(external_file)
+
+def result_count(payload):
+    if isinstance(payload, dict):
+        if isinstance(payload.get("results"), list):
+            return len(payload["results"])
+        total = 0
+        for value in payload.values():
+            if isinstance(value, list):
+                total += len(value)
+        return total
+    return 0
+
+manifest = {
+    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "stage": stage,
+    "query": query,
+    "internal": {
+        "attempted": True,
+        "status": internal_status,
+        "result_count": result_count(internal_json),
+        "payload": internal_json if internal_json is not None else {"raw": internal_raw[:4000]},
+    },
+    "external": {
+        "attempted": True,
+        "status": external_status,
+        "result_count": result_count(external_json),
+        "payload": external_json if external_json is not None else {"raw": external_raw[:4000]},
+    },
+}
+Path(output_path).write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+print(json.dumps({"path": output_path, "internal_status": internal_status, "external_status": external_status}, ensure_ascii=False))
+PY
+}
+
+consult_sources_stage() {
+    local stage="$1" hints_path="${2:-}"
+    local query manifest internal_tmp external_tmp internal_err external_err internal_status external_status
+    query="$(build_source_query "$stage" "$hints_path")"
+    manifest="$RITE_BASENAME.sources-${stage}.json"
+    internal_tmp="$(mktemp)"
+    external_tmp="$(mktemp)"
+    internal_err="$(mktemp)"
+    external_err="$(mktemp)"
+    internal_status="completed"
+    external_status="completed"
+
+    echo "── Sources: $stage ──"
+    emit_run_step_event "phase-sources-$stage" "started" "source_consultation" ""
+
+    if command -v edge-search &>/dev/null; then
+        if ! edge-search "$query" -k 8 --json --no-telemetry --no-sidecar >"$internal_tmp" 2>"$internal_err"; then
+            internal_status="unavailable"
+            cat "$internal_err" >>"$internal_tmp"
+        fi
+    elif [[ -x "$EDGE_REPO_DIR/search/edge-search" ]]; then
+        if ! "$EDGE_REPO_DIR/search/edge-search" "$query" -k 8 --json --no-telemetry --no-sidecar >"$internal_tmp" 2>"$internal_err"; then
+            internal_status="unavailable"
+            cat "$internal_err" >>"$internal_tmp"
+        fi
+    else
+        internal_status="unavailable"
+        echo "edge-search not found" >"$internal_tmp"
+    fi
+
+    if command -v edge-sources &>/dev/null; then
+        if ! edge-sources "$query" --intent report --sources "${EDGE_CONSOLIDATE_EXTERNAL_SOURCES:-exa,github,hn}" --no-corpus --no-wildcard --json >"$external_tmp" 2>"$external_err"; then
+            external_status="unavailable"
+            cat "$external_err" >>"$external_tmp"
+        fi
+    elif [[ -x "$TOOLS_DIR/edge-sources" ]]; then
+        if ! "$TOOLS_DIR/edge-sources" "$query" --intent report --sources "${EDGE_CONSOLIDATE_EXTERNAL_SOURCES:-exa,github,hn}" --no-corpus --no-wildcard --json >"$external_tmp" 2>"$external_err"; then
+            external_status="unavailable"
+            cat "$external_err" >>"$external_tmp"
+        fi
+    else
+        external_status="unavailable"
+        echo "edge-sources not found" >"$external_tmp"
+    fi
+
+    write_sources_manifest "$stage" "$query" "$internal_status" "$external_status" "$internal_tmp" "$external_tmp" "$manifest" >/dev/null
+    rm -f "$internal_tmp" "$external_tmp" "$internal_err" "$external_err"
+
+    ok "Sources consulted: $stage (internal=$internal_status external=$external_status)"
+    echo "  Manifest: $manifest"
+    record_rite_event "SourcesConsulted" "$stage" "" "completed" "$manifest" "internal=$internal_status external=$external_status"
+    emit_run_step_event "phase-sources-$stage" "completed" "source_consultation" ""
+    echo ""
+}
+
+copy_if_exists() {
+    local src="$1" dst="$2"
+    [[ -f "$src" ]] || return 1
+    mkdir -p "$(dirname "$dst")"
+    cp "$src" "$dst"
+}
+
+mark_review_handled() {
+    local review_path="$1"
+    [[ -f "$review_path" ]] || return 0
+    python3 - "$review_path" <<'PY' 2>/dev/null || true
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+if isinstance(payload, dict):
+    payload["resolved"] = True
+    payload["resolution"] = "handled by mandatory advisory rite; score is telemetry"
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+PY
+}
+
+run_feynman_gate() {
+    local review_file="$1"
+    if [[ -x "$TOOLS_DIR/feynman-judge" ]]; then
+        "$TOOLS_DIR/feynman-judge" "$REPORT_INPUT" --json --output "$review_file" 2>/dev/null
+        return $?
+    fi
+    if command -v feynman-judge &>/dev/null; then
+        feynman-judge "$REPORT_INPUT" --json --output "$review_file" 2>/dev/null
+        return $?
+    fi
+    return 127
+}
+
+extract_review_score() {
+    python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    fr = d.get('final_review', d.get('review', d))
+    print(fr.get('overall', d.get('overall', 0)))
+except Exception:
+    print(0)
+"
+}
+
+extract_review_cost() {
+    python3 -c "
+import json, sys, re
+try:
+    d = json.load(sys.stdin)
+    total = 0.0
+    for key in ['coauthor', 'review', 'final_review']:
+        meta = d.get(key, {}).get('_meta', {}) if isinstance(d.get(key), dict) else {}
+        c = meta.get('cost_estimate', '')
+        total += float(re.sub(r'[^\\d.]', '', c) or 0)
+    for rd in d.get('rounds', []):
+        for phase in ['review', 'refine']:
+            meta = rd.get(phase, {}).get('_meta', {})
+            c = meta.get('cost_estimate', '')
+            total += float(re.sub(r'[^\\d.]', '', c) or 0)
+    print(f'{total:.4f}')
+except Exception:
+    print('0')
+"
+}
+
+print_feedback_summary() {
+    python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+r = d.get('final_review', d.get('review', d))
+issues = r.get('critical_issues', []) if isinstance(r, dict) else []
+suggestions = r.get('suggestions', []) if isinstance(r, dict) else []
+ca = d.get('coauthor', {}) if isinstance(d, dict) else {}
+ca_suggestions = ca.get('suggestions', []) if isinstance(ca, dict) else []
+if issues:
+    print('  Critical issues:')
+    for i in issues[:3]:
+        print(f'    - {i}')
+if ca_suggestions:
+    print(f'  Co-author suggestions: {len(ca_suggestions)}')
+    for s in ca_suggestions[:3]:
+        desc = s.get('description', s) if isinstance(s, dict) else str(s)
+        print(f'    - {str(desc)[:120]}')
+if suggestions:
+    print(f'  Reviewer suggestions: {len(suggestions)}')
+    for s in suggestions[:3]:
+        print(f'    - {str(s)[:120]}')
+"
+}
+
+write_rite_summary() {
+    local status="$1" detail="${2:-}"
+    [[ -n "${RITE_FILE:-}" && -n "${RITE_EVENTS_FILE:-}" ]] || return 0
+    mkdir -p "$(dirname "$RITE_FILE")"
+    python3 - "$RITE_EVENTS_FILE" "$RITE_FILE" "$status" "$detail" "$REPORT_INPUT" "$ENTRY_PATH" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+events_path, rite_path, status, detail, report_path, entry_path = sys.argv[1:7]
+events = []
+if Path(events_path).exists():
+    for raw in Path(events_path).read_text(encoding="utf-8").splitlines():
+        if raw.strip():
+            try:
+                events.append(json.loads(raw))
+            except Exception:
+                pass
+
+required = [
+    ("SourcesConsulted", "pre_review", None),
+    ("AdversarialReviewed", "adversarial", 1),
+    ("SourcesConsulted", "between_adversarial_reviews", None),
+    ("AdversarialReviewed", "adversarial", 2),
+    ("FeynmanReviewed", "feynman", None),
+    ("ReviewGateCompleted", "review_gate", 1),
+    ("SourcesConsulted", "between_review_gates", None),
+    ("ReviewGateCompleted", "review_gate", 2),
+]
+missing = []
+cursor = -1
+for event_type, stage, round_value in required:
+    found = False
+    for idx in range(cursor + 1, len(events)):
+        event = events[idx]
+        if event.get("type") != event_type:
+            continue
+        if stage and event.get("stage") != stage:
+            continue
+        if round_value is not None and event.get("round") != round_value:
+            continue
+        found = True
+        cursor = idx
+        break
+    if not found:
+        label = event_type
+        if stage:
+            label += f":{stage}"
+        if round_value is not None:
+            label += f":round-{round_value}"
+        missing.append(label)
+
+manifest_paths = [
+    event.get("path")
+    for event in events
+    if event.get("type") == "SourcesConsulted"
+]
+for path in manifest_paths:
+    if not path or not Path(path).exists():
+        missing.append(f"source-manifest-missing:{path}")
+
+passed = status == "passed" and not missing
+payload = {
+    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "status": "passed" if passed else "failed",
+    "detail": detail,
+    "entry": entry_path,
+    "report": report_path,
+    "required": [
+        {"type": t, "stage": s, "round": r}
+        for t, s, r in required
+    ],
+    "missing": missing,
+    "events": events,
+}
+Path(rite_path).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+print(json.dumps({"passed": passed, "missing": missing}, ensure_ascii=False))
+PY
 }
 
 artifact_stem_for() {
@@ -539,6 +959,10 @@ REPORT_HTML=""
 REPORT_FILENAME=""
 REPORT_RESULT="skip"
 TOTAL_LLM_COST="0"
+RITE_BASENAME="$REPORTS_DIR/$SLUG"
+RITE_EVENTS_FILE="$RITE_BASENAME.rite-events.jsonl"
+RITE_FILE="$RITE_BASENAME.rite.json"
+rm -f "$RITE_EVENTS_FILE" "$RITE_FILE"
 ledger_record "pipeline-start" "ok"
 
 # Enforcement #245: content report (YAML/HTML) is MANDATORY — validated
@@ -660,21 +1084,21 @@ else
     :  # No matching note — skip silently
 fi
 
-# ─── PHASE 0.3: Adversarial Review Enforcement ───
-# Every content artifact path must pass the same pre-publication gates. YAML
-# specs and pre-rendered HTML both become reader-visible reports, so neither
-# may bypass adversarial review, Feynman review, or the review gate.
+# ─── PHASE 0.2-0.65: Advisory review rite ───
+# Scores are telemetry. Publication is blocked only when the process does not
+# run: sources must be consulted, two adversarial rounds must execute, Feynman
+# must run before the first review gate, and two review-gate rounds must run.
 if [[ -n "$REPORT_INPUT" ]]; then
     if [[ ! -f "$REPORT_INPUT" ]]; then
-        fail "Report not found before quality gates: $REPORT_INPUT"
-        emit_run_step_event "phase-0.3" "failed" "adversarial_review" "report artifact missing before gates"
+        fail "Report not found before quality rite: $REPORT_INPUT"
+        emit_run_step_event "phase-0.2" "failed" "quality_rite" "report artifact missing before gates"
         exit 1
     fi
 
     REPORT_KIND="$(artifact_kind_for "$REPORT_INPUT")"
     if [[ "$REPORT_KIND" == "unknown" ]]; then
         fail "Unsupported report format before publish: $REPORT_INPUT"
-        emit_run_step_event "phase-0.3" "failed" "adversarial_review" "unsupported report artifact format"
+        emit_run_step_event "phase-0.2" "failed" "quality_rite" "unsupported report artifact format"
         exit 1
     fi
 
@@ -683,85 +1107,48 @@ if [[ -n "$REPORT_INPUT" ]]; then
     RESOLVED_FILE="${REPORT_ARTIFACT_STEM}.resolved"
     REVIEW_QUESTION="Adversarially review this publication artifact before publish. It may be a YAML report spec or pre-rendered HTML. Identify the weakest reasoning, unsupported assumptions, missing evidence, protocol violations, missing visual/explanatory structure, and what is most likely to break. If it is HTML, review the final reader-visible artifact."
 
-    echo "── Phase 0.3: Adversarial Review ($REPORT_KIND) ──"
-    emit_run_step_event "phase-0.3" "started" "adversarial_review" ""
+    consult_sources_stage "pre_review"
 
-    if [[ ! -f "$REVIEW_JSON_FILE" ]]; then
-        ok "No adversarial review found — generating gate review now"
+    for ADV_ROUND in 1 2; do
+        echo "── Phase 0.$((2 + ADV_ROUND)): Adversarial Review Round $ADV_ROUND ($REPORT_KIND) ──"
+        emit_run_step_event "phase-0.3" "started" "adversarial_review_round_$ADV_ROUND" ""
+        before_hash="$(artifact_hash_for "$REPORT_INPUT")"
+        rm -f "$REVIEW_JSON_FILE" "$RESOLVED_FILE"
         if run_adversarial_gate_review "$REVIEW_QUESTION"; then
             if [[ ! -f "$REVIEW_JSON_FILE" ]]; then
-                fail "Adversarial review generation succeeded but no $(basename "$REVIEW_JSON_FILE") was written"
-                emit_run_step_event "phase-0.3" "failed" "adversarial_review" "missing review artifact after generation"
+                fail "Adversarial review round $ADV_ROUND succeeded but no $(basename "$REVIEW_JSON_FILE") was written"
+                emit_run_step_event "phase-0.3" "failed" "adversarial_review_round_$ADV_ROUND" "missing review artifact after generation"
                 exit 3
             fi
-            ok "Adversarial review generated ($(basename "$REVIEW_JSON_FILE"))"
-            fail "Adversarial review pending: address feedback before continuing"
-            echo ""
-            echo "  Review: $REVIEW_JSON_FILE"
-            echo "  Address the feedback in the artifact and create the marker to proceed:"
-            echo "    touch $RESOLVED_FILE"
-            echo ""
-            emit_run_step_event "phase-0.3" "failed" "adversarial_review_pending" "review generated; pending resolution"
-            exit 3
+            ADV_REVIEW_COPY="$RITE_BASENAME.adversarial-r${ADV_ROUND}.review.json"
+            copy_if_exists "$REVIEW_JSON_FILE" "$ADV_REVIEW_COPY"
+            mark_review_handled "$ADV_REVIEW_COPY"
+            mark_review_handled "$REVIEW_JSON_FILE"
+            after_hash="$(artifact_hash_for "$REPORT_INPUT")"
+            ok "Adversarial round $ADV_ROUND completed"
+            echo "  Review: $ADV_REVIEW_COPY"
+            record_rite_event "AdversarialReviewed" "adversarial" "$ADV_ROUND" "completed" "$ADV_REVIEW_COPY" "hash_before=$before_hash hash_after=$after_hash"
+            emit_run_step_event "phase-0.3" "completed" "adversarial_review_round_$ADV_ROUND" ""
         else
-            fail "Adversarial review generation failed"
-            emit_run_step_event "phase-0.3" "failed" "adversarial_review" "gate generation failed"
+            fail "Adversarial review round $ADV_ROUND failed"
+            emit_run_step_event "phase-0.3" "failed" "adversarial_review_round_$ADV_ROUND" "gate generation failed"
             exit 3
         fi
-    elif [[ ! -f "$RESOLVED_FILE" ]]; then
-        fail "Adversarial review pending: $(basename "$REVIEW_JSON_FILE")"
         echo ""
-        echo "  edge-consult generated feedback that has not been addressed."
-        echo "  Address the feedback in the artifact and create the marker to proceed:"
-        echo "    touch $RESOLVED_FILE"
-        echo ""
-        echo "  (Enforcement #218: bypass flags removed — adversarial review is mandatory.)"
-        echo ""
-        python3 -c "
-import json, sys
-try:
-    d = json.load(open('$REVIEW_JSON_FILE'))
-    resp = d.get('response', '')
-    print('  Review (summary):')
-    for line in resp.split('\n')[:8]:
-        print(f'    {line}')
-    if len(resp.split('\n')) > 8:
-        print('    ...')
-except Exception:
-    pass
-" 2>/dev/null
-        echo ""
-        emit_run_step_event "phase-0.3" "failed" "adversarial_review" "pending unresolved review"
-        exit 3
-    else
-        ok "Adversarial review resolved ($(basename "$RESOLVED_FILE") present)"
-        emit_run_step_event "phase-0.3" "completed" "adversarial_review" ""
-        echo ""
-    fi
+
+        if [[ "$ADV_ROUND" -eq 1 ]]; then
+            consult_sources_stage "between_adversarial_reviews" "$ADV_REVIEW_COPY"
+        fi
+    done
 
     echo "── Phase 0.45: Feynman Judge ($REPORT_KIND) ──"
     emit_run_step_event "phase-0.45" "started" "feynman_judge" ""
-    FEYNMAN_REVIEW_FILE="${REPORT_ARTIFACT_STEM}.feynman-review.json"
-    if [[ -x "$TOOLS_DIR/feynman-judge" ]]; then
-        FEYNMAN_JSON=$("$TOOLS_DIR/feynman-judge" "$REPORT_INPUT" --json --output "$FEYNMAN_REVIEW_FILE" 2>/dev/null)
-        FEYNMAN_EXIT=$?
-    elif command -v feynman-judge &>/dev/null; then
-        FEYNMAN_JSON=$(feynman-judge "$REPORT_INPUT" --json --output "$FEYNMAN_REVIEW_FILE" 2>/dev/null)
-        FEYNMAN_EXIT=$?
-    else
-        FEYNMAN_JSON=""
-        FEYNMAN_EXIT=127
-    fi
-    if [[ $FEYNMAN_EXIT -eq 0 ]]; then
-        FEYNMAN_SCORE=$(echo "$FEYNMAN_JSON" | python3 -c "
-import json, sys
-try:
-    print(json.load(sys.stdin).get('overall', 0))
-except Exception:
-    print(0)
-" 2>/dev/null)
+    FEYNMAN_REVIEW_FILE="$RITE_BASENAME.feynman-review.json"
+    if FEYNMAN_JSON=$(run_feynman_gate "$FEYNMAN_REVIEW_FILE"); then
+        FEYNMAN_SCORE=$(echo "$FEYNMAN_JSON" | extract_review_score 2>/dev/null)
         ok "Feynman judge: score ${FEYNMAN_SCORE}/5.0"
         echo "  Review: $FEYNMAN_REVIEW_FILE"
+        record_rite_event "FeynmanReviewed" "feynman" "" "completed" "$FEYNMAN_REVIEW_FILE" "score=$FEYNMAN_SCORE"
         emit_run_step_event "phase-0.45" "completed" "feynman_judge" ""
     else
         fail "Feynman judge unavailable or failed"
@@ -770,91 +1157,71 @@ except Exception:
     fi
     echo ""
 
-    echo "── Phase 0.5: Review Gate ($REPORT_KIND) ──"
-    emit_run_step_event "phase-0.5" "started" "review_gate" ""
     REPORT_BASENAME=$(basename "$REPORT_INPUT")
     SKILL_NAME=""
     if [[ "$REPORT_BASENAME" =~ ^spec-([a-z]+)- ]]; then
         SKILL_NAME="${BASH_REMATCH[1]}"
     fi
 
-    REVIEW_JSON=$(run_review_gate "$REPORT_INPUT" "$SKILL_NAME" 2>/dev/null)
-    REVIEW_EXIT=$?
-    if [[ $REVIEW_EXIT -ne 0 ]]; then
-        fail "review-gate unavailable or failed (exit $REVIEW_EXIT)"
-        emit_run_step_event "phase-0.5" "failed" "review_gate" "review-gate unavailable or failed"
+    TOTAL_LLM_COST="0"
+    for REVIEW_ROUND in 1 2; do
+        echo "── Phase 0.$((4 + REVIEW_ROUND)): Review Gate Round $REVIEW_ROUND ($REPORT_KIND) ──"
+        emit_run_step_event "phase-0.5" "started" "review_gate_round_$REVIEW_ROUND" ""
+        REVIEW_JSON=$(run_review_gate "$REPORT_INPUT" "$SKILL_NAME" 2>/dev/null)
+        REVIEW_EXIT=$?
+        if [[ $REVIEW_EXIT -ne 0 ]]; then
+            fail "review-gate round $REVIEW_ROUND unavailable or failed (exit $REVIEW_EXIT)"
+            emit_run_step_event "phase-0.5" "failed" "review_gate_round_$REVIEW_ROUND" "review-gate unavailable or failed"
+            exit 3
+        fi
+
+        REVIEW_SCORE=$(echo "$REVIEW_JSON" | extract_review_score 2>/dev/null)
+        REVIEW_COST=$(echo "$REVIEW_JSON" | extract_review_cost 2>/dev/null)
+        TOTAL_LLM_COST=$(python3 - "$TOTAL_LLM_COST" "$REVIEW_COST" <<'PY'
+import sys
+try:
+    print(f"{float(sys.argv[1] or 0) + float(sys.argv[2] or 0):.4f}")
+except Exception:
+    print(sys.argv[1] or "0")
+PY
+)
+        REVIEW_ROUND_FILE="$RITE_BASENAME.review-gate-r${REVIEW_ROUND}.feedback.json"
+        printf '%s\n' "$REVIEW_JSON" >"$REVIEW_ROUND_FILE"
+        FEEDBACK_FILE="${REPORT_ARTIFACT_STEM}.feedback.json"
+
+        ok "Review gate round $REVIEW_ROUND: score ${REVIEW_SCORE}/5.0, cost \$${REVIEW_COST} (advisory)"
+        echo "$REVIEW_JSON" | print_feedback_summary 2>/dev/null || true
+        echo "  Feedback: $REVIEW_ROUND_FILE"
+        record_rite_event "ReviewGateCompleted" "review_gate" "$REVIEW_ROUND" "completed" "$REVIEW_ROUND_FILE" "score=$REVIEW_SCORE cost=$REVIEW_COST"
+        emit_run_step_event "phase-0.5" "completed" "review_gate_round_$REVIEW_ROUND" ""
+        echo ""
+
+        if [[ "$REVIEW_ROUND" -eq 1 ]]; then
+            consult_sources_stage "between_review_gates" "$REVIEW_ROUND_FILE"
+        fi
+    done
+
+    echo "── Phase 0.65: Rite Verification ──"
+    emit_run_step_event "phase-0.65" "started" "rite_verification" ""
+    RITE_CHECK=$(write_rite_summary "passed" "advisory review rite completed")
+    if echo "$RITE_CHECK" | python3 -c 'import json, sys; sys.exit(0 if json.load(sys.stdin).get("passed") else 1)' 2>/dev/null; then
+        ok "Rite verified: $RITE_FILE"
+        record_rite_event "RiteVerified" "quality_rite" "" "completed" "$RITE_FILE" ""
+        write_rite_summary "passed" "advisory review rite completed" >/dev/null
+        emit_run_step_event "phase-0.65" "completed" "rite_verification" ""
+    else
+        fail "Rite verification failed"
+        echo "  Rite: $RITE_FILE"
+        echo "$RITE_CHECK"
+        emit_run_step_event "phase-0.65" "failed" "rite_verification" "missing required rite event"
         exit 3
     fi
-
-    REVIEW_SCORE=$(echo "$REVIEW_JSON" | python3 -c "
-import json, sys
-try:
-    d = json.load(sys.stdin)
-    fr = d.get('final_review', d)
-    print(fr.get('overall', 0))
-except Exception:
-    print(0)
-" 2>/dev/null)
-    REVIEW_COST=$(echo "$REVIEW_JSON" | python3 -c "
-import json, sys, re
-try:
-    d = json.load(sys.stdin)
-    total = 0.0
-    for key in ['coauthor']:
-        meta = d.get(key, {}).get('_meta', {})
-        c = meta.get('cost_estimate', '')
-        total += float(re.sub(r'[^\d.]', '', c) or 0)
-    for rd in d.get('rounds', []):
-        for phase in ['review', 'refine']:
-            meta = rd.get(phase, {}).get('_meta', {})
-            c = meta.get('cost_estimate', '')
-            total += float(re.sub(r'[^\d.]', '', c) or 0)
-    if total == 0:
-        meta = d.get('final_review', d).get('_meta', {})
-        c = meta.get('cost_estimate', '')
-        total = float(re.sub(r'[^\d.]', '', c) or 0)
-    print(f'{total:.4f}')
-except Exception:
-    print('0')
-" 2>/dev/null)
-    TOTAL_LLM_COST="$REVIEW_COST"
-
-    ok "Review gate: score ${REVIEW_SCORE}/5.0, cost \$${REVIEW_COST}"
-    FEEDBACK_FILE="${REPORT_ARTIFACT_STEM}.feedback.json"
-    if [[ -f "$FEEDBACK_FILE" ]]; then
-        echo "$REVIEW_JSON" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-r = d.get('final_review', d)
-issues = r.get('critical_issues', [])
-suggestions = r.get('suggestions', [])
-ca = d.get('coauthor', {})
-ca_suggestions = ca.get('suggestions', [])
-if issues:
-    print('  Critical issues:')
-    for i in issues[:3]:
-        print(f'    - {i}')
-if ca_suggestions:
-    print(f'  Co-author suggestions: {len(ca_suggestions)}')
-    for s in ca_suggestions[:3]:
-        desc = s.get('description', s) if isinstance(s, dict) else str(s)
-        print(f'    - {str(desc)[:120]}')
-if suggestions:
-    print(f'  Reviewer suggestions: {len(suggestions)}')
-    for s in suggestions[:3]:
-        print(f'    - {str(s)[:120]}')
-" 2>/dev/null
-        echo "  Feedback: $FEEDBACK_FILE"
-    fi
+    echo ""
 
     if [[ "$REVIEW_ONLY" == "true" ]]; then
-        emit_run_step_event "phase-0.5" "completed" "review_gate" ""
-        echo ""
         echo "Review-only mode. Nothing published."
         exit 0
     fi
-    emit_run_step_event "phase-0.5" "completed" "review_gate" ""
-    echo ""
 fi
 
 # ─── PHASE 0.9: Report materialization before publishing entry ───

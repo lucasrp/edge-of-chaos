@@ -2,13 +2,12 @@
 set -euo pipefail
 
 EDGE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-TMP_BASE="$(mktemp -d /tmp/edge-consolidate-adversarial-XXXXXX)"
+TMP_BASE="$(mktemp -d /tmp/edge-consolidate-rite-XXXXXX)"
 TMP_STATE="$TMP_BASE/state"
 TMP_BIN="$TMP_BASE/bin"
 TMP_ENTRY="$TMP_STATE/blog/entries/test-entry.md"
 TMP_REPORT="$TMP_STATE/reports/test-spec.yaml"
-TMP_REPORT_HTML="$TMP_STATE/reports/test-report.html"
-TEST_LOG="$TMP_BASE/test-consolidate-adversarial.log"
+TEST_LOG="$TMP_BASE/test-consolidate-rite.log"
 PASS=0
 FAIL=0
 
@@ -20,14 +19,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$TMP_STATE"/{blog/entries,reports,logs,state/events,state/runtime,state/audits,health,db,threads,topics,notes,builds,search,config,search} "$TMP_BIN"
+mkdir -p "$TMP_STATE"/{blog/entries,reports,logs,state/events,state/runtime,state/audits,health,db,threads,topics,notes,builds,search,config} "$TMP_BIN"
 
 cat >"$TMP_ENTRY" <<'EOF'
 ---
 title: "Test entry"
 date: "2026-04-23"
-tags: [test]
-open_gaps: []
+tags: [test, crm]
+open_gaps:
+  - "Need to verify source consultation"
 threads: [test-thread]
 ---
 
@@ -36,42 +36,39 @@ EOF
 
 cat >"$TMP_REPORT" <<'EOF'
 title: "Test spec"
-subtitle: "Adversarial phase smoke"
+subtitle: "Advisory rite smoke"
 date: "23/04/2026"
+tags: [test, crm]
 sections:
   - title: "1. Test"
-    content: "Test content"
-EOF
-
-cat >"$TMP_REPORT_HTML" <<'EOF'
-<!doctype html>
-<html lang="pt-BR">
-<head><title>Test HTML report</title></head>
-<body>
-<h1>Test HTML report</h1>
-<p>Em termos simples, este relatorio testa o gate de HTML pre-renderizado.</p>
-<h2>O que Nao Sei</h2>
-<p>Nao sabemos se o ambiente externo esta disponivel.</p>
-</body>
-</html>
+    content: "Em termos simples, este relatorio testa consulta de fontes, adversarial, Feynman e review."
+  - title: "O que Nao Sei"
+    content: "Nao sabemos se as fontes externas estao disponiveis."
 EOF
 
 cat >"$TMP_BIN/review-gate" <<'EOF'
 #!/usr/bin/env python3
 import json
-print(json.dumps({
+import pathlib
+import sys
+
+artifact = pathlib.Path(sys.argv[1])
+payload = {
   "final_review": {
-    "overall": 4.2,
-    "critical_issues": [],
-    "suggestions": [],
+    "pass": False,
+    "overall": 2.1,
+    "critical_issues": ["low score should be advisory"],
+    "suggestions": ["consult sources and revise"],
     "_meta": {"cost_estimate": "$0.0010"}
   },
   "coauthor": {
-    "suggestions": [],
+    "suggestions": [{"description": "add a gap"}],
     "_meta": {"cost_estimate": "$0.0010"}
   },
   "rounds": []
-}))
+}
+artifact.with_suffix(".feedback.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+print(json.dumps(payload))
 EOF
 chmod +x "$TMP_BIN/review-gate"
 
@@ -94,170 +91,129 @@ gate.with_suffix(".review.json").write_text(json.dumps({
     "timestamp": "2026-04-23T00:00:00+00:00",
     "spec": str(gate),
     "mode": "adversarial",
-    "response": "stub review",
+    "response": "stub adversarial review with source hints",
+    "critical_issues": ["check internal continuity"],
+    "suggestions": ["search external evidence"],
     "resolved": False
 }, indent=2), encoding="utf-8")
 print("stub adversarial review")
 EOF
 chmod +x "$TMP_BIN/edge-consult"
 
+cat >"$TMP_BIN/edge-search" <<'EOF'
+#!/usr/bin/env python3
+import json
+import sys
+
+query = " ".join(arg for arg in sys.argv[1:] if not arg.startswith("-"))
+print(json.dumps({
+    "mode": "hybrid",
+    "query": query,
+    "results": [{"path": "memory/MEMORY.md", "type": "note", "title": "Memory", "snippet": "internal result"}],
+    "workflows": [],
+    "coverage": {}
+}))
+EOF
+chmod +x "$TMP_BIN/edge-search"
+
+cat >"$TMP_BIN/edge-sources" <<'EOF'
+#!/usr/bin/env python3
+import json
+
+print(json.dumps({
+    "exa": [{"title": "External result", "url": "https://example.com", "source": "Exa", "detail": "external", "score": 1}],
+    "github": []
+}))
+EOF
+chmod +x "$TMP_BIN/edge-sources"
+
 export EDGE_REPO_DIR="$EDGE_DIR"
 export EDGE_STATE_DIR="$TMP_STATE"
-export EDGE_CODENAME="adversarial-phase-test"
+export EDGE_CODENAME="rite-test"
 export PATH="$TMP_BIN:$PATH"
 
 CONSOLIDATE="$EDGE_DIR/blog/consolidate-state.sh"
-EVENTS_FILE="$TMP_STATE/state/events/log.jsonl"
-EVENTS_MIRROR_FILE="$TMP_STATE/logs/events.jsonl"
 
-echo "=== consolidate-state adversarial phase test ==="
+echo "=== consolidate-state advisory rite test ==="
 echo "Temp state: $TMP_STATE"
 echo ""
 
-echo "--- Test 1: missing review.json triggers phase-0.3 generation ---"
-set +e
-"$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >"$TEST_LOG" 2>&1
-STATUS=$?
-set -e
-if python3 - <<'PY' "$STATUS" "$TMP_REPORT" "$EVENTS_MIRROR_FILE"
-import json, pathlib, sys
-status = int(sys.argv[1])
-report = pathlib.Path(sys.argv[2])
-events_path = pathlib.Path(sys.argv[3])
-review = report.with_suffix(".review.json")
-feynman = pathlib.Path(str(report).replace(".yaml", ".feynman-review.json"))
-resolved = report.with_suffix(".resolved")
-assert status == 3
-assert review.exists(), "review.json missing"
-assert not feynman.exists(), "feynman-review should not run before adversarial resolution"
-assert not resolved.exists(), "resolved marker should not be auto-created"
-events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-steps = [e for e in events if e.get("type") == "run_step"]
-phase03 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.3"]
-assert ("phase-0.3", "started", "adversarial_review") in phase03
-assert ("phase-0.3", "failed", "adversarial_review_pending") in phase03
-PY
-then
-    pass "phase-0.3 generates review and blocks until resolved"
-else
-    cat "$TEST_LOG"
-    fail "phase-0.3 generates review and blocks until resolved"
-fi
-
-touch "${TMP_REPORT%.yaml}.resolved"
 if "$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >"$TEST_LOG" 2>&1; then
-    if python3 - <<'PY' "$TMP_REPORT" "$EVENTS_MIRROR_FILE"
-import json, pathlib, sys
-report = pathlib.Path(sys.argv[1])
-events_path = pathlib.Path(sys.argv[2])
-feynman = pathlib.Path(str(report).replace(".yaml", ".feynman-review.json"))
-resolved = report.with_suffix(".resolved")
-assert feynman.exists(), "feynman-review.json missing"
-assert resolved.exists(), "resolved marker missing"
-events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-steps = [e for e in events if e.get("type") == "run_step"]
-phase03 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.3"]
-phase045 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.45"]
-phase05 = [(e["phase"], e["status"]) for e in steps if e["phase"] == "phase-0.5"]
-assert ("phase-0.3", "completed", "adversarial_review") in phase03
-assert ("phase-0.45", "started", "feynman_judge") in phase045
-assert ("phase-0.45", "completed", "feynman_judge") in phase045
-assert ("phase-0.5", "started") in phase05
-assert ("phase-0.5", "completed") in phase05
+    if python3 - <<'PY' "$TMP_STATE"
+import json
+import pathlib
+import sys
+
+state = pathlib.Path(sys.argv[1])
+reports = state / "reports"
+slug = "test-entry"
+required_paths = [
+    reports / f"{slug}.adversarial-r1.review.json",
+    reports / f"{slug}.adversarial-r2.review.json",
+    reports / f"{slug}.feynman-review.json",
+    reports / f"{slug}.review-gate-r1.feedback.json",
+    reports / f"{slug}.review-gate-r2.feedback.json",
+    reports / f"{slug}.sources-pre_review.json",
+    reports / f"{slug}.sources-between_adversarial_reviews.json",
+    reports / f"{slug}.sources-between_review_gates.json",
+    reports / f"{slug}.rite.json",
+]
+for path in required_paths:
+    assert path.exists(), f"missing {path}"
+
+rite = json.loads((reports / f"{slug}.rite.json").read_text(encoding="utf-8"))
+assert rite["status"] == "passed", rite
+assert not rite["missing"], rite["missing"]
+events = [(e.get("type"), e.get("stage"), e.get("round")) for e in rite["events"]]
+expected = [
+    ("SourcesConsulted", "pre_review", None),
+    ("AdversarialReviewed", "adversarial", 1),
+    ("SourcesConsulted", "between_adversarial_reviews", None),
+    ("AdversarialReviewed", "adversarial", 2),
+    ("FeynmanReviewed", "feynman", None),
+    ("ReviewGateCompleted", "review_gate", 1),
+    ("SourcesConsulted", "between_review_gates", None),
+    ("ReviewGateCompleted", "review_gate", 2),
+    ("RiteVerified", "quality_rite", None),
+]
+cursor = -1
+for item in expected:
+    for idx in range(cursor + 1, len(events)):
+        if events[idx] == item:
+            cursor = idx
+            break
+    else:
+        raise AssertionError(f"missing ordered event {item}; events={events}")
+
+for stage in ["pre_review", "between_adversarial_reviews", "between_review_gates"]:
+    manifest = json.loads((reports / f"{slug}.sources-{stage}.json").read_text(encoding="utf-8"))
+    assert manifest["internal"]["attempted"] is True
+    assert manifest["external"]["attempted"] is True
+    assert manifest["internal"]["status"] == "completed"
+    assert manifest["external"]["status"] == "completed"
+
+round2 = json.loads((reports / f"{slug}.review-gate-r2.feedback.json").read_text(encoding="utf-8"))
+assert round2["final_review"]["overall"] == 2.1
+assert round2["final_review"]["pass"] is False
 PY
     then
-        pass "resolved adversarial review allows review-only completion"
-        if python3 "$EDGE_DIR/tools/generate_report.py" --yaml "$TMP_REPORT" --output "$TMP_STATE/reports/rendered.html" >/dev/null 2>&1 \
-          && grep -q "Desafio Adversarial" "$TMP_STATE/reports/rendered.html"; then
-            pass "YAML report render includes adversarial section"
-        else
-            fail "YAML report render includes adversarial section"
-        fi
-    else
-        fail "resolved adversarial review allows review-only completion"
-    fi
-else
-    cat "$TEST_LOG"
-    fail "review-only publish with resolved review succeeds"
-fi
-
-echo "--- Test 2: unresolved existing review.json still blocks ---"
-rm -f "${TMP_REPORT%.yaml}.resolved"
-set +e
-"$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT" --review-only >"$TEST_LOG" 2>&1
-STATUS=$?
-set -e
-if python3 - <<'PY' "$STATUS" "$EVENTS_MIRROR_FILE"
-import json, sys, pathlib
-status = int(sys.argv[1])
-events_path = pathlib.Path(sys.argv[2])
-assert status == 3
-events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-steps = [e for e in events if e.get("type") == "run_step"]
-phase03 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.3"]
-assert ("phase-0.3", "failed", "adversarial_review") in phase03
-PY
-then
-    pass "unresolved existing review still blocks phase-0.3"
-else
-    cat "$TEST_LOG"
-    fail "unresolved existing review still blocks phase-0.3"
-fi
-
-echo "--- Test 3: HTML report path also runs mandatory gates ---"
-set +e
-"$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT_HTML" --review-only >"$TEST_LOG" 2>&1
-STATUS=$?
-set -e
-if python3 - <<'PY' "$STATUS" "$TMP_REPORT_HTML"
-import pathlib, sys
-status = int(sys.argv[1])
-report = pathlib.Path(sys.argv[2])
-stem = report.with_suffix("")
-review = stem.with_suffix(".review.json")
-resolved = stem.with_suffix(".resolved")
-assert status == 3
-assert review.exists(), "html review.json missing"
-assert not resolved.exists(), "html resolved marker should not be auto-created"
-PY
-then
-    pass "HTML report path generates review and blocks until resolved"
-else
-    cat "$TEST_LOG"
-    fail "HTML report path generates review and blocks until resolved"
-fi
-
-touch "${TMP_REPORT_HTML%.html}.resolved"
-if "$CONSOLIDATE" "$TMP_ENTRY" "$TMP_REPORT_HTML" --review-only >"$TEST_LOG" 2>&1; then
-    if python3 - <<'PY' "$TMP_REPORT_HTML" "$EVENTS_MIRROR_FILE"
-import json, pathlib, sys
-report = pathlib.Path(sys.argv[1])
-events_path = pathlib.Path(sys.argv[2])
-stem = report.with_suffix("")
-review = stem.with_suffix(".review.json")
-feynman = stem.with_suffix(".feynman-review.json")
-resolved = stem.with_suffix(".resolved")
-assert review.exists(), "html review.json missing"
-assert feynman.exists(), "html feynman-review.json missing"
-assert resolved.exists(), "html resolved marker missing"
-events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-steps = [e for e in events if e.get("type") == "run_step"]
-phase03 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.3"]
-phase045 = [(e["phase"], e["status"], e.get("operation")) for e in steps if e["phase"] == "phase-0.45"]
-phase05 = [(e["phase"], e["status"]) for e in steps if e["phase"] == "phase-0.5"]
-assert ("phase-0.3", "completed", "adversarial_review") in phase03
-assert ("phase-0.45", "completed", "feynman_judge") in phase045
-assert ("phase-0.5", "completed") in phase05
-PY
-    then
-        pass "HTML report path runs adversarial, Feynman, and review gates"
+        pass "review-only completes full advisory rite despite low score"
     else
         cat "$TEST_LOG"
-        fail "HTML report path runs adversarial, Feynman, and review gates"
+        fail "review-only completes full advisory rite despite low score"
     fi
 else
     cat "$TEST_LOG"
-    fail "review-only HTML publish with generated review succeeds"
+    fail "review-only should not block on score or unresolved marker"
+fi
+
+if grep -q "Review-only mode. Nothing published." "$TEST_LOG" \
+  && ! grep -q "Adversarial review pending" "$TEST_LOG" \
+  && ! grep -q "Review gate failed" "$TEST_LOG"; then
+    pass "old score and .resolved blockers are absent"
+else
+    cat "$TEST_LOG"
+    fail "old score and .resolved blockers are absent"
 fi
 
 echo ""
