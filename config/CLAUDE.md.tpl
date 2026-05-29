@@ -23,7 +23,7 @@ Skills add semantic judgment above that minimum. Do not repeat runtime mechanics
 when the injected context already provides them.
 
 Method: derive before accepting, expose gaps, then use evidence. Details:
-`memory/metodo.md`.
+`memory/method.md`.
 
 ## Core References
 
@@ -33,7 +33,7 @@ Read on demand, according to the task:
 |------|----------|
 | `memory/rules-core.md` | Cross-cutting mandates |
 | `memory/personality.md` | Core identity and cognitive profile |
-| `memory/metodo.md` | Feynman method |
+| `memory/method.md` | Feynman method |
 | `briefing.md` | Compiled runtime context and open continuity pressure |
 | `config/strategy.md` | Operator direction (phase, priorities, constraints) |
 | `config/preflight.yaml` / `config/postflight.yaml` | Runtime lifecycle source |
@@ -60,7 +60,7 @@ This repo has three layers. Confusing them breaks the system for ALL instances.
 - `search/*.py` — search engine code
 - `bin/` — health check scripts
 - `config/*.tpl` — template files
-- `memory/personality.md`, `memory/rules-core.md`, `memory/metodo.md`
+- `memory/personality.md`, `memory/rules-core.md`, `memory/method.md`
 - `SURVIVAL_POLICY.md`
 
 Genotype changes require the issue -> clone -> PR -> merge -> propagate loop.

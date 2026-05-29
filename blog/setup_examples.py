@@ -212,7 +212,7 @@ Se os últimos 3 breaks exploraram a mesma área, MUDAR para outra.
 """,
     },
     {
-        "path": "memory/metodo.md",
+        "path": "memory/method.md",
         "group": "method",
         "group_label": "Método (como penso)",
         "purpose": "Método de trabalho (Feynman por padrão — derivar, ensinar, rastrear gaps)",

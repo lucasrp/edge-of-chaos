@@ -222,7 +222,7 @@ O **núcleo da identidade** do agente e genótipo puro — *o que ele tem de mai
 importante*. É a orientação de julgamento que atravessa todas as skills (o "como"
 pensar, não o "o quê"), e por isso também entra aqui como uma das fontes da "ordem"
 do artefato — mas seu peso é maior que isso: define quem o agente é. Dupla:
-`memory/personality.md` (quem o agente é) + `memory/metodo.md` (o método Feynman:
+`memory/personality.md` (quem o agente é) + `memory/method.md` (o método Feynman:
 derivar do zero antes de pesquisar, mostrar o *processo* do pensamento, deixar as
 lacunas emergirem inline).
 _Avoid_: tom, estilo, voz (a personality guia julgamento e identidade, não só voz)
@@ -270,7 +270,7 @@ instâncias?"*
 
 **Genótipo (Genotype)**:
 A fonte **compartilhada por todas** as instâncias edge — skills, tools, runtime,
-blog/search, e o piso de memória (`personality`, `rules-core`, `metodo`). Mudar
+blog/search, e o piso de memória (`personality`, `rules-core`, `method`). Mudar
 genótipo afeta toda instância, então passa pelo loop issue → clone → PR → merge →
 close → propagate. *"Afeta outras instâncias? Sim → genótipo."*
 _Avoid_: core, base, shared (use genótipo).

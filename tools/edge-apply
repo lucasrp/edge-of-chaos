@@ -30,6 +30,7 @@ TOOLS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS_DIR))
 sys.path.insert(0, str(TOOLS_DIR / "_shared"))
 from intervals import parse_interval  # noqa: E402
+from core_identity import render_core_identity, inject_after_frontmatter  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GREEN = "\033[32m"
@@ -465,6 +466,7 @@ def phase_skills(cfg, dry_run):
     prefix = cfg["skill_prefix"]
     skills_src = REPO_ROOT / "skills"
     skills_dst = Path.home() / ".claude" / "skills"
+    core_block = render_core_identity(REPO_ROOT / "memory")
 
     if not skills_src.exists():
         warn(f"skills/ not found in {REPO_ROOT}")
@@ -497,6 +499,7 @@ def phase_skills(cfg, dry_run):
             _ensure_dir(target, phase="skills", dry_run=False, source_template=_repo_relative(skill_dir))
             content = skill_file.read_text()
             content = _reprefix(content, prefix)
+            content = inject_after_frontmatter(content, core_block)
             _write_text(
                 target / "SKILL.md",
                 content,
@@ -595,7 +598,7 @@ def phase_identity(cfg, dry_run):
 
     # Memory → ~/.claude/projects/{project}/memory/ (only if not exists)
     mem_dst = Path.home() / ".claude" / "projects" / cfg["memory_project_dir"] / "memory"
-    mem_files = ["personality.md", "rules-core.md", "metodo.md", "knowledge-design.md"]
+    mem_files = ["personality.md", "rules-core.md", "method.md", "knowledge-design.md"]
     created = 0
     for f in mem_files:
         src = REPO_ROOT / "memory" / f

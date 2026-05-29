@@ -73,7 +73,7 @@ TOOLS = [
                 "Read an agent memory file. Available files: "
                 "personality.md (agent identity, tone, communication style), "
                 "insights.md (user direction, preferences, corrections), "
-                "metodo.md (Feynman method, derivation-first approach), "
+                "method.md (Feynman method, derivation-first approach), "
                 "working-state.md (current work context, timeline, active threads), "
                 "breaks-active.md (last 5 research breaks). "
                 "Use to enrich the YAML with relevant context."
@@ -85,7 +85,7 @@ TOOLS = [
                         "type": "string",
                         "enum": [
                             "personality.md", "insights.md",
-                            "metodo.md", "working-state.md", "breaks-active.md",
+                            "method.md", "working-state.md", "breaks-active.md",
                         ],
                         "description": "Memory file to read",
                     }
@@ -376,7 +376,7 @@ Return JSON with these keys:
 {skill_rules}
 
 ## Tools available:
-- read_memory: Read agent memory files (personality.md, insights.md, metodo.md, working-state.md, breaks-active.md)
+- read_memory: Read agent memory files (personality.md, insights.md, method.md, working-state.md, breaks-active.md)
 - get_previous_report: Get previous report YAML on same topic (for continuity)
 - search_corpus: Search ~1200 docs for related work
 - read_blog_entries: Read recent blog entries (for connections)
