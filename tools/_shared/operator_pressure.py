@@ -119,7 +119,7 @@ _SUBSTRATE_GAP_RULES: list[tuple[re.Pattern[str], str]] = [
 _TARGET_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(routines?|procedure|procedural|procedimento|preflight|postflight|protocolo)\b", re.I), "pre_skill_context"),
     (re.compile(r"\b(capability|primitive|primitiva|repo\.sync|exa|grafana|github|meta|whatsapp)\b", re.I), "capability"),
-    (re.compile(r"\b(memory|mem[oó]ria|rules-core|personality|metodo)\b", re.I), "memory"),
+    (re.compile(r"\b(memory|mem[oó]ria|rules-core|personality|method|metodo)\b", re.I), "memory"),
     (re.compile(r"\b(policy|politica|policy|regra|guardrail)\b", re.I), "policy"),
     (re.compile(r"\b(skill|heartbeat|autonomy|report|research|planner|discovery)\b", re.I), "skill"),
     (re.compile(r"\b(thread|topic|topics|claim|claims)\b", re.I), "thread"),

@@ -23,7 +23,7 @@ First, the operator has had sensitive data from the live instance leak into git 
 Second, the operator has corrected this 8+ times across conversations (2026-04-09 → 2026-04-18). Soft workflow recall (crystallized twice: 2026-04-09, 2026-04-17) is saturated — this is the enforcement-ladder L1→L5 promotion pattern, worked example. The close-issue step was added explicitly on 2026-04-18 because open-issue-with-merged-code kept happening.
 
 **How to apply:**
-- Genotype paths (per CLAUDE.md and hooks/): `skills/`, `tools/`, `search/*.py`, `blog/app.py`, `blog/*.sh`, `bin/`, `config/*.tpl`, `hooks/*.sh`, `memory/personality.md`, `memory/rules-core.md`, `memory/metodo.md`, `SURVIVAL_POLICY.md`.
+- Genotype paths (per CLAUDE.md and hooks/): `skills/`, `tools/`, `search/*.py`, `blog/app.py`, `blog/*.sh`, `bin/`, `config/*.tpl`, `hooks/*.sh`, `memory/personality.md`, `memory/rules-core.md`, `memory/method.md`, `SURVIVAL_POLICY.md`.
 - `edge-apply` is idempotent; `--skip-venv` avoids the slow search-venv rebuild when only skills/code changed.
 - Use the same pull command for every fleet host. If a host reports conflicts or local commits, stop and inspect instead of applying a host-specific merge strategy by default.
 - Phenotype/epigenetic edits (`agent.yaml`, `state/`, `blog/entries/`, `logs/`, `threads/`, `reports/`) can be done in place — they're per-instance and gitignored or not in genotype.

@@ -41,7 +41,7 @@ done
 for file in CLAUDE.md onboarding.md onboarding_checklist.md quick_win_archetypes.md self_intro_template.md; do
     printf '# %s\n' "$file" >"$TMP_REPO/templates/$file"
 done
-for file in personality.md rules-core.md metodo.md knowledge-design.md; do
+for file in personality.md rules-core.md method.md knowledge-design.md; do
     printf '# %s\n' "$file" >"$TMP_REPO/memory/$file"
 done
 cat >"$TMP_REPO/secrets/openai.env" <<'ENV'

@@ -41,6 +41,7 @@ from paths import (  # noqa: E402
     THREADS_DIR,
 )
 from .capability_runtime import build_capability_status, build_configured_integrations, build_source_bindings, invoke_capability, probe_capability  # noqa: E402
+from .core_identity import render_core_identity  # noqa: E402
 from .operator_pressure import read_or_refresh_operator_pressure_projection  # noqa: E402
 from .protocol_runtime import emit_protocol_step_observed, ensure_compiled_protocol, protocol_context  # noqa: E402
 from .search_runtime import search_runtime_summary  # noqa: E402
@@ -2364,7 +2365,10 @@ def render_skill_runtime_prompt(skill: str, state: dict[str, Any]) -> str:
             "- Publish by running `consolidate-state` or an equivalent first-class artifact publisher that emits real blog entry and report artifacts.\n"
             "- Stdout-only prose is diagnostic output only; the runtime will not promote it to publication and it does not satisfy the artifact gate.\n\n"
         )
+    core_identity = render_core_identity(EDGE_REPO_DIR / "memory")
+    core_prefix = f"{core_identity}\n" if core_identity else ""
     return (
+        f"{core_prefix}"
         f"{skill}\n\n"
         "Dispatch runtime context below is authoritative for cross-cutting checks already handled by CLI "
         "(health, inbox, corpus, open gaps, primitives, queue, onboarding, protocol execution).\n"
