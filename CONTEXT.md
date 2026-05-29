@@ -30,7 +30,8 @@ Nasce de um gatilho (um beat de heartbeat, ou o operador invocando uma skill),
 capta os signals do momento, recebe a orientação de preflight, e entrega a uma
 skill o prompt para produzir ou avançar um artefato. É o envelope do runtime; a
 skill é o julgamento semântico dentro dele.
-_Avoid_: request, job, task, run
+_Avoid_: request, job, task, run; consolidate-state (esse é só o *passo de
+publicação* dentro do dispatch, não o run inteiro).
 
 **Preflight**:
 O protocolo de orientação injetado **antes** de a skill agir — o "como pensar"
@@ -39,6 +40,21 @@ semântica das superfícies (intenção × runtime observado). Genótipo no form
 fenótipo no conteúdo (as `context_notes` da instância). Não é gate — *orienta*, não
 barra nem avalia mérito.
 _Avoid_: gate (preflight orienta, não verifica); setup, init.
+
+**Postflight**:
+O protocolo-irmão do Preflight, no outro extremo do dispatch: o que o runtime roda
+**depois** de a skill entregar o artefato. Faz as duas contrapartes do preflight:
+**atualiza o estado** (revalida o recente, refaz as projeções — open gaps, pipeline,
+briefing) e **notifica o operador** do que foi feito (hoje pela resposta ao inbox
+assíncrono; o aviso por Slack era o canal histórico, par do preflight que lia o
+Slack). Absorveu ainda a atualização *estratégica* de estado e a observação de
+auto-reparo (`cycle_health.observe`, `curation.digest`) que antes moravam em
+meta-skills dedicadas (autonomia, estratégia, reflexão) — por isso hoje todo ciclo
+reatualiza o estado inteiro, em vez de a reflexão ser um ciclo à parte. É
+mecânica/registro de runtime, não julgamento de mérito.
+_Avoid_: teardown, cleanup, finalize; quality gate / review (o postflight registra,
+projeta estado e notifica — não avalia mérito; isso é o Review gate); preflight (a
+metade *orientadora* dele se separou e virou o Delta — ver Continuity).
 
 **Heartbeat**:
 O gatilho autônomo e periódico (a cada 3h). Não faz trabalho ele mesmo — é
@@ -62,6 +78,67 @@ que um dispatch deixa registrado (delta, briefing) e que o próximo lê para nã
 recomeçar do zero.
 _Avoid_: histórico, log; memória (a memória é um mecanismo da continuity, não um
 sinônimo)
+
+**Delta**:
+O frame de reconciliação que **abre** o trabalho de uma skill substantiva: junta o
+que mudou desde o último frame útil — preflight, chat cru do operador, o delta
+digest anterior e as superfícies que mudaram — e responde "o que mudou, o que
+continua aberto, o que a próxima skill carrega adiante". Nasceu (#387) como a metade
+*orientadora* que se separou do Preflight; depois (#391, #481) passou a carregar a
+continuidade *estratégica e reflexiva*, quando as meta-skills de estratégia e
+reflexão foram removidas e o estado curado que elas produziam migrou pro delta
+digest (`edge-delta`). Roda dentro da mesma invocação da skill despachada — não é um
+report à parte.
+_Avoid_: diff, changelog (o delta é frame de trabalho, não lista de mudanças);
+briefing (o briefing é o contexto compilado que o delta lê — não são a mesma coisa).
+**Drift conhecido:** `build_continuity_delta` (`state/projections/continuity-deltas/
+*.json`) reusa o nome "delta" para um *registro de continuidade por artefato* gravado
+na publicação — outra linhagem (continuity/claims), não este frame de abertura; o
+nome colide e deveria ser renomeado (ex.: *continuity record*).
+
+**Briefing**:
+O contexto de runtime **compilado** que o agente lê para se situar no "agora" —
+gerado deterministicamente por `edge-digest` (`briefing.md`; não se edita à mão):
+threads, gaps abertos, últimos eventos, beats, métricas, observability. É uma
+**projeção puramente derivada** das fontes de estado: descartável e sempre
+reconstruível (o `/ed-loader` o regenera do zero a cada uso sem perder nada — prova
+de que não guarda estado próprio). Dois consumidores o leem para se orientar: o
+**Delta** orienta a *skill* (máquina, antes do trabalho), o **Loader** orienta o
+*operador* (resume manual, síntese efêmera não-persistida). O Postflight o reatualiza
+(`briefing.refresh`).
+_Avoid_: report, artifact (o briefing é insumo interno compilado, não um
+artefato-para-ler); fonte de verdade (é derivado — nunca tratar `briefing.md` como
+fonte editável); delta (o delta *reconcilia* e persiste digest; o briefing é uma das
+fontes que ele lê); a síntese do `/ed-loader` (essa é orientação efêmera por cima do
+briefing, não o briefing); dashboard, status.
+
+**Loader**:
+A contextualização de **resume manual** que o operador pede (`/ed-loader`) para
+retomar o trabalho com o agente. É um **pré-skill do lado humano**: regenera e lê o
+briefing, varre inbox/threads/erros e entrega uma síntese curta do "o que importa
+agora". Espelha o Delta — mas com as duas diferenças que são a sua identidade:
+orienta o **humano**, não a skill, e **não entra no artefato** nem persiste estado
+(orientação efêmera para a conversa continuar). Read-only por princípio: não
+despacha trabalho, não decide, não escreve memória.
+_Avoid_: dispatch (o loader não despacha nem gera artefato); delta (o delta orienta a
+máquina e persiste digest; o loader orienta o humano e nada persiste); briefing (o
+briefing é o que ele lê; o loader é a síntese por cima); status, dashboard.
+
+**Inbox** (Skill inbox / async inbox):
+O canal de **diretivas diretas** do operador para o agente — mensagens imperativas
+que têm **prioridade sobre tudo**: ao abrir o ciclo, uma diretiva no inbox passa à
+frente da exploração e da rotação do heartbeat ("o operador disse: faça isso" → isso
+vem primeiro; a prioridade é codificada — `priority: operator/high`,
+`dispatch_guidance: address async inbox before exploration or rotation`). O runtime
+classifica cada mensagem em intents (task / steering / runtime), anexa o snapshot ao
+dispatch (o Preflight lê) e o Postflight responde — fechando o laço de comunicação
+com o operador. Historicamente abrangeu vários canais (Slack, entre outros); hoje
+**reduzido** ao chat assíncrono do blog — mas o conceito é o *canal de comando*, não
+o transporte.
+_Avoid_: signal / operator pressure (esses **contextualizam**; o inbox **ordena**, e
+tem prioridade); briefing (contexto derivado para se situar, sem força imperativa);
+notificação (é a *resposta* do postflight ao inbox, não o inbox); fila, mensagem
+(reduz demais — é o canal de comando prioritário).
 
 ### Sinais
 
@@ -169,6 +246,21 @@ _Avoid_: linter, validador (avalia mérito, não conformidade sintática). Cuida
 sinal* (um signal crítico que barra a decisão — severidade, não mérito), com o
 *artifact gate* (exigência estrutural de publicar um artefato de verdade), nem com o
 **Preflight** (que orienta, não barra).
+
+**Consolidate-state**:
+O **passo de publicação** que a skill aciona perto do fim do dispatch para
+consolidar o artefato pronto no estado: roda os quality gates (adversarial → Feynman
+judge → Review gate), publica (blog entry + report) e grava o resultado (threads,
+evento, corpus, briefing, git commit). O nome é literal — *consolidar o artefato no
+estado*. É onde os gates de mérito de fato moram. Vive **dentro** do dispatch, não ao
+lado dele.
+_Avoid_: dispatch (o dispatch é o envelope do run inteiro; o consolidate-state é só o
+passo de publicação dentro dele — não confundir); postflight (o postflight atualiza
+projeções e notifica *depois*; o consolidate-state publica e commita). **Drift
+conhecido:** cresceu para fazer state-commit/digest/audit (fases 5–6), pisando no
+território do postflight — é o inchaço que borrou a fronteira com o dispatch, e que o
+"State Protocol" (`skills/_shared/state-protocol.md`, acreção da degeneração)
+generalizou. "State Protocol" não é termo-norte; é scaffold, candidato a poda.
 
 ### Camadas do repositório (genótipo / fenótipo / epigenética)
 
