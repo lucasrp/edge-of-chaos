@@ -430,60 +430,39 @@ def _static_capability_row(item: dict[str, Any], *, invocations: dict[str, Any],
     }
 
 
-def _primitive_capability_row(item: dict[str, Any], *, invocations: dict[str, Any], probes: dict[str, Any], skill: str | None = None) -> dict[str, Any]:
-    name = f"source.{item.get('name')}"
-    probe_event = probes.get(name, {})
-    invocation_event = invocations.get(name, {})
-    manifest_status = str(item.get("manifest_status") or item.get("status") or "").strip()
-    if manifest_status == "suspended":
-        effective_status = "suspended"
-    else:
-        effective_status = _normalize_effective_status(item.get("effective_status"))
-    normalized_skill = _normalize_skill(skill)
-    roles = _normalize_roles(item.get("roles")) or ["search"]
-    if "source" not in roles:
-        roles.append("source")
-    return {
-        "name": name,
-        "kind": "primitive",
-        "source": "primitives_status",
-        "primitive_name": item.get("name"),
-        "description": str(item.get("description") or "").strip(),
-        "required": False,
-        "roles": roles,
-        "skills": ["sources", "research", "discovery", "report", "planner", "autonomy"],
-        "recommended_for_skill": bool(normalized_skill and normalized_skill in {"sources", "research", "discovery", "report", "planner", "autonomy"}),
-        "configured_command": [str(item.get("binary_path") or "")] if item.get("binary_path") else [],
-        "resolved_command": [str(item.get("binary_path") or "")] if item.get("binary_path") else [],
-        "passthrough": True,
-        "available": bool(item.get("binary_exists")),
-        "effective_status": effective_status,
-        "problems": list(item.get("problems") or []),
-        "manifest_status": item.get("manifest_status"),
-        "probe_status": item.get("probe_status"),
-        "meta_exists": bool(item.get("meta_exists")),
-        "binary_exists": bool(item.get("binary_exists")),
-        "usage_30d": int(item.get("usage_30d", 0) or 0),
-        "invoke_30d": invocation_event.get("invoke_30d", 0),
-        "invoke_fail_30d": invocation_event.get("invoke_fail_30d", 0),
-        "last_invoke_ts": invocation_event.get("last_invoke_ts", ""),
-        "last_invoke_exit_code": invocation_event.get("last_exit_code"),
-        "last_probe_ts": probe_event.get("last_probe_ts") or item.get("last_probe_ts", ""),
-        "last_probe_ok": probe_event.get("last_probe_ok"),
-        "last_probe_exit_code": probe_event.get("last_probe_exit_code") or item.get("last_probe_exit_code"),
-    }
+def _primitive_status_view(primitives_payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Per-source primitive status read straight from the edge-primitives read-model.
+
+    Replaces the old `source.X` capability re-projection: source bindings only ever
+    consumed effective_status / manifest_status / problems, so this exposes exactly
+    those, keyed by source name. Normalization mirrors the previous row builder.
+    """
+    view: dict[str, dict[str, Any]] = {}
+    for item in primitives_payload.get("sources") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        combined = str(item.get("manifest_status") or item.get("status") or "").strip()
+        if combined == "suspended":
+            effective_status = "suspended"
+        else:
+            effective_status = _normalize_effective_status(item.get("effective_status"))
+        view[name] = {
+            "effective_status": effective_status,
+            "manifest_status": item.get("manifest_status"),
+            "problems": list(item.get("problems") or []),
+        }
+    return view
 
 
 def build_capability_status(*, skill: str | None = None) -> dict[str, Any]:
     now = _now()
     invocations, probes = _collect_capability_events(now)
-    payload = _load_primitives_payload()
     rows: list[dict[str, Any]] = []
     for item in _load_static_registry():
         rows.append(_static_capability_row(item, invocations=invocations, probes=probes, skill=skill))
-    for item in payload.get("sources") or []:
-        if isinstance(item, dict) and item.get("name"):
-            rows.append(_primitive_capability_row(item, invocations=invocations, probes=probes, skill=skill))
 
     rows.sort(key=lambda row: (STATUS_ORDER.get(str(row.get("effective_status") or "unknown"), 99), str(row.get("name") or "")))
     counts = Counter(str(row.get("effective_status") or "unknown") for row in rows)
@@ -600,19 +579,14 @@ def build_configured_integrations(*, skill: str | None = None) -> dict[str, Any]
     }
 
 
-def build_source_bindings(*, skill: str | None = None) -> dict[str, Any]:
-    """Resolve runtime-declared source intents into executable capability bindings."""
+def _resolve_bindings(
+    sources: list[dict[str, Any]],
+    primitive_view: dict[str, dict[str, Any]],
+    aggregate_status: str,
+    aggregate_available: bool,
+) -> dict[str, Any]:
+    """Pure core: declared source intents -> executable bindings. No IO."""
     now = _now()
-    capability_payload = build_capability_status(skill=skill)
-    capability_rows = {
-        str(item.get("name") or "").strip(): item
-        for item in (capability_payload.get("capabilities") or [])
-        if isinstance(item, dict) and str(item.get("name") or "").strip()
-    }
-    aggregate = capability_rows.get("sources.aggregate") or {}
-    aggregate_status = str(aggregate.get("effective_status") or "unknown")
-    aggregate_available = aggregate_status in BOUND_STATUSES
-    sources = _load_sources_manifest()
     bindings: list[dict[str, Any]] = []
 
     for source in sources:
@@ -621,8 +595,7 @@ def build_source_bindings(*, skill: str | None = None) -> dict[str, Any]:
             continue
         roles = _normalize_roles(source.get("roles"))
         primary = bool(source.get("primary", False))
-        primitive_name = f"source.{source_name}"
-        primitive = capability_rows.get(primitive_name) or {}
+        primitive = primitive_view.get(source_name) or {}
         primitive_status = str(primitive.get("effective_status") or "unknown")
         manifest_status = str(source.get("status") or primitive.get("manifest_status") or "").strip()
         provider = _canonical_source_provider(source_name)
@@ -630,7 +603,7 @@ def build_source_bindings(*, skill: str | None = None) -> dict[str, Any]:
 
         binding_status = "absent"
         binding_mode = "none"
-        capability = primitive_name
+        capability = f"source.{source_name}"
         problems = list(primitive.get("problems") or [])
         evidence: dict[str, Any] = {
             "primitive_status": primitive_status,
@@ -710,6 +683,25 @@ def build_source_bindings(*, skill: str | None = None) -> dict[str, Any]:
             if item.get("warning")
         ],
     }
+
+
+def build_source_bindings(*, skill: str | None = None) -> dict[str, Any]:
+    """Resolve runtime-declared source intents into executable capability bindings.
+
+    Thin IO shell: read the sources.aggregate capability status and the primitive
+    read-model directly from edge-primitives, then delegate to the pure core.
+    """
+    capability_payload = build_capability_status(skill=skill)
+    aggregate: dict[str, Any] = {}
+    for item in capability_payload.get("capabilities") or []:
+        if isinstance(item, dict) and str(item.get("name") or "").strip() == "sources.aggregate":
+            aggregate = item
+            break
+    aggregate_status = str(aggregate.get("effective_status") or "unknown")
+    aggregate_available = aggregate_status in BOUND_STATUSES
+    primitive_view = _primitive_status_view(_load_primitives_payload())
+    sources = _load_sources_manifest()
+    return _resolve_bindings(sources, primitive_view, aggregate_status, aggregate_available)
 
 
 def get_capability(name: str, *, skill: str | None = None) -> dict[str, Any] | None:
