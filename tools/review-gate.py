@@ -257,10 +257,12 @@ TOOL_DISPATCH = {
 
 DIMENSIONS = {
     "structural_completeness": (
-        "Required sections present: linhagem (first section), "
-        "'O que Nao Sei' (penultimate), glossario (last), "
-        "executive_summary, metrics, bibliography. "
-        "All blocks use valid types from the report template."
+        "Section PRESENCE and ORDERING are enforced upstream by the structural "
+        "Rite gate (edge-rite-check) — do NOT re-judge whether lineage/gaps/"
+        "glossary/executive_summary/metrics/bibliography exist or are positioned "
+        "correctly. Judge only what structure cannot: do the sections cohere into "
+        "a whole, does the lineage actually trace real prior work, do blocks use "
+        "types appropriate to their content."
     ),
     "content_depth": (
         "Sections have substance, not placeholders. "
@@ -435,11 +437,11 @@ Rate each dimension 0-5:
 
 ## Critical Issues (blocking)
 
-Flag as critical_issues if ANY of these:
-- Required section completely missing (linhagem, "O que Nao Sei", glossario)
-- executive_summary or metrics missing at top level, or no reader-visible equivalent in HTML
+Flag as critical_issues if ANY of these.
+(Note: pure structural presence/ordering — required sections, top-level keys,
+>=1 visualization — is enforced upstream by edge-rite-check. Do NOT re-flag those
+as critical here; judge merit. Empty/placeholder content IS still your concern.)
 - Empty sections (title present but no blocks/content)
-- Zero SVG-capable visualizations in entire spec (no bar-chart, line-chart, or raw-html inline SVG)
 - A report compares 3+ items/steps/metrics/risks/alternatives but has no chart, flow, matrix, timeline, or diagram representing that comparison visually
 - A report has multiple quantitative/trade-off comparisons but only one visual encoding and no clear reason for keeping the rest textual
 - Any non-reference section begins directly with a table, chart, metrics grid, diagram, comparison matrix, or gap table without a narrative `lead` or opening paragraph that explains how to read it

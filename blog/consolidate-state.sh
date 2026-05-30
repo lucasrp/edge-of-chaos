@@ -808,6 +808,26 @@ else
     :  # No matching note — skip silently
 fi
 
+# ─── PHASE 0.2: Artifact Rite (structural form gate, warn-only) ───
+# Deterministic structural check of the report spec (lineage/gaps/glossary by
+# role + position, executive_summary/metrics/bibliography, >=1 visual block).
+# WARN-ONLY for now: it logs violations but never blocks publish, because the
+# skills are still being migrated to emit `role`. Flip to hard-fail (drop
+# --warn) once real beats show RITE_OK. Form lives here; merit stays with the
+# LLM gates below.
+if [[ -n "$REPORT_INPUT" && ( "$REPORT_INPUT" == *.yaml || "$REPORT_INPUT" == *.yml ) ]]; then
+    echo "── Phase 0.2: Artifact Rite (structural, warn-only) ──"
+    rite_check=("$TOOLS_DIR/edge-rite-check")
+    if command -v edge-rite-check &>/dev/null; then
+        rite_check=(edge-rite-check)
+    fi
+    if "${rite_check[@]}" "$REPORT_INPUT" --warn; then
+        emit_run_step_event "phase-0.2" "completed" "artifact_rite" "structural rite check (warn-only)"
+    else
+        emit_run_step_event "phase-0.2" "warned" "artifact_rite" "rite check could not run"
+    fi
+fi
+
 # ─── PHASE 0.3: Adversarial Review Enforcement ───
 # Every content artifact path must pass the same pre-publication gates. YAML
 # specs and pre-rendered HTML both become reader-visible reports, so neither

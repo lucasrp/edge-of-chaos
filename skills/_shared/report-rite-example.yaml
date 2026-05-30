@@ -1,0 +1,53 @@
+title: "Rite reference: a conformant report skeleton"
+subtitle: "Canonical example the Artifact Rite validator accepts — copy its shape, not its words"
+date: "30/05/2026"
+
+executive_summary:
+  - "**Purpose:** the minimal conformant report spec — used as the reference for the Rite and as the regression fixture for validate_rite."
+  - "**Shape:** lineage first, 'O que Não Sei' penultimate, glossary last, each marked with an explicit `role`; plus executive_summary, metrics, bibliography, and at least one visual block."
+
+metrics:
+  - value: "3"
+    label: "mandatory role-marked sections (lineage, gaps, glossary)"
+  - value: "1"
+    label: "minimum visual blocks per report"
+
+sections:
+  - role: lineage
+    title: "Linhagem"
+    lead: "How this artifact connects to prior work."
+    blocks:
+      - type: table
+        headers: ["Previous Action", "What It Brought", "Connection"]
+        rows:
+          - ["Prior report", "Established the vocabulary", "Reused here as display vocabulary."]
+
+  - title: "Body"
+    lead: "The substantive analysis. Any number of non-role sections may sit here."
+    blocks:
+      - type: bar-chart
+        title: "Illustrative comparison"
+        unit: "count"
+        items:
+          - {label: "A", value: 2}
+          - {label: "B", value: 5}
+
+  - role: gaps
+    title: "O que Não Sei"
+    lead: "Genuine, specific open questions — not boilerplate."
+    blocks:
+      - type: gap-table
+        rows:
+          - {id: "G1", text: "What evidence would confirm the central claim."}
+
+  - role: glossary
+    title: "Contextualização e Glossário"
+    lead: "Terms a newcomer needs."
+    blocks:
+      - type: glossary
+        terms:
+          - {term: "Rite", definition: "The uniform format floor every report must satisfy."}
+
+bibliography:
+  - title: "Artifact Rite contract"
+    note: "skills/_shared/report-template.md"
