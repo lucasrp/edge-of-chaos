@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""edge-rite-check — structural Artifact Rite gate over a report YAML spec.
+
+Usage:
+    edge-rite-check <report.yaml> [--warn]
+
+Thin IO shell over validate_rite (the pure form gate). Loads the spec, reports
+violation codes, and signals via exit code.
+
+Exit codes:
+    0  conforms, or skipped (non-YAML report), or --warn with violations
+    1  violations found (blocking)
+    2  usage / load error
+
+--warn never blocks: it prints violations and exits 0. Use it while migrating,
+then drop it to make the gate hard-fail.
+"""
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+from _shared.artifact_rite import validate_rite  # noqa: E402
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover
+    yaml = None
+
+
+def main(argv: list[str]) -> int:
+    warn = "--warn" in argv
+    positional = [arg for arg in argv if not arg.startswith("-")]
+    if len(positional) != 1:
+        print("usage: edge-rite-check <report.yaml> [--warn]", file=sys.stderr)
+        return 2
+
+    path = Path(positional[0])
+    if path.suffix.lower() not in {".yaml", ".yml"}:
+        print(f"RITE_SKIP non-yaml report: {path.name}")
+        return 0
+    if not path.exists():
+        print(f"RITE_ERROR missing file: {path}", file=sys.stderr)
+        return 2
+    if yaml is None:
+        print("RITE_ERROR pyyaml unavailable", file=sys.stderr)
+        return 2
+    try:
+        spec = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        print(f"RITE_ERROR cannot parse {path}: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(spec, dict):
+        print(f"RITE_ERROR spec is not a mapping: {path}", file=sys.stderr)
+        return 2
+
+    violations = validate_rite(spec)
+    if not violations:
+        print("RITE_OK")
+        return 0
+    for code in violations:
+        print(f"RITE_VIOLATION {code}", file=sys.stderr)
+    if warn:
+        print(f"RITE_WARN {len(violations)} violation(s); not blocking (--warn)")
+        return 0
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
