@@ -61,14 +61,3 @@ sem o espelho redundante. Mantidas as capabilities `external_cli` e o
 `sources.aggregate` (única que orquestra de verdade). A forma `aggregate` permanece
 como a intenção viva; o resto da premissa de enforcement (primitivas como
 forcing-function sobre CLI) segue aberto.
-
-## Resolução (2026-05)
-
-A re-projeção 1:1 foi **eliminada**: a espécie de capability `primitive`/`source.X`
-(`_primitive_capability_row` + seu merge em `build_capability_status`) saiu.
-`build_source_bindings` agora lê o status de primitiva direto do read-model
-`edge-primitives` (via `_load_primitives_payload` → núcleo puro `_resolve_bindings`),
-sem o espelho redundante. Mantidas as capabilities `external_cli` e o
-`sources.aggregate` (única que orquestra de verdade). A forma `aggregate` permanece
-como a intenção viva; o resto da premissa de enforcement (primitivas como
-forcing-function sobre CLI) segue aberto.
