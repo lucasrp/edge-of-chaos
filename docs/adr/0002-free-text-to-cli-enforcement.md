@@ -1,6 +1,6 @@
 # Capabilities e primitivas vieram da migração texto-livre → CLI (enforcement)
 
-**Status:** accepted — premissa sob revisão (2026-05)
+**Status:** accepted — re-projeção 1:1 **resolvida** (2026-05; ver "Resolução" no fim); premissa de enforcement segue sob revisão
 
 ## Contexto e decisão
 
@@ -50,3 +50,25 @@ re-etiquetamento 1:1 que duplica a camada de primitivas sem agregar nada. A cama
 funciona (skills e runtime usam `edge-cap invoke`), mas está meio-realizada e
 redundante. **Para revisitar:** manter a forma `aggregate` (orquestração real),
 eliminar a re-projeção 1:1.
+
+## Resolução (2026-05)
+
+A re-projeção 1:1 foi **eliminada**: a espécie de capability `primitive`/`source.X`
+(`_primitive_capability_row` + seu merge em `build_capability_status`) saiu.
+`build_source_bindings` agora lê o status de primitiva direto do read-model
+`edge-primitives` (via `_load_primitives_payload` → núcleo puro `_resolve_bindings`),
+sem o espelho redundante. Mantidas as capabilities `external_cli` e o
+`sources.aggregate` (única que orquestra de verdade). A forma `aggregate` permanece
+como a intenção viva; o resto da premissa de enforcement (primitivas como
+forcing-function sobre CLI) segue aberto.
+
+## Resolução (2026-05)
+
+A re-projeção 1:1 foi **eliminada**: a espécie de capability `primitive`/`source.X`
+(`_primitive_capability_row` + seu merge em `build_capability_status`) saiu.
+`build_source_bindings` agora lê o status de primitiva direto do read-model
+`edge-primitives` (via `_load_primitives_payload` → núcleo puro `_resolve_bindings`),
+sem o espelho redundante. Mantidas as capabilities `external_cli` e o
+`sources.aggregate` (única que orquestra de verdade). A forma `aggregate` permanece
+como a intenção viva; o resto da premissa de enforcement (primitivas como
+forcing-function sobre CLI) segue aberto.
