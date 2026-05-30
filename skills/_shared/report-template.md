@@ -184,6 +184,8 @@ Include: previous reports, breaks, discoveries, proposals, research, executions,
 
 If there is no relevant prior work, state explicitly: "First work on this topic."
 
+This first section MUST carry `role: lineage` (a top-level key on the section, alongside `title`). The structural Rite gate identifies it by `role`, not by title — so the title may be in any language.
+
 ---
 
 ## Golden Rule 1: Narrative Scaffolding (ALL skills)
@@ -237,6 +239,8 @@ SVG is not just for numbers — any information that communicates better as an i
 
 ### Second-to-last Section: "What I Don't Know" (MANDATORY — all skills)
 
+This section MUST carry `role: gaps` and be the penultimate section.
+
 - `gap-table` with open gaps (status: open/partial)
 - `callout` variant=danger for critical uncertainties (that could invalidate a recommendation)
 - `callout` variant=warning for untested assumptions
@@ -244,6 +248,8 @@ SVG is not just for numbers — any information that communicates better as an i
 - Includes: missing data, untested hypotheses, unexplored alternatives, risks of being wrong
 
 ### Last Section: "Contextualization and Glossary" (MANDATORY)
+
+This section MUST carry `role: glossary` and be the last authored section (the References block auto-appends after it).
 
 - `paragraph` with 2-3 sentences providing context: for whom, at what moment, what prior knowledge helps
 - `glossary` with `context` field and `terms` field listing ALL technical terms with practical definitions
