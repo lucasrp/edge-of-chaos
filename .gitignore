@@ -68,6 +68,10 @@ state/*.md
 state/*.json
 state/events/
 state/signals/
+# Nested epigenetic output — per-host, never replicate (issue #563)
+state/blog/entries/
+state/reports/
+state/audits/
 !state/.gitkeep
 autonomy/*.md
 !autonomy/.gitkeep
