@@ -1,29 +1,25 @@
-# Sandbox e limites de atuação — o que o edge pode fazer
+# Sandbox do edge — instalar, rodar, ver
 
-> Organização copiada do agentops (agent lab + Judge + disciplina de deploy).
+> Um lugar (usuário temp numa VPS) onde instalo o edge, rodo, e vejo o que fiz.
+> Infra mínima.
 
-## Sandbox — rodar isolado antes de produção
-O edge roda primeiro num sandbox isolado:
-- EDGE_HOME próprio, usuário temp, keys throwaway (cap pequeno), subdomínio separado.
-- Avaliado pelo **Judge** contra **casos de teste** + **critérios** → por critério:
-  satisfeito (sim/não) + confiança + reasoning.
-- O **mesmo Judge** serve os dois contextos: produção (julga o artefato nos gates
-  **forma + adversarial**) e sandbox (julga o agente nos casos de teste).
-- Teardown documentado (o usuário temp é removível).
+## O que é
+Um host descartável onde:
+- instalo o edge com `edge-render` + `edge-apply` (a partir do `agent.yaml`),
+- rodo o heartbeat,
+- vejo o resultado: o blog no subdomínio, os artefatos, os logs.
 
-## Autônomo (no próprio substrato)
-- Produz artefatos (blog, relatórios) e publica.
-- Atualiza memória, threads, state e o rolling digest no próprio EDGE_HOME.
-- Propõe mudanças: PRDs, issues, planos de ciclo.
-- Roda o loop (heartbeat → 6 fases).
+## O que posso fazer nela
+- Instalar, rodar, observar e iterar livremente — é descartável.
+- Usar as keys throwaway (cap pequeno).
 
-## Passa por aprovação / pelo loop
-- **Genótipo**: loop issue → clone → PR → merge → close.
-- **Deploy**: issue → branch → PR → merge (prod via processo).
-- **Estado do operador ou externo**: aprovação explícita do operador.
-- **Mutação via credencial**: aprovação explícita.
+## Guardrails
+- Usuário temp não-privilegiado; teardown removível.
+- Keys throwaway capadas — dano limitado.
+- Subdomínio separado (`sandbox.edgeofchaos.net`); produção segue intocada.
+- Efeitos ficam dentro da sandbox.
 
-## Disciplina
-- Todo código via `/pocock-tdd` (red → green → refactor, vertical slices).
-- Ler o glossário antes do trabalho: `CONTEXT-MAP.md` → `CONTEXT.md` → ADRs.
+## Fora da sandbox (passa por aprovação / pelo loop)
+- Genótipo: loop issue → clone → PR → merge → close.
+- Estado do operador ou externo: aprovação explícita.
 - Mentor: contribui e recomenda; o trabalho do mentee é do mentee.
