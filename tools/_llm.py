@@ -27,6 +27,27 @@ def make_client(router: dict, api_key: str):
     return OpenAI(base_url=base, api_key=api_key)
 
 
+def complete(client, model: str, prompt: str, max_tokens: int = 800) -> str:
+    """Texto de uma chamada chat. Trata max_completion_tokens (gpt-5) vs max_tokens."""
+    last = None
+    for tok_param in ("max_completion_tokens", "max_tokens"):
+        try:
+            r = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                **{tok_param: max_tokens},
+            )
+            return r.choices[0].message.content or ""
+        except Exception as e:
+            last = e
+            status = getattr(e, "status_code", None)
+            msg = str(e)
+            if status == 400 and ("nsupported parameter" in msg or "not supported" in msg):
+                continue
+            raise
+    raise last
+
+
 def probe(client, model: str, kind: str = "chat") -> dict:
     """Chamada mínima real. Retorna {ok, status, detail}.
 

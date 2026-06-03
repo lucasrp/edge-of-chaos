@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""edge-heartbeat — um beat fino do v0: caminha as 6 fases e publica um artefato HTML.
+
+Liga os clientes LLM reais (chat + review) a partir do agent.yaml + secrets, e chama
+o pipeline. Os gates são advisory.
+"""
+import argparse
+import os
+import sys
+from pathlib import Path
+
+import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _llm
+import _pipeline
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--yaml", required=True)
+    ap.add_argument("--home", required=True)
+    args = ap.parse_args()
+
+    cfg = yaml.safe_load(Path(args.yaml).read_text()) or {}
+    home = Path(os.path.expanduser(args.home))
+    routers = cfg.get("routers") or {}
+
+    chat = routers.get("chat") or {}
+    chat_key = _pipeline.read_secret(home, chat.get("secret_ref", ""))
+    if not chat_key:
+        print("sem key do router chat — coloque em secrets/ antes do beat")
+        sys.exit(1)
+    chat_client = _llm.make_client(chat, chat_key)
+
+    review = routers.get("review") or {}
+    review_client = review_model = None
+    rkey = _pipeline.read_secret(home, review.get("secret_ref", "")) if review else None
+    if rkey:
+        review_client = _llm.make_client(review, rkey)
+        review_model = review.get("model")
+
+    res = _pipeline.run_beat(home, chat_client, chat.get("model"), review_client, review_model)
+    if not res.get("ok"):
+        print(f"beat sem ação: {res.get('reason')}")
+        sys.exit(0)
+    print(f"beat OK · thread={res['thread']} · entry={res['entry']}")
+    for g in res.get("gates", []):
+        state = "skip" if g.get("skipped") else ("pass" if g.get("passed") else "warn")
+        line = f"  gate {g['gate']}: {state}"
+        if g.get("critique"):
+            line += f" — {g['critique']}"
+        print(line)
+
+
+if __name__ == "__main__":
+    main()
