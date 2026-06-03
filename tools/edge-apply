@@ -17,6 +17,8 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/ para importar _llm
+import _llm
 
 
 def slug(s: str) -> str:
@@ -50,25 +52,45 @@ def render_caddyfile(home: Path, yaml_path: str) -> None:
     )
 
 
-def _secret_present(home: Path, ref: str) -> bool:
+def _read_secret(home: Path, ref: str):
     # ref = "<file>:<VAR>"; secrets vivem em <home>/secrets/<file>
     fn, _, var = ref.partition(":")
     path = home / "secrets" / fn
-    return path.exists() and var in path.read_text()
+    if not path.exists():
+        return None
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[len("export "):]
+        if line.startswith(var + "="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'") or None
+    return None
 
 
 def verify_credentials(home: Path, cfg: dict) -> list:
-    report = []
+    """Testa o ADAPTER no apply: probe real por router quando a key existe."""
+    rows = []
     for name, r in (cfg.get("routers") or {}).items():
-        ref = r.get("secret_ref", "")
-        report.append((f"router:{name} ({r.get('provider')})", ref, _secret_present(home, ref) if ref else False))
+        key = _read_secret(home, r.get("secret_ref", "")) if r.get("secret_ref") else None
+        if not key:
+            rows.append((f"router:{name} ({r.get('provider')})", "FALTA (sem key)", False))
+            continue
+        try:
+            model = r.get("model", "")
+            kind = "embedding" if ("embed" in name.lower() or "embed" in model.lower()) else "chat"
+            res = _llm.probe(_llm.make_client(r, key), model, kind)
+            tag = f"router:{name} ({r.get('provider')}/{r.get('model')})"
+            rows.append((tag, f"OK — {res['detail']}", True) if res["ok"]
+                        else (tag, f"FALHA {res['status']} — {res['detail']}", False))
+        except Exception as e:
+            rows.append((f"router:{name} ({r.get('provider')})", f"ERRO adapter: {str(e)[:80]}", False))
     for s in cfg.get("sources") or []:
         if s.get("kind") == "api":
-            ref = s.get("secret_ref", "")
-            report.append((f"source:{s['name']} (api)", ref, _secret_present(home, ref) if ref else False))
+            key = _read_secret(home, s.get("secret_ref", ""))
+            rows.append((f"source:{s['name']} (api)", "OK key presente" if key else "FALTA (sem key)", bool(key)))
         else:
-            report.append((f"source:{s['name']} (cli {s.get('command')})", s.get("auth_check", ""), None))
-    return report
+            rows.append((f"source:{s['name']} (cli {s.get('command')})", "cli — verificar em runtime", None))
+    return rows
 
 
 def main() -> None:
@@ -92,19 +114,14 @@ def main() -> None:
         mem.write_text("# MEMORY\n")
 
     print(f"apply: instalado em {home}")
-    print("credenciais:")
+    print("credenciais (adapter testado no apply):")
     missing = False
-    for label, ref, ok in verify_credentials(home, cfg):
-        if ok is True:
-            status = "OK"
-        elif ok is False:
-            status = "FALTA"
+    for label, status, ok in verify_credentials(home, cfg):
+        print(f"  - {label}: {status}")
+        if ok is False:
             missing = True
-        else:
-            status = "cli (verificar em runtime)"
-        print(f"  - {label}: {ref}  [{status}]")
     if missing:
-        print("aviso: credenciais ausentes (FALTA) — o primeiro uso vai falhar até dar a key")
+        print("aviso: há credenciais ausentes/com falha — corrija antes do heartbeat real")
     sys.exit(0)
 
 
