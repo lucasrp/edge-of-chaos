@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""edge-apply — instala a partir do agent.yaml (Fase 0 do v0).
+
+Faz: layout em EDGE_HOME, semeia threads/ das initial_threads, coloca o blog server,
+renderiza o Caddyfile pro domínio, e verifica/relata as credenciais (routers + fontes).
+Não bloqueia se faltar credencial — relata (substrate-check visível no install).
+"""
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+from datetime import date
+from pathlib import Path
+
+import yaml
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def slug(s: str) -> str:
+    s = s.lower().strip()
+    s = re.sub(r"[^\w\s-]", "", s)
+    return re.sub(r"[\s_]+", "-", s)
+
+
+def seed_threads(home: Path, cfg: dict) -> None:
+    tdir = home / "threads"
+    tdir.mkdir(parents=True, exist_ok=True)
+    today = date.today().isoformat()
+    owner = cfg.get("codename") or cfg.get("name") or "ed"
+    for th in cfg.get("initial_threads") or []:
+        title = th["title"]
+        sl = slug(title)
+        (tdir / f"{sl}.md").write_text(
+            f"---\nid: {sl}\ntitle: {title}\nstatus: active\n"
+            f"owner: {owner}\ncreated: {today}\nresurface: {today}\n---\n"
+            f"{th.get('intent', '')}\n"
+        )
+
+
+def render_caddyfile(home: Path, yaml_path: str) -> None:
+    subprocess.run(
+        [sys.executable, str(REPO / "tools" / "edge-render"),
+         "--yaml", yaml_path,
+         "--template", str(REPO / "templates" / "Caddyfile.tpl"),
+         "--out", str(home / "Caddyfile")],
+        check=True,
+    )
+
+
+def _secret_present(home: Path, ref: str) -> bool:
+    # ref = "<file>:<VAR>"; secrets vivem em <home>/secrets/<file>
+    fn, _, var = ref.partition(":")
+    path = home / "secrets" / fn
+    return path.exists() and var in path.read_text()
+
+
+def verify_credentials(home: Path, cfg: dict) -> list:
+    report = []
+    for name, r in (cfg.get("routers") or {}).items():
+        ref = r.get("secret_ref", "")
+        report.append((f"router:{name} ({r.get('provider')})", ref, _secret_present(home, ref) if ref else False))
+    for s in cfg.get("sources") or []:
+        if s.get("kind") == "api":
+            ref = s.get("secret_ref", "")
+            report.append((f"source:{s['name']} (api)", ref, _secret_present(home, ref) if ref else False))
+        else:
+            report.append((f"source:{s['name']} (cli {s.get('command')})", s.get("auth_check", ""), None))
+    return report
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--yaml", required=True)
+    ap.add_argument("--home")
+    args = ap.parse_args()
+
+    cfg = yaml.safe_load(Path(args.yaml).read_text()) or {}
+    home = Path(os.path.expanduser(args.home or cfg.get("edge_home", "~/edge-next/")))
+
+    for d in ("blog/entries", "state", "memory", "threads", "secrets"):
+        (home / d).mkdir(parents=True, exist_ok=True)
+
+    seed_threads(home, cfg)
+    shutil.copy(REPO / "blog" / "server.py", home / "blog" / "server.py")
+    render_caddyfile(home, args.yaml)
+
+    mem = home / "memory" / "MEMORY.md"
+    if not mem.exists():
+        mem.write_text("# MEMORY\n")
+
+    print(f"apply: instalado em {home}")
+    print("credenciais:")
+    missing = False
+    for label, ref, ok in verify_credentials(home, cfg):
+        if ok is True:
+            status = "OK"
+        elif ok is False:
+            status = "FALTA"
+            missing = True
+        else:
+            status = "cli (verificar em runtime)"
+        print(f"  - {label}: {ref}  [{status}]")
+    if missing:
+        print("aviso: credenciais ausentes (FALTA) — o primeiro uso vai falhar até dar a key")
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

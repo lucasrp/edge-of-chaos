@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""edge-render — renderiza um template .tpl substituindo {{var}} com valores do agent.yaml.
+
+Mínimo do v0. Deriva variáveis úteis (ex.: blog_domain a partir de blog_public_url).
+"""
+import argparse
+import re
+import sys
+from pathlib import Path
+
+import yaml
+
+
+def derive_vars(cfg: dict) -> dict:
+    pub = str(cfg.get("blog_public_url", ""))
+    domain = re.sub(r"^https?://", "", pub).rstrip("/")
+    return {
+        "blog_domain": domain,
+        "blog_port": str(cfg.get("blog_port", 8766)),
+        "blog_host": str(cfg.get("blog_host", "127.0.0.1")),
+        "name": str(cfg.get("name", "")),
+        "codename": str(cfg.get("codename", "")),
+    }
+
+
+def render_text(text: str, variables: dict) -> str:
+    return re.sub(
+        r"\{\{\s*(\w+)\s*\}\}",
+        lambda m: variables.get(m.group(1), m.group(0)),
+        text,
+    )
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--yaml", required=True)
+    ap.add_argument("--template", required=True)
+    ap.add_argument("--out")
+    args = ap.parse_args()
+
+    cfg = yaml.safe_load(Path(args.yaml).read_text()) or {}
+    out = render_text(Path(args.template).read_text(), derive_vars(cfg))
+
+    if args.out:
+        Path(args.out).write_text(out)
+    else:
+        sys.stdout.write(out)
+
+
+if __name__ == "__main__":
+    main()
