@@ -107,6 +107,8 @@ def main() -> None:
 
     seed_threads(home, cfg)
     shutil.copy(REPO / "blog" / "server.py", home / "blog" / "server.py")
+    if (REPO / "blog" / "static").exists():
+        shutil.copytree(REPO / "blog" / "static", home / "blog" / "static", dirs_exist_ok=True)
     render_caddyfile(home, args.yaml)
 
     mem = home / "memory" / "MEMORY.md"
