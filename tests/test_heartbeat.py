@@ -49,9 +49,9 @@ class FaseA(unittest.TestCase):
         self.assertIn("<h1>", html)
         self.assertIn("Seção A", html)
 
-    def test_forma_gate_passed(self):
-        forma = next(g for g in self.res["gates"] if g["gate"] == "forma")
-        self.assertTrue(forma["passed"], forma)
+    def test_structure_gate_passed(self):
+        gate = next(g for g in self.res["gates"] if g["gate"] == "structure")
+        self.assertTrue(gate["passed"], gate)
 
     def test_adversarial_skipped_without_review_client(self):
         adv = next(g for g in self.res["gates"] if g["gate"] == "adversarial")
