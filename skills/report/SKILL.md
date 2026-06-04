@@ -12,3 +12,6 @@ Format:
 - name what remains uncertain as open questions.
 
 Avoid filler and generic methodology. Say something the mentee did not already know.
+
+Frame it in the operator's idiom — use their terms and meanings exactly:
+{idiom}

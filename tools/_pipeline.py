@@ -33,6 +33,13 @@ def read_secret(home, ref: str):
     return None
 
 
+def read_idiom(home) -> str:
+    """The operator's idiom — their language (memory/operator-idiom.md). Injected so the
+    beat frames the work in the operator's language. Empty string if not set yet."""
+    p = Path(home) / "memory" / "operator-idiom.md"
+    return p.read_text().strip() if p.exists() else ""
+
+
 def load_skill(home, name: str) -> str:
     """Load a skill's prompt (its SKILL.md body). home/skills wins, repo/skills falls back."""
     for base in (Path(home) / "skills", REPO / "skills"):
@@ -68,15 +75,17 @@ def pick_thread(home: Path):
     return None
 
 
-# 2. Research — dispatch to the research skill
+# 2. Research — dispatch to the research skill (framed in the operator's idiom)
 def research(thread, chat_client, model, home):
-    prompt = render(load_skill(home, "research"), title=thread["title"], intent=thread["intent"])
+    prompt = render(load_skill(home, "research"),
+                    title=thread["title"], intent=thread["intent"], idiom=read_idiom(home))
     return _llm.complete(chat_client, model, prompt)
 
 
-# 3. Artifact — dispatch to the report skill
+# 3. Artifact — dispatch to the report skill (framed in the operator's idiom)
 def build_artifact(thread, research_text, chat_client, model, home):
-    prompt = render(load_skill(home, "report"), title=thread["title"], research=research_text)
+    prompt = render(load_skill(home, "report"),
+                    title=thread["title"], research=research_text, idiom=read_idiom(home))
     md = _llm.complete(chat_client, model, prompt)
     return {"title": thread["title"], "body_md": md, "thread_id": thread["id"]}
 

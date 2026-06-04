@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""edge-idiom — capture the operator's idiom (their language).
+
+Language subdivision of operator_pressure. Adds/lists confirmed terms in
+<home>/memory/operator-idiom.md, which the beat injects so it frames work in the
+operator's language. (grill-me and per-report comments consolidate here too, later.)
+"""
+import argparse
+import os
+from datetime import date
+from pathlib import Path
+
+HEADER = "# Operator idiom — the operator's language (confirmed)\n"
+
+
+def _file(home: Path) -> Path:
+    p = home / "memory" / "operator-idiom.md"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--home", default="~/edge-next/")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    a = sub.add_parser("add", help="add a confirmed term")
+    a.add_argument("term")
+    a.add_argument("meaning")
+    sub.add_parser("list", help="list the operator idiom")
+    args = ap.parse_args()
+
+    home = Path(os.path.expanduser(args.home))
+    f = _file(home)
+
+    if args.cmd == "add":
+        if not f.exists():
+            f.write_text(HEADER)
+        with f.open("a") as fh:
+            fh.write(f"- **{args.term}** = {args.meaning}  ({date.today().isoformat()})\n")
+        print(f"idiom += {args.term}")
+    elif args.cmd == "list":
+        print(f.read_text() if f.exists() else "(operator idiom empty)")
+
+
+if __name__ == "__main__":
+    main()
