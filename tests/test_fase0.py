@@ -41,12 +41,12 @@ class Fase0(unittest.TestCase):
     def test_threads_seeded(self):
         t = self.home / "threads"
         files = list(t.glob("*.md"))
-        self.assertEqual(len(files), 2, "deve semear 2 threads das initial_threads")
-        baseline = t / "baseline-do-runtime-atual.md"
-        self.assertTrue(baseline.exists(), "thread baseline pelo slug do título")
+        self.assertEqual(len(files), 2, "should seed 2 threads from initial_threads")
+        baseline = t / "baseline-of-the-current-runtime.md"
+        self.assertTrue(baseline.exists(), "baseline thread by title slug")
         txt = baseline.read_text()
         self.assertIn("status: active", txt)
-        self.assertIn("Baseline do runtime atual", txt)
+        self.assertIn("Baseline of the current runtime", txt)
 
     def test_caddyfile_domain(self):
         caddy = self.home / "Caddyfile"
