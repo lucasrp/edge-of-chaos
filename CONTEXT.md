@@ -1,57 +1,56 @@
-# edge (novo) — glossário
+# edge (new) — glossary
 
-A linguagem ubíqua do edge renascido: um **mentor** que conhece bem o mentorado e o
-domínio, e produz conteúdo que vale a pena. Construído fresco (não editado a partir do
-antigo) para **confrontar** com o glossário antigo (`~/edge/CONTEXT.md`, hoje
-linguagem-de-máquina). Cresce à medida que os conceitos evoluem (via /pocock-grill-with-docs).
+The ubiquitous language of the reborn edge: a **mentor** that knows the mentee and the
+domain well, and produces content worth reading. Built fresh (not edited from the old
+one) so it can be **confronted** with the old glossary (`~/edge/CONTEXT.md`, today a
+machine-language). Grows as concepts evolve (via /pocock-grill-with-docs).
 
 ## Language
 
-**Mentorado**:
-A pessoa que o edge serve — seu trabalho real é o assunto. O edge o conhece pelo que ele
-faz (código, docs, palavras), não por suposição.
-_Avoid_: usuário, cliente
+**Mentee**:
+The person the edge serves — their real work is the subject. The edge knows them from
+what they do (code, docs, words), not from supposition.
+_Avoid_: user, client, operator
 
-**Domínio**:
-O campo em que o mentorado trabalha. O edge precisa conhecê-lo fundo para ter substância.
-_Avoid_: área, tema
+**Domain**:
+The field the mentee works in. The edge must know it deeply to have substance.
+_Avoid_: area, topic, field
 
-**Conteúdo que vale a pena**:
-A interseção: insight de domínio fundo **aplicado ao trabalho vivo do mentorado**. Domínio
-sozinho é genérico; mentorado sozinho é raso.
-_Avoid_: report, output
+**Worthwhile content**:
+The intersection: deep domain insight **applied to the mentee's live work**. Domain
+alone is generic; mentee alone is shallow.
+_Avoid_: report, output, post
 
-**Hipótese**:
-O que o edge supôs (minerou ou inferiu) e ainda não foi confirmado (`assumido`). O edge
-**trabalha naturalmente** com hipóteses — é o tier abundante e barato.
-_Avoid_: palpite, rascunho
+**Hypothesis**:
+Something the edge supposed (mined or inferred) and not yet confirmed (`assumed`). The
+edge **works naturally** with hypotheses — the abundant, cheap tier.
+_Avoid_: guess, draft
 
-**Curado**:
-Conhecimento consolidado pelo operador (`confirmado`/`corrigido`). **Prioritário** sobre a
-hipótese em todo read-model.
-_Avoid_: validado, final
+**Curated**:
+Knowledge consolidated by the mentee (`confirmed`/`corrected`). **Prioritized** over a
+hypothesis in every read-model.
+_Avoid_: validated, final, approved
 
-**Consolidação de hipóteses**:
-Promover hipótese → curado. É o que o `/grill-me` (ativo) e o comentário por report
-(assíncrono) fazem. Não esvazia o tier de hipótese; consolida o que tem **potencial de dano**.
-_Avoid_: aprovação, revisão
+**Hypothesis consolidation**:
+Promoting hypothesis → curated. What `/grill-me` (active) and the per-report comment
+(async) do. Does not drain the hypothesis tier; consolidates what carries **harm potential**.
+_Avoid_: approval, review
 
-**Potencial de dano**:
-A prioridade da consolidação: ambiguidade da fonte × custo de agir errado. Define o que
-gasta a atenção escassa do operador.
-_Avoid_: urgência, score
+**Harm potential**:
+The consolidation priority: source ambiguity × cost of acting wrong. Decides what spends
+the mentee's scarce attention.
+_Avoid_: urgency, score
 
 **llm-wiki**:
-O conhecimento como artefato que compõe — páginas/clusters + cross-refs, guardando hipótese
-e curado. As fontes (Ingest) são a atividade do mentorado; o report é uma página (Query).
-_Avoid_: base de conhecimento, RAG
+Knowledge as a compounding artifact — pages/clusters + cross-references, holding both
+hypothesis and curated. Sources (Ingest) are the mentee's activity; a report is a page (Query).
+_Avoid_: knowledge base, RAG
 
-**Cluster de conhecimento**:
-Uma página do wiki — uma unidade de conhecimento sobre o trabalho do mentorado. Materializa
-num **thread**.
-_Avoid_: tópico, tag
+**Knowledge cluster**:
+A wiki page — a unit of knowledge about the mentee's work. Materializes as a **thread**.
+_Avoid_: topic, tag
 
-**Convergência**:
-O modelo do edge (wiki + glossário do operador) batendo com a realidade do mentorado. A
-malha fecha quando o Lint expõe o erro e o operador o resolve.
-_Avoid_: sincronização, alinhamento
+**Convergence**:
+The edge's model (wiki + mentee glossary) matching the mentee's reality. The loop closes
+when Lint exposes the error and the mentee resolves it.
+_Avoid_: sync, alignment
