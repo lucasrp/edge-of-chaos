@@ -160,3 +160,35 @@ Semantic curation (L2, LLM, periodic): detects contradiction / superseded / orph
 residual to Voz** by harm potential. Detects; the rule or the mentee resolves — never by
 judgment in code. The detector half of `Convergence`.
 _Avoid_: validator, linter, cleanup
+
+## Beat lifecycle / Ciclo do beat
+
+> The beat runs as four cognitions, each a fresh context (ADR-0004): three Agent-tool subagents
+> around one judgment loop, all inside the single dispatch (ADR-0003). Named so each stays
+> faithful to one task without competing for the main window.
+
+**Assemble / Consolidação prévia**:
+The opening subagent (**blocking**): reads the edge's own prior consolidated state — handoffs,
+the rolling digest, the distilled pages (the **wiki**, in full) — and hands the loop a **state
+digest**. The loop blocks until it lands, then wakes holding only the result. `/load` is this
+same primitive, operator-triggered. The reborn `ed-loader`, as a clean context.
+_Avoid_: load (the trigger, not the primitive), context-gather, preflight
+
+**Consolidate / Consolidação posterior**:
+The closing subagent (**async**, fire-and-forget): given the **intent kernel**, it archives the
+transcript (raw, search-only), fans the session across the distilled pages, and writes the
+handoff. The "post" step. Distinct from **Hypothesis consolidation** (which is the curation a
+beat does); this is the lifecycle bookkeeping at close.
+_Avoid_: postflight, save, the 1905-line consolidate-state
+
+**State digest**:
+The brief **assemble hands up** to the loop — minimal, high-signal: what's active, the direction,
+what's open, recent Artefatos, errors. The smallest thing that lets the loop wake oriented without
+re-reading. Distinct from the rolling digest (a stored artifact); this is the per-beat hand-up.
+_Avoid_: briefing, dump, context pack
+
+**Intent kernel**:
+The brief the **loop hands down** to consolidate: ~3 lines — what is open, the next bet — the
+**pragmatic layer no cold reader recovers**. Load-bearing: a blind consolidate distils a vent as
+a decision (the Zep failure). The mitigation for the cost of splitting contexts.
+_Avoid_: summary, notes, handoff (that is the output, not the kernel)
