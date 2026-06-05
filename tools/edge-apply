@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """edge-apply — instala a partir do agent.yaml (Fase 0 do v0).
 
-Faz: layout em EDGE_HOME, semeia threads/ das initial_threads, coloca o blog server,
+Faz: layout em EDGE_HOME, coloca o blog server,
 renderiza o Caddyfile pro domínio, e verifica/relata as credenciais (routers + fontes).
 Não bloqueia se faltar credencial — relata (substrate-check visível no install).
 """
 import argparse
 import os
-import re
 import shutil
 import subprocess
 import sys
-from datetime import date
 from pathlib import Path
 
 import yaml
@@ -19,27 +17,6 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/ para importar _llm
 import _llm
-
-
-def slug(s: str) -> str:
-    s = s.lower().strip()
-    s = re.sub(r"[^\w\s-]", "", s)
-    return re.sub(r"[\s_]+", "-", s)
-
-
-def seed_threads(home: Path, cfg: dict) -> None:
-    tdir = home / "threads"
-    tdir.mkdir(parents=True, exist_ok=True)
-    today = date.today().isoformat()
-    owner = cfg.get("codename") or cfg.get("name") or "ed"
-    for th in cfg.get("initial_threads") or []:
-        title = th["title"]
-        sl = slug(title)
-        (tdir / f"{sl}.md").write_text(
-            f"---\nid: {sl}\ntitle: {title}\nstatus: active\n"
-            f"owner: {owner}\ncreated: {today}\nresurface: {today}\n---\n"
-            f"{th.get('intent', '')}\n"
-        )
 
 
 def render_caddyfile(home: Path, yaml_path: str) -> None:
@@ -105,7 +82,6 @@ def main() -> None:
     for d in ("blog/entries", "state", "memory", "threads", "secrets"):
         (home / d).mkdir(parents=True, exist_ok=True)
 
-    seed_threads(home, cfg)
     shutil.copy(REPO / "blog" / "server.py", home / "blog" / "server.py")
     if (REPO / "blog" / "static").exists():
         shutil.copytree(REPO / "blog" / "static", home / "blog" / "static", dirs_exist_ok=True)

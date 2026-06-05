@@ -1,8 +1,7 @@
 """Fase 0 — instalar a partir do yaml. TDD: este teste define o sucesso do apply.
 
 Sucesso: `edge-apply --yaml agent.yaml --home <tmp>` produz um layout instalado,
-semeado (threads das initial_threads), com Caddyfile pro domínio, server.py no lugar,
-e um relatório do que falta (credenciais).
+com Caddyfile pro domínio, server.py no lugar, e um relatório do que falta (credenciais).
 """
 import subprocess
 import sys
@@ -37,16 +36,6 @@ class Fase0(unittest.TestCase):
     def test_layout_dirs(self):
         for d in ("blog/entries", "state", "memory", "threads"):
             self.assertTrue((self.home / d).is_dir(), f"falta dir {d}")
-
-    def test_threads_seeded(self):
-        t = self.home / "threads"
-        files = list(t.glob("*.md"))
-        self.assertEqual(len(files), 2, "should seed 2 threads from initial_threads")
-        baseline = t / "baseline-of-the-current-runtime.md"
-        self.assertTrue(baseline.exists(), "baseline thread by title slug")
-        txt = baseline.read_text()
-        self.assertIn("status: active", txt)
-        self.assertIn("Baseline of the current runtime", txt)
 
     def test_caddyfile_domain(self):
         caddy = self.home / "Caddyfile"
