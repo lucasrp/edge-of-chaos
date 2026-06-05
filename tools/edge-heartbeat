@@ -1,56 +1,42 @@
 #!/usr/bin/env python3
-"""edge-heartbeat — um beat fino do v0: caminha as 6 fases e publica um artefato HTML.
+"""edge-heartbeat — autonomous beat launcher (ADR-0003).
 
-Liga os clientes LLM reais (chat + review) a partir do agent.yaml + secrets, e chama
-o pipeline. Os gates são advisory.
+Runs the beat as a single-shot `claude -p -` fed the /ed-beat skill body. No cognition here,
+no envelope, no retry — cognition lives in the skill. Interactive dispatch does not use this:
+the live session runs /ed-beat in-place (never spawns claude -p).
 """
 import argparse
 import os
+import subprocess
 import sys
 from pathlib import Path
 
-import yaml
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _llm
-import _pipeline
+import _beat
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--yaml", required=True)
     ap.add_argument("--home", required=True)
+    ap.add_argument("--dry-run", action="store_true", help="Print the command and prompt; do not invoke claude")
     args = ap.parse_args()
 
-    cfg = yaml.safe_load(Path(args.yaml).read_text()) or {}
     home = Path(os.path.expanduser(args.home))
-    routers = cfg.get("routers") or {}
+    prompt = _beat.load_beat_prompt(home)
+    try:
+        claude_bin = _beat.resolve_claude_bin()
+    except FileNotFoundError:
+        if not args.dry_run:
+            raise
+        claude_bin = "claude"
+    cmd = _beat.build_beat_command(claude_bin)
 
-    chat = routers.get("chat") or {}
-    chat_key = _pipeline.read_secret(home, chat.get("secret_ref", ""))
-    if not chat_key:
-        print("sem key do router chat — coloque em secrets/ antes do beat")
-        sys.exit(1)
-    chat_client = _llm.make_client(chat, chat_key)
-
-    review = routers.get("review") or {}
-    review_client = review_model = None
-    rkey = _pipeline.read_secret(home, review.get("secret_ref", "")) if review else None
-    if rkey:
-        review_client = _llm.make_client(review, rkey)
-        review_model = review.get("model")
-
-    res = _pipeline.run_beat(home, chat_client, chat.get("model"), review_client, review_model)
-    if not res.get("ok"):
-        print(f"beat sem ação: {res.get('reason')}")
-        sys.exit(0)
-    print(f"beat OK · thread={res['thread']} · entry={res['entry']}")
-    for g in res.get("gates", []):
-        state = "skip" if g.get("skipped") else ("pass" if g.get("passed") else "warn")
-        line = f"  gate {g['gate']}: {state}"
-        if g.get("critique"):
-            line += f" — {g['critique']}"
-        print(line)
+    if args.dry_run:
+        print(" ".join(cmd))
+        print("--- prompt ---")
+        print(prompt)
+        return
+    sys.exit(subprocess.run(cmd, cwd=str(home), input=prompt, text=True).returncode)
 
 
 if __name__ == "__main__":
