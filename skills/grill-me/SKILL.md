@@ -38,5 +38,26 @@ durable:
 
 The outward orientation itself is **Worthwhile content** — deliver it, do not just file it.
 
+## Mechanics (the graph is the source of truth — ADR-0005)
+
+The agenda is **Lint over the graph**: run `tools/grill_lint.py` — it detects curation debt
+(retired terms vs the glossary `_Avoid_`, canonical-identity duplicates, the blob, orphans),
+ranked by **harm potential**, and is a **delta** (it skips entities already carrying the grilled
+mark, so you only see the un-converged frontier). Confirm what you can from the world first;
+spend the mentee's attention only on the residual.
+
+Write back with `tools/grill_writeback.py` — every decision **marks the graph directly**
+(`curated_name`, `merged_into`, `curated_cluster`, `archived`, plus the `grilled_at` mark, the
+Convergence cursor). You never edit a page: the page **re-renders** from the graph
+(`tools/wiki_render.py`, the `render` router framed in the Idiom).
+
+## First seed — form, then wait for the grill to consolidate
+
+On the **first seed** (no curated wiki yet), the edge forms the wiki — ingests the handoffs and
+renders the **algorithmic** seed — but it is sparse and contaminated, so consolidation **waits
+for the first grill**. The grill is the gate: the seed is uncurated until grilled. Run Lint over
+the fresh seed, grill the mentee, write back, re-render — only then is the wiki the durable
+consolidated state.
+
 Frame everything in the mentee's idiom — their terms and meanings, do not redefine them:
 {idiom}
