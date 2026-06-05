@@ -42,8 +42,10 @@ hypothesis in every read-model.
 _Avoid_: validated, final, approved
 
 **Consolidação de hipóteses / Hypothesis consolidation**:
-Promoting hypothesis → curated. What `/grill-me` (active) and the per-report comment
-(async) do. Does not drain the hypothesis tier; consolidates what carries **harm potential**.
+Promoting hypothesis → curated. The **inward** half of what `/grill-me` (active) and the
+per-report comment (async) do — it keeps the edge's model accurate, but is not the whole of
+the grill, which also **generates outward orientation** for the mentee (see Convergence).
+Does not drain the hypothesis tier; consolidates what carries **harm potential**.
 "Afinamento" is the same loop when the object is the mentee's **language** (Idiom).
 _Avoid_: approval, review, afinamento (as a separate concept)
 
@@ -77,7 +79,9 @@ _Avoid_: config, settings, scaffolding
 
 **Direction**:
 The mentee's current direction the edge aligns its work to — phase, priorities, constraints,
-what they are working toward now. A **standing page**. The old `config/strategy.md`, as wiki.
+what they are working toward now. **Co-produced**: the edge may propose to it from the grill
+(strategic orientation), but the mentee owns it — their correction always wins (Voz). A
+**standing page**. The old `config/strategy.md`, as wiki.
 _Avoid_: strategy, plan, goals, alignment (collides with Convergence)
 
 **Idiom**:
@@ -92,7 +96,9 @@ _Avoid_: config, bindings, feeds
 
 **Convergence**:
 The edge's model (wiki + mentee glossary) matching the mentee's reality. The loop closes
-when Lint exposes the error and the mentee resolves it.
+when Lint exposes the error and the mentee resolves it. Accuracy is **not the end**: the edge
+converges so it can **orient the mentee** — a precise model is the precondition for worthwhile
+mentorship, not a goal in itself.
 _Avoid_: sync, alignment
 
 ## Knowledge intake / Entrada de conhecimento
@@ -127,10 +133,13 @@ permitting), not deltized — only the inputs are. **Source-agnostic**: a git tr
 docs, a transcript — never narrowed to one surface's mechanics. Its role is **orientation, not
 evidence**: it stays light and points the beat at fresh material so a theme can be chosen.
 Depth comes afterward — once a theme is picked, **research reads the actual documents directly,
-including old ones**, unbounded by the delta. Sufficient **only if state consolidation is
-faithful** — the last consolidation is the point it reconciles against.
+including old ones**, unbounded by the delta. **Never a precondition**: the beat works from the
+**wiki** alone when the delta is empty — the delta enriches a beat, it does not gate one.
+Sufficient **only if state consolidation is faithful** — the last consolidation is the point it
+reconciles against.
 _Avoid_: changeset, watermark, cursor (do not narrow it to a git changeset; do not deltize the
-wiki; do not let the delta become the evidence — it orients, research deepens)
+wiki; do not let the delta become the evidence — it orients, research deepens; do not let it gate
+the beat)
 
 ## Curation / Curadoria
 
