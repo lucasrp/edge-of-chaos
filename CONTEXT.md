@@ -38,7 +38,9 @@ _Avoid_: guess, draft
 
 **Curated**:
 Knowledge consolidated by the mentee (`confirmed`/`corrected`). **Prioritized** over a
-hypothesis in every read-model.
+hypothesis in every read-model. **Exempt from passive aging** (it does not cool by going unread
+or unreinforced) but **actively retirable by Voz** — a strategic realignment can supersede it.
+Only the mentee retires curated; passive forgetting never does.
 _Avoid_: validated, final, approved
 
 **Consolidação de hipóteses / Hypothesis consolidation**:
@@ -59,15 +61,19 @@ The edge's knowledge, held as two kinds of durable page — **Knowledge clusters
 grown) and a few **Standing pages** (declared then refined: Direction, Idiom, Source roadmap)
 — plus cross-references, holding both hypothesis and curated. An **Artefato** is a transient
 delivery (a Query result), never a page. Read in full each beat when size permits — the edge's
-own bounded knowledge, not deltized like the inputs. This is what **replaces the code**:
+own bounded knowledge, not deltized like the inputs. The durable pages are **rendered projections
+of the graph** (ADR-0005), not hand-edited documents. This is what **replaces the code**:
 orientation that used to be scaffolding now lives here.
 _Avoid_: knowledge base, RAG
 
 **Knowledge cluster**:
 The wiki's **emergent durable page** — a unit of knowledge (mentee or domain) that
 accumulates hypothesis + curated, **grown** from reading and grilling, never declared.
-Materializes as a **thread**. Artefatos hang off it. Not the wiki's *only* durable page —
-see **Standing page**.
+The graph **proposes** clusters (Graphiti communities, algorithmic); the **grill curates**
+them — directing a fact into a cluster, spawning a new one, or merging — **by harm potential**,
+not exhaustively. Materializes as a **thread**: a **rendered projection** of the cluster's graph
+(ADR-0005), never hand-edited. Artefatos hang off it. Not the wiki's *only* durable page — see
+**Standing page**.
 _Avoid_: topic, tag
 
 **Standing page**:
@@ -96,9 +102,11 @@ _Avoid_: config, bindings, feeds
 
 **Convergence**:
 The edge's model (wiki + mentee glossary) matching the mentee's reality. The loop closes
-when Lint exposes the error and the mentee resolves it. Accuracy is **not the end**: the edge
-converges so it can **orient the mentee** — a precise model is the precondition for worthwhile
-mentorship, not a goal in itself.
+when Lint exposes the error and the mentee resolves it. **Two-way**: converging means both
+**promoting** what is now true and **retiring** what is now false — a grill that follows a
+strategic realignment (a `Direction` change) has a wide blast radius and can be **net-subtractive**.
+Accuracy is **not the end**: the edge converges so it can **orient the mentee** — a precise model
+is the precondition for worthwhile mentorship, not a goal in itself.
 _Avoid_: sync, alignment
 
 ## Knowledge intake / Entrada de conhecimento
@@ -148,10 +156,13 @@ the beat)
 > **temperature** (hot/cold/archived).
 
 **Envelhecimento / Aging**:
-Mechanical curation (L1, every beat) on the **temperature** axis. The signal is **usage =
-consumption**: the wiki offers the whole list each beat, the edge pulls only what it needs,
-and that reach keeps a page hot. Offered-but-unconsumed cools, then archives; pulling a cold
-page back re-warms it. No proxy signals — the edge's own reach is the signal.
+Mechanical curation (L1, every beat) on the **temperature** axis. Two signals feed it.
+**Consumption** (steady-state): the wiki offers the whole list each beat, the edge pulls only
+what it needs, and that reach keeps a page hot; offered-but-unconsumed cools, then archives, and
+a cold page pulled back re-warms. **Reinforcement-recency** (cold-start, from provenance): when no
+new episode has touched a page — it catches the *valid-but-abandoned* that a contradiction never
+invalidates and consumption cannot see before beats accrue. Touches only the **hypothesis** tier;
+curated is exempt. **Archives, never deletes** (raw stays non-lossy).
 _Avoid_: decay, ttl, eviction
 
 **Lint**:
