@@ -53,13 +53,43 @@ def retired(names, avoid):
     return [n for n in names if normalize(n) in norm_avoid]
 
 
-def source_yield_agenda(yield_by_ref):
-    """Per-source yield (eventlog.source_yield_at output) → hypothesis agenda items (ADR-0009): the
-    grill consults the mechanical source-feedback tier — "source X yielded N cites, mean sim 0.YZ —
-    relevant?" Pure (no driver): the mechanical signal is never used alone; the grill fuses it with
-    the mentee's voiced opinion in the curated tier."""
+# Contradiction rule (slice 3, ADR-0011): a curated=valued source is "contradicted" when its accruing
+# yield has gone cold — accumulated evidence (count >= MIN) at a low mean similarity (< COLD). Minimal,
+# documented, testable: the standing opinion says "relevant" but the data says "no longer landing". We
+# require MIN cites so a single weak hit can't fire a confront (the confront needs accrued data).
+SOURCE_COLD_SIM = 0.30   # below this mean similarity, the source is no longer landing
+SOURCE_MIN_CITES = 2     # need at least this many cites before the cold reading is trustworthy
+
+
+def _curated_ref(ref, curated_sources):
+    """The curated source name governing a yield ref, or None. Curated is keyed by source name (e.g.
+    'github'); the yield is keyed by ref (e.g. 'github:abc') — match on exact name or the `src:` prefix."""
+    for s in curated_sources:
+        if ref == s or ref.split(":")[0] == s:
+            return s
+    return None
+
+
+def source_yield_agenda(yield_by_ref, curated=None):
+    """Per-source yield (eventlog.source_yield_at output) → grill agenda items, as a **DELTA** over the
+    curated frontier (ADR-0011). The grill consults the mechanical non-curated tier — "source X yielded
+    N cites, mean sim 0.YZ — relevant?" — but **skips sources that already carry a curated opinion**
+    (the converged frontier; pass `curated` = fold_source_feedback's curated tier). The exception is the
+    two-way Convergence: a curated source whose accruing yield CONTRADICTS the standing opinion
+    (gone cold: count >= SOURCE_MIN_CITES at mean sim < SOURCE_COLD_SIM) **re-surfaces as `contested`**
+    for the mentee to retire or reaffirm. Pure (no driver): the signal is never used alone."""
+    curated_sources = {c["source"] for c in (curated or [])}
     agenda = []
     for y in yield_by_ref.values():
+        gov = _curated_ref(y["ref"], curated_sources)
+        if gov is not None:
+            if y["count"] >= SOURCE_MIN_CITES and y["mean_similarity"] < SOURCE_COLD_SIM:
+                agenda.append(("HIGH", "source-contested",
+                               f"Curated source '{gov}' is contradicted by the data: "
+                               f"'{y['ref']}' yielded {y['count']} cite(s) at mean sim "
+                               f"{y['mean_similarity']:.2f} (< {SOURCE_COLD_SIM:.2f} — gone cold).",
+                               "Retire it (source.dropped) or reaffirm the curated opinion?"))
+            continue  # curated + consistent → omitted from the delta
         agenda.append(("LOW", "source-yield",
                        f"Source '{y['ref']}' ({y.get('kind')}) yielded {y['count']} cite(s), "
                        f"mean sim {y['mean_similarity']:.2f}.",
@@ -105,11 +135,13 @@ def detect(driver, group):
                            "Promote to set (ratify), drop, or merge?"))
     except Exception:
         pass
-    # Source-feedback hypothesis tier — per-source yield → a hypothesis agenda item (ADR-0009).
+    # Source-feedback — a DELTA over the curated frontier (ADR-0011): the non-curated yield seeds
+    # agenda items, but curated sources are omitted unless the data contradicts them (→ contested).
     try:
         sys.path.insert(0, str(REPO / "tools"))
         import eventlog
-        agenda.extend(source_yield_agenda(eventlog.source_yield_at()))
+        fb = eventlog.source_feedback_at()
+        agenda.extend(source_yield_agenda(fb["non_curated"], curated=fb["curated"]))
     except Exception:
         pass
     return sorted(agenda, key=lambda a: {"HIGH": 0, "MED": 1, "LOW": 2}[a[0]])
