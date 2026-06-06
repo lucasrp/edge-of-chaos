@@ -33,8 +33,10 @@ def render_caddyfile(home: Path, yaml_path: str) -> None:
 def _read_secret(home: Path, ref: str):
     # ref = "<file>:<VAR>"; secrets vivem em <home>/secrets/<file>
     fn, _, var = ref.partition(":")
+    if not fn or not var:                      # ref vazio/sem ":" → fonte keyless, não é o dir secrets/
+        return None
     path = home / "secrets" / fn
-    if not path.exists():
+    if not path.exists() or path.is_dir():
         return None
     for line in path.read_text().splitlines():
         line = line.strip()
@@ -64,7 +66,11 @@ def verify_credentials(home: Path, cfg: dict) -> list:
             rows.append((f"router:{name} ({r.get('provider')})", f"ERRO adapter: {str(e)[:80]}", False))
     for s in cfg.get("sources") or []:
         if s.get("kind") == "api":
-            key = _read_secret(home, s.get("secret_ref", ""))
+            ref = s.get("secret_ref")
+            if not ref:                        # api keyless (hn/arxiv): pública, não precisa de key
+                rows.append((f"source:{s['name']} (api)", "OK — keyless (sem secret_ref)", True))
+                continue
+            key = _read_secret(home, ref)
             rows.append((f"source:{s['name']} (api)", "OK key presente" if key else "FALTA (sem key)", bool(key)))
         else:
             rows.append((f"source:{s['name']} (cli {s.get('command')})", "cli — verificar em runtime", None))
