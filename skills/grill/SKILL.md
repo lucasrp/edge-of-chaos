@@ -50,6 +50,13 @@ Inline, by subject, only what is durable — you never edit a page. The mechanic
 
 The outward orientation itself is **Worthwhile content** — deliver it, do not just file it.
 
+## Source feedback — distil the opinion the signal prompts (two-tier, log-native)
+Sources carry the same non-curated→curated shape, but **log-native** (ADR-0011): the curated tier is an event, not a graph mark. The agenda hands you two source-feedback kinds (delta over the curated frontier — already-curated sources are skipped):
+- **`source-yield`** — the mechanical non-curated signal (`eventlog.source_feedback_at`'s `non_curated` tier: per-source count + mean similarity, how the agent actually *used* each source). It is a **measurement, never a self-rating** — never used alone. Funnel it like any candidate: it only earns a question when the *why* carries harm the data cannot reach. When the mentee voices a reasoned opinion, write a **`source.curated`** event — `eventlog.source_curated(source, opinion)` (via `tools/grill_writeback.append_event`) — *"values exa for recent-paper recall because…"*. This is a **separate** event the signal prompts, **never a promotion**: a measurement cannot become an opinion. It is Voz-grounded, outranks the signal, exempt from passive aging.
+- **`source-contested`** — the two-way Convergence (confront). A standing curated source whose accruing yield now **contradicts** it (gone cold: cites accrued at a low mean similarity) re-surfaces for the mentee to **retire or reaffirm**. On retire, write **`eventlog.source_dropped(source, reason)`** (Voz-only — the only way a curated source entry leaves). On reaffirm, the curated opinion stands; restate it with `source.curated` if the *why* sharpened.
+
+Confront standing curated against the data — a source good at first may have gone cold. The roster (← agent.yaml + the native Claude sessions) is the never-blank floor the briefing always shows; your curated opinions and the accruing signal layer on above it.
+
 ## First seed — form, then wait for the grill to consolidate
 On the first seed (no curated wiki yet), the edge forms the algorithmic seed but **consolidation waits for the first grill** — the seed is uncurated until grilled.
 
