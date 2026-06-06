@@ -82,8 +82,16 @@ navigable projection (ADR-0006/0010). The **briefing** seeds entry points; the e
 demand — the read that **scales past full-read** (no token-budget wall). Trust is legible per edge:
 **asserted** (folds from the log) faithful, **extracted** (Graphiti) hypothesis. A **declared** capability
 (agent.yaml / Source roadmap), used like github/exa — for recall of its own knowledge, **never
-re-ingested** (recall, not a source — the self-reference guard). The **llm-wiki** pages are renders of it.
+re-ingested** (recall, not a source — the self-reference guard). The **llm-wiki** pages are renders of it. A harm-bearing subset — **the Earmarked** — is what the grill reconciles.
 *Avoid*: RAG, retrieval, top-k, vector DB, memory store (recall is navigation of own knowledge, not a fetch)
+
+**Earmarked** (the):
+The **harm-bearing subset of the Cortex** — the nodes marked important enough that contradictions in them
+must be **settled by a human** (Voz), not left to rot or decided by rule alone. Defined by **harm potential**,
+not by category: it spans facts, **Direction**, sources, and the **Idiom**, and holds **both tiers** —
+non-curated and curated. **Convergence** moves non-curated → curated within it; the **agenda** is its
+harm-ranked frontier awaiting that. The rest of the **Cortex** is navigable but inert — never earmarked.
+*Avoid*: salient, important (the axis is **harm**), the agenda (that is only its frontier, not the whole body)
 
 **Knowledge cluster**:
 The wiki's **emergent durable page** — a unit of knowledge (mentee or domain) that
