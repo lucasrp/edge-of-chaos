@@ -6,12 +6,24 @@ folds that replay deterministically, so a past cursor reconstructs that past sta
 (strategic versioning). No event-store framework: append-only JSONL + pure-function folds.
 """
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 LOG = REPO / "state" / "events" / "log.jsonl"
 DIRECTION = REPO / "state" / "direction.md"
+CORPUS = REPO / "state" / "corpus.md"
+
+
+def cosine(a, b):
+    """Pure cosine similarity over two equal-length numeric vectors (ADR-0009, source-feedback
+    hypothesis tier — embedding attribution). A zero vector yields 0.0, never a divide-by-zero —
+    degrade, never crash. The actual OpenAI embedding call lives in sweep; only the math is here."""
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    return dot / (na * nb) if na and nb else 0.0
 
 
 def append(type, subject, payload, log=LOG):
@@ -111,6 +123,94 @@ def publish_artefato(slug, proposes=None, distills=None, cites=None, log=LOG):
                    "cites": cites or []}, log=log)
 
 
+def kernel(slug, intent, log=LOG):
+    """Append an `intent.kernel` event (CONTRACT C3) — the durable *why* of a dispatch's Artefato:
+    what is open, the next bet. Mandatory at close; the corpus folds it alongside artefato.published
+    (paired by slug), and the briefing's Recap projects it. The kernel and a cold transcript can
+    disagree on intent; the kernel wins."""
+    return append("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}, log=log)
+
+
+def source_signal(slug, ref, kind, similarity, log=LOG):
+    """Append a `source.signal` event (ADR-0009, source-feedback hypothesis tier). The **score**
+    lands in the log — the cosine of a cited snippet vs the Artefato body — keyed to the cited
+    source (ref, kind: mundo|atividade) and the Artefato (slug). Only the score, never the vectors
+    (no separate DB, no vector store); `fold_source_yield` aggregates per source, the grill consults it."""
+    return append("source.signal", f"artefato:{slug}",
+                  {"slug": slug, "ref": ref, "kind": kind, "similarity": similarity}, log=log)
+
+
+def artefatos_without_kernel(log=LOG):
+    """The C3 invariant as a pure fold: published Artefato slugs with no matching `intent.kernel`,
+    in publish order. Edge work without a recorded intent is incomplete — this is what makes
+    "no Artefato closes without a kernel" mechanically checkable (the sweep/grill consult it)."""
+    evs = read(types=["artefato.published", "intent.kernel"], log=log)
+    kerneled = {(e.get("payload") or {}).get("slug") for e in evs if e["type"] == "intent.kernel"}
+    published = [(e.get("payload") or {}).get("slug") for e in evs if e["type"] == "artefato.published"]
+    return [s for s in published if s not in kerneled]
+
+
+CORPUS_TYPES = ["artefato.published", "intent.kernel"]
+
+
+def fold_corpus(events):
+    """Pure fold of `{artefato.published, intent.kernel}` events → the corpus (ADR-0009): the edge's
+    own published steps, each paired with its *why*. In one pass, seq order: an `artefato.published`
+    opens a corpus item keyed by slug (carrying its proposes/distills/cites and published ts); an
+    `intent.kernel` writes the `intent` onto its slug's item. An Artefato with no kernel folds with
+    `intent=None` (a step whose why is not yet recorded — C3 debt). Returns items in publish order."""
+    items = {}  # slug -> item
+    for e in events:
+        t, p = e.get("type"), e.get("payload", {}) or {}
+        slug = p.get("slug")
+        if slug is None:
+            continue
+        if t == "artefato.published":
+            items[slug] = {"slug": slug, "intent": None, "proposes": p.get("proposes", []),
+                           "distills": p.get("distills", []), "cites": p.get("cites", []),
+                           "ts": e.get("ts")}
+        elif t == "intent.kernel" and slug in items:
+            items[slug]["intent"] = p.get("intent")
+    return list(items.values())
+
+
+def corpus_at(seq=None, ts=None, log=LOG):
+    """Fold `{artefato.published, intent.kernel}` events up to a cursor → the corpus, a list of items
+    in publish order (ADR-0009). Pure: replaying to a past cursor reconstructs that past corpus —
+    strategic versioning, the same property direction_at has. Returns [] when there is no corpus yet
+    (an empty list is the sensible empty-case for a list-returning fold)."""
+    return fold_corpus(read(types=CORPUS_TYPES, until_seq=seq, until_ts=ts, log=log))
+
+
+SOURCE_TYPES = ["source.signal"]
+
+
+def fold_source_yield(events):
+    """Pure fold of `source.signal` events → **per-source (ref) yield** (ADR-0009): for each cited
+    ref, {ref, kind, count, mean_similarity}. This is the leg the briefing's source-orientation reads
+    and the grill consults (per-source yield → a hypothesis agenda item). Returns a dict keyed by ref
+    (an empty dict is the sensible empty-case for a dict-returning fold)."""
+    by_ref = {}  # ref -> {ref, kind, count, _sum}
+    for e in events:
+        p = e.get("payload", {}) or {}
+        ref = p.get("ref")
+        if ref is None:
+            continue
+        agg = by_ref.setdefault(ref, {"ref": ref, "kind": p.get("kind"), "count": 0, "_sum": 0.0})
+        agg["count"] += 1
+        agg["_sum"] += p.get("similarity", 0.0)
+    return {ref: {"ref": ref, "kind": a["kind"], "count": a["count"],
+                  "mean_similarity": a["_sum"] / a["count"]}
+            for ref, a in by_ref.items()}
+
+
+def source_yield_at(seq=None, ts=None, log=LOG):
+    """Fold `source.signal` events up to a cursor → per-source yield, a dict keyed by ref (ADR-0009).
+    Pure: replaying to a past cursor reconstructs that past yield — strategic versioning, as
+    direction_at/corpus_at. Returns {} when there are no source signals yet."""
+    return fold_source_yield(read(types=SOURCE_TYPES, until_seq=seq, until_ts=ts, log=log))
+
+
 def _direction_ids(events):
     return {(e.get("payload") or {}).get("id") for e in events
             if e.get("type") in DIRECTION_TYPES} - {None}
@@ -159,6 +259,33 @@ def project_direction(seq=None, ts=None, log=LOG, out=DIRECTION):
     text = (f"<!-- generated by tools/eventlog.py from {LOG.name} — do not edit -->\n"
             f"# Direction\n\n## Set — curated (Voz)\n\n{_render_items(d.get('set', []))}\n\n"
             f"## Proposed — non-curated (grill achados)\n\n{_render_items(d.get('proposed', []))}\n")
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text)
+    return text
+
+
+def _render_corpus(items):
+    if not items:
+        return "_none yet_"
+    lines = []
+    for it in reversed(items):  # most-recent-first
+        why = it.get("intent") or "_no intent recorded (C3 debt)_"
+        lines.append(f"### {it['slug']}\n\n**why:** {why}\n")
+        steers = [p.get("body", "") for p in it.get("proposes", [])]
+        if steers:
+            lines.append("proposes:\n" + "\n".join(f"- {s}" for s in steers) + "\n")
+    return "\n".join(lines)
+
+
+def project_corpus(seq=None, ts=None, log=LOG, out=CORPUS):
+    """Project the corpus standing page from the log — a fold output (ADR-0006/0009), never hand-edited
+    (banner-marked). Part of Memento's tattoo: a zero-memory agent reads it to know what it already did
+    and **why**, so each Artefato's intent (the why) is inscribed per entry, most-recent-first, with its
+    proposed steers. Projecting a past cursor writes that past corpus."""
+    items = corpus_at(seq=seq, ts=ts, log=log)
+    text = (f"<!-- generated by tools/eventlog.py from {LOG.name} — do not edit -->\n"
+            f"# Corpus — the edge's own steps + their why\n\n{_render_corpus(items)}\n")
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text)

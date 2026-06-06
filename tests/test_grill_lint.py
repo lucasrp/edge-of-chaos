@@ -34,5 +34,23 @@ class AvoidTermsAndRetired(unittest.TestCase):
         self.assertEqual(set(grill_lint.retired(["Coleta", "Delta", "edge-next"], avoid)), {"Coleta"})
 
 
+class SourceYieldAgendaSurfacesPerSourceYield(unittest.TestCase):
+    """ADR-0009: the grill consults the source-feedback hypothesis tier via grill_lint — per-source
+    yield → a hypothesis agenda item ("source X yielded N cites, mean sim 0.YZ — relevant?"). A pure
+    helper over the yield dict (eventlog.source_yield_at's output), unit-testable WITHOUT a driver."""
+
+    def test_yield_dict_becomes_agenda_items(self):
+        ybr = {"github:abc": {"ref": "github:abc", "kind": "atividade",
+                              "count": 2, "mean_similarity": 0.81}}
+        agenda = grill_lint.source_yield_agenda(ybr)
+        self.assertEqual(len(agenda), 1)
+        harm, kind, belief, ask = agenda[0]
+        self.assertEqual(kind, "source-yield")
+        self.assertIn("github:abc", belief)
+        self.assertIn("2", belief)       # count surfaced
+        self.assertIn("0.81", belief)    # mean similarity surfaced
+        self.assertIn("relevant", ask.lower())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

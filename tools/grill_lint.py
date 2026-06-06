@@ -53,6 +53,20 @@ def retired(names, avoid):
     return [n for n in names if normalize(n) in norm_avoid]
 
 
+def source_yield_agenda(yield_by_ref):
+    """Per-source yield (eventlog.source_yield_at output) → hypothesis agenda items (ADR-0009): the
+    grill consults the mechanical source-feedback tier — "source X yielded N cites, mean sim 0.YZ —
+    relevant?" Pure (no driver): the mechanical signal is never used alone; the grill fuses it with
+    the mentee's voiced opinion in the curated tier."""
+    agenda = []
+    for y in yield_by_ref.values():
+        agenda.append(("LOW", "source-yield",
+                       f"Source '{y['ref']}' ({y.get('kind')}) yielded {y['count']} cite(s), "
+                       f"mean sim {y['mean_similarity']:.2f}.",
+                       "Is this source relevant to your reports? (curate: values it because…)"))
+    return agenda
+
+
 def detect(driver, group):
     """Assemble the ranked grill agenda over the un-grilled frontier (harm: high → low)."""
     def q(c, **kw):
@@ -89,6 +103,13 @@ def detect(driver, group):
             agenda.append(("HIGH", "direction-proposed",
                            f"Proposed direction '{it.get('body', '')}'{src} is uncurated.",
                            "Promote to set (ratify), drop, or merge?"))
+    except Exception:
+        pass
+    # Source-feedback hypothesis tier — per-source yield → a hypothesis agenda item (ADR-0009).
+    try:
+        sys.path.insert(0, str(REPO / "tools"))
+        import eventlog
+        agenda.extend(source_yield_agenda(eventlog.source_yield_at()))
     except Exception:
         pass
     return sorted(agenda, key=lambda a: {"HIGH": 0, "MED": 1, "LOW": 2}[a[0]])

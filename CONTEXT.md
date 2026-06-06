@@ -65,11 +65,25 @@ _Avoid_: urgency, score
 The edge's knowledge, held as two kinds of durable page — **Knowledge clusters** (emergent,
 grown) and a few **Standing pages** (declared then refined: Direction, Idiom, Source roadmap)
 — plus cross-references, holding both hypothesis and curated. An **Artefato** is a transient
-delivery (a Query result), never a page. Read in full each beat when size permits — the edge's
-own bounded knowledge, not deltized like the inputs. The durable pages are **rendered projections
+delivery (a Query result), never a page. Read **in full when small** (the briefing's entry read);
+**navigated as a graph beyond that budget** (the **Cortex**) — the edge's own bounded knowledge,
+not deltized like the inputs. The durable pages are **rendered projections
 of the graph** (ADR-0005), not hand-edited documents. This is what **replaces the code**:
 orientation that used to be scaffolding now lives here.
 _Avoid_: knowledge base, RAG
+
+**Cortex**:
+The edge's whole navigable knowledge as one connected graph — the **mind** it thinks *in*. Everything
+projects into it: intake → episodes/clusters (extracted), plus the **asserted** edges (Direction, curated,
+**corpus**, artifact refs, source signals) — one surface where it all connects (artifact retrieval =
+traverse to the reference node, fetch the blob). **Navigate the Cortex, replay the log**: the **log** is
+the record / source of truth (replayed for time & versioning, un-navigable by design); the Cortex is the
+navigable projection (ADR-0006/0010). The **briefing** seeds entry points; the edge *navigates* it on
+demand — the read that **scales past full-read** (no token-budget wall). Trust is legible per edge:
+**asserted** (folds from the log) faithful, **extracted** (Graphiti) hypothesis. A **declared** capability
+(agent.yaml / Source roadmap), used like github/exa — for recall of its own knowledge, **never
+re-ingested** (recall, not a source — the self-reference guard). The **llm-wiki** pages are renders of it.
+_Avoid_: RAG, retrieval, top-k, vector DB, memory store (recall is navigation of own knowledge, not a fetch)
 
 **Knowledge cluster**:
 The wiki's **emergent durable page** — a unit of knowledge (mentee or domain) that
@@ -141,6 +155,19 @@ observed**: authored and highest priority ("a correção sempre ganha"). Subsume
 (Idiom) and correction. Keeps the mentee glossary.
 _Avoid_: operator pressure, feedback, pressão
 
+**Briefing**:
+The orientation presented to the agent at **every dispatch** (and `/load`) — **Memento's tattoo**. The
+protagonist of *Memento* has anterograde amnesia, so he tattoos the load-bearing facts onto his skin and
+trusts nothing that isn't inscribed. The briefing is that tattoo for a zero-memory agent: it must carry
+**everything** needed to orient and hold continuity, because the agent acts on nothing it cannot read here.
+Three **projections** (ADR-0006/0009) — **Knowledge clusters** (← graph), **Direction** (← log), and the
+**Recap** (← corpus) — plus the **Source feedback** orientation. Composed by **Assemble** at compose-time;
+**supersedes the old "state digest."** The load-bearing lines (the curated Direction, what is open / the
+next bet, the source yield) are **deterministically inscribed from the log** — never left to the LLM to
+remember; only the Recap is synthesized fresh. Tier-0 composes from the log alone (clusters degrade where
+there is no graph).
+_Avoid_: state digest, dump, context (the briefing is curated orientation, not a raw dump)
+
 **Corpus**:
 The collection of **content the agent itself created** — its published Artefatos (a fold of the log's
 `artefato.published` events). The edge's **own** body of work, the **reflexive** complement to the
@@ -164,9 +191,13 @@ Atividade** (GitHub commits/PRs, docs), e.g. *"this commit was relevant to this 
 edge's **universal hypothesis→curated shape** (cf. Knowledge clusters, Direction) — one curation act (the
 grill) governs all three:
 - **hypothesis tier — mechanical, no agent/mentee load**: the cheap abundant signal — intrinsic citation
-  (the agent names sources as part of writing a cited Artefato) + **outcome credit** (Voz ratification of a
-  `proposes` / engagement, propagated back through `cites`, MemQ-style) + retrieval-use detection (AgentOS
-  `RetrievalFeedbackSignal`). Machine-generated, contradiction-prone, **never agent self-rating**.
+  (the agent names each source **and the snippet it used** as it writes a cited Artefato) + **embedding
+  attribution** (cosine of each cited snippet vs the Artefato body — cheap, `RetrievalFeedbackSignal`-style,
+  one OpenAI embedding call) + **outcome credit** (Voz ratification of a `proposes` / engagement, propagated
+  back through `cites`, MemQ-style). Machine-generated, contradiction-prone, **never agent self-rating**.
+  **Stored as `source.signal` events in the Tier-0 log** (the *score*, not vectors — no separate DB, no
+  vector store) and projected into the graph; the **grill consults it via `grill_lint`** (per-source yield →
+  a hypothesis agenda item). **Never used alone** — fused with the mentee's voiced opinion in the curated tier.
 - **curated tier — the grill distills the mentee's opinion**: *"the mentee values X in reports because of
   Y."* Voz-grounded and reasoned; **re-ranks the Source roadmap with curated authority**; exempt from
   passive aging, retirable only by Voz. The grill promotes hypothesis→curated **by harm potential**, the

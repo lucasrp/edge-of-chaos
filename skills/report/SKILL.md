@@ -65,16 +65,32 @@ prunable; it also **bears the comment field**, the surface the mentee's later co
 The durable knowledge it distills lives in the **cluster**, written by the **grill** (consolidate is
 dissolved — ADR-0008) — never here. You do not write wiki pages.
 
-## On publish — declare candidate steers (ADR-0007 / #14)
+## On publish — declare candidate steers + cite your sources (ADR-0007/#14, ADR-0009)
 
 A report exists to **move or confirm the Direction** — its "decision not yet made" is a candidate steer.
-After writing the entry, declare them so they persist (you **declare**; you never write Direction yourself):
+After writing the entry, declare them (you **declare**; you never write Direction yourself), and **cite
+each source with the snippet you actually used** — the intrinsic, mechanical **Source-feedback** signal
+(never self-rating):
+
+    tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import eventlog, sweep; \
+      cites=[{'ref':'<source-key>','kind':'mundo','relevant':True,'snippet':'<the text you used>'}]; \
+      eventlog.publish_artefato('<slug>', proposes=[{'body':'…','kind':'constraint'}], cites=cites); \
+      sweep.embed_and_signal('<slug>', open('blog/entries/<slug>.html').read(), cites)"
+
+`publish_artefato` declares the steers (the sweep fans them into the `proposed` tier; the grill curates).
+`embed_and_signal` emits a `source.signal` per cited snippet (cosine of snippet vs the Artefato body — the
+hypothesis tier of Source feedback; it degrades safely when no embedder is present). `kind` is `mundo` or
+`atividade`. Omit `proposes` for a knowledge-only Artefato; omit `cites` if it cites nothing.
+
+## On close — emit the mandatory intent kernel (CONTRACT C3 / ADR-0009)
+
+Every Artefato carries its *why*. After publishing, emit a **mandatory `intent.kernel` event** — the
+~3-line why: what is open, the next bet (the pragmatic layer no cold reader recovers). Edge work without
+it is **incomplete** (C3); it is the durable why the **corpus** carries and the briefing's **Recap**
+projects (same `<slug>` as the entry):
 
     tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import eventlog; \
-      eventlog.publish_artefato('<slug>', proposes=[{'body':'…','kind':'constraint'}])"
-
-The sweep fans each candidate into the non-curated `proposed` tier with `from_artefato` provenance; the
-grill promotes or drops it. Omit `proposes` for a knowledge-only Artefato.
+      eventlog.kernel('<slug>', 'open: …; bet: …')"
 
 ## Read-only on the world (CONTRACT C1)
 

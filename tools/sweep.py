@@ -166,12 +166,51 @@ def graphiti_ingest(items):
     return ok
 
 
+def _openai_embed(text):
+    """The real embedder: one OpenAI embedding call (lazy-imported so importing sweep on bare
+    python3 still works). Used when `embed_and_signal` is called without an injected `embed_fn`."""
+    from openai import OpenAI
+    _load_openai_key()
+    return OpenAI().embeddings.create(model="text-embedding-3-small", input=text).data[0].embedding
+
+
+def embed_and_signal(slug, body, cites, embed_fn=None, log=eventlog.LOG):
+    """ADR-0009 source-feedback (hypothesis tier), the impure boundary: for each cite carrying a
+    `snippet`, emit a `source.signal` scoring `cosine(embed(snippet), embed(body))` — the cheap
+    embedding-attribution signal (one OpenAI call per snippet). Returns the count emitted.
+
+    **Degrade-safe** (same spirit as graphiti_ingest): the embedder is best-effort. With no `embed_fn`
+    the real OpenAI one is used (lazy-imported); if it is unavailable — no openai, no key — nothing is
+    emitted, a Tier-0 skip line is logged, and it never raises (the log stays current without it)."""
+    snippetted = [c for c in cites if isinstance(c, dict) and c.get("snippet")]
+    if not snippetted:
+        return 0
+    embed = embed_fn or _openai_embed
+    try:
+        body_vec = embed(body)
+    except Exception as e:
+        print(f"sweep: source.signal skipped ({type(e).__name__}: {e}) — no embedder (openai/key "
+              f"absent); the Tier-0 log is current without embedding attribution")
+        return 0
+    n = 0
+    for c in snippetted:
+        sim = eventlog.cosine(embed(c["snippet"]), body_vec)
+        eventlog.source_signal(slug, c.get("ref"), c.get("kind"), sim, log=log)
+        n += 1
+    return n
+
+
 def reproject():
     """Re-project the folds. The Direction page + artefato candidates fold from the **log** (pure,
     always). The **wiki** projects from the graph and is **best-effort** — skipped (logged) on a
     host without Neo4j, since the wiki is a graph projection and the agent's durable read is the log."""
     eventlog.consolidate_artefato_proposals()
     eventlog.project_direction()                       # pure fold — always
+    eventlog.project_corpus()                          # pure fold — always (Tier-0, no graph)
+    missing = eventlog.artefatos_without_kernel()      # the C3 gate finally gets a reader (ADR-0009)
+    if missing:
+        print(f"sweep: C3 — {len(missing)} published Artefato(s) without an intent.kernel: "
+              f"{', '.join(missing)} — edge work without a recorded intent is incomplete (warning)")
     try:
         import wiki_render
         wiki_render.main(GROUP, str(REPO / "state" / "wiki"), "threads")

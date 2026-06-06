@@ -13,8 +13,8 @@ subagents run inside this one dispatch (ADR-0003).
 
 Before reasoning, get your briefs. Use the **Agent tool** to run two subagents and **block** on
 both; do not read these surfaces yourself:
-- **assemble** (`skills/assemble`) → returns a **state digest** (the wiki: what's active, the
-  Direction, the Idiom, recent Artefatos).
+- **assemble** (`skills/assemble`) → returns the **briefing** (Memento's tattoo — ADR-0009): the
+  Direction, what is open / the next bet, the corpus, source orientation, and knowledge clusters.
 - **delta** (`skills/delta`) → returns a **delta orientation** (the world: what's new). May be
   empty — the beat works from the wiki alone; the delta never gates you.
 
@@ -22,7 +22,7 @@ You wake holding only these two briefs, not the raw reads.
 
 ## 2. Judge — choose one Worthwhile theme
 
-From the digest and the orientation, pick a single theme that is **deep domain insight applied to
+From the briefing and the orientation, pick a single theme that is **deep domain insight applied to
 the mentee's live work** — the intersection. The highest value is often the decision they have not
 made. One theme per beat — then split it into its **leads** (the recent ideas/threads it touches).
 
@@ -40,10 +40,17 @@ then published to `blog/entries/<slug>.html` matching the existing entries). For
 interactive page), use that form's skill instead. The Artefato is transient; durable knowledge is
 consolidated next, not here.
 
-## 4. Close — emit the intent kernel (ADR-0008)
+## 4. Close — confirm the intent kernel event (CONTRACT C3 / ADR-0009)
 
-Write a **~3-line intent kernel**: what is open, the next bet — the pragmatic layer no cold reader
-recovers. That breadcrumb is the only close-time act. **Consolidate is dissolved**: digestion is the
+Producing the Artefato (step 3, via `skills/report`) emits the **mandatory `intent.kernel` event** — the
+~3-line *why*: what is open, the next bet, the pragmatic layer no cold reader recovers. It is now an
+**event**, not a prose breadcrumb (C3/ADR-0009 supersede ADR-0008's leftover). Confirm C3 holds — your
+slug must not be flagged; emit it yourself only if it is (e.g. a non-report form):
+
+    tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import eventlog; \
+      print(eventlog.artefatos_without_kernel())"
+
+That kernel event is the only close-time act. **Consolidate is dissolved**: digestion is the
 pull-at-open **sweep** every dispatch runs at entry (archive → the Tier-0 log; fan/curate → the grill;
 the handoff document is gone — strategy lives in **Direction**). Do not fire a consolidate subagent;
 do not archive or fan by hand.
