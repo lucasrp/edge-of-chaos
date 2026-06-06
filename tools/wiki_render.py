@@ -26,11 +26,13 @@ NEO4J = (os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687"),
 def _load_key():
     if os.environ.get("OPENAI_API_KEY"):
         return
-    f = Path.home() / ".edge-sandbox-kit" / "openai.env"
-    if f.exists():
-        for line in f.read_text().splitlines():
-            if line.startswith("OPENAI_API_KEY"):
-                os.environ["OPENAI_API_KEY"] = line.split("=", 1)[1].strip().strip('"')
+    # The install's OWN secrets first (OSS: BYO key); ~/.edge-sandbox-kit is only a dev fallback.
+    for f in (REPO / "secrets" / "openai.env", Path.home() / ".edge-sandbox-kit" / "openai.env"):
+        if f.exists():
+            for line in f.read_text().splitlines():
+                if "OPENAI_API_KEY" in line:
+                    os.environ["OPENAI_API_KEY"] = line.split("=", 1)[1].strip().strip('"')
+                    return
 
 
 def render_model():
@@ -81,10 +83,28 @@ def _clusters(q, group):
 
 
 def _facts(q, name, limit=5):
-    facts = [r["f"] for r in q("MATCH (x:Entity {name:$n})-[r:RELATES_TO]-() "
-                               "WHERE r.invalid_at IS NULL AND coalesce(r.contested,false)=false "
-                               "RETURN r.fact AS f LIMIT $k", n=name, k=limit)]
-    return list(dict.fromkeys(facts))
+    """Current-valid facts for an entity, deduped in order. Contested facts are **shown flagged**,
+    not withheld (ADR-0008/#12): the non-curated tier carries ambiguity, the grill resolves it."""
+    rows = q("MATCH (x:Entity {name:$n})-[r:RELATES_TO]-() WHERE r.invalid_at IS NULL "
+             "RETURN r.fact AS f, coalesce(r.contested,false) AS c LIMIT $k", n=name, k=limit)
+    out = []
+    for r in rows:
+        f = r.get("f")
+        if not f:
+            continue
+        f = ("⚠ contested — " + f) if r.get("c") else f
+        if f not in out:
+            out.append(f)
+    return out
+
+
+def _uncurated(q, group, limit=60):
+    """The non-curated (hypothesis) tier: entities the grill has not yet clustered — **shown, not
+    hidden** (ADR-0008/#12). Non-archived, non-merged, no curated_cluster: the eager-extraction tier."""
+    return q("MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NULL "
+             "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
+             "RETURN coalesce(e.curated_name,e.name) AS d, e.name AS n ORDER BY d LIMIT $k",
+             g=group, k=limit)
 
 
 def cluster_tag(grilled, total):
@@ -156,6 +176,22 @@ def render_threads(q, group, out, oai, model, idi, voc):
         fn = f"cluster-{re.sub(r'[^a-z]', '', label.lower())}.html"
         (out / fn).write_text(_doc(label, THREAD_CSS, body))
         links.append((label, fn, len(shown)))
+    # --- non-curated (hypothesis) tier — shown, not hidden (ADR-0008/#12) ---
+    unc = _uncurated(q, group)
+    if unc:
+        seen = {}
+        for e in unc:
+            seen.setdefault(e["d"], e["n"])
+        items = "".join(
+            "<p>• " + html.escape(d)
+            + "".join(f"<br><span class=meta>{html.escape(f)}</span>" for f in _facts(q, n, 3))
+            + "</p>" for d, n in list(seen.items())[:40])
+        body = (f'<h1>Non-curated <span class=tag>hypothesis</span></h1>'
+                f'<p class=meta>{len(seen)} entities awaiting the grill · the eager-extraction tier, '
+                f'contested shown flagged (ADR-0008 · #12)</p>{items}'
+                f'<p><a href="index.html">← index</a></p>')
+        (out / "cluster-noncurated.html").write_text(_doc("Non-curated (hypothesis)", THREAD_CSS, body))
+        links.append(("Non-curated (hypothesis)", "cluster-noncurated.html", len(seen)))
     idx = (f'<h1>edge-next wiki <span class=tag>{html.escape(cluster_tag(grilled_all, total_all))}</span></h1>'
            f'<p class=meta>{len(links)} clusters · {model} · framed in the Idiom · ADR-0005 projection</p>'
            + "".join(f'<p>• <a href="{f}">{html.escape(t)}</a> <span class=meta>({n})</span></p>' for t, f, n in links))

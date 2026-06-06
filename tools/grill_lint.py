@@ -80,6 +80,17 @@ def detect(driver, group):
     if orph:
         agenda.append(("LOW", "orphan", f"{len(orph)} entities have no facts: {[o['name'] for o in orph][:8]}.",
                        "Prune (archive) or attach?"))
+    # Direction `proposed` tier — the grill curates it (promote/drop/merge), ADR-0007/#14.
+    try:
+        sys.path.insert(0, str(REPO / "tools"))
+        import eventlog
+        for it in (eventlog.direction_at() or {}).get("proposed", []):
+            src = f" (from {it['from_artefato']})" if it.get("from_artefato") else ""
+            agenda.append(("HIGH", "direction-proposed",
+                           f"Proposed direction '{it.get('body', '')}'{src} is uncurated.",
+                           "Promote to set (ratify), drop, or merge?"))
+    except Exception:
+        pass
     return sorted(agenda, key=lambda a: {"HIGH": 0, "MED": 1, "LOW": 2}[a[0]])
 
 

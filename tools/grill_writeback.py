@@ -11,6 +11,8 @@ Env: EDGE_NEO4J_URI/USER/PASSWORD
 import os
 from datetime import datetime, timezone
 
+import eventlog
+
 NEO4J = (os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687"),
          os.environ.get("EDGE_NEO4J_USER", "neo4j"),
          os.environ.get("EDGE_NEO4J_PASSWORD", "edgepassword123"))
@@ -48,3 +50,10 @@ def cluster(drv, group, names, label):
 def archive(drv, group, names):
     """Archive orphans out of the read layer (non-lossy — the node stays)."""
     return _set(drv, group, names, {"archived": True, "outcome": "archived"})
+
+
+def append_event(type, subject, payload, log=eventlog.LOG):
+    """Persist a grill decision to the Tier-0 log (ADR-0006) — the durable truth, no graph needed.
+    A grill that can't reach Neo4j still lands its `direction.set` / `grill.curated` event here;
+    the graph and wiki catch up later by projection (the stranded-grill fix)."""
+    return eventlog.append(type, subject, payload, log=log)

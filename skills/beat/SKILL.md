@@ -40,12 +40,13 @@ then published to `blog/entries/<slug>.html` matching the existing entries). For
 interactive page), use that form's skill instead. The Artefato is transient; durable knowledge is
 consolidated next, not here.
 
-## 4. Close — emit the intent kernel, fire consolidate (async)
+## 4. Close — emit the intent kernel (ADR-0008)
 
 Write a **~3-line intent kernel**: what is open, the next bet — the pragmatic layer no cold reader
-recovers. Then fire the **consolidate** subagent (`skills/consolidate`) with that kernel via the
-Agent tool, **async / fire-and-forget** (the next beat needs it, ~3h away). Do not wait; do not
-do the archiving/fanning/handoff yourself — that is consolidate's job.
+recovers. That breadcrumb is the only close-time act. **Consolidate is dissolved**: digestion is the
+pull-at-open **sweep** every dispatch runs at entry (archive → the Tier-0 log; fan/curate → the grill;
+the handoff document is gone — strategy lives in **Direction**). Do not fire a consolidate subagent;
+do not archive or fan by hand.
 
 ## Read-only (CONTRACT C1)
 

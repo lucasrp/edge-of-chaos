@@ -11,9 +11,12 @@ loop wakes holding only your result. This is **blocking** — the loop waits for
 You read the edge's **own knowledge** — the wiki, in full. (The **world** is a different read:
 that is the `delta` cognition's job, not yours. You do not read the mentee's repos or sources.)
 
-## Mechanical — gather (deterministic)
+## Mechanical — sweep to currency, then gather (deterministic)
 
-Enumerate and read the prior consolidated state that exists:
+First run the **digestion sweep** (`tools/edge-python tools/sweep.py`) — it brings the
+Tier-0 log, the graph (incremental Graphiti, C2), and the projections (wiki + Direction) **current to the
+last session** before you read them (ADR-0008). Idempotent, so it is safe at every dispatch entry. Then
+enumerate and read the prior consolidated state that exists:
 - `state/chat-digest.md` — the rolling digest of recent beats.
 - the latest handoff(s), if any.
 - `blog/entries/` — prior Artefatos, so the loop does not repeat one.

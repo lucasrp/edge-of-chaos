@@ -7,8 +7,19 @@ description: Produce one Artefato in its prose-synthesis form — a focused, Idi
 You are the **report** cognition — the **prose-synthesis** form of the beat's Artefato (CONTEXT.md:
 *Artefato*). Given one Worthwhile theme and the insumos gathered for it, you produce a single focused
 synthesis the mentee did not already know. You do **not** pick the theme or fan the explorers (the beat
-does), and you do **not** consolidate durable knowledge (consolidate does). You produce one transient
+does), and you do **not** consolidate durable knowledge (the grill does). You produce one transient
 deliverable, well.
+
+## On dispatch entry — sweep to currency (ADR-0008)
+
+`/ed-beat` is just a shell; **the lifecycle belongs to the dispatch**. Before producing anything, run
+the digestion sweep so you work against state current to the last session:
+
+    tools/edge-python tools/sweep.py
+
+Idempotent (cursor-guarded) and store-keyed: it digests every session's delta — even ones that ran no
+ed skill — into the Tier-0 log + Graphiti (incremental, C2), then re-projects the wiki and Direction
+(including artefato candidates → the non-curated `proposed` tier). Cheap to re-run.
 
 ## Input — a theme + its insumos
 
@@ -51,8 +62,19 @@ the existing entries:
 
 The `meta` line is the date · the producing skill. The Artefato is **transient** — it cools and is
 prunable; it also **bears the comment field**, the surface the mentee's later comment consolidates from.
-The durable knowledge it distills lives in the **cluster**, written by **consolidate** — never here. You
-do not write wiki pages.
+The durable knowledge it distills lives in the **cluster**, written by the **grill** (consolidate is
+dissolved — ADR-0008) — never here. You do not write wiki pages.
+
+## On publish — declare candidate steers (ADR-0007 / #14)
+
+A report exists to **move or confirm the Direction** — its "decision not yet made" is a candidate steer.
+After writing the entry, declare them so they persist (you **declare**; you never write Direction yourself):
+
+    tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import eventlog; \
+      eventlog.publish_artefato('<slug>', proposes=[{'body':'…','kind':'constraint'}])"
+
+The sweep fans each candidate into the non-curated `proposed` tier with `from_artefato` provenance; the
+grill promotes or drops it. Omit `proposes` for a knowledge-only Artefato.
 
 ## Read-only on the world (CONTRACT C1)
 
