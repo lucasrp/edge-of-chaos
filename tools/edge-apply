@@ -17,6 +17,7 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/ para importar _llm
 import _llm
+import _claude_provision
 
 
 def render_caddyfile(home: Path, yaml_path: str) -> None:
@@ -74,10 +75,15 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--yaml", required=True)
     ap.add_argument("--home")
+    ap.add_argument("--claude-home",
+                    help="target ~/.claude dir (default: real ~/.claude). "
+                         "Tests/smoke-runs MUST point this at a tmp dir.")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(Path(args.yaml).read_text()) or {}
     home = Path(os.path.expanduser(args.home or cfg.get("edge_home", "~/edge-next/")))
+    claude_home = Path(os.path.expanduser(args.claude_home)) if args.claude_home \
+        else Path.home() / ".claude"
 
     for d in ("blog/entries", "state", "memory", "threads", "secrets"):
         (home / d).mkdir(parents=True, exist_ok=True)
@@ -94,6 +100,10 @@ def main() -> None:
         mem.write_text("# MEMORY\n")
 
     print(f"apply: instalado em {home}")
+    print(f"apply: provisionando ~/.claude em {claude_home}")
+    for row in _claude_provision.provision_claude(cfg, REPO, claude_home):
+        print(f"  - {row}")
+
     print("credenciais (adapter testado no apply):")
     missing = False
     for label, status, ok in verify_credentials(home, cfg):
