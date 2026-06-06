@@ -354,6 +354,66 @@ class SourceYieldFoldsPerSourceCountAndMean(unittest.TestCase):
             self.assertEqual(eventlog.source_yield_at(log=Path(tmp) / "log.jsonl"), {})
 
 
+class SourceFeedbackFoldsTwoTiersCuratedOverNonCurated(unittest.TestCase):
+    """Slice 2 (ADR-0011): source feedback is two-tier, mirroring Direction (set over proposed).
+    `source.curated` is the grill-distilled mentee opinion (curated tier); `source.signal` aggregates
+    into the non-curated yield. `source_feedback_at` folds both, curated keyed per source, outranking
+    the non-curated yield. `source.dropped` removes a curated entry (Voz-only). Cursor-aware: replay
+    to a past cursor reconstructs that past — strategic versioning, as direction_at."""
+
+    def test_curated_event_appends_and_folds_into_curated_tier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            ev = eventlog.source_curated("exa", "values exa for recent-paper recall", log=log)
+            self.assertEqual(ev["type"], "source.curated")
+            self.assertEqual(ev["payload"]["source"], "exa")
+            fb = eventlog.source_feedback_at(log=log)
+            self.assertEqual([c["source"] for c in fb["curated"]], ["exa"])
+            self.assertEqual(fb["curated"][0]["opinion"], "values exa for recent-paper recall")
+
+    def test_curated_outranks_non_curated_yield_for_same_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.source_signal("r", "exa", "mundo", 0.7, log=log)         # non-curated yield
+            eventlog.source_curated("exa", "valued: recent-paper recall", log=log)  # curated opinion
+            fb = eventlog.source_feedback_at(log=log)
+            self.assertEqual([c["source"] for c in fb["curated"]], ["exa"])
+            # the non-curated yield is still folded (a separate event, no promotion) but exa is curated
+            self.assertIn("exa", fb["non_curated"])
+
+    def test_dropped_removes_curated_entry_and_stays_gone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.source_curated("exa", "valued", log=log)
+            eventlog.source_dropped("exa", "went cold", log=log)
+            fb = eventlog.source_feedback_at(log=log)
+            self.assertEqual(fb["curated"], [])
+
+    def test_latest_curated_opinion_wins_per_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.source_curated("exa", "first take", log=log)
+            eventlog.source_curated("exa", "sharper take", log=log)
+            fb = eventlog.source_feedback_at(log=log)
+            self.assertEqual([c["source"] for c in fb["curated"]], ["exa"])
+            self.assertEqual(fb["curated"][0]["opinion"], "sharper take")
+
+    def test_replay_to_past_cursor_reconstructs_past_feedback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            c = eventlog.source_curated("exa", "valued", log=log)        # seq 1
+            eventlog.source_dropped("exa", "cold", log=log)              # seq 2
+            past = eventlog.source_feedback_at(seq=c["seq"], log=log)
+            self.assertEqual([x["source"] for x in past["curated"]], ["exa"])
+            now = eventlog.source_feedback_at(log=log)
+            self.assertEqual(now["curated"], [])
+
+    def test_empty_log_has_empty_feedback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fb = eventlog.source_feedback_at(log=Path(tmp) / "log.jsonl")
+            self.assertEqual(fb, {"curated": [], "non_curated": {}})
+
+
 class CosineIsPureSimilarity(unittest.TestCase):
     """ADR-0009 source-feedback (hypothesis tier): cosine of two equal-length numeric vectors —
     the pure math behind embedding attribution (the actual OpenAI call lives in sweep, never here).

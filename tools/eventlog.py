@@ -211,6 +211,52 @@ def source_yield_at(seq=None, ts=None, log=LOG):
     return fold_source_yield(read(types=SOURCE_TYPES, until_seq=seq, until_ts=ts, log=log))
 
 
+SOURCE_CURATED_TYPES = ["source.curated", "source.dropped"]
+SOURCE_FEEDBACK_TYPES = SOURCE_TYPES + SOURCE_CURATED_TYPES
+
+
+def source_curated(source, opinion, kind=None, log=LOG):
+    """Append a `source.curated` event (ADR-0011, source-feedback curated tier) — the grill-distilled
+    mentee opinion about a source ("values X because Y"). A **separate** event the non-curated signal
+    *prompts*, never a promotion (a measurement cannot become an opinion). Curated **outranks** the
+    yield, is exempt from passive aging, retirable only by Voz (source_dropped). Latest wins per source."""
+    return append("source.curated", f"source:{source}",
+                  {"source": source, "opinion": opinion, "kind": kind}, log=log)
+
+
+def source_dropped(source, reason="", log=LOG):
+    """Append a `source.dropped` event — retire a curated source opinion (Voz only). The only way a
+    curated source entry leaves (persist-until-dropped, mirroring direction.dropped)."""
+    return append("source.dropped", f"source:{source}", {"source": source, "reason": reason}, log=log)
+
+
+def fold_source_feedback(events):
+    """Pure two-tier fold of source-feedback events (ADR-0011), mirroring fold_direction (set over
+    proposed). The **curated** tier folds `source.curated`/`source.dropped` per source — latest opinion
+    wins, dropped removes it (Voz-only); it **outranks** the non-curated yield (no promotion — curated
+    is a separate event the signal prompts). The **non-curated** tier is the mechanical per-ref yield
+    (fold_source_yield over source.signal). Returns {"curated": [...], "non_curated": {ref: {...}}}."""
+    curated = {}  # source -> {source, opinion, kind}
+    for e in events:
+        t, p = e.get("type"), e.get("payload", {}) or {}
+        if t == "source.curated":
+            src = p.get("source")
+            if src is None:
+                continue
+            curated[src] = {"source": src, "opinion": p.get("opinion", ""), "kind": p.get("kind")}
+        elif t == "source.dropped":
+            curated.pop(p.get("source"), None)
+    return {"curated": list(curated.values()),
+            "non_curated": fold_source_yield([e for e in events if e.get("type") == "source.signal"])}
+
+
+def source_feedback_at(seq=None, ts=None, log=LOG):
+    """Fold source-feedback events up to a cursor → two tiers (ADR-0011): {"curated":[...],
+    "non_curated":{ref:{...}}}, curated outranking. Pure: replaying to a past cursor reconstructs that
+    past feedback — strategic versioning, as direction_at. Empty → {"curated":[], "non_curated":{}}."""
+    return fold_source_feedback(read(types=SOURCE_FEEDBACK_TYPES, until_seq=seq, until_ts=ts, log=log))
+
+
 def _direction_ids(events):
     return {(e.get("payload") or {}).get("id") for e in events
             if e.get("type") in DIRECTION_TYPES} - {None}

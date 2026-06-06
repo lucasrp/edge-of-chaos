@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from eventlog import (LOG, direction_at, corpus_at, artefatos_without_kernel,  # noqa: E402
-                      source_yield_at)
+                      source_feedback_at)
 
 REPO = Path(__file__).resolve().parent.parent
 AGENT_YAML = REPO / "agent.yaml"
@@ -93,19 +93,24 @@ def _section_corpus(corpus, debt):
 
 def _section_sources(log, seq, ts, roster):
     """Source orientation (ADR-0011): the declared **roster** (← Source roadmap) as the never-blank
-    **floor**, with the per-source **yield** (ref · kind · count · mean sim, highest first) layered
-    on as it accrues. The grill consults the yield; the roster keeps the section honest before any
-    signal exists. Degrade, never crash."""
+    **floor**, then the two-tier source feedback — the **curated** stratum (← source.curated, the
+    grill-distilled mentee opinion) ABOVE the non-curated **yield** (ref · kind · count · mean sim,
+    highest first), mirroring _section_direction (set over proposed). The grill consults the yield;
+    the roster + curated keep the section honest before/after signal accrues. Degrade, never crash."""
     floor = "\n".join(f"- **{r['name']}** ({r.get('kind')}) — {r.get('label', r['name'])}"
                       for r in (roster or []))
     parts = ["## 4. Source orientation", "**Declared roster** (the floor — what each source is for):",
              floor or "_no roster declared._"]
-    yld = source_yield_at(seq=seq, ts=ts, log=log)
+    fb = source_feedback_at(seq=seq, ts=ts, log=log)
+    if fb["curated"]:
+        cur = "\n".join(f"- **{c['source']}** — {c['opinion']}" for c in fb["curated"])
+        parts += ["**Curated — mentee opinion (Voz-grounded, highest authority):**", cur]
+    yld = fb["non_curated"]
     if yld:
         rows = sorted(yld.values(), key=lambda r: r["mean_similarity"], reverse=True)
         lines = [f"- **{r['ref']}** ({r['kind']}) · {r['count']}× · mean sim {r['mean_similarity']:.2f}"
                  for r in rows]
-        parts += ["**Source feedback** (how each source actually yielded):", "\n".join(lines)]
+        parts += ["**Source feedback — non-curated (how each source actually yielded):**", "\n".join(lines)]
     return "\n\n".join(parts)
 
 

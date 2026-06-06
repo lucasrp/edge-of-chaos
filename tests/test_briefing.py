@@ -137,6 +137,41 @@ class SourceRosterIsTheNeverBlankFloor(unittest.TestCase):
         self.assertIn("s3", text)
 
 
+class SourceCuratedStratumRendersAboveYield(unittest.TestCase):
+    """Slice 2 (ADR-0011): the curated source stratum (← source.curated, the grill-distilled mentee
+    opinion) renders ABOVE the non-curated yield, mirroring _section_direction (set over proposed).
+    source.dropped removes it. Cursor-aware: a past cursor reconstructs the past stratum."""
+
+    def test_curated_opinion_surfaces_above_the_signal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.source_signal("r", "exa", "mundo", 0.7, log=log)
+            eventlog.source_curated("exa", "valued: recent-paper recall", log=log)
+            text = briefing.compose_briefing(log=log)
+            self.assertIn("valued: recent-paper recall", text)
+            # curated stratum is above the per-source yield line
+            self.assertLess(text.index("valued: recent-paper recall"),
+                            text.index("mean sim"))
+
+    def test_dropped_removes_curated_from_briefing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.source_curated("exa", "valued: recent-paper recall", log=log)
+            eventlog.source_dropped("exa", "went cold", log=log)
+            text = briefing.compose_briefing(log=log)
+            self.assertNotIn("valued: recent-paper recall", text)
+
+    def test_replay_to_past_cursor_shows_past_curated_stratum(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            c = eventlog.source_curated("exa", "valued: recall", log=log)   # seq 1
+            eventlog.source_dropped("exa", "cold", log=log)                 # seq 2
+            past = briefing.compose_briefing(log=log, seq=c["seq"])
+            self.assertIn("valued: recall", past)
+            now = briefing.compose_briefing(log=log)
+            self.assertNotIn("valued: recall", now)
+
+
 class ClustersDegradeOnTier0(unittest.TestCase):
     """Section 5 — Knowledge clusters (← graph). clusters=None (Tier-0, no graph runtime) → a clear
     degrade note, and it must NOT crash. clusters=[...] (Tier-1) → they render."""
