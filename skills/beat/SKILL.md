@@ -34,15 +34,11 @@ reading documents directly is fine; the per-lead parallel fan-out is for real de
 
 ## 3. Produce one Artefato
 
-Write a focused artifact, framed in the operator's **Idiom**:
-- `## Executive summary` (2–3 sentences);
-- 2–3 substantive `## ` sections, concrete, saying something the mentee did not already know;
-- name what remains uncertain as open questions.
-
-**Self-review once** (adversarially: is it Worthwhile, honest, free of filler?), then **publish**
-to `blog/entries/<slug>.html` — a self-contained HTML document (`<title>`, `<h1>`,
-`<p class="meta">` with the date, `<link rel="stylesheet" href="/static/style.css">`), matching
-the existing entries. The Artefato is transient; durable knowledge is consolidated next, not here.
+Produce the Artefato in its **prose-synthesis form** — follow `skills/report` (the canonical spec:
+Idiom-framed executive summary + 2–3 substantive `## ` sections + open questions, self-reviewed once,
+then published to `blog/entries/<slug>.html` matching the existing entries). For another form (e.g. an
+interactive page), use that form's skill instead. The Artefato is transient; durable knowledge is
+consolidated next, not here.
 
 ## 4. Close — emit the intent kernel, fire consolidate (async)
 
