@@ -8,7 +8,7 @@ Provisions, idempotently:
 The transform for a skill (derived from the live edge-next output shape):
   - frontmatter `name: {name}` → `name: {prefix}-{name}`
   - add `user-invocable: true` as the last frontmatter field
-  - body literal `{prefix}` → the skill_prefix value
+  - frontmatter + body literal `{prefix}` → the skill_prefix value
 
 claude_home is always a parameter so tests never touch the real ~/.claude.
 """
@@ -79,6 +79,7 @@ def render_skill(content: str, *, name: str, prefix: str) -> str:
         if re.match(r"^user-invocable:\s", ln):
             has_user_invocable = True
             ln = "user-invocable: true\n"
+        ln = ln.replace("{prefix}", prefix)   # substitute in frontmatter too (e.g. the description)
         out_fm.append(ln)
     if not has_user_invocable:
         out_fm.append("user-invocable: true\n")
