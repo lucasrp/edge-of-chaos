@@ -24,8 +24,13 @@ You wake holding only these two briefs, not the raw reads.
 
 From the digest and the orientation, pick a single theme that is **deep domain insight applied to
 the mentee's live work** — the intersection. The highest value is often the decision they have not
-made. One theme per beat. If a theme needs depth, read the actual documents directly (research is
-yours; the delta only pointed).
+made. One theme per beat — then split it into its **leads** (the recent ideas/threads it touches).
+
+**Fan out one explorer subagent per lead, in parallel** — a single batch of Agent-tool calls so they
+run concurrently (and are watchable live in the agent view), each **source-agnostic** across the pool
+(Claude sessions, GitHub, exa, the projects' CONTEXT.md), returning **multi-source insumos**
+(`{source, ref}`, connecting across sources). Gather their insumos, then produce. (For a small theme,
+reading documents directly is fine; the per-lead parallel fan-out is for real depth.)
 
 ## 3. Produce one Artefato
 

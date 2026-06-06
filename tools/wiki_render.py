@@ -44,6 +44,28 @@ def idiom():
     return p.read_text() if p.exists() else "(no Idiom standing page yet)"
 
 
+def project_vocab(root=None, max_each=3000, max_total=8000):
+    """The mentee's project vocabulary: the available CONTEXT.md glossaries across their projects,
+    deduped (clone worktrees share a CONTEXT.md). Frames cluster synthesis in the projects' terms."""
+    root = Path(root) if root else Path.home()
+    seen, parts, total = set(), [], 0
+    for f in sorted(root.glob("*/CONTEXT.md")):
+        try:
+            txt = f.read_text()
+        except Exception:
+            continue
+        key = hash(txt)
+        if key in seen:
+            continue
+        seen.add(key)
+        chunk = f"### {f.parent.name}/CONTEXT.md\n{txt[:max_each]}"
+        if total + len(chunk) > max_total:
+            break
+        parts.append(chunk)
+        total += len(chunk)
+    return "\n\n".join(parts) or "(no project CONTEXT.md found)"
+
+
 def _clusters(q, group):
     """The grill-curated clusters and their non-archived entities (display + raw name)."""
     labels = [r["l"] for r in q("MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
@@ -52,14 +74,42 @@ def _clusters(q, group):
     for label in labels:
         ents = q("MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster=$l "
                  "AND coalesce(e.archived,false)=false "
-                 "RETURN coalesce(e.curated_name,e.name) AS d, e.name AS n", g=group, l=label)
-        out.append((label, ents))
+                 "RETURN coalesce(e.curated_name,e.name) AS d, e.name AS n, e.merged_into AS m, "
+                 "(e.grilled_at IS NOT NULL) AS g", g=group, l=label)
+        out.append((label, [e for e in ents if not e.get("m")]))
     return out
 
 
 def _facts(q, name, limit=5):
-    return [r["f"] for r in q("MATCH (x:Entity {name:$n})-[r:RELATES_TO]-() WHERE r.invalid_at IS NULL "
-                              "RETURN r.fact AS f LIMIT $k", n=name, k=limit)]
+    facts = [r["f"] for r in q("MATCH (x:Entity {name:$n})-[r:RELATES_TO]-() "
+                               "WHERE r.invalid_at IS NULL AND coalesce(r.contested,false)=false "
+                               "RETURN r.fact AS f LIMIT $k", n=name, k=limit)]
+    return list(dict.fromkeys(facts))
+
+
+def cluster_tag(grilled, total):
+    """The honest tag (ADR-0005): `curated` only when the grill has reached every entity."""
+    if total and grilled == total:
+        return "curated"
+    if grilled == 0:
+        return "draft"
+    return f"{grilled}/{total} grilled"
+
+
+ENGLISH_IDIOM_RULE = (
+    "Write the prose in English. 'Idiom' here means the mentee's coined terminology, not their "
+    "language: keep their coined terms (e.g. Mundo, Atividade, Voz, beat, grill, Knowledge cluster) "
+    "verbatim; do not translate them.")
+
+
+def synthesis_prompt(label, facts, idiom, vocab):
+    """The cluster-synthesis prompt: English prose, the coined idiom kept verbatim (R2), framed in
+    the projects' own vocabulary (their CONTEXT.md glossaries)."""
+    return (f"{ENGLISH_IDIOM_RULE}\nThe mentee idiom:\n{idiom}\n\n"
+            f"The projects' vocabulary (CONTEXT.md glossaries) — use these terms and meanings:\n{vocab}\n\n"
+            f"Write a 2-paragraph synthesis for the knowledge cluster '{label}' in edge-next. Facts:\n"
+            + "\n".join(f"- {f}" for f in facts[:30])
+            + "\nSay what it is and the decision it implies. Plain prose.")
 
 
 THREAD_CSS = ("body{font:16px/1.6 system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;color:#222}"
@@ -86,33 +136,34 @@ def _doc(title, css, body):
             f'<title>{html.escape(title)}</title><style>{css}</style></head><body>{body}</body></html>')
 
 
-def render_threads(q, group, out, oai, model, idi):
+def render_threads(q, group, out, oai, model, idi, voc):
     out.mkdir(parents=True, exist_ok=True)
     links = []
+    grilled_all = total_all = 0
     for label, ents in _clusters(q, group):
         shown = sorted({e["d"] for e in ents})
         facts = [f for e in ents[:10] for f in _facts(q, e["n"])]
+        grilled = sum(1 for e in ents if e.get("g"))
+        grilled_all, total_all = grilled_all + grilled, total_all + len(ents)
+        tag = cluster_tag(grilled, len(ents))
         r = oai.chat.completions.create(model=model, messages=[{"role": "user", "content":
-            f"Frame strictly in this mentee idiom (their terms):\n{idi}\n\n"
-            f"Write a 2-paragraph synthesis for the knowledge cluster '{label}' in edge-next. Facts:\n"
-            + "\n".join(f"- {f}" for f in facts[:30]) + "\nSay what it is and the decision it implies. Plain prose."}],
-            max_completion_tokens=600)
+            synthesis_prompt(label, facts, idi, voc)}], max_completion_tokens=600)
         synth = r.choices[0].message.content or ""
-        body = (f'<h1>{html.escape(label)} <span class=tag>curated</span></h1>'
+        body = (f'<h1>{html.escape(label)} <span class=tag>{html.escape(tag)}</span></h1>'
                 f'<p class=meta>knowledge cluster · {len(shown)} entities · {model} (ADR-0005)</p>'
                 f'<div>{html.escape(synth)}</div><h3>entities</h3>'
                 + "".join(f"<p>• {html.escape(d)}</p>" for d in shown) + '<p><a href="index.html">← index</a></p>')
         fn = f"cluster-{re.sub(r'[^a-z]', '', label.lower())}.html"
         (out / fn).write_text(_doc(label, THREAD_CSS, body))
         links.append((label, fn, len(shown)))
-    idx = (f'<h1>edge-next wiki <span class=tag>curated</span></h1>'
+    idx = (f'<h1>edge-next wiki <span class=tag>{html.escape(cluster_tag(grilled_all, total_all))}</span></h1>'
            f'<p class=meta>{len(links)} clusters · {model} · framed in the Idiom · ADR-0005 projection</p>'
            + "".join(f'<p>• <a href="{f}">{html.escape(t)}</a> <span class=meta>({n})</span></p>' for t, f, n in links))
     (out / "index.html").write_text(_doc("edge-next wiki", THREAD_CSS, idx))
     print(f"threads: {len(links)} clusters with {model} → {out/'index.html'}")
 
 
-def render_dictionary(q, group, out, oai, model, idi):
+def render_dictionary(q, group, out, oai, model, idi, voc):
     out.mkdir(parents=True, exist_ok=True)
     body = ['<div class=wrap><header><h1>edge-next dictionary</h1>',
             '<p>The vocabulary of the edge, in plain English.</p>',
@@ -124,7 +175,8 @@ def render_dictionary(q, group, out, oai, model, idi):
             seen.setdefault(e["d"], e["n"])
         tf = "\n".join(f"- {t}: {' | '.join(_facts(q, n, 4))}" for t, n in seen.items())
         r = oai.chat.completions.create(model=model, messages=[{"role": "user", "content":
-            f"Frame strictly in this mentee idiom (their terms, do not redefine):\n{idi}\n\n"
+            f"{ENGLISH_IDIOM_RULE}\nThe mentee idiom (do not redefine):\n{idi}\n\n"
+            f"The projects' vocabulary (CONTEXT.md glossaries) — use these terms:\n{voc}\n\n"
             f"For the '{label}' section of an edge-next dictionary, write ONE plain-English line defining "
             f"each term (glossary style — concise, definitional, no examples). Terms and facts:\n{tf}\n"
             f"Reply ONLY a JSON object {{term: one-line definition}}."}], max_completion_tokens=700)
@@ -147,14 +199,14 @@ def main(group, out_dir, style):
     _load_key()
     from openai import OpenAI
     from neo4j import GraphDatabase
-    oai, model, idi = OpenAI(), render_model(), idiom()
+    oai, model, idi, voc = OpenAI(), render_model(), idiom(), project_vocab()
     drv = GraphDatabase.driver(NEO4J[0], auth=(NEO4J[1], NEO4J[2]))
 
     def q(c, **kw):
         with drv.session() as s:
             return [r.data() for r in s.run(c, **kw)]
 
-    (render_dictionary if style == "dictionary" else render_threads)(q, group, Path(out_dir), oai, model, idi)
+    (render_dictionary if style == "dictionary" else render_threads)(q, group, Path(out_dir), oai, model, idi, voc)
     drv.close()
 
 

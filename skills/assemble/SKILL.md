@@ -17,9 +17,13 @@ Enumerate and read the prior consolidated state that exists:
 - `state/chat-digest.md` — the rolling digest of recent beats.
 - the latest handoff(s), if any.
 - `blog/entries/` — prior Artefatos, so the loop does not repeat one.
-- the **distilled pages** — Knowledge clusters and Standing pages (Direction, Idiom, Source
-  roadmap). *Persistence-gated*: until the wiki exists (handoff #2), read `CONTEXT.md` and
-  `agent.yaml` as the standing surfaces and note that the cluster read is pending.
+- the **distilled pages** — Knowledge clusters and Standing pages (Direction, Idiom, Source roadmap).
+- the **ground-truth documents** listed in `agent.yaml` (`ground_truth.documents` — the authored canon,
+  e.g. the projects' `CONTEXT.md`) plus `agent.yaml` itself. When `ground_truth.inject_into_load` is set,
+  **inject them into the load** as **provenance = ground-truth** — authoritative by definition, tops
+  `curado > hypothesis`, superseded only by the Voz (never by Aging or a hypothesis) — so the loop and
+  every fanned subagent wake holding the canon. (Distinct from `curado`, which is a mined claim the grill
+  confirmed; ground-truth needs no grill.)
 
 ## Judgment — distil
 
