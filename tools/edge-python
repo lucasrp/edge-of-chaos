@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# edge-python — resolve the edge runtime python, host-agnostically.
+#
+# Two tiers (ADR-0006/0008): the graph venv (graphiti_core + neo4j + openai) if the host has one,
+# else system python3 — on which the sweep still runs Tier-0 (the log + Direction) and degrades the
+# graph/wiki. This is why no skill hardcodes a venv path: the install provisions the venv where it can;
+# a minimal host falls back and still digests.
+for p in "$HOME/edge/.venv/bin/python" "$HOME/edge-experiments/.venv/bin/python"; do
+  [ -x "$p" ] && exec "$p" "$@"
+done
+exec python3 "$@"
