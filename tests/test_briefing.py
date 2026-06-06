@@ -92,7 +92,7 @@ class CorpusListsRecentStepsAndC3Debt(unittest.TestCase):
 
 class SourceOrientationRendersYield(unittest.TestCase):
     """Section 4 — per-source yield (ref · kind · count · mean sim), highest yield first, from
-    source_yield_at. "no source signals yet" when there are none."""
+    source_yield_at, layered ON the declared roster floor."""
 
     def test_renders_yield_highest_first(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -104,10 +104,37 @@ class SourceOrientationRendersYield(unittest.TestCase):
             self.assertIn("mundo:arxiv", text)
             self.assertLess(text.index("github:abc"), text.index("mundo:arxiv"))  # higher yield first
 
-    def test_no_source_signals_yet(self):
+
+class SourceRosterIsTheNeverBlankFloor(unittest.TestCase):
+    """Slice 1 (ADR-0011): the source section renders the declared roster (← Source roadmap, seeded
+    from agent.yaml) as the floor that is **never blank**, even with zero source.signal events. The
+    old "no source signals yet" blank is the bug this fixes. Per-entry label: description→via→name."""
+
+    def test_roster_floor_lists_entries_when_log_is_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl")
-            self.assertIn("no source signals yet", text.lower())
+            roster = [{"name": "exa", "kind": "api", "label": "exa"},
+                      {"name": "github", "kind": "cli", "label": "github"}]
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", roster=roster)
+            self.assertNotIn("no source signals yet", text.lower())
+            self.assertIn("exa", text)
+            self.assertIn("github", text)
+
+    def test_source_roster_helper_reads_agent_yaml_and_native_source(self):
+        roster = briefing.source_roster()
+        names = [r["name"] for r in roster]
+        self.assertIn("exa", names)        # from agent.yaml sources:
+        self.assertIn("github", names)     # the cli source
+        # the native Claude-sessions source is a constant floor entry, always present
+        self.assertTrue(any("session" in r["name"].lower() for r in roster))
+
+    def test_label_fallback_chain_description_then_via_then_name(self):
+        roster = [{"name": "s1", "kind": "api", "label": "a transcript on the Drive"},  # description
+                  {"name": "s2", "kind": "api", "label": "GET https://api…"},            # via
+                  {"name": "s3", "kind": "api", "label": "s3"}]                           # bare name
+        text = briefing.compose_briefing(log=Path("/nonexistent"), roster=roster)
+        self.assertIn("a transcript on the Drive", text)
+        self.assertIn("GET https://api", text)
+        self.assertIn("s3", text)
 
 
 class ClustersDegradeOnTier0(unittest.TestCase):
