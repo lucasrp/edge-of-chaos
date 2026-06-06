@@ -125,7 +125,9 @@ the ecosystem = Mundo) — **many-to-many**, the subject is a **lens on the read
 source**. Sources therefore unify on **access** (give the key, read agentically — ADR-0001) and on
 **relevance** (one **Source feedback**, spanning both). What does **not** unify is the **subject**: it
 rides as a **tag on the yield** (world vs mentee), because **Worthwhile content = Mundo ∩ Atividade** needs
-it. The old source bindings, as wiki.
+it. **Seeded by the operator's declaration** — each source **and how to use it** (access note + standing
+directives, e.g. *"on wake, check the Drive for a new transcript"*) — authored → **curated by definition**,
+so the roster renders as the **never-blank floor** of the briefing's source orientation (ADR-0011). The old source bindings, as wiki.
 *Avoid*: config, bindings, feeds, per-source primitive (a key is a locator, not a leg)
 
 **Convergence**:
@@ -195,24 +197,28 @@ are provenance, not the relation). PT gloss: *informativo / relatório*.
 **Source feedback**:
 A **two-tier** relevance signal over the sources that fed an Artefato — **Mundo** (exa/X/HN/arXiv) **and
 Atividade** (GitHub commits/PRs, docs), e.g. *"this commit was relevant to this report"*. It takes the
-edge's **universal hypothesis→curated shape** (cf. Knowledge clusters, Direction) — one curation act (the
+edge's **universal non-curated→curated shape** (cf. Knowledge clusters, Direction; the non-curated tier wears a per-object flavor — Knowledge mines *hypotheses*, Direction *proposes*, Source *observes usage*, a measurement not a guess) — one curation act (the
 grill) governs all three:
 
-- **hypothesis tier — mechanical, no agent/mentee load**: the cheap abundant signal — intrinsic citation
+- **non-curated tier — mechanical, no agent/mentee load**: a **projection of how the agent actually used each source**, refreshed as evidence accrues — intrinsic citation
 (the agent names each source **and the snippet it used** as it writes a cited Artefato) + **embedding
 attribution** (cosine of each cited snippet vs the Artefato body — cheap, `RetrievalFeedbackSignal`-style,
 one OpenAI embedding call) + **outcome credit** (Voz ratification of a `proposes` / engagement, propagated
-back through `cites`, MemQ-style). Machine-generated, contradiction-prone, **never agent self-rating**.
+back through `cites`, MemQ-style). **Observed, not guessed; never agent self-rating.**
 **Stored as `source.signal` events in the Tier-0 log** (the *score*, not vectors — no separate DB, no
 vector store) and projected into the graph; the **grill consults it via `grill_lint`** (per-source yield →
-a hypothesis agenda item). **Never used alone** — fused with the mentee's voiced opinion in the curated tier.
+a non-curated agenda item). **Never used alone** — fused with the mentee's voiced opinion in the curated tier.
 - **curated tier — the grill distills the mentee's opinion**: *"the mentee values X in reports because of
-Y."* Voz-grounded and reasoned; **re-ranks the Source roadmap with curated authority**; exempt from
-passive aging, retirable only by Voz. The grill promotes hypothesis→curated **by harm potential**, the
-same act it runs on knowledge and Direction — so the reasoning lands here without new burden on the agent.
+Y."* Voz-grounded and reasoned; **outranks the non-curated signal** (the roadmap is the floor, not a re-rank target); exempt from
+passive aging, retirable only by Voz. The grill does **not** promote the signal — a measurement cannot
+become an opinion — it writes a **separate** opinion the signal *prompts*, **seeded by the operator's
+`agent.yaml`** (which sources *and how to use* each: access note + standing directives — authored →
+curated, the never-blank floor). It works **two-way** (Convergence): it consolidates new opinion **and
+confronts standing curated against the accruing usage data** — a source good at first may have gone cold;
+when the data contradicts it the grill flags `contested` for the mentee to retire or reaffirm.
 This closes the artifact→human-outcome credit the 2026 survey (AgentOS `RetrievalFeedbackSignal` —
 mechanical but overlap-proxy; MemQ Q-value over the provenance DAG) found **unbuilt** — outcome-grounded.
-*Avoid*: rating, star-score, self-scoring (the hypothesis tier is mechanical; judgment lives in the curated tier)
+*Avoid*: rating, star-score, self-scoring (the non-curated tier is mechanical; judgment lives in the curated tier)
 
 **Delta**:
 The **orientation of what's new in the world** the edge ingests (Mundo / Atividade) — a **noun**, the

@@ -1,4 +1,4 @@
-# Waking is a state; the Delta is discretionary; a source is blind to subject
+# Waking is a state; the Delta is discretionary; a source is blind to subject; the graph is mandatory
 
 The agent's coming-online (the reborn "pre-flight") is named **Waking** — a *state*, not a mechanic — and is
 **briefing + Cortex navigation**, ending at "situated and ready". The **Delta** stops being a deterministic,
@@ -6,12 +6,15 @@ mandatory beat-open fan-out and becomes a **discretionary, on-demand** orientati
 itself first**, then pulls the world only when it judges it needs to. A **source is a locator blind to
 subject** — the same key feeds **Mundo and/or Atividade** (many-to-many) — so sources unify on *access* and
 *relevance* while the **subject survives as a tag on the yield**. The **briefing** gains a fourth part: the
-declared source roster as a floor that is never blank.
+declared source roster as a floor that is never blank. Finally the **graph is made mandatory on every
+install** — the Cortex is guaranteed, not a Tier-1 luxury — but the **log stays the source of truth and
+versioning engine**, so "Tier-0" demotes from a host class to a runtime degrade mode.
 
 ## Status
 
 proposed (2026-06-06; Voz ratifies). Refines ADR-0001 (agentic delta), ADR-0004 (beat-open subagents),
-ADR-0009 (briefing/source-feedback), ADR-0010 (navigate the Cortex).
+ADR-0006 (log-is-truth — reaffirmed under a now-mandatory graph), ADR-0009 (briefing/source-feedback),
+ADR-0010 (navigate the Cortex).
 
 ## Context
 
@@ -51,7 +54,9 @@ ADR-0009 (briefing/source-feedback), ADR-0010 (navigate the Cortex).
   Ends at **situated and ready**; what follows (choose a theme, act) is the caller's, **not** part of Waking.
   A **primitive with multiple triggers** (heartbeat · any ed skill at entry · `/load`) — `load` is the
   **trigger**, Waking the **state**. The briefing half is mechanical (Assemble); the **navigation half is
-  judgment** in the loop. Tier-0 (no graph) degrades cleanly to a briefing-only Waking. `wake` stays a
+  judgment** in the loop. The graph is mandatory (see the **Graph mandatory** decision below), so Waking **always** includes Cortex
+  navigation; a transient graph outage degrades cleanly to a briefing-only Waking — **runtime resilience, not
+  a host class**. `wake` stays a
   lowercase verb. The **loader** / `/load` concept folds in as the operator-triggered Waking.
 - **Delta** — a **noun** (the orientation of what's new in the world: Mundo / Atividade), the yield of the
   agent **updating itself** (`update` the lowercase verb). **Discretionary, not deterministic**: the
@@ -67,6 +72,13 @@ ADR-0009 (briefing/source-feedback), ADR-0010 (navigate the Cortex).
 - **Briefing** — gains a **fourth part**, the **source orientation**: the **declared roster** (← Source
   roadmap, what the sources are and what each does) as the **floor (never blank)**, with **Source feedback**
   layered on as it accrues.
+- **Graph mandatory** — every install provisions the graph runtime (neo4j + graphiti); the **Cortex is
+  guaranteed**, not optional. This does **not** make the graph the truth: the **log remains the source of
+  truth and the versioning engine** (ADR-0006/0010 — only log replay reconstructs a past cursor
+  byte-faithfully; the Cortex is current-state, LLM-extracted, lossy). So the briefing's **Direction /
+  Source / Corpus legs fold the log** (not the Cortex), and **only Facts navigate the graph**. "Tier-0"
+  demotes from a *host class* to a *runtime degrade mode*: a transient graph outage darkens only the Facts
+  leg — the log-fold legs still compose, the beat never crashes (**mandatory at install, graceful at runtime**).
 
 ## Consequences
 
@@ -84,5 +96,10 @@ ADR-0009 (briefing/source-feedback), ADR-0010 (navigate the Cortex).
   delta` blocking fan-out; delta on-demand); `skills/assemble/SKILL.md` ("On `/load`" → Waking);
   `tools/briefing.py` (compose the source-roster floor). Secrets-out-of-the-log + a standard env dir is a
   **CONTRACT** concern, tracked separately.
+- **Graph-mandatory:** every install now carries a neo4j+graphiti runtime — the **#18 robust-install**
+  scope grows (petertosh included). The Facts leg is **always live**; its Tier-0 degrade note becomes an
+  outage-only path. This **supersedes the "Tier-0 host" reading** wherever it appears — there is no
+  graph-less host, only a graph that may be transiently down, survivable precisely because the log stayed
+  primary.
 - **Open:** the Waking Cortex-navigation **budget** (hops/nodes) stays a tuning knob (ADR-0010 left it open);
   whether Waking **leaves a trace** of what it navigated (vs ephemeral) is unresolved.
