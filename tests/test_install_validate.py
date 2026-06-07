@@ -81,5 +81,22 @@ class ValidateNotifies(unittest.TestCase):
         self.assertTrue(healthy_ok)                           # None is advisory, not a failure
 
 
+class ClassifyGraph(unittest.TestCase):
+    def test_populated_group_is_ok(self):
+        ok, detail = _validate._classify_graph("edge-next", 85, 143)
+        self.assertTrue(ok)
+        self.assertIn("85", detail)
+
+    def test_fresh_empty_is_advisory_not_fail(self):
+        ok, detail = _validate._classify_graph("edge-next", 0, 0)
+        self.assertIsNone(ok)                                  # fresh install — not a failure
+        self.assertIn("fresh", detail.lower())
+
+    def test_orphaned_group_fails(self):
+        ok, detail = _validate._classify_graph("ed", 0, 89)    # empty here, data under another group
+        self.assertFalse(ok)
+        self.assertIn("orphan", detail.lower())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

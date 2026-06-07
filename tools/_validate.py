@@ -80,6 +80,18 @@ def check_venv(home):
     return ("venv", False, "deps broken: " + tail[:80])
 
 
+def _classify_graph(group, mine, total):
+    """Classify the graph leg from entity counts. A fresh install has an empty-but-reachable graph
+    (populates on the first sweep) — that is NOT a failure; only an empty group while OTHER groups
+    hold data is the real orphan."""
+    if mine > 0:
+        return (True, "group '%s': %d entities" % (group, mine))
+    if total > 0:
+        return (False, "group '%s' empty but %d entities under other groups — orphaned "
+                       "(check graph_group / EDGE_GROUP)" % (group, total))
+    return (None, "group '%s' reachable, empty — fresh install (populates on first sweep)" % group)
+
+
 def check_graph(home, repo_tools):
     """Best-effort: the graph the RUNTIME sees — neo4j reachable with the env creds AND the resolved
     group populated (catches the orphan where the group resolves to an empty name). Runs under the
@@ -96,8 +108,10 @@ def check_graph(home, repo_tools):
         "if not pw: print('NOPW'); raise SystemExit\n"
         "if not g: print('NOGROUP'); raise SystemExit\n"
         "d = GraphDatabase.driver(uri, auth=(user, pw))\n"
-        "n = d.session().run('MATCH (e:Entity {group_id:$g}) RETURN count(e) AS n', g=g).single()['n']\n"
-        "print(('OK ' if n>0 else 'EMPTY ')+g+' '+str(n))\n"
+        "s = d.session()\n"
+        "n = s.run('MATCH (e:Entity {group_id:$g}) RETURN count(e) AS n', g=g).single()['n']\n"
+        "t = s.run('MATCH (e:Entity) RETURN count(e) AS n').single()['n']\n"
+        "print('COUNTS '+g+' '+str(n)+' '+str(t))\n"
     ) % str(repo_tools)
     try:
         res = subprocess.run([str(py), "-c", probe], capture_output=True, text=True, timeout=30)
@@ -105,12 +119,10 @@ def check_graph(home, repo_tools):
         return ("graph", None, "could not probe: " + str(e)[:60])
     out = (res.stdout or res.stderr).strip().splitlines()
     line = out[-1] if out else "no output"
-    if line.startswith("OK "):
-        _, grp, n = line.split()
-        return ("graph", True, "group '%s': %s entities" % (grp, n))
-    if line.startswith("EMPTY "):
-        _, grp, n = line.split()
-        return ("graph", False, "group '%s' EMPTY (%s entities) — orphaned; set EDGE_GROUP" % (grp, n))
+    if line.startswith("COUNTS "):
+        _, grp, n, t = line.split()
+        ok, detail = _classify_graph(grp, int(n), int(t))
+        return ("graph", ok, detail)
     if line == "NOPW":
         return ("graph", False, "EDGE_NEO4J_PASSWORD not in env (secrets not loaded into the runtime)")
     if line == "NOGROUP":
