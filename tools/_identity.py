@@ -27,13 +27,15 @@ def _cfg(agent_yaml=AGENT_YAML):
 
 
 def group(agent_yaml=AGENT_YAML):
-    """The graph group for THIS install. EDGE_GROUP (host override) → agent.yaml name/codename.
-    Returns None when nothing resolves — the runtime degrade posture (no cross-tenant default)."""
+    """The graph group for THIS install. EDGE_GROUP (host override) → agent.yaml `graph_group` →
+    name/codename. `graph_group` lets an install own a corpus in a group distinct from its mentor
+    name without orphaning it — explicit per-install config, never a baked-in default (#21). Returns
+    None when nothing resolves — the runtime degrade posture (no cross-tenant default)."""
     g = os.environ.get("EDGE_GROUP")
     if g:
         return g
     cfg = _cfg(agent_yaml)
-    return cfg.get("name") or cfg.get("codename") or None
+    return cfg.get("graph_group") or cfg.get("name") or cfg.get("codename") or None
 
 
 def require_group(agent_yaml=AGENT_YAML):
@@ -55,10 +57,26 @@ def edge_home(cfg=None, agent_yaml=AGENT_YAML):
     return Path(os.path.expanduser(str(home)))
 
 
-def neo4j_password():
-    """The Neo4j password for THIS host. EDGE_NEO4J_PASSWORD env (the install's generated secret)
-    → None. No literal default (CONTRACT C4): a missing password degrades the graph at runtime
-    and fails loud at install (require_neo4j_password)."""
+def _env_dir(agent_yaml=AGENT_YAML):
+    """Where this install's secrets live (mirror of edge-apply.resolve_env_dir): agent.yaml `env_dir`
+    → <edge_home>/secrets."""
+    cfg = _cfg(agent_yaml)
+    raw = cfg.get("env_dir")
+    if raw:
+        return Path(os.path.expanduser(str(raw)))
+    home = cfg.get("edge_home") or "~/edge"
+    return Path(os.path.expanduser(str(home))) / "secrets"
+
+
+def neo4j_password(agent_yaml=AGENT_YAML):
+    """The Neo4j password for THIS host. EDGE_NEO4J_PASSWORD env → the install's generated secret in
+    env_dir/neo4j.env (#22), sourced lazily via _secrets.load_env. No literal default (CONTRACT C4):
+    a missing password degrades the graph at runtime and fails loud at install."""
+    pw = os.environ.get("EDGE_NEO4J_PASSWORD")
+    if pw:
+        return pw
+    import _secrets
+    _secrets.load_env(_env_dir(agent_yaml))     # source the install's own secrets into the env
     return os.environ.get("EDGE_NEO4J_PASSWORD") or None
 
 
