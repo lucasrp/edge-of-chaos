@@ -23,13 +23,15 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import eventlog
 import sessions
+import _identity
 
 PROJECT_DIR = Path(os.environ.get(
     "EDGE_PROJECT_DIR", Path.home() / ".claude" / "projects" / "-home-vboxuser"))  # host-configurable
 CURSORS = REPO / "state" / "cursors.json"
-# Per-install graph group — context is SEPARATED per VPS/project (never shared). Each install sets its
-# own `EDGE_GROUP`; the default is only the dev identity. petertosh's acesso-verde must NOT land here.
-GROUP = os.environ.get("EDGE_GROUP", "edge-next")
+# Per-install graph group — context is SEPARATED per VPS/project (never shared). Derived from
+# agent.yaml identity (EDGE_GROUP override → name/codename), NEVER a baked-in default (#21): a
+# fleet host writes into ITS OWN group, never a cross-tenant one.
+GROUP = _identity.group()
 DISPATCH_MARKER = "Dispatch runtime context"   # strip the edge's own framing (exp-001)
 MAX_BODY = 12000
 MIN_CHARS = 200                                 # a substantive delta, not a stray turn
@@ -133,17 +135,16 @@ def _parse_ts(ts):
 
 
 def graphiti_ingest(items):
-    """Incremental Graphiti extraction (C2): one episode per session-delta, into group edge-next.
-    Robust: a per-episode failure is logged and skipped (the others still land); returns the set of
-    session ids that ingested, so `execute` advances only those cursors (the rest retry next sweep)."""
+    """Incremental Graphiti extraction (C2): one episode per session-delta, into THIS install's
+    own group (agent.yaml identity, #21). Robust: a per-episode failure is logged and skipped (the
+    others still land); returns the set of session ids that ingested, so `execute` advances only
+    those cursors (the rest retry next sweep)."""
     import asyncio
     from graphiti_core import Graphiti
     from graphiti_core.nodes import EpisodeType
     from graphiti_core.llm_client import LLMConfig, OpenAIClient
     _load_openai_key()
-    neo = (os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687"),
-           os.environ.get("EDGE_NEO4J_USER", "neo4j"),
-           os.environ.get("EDGE_NEO4J_PASSWORD", "edgepassword123"))
+    neo = _identity.neo4j_conn()
     ok = set()
 
     async def go():

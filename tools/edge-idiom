@@ -21,7 +21,7 @@ def _file(home: Path) -> Path:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--home", default="~/edge-next/")
+    ap.add_argument("--home", default="~/edge/")
     sub = ap.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("add", help="add a confirmed term")
     a.add_argument("term")

@@ -62,7 +62,7 @@ def graph_clusters(group=None, uri=None, user=None, password=None):
         return None
     uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
     user = user or os.environ.get("EDGE_NEO4J_USER", "neo4j")
-    password = password or os.environ.get("EDGE_NEO4J_PASSWORD", "edgepassword123")
+    password = password or os.environ.get("EDGE_NEO4J_PASSWORD")  # no literal default (#21/C4)
     try:
         from neo4j import GraphDatabase
     except Exception:

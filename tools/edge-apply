@@ -87,7 +87,7 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = yaml.safe_load(Path(args.yaml).read_text()) or {}
-    home = Path(os.path.expanduser(args.home or cfg.get("edge_home", "~/edge-next/")))
+    home = Path(os.path.expanduser(args.home or cfg.get("edge_home") or "~/edge/"))
     claude_home = Path(os.path.expanduser(args.claude_home)) if args.claude_home \
         else Path.home() / ".claude"
 

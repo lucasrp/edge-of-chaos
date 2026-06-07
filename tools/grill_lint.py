@@ -16,9 +16,9 @@ from collections import defaultdict
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-NEO4J = (os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687"),
-         os.environ.get("EDGE_NEO4J_USER", "neo4j"),
-         os.environ.get("EDGE_NEO4J_PASSWORD", "edgepassword123"))
+sys.path.insert(0, str(REPO / "tools"))
+import _identity
+NEO4J = _identity.neo4j_conn()
 
 
 def normalize(name: str) -> str:
@@ -158,4 +158,4 @@ def main(group):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "edge-next")
+    main(sys.argv[1] if len(sys.argv) > 1 else _identity.require_group())

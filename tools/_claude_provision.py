@@ -5,7 +5,7 @@ Provisions, idempotently:
   - ~/.claude/skills/{prefix}-{name}/SKILL.md  for each skills/{name}/SKILL.md
   - ~/.claude/projects/{memory_project_dir}/memory/  (seeded only if absent)
 
-The transform for a skill (derived from the live edge-next output shape):
+The transform for a skill (derived from the live edge install output shape):
   - frontmatter `name: {name}` → `name: {prefix}-{name}`
   - add `user-invocable: true` as the last frontmatter field
   - frontmatter + body literal `{prefix}` → the skill_prefix value
@@ -47,8 +47,9 @@ def render_claude_md(cfg: dict) -> str:
 
 
 def memory_project_dir(cfg: dict) -> str:
-    """Claude's per-project memory dir key, derived from edge_home (path → dashed key)."""
-    home = str(cfg.get("edge_home", "~/edge-next/"))
+    """Claude's per-project memory dir key, derived from agent.yaml `edge_home` (path → dashed key).
+    No baked-in install-path literal (#21): the install root is the genotype's, not a tenant's."""
+    home = str(cfg.get("edge_home") or "~/edge/")
     expanded = str(Path(home).expanduser())
     return expanded.rstrip("/").replace("/", "-")
 

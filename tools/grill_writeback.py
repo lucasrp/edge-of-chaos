@@ -8,14 +8,12 @@ One source of truth: render / Lint / Aging all read the node.
 
 Env: EDGE_NEO4J_URI/USER/PASSWORD
 """
-import os
 from datetime import datetime, timezone
 
 import eventlog
+import _identity
 
-NEO4J = (os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687"),
-         os.environ.get("EDGE_NEO4J_USER", "neo4j"),
-         os.environ.get("EDGE_NEO4J_PASSWORD", "edgepassword123"))
+NEO4J = _identity.neo4j_conn()
 
 
 def driver():

@@ -18,9 +18,9 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-NEO4J = (os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687"),
-         os.environ.get("EDGE_NEO4J_USER", "neo4j"),
-         os.environ.get("EDGE_NEO4J_PASSWORD", "edgepassword123"))
+sys.path.insert(0, str(REPO / "tools"))
+import _identity
+NEO4J = _identity.neo4j_conn()
 
 
 def _load_key():
@@ -44,6 +44,12 @@ def render_model():
 def idiom():
     p = REPO / "state" / "idiom.md"
     return p.read_text() if p.exists() else "(no Idiom standing page yet)"
+
+
+def identity_name():
+    """The host's own wiki identity (agent.yaml name/codename via the graph group) — NEVER a baked-in
+    identity literal (#21). A fleet host renders ITS OWN identity, not the genotype author's."""
+    return _identity.group() or "edge"
 
 
 def project_vocab(root=None, max_each=3000, max_total=8000):
@@ -122,12 +128,14 @@ ENGLISH_IDIOM_RULE = (
     "verbatim; do not translate them.")
 
 
-def synthesis_prompt(label, facts, idiom, vocab):
+def synthesis_prompt(label, facts, idiom, vocab, identity=None):
     """The cluster-synthesis prompt: English prose, the coined idiom kept verbatim (R2), framed in
-    the projects' own vocabulary (their CONTEXT.md glossaries)."""
+    the projects' own vocabulary (their CONTEXT.md glossaries). `identity` is the host's own name
+    (agent.yaml, #21) — never a baked-in literal."""
+    identity = identity or identity_name()
     return (f"{ENGLISH_IDIOM_RULE}\nThe mentee idiom:\n{idiom}\n\n"
             f"The projects' vocabulary (CONTEXT.md glossaries) — use these terms and meanings:\n{vocab}\n\n"
-            f"Write a 2-paragraph synthesis for the knowledge cluster '{label}' in edge-next. Facts:\n"
+            f"Write a 2-paragraph synthesis for the knowledge cluster '{label}' in {identity}. Facts:\n"
             + "\n".join(f"- {f}" for f in facts[:30])
             + "\nSay what it is and the decision it implies. Plain prose.")
 
@@ -158,6 +166,7 @@ def _doc(title, css, body):
 
 def render_threads(q, group, out, oai, model, idi, voc):
     out.mkdir(parents=True, exist_ok=True)
+    ident = identity_name()                          # the host's own identity (agent.yaml, #21)
     links = []
     grilled_all = total_all = 0
     for label, ents in _clusters(q, group):
@@ -167,7 +176,7 @@ def render_threads(q, group, out, oai, model, idi, voc):
         grilled_all, total_all = grilled_all + grilled, total_all + len(ents)
         tag = cluster_tag(grilled, len(ents))
         r = oai.chat.completions.create(model=model, messages=[{"role": "user", "content":
-            synthesis_prompt(label, facts, idi, voc)}], max_completion_tokens=600)
+            synthesis_prompt(label, facts, idi, voc, ident)}], max_completion_tokens=600)
         synth = r.choices[0].message.content or ""
         body = (f'<h1>{html.escape(label)} <span class=tag>{html.escape(tag)}</span></h1>'
                 f'<p class=meta>knowledge cluster · {len(shown)} entities · {model} (ADR-0005)</p>'
@@ -192,16 +201,17 @@ def render_threads(q, group, out, oai, model, idi, voc):
                 f'<p><a href="index.html">← index</a></p>')
         (out / "cluster-noncurated.html").write_text(_doc("Non-curated (hypothesis)", THREAD_CSS, body))
         links.append(("Non-curated (hypothesis)", "cluster-noncurated.html", len(seen)))
-    idx = (f'<h1>edge-next wiki <span class=tag>{html.escape(cluster_tag(grilled_all, total_all))}</span></h1>'
+    idx = (f'<h1>{html.escape(ident)} wiki <span class=tag>{html.escape(cluster_tag(grilled_all, total_all))}</span></h1>'
            f'<p class=meta>{len(links)} clusters · {model} · framed in the Idiom · ADR-0005 projection</p>'
            + "".join(f'<p>• <a href="{f}">{html.escape(t)}</a> <span class=meta>({n})</span></p>' for t, f, n in links))
-    (out / "index.html").write_text(_doc("edge-next wiki", THREAD_CSS, idx))
+    (out / "index.html").write_text(_doc(f"{ident} wiki", THREAD_CSS, idx))
     print(f"threads: {len(links)} clusters with {model} → {out/'index.html'}")
 
 
 def render_dictionary(q, group, out, oai, model, idi, voc):
     out.mkdir(parents=True, exist_ok=True)
-    body = ['<div class=wrap><header><h1>edge-next dictionary</h1>',
+    ident = identity_name()                          # the host's own identity (agent.yaml, #21)
+    body = [f'<div class=wrap><header><h1>{html.escape(ident)} dictionary</h1>',
             '<p>The vocabulary of the edge, in plain English.</p>',
             '<p class=sub>a rendered projection of the wiki graph — grown from sessions, curated by the grill (ADR-0005)</p></header>']
     nsec = 0
@@ -213,7 +223,7 @@ def render_dictionary(q, group, out, oai, model, idi, voc):
         r = oai.chat.completions.create(model=model, messages=[{"role": "user", "content":
             f"{ENGLISH_IDIOM_RULE}\nThe mentee idiom (do not redefine):\n{idi}\n\n"
             f"The projects' vocabulary (CONTEXT.md glossaries) — use these terms:\n{voc}\n\n"
-            f"For the '{label}' section of an edge-next dictionary, write ONE plain-English line defining "
+            f"For the '{label}' section of a {ident} dictionary, write ONE plain-English line defining "
             f"each term (glossary style — concise, definitional, no examples). Terms and facts:\n{tf}\n"
             f"Reply ONLY a JSON object {{term: one-line definition}}."}], max_completion_tokens=700)
         mm = re.search(r"\{.*\}", r.choices[0].message.content or "{}", re.S)
@@ -226,8 +236,8 @@ def render_dictionary(q, group, out, oai, model, idi, voc):
                         for t in sorted(seen))
         body.append(f'<section><h2>{html.escape(label)}</h2><dl>{terms}</dl></section>')
         nsec += 1
-    body.append(f'<footer>edge-next · {nsec} grill-curated sections · rendered by {model} · ADR-0005</footer></div>')
-    (out / "dictionary.html").write_text(_doc("edge-next dictionary", DICT_CSS, "".join(body)))
+    body.append(f'<footer>{html.escape(ident)} · {nsec} grill-curated sections · rendered by {model} · ADR-0005</footer></div>')
+    (out / "dictionary.html").write_text(_doc(f"{ident} dictionary", DICT_CSS, "".join(body)))
     print(f"dictionary: {nsec} sections with {model} → {out/'dictionary.html'}")
 
 
@@ -247,6 +257,6 @@ def main(group, out_dir, style):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "edge-next",
+    main(sys.argv[1] if len(sys.argv) > 1 else _identity.require_group(),
          sys.argv[2] if len(sys.argv) > 2 else str(REPO / "state" / "wiki"),
          sys.argv[3] if len(sys.argv) > 3 else "threads")
