@@ -217,5 +217,39 @@ class BriefingIsBannered(unittest.TestCase):
             self.assertIn("generated", text.lower())
 
 
+class FactsLegNavigatesTheCortex(unittest.TestCase):
+    """Section 5 (ADR-0011) — the Facts leg navigates the graph for grill-curated Knowledge
+    clusters. graph_clusters degrades to None (never crashes) without a group, without the neo4j
+    driver, or when the graph is unreachable; [] is the honest 'graph up, none yet' state distinct
+    from the outage note. Hermetic: no group / a dead port → never touches real state (CONTRACT C1)."""
+
+    def test_no_group_degrades_to_none(self):
+        self.assertIsNone(briefing.graph_clusters(None))
+        self.assertIsNone(briefing.graph_clusters(""))
+
+    def test_unreachable_graph_degrades_to_none_without_crashing(self):
+        # dead port → connection error inside the leg → None, never an exception
+        self.assertIsNone(briefing.graph_clusters("any-group", uri="bolt://127.0.0.1:1"))
+
+    def test_empty_clusters_is_a_distinct_state_from_outage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=[])
+            self.assertIn("no curated clusters yet", text.lower())
+            self.assertNotIn("clusters unavailable", text.lower())
+
+    def test_auto_fetch_with_no_group_renders_the_degrade_note(self):
+        # the sentinel path resolves group→graph_clusters→None when no group is declared
+        with tempfile.TemporaryDirectory() as tmp:
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", group="")
+            self.assertIn("clusters unavailable", text.lower())
+
+    def test_provided_clusters_with_counts_render(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl",
+                                             clusters=["Beat lifecycle (8)", "Dev practice (6)"])
+            self.assertIn("Beat lifecycle (8)", text)
+            self.assertIn("Dev practice (6)", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
