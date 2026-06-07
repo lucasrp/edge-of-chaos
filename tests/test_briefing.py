@@ -250,6 +250,18 @@ class FactsLegNavigatesTheCortex(unittest.TestCase):
             self.assertIn("Beat lifecycle (8)", text)
             self.assertIn("Dev practice (6)", text)
 
+    def test_full_clusters_render_inline_with_entities_and_facts(self):
+        # No Cortex recall interface yet → the briefing carries the whole cluster in full.
+        full = [{"label": "Beat lifecycle",
+                 "entities": [{"name": "ADR-0003", "facts": ["minimize claude -p", "beat dispatch"]},
+                              {"name": "Direction", "facts": []}]}]
+        with tempfile.TemporaryDirectory() as tmp:
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=full)
+            self.assertIn("### Beat lifecycle (2)", text)          # cluster header + size
+            self.assertIn("**ADR-0003** — minimize claude -p; beat dispatch", text)  # entity + facts inline
+            self.assertIn("**Direction**", text)                   # fact-less entity still listed
+            self.assertIn("Full read", text)                       # the stopgap banner
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

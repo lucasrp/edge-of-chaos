@@ -48,14 +48,16 @@ def source_roster(agent_yaml=AGENT_YAML):
 
 
 def graph_clusters(group=None, uri=None, user=None, password=None):
-    """The Facts leg (ADR-0011): navigate the Cortex for this group's grill-curated **Knowledge
-    clusters** — the same projection wiki_render reads, surfaced into the briefing's §5.
+    """The Facts leg (ADR-0011): read this group's grill-curated **Knowledge clusters** from the
+    Cortex — the same projection wiki_render reads — and return them **in full** for the briefing.
 
-    Returns a list of ``"label (n)"`` strings (highest-count first), possibly **empty** when the
-    graph is reachable but holds no curated cluster yet, or **None** on a genuine degrade: no
-    group declared (EDGE_GROUP — the genotype carries no identity default), the neo4j driver
-    absent (Tier-0 minimal host), or the graph unreachable. Never raises — a transient outage
-    darkens only this leg, the beat never crashes (ADR-0011)."""
+    There is **no Cortex recall/navigation interface yet** (ADR-0010 is proposed, unbuilt), so the
+    briefing carries the whole curated knowledge inline rather than letting the agent retrieve it:
+    a list of ``{"label", "entities": [{"name", "facts": [...]}]}`` (clusters alpha-ordered, entities
+    alpha-ordered, current-valid facts deduped, contested flagged). **[]** when the graph is reachable
+    but holds no curated cluster yet; **None** on a genuine degrade — no group declared (EDGE_GROUP —
+    the genotype carries no identity default), the neo4j driver absent (Tier-0 minimal host), or the
+    graph unreachable. Never raises — a transient outage darkens only this leg (ADR-0011)."""
     if not group:
         return None
     uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
@@ -71,11 +73,31 @@ def graph_clusters(group=None, uri=None, user=None, password=None):
         return None
     try:
         with drv.session() as s:
-            rows = s.run(
+            labels = [r["l"] for r in s.run(
                 "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
                 "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
-                "RETURN e.curated_cluster AS label, count(*) AS n ORDER BY n DESC, label",
-                g=group).data()
+                "RETURN DISTINCT e.curated_cluster AS l ORDER BY l", g=group)]
+            out = []
+            for label in labels:
+                ents = s.run(
+                    "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster=$l "
+                    "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
+                    "RETURN coalesce(e.curated_name,e.name) AS d, e.name AS n ORDER BY d",
+                    g=group, l=label).data()
+                entities = []
+                for e in ents:
+                    facts = []
+                    for r in s.run(
+                        "MATCH (x:Entity {name:$n})-[rel:RELATES_TO]-() WHERE rel.invalid_at IS NULL "
+                        "RETURN rel.fact AS f, coalesce(rel.contested,false) AS c", n=e["n"]).data():
+                        f = r.get("f")
+                        if not f:
+                            continue
+                        f = ("⚠ contested — " + f) if r.get("c") else f
+                        if f not in facts:
+                            facts.append(f)
+                    entities.append({"name": e["d"], "facts": facts})
+                out.append({"label": label, "entities": entities})
     except Exception:
         return None
     finally:
@@ -83,7 +105,7 @@ def graph_clusters(group=None, uri=None, user=None, password=None):
             drv.close()
         except Exception:
             pass
-    return [f"{r['label']} ({r['n']})" for r in rows]
+    return out
 
 
 def _render_direction_items(items):
@@ -156,16 +178,31 @@ def _section_sources(log, seq, ts, roster):
 
 
 def _section_clusters(clusters):
-    """Knowledge clusters (← graph, the Facts leg of ADR-0011). Three honest states:
+    """Knowledge clusters (← graph, the Facts leg of ADR-0011). Four states:
     None → degrade note (graph offline OR no EDGE_GROUP — the leg darkens, knowledge = log + Direction);
     [] → graph reachable but no curated cluster yet (distinct from an outage);
-    [..] → the curated clusters, highest-count first. Never crash on the missing graph."""
+    [{label, entities:[{name, facts}]}] → the **full** clusters inline (no Cortex recall interface yet,
+    so the briefing carries the whole curated knowledge — entities + current-valid facts);
+    [str, ...] → bare labels as bullets (explicit/pure-composer callers). Never crash on the graph."""
     if clusters is None:
         return ("## 5. Knowledge clusters\n\n"
                 "_Tier-0: clusters unavailable — graph offline or no EDGE_GROUP set; "
                 "knowledge = the swept log + Direction._")
     if not clusters:
         return "## 5. Knowledge clusters\n\n_graph reachable — no curated clusters yet._"
+    if isinstance(clusters[0], dict):
+        # Full-read: the whole cluster inline (stopgap until a Cortex recall interface exists).
+        parts = ["## 5. Knowledge clusters",
+                 "_Full read — no Cortex recall interface yet; the whole curated graph is inline._"]
+        for c in clusters:
+            ents = c.get("entities") or []
+            lines = [f"### {c.get('label')} ({len(ents)})"]
+            for e in ents:
+                facts = e.get("facts") or []
+                lines.append(f"- **{e.get('name')}** — " + "; ".join(facts) if facts
+                             else f"- **{e.get('name')}**")
+            parts.append("\n".join(lines))
+        return "\n\n".join(parts)
     return "## 5. Knowledge clusters\n\n" + "\n".join(f"- {c}" for c in clusters)
 
 
