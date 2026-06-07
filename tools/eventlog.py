@@ -228,6 +228,15 @@ def fold_corpus(events):
     return list(items.values())
 
 
+def artefatos_for_thread(thread, seq=None, ts=None, log=LOG):
+    """The two-way view of provenance (ADR-0009): given a thread (a `distills` ref, e.g. cluster:…),
+    the Artefato slugs that hang off it, in publish order — the reverse of artefato →distills→ thread.
+    A pure fold of the corpus (no new event): thread maintenance reads it to know what a thread carries.
+    Empty when no Artefato distills that thread (never a fabricated link). Cursor-aware, as corpus_at."""
+    return [it["slug"] for it in corpus_at(seq=seq, ts=ts, log=log)
+            if thread in (it.get("distills") or [])]
+
+
 def corpus_at(seq=None, ts=None, log=LOG):
     """Fold `{artefato.published, intent.kernel}` events up to a cursor → the corpus, a list of items
     in publish order (ADR-0009). Pure: replaying to a past cursor reconstructs that past corpus —

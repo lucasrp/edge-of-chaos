@@ -513,6 +513,42 @@ class DirecionamentoReportFoldsLatestAndLineage(unittest.TestCase):
             self.assertEqual(r["lineage"], [])
 
 
+class InsightArtefatoCarriesProvenance(unittest.TestCase):
+    """Piece 3: when the grill yields **real** insight, it publishes via the existing publish_artefato
+    with **populated provenance** — `distills` = the existing **threads** it draws on (cluster:…),
+    `cites` = the **sources** ({ref,kind}). Link only existing threads; if none fits, no link (empty,
+    never fabricated — thread maintenance attaches/spawns later). The corpus fold carries both. The
+    two-way view (thread →hangs→ Artefatos) is a pure fold: artefatos_for_thread reads the corpus."""
+
+    def test_insight_artefato_folds_with_provenance_when_threads_exist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.publish_artefato("recall-insight", distills=["cluster:recall", "cluster:cursor"],
+                                      cites=[{"ref": "github:abc", "kind": "atividade"}], log=log)
+            eventlog.kernel("recall-insight", "open: …; bet: …", log=log)
+            corpus = eventlog.corpus_at(log=log)
+            self.assertEqual(corpus[0]["distills"], ["cluster:recall", "cluster:cursor"])
+            self.assertEqual(corpus[0]["cites"], [{"ref": "github:abc", "kind": "atividade"}])
+
+    def test_no_fitting_thread_means_empty_distills_never_fabricated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.publish_artefato("orphan-insight", cites=[{"ref": "mundo:arxiv", "kind": "mundo"}],
+                                      log=log)
+            corpus = eventlog.corpus_at(log=log)
+            self.assertEqual(corpus[0]["distills"], [])  # no thread fit → no link, not a fabricated one
+
+    def test_thread_hangs_its_artefatos_two_way(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.publish_artefato("a1", distills=["cluster:recall"], log=log)
+            eventlog.publish_artefato("a2", distills=["cluster:recall", "cluster:cursor"], log=log)
+            eventlog.publish_artefato("a3", distills=["cluster:other"], log=log)
+            self.assertEqual(eventlog.artefatos_for_thread("cluster:recall", log=log), ["a1", "a2"])
+            self.assertEqual(eventlog.artefatos_for_thread("cluster:cursor", log=log), ["a2"])
+            self.assertEqual(eventlog.artefatos_for_thread("cluster:none", log=log), [])
+
+
 class CosineIsPureSimilarity(unittest.TestCase):
     """ADR-0009 source-feedback (hypothesis tier): cosine of two equal-length numeric vectors —
     the pure math behind embedding attribution (the actual OpenAI call lives in sweep, never here).
