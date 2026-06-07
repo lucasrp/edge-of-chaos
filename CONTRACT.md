@@ -37,3 +37,13 @@ briefing's **Recap** projects.
 
 _Origin: Voz (2026-06-06) — "intent is relevant metadata to edge work; if it isn't mandatory, it should
 be." Closes the kernel-home gap left by ADR-0008 dissolving consolidate; feeds the corpus/Recap (briefing)._
+
+## C4 — Secrets never enter the genotype
+
+Credentials live only in the install's `env_dir` (declared in `agent.yaml`, git-ignored, mode 600)
+and the process env — never in code, the log, the graph, the wiki, or any committed file. A missing
+credential fails loud at install; the genotype ships no default password and no delivery mechanism.
+
+_Origin: ADR-0011 flagged secrets-out-of-the-log + a standard env dir as a contract concern. Affirms
+the agnostic genotype — the edge declares where secrets live and what it needs, never how they arrive
+(delivery is the operator's: rclone, vault, or manual)._
