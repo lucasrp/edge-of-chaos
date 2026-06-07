@@ -17,6 +17,36 @@ import eventlog  # noqa: E402
 import briefing  # noqa: E402
 
 
+class ObjectiveIsTheBriefingSpine(unittest.TestCase):
+    """The grill's anchor surfaces as the briefing **spine** — a top section the agent orients from
+    every dispatch, ABOVE Direction (the objective is what Direction is measured against). Inscribed
+    from the log fold (objective_at); cursor-aware. No objective yet → an honest empty marker, never
+    a crash (the briefing still composes on a fresh log)."""
+
+    def test_objective_renders_as_a_top_section_above_direction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("ship durable steer before tuning the grill", log=log)
+            eventlog.set_direction("a", "ship the briefing composer", log=log)
+            text = briefing.compose_briefing(log=log)
+            self.assertIn("ship durable steer before tuning the grill", text)
+            self.assertLess(text.index("ship durable steer before tuning the grill"),
+                            text.index("ship the briefing composer"))  # spine above Direction
+
+    def test_objective_rationale_is_inscribed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("revealed objective B",
+                                   rationale="says mission A, behavior shows B", log=log)
+            text = briefing.compose_briefing(log=log)
+            self.assertIn("says mission A, behavior shows B", text)
+
+    def test_no_objective_yet_renders_marker_without_crashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl")
+            self.assertIn("no confirmed objective yet", text.lower())
+
+
 class DirectionInscribedCuratedFirst(unittest.TestCase):
     """Section 1 (highest tattoo authority): the curated `set` tier is inscribed before the
     non-curated `proposed` tier; both bodies appear. None → "no direction set yet."""

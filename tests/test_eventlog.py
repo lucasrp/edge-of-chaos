@@ -414,6 +414,52 @@ class SourceFeedbackFoldsTwoTiersCuratedOverNonCurated(unittest.TestCase):
             self.assertEqual(fb, {"curated": [], "non_curated": {}})
 
 
+class ObjectiveFoldsLatestWins(unittest.TestCase):
+    """The grill's anchor as a first-class durable thing: `objective.set` is the mentee's
+    **confirmed objective** (abduced from behavior, confirmed by Voz) — it MAY contradict the
+    declared agent.yaml mission (this is the *revealed/confirmed* objective). `objective_at` folds
+    latest-wins (mirroring set_direction/direction_at), versioned: replay to a past cursor
+    reconstructs the past objective. None when no objective has ever been set."""
+
+    def test_set_objective_appends_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            ev = eventlog.set_objective("ship the briefing spine before tuning the grill", log=log)
+            self.assertEqual(ev["type"], "objective.set")
+            self.assertEqual(ev["subject"], "objective")
+            self.assertEqual(ev["payload"]["body"],
+                             "ship the briefing spine before tuning the grill")
+            self.assertEqual(eventlog.read(types=["objective.set"], log=log), [ev])
+
+    def test_latest_objective_wins(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("first read of the objective", log=log)
+            eventlog.set_objective("sharper read after the grill", log=log)
+            obj = eventlog.objective_at(log=log)
+            self.assertEqual(obj["body"], "sharper read after the grill")
+
+    def test_objective_carries_optional_rationale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("revealed objective B",
+                                   rationale="says mission A, behavior shows B", log=log)
+            obj = eventlog.objective_at(log=log)
+            self.assertEqual(obj["rationale"], "says mission A, behavior shows B")
+
+    def test_replay_to_past_cursor_reconstructs_past_objective(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            a = eventlog.set_objective("old anchor", log=log)        # seq 1
+            eventlog.set_objective("new anchor", log=log)            # seq 2
+            self.assertEqual(eventlog.objective_at(seq=a["seq"], log=log)["body"], "old anchor")
+            self.assertEqual(eventlog.objective_at(log=log)["body"], "new anchor")
+
+    def test_empty_log_has_no_objective(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(eventlog.objective_at(log=Path(tmp) / "log.jsonl"))
+
+
 class CosineIsPureSimilarity(unittest.TestCase):
     """ADR-0009 source-feedback (hypothesis tier): cosine of two equal-length numeric vectors —
     the pure math behind embedding attribution (the actual OpenAI call lives in sweep, never here).

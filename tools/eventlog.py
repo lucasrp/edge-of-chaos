@@ -115,6 +115,30 @@ def drop(id, reason="", log=LOG):
     return append("direction.dropped", "direction", {"id": id, "reason": reason}, log=log)
 
 
+OBJECTIVE_TYPES = ["objective.set"]
+
+
+def set_objective(body, rationale=None, log=LOG):
+    """Append an `objective.set` event — the mentee's **confirmed objective** (abduced from behavior,
+    confirmed by Voz). The grill's anchor, first-class. It MAY contradict the declared agent.yaml
+    mission: this is the *revealed/confirmed* objective, not the stated one (when they diverge, that
+    is the highest-insight finding). Latest-wins, versioned — mirrors set_direction. `rationale` is
+    the optional why (e.g. the say-A-do-B gap that yielded this read)."""
+    return append("objective.set", "objective", {"body": body, "rationale": rationale}, log=log)
+
+
+def objective_at(seq=None, ts=None, log=LOG):
+    """Fold `objective.set` events up to a cursor → the latest objective {"body", "rationale"} (the
+    anchor everything is measured against). Latest-wins (mirrors direction_at's curated tier). Pure:
+    replaying to a past cursor reconstructs that past anchor — strategic versioning. None when no
+    objective has ever been set (the sensible empty-case for a saved-as-confirmed-hypothesis prior)."""
+    evs = read(types=OBJECTIVE_TYPES, until_seq=seq, until_ts=ts, log=log)
+    if not evs:
+        return None
+    p = evs[-1].get("payload", {}) or {}
+    return {"body": p.get("body", ""), "rationale": p.get("rationale")}
+
+
 def publish_artefato(slug, proposes=None, distills=None, cites=None, log=LOG):
     """Append an `artefato.published` event (ADR-0006/0007). The Artefato **declares** candidate
     steers in `proposes`; it does NOT write Direction itself — the sweep consolidates them."""

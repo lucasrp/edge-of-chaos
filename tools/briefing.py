@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from eventlog import (LOG, direction_at, corpus_at, artefatos_without_kernel,  # noqa: E402
-                      source_feedback_at)
+                      source_feedback_at, objective_at)
 
 REPO = Path(__file__).resolve().parent.parent
 AGENT_YAML = REPO / "agent.yaml"
@@ -117,6 +117,20 @@ def _render_direction_items(items):
         for it in by_kind.get(kind, []):
             lines.append(f"- **[{kind}]** {it.get('body', '')}")
     return "\n".join(lines) if lines else "_none_"
+
+
+def _section_objective(log, seq, ts):
+    """The spine (ADR-0006/0007): the mentee's **confirmed objective** — the anchor everything below
+    is measured against, so it sits ABOVE Direction. Inscribed from the log fold (objective_at), a
+    saved-as-confirmed-hypothesis prior the next grill re-tests. No objective set yet → an honest
+    marker (the briefing still composes on a fresh log)."""
+    obj = objective_at(seq=seq, ts=ts, log=log)
+    if obj is None:
+        return "## Objective — the anchor\n\n_no confirmed objective yet._"
+    body = obj.get("body", "")
+    rationale = obj.get("rationale")
+    why = f"\n\n_why:_ {rationale}" if rationale else ""
+    return f"## Objective — the anchor\n\n{body}{why}"
 
 
 def _section_direction(log, seq, ts):
@@ -234,6 +248,7 @@ def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None,
     corpus = corpus_at(seq=seq, ts=ts, log=log)
     parts = [
         BANNER + "\n# Briefing — orient entirely from here",
+        _section_objective(log, seq, ts),
         _section_direction(log, seq, ts),
         _section_continuity(corpus),
         _section_corpus(corpus, artefatos_without_kernel(log=log)),
