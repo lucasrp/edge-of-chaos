@@ -7,7 +7,6 @@ Não bloqueia se faltar credencial — relata (substrate-check visível no insta
 """
 import argparse
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/ para importar
 import _llm
 import _claude_provision
 import _provision
+import _validate
 
 
 def render_caddyfile(home: Path, yaml_path: str) -> None:
@@ -125,6 +125,9 @@ def main() -> None:
                     help="provision the mandatory graph runtime: venv (#20), per-host Neo4j via "
                          "Docker (#18), and the systemd heartbeat timer (#19). Fails loud on a "
                          "missing prerequisite (ADR-0011). Off by default (files-only apply).")
+    ap.add_argument("--validate", action="store_true",
+                    help="validate the install only: report each substrate check and exit nonzero "
+                         "if broken (no provisioning, no file placement).")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(Path(args.yaml).read_text()) or {}
@@ -133,14 +136,20 @@ def main() -> None:
     claude_home = Path(os.path.expanduser(args.claude_home)) if args.claude_home \
         else Path.home() / ".claude"
 
+    if args.validate:
+        report, healthy = _validate.format_report(_validate.validate_install(
+            home, cfg, env_dir, provisioned=True, repo_tools=REPO / "tools"))
+        print(report)
+        sys.exit(0 if healthy else 1)
+
     for d in ("blog/entries", "state", "memory", "threads", "secrets"):
         (home / d).mkdir(parents=True, exist_ok=True)
 
-    shutil.copy(REPO / "blog" / "server.py", home / "blog" / "server.py")
+    _provision.place_file(REPO / "blog" / "server.py", home / "blog" / "server.py")
     if (REPO / "blog" / "static").exists():
-        shutil.copytree(REPO / "blog" / "static", home / "blog" / "static", dirs_exist_ok=True)
+        _provision.place_tree(REPO / "blog" / "static", home / "blog" / "static")
     if (REPO / "skills").exists():
-        shutil.copytree(REPO / "skills", home / "skills", dirs_exist_ok=True)
+        _provision.place_tree(REPO / "skills", home / "skills")
     render_caddyfile(home, args.yaml)
 
     mem = home / "memory" / "MEMORY.md"
@@ -174,6 +183,10 @@ def main() -> None:
             missing = True
     if missing:
         print("aviso: há credenciais ausentes/com falha — corrija antes do heartbeat real")
+
+    report, _healthy = _validate.format_report(_validate.validate_install(
+        home, cfg, env_dir, provisioned=args.provision_runtime, repo_tools=REPO / "tools"))
+    print(report)
     sys.exit(0)
 
 

@@ -56,6 +56,27 @@ def build_venv(home, requirements, run=subprocess.run):
     return venv_python(home)
 
 
+def place_file(src, dst):
+    """Copy a genotype file into the install home, skipping when src and dst are the SAME path — the
+    REPO == edge_home topology, where the genotype checkout IS the home. Returns True iff copied."""
+    src, dst = Path(src), Path(dst)
+    if src.resolve() == dst.resolve():
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(src, dst)
+    return True
+
+
+def place_tree(src, dst):
+    """copytree a genotype dir into the install home, skipping when src == dst (REPO == edge_home).
+    Returns True iff copied."""
+    src, dst = Path(src), Path(dst)
+    if src.resolve() == dst.resolve():
+        return False
+    shutil.copytree(src, dst, dirs_exist_ok=True)
+    return True
+
+
 # --- Neo4j via Docker (#18) ---------------------------------------------------------------------
 NEO4J_IMAGE = "neo4j:5.26"            # pinned 5.x — required for the vector index (ADR-0011)
 NEO4J_CONTAINER = "edge-neo4j"
