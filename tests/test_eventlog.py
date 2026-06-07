@@ -460,6 +460,59 @@ class ObjectiveFoldsLatestWins(unittest.TestCase):
             self.assertIsNone(eventlog.objective_at(log=Path(tmp) / "log.jsonl"))
 
 
+class DirecionamentoReportFoldsLatestAndLineage(unittest.TestCase):
+    """The rolling steer ("o direcionamento") as a first-class durable thing: `direction.report`
+    carries the **full prose report** (objective + the steer + the live insight). `report_at` folds
+    BOTH the **latest** (for injection into the briefing) AND the **lineage** (the priors the grill
+    reads to re-derive against — newest-first). Provenance: the report links the threads/sources it
+    synthesized from (distills/cites), so the steer is traceable, not pronounced. Cursor-aware:
+    replay to a past cursor reconstructs that past report + lineage (versioned, as direction_at)."""
+
+    def test_report_appends_event_with_prose_and_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            ev = eventlog.report_direction("the steer prose body", distills=["cluster:recall"],
+                                           cites=[{"ref": "github:abc", "kind": "atividade"}], log=log)
+            self.assertEqual(ev["type"], "direction.report")
+            self.assertEqual(ev["subject"], "direction")
+            self.assertEqual(ev["payload"]["body"], "the steer prose body")
+            self.assertEqual(ev["payload"]["distills"], ["cluster:recall"])
+            self.assertEqual(ev["payload"]["cites"], [{"ref": "github:abc", "kind": "atividade"}])
+
+    def test_latest_report_is_the_injected_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.report_direction("older steer", log=log)
+            eventlog.report_direction("fresher steer", log=log)
+            r = eventlog.report_at(log=log)
+            self.assertEqual(r["latest"]["body"], "fresher steer")
+
+    def test_lineage_is_the_priors_newest_first(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.report_direction("first", log=log)
+            eventlog.report_direction("second", log=log)
+            eventlog.report_direction("third", log=log)
+            r = eventlog.report_at(log=log)
+            self.assertEqual([x["body"] for x in r["lineage"]], ["third", "second", "first"])
+
+    def test_replay_to_past_cursor_reconstructs_past_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            a = eventlog.report_direction("old", log=log)           # seq 1
+            eventlog.report_direction("new", log=log)               # seq 2
+            past = eventlog.report_at(seq=a["seq"], log=log)
+            self.assertEqual(past["latest"]["body"], "old")
+            self.assertEqual([x["body"] for x in past["lineage"]], ["old"])
+            self.assertEqual(eventlog.report_at(log=log)["latest"]["body"], "new")
+
+    def test_empty_log_has_no_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r = eventlog.report_at(log=Path(tmp) / "log.jsonl")
+            self.assertIsNone(r["latest"])
+            self.assertEqual(r["lineage"], [])
+
+
 class CosineIsPureSimilarity(unittest.TestCase):
     """ADR-0009 source-feedback (hypothesis tier): cosine of two equal-length numeric vectors —
     the pure math behind embedding attribution (the actual OpenAI call lives in sweep, never here).

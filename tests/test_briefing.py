@@ -47,6 +47,34 @@ class ObjectiveIsTheBriefingSpine(unittest.TestCase):
             self.assertIn("no confirmed objective yet", text.lower())
 
 
+class DirecionamentoReportInjectedAsMentoring(unittest.TestCase):
+    """The rolling steer ("o direcionamento") is **injected** as the mentoring section, present every
+    wake — the flesh on Direction's skeleton. Only the LATEST report shows (the present steer; the
+    lineage is for the grill to read, not the briefing). Inscribed from the log fold (report_at);
+    cursor-aware. No report yet → an honest marker (the briefing still composes on a fresh log)."""
+
+    def test_latest_report_is_injected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.report_direction("the steer toward the objective, live", log=log)
+            text = briefing.compose_briefing(log=log)
+            self.assertIn("the steer toward the objective, live", text)
+
+    def test_only_latest_report_shows_not_the_whole_lineage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.report_direction("stale prior steer", log=log)
+            eventlog.report_direction("the current live steer", log=log)
+            text = briefing.compose_briefing(log=log)
+            self.assertIn("the current live steer", text)
+            self.assertNotIn("stale prior steer", text)
+
+    def test_no_report_yet_renders_marker_without_crashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl")
+            self.assertIn("no direcionamento report yet", text.lower())
+
+
 class DirectionInscribedCuratedFirst(unittest.TestCase):
     """Section 1 (highest tattoo authority): the curated `set` tier is inscribed before the
     non-curated `proposed` tier; both bodies appear. None → "no direction set yet."""

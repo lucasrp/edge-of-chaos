@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from eventlog import (LOG, direction_at, corpus_at, artefatos_without_kernel,  # noqa: E402
-                      source_feedback_at, objective_at)
+                      source_feedback_at, objective_at, report_at)
 
 REPO = Path(__file__).resolve().parent.parent
 AGENT_YAML = REPO / "agent.yaml"
@@ -144,6 +144,19 @@ def _section_direction(log, seq, ts):
             f"{_render_direction_items(d.get('proposed', []))}")
 
 
+def _section_report(log, seq, ts):
+    """The direcionamento — the rolling steer injected every wake (ADR-0006/0007). Direction's
+    proposed/set bullets are the skeleton; this report is the flesh actually read: objective + the
+    steer + the live insight, re-derived from the data each grill. Only the LATEST shows (the present
+    steer; the lineage is the grill's to read). Inscribed from the log fold (report_at). No report
+    yet → an honest marker (additive — Direction still renders above)."""
+    r = report_at(seq=seq, ts=ts, log=log)
+    latest = r.get("latest")
+    if latest is None:
+        return "## Direcionamento — the rolling steer\n\n_no direcionamento report yet._"
+    return f"## Direcionamento — the rolling steer\n\n{latest.get('body', '')}"
+
+
 def _section_continuity(corpus):
     """The literal tattoo: what the cold agent was mid-doing — the *why* of the most-recent
     kernels, most-recent-first. Empty corpus (or no recorded why yet) → an honest empty marker."""
@@ -250,6 +263,7 @@ def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None,
         BANNER + "\n# Briefing — orient entirely from here",
         _section_objective(log, seq, ts),
         _section_direction(log, seq, ts),
+        _section_report(log, seq, ts),
         _section_continuity(corpus),
         _section_corpus(corpus, artefatos_without_kernel(log=log)),
         _section_sources(log, seq, ts, roster),

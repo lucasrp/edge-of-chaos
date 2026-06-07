@@ -139,6 +139,36 @@ def objective_at(seq=None, ts=None, log=LOG):
     return {"body": p.get("body", ""), "rationale": p.get("rationale")}
 
 
+REPORT_TYPES = ["direction.report"]
+
+
+def report_direction(body, distills=None, cites=None, log=LOG):
+    """Append a `direction.report` event — the rolling steer ("o direcionamento"): the **full prose
+    report** (objective + the steer + the live insight) the briefing injects every wake and the grill
+    reads as the prior. Additive to Direction (the proposed/set bullets are the skeleton; this report
+    is the flesh). Provenance — "show your work": `distills` = the existing **threads** it synthesized
+    from, `cites` = the **sources**; link only real ones (never fabricate), so the steer is traceable,
+    not pronounced. Telephone-game guard: each report re-derives from the data, the prior is one input
+    for continuity — not the source of truth; never summarize-the-summary."""
+    return append("direction.report", "direction",
+                  {"body": body, "distills": distills or [], "cites": cites or []}, log=log)
+
+
+def report_at(seq=None, ts=None, log=LOG):
+    """Fold `direction.report` events up to a cursor → {"latest": {...}|None, "lineage": [...]}. The
+    **latest** is what the briefing injects (the present steer); the **lineage** is the priors the
+    grill reads to re-derive against, newest-first (saved-as-confirmed-hypothesis — priors, not
+    gospel). Pure: replaying to a past cursor reconstructs that past report + its lineage — strategic
+    versioning, as direction_at. Empty → {"latest": None, "lineage": []}."""
+    evs = read(types=REPORT_TYPES, until_seq=seq, until_ts=ts, log=log)
+    items = [{"body": (e.get("payload") or {}).get("body", ""),
+              "distills": (e.get("payload") or {}).get("distills", []),
+              "cites": (e.get("payload") or {}).get("cites", []),
+              "ts": e.get("ts")} for e in evs]
+    lineage = list(reversed(items))
+    return {"latest": lineage[0] if lineage else None, "lineage": lineage}
+
+
 def publish_artefato(slug, proposes=None, distills=None, cites=None, log=LOG):
     """Append an `artefato.published` event (ADR-0006/0007). The Artefato **declares** candidate
     steers in `proposes`; it does NOT write Direction itself — the sweep consolidates them."""
