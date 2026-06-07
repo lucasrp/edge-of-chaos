@@ -18,6 +18,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/ para importar _llm
 import _llm
 import _claude_provision
+import _provision
 
 
 def render_caddyfile(home: Path, yaml_path: str) -> None:
@@ -84,6 +85,10 @@ def main() -> None:
     ap.add_argument("--claude-home",
                     help="target ~/.claude dir (default: real ~/.claude). "
                          "Tests/smoke-runs MUST point this at a tmp dir.")
+    ap.add_argument("--provision-runtime", action="store_true",
+                    help="provision the mandatory graph runtime: venv (#20), per-host Neo4j via "
+                         "Docker (#18), and the systemd heartbeat timer (#19). Fails loud on a "
+                         "missing prerequisite (ADR-0011). Off by default (files-only apply).")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(Path(args.yaml).read_text()) or {}
@@ -109,6 +114,11 @@ def main() -> None:
     print(f"apply: provisionando ~/.claude em {claude_home}")
     for row in _claude_provision.provision_claude(cfg, REPO, claude_home):
         print(f"  - {row}")
+
+    if args.provision_runtime:
+        print("apply: provisionando o runtime (graph obrigatório — ADR-0011)")
+        _provision.build_venv(home, REPO / "requirements.txt")
+        print(f"  - venv → {home / '.venv'} (deps de requirements.txt)")
 
     print("credenciais (adapter testado no apply):")
     missing = False
