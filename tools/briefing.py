@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from eventlog import (LOG, direction_at, corpus_at, artefatos_without_kernel,  # noqa: E402
                       source_feedback_at, objective_at, report_at)
+import _identity  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 AGENT_YAML = REPO / "agent.yaml"
@@ -63,7 +64,7 @@ def graph_clusters(group=None, uri=None, user=None, password=None):
         return None
     uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
     user = user or os.environ.get("EDGE_NEO4J_USER", "neo4j")
-    password = password or os.environ.get("EDGE_NEO4J_PASSWORD")  # no literal default (#21/C4)
+    password = password or os.environ.get("EDGE_NEO4J_PASSWORD") or _identity.neo4j_password()  # env → install secret (#21/C4)
     try:
         from neo4j import GraphDatabase
     except Exception:
@@ -302,7 +303,7 @@ def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None,
     if roster is None:
         roster = source_roster()
     if clusters is _AUTO:
-        clusters = graph_clusters(group if group is not None else os.environ.get("EDGE_GROUP"))
+        clusters = graph_clusters(group if group is not None else (os.environ.get("EDGE_GROUP") or _identity.group()))
     corpus = corpus_at(seq=seq, ts=ts, log=log)
     parts = [
         BANNER + "\n# Briefing — orient entirely from here",
