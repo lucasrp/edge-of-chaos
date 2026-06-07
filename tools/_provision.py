@@ -102,7 +102,7 @@ def docker_present(run=subprocess.run) -> bool:
     if shutil.which("docker") is None:
         return False
     try:
-        res = run(["docker", "info"])
+        res = run(["docker", "info"], capture_output=True, text=True)
         return getattr(res, "returncode", 0) == 0
     except Exception:
         return False
@@ -125,8 +125,11 @@ def neo4j_run_command(home, password, image=NEO4J_IMAGE, container=NEO4J_CONTAIN
 
 
 def container_exists(container, run=subprocess.run) -> bool:
-    """Idempotency probe: is a container with this name already present (any state)?"""
-    res = run(["docker", "ps", "-aq", "-f", f"name=^{container}$"])
+    """Idempotency probe: is a container with this name already present (any state)? Captures stdout
+    explicitly — real subprocess.run leaves .stdout None without it, so the probe would never see the
+    container id, always report False, and re-`docker run` into a 'name already in use' crash."""
+    res = run(["docker", "ps", "-aq", "-f", f"name=^{container}$"],
+              capture_output=True, text=True)
     out = getattr(res, "stdout", "") or ""
     return bool(out.strip())
 

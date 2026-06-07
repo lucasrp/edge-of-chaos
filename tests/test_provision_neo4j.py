@@ -122,6 +122,20 @@ class ProvisionNeo4j(unittest.TestCase):
             finally:
                 _sh.which = orig
 
+    def test_container_exists_requires_capture(self):
+        """Regression: real subprocess.run fills .stdout only with capture_output=True. The probe MUST
+        request it, or it never sees the container id and reports False on a host that HAS the
+        container — then re-`docker run` → 'name already in use' crash (the bug a clean reinstall hit)."""
+        seen = {}
+
+        def realish_run(cmd, *a, **kw):
+            seen["capture"] = kw.get("capture_output")
+            out = "abc123\n" if kw.get("capture_output") else None   # mimic real subprocess.run
+            return type("R", (), {"returncode": 0, "stdout": out})()
+
+        self.assertTrue(_provision.container_exists("edge-neo4j", run=realish_run))
+        self.assertTrue(seen["capture"], "container_exists must call docker ps with capture_output=True")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
