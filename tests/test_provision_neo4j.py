@@ -62,8 +62,10 @@ class Neo4jRunCommand(unittest.TestCase):
                             f"must pin neo4j:5.x, got {cmd}")
             self.assertIn("--restart", cmd)
             self.assertIn("unless-stopped", cmd)
-            # data volume under <home>/state/neo4j/
-            self.assertIn(str(home / "state" / "neo4j"), j)
+            # data on an ANONYMOUS docker volume, NEVER a bind mount under <home> — root-owned files
+            # there block `rm -rf <home>` and break a clean reinstall (bug #5, found by a from-zero run)
+            self.assertIn("/data", cmd)
+            self.assertNotIn(str(home / "state" / "neo4j"), j)
             # the generated password, never a literal
             self.assertIn("NEO4J_AUTH=neo4j/PW", j)
             self.assertNotIn("edgepassword123", j)

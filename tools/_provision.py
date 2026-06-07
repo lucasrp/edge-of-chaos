@@ -109,16 +109,19 @@ def docker_present(run=subprocess.run) -> bool:
 
 
 def neo4j_run_command(home, password, image=NEO4J_IMAGE, container=NEO4J_CONTAINER):
-    """Construct the `docker run` for THIS host's own Neo4j (#18): pinned 5.x, restart
-    unless-stopped, data volume under <home>/state/neo4j/, the generated per-host password, and the
-    bolt+http ports. No literal password (C4)."""
-    data = Path(home) / "state" / "neo4j"
+    """Construct the `docker run` for THIS host's own Neo4j (#18): pinned 5.x, restart unless-stopped,
+    the generated per-host password, the bolt+http ports, and an ANONYMOUS docker volume for /data —
+    never a bind mount under <home>. The container writes its store as root; a bind mount under <home>
+    left those files un-removable, so `rm -rf <home>` failed and a clean reinstall broke (bug #5).
+    With an anonymous volume the graph lives in docker's store: `rm -rf <home>` stays clean and
+    `docker rm -fv <container>` tears the volume down with the container. No literal password (C4).
+    `home` is kept for signature stability; the data location no longer depends on it."""
     return [
         "docker", "run", "-d",
         "--name", container,
         "--restart", "unless-stopped",
         "-p", "7474:7474", "-p", "7687:7687",
-        "-v", f"{data}:/data",
+        "-v", "/data",
         "-e", f"NEO4J_AUTH=neo4j/{password}",
         image,
     ]
