@@ -65,22 +65,31 @@ prunable; it also **bears the comment field**, the surface the mentee's later co
 The durable knowledge it distills lives in the **cluster**, written by the **grill** (consolidate is
 dissolved — ADR-0008) — never here. You do not write wiki pages.
 
-## On publish — declare candidate steers + cite your sources (ADR-0007/#14, ADR-0009)
+## On publish — declare candidate steers + show your work (ADR-0007/#14, ADR-0009)
 
 A report exists to **move or confirm the Direction** — its "decision not yet made" is a candidate steer.
-After writing the entry, declare them (you **declare**; you never write Direction yourself), and **cite
-each source with the snippet you actually used** — the intrinsic, mechanical **Source-feedback** signal
-(never self-rating):
+After writing the entry, declare them (you **declare**; you never write Direction yourself), and **show
+your work** — the provenance that makes the synthesis traceable, not pronounced:
 
-    tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import eventlog, sweep; \
-      cites=[{'ref':'<source-key>','kind':'mundo','relevant':True,'snippet':'<the text you used>'}]; \
-      eventlog.publish_artefato('<slug>', proposes=[{'body':'…','kind':'constraint'}], cites=cites); \
-      sweep.embed_and_signal('<slug>', open('blog/entries/<slug>.html').read(), cites)"
+- **`distills`** — the existing **threads** the synthesis draws on, as cluster refs (`cluster:<label>`).
+  Link **only threads that already exist** ("se existirem" — read the Knowledge clusters in the briefing).
+  If none fits, leave it **empty** — never fabricate a link; thread maintenance attaches/spawns one later.
+- **`cites`** — each **source** with the snippet you actually used (the intrinsic, mechanical
+  **Source-feedback** signal, never a self-rating).
 
-`publish_artefato` declares the steers (the sweep fans them into the `proposed` tier; the grill curates).
-`embed_and_signal` emits a `source.signal` per cited snippet (cosine of snippet vs the Artefato body — the
-hypothesis tier of Source feedback; it degrades safely when no embedder is present). `kind` is `mundo` or
-`atividade`. Omit `proposes` for a knowledge-only Artefato; omit `cites` if it cites nothing.
+      tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import eventlog, sweep; \
+        distills=['cluster:<label>'];  # the existing threads it draws on — [] if none fits \
+        cites=[{'ref':'<source-key>','kind':'mundo','relevant':True,'snippet':'<the text you used>'}]; \
+        eventlog.publish_artefato('<slug>', proposes=[{'body':'…','kind':'constraint'}], \
+          distills=distills, cites=cites); \
+        sweep.embed_and_signal('<slug>', open('blog/entries/<slug>.html').read(), cites)"
+
+`publish_artefato` declares the steers (the sweep fans them into the `proposed` tier; the grill curates)
+and records the provenance: `distills` ties the Artefato to its threads two-way (thread →hangs→ Artefatos
+via `eventlog.artefatos_for_thread`). `embed_and_signal` emits a `source.signal` per cited snippet (cosine
+of snippet vs the Artefato body — the hypothesis tier of Source feedback; it degrades safely when no
+embedder is present). `kind` is `mundo` or `atividade`. Omit `proposes` for a knowledge-only Artefato;
+leave `distills`/`cites` empty if it draws on no existing thread / cites nothing — empty, never invented.
 
 ## On close — emit the mandatory intent kernel (CONTRACT C3 / ADR-0009)
 
