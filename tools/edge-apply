@@ -133,6 +133,11 @@ def main() -> None:
         env_dir = resolve_env_dir(home, cfg)
         secret = _provision.provision_neo4j(home, env_dir)
         print(f"  - neo4j (docker, {_provision.NEO4J_IMAGE}) → senha em {secret}")
+        _provision.install_heartbeat(cfg, home)
+        print(f"  - heartbeat timer (systemd --user, OnUnitActiveSec="
+              f"{cfg.get('heartbeat_interval', '3h')}) instalado + enable --now")
+        _provision.check_headless_auth()
+        print("  - headless-auth: claude -p autentica sem TTY")
 
     print("credenciais (adapter testado no apply):")
     missing = False

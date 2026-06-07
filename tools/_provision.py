@@ -7,11 +7,16 @@ construction, password generation, and idempotency are all testable WITHOUT buil
 against the host. Each step **fails loud** — a missing Docker / failed pip / absent systemctl is an
 install failure, never a silent degrade.
 """
+import os
+import re
 import secrets
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+TEMPLATES = REPO / "templates"
 
 
 def _run(run, cmd, what):
@@ -120,3 +125,63 @@ def provision_neo4j(home, env_dir, run=subprocess.run, _password=None):
     secret_path = write_neo4j_secret(env_dir, password)
     _run(run, neo4j_run_command(home, password), "docker run neo4j")
     return secret_path
+
+
+# --- systemd heartbeat timer (#19) --------------------------------------------------------------
+def _render(text, variables):
+    """Substitute {{var}} from variables (same convention as tools/edge-render)."""
+    return re.sub(r"\{\{\s*(\w+)\s*\}\}",
+                  lambda m: str(variables.get(m.group(1), m.group(0))), text)
+
+
+def _heartbeat_vars(cfg, home):
+    return {
+        "codename": str(cfg.get("codename", cfg.get("name", "edge"))),
+        "heartbeat_interval": str(cfg.get("heartbeat_interval", "3h")),
+        "edge_home": str(home),
+        "heartbeat_bin": str(REPO / "tools" / "edge-heartbeat"),
+    }
+
+
+def render_heartbeat_service(cfg, home):
+    """Render the .service unit from agent.yaml — runs tools/edge-heartbeat --home <edge_home>."""
+    tpl = (TEMPLATES / "edge-heartbeat.service.tpl").read_text()
+    return _render(tpl, _heartbeat_vars(cfg, home))
+
+
+def render_heartbeat_timer(cfg, home):
+    """Render the .timer unit — OnUnitActiveSec from heartbeat_interval, Persistent=true (#19)."""
+    tpl = (TEMPLATES / "edge-heartbeat.timer.tpl").read_text()
+    return _render(tpl, _heartbeat_vars(cfg, home))
+
+
+def install_heartbeat(cfg, home, unit_dir=None, run=subprocess.run):
+    """Install + enable the heartbeat timer (#19), idempotently. Write the rendered units under
+    ~/.config/systemd/user/, daemon-reload, `enable --now` the timer, and `enable-linger` so it
+    fires while logged out. Fail loud on any systemctl/loginctl failure."""
+    home = Path(home)
+    unit_dir = Path(unit_dir) if unit_dir is not None \
+        else Path(os.path.expanduser("~/.config/systemd/user"))
+    unit_dir.mkdir(parents=True, exist_ok=True)
+    (unit_dir / "edge-heartbeat.service").write_text(render_heartbeat_service(cfg, home))
+    (unit_dir / "edge-heartbeat.timer").write_text(render_heartbeat_timer(cfg, home))
+    _run(run, ["systemctl", "--user", "daemon-reload"], "systemctl daemon-reload")
+    _run(run, ["systemctl", "--user", "enable", "--now", "edge-heartbeat.timer"],
+         "systemctl enable --now timer")
+    _run(run, ["loginctl", "enable-linger", os.environ.get("USER", "")], "loginctl enable-linger")
+
+
+def check_headless_auth(run=subprocess.run):
+    """Verify `claude -p` authenticates with NO TTY (#19) — the timer runs headless, and the
+    credential the interactive session uses may not be reachable there. Fail loud naming the gap."""
+    cmd = ["claude", "-p", "-", "--dangerously-skip-permissions"]
+    try:
+        res = run(cmd)
+    except FileNotFoundError as e:
+        raise RuntimeError(f"headless-auth check failed: claude CLI not found ({e})")
+    if getattr(res, "returncode", 1) != 0:
+        detail = (getattr(res, "stderr", "") or getattr(res, "stdout", "") or "").strip()
+        raise RuntimeError(
+            "headless-auth check failed: `claude -p` could not authenticate without a TTY "
+            f"(the heartbeat timer runs headless) — {detail}")
+    return True
