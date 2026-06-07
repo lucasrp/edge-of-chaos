@@ -321,5 +321,29 @@ class FactsLegNavigatesTheCortex(unittest.TestCase):
             self.assertIn("Full read", text)                       # the stopgap banner
 
 
+class ImmutableTattoosAreTheBriefingHead(unittest.TestCase):
+    """Personality + Method — the *initial tattoos* — are inscribed as the IMMUTABLE head of the
+    briefing: loaded only at the edge's wake (the briefing), never the global CLAUDE.md system prompt
+    (that would change Claude, not the edge). They are the **current** doctrine from memory/, not
+    cursor-versioned — so they appear even on a fresh, empty log, ABOVE all the mutable state."""
+
+    def test_immutable_head_carries_personality_and_method_above_the_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"  # empty log — the tattoos do not depend on state
+            out = briefing.compose_briefing(log=log, clusters=None, roster=[])
+        self.assertIn("Initial tattoos", out)
+        self.assertIn("### Personality", out)
+        self.assertIn("### Method", out)
+        self.assertIn("Feynman Method", out)                                   # the method doctrine
+        self.assertIn("distrust the rationality, not the person", out)         # the curated principle
+        # the immutable head sits ABOVE the mutable state (the objective spine, Direction)
+        self.assertLess(out.index("Initial tattoos"), out.index("## Objective"))
+
+    def test_present_even_on_empty_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=None, roster=[])
+        self.assertNotIn("_no doctrine inscribed yet._", out)  # docs exist → inscribed, not the marker
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
