@@ -31,12 +31,23 @@ def render_caddyfile(home: Path, yaml_path: str) -> None:
     )
 
 
-def _read_secret(home: Path, ref: str):
-    # ref = "<file>:<VAR>"; secrets vivem em <home>/secrets/<file>
+def resolve_env_dir(home: Path, cfg: dict) -> Path:
+    """Where this install's secrets live (CONTRACT C4): agent.yaml `env_dir` → <home>/secrets/
+    (the default when the field is unset, so it works without it). The genotype declares WHERE
+    secrets live, never HOW they arrive (delivery is the operator's channel).
+    # TODO(agent.yaml): declare env_dir — agent.yaml is operator-dirty, so the field is deferred;
+    #   this resolver already honors it the moment it is added, defaulting to <home>/secrets/."""
+    raw = cfg.get("env_dir")
+    return Path(os.path.expanduser(str(raw))) if raw else home / "secrets"
+
+
+def _read_secret(home: Path, ref: str, env_dir: Path = None):
+    # ref = "<file>:<VAR>"; secrets vivem em env_dir (agent.yaml env_dir → <home>/secrets/, C4)
     fn, _, var = ref.partition(":")
     if not fn or not var:                      # ref vazio/sem ":" → fonte keyless, não é o dir secrets/
         return None
-    path = home / "secrets" / fn
+    base = env_dir if env_dir is not None else home / "secrets"
+    path = base / fn
     if not path.exists() or path.is_dir():
         return None
     for line in path.read_text().splitlines():
@@ -119,6 +130,9 @@ def main() -> None:
         print("apply: provisionando o runtime (graph obrigatório — ADR-0011)")
         _provision.build_venv(home, REPO / "requirements.txt")
         print(f"  - venv → {home / '.venv'} (deps de requirements.txt)")
+        env_dir = resolve_env_dir(home, cfg)
+        secret = _provision.provision_neo4j(home, env_dir)
+        print(f"  - neo4j (docker, {_provision.NEO4J_IMAGE}) → senha em {secret}")
 
     print("credenciais (adapter testado no apply):")
     missing = False
