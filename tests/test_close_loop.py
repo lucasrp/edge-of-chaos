@@ -437,5 +437,116 @@ class DegradedReviewerOutputCannotMintAPass(unittest.TestCase):
         self.assertEqual(published, [])
 
 
+class DegradedReviewerExceptionsBounceNeverCrash(unittest.TestCase):
+    """Codex round-8 [medium] — close the whole degraded-reviewer-output class. A reviewer
+    or its parser raising on schema drift must NOT crash run_close: ANY exception from a
+    reviewer/`_parse_verdict` becomes a FAILING verdict (defense in depth), so run_close
+    BOUNCES then HARD-FAILS within BOUNCE_MAX and NEVER calls publish_fn. A well-formed
+    verdict still passes and publishes."""
+
+    def _publisher(self):
+        published = []
+
+        def publish_fn(artefato, proof):
+            published.append((artefato, proof))
+
+        return publish_fn, published
+
+    def test_completer_that_raises_bounces_then_hard_fails_never_publishes(self):
+        publish_fn, published = self._publisher()
+        produce_fn = _counting_producer()
+
+        def exploding_completer(*a, **k):
+            raise RuntimeError("review router exploded")
+
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=produce_fn,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=exploding_completer, publish_fn=publish_fn,
+        )
+        self.assertFalse(result["pass"])               # controlled failure, not a crash
+        self.assertNotIn("token", result)              # no proof minted
+        self.assertEqual(produce_fn.calls["count"], close.BOUNCE_MAX)  # bounced then hard-failed
+        self.assertEqual(published, [])                 # publish_fn never called
+
+    def test_reviewer_callable_that_raises_bounces_then_hard_fails(self):
+        publish_fn, published = self._publisher()
+        produce_fn = _counting_producer()
+
+        def exploding_reviewer(artefato, complete_fn=None):
+            raise ValueError("reviewer blew up")
+
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=produce_fn,
+            reviewers=(exploding_reviewer, _reviewer_always_passes()),
+            complete_fn=lambda *a, **k: "", publish_fn=publish_fn,
+        )
+        self.assertFalse(result["pass"])
+        self.assertEqual(produce_fn.calls["count"], close.BOUNCE_MAX)
+        self.assertEqual(published, [])
+
+    def test_scores_null_completion_bounces_then_hard_fails_never_publishes(self):
+        publish_fn, published = self._publisher()
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": null, "strikes": []}',
+            publish_fn=publish_fn,
+        )
+        self.assertFalse(result["pass"])   # degraded shape → fail closed, no crash
+        self.assertEqual(published, [])
+
+    def test_scores_list_completion_bounces_then_hard_fails_never_publishes(self):
+        publish_fn, published = self._publisher()
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": [], "strikes": []}',
+            publish_fn=publish_fn,
+        )
+        self.assertFalse(result["pass"])
+        self.assertEqual(published, [])
+
+    def test_strikes_null_completion_bounces_then_hard_fails_never_publishes(self):
+        publish_fn, published = self._publisher()
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": null}',
+            publish_fn=publish_fn,
+        )
+        self.assertFalse(result["pass"])
+        self.assertEqual(published, [])
+
+    def test_non_dict_result_completion_bounces_then_hard_fails_never_publishes(self):
+        publish_fn, published = self._publisher()
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '[1, 2, 3]',  # JSON list, not a verdict dict
+            publish_fn=publish_fn,
+        )
+        self.assertFalse(result["pass"])
+        self.assertEqual(published, [])
+
+    def test_well_formed_verdict_still_mints_and_publishes(self):
+        publish_fn, published = self._publisher()
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
+            publish_fn=publish_fn,
+        )
+        self.assertTrue(result["pass"])
+        self.assertEqual(len(published), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

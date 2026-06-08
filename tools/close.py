@@ -282,35 +282,68 @@ def _build_prompt(focus: str, artefato: dict) -> str:
     )
 
 
+def _failing_verdict(strike: str, scores=None) -> dict:
+    """A well-shaped FAILING verdict (pass:false) carrying one explanatory strike. Every
+    shape violation funnels through here so a degraded reviewer ALWAYS yields a bounded
+    failing verdict of the canonical shape — never a raise, never a half-built dict."""
+    return {
+        "pass": False,
+        "scores": scores if isinstance(scores, dict) else {},
+        "strikes": [strike],
+        "overall": 0.0,
+    }
+
+
 def _parse_verdict(raw: str) -> dict:
     """Parse the reviewer's JSON verdict into {pass, scores, strikes, overall}, computing the
     weighted overall from the dim scores when the model omits/garbles it.
 
-    FAILS CLOSED (Codex round-7 [high]): a degraded/schema-drifted reviewer response can
-    NEVER mint a pass. The old `bool(result.get("pass", False))` coerced a non-empty string
-    like `"false"` to True, turning a FAILED review into a passing verdict. The verdict now
-    passes ONLY iff `result["pass"] is True` (exact boolean identity); `False`, any non-bool
-    (`"false"`, `"true"`, None, missing, a number), or a malformed score is a schema/parse
-    violation treated as a FAILING verdict — never passing."""
+    FAILS CLOSED on ANY shape violation and NEVER RAISES for any input shape (Codex round-7
+    [high] + round-8 [medium]). A degraded/schema-drifted reviewer response can NEVER mint a
+    pass AND can never crash the close. The verdict passes ONLY iff EVERY shape invariant
+    holds: parseable JSON; `result` is a dict; `result["pass"] is True` (exact boolean
+    identity — `bool("false")` is True, so coercion is forbidden); `scores` is a dict; every
+    score present is a real int/float (bool excluded); `strikes` is a list. ANY violation —
+    non-bool `pass`, `scores` null/list/string, a malformed score, `strikes` null/non-list, a
+    non-dict `result` (a bare JSON list/string/number/null), or unparseable JSON — returns a
+    well-shaped FAILING verdict with an explanatory strike. This kills the WHOLE degraded-
+    output class at the source, not just `scores:null`; `run_close` wraps this too (defense in
+    depth) so even an unforeseen shape can only ever become a bounded failing verdict."""
     text = raw.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else text[3:]
         if text.endswith("```"):
             text = text[:-3].strip()
-    result = json.loads(text)
+    try:
+        result = json.loads(text)
+    except (ValueError, TypeError) as e:
+        return _failing_verdict(f"unparseable reviewer verdict JSON: {e}")
+    # `result` must be a dict — a bare JSON list/string/number/null is a schema violation.
+    if not isinstance(result, dict):
+        return _failing_verdict(
+            f"verdict is not a JSON object, got {type(result).__name__}: {result!r}")
+    # `scores` must be a dict — null/list/string would crash `.get()` and is a shape violation.
     scores = result.get("scores", {})
+    if not isinstance(scores, dict):
+        return _failing_verdict(
+            f"scores is not an object, got {type(scores).__name__}: {scores!r}")
+    # `strikes` must be a list — null/non-list is a shape violation that must fail closed.
     strikes = result.get("strikes", [])
+    if not isinstance(strikes, list):
+        return _failing_verdict(
+            f"strikes is not a list, got {type(strikes).__name__}: {strikes!r}", scores)
     # Exact boolean identity — `bool("false")` is True, so coercion is forbidden here.
     passed = result.get("pass") is True
     # Score hardening: any non-numeric / malformed score (a string, an object, a bool) fails
     # closed — it does NOT pass and is NOT silently coerced. We strike it and recompute the
     # overall from only the numeric scores so the weighted overall never crashes.
+    strikes = list(strikes)
     overall = 0.0
     for dim, w in DIMENSION_WEIGHTS.items():
         score = scores.get(dim, 0)
         if isinstance(score, bool) or not isinstance(score, (int, float)):
             passed = False
-            strikes = list(strikes) + [f"malformed score for {dim!r}: {score!r}"]
+            strikes.append(f"malformed score for {dim!r}: {score!r}")
             continue
         overall += score * w
     return {
@@ -509,7 +542,16 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
             continue
         verdicts = []
         for r in reviewers:
-            v = r(artefato, complete_fn)
+            # Defense in depth (Codex round-8 [medium]): ANY exception from a reviewer or its
+            # parser (`_parse_verdict`) becomes a FAILING verdict — a controlled bounce, never
+            # an unhandled close crash. _parse_verdict already fails closed on every known
+            # degraded shape; this wrap also catches an unforeseen shape or a reviewer callable
+            # that itself raises, so schema drift can only ever cost a bounded failing verdict.
+            try:
+                v = r(artefato, complete_fn)
+            except Exception as e:  # noqa: BLE001 — bound the failure, never crash the close
+                v = {"pass": False, "scores": {},
+                     "strikes": [f"reviewer raised: {type(e).__name__}: {e}"], "overall": 0.0}
             # stamp the canonical reviewer identity (#3) — only the canonical reviewers carry
             # an `.identity`; an injected fake reviewer leaves the verdict unstamped, so the
             # minted proof will fail verify_proof's identity check.

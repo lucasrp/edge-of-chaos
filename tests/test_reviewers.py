@@ -230,5 +230,68 @@ class VerdictParsingFailsClosed(unittest.TestCase):
         self.assertFalse(verdict["pass"])
 
 
+class DegradedVerdictShapeNeverRaises(unittest.TestCase):
+    """Codex round-8 [medium]: kill the WHOLE degraded-reviewer-output class, not just
+    `scores:null`. `_parse_verdict` assumed `result['scores']` was a dict and called
+    `.items()`/`.get()` on whatever it got — a degraded reviewer returning valid JSON like
+    `{"pass":true,"scores":null}`, `scores:[]` (a list), `strikes:null`, or a non-dict
+    `result` (a bare JSON list or string) raised AttributeError BEFORE it could fail closed,
+    turning schema drift into an unhandled crash instead of a bounded failing verdict.
+
+    The contract: `_parse_verdict` defensively validates the ENTIRE verdict shape and FAILS
+    CLOSED (returns pass:false with an explanatory strike) on ANY shape violation, and NEVER
+    raises for ANY input shape — `result` not a dict, `pass` not exactly True, `scores` not a
+    dict, any score not a real int/float (bool excluded), `strikes` not a list."""
+
+    def _parse(self, raw):
+        """_parse_verdict must never raise for any input shape — assert that, then return."""
+        try:
+            return close._parse_verdict(raw)
+        except Exception as e:  # noqa: BLE001 — the whole point is it must never raise
+            self.fail(f"_parse_verdict raised on degraded shape {raw!r}: {e!r}")
+
+    def _assert_failing(self, verdict):
+        self.assertIs(verdict["pass"], False)
+        self.assertIsInstance(verdict["scores"], dict)
+        self.assertIsInstance(verdict["strikes"], list)
+        self.assertIsInstance(verdict["overall"], float)
+        self.assertTrue(verdict["strikes"], "a shape violation must carry an explanatory strike")
+
+    def test_scores_null_does_not_raise_and_fails_closed(self):
+        self._assert_failing(self._parse('{"pass": true, "scores": null, "strikes": []}'))
+
+    def test_scores_list_does_not_raise_and_fails_closed(self):
+        self._assert_failing(self._parse('{"pass": true, "scores": [], "strikes": []}'))
+
+    def test_scores_string_does_not_raise_and_fails_closed(self):
+        self._assert_failing(self._parse('{"pass": true, "scores": "nope", "strikes": []}'))
+
+    def test_strikes_null_does_not_raise_and_fails_closed(self):
+        self._assert_failing(self._parse('{"pass": true, "scores": {}, "strikes": null}'))
+
+    def test_strikes_string_does_not_raise_and_fails_closed(self):
+        self._assert_failing(self._parse('{"pass": true, "scores": {}, "strikes": "oops"}'))
+
+    def test_result_is_a_json_list_does_not_raise_and_fails_closed(self):
+        self._assert_failing(self._parse('[1, 2, 3]'))
+
+    def test_result_is_a_json_string_does_not_raise_and_fails_closed(self):
+        self._assert_failing(self._parse('"just a string"'))
+
+    def test_result_is_a_json_number_does_not_raise_and_fails_closed(self):
+        self._assert_failing(self._parse('42'))
+
+    def test_result_is_json_null_does_not_raise_and_fails_closed(self):
+        self._assert_failing(self._parse('null'))
+
+    def test_invalid_json_does_not_raise_and_fails_closed(self):
+        self._assert_failing(self._parse('not json at all {'))
+
+    def test_well_formed_verdict_still_passes(self):
+        verdict = self._parse(_PASS_VERDICT)
+        self.assertIs(verdict["pass"], True)
+        self.assertEqual(set(verdict["scores"]), _KEPT)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
