@@ -73,5 +73,24 @@ class HeartbeatDryRunShowsTheLaunch(unittest.TestCase):
             self.assertIn("RUN-THE-BEAT-MARKER", res.stdout)
 
 
+class BeatEnvCarriesInstallSecrets(unittest.TestCase):
+    """The dispatch env must carry the install's secrets so the beat's AGENTIC via-spec source
+    calls (exa/x/hn/arxiv/github) and the graph leg have credentials — else the world-leg darkens
+    (root cause of the cert's substrate-only beats). ADR-0011: missing secrets never blocks."""
+
+    def test_build_beat_env_loads_install_secrets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "secrets").mkdir()
+            (home / "secrets" / "test.env").write_text("EDGE_TEST_CERT_KEY=abc123\n")
+            env = _beat.build_beat_env(home)
+            self.assertEqual(env.get("EDGE_TEST_CERT_KEY"), "abc123")
+
+    def test_missing_secrets_dir_never_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _beat.build_beat_env(Path(tmp))  # no secrets/ — must not raise
+            self.assertIsInstance(env, dict)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

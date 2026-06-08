@@ -56,6 +56,21 @@ def build_beat_command(claude_bin: str) -> list:
     return [claude_bin, "-p", "-", "--dangerously-skip-permissions"]
 
 
+def build_beat_env(home) -> dict:
+    """The dispatch env = the launcher env + the install's secrets, so the beat's **agentic** source
+    calls (the `via` specs in agent.yaml: exa/x/hn/arxiv/github) AND the graph leg have credentials.
+    Without this the `claude -p` child inherits a key-less env and the world-leg darkens — only the
+    python tools that touch `_identity` self-load secrets; the agent's own `via`-spec calls do not.
+    ADR-0011: never block — a missing secrets dir just returns the base env (the leg darkens, the
+    beat still runs)."""
+    import _secrets
+    try:
+        _secrets.load_env(Path(home) / "secrets")
+    except Exception:
+        pass
+    return dict(os.environ)
+
+
 def load_beat_prompt(home) -> str:
     """The /ed-beat skill body (frontmatter stripped), piped as the prompt. home wins over repo."""
     for base in (Path(home) / "skills", REPO / "skills"):

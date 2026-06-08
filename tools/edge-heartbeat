@@ -36,7 +36,8 @@ def main() -> None:
         print("--- prompt ---")
         print(prompt)
         return
-    sys.exit(subprocess.run(cmd, cwd=str(home), input=prompt, text=True).returncode)
+    sys.exit(subprocess.run(cmd, cwd=str(home), input=prompt, text=True,
+                            env=_beat.build_beat_env(home)).returncode)
 
 
 if __name__ == "__main__":
