@@ -99,6 +99,39 @@ class GenusContractEnforced(unittest.TestCase):
         self.assertEqual(close.check_genus(_wellformed()), [])
 
 
+class GenusRejectsMalformedCiteShapes(unittest.TestCase):
+    """Codex round-5 — a malformed cite shape must be a genus violation, never silently
+    accepted. `cites` must be a LIST; every entry must be a dict carrying non-empty
+    `ref` AND `snippet`. A genus-invalid cite shape can NEVER mint a proof."""
+
+    def test_non_dict_cite_entry_is_a_violation_naming_the_cite(self):
+        art = _wellformed()
+        art["cites"] = ["github:abc"]
+        violations = close.check_genus(art)
+        self.assertTrue(any("github:abc" in v for v in violations),
+                        f"expected a violation naming the cite, got {violations}")
+
+    def test_non_list_cites_is_a_violation(self):
+        art = _wellformed()
+        art["cites"] = "notalist"
+        violations = close.check_genus(art)
+        self.assertTrue(any("cites" in v.lower() for v in violations),
+                        f"expected a cites violation, got {violations}")
+
+    def test_cite_missing_snippet_is_a_violation(self):
+        art = _wellformed()
+        art["cites"] = [{"ref": "x"}]
+        violations = close.check_genus(art)
+        self.assertTrue(any("snippet" in v.lower() for v in violations),
+                        f"expected a missing-snippet violation, got {violations}")
+
+    def test_wellformed_cites_list_has_no_cite_violation(self):
+        art = _wellformed()
+        violations = close.check_genus(art)
+        self.assertFalse(any("cite" in v.lower() for v in violations),
+                         f"expected no cite violation, got {violations}")
+
+
 class GenusCoversTheFullRenderTree(unittest.TestCase):
     """#7 — the genus traverses EVERY part render.spec_to_html renders, not just
     `sections[*].blocks`. A dense table buried in `additional_sections` with no visual still

@@ -12,6 +12,7 @@ anywhere, none is a mandatory section. The class hooks match the neutralized bas
 Pure Python: no YAML loading, no config/paths imports, no render-log file deps. Import-clean
 on bare python3. An unknown block type degrades to an HTML comment — it never raises.
 """
+import copy
 import html
 import re
 from html.parser import HTMLParser
@@ -272,14 +273,15 @@ def render_flow_example(b):
 
 @renderer("comparison")
 def render_comparison(b):
-    # Structural transform: flat left_*/right_* fields → nested before/after objects
-    for src, dst in [("left", "before"), ("right", "after")]:
-        if f"{src}_title" in b or f"{src}_items" in b:
-            b.setdefault(dst, {})
-            if f"{src}_title" in b:
-                b[dst].setdefault("title", b.pop(f"{src}_title"))
-            if f"{src}_items" in b:
-                b[dst].setdefault("bullets", b.pop(f"{src}_items"))
+    # Structural transform: flat left_*/right_* fields → nested before/after objects.
+    # Build a local view; never mutate the caller's (proof-bound) block dict.
+    before = dict(b.get("before") or b.get("left") or {})
+    after = dict(b.get("after") or b.get("right") or {})
+    for src, dst in [("left", before), ("right", after)]:
+        if f"{src}_title" in b:
+            dst.setdefault("title", b[f"{src}_title"])
+        if f"{src}_items" in b:
+            dst.setdefault("bullets", b[f"{src}_items"])
 
     def _side(side):
         p = [f'<div class="card">']
@@ -316,8 +318,8 @@ def render_comparison(b):
 
     return (
         f'<div class="comparison-grid">\n'
-        f'{_side(b.get("before", b.get("left", {})))}\n'
-        f'{_side(b.get("after", b.get("right", {})))}\n'
+        f'{_side(before)}\n'
+        f'{_side(after)}\n'
         f'</div>'
     )
 
@@ -478,7 +480,7 @@ def render_template_block(b):
 @renderer("next-steps-grid")
 def render_next_steps_grid(b):
     parts = ['<div class="next-steps-grid">']
-    steps = b.get("steps", []) or b.get("items", [])
+    steps = list(b.get("steps", []) or b.get("items", []))
     # Support now/next/later grouping (flatten into steps)
     if not steps:
         for phase_key in ("now", "next", "later"):
@@ -486,7 +488,8 @@ def render_next_steps_grid(b):
             if isinstance(phase_items, list):
                 for item in phase_items:
                     if isinstance(item, dict):
-                        item.setdefault("phase", phase_key)
+                        # Build a new dict; never mutate the caller's item.
+                        item = {"phase": phase_key, **item}
                     steps.append(item)
             elif isinstance(phase_items, str):
                 steps.append({"title": phase_items, "phase": phase_key})
@@ -973,11 +976,15 @@ def render_block(block: dict) -> str:
 
     Unknown block type → an HTML comment, never an exception. Field synonyms are
     normalized to the canonical field the renderer expects.
+
+    PURE w.r.t. its input: alias-type rewrites and synonym normalization build a NEW
+    block dict (a shallow copy is enough — only top-level keys are reassigned/popped),
+    so the caller's proof-bound block is never mutated.
     """
     block_type = block.get("type", "paragraph")
     if block_type in _BLOCK_TYPE_ALIASES:
         block_type = _BLOCK_TYPE_ALIASES[block_type]
-        block["type"] = block_type
+        block = {**block, "type": block_type}
     fn = RENDERERS.get(block_type)
     if fn is None:
         return f'<!-- unknown block type: {html.escape(block_type)} -->'
@@ -985,9 +992,13 @@ def render_block(block: dict) -> str:
     # Apply field synonyms (e.g. content → text for paragraph)
     schema = BLOCK_SCHEMAS.get(block_type)
     if schema:
-        for syn, canonical in schema.get("synonyms", {}).items():
-            if syn in block and canonical not in block:
-                block[canonical] = block.pop(syn)
+        synonyms = schema.get("synonyms", {})
+        if any(syn in block and canonical not in block
+               for syn, canonical in synonyms.items()):
+            block = dict(block)
+            for syn, canonical in synonyms.items():
+                if syn in block and canonical not in block:
+                    block[canonical] = block.pop(syn)
 
     return fn(block)
 
@@ -1043,7 +1054,13 @@ def spec_to_html(spec: dict) -> str:
          "additional_sections": [...], "bibliography": [...]}
     Everything is optional. Sections are FREE: any block type may appear in any
     section — the Feynman blocks are palette elements, not mandatory sections.
+
+    PURE w.r.t. its input: the publisher verifies the close proof over `spec` and THEN
+    renders, so rendering must never mutate the proof-bound object (a post-render retry
+    or audit recomputes a digest that must still match). Deep-copy at the entry detaches
+    the whole subtree before any normalization touches it.
     """
+    spec = copy.deepcopy(spec)
     parts = []
 
     if spec.get("executive_summary"):

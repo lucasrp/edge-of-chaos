@@ -7,6 +7,7 @@ is one registry, the Feynman blocks are ordinary (reachable, never mandatory)
 elements, the class hooks match the neutralized base.css, and an unknown block
 type degrades to an HTML comment rather than raising.
 """
+import copy
 import sys
 import unittest
 from html.parser import HTMLParser
@@ -58,6 +59,63 @@ class PaletteRendersEachBlockType(unittest.TestCase):
         # unknown block type → HTML comment, never raised
         self.assertIn("<!-- unknown block", html)
         self.assertIn("totally-made-up-block", html)
+
+
+class RenderingDoesNotMutateInput(unittest.TestCase):
+    """Codex round-5 [high]: the publisher verifies the close proof over `spec`, THEN
+    renders. If rendering mutates that proof-bound object (rewriting alias block types
+    `type:"text"` -> paragraph, popping synonym fields in-place), a post-render retry or
+    audit recomputes a digest that no longer matches the accepted proof. Rendering MUST be
+    pure with respect to its input — the spec, its sections, and every block dict must be
+    byte-for-byte unchanged after `spec_to_html`."""
+
+    def test_alias_and_synonym_spec_is_not_mutated(self):
+        spec = {
+            "sections": [
+                {
+                    "title": "Sec",
+                    "blocks": [
+                        # alias block type: text -> paragraph; synonym field: content -> text
+                        {"type": "text", "content": "x"},
+                        # alias + structural-transform + synonym (comparison left/right)
+                        {"type": "compare",
+                         "left_title": "L", "left_items": ["a"],
+                         "right_title": "R", "right_items": ["b"]},
+                        # next-steps now/next/later grouping mutates item dicts in place
+                        {"type": "next-steps-grid",
+                         "now": [{"title": "do it"}]},
+                    ],
+                }
+            ]
+        }
+        snapshot = copy.deepcopy(spec)
+
+        render.spec_to_html(spec)
+
+        self.assertEqual(spec, snapshot,
+                         "rendering mutated the proof-bound input spec")
+
+    def test_additional_sections_and_executive_summary_not_mutated(self):
+        spec = {
+            "executive_summary": ["point one", "point two"],
+            "metrics": [{"value": "9", "label": "score"}],
+            "additional_sections": [
+                {
+                    "title": "Extra",
+                    "blocks": [
+                        {"type": "p", "body": "aliased paragraph with synonym body"},
+                        {"type": "code", "code": "print(1)", "title": "snippet"},
+                    ],
+                }
+            ],
+            "bibliography": [{"text": "ref", "url": "https://example.com"}],
+        }
+        snapshot = copy.deepcopy(spec)
+
+        render.spec_to_html(spec)
+
+        self.assertEqual(spec, snapshot,
+                         "rendering mutated additional_sections / executive_summary spec")
 
 
 class RawHtmlIsSanitizedButSvgSurvives(unittest.TestCase):

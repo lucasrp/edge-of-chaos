@@ -68,9 +68,12 @@ def check_genus(artefato: dict) -> list[str]:
 
 
 def _check_cites(cites: list) -> list[str]:
+    if not isinstance(cites, list):
+        return [f"cites must be a list, got {type(cites).__name__}: {cites!r}"]
     violations = []
     for cite in cites:
         if not isinstance(cite, dict):
+            violations.append(f"cite must be a dict, got {type(cite).__name__}: {cite!r}")
             continue
         ref = cite.get("ref")
         label = ref or "(cite with no ref)"
