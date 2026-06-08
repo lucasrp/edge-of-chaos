@@ -581,6 +581,40 @@ class PublishRequiresKernel(unittest.TestCase):
             eventlog.require_kernels(log=log)  # no raise once the kernel is added
 
 
+class AtomicPublishHasNoCrashWindow(unittest.TestCase):
+    """#3 — the atomic publish is ONE indivisible write, not two appends (published then
+    kernel). The two-append form left a crash window: a crash between the appends published an
+    Artefato without its kernel (C3 debt). `publish_artefato_atomic` now batches both events
+    into a single file write, so there is no ordering window in which `published` exists without
+    its `intent.kernel`. Both events still land, stamped with monotonic seqs."""
+
+    def test_atomic_publish_writes_both_events_in_one_file_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            real_open = Path.open
+            writes = {"count": 0}
+
+            def counting_open(self, *a, **k):
+                if "a" in (a[0] if a else k.get("mode", "")):
+                    writes["count"] += 1
+                return real_open(self, *a, **k)
+
+            orig = Path.open
+            Path.open = counting_open
+            try:
+                eventlog.publish_artefato_atomic("recall-report", intent="open: x; bet: y",
+                                                 log=log)
+            finally:
+                Path.open = orig
+            # ONE append-mode write carried both events — no two-step crash window
+            self.assertEqual(writes["count"], 1)
+            evs = eventlog.read(log=log)
+            self.assertEqual([e["type"] for e in evs],
+                             ["artefato.published", "intent.kernel"])
+            self.assertEqual([e["seq"] for e in evs], [1, 2])
+            self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
+
+
 class CosineIsPureSimilarity(unittest.TestCase):
     """ADR-0009 source-feedback (hypothesis tier): cosine of two equal-length numeric vectors —
     the pure math behind embedding attribution (the actual OpenAI call lives in sweep, never here).

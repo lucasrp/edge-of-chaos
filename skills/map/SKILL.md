@@ -51,13 +51,18 @@ write the HTML shell or the CSS yourself. **Sections are FREE** — the close ch
 
 ## Publish through the close — show your work (ADR-0007/#14, ADR-0009)
 
-You do **not** inline an `eventlog` publish snippet. Exit through the shared close: publish via
-`tools/publisher.py` (`publisher.publish`), which atomically renders the spec → self-contained neutral
-HTML at `blog/entries/<slug>.html`, records the `artefato.published` event AND its **mandatory
+You do **not** inline an `eventlog` publish snippet, and you **never** call `publisher.publish` directly —
+that is now the forbidden back door: the publisher **refuses** unless handed the passing-review proof only
+`close.run_close` mints (it raises without `verdict=`). Exit through the enforced close: build the artefato,
+then call `close.run_close(artefato, produce_fn, publish_fn=…)`, which runs the genus contract → **both
+blind reviewers** (bounded bounce, `BOUNCE_MAX` — a strike re-produces, then hard-fails) → and **only on
+pass** publishes via the `publish_fn` — a `tools/publisher.py`-backed publish_fn that receives the minted
+`proof` and hands it to the publisher as `verdict=proof`. The publisher atomically renders the spec → self-contained
+neutral HTML at `blog/entries/<slug>.html`, records the `artefato.published` event AND its **mandatory
 `intent.kernel`** in one act (C3 enforced at the seam — you cannot publish without the *why*: ~3 lines,
 what is open, the next bet), and emits a `source.signal` per cited snippet. A map can **move or confirm
-the Direction** when a gap or a cluster is a candidate steer — pass its steers and provenance to the
-publisher:
+the Direction** when a gap or a cluster is a candidate steer — pass its steers and provenance through the
+publish_fn:
 
 - **`proposes`** — the candidate steers (you **declare**; you never write Direction yourself; the sweep
   fans them into the non-curated `proposed` tier; the grill curates). Omit for a connections-only map.
@@ -67,13 +72,20 @@ publisher:
 - **`cites`** — each **source** asserting an edge, with the snippet you actually used (the intrinsic,
   mechanical **Source-feedback** signal, never a self-rating); `kind` is `mundo` or `atividade`.
 
-      tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import publisher; \
+      tools/edge-python -c "import sys, functools; sys.path.insert(0,'tools'); import close, publisher; \
+        slug='<slug>'; intent='open: …; bet: …'; \
         spec={'sections':[{'title':'…','blocks':[ \
           {'type':'ascii-diagram','content':'A --applies--> B'}, \
           {'type':'table','headers':['From','Type','To','Evidence'],'rows':[['A','application','B','…']]}]}]}; \
-        publisher.publish('<slug>', spec, 'open: …; bet: …', skill='map', \
-          distills=['cluster:<label>'],  # the existing threads it draws on — [] if none fits \
-          cites=[{'ref':'<source-key>','kind':'mundo','relevant':True,'snippet':'<the text you used>'}])"
+        distills=['cluster:<label>']  # the existing threads it draws on — [] if none fits ; \
+        cites=[{'ref':'<source-key>','kind':'mundo','relevant':True,'snippet':'<the text you used>'}]; \
+        artefato={'slug':slug,'intent':intent,'content':spec,'cites':cites}; \
+        # the publisher-backed publish_fn: close hands it (artefato, proof); proof rides as verdict= \
+        do_publish=functools.partial(publisher.publish, slug, spec, intent, skill='map', \
+          distills=distills, cites=cites); \
+        publish_fn=lambda art, proof: do_publish(verdict=proof); \
+        close.run_close(artefato, produce_fn=lambda: artefato, complete_fn=<review-completer>, \
+          publish_fn=publish_fn)"
 
 The Artefato is **transient** — it cools and is prunable; it also **bears the comment field**, the surface
 the mentee's later comment consolidates from. The durable knowledge it distills lives in the **cluster**,

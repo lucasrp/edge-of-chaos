@@ -2,16 +2,24 @@
 
 `consolidate-state` minus session-digestion (0008 moved digestion to the pull-at-open
 sweep), de-YAML'd. One act: render the Artefato body (render.spec_to_html), wrap it in a
-self-contained neutral HTML page that INLINES the neutralized tools/assets/base.css, write
-it to blog/entries/<slug>.html, then ATOMICALLY record state via the eventlog — the
-`artefato.published` event AND its `intent.kernel` together (eventlog.publish_artefato_atomic),
-plus a `source.signal` per cited snippet. Because the kernel rides in the same call,
-`artefatos_without_kernel(log) == []` right after, and there is no path that publishes
-without the *why*: C3 is enforced at this seam (the publisher raises with no intent).
+self-contained neutral HTML page that INLINES the neutralized tools/assets/base.css, record
+state ATOMICALLY via the eventlog — the `artefato.published` event AND its `intent.kernel`
+together in one indivisible write (eventlog.publish_artefato_atomic) — then write the page to
+blog/entries/<slug>.html via temp+rename, plus a `source.signal` per cited snippet. The log is
+truth, the page a re-derivable projection, so state lands before the file (#3) and a failed
+write never orphans a page.
+
+Three gates at this seam: #2 — the publisher REFUSES unless handed the passing-review proof
+`close.run_close` mints (no back door around the gate). C3 — there is no path that publishes
+without the *why* (raises with no intent; the kernel rides the same atomic call so
+`artefatos_without_kernel(log) == []` right after). #4 — the slug is validated against a strict
+regex and contained under blog_dir (a `../` slug cannot escape).
 
 Pure import-clean spine: imports only eventlog + render + close (the close-role functions);
 the impure embedder is injectable (embed_fn) so a test runs offline.
 """
+import os
+import re
 from datetime import date as _date
 from pathlib import Path
 
@@ -22,6 +30,23 @@ from close import check_genus
 REPO = Path(__file__).resolve().parent.parent
 BLOG_DIR = REPO / "blog" / "entries"
 BASE_CSS = Path(__file__).resolve().parent / "assets" / "base.css"
+
+# A slug names a single file under blog_dir — lowercase alphanumerics + hyphens, no leading
+# or trailing hyphen, no dots/slashes/spaces. Anything else is rejected (#4: path traversal).
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def _safe_target(slug, blog_dir):
+    """Resolve the page path for `slug` and ASSERT it stays under blog_dir (#4). A slug that
+    fails the strict regex or whose resolved path escapes blog_dir raises ValueError before
+    anything is written — `../` cannot climb out, an empty/funny slug cannot land elsewhere."""
+    if not (isinstance(slug, str) and SLUG_RE.match(slug)):
+        raise ValueError(f"invalid slug {slug!r}: must match {SLUG_RE.pattern} (#4)")
+    blog_dir = Path(blog_dir).resolve()
+    target = (blog_dir / f"{slug}.html").resolve()
+    if target.parent != blog_dir:
+        raise ValueError(f"slug {slug!r} escapes the blog dir (#4)")
+    return target
 
 
 def _page(slug, body_html, *, skill, date, css):
@@ -55,17 +80,41 @@ def _signal_cites(slug, body, cites, embed_fn, log):
         eventlog.source_signal(slug, c.get("ref"), c.get("kind"), sim, log=log)
 
 
-def publish(slug, spec, intent, *, skill, proposes=None, distills=None, cites=None,
-            date=None, log=eventlog.LOG, blog_dir=BLOG_DIR, embed_fn=None) -> Path:
+def _check_proof(slug, verdict):
+    """The enforced-close gate (#2): the publisher REFUSES unless handed the proof of a
+    passing review that only `close.run_close` mints — both blind reviewers passed. A direct
+    `publish(...)` with no/failing verdict raises here, before any HTML or state lands, so the
+    publisher cannot be a back door around the gate."""
+    if not (isinstance(verdict, dict) and verdict.get("pass") is True):
+        raise ValueError(
+            f"cannot publish artefato {slug!r} without a passing review verdict — "
+            "publish only through close.run_close (#2)")
+    reviews = verdict.get("verdicts") or []
+    if not reviews or not all(isinstance(v, dict) and v.get("pass") for v in reviews):
+        raise ValueError(
+            f"cannot publish artefato {slug!r}: the verdict carries no passing review (#2)")
+
+
+def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=None,
+            cites=None, date=None, log=eventlog.LOG, blog_dir=BLOG_DIR, embed_fn=None) -> Path:
     """Publish an Artefato: render → self-contained neutral HTML → atomic state record.
 
-    C3 at the seam: RAISES ValueError when `intent` is missing/empty — you cannot publish
-    without the kernel (and defensively when the genus contract is violated). Returns the
-    written page Path. `date` is a param (defaults to today) so tests pin it; `embed_fn` is
-    injectable so the source-signal step runs offline.
+    #2 at the seam: RAISES ValueError unless `verdict` is the passing-review proof
+    `close.run_close` mints (both blind reviewers passed) — the publisher is never a back
+    door around the gate. C3 at the seam: RAISES when `intent` is missing/empty — you cannot
+    publish without the kernel (and defensively when the genus contract is violated). #4 at the
+    seam: the slug is validated + contained under blog_dir, the page written via temp+rename.
+
+    Order (#3): render the page in memory, record state, THEN write the HTML — the log is truth,
+    the page a re-derivable projection, so a failed write never leaves an orphan page. Returns
+    the written page Path. `date` is a param (defaults to today) so tests pin it; `embed_fn`
+    is injectable so the source-signal step runs offline.
     """
+    _check_proof(slug, verdict)
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
+
+    out = _safe_target(slug, blog_dir)
 
     cites = cites or []
     artefato = {"intent": intent, "proposes": proposes or [], "cites": cites,
@@ -78,12 +127,12 @@ def publish(slug, spec, intent, *, skill, proposes=None, distills=None, cites=No
     css = BASE_CSS.read_text()
     page = _page(slug, body_html, skill=skill, date=date or _date.today().isoformat(), css=css)
 
-    blog_dir = Path(blog_dir)
-    blog_dir.mkdir(parents=True, exist_ok=True)
-    out = blog_dir / f"{slug}.html"
-    out.write_text(page)
-
     eventlog.publish_artefato_atomic(slug, intent, proposes=proposes, distills=distills,
                                      cites=cites, log=log)
     _signal_cites(slug, body_html, cites, embed_fn, log)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".html.tmp")
+    tmp.write_text(page)
+    os.replace(tmp, out)
     return out

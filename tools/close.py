@@ -15,6 +15,8 @@ The visual palette below is pinned to the block types in tools/render.py.
 """
 import json
 
+from render import BLOCK_SCHEMAS
+
 # ---------------------------------------------------------------------------
 # Genus contract constants — the pinned field shapes + the visual palette
 # ---------------------------------------------------------------------------
@@ -58,6 +60,7 @@ def check_genus(artefato: dict) -> list[str]:
     violations += _check_cites(artefato.get("cites", []))
     violations += _check_proposes(artefato.get("proposes", []))
     violations += _check_intent(artefato.get("intent"))
+    violations += _check_block_schemas(artefato.get("content", {}))
     violations += _check_visual_coverage(artefato.get("content", {}))
     return violations
 
@@ -90,11 +93,38 @@ def _check_intent(intent) -> list[str]:
     return []
 
 
+def _check_block_schemas(content: dict) -> list[str]:
+    """Validate every block's required fields against render.BLOCK_SCHEMAS (#7), so a malformed
+    block fails the genus here instead of crashing render later. A required field may be carried
+    directly OR via one of the schema's synonyms (render normalizes those before rendering).
+    Block types not in BLOCK_SCHEMAS (aliases / unknown) are skipped — render resolves or
+    degrades those without raising."""
+    violations = []
+    for block in _iter_blocks(content):
+        block_type = block.get("type", "paragraph")
+        schema = BLOCK_SCHEMAS.get(block_type)
+        if schema is None:
+            continue
+        synonyms = schema.get("synonyms", {})
+        syn_for = {}  # canonical -> [synonym names that map to it]
+        for syn, canonical in synonyms.items():
+            syn_for.setdefault(canonical, []).append(syn)
+        for field in schema.get("required", []):
+            if field in block:
+                continue
+            if any(syn in block for syn in syn_for.get(field, [])):
+                continue
+            violations.append(f"block {block_type!r} missing required field {field!r}")
+    return violations
+
+
 def _check_visual_coverage(content: dict) -> list[str]:
     """Flag "visual-coverage" iff the content has quantitative/multi-value material
-    but no visual palette element. Content with no quantitative material owes none."""
+    but no visual palette element. Content with no quantitative material owes none.
+    Traverses the FULL render tree (#7): top-level metrics is itself a visual; dense tables
+    anywhere render touches — sections AND additional_sections — count."""
     has_quantitative = False
-    has_visual = False
+    has_visual = bool(content.get("metrics"))  # top-level metrics grid is a visual
     for block in _iter_blocks(content):
         block_type = block.get("type", "paragraph")
         if block_type in VISUAL_BLOCK_TYPES:
@@ -113,11 +143,17 @@ def _is_dense_table(block: dict, block_type: str) -> bool:
 
 
 def _iter_blocks(content: dict):
-    """Yield every block across the render-spec's sections (sections are FREE — order
-    and names are irrelevant; the genus reads the blocks, not the layout)."""
-    for section in content.get("sections", []):
-        for block in section.get("blocks", []):
-            yield block
+    """Yield every block across EVERY part render.spec_to_html renders (#7): `sections` and
+    `additional_sections` (sections are FREE — order and names are irrelevant; the genus reads
+    the blocks, not the layout), plus the top-level `bibliography` render wraps as a block.
+    The top-level `metrics` and `executive_summary` are handled by the callers (a metrics grid
+    is a visual; the summary is prose) — not block-shaped, so not yielded here."""
+    for key in ("sections", "additional_sections"):
+        for section in content.get(key, []):
+            for block in section.get("blocks", []):
+                yield block
+    if content.get("bibliography"):
+        yield {"type": "bibliography", "references": content["bibliography"]}
 
 
 # ---------------------------------------------------------------------------
@@ -282,22 +318,31 @@ LOOP2_MAX_REOPENS = 1     # serendipity may reopen loop-1 at most this many time
 
 
 def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
-              complete_fn=None):
-    """Run the blind review gate, bounded. BOTH reviewers must pass; any strike/fail
-    BOUNCES — `produce_fn()` re-produces the artefato and the gate re-runs — up to
-    `BOUNCE_MAX` times. After `BOUNCE_MAX` consecutive failed gates it HARD-FAILS;
-    it never loops unbounded (that would resurrect ADR-0003's retry envelope).
+              complete_fn=None, publish_fn=None):
+    """The ONE enforced close path (#2): run the genus gate then BOTH blind review gates,
+    bounded; ONLY on pass call `publish_fn(artefato, proof)` to publish. This is the only
+    way to publish — `publisher.publish` refuses without the `proof` this mints, so a
+    producer can never reach the publisher directly around the gate.
 
-    `produce_fn`, `reviewers`, and the reviewers' `complete_fn` are injectable so the
-    gate runs offline in tests; real runs pass the make_client-backed completer.
+    The gate is bounded: any strike/fail BOUNCES — `produce_fn()` re-produces the artefato
+    and the gate re-runs — up to `BOUNCE_MAX` times, then HARD-FAILS; it never loops
+    unbounded (that would resurrect ADR-0003's retry envelope).
 
-    Returns {pass: True, artefato, verdicts} when both reviewers pass, else
-    {pass: False, artefato, verdicts} after the bound is exhausted."""
+    `produce_fn`, `reviewers`, the reviewers' `complete_fn`, and `publish_fn` are injectable
+    so the gate runs offline in tests; real runs pass the make_client-backed completer and a
+    publisher.publish-backed publish_fn.
+
+    Returns {pass: True, artefato, verdicts} when both reviewers pass (after publishing if a
+    publish_fn was given), else {pass: False, artefato, verdicts} after the bound is
+    exhausted (publish_fn is NEVER called on a failing gate)."""
     bounces = 0
     while True:
         verdicts = [r(artefato, complete_fn) for r in reviewers]
         if all(v["pass"] for v in verdicts):
-            return {"pass": True, "artefato": artefato, "verdicts": verdicts}
+            proof = {"pass": True, "artefato": artefato, "verdicts": verdicts}
+            if publish_fn is not None:
+                publish_fn(artefato, proof)
+            return proof
         if bounces >= BOUNCE_MAX:
             return {"pass": False, "artefato": artefato, "verdicts": verdicts}
         bounces += 1

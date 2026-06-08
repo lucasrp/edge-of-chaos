@@ -28,14 +28,23 @@ def cosine(a, b):
 
 def append(type, subject, payload, log=LOG):
     """Append ONE event as a JSON line; stamp a monotonic seq + ISO ts. Returns the event."""
+    return append_batch([(type, subject, payload)], log=log)[0]
+
+
+def append_batch(events, log=LOG):
+    """Append SEVERAL events as JSON lines in ONE indivisible file write — there is no
+    intermediate state in which only some of them landed (C3 atomicity, #3). Each is stamped
+    with a monotonic seq + ISO ts, continuing the log's count. `events` is a list of
+    (type, subject, payload) tuples; returns the stamped events."""
     log = Path(log)
     log.parent.mkdir(parents=True, exist_ok=True)
-    seq = len(read(log=log)) + 1
-    ev = {"seq": seq, "ts": datetime.now(timezone.utc).isoformat(),
-          "type": type, "subject": subject, "payload": payload}
+    base = len(read(log=log))
+    stamped = [{"seq": base + i + 1, "ts": datetime.now(timezone.utc).isoformat(),
+                "type": t, "subject": s, "payload": p}
+               for i, (t, s, p) in enumerate(events)]
     with log.open("a") as fh:
-        fh.write(json.dumps(ev) + "\n")
-    return ev
+        fh.write("".join(json.dumps(ev) + "\n" for ev in stamped))
+    return stamped
 
 
 def read(types=None, until_seq=None, until_ts=None, log=LOG):
@@ -186,15 +195,21 @@ def kernel(slug, intent, log=LOG):
 
 
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None, log=LOG):
-    """Publish an Artefato AND its `intent.kernel` in one act (CONTRACT C3 at the publish seam):
-    you cannot publish without the *why*. Raises ValueError when intent is missing/empty — the
-    kernel is mandatory, so the published event never lands without it. Additive: the legacy
-    publish_artefato + kernel two-call path stays callable; this is the close-pipeline's atomic
-    form. Returns (published_event, kernel_event)."""
+    """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
+    publish seam): you cannot publish without the *why*. Both events land in a single
+    `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
+    Raises ValueError when intent is missing/empty — the kernel is mandatory, so the published
+    event never lands without it. Additive: the legacy publish_artefato + kernel two-call path
+    stays callable. Returns (published_event, kernel_event)."""
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
-    published = publish_artefato(slug, proposes=proposes, distills=distills, cites=cites, log=log)
-    return published, kernel(slug, intent, log=log)
+    published, kernel_ev = append_batch([
+        ("artefato.published", f"artefato:{slug}",
+         {"slug": slug, "proposes": proposes or [], "distills": distills or [],
+          "cites": cites or []}),
+        ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
+    ], log=log)
+    return published, kernel_ev
 
 
 def require_kernels(log=LOG):

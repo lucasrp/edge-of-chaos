@@ -4,6 +4,7 @@ The launcher does no cognition: it loads the /ed-beat skill body and pipes it in
 `claude -p -` invocation. Cognition lives in the skill. Interactive dispatch does not use this
 at all — the live session runs the skill in-place (never spawns claude -p).
 """
+import fcntl
 import json
 import os
 import shutil
@@ -19,16 +20,23 @@ def next_producer(roster, state_path) -> str:
     ["report","map","plan"] and a fresh cursor, successive calls return report, map, plan,
     report, ... The cursor (the next index to serve) is persisted to `state_path` as JSON;
     the path is injectable so tests use a temp file.
+
+    The read-modify-write is guarded by an exclusive flock on a sibling lockfile (#6): two
+    concurrent beats (the systemd timer overlapping a manual run) serialize and never read
+    the same index — no lost turn.
     """
     state_path = Path(state_path)
-    try:
-        idx = json.loads(state_path.read_text())["next"]
-    except (FileNotFoundError, ValueError, KeyError):
-        idx = 0
-    idx %= len(roster)
-    producer = roster[idx]
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps({"next": (idx + 1) % len(roster)}))
+    lock_path = state_path.with_name(state_path.name + ".lock")
+    with open(lock_path, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            idx = json.loads(state_path.read_text())["next"]
+        except (FileNotFoundError, ValueError, KeyError):
+            idx = 0
+        idx %= len(roster)
+        producer = roster[idx]
+        state_path.write_text(json.dumps({"next": (idx + 1) % len(roster)}))
     return producer
 
 

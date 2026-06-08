@@ -99,5 +99,65 @@ class GenusContractEnforced(unittest.TestCase):
         self.assertEqual(close.check_genus(_wellformed()), [])
 
 
+class GenusCoversTheFullRenderTree(unittest.TestCase):
+    """#7 — the genus traverses EVERY part render.spec_to_html renders, not just
+    `sections[*].blocks`. A dense table buried in `additional_sections` with no visual still
+    triggers visual-coverage; a top-level `metrics` grid counts as the visual that satisfies
+    a dense table elsewhere. And every block's required fields are validated against
+    render.BLOCK_SCHEMAS, so a malformed block is flagged here instead of crashing render."""
+
+    def test_dense_table_in_additional_sections_triggers_visual_coverage(self):
+        art = _wellformed()
+        art["content"]["additional_sections"] = [
+            {"title": "Appendix", "blocks": [
+                {"type": "table", "headers": ["metric", "value"],
+                 "rows": [["recall", "0.8"], ["latency", "120ms"], ["cost", "$3"]]},
+            ]},
+        ]
+        violations = close.check_genus(art)
+        self.assertIn("visual-coverage", violations)
+
+    def test_top_level_metrics_grid_satisfies_a_dense_table(self):
+        """A dense table in additional_sections is covered by a top-level `metrics` grid (a
+        visual render touches) — visual-coverage must SEE it, not just sections[*].blocks."""
+        art = _wellformed()
+        art["content"]["metrics"] = [{"value": "0.8", "label": "recall"}]
+        art["content"]["additional_sections"] = [
+            {"title": "Appendix", "blocks": [
+                {"type": "table", "headers": ["metric", "value"],
+                 "rows": [["recall", "0.8"], ["latency", "120ms"], ["cost", "$3"]]},
+            ]},
+        ]
+        violations = close.check_genus(art)
+        self.assertNotIn("visual-coverage", violations)
+
+    def test_block_missing_a_required_field_is_flagged(self):
+        art = _wellformed()
+        # a paragraph with no `text` (a BLOCK_SCHEMAS-required field) would crash render
+        art["content"]["sections"][0]["blocks"].append({"type": "paragraph"})
+        violations = close.check_genus(art)
+        self.assertTrue(any("paragraph" in v.lower() and "text" in v.lower()
+                            for v in violations),
+                        f"expected a missing-required-field violation, got {violations}")
+
+    def test_required_field_satisfied_by_a_synonym_is_clean(self):
+        """render maps synonyms (content→text for paragraph); a block carrying the synonym is
+        well-formed and must NOT be flagged."""
+        art = _wellformed()
+        art["content"]["sections"][0]["blocks"].append(
+            {"type": "paragraph", "content": "carried via the content synonym"})
+        violations = close.check_genus(art)
+        self.assertEqual(violations, [])
+
+    def test_malformed_block_in_additional_sections_is_flagged(self):
+        art = _wellformed()
+        art["content"]["additional_sections"] = [
+            {"title": "Appendix", "blocks": [{"type": "flow-example", "label": "x"}]},
+        ]
+        violations = close.check_genus(art)
+        self.assertTrue(any("flow-example" in v.lower() for v in violations),
+                        f"expected a flow-example required-field violation, got {violations}")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

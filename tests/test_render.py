@@ -59,5 +59,46 @@ class PaletteRendersEachBlockType(unittest.TestCase):
         self.assertIn("totally-made-up-block", html)
 
 
+class RawHtmlIsSanitizedButSvgSurvives(unittest.TestCase):
+    """#5: the publisher serves rendered pages publicly, so a source-influenced raw-html
+    block must not become executable. On render, strip <script>, on*= event-handler attrs,
+    javascript:/script-bearing data: URLs, <foreignObject>, <iframe> — while KEEPING the
+    operator's visual escape hatch: benign inline SVG (rects/paths/text) survives intact."""
+
+    def test_script_and_handlers_stripped_svg_survives(self):
+        spec = {
+            "sections": [
+                {
+                    "title": "Hatch",
+                    "blocks": [
+                        {"type": "raw-html", "content":
+                            '<div onclick="steal()">hi</div>'
+                            '<script>evil()</script>'
+                            '<svg viewBox="0 0 10 10">'
+                            '<rect x="1" y="1" width="8" height="8"/>'
+                            '<path d="M0 0 L10 10"/>'
+                            '<text x="2" y="5">ok</text>'
+                            '</svg>'},
+                    ],
+                }
+            ]
+        }
+
+        html = render.spec_to_html(spec)
+
+        # script element and its content are gone
+        self.assertNotIn("<script", html)
+        self.assertNotIn("evil()", html)
+        # the inline event handler is stripped
+        self.assertNotIn("onclick", html)
+        self.assertNotIn("steal()", html)
+        # benign SVG graphics survive intact
+        self.assertIn("<svg", html)
+        self.assertIn("<rect", html)
+        self.assertIn('<path d="M0 0 L10 10"', html)
+        self.assertIn("<text", html)
+        self.assertIn(">ok</text>", html)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -10,6 +10,7 @@ evacuated from the beat, and the close is delegated to the shared pipeline at th
 """
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -33,6 +34,35 @@ class RotationIsStrictAndStateful(unittest.TestCase):
             self.assertEqual(_beat.next_producer(ROSTER, cursor), "map")
             self.assertEqual(_beat.next_producer(ROSTER, cursor), "plan")
             self.assertEqual(_beat.next_producer(ROSTER, cursor), "report")  # wraps
+
+
+class ConcurrentBeatsNeverShareAnIndex(unittest.TestCase):
+    """#6: the cursor is a read-modify-write. Two near-simultaneous beats (the systemd timer
+    overlapping a manual run) must serialize on a file lock and never return the same producer
+    for the same starting state — losing a turn. From a fresh cursor, two concurrent callers
+    return the two DISTINCT consecutive producers (report, map), not the same index twice."""
+
+    def test_two_concurrent_calls_return_distinct_consecutive_producers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cursor = Path(tmp) / "beat" / "cursor.json"
+            results = []
+            lock = threading.Lock()
+            start = threading.Barrier(2)
+
+            def call():
+                start.wait()  # maximize contention on the read-modify-write
+                p = _beat.next_producer(ROSTER, cursor)
+                with lock:
+                    results.append(p)
+
+            threads = [threading.Thread(target=call) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            # Both consecutive producers served, each exactly once — no lost turn.
+            self.assertEqual(sorted(results), ["map", "report"])
 
 
 class BeatSkillCarriesOnlyRotationNotJudgment(unittest.TestCase):

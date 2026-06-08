@@ -14,6 +14,7 @@ on bare python3. An unknown block type degrades to an HTML comment — it never 
 """
 import html
 import re
+from html.parser import HTMLParser
 
 
 # ---------------------------------------------------------------------------
@@ -487,9 +488,85 @@ def render_diff_block(b):
     return "\n".join(parts)
 
 
+# Tags dropped wholesale — content too (executable / framing). Allowlist everything else.
+_RAW_HTML_DROP_TAGS = frozenset({
+    "script", "iframe", "foreignobject", "object", "embed", "link", "meta",
+    "style", "base", "form", "input", "button", "textarea",
+})
+# URL-bearing attributes whose value must use a safe scheme (no javascript:/data:-script).
+_RAW_HTML_URL_ATTRS = frozenset({"href", "src", "xlink:href", "action", "formaction"})
+_RAW_HTML_SAFE_URL = re.compile(r"^(?:https?:|mailto:|tel:|#|/|\./|\.\./|[^:]*$)", re.IGNORECASE)
+
+
+class _RawHtmlSanitizer(HTMLParser):
+    """De-fang a raw-html block while keeping benign HTML and inline SVG. Drops dangerous
+    tags (and their content), strips on*= event handlers, and rejects script-bearing URL
+    schemes (javascript:/data:) on href/src-style attributes. Allowlist-style."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out = []
+        self._suppress_depth = 0  # >0 while inside a dropped tag's subtree
+
+    def _safe_attrs(self, attrs):
+        kept = []
+        for name, value in attrs:
+            lname = name.lower()
+            value = value or ""
+            if lname.startswith("on"):  # event handler — never safe
+                continue
+            if lname in _RAW_HTML_URL_ATTRS and not _RAW_HTML_SAFE_URL.match(value.strip()):
+                continue
+            kept.append((name, value))
+        return kept
+
+    def handle_starttag(self, tag, attrs):
+        if self._suppress_depth:
+            return
+        if tag.lower() in _RAW_HTML_DROP_TAGS:
+            self._suppress_depth = 1
+            return
+        rendered = "".join(
+            f' {name}="{html.escape(value, quote=True)}"' for name, value in self._safe_attrs(attrs)
+        )
+        self.out.append(f"<{tag}{rendered}>")
+
+    def handle_startendtag(self, tag, attrs):
+        if self._suppress_depth:
+            return
+        if tag.lower() in _RAW_HTML_DROP_TAGS:
+            return
+        rendered = "".join(
+            f' {name}="{html.escape(value, quote=True)}"' for name, value in self._safe_attrs(attrs)
+        )
+        self.out.append(f"<{tag}{rendered}/>")
+
+    def handle_endtag(self, tag):
+        if self._suppress_depth:
+            if tag.lower() in _RAW_HTML_DROP_TAGS:
+                self._suppress_depth = 0
+            return
+        self.out.append(f"</{tag}>")
+
+    def handle_data(self, data):
+        if self._suppress_depth:
+            return
+        self.out.append(html.escape(data, quote=False))
+
+
+def sanitize_raw_html(content: str) -> str:
+    """Render-time sanitizer for raw-html blocks (the publisher serves pages publicly)."""
+    if not content:
+        return ""
+    parser = _RawHtmlSanitizer()
+    parser.feed(str(content))
+    parser.close()
+    return "".join(parser.out)
+
+
 @renderer("raw-html")
 def render_raw_html(b):
-    return b.get("content", b.get("html", ""))
+    return sanitize_raw_html(b.get("content", b.get("html", "")))
 
 
 # ---------------------------------------------------------------------------

@@ -37,6 +37,13 @@ SCAFFOLD_REF = "scaffold"      # skills/_shared/scaffold.md (loop1/loop2 role-sl
 PIPELINE_REF = "pipeline"      # skills/_shared/pipeline.md (the close at exit)
 PUBLISHER_REF = "tools/publisher.py"  # publish through the close, not an inline snippet
 
+# The ENFORCED close path: publish only ever happens via close.run_close (it runs the genus
+# + both blind reviewers, then publishes on pass with the minted proof). A bare
+# `publisher.publish(` call is now the FORBIDDEN back door — publish_fn refuses without the
+# proof only run_close mints, so a direct publisher.publish raises.
+ENFORCED_CLOSE_REF = "close.run_close"
+FORBIDDEN_BARE_PUBLISH = "publisher.publish("
+
 # The slot idea a producer's mapping must declare (role-defined slots from the scaffold).
 SLOT_TOKENS = ("gather-grounding", "converge", "diverge")
 
@@ -85,6 +92,20 @@ class ProducersFillSlotsAndExitThroughClose(unittest.TestCase):
         for p in PRODUCERS:
             self.assertNotIn("eventlog.publish_artefato", self.texts[p],
                              f"{p} inlines an eventlog.publish_artefato snippet")
+
+    def test_each_producer_routes_through_the_enforced_close(self):
+        # the close is ENFORCED: publish happens ONLY via close.run_close (it mints the
+        # passing-review proof publisher.publish now requires).
+        for p in PRODUCERS:
+            self.assertIn(ENFORCED_CLOSE_REF, self.texts[p].replace(" ", ""),
+                          f"{p} does not route through the enforced close ({ENFORCED_CLOSE_REF})")
+
+    def test_no_producer_shows_a_bare_publisher_publish_call(self):
+        # a direct publisher.publish(...) now RAISES (no passing-review proof) — the skill
+        # must never show that forbidden back door; it publishes via close.run_close.
+        for p in PRODUCERS:
+            self.assertNotIn(FORBIDDEN_BARE_PUBLISH, self.texts[p].replace(" ", ""),
+                             f"{p} shows a forbidden bare publisher.publish( call")
 
     def test_each_producer_declares_a_slot_mapping(self):
         # mentions the slot idea (gather-grounding / converge / diverge or "slot").
