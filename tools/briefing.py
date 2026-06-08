@@ -215,8 +215,13 @@ def _section_clusters(clusters):
     [str, ...] → bare labels as bullets (explicit/pure-composer callers). Never crash on the graph."""
     if clusters is None:
         return ("## 5. Knowledge clusters\n\n"
-                "_Tier-0: clusters unavailable — graph offline or no EDGE_GROUP set; "
-                "knowledge = the swept log + Direction._")
+                "_Tier-0: clusters unavailable — the graph leg is DARK, which is NOT the same as "
+                "'no clusters yet'. Before narrating 'graph offline', CHECK: (1) did this process load "
+                "the install secrets (`_secrets.load_env(secrets/)`)? a `claude -p` dispatch must, or "
+                "EDGE_NEO4J_PASSWORD is absent and the leg darkens though neo4j is up; (2) is EDGE_GROUP "
+                "/ agent.yaml graph_group set? `edge-apply --validate` is the ground truth for "
+                "reachability. If both hold, the graph is reachable and this is a load gap, not an "
+                "outage — do not report 'offline'. Knowledge this beat = the swept log + Direction._")
     if not clusters:
         return "## 5. Knowledge clusters\n\n_graph reachable — no curated clusters yet._"
     if isinstance(clusters[0], dict):

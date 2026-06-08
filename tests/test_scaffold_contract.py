@@ -83,6 +83,13 @@ class ScaffoldSlotsAreRoleNotReportDefined(unittest.TestCase):
         self.assertIn("evidence", self.lower)
         self.assertNotIn("insumos", self.lower)
 
+    def test_states_agentic_grounding_how_no_primitive(self):
+        # The actionable HOW (corrects the "materialize a primitive" misframe a beat fell into):
+        # explorers ground via the source specs + source-roadmap, agentically, keys loaded; there is
+        # no per-source primitive (ADR-0001) and an explorer never waits for one.
+        for token in ("source-roadmap", "agentically", "adr-0001", "primitive", "keys"):
+            self.assertIn(token, self.lower, f"scaffold missing grounding-how token: {token!r}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

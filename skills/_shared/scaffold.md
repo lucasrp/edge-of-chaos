@@ -16,7 +16,12 @@ never what a particular report-form *is*:
 
 - **`gather-grounding`** — loop1's role: explorers go out and bring back evidence. The slot
   says "gather grounding," not "fetch this URL." Whether an explorer reads a paper, a repo, or
-  a graph thread is the **producer skill's** decision.
+  a graph thread is the **producer skill's** decision. *How* an explorer reaches a world source is
+  the same for every producer and is **never a per-source primitive** (ADR-0001): read the source's
+  `via` spec in `agent.yaml` plus `state/source-roadmap.md` and call it **agentically** — the
+  install's keys are already loaded. There is no `libexec/` primitive and there never will be; an
+  explorer that cannot ground reports *which key it could not work*, never "a primitive is missing"
+  and never waits for one to be built.
 - **`converge`** — loop2's critic role: tighten, cut, and decide whether the artefato is ready
   to ship. The slot says "converge," not "check section order."
 - **`diverge`** — loop2's serendipity role: look sideways for the connection the convergence

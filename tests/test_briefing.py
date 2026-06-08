@@ -247,6 +247,16 @@ class ClustersDegradeOnTier0(unittest.TestCase):
             self.assertIn("recall budget", text)
             self.assertIn("source feedback", text)
 
+    def test_none_note_is_actionable_not_just_offline(self):
+        # The degrade note must give the agent concrete checks (secrets-load, group, validate),
+        # not just "graph offline" — so a claude -p dispatch stops mis-narrating an outage.
+        with tempfile.TemporaryDirectory() as tmp:
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=None)
+            low = text.lower()
+            self.assertIn("_secrets", text)
+            self.assertIn("edge_group", low)
+            self.assertIn("validate", low)
+
 
 class RecapSlotOrInscribedText(unittest.TestCase):
     """Section 6 — Recap (← corpus, synthesized fresh). recap=None → a clear slot marker so the
