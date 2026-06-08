@@ -302,6 +302,70 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             self.assertEqual(eventlog.corpus_at(log=log), [])
 
 
+class WrapperMetadataIsEscapedAndSkillIsRostered(unittest.TestCase):
+    """Codex round-4 [high]: the page wrapper interpolates caller/spec values (date, skill,
+    title/slug) into raw HTML. Reviewers only see slug/content/cites; `skill` is proof-bound
+    but NOT sanitized — so a producer could supply markup in `skill` (the proof binds to it,
+    verify passes) and the public page would execute it. `date` is also unescaped. The fix:
+    reject an out-of-roster skill BEFORE anything is written, and `html.escape(quote=True)`
+    every wrapper value so no caller/spec value can inject markup."""
+
+    def test_out_of_roster_skill_is_rejected_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "xss-via-skill"
+            evil = "report</p><script>alert(1)</script>"
+            # the proof binds to the (malicious) skill, so verify_proof would PASS — the
+            # roster check is the gate that must stop it.
+            proof = _passing_proof(slug, _spec(), "open: x; bet: y", skill=evil)
+            with self.assertRaises(ValueError):
+                publisher.publish(
+                    slug, _spec(), intent="open: x; bet: y", skill=evil,
+                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                    verdict=proof,
+                )
+            self.assertEqual(eventlog.corpus_at(log=log), [])
+            self.assertFalse((Path(tmp) / f"{slug}.html").exists())
+
+    def test_every_in_roster_skill_publishes_a_clean_meta_line(self):
+        for skill in ("report", "map", "plan", "grill"):
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                slug = f"clean-{skill}"
+                path = publisher.publish(
+                    slug, _spec(), intent="open: x; bet: y", skill=skill,
+                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                    verdict=_passing_proof(slug, _spec(), "open: x; bet: y", skill=skill),
+                )
+                text = Path(path).read_text()
+                self.assertIn(f'<p class="meta">2026-06-08 · {skill}</p>', text)
+                self.assertNotIn("<script>", text)
+
+    def test_malicious_date_is_escaped_no_raw_markup_reaches_the_page(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "xss-via-date"
+            evil_date = "2026<script>alert(1)</script>"
+            path = publisher.publish(
+                slug, _spec(), intent="open: x; bet: y", skill="report",
+                date=evil_date, log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                verdict=_passing_proof(slug, _spec(), "open: x; bet: y"),
+            )
+            text = Path(path).read_text()
+            self.assertNotIn("<script>alert(1)</script>", text)
+            self.assertIn("&lt;script&gt;", text)   # escaped, inert
+
+    def test_title_from_slug_is_escaped_in_wrapper(self):
+        # the title is derived from the slug; though the slug regex is strict, the wrapper
+        # must still escape it so no value reaches the page as raw markup.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            page = publisher._page("a-b", "<p>body</p>", skill="report",
+                                   date="2026-06-08", css="")
+            self.assertIn("<title>a b</title>", page)
+            self.assertIn("<h1>a b</h1>", page)
+
+
 class SlugIsContainedUnderBlogDir(unittest.TestCase):
     """#4 — the slug names a file under blog_dir, nothing more. A `../`/`/`/empty/funny slug
     is REJECTED (it must match `^[a-z0-9][a-z0-9-]*$`); a normal slug writes a file that

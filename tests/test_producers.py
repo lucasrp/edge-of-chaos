@@ -146,5 +146,69 @@ class ProducersFillSlotsAndExitThroughClose(unittest.TestCase):
             self.assertNotIn("insumos", t, f"{p} still uses 'insumos'")
 
 
+# The proof is bound to a sha256 digest of the EXACT publish payload (close.proof_digest):
+# slug + spec(content) + intent + cites + proposes + distills + skill. run_close mints the
+# digest from the `artefato` dict it is handed (artefato.get(field) per field); verify_proof
+# (at the publish seam) recomputes it from what is actually published. So the `artefato` dict
+# the snippet passes to run_close MUST carry EVERY proof-bound field — including `skill` and
+# `distills` — or the minted digest is over None/None while the publisher verifies the real
+# values → mismatch → publish raises. And the publish_fn must publish FROM its `art` argument
+# (read the fields off `art`), not from separately-captured locals, so the published payload
+# is provably the one the proof was minted over.
+PROOF_BOUND_ARTEFATO_FIELDS = ("skill", "distills", "slug", "intent", "cites", "proposes")
+
+
+class ProducerCloseSnippetMintsOverPublishPayload(unittest.TestCase):
+    """The producer close snippet must mint the proof over the EXACT payload it publishes:
+    every proof-bound field is in the `artefato` dict run_close digests, and the publish_fn
+    reads from its `art` argument (not separately-captured values)."""
+
+    def setUp(self):
+        # raw (case-preserving) text — we assert on the literal snippet code, not prose.
+        self.texts = {p: _path(p).read_text(encoding="utf-8") for p in PRODUCERS}
+
+    def _artefato_literal(self, text):
+        """Return the `artefato={...}` dict literal passed to run_close (the snippet builds it
+        once as a name, then hands it to close.run_close)."""
+        marker = "artefato={"
+        start = text.find(marker)
+        self.assertNotEqual(start, -1, "no artefato={...} literal in snippet")
+        # match to the closing brace of the literal
+        i = start + len(marker)
+        depth = 1
+        while i < len(text) and depth:
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+            i += 1
+        return text[start:i]
+
+    def test_artefato_carries_every_proof_bound_field(self):
+        # run_close mints from artefato.get(field); the dict must carry all proof-bound fields
+        # (skill, distills, slug, intent, content, cites, proposes) so the mint digest == the
+        # verified digest. `content` is the artefato dict's name for the digest's `spec`.
+        for p in PRODUCERS:
+            lit = self._artefato_literal(self.texts[p])
+            for field in ("skill", "distills", "slug", "intent", "content", "cites", "proposes"):
+                self.assertIn(f"'{field}'", lit,
+                              f"{p}'s run_close artefato omits proof-bound field {field!r} "
+                              f"(minted digest would not bind to the publish payload)")
+
+    def test_publish_fn_reads_payload_from_its_art_argument(self):
+        # the publish_fn must publish FROM `art` (its received artefato), reading the
+        # proof-bound fields off it — not from separately-captured locals — so the published
+        # payload is provably the one the proof was minted over.
+        for p in PRODUCERS:
+            t = self.texts[p]
+            for field in PROOF_BOUND_ARTEFATO_FIELDS:
+                self.assertIn(f"art['{field}']", t,
+                              f"{p}'s publish_fn does not read {field!r} off its `art` "
+                              f"argument (must publish from the minted artefato)")
+            # the proof rides as verdict=
+            self.assertIn("verdict=proof", t.replace(" ", ""),
+                          f"{p}'s publish_fn does not pass verdict=proof")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

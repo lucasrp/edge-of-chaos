@@ -23,6 +23,7 @@ regex and contained under blog_dir (a `../` slug cannot escape).
 Pure import-clean spine: imports only eventlog + render + close (the close-role functions);
 the impure embedder is injectable (embed_fn) so a test runs offline.
 """
+import html
 import os
 import re
 from datetime import date as _date
@@ -39,6 +40,12 @@ BASE_CSS = Path(__file__).resolve().parent / "assets" / "base.css"
 # A slug names a single file under blog_dir — lowercase alphanumerics + hyphens, no leading
 # or trailing hyphen, no dots/slashes/spaces. Anything else is rejected (#4: path traversal).
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+# The allowed producer roster — the only skills that may close an Artefato (the beat's
+# producer-skills). `skill` is proof-bound but the proof binds whatever the producer supplies,
+# so an out-of-roster value (e.g. `report</p><script>…`) would verify cleanly; this roster is
+# the gate that rejects it BEFORE anything is written, and _page escapes it as defense in depth.
+PRODUCER_ROSTER = ("report", "map", "plan", "grill")
 
 
 def _safe_target(slug, blog_dir):
@@ -57,15 +64,21 @@ def _safe_target(slug, blog_dir):
 def _page(slug, body_html, *, skill, date, css):
     """Wrap the rendered body in a self-contained neutral HTML page (no tricolor stripe —
     the neutralized base.css has no .header-stripe). Matches the existing entry shape:
-    `<article class="report">` with `<p class="meta">{date} · {skill}</p>`."""
-    title = slug.replace("-", " ")
+    `<article class="report">` with `<p class="meta">{date} · {skill}</p>`.
+
+    Codex round-4 [high]: reviewers only see slug/content/cites, so the wrapper's own
+    caller/spec values (date, skill, the slug-derived title) reach the public page as raw
+    HTML if not escaped. `html.escape(quote=True)` ALL wrapper text — no wrapper value may
+    inject markup. `body_html` is render.spec_to_html's already-sanitized output, untouched."""
+    title = html.escape(slug.replace("-", " "), quote=True)
     return (
         '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">\n'
         f"<title>{title}</title>\n"
         f"<style>\n{css}\n</style></head>\n"
         '<body><article class="report">\n'
         f"<h1>{title}</h1>\n"
-        f'<p class="meta">{date} · {skill}</p>\n\n'
+        f'<p class="meta">{html.escape(date, quote=True)} · '
+        f'{html.escape(skill, quote=True)}</p>\n\n'
         f"{body_html}\n"
         "</article></body></html>\n"
     )
@@ -110,6 +123,10 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
                  distills=distills, skill=skill)
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
+    if skill not in PRODUCER_ROSTER:
+        raise ValueError(
+            f"skill {skill!r} is not in the producer roster {PRODUCER_ROSTER} — "
+            "an out-of-roster skill is refused before anything is written (Codex round-4)")
 
     out = _safe_target(slug, blog_dir)
 

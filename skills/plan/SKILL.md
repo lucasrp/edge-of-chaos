@@ -52,10 +52,13 @@ checks whether the *property* (honesty, clarity) is present anywhere, never whet
 You do **not** inline an `eventlog` publish snippet, and you **never** call `publisher.publish` directly —
 that is now the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
 passing-review proof only `close.run_close` mints (it raises without a valid `verdict=`). The proof is
-bound to a sha256 **digest** of the exact publish payload (slug + spec + intent + cites + proposes),
-carries **both** reviewer verdicts, and stamps a `run_close`-only secret token — so a hand-built dict, a
-stale proof, or a proof minted for a different artefato (digest mismatch) cannot publish. Exit through the
-enforced close: build the artefato (with its `slug`, `intent`, `content`=spec, `cites`, `proposes`), then
+bound to a sha256 **digest** of the exact publish payload (slug + spec + intent + cites + proposes +
+**distills** + **skill** — EVERY persisted publish arg), carries **both** reviewer verdicts, and stamps a
+`run_close`-only secret token — so a hand-built dict, a stale proof, a proof minted for a different
+artefato (digest mismatch), or one with `distills`/`skill` altered post-mint cannot publish. Exit through
+the enforced close: build the artefato carrying **every proof-bound field** (`slug`, `intent`,
+`content`=spec, `cites`, `proposes`, **`distills`**, **`skill`**) so the minted digest equals the publish
+payload, then
 call `close.run_close(artefato, produce_fn, publish_fn=…)`, which runs the genus contract **first**
 (a genus violation bounces — it can never mint a pass proof) → **both blind reviewers** (bounded bounce,
 `BOUNCE_MAX` — a strike re-produces, then hard-fails) → and **only on pass** mints the bound proof and
@@ -77,18 +80,23 @@ through the publish_fn:
 - **`cites`** — each **source** the plan stands on, with the snippet you actually used (the intrinsic,
   mechanical **Source-feedback** signal, never a self-rating); `kind` is `mundo` or `atividade`.
 
-      tools/edge-python -c "import sys, functools; sys.path.insert(0,'tools'); import close, publisher; \
+      tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import close, publisher; \
         slug='<slug>'; intent='open: …; bet: …'; \
         spec={'sections':[{'title':'…','blocks':[ \
           {'type':'next-steps-grid','steps':[{'title':'…','description':'what goes in → what comes out'}]}]}]}; \
         proposes=[{'body':'…','kind':'phase'}]; \
         distills=['cluster:<label>']  # the existing threads it draws on — [] if none fits ; \
         cites=[{'ref':'<source-key>','kind':'atividade','relevant':True,'snippet':'<the text you used>'}]; \
-        artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes,'cites':cites}; \
-        # the publisher-backed publish_fn: close hands it (artefato, proof); proof rides as verdict= \
-        do_publish=functools.partial(publisher.publish, slug, spec, intent, skill='plan', \
-          proposes=proposes, distills=distills, cites=cites); \
-        publish_fn=lambda art, proof: do_publish(verdict=proof); \
+        # the artefato MUST carry EVERY proof-bound field (skill + distills included): run_close \
+        # mints the digest from THIS dict, so it must equal the exact publish payload. \
+        artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
+          'cites':cites,'distills':distills,'skill':'plan'}; \
+        # the publisher-backed publish_fn reads the payload OFF `art` (the minted artefato), so \
+        # what publishes is provably what the proof was minted over; proof rides as verdict=. \
+        pub=publisher.publish; \
+        publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
+          skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
+          cites=art['cites']); \
         close.run_close(artefato, produce_fn=lambda: artefato, complete_fn=<review-completer>, \
           publish_fn=publish_fn)"
 
