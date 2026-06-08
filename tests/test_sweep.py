@@ -46,6 +46,16 @@ class PlanSweepSelectsDeltas(unittest.TestCase):
             plan = sweep.plan_sweep(proj, {})
             self.assertTrue(all(p["skip"] for p in plan))
 
+    def test_large_delta_digested_in_full_not_capped(self):
+        # a delta far over the old 12k cap must digest IN FULL — a head-cap silently drops the
+        # most-recent turns while the cursor advances past them (data loss). No cap now.
+        with tempfile.TemporaryDirectory() as proj:
+            write_session(proj, "big", n_human=10, text="x" * 1500)   # ~30k+ chars of dialogue
+            plan = sweep.plan_sweep(proj, {})
+            body = plan[0]["body"]
+            self.assertGreater(len(body), 20000, "delta must not be truncated to a fixed cap")
+            self.assertIn("reply 9", body, "the most-recent turn must survive (a head-cap would drop it)")
+
 
 class ExecuteIngestsLogsAdvances(unittest.TestCase):
     """execute ingests qualifying deltas (one episode event each), advances their cursors, and

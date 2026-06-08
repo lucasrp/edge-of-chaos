@@ -33,7 +33,6 @@ CURSORS = REPO / "state" / "cursors.json"
 # fleet host writes into ITS OWN group, never a cross-tenant one.
 GROUP = _identity.group()
 DISPATCH_MARKER = "Dispatch runtime context"   # strip the edge's own framing (exp-001)
-MAX_BODY = 12000
 MIN_CHARS = 200                                 # a substantive delta, not a stray turn
 
 
@@ -52,7 +51,7 @@ def save_cursors(cursors, path=CURSORS):
 def clean_body(turns):
     """The mentee<->edge dialogue with the edge's own dispatch/heartbeat framing stripped (exp-001)."""
     kept = [t for t in turns if DISPATCH_MARKER not in t.text]
-    return "\n".join(f"{t.role}: {t.text}" for t in kept)[:MAX_BODY]
+    return "\n".join(f"{t.role}: {t.text}" for t in kept)
 
 
 def _qualifies(turns, body):
