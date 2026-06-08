@@ -46,10 +46,11 @@ NATIVE_SOURCE = {"name": "claude-sessions", "kind": "native",
 def source_roster(agent_yaml=AGENT_YAML):
     """The declared source roster (← Source roadmap, ADR-0011) — the source orientation's floor.
     FAIL-CLOSED (gate root-cause #2): requires agent.yaml to exist and carry a non-empty `sources:`
-    list whose every entry has name + kind + description; the native Claude-sessions source is
-    prepended as an ADDITIVE floor, never a SUBSTITUTE for the declared roster (so a missing/
+    list whose every entry has name + kind + description, each a non-empty STRING (a blank/
+    whitespace/non-string field is a thin roster, not a real one); the native Claude-sessions source
+    is prepended as an ADDITIVE floor, never a SUBSTITUTE for the declared roster (so a missing/
     malformed source list cannot masquerade as a non-empty section). Per-entry `label` is the
-    fallback chain description→via→bare name. Pure-ish: only reads agent.yaml, so compose_briefing
+    (stripped) description. Pure-ish: only reads agent.yaml, so compose_briefing
     stays a pure composer when handed a roster explicitly."""
     import yaml
     p = Path(agent_yaml)
@@ -71,10 +72,12 @@ def source_roster(agent_yaml=AGENT_YAML):
                 f"malformed source entry {s!r} — each declared source must be a mapping with "
                 "name + kind + description")
         name, kind, desc = s.get("name"), s.get("kind"), s.get("description")
-        if not (name and kind and desc):
-            raise BriefingIdentityError(
-                f"malformed source entry {s!r} — each declared source needs name + kind + description")
-        roster.append({"name": name, "kind": kind, "label": desc or s.get("via") or name})
+        for field, val in (("name", name), ("kind", kind), ("description", desc)):
+            if not isinstance(val, str) or not val.strip():
+                raise BriefingIdentityError(
+                    f"malformed source entry {s!r} — `{field}` must be a non-empty string "
+                    "(name + kind + description); a blank/whitespace/non-string field is a thin roster")
+        roster.append({"name": name.strip(), "kind": kind.strip(), "label": desc.strip()})
     return roster
 
 

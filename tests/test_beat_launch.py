@@ -14,6 +14,7 @@ REPO = Path(__file__).resolve().parent.parent
 HEARTBEAT = REPO / "tools" / "edge-heartbeat"
 sys.path.insert(0, str(REPO / "tools"))
 import _beat  # noqa: E402
+import eventlog  # noqa: E402
 
 
 def _skill_home(tmp: str, body: str) -> Path:
@@ -90,6 +91,46 @@ class BeatEnvCarriesInstallSecrets(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             env = _beat.build_beat_env(Path(tmp))  # no secrets/ — must not raise
             self.assertIsInstance(env, dict)
+
+
+class BeatPostDispatchGateAssertsCorpusProgress(unittest.TestCase):
+    """A beat that exits 0 has NOT necessarily done stage-(iii) work: `claude -p` returning 0 only
+    proves the subprocess ran, not that a kerneled Artefato was published. `assert_beat_produced`
+    is the deterministic post-dispatch gate — given the corpus count BEFORE the beat, it folds the
+    log AFTER and returns gaps (empty == produced) when the corpus did NOT grow by >=1 OR there is
+    C3 debt (a published Artefato with no intent kernel). edge-heartbeat consults it to turn a
+    'succeeded-but-produced-nothing' beat into a NONZERO exit (Codex gate finding [high])."""
+
+    def _log(self, tmp):
+        return Path(tmp) / "events" / "log.jsonl"
+
+    def test_no_new_artefato_is_a_gap(self):
+        # before == after (corpus stayed at N): the beat produced nothing.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._log(tmp)
+            eventlog.publish_artefato_atomic("pre", "why-pre", log=log)
+            before = len(eventlog.corpus_at(log=log))  # N = 1
+            gaps = _beat.assert_beat_produced(log, before)  # corpus unchanged
+            self.assertTrue(gaps, "stagnant corpus must report a gap")
+
+    def test_c3_debt_is_a_gap_even_when_corpus_grew(self):
+        # corpus grew by 1, but the new Artefato has NO intent kernel (C3 debt).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._log(tmp)
+            before = len(eventlog.corpus_at(log=log))  # N = 0
+            eventlog._append_orphan_published_for_test("kernel-less", log=log)
+            gaps = _beat.assert_beat_produced(log, before)
+            self.assertTrue(gaps, "a kernel-less Artefato is C3 debt — a gap")
+            self.assertIn("kernel-less", " ".join(gaps))
+
+    def test_new_kerneled_artefato_passes(self):
+        # corpus grew by exactly 1 AND the new Artefato carries its kernel: no gaps.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._log(tmp)
+            before = len(eventlog.corpus_at(log=log))  # N = 0
+            eventlog.publish_artefato_atomic("fresh", "why-fresh", log=log)
+            gaps = _beat.assert_beat_produced(log, before)
+            self.assertEqual(gaps, [], f"a new kerneled Artefato is a produced beat: {gaps}")
 
 
 if __name__ == "__main__":

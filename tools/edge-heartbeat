@@ -36,8 +36,28 @@ def main() -> None:
         print("--- prompt ---")
         print(prompt)
         return
-    sys.exit(subprocess.run(cmd, cwd=str(home), input=prompt, text=True,
-                            env=_beat.build_beat_env(home)).returncode)
+
+    # Capture the corpus count BEFORE the beat (Codex gate finding [high]): the post-dispatch gate
+    # needs a baseline to prove stage-(iii) produced a NEW kerneled Artefato. The beat writes to the
+    # install's own log (state/events/log.jsonl under home == the install).
+    import eventlog
+    log = home / "state" / "events" / "log.jsonl"
+    before_count = len(eventlog.corpus_at(log=log))
+
+    rc = subprocess.run(cmd, cwd=str(home), input=prompt, text=True,
+                        env=_beat.build_beat_env(home)).returncode
+    if rc != 0:
+        sys.exit(rc)  # claude -p itself failed — keep the existing failure exit.
+
+    # claude -p exited 0, but a 0 only proves the subprocess ran. Fold the log and assert real work:
+    # a beat that 'succeeded' without publishing a new kerneled Artefato (or that left C3 debt) is a
+    # FAILED beat — exit nonzero so the heartbeat surfaces it.
+    gaps = _beat.assert_beat_produced(log, before_count)
+    if gaps:
+        for gap in gaps:
+            print(f"edge-heartbeat: beat exited 0 but produced no corpus progress: {gap}",
+                  file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

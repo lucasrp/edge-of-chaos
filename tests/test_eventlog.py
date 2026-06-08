@@ -462,6 +462,60 @@ class ObjectiveFoldsLatestWins(unittest.TestCase):
             self.assertIsNone(eventlog.objective_at(log=Path(tmp) / "log.jsonl"))
 
 
+class WriteHelpersRejectEmptyBodies(unittest.TestCase):
+    """Codex gate finding [high]: a grill must not be able to land an EMPTY stage-(ii) feeder.
+    The write helpers refuse an empty/whitespace body at the source — `set_objective`, `propose`,
+    `set_direction`, and `report_direction` raise ValueError before anything lands, so the gate's
+    'landed' can never be a hollow event. Non-empty bodies still write. `set_objective` also strips."""
+
+    def test_set_objective_rejects_empty_and_whitespace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            for bad in ("", "   ", "\n\t "):
+                with self.assertRaises(ValueError):
+                    eventlog.set_objective(bad, log=log)
+            self.assertEqual(eventlog.read(log=log), [])  # nothing landed
+
+    def test_propose_rejects_empty_and_whitespace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            for bad in ("", "   ", "\n\t "):
+                with self.assertRaises(ValueError):
+                    eventlog.propose("d1", bad, log=log)
+            self.assertEqual(eventlog.read(log=log), [])
+
+    def test_set_direction_rejects_empty_and_whitespace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            for bad in ("", "   ", "\n\t "):
+                with self.assertRaises(ValueError):
+                    eventlog.set_direction("d1", bad, log=log)
+            self.assertEqual(eventlog.read(log=log), [])
+
+    def test_report_direction_rejects_empty_and_whitespace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            for bad in ("", "   ", "\n\t "):
+                with self.assertRaises(ValueError):
+                    eventlog.report_direction(bad, log=log)
+            self.assertEqual(eventlog.read(log=log), [])
+
+    def test_non_empty_bodies_still_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("ship the gate", log=log)
+            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.set_direction("d2", "ratify the steer", log=log)
+            eventlog.report_direction("the steer prose", log=log)
+            self.assertEqual(len(eventlog.read(log=log)), 4)
+
+    def test_set_objective_strips_the_body(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("  ship the gate  ", log=log)
+            self.assertEqual(eventlog.objective_at(log=log)["body"], "ship the gate")
+
+
 class DirecionamentoReportFoldsLatestAndLineage(unittest.TestCase):
     """The rolling steer ("o direcionamento") as a first-class durable thing: `direction.report`
     carries the **full prose report** (objective + the steer + the live insight). `report_at` folds

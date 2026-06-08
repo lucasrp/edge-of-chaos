@@ -55,6 +55,69 @@ class GrillCompleteNamesMissingPieces(unittest.TestCase):
             self.assertEqual(grill_gate.grill_complete(log=log), [])
 
 
+class EmptyBodiedFeedersDoNotCountAsLanded(unittest.TestCase):
+    """Codex gate finding [high]: a whitespace/empty feeder body does NOT count as landed. Even if a
+    grill appends empty objective/direction/report events directly to the log (bypassing the validating
+    write helpers), the gate must still name the gap — an empty body is no stage-(ii) content. The
+    events are appended raw (eventlog.append) precisely to model that attack the gate must catch."""
+
+    def _append_empty_objective(self, log):
+        eventlog.append("objective.set", "objective", {"body": "   ", "rationale": None}, log=log)
+
+    def _append_empty_direction(self, log):
+        eventlog.append("direction.proposed", "direction",
+                        {"id": "d1", "body": "  \n ", "kind": "thread"}, log=log)
+
+    def _append_empty_report(self, log):
+        eventlog.append("direction.report", "direction",
+                        {"body": "\t", "distills": [], "cites": []}, log=log)
+
+    def test_empty_objective_body_is_named_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            self._append_empty_objective(log)
+            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.report_direction("the steer", log=log)
+            self.assertIn("objective", grill_gate.grill_complete(log=log))
+
+    def test_empty_direction_body_is_named_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("ship the gate", log=log)
+            self._append_empty_direction(log)
+            eventlog.report_direction("the steer", log=log)
+            self.assertIn("direction", grill_gate.grill_complete(log=log))
+
+    def test_empty_report_body_is_named_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("ship the gate", log=log)
+            eventlog.propose("d1", "tighten the close", log=log)
+            self._append_empty_report(log)
+            self.assertIn("direcionamento", grill_gate.grill_complete(log=log))
+
+    def test_close_cli_exits_nonzero_when_a_feeder_body_is_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("ship the gate", log=log)
+            eventlog.propose("d1", "tighten the close", log=log)
+            self._append_empty_report(log)  # report event present but its body is whitespace
+            res = subprocess.run(
+                [sys.executable, str(GATE), "close", "--log", str(log)],
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(res.returncode, 0, res.stdout)
+            self.assertIn("direcionamento", res.stdout + res.stderr)
+
+    def test_non_empty_bodies_still_complete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("ship the gate", log=log)
+            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.report_direction("the steer", log=log)
+            self.assertEqual(grill_gate.grill_complete(log=log), [])
+
+
 class AssertGrillCompleteRaisesOnGaps(unittest.TestCase):
     """assert_grill_complete raises naming the gaps; passes silently when the three landed."""
 

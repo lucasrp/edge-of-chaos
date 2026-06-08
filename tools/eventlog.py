@@ -122,15 +122,26 @@ def direction_at(seq=None, ts=None, log=LOG):
     return fold_direction(evs) if evs else None
 
 
+def _require_body(body, what):
+    """Reject an empty/whitespace feeder body before it lands (Codex gate finding [high]): a stage-(ii)
+    feeder with no real content must never be writable, so the grill gate's 'landed' is never hollow."""
+    if not (body and body.strip()):
+        raise ValueError(f"cannot append {what} with an empty/whitespace body")
+
+
 def propose(id, body, kind="thread", from_artefato=None, relates_to=None, log=LOG):
-    """Append a `direction.proposed` item (the non-curated tier — grill achados / artefato candidates)."""
+    """Append a `direction.proposed` item (the non-curated tier — grill achados / artefato candidates).
+    Raises ValueError on an empty/whitespace body — no hollow direction lands."""
+    _require_body(body, "direction.proposed")
     return append("direction.proposed", "direction",
                   {"id": id, "body": body, "kind": kind,
                    "from_artefato": from_artefato, "relates_to": relates_to}, log=log)
 
 
 def set_direction(id, body, kind="thread", supersedes=None, log=LOG):
-    """Append a `direction.set` item (the curated tier — Voz only; promotes/supersedes a proposed id)."""
+    """Append a `direction.set` item (the curated tier — Voz only; promotes/supersedes a proposed id).
+    Raises ValueError on an empty/whitespace body — no hollow direction lands."""
+    _require_body(body, "direction.set")
     return append("direction.set", "direction",
                   {"id": id, "body": body, "kind": kind, "supersedes": supersedes}, log=log)
 
@@ -148,8 +159,10 @@ def set_objective(body, rationale=None, log=LOG):
     confirmed by Voz). The grill's anchor, first-class. It MAY contradict the declared agent.yaml
     mission: this is the *revealed/confirmed* objective, not the stated one (when they diverge, that
     is the highest-insight finding). Latest-wins, versioned — mirrors set_direction. `rationale` is
-    the optional why (e.g. the say-A-do-B gap that yielded this read)."""
-    return append("objective.set", "objective", {"body": body, "rationale": rationale}, log=log)
+    the optional why (e.g. the say-A-do-B gap that yielded this read). Raises ValueError on an
+    empty/whitespace body, and strips the stored body — no hollow objective lands."""
+    _require_body(body, "objective.set")
+    return append("objective.set", "objective", {"body": body.strip(), "rationale": rationale}, log=log)
 
 
 def objective_at(seq=None, ts=None, log=LOG):
@@ -174,7 +187,9 @@ def report_direction(body, distills=None, cites=None, log=LOG):
     is the flesh). Provenance — "show your work": `distills` = the existing **threads** it synthesized
     from, `cites` = the **sources**; link only real ones (never fabricate), so the steer is traceable,
     not pronounced. Telephone-game guard: each report re-derives from the data, the prior is one input
-    for continuity — not the source of truth; never summarize-the-summary."""
+    for continuity — not the source of truth; never summarize-the-summary. Raises ValueError on an
+    empty/whitespace body — no hollow direcionamento lands."""
+    _require_body(body, "direction.report")
     return append("direction.report", "direction",
                   {"body": body, "distills": distills or [], "cites": cites or []}, log=log)
 

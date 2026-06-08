@@ -597,6 +597,35 @@ class SourceRosterFailsClosedWithoutRealRoster(unittest.TestCase):
             with self.assertRaises(briefing.BriefingIdentityError):
                 briefing.source_roster(agent_yaml=ay)
 
+    def test_whitespace_only_field_fails_closed(self):
+        # a declared source whose name is whitespace-only is THIN, not a real roster — it must
+        # FAIL LOUD naming the offending source, never render a blank/generic row to HEALTHY.
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = Path(tmp) / "agent.yaml"
+            ay.write_text('name: ed\nsources:\n  - name: " "\n    kind: api\n    description: d\n')
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing.source_roster(agent_yaml=ay)
+
+    def test_non_string_field_fails_closed(self):
+        # a non-string truthy field (e.g. name: 123) passed the old truthiness check, rendering a
+        # generic row — it must FAIL LOUD as a malformed (non-string) field.
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = Path(tmp) / "agent.yaml"
+            ay.write_text("name: ed\nsources:\n  - name: 123\n    kind: api\n    description: d\n")
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing.source_roster(agent_yaml=ay)
+
+    def test_roster_carries_stripped_field_values(self):
+        # a valid-but-padded declared source: the roster stores the STRIPPED name/kind/label.
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = Path(tmp) / "agent.yaml"
+            ay.write_text('name: ed\nsources:\n  - name: "  exa  "\n    kind: "  api  "\n'
+                          '    description: "  semantic search  "\n')
+            roster = briefing.source_roster(agent_yaml=ay)
+            entry = next(r for r in roster if r["name"] == "exa")
+            self.assertEqual(entry["kind"], "api")
+            self.assertEqual(entry["label"], "semantic search")
+
     def test_string_sources_fails_closed_not_attributeerror(self):
         # a non-list `sources:` (a bare string) is a malformed roster SHAPE — it must raise the
         # typed BriefingIdentityError (the fail-closed path), NOT an AttributeError.
