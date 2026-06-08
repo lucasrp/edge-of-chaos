@@ -5,8 +5,10 @@ true unless it is an event here. The graph and the standing pages are projection
 folds that replay deterministically, so a past cursor reconstructs that past state byte-faithfully
 (strategic versioning). No event-store framework: append-only JSONL + pure-function folds.
 """
+import fcntl
 import json
 import math
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,15 +37,29 @@ def append_batch(events, log=LOG):
     """Append SEVERAL events as JSON lines in ONE indivisible file write — there is no
     intermediate state in which only some of them landed (C3 atomicity, #3). Each is stamped
     with a monotonic seq + ISO ts, continuing the log's count. `events` is a list of
-    (type, subject, payload) tuples; returns the stamped events."""
+    (type, subject, payload) tuples; returns the stamped events.
+
+    The ENTIRE read-base / stamp / write critical section is serialized across concurrent
+    writers by an exclusive `fcntl.flock` on a sibling lockfile: two overlapping callers would
+    otherwise read the same `base` and append duplicate seq ranges, breaking the cursor/replay
+    invariant the folds depend on. We flush + fsync before releasing the lock, so the next
+    writer's `read()` sees a fully-durable log when it computes its own base."""
     log = Path(log)
     log.parent.mkdir(parents=True, exist_ok=True)
-    base = len(read(log=log))
-    stamped = [{"seq": base + i + 1, "ts": datetime.now(timezone.utc).isoformat(),
-                "type": t, "subject": s, "payload": p}
-               for i, (t, s, p) in enumerate(events)]
-    with log.open("a") as fh:
-        fh.write("".join(json.dumps(ev) + "\n" for ev in stamped))
+    lock = log.with_name(log.name + ".lock")
+    with lock.open("w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        try:
+            base = len(read(log=log))
+            stamped = [{"seq": base + i + 1, "ts": datetime.now(timezone.utc).isoformat(),
+                        "type": t, "subject": s, "payload": p}
+                       for i, (t, s, p) in enumerate(events)]
+            with log.open("a") as fh:
+                fh.write("".join(json.dumps(ev) + "\n" for ev in stamped))
+                fh.flush()
+                os.fsync(fh.fileno())
+        finally:
+            fcntl.flock(lk, fcntl.LOCK_UN)
     return stamped
 
 
@@ -178,9 +194,28 @@ def report_at(seq=None, ts=None, log=LOG):
     return {"latest": lineage[0] if lineage else None, "lineage": lineage}
 
 
-def publish_artefato(slug, proposes=None, distills=None, cites=None, log=LOG):
-    """Append an `artefato.published` event (ADR-0006/0007). The Artefato **declares** candidate
-    steers in `proposes`; it does NOT write Direction itself — the sweep consolidates them."""
+def publish_artefato(slug, intent, proposes=None, distills=None, cites=None, log=LOG):
+    """Publish an Artefato — the producer-facing path. `intent` is REQUIRED (positional, no default):
+    every real producer passes it and the close seam in publisher.py always does. The call publishes
+    the `artefato.published` AND its `intent.kernel` in ONE indivisible write via
+    `publish_artefato_atomic` — so the producer path pairs the kernel and **cannot** ship C3 debt
+    (Codex re-review #2/round 2). An empty/missing intent raises before anything lands: there is NO
+    kernel-less producer path. The Artefato **declares** candidate steers in `proposes`; it does NOT
+    write Direction itself — the sweep consolidates them. Returns (published_event, kernel_event).
+
+    Manufacturing kernel-less C3 debt on purpose (for the migration over a legacy log or to exercise
+    the `artefatos_without_kernel`/`require_kernels` detectors) is reserved to the explicitly-named,
+    non-producer-facing `_append_orphan_published_for_test` — never this function."""
+    return publish_artefato_atomic(slug, intent, proposes=proposes, distills=distills,
+                                   cites=cites, log=log)
+
+
+def _append_orphan_published_for_test(slug, proposes=None, distills=None, cites=None, log=LOG):
+    """MIGRATION/DETECTOR-ONLY, NOT producer-facing: append a BARE `artefato.published` with no
+    `intent.kernel` — i.e. deliberately manufacture C3 debt. This exists solely so the C3 detectors
+    (`artefatos_without_kernel`, `require_kernels`) and any migration over a legacy log have a way to
+    create/observe the kernel-less state; the producer-facing `publish_artefato` (with an intent)
+    cannot. The leading underscore + name make it unmistakably off the production path."""
     return append("artefato.published", f"artefato:{slug}",
                   {"slug": slug, "proposes": proposes or [], "distills": distills or [],
                    "cites": cites or []}, log=log)

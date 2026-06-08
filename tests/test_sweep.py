@@ -152,7 +152,7 @@ class ReprojectFoldsCorpusAndReadsTheC3Gate(unittest.TestCase):
     def test_reproject_writes_corpus_md(self):
         with tempfile.TemporaryDirectory() as st:
             log = self._isolate(st)
-            eventlog.publish_artefato("recall-report",
+            eventlog._append_orphan_published_for_test("recall-report",
                                       proposes=[{"body": "name the budget"}], log=log)
             eventlog.kernel("recall-report", "open: budget unnamed; bet: name it", log=log)
             sweep.reproject()
@@ -166,7 +166,7 @@ class ReprojectFoldsCorpusAndReadsTheC3Gate(unittest.TestCase):
         from contextlib import redirect_stdout
         with tempfile.TemporaryDirectory() as st:
             log = self._isolate(st)
-            eventlog.publish_artefato("bare", log=log)  # published, no intent.kernel
+            eventlog._append_orphan_published_for_test("bare", log=log)  # published, no intent.kernel
             buf = io.StringIO()
             with redirect_stdout(buf):
                 sweep.reproject()
@@ -179,7 +179,7 @@ class ReprojectFoldsCorpusAndReadsTheC3Gate(unittest.TestCase):
         from contextlib import redirect_stdout
         with tempfile.TemporaryDirectory() as st:
             log = self._isolate(st)
-            eventlog.publish_artefato("a", log=log)
+            eventlog._append_orphan_published_for_test("a", log=log)
             eventlog.kernel("a", "why a", log=log)
             buf = io.StringIO()
             with redirect_stdout(buf):

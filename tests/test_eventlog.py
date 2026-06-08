@@ -8,6 +8,7 @@ replay IS the strategic-versioning feature. These tests pin the append/read/fold
 import json
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -163,7 +164,7 @@ class ArtefatoProposalsConsolidateIntoProposedTier(unittest.TestCase):
     def test_candidates_become_proposed_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("recall-report", proposes=[
+            eventlog._append_orphan_published_for_test("recall-report", proposes=[
                 {"body": "name the full-read budget", "kind": "constraint"},
                 {"body": "watch read:write ratio"}], log=log)
             self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 2)
@@ -175,7 +176,7 @@ class ArtefatoProposalsConsolidateIntoProposedTier(unittest.TestCase):
     def test_dropped_candidate_not_resurrected(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("r", proposes=[{"body": "X"}], log=log)
+            eventlog._append_orphan_published_for_test("r", proposes=[{"body": "X"}], log=log)
             eventlog.consolidate_artefato_proposals(log=log)
             eventlog.drop("r:0", "rejected", log=log)
             self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 0)
@@ -207,15 +208,15 @@ class ArtefatosWithoutKernelAreFlagged(unittest.TestCase):
     def test_published_without_kernel_is_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("kerneled", log=log)
+            eventlog._append_orphan_published_for_test("kerneled", log=log)
             eventlog.kernel("kerneled", "why", log=log)
-            eventlog.publish_artefato("bare", log=log)
+            eventlog._append_orphan_published_for_test("bare", log=log)
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), ["bare"])
 
     def test_clean_when_every_artefato_has_a_kernel(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("a", log=log)
+            eventlog._append_orphan_published_for_test("a", log=log)
             eventlog.kernel("a", "why a", log=log)
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
 
@@ -229,8 +230,9 @@ class CorpusFoldsPublishedArtefatosWithTheirWhy(unittest.TestCase):
     def test_kernel_pairs_to_its_artefato_by_slug(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("recall-report", proposes=[{"body": "name the budget"}],
-                                      distills=["cluster:recall"], cites=["mundo:arxiv"], log=log)
+            eventlog._append_orphan_published_for_test(
+                "recall-report", proposes=[{"body": "name the budget"}],
+                distills=["cluster:recall"], cites=["mundo:arxiv"], log=log)
             eventlog.kernel("recall-report", "open: budget unnamed; bet: name it next", log=log)
             corpus = eventlog.corpus_at(log=log)
             self.assertEqual([c["slug"] for c in corpus], ["recall-report"])
@@ -243,7 +245,7 @@ class CorpusFoldsPublishedArtefatosWithTheirWhy(unittest.TestCase):
     def test_artefato_without_kernel_folds_with_intent_none(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("bare", log=log)
+            eventlog._append_orphan_published_for_test("bare", log=log)
             corpus = eventlog.corpus_at(log=log)
             self.assertEqual([c["slug"] for c in corpus], ["bare"])
             self.assertIsNone(corpus[0]["intent"])
@@ -255,9 +257,9 @@ class CorpusFoldsPublishedArtefatosWithTheirWhy(unittest.TestCase):
     def test_replay_to_past_cursor_reconstructs_past_corpus(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            a = eventlog.publish_artefato("first", log=log)          # seq 1
-            eventlog.kernel("first", "why first", log=log)           # seq 2
-            eventlog.publish_artefato("second", log=log)             # seq 3
+            a = eventlog._append_orphan_published_for_test("first", log=log)  # seq 1
+            eventlog.kernel("first", "why first", log=log)                    # seq 2
+            eventlog._append_orphan_published_for_test("second", log=log)     # seq 3
             past = eventlog.corpus_at(seq=a["seq"], log=log)
             self.assertEqual([c["slug"] for c in past], ["first"])
             self.assertIsNone(past[0]["intent"])                     # kernel not yet emitted at seq 1
@@ -276,8 +278,8 @@ class ProjectCorpusInscribesEachStepsWhy(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             out = Path(tmp) / "corpus.md"
-            eventlog.publish_artefato("recall-report",
-                                      proposes=[{"body": "name the full-read budget"}], log=log)
+            eventlog._append_orphan_published_for_test(
+                "recall-report", proposes=[{"body": "name the full-read budget"}], log=log)
             eventlog.kernel("recall-report", "open: budget unnamed; bet: name it next beat", log=log)
             eventlog.project_corpus(log=log, out=out)
             text = out.read_text()
@@ -290,8 +292,8 @@ class ProjectCorpusInscribesEachStepsWhy(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             out = Path(tmp) / "corpus.md"
-            eventlog.publish_artefato("alpha", log=log)
-            eventlog.publish_artefato("omega", log=log)
+            eventlog._append_orphan_published_for_test("alpha", log=log)
+            eventlog._append_orphan_published_for_test("omega", log=log)
             eventlog.project_corpus(seq=1, log=log, out=out)
             text = out.read_text()
             self.assertIn("alpha", text)
@@ -310,7 +312,7 @@ class CitesCarryOptionalSnippet(unittest.TestCase):
             cites = [{"ref": "github:abc123", "kind": "atividade", "relevant": True,
                       "snippet": "switched the cursor to a per-session watermark"},
                      "mundo:arxiv"]  # legacy plain cite, no snippet — must still work
-            eventlog.publish_artefato("recall-report", cites=cites, log=log)
+            eventlog._append_orphan_published_for_test("recall-report", cites=cites, log=log)
             corpus = eventlog.corpus_at(log=log)
             self.assertEqual(corpus[0]["cites"], cites)
             self.assertEqual(corpus[0]["cites"][0]["snippet"],
@@ -523,8 +525,9 @@ class InsightArtefatoCarriesProvenance(unittest.TestCase):
     def test_insight_artefato_folds_with_provenance_when_threads_exist(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("recall-insight", distills=["cluster:recall", "cluster:cursor"],
-                                      cites=[{"ref": "github:abc", "kind": "atividade"}], log=log)
+            eventlog._append_orphan_published_for_test(
+                "recall-insight", distills=["cluster:recall", "cluster:cursor"],
+                cites=[{"ref": "github:abc", "kind": "atividade"}], log=log)
             eventlog.kernel("recall-insight", "open: …; bet: …", log=log)
             corpus = eventlog.corpus_at(log=log)
             self.assertEqual(corpus[0]["distills"], ["cluster:recall", "cluster:cursor"])
@@ -533,17 +536,18 @@ class InsightArtefatoCarriesProvenance(unittest.TestCase):
     def test_no_fitting_thread_means_empty_distills_never_fabricated(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("orphan-insight", cites=[{"ref": "mundo:arxiv", "kind": "mundo"}],
-                                      log=log)
+            eventlog._append_orphan_published_for_test(
+                "orphan-insight", cites=[{"ref": "mundo:arxiv", "kind": "mundo"}], log=log)
             corpus = eventlog.corpus_at(log=log)
             self.assertEqual(corpus[0]["distills"], [])  # no thread fit → no link, not a fabricated one
 
     def test_thread_hangs_its_artefatos_two_way(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("a1", distills=["cluster:recall"], log=log)
-            eventlog.publish_artefato("a2", distills=["cluster:recall", "cluster:cursor"], log=log)
-            eventlog.publish_artefato("a3", distills=["cluster:other"], log=log)
+            eventlog._append_orphan_published_for_test("a1", distills=["cluster:recall"], log=log)
+            eventlog._append_orphan_published_for_test(
+                "a2", distills=["cluster:recall", "cluster:cursor"], log=log)
+            eventlog._append_orphan_published_for_test("a3", distills=["cluster:other"], log=log)
             self.assertEqual(eventlog.artefatos_for_thread("cluster:recall", log=log), ["a1", "a2"])
             self.assertEqual(eventlog.artefatos_for_thread("cluster:cursor", log=log), ["a2"])
             self.assertEqual(eventlog.artefatos_for_thread("cluster:none", log=log), [])
@@ -574,7 +578,7 @@ class PublishRequiresKernel(unittest.TestCase):
     def test_require_kernels_raises_until_kernel_added(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("bare", log=log)  # legacy 2-call path, no kernel yet
+            eventlog._append_orphan_published_for_test("bare", log=log)  # migration debt, no kernel yet
             with self.assertRaises(ValueError):
                 eventlog.require_kernels(log=log)
             eventlog.kernel("bare", "open: …; bet: …", log=log)
@@ -613,6 +617,81 @@ class AtomicPublishHasNoCrashWindow(unittest.TestCase):
                              ["artefato.published", "intent.kernel"])
             self.assertEqual([e["seq"] for e in evs], [1, 2])
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
+
+
+class ProducerFacingPublishPairsItsKernel(unittest.TestCase):
+    """Codex re-review C3: when used the producer-facing way — `publish_artefato(slug, intent, …)` —
+    the publish path pairs the `intent.kernel` in ONE indivisible write (delegating to
+    `publish_artefato_atomic`), so a producer cannot ship a kernel-less `artefato.published`. An
+    empty intent raises before anything lands. Manufacturing C3 debt on purpose is reserved to the
+    explicitly-named, non-producer-facing `_append_orphan_published_for_test` (the only thing the
+    `artefatos_without_kernel`/`require_kernels` detector/migration path should ever use)."""
+
+    def test_publish_artefato_with_intent_emits_its_kernel_so_no_debt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.publish_artefato("recall-report", intent="open: x; bet: y",
+                                      proposes=[{"body": "name the budget"}], log=log)
+            # the producer path pairs the kernel atomically — no C3 debt
+            self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
+            evs = eventlog.read(log=log)
+            self.assertEqual([e["type"] for e in evs],
+                             ["artefato.published", "intent.kernel"])
+
+    def test_publish_artefato_with_empty_intent_raises_and_lands_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with self.assertRaises(ValueError):
+                eventlog.publish_artefato("bare", intent="", log=log)
+            self.assertEqual(eventlog.read(log=log), [])
+
+    def test_publish_artefato_with_missing_intent_raises_no_kernel_less_path(self):
+        # intent is positional with no default — a bare producer call cannot manufacture C3 debt
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with self.assertRaises((ValueError, TypeError)):
+                eventlog.publish_artefato("bare", log=log)
+            self.assertEqual(eventlog.read(log=log), [])
+
+    def test_orphan_helper_is_the_named_unsafe_debt_path_for_detectors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog._append_orphan_published_for_test("bare", log=log)
+            # the migration/detector path still reaches the C3-debt state the detectors check
+            self.assertEqual(eventlog.artefatos_without_kernel(log=log), ["bare"])
+            with self.assertRaises(ValueError):
+                eventlog.require_kernels(log=log)
+
+
+class AppendBatchIsSerializedAcrossConcurrentWriters(unittest.TestCase):
+    """Codex re-review: `append_batch` reads `base = len(read(log))`, stamps seqs, then opens for
+    append — with NO lock the read/stamp/write window is racy, so two overlapping writers read the
+    same base and append DUPLICATE seq ranges, breaking the cursor/replay invariant the folds
+    depend on. The critical section is now guarded by an exclusive flock + fsync before release, so
+    concurrent `publish_artefato_atomic` calls produce UNIQUE strictly-monotonic seqs."""
+
+    def test_concurrent_atomic_publishes_yield_unique_monotonic_seqs(self):
+        for _ in range(8):  # several iterations — the race is probabilistic
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                n = 12
+                barrier = threading.Barrier(n)
+
+                def writer(i):
+                    barrier.wait()  # maximize overlap of the read/stamp/write windows
+                    eventlog.publish_artefato_atomic(f"a{i}", intent=f"why {i}", log=log)
+
+                threads = [threading.Thread(target=writer, args=(i,)) for i in range(n)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+
+                seqs = [e["seq"] for e in eventlog.read(log=log)]
+                # each atomic publish lands two events → 2n events, seqs 1..2n with no dupes
+                self.assertEqual(len(seqs), 2 * n)
+                self.assertEqual(sorted(seqs), list(range(1, 2 * n + 1)))
+                self.assertEqual(seqs, sorted(seqs))  # strictly monotonic in file order
 
 
 class CosineIsPureSimilarity(unittest.TestCase):

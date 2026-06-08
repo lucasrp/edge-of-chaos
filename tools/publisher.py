@@ -9,8 +9,11 @@ blog/entries/<slug>.html via temp+rename, plus a `source.signal` per cited snipp
 truth, the page a re-derivable projection, so state lands before the file (#3) and a failed
 write never orphans a page.
 
-Three gates at this seam: #2 — the publisher REFUSES unless handed the passing-review proof
-`close.run_close` mints (no back door around the gate). C3 — there is no path that publishes
+Three gates at this seam: #2 — the publisher REFUSES unless handed the UNFORGEABLE, BOUND proof
+`close.run_close` mints: `close.verify_proof` requires the run_close-only token, a sha256 digest
+that BINDS to this exact publish payload (slug + spec + intent + cites + proposes), and both
+blind reviewers passed — so a forged dict, a stale/cross-artefato proof (digest mismatch), or a
+single-reviewer proof cannot back-door the gate. C3 — there is no path that publishes
 without the *why* (raises with no intent; the kernel rides the same atomic call so
 `artefatos_without_kernel(log) == []` right after). #4 — the slug is validated against a strict
 regex and contained under blog_dir (a `../` slug cannot escape).
@@ -25,7 +28,7 @@ from pathlib import Path
 
 import eventlog
 import render
-from close import check_genus
+from close import check_genus, verify_proof
 
 REPO = Path(__file__).resolve().parent.parent
 BLOG_DIR = REPO / "blog" / "entries"
@@ -80,37 +83,27 @@ def _signal_cites(slug, body, cites, embed_fn, log):
         eventlog.source_signal(slug, c.get("ref"), c.get("kind"), sim, log=log)
 
 
-def _check_proof(slug, verdict):
-    """The enforced-close gate (#2): the publisher REFUSES unless handed the proof of a
-    passing review that only `close.run_close` mints — both blind reviewers passed. A direct
-    `publish(...)` with no/failing verdict raises here, before any HTML or state lands, so the
-    publisher cannot be a back door around the gate."""
-    if not (isinstance(verdict, dict) and verdict.get("pass") is True):
-        raise ValueError(
-            f"cannot publish artefato {slug!r} without a passing review verdict — "
-            "publish only through close.run_close (#2)")
-    reviews = verdict.get("verdicts") or []
-    if not reviews or not all(isinstance(v, dict) and v.get("pass") for v in reviews):
-        raise ValueError(
-            f"cannot publish artefato {slug!r}: the verdict carries no passing review (#2)")
-
-
 def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=None,
             cites=None, date=None, log=eventlog.LOG, blog_dir=BLOG_DIR, embed_fn=None) -> Path:
     """Publish an Artefato: render → self-contained neutral HTML → atomic state record.
 
-    #2 at the seam: RAISES ValueError unless `verdict` is the passing-review proof
-    `close.run_close` mints (both blind reviewers passed) — the publisher is never a back
-    door around the gate. C3 at the seam: RAISES when `intent` is missing/empty — you cannot
-    publish without the kernel (and defensively when the genus contract is violated). #4 at the
-    seam: the slug is validated + contained under blog_dir, the page written via temp+rename.
+    #2 at the seam: RAISES ValueError unless `verdict` is the UNFORGEABLE, BOUND proof
+    `close.run_close` mints — `close.verify_proof` requires the run_close-only token, a digest
+    that BINDS to THIS exact payload (slug + spec + intent + cites + proposes), and both blind
+    reviewers passed. A hand-built dict, a proof minted for a different artefato (digest
+    mismatch), or a single-reviewer proof raises here, before any HTML or state lands — the
+    publisher is never a back door around the gate. C3 at the seam: RAISES when `intent` is
+    missing/empty — you cannot publish without the kernel (and defensively when the genus
+    contract is violated). #4 at the seam: the slug is validated + contained under blog_dir,
+    the page written via temp+rename.
 
     Order (#3): render the page in memory, record state, THEN write the HTML — the log is truth,
     the page a re-derivable projection, so a failed write never leaves an orphan page. Returns
     the written page Path. `date` is a param (defaults to today) so tests pin it; `embed_fn`
     is injectable so the source-signal step runs offline.
     """
-    _check_proof(slug, verdict)
+    verify_proof(verdict, slug=slug, spec=spec, intent=intent,
+                 cites=cites or [], proposes=proposes or [])
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
 

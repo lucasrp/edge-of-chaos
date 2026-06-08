@@ -54,12 +54,19 @@ write the HTML shell or the CSS yourself.
 ## Publish through the close — show your work (ADR-0007/#14, ADR-0009)
 
 You do **not** inline an `eventlog` publish snippet, and you **never** call `publisher.publish` directly —
-that is now the forbidden back door: the publisher **refuses** unless handed the passing-review proof only
-`close.run_close` mints (it raises without `verdict=`). Exit through the enforced close: build the artefato,
-then call `close.run_close(artefato, produce_fn, publish_fn=…)`, which runs the genus contract → **both
-blind reviewers** (bounded bounce, `BOUNCE_MAX` — a strike re-produces, then hard-fails) → and **only on
-pass** publishes via the `publish_fn` — a `tools/publisher.py`-backed publish_fn that receives the minted
-`proof` and hands it to the publisher as `verdict=proof`. The publisher atomically renders the spec → self-contained
+that is now the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
+passing-review proof only `close.run_close` mints (it raises without a valid `verdict=`). The proof is
+bound to a sha256 **digest** of the exact publish payload (slug + spec + intent + cites + proposes),
+carries **both** reviewer verdicts, and stamps a `run_close`-only secret token — so a hand-built dict, a
+stale proof, or a proof minted for a different artefato (digest mismatch) cannot publish. Exit through the
+enforced close: build the artefato (with its `slug`, `intent`, `content`=spec, `cites`, `proposes`), then
+call `close.run_close(artefato, produce_fn, publish_fn=…)`, which runs the genus contract **first**
+(a genus violation bounces — it can never mint a pass proof) → **both blind reviewers** (bounded bounce,
+`BOUNCE_MAX` — a strike re-produces, then hard-fails) → and **only on pass** mints the bound proof and
+publishes via the `publish_fn` — a `tools/publisher.py`-backed publish_fn that receives the minted `proof`
+and hands it to the publisher as `verdict=proof` (the same payload it was bound to). The publisher
+re-derives the digest from what it is about to publish, verifies token + digest + both verdicts, then
+atomically renders the spec → self-contained
 neutral HTML at `blog/entries/<slug>.html`, records the `artefato.published` event AND its **mandatory
 `intent.kernel`** in one act (C3 enforced at the seam — you cannot publish without the *why*: ~3 lines,
 what is open, the next bet), and emits a `source.signal` per cited snippet. A report exists to **move or

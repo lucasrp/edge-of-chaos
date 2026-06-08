@@ -104,7 +104,7 @@ class ContinuityInscribesTheLatestKernel(unittest.TestCase):
     def test_latest_kernel_intent_is_the_open_next_bet(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("recall-report", log=log)
+            eventlog._append_orphan_published_for_test("recall-report", log=log)
             eventlog.kernel("recall-report",
                             "open: read-budget unnamed; bet: name it next beat", log=log)
             text = briefing.compose_briefing(log=log)
@@ -114,9 +114,9 @@ class ContinuityInscribesTheLatestKernel(unittest.TestCase):
     def test_most_recent_kernel_wins(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("older", log=log)
+            eventlog._append_orphan_published_for_test("older", log=log)
             eventlog.kernel("older", "old intent", log=log)
-            eventlog.publish_artefato("newer", log=log)
+            eventlog._append_orphan_published_for_test("newer", log=log)
             eventlog.kernel("newer", "fresh intent — the live continuity", log=log)
             text = briefing.compose_briefing(log=log)
             self.assertIn("fresh intent — the live continuity", text)
@@ -130,9 +130,9 @@ class CorpusListsRecentStepsAndC3Debt(unittest.TestCase):
     def test_recent_slugs_most_recent_first(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("older-report", log=log)
+            eventlog._append_orphan_published_for_test("older-report", log=log)
             eventlog.kernel("older-report", "why older", log=log)
-            eventlog.publish_artefato("newer-report", log=log)
+            eventlog._append_orphan_published_for_test("newer-report", log=log)
             eventlog.kernel("newer-report", "why newer", log=log)
             text = briefing.compose_briefing(log=log)
             self.assertIn("older-report", text)
@@ -142,7 +142,7 @@ class CorpusListsRecentStepsAndC3Debt(unittest.TestCase):
     def test_kernel_less_artefato_shows_as_c3_debt(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("bare-report", log=log)
+            eventlog._append_orphan_published_for_test("bare-report", log=log)
             text = briefing.compose_briefing(log=log)
             self.assertIn("bare-report", text)
             self.assertIn("C3 debt", text)

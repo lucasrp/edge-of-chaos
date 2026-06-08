@@ -13,7 +13,9 @@ visual and is never falsely failed. It never checks for any named or ordered sec
 
 The visual palette below is pinned to the block types in tools/render.py.
 """
+import hashlib
 import json
+import secrets
 
 from render import BLOCK_SCHEMAS
 
@@ -317,29 +319,122 @@ BOUNCE_MAX = 1            # reviewer strike → re-produce, at most this many ti
 LOOP2_MAX_REOPENS = 1     # serendipity may reopen loop-1 at most this many times
 
 
+# ---------------------------------------------------------------------------
+# The proof contract — UNFORGEABLE and BOUND (Codex re-review #2).
+#
+# A passing review is no longer a shape-only dict the publisher trusts on sight (a forged or
+# stale `{pass: True, verdicts: [...]}` published unreviewed/different content). The proof
+# `run_close` mints is bound to a sha256 DIGEST of the EXACT publish payload (slug + spec +
+# intent + cites + proposes), carries BOTH reviewer verdicts, and is stamped with a
+# `run_close`-only secret token minted ONCE per process — a caller cannot fabricate one
+# because the token never leaves this module. `verify_proof` (called at the publish seam)
+# refuses unless the token is run_close's, the digest matches the payload actually being
+# published, and the configured number of reviewers all passed.
+# ---------------------------------------------------------------------------
+
+# The run_close-only secret: a fresh per-process token. It is module-private and is stamped
+# onto every minted proof; the publisher checks it via verify_proof. A hand-built dict cannot
+# carry it (the value is unknowable to a caller), so the publisher can never be back-doored.
+_PROOF_TOKEN = secrets.token_hex(32)
+
+
+def proof_digest(*, slug, spec, intent, cites, proposes) -> str:
+    """The sha256 digest BINDING a proof to the EXACT publish payload. Canonical JSON
+    (sorted keys) so the same payload always digests identically and the publisher can
+    recompute it from the args it is about to publish — any difference (different slug, spec,
+    intent, cites, or proposes) yields a different digest and is rejected."""
+    payload = {
+        "slug": slug,
+        "spec": spec,
+        "intent": intent,
+        "cites": cites or [],
+        "proposes": proposes or [],
+    }
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def mint_proof(verdicts, *, slug, spec, intent, cites, proposes) -> dict:
+    """Mint the bound, token-stamped proof for a passing close. Carries BOTH reviewer
+    verdicts, the digest of the exact payload, and the run_close-only token. Only `run_close`
+    (and tests standing in for it) calls this; a producer cannot forge the token."""
+    return {
+        "pass": True,
+        "verdicts": list(verdicts),
+        "digest": proof_digest(slug=slug, spec=spec, intent=intent,
+                               cites=cites, proposes=proposes),
+        "token": _PROOF_TOKEN,
+    }
+
+
+def verify_proof(proof, *, slug, spec, intent, cites, proposes, reviewer_count=2):
+    """Verify a proof BINDS to the payload being published — raise ValueError otherwise,
+    BEFORE any state/HTML is written. Refuses unless: the token is run_close's (not a
+    fabricated one), the digest matches THIS payload (a proof minted for a different
+    artefato is rejected), and all `reviewer_count` reviewers passed (a single-reviewer
+    proof is rejected)."""
+    if not isinstance(proof, dict):
+        raise ValueError(f"cannot publish artefato {slug!r}: no proof (#2)")
+    if not secrets.compare_digest(str(proof.get("token", "")), _PROOF_TOKEN):
+        raise ValueError(
+            f"cannot publish artefato {slug!r}: forged/absent proof token — "
+            "publish only through close.run_close (#2)")
+    expected = proof_digest(slug=slug, spec=spec, intent=intent,
+                            cites=cites, proposes=proposes)
+    if not secrets.compare_digest(str(proof.get("digest", "")), expected):
+        raise ValueError(
+            f"cannot publish artefato {slug!r}: proof digest does not bind to this "
+            "payload (minted for a different artefato) (#2)")
+    verdicts = proof.get("verdicts") or []
+    if len(verdicts) != reviewer_count or not all(
+            isinstance(v, dict) and v.get("pass") for v in verdicts):
+        raise ValueError(
+            f"cannot publish artefato {slug!r}: proof lacks {reviewer_count} passing "
+            "reviewer verdicts (#2)")
+
+
 def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
               complete_fn=None, publish_fn=None):
-    """The ONE enforced close path (#2): run the genus gate then BOTH blind review gates,
-    bounded; ONLY on pass call `publish_fn(artefato, proof)` to publish. This is the only
-    way to publish — `publisher.publish` refuses without the `proof` this mints, so a
-    producer can never reach the publisher directly around the gate.
+    """The ONE enforced close path (#2): run the genus gate, then BOTH blind review gates,
+    bounded; ONLY on pass mint the bound proof and call `publish_fn(artefato, proof)` to
+    publish. This is the only way to publish — `publisher.publish` refuses without the bound
+    `proof` this mints (it `verify_proof`s the token + digest), so a producer can never reach
+    the publisher directly around the gate.
 
-    The gate is bounded: any strike/fail BOUNCES — `produce_fn()` re-produces the artefato
-    and the gate re-runs — up to `BOUNCE_MAX` times, then HARD-FAILS; it never loops
-    unbounded (that would resurrect ADR-0003's retry envelope).
+    Genus runs FIRST, every iteration (Codex re-review #2): `check_genus(artefato)` violations
+    are a BLOCKING strike that bounces through `produce_fn` BEFORE any reviewer runs or any
+    proof is minted — so a genus-invalid artefato can NEVER yield a pass proof, even with a
+    custom/omitted publish_fn. The reviewer gates run only on a genus-conformant artefato.
+
+    The gate is bounded: any genus violation / reviewer strike/fail BOUNCES — `produce_fn()`
+    re-produces the artefato and the gate re-runs — up to `BOUNCE_MAX` times, then HARD-FAILS;
+    it never loops unbounded (that would resurrect ADR-0003's retry envelope).
 
     `produce_fn`, `reviewers`, the reviewers' `complete_fn`, and `publish_fn` are injectable
     so the gate runs offline in tests; real runs pass the make_client-backed completer and a
     publisher.publish-backed publish_fn.
 
-    Returns {pass: True, artefato, verdicts} when both reviewers pass (after publishing if a
-    publish_fn was given), else {pass: False, artefato, verdicts} after the bound is
-    exhausted (publish_fn is NEVER called on a failing gate)."""
+    Returns the minted bound proof {pass: True, verdicts, digest, token} when both reviewers
+    pass (after publishing if a publish_fn was given), else {pass: False, artefato, verdicts}
+    after the bound is exhausted (publish_fn is NEVER called on a failing gate). On a genus
+    bounce the returned failure carries `genus_violations`."""
     bounces = 0
     while True:
+        violations = check_genus(artefato)
+        if violations:
+            if bounces >= BOUNCE_MAX:
+                return {"pass": False, "artefato": artefato, "verdicts": [],
+                        "genus_violations": violations}
+            bounces += 1
+            artefato = produce_fn()
+            continue
         verdicts = [r(artefato, complete_fn) for r in reviewers]
         if all(v["pass"] for v in verdicts):
-            proof = {"pass": True, "artefato": artefato, "verdicts": verdicts}
+            proof = mint_proof(
+                verdicts,
+                slug=artefato.get("slug"), spec=artefato.get("content"),
+                intent=artefato.get("intent"), cites=artefato.get("cites"),
+                proposes=artefato.get("proposes"))
             if publish_fn is not None:
                 publish_fn(artefato, proof)
             return proof

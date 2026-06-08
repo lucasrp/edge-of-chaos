@@ -18,20 +18,47 @@ from html.parser import HTMLParser
 
 
 # ---------------------------------------------------------------------------
+# URL safety — ONE allowlist for every generated href/src (markdown links,
+# bibliography URLs, the raw-html sanitizer). The publisher serves pages publicly,
+# so source-influenced URLs must never emit an executable scheme.
+# ---------------------------------------------------------------------------
+
+# Safe schemes: http(s), mailto, tel, #anchors, relative paths, and scheme-less.
+# Unsafe (javascript:, script-bearing data:, mixed-case, leading-whitespace/control
+# variants) fail this — `[^:]*$` rejects any colon-bearing value not on the allowlist.
+_SAFE_URL = re.compile(r"^(?:https?:|mailto:|tel:|#|/|\./|\.\./|[^:]*$)", re.IGNORECASE)
+
+
+def safe_url(url: str) -> str:
+    """Return `url` if it uses a safe scheme, else "" — the single gate for every
+    generated href/src. Strips leading/trailing whitespace+control chars before the
+    check so `\\tjavascript:` style smuggling is caught."""
+    if not url:
+        return ""
+    return url if _SAFE_URL.match(str(url).strip()) else ""
+
+
+# ---------------------------------------------------------------------------
 # Text rendering helpers
 # ---------------------------------------------------------------------------
+
+def _md_link(m):
+    """[text](url) → anchor, but only for a safe URL; otherwise plain text fallback."""
+    text, url = m.group(1), m.group(2)
+    cleaned = safe_url(html.unescape(url))
+    if not cleaned:
+        return f"{text} ({url})"
+    return f'<a href="{url}" target="_blank" rel="noopener">{text}</a>'
+
 
 def render_text(s: str) -> str:
     """Escape HTML, then convert **bold**, *italic*, `code`, [text](url) markers."""
     if not s:
         return ""
     s = html.escape(str(s))
-    # Markdown links: [text](url) — after escape, brackets/parens are preserved
-    s = re.sub(
-        r'\[(.+?)\]\((.+?)\)',
-        r'<a href="\2" target="_blank" rel="noopener">\1</a>',
-        s,
-    )
+    # Markdown links: [text](url) — after escape, brackets/parens are preserved.
+    # The URL is gated through safe_url; an unsafe scheme degrades to plain text.
+    s = re.sub(r'\[(.+?)\]\((.+?)\)', _md_link, s)
     s = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', s)
     s = re.sub(r'\*(.+?)\*', r'<em>\1</em>', s)
     s = re.sub(r'`(.+?)`', r'<code>\1</code>', s)
@@ -495,7 +522,6 @@ _RAW_HTML_DROP_TAGS = frozenset({
 })
 # URL-bearing attributes whose value must use a safe scheme (no javascript:/data:-script).
 _RAW_HTML_URL_ATTRS = frozenset({"href", "src", "xlink:href", "action", "formaction"})
-_RAW_HTML_SAFE_URL = re.compile(r"^(?:https?:|mailto:|tel:|#|/|\./|\.\./|[^:]*$)", re.IGNORECASE)
 
 
 class _RawHtmlSanitizer(HTMLParser):
@@ -515,7 +541,7 @@ class _RawHtmlSanitizer(HTMLParser):
             value = value or ""
             if lname.startswith("on"):  # event handler — never safe
                 continue
-            if lname in _RAW_HTML_URL_ATTRS and not _RAW_HTML_SAFE_URL.match(value.strip()):
+            if lname in _RAW_HTML_URL_ATTRS and not safe_url(value):
                 continue
             kept.append((name, value))
         return kept
@@ -683,10 +709,16 @@ def render_bibliography(b):
                 li_parts = [text]
                 if url:
                     escaped_url = html.escape(url)
-                    li_parts.append(
-                        f' <a href="{escaped_url}" target="_blank" '
-                        f'rel="noopener" class="bibliography-url">{escaped_url}</a>'
-                    )
+                    if safe_url(url):
+                        li_parts.append(
+                            f' <a href="{escaped_url}" target="_blank" '
+                            f'rel="noopener" class="bibliography-url">{escaped_url}</a>'
+                        )
+                    else:
+                        # Unsafe scheme — show the URL as plain text, no executable href.
+                        li_parts.append(
+                            f' <span class="bibliography-url">{escaped_url}</span>'
+                        )
                 if source:
                     variant = {
                         "websearch": "info", "web": "info",

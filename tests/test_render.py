@@ -100,5 +100,52 @@ class RawHtmlIsSanitizedButSvgSurvives(unittest.TestCase):
         self.assertIn(">ok</text>", html)
 
 
+class GeneratedHrefsAreSchemeSanitized(unittest.TestCase):
+    """Re-review #high: render_text rewrites [text](url) into <a href="url"> and the
+    bibliography emits <a href="url"> from a source-influenced `url` — both bypassed the
+    raw-html sanitizer's safe-scheme allowlist. A javascript:/data:/mixed-case/leading-
+    control URL must NOT become an executable href in EITHER path; a normal https:// link
+    survives as an anchor."""
+
+    UNSAFE = [
+        "javascript:alert(1)",
+        "JavaScript:alert(1)",  # mixed case
+        "data:text/html,<script>alert(1)</script>",
+        "\tjavascript:alert(1)",  # leading control/whitespace
+    ]
+
+    def test_markdown_link_unsafe_urls_neutralized_https_survives(self):
+        for bad in self.UNSAFE:
+            spec = {"sections": [{"title": "P", "blocks": [
+                {"type": "paragraph", "text": f"see [click]({bad}) now"}]}]}
+            html = render.spec_to_html(spec)
+            self.assertNotIn('href="javascript:', html.lower(),
+                             f"unsafe href leaked for {bad!r}")
+            self.assertNotIn("href=\"data:", html.lower(),
+                             f"unsafe href leaked for {bad!r}")
+            # The link text is still shown (plain text fallback)
+            self.assertIn("click", html)
+
+        # A normal https:// link survives as a real anchor
+        ok = {"sections": [{"title": "P", "blocks": [
+            {"type": "paragraph", "text": "see [click](https://example.com) now"}]}]}
+        html = render.spec_to_html(ok)
+        self.assertIn('<a href="https://example.com"', html)
+        self.assertIn(">click</a>", html)
+
+    def test_bibliography_url_unsafe_neutralized_https_survives(self):
+        for bad in self.UNSAFE:
+            spec = {"bibliography": [{"text": "ref", "url": bad}]}
+            html = render.spec_to_html(spec)
+            self.assertNotIn('href="javascript:', html.lower(),
+                             f"unsafe href leaked for {bad!r}")
+            self.assertNotIn("href=\"data:", html.lower(),
+                             f"unsafe href leaked for {bad!r}")
+
+        ok = {"bibliography": [{"text": "ref", "url": "https://example.com"}]}
+        html = render.spec_to_html(ok)
+        self.assertIn('<a href="https://example.com"', html)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

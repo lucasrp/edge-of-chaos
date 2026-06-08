@@ -26,14 +26,18 @@ def _fake_embed(text):
     return [float(len(text)), 1.0]
 
 
-def _passing_proof():
-    """The proof token a passing close produces — two passing reviewer verdicts. Only
-    `run_close` mints this in the live pipeline; a test forges it explicitly to stand in
-    for the gate it stands behind."""
-    return {"pass": True, "verdicts": [
+def _passing_proof(slug, spec, intent, *, cites=None, proposes=None):
+    """A BOUND passing proof for the exact payload — minted by `close` the same way
+    `run_close` mints it (run_close-only token + sha256 digest of slug+spec+intent+
+    cites+proposes + both passing reviewer verdicts). The publisher refuses anything not
+    bound to the payload it is actually publishing, so a test must mint against the same
+    args it then publishes."""
+    verdicts = [
         {"pass": True, "scores": {}, "strikes": [], "overall": 4.0},
         {"pass": True, "scores": {}, "strikes": [], "overall": 4.0},
-    ]}
+    ]
+    return close.mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
+                            cites=cites or [], proposes=proposes or [])
 
 
 def _spec():
@@ -57,10 +61,12 @@ class PublishIsAtomicAndKerneled(unittest.TestCase):
             cites = [{"ref": "arXiv:2507.02778", "kind": "mundo",
                       "relevant": True, "snippet": "the blind-spot is measured"}]
 
+            intent = "next bet: pour the gate into the slot"
             path = publisher.publish(
-                slug, _spec(), intent="next bet: pour the gate into the slot",
+                slug, _spec(), intent=intent,
                 skill="report", cites=cites, date="2026-06-08",
-                log=log, blog_dir=tmp, embed_fn=_fake_embed, verdict=_passing_proof(),
+                log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                verdict=_passing_proof(slug, _spec(), intent, cites=cites),
             )
 
             # the page exists and is self-contained + neutral, matching the entry shape
@@ -93,7 +99,7 @@ class PublishIsAtomicAndKerneled(unittest.TestCase):
                     publisher.publish(
                         "no-kernel", _spec(), intent=missing, skill="report",
                         date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
-                        verdict=_passing_proof(),
+                        verdict=_passing_proof("no-kernel", _spec(), missing),
                     )
             # nothing published — C3 refused the close before any state landed
             self.assertEqual(eventlog.corpus_at(log=log), [])
@@ -164,6 +170,59 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             self.assertTrue((Path(tmp) / f"{slug}.html").exists())
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
 
+    def test_hand_built_proof_at_the_seam_raises_and_writes_nothing(self):
+        # Codex re-review #2: a forged dict with pass:True + passing verdicts but NO
+        # run_close token (and no bound digest) must raise at the seam — the publisher is
+        # not fooled by a shape-only proof.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            forged = {"pass": True, "verdicts": [
+                {"pass": True}, {"pass": True}], "digest": "x", "token": "guessed"}
+            with self.assertRaises(ValueError):
+                publisher.publish(
+                    "forged", _spec(), intent="open: x; bet: y", skill="report",
+                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                    verdict=forged,
+                )
+            self.assertEqual(eventlog.corpus_at(log=log), [])
+            self.assertFalse((Path(tmp) / "forged.html").exists())
+
+    def test_proof_for_artefato_A_cannot_publish_artefato_B_at_the_seam(self):
+        # the proof is BOUND to A's payload; handing it to publish B (digest mismatch)
+        # raises before any state/HTML lands.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            spec_a = {"sections": [{"title": "A", "blocks": [
+                {"type": "paragraph", "text": "artefato A content"}]}]}
+            spec_b = {"sections": [{"title": "B", "blocks": [
+                {"type": "paragraph", "text": "DIFFERENT artefato B content"}]}]}
+            proof_a = _passing_proof("artefato-a", spec_a, "open: a; bet: a")
+            with self.assertRaises(ValueError):
+                publisher.publish(
+                    "artefato-b", spec_b, intent="open: b; bet: b", skill="report",
+                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                    verdict=proof_a,  # A's proof, B's payload → digest mismatch
+                )
+            self.assertEqual(eventlog.corpus_at(log=log), [])
+            self.assertFalse((Path(tmp) / "artefato-b.html").exists())
+
+    def test_single_reviewer_proof_at_the_seam_raises(self):
+        # a proof minted from only one reviewer must not publish — both configured
+        # reviewers must have passed.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            one = close.mint_proof(
+                [{"pass": True, "scores": {}, "strikes": [], "overall": 4.0}],
+                slug="single", spec=_spec(), intent="open: x; bet: y",
+                cites=[], proposes=[])
+            with self.assertRaises(ValueError):
+                publisher.publish(
+                    "single", _spec(), intent="open: x; bet: y", skill="report",
+                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                    verdict=one,
+                )
+            self.assertEqual(eventlog.corpus_at(log=log), [])
+
     def test_run_close_failing_gate_never_publishes(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
@@ -202,7 +261,7 @@ class SlugIsContainedUnderBlogDir(unittest.TestCase):
                     publisher.publish(
                         bad, _spec(), intent="open: x; bet: y", skill="report",
                         date="2026-06-08", log=log, blog_dir=blog, embed_fn=_fake_embed,
-                        verdict=_passing_proof(),
+                        verdict=_passing_proof(bad, _spec(), "open: x; bet: y"),
                     )
             # nothing escaped, nothing landed
             self.assertFalse(Path(tmp, "escape.html").exists())
@@ -216,7 +275,7 @@ class SlugIsContainedUnderBlogDir(unittest.TestCase):
             out = publisher.publish(
                 "recall-report-2", _spec(), intent="open: x; bet: y", skill="report",
                 date="2026-06-08", log=log, blog_dir=blog, embed_fn=_fake_embed,
-                verdict=_passing_proof(),
+                verdict=_passing_proof("recall-report-2", _spec(), "open: x; bet: y"),
             )
             out = Path(out).resolve()
             self.assertEqual(out.parent, blog.resolve())          # contained under blog_dir
@@ -240,7 +299,7 @@ class SlugIsContainedUnderBlogDir(unittest.TestCase):
                     publisher.publish(
                         "boom-slug", _spec(), intent="open: x; bet: y", skill="report",
                         date="2026-06-08", log=log, blog_dir=blog, embed_fn=_fake_embed,
-                        verdict=_passing_proof(),
+                        verdict=_passing_proof("boom-slug", _spec(), "open: x; bet: y"),
                     )
             finally:
                 render.spec_to_html = orig
