@@ -13,11 +13,23 @@ and its feeder exists.
 Stages: **(i)** fresh install (clone + `edge-apply --provision-runtime`, no grill, no beat) ·
 **(ii)** + one simulated grill · **(iii)** + two beats in sequence.
 
+**Note — the Idiom glossary floor vs the curated Idiom.** The Idiom section's REQUIRED **floor** is the
+`agent.yaml` `ground_truth.documents` glossaries (the mentee's projects' `CONTEXT.md` — a per-install
+**consequence** of agent.yaml, NOT genotype). `_section_idiom` reads that declared list (paths, `~`
+expanded), injects each EXISTING file's content, and fails-closed only when *all* declared documents are
+absent/empty (a declared-but-missing canon is a real config failure). The edge's own **curated**
+`state/idiom.md` is a separate, OPTIONAL layer accreted by the grill over time — **expected-empty on a
+fresh install**, layered ON TOP of the floor when present, never the floor itself. A third state is
+distinct from both: `ground_truth` **not declared at all** renders an honest "no ground_truth declared"
+marker (an agent.yaml CONFIG gap, not a genotype lobotomy — it does NOT raise, unlike the fail-closed
+tattoos). The pre-fix bug: `_section_idiom` read `state/idiom.md` / the repo `CONTEXT.md` — the WRONG
+source — so the declared `ground_truth` glossaries were never injected (the wiring root-cause #3 names).
+
 | Briefing section | Feeder (source of truth) | (i) fresh | (ii) after grill | (iii) after 2 beats |
 |---|---|---|---|---|
 | **Initial tattoos — Personality** | genotype `memory/personality.md` or `.md.tpl` rendered w/ `agent.yaml` identity | **REQUIRED** | REQUIRED | REQUIRED |
 | **Initial tattoos — Method** | genotype `memory/method.md` | **REQUIRED** | REQUIRED | REQUIRED |
-| **Idiom** (mentee's terms) | genotype `state/idiom.md` / `CONTEXT.md` | **REQUIRED** | REQUIRED | REQUIRED |
+| **Idiom** (mentee's terms / glossary) | `agent.yaml` `ground_truth.documents` (per-install consequence of agent.yaml, NOT genotype — the mentee's projects' `CONTEXT.md` authored canon) | **REQUIRED when ground_truth is declared** | REQUIRED | REQUIRED |
 | **Objective — the anchor** | `eventlog.objective_at()` (log) | expected-empty (honest marker) | **REQUIRED** (grill `set_objective`) | REQUIRED |
 | **1. Direction** | `eventlog.direction_at()` (log) | expected-empty | **REQUIRED** (grill set/propose) | REQUIRED |
 | **Direcionamento — rolling steer** | `eventlog.report_at()` (log) | expected-empty | **REQUIRED** (grill `report_direction`) | REQUIRED |
@@ -44,9 +56,13 @@ Stages: **(i)** fresh install (clone + `edge-apply --provision-runtime`, no gril
    render must not silently return empty when `agent.yaml` identity fields are thin (fail loud instead).
 2. **Objective / Direcionamento empty *after a grill*** — the feeder (`set_objective`/`report_direction`)
    must run; empty-on-fresh is correct, empty-post-grill is the bug.
-3. **Sources generic/stale** — the briefing must inject the **real** `agent.yaml` source roster (the
-   never-blank floor), not a subagent's inferred categories; and `agent.yaml`'s `ground_truth` +
-   source list must be current (the wiring #26 names as never done).
+3. **Sources generic/stale, and the glossary floor never injected** — the briefing must inject the
+   **real** `agent.yaml` source roster (the never-blank floor), not a subagent's inferred categories.
+   The Idiom glossary floor must inject the **declared** `agent.yaml` `ground_truth.documents` (the
+   projects' `CONTEXT.md`) — NOT `state/idiom.md` / the repo `CONTEXT.md`. `agent.yaml` already
+   declares `ground_truth.documents`; the real gap #26 names is the **INJECTION** (the wiring that
+   reads those declared documents into the briefing was never done — so the operator could not see the
+   declared glossaries). #26's "agent.yaml não declara ground_truth" framing is stale.
 4. **No install-time identity assertion** — `_validate` must gain a `check_identity` that composes the
    briefing and asserts the stage-(i) REQUIRED sections are non-empty, so a lobotomized edge can never
    reach HEALTHY.

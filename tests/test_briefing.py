@@ -8,6 +8,7 @@ from the log** — only the Recap is synthesized fresh. These tests pin that com
 """
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -15,6 +16,48 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import eventlog  # noqa: E402
 import briefing  # noqa: E402
+
+
+def _complete_yaml(p):
+    """A genotype agent.yaml with full identity + a valid declared source — the stage-(i) floor."""
+    p.write_text(textwrap.dedent("""\
+        name: ed
+        mission: "Mentor to the edge-of-chaos PM."
+        voice: "Direct, technical, skeptical."
+        sources:
+          - name: exa
+            kind: api
+            description: "Neural/semantic web + paper search."
+        """))
+    return p
+
+
+def _yaml_with_ground_truth(p, documents):
+    """An agent.yaml declaring `ground_truth.documents` pointing at the given paths (the per-install
+    consequence whose CONTEXT.md glossaries are the briefing's glossary floor)."""
+    docs = "\n".join(f"    - \"{d}\"" for d in documents)
+    p.write_text(textwrap.dedent("""\
+        name: ed
+        ground_truth:
+          inject_into_load: true
+          documents:
+        """) + docs + "\n")
+    return p
+
+
+def _genotype(memory, idiom=True, personality=True, method=True):
+    """A throwaway genotype tree: memory/ docs + a state/idiom.md, fail-closed inputs the
+    composer requires. Toggle a doc off to drive the fail-closed assertions."""
+    memory.mkdir(parents=True, exist_ok=True)
+    if personality:
+        (memory / "personality.md").write_text("# Personality — ed\n\nAnalytical and skeptical.")
+    if method:
+        (memory / "method.md").write_text("# Feynman Method\n\nDerive before researching.")
+    state = memory.parent / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    if idiom:
+        (state / "idiom.md").write_text("# Idiom\n\n**beat** — the work cycle.")
+    return memory
 
 
 class ObjectiveIsTheBriefingSpine(unittest.TestCase):
@@ -346,13 +389,247 @@ class ImmutableTattoosAreTheBriefingHead(unittest.TestCase):
         self.assertIn("### Method", out)
         self.assertIn("Feynman Method", out)                                   # the method doctrine
         self.assertIn("distrust the rationality, not the person", out)         # the curated principle
+        self.assertIn("## Idiom", out)                                         # the mentee's terms, required
         # the immutable head sits ABOVE the mutable state (the objective spine, Direction)
         self.assertLess(out.index("Initial tattoos"), out.index("## Objective"))
+        self.assertLess(out.index("## Idiom"), out.index("## Objective"))      # idiom is identity-head
 
     def test_present_even_on_empty_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=None, roster=[])
         self.assertNotIn("_no doctrine inscribed yet._", out)  # docs exist → inscribed, not the marker
+
+
+class GenotypeIdentityIsFailClosed(unittest.TestCase):
+    """Gate root-cause #1 (audit): the identity head (Personality, Method, Idiom) is REQUIRED at
+    ALL stages. A thin agent.yaml or an absent doctrine must FAIL LOUD (a detectable
+    BriefingIdentityError `_validate` can catch) — never a silent blank that masks a lobotomy."""
+
+    def test_thin_agent_yaml_makes_personality_tpl_fail_closed_not_blank(self):
+        # personality.md.tpl references {{name}}/{{voice}}; a thin agent.yaml (no name/mission/voice)
+        # must NOT silently substitute empty — it must raise the detectable failure.
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = Path(tmp) / "agent.yaml"
+            ay.write_text("graph_group: x\n")  # thin: no name/mission/voice
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing._render_tpl("# Personality — {{name}}\n\n{{voice}}", agent_yaml=ay)
+
+    def test_complete_agent_yaml_renders_the_tpl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = _complete_yaml(Path(tmp) / "agent.yaml")
+            out = briefing._render_tpl("# Personality — {{name}}\n\n{{voice}}", agent_yaml=ay)
+            self.assertIn("ed", out)
+            self.assertIn("Direct, technical, skeptical", out)
+
+    def test_missing_personality_doc_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mem = _genotype(Path(tmp) / "memory", personality=False)
+            ay = _complete_yaml(Path(tmp) / "agent.yaml")
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing._section_tattoos(memory=mem, agent_yaml=ay)
+
+    def test_missing_method_doc_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mem = _genotype(Path(tmp) / "memory", method=False)
+            ay = _complete_yaml(Path(tmp) / "agent.yaml")
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing._section_tattoos(memory=mem, agent_yaml=ay)
+
+    def test_complete_genotype_renders_personality_and_method_nonempty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mem = _genotype(Path(tmp) / "memory")
+            ay = _complete_yaml(Path(tmp) / "agent.yaml")
+            out = briefing._section_tattoos(memory=mem, agent_yaml=ay)
+            self.assertIn("### Personality", out)
+            self.assertIn("### Method", out)
+            self.assertIn("Analytical and skeptical", out)
+            self.assertIn("Derive before researching", out)
+
+
+class GlossaryFloorIsGroundTruthDocuments(unittest.TestCase):
+    """Corrected source (operator clarification): the glossaries are NOT genotype — they are a
+    CONSEQUENCE of `agent.yaml` `ground_truth.documents` (the mentee's projects' CONTEXT.md, the
+    authored canon / Voz ground-truth). `_section_idiom` reads that declared list (paths, `~`-expanded),
+    reads each EXISTING file, and INJECTS its content as the glossary floor — the real gap #26 names is
+    INJECTION never done. The edge's curated `state/idiom.md` MAY layer on top (grilling-accreted)."""
+
+    def test_ground_truth_documents_content_is_injected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d1 = Path(tmp) / "p1-CONTEXT.md"
+            d2 = Path(tmp) / "p2-CONTEXT.md"
+            d1.write_text("# Project One canon\n\n**alpha** — the first term.")
+            d2.write_text("# Project Two canon\n\n**beta** — the second term.")
+            ay = _yaml_with_ground_truth(Path(tmp) / "agent.yaml", [str(d1), str(d2)])
+            out = briefing._section_idiom(agent_yaml=ay, state_dir=Path(tmp) / "state")
+            self.assertIn("## Idiom", out)
+            self.assertIn("the first term", out)   # project-one glossary injected
+            self.assertIn("the second term", out)  # project-two glossary injected
+
+    def test_compose_injects_ground_truth_glossaries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d1 = Path(tmp) / "CONTEXT.md"
+            d1.write_text("# Canon\n\n**confrontação** — the act that yields a decision.")
+            ay = _yaml_with_ground_truth(Path(tmp) / "agent.yaml", [str(d1)])
+            mem = _genotype(Path(tmp) / "memory")
+            out = briefing.compose_briefing(
+                log=Path(tmp) / "log.jsonl", clusters=None, roster=[],
+                agent_yaml=ay, memory=mem)
+            self.assertIn("## Idiom", out)
+            self.assertIn("the act that yields a decision", out)  # the glossary appears in the briefing
+
+    def test_tilde_in_document_paths_is_expanded(self):
+        # a `~/...` path must expand to $HOME, not be read literally
+        import os
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            (home / "CONTEXT.md").write_text("# Canon\n\n**tilded** — read via ~ expansion.")
+            ay = _yaml_with_ground_truth(Path(tmp) / "agent.yaml", ["~/CONTEXT.md"])
+            old = os.environ.get("HOME")
+            os.environ["HOME"] = str(home)
+            try:
+                out = briefing._section_idiom(agent_yaml=ay, state_dir=Path(tmp) / "state")
+            finally:
+                if old is not None:
+                    os.environ["HOME"] = old
+            self.assertIn("read via ~ expansion", out)
+
+    def test_curated_idiom_layers_on_top_of_the_floor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d1 = Path(tmp) / "CONTEXT.md"
+            d1.write_text("# Canon\n\n**floor-term** — the ground-truth floor.")
+            ay = _yaml_with_ground_truth(Path(tmp) / "agent.yaml", [str(d1)])
+            state = Path(tmp) / "state"
+            state.mkdir()
+            (state / "idiom.md").write_text("# Idiom\n\n**accreted-term** — grilled on top.")
+            out = briefing._section_idiom(agent_yaml=ay, state_dir=state)
+            self.assertIn("the ground-truth floor", out)   # the required floor
+            self.assertIn("grilled on top", out)            # the curated layer accreted over it
+
+    def test_some_present_some_missing_injects_present_and_notes_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            present = Path(tmp) / "present-CONTEXT.md"
+            present.write_text("# Canon\n\n**present-term** — here.")
+            missing = Path(tmp) / "missing-CONTEXT.md"  # never created
+            ay = _yaml_with_ground_truth(Path(tmp) / "agent.yaml", [str(present), str(missing)])
+            out = briefing._section_idiom(agent_yaml=ay, state_dir=Path(tmp) / "state")
+            self.assertIn("present-term", out)              # the present one injected
+            self.assertIn(str(missing), out)               # the missing one noted, never silently dropped
+
+    def test_all_documents_absent_fails_closed(self):
+        # ground_truth declared but EVERY document absent/empty → a real config failure, fail-closed
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = _yaml_with_ground_truth(
+                Path(tmp) / "agent.yaml",
+                [str(Path(tmp) / "nope1.md"), str(Path(tmp) / "nope2.md")])
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing._section_idiom(agent_yaml=ay, state_dir=Path(tmp) / "state")
+
+    def test_all_documents_empty_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            empty = Path(tmp) / "empty-CONTEXT.md"
+            empty.write_text("   \n\n")  # present but blank
+            ay = _yaml_with_ground_truth(Path(tmp) / "agent.yaml", [str(empty)])
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing._section_idiom(agent_yaml=ay, state_dir=Path(tmp) / "state")
+
+    def test_no_ground_truth_declared_renders_honest_marker_no_crash(self):
+        # an agent.yaml CONFIG gap (ground_truth not declared at all) — NOT a genotype lobotomy.
+        # An honest marker, NOT a raise, NOT fake content.
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = Path(tmp) / "agent.yaml"
+            ay.write_text("name: ed\n")  # no ground_truth: block
+            out = briefing._section_idiom(agent_yaml=ay, state_dir=Path(tmp) / "state")
+            self.assertIn("## Idiom", out)
+            self.assertIn("no ground_truth declared", out.lower())
+
+    def test_no_ground_truth_does_not_raise_even_in_compose(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = Path(tmp) / "agent.yaml"
+            ay.write_text("name: ed\n")
+            mem = _genotype(Path(tmp) / "memory")
+            out = briefing.compose_briefing(
+                log=Path(tmp) / "log.jsonl", clusters=None, roster=[],
+                agent_yaml=ay, memory=mem)
+            self.assertIn("no ground_truth declared", out.lower())
+
+
+class IdiomSectionIsRequired(unittest.TestCase):
+    """Gate root-cause #1 (audit): the Idiom section (the mentee's terms ← ground_truth.documents
+    glossaries) is a REQUIRED part of the compose list at ALL stages. Present + non-empty (the real
+    install declares ground_truth), or it renders honestly — never absent, never a silent blank."""
+
+    def test_idiom_section_is_in_the_compose_output(self):
+        out = briefing.compose_briefing(log=Path("/nonexistent"), clusters=None, roster=[])
+        self.assertIn("## Idiom", out)
+        self.assertIn("beat", out)  # a live term from the real ground_truth CONTEXT.md glossary
+
+
+class SourceRosterFailsClosedWithoutRealRoster(unittest.TestCase):
+    """Gate root-cause #2 (audit): the source roster is the REAL declared roster — the native
+    claude-sessions source is ADDITIVE, never a substitute. A missing agent.yaml, an empty
+    `sources`, or a malformed entry (no name/kind/description) must FAIL LOUD, never yield a
+    silently-non-empty section (the native floor masking a missing declared roster)."""
+
+    def test_missing_agent_yaml_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing.source_roster(agent_yaml=Path(tmp) / "agent.yaml")  # absent
+
+    def test_empty_sources_list_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = Path(tmp) / "agent.yaml"
+            ay.write_text("name: ed\nsources: []\n")
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing.source_roster(agent_yaml=ay)
+
+    def test_missing_sources_key_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = Path(tmp) / "agent.yaml"
+            ay.write_text("name: ed\n")  # no sources: at all
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing.source_roster(agent_yaml=ay)
+
+    def test_malformed_source_entry_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = Path(tmp) / "agent.yaml"
+            ay.write_text("name: ed\nsources:\n  - {kind: api, description: d}\n")  # no name
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing.source_roster(agent_yaml=ay)
+
+    def test_valid_roster_includes_native_source_additively(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = _complete_yaml(Path(tmp) / "agent.yaml")
+            roster = briefing.source_roster(agent_yaml=ay)
+            names = [r["name"] for r in roster]
+            self.assertIn("exa", names)                                       # the declared roster
+            self.assertTrue(any("session" in n.lower() for n in names))      # native, additive
+            self.assertGreater(len(roster), 1)
+
+
+class FullGenotypeComposesEverySectionNonEmpty(unittest.TestCase):
+    """Gate stage-(i) acceptance (audit): a complete agent.yaml + present docs → the four
+    REQUIRED genotype-identity sections (Personality, Method, Idiom, the real Source roster) all
+    render non-empty, while the log-fed sections still render their honest empty markers."""
+
+    def test_complete_genotype_renders_all_required_sections(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mem = _genotype(Path(tmp) / "memory")
+            ay = _complete_yaml(Path(tmp) / "agent.yaml")
+            out = briefing.compose_briefing(
+                log=Path(tmp) / "log.jsonl", clusters=None,
+                agent_yaml=ay, memory=mem)
+        # genotype identity — REQUIRED, non-empty
+        self.assertIn("### Personality", out)
+        self.assertIn("### Method", out)
+        self.assertIn("## Idiom", out)
+        self.assertIn("**exa**", out)                      # the REAL declared source
+        self.assertTrue(any(s in out.lower() for s in ("session",)))  # native, additive
+        # log-fed sections — honest empty markers on a fresh log (NOT fail-closed)
+        self.assertIn("no confirmed objective yet", out.lower())
+        self.assertIn("no direction set yet", out.lower())
+        self.assertIn("no direcionamento report yet", out.lower())
+        self.assertIn("no corpus yet", out.lower())
 
 
 if __name__ == "__main__":
