@@ -236,12 +236,26 @@ def _append_orphan_published_for_test(slug, proposes=None, distills=None, cites=
                    "cites": cites or []}, log=log)
 
 
+def _stripped_intent(intent):
+    """The C3 content rule: a kernel's *why* counts only when it is a non-empty stripped string.
+    Returns the stripped intent, or None for a non-string / blank / whitespace intent — so a hollow
+    kernel never becomes a recorded why (Codex gate round-4 [high])."""
+    if isinstance(intent, str) and intent.strip():
+        return intent.strip()
+    return None
+
+
 def kernel(slug, intent, log=LOG):
     """Append an `intent.kernel` event (CONTRACT C3) — the durable *why* of a dispatch's Artefato:
     what is open, the next bet. Mandatory at close; the corpus folds it alongside artefato.published
     (paired by slug), and the briefing's Recap projects it. The kernel and a cold transcript can
-    disagree on intent; the kernel wins."""
-    return append("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}, log=log)
+    disagree on intent; the kernel wins. Raises ValueError on a non-string / empty / whitespace
+    intent, and stores the STRIPPED intent — a hollow kernel can never be the recorded why and so
+    can never clear C3 debt (Codex gate round-4 [high])."""
+    stripped = _stripped_intent(intent)
+    if stripped is None:
+        raise ValueError(f"cannot append intent.kernel for {slug!r} with an empty/non-string intent")
+    return append("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": stripped}, log=log)
 
 
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
@@ -292,8 +306,22 @@ def artefatos_without_kernel(log=LOG):
     in publish order. Edge work without a recorded intent is incomplete — this is what makes
     "no Artefato closes without a kernel" mechanically checkable (the sweep/grill consult it)."""
     evs = read(types=["artefato.published", "intent.kernel"], log=log)
-    kerneled = {(e.get("payload") or {}).get("slug") for e in evs if e["type"] == "intent.kernel"}
-    published = [(e.get("payload") or {}).get("slug") for e in evs if e["type"] == "artefato.published"]
+    first_published = {}  # slug -> seq of its first publish (when debt opens)
+    published = []        # slugs in publish order
+    for e in evs:
+        if e["type"] != "artefato.published":
+            continue
+        slug = (e.get("payload") or {}).get("slug")
+        published.append(slug)
+        first_published.setdefault(slug, e["seq"])
+    # a slug clears debt only with a kernel whose intent is a non-empty stripped string AND whose
+    # seq is at/after the slug's first publish — a blank/whitespace/None or stale pre-publish kernel
+    # does NOT clear debt (Codex gate round-4 [high])
+    kerneled = {(e.get("payload") or {}).get("slug")
+                for e in evs
+                if e["type"] == "intent.kernel"
+                and _stripped_intent((e.get("payload") or {}).get("intent")) is not None
+                and e["seq"] >= first_published.get((e.get("payload") or {}).get("slug"), float("inf"))}
     return [s for s in published if s not in kerneled]
 
 
@@ -318,7 +346,11 @@ def fold_corpus(events):
                            "distills": p.get("distills", []), "cites": p.get("cites", []),
                            "spec": p.get("spec"), "ts": e.get("ts")}
         elif t == "intent.kernel" and slug in items:
-            items[slug]["intent"] = p.get("intent")
+            # content rule: only a non-empty stripped intent becomes the why; a blank kernel renders
+            # no open-bet. Ordering: `slug in items` already drops a stale pre-publish kernel.
+            stripped = _stripped_intent(p.get("intent"))
+            if stripped is not None:
+                items[slug]["intent"] = stripped
     return list(items.values())
 
 

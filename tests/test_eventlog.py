@@ -221,6 +221,68 @@ class ArtefatosWithoutKernelAreFlagged(unittest.TestCase):
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
 
 
+class KernelDebtRequiresRealContentAfterPublish(unittest.TestCase):
+    """Codex gate round-4 [high]: presence of an `intent.kernel` is NOT enough to clear C3 debt — a
+    blank/whitespace/None intent, or a kernel that pairs BEFORE its publish (a stale pre-publish
+    kernel), must STILL count as debt. Debt clears only when a slug has a kernel whose intent is a
+    non-empty stripped string AND that kernel comes at/after the slug's `artefato.published`."""
+
+    def _bare_kernel(self, slug, intent, log):
+        # low-level append, bypassing kernel()'s own content guard, to manufacture the bad state
+        return eventlog.append("intent.kernel", f"artefato:{slug}",
+                               {"slug": slug, "intent": intent}, log=log)
+
+    def test_blank_kernel_does_not_clear_debt(self):
+        for bad in ("", "   ", "\n\t ", None):
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                eventlog._append_orphan_published_for_test("bare", log=log)
+                self._bare_kernel("bare", bad, log)
+                self.assertEqual(eventlog.artefatos_without_kernel(log=log), ["bare"])
+
+    def test_kernel_before_publish_does_not_clear_debt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.kernel("stale", "open: x; bet: y", log=log)               # kernel FIRST (seq 1)
+            eventlog._append_orphan_published_for_test("stale", log=log)        # publish AFTER (seq 2)
+            self.assertEqual(eventlog.artefatos_without_kernel(log=log), ["stale"])
+
+    def test_real_kernel_after_publish_clears_debt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog._append_orphan_published_for_test("ok", log=log)
+            eventlog.kernel("ok", "open: x; bet: y", log=log)
+            self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
+
+
+class KernelRejectsHollowIntent(unittest.TestCase):
+    """Codex gate round-4 [high]: `kernel()` is a write helper for the C3 *why* — it must refuse an
+    empty/whitespace/non-string intent (raise ValueError, nothing lands) and store the STRIPPED
+    intent, mirroring set_objective. A hollow kernel can never be the recorded why."""
+
+    def test_kernel_rejects_empty_and_whitespace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            for bad in ("", "   ", "\n\t "):
+                with self.assertRaises(ValueError):
+                    eventlog.kernel("slug", bad, log=log)
+            self.assertEqual(eventlog.read(log=log), [])  # nothing landed
+
+    def test_kernel_rejects_non_string_intent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            for bad in (None, 7, ["why"], {"why": "x"}):
+                with self.assertRaises(ValueError):
+                    eventlog.kernel("slug", bad, log=log)
+            self.assertEqual(eventlog.read(log=log), [])
+
+    def test_kernel_strips_the_intent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            ev = eventlog.kernel("slug", "  open: x; bet: y  ", log=log)
+            self.assertEqual(ev["payload"]["intent"], "open: x; bet: y")
+
+
 class CorpusFoldsPublishedArtefatosWithTheirWhy(unittest.TestCase):
     """ADR-0009: the corpus is a pure fold of `{artefato.published, intent.kernel}` paired by slug —
     the edge's own steps + their *why*. Each item carries slug, intent (from its kernel, None if none
@@ -248,6 +310,28 @@ class CorpusFoldsPublishedArtefatosWithTheirWhy(unittest.TestCase):
             eventlog._append_orphan_published_for_test("bare", log=log)
             corpus = eventlog.corpus_at(log=log)
             self.assertEqual([c["slug"] for c in corpus], ["bare"])
+            self.assertIsNone(corpus[0]["intent"])
+
+    def test_blank_kernel_folds_with_intent_none_no_open_bet(self):
+        # a hollow kernel must render no open-bet — same content rule as the C3 debt fold
+        for bad in ("", "   ", None):
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                eventlog._append_orphan_published_for_test("bare", log=log)
+                eventlog.append("intent.kernel", "artefato:bare",
+                                {"slug": "bare", "intent": bad}, log=log)
+                corpus = eventlog.corpus_at(log=log)
+                self.assertEqual([c["slug"] for c in corpus], ["bare"])
+                self.assertIsNone(corpus[0]["intent"])
+
+    def test_stale_pre_publish_kernel_folds_with_intent_none(self):
+        # a kernel that pairs BEFORE the publish is stale — it does not become the why
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.kernel("stale", "open: x; bet: y", log=log)         # kernel FIRST
+            eventlog._append_orphan_published_for_test("stale", log=log)  # publish AFTER
+            corpus = eventlog.corpus_at(log=log)
+            self.assertEqual([c["slug"] for c in corpus], ["stale"])
             self.assertIsNone(corpus[0]["intent"])
 
     def test_empty_log_has_empty_corpus(self):
