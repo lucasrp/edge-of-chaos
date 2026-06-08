@@ -362,5 +362,80 @@ class GenusRunsBeforeAnyProofIsMinted(unittest.TestCase):
         self.assertEqual(published, [])  # genus-invalid never reaches publish_fn
 
 
+class DegradedReviewerOutputCannotMintAPass(unittest.TestCase):
+    """Codex round-7 [high]: a degraded/schema-drifted reviewer completion must NOT mint a
+    proof. The verdict path (`_parse_verdict`) now fails closed on any non-bool `pass`, so a
+    completer returning `{"pass":"false", ...}` (which `bool()` would coerce to True) yields a
+    FAILING verdict — run_close bounces, then HARD-FAILS within BOUNCE_MAX and never calls
+    publish_fn. A real boolean `{"pass": true}` still passes."""
+
+    def test_string_false_completion_never_publishes_and_hard_fails(self):
+        published = []
+
+        def publish_fn(artefato, proof):
+            published.append(artefato)
+
+        art = _conformant_artefato()
+        # the completer returns the degraded JSON the canonical reviewers will parse.
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": "false", "scores": {}, "strikes": ["x"]}',
+            publish_fn=publish_fn,
+        )
+        self.assertFalse(result["pass"])      # no pass proof minted
+        self.assertNotIn("token", result)     # not a minted proof
+        self.assertEqual(published, [])       # publish_fn never called
+
+    def test_string_true_completion_also_fails_closed(self):
+        published = []
+
+        def publish_fn(artefato, proof):
+            published.append(artefato)
+
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": "true", "scores": {}, "strikes": []}',
+            publish_fn=publish_fn,
+        )
+        self.assertFalse(result["pass"])
+        self.assertEqual(published, [])
+
+    def test_real_bool_true_completion_mints_and_publishes(self):
+        published = []
+
+        def publish_fn(artefato, proof):
+            published.append((artefato, proof))
+
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
+            publish_fn=publish_fn,
+        )
+        self.assertTrue(result["pass"])
+        self.assertEqual(len(published), 1)
+
+    def test_malformed_score_completion_fails_closed(self):
+        published = []
+
+        def publish_fn(artefato, proof):
+            published.append(artefato)
+
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: (
+                '{"pass": true, "scores": {"content_depth": "high"}, "strikes": []}'),
+            publish_fn=publish_fn,
+        )
+        self.assertFalse(result["pass"])  # malformed score → fail closed, no proof
+        self.assertEqual(published, [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

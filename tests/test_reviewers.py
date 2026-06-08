@@ -160,5 +160,75 @@ class SevenDimsBlindAndPropertyNotSection(unittest.TestCase):
         self.assertIsInstance(verdict["overall"], float)
 
 
+class VerdictParsingFailsClosed(unittest.TestCase):
+    """Codex round-7 [high]: a degraded/schema-drifted reviewer response must NEVER mint a
+    pass. `_parse_verdict` coerced `pass` with `bool(...)`, so `{"pass":"false"}` became
+    True. The fix fails closed: a verdict passes ONLY iff `result["pass"] is True` (exact
+    boolean identity); ANY non-bool (`"false"`, `"true"`, None, missing, a number) is a
+    schema/parse violation treated as FAILING. Malformed scores fail closed too."""
+
+    def test_string_false_pass_is_a_failing_verdict(self):
+        # bool("false") is True — the old coercion would mint a PASS from a FAILED review.
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer('{"pass": "false", "scores": {}, "strikes": ["x"]}')
+        verdict = close.feynman_review(art, complete_fn=fn)
+        self.assertFalse(verdict["pass"])
+
+    def test_string_true_pass_is_a_failing_verdict_non_bool(self):
+        # a STRING "true" is still a schema drift — non-bool fails closed.
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer('{"pass": "true", "scores": {}, "strikes": []}')
+        verdict = close.feynman_review(art, complete_fn=fn)
+        self.assertFalse(verdict["pass"])
+
+    def test_real_bool_true_pass_passes(self):
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer('{"pass": true, "scores": {}, "strikes": []}')
+        verdict = close.feynman_review(art, complete_fn=fn)
+        self.assertTrue(verdict["pass"])
+
+    def test_real_bool_false_pass_fails(self):
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer('{"pass": false, "scores": {}, "strikes": []}')
+        verdict = close.feynman_review(art, complete_fn=fn)
+        self.assertFalse(verdict["pass"])
+
+    def test_missing_pass_field_fails_closed(self):
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer('{"scores": {}, "strikes": []}')
+        verdict = close.feynman_review(art, complete_fn=fn)
+        self.assertFalse(verdict["pass"])
+
+    def test_null_pass_fails_closed(self):
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer('{"pass": null, "scores": {}, "strikes": []}')
+        verdict = close.feynman_review(art, complete_fn=fn)
+        self.assertFalse(verdict["pass"])
+
+    def test_numeric_pass_fails_closed(self):
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer('{"pass": 1, "scores": {}, "strikes": []}')
+        verdict = close.feynman_review(art, complete_fn=fn)
+        self.assertFalse(verdict["pass"])
+
+    def test_nonnumeric_score_fails_closed_not_coerced(self):
+        # a malformed score (a string) must not crash or be silently coerced; the verdict
+        # fails closed — it cannot become a passing verdict on the strength of a garbled score.
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer(
+            '{"pass": true, "scores": {"content_depth": "high"}, "strikes": []}')
+        verdict = close.feynman_review(art, complete_fn=fn)
+        self.assertFalse(verdict["pass"])
+        self.assertIsInstance(verdict["overall"], float)  # no crash; overall still numeric
+
+    def test_score_object_fails_closed(self):
+        # a non-numeric, non-string score (a nested object) also fails closed without crashing.
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer(
+            '{"pass": true, "scores": {"content_depth": {"nested": 4}}, "strikes": []}')
+        verdict = close.feynman_review(art, complete_fn=fn)
+        self.assertFalse(verdict["pass"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

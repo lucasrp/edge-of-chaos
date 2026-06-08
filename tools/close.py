@@ -284,7 +284,14 @@ def _build_prompt(focus: str, artefato: dict) -> str:
 
 def _parse_verdict(raw: str) -> dict:
     """Parse the reviewer's JSON verdict into {pass, scores, strikes, overall}, computing the
-    weighted overall from the dim scores when the model omits/garbles it."""
+    weighted overall from the dim scores when the model omits/garbles it.
+
+    FAILS CLOSED (Codex round-7 [high]): a degraded/schema-drifted reviewer response can
+    NEVER mint a pass. The old `bool(result.get("pass", False))` coerced a non-empty string
+    like `"false"` to True, turning a FAILED review into a passing verdict. The verdict now
+    passes ONLY iff `result["pass"] is True` (exact boolean identity); `False`, any non-bool
+    (`"false"`, `"true"`, None, missing, a number), or a malformed score is a schema/parse
+    violation treated as a FAILING verdict — never passing."""
     text = raw.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else text[3:]
@@ -293,9 +300,21 @@ def _parse_verdict(raw: str) -> dict:
     result = json.loads(text)
     scores = result.get("scores", {})
     strikes = result.get("strikes", [])
-    overall = sum(scores.get(dim, 0) * w for dim, w in DIMENSION_WEIGHTS.items())
+    # Exact boolean identity — `bool("false")` is True, so coercion is forbidden here.
+    passed = result.get("pass") is True
+    # Score hardening: any non-numeric / malformed score (a string, an object, a bool) fails
+    # closed — it does NOT pass and is NOT silently coerced. We strike it and recompute the
+    # overall from only the numeric scores so the weighted overall never crashes.
+    overall = 0.0
+    for dim, w in DIMENSION_WEIGHTS.items():
+        score = scores.get(dim, 0)
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            passed = False
+            strikes = list(strikes) + [f"malformed score for {dim!r}: {score!r}"]
+            continue
+        overall += score * w
     return {
-        "pass": bool(result.get("pass", False)),
+        "pass": passed,
         "scores": scores,
         "strikes": strikes,
         "overall": round(float(overall), 2),
