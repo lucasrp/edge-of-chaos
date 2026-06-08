@@ -3,11 +3,16 @@
 `consolidate-state` minus session-digestion (0008 moved digestion to the pull-at-open
 sweep), de-YAML'd. One act: render the Artefato body (render.spec_to_html), wrap it in a
 self-contained neutral HTML page that INLINES the neutralized tools/assets/base.css, record
-state ATOMICALLY via the eventlog — the `artefato.published` event AND its `intent.kernel`
-together in one indivisible write (eventlog.publish_artefato_atomic) — then write the page to
-blog/entries/<slug>.html via temp+rename, plus a `source.signal` per cited snippet. The log is
-truth, the page a re-derivable projection, so state lands before the file (#3) and a failed
-write never orphans a page.
+state ATOMICALLY via the eventlog — the `artefato.published` event (carrying the proof-bound
+SPEC, so the page is fully regenerable from the log) AND its `intent.kernel` together in one
+indivisible write (eventlog.publish_artefato_atomic) — THEN write the page to
+blog/entries/<slug>.html via temp+rename, THEN emit a `source.signal` per cited snippet.
+
+ADR-0006: the log is truth, the page a re-derivable PROJECTION. The atomic event is the COMMIT
+POINT; everything after it is a recoverable projection. So a page-write/replace/signal failure
+after the commit no longer strands an UNRECOVERABLE state (Codex round-10 [high]): the logged
+spec re-renders the exact page and the logged cites re-emit the missing signals via
+`reproject_missing_pages`. Source-signal emission is non-fatal to the page (#4).
 
 Three gates at this seam: #2/#3 — the publisher REFUSES unless handed the UNFORGEABLE, BOUND
 proof `close.run_close` mints: `close.verify_proof` requires the run_close-only token, a sha256
@@ -98,6 +103,25 @@ def _signal_cites(slug, body, cites, embed_fn, log):
         eventlog.source_signal(slug, c.get("ref"), c.get("kind"), sim, log=log)
 
 
+def _render_page(slug, spec, *, skill, date):
+    """Render the self-contained neutral HTML page for `slug` from its spec — the SINGLE
+    place the page bytes are produced, so a normal publish and a reprojection (recovery from
+    the logged spec) emit byte-identical pages. Returns (body_html, page_text)."""
+    body_html = render.spec_to_html(spec)
+    css = BASE_CSS.read_text()
+    page = _page(slug, body_html, skill=skill, date=date or _date.today().isoformat(), css=css)
+    return body_html, page
+
+
+def _write_page(out, page):
+    """Write the page to `out` via temp+rename (atomic, no half-written page). A failure here
+    is recoverable AFTER the commit: the logged spec re-renders the page (reproject_missing_pages)."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".html.tmp")
+    tmp.write_text(page)
+    os.replace(tmp, out)
+
+
 def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=None,
             cites=None, date=None, log=eventlog.LOG, blog_dir=BLOG_DIR, embed_fn=None) -> Path:
     """Publish an Artefato: render → self-contained neutral HTML → atomic state record.
@@ -113,10 +137,13 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     contract is violated). #4 at the seam: the slug is validated + contained under blog_dir,
     the page written via temp+rename.
 
-    Order (#3): render the page in memory, record state, THEN write the HTML — the log is truth,
-    the page a re-derivable projection, so a failed write never leaves an orphan page. Returns
-    the written page Path. `date` is a param (defaults to today) so tests pin it; `embed_fn`
-    is injectable so the source-signal step runs offline.
+    Order (#2/#3, ADR-0006): render the page in memory → append the atomic event WITH the spec
+    (the COMMIT POINT; the log is truth) → THEN write the HTML (a projection) → THEN emit source
+    signals. Everything after the commit is a recoverable projection: a page-write or signal
+    failure is no longer unrecoverable — the logged spec re-renders the exact page and the logged
+    cites re-emit the signals via `reproject_missing_pages`. Signal emission is non-fatal to the
+    page (#4). Returns the written page Path. `date` is a param (defaults to today) so tests pin
+    it; `embed_fn` is injectable so the source-signal step runs offline.
     """
     verify_proof(verdict, slug=slug, spec=spec, intent=intent,
                  cites=cites or [], proposes=proposes or [],
@@ -137,16 +164,55 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     if violations:
         raise ValueError(f"artefato {slug!r} violates the genus contract: {violations}")
 
-    body_html = render.spec_to_html(spec)
-    css = BASE_CSS.read_text()
-    page = _page(slug, body_html, skill=skill, date=date or _date.today().isoformat(), css=css)
+    body_html, page = _render_page(slug, spec, skill=skill, date=date)
 
+    # COMMIT POINT (#2, ADR-0006: the log is truth). The atomic event carries the proof-bound
+    # spec, so the page is fully regenerable from the log alone. EVERYTHING after this is a
+    # recoverable projection (reproject_missing_pages re-derives it from the logged spec/cites).
     eventlog.publish_artefato_atomic(slug, intent, proposes=proposes, distills=distills,
-                                     cites=cites, log=log)
-    _signal_cites(slug, body_html, cites, embed_fn, log)
+                                     cites=cites, spec=spec, log=log)
 
-    out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out.with_suffix(".html.tmp")
-    tmp.write_text(page)
-    os.replace(tmp, out)
+    # the page is a PROJECTION written after the commit — a failure here is recoverable.
+    _write_page(out, page)
+
+    # source-signal emission is NON-FATAL to the page (#4): a signal-store failure must not
+    # corrupt the published page; the cites are durably logged, so the signals are recoverable
+    # (reproject_missing_pages re-emits any missing ones).
+    try:
+        _signal_cites(slug, body_html, cites, embed_fn, log)
+    except Exception:
+        pass
     return out
+
+
+def reproject_missing_pages(log=eventlog.LOG, blog_dir=BLOG_DIR, date=None, embed_fn=None):
+    """Recovery/reprojection (Codex round-10 [high], ADR-0006: pages are PROJECTIONS of the log).
+    For every committed `artefato.published` that carries a spec, re-render any MISSING
+    blog/entries/<slug>.html from the logged spec (byte-identical to a normal publish) and
+    re-emit any MISSING source signals from the logged cites. Idempotent: a present page is left
+    untouched and an already-emitted signal (per ref) is not re-emitted. This is what makes a
+    page-write or signal failure AFTER the publish commit recoverable rather than unrecoverable.
+
+    `skill` is not on the published event, so the reprojected page uses the producer-neutral
+    default skill for the meta line; the body (the load-bearing content) re-renders exactly."""
+    blog_dir = Path(blog_dir)
+    yields = eventlog.source_yield_at(log=log)  # refs that already have a signal
+    redone = []
+    for item in eventlog.corpus_at(log=log):
+        spec = item.get("spec")
+        if spec is None:
+            continue  # legacy/migration published events with no spec are not regenerable
+        slug = item["slug"]
+        try:
+            out = _safe_target(slug, blog_dir)
+        except ValueError:
+            continue
+        body_html, page = _render_page(slug, spec, skill="report", date=date)
+        if not out.exists():
+            _write_page(out, page)
+            redone.append(out)
+        # re-emit only cites whose source signal never landed (idempotent recovery)
+        missing = [c for c in (item.get("cites") or [])
+                   if isinstance(c, dict) and c.get("snippet") and c.get("ref") not in yields]
+        _signal_cites(slug, body_html, missing, embed_fn, log)
+    return redone

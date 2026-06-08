@@ -9,6 +9,7 @@ is enforced at this seam: publishing without an intent raises.
 
 These tests pin that seam offline (injected embed_fn, tempfile log + blog_dir).
 """
+import os
 import sys
 import tempfile
 import unittest
@@ -426,6 +427,134 @@ class SlugIsContainedUnderBlogDir(unittest.TestCase):
                 render.spec_to_html = orig
             self.assertFalse((blog / "boom-slug.html").exists())
             self.assertEqual(list(blog.glob("*.tmp")) if blog.exists() else [], [])
+
+
+class PublishIsRecoverableAfterTheCommit(unittest.TestCase):
+    """Codex round-10 [high]: the commit point is the atomic `artefato.published` (WITH the
+    spec) + `intent.kernel` append (ADR-0006: the log is truth). EVERYTHING after it — the page
+    write, the source signals — is a recoverable PROJECTION re-derivable from the logged spec +
+    cites. A failure after the commit (os.replace/write_text/_signal_cites raising) no longer
+    strands an UNRECOVERABLE state: `reproject_missing_pages` re-renders the missing page from
+    the logged spec (byte-identical to a normal publish) and re-emits any missing source signals."""
+
+    def test_page_write_failure_after_commit_is_recoverable_from_the_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            blog = Path(tmp) / "entries"
+            slug = "recoverable"
+            intent = "open: x; bet: y"
+            cites = [{"ref": "arXiv:1", "kind": "mundo", "snippet": "snip"}]
+            # force os.replace to raise AFTER the atomic commit (page never lands)
+            orig_replace = os.replace
+            os.replace = lambda *a, **k: (_ for _ in ()).throw(OSError("disk full"))
+            try:
+                with self.assertRaises(OSError):
+                    publisher.publish(
+                        slug, _spec(), intent=intent, skill="report", cites=cites,
+                        date="2026-06-08", log=log, blog_dir=blog, embed_fn=_fake_embed,
+                        verdict=_passing_proof(slug, _spec(), intent, cites=cites),
+                    )
+            finally:
+                os.replace = orig_replace
+
+            # NOT unrecoverable: the commit landed (log is truth) and it carries the spec
+            corpus = eventlog.corpus_at(log=log)
+            self.assertEqual([c["slug"] for c in corpus], [slug])
+            published = eventlog.read(types=["artefato.published"], log=log)
+            self.assertEqual(published[0]["payload"]["spec"], _spec())
+            # but the page is missing (the projection failed)
+            self.assertFalse((blog / f"{slug}.html").exists())
+
+            # recovery: reproject the missing page from the logged spec
+            redone = publisher.reproject_missing_pages(
+                log=log, blog_dir=blog, date="2026-06-08")
+            self.assertEqual([Path(p).name for p in redone], [f"{slug}.html"])
+            self.assertTrue((blog / f"{slug}.html").exists())
+
+    def test_reprojected_page_byte_matches_a_normal_publish(self):
+        spec = _spec()
+        intent = "open: x; bet: y"
+        cites = [{"ref": "arXiv:1", "kind": "mundo", "snippet": "snip"}]
+        # (1) a normal, clean publish → the reference page bytes
+        with tempfile.TemporaryDirectory() as tmp_ok:
+            log_ok = Path(tmp_ok) / "log.jsonl"
+            blog_ok = Path(tmp_ok) / "entries"
+            slug = "byte-match"
+            publisher.publish(
+                slug, spec, intent=intent, skill="report", cites=cites,
+                date="2026-06-08", log=log_ok, blog_dir=blog_ok, embed_fn=_fake_embed,
+                verdict=_passing_proof(slug, spec, intent, cites=cites))
+            reference = (blog_ok / f"{slug}.html").read_bytes()
+
+        # (2) a publish whose page write fails after the commit, then reproject
+        with tempfile.TemporaryDirectory() as tmp_bad:
+            log_bad = Path(tmp_bad) / "log.jsonl"
+            blog_bad = Path(tmp_bad) / "entries"
+            slug = "byte-match"
+            orig_replace = os.replace
+            os.replace = lambda *a, **k: (_ for _ in ()).throw(OSError("boom"))
+            try:
+                with self.assertRaises(OSError):
+                    publisher.publish(
+                        slug, spec, intent=intent, skill="report", cites=cites,
+                        date="2026-06-08", log=log_bad, blog_dir=blog_bad,
+                        embed_fn=_fake_embed,
+                        verdict=_passing_proof(slug, spec, intent, cites=cites))
+            finally:
+                os.replace = orig_replace
+            publisher.reproject_missing_pages(
+                log=log_bad, blog_dir=blog_bad, date="2026-06-08")
+            regenerated = (blog_bad / f"{slug}.html").read_bytes()
+
+        self.assertEqual(regenerated, reference)  # byte-identical projection
+
+    def test_signal_failure_after_commit_does_not_corrupt_the_page_and_is_recoverable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            blog = Path(tmp) / "entries"
+            slug = "signal-fails"
+            intent = "open: x; bet: y"
+            cites = [{"ref": "arXiv:1", "kind": "mundo", "snippet": "snip"}]
+            # force the source-signal emission to raise AFTER the commit + page write
+            orig_signal = eventlog.source_signal
+            eventlog.source_signal = lambda *a, **k: (_ for _ in ()).throw(
+                RuntimeError("signal store down"))
+            try:
+                path = publisher.publish(
+                    slug, _spec(), intent=intent, skill="report", cites=cites,
+                    date="2026-06-08", log=log, blog_dir=blog, embed_fn=_fake_embed,
+                    verdict=_passing_proof(slug, _spec(), intent, cites=cites))
+            finally:
+                eventlog.source_signal = orig_signal
+
+            # the page is published cleanly (a signal failure is non-fatal to the page)
+            self.assertTrue(Path(path).exists())
+            # the signal did not land (it failed) — but it is recoverable from the logged cites
+            self.assertEqual(eventlog.source_yield_at(log=log), {})
+            publisher.reproject_missing_pages(
+                log=log, blog_dir=blog, date="2026-06-08", embed_fn=_fake_embed)
+            yields = eventlog.source_yield_at(log=log)
+            self.assertIn("arXiv:1", yields)
+            self.assertEqual(yields["arXiv:1"]["count"], 1)
+
+    def test_reproject_is_a_noop_when_pages_and_signals_already_landed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            blog = Path(tmp) / "entries"
+            slug = "already-there"
+            intent = "open: x; bet: y"
+            cites = [{"ref": "arXiv:1", "kind": "mundo", "snippet": "snip"}]
+            publisher.publish(
+                slug, _spec(), intent=intent, skill="report", cites=cites,
+                date="2026-06-08", log=log, blog_dir=blog, embed_fn=_fake_embed,
+                verdict=_passing_proof(slug, _spec(), intent, cites=cites))
+            before = (blog / f"{slug}.html").read_bytes()
+            redone = publisher.reproject_missing_pages(
+                log=log, blog_dir=blog, date="2026-06-08", embed_fn=_fake_embed)
+            self.assertEqual(redone, [])  # nothing missing → nothing reprojected
+            self.assertEqual((blog / f"{slug}.html").read_bytes(), before)
+            # the signal count did not double (already-landed signals are not re-emitted)
+            self.assertEqual(eventlog.source_yield_at(log=log)["arXiv:1"]["count"], 1)
 
 
 if __name__ == "__main__":

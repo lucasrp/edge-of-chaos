@@ -575,6 +575,45 @@ class PublishRequiresKernel(unittest.TestCase):
                 eventlog.publish_artefato_atomic("bare", intent="", log=log)
             self.assertEqual(eventlog.read(log=log), [])  # nothing published without the kernel
 
+    def test_atomic_publish_carries_the_spec_in_the_published_payload(self):
+        # Codex round-10 [high]: the page is a PROJECTION (ADR-0006) — for it to be fully
+        # regenerable from the log alone, the proof-bound spec (the `content`) must ride the
+        # atomic `artefato.published` event, inside the SAME single batch as the kernel.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            spec = {"sections": [{"title": "S", "blocks": [
+                {"type": "paragraph", "text": "the body to regenerate"}]}]}
+            eventlog.publish_artefato_atomic("recall-report", intent="open: x; bet: y",
+                                             spec=spec, log=log)
+            published = eventlog.read(types=["artefato.published"], log=log)
+            self.assertEqual(len(published), 1)
+            self.assertEqual(published[0]["payload"]["spec"], spec)
+            # still one indivisible batch with the kernel (C3 holds)
+            self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
+
+    def test_spec_rides_the_same_single_batch_as_the_kernel(self):
+        # the spec must NOT be a separate append — it lands in the one batch the published
+        # + kernel land in, so there is no window where published-with-spec is missing.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            real_open = Path.open
+            writes = {"count": 0}
+
+            def counting_open(self, *a, **k):
+                if "a" in (a[0] if a else k.get("mode", "")):
+                    writes["count"] += 1
+                return real_open(self, *a, **k)
+
+            orig = Path.open
+            Path.open = counting_open
+            try:
+                eventlog.publish_artefato_atomic(
+                    "recall-report", intent="open: x; bet: y",
+                    spec={"sections": []}, log=log)
+            finally:
+                Path.open = orig
+            self.assertEqual(writes["count"], 1)  # one append carried published(+spec) + kernel
+
     def test_require_kernels_raises_until_kernel_added(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"

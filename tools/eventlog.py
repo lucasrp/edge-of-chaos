@@ -229,19 +229,26 @@ def kernel(slug, intent, log=LOG):
     return append("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}, log=log)
 
 
-def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None, log=LOG):
+def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
+                            spec=None, log=LOG):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
     publish seam): you cannot publish without the *why*. Both events land in a single
     `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
     Raises ValueError when intent is missing/empty — the kernel is mandatory, so the published
     event never lands without it. Additive: the legacy publish_artefato + kernel two-call path
-    stays callable. Returns (published_event, kernel_event)."""
+    stays callable. Returns (published_event, kernel_event).
+
+    Codex round-10 [high]: the published event carries the proof-bound `spec` (the Artefato
+    `content`) in its payload, INSIDE this same single batch. The page (blog/entries/<slug>.html)
+    is a PROJECTION (ADR-0006: the log is truth); carrying the spec makes the page fully
+    regenerable from the log alone, so a page-write failure after this commit is recoverable
+    (publisher.reproject_missing_pages) rather than an unrecoverable dangling-state."""
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
     published, kernel_ev = append_batch([
         ("artefato.published", f"artefato:{slug}",
          {"slug": slug, "proposes": proposes or [], "distills": distills or [],
-          "cites": cites or []}),
+          "cites": cites or [], "spec": spec}),
         ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
     ], log=log)
     return published, kernel_ev
@@ -281,8 +288,9 @@ CORPUS_TYPES = ["artefato.published", "intent.kernel"]
 def fold_corpus(events):
     """Pure fold of `{artefato.published, intent.kernel}` events → the corpus (ADR-0009): the edge's
     own published steps, each paired with its *why*. In one pass, seq order: an `artefato.published`
-    opens a corpus item keyed by slug (carrying its proposes/distills/cites and published ts); an
-    `intent.kernel` writes the `intent` onto its slug's item. An Artefato with no kernel folds with
+    opens a corpus item keyed by slug (carrying its proposes/distills/cites, the proof-bound spec
+    so the page projection is regenerable from the log, and published ts); an `intent.kernel`
+    writes the `intent` onto its slug's item. An Artefato with no kernel folds with
     `intent=None` (a step whose why is not yet recorded — C3 debt). Returns items in publish order."""
     items = {}  # slug -> item
     for e in events:
@@ -293,7 +301,7 @@ def fold_corpus(events):
         if t == "artefato.published":
             items[slug] = {"slug": slug, "intent": None, "proposes": p.get("proposes", []),
                            "distills": p.get("distills", []), "cites": p.get("cites", []),
-                           "ts": e.get("ts")}
+                           "spec": p.get("spec"), "ts": e.get("ts")}
         elif t == "intent.kernel" and slug in items:
             items[slug]["intent"] = p.get("intent")
     return list(items.values())
