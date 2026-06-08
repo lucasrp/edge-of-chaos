@@ -177,11 +177,13 @@ class ProofIsBoundAndUnforgeable(unittest.TestCase):
         return reviewer
 
     def _mint(self, art):
-        """Run the close with no publish_fn so it returns the minted proof."""
+        """Run the close with no publish_fn so it returns the minted proof. Uses the REAL
+        canonical reviewers so the proof carries both canonical identities verify_proof
+        requires (a proof minted from fakes is now rejected on identity grounds, #3)."""
         return close.run_close(
             art, produce_fn=lambda: art,
-            reviewers=(self._passing_reviewer(), self._passing_reviewer()),
-            complete_fn=lambda *a, **k: "",
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
         )
 
     def test_minted_proof_carries_token_digest_and_both_verdicts(self):
@@ -229,6 +231,92 @@ class ProofIsBoundAndUnforgeable(unittest.TestCase):
             close.verify_proof(
                 proof, slug=art["slug"], spec=art["content"], intent=art["intent"],
                 cites=art["cites"], proposes=art["proposes"], reviewer_count=2,
+            )
+
+
+class ProofBindsIdentityAndAllPublishState(unittest.TestCase):
+    """Codex re-review #3. The proof must (1) be un-mintable from producer code —
+    `mint_proof` is no longer public; only run_close's PRIVATE `_mint_proof` exists, and
+    run_close stamps the CANONICAL reviewer IDENTITIES (the real feynman + regular
+    reviewers), so a proof built from fake/injected reviewers fails identity verification;
+    and (2) bind EVERY page/state-affecting publish argument — `distills` and `skill` —
+    into the digest, so altering them after the mint fails verify."""
+
+    def test_mint_proof_is_not_a_public_attribute(self):
+        # the public mint is gone; the producer cannot stamp a valid token onto a verdict
+        # list of its own choosing.
+        self.assertFalse(hasattr(close, "mint_proof"))
+        self.assertTrue(hasattr(close, "_mint_proof"))
+
+    def test_proof_from_real_reviewers_carries_both_canonical_identities(self):
+        # the close run with the REAL canonical reviewers stamps both identities; verify
+        # against the same payload passes (identity satisfied).
+        art = _conformant_artefato()
+        proof = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
+        )
+        self.assertTrue(proof["pass"])
+        close.verify_proof(
+            proof, slug=art["slug"], spec=art["content"], intent=art["intent"],
+            cites=art["cites"], proposes=art["proposes"], reviewer_count=2,
+        )
+
+    def test_proof_from_fake_reviewers_fails_identity_verification(self):
+        # a producer who injects fake reviewers (the test-only seam) gets a proof WITHOUT
+        # the canonical identities — verify_proof rejects it on identity grounds.
+        art = _conformant_artefato()
+
+        def fake_reviewer(artefato, complete_fn=None):
+            return {"pass": True, "scores": {}, "strikes": [], "overall": 4.0}
+
+        proof = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(fake_reviewer, fake_reviewer),
+            complete_fn=lambda *a, **k: "",
+        )
+        with self.assertRaises(ValueError):
+            close.verify_proof(
+                proof, slug=art["slug"], spec=art["content"], intent=art["intent"],
+                cites=art["cites"], proposes=art["proposes"], reviewer_count=2,
+            )
+
+    def test_altering_distills_after_mint_fails_verify(self):
+        art = _conformant_artefato()
+        proof = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
+        )
+        # the proof verifies against the distills/skill it was minted over...
+        close.verify_proof(
+            proof, slug=art["slug"], spec=art["content"], intent=art["intent"],
+            cites=art["cites"], proposes=art["proposes"],
+            distills=art.get("distills"), skill=art.get("skill"), reviewer_count=2,
+        )
+        # ...but a DIFFERENT distills (poisoned provenance) is rejected.
+        with self.assertRaises(ValueError):
+            close.verify_proof(
+                proof, slug=art["slug"], spec=art["content"], intent=art["intent"],
+                cites=art["cites"], proposes=art["proposes"],
+                distills=[{"page": "poisoned", "body": "altered at publish time"}],
+                skill=art.get("skill"), reviewer_count=2,
+            )
+
+    def test_altering_skill_after_mint_fails_verify(self):
+        art = _conformant_artefato()
+        proof = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
+        )
+        with self.assertRaises(ValueError):
+            close.verify_proof(
+                proof, slug=art["slug"], spec=art["content"], intent=art["intent"],
+                cites=art["cites"], proposes=art["proposes"],
+                distills=art.get("distills"), skill="a-different-skill",
+                reviewer_count=2,
             )
 
 

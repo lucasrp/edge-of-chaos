@@ -74,9 +74,40 @@ def render_pre(s: str) -> str:
     return html.escape(str(s)) if s else ""
 
 
+# ---------------------------------------------------------------------------
+# Attribute safety — spec-controlled values must never break out of their
+# attribute quote. EVERY interpolated class/data-*/title/id/etc. value goes
+# through `attr_value`; freeform `style` goes through `safe_style`.
+# ---------------------------------------------------------------------------
+
+def attr_value(value) -> str:
+    """Escape a spec-controlled value for use inside a double-quoted HTML attribute.
+    Neutralizes the quote-break (`"`) so a payload can never close the attribute and
+    inject a new one (e.g. an on*= event handler)."""
+    return html.escape(str(value), quote=True)
+
+
+# A single CSS declaration: `prop: value` with a safe-char allowlist. Disallows the
+# quote chars, angle brackets, parens, semicolons inside the value — anything that
+# could break out of the attribute or smuggle url()/expression()/behavior payloads.
+_CSS_DECL = re.compile(r"^\s*[a-zA-Z-]+\s*:\s*[A-Za-z0-9 #%.,\-_/]+\s*$")
+
+
+def safe_style(value) -> str:
+    """Allowlist a freeform `style` value to `prop: value;` declarations whose tokens
+    use only safe characters. Any declaration with quotes, angle brackets, parens
+    (url()/expression()), or other breakout chars is dropped. Returns the kept
+    declarations joined by `; ` (already attribute-quote-safe)."""
+    kept = []
+    for decl in str(value).split(";"):
+        if decl.strip() and _CSS_DECL.match(decl):
+            kept.append(decl.strip())
+    return "; ".join(kept)
+
+
 def badge_html(text: str, variant: str = "neutral") -> str:
     """Generate a badge span."""
-    return f'<span class="badge badge-{variant}">{html.escape(str(text))}</span>'
+    return f'<span class="badge badge-{attr_value(variant)}">{html.escape(str(text))}</span>'
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +127,8 @@ def renderer(block_type: str):
 
 @renderer("paragraph")
 def render_paragraph(b):
-    style = f' style="{b["style"]}"' if b.get("style") else ""
+    safe = safe_style(b["style"]) if b.get("style") else ""
+    style = f' style="{safe}"' if safe else ""
     return f'<p{style}>{render_text(b["text"])}</p>'
 
 
@@ -131,7 +163,7 @@ def render_callout(b):
     if b.get("title"):
         title_html = f'<strong>{render_text(b["title"])}</strong><br>'
     return (
-        f'<div class="callout callout-{variant}">'
+        f'<div class="callout callout-{attr_value(variant)}">'
         f'{title_html}{render_text(b["text"])}'
         f'</div>'
     )
@@ -175,9 +207,9 @@ def _render_single_numbered_card(b, default_num=""):
     num = b.get("number", default_num)
     classes = ["card"]
     if b.get("card_class"):
-        classes.append(b["card_class"])
+        classes.append(attr_value(b["card_class"]))
     cls = " ".join(classes)
-    parts = [f'<div class="{cls}" data-iter="{html.escape(str(num))}">']
+    parts = [f'<div class="{cls}" data-iter="{attr_value(num)}">']
     parts.append('<div class="card-header">')
     parts.append(f'<span class="card-title">{render_text(b.get("title", ""))}</span>')
     if b.get("badge"):
@@ -333,7 +365,7 @@ def render_comparison_table(b):
         parts.append('<tr>')
         for j, cell in enumerate(cells):
             cls = classes[j] if j < len(classes) else ""
-            td_cls = f' class="{cls}"' if cls else ""
+            td_cls = f' class="{attr_value(cls)}"' if cls else ""
             parts.append(f'<td{td_cls}>{render_text(str(cell))}</td>')
         parts.append('</tr>')
     if b.get("score_row"):
@@ -343,7 +375,7 @@ def render_comparison_table(b):
         parts.append('<tr class="score-row">')
         for j, cell in enumerate(cells):
             cls = classes[j] if j < len(classes) else ""
-            td_cls = f' class="{cls}"' if cls else ""
+            td_cls = f' class="{attr_value(cls)}"' if cls else ""
             parts.append(f'<td{td_cls}>{render_text(str(cell))}</td>')
         parts.append('</tr>')
     parts.append('</tbody></table>')
@@ -489,7 +521,7 @@ def render_metrics_grid_block(b):
 @renderer("list")
 def render_list(b):
     tag = "ol" if b.get("ordered") else "ul"
-    style = b.get("style", "padding-left: 20px; font-size: 14px; line-height: 1.7;")
+    style = safe_style(b.get("style", "padding-left: 20px; font-size: 14px; line-height: 1.7;"))
     parts = [f'<{tag} style="{style}">']
     for item in b.get("items", []):
         parts.append(f'<li>{render_text(item)}</li>')
@@ -506,7 +538,7 @@ def render_diff_block(b):
         )
     for line in b.get("lines", []):
         line_type = line.get("type", "context")
-        css_class = f"diff-{line_type}"
+        css_class = f"diff-{attr_value(line_type)}"
         prefix = {"insert": "+ ", "delete": "- ", "context": "  "}.get(line_type, "  ")
         parts.append(
             f'<div class="{css_class}">{prefix}{render_pre(line["text"])}</div>'

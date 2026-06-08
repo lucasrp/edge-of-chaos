@@ -9,6 +9,7 @@ type degrades to an HTML comment rather than raising.
 """
 import sys
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -145,6 +146,110 @@ class GeneratedHrefsAreSchemeSanitized(unittest.TestCase):
         ok = {"bibliography": [{"text": "ref", "url": "https://example.com"}]}
         html = render.spec_to_html(ok)
         self.assertIn('<a href="https://example.com"', html)
+
+
+class AttributeValuesCannotBreakOut(unittest.TestCase):
+    """Codex round-3 [high]: renderers interpolate spec-controlled values into HTML
+    attributes (style, class, badge_class, card_class, td class) WITHOUT escaping, so a
+    quote-breaking payload like `color:red" onmouseover="alert(1)` injects an event-handler
+    attribute — bypassing the raw-html sanitizer AND the centralized URL checks. Every
+    attribute-producing block type must neutralize the quote-break: NO new attribute
+    (onmouseover/onerror) escapes the quoted value."""
+
+    # A payload that, interpolated raw, closes the attribute and opens an event handler.
+    BREAKOUT = 'red" onmouseover="alert(1)'
+    CLASS_BREAKOUT = 'x" onmouseover="alert(1)'
+
+    @staticmethod
+    def _real_attrs(markup):
+        """The actual attributes a browser would parse — escaped `&quot;` inside a
+        value stays part of that value, so a neutralized payload yields NO on*= attr."""
+        names = []
+
+        class _P(HTMLParser):
+            def handle_starttag(self, tag, attrs):
+                names.extend(n.lower() for n, _ in attrs)
+
+            handle_startendtag = handle_starttag
+
+        p = _P()
+        p.feed(markup)
+        p.close()
+        return names
+
+    def _assert_no_handler(self, html, label):
+        # A quote-break would make `onmouseover` a REAL parsed attribute; escaping
+        # keeps it inert text inside the original attribute's value.
+        attrs = self._real_attrs(html)
+        leaked = [a for a in attrs if a.startswith("on")]
+        self.assertEqual([], leaked, f"{label}: quote-break leaked handler(s) {leaked}")
+
+    def test_paragraph_style_cannot_break_out(self):
+        spec = {"sections": [{"title": "P", "blocks": [
+            {"type": "paragraph", "style": f"color:{self.BREAKOUT}", "text": "x"}]}]}
+        self._assert_no_handler(render.spec_to_html(spec), "paragraph style")
+
+    def test_callout_variant_cannot_break_out(self):
+        spec = {"sections": [{"title": "P", "blocks": [
+            {"type": "callout", "variant": self.CLASS_BREAKOUT, "text": "x"}]}]}
+        self._assert_no_handler(render.spec_to_html(spec), "callout variant")
+
+    def test_card_badge_class_cannot_break_out(self):
+        spec = {"sections": [{"title": "P", "blocks": [
+            {"type": "card", "badge": "B", "badge_class": self.CLASS_BREAKOUT}]}]}
+        self._assert_no_handler(render.spec_to_html(spec), "card badge_class")
+
+    def test_numbered_card_card_class_cannot_break_out(self):
+        spec = {"sections": [{"title": "P", "blocks": [
+            {"type": "numbered-card", "title": "T", "card_class": self.CLASS_BREAKOUT}]}]}
+        self._assert_no_handler(render.spec_to_html(spec), "numbered-card card_class")
+
+    def test_numbered_card_badge_class_cannot_break_out(self):
+        spec = {"sections": [{"title": "P", "blocks": [
+            {"type": "numbered-card", "title": "T", "badge": "B",
+             "badge_class": self.CLASS_BREAKOUT}]}]}
+        self._assert_no_handler(render.spec_to_html(spec), "numbered-card badge_class")
+
+    def test_comparison_badge_class_cannot_break_out(self):
+        spec = {"sections": [{"title": "P", "blocks": [
+            {"type": "comparison",
+             "before": {"title": "L", "badge": "B", "badge_class": self.CLASS_BREAKOUT},
+             "after": {"title": "R"}}]}]}
+        self._assert_no_handler(render.spec_to_html(spec), "comparison badge_class")
+
+    def test_comparison_table_cell_class_cannot_break_out(self):
+        spec = {"sections": [{"title": "P", "blocks": [
+            {"type": "comparison-table", "headers": ["H"],
+             "rows": [{"cells": ["c"], "classes": [self.CLASS_BREAKOUT]}]}]}]}
+        self._assert_no_handler(render.spec_to_html(spec), "comparison-table cell class")
+
+    def test_comparison_table_score_row_cell_class_cannot_break_out(self):
+        spec = {"sections": [{"title": "P", "blocks": [
+            {"type": "comparison-table", "headers": ["H"], "rows": [],
+             "score_row": {"cells": ["c"], "classes": [self.CLASS_BREAKOUT]}}]}]}
+        self._assert_no_handler(render.spec_to_html(spec),
+                                "comparison-table score_row cell class")
+
+    def test_code_block_badge_class_cannot_break_out(self):
+        spec = {"sections": [{"title": "P", "blocks": [
+            {"type": "code-block", "content": "x", "badge": "B",
+             "badge_class": self.CLASS_BREAKOUT}]}]}
+        self._assert_no_handler(render.spec_to_html(spec), "code-block badge_class")
+
+    def test_list_style_cannot_break_out(self):
+        spec = {"sections": [{"title": "P", "blocks": [
+            {"type": "list", "style": f"color:{self.BREAKOUT}", "items": ["a"]}]}]}
+        self._assert_no_handler(render.spec_to_html(spec), "list style")
+
+    def test_diff_block_line_type_cannot_break_out(self):
+        spec = {"sections": [{"title": "P", "blocks": [
+            {"type": "diff-block", "lines": [
+                {"type": self.CLASS_BREAKOUT, "text": "x"}]}]}]}
+        self._assert_no_handler(render.spec_to_html(spec), "diff-block line type")
+
+    def test_badge_html_variant_cannot_break_out(self):
+        # The shared badge sink: variant goes into badge-{variant} class.
+        self._assert_no_handler(render.badge_html("B", self.CLASS_BREAKOUT), "badge_html")
 
 
 if __name__ == "__main__":

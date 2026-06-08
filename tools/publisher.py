@@ -9,11 +9,13 @@ blog/entries/<slug>.html via temp+rename, plus a `source.signal` per cited snipp
 truth, the page a re-derivable projection, so state lands before the file (#3) and a failed
 write never orphans a page.
 
-Three gates at this seam: #2 — the publisher REFUSES unless handed the UNFORGEABLE, BOUND proof
-`close.run_close` mints: `close.verify_proof` requires the run_close-only token, a sha256 digest
-that BINDS to this exact publish payload (slug + spec + intent + cites + proposes), and both
-blind reviewers passed — so a forged dict, a stale/cross-artefato proof (digest mismatch), or a
-single-reviewer proof cannot back-door the gate. C3 — there is no path that publishes
+Three gates at this seam: #2/#3 — the publisher REFUSES unless handed the UNFORGEABLE, BOUND
+proof `close.run_close` mints: `close.verify_proof` requires the run_close-only token, a sha256
+digest that BINDS to this exact publish payload (slug + spec + intent + cites + proposes +
+distills + skill — EVERY persisted publish arg, so distills/skill cannot be altered post-mint to
+poison provenance), both blind reviewers passed, AND the verdicts carry both CANONICAL reviewer
+identities — so a forged dict, a stale/cross-artefato proof (digest mismatch), a single-reviewer
+proof, or a proof built from fake/injected reviewers cannot back-door the gate. C3 — there is no path that publishes
 without the *why* (raises with no intent; the kernel rides the same atomic call so
 `artefatos_without_kernel(log) == []` right after). #4 — the slug is validated against a strict
 regex and contained under blog_dir (a `../` slug cannot escape).
@@ -87,12 +89,13 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
             cites=None, date=None, log=eventlog.LOG, blog_dir=BLOG_DIR, embed_fn=None) -> Path:
     """Publish an Artefato: render → self-contained neutral HTML → atomic state record.
 
-    #2 at the seam: RAISES ValueError unless `verdict` is the UNFORGEABLE, BOUND proof
+    #2/#3 at the seam: RAISES ValueError unless `verdict` is the UNFORGEABLE, BOUND proof
     `close.run_close` mints — `close.verify_proof` requires the run_close-only token, a digest
-    that BINDS to THIS exact payload (slug + spec + intent + cites + proposes), and both blind
-    reviewers passed. A hand-built dict, a proof minted for a different artefato (digest
-    mismatch), or a single-reviewer proof raises here, before any HTML or state lands — the
-    publisher is never a back door around the gate. C3 at the seam: RAISES when `intent` is
+    that BINDS to THIS exact payload (slug + spec + intent + cites + proposes + distills +
+    skill), both blind reviewers passed, and both CANONICAL reviewer identities are present. A
+    hand-built dict, a proof minted for a different artefato (digest mismatch), an altered
+    distills/skill, a single-reviewer proof, or a proof from fake reviewers raises here, before
+    any HTML or state lands — the publisher is never a back door around the gate. C3 at the seam: RAISES when `intent` is
     missing/empty — you cannot publish without the kernel (and defensively when the genus
     contract is violated). #4 at the seam: the slug is validated + contained under blog_dir,
     the page written via temp+rename.
@@ -103,7 +106,8 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     is injectable so the source-signal step runs offline.
     """
     verify_proof(verdict, slug=slug, spec=spec, intent=intent,
-                 cites=cites or [], proposes=proposes or [])
+                 cites=cites or [], proposes=proposes or [],
+                 distills=distills, skill=skill)
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
 

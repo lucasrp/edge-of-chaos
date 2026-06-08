@@ -26,18 +26,23 @@ def _fake_embed(text):
     return [float(len(text)), 1.0]
 
 
-def _passing_proof(slug, spec, intent, *, cites=None, proposes=None):
-    """A BOUND passing proof for the exact payload — minted by `close` the same way
-    `run_close` mints it (run_close-only token + sha256 digest of slug+spec+intent+
-    cites+proposes + both passing reviewer verdicts). The publisher refuses anything not
-    bound to the payload it is actually publishing, so a test must mint against the same
-    args it then publishes."""
+def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
+                   distills=None, skill="report"):
+    """A BOUND passing proof for the exact payload — minted via close's PRIVATE `_mint_proof`
+    the same way `run_close` mints it (run_close-only token + sha256 digest of
+    slug+spec+intent+cites+proposes+distills+skill + both passing reviewer verdicts carrying
+    the CANONICAL reviewer identities). This is the explicit TEST-ONLY seam standing in for
+    run_close; it stamps the two canonical identities verify_proof requires. The publisher
+    refuses anything not bound to the payload (and identities) it is actually publishing."""
     verdicts = [
-        {"pass": True, "scores": {}, "strikes": [], "overall": 4.0},
-        {"pass": True, "scores": {}, "strikes": [], "overall": 4.0},
+        {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
+         "reviewer": close.FEYNMAN_REVIEWER_ID},
+        {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
+         "reviewer": close.REGULAR_REVIEWER_ID},
     ]
-    return close.mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
-                            cites=cites or [], proposes=proposes or [])
+    return close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
+                             cites=cites or [], proposes=proposes or [],
+                             distills=distills, skill=skill)
 
 
 def _spec():
@@ -146,6 +151,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                 "cites": [],
                 "proposes": [],
                 "intent": "open: x; bet: y",
+                "skill": "report",
             }
             published = []
 
@@ -153,17 +159,18 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                 published.append(
                     publisher.publish(
                         artefato["slug"], artefato["content"], intent=artefato["intent"],
-                        skill="report", date="2026-06-08", log=log, blog_dir=tmp,
+                        skill=artefato["skill"], date="2026-06-08", log=log, blog_dir=tmp,
                         embed_fn=_fake_embed, verdict=verdict,
                     )
                 )
 
-            def always_pass(artefato, complete_fn=None):
-                return {"pass": True, "scores": {}, "strikes": [], "overall": 4.0}
-
+            # the enforced path uses the REAL canonical reviewers, so the proof carries the
+            # two canonical identities verify_proof requires.
             result = close.run_close(
-                art, produce_fn=lambda: art, reviewers=(always_pass, always_pass),
-                complete_fn=lambda *a, **k: "", publish_fn=publish_fn,
+                art, produce_fn=lambda: art,
+                reviewers=(close.feynman_review, close.regular_review),
+                complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
+                publish_fn=publish_fn,
             )
             self.assertTrue(result["pass"])
             self.assertEqual(len(published), 1)              # published exactly once
@@ -211,10 +218,11 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
         # reviewers must have passed.
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            one = close.mint_proof(
-                [{"pass": True, "scores": {}, "strikes": [], "overall": 4.0}],
+            one = close._mint_proof(
+                [{"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
+                  "reviewer": close.FEYNMAN_REVIEWER_ID}],
                 slug="single", spec=_spec(), intent="open: x; bet: y",
-                cites=[], proposes=[])
+                cites=[], proposes=[], distills=None, skill="report")
             with self.assertRaises(ValueError):
                 publisher.publish(
                     "single", _spec(), intent="open: x; bet: y", skill="report",
@@ -222,6 +230,55 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                     verdict=one,
                 )
             self.assertEqual(eventlog.corpus_at(log=log), [])
+
+    def test_altered_distills_at_the_seam_raises_and_writes_nothing(self):
+        # Codex re-review #3: the proof binds `distills`. A proof-holder who alters distills
+        # at publish time (poisoning provenance) is rejected — the digest no longer matches.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "bound-distills"
+            reviewed_distills = [{"page": "memory", "body": "what was reviewed"}]
+            proof = _passing_proof(slug, _spec(), "open: x; bet: y",
+                                   distills=reviewed_distills)
+            with self.assertRaises(ValueError):
+                publisher.publish(
+                    slug, _spec(), intent="open: x; bet: y", skill="report",
+                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                    distills=[{"page": "memory", "body": "POISONED at publish"}],
+                    verdict=proof,
+                )
+            self.assertEqual(eventlog.corpus_at(log=log), [])
+            self.assertFalse((Path(tmp) / f"{slug}.html").exists())
+
+    def test_altered_skill_at_the_seam_raises_and_writes_nothing(self):
+        # the proof binds `skill`; publishing under a different skill is rejected.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "bound-skill"
+            proof = _passing_proof(slug, _spec(), "open: x; bet: y", skill="report")
+            with self.assertRaises(ValueError):
+                publisher.publish(
+                    slug, _spec(), intent="open: x; bet: y", skill="plan",
+                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                    verdict=proof,
+                )
+            self.assertEqual(eventlog.corpus_at(log=log), [])
+            self.assertFalse((Path(tmp) / f"{slug}.html").exists())
+
+    def test_bound_distills_publishes_when_unchanged(self):
+        # the matching distills/skill publishes cleanly (the bind does not over-reject).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "matching-distills"
+            reviewed_distills = [{"page": "memory", "body": "what was reviewed"}]
+            proof = _passing_proof(slug, _spec(), "open: x; bet: y",
+                                   distills=reviewed_distills)
+            path = publisher.publish(
+                slug, _spec(), intent="open: x; bet: y", skill="report",
+                date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                distills=reviewed_distills, verdict=proof,
+            )
+            self.assertTrue(Path(path).exists())
 
     def test_run_close_failing_gate_never_publishes(self):
         with tempfile.TemporaryDirectory() as tmp:

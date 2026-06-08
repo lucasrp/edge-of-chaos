@@ -297,6 +297,16 @@ def _review(focus: str, artefato: dict, complete_fn) -> dict:
     return _parse_verdict(raw)
 
 
+# The canonical reviewer IDENTITIES (Codex re-review #3). A passing proof must carry verdicts
+# from BOTH of these named reviewers; verify_proof requires both. run_close stamps the identity
+# onto each verdict from the canonical reviewer's `.identity` attribute — a fake/injected
+# reviewer has none, so its verdict carries no canonical identity and the proof fails identity
+# verification. The identity is the reviewer's role name (not its provider), so swapping the
+# review router does not invalidate proofs.
+FEYNMAN_REVIEWER_ID = "feynman_review"
+REGULAR_REVIEWER_ID = "regular_review"
+
+
 def feynman_review(artefato: dict, complete_fn) -> dict:
     """The feynman gate (rigor + honesty), blind. Returns {pass, scores, strikes, overall}."""
     return _review(_FEYNMAN_FOCUS, artefato, complete_fn)
@@ -305,6 +315,12 @@ def feynman_review(artefato: dict, complete_fn) -> dict:
 def regular_review(artefato: dict, complete_fn) -> dict:
     """The regular gate (clarity + craft), blind. Returns {pass, scores, strikes, overall}."""
     return _review(_REGULAR_FOCUS, artefato, complete_fn)
+
+
+# Stamp each canonical reviewer with its identity so run_close can record WHO reviewed (only
+# the canonical reviewers carry one; an injected fake reviewer does not).
+feynman_review.identity = FEYNMAN_REVIEWER_ID
+regular_review.identity = REGULAR_REVIEWER_ID
 
 
 # ---------------------------------------------------------------------------
@@ -325,11 +341,20 @@ LOOP2_MAX_REOPENS = 1     # serendipity may reopen loop-1 at most this many time
 # A passing review is no longer a shape-only dict the publisher trusts on sight (a forged or
 # stale `{pass: True, verdicts: [...]}` published unreviewed/different content). The proof
 # `run_close` mints is bound to a sha256 DIGEST of the EXACT publish payload (slug + spec +
-# intent + cites + proposes), carries BOTH reviewer verdicts, and is stamped with a
-# `run_close`-only secret token minted ONCE per process — a caller cannot fabricate one
-# because the token never leaves this module. `verify_proof` (called at the publish seam)
-# refuses unless the token is run_close's, the digest matches the payload actually being
-# published, and the configured number of reviewers all passed.
+# intent + cites + proposes + distills + skill — EVERY state/page-affecting publish arg, #3),
+# carries BOTH reviewer verdicts each stamped with its CANONICAL reviewer identity (#3), and is
+# stamped with a `run_close`-only secret token minted ONCE per process — a caller cannot
+# fabricate one because the token never leaves this module. The mint itself is module-PRIVATE
+# (`_mint_proof`, #3): only run_close (and the explicit test seam) can reach it. `verify_proof`
+# (called at the publish seam) refuses unless the token is run_close's, the digest matches the
+# payload actually being published (so distills/skill cannot be altered post-mint), the
+# configured number of reviewers all passed, AND both canonical reviewer identities are present.
+#
+# RESIDUAL (architecture, not a code fix): a producer agent with in-process code execution can
+# still call the private `_mint_proof` or fabricate the canonical identities. FULL enforcement
+# requires the close to run OUTSIDE the producer's context — a real trust boundary / blind
+# reviewer subagents the producer cannot reach. This module raises the in-process bar; it does
+# not (and cannot, in-process) close that residual.
 # ---------------------------------------------------------------------------
 
 # The run_close-only secret: a fresh per-process token. It is module-private and is stamped
@@ -338,41 +363,57 @@ LOOP2_MAX_REOPENS = 1     # serendipity may reopen loop-1 at most this many time
 _PROOF_TOKEN = secrets.token_hex(32)
 
 
-def proof_digest(*, slug, spec, intent, cites, proposes) -> str:
+def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=None) -> str:
     """The sha256 digest BINDING a proof to the EXACT publish payload. Canonical JSON
     (sorted keys) so the same payload always digests identically and the publisher can
     recompute it from the args it is about to publish — any difference (different slug, spec,
-    intent, cites, or proposes) yields a different digest and is rejected."""
+    intent, cites, proposes, distills, or skill) yields a different digest and is rejected.
+
+    Codex re-review #3: `distills` and `skill` are page/state-affecting publish arguments
+    (they ride the durable `artefato.published` event), so they MUST be bound — otherwise a
+    proof-holder could alter them at publish time without invalidating the proof (poisoning
+    provenance)."""
     payload = {
         "slug": slug,
         "spec": spec,
         "intent": intent,
         "cites": cites or [],
         "proposes": proposes or [],
+        "distills": distills or [],
+        "skill": skill,
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def mint_proof(verdicts, *, slug, spec, intent, cites, proposes) -> dict:
+def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
+                distills=None, skill=None) -> dict:
     """Mint the bound, token-stamped proof for a passing close. Carries BOTH reviewer
-    verdicts, the digest of the exact payload, and the run_close-only token. Only `run_close`
-    (and tests standing in for it) calls this; a producer cannot forge the token."""
+    verdicts (each stamped by run_close with its canonical reviewer identity), the digest of
+    the exact payload (now including distills + skill), and the run_close-only token.
+
+    Codex re-review #3: this is module-PRIVATE — ONLY `run_close` (and the explicit test-only
+    seam standing in for it) calls it. It is no longer a public function a producer could call
+    to stamp the valid token onto a verdict list of its own choosing."""
     return {
         "pass": True,
         "verdicts": list(verdicts),
         "digest": proof_digest(slug=slug, spec=spec, intent=intent,
-                               cites=cites, proposes=proposes),
+                               cites=cites, proposes=proposes,
+                               distills=distills, skill=skill),
         "token": _PROOF_TOKEN,
     }
 
 
-def verify_proof(proof, *, slug, spec, intent, cites, proposes, reviewer_count=2):
+def verify_proof(proof, *, slug, spec, intent, cites, proposes,
+                 distills=None, skill=None, reviewer_count=2):
     """Verify a proof BINDS to the payload being published — raise ValueError otherwise,
     BEFORE any state/HTML is written. Refuses unless: the token is run_close's (not a
-    fabricated one), the digest matches THIS payload (a proof minted for a different
-    artefato is rejected), and all `reviewer_count` reviewers passed (a single-reviewer
-    proof is rejected)."""
+    fabricated one), the digest matches THIS payload — now including distills + skill, so a
+    proof-holder cannot alter the persisted distills/skill (#3) — all `reviewer_count`
+    reviewers passed (a single-reviewer proof is rejected), AND the verdicts carry BOTH
+    canonical reviewer identities (a proof built from fake/injected reviewers is rejected on
+    identity grounds, #3)."""
     if not isinstance(proof, dict):
         raise ValueError(f"cannot publish artefato {slug!r}: no proof (#2)")
     if not secrets.compare_digest(str(proof.get("token", "")), _PROOF_TOKEN):
@@ -380,17 +421,23 @@ def verify_proof(proof, *, slug, spec, intent, cites, proposes, reviewer_count=2
             f"cannot publish artefato {slug!r}: forged/absent proof token — "
             "publish only through close.run_close (#2)")
     expected = proof_digest(slug=slug, spec=spec, intent=intent,
-                            cites=cites, proposes=proposes)
+                            cites=cites, proposes=proposes,
+                            distills=distills, skill=skill)
     if not secrets.compare_digest(str(proof.get("digest", "")), expected):
         raise ValueError(
             f"cannot publish artefato {slug!r}: proof digest does not bind to this "
-            "payload (minted for a different artefato) (#2)")
+            "payload (minted for a different artefato, or distills/skill altered) (#3)")
     verdicts = proof.get("verdicts") or []
     if len(verdicts) != reviewer_count or not all(
             isinstance(v, dict) and v.get("pass") for v in verdicts):
         raise ValueError(
             f"cannot publish artefato {slug!r}: proof lacks {reviewer_count} passing "
             "reviewer verdicts (#2)")
+    identities = {v.get("reviewer") for v in verdicts}
+    if not {FEYNMAN_REVIEWER_ID, REGULAR_REVIEWER_ID} <= identities:
+        raise ValueError(
+            f"cannot publish artefato {slug!r}: proof lacks both canonical reviewer "
+            "identities — built from fake/injected reviewers (#3)")
 
 
 def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
@@ -428,13 +475,23 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
             bounces += 1
             artefato = produce_fn()
             continue
-        verdicts = [r(artefato, complete_fn) for r in reviewers]
+        verdicts = []
+        for r in reviewers:
+            v = r(artefato, complete_fn)
+            # stamp the canonical reviewer identity (#3) — only the canonical reviewers carry
+            # an `.identity`; an injected fake reviewer leaves the verdict unstamped, so the
+            # minted proof will fail verify_proof's identity check.
+            identity = getattr(r, "identity", None)
+            if identity is not None:
+                v = {**v, "reviewer": identity}
+            verdicts.append(v)
         if all(v["pass"] for v in verdicts):
-            proof = mint_proof(
+            proof = _mint_proof(
                 verdicts,
                 slug=artefato.get("slug"), spec=artefato.get("content"),
                 intent=artefato.get("intent"), cites=artefato.get("cites"),
-                proposes=artefato.get("proposes"))
+                proposes=artefato.get("proposes"),
+                distills=artefato.get("distills"), skill=artefato.get("skill"))
             if publish_fn is not None:
                 publish_fn(artefato, proof)
             return proof
