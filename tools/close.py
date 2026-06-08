@@ -17,7 +17,7 @@ import hashlib
 import json
 import secrets
 
-from render import BLOCK_SCHEMAS
+from render import BLOCK_SCHEMAS, _BLOCK_TYPE_ALIASES
 
 # ---------------------------------------------------------------------------
 # Genus contract constants — the pinned field shapes + the visual palette
@@ -76,10 +76,14 @@ def _check_cites(cites: list) -> list[str]:
             violations.append(f"cite must be a dict, got {type(cite).__name__}: {cite!r}")
             continue
         ref = cite.get("ref")
-        label = ref or "(cite with no ref)"
-        if not ref:
+        snippet = cite.get("snippet")
+        label = ref if isinstance(ref, str) and ref.strip() else "(cite with no ref)"
+        # ref and snippet must each be a STRING with non-empty .strip() content — a non-string
+        # (e.g. an int ref or a dict snippet) or a whitespace-only string is a violation, so a
+        # malformed cite field can never mint a proof (Codex round-6).
+        if not (isinstance(ref, str) and ref.strip()):
             violations.append(f"cite missing ref: {label}")
-        if not cite.get("snippet"):
+        if not (isinstance(snippet, str) and snippet.strip()):
             violations.append(f"cite missing snippet: {label}")
     return violations
 
@@ -102,11 +106,17 @@ def _check_block_schemas(content: dict) -> list[str]:
     """Validate every block's required fields against render.BLOCK_SCHEMAS (#7), so a malformed
     block fails the genus here instead of crashing render later. A required field may be carried
     directly OR via one of the schema's synonyms (render normalizes those before rendering).
-    Block types not in BLOCK_SCHEMAS (aliases / unknown) are skipped — render resolves or
-    degrades those without raising."""
+
+    The block type is first normalized to its CANONICAL form via render's shared alias map
+    (`_BLOCK_TYPE_ALIASES`, imported — never duplicated) so that an alias block (e.g. text→paragraph,
+    note→callout) is checked against the canonical schema's required fields. Otherwise an alias would
+    skip the required-field check, pass genus, then CRASH when render_block canonicalizes it (Codex
+    round-6). Block types still not in BLOCK_SCHEMAS after canonicalization (genuinely unknown) are
+    skipped — render degrades those to an HTML comment without raising."""
     violations = []
     for block in _iter_blocks(content):
         block_type = block.get("type", "paragraph")
+        block_type = _BLOCK_TYPE_ALIASES.get(block_type, block_type)
         schema = BLOCK_SCHEMAS.get(block_type)
         if schema is None:
             continue

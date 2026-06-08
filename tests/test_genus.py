@@ -192,5 +192,64 @@ class GenusCoversTheFullRenderTree(unittest.TestCase):
                         f"expected a flow-example required-field violation, got {violations}")
 
 
+class GenusCanonicalizesAliasBlocksBeforeSchemaCheck(unittest.TestCase):
+    """Codex round-6 [medium] — alias blocks bypass genus schema validation. `_check_block_schemas`
+    looked up BLOCK_SCHEMAS by the RAW block type and skipped types not found, so renderer aliases
+    (text→paragraph, note→callout) skipped required-field validation; render_block later canonicalizes
+    them and the canonical renderer requires fields. So `{"type":"text"}` (no text) passed genus, got a
+    proof, then CRASHED at render. The genus must normalize each block's type to its CANONICAL form
+    (via render's shared alias map) BEFORE the BLOCK_SCHEMAS lookup + required-field check."""
+
+    def test_alias_block_missing_canonical_required_field_is_flagged(self):
+        art = _wellformed()
+        # `text` is an alias for `paragraph`; paragraph requires the `text` field. A bare
+        # {"type": "text"} carries no text → would crash render. It must be a genus violation.
+        art["content"]["sections"][0]["blocks"].append({"type": "text"})
+        violations = close.check_genus(art)
+        self.assertTrue(any("text" in v.lower() for v in violations),
+                        f"expected an alias→paragraph missing-text violation, got {violations}")
+
+    def test_wellformed_alias_block_passes(self):
+        """A well-formed alias block (text→paragraph carrying the canonical `text`) is clean."""
+        art = _wellformed()
+        art["content"]["sections"][0]["blocks"].append(
+            {"type": "text", "text": "carried via the text alias"})
+        violations = close.check_genus(art)
+        self.assertEqual(violations, [])
+
+
+class GenusRejectsMalformedCiteFieldTypes(unittest.TestCase):
+    """Codex round-6 [medium] — malformed cite fields still pass. The cite check only tested
+    truthiness of `ref`/`snippet`, so a dict snippet, a whitespace-only string, or a non-string ref
+    passed. Both `ref` and `snippet` must be STRINGS with non-empty `.strip()` content."""
+
+    def test_non_string_snippet_is_a_violation(self):
+        art = _wellformed()
+        art["cites"] = [{"ref": "github:abc123", "snippet": {"text": "x"}}]
+        violations = close.check_genus(art)
+        self.assertTrue(any("snippet" in v.lower() for v in violations),
+                        f"expected a snippet violation, got {violations}")
+
+    def test_whitespace_only_snippet_is_a_violation(self):
+        art = _wellformed()
+        art["cites"] = [{"ref": "github:abc123", "snippet": "   "}]
+        violations = close.check_genus(art)
+        self.assertTrue(any("snippet" in v.lower() for v in violations),
+                        f"expected a snippet violation, got {violations}")
+
+    def test_non_string_ref_is_a_violation(self):
+        art = _wellformed()
+        art["cites"] = [{"ref": 123, "snippet": "a real snippet"}]
+        violations = close.check_genus(art)
+        self.assertTrue(any("ref" in v.lower() for v in violations),
+                        f"expected a ref violation, got {violations}")
+
+    def test_normal_string_cite_passes(self):
+        art = _wellformed()
+        violations = close.check_genus(art)
+        self.assertFalse(any("cite" in v.lower() for v in violations),
+                         f"expected no cite violation, got {violations}")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
