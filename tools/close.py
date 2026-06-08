@@ -332,8 +332,12 @@ def _parse_verdict(raw: str) -> dict:
     if not isinstance(strikes, list):
         return _failing_verdict(
             f"strikes is not a list, got {type(strikes).__name__}: {strikes!r}", scores)
-    # Exact boolean identity — `bool("false")` is True, so coercion is forbidden here.
-    passed = result.get("pass") is True
+    # Exact boolean identity — `bool("false")` is True, so coercion is forbidden here — AND a
+    # struck verdict can never pass (Codex round-9 [high]): a non-empty `strikes` list makes the
+    # verdict FAIL even when `pass` is True. The close protocol is that ANY reviewer strike must
+    # bounce/fail, so `{"pass":true,"strikes":["uncited claim"]}` is a FAILING verdict; only
+    # `pass is True AND no strikes` passes. The strikes are preserved below for the bounce.
+    passed = (result.get("pass") is True) and not strikes
     # Score hardening: any non-numeric / malformed score (a string, an object, a bool) fails
     # closed — it does NOT pass and is NOT silently coerced. We strike it and recompute the
     # overall from only the numeric scores so the weighted overall never crashes.
@@ -470,6 +474,18 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
     }
 
 
+def _verdict_clean(verdict) -> bool:
+    """A verdict mints/verifies a passing proof ONLY iff it is a dict, `pass is True`, AND it
+    carries NO strikes (Codex round-9 [high]). A struck verdict — even one whose `pass` slipped
+    through as True (an injected reviewer, an unforeseen shape) — can never mint or verify a
+    proof, enforcing the close protocol that ANY reviewer strike must bounce/fail. A non-list
+    `strikes` is treated as non-empty (fail-closed), so a degraded shape can never sneak a pass."""
+    if not isinstance(verdict, dict) or verdict.get("pass") is not True:
+        return False
+    strikes = verdict.get("strikes", [])
+    return isinstance(strikes, list) and not strikes
+
+
 def verify_proof(proof, *, slug, spec, intent, cites, proposes,
                  distills=None, skill=None, reviewer_count=2):
     """Verify a proof BINDS to the payload being published — raise ValueError otherwise,
@@ -493,11 +509,10 @@ def verify_proof(proof, *, slug, spec, intent, cites, proposes,
             f"cannot publish artefato {slug!r}: proof digest does not bind to this "
             "payload (minted for a different artefato, or distills/skill altered) (#3)")
     verdicts = proof.get("verdicts") or []
-    if len(verdicts) != reviewer_count or not all(
-            isinstance(v, dict) and v.get("pass") for v in verdicts):
+    if len(verdicts) != reviewer_count or not all(_verdict_clean(v) for v in verdicts):
         raise ValueError(
             f"cannot publish artefato {slug!r}: proof lacks {reviewer_count} passing "
-            "reviewer verdicts (#2)")
+            "reviewer verdicts with no strikes (#2/#9)")
     identities = {v.get("reviewer") for v in verdicts}
     if not {FEYNMAN_REVIEWER_ID, REGULAR_REVIEWER_ID} <= identities:
         raise ValueError(
@@ -559,7 +574,7 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
             if identity is not None:
                 v = {**v, "reviewer": identity}
             verdicts.append(v)
-        if all(v["pass"] for v in verdicts):
+        if all(_verdict_clean(v) for v in verdicts):
             proof = _mint_proof(
                 verdicts,
                 slug=artefato.get("slug"), spec=artefato.get("content"),

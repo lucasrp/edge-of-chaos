@@ -230,6 +230,32 @@ class VerdictParsingFailsClosed(unittest.TestCase):
         self.assertFalse(verdict["pass"])
 
 
+class StruckVerdictFailsEvenWhenPassIsTrue(unittest.TestCase):
+    """Codex round-9 [high]: a struck reviewer verdict must NEVER mint a passing verdict.
+    `_parse_verdict` checked only `result['pass'] is True` and IGNORED a non-empty `strikes`
+    list, so a canonical reviewer response `{"pass":true,"strikes":["uncited claim"]}` yielded
+    a PASS despite the close protocol that ANY reviewer strike must bounce/fail. The fix:
+    `passed = (result['pass'] is True) and not strikes` — a non-empty strikes list makes the
+    verdict FAIL while the strikes are preserved for the bounce. A clean strikes:[] still passes.
+    """
+
+    def test_pass_true_with_strikes_is_a_failing_verdict(self):
+        verdict = close._parse_verdict(
+            '{"pass": true, "scores": {}, "strikes": ["uncited claim"]}')
+        self.assertFalse(verdict["pass"])
+        self.assertIn("uncited claim", verdict["strikes"])
+
+    def test_pass_true_with_empty_strikes_still_passes(self):
+        verdict = close._parse_verdict('{"pass": true, "scores": {}, "strikes": []}')
+        self.assertTrue(verdict["pass"])
+
+    def test_struck_verdict_through_feynman_reviewer_fails(self):
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer('{"pass": true, "scores": {}, "strikes": ["uncited claim"]}')
+        verdict = close.feynman_review(art, complete_fn=fn)
+        self.assertFalse(verdict["pass"])
+
+
 class DegradedVerdictShapeNeverRaises(unittest.TestCase):
     """Codex round-8 [medium]: kill the WHOLE degraded-reviewer-output class, not just
     `scores:null`. `_parse_verdict` assumed `result['scores']` was a dict and called

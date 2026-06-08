@@ -548,5 +548,79 @@ class DegradedReviewerExceptionsBounceNeverCrash(unittest.TestCase):
         self.assertEqual(len(published), 1)
 
 
+class StruckVerdictCannotMintOrVerifyAProof(unittest.TestCase):
+    """Codex round-9 [high]: a struck reviewer verdict must NEVER mint or verify a passing
+    proof. Even when both canonical reviewers return `{"pass":true,"strikes":["x"]}`, the
+    close protocol says ANY strike must bounce/fail — so run_close BOUNCES then HARD-FAILS and
+    publish_fn is NEVER called. A clean `{"pass":true,"strikes":[]}` still passes and publishes.
+    A non-list strikes already fails closed (round-8). verify_proof also rejects a proof whose
+    verdicts carry strikes."""
+
+    def _publisher(self):
+        published = []
+
+        def publish_fn(artefato, proof):
+            published.append((artefato, proof))
+
+        return publish_fn, published
+
+    def test_both_reviewers_pass_with_strikes_bounces_then_hard_fails_never_publishes(self):
+        publish_fn, published = self._publisher()
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": ["uncited claim"]}',
+            publish_fn=publish_fn,
+        )
+        self.assertFalse(result["pass"])      # struck → no pass proof
+        self.assertNotIn("token", result)     # not a minted proof
+        self.assertEqual(published, [])       # publish_fn never called
+
+    def test_clean_empty_strikes_still_mints_and_publishes(self):
+        publish_fn, published = self._publisher()
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
+            publish_fn=publish_fn,
+        )
+        self.assertTrue(result["pass"])
+        self.assertEqual(len(published), 1)
+
+    def test_non_list_strikes_still_fails_closed(self):
+        publish_fn, published = self._publisher()
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": "oops"}',
+            publish_fn=publish_fn,
+        )
+        self.assertFalse(result["pass"])
+        self.assertEqual(published, [])
+
+    def test_verify_proof_rejects_a_proof_whose_verdicts_carry_strikes(self):
+        # a proof whose verdicts pass-but-carry-strikes must be rejected at the publish seam.
+        art = _conformant_artefato()
+        # mint a legitimate proof, then poison its verdicts with strikes.
+        proof = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
+        )
+        self.assertTrue(proof["pass"])
+        struck = {
+            **proof,
+            "verdicts": [{**v, "strikes": ["uncited claim"]} for v in proof["verdicts"]],
+        }
+        with self.assertRaises(ValueError):
+            close.verify_proof(
+                struck, slug=art["slug"], spec=art["content"], intent=art["intent"],
+                cites=art["cites"], proposes=art["proposes"], reviewer_count=2,
+            )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
