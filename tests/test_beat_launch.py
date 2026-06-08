@@ -7,6 +7,8 @@ into one `claude -p -` invocation — no envelope, no retry. Cognition lives in 
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -131,6 +133,48 @@ class BeatPostDispatchGateAssertsCorpusProgress(unittest.TestCase):
             eventlog.publish_artefato_atomic("fresh", "why-fresh", log=log)
             gaps = _beat.assert_beat_produced(log, before)
             self.assertEqual(gaps, [], f"a new kerneled Artefato is a produced beat: {gaps}")
+
+
+class HeartbeatLockSerializesTheCriticalSection(unittest.TestCase):
+    """Codex gate round-4 [medium]: the heartbeat captures before_count BEFORE dispatch and accepts
+    ANY corpus increase after `claude -p` returns — so two overlapping heartbeats let one invocation
+    produce nothing yet pass (another producer appended a kerneled Artefato during its window). The
+    fix serializes the WHOLE critical section {before_count -> claude -p -> assert_beat_produced} on
+    an exclusive flock so a corpus increase is attributable to the invocation that produced it.
+
+    `_beat.heartbeat_lock(home)` is the context manager holding that flock. Two threads contending
+    for it are MUTUALLY EXCLUSIVE: the second cannot enter while the first holds it (no overlapping
+    window). Mirrors test_beat_round_robin's barrier + concurrency check."""
+
+    def test_two_contending_threads_never_overlap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            inside = 0          # how many threads are inside the critical section right now
+            max_inside = 0      # the high-water mark — must never exceed 1 if mutually exclusive
+            mu = threading.Lock()
+            start = threading.Barrier(2)
+
+            def worker():
+                nonlocal inside, max_inside
+                start.wait()  # maximize contention on the lock
+                with _beat.heartbeat_lock(home):
+                    with mu:
+                        inside += 1
+                        max_inside = max(max_inside, inside)
+                    time.sleep(0.05)  # hold the section so an overlap would be observed
+                    with mu:
+                        inside -= 1
+
+            threads = [threading.Thread(target=worker) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            # If the lock serializes, only ever one thread is inside the section at a time.
+            self.assertEqual(max_inside, 1,
+                             "heartbeat_lock must serialize: the second thread entered the "
+                             "critical section while the first still held the lock")
 
 
 if __name__ == "__main__":

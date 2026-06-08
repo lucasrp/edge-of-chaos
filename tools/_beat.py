@@ -8,11 +8,36 @@ import fcntl
 import json
 import os
 import shutil
+from contextlib import contextmanager
 from pathlib import Path
 
 import eventlog
 
 REPO = Path(__file__).resolve().parent.parent
+
+
+@contextmanager
+def heartbeat_lock(home):
+    """Serialize the WHOLE heartbeat critical section {capture before_count -> run claude -p ->
+    assert_beat_produced} across concurrent heartbeats (Codex gate round-4 [medium]).
+
+    The post-dispatch gate captures a corpus count BEFORE dispatch and accepts ANY increase after
+    `claude -p` returns. Under overlap that breaks: two heartbeats (or a heartbeat + another
+    producer) let one invocation produce NOTHING yet pass, because another appended a kerneled
+    Artefato inside its before/after window — so a corpus increase is no longer attributable to the
+    invocation that produced it. Holding an exclusive `fcntl.flock` on a per-install lockfile for the
+    full window (the same flock pattern as `next_producer`/`append_batch`) means the second heartbeat
+    cannot begin its own before/after window until the first's gate completes: no overlap, so any
+    increase is attributable to the invocation that produced it. Blocking flock is simplest + correct.
+    """
+    lock_path = Path(home) / "state" / "beat" / "heartbeat.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def assert_beat_produced(log, before_count) -> list:
