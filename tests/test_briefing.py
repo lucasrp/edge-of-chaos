@@ -597,6 +597,31 @@ class SourceRosterFailsClosedWithoutRealRoster(unittest.TestCase):
             with self.assertRaises(briefing.BriefingIdentityError):
                 briefing.source_roster(agent_yaml=ay)
 
+    def test_string_sources_fails_closed_not_attributeerror(self):
+        # a non-list `sources:` (a bare string) is a malformed roster SHAPE — it must raise the
+        # typed BriefingIdentityError (the fail-closed path), NOT an AttributeError.
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = Path(tmp) / "agent.yaml"
+            ay.write_text("name: ed\nsources: just-a-string\n")
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing.source_roster(agent_yaml=ay)
+
+    def test_dict_sources_fails_closed_not_attributeerror(self):
+        # a mapping `sources:` (not a list) is a malformed roster SHAPE → typed BriefingIdentityError.
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = Path(tmp) / "agent.yaml"
+            ay.write_text("name: ed\nsources:\n  exa:\n    kind: api\n    description: d\n")
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing.source_roster(agent_yaml=ay)
+
+    def test_non_mapping_entry_fails_closed_not_attributeerror(self):
+        # a list whose entry is a scalar (not a mapping) → typed BriefingIdentityError, not AttributeError.
+        with tempfile.TemporaryDirectory() as tmp:
+            ay = Path(tmp) / "agent.yaml"
+            ay.write_text("name: ed\nsources:\n  - just-a-string\n")
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing.source_roster(agent_yaml=ay)
+
     def test_valid_roster_includes_native_source_additively(self):
         with tempfile.TemporaryDirectory() as tmp:
             ay = _complete_yaml(Path(tmp) / "agent.yaml")

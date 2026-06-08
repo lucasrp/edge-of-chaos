@@ -138,7 +138,8 @@ def main() -> None:
 
     if args.validate:
         report, healthy = _validate.format_report(_validate.validate_install(
-            home, cfg, env_dir, provisioned=True, repo_tools=REPO / "tools"))
+            home, cfg, env_dir, provisioned=True, repo_tools=REPO / "tools",
+            agent_yaml=Path(args.yaml)))      # identity validates the APPLIED config, not the default
         print(report)
         sys.exit(0 if healthy else 1)
 
@@ -184,9 +185,23 @@ def main() -> None:
     if missing:
         print("aviso: há credenciais ausentes/com falha — corrija antes do heartbeat real")
 
-    report, _healthy = _validate.format_report(_validate.validate_install(
-        home, cfg, env_dir, provisioned=args.provision_runtime, repo_tools=REPO / "tools"))
+    report, healthy = _validate.format_report(_validate.validate_install(
+        home, cfg, env_dir, provisioned=args.provision_runtime, repo_tools=REPO / "tools",
+        agent_yaml=Path(args.yaml)))           # identity validates the APPLIED config, not the default
     print(report)
+    if args.provision_runtime and not healthy:
+        # AUTHORITATIVE: a PROVISIONED install that comes up unhealthy must NOT finish claiming
+        # success (today it exits 0 regardless). Best-effort: don't leave the heartbeat timer enabled
+        # on a broken install (it would dispatch a lobotomized beat); at minimum exit nonzero so the
+        # operator/automation sees the failure. (Files-only apply keeps its "report, don't block"
+        # contract — it legitimately runs before secrets are delivered.)
+        try:
+            subprocess.run(["systemctl", "--user", "disable", "--now", "edge-heartbeat.timer"],
+                           check=False)
+        except Exception:
+            pass
+        print("apply: install UNHEALTHY — heartbeat timer disabled (best-effort), see [XX] above")
+        sys.exit(1)
     sys.exit(0)
 
 

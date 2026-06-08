@@ -93,19 +93,20 @@ The inward half (thread maintenance) already persists via `grill_lint`/`grill_wr
 ## The close gate — a grill is not 'done' until the three landed (MANDATORY, stage-(ii))
 The outward half above is conditional in its *wording* — set the objective "only when sharpened", propose Direction "additively", publish an Artefato "only when the insight is real". That wording is the trap the audit catches (`docs/briefing-lifecycle-audit.md`, Codex gate [high]): a grill could read "only when…" as licence to land **nothing**, leaving the briefing's **Objective / Direction / Direcionamento** empty — and an **empty-post-grill is a stage-(ii) failure, not acceptable** (empty-on-fresh is correct; empty-after-a-grill is the bug, issue #26). The three feeders are not optional once a grill runs; "only when sharpened" means *refine the standing one*, never *skip it*.
 
-So **at the grill's close, before you call it done, run the gate**:
+So **at the grill's close, before you call it done, run the deterministic CLI close** — this is the runnable step that *decides* done, not a prose nicety. Run it at the end of **every** grill:
 
-```python
-import grill_gate
-grill_gate.assert_grill_complete(log=eventlog.LOG)   # raises naming the gaps if any is empty
+```sh
+tools/edge-python tools/grill_gate.py close   # --log optional; defaults to the install log
 ```
+
+It **exits 0** when the three landed; it **exits NONZERO and names the gaps on stderr** when any feeder is empty — fail-closed at runtime, so the grill cannot be called done while the briefing is empty regardless of prose. (The same check is callable in-process as `grill_gate.assert_grill_complete(log=eventlog.LOG)`, which raises naming the gaps — but the **close is the CLI command above**; do not rely on prose-compliance to invoke a function.)
 
 It folds the log and asserts all three landed (ADR-0006 — the durable truth the writeback already persists to):
 - **Objective** — `eventlog.objective_at()` non-empty (a `set_objective` ran — step 2);
 - **Direction** — `eventlog.direction_at()` carries a `set` OR `proposed` item (you set or proposed — additive);
 - **Direcionamento** — `eventlog.report_at()` has a latest report (a `report_direction` ran — step 3).
 
-If it raises, the grill is **not finished**: go back and land the missing feeder (sharpen/confirm the objective, set-or-propose a Direction, write the direcionamento report) — do **not** suppress the gate or manufacture empty placeholders to silence it. The insight Artefato (step 4) stays genuinely conditional and is **not** gated; the three steers are the floor.
+If it exits nonzero, the grill is **not finished**: go back and land the missing feeder (sharpen/confirm the objective, set-or-propose a Direction, write the direcionamento report), then re-run the CLI close until it exits 0 — do **not** suppress the gate or manufacture empty placeholders to silence it. The insight Artefato (step 4) stays genuinely conditional and is **not** gated; the three steers are the floor.
 
 ## First seed — form, then wait for the grill to consolidate
 On the first seed (no curated wiki yet), the edge forms the algorithmic seed but **consolidation waits for the first grill** — the seed is uncurated until grilled.

@@ -107,6 +107,114 @@ class IdentityGateFailsTheLobotomy(unittest.TestCase):
             self.assertIn("doctrine", detail.lower())
 
 
+class IdentityGateFailsClosedOnAnyComposeException(unittest.TestCase):
+    """Gate finding (1): check_identity must fail CLOSED on ANY compose exception, not only the
+    typed BriefingIdentityError. A non-typed failure (e.g. an AttributeError from a malformed
+    config) used to return ok=None — advisory — which format_report counts as non-failing →
+    HEALTHY. ANY import/compose exception is a FAIL (ok=False), never a downgrade to advisory."""
+
+    def test_non_typed_compose_exception_makes_check_identity_fail_not_advisory(self):
+        # force compose_briefing to raise a generic (non-BriefingIdentityError) exception
+        sys.path.insert(0, str(REPO / "tools"))
+        import briefing
+        orig = briefing.compose_briefing
+        briefing.compose_briefing = lambda *a, **k: (_ for _ in ()).throw(
+            RuntimeError("boom — a non-typed compose failure"))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp)
+                mem = _genotype_memory(home)
+                ay = _complete_agent_yaml(home / "agent.yaml")
+                name, ok, detail = _validate.check_identity(
+                    home, {}, agent_yaml=ay, memory=mem, log=home / "log.jsonl")
+                self.assertEqual(name, "identity")
+                self.assertIs(ok, False)         # FAIL closed, NOT None (advisory)
+                self.assertTrue(detail)
+        finally:
+            briefing.compose_briefing = orig
+
+    def test_non_typed_compose_exception_makes_install_not_healthy(self):
+        sys.path.insert(0, str(REPO / "tools"))
+        import briefing
+        orig = briefing.compose_briefing
+        briefing.compose_briefing = lambda *a, **k: (_ for _ in ()).throw(
+            AttributeError("'str' object has no attribute 'get'"))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp)
+                mem = _genotype_memory(home)
+                ay = _complete_agent_yaml(home / "agent.yaml")
+                for sub in ("blog/entries", "state", "memory", "threads", "secrets"):
+                    (home / sub).mkdir(parents=True, exist_ok=True)
+                checks = _validate.validate_install(
+                    home, {"sources": [], "routers": {}}, home / "secrets", provisioned=False,
+                    agent_yaml=ay, memory=mem, log=home / "log.jsonl")
+                by = {c[0]: c for c in checks}
+                self.assertIs(by["identity"][1], False)       # identity FAIL, not advisory
+                _, healthy = _validate.format_report(checks)
+                self.assertFalse(healthy)                     # → install NOT HEALTHY
+        finally:
+            briefing.compose_briefing = orig
+
+    def test_non_list_sources_in_agent_yaml_fails_via_check_identity(self):
+        # the integration of finding (2)+(1): a non-list `sources:` in the ACTUAL agent.yaml
+        # reaches source_roster during compose; it must surface as an identity FAIL (not advisory,
+        # not HEALTHY) whether the typed raise or the broad catch fires.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            mem = _genotype_memory(home)
+            ay = home / "agent.yaml"
+            (home / "CONTEXT.md").write_text("# Canon\n\n**beat** — term.")
+            ay.write_text(textwrap.dedent("""\
+                name: ed
+                mission: "Mentor."
+                voice: "Direct."
+                sources: just-a-string
+                ground_truth:
+                  documents:
+                """) + f'    - "{home / "CONTEXT.md"}"\n')
+            name, ok, detail = _validate.check_identity(
+                home, {}, agent_yaml=ay, memory=mem, log=home / "log.jsonl")
+            self.assertEqual(name, "identity")
+            self.assertIs(ok, False)
+            self.assertTrue(detail)
+
+
+class ValidateInstallThreadsTheAppliedAgentYaml(unittest.TestCase):
+    """Gate finding (3): validate_install must accept an `agent_yaml` path and thread it down to
+    check_identity (→ compose/source_roster), so edge-apply validates the ACTUAL applied config,
+    not the checkout default. A thin temp agent.yaml threaded through → identity FAIL; a complete
+    one → identity OK."""
+
+    def test_thin_agent_yaml_threaded_through_validate_install_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            mem = _genotype_memory(home)
+            ay = _thin_agent_yaml(home / "agent.yaml")
+            for sub in ("blog/entries", "state", "memory", "threads", "secrets"):
+                (home / sub).mkdir(parents=True, exist_ok=True)
+            checks = _validate.validate_install(
+                home, {"sources": [], "routers": {}}, home / "secrets", provisioned=False,
+                agent_yaml=ay, memory=mem, log=home / "log.jsonl")
+            by = {c[0]: c for c in checks}
+            self.assertIs(by["identity"][1], False)           # thin applied config → identity FAIL
+            _, healthy = _validate.format_report(checks)
+            self.assertFalse(healthy)
+
+    def test_complete_agent_yaml_threaded_through_validate_install_ok(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            mem = _genotype_memory(home)
+            ay = _complete_agent_yaml(home / "agent.yaml")
+            for sub in ("blog/entries", "state", "memory", "threads", "secrets"):
+                (home / sub).mkdir(parents=True, exist_ok=True)
+            checks = _validate.validate_install(
+                home, {"sources": [], "routers": {}}, home / "secrets", provisioned=False,
+                agent_yaml=ay, memory=mem, log=home / "log.jsonl")
+            by = {c[0]: c for c in checks}
+            self.assertIs(by["identity"][1], True)            # complete applied config → identity OK
+
+
 class IdentityGatePassesTheCompleteGenotype(unittest.TestCase):
     """A complete genotype + agent.yaml (identity + ground_truth + sources + docs) → check_identity
     OK, and validate_install reports HEALTHY: the four REQUIRED sections render non-empty and the

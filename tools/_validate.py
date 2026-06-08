@@ -164,16 +164,17 @@ def check_identity(home, cfg, agent_yaml=None, memory=None, log=None):
     compose it (1) asserts the stage-(i) REQUIRED genotype-identity sections are present, and (2)
     confirms the log-fed sections render their honest empty markers ON A FRESH LOG (present, not
     crashed) — composed against a throwaway empty log so a live install's populated log is not
-    mistaken for a blank. Returns ("identity", ok, detail) like the other checks; NEVER raises (an
-    import/probe failure is advisory ok=None, not a crash). `agent_yaml`/`memory`/`log` override the
+    mistaken for a blank. Returns ("identity", ok, detail) like the other checks; NEVER raises, but
+    FAILS CLOSED: ANY import/compose exception (typed or not) → ok=False, never a downgrade to
+    advisory ok=None (a compose failure is a FAIL, not 'couldn't determine'). `agent_yaml`/`memory`/`log` override the
     genotype inputs for tests; left None they default to this install's own tree (briefing.py reads
     its REPO — the canonical checkout-IS-the-home install). When `log` is passed it is treated as the
     fresh log for the empty-marker leg too (tests hand a fresh log)."""
     try:
         sys.path.insert(0, str(Path(home) / "tools"))
         import briefing
-    except Exception as e:                                   # cannot load the composer → advisory
-        return ("identity", None, "could not load briefing composer: " + str(e)[:70])
+    except Exception as e:                                   # cannot load the composer → FAIL closed
+        return ("identity", False, "could not load briefing composer (fail-closed): " + str(e)[:70])
     kw = {"clusters": None, "roster": None}                  # roster None → fail-closed source_roster
     if agent_yaml is not None:
         kw["agent_yaml"] = Path(agent_yaml)
@@ -194,8 +195,8 @@ def check_identity(home, cfg, agent_yaml=None, memory=None, log=None):
             fresh_text = briefing.compose_briefing(**dict(kw, log=fresh))
     except briefing.BriefingIdentityError as e:             # the fail-closed gate fired → lobotomy
         return ("identity", False, "identity gap (briefing fail-closed): " + str(e)[:120])
-    except Exception as e:                                   # anything else is advisory, never a crash
-        return ("identity", None, "could not compose briefing: " + str(e)[:70])
+    except Exception as e:                                   # ANY compose failure is a FAIL, never advisory
+        return ("identity", False, "could not compose briefing (fail-closed): " + str(e)[:90])
     name, ok, detail = _assert_identity_sections(text)
     if not ok:
         return (name, ok, detail)

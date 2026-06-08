@@ -8,12 +8,14 @@ must have run. The grill skill says set the objective 'only when sharpened' and 
 Direction additively — with NO gate, a grill could complete leaving them empty. This pins
 the gate that refuses that.
 """
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+GATE = REPO / "tools" / "grill_gate.py"
 sys.path.insert(0, str(REPO / "tools"))
 import eventlog  # noqa: E402
 import grill_gate  # noqa: E402
@@ -75,6 +77,40 @@ class AssertGrillCompleteRaisesOnGaps(unittest.TestCase):
             eventlog.propose("d1", "tighten the close", log=log)
             eventlog.report_direction("the steer", log=log)
             self.assertIsNone(grill_gate.assert_grill_complete(log=log))
+
+
+class CloseCLIIsFailClosed(unittest.TestCase):
+    """The runnable close: `grill_gate.py close --log <log>` exits NONZERO naming the gaps when
+    a feeder is missing, exit 0 when the three landed — so the close is deterministic at runtime,
+    not merely agent prose-compliance. Invoked via subprocess like tests/test_beat_launch.py."""
+
+    def _close(self, log):
+        return subprocess.run(
+            [sys.executable, str(GATE), "close", "--log", str(log)],
+            capture_output=True, text=True,
+        )
+
+    def test_incomplete_log_exits_nonzero_naming_the_gaps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("ship the gate", log=log)  # only objective landed
+            res = self._close(log)
+            self.assertNotEqual(res.returncode, 0, res.stdout)
+            out = res.stdout + res.stderr
+            self.assertIn("direction", out)
+            self.assertIn("direcionamento", out)
+            # the named-gaps list (before the trailing explanation) must not include objective
+            named = out.split("left empty:")[1].split("(")[0]
+            self.assertNotIn("objective", named)
+
+    def test_complete_log_exits_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("ship the gate", log=log)
+            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.report_direction("the steer", log=log)
+            res = self._close(log)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
 
 if __name__ == "__main__":

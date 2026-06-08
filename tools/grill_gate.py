@@ -11,6 +11,8 @@ have landed on the Tier-0 log (ADR-0006).
 Reads only the log via eventlog's folds — no graph, no driver: the same durable truth the grill
 already persists to, so the gate holds even offline-from-graph.
 """
+import sys
+
 import eventlog
 
 # The three stage-(ii) REQUIRED briefing sections and the feeder that fills each (the audit table).
@@ -48,3 +50,31 @@ def assert_grill_complete(log=eventlog.LOG):
             f"{', '.join(missing)} (briefing-lifecycle-audit.md). A grill is not done until "
             "objective + direction + direcionamento have landed on the log."
         )
+
+
+def main(argv=None):
+    """CLI close: `grill_gate.py close [--log PATH]` — the DETERMINISTIC, runnable grill-close.
+
+    Exits NONZERO naming the gaps if any stage-(ii) feeder didn't land; exits 0 when complete.
+    Fail-closed at runtime regardless of agent prose-compliance — this is the step that decides
+    'done', not the SKILL prose telling the agent to call a function.
+    """
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="grill_gate", description="post-grill stage-(ii) close gate")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    c = sub.add_parser("close", help="assert the three stage-(ii) feeders landed; exit nonzero on gaps")
+    c.add_argument("--log", default=str(eventlog.LOG), help="event log to fold (default: the install log)")
+    args = ap.parse_args(argv)
+
+    try:
+        assert_grill_complete(log=args.log)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    print("grill complete — objective + direction + direcionamento landed.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

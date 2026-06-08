@@ -60,11 +60,17 @@ def source_roster(agent_yaml=AGENT_YAML):
     if not sources:
         raise BriefingIdentityError("agent.yaml declares no sources — the source roster is empty "
                                     "(the native floor is additive, never the whole roster)")
+    if not isinstance(sources, list):
+        raise BriefingIdentityError(
+            f"agent.yaml `sources` is not a list ({type(sources).__name__}) — the source roster must "
+            "be a list of mappings (name + kind + description), not a string/mapping")
     roster = [dict(NATIVE_SOURCE)]
     for s in sources:
-        name = (s or {}).get("name")
-        kind = s.get("kind") if isinstance(s, dict) else None
-        desc = s.get("description") if isinstance(s, dict) else None
+        if not isinstance(s, dict):
+            raise BriefingIdentityError(
+                f"malformed source entry {s!r} — each declared source must be a mapping with "
+                "name + kind + description")
+        name, kind, desc = s.get("name"), s.get("kind"), s.get("description")
         if not (name and kind and desc):
             raise BriefingIdentityError(
                 f"malformed source entry {s!r} — each declared source needs name + kind + description")
