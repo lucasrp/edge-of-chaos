@@ -14,13 +14,14 @@ to the **producer-skill**, not the beat. The close belongs to the **shared pipel
 
 ## 1. Rotate — strict round-robin
 
-The producer roster is `["report", "map", "plan"]`. Advance the persisted cursor **strictly** and
-serve whose turn it is — successive beats yield `report`, `map`, `plan`, `report`, … (it wraps). The
+The producer roster is `["report", "research", "map", "plan", "discovery"]`. Advance the persisted cursor
+**strictly** and serve whose turn it is — successive beats yield `report`, `research`, `map`, `plan`,
+`discovery`, `report`, … (it wraps). The
 moment **does not jump the queue**: there is no judgment here, only the cursor. (`agent.yaml` already
 declares `heartbeat.skill_selection: round-robin`; this roster is what that selection rotates.)
 
     tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import _beat; \
-      print(_beat.next_producer(['report','map','plan'], 'state/beat/cursor.json'))"
+      print(_beat.next_producer(['report','research','map','plan','discovery'], 'state/beat/cursor.json'))"
 
 Breadth comes from the rotation; **aim comes from Direction** — but the aim is exercised *inside* the
 skill (step 2), never here.

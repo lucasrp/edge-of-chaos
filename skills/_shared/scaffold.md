@@ -9,23 +9,43 @@ loop structure and the context-denial ladder are the same for every producer; on
 This scaffold is **non-procrusto** by design: it names roles, never report-specifics. A `map`
 producing a diagram and a `report` producing prose-and-charts run the **same** scaffold.
 
+## Plenitude — the producer works at full depth; the subagents serve it
+
+The producer's job is **plenitude**: fed by its subagents, it develops the theme to its full
+depth — concrete, derived from first principles, tailored to the mentee, carrying what they did
+not already know. The multi-agent structure is **leverage for depth**, never a press that boils
+the work down: the subagents exist to **free the producer to go deep** (offload the grunt-work,
+develop facets in parallel, probe the gaps), not to compress the result into a single bite.
+Synthesis-to-a-bite is a **failure** of plenitude, not a success of concision — a thin honest
+summary that cut the thinking did not do the job. The producer is **free** to wield its subagents
+however it judges best toward that depth; the slots below name *roles*, not a fixed delegation shape.
+
 ## The three slots are role-defined, NOT report-defined
 
 The scaffold defines three slots by their **role** in the loop. It says what the role *does*,
 never what a particular report-form *is*:
 
-- **`gather-grounding`** — loop1's role: explorers go out and bring back evidence. The slot
-  says "gather grounding," not "fetch this URL." Whether an explorer reads a paper, a repo, or
-  a graph thread is the **producer skill's** decision. *How* an explorer reaches a world source is
+- **`gather-grounding`** — loop1's role: the producer **freely delegates to its subagent fleet**
+  to reach plenitude. Gathering grounding is one use — explorers go out and bring back evidence;
+  **decomposing the theme into facets developed in parallel** is another, as is probing the gaps a
+  first pass exposes. The producer wields the subagents **as it judges best**, within the runtime's
+  concurrency cap — the scaffold offers the affordance and per-form *guidance*, **never a fixed
+  delegation shape**. The slot says "gather grounding," not "fetch this URL." Whether an explorer
+  reads a paper, a repo, or a graph thread is the **producer skill's** decision. *How* an explorer reaches a world source is
   the same for every producer and is **never a per-source primitive** (ADR-0001): read the source's
   `via` spec in `agent.yaml` plus `state/source-roadmap.md` and call it **agentically** — the
   install's keys are already loaded. There is no `libexec/` primitive and there never will be; an
   explorer that cannot ground reports *which key it could not work*, never "a primitive is missing"
   and never waits for one to be built.
-- **`converge`** — loop2's critic role: tighten, cut, and decide whether the artefato is ready
-  to ship. The slot says "converge," not "check section order."
+- **`converge`** — loop2's critic role: decide whether the artefato is **developed to plenitude**
+  and ready to ship — the arc whole, the depth present and derived, tailored to the mentee, carrying
+  what they did not already know. Converge means *judge the development is complete*, **never** *cut
+  to a single point*. The slot says "converge," not "compress."
 - **`diverge`** — loop2's serendipity role: look sideways for the connection the convergence
-  would miss. Advisory only (see the brake below).
+  would miss. It carries a **reserved curiosity budget** (the *budget for curiosity*): a fixed slice
+  of the dispatch's spend that **must** go to a sideways thread, so serendipity is never starved by
+  the pull to converge. It does not *gate* the ship (the brake still caps reopens), but its budget is
+  **protected** — the producer can never spend 100% converging.
 
 **Role-defined, not report-defined** is the load-bearing rule. The scaffold must never hard-code
 report semantics into a slot — an explorer is a role, not a URL fetcher; a cite is a role, not a
@@ -44,12 +64,14 @@ Two loops run inside the scaffold:
   evidence. loop1 is the grounding pass: it builds the pile of evidence the producing cognition
   reasons over. (Honoring the operator rename, the grounded material is named **evidence**.)
 
-- **loop2 — critic / serendipity.** The `converge` slot's critic tightens the draft and emits a
-  verdict carrying a `ship` boolean; the loop ends the moment the critic ships. The `diverge`
-  slot's serendipity is **advisory** — it never gates. It may request a reopen of loop1, and the
-  brake honors that request **at most `LOOP2_MAX_REOPENS` times** before the loop stops anyway.
-  A critic that ships ends the loop immediately even while serendipity still wants to diverge —
-  serendipity can never hold the loop hostage.
+- **loop2 — critic / serendipity.** The `converge` slot's critic judges whether the draft is
+  **developed to plenitude** and emits a verdict carrying a `ship` boolean; the loop ends the moment
+  the critic ships — it ships on *depth reached*, never on *brevity reached*. The `diverge` slot's
+  serendipity holds a **protected curiosity budget** that is always spent, but it does not *gate*: it
+  may request a reopen of loop1, and the brake honors that request **at most `LOOP2_MAX_REOPENS`
+  times** before the loop stops anyway. A critic that ships ends the loop immediately even while
+  serendipity still wants to diverge — the reservation guarantees serendipity *happens*, never that
+  it can hold the loop hostage.
 
 The brake is not the producer's discretion: it lives in the protocol. See `tools/close.py`
 `run_loop2(artefato, critic_fn, serendipity_fn, reopen_fn)` — the testable spine that converges
@@ -68,7 +90,10 @@ read of the text is fresh, not because it lacks links.
 4. **reviewers** — content + cites **only** (evidence, session, briefing all denied).
 5. **publisher** — the final Artefato **only**.
 
-The reviewers are blind by evidence-and-session (the blindfold): they re-source every claim from
-its cite or strike it. The publisher writes the final Artefato atomically with its kernel — it
+The reviewers are blind by evidence-and-session (the blindfold): a **factual claim** must be
+re-sourceable from its cite or it is struck — but a **reasoning step** (a derivation, an inference
+from premises already on the page) is judged by its **internal validity**, not by a cite, so the
+producer's thinking-out-loud is never amputated (the depth dims reward it; ADR-0013 — freshness is
+evidence-vs-reasoning, not cites-vs-no-cites). The publisher writes the final Artefato atomically with its kernel — it
 needs nothing but the finished thing. The close that runs the reviewers and the publisher lives
 at the skill's exit, defined in `skills/_shared/pipeline.md`.

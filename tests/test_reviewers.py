@@ -4,9 +4,9 @@ ADR-0013: verification is BLIND by evidence-and-session, PROPERTY-NOT-SECTION. T
 reviewers judge the FINAL Artefato text — `feynman_review` (rigor + honesty) and
 `regular_review` (clarity + craft). Each sees ONLY the artefato content + cites; it is
 denied evidence, session, and briefing (the context-denial ladder's last rung). The dim
-rubric is the legacy 9-dim DIMENSIONS minus the two report-welded dims
-(structural_completeness, storytelling), rebalanced; each dim def is reworded from
-"section X present" to "property X present anywhere, genuine + specific".
+rubric is the legacy 9-dim DIMENSIONS with the depth dims RESTORED — development_completeness
++ narrative_depth carry the depth/arc the rewrite had dropped — but reworded PROPERTY-NOT-SECTION:
+"property X present anywhere, genuine + specific", never "section X present" (SECTIONS stay FREE).
 
 The LLM call is injectable (`complete_fn`) so these tests run offline; real runs pass a
 make_client-backed completer on the review router (Grok) — model-blindness atop context-
@@ -73,34 +73,41 @@ def _seen_text(captured):
 
 # A minimal valid verdict the fake completer can echo back.
 _PASS_VERDICT = (
-    '{"pass": true, "scores": {"content_depth": 4, "feynman_method": 4, '
+    '{"pass": true, "scores": {"development_completeness": 4, "narrative_depth": 4, '
+    '"content_depth": 4, "feynman_method": 4, '
     '"intellectual_honesty": 4, "didactic_clarity": 4, "internal_consistency": 4, '
     '"visualization": 4, "writing_quality": 4}, "strikes": [], "overall": 4.0}'
 )
 _STRIKE_VERDICT = (
-    '{"pass": false, "scores": {"content_depth": 3, "feynman_method": 2, '
+    '{"pass": false, "scores": {"development_completeness": 2, "narrative_depth": 2, '
+    '"content_depth": 3, "feynman_method": 2, '
     '"intellectual_honesty": 2, "didactic_clarity": 3, "internal_consistency": 3, '
     '"visualization": 3, "writing_quality": 3}, '
-    '"strikes": ["claim not re-sourceable from its cite"], "overall": 2.7}'
+    '"strikes": ["factual claim not re-sourceable from its cite"], "overall": 2.4}'
 )
 
-_KEPT = {"content_depth", "feynman_method", "intellectual_honesty", "didactic_clarity",
-         "internal_consistency", "visualization", "writing_quality"}
+_KEPT = {"development_completeness", "narrative_depth", "content_depth", "feynman_method",
+         "intellectual_honesty", "didactic_clarity", "internal_consistency", "visualization",
+         "writing_quality"}
 
 
-class SevenDimsBlindAndPropertyNotSection(unittest.TestCase):
-    """The S7 contract: exactly the 7 kept dims (dropped structural_completeness +
-    storytelling); weights are a {dim:weight} dict summing to 1.0; the reviewers run blind
-    (cites' content reaches the LLM, the secret evidence/session/briefing never does); the
-    honesty/feynman dim text is property-not-section (says 'anywhere', not 'O que Não Sei');
-    a claim not re-sourceable from its cite yields a strike."""
+class NineDimsBlindAndPropertyNotSection(unittest.TestCase):
+    """The S7 contract: exactly the 9 dims (depth RESTORED — development_completeness +
+    narrative_depth — without re-introducing the old section-order mandate); weights are a
+    {dim:weight} dict summing to 1.0; the reviewers run blind (cites' content reaches the LLM,
+    the secret evidence/session/briefing never does); the honesty/feynman dim text is
+    property-not-section (says 'anywhere', not 'O que Não Sei'); a FACTUAL claim not
+    re-sourceable from its cite yields a strike."""
 
-    def test_dimensions_are_exactly_the_seven_kept(self):
+    def test_dimensions_are_exactly_the_nine(self):
         self.assertEqual(set(close.DIMENSIONS), _KEPT)
+        # the OLD section-mandate dims stay gone — depth is back as PROPERTY, not section order
         self.assertNotIn("structural_completeness", close.DIMENSIONS)
         self.assertNotIn("storytelling", close.DIMENSIONS)
+        self.assertIn("development_completeness", close.DIMENSIONS)
+        self.assertIn("narrative_depth", close.DIMENSIONS)
 
-    def test_weights_are_a_dict_over_the_seven_dims_summing_to_one(self):
+    def test_weights_are_a_dict_over_the_nine_dims_summing_to_one(self):
         self.assertIsInstance(close.DIMENSION_WEIGHTS, dict)
         self.assertEqual(set(close.DIMENSION_WEIGHTS), _KEPT)
         self.assertAlmostEqual(sum(close.DIMENSION_WEIGHTS.values()), 1.0, places=6)

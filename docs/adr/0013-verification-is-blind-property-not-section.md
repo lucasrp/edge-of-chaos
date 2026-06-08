@@ -11,6 +11,20 @@ and `storytelling` — both welded to the report-form), and the freed weight reb
 consistent with ADR-0012 (the close at the skill's exit) and with the blindfold principle of the Bet-A
 Artefato.
 
+## Amendment — the depth dims are restored, content-relative (plenitude)
+
+Dropping `structural_completeness` + `storytelling` was right **as section mandates** — but it removed
+the gate's **only reward for depth**, so honest, cited, **shallow bites passed** and produced Artefatos
+collapsed (~5× shorter than the legacy reports). The fix is NOT to bring back the section mandates
+(which would false-fail a `map`/`plan` again) but to restore depth as a **property-not-section,
+content-relative** check: `development_completeness` (the form is developed to plenitude — a report's
+reasoning, a map's connections, a plan's dependencies) and `narrative_depth` (where the form carries a
+developed line it has an arc; a genuinely non-narrative form owes none — exactly like `visualization`).
+The depth cluster now **dominates** the weights. The producer's job is **plenitude** and the gate must
+reward it (`skills/_shared/scaffold.md`). This **supersedes the 7-KEPT/2-DROPPED split above** with a
+9-dim set that rewards depth without re-welding any section. The blindfold likewise strikes only an
+**uncited factual claim** — a reasoning step is judged by internal validity, never amputated.
+
 ## Status
 
 proposed (2026-06-08; Close-architecture rewrite, Story S4)

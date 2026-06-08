@@ -177,11 +177,29 @@ def _iter_blocks(content: dict):
 # above and from the S8 bounce that will follow.
 # ---------------------------------------------------------------------------
 
-# The KEPT dimensions — the legacy 9-dim DIMENSIONS (review-gate.py) minus the two
-# report-welded dims (structural_completeness = section-order mandate, storytelling =
-# narrative arc). Each def is reworded PROPERTY-NOT-SECTION: the gate checks whether the
-# property is present ANYWHERE, genuine and specific — never whether a named section exists.
+# The review dimensions — the legacy 9-dim DIMENSIONS (review-gate.py), depth dims RESTORED.
+# The rewrite had dropped the two report-welded dims (structural_completeness, storytelling) for
+# "SECTIONS FREE" — and with them went the gate's only reward for depth, so honest cited bites
+# passed. They are back as `development_completeness` and `narrative_depth`, but reworded
+# PROPERTY-NOT-SECTION: the gate checks the depth/arc is present ANYWHERE, genuine and specific,
+# never whether a named section exists or in what order. Plenitude is the bar (scaffold.md): a
+# thin honest bite that left the thinking undone FAILS.
 DIMENSIONS = {
+    "development_completeness": (
+        "The theme is DEVELOPED TO PLENITUDE for the form at hand — a report's claims reasoned "
+        "through and their implications drawn out, a map's connections richly traced, a plan's "
+        "dependencies worked out — not merely gestured at. Depth is the bar; an artefato that leaves "
+        "the thinking undone fails even when honest and cited. A property of the whole, never section "
+        "count or order."
+    ),
+    "narrative_depth": (
+        "CONTENT-RELATIVE (like visualization): where the form carries a developed LINE — a report's "
+        "or research's argument — the artefato has an ARC, not a list: a through-line the reader can "
+        "follow (tension/question → derivation → synthesis → the open next-bet), present ANYWHERE, "
+        "never a mandated section order. A genuinely non-narrative form (a map's diagram, a terse "
+        "plan) owes no prose arc and is NEVER failed for lacking one. A report that dumps flat "
+        "findings, or a bite that states a conclusion without earning it, fails."
+    ),
     "content_depth": (
         "Substance, not placeholders: concrete details, data, numbers, real examples. "
         "No empty or stub content; tables carry real data."
@@ -221,18 +239,21 @@ DIMENSIONS = {
 
 # Weights as a {dim: weight} dict (NOT a positional list — the legacy
 # `DIMENSION_WEIGHTS[:len(scores)]` slicing silently mis-paired weights to dims once the
-# dim set changed). The legacy kept-weights summed to 0.73 after dropping structural (.15)
-# + storytelling (.12); each is rescaled proportionally by /0.73 so the seven sum to 1.0.
+# dim set changed). The depth cluster — development_completeness + narrative_depth +
+# content_depth + feynman_method — sums to 0.62 and DOMINATES the gate: plenitude is what
+# the gate rewards. They are rescaled by the sum so all nine weights sum to 1.0.
 _LEGACY_KEPT_WEIGHTS = {
-    "content_depth": 0.15,
-    "feynman_method": 0.12,
+    "development_completeness": 0.18,
+    "narrative_depth": 0.14,
+    "content_depth": 0.16,
+    "feynman_method": 0.14,
     "intellectual_honesty": 0.10,
-    "didactic_clarity": 0.12,
-    "internal_consistency": 0.08,
-    "visualization": 0.08,
-    "writing_quality": 0.08,
+    "didactic_clarity": 0.10,
+    "internal_consistency": 0.06,
+    "visualization": 0.06,
+    "writing_quality": 0.06,
 }
-_KEPT_SUM = sum(_LEGACY_KEPT_WEIGHTS.values())  # 0.73
+_KEPT_SUM = sum(_LEGACY_KEPT_WEIGHTS.values())  # 1.0
 DIMENSION_WEIGHTS = {dim: w / _KEPT_SUM for dim, w in _LEGACY_KEPT_WEIGHTS.items()}
 
 # The shared blind-reviewer instruction. Each reviewer prepends its own focus. The reviewer
@@ -246,9 +267,13 @@ _BLIND_PREAMBLE = (
 )
 
 _FEYNMAN_FOCUS = (
-    "FOCUS: rigor and intellectual honesty. The BLINDFOLD test — every claim must be "
-    "re-sourceable from its cite; a claim that cannot be traced to a cite is struck "
-    "(add it to `strikes` and fail). Check the derived/repeated/unknown knowledge-boundary "
+    "FOCUS: rigor and intellectual honesty. The BLINDFOLD test applies to FACTUAL CLAIMS — a "
+    "fact, datum, quote, or external assertion must be re-sourceable from its cite; a factual "
+    "claim that cannot be traced to a cite is struck (add it to `strikes` and fail). A REASONING "
+    "step — a derivation, or an inference from premises already present in the artefato — is NOT "
+    "struck for lacking a cite: judge it by its INTERNAL VALIDITY (do the stated premises support "
+    "it?). Do not amputate thinking-out-loud — derivation-first reasoning is REWARDED by the depth "
+    "dims, never penalized for being uncited. Check the derived/repeated/unknown knowledge-boundary "
     "is explicit, specific, and present anywhere — not boilerplate."
 )
 

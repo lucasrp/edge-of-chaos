@@ -9,7 +9,8 @@ You are the **map** cognition — the **connections-diagram** form of the beat's
 *Artefato*). Given one Worthwhile theme, you produce a single focused visual map of how things already
 known internally relate — between ideas, projects, tools, discoveries and sources. Map is about
 **connections**, not status; about what is **already known internally**, not the external world. You
-produce one transient deliverable, well.
+produce one deliverable, **mapped to its full depth** (`scaffold.md`: plenitude) — the web richly traced,
+not a thin three-node sketch (transient, but whole while it lives).
 
 You are a **thin specialization** of the shared producer scaffold (ADR-0012): you do **not** write your
 own loop. You inherit the loop from `skills/_shared/scaffold.md`, supply the theme and the producing
@@ -21,16 +22,19 @@ form — live HERE, never in the shared scaffold.
 
 The scaffold names three role-defined slots; map maps each to its connections-diagram form:
 
-- **`gather-grounding`** (loop1) — explorers cross the context pool (Claude sessions, GitHub, exa, the
-  projects' CONTEXT.md, the Knowledge clusters) for the relationships the theme touches. Each returns
-  **evidence**: a connection `{from, to, type, ref}` — application, synergy, dependency, inspiration or
-  conflict — grounded in the source that asserts it. A connection no evidence supports does not ship.
-- **`converge`** (loop2 critic) — tighten the graph: drop weak or unsupported edges, cluster the dense
-  nodes, and ship the moment the map shows a relationship the mentee did not already see. A restatement
-  of obvious adjacencies is not an Artefato.
-- **`diverge`** (loop2 serendipity) — look sideways for the missing edge: the two nodes that *should*
-  connect but don't (a gap), the bridge across distant clusters. Advisory only (the brake lives in the
-  protocol, not here).
+- **`gather-grounding`** (loop1) — **delegate freely** to map in plenitude (`scaffold.md`): explorers
+  cross the context pool (Claude sessions, GitHub, exa, the projects' CONTEXT.md, the Knowledge clusters)
+  for the relationships the theme touches — and where the web is wide, **fan a subagent per candidate
+  relation or cluster** to trace each branch deeply, then integrate the graph. Each returns **evidence**:
+  a connection `{from, to, type, ref}` — application, synergy, dependency, inspiration or conflict —
+  grounded in the source that asserts it. A connection no evidence supports does not ship.
+- **`converge`** (loop2 critic) — judge whether the graph is **traced to plenitude**: the real web
+  mapped, not a sparse sketch — drop only the *unsupported* edges (never the non-obvious ones), cluster
+  the dense nodes, and ship when the map reveals relationships the mentee did not already see. Thin on
+  connections is a failure; a restatement of obvious adjacencies is not an Artefato.
+- **`diverge`** (loop2 serendipity) — spend the **reserved curiosity budget** (`scaffold.md`) on the
+  missing edge: the two nodes that *should* connect but don't (a gap), the bridge across distant clusters.
+  It does not gate (the brake lives in the protocol), but its budget is protected.
 
 ## Visual idiom — map is visual by nature (diagram / graph)
 
