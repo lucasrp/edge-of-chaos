@@ -1,61 +1,49 @@
 ---
 name: beat
-description: The beat propriamente dito — the judgment loop. Wakes already-assembled, fans the
-  mechanical cognitions to subagents, and does only the mentoring judgment: one Worthwhile Artefato.
+description: The beat propriamente dito — a PURE round-robin scheduler over the producer-skills.
+  Carries only rotation state (whose turn); theme-choice and production belong to the skill, the
+  close to the shared pipeline.
 ---
-You are the **beat loop** — the main cognition of the dispatch. You carry **only judgment**. The
-mechanical work (reading prior state, reading the world, consolidating at close) belongs to fresh
-Agent-tool subagents you fan out to, each in its own context, so your window holds only mentoring
-(ADR-0004). This is the v0 spine: read (via subagents) → produce. No new `claude -p` — the
-subagents run inside this one dispatch (ADR-0003).
+You are the **beat loop** — the scheduler of the dispatch. You carry **only rotation state**: whose
+turn it is. You do **no** judgment (ADR-0012 *evacuates* judgment from the beat — amends ADR-0004,
+whose loop chose-the-theme-and-produced; now the skill does both). Theme-choice and production belong
+to the **producer-skill**, not the beat. The close belongs to the **shared pipeline**
+(`skills/_shared/pipeline.md`) at the skill's **exit**, not to the beat. This is the v0 spine: rotate
+→ hand off to the skill. No new `claude -p` — the producer-skill runs inside this one dispatch
+(ADR-0003).
 
-## 1. Wake assembled — fan out (blocking)
+## 1. Rotate — strict round-robin
 
-Before reasoning, get your briefs. Use the **Agent tool** to run two subagents and **block** on
-both; do not read these surfaces yourself:
-- **assemble** (`skills/assemble`) → returns the **briefing** (Memento's tattoo — ADR-0009): the
-  Direction, what is open / the next bet, the corpus, source orientation, and knowledge clusters.
-- **delta** (`skills/delta`) → returns a **delta orientation** (the world: what's new). May be
-  empty — the beat works from the wiki alone; the delta never gates you.
+The producer roster is `["report", "map", "plan"]`. Advance the persisted cursor **strictly** and
+serve whose turn it is — successive beats yield `report`, `map`, `plan`, `report`, … (it wraps). The
+moment **does not jump the queue**: there is no judgment here, only the cursor. (`agent.yaml` already
+declares `heartbeat.skill_selection: round-robin`; this roster is what that selection rotates.)
 
-You wake holding only these two briefs, not the raw reads.
+    tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import _beat; \
+      print(_beat.next_producer(['report','map','plan'], 'state/beat/cursor.json'))"
 
-## 2. Judge — choose one Worthwhile theme
+Breadth comes from the rotation; **aim comes from Direction** — but the aim is exercised *inside* the
+skill (step 2), never here.
 
-From the briefing and the orientation, pick a single theme that is **deep domain insight applied to
-the mentee's live work** — the intersection. The highest value is often the decision they have not
-made. One theme per beat — then split it into its **leads** (the recent ideas/threads it touches).
+## 2. Hand off to the producer-skill — it judges, it produces
 
-**Fan out one explorer subagent per lead, in parallel** — a single batch of Agent-tool calls so they
-run concurrently (and are watchable live in the agent view), each **source-agnostic** across the pool
-(Claude sessions, GitHub, exa, the projects' CONTEXT.md), returning **multi-source insumos**
-(`{source, ref}`, connecting across sources). Gather their insumos, then produce. (For a small theme,
-reading documents directly is fine; the per-lead parallel fan-out is for real depth.)
+Invoke the skill whose turn it is (`skills/<producer>`). **Pointing happens inside the skill**: when
+its turn comes it picks the most Worthwhile theme against **Direction + the delta**, splits it into
+leads, gathers evidence, and produces **one Artefato** in its form. The beat does not pick the theme
+and does not produce — it only said whose turn it is. (A small theme reads documents directly; real
+depth fans explorers per lead — but that is the skill's call, not the beat's.)
 
-## 3. Produce one Artefato
+## 3. Close — delegated to the shared pipeline at the skill's exit
 
-Produce the Artefato in its **prose-synthesis form** — follow `skills/report` (the canonical spec:
-Idiom-framed executive summary + 2–3 substantive `## ` sections + open questions, self-reviewed once,
-then published to `blog/entries/<slug>.html` matching the existing entries). For another form (e.g. an
-interactive page), use that form's skill instead. The Artefato is transient; durable knowledge is
-consolidated next, not here.
-
-## 4. Close — confirm the intent kernel event (CONTRACT C3 / ADR-0009)
-
-Producing the Artefato (step 3, via `skills/report`) emits the **mandatory `intent.kernel` event** — the
-~3-line *why*: what is open, the next bet, the pragmatic layer no cold reader recovers. It is now an
-**event**, not a prose breadcrumb (C3/ADR-0009 supersede ADR-0008's leftover). Confirm C3 holds — your
-slug must not be flagged; emit it yourself only if it is (e.g. a non-report form):
-
-    tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import eventlog; \
-      print(eventlog.artefatos_without_kernel())"
-
-That kernel event is the only close-time act. **Consolidate is dissolved**: digestion is the
-pull-at-open **sweep** every dispatch runs at entry (archive → the Tier-0 log; fan/curate → the grill;
-the handoff document is gone — strategy lives in **Direction**). Do not fire a consolidate subagent;
-do not archive or fan by hand.
+The close is **not the beat's job**. Every producer-skill funnels through the **one shared pipeline**
+(`skills/_shared/pipeline.md`): pre-dispatch (assemble + delta) → producer-loop (the scaffold) →
+**close** (the two blind review gates + the atomic publisher, which emits the mandatory
+`intent.kernel` so CONTRACT C3 holds). The close runs at the skill's **exit** — so a standalone
+`/ed-report` observes the same gates (honors ADR-0008). The bounce-bound lives in the protocol, never
+in the producer's discretion. Do not run a close here; do not archive or fan by hand (digestion is
+the pull-at-open **sweep** every dispatch runs at entry).
 
 ## Read-only (CONTRACT C1)
 
-The mentee's world is read-only. You write only the edge's own Artefato and state. Acting in the
-world is never an autonomous beat decision.
+The mentee's world is read-only. The edge writes only its own Artefato and state (the rotation
+cursor included). Acting in the world is never an autonomous beat decision.

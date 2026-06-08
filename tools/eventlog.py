@@ -185,6 +185,27 @@ def kernel(slug, intent, log=LOG):
     return append("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}, log=log)
 
 
+def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None, log=LOG):
+    """Publish an Artefato AND its `intent.kernel` in one act (CONTRACT C3 at the publish seam):
+    you cannot publish without the *why*. Raises ValueError when intent is missing/empty — the
+    kernel is mandatory, so the published event never lands without it. Additive: the legacy
+    publish_artefato + kernel two-call path stays callable; this is the close-pipeline's atomic
+    form. Returns (published_event, kernel_event)."""
+    if not (intent and intent.strip()):
+        raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
+    published = publish_artefato(slug, proposes=proposes, distills=distills, cites=cites, log=log)
+    return published, kernel(slug, intent, log=log)
+
+
+def require_kernels(log=LOG):
+    """Guard form of the C3 invariant (vs the non-fatal `artefatos_without_kernel` reader the sweep
+    warns with): RAISES ValueError listing the offending slugs when any published Artefato lacks a
+    matching `intent.kernel`. The publisher calls this to refuse a close with C3 debt."""
+    bare = artefatos_without_kernel(log=log)
+    if bare:
+        raise ValueError(f"artefatos published without an intent kernel (C3): {bare}")
+
+
 def source_signal(slug, ref, kind, similarity, log=LOG):
     """Append a `source.signal` event (ADR-0009, source-feedback hypothesis tier). The **score**
     lands in the log — the cosine of a cited snippet vs the Artefato body — keyed to the cited

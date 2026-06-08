@@ -549,6 +549,38 @@ class InsightArtefatoCarriesProvenance(unittest.TestCase):
             self.assertEqual(eventlog.artefatos_for_thread("cluster:none", log=log), [])
 
 
+class PublishRequiresKernel(unittest.TestCase):
+    """CONTRACT C3 enforced at the publish seam: `publish_artefato_atomic` appends the
+    `artefato.published` AND its `intent.kernel` in one call — you cannot publish without the
+    why (empty/missing intent raises). `require_kernels` is the guard form of the C3 invariant:
+    it RAISES listing the offending slugs when any published slug lacks a kernel (vs the
+    non-fatal `artefatos_without_kernel` reader the sweep warns with). Additive: the legacy
+    publish_artefato + kernel two-call path stays callable."""
+
+    def test_atomic_publish_emits_kernel_so_nothing_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.publish_artefato_atomic("recall-report", intent="open: x; bet: y",
+                                             proposes=[{"body": "name the budget"}], log=log)
+            self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
+
+    def test_atomic_publish_without_intent_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with self.assertRaises(ValueError):
+                eventlog.publish_artefato_atomic("bare", intent="", log=log)
+            self.assertEqual(eventlog.read(log=log), [])  # nothing published without the kernel
+
+    def test_require_kernels_raises_until_kernel_added(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.publish_artefato("bare", log=log)  # legacy 2-call path, no kernel yet
+            with self.assertRaises(ValueError):
+                eventlog.require_kernels(log=log)
+            eventlog.kernel("bare", "open: …; bet: …", log=log)
+            eventlog.require_kernels(log=log)  # no raise once the kernel is added
+
+
 class CosineIsPureSimilarity(unittest.TestCase):
     """ADR-0009 source-feedback (hypothesis tier): cosine of two equal-length numeric vectors —
     the pure math behind embedding attribution (the actual OpenAI call lives in sweep, never here).

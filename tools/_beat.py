@@ -4,11 +4,32 @@ The launcher does no cognition: it loads the /ed-beat skill body and pipes it in
 `claude -p -` invocation. Cognition lives in the skill. Interactive dispatch does not use this
 at all — the live session runs the skill in-place (never spawns claude -p).
 """
+import json
 import os
 import shutil
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+
+
+def next_producer(roster, state_path) -> str:
+    """Advance the round-robin cursor strictly and return whose turn it is (ADR-0012).
+
+    The beat carries ONLY rotation state — no judgment, no queue-jump. Given roster
+    ["report","map","plan"] and a fresh cursor, successive calls return report, map, plan,
+    report, ... The cursor (the next index to serve) is persisted to `state_path` as JSON;
+    the path is injectable so tests use a temp file.
+    """
+    state_path = Path(state_path)
+    try:
+        idx = json.loads(state_path.read_text())["next"]
+    except (FileNotFoundError, ValueError, KeyError):
+        idx = 0
+    idx %= len(roster)
+    producer = roster[idx]
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({"next": (idx + 1) % len(roster)}))
+    return producer
 
 
 def resolve_claude_bin() -> str:
