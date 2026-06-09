@@ -55,7 +55,10 @@ re-research, or re-publish what you already know.** Two moments, both mandatory:
 
 ```cypher
 // from a cluster: what have I already produced, and what bets are open?
-MATCH (e:Entity {group_id:$g, curated_cluster:$label})
+// NOTE: cluster refs are slug-form (cluster:genotypeworkflow) but curated_cluster is
+// display-form (Genotype workflow) — ALWAYS match on the normalized form, never exact.
+MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL
+  AND replace(toLower(e.curated_cluster),' ','') = replace(toLower($label),' ','')
 OPTIONAL MATCH (e)<-[:DISTILLS]-(a:Artefato {group_id:$g})
 OPTIONAL MATCH (a)-[:PROPOSES]->(d:Direction {group_id:$g})
 RETURN e.curated_cluster AS cluster,
@@ -105,8 +108,13 @@ with drv.session() as s:
           "SET a.kernel=$k, a.skill=$skill, a.page=$page",
           g=g, slug=slug, k=kernel, skill=skill, page=f"blog/entries/{slug}.html")
     for ref in distills:                       # link ONLY existing clusters (never fabricate)
+        # distills refs are slug-form (cluster:genotypeworkflow); curated_cluster is display-form
+        # (Genotype workflow) — match on the NORMALIZED form (lowercase, spaces removed), never exact,
+        # or the edge silently never links (the artefato stays unreachable from structural recall).
         s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
-              "MATCH (e:Entity {group_id:$g, curated_cluster:$l}) MERGE (a)-[:DISTILLS]->(e)",
+              "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
+              "AND replace(toLower(e.curated_cluster),' ','') = replace(toLower($l),' ','') "
+              "MERGE (a)-[:DISTILLS]->(e)",
               g=g, slug=slug, l=ref.replace('cluster:', ''))
     for p in proposes:
         s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
