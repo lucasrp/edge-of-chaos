@@ -429,6 +429,34 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
     def test_spec_text_is_empty_for_a_none_spec(self):
         self.assertEqual(publisher._spec_text(None), "")
 
+    def test_spec_text_includes_top_level_metrics(self):
+        # Codex P2: render renders top-level `metrics`, so the embed must include their labels/values.
+        spec = {"metrics": [{"value": "0.81", "label": "RECALL_AT_FIVE"}], "sections": []}
+        text = publisher._spec_text(spec)
+        self.assertIn("RECALL_AT_FIVE", text)
+        self.assertIn("0.81", text)
+
+    def test_reproject_graph_preserves_the_real_skill_not_report(self):
+        # Codex P2: a map/plan originally projected with its real skill must NOT be rewritten to
+        # "report" on a recovery replay — reproject_graph passes skill=None ("don't overwrite").
+        import inspect
+        self.assertIn("skill=None", inspect.getsource(publisher.reproject_graph),
+                      "reproject_graph must pass skill=None so the replay does not clobber the skill")
+        # and project_artefato must coalesce (preserve existing) when skill is None
+        self.assertIn("coalesce", inspect.getsource(_REAL_PROJECT).lower(),
+                      "project_artefato must preserve an existing skill when none is provided")
+
+    def test_project_artefato_clears_stale_edges_before_re_adding(self):
+        # Codex P2: a republish/replay with corrected distills/proposes/cites must not leave the
+        # slug's OLD edges behind — the projection rebuilds the slug's DISTILLS/PROPOSES/CITES.
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        for rel in ("DISTILLS", "PROPOSES", "CITES"):
+            # each relationship is DELETEd for this slug before the MERGE re-adds the current set
+            self.assertTrue(f"[r:{rel}]" in src or f":{rel}]->() DELETE" in src
+                            or (f"{rel}" in src and "DELETE" in src),
+                            f"project_artefato must clear the slug's stale {rel} edges before re-adding")
+
     def test_default_project_artefato_degrades_when_graph_unreachable(self):
         # the default projection must NEVER raise into the publish even when the graph is
         # unreachable — it is best-effort; it prints and returns. Point at a dead bolt port so

@@ -142,7 +142,11 @@ def _spec_text(spec):
     if not isinstance(spec, dict):
         return ""
     parts = []
+    # top-level rendered fields render.spec_to_html emits as content: executive_summary, the
+    # metrics grid, and the bibliography (Codex P2) — plus every section/additional_section block.
     _walk_strings(spec.get("executive_summary") or [], parts)
+    _walk_strings(spec.get("metrics") or [], parts)
+    _walk_strings(spec.get("bibliography") or [], parts)
     for block in _iter_spec_blocks(spec):
         _walk_strings(block, parts)
     return " ".join(parts)[:8000]   # bound the embed input
@@ -233,8 +237,12 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                           "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"])
             # (1) the Artefato + its content embedding (semantic search; best-effort). `projected_at`
             # is the recency signal recall-push orders by (#30, Codex P2) — set on every (re)project.
+            # `skill` is COALESCED (Codex P2): a recovery replay passes skill=None (the log doesn't
+            # carry it), which PRESERVES the real skill set at publish time — a map/plan is never
+            # silently rewritten to 'report' on the next sweep replay.
             s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) "
-                  "SET a.kernel=$k, a.skill=$skill, a.page=$page, a.projected_at=$pat",
+                  "SET a.kernel=$k, a.skill=coalesce($skill, a.skill), a.page=$page, "
+                  "a.projected_at=$pat",
                   g=g, slug=slug, k=intent, skill=skill, page=f"blog/entries/{slug}.html",
                   pat=_dt.now(_tz.utc).isoformat())
             # every Artefato SERVES the objective — the hub keeping it reachable from space-0.
@@ -251,7 +259,13 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                       g=g, slug=slug, e=emb)
             except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
                 print("embed skipped (best-effort):", ex)
-            # (2) edges — distills (slug-resolved), proposes, cites
+            # (2) edges — distills (slug-resolved), proposes, cites. REBUILD this slug's edge set
+            # each (re)project (Codex P2): clear the slug's OLD DISTILLS/PROPOSES/CITES first, so a
+            # republish/replay with corrected provenance does not leave stale clusters/directions/
+            # sources behind — recall stays a faithful projection of the log's latest payload. SERVES
+            # is to the single hub (idempotent) and is left intact.
+            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug})-[r:DISTILLS|PROPOSES|CITES]->() "
+                  "DELETE r", g=g, slug=slug)
             labels = [r["l"] for r in s.run(
                 "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
                 "RETURN DISTINCT e.curated_cluster AS l", g=g)]
@@ -423,7 +437,9 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT):
         project_fn = project_artefato
     for item in eventlog.corpus_at(log=log):
         try:
-            project_fn(item["slug"], item.get("intent") or "", skill="report",
+            # skill=None: the log doesn't carry skill, so PRESERVE the value set at publish time
+            # (project_artefato coalesces) — never clobber a map/plan to 'report' on replay (P2).
+            project_fn(item["slug"], item.get("intent") or "", skill=None,
                        distills=item.get("distills"), proposes=item.get("proposes"),
                        cites=item.get("cites"), spec=item.get("spec"), log=log)
         except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
