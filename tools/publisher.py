@@ -205,31 +205,32 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
     except Exception as ex:  # noqa: BLE001 — best-effort; the log already holds the truth
         print("project skipped (best-effort, graph unreachable):", ex)
         return
+    # The WHOLE spine backbone (Genesis/Objective/Direction) is CANONICAL-LOG ONLY (Codex P2): it
+    # writes the install group's identity + objective + the destructive ANCHORS rebuild, all of which
+    # read the log. A custom/offline log (a test, a dry-run) must NEVER overwrite the install's live
+    # Objective or delete its Directions — it projects ONLY the ADD-only Artefato + its edges below.
+    canonical = log is eventlog.LOG
     try:
         with drv.session() as s:
-            # (0) keep the SPINE BACKBONE current and ROOTED at space-0 (idempotent, cheap)
-            try:
-                cfg = yaml.safe_load((REPO / "agent.yaml").read_text()) or {}
-            except Exception:  # noqa: BLE001 — agent.yaml read is best-effort
-                cfg = {}
-            s.run("MERGE (gen:Genesis {group_id:$g}) SET gen.space=0, gen.codename=$c, gen.voice=$v, "
-                  "gen.method='memory/method.md', gen.personality='memory/personality.md'",
-                  g=g, c=cfg.get("codename") or cfg.get("name"), v=cfg.get("voice"))
-            # read the backbone from the SAME log this Artefato was published to (Codex P2): an
-            # offline/custom-log publish must not rebuild ANCHORS from the module-default log.
-            obj = eventlog.objective_at(log=log) or {}
-            if obj.get("body"):
-                s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj["body"])
-                s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) "
-                      "MERGE (gen)-[:GROUNDS]->(o)", g=g)
-            # ANCHORS rebuild is DESTRUCTIVE (DELETE then re-add) and reads the active steers from
-            # the log — so it is CANONICAL-LOG ONLY (Codex P2). A custom/offline log (a test, a
-            # one-off) must NEVER delete the install graph's live Directions; it projects only the
-            # ADD-only Artefato + edges below. The MERGEs above are idempotent and safe either way.
-            if log is eventlog.LOG:
+            if canonical:
+                # (0) keep the SPINE BACKBONE current and ROOTED at space-0 (idempotent, cheap)
+                try:
+                    cfg = yaml.safe_load((REPO / "agent.yaml").read_text()) or {}
+                except Exception:  # noqa: BLE001 — agent.yaml read is best-effort
+                    cfg = {}
+                s.run("MERGE (gen:Genesis {group_id:$g}) SET gen.space=0, gen.codename=$c, "
+                      "gen.voice=$v, gen.method='memory/method.md', "
+                      "gen.personality='memory/personality.md'",
+                      g=g, c=cfg.get("codename") or cfg.get("name"), v=cfg.get("voice"))
+                obj = eventlog.objective_at(log=log) or {}
+                if obj.get("body"):
+                    s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj["body"])
+                    s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) "
+                          "MERGE (gen)-[:GROUNDS]->(o)", g=g)
+                # ANCHORS = the CURRENTLY active steers — REBUILD each sync (DESTRUCTIVE: DELETE then
+                # re-add) so a dropped/superseded Direction stops being anchored (recall from space-0
+                # must match the log).
                 dirs = eventlog.direction_at(log=log) or {}
-                # ANCHORS = the CURRENTLY active steers — REBUILD each sync so a dropped/superseded
-                # Direction stops being anchored (recall from space-0 must match the log).
                 s.run("MATCH (o:Objective {group_id:$g})-[r:ANCHORS]->(:Direction) DELETE r", g=g)
                 for it in dirs.get("set", []) + dirs.get("proposed", []):
                     s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
@@ -237,9 +238,9 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                           "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"])
             # (1) the Artefato + its content embedding (semantic search; best-effort). `projected_at`
             # is the recency signal recall-push orders by (#30, Codex P2) — set on every (re)project.
-            # `skill` is COALESCED (Codex P2): a recovery replay passes skill=None (the log doesn't
-            # carry it), which PRESERVES the real skill set at publish time — a map/plan is never
-            # silently rewritten to 'report' on the next sweep replay.
+            # `skill` is COALESCED (Codex P2): the published event now carries skill, so a replay
+            # restores the REAL producer identity; a legacy event with no skill folds to None, which
+            # coalesce PRESERVES (never clobbers an already-projected skill to NULL).
             s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) "
                   "SET a.kernel=$k, a.skill=coalesce($skill, a.skill), a.page=$page, "
                   "a.projected_at=$pat",
@@ -357,7 +358,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # spec, so the page is fully regenerable from the log alone. EVERYTHING after this is a
     # recoverable projection (reproject_missing_pages re-derives it from the logged spec/cites).
     eventlog.publish_artefato_atomic(slug, intent, proposes=proposes, distills=distills,
-                                     cites=cites, spec=spec, log=log)
+                                     cites=cites, spec=spec, skill=skill, log=log)
 
     # the page is a PROJECTION written after the commit — a failure here is recoverable.
     _write_page(out, page)
@@ -437,9 +438,10 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT):
         project_fn = project_artefato
     for item in eventlog.corpus_at(log=log):
         try:
-            # skill=None: the log doesn't carry skill, so PRESERVE the value set at publish time
-            # (project_artefato coalesces) — never clobber a map/plan to 'report' on replay (P2).
-            project_fn(item["slug"], item.get("intent") or "", skill=None,
+            # the published event now carries `skill` (Codex P2), so a publish-time-outage replay
+            # restores the REAL producer identity even when the node does not exist yet. A legacy
+            # event with no skill folds to None, which coalesce preserves (never clobbers).
+            project_fn(item["slug"], item.get("intent") or "", skill=item.get("skill"),
                        distills=item.get("distills"), proposes=item.get("proposes"),
                        cites=item.get("cites"), spec=item.get("spec"), log=log)
         except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal

@@ -436,15 +436,29 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         self.assertIn("RECALL_AT_FIVE", text)
         self.assertIn("0.81", text)
 
-    def test_reproject_graph_preserves_the_real_skill_not_report(self):
-        # Codex P2: a map/plan originally projected with its real skill must NOT be rewritten to
-        # "report" on a recovery replay — reproject_graph passes skill=None ("don't overwrite").
+    def test_reproject_graph_restores_the_persisted_skill(self):
+        # Codex P2: the published event carries `skill`, so a recovery replay restores the REAL
+        # producer identity (even when the node does not exist yet — the publish-time-outage case
+        # this path is for). reproject_graph replays item['skill']; project_artefato coalesces it
+        # (a legacy None never clobbers an existing value).
         import inspect
-        self.assertIn("skill=None", inspect.getsource(publisher.reproject_graph),
-                      "reproject_graph must pass skill=None so the replay does not clobber the skill")
-        # and project_artefato must coalesce (preserve existing) when skill is None
+        rg = inspect.getsource(publisher.reproject_graph)
+        self.assertIn('item.get("skill")', rg,
+                      "reproject_graph must replay the persisted skill from the log")
         self.assertIn("coalesce", inspect.getsource(_REAL_PROJECT).lower(),
-                      "project_artefato must preserve an existing skill when none is provided")
+                      "project_artefato must coalesce skill (a None never clobbers existing)")
+
+    def test_published_event_carries_skill_for_graph_recovery(self):
+        # the skill rides the atomic published event (the only recovery source), so a reproject
+        # after a publish-time outage restores the producer identity on a node that did not exist.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "skill-persisted"
+            publisher.publish(
+                slug, _spec(), intent="open: x; bet: y", skill="map", date="2026-06-08",
+                log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
+                verdict=_passing_proof(slug, _spec(), "open: x; bet: y", skill="map"))
+            self.assertEqual(eventlog.corpus_at(log=log)[0]["skill"], "map")
 
     def test_project_artefato_clears_stale_edges_before_re_adding(self):
         # Codex P2: a republish/replay with corrected distills/proposes/cites must not leave the

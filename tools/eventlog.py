@@ -264,7 +264,7 @@ def kernel(slug, intent, log=LOG):
 
 
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
-                            spec=None, log=LOG):
+                            spec=None, skill=None, log=LOG):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
     publish seam): you cannot publish without the *why*. Both events land in a single
     `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
@@ -282,7 +282,7 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
     published, kernel_ev = append_batch([
         ("artefato.published", f"artefato:{slug}",
          {"slug": slug, "proposes": proposes or [], "distills": distills or [],
-          "cites": cites or [], "spec": spec}),
+          "cites": cites or [], "spec": spec, "skill": skill}),
         ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
     ], log=log)
     return published, kernel_ev
@@ -349,7 +349,7 @@ def fold_corpus(events):
         if t == "artefato.published":
             items[slug] = {"slug": slug, "intent": None, "proposes": p.get("proposes", []),
                            "distills": p.get("distills", []), "cites": p.get("cites", []),
-                           "spec": p.get("spec"), "ts": e.get("ts")}
+                           "spec": p.get("spec"), "skill": p.get("skill"), "ts": e.get("ts")}
         elif t == "intent.kernel" and slug in items:
             # content rule: only a non-empty stripped intent becomes the why; a blank kernel renders
             # no open-bet. Ordering: `slug in items` already drops a stale pre-publish kernel.

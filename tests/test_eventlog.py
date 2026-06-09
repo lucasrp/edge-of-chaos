@@ -777,6 +777,26 @@ class PublishRequiresKernel(unittest.TestCase):
                 Path.open = orig
             self.assertEqual(writes["count"], 1)  # one append carried published(+spec) + kernel
 
+    def test_skill_is_persisted_and_folds_into_the_corpus(self):
+        # #30 (Codex P2): the published event carries `skill` so a graph reproject after a
+        # publish-time outage can restore the producer identity (the log is the only recovery
+        # source). It folds onto the corpus item.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.publish_artefato_atomic("rel-map", intent="open: x; bet: y",
+                                             spec={"sections": []}, skill="map", log=log)
+            published = eventlog.read(types=["artefato.published"], log=log)
+            self.assertEqual(published[0]["payload"]["skill"], "map")
+            corpus = eventlog.corpus_at(log=log)
+            self.assertEqual(corpus[0]["skill"], "map")
+
+    def test_missing_skill_folds_as_none_backward_compatible(self):
+        # a legacy published event with no skill folds with skill=None (no crash).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.publish_artefato_atomic("legacy", intent="open: x; bet: y", log=log)
+            self.assertIsNone(eventlog.corpus_at(log=log)[0]["skill"])
+
     def test_require_kernels_raises_until_kernel_added(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
