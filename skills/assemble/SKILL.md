@@ -57,6 +57,9 @@ The briefing is the tattoo: **small on purpose**, and you cannot fold the whole 
 it carry the **map, not the territory** — the *shape* of the edge's memory plus a pointer to fetch the
 detail on demand:
 
+- **Begin at space 0.** The map's origin is the edge's identity — its method + personality (the
+  `:Genesis` node, `skills/_shared/memory.md`). The loop wakes knowing *who it is*; everything else in
+  the map radiates outward from that root (Objective → Direction → Artefatos → clusters).
 - Present the existing index **salience-ordered toward the Objective**: the Knowledge clusters by label,
   the open bets (Direction), and the recent Artefatos as **title + kernel** (their shape, not their
   bodies). You cannot recall what you do not know exists — the map is what tells the loop *what* is

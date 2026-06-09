@@ -15,9 +15,10 @@ One Neo4j graph (`group_id` = this install's group), two layers in the same grap
 - **The curated web** — what the grill curated + the sweep extracted (Graphiti):
   `(:Entity {group_id, curated_cluster, curated_name, name})` joined by
   `[:RELATES_TO {fact, invalid_at, contested}]`. These nodes carry Graphiti embeddings (semantic entry).
-- **The spine** — what the producer projects (you, below):
-  `(:Artefato {group_id, slug, kernel, intent, skill, page})`, `(:Direction {group_id, body})`,
-  `(:Objective {group_id, body})`, joined by `DISTILLS / CITES / PROPOSES`.
+- **The spine** — what the producer projects (you, below): `(:Genesis {group_id, space:0})` (the
+  identity root — see **Space 0**), `(:Artefato {group_id, slug, kernel, intent, skill, page, embedding})`,
+  `(:Direction {group_id, body})`, `(:Objective {group_id, body})`, joined by
+  `GROUNDS / ANCHORS / DISTILLS / CITES / PROPOSES`.
 
 The **log stays the source of truth** (ADR-0006); the graph is the navigable **projection**. A
 projection write that fails is **reported, never fatal** — the Artefato is already safe in the log;
@@ -35,6 +36,26 @@ g = _identity.require_group()
 drv = GraphDatabase.driver(uri, auth=(user, pw))
 with drv.session() as s:
     ...  # your cypher, always parametrized with g=g
+```
+
+## Space 0 — method + personality are where you wake
+
+The graph has an **origin**: the `:Genesis` node (`space:0`), which **is** the edge's identity — its
+**method and personality** (the genotype tattoos, `memory/method.md` + `memory/personality.md`). This is
+where you **wake**: every recall begins at space-0 (*who am I, what is my method*) and navigates **out**
+from there. Everything else plugs into it — the whole spine is **rooted at `:Genesis`**:
+`(:Genesis)-[:GROUNDS]->(:Objective)-[:ANCHORS]->(:Direction)`, and Artefatos hang off the Directions
+they propose and the clusters they distil. Identity is not a footnote beside the graph; it is the graph's
+**center**, and orientation radiates from it. (The rich tattoo text stays in the genotype files — the
+node carries the identity markers and **is the root**; the producer keeps it current in *Project* below.)
+
+Wake at space-0, then traverse out:
+
+```cypher
+MATCH (gen:Genesis {group_id:$g})
+OPTIONAL MATCH (gen)-[:GROUNDS]->(o:Objective {group_id:$g})
+OPTIONAL MATCH (o)-[:ANCHORS]->(d:Direction {group_id:$g})
+RETURN gen.codename, gen.voice, gen.method, gen.personality, o.body, collect(DISTINCT d.body)
 ```
 
 ## Recall — BEFORE you act (recall-before-act)
@@ -80,13 +101,30 @@ OPTIONAL MATCH (a)-[:DISTILLS]->(e:Entity {group_id:$g})
 RETURN o.body, collect(DISTINCT d.body), collect(DISTINCT a.slug), collect(DISTINCT e.curated_cluster)
 ```
 
-**Semantic entry** (when you know only the gist, not the cluster) — the curated `:Entity` nodes carry
-Graphiti embeddings. Either match by name/keyword in cypher, or call Graphiti's hybrid search
-agentically and then traverse from what it returns to the spine:
+**Semantic entry** (when you know only the gist, not the cluster). Two ways:
+
+- **Your own Artefatos, by content** — each `:Artefato` you project carries an `embedding` (see
+  *Project*). Embed the gist with the **same model** and rank by cosine — recall a past report even when
+  you don't know its cluster (the install's OpenAI key is loaded):
+
+```python
+from openai import OpenAI
+import math
+qv = OpenAI().embeddings.create(model="text-embedding-3-small", input="<the gist>").data[0].embedding
+rows = s.run("MATCH (a:Artefato {group_id:$g}) WHERE a.embedding IS NOT NULL "
+             "RETURN a.slug AS slug, a.kernel AS kernel, a.embedding AS e", g=g).data()
+cos = lambda u, v: (sum(x*y for x, y in zip(u, v)) /
+                    ((math.sqrt(sum(x*x for x in u)) * math.sqrt(sum(y*y for y in v))) or 1))
+top = sorted(rows, key=lambda r: cos(qv, r['e']), reverse=True)[:5]   # nearest past reports
+```
+
+  The same trick works on any node you embed — **Directions** (find a related open bet) are the next
+  useful one to embed.
+- **The curated `:Entity` web** — those nodes carry Graphiti embeddings; match by name/keyword in cypher,
+  or call Graphiti's hybrid search agentically, then traverse to the spine:
 
 ```python
 from graphiti_core import Graphiti
-# construct against the same neo4j (see _identity.neo4j_conn) + the install's OpenAI key, then:
 # results = await g.search("<the gist of your theme>")   # entities/facts ranked by meaning
 ```
 
@@ -102,36 +140,54 @@ project it into the graph**, so today's output is tomorrow's recall. Do it **onc
 
 ```python
 import sys; sys.path.insert(0, 'tools')
-import _identity
+import _identity, eventlog, yaml, re
 from neo4j import GraphDatabase
 uri, user, pw = _identity.neo4j_conn(); g = _identity.require_group()
 slug, kernel, skill = '<slug>', '<the intent.kernel you published>', '<map|report|…>'
 distills, proposes, cites = [...], [...], [...]   # the SAME lists you passed to the close
 drv = GraphDatabase.driver(uri, auth=(user, pw))
 with drv.session() as s:
-    s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) "
-          "SET a.kernel=$k, a.skill=$skill, a.page=$page",
+    # (0) keep the SPINE BACKBONE current and ROOTED at space-0 (idempotent, cheap)
+    cfg = yaml.safe_load(open('agent.yaml'))
+    s.run("MERGE (gen:Genesis {group_id:$g}) SET gen.space=0, gen.codename=$c, gen.voice=$v, "
+          "gen.method='memory/method.md', gen.personality='memory/personality.md'",
+          g=g, c=cfg.get('codename') or cfg.get('name'), v=cfg.get('voice'))
+    obj = eventlog.objective_at() or {}
+    if obj.get('body'):
+        s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj['body'])
+        s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) MERGE (gen)-[:GROUNDS]->(o)", g=g)
+    dirs = (eventlog.direction_at() or {})
+    for it in dirs.get('set', []) + dirs.get('proposed', []):
+        s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it['body'])
+        s.run("MATCH (o:Objective {group_id:$g}),(d:Direction {group_id:$g, body:$b}) "
+              "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it['body'])
+    # (1) the Artefato + its content embedding (semantic search; best-effort — skip if no key)
+    s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) SET a.kernel=$k, a.skill=$skill, a.page=$page",
           g=g, slug=slug, k=kernel, skill=skill, page=f"blog/entries/{slug}.html")
-    import re
+    try:
+        from openai import OpenAI
+        emb = OpenAI().embeddings.create(model="text-embedding-3-small",
+                                         input=f"{slug}\n{kernel}").data[0].embedding
+        s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.embedding=$e", g=g, slug=slug, e=emb)
+    except Exception as ex:
+        print("embed skipped (best-effort):", ex)
+    # (2) edges — distills (slug-resolved), proposes, cites
     cslug = lambda x: re.sub(r'[^a-z]', '', (x or '').lower())   # wiki_render's cluster-slug rule
     labels = [r['l'] for r in s.run("MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
                                     "RETURN DISTINCT e.curated_cluster AS l", g=g)]
-    by_slug = {cslug(l): l for l in labels}     # slug -> the display label to MATCH exactly
+    by_slug = {cslug(l): l for l in labels}
     for ref in distills:                        # link ONLY existing clusters (never fabricate)
         label = by_slug.get(cslug(ref.replace('cluster:', '')))
         if not label:
             continue                            # cluster not in the graph yet — the grill attaches it later
-        s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
-              "MATCH (e:Entity {group_id:$g, curated_cluster:$label}) MERGE (a)-[:DISTILLS]->(e)",
-              g=g, slug=slug, label=label)
+        s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),(e:Entity {group_id:$g, curated_cluster:$label}) "
+              "MERGE (a)-[:DISTILLS]->(e)", g=g, slug=slug, label=label)
     for p in proposes:
-        s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
-              "MERGE (d:Direction {group_id:$g, body:$b}) MERGE (a)-[:PROPOSES]->(d)",
-              g=g, slug=slug, b=p['body'])
+        s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) MERGE (d:Direction {group_id:$g, body:$b}) "
+              "MERGE (a)-[:PROPOSES]->(d)", g=g, slug=slug, b=p['body'])
     for c in cites:
-        s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
-              "MERGE (src:Source {group_id:$g, key:$key}) MERGE (a)-[:CITES]->(src)",
-              g=g, slug=slug, key=c['ref'])
+        s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) MERGE (src:Source {group_id:$g, key:$key}) "
+              "MERGE (a)-[:CITES]->(src)", g=g, slug=slug, key=c['ref'])
 ```
 
 Notes that keep this honest:
@@ -140,9 +196,11 @@ Notes that keep this honest:
   we **skip** it; thread maintenance (the grill) attaches it later. Never fabricate a link.
 - A failed projection **prints the error and continues** — it is best-effort. The log already holds
   the truth; the next beat reprojects.
-- Embedding the spine nodes themselves (semantic search of a report *by its own content*) is the one
-  refinement deferred from #28 — for now semantic entry rides the curated `:Entity` embeddings, then
-  traverses to the spine.
+- The Artefato's `embedding` powers **semantic search of a report by its own content** (see *Recall*) —
+  best-effort: if the OpenAI key is absent the embed is skipped, and structural recall + the curated
+  `:Entity` embeddings still work.
+- The backbone sync (step 0) keeps `:Genesis → :Objective → :Direction` current and rooted at space-0 on
+  every project — idempotent, so it self-heals; the objective/directions come from the log (canonical).
 
 ## The loop that compounds
 
