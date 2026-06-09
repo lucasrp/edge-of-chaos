@@ -409,7 +409,8 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                 projected.append(slug)
 
             publisher.reproject_graph(log=log, project_fn=fake_project,
-                                      present_slugs=lambda: set())  # hermetic: none present
+                                      present_slugs=lambda: set(),  # hermetic: none present
+                                      backbone_fn=None)
             self.assertEqual(sorted(projected), ["recov-a", "recov-b"])
 
     def test_reproject_graph_replays_only_missing_slugs(self):
@@ -427,8 +428,28 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             publisher.reproject_graph(
                 log=log,
                 project_fn=lambda slug, *a, **k: projected.append(slug),
-                present_slugs=lambda: {"have-it"})     # have-it already in the graph
+                present_slugs=lambda: {"have-it"},     # have-it already in the graph
+                backbone_fn=None)
             self.assertEqual(projected, ["missing-it"])  # only the missing one replays
+
+    def test_reproject_graph_rebuilds_the_backbone_even_when_all_slugs_present(self):
+        # Codex P2: the spine backbone (ANCHORS rebuild) must run on EVERY canonical sweep so newly
+        # folded Directions get anchored — even when every artefato is already present (the steady
+        # state after publish-time projection). The per-slug embed work is skipped; the backbone is not.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            publisher.publish(
+                "present-one", _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
+                verdict=_passing_proof("present-one", _spec(), "open: x; bet: y"))
+            projected, backbones = [], []
+            publisher.reproject_graph(
+                log=log,
+                project_fn=lambda slug, *a, **k: projected.append(slug),
+                present_slugs=lambda: {"present-one"},        # already projected
+                backbone_fn=lambda log=None: backbones.append(True))
+            self.assertEqual(projected, [])                  # no per-slug re-embed (all present)
+            self.assertEqual(backbones, [True])              # but the backbone STILL rebuilt
 
     def test_reproject_graph_default_skips_a_non_canonical_log(self):
         # Codex P2: reproject_graph(log=temp_log) with the DEFAULT projector must NOT write into the

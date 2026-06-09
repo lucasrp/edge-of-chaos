@@ -173,6 +173,61 @@ def _iter_spec_blocks(spec):
                     yield block
 
 
+def _project_backbone(s, g, log):
+    """Project the canonical SPINE BACKBONE on an open session `s`: :Genesis (space-0) -GROUNDS->
+    :Objective + the ANCHORS rebuild (the active steers, DESTRUCTIVE DELETE-then-readd from the
+    canonical fold). Shared by project_artefato (per publish) and reproject_graph (per sweep) so the
+    ANCHORS stay current with the log every canonical sync, regardless of which artefatos exist."""
+    import yaml
+    try:
+        cfg = yaml.safe_load((REPO / "agent.yaml").read_text()) or {}
+    except Exception:  # noqa: BLE001 — agent.yaml read is best-effort
+        cfg = {}
+    s.run("MERGE (gen:Genesis {group_id:$g}) SET gen.space=0, gen.codename=$c, gen.voice=$v, "
+          "gen.method='memory/method.md', gen.personality='memory/personality.md'",
+          g=g, c=cfg.get("codename") or cfg.get("name"), v=cfg.get("voice"))
+    obj = eventlog.objective_at(log=log) or {}
+    if obj.get("body"):
+        s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj["body"])
+        s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) "
+              "MERGE (gen)-[:GROUNDS]->(o)", g=g)
+    # ANCHORS = the CURRENTLY active steers — REBUILD each sync (DESTRUCTIVE) so a dropped/superseded
+    # Direction stops being anchored (recall from space-0 must match the log).
+    dirs = eventlog.direction_at(log=log) or {}
+    s.run("MATCH (o:Objective {group_id:$g})-[r:ANCHORS]->(:Direction) DELETE r", g=g)
+    for it in dirs.get("set", []) + dirs.get("proposed", []):
+        s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
+        s.run("MATCH (o:Objective {group_id:$g}),(d:Direction {group_id:$g, body:$b}) "
+              "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"])
+
+
+def project_backbone(log=eventlog.LOG):
+    """Open a session and project the canonical spine backbone (Codex P2): the ANCHORS rebuild must
+    run EVERY canonical sweep so newly-folded Directions get anchored even when no artefato changed.
+    CANONICAL-LOG ONLY + degrade-safe — a non-canonical log or an unreachable graph is a no-op."""
+    if log is not eventlog.LOG:
+        return
+    try:
+        import _identity
+        from neo4j import GraphDatabase
+        uri, user, pw = _identity.neo4j_conn()
+        g = _identity.require_group()
+        drv = GraphDatabase.driver(uri, auth=(user, pw))
+    except Exception as ex:  # noqa: BLE001 — best-effort
+        print("backbone sync skipped (best-effort, graph unreachable):", ex)
+        return
+    try:
+        with drv.session() as s:
+            _project_backbone(s, g, log)
+    except Exception as ex:  # noqa: BLE001 — best-effort, never fatal
+        print("backbone sync failed (best-effort):", ex)
+    finally:
+        try:
+            drv.close()
+        except Exception:
+            pass
+
+
 def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites=None,
                      spec=None, log=eventlog.LOG):
     """Project a just-published Artefato into the edge's graph — the deterministic spine write
@@ -196,7 +251,6 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
     `skill` is passed through so the projection records WHICH producer minted the Artefato."""
     try:
         import _identity
-        import yaml
         from neo4j import GraphDatabase
         uri, user, pw = _identity.neo4j_conn()
         g = _identity.require_group()
@@ -213,29 +267,10 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
     try:
         with drv.session() as s:
             if canonical:
-                # (0) keep the SPINE BACKBONE current and ROOTED at space-0 (idempotent, cheap)
-                try:
-                    cfg = yaml.safe_load((REPO / "agent.yaml").read_text()) or {}
-                except Exception:  # noqa: BLE001 — agent.yaml read is best-effort
-                    cfg = {}
-                s.run("MERGE (gen:Genesis {group_id:$g}) SET gen.space=0, gen.codename=$c, "
-                      "gen.voice=$v, gen.method='memory/method.md', "
-                      "gen.personality='memory/personality.md'",
-                      g=g, c=cfg.get("codename") or cfg.get("name"), v=cfg.get("voice"))
-                obj = eventlog.objective_at(log=log) or {}
-                if obj.get("body"):
-                    s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj["body"])
-                    s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) "
-                          "MERGE (gen)-[:GROUNDS]->(o)", g=g)
-                # ANCHORS = the CURRENTLY active steers — REBUILD each sync (DESTRUCTIVE: DELETE then
-                # re-add) so a dropped/superseded Direction stops being anchored (recall from space-0
-                # must match the log).
-                dirs = eventlog.direction_at(log=log) or {}
-                s.run("MATCH (o:Objective {group_id:$g})-[r:ANCHORS]->(:Direction) DELETE r", g=g)
-                for it in dirs.get("set", []) + dirs.get("proposed", []):
-                    s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
-                    s.run("MATCH (o:Objective {group_id:$g}),(d:Direction {group_id:$g, body:$b}) "
-                          "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"])
+                # (0) keep the SPINE BACKBONE current and ROOTED at space-0 (idempotent, cheap).
+                # Shared with reproject_graph so the ANCHORS rebuild runs EVERY canonical sweep even
+                # when no artefato is missing (Codex P2 — newly folded Directions must get anchored).
+                _project_backbone(s, g, log)
             # (1) the Artefato + its content embedding (semantic search; best-effort). `projected_at`
             # is the recency signal recall-push orders by (#30, Codex P2) — set on every (re)project.
             # `skill` is COALESCED (Codex P2): the published event now carries skill, so a replay
@@ -455,7 +490,8 @@ def _graph_present_slugs():
             pass
 
 
-def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs=_graph_present_slugs):
+def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs=_graph_present_slugs,
+                    backbone_fn=project_backbone):
     """Graph recovery (Codex P2, #30, ADR-0006: the graph is a re-derivable PROJECTION of the log).
     A transient Neo4j outage at publish time leaves the committed Artefato out of the graph (so
     `recall_subgraph` misses it) — this is the "reproject next beat" path the publish-time catch
@@ -479,6 +515,11 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
         project_fn = project_artefato if log is eventlog.LOG else None
     if project_fn is None:
         return
+    # rebuild the spine backbone FIRST, every canonical sweep (Codex P2): the ANCHORS rebuild reads
+    # the log's active steers, so newly-folded Directions get anchored even when no artefato is
+    # missing — independent of the skip-present optimization below. Cheap (no embeddings), idempotent.
+    if backbone_fn is not None:
+        backbone_fn(log)
     present = present_slugs() if present_slugs is not None else set()
     if present is None:
         return  # graph unreachable — nothing to recover into it; skip (no per-item embed storm)
