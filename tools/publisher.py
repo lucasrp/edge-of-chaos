@@ -434,14 +434,21 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT):
     A transient Neo4j outage at publish time leaves the committed Artefato out of the graph (so
     `recall_subgraph` misses it) — this is the "reproject next beat" path the publish-time catch
     promises. For EVERY committed Artefato in the log, replay `project_artefato` (idempotent MERGEs,
-    so an already-projected Artefato is unharmed). `skill` is not on the published event, so the
-    replay uses the producer-neutral default skill (as reproject_missing_pages does for the page);
-    the Artefato + its SERVES/DISTILLS/PROPOSES/CITES + embedding are re-derived from the log.
+    so an already-projected Artefato is unharmed). The published event carries `skill`, so the replay
+    restores the REAL producer identity; the Artefato + its SERVES/DISTILLS/PROPOSES/CITES + embedding
+    are re-derived from the log.
 
     Best-effort: a still-unreachable graph degrades inside project_artefato (prints, never raises).
-    Call it from the sweep/assemble at beat-open so a missed projection self-heals next beat."""
+    Call it from the sweep/assemble at beat-open so a missed projection self-heals next beat.
+
+    DEFAULT-SKIP for a non-canonical log (Codex P2): like `publish`, replaying a temp/dry-run log
+    must NOT write into the install graph — those nodes could not be replayed/cleaned from the
+    canonical log. Only a canonical-log (`log is eventlog.LOG`) replay projects by default; a caller
+    wanting to replay a custom log must pass an explicit project_fn."""
     if project_fn is _DEFAULT_PROJECT:
-        project_fn = project_artefato
+        project_fn = project_artefato if log is eventlog.LOG else None
+    if project_fn is None:
+        return
     for item in eventlog.corpus_at(log=log):
         try:
             # the published event now carries `skill` (Codex P2), so a publish-time-outage replay

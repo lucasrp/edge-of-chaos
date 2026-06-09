@@ -411,6 +411,34 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             publisher.reproject_graph(log=log, project_fn=fake_project)
             self.assertEqual(sorted(projected), ["recov-a", "recov-b"])
 
+    def test_reproject_graph_default_skips_a_non_canonical_log(self):
+        # Codex P2: reproject_graph(log=temp_log) with the DEFAULT projector must NOT write into the
+        # live graph — it mirrors publish()'s hermeticity guard. The real projector is restored and a
+        # dead bolt URI would print a connection error IF it ran; default-skip means silence.
+        import io
+        from contextlib import redirect_stdout
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            publisher.publish(
+                "recov-c", _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
+                verdict=_passing_proof("recov-c", _spec(), "open: x; bet: y"))
+            prev_uri = os.environ.get("EDGE_NEO4J_URI")
+            os.environ["EDGE_NEO4J_URI"] = "bolt://127.0.0.1:1"
+            prev_proj = publisher.project_artefato
+            publisher.project_artefato = _REAL_PROJECT   # bypass the module no-op
+            buf = io.StringIO()
+            try:
+                with redirect_stdout(buf):
+                    publisher.reproject_graph(log=log)   # NO project_fn → default, non-canonical log
+            finally:
+                publisher.project_artefato = prev_proj
+                if prev_uri is None:
+                    os.environ.pop("EDGE_NEO4J_URI", None)
+                else:
+                    os.environ["EDGE_NEO4J_URI"] = prev_uri
+            self.assertNotIn("Couldn't connect", buf.getvalue())  # the projector never ran
+
     def test_spec_text_flattens_content_for_the_embedding(self):
         # Codex P2: the content embedding must include the body, not just the kernel — a concept in
         # the body but not the kernel must still be in the embed input.
