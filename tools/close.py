@@ -221,6 +221,15 @@ DIMENSIONS = {
         "cite, or overextending an attribution, is HALLUCINATED enrichment and fails (the "
         "blindfold applies to these external claims like any fact)."
     ),
+    "contextualization": (
+        "CONTEXTUALIZED to the mentee's LIVE WORK: the artefato produces knowledge/insight APPLIED to "
+        "what they are actually building and deciding — framed in their Idiom, tied to their portfolio "
+        "and mission — not a self-contained exercise. The litmus: could the mentee ACT on this, or does "
+        "it only DESCRIBE a system? A generic survey, an internal DATA-MODEL / schema dump, or a topology "
+        "described for its own sake — rigorous but never touching the mentee's decisions — FAILS. The "
+        "inward complement of frame_enrichment: enrichment brings the world IN, contextualization applies "
+        "it to the mentee's live work."
+    ),
     "feynman_method": (
         "Derivation-first thinking is visible ANYWHERE in the artefato: reasoning from "
         "first principles before reaching for a source. The knowledge boundary is explicit "
@@ -270,6 +279,7 @@ _LEGACY_KEPT_WEIGHTS = {
     "content_depth": 0.16,
     "feynman_method": 0.14,
     "frame_enrichment": 0.15,
+    "contextualization": 0.14,
     "intellectual_honesty": 0.10,
     "didactic_clarity": 0.10,
     "internal_consistency": 0.06,
@@ -316,8 +326,11 @@ _REGULAR_FOCUS = (
     "what outside frame/benchmark/best-practice it should have brought). ALSO STRIKE hallucinated "
     "enrichment — a NAMED-BUT-UNSOURCED external (a field/benchmark/author/framework invoked "
     "without a verifiable cite, or an attribution that looks overextended or inaccurate): naming "
-    "the field without sourcing it is worse than a closed diagnosis. A genuinely internal form "
-    "(a connections map) that still reveals a non-obvious structure is NOT struck."
+    "the field without sourcing it is worse than a closed diagnosis. AND STRIKE a self-contained "
+    "exercise that never CONTEXTUALIZES to the mentee's live work — an internal data-model / schema "
+    "dump, a topology described for its own sake, or a generic survey that describes a system "
+    "without insight the mentee could act on. A genuinely internal form (a connections map) that "
+    "still reveals a non-obvious structure AND ties it to the mentee's work is NOT struck."
 )
 
 

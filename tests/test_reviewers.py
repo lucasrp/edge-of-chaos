@@ -74,7 +74,7 @@ def _seen_text(captured):
 # A minimal valid verdict the fake completer can echo back.
 _PASS_VERDICT = (
     '{"pass": true, "scores": {"development_completeness": 4, "narrative_depth": 4, '
-    '"content_depth": 4, "feynman_method": 4, "frame_enrichment": 4, '
+    '"content_depth": 4, "feynman_method": 4, "frame_enrichment": 4, "contextualization": 4, '
     '"intellectual_honesty": 4, "didactic_clarity": 4, "internal_consistency": 4, '
     '"visualization": 4, "writing_quality": 4}, '
     '"rationales": {"frame_enrichment": "names the pattern in the field and brings a benchmark"}, '
@@ -82,26 +82,27 @@ _PASS_VERDICT = (
 )
 _STRIKE_VERDICT = (
     '{"pass": false, "scores": {"development_completeness": 2, "narrative_depth": 2, '
-    '"content_depth": 3, "feynman_method": 2, "frame_enrichment": 2, '
+    '"content_depth": 3, "feynman_method": 2, "frame_enrichment": 2, "contextualization": 2, '
     '"intellectual_honesty": 2, "didactic_clarity": 3, "internal_consistency": 3, '
     '"visualization": 3, "writing_quality": 3}, '
     '"strikes": ["factual claim not re-sourceable from its cite"], "overall": 2.4}'
 )
 
 _KEPT = {"development_completeness", "narrative_depth", "content_depth", "feynman_method",
-         "frame_enrichment", "intellectual_honesty", "didactic_clarity", "internal_consistency",
-         "visualization", "writing_quality"}
+         "frame_enrichment", "contextualization", "intellectual_honesty", "didactic_clarity",
+         "internal_consistency", "visualization", "writing_quality"}
 
 
-class TenDimsBlindAndPropertyNotSection(unittest.TestCase):
-    """The S7 contract: exactly the 10 dims (depth RESTORED — development_completeness +
-    narrative_depth — plus the outward-vector dim frame_enrichment — without re-introducing the
-    old section-order mandate); weights are a {dim:weight} dict summing to 1.0; the reviewers run
-    blind (cites' content reaches the LLM, the secret evidence/session/briefing never does); the
-    honesty/feynman dim text is property-not-section (says 'anywhere', not 'O que Não Sei'); a
-    FACTUAL claim not re-sourceable from its cite yields a strike."""
+class ElevenDimsBlindAndPropertyNotSection(unittest.TestCase):
+    """The S7 contract: exactly the 11 dims (depth RESTORED — development_completeness +
+    narrative_depth — plus the outward-vector dim frame_enrichment and its inward complement
+    contextualization — without re-introducing the old section-order mandate); weights are a
+    {dim:weight} dict summing to 1.0; the reviewers run blind (cites' content reaches the LLM, the
+    secret evidence/session/briefing never does); the honesty/feynman dim text is
+    property-not-section (says 'anywhere', not 'O que Não Sei'); a FACTUAL claim not re-sourceable
+    from its cite yields a strike."""
 
-    def test_dimensions_are_exactly_the_ten(self):
+    def test_dimensions_are_exactly_the_eleven(self):
         self.assertEqual(set(close.DIMENSIONS), _KEPT)
         # the OLD section-mandate dims stay gone — depth is back as PROPERTY, not section order
         self.assertNotIn("structural_completeness", close.DIMENSIONS)
@@ -109,6 +110,7 @@ class TenDimsBlindAndPropertyNotSection(unittest.TestCase):
         self.assertIn("development_completeness", close.DIMENSIONS)
         self.assertIn("narrative_depth", close.DIMENSIONS)
         self.assertIn("frame_enrichment", close.DIMENSIONS)
+        self.assertIn("contextualization", close.DIMENSIONS)
 
     def test_frame_enrichment_is_the_outward_vector_property(self):
         # frame_enrichment is content-relative (vehicle-agnostic) but about ENRICHING the
@@ -121,7 +123,15 @@ class TenDimsBlindAndPropertyNotSection(unittest.TestCase):
         self.assertIn("cite", fe)
         self.assertIn("hallucinated", fe)
 
-    def test_weights_are_a_dict_over_the_ten_dims_summing_to_one(self):
+    def test_contextualization_is_the_inward_application_property(self):
+        # contextualization: applied to the mentee's LIVE WORK — a data-model/schema dump or
+        # generic survey that never touches their decisions FAILS (the inward complement).
+        cx = close.DIMENSIONS["contextualization"].lower()
+        self.assertIn("live work", cx)
+        self.assertIn("data-model", cx)
+        self.assertIn("act on", cx)
+
+    def test_weights_are_a_dict_over_the_eleven_dims_summing_to_one(self):
         self.assertIsInstance(close.DIMENSION_WEIGHTS, dict)
         self.assertEqual(set(close.DIMENSION_WEIGHTS), _KEPT)
         self.assertAlmostEqual(sum(close.DIMENSION_WEIGHTS.values()), 1.0, places=6)
