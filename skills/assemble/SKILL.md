@@ -51,22 +51,28 @@ anterograde amnesia — it must orient **entirely** from this and trust nothing 
 - Keep the three projections (clusters ← graph · Direction ← log · Recap ← corpus) + the source
   orientation. The briefing **is** your interface — small on purpose; high-signal, not a dump.
 
-## The recall affordance — keep the briefing normal, add the graph (#28)
+## Recall-push — inject the salient subgraph into the briefing (#30, additive)
 
-**In this first version the briefing is injected normally.** Compose the full deterministic skeleton +
-the Recap + the Knowledge clusters + corpus + Direction exactly as before — **do not thin it** (the
-briefing-lifecycle gate tests this). The graph is **additive**: on top of the normal briefing, tell the
-loop it can **navigate its own memory on demand**.
+**The briefing is injected normally AND the salient subgraph is PUSHED into it.** Compose the full
+deterministic skeleton + the Recap + the Knowledge clusters + corpus + Direction exactly as before —
+**do not thin it** (the briefing-lifecycle gate tests this). The recall-push is **additive**: one extra
+section on top of the normal briefing, so the producer wakes **with its own memory already in front of
+it** — it does not depend on remembering to recall (the dormant g.search() cautionary tale).
 
-- **Begin at space 0.** The graph's origin is the edge's identity — its method + personality (the
-  `:Genesis` node, `skills/_shared/memory.md`). The loop wakes knowing *who it is*; orientation radiates
-  out from that root (Objective → Direction → Artefatos → clusters).
-- **Announce the recall affordance**: state plainly that, **beyond** what the briefing already carries,
-  the loop can **recall more on demand** from its own graph — point it to `skills/_shared/memory.md`
-  (structural traversal + semantic search of past Artefatos).
+`compose_briefing` does this for you: `tools/briefing.py:recall_subgraph` reads the **salient subgraph**
+— **space 0** (the `:Genesis` identity root — method + personality) → the **Objective** (the hub) → the
+active **Directions** (bets) → the salient **Artefatos** (slug + kernel) → the **clusters** they distill —
+and the `## Recall — your own memory (pushed)` section injects it. Degrade-safe (CONTRACT C1, ADR-0011):
+an unreachable graph / no group renders a dark-leg marker; the briefing still composes.
 
-(Later we may turn OFF the briefing parts now duplicated in the graph and lean on recall — **deferred**.
-For now: the full briefing **and** the recall affordance, both.)
+- **Begin at space 0.** Orientation radiates out from the identity root (Objective → Direction →
+  Artefatos → clusters), so the loop wakes knowing *who it is* and *what it has already produced*.
+- **Recall MORE on demand**: beyond the pushed slice, the loop can still **navigate its own graph** —
+  point it to `skills/_shared/memory.md` (structural traversal + semantic search of past Artefatos) for
+  anything the push did not carry.
+
+(Later we may turn OFF the briefing parts now duplicated in the pushed subgraph and lean on recall —
+**deferred**. For now: the full briefing **and** the pushed subgraph **and** the on-demand affordance.)
 
 ## Read-only (CONTRACT C1)
 
