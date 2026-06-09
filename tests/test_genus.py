@@ -364,13 +364,24 @@ class RichRiteFloorIsContentRelative(unittest.TestCase):
     def test_heading_only_derivation_block_does_not_clear_the_move(self):
         """Codex P2: a derivation block with ONLY a title/label (no text/bullets/conclusion) is a
         heading placeholder, not actual reasoning — its mere presence must NOT clear
-        rich-rite:derivation (the title is a neutral heading carrying no derivation marker)."""
+        rich-rite:derivation, AND its label ("Derivation") must NOT clear it via the marker scan
+        (the marker scan excludes heading/label fields)."""
         art = _shallow_prose()
         art["content"]["sections"][0]["blocks"].append(
-            {"type": "derivation", "title": "The setup"})  # heading only, no reasoning payload
+            {"type": "derivation", "title": "Derivation"})  # label-only placeholder
         violations = close.check_genus(art)
         self.assertTrue(any(v == "rich-rite:derivation" for v in violations),
                         f"a heading-only derivation must NOT clear the move, got {violations}")
+
+    def test_gap_table_headed_unknown_does_not_clear_via_label(self):
+        """Codex P2: a gap-table whose only text is a header 'Unknown' must NOT clear the boundary
+        move via the marker scan (headers are excluded from marker text)."""
+        art = _shallow_prose()
+        art["content"]["sections"][0]["blocks"].append(
+            {"type": "gap-table", "headers": ["Unknown", "status"]})  # header label only
+        violations = close.check_genus(art)
+        self.assertTrue(any(v == "rich-rite:what-i-dont-know" for v in violations),
+                        f"a header-label-only gap-table must NOT clear the move, got {violations}")
 
     def test_headers_only_gap_table_does_not_clear_the_boundary_move(self):
         """Codex P2: a gap-table with ONLY headers (no gaps/rows) is a placeholder — it must NOT

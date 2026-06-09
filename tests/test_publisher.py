@@ -480,6 +480,19 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                            "the final marker SET must follow the edge writes (last)")
         self.assertLess(clear_idx, set_idx, "clear-false precedes the final SET")
 
+    def test_projection_loads_the_openai_key_before_embedding(self):
+        # Codex P1: the embed key lives in the install/dev secrets and is not necessarily exported —
+        # project_artefato must load it (via _load_openai_key) before constructing OpenAI(), or every
+        # publish would fail the embed, never complete, and be filtered from recall forever.
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        self.assertIn("_load_openai_key()", src,
+                      "project_artefato must load the OpenAI key before the embed (Codex P1)")
+        # the loader reads the install secret + the ~/.edge-sandbox-kit dev fallback
+        loader = inspect.getsource(publisher._load_openai_key)
+        self.assertIn("openai.env", loader)
+        self.assertIn("edge-sandbox-kit", loader)
+
     def test_failed_embed_leaves_projection_incomplete(self):
         # Codex P2: a FAILED embed (key/service down) must NOT mark the projection complete — the
         # completion marker is gated on `embed_current`, so recovery retries the embed once creds

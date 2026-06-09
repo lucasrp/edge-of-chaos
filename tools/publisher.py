@@ -148,6 +148,24 @@ def _cluster_slug(label):
     return re.sub(r"[^a-z]", "", (label or "").lower())
 
 
+def _load_openai_key():
+    """Load OPENAI_API_KEY into the env if absent (Codex P1): the embedding key lives in the install
+    secrets (or the ~/.edge-sandbox-kit dev fallback) and is NOT necessarily exported when a producer
+    invokes the projection. Without this, the embed fails, the projection never completes, and recall
+    filters the Artefato out forever. Mirrors sweep._load_openai_key (the runtime's loader)."""
+    if os.environ.get("OPENAI_API_KEY"):
+        return
+    for f in (REPO / "secrets" / "openai.env", Path.home() / ".edge-sandbox-kit" / "openai.env"):
+        try:
+            if f.exists():
+                for line in f.read_text().splitlines():
+                    if "OPENAI_API_KEY" in line:
+                        os.environ["OPENAI_API_KEY"] = line.split("=", 1)[1].strip().strip('"')
+                        return
+        except Exception:  # noqa: BLE001 — best-effort; embed degrades if the key cannot be loaded
+            pass
+
+
 def _spec_text(spec):
     """Flatten the published spec to plain text for the content embedding (Codex P2: embed the
     CONTENT, not just the kernel). Walks the string leaves render reads — executive_summary +
@@ -321,6 +339,7 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             if not embed_current:
                 try:
                     from openai import OpenAI
+                    _load_openai_key()   # source the install/dev OpenAI key if not exported (Codex P1)
                     emb = OpenAI().embeddings.create(model="text-embedding-3-small",
                                                      input=emb_input).data[0].embedding
                     s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "

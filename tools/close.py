@@ -211,15 +211,21 @@ def _is_dense_table(block: dict, block_type: str) -> bool:
     return len(block.get("rows", [])) >= QUANTITATIVE_ROW_THRESHOLD
 
 
+# Non-substantive block fields EXCLUDED from marker scanning (Codex P2): a heading/label/header is
+# not move-bearing prose, so a placeholder like {"type":"derivation","title":"Derivation"} or a
+# gap-table headed "Unknown" must NOT clear a move via its label text. `type` is the block tag.
+_NON_SUBSTANTIVE_BLOCK_FIELDS = frozenset({"type", "title", "label", "headers", "header"})
+
+
 def _block_text(block: dict) -> str:
-    """The human-readable text a block carries, for marker scanning — flattens the string
-    values render reads (text/title/bullets/items/...). Type-tolerant: only strings are
-    joined, nested lists are walked one level (bullets, items). The `type` key is EXCLUDED — it
-    is the block's tag, not content, so a bare `{"type":"derivation"}` placeholder carries no
-    text (it must not self-clear the derivation move via its own type name)."""
+    """The SUBSTANTIVE human-readable text a block carries, for marker scanning — flattens the string
+    values render reads (text/bullets/items/...) EXCEPT the non-substantive heading/label fields
+    (title/label/headers — Codex P2) and the block's `type` tag. So a heading-only placeholder block
+    carries no marker text and cannot self-clear a move via its label. Nested lists/dicts are walked
+    one level (bullets, items)."""
     parts = []
     for k, v in block.items():
-        if k == "type":
+        if k in _NON_SUBSTANTIVE_BLOCK_FIELDS:
             continue
         if isinstance(v, str):
             parts.append(v)
