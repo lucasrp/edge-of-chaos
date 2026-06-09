@@ -445,6 +445,22 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         # and _graph_present_slugs reads the completion marker, not bare node/embedding presence
         self.assertIn("projection_complete", inspect.getsource(publisher._graph_present_slugs))
 
+    def test_republish_clears_completion_marker_before_re_updating(self):
+        # Codex P2: a republish with a corrected payload must clear projection_complete FIRST, so a
+        # partial-failure mid-update leaves it incomplete (re-projected next sweep) and the graph
+        # cannot keep a stale kernel/edges forever. The clear (set false) is in the first MERGE; the
+        # set-true is the LAST step — so a failure between them leaves the marker false.
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        clear_idx = src.find("projection_complete=false")
+        set_idx = src.find("projection_complete=true")
+        self.assertNotEqual(clear_idx, -1, "republish must CLEAR projection_complete before updating")
+        self.assertLess(clear_idx, src.rfind("[:CITES]->"),
+                        "the clear must precede the edge writes")
+        self.assertGreater(set_idx, src.rfind("[:CITES]->"),
+                           "the set-true must follow the edge writes (last)")
+        self.assertLess(clear_idx, set_idx, "clear-false precedes set-true")
+
     def test_backbone_ensures_every_artefato_serves_the_objective(self):
         # Codex P2: an Artefato published BEFORE the Objective existed had SERVES no-op; the backbone
         # (every canonical sweep) guarantees the hub link so it is reachable from space-0.

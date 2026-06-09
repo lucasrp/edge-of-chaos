@@ -279,12 +279,15 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                 _project_backbone(s, g, log)
             # (1) the Artefato + its content embedding (semantic search; best-effort). `projected_at`
             # is the recency signal recall-push orders by (#30, Codex P2) — set on every (re)project.
+            # CLEAR `projection_complete` FIRST (Codex P2): a republish with a corrected payload is
+            # NOT complete until THIS run finishes — if it fails partway, the marker stays false so
+            # the next sweep re-projects and the graph cannot keep a stale kernel/edges forever.
             # `skill` is COALESCED (Codex P2): the published event now carries skill, so a replay
             # restores the REAL producer identity; a legacy event with no skill folds to None, which
             # coalesce PRESERVES (never clobbers an already-projected skill to NULL).
             s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) "
                   "SET a.kernel=$k, a.skill=coalesce($skill, a.skill), a.page=$page, "
-                  "a.projected_at=$pat",
+                  "a.projected_at=$pat, a.projection_complete=false",
                   g=g, slug=slug, k=intent, skill=skill, page=f"blog/entries/{slug}.html",
                   pat=_dt.now(_tz.utc).isoformat())
             # every Artefato SERVES the objective — the hub keeping it reachable from space-0.
