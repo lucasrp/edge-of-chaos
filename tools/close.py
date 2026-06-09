@@ -277,10 +277,12 @@ def _check_rich_rite(artefato: dict) -> list[str]:
         for c in (artefato.get("cites") or [])
     )
     # a non-empty bibliography clears external-frame whether it is the top-level field OR a
-    # rendered `bibliography` block in a section (Codex P2 — render supports both).
+    # rendered `bibliography` block in a section (Codex P2). Only `references` is checked — it is
+    # the ONLY field render_bibliography renders, so the gate never passes on a field (entries/items)
+    # that would leave the published page's bibliography empty.
     bibliography = bool(content.get("bibliography")) or any(
         _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph")) == "bibliography"
-        and (b.get("references") or b.get("entries") or b.get("items"))
+        and b.get("references")
         for b in blocks
     )
 

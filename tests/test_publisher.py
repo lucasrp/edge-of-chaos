@@ -448,6 +448,58 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         self.assertIn("coalesce", inspect.getsource(_REAL_PROJECT).lower(),
                       "project_artefato must coalesce skill (a None never clobbers existing)")
 
+    def test_custom_log_default_skips_projection(self):
+        # Codex P2: a publish to a NON-canonical (temp) log with the DEFAULT project_fn must NOT
+        # project into the live graph — dry-runs/tests are hermetic by default. Restore the real
+        # project_artefato (the module no-op is bypassed) and confirm it is never reached: a dead
+        # bolt URI would print a connection error if it tried; default-skip means silence.
+        import io
+        from contextlib import redirect_stdout
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "custom-log-noproject"
+            prev_uri = os.environ.get("EDGE_NEO4J_URI")
+            os.environ["EDGE_NEO4J_URI"] = "bolt://127.0.0.1:1"   # would error IF projection ran
+            prev_proj = publisher.project_artefato
+            publisher.project_artefato = _REAL_PROJECT            # bypass the module no-op
+            buf = io.StringIO()
+            try:
+                with redirect_stdout(buf):
+                    publisher.publish(
+                        slug, _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                        log=log, blog_dir=tmp, embed_fn=_fake_embed,  # NO project_fn → default
+                        verdict=_passing_proof(slug, _spec(), "open: x; bet: y"))
+            finally:
+                publisher.project_artefato = prev_proj
+                if prev_uri is None:
+                    os.environ.pop("EDGE_NEO4J_URI", None)
+                else:
+                    os.environ["EDGE_NEO4J_URI"] = prev_uri
+            # the projection never ran (no connection attempt → no error printed)
+            self.assertNotIn("Couldn't connect", buf.getvalue())
+            self.assertNotIn("project", buf.getvalue().lower())
+
+    def test_reproject_missing_pages_uses_the_persisted_skill(self):
+        # Codex P2: a recovered page uses the REAL producer skill from the log, not 'report'.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            blog = Path(tmp) / "entries"
+            slug = "skill-page"
+            # commit a `map` publish but force the page write to fail (recoverable)
+            orig_replace = os.replace
+            os.replace = lambda *a, **k: (_ for _ in ()).throw(OSError("boom"))
+            try:
+                with self.assertRaises(OSError):
+                    publisher.publish(
+                        slug, _spec(), intent="open: x; bet: y", skill="map", date="2026-06-08",
+                        log=log, blog_dir=blog, embed_fn=_fake_embed, project_fn=None,
+                        verdict=_passing_proof(slug, _spec(), "open: x; bet: y", skill="map"))
+            finally:
+                os.replace = orig_replace
+            publisher.reproject_missing_pages(log=log, blog_dir=blog, date="2026-06-08")
+            text = (blog / f"{slug}.html").read_text()
+            self.assertIn('<p class="meta">2026-06-08 · map</p>', text)  # the REAL skill, not report
+
     def test_published_event_carries_skill_for_graph_recovery(self):
         # the skill rides the atomic published event (the only recovery source), so a reproject
         # after a publish-time outage restores the producer identity on a node that did not exist.

@@ -378,9 +378,13 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # seam runs offline. The double-wrap (here + inside project_artefato) is belt-and-suspenders:
     # even an injected project_fn that raises can never strand the already-committed Artefato.
     # resolve the default at CALL time (name lookup) so a test can patch project_artefato to stay
-    # offline; an explicit None skips projection entirely.
+    # offline; an explicit None skips projection entirely. DEFAULT-SKIP for a non-canonical log
+    # (Codex P2): a dry-run/test/recovery publish to a temp log must NOT write into the install
+    # graph — those nodes could not be replayed or cleaned from the canonical log. Only the
+    # canonical-log publish projects by default; a caller wanting to project a custom log must pass
+    # an explicit project_fn.
     if project_fn is _DEFAULT_PROJECT:
-        project_fn = project_artefato
+        project_fn = project_artefato if log is eventlog.LOG else None
     if project_fn is not None:
         try:
             project_fn(slug, intent, skill=skill, distills=distills, proposes=proposes,
@@ -398,8 +402,10 @@ def reproject_missing_pages(log=eventlog.LOG, blog_dir=BLOG_DIR, date=None, embe
     untouched and an already-emitted signal (per ref) is not re-emitted. This is what makes a
     page-write or signal failure AFTER the publish commit recoverable rather than unrecoverable.
 
-    `skill` is not on the published event, so the reprojected page uses the producer-neutral
-    default skill for the meta line; the body (the load-bearing content) re-renders exactly."""
+    The published event now carries `skill` (#30), so the reprojected page uses the REAL producer
+    skill for the meta line (Codex P2) — a map/plan recovered page is byte-identical to the original,
+    not mislabelled 'report'. A legacy event with no skill falls back to the producer-neutral default;
+    the body (the load-bearing content) re-renders exactly either way."""
     blog_dir = Path(blog_dir)
     yields = eventlog.source_yield_at(log=log)  # refs that already have a signal
     redone = []
@@ -412,7 +418,7 @@ def reproject_missing_pages(log=eventlog.LOG, blog_dir=BLOG_DIR, date=None, embe
             out = _safe_target(slug, blog_dir)
         except ValueError:
             continue
-        body_html, page = _render_page(slug, spec, skill="report", date=date)
+        body_html, page = _render_page(slug, spec, skill=item.get("skill") or "report", date=date)
         if not out.exists():
             _write_page(out, page)
             redone.append(out)
