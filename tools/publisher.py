@@ -465,10 +465,14 @@ def reproject_missing_pages(log=eventlog.LOG, blog_dir=BLOG_DIR, date=None, embe
 
 
 def _graph_present_slugs():
-    """The slugs ALREADY projected into the install graph — read once so recovery replays ONLY the
-    missing ones (Codex P2: never re-embed the whole corpus each sweep). Returns a set, or None on a
-    degrade (no group / no driver / unreachable) — the caller then skips the replay entirely (there
-    is nothing to recover into a graph it cannot read)."""
+    """The slugs FULLY projected into the install graph — read once so recovery replays only the
+    missing/incomplete ones (Codex P2): never re-embed the whole corpus each sweep, BUT do re-project
+    a node whose projection was left INCOMPLETE (the embed step is the expensive, most-likely-skipped
+    one — a node created by an initial MERGE but with NO `embedding` is treated as NOT present, so the
+    next sweep re-completes its SERVES/edges/embedding). DISTILLS deferred because a cluster does not
+    exist yet is a separate mechanism (the grill attaches it later) — not a perpetual re-embed.
+    Returns a set, or None on a degrade (no group / no driver / unreachable) — the caller then skips
+    the replay entirely (there is nothing to recover into a graph it cannot read)."""
     try:
         import _identity
         from neo4j import GraphDatabase
@@ -479,8 +483,11 @@ def _graph_present_slugs():
         return None
     try:
         with drv.session() as s:
+            # FULLY projected = the node carries an embedding (the expensive step that the publish-time
+            # outage / no-key path skips). An embedding-less node is re-projected to self-heal.
             return {r["slug"] for r in s.run(
-                "MATCH (a:Artefato {group_id:$g}) RETURN a.slug AS slug", g=g)}
+                "MATCH (a:Artefato {group_id:$g}) WHERE a.embedding IS NOT NULL "
+                "RETURN a.slug AS slug", g=g)}
     except Exception:  # noqa: BLE001
         return None
     finally:

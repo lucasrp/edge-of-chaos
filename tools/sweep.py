@@ -217,9 +217,14 @@ def reproject():
     except Exception as e:
         print(f"sweep: wiki render skipped ({type(e).__name__}: {e}) — "
               f"Direction projected from the log; the wiki needs Neo4j")
-    # graph reproject (#30): replay any Artefato a transient outage left out of the graph, so the
-    # "reproject next beat" path the publisher promises actually self-heals. Best-effort (an
-    # unreachable graph degrades inside reproject_graph) — never blocks the sweep (ADR-0011).
+
+
+def reproject_graph():
+    """Graph recovery (#30): replay any Artefato a transient outage left out of the graph + rebuild
+    the spine backbone, so the "reproject next beat" path the publisher promises self-heals. Runs on
+    EVERY sweep (Codex P2 — NOT gated by new ingest): if Neo4j was down at publish and the next sweep
+    has no delta, this no-delta sweep still recovers. Best-effort (an unreachable graph degrades
+    inside reproject_graph) — never blocks the sweep (ADR-0011)."""
     try:
         import publisher
         publisher.reproject_graph()
@@ -228,15 +233,20 @@ def reproject():
 
 
 def run(project_dir=PROJECT_DIR, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,
-        log=eventlog.LOG, recent=None):
-    """Full sweep: plan the deltas → ingest + log + advance cursors → re-project (if anything new).
-    `recent=N` bounds this run to the N newest sessions (the rest backfill on later sweeps)."""
+        log=eventlog.LOG, recent=None, graph_recover_fn=None):
+    """Full sweep: plan the deltas → ingest + log + advance cursors → re-project (if anything new) →
+    graph-recover (ALWAYS). `recent=N` bounds this run to the N newest sessions (the rest backfill on
+    later sweeps). Graph recovery runs EVERY sweep, independent of `n` (Codex P2), so a no-delta sweep
+    after Neo4j comes back still heals a publish-time-missed projection."""
     cursors = load_cursors(cursors_path)
     plan = plan_sweep(project_dir, cursors, recent=recent)
     cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
     save_cursors(cursors, cursors_path)
     if n and reproject_fn is not False:
         (reproject_fn or reproject)()
+    # graph recovery runs ALWAYS (not under `if n`) — a no-delta sweep still self-heals the graph.
+    if graph_recover_fn is not False:
+        (graph_recover_fn or reproject_graph)()
     return n
 
 

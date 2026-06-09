@@ -94,8 +94,10 @@ class RunIsIdempotent(unittest.TestCase):
             cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
             calls = []
             fake = lambda items: calls.append(len(items))
-            n1 = sweep.run(proj, ingest_fn=fake, cursors_path=cp, reproject_fn=False, log=log)
-            n2 = sweep.run(proj, ingest_fn=fake, cursors_path=cp, reproject_fn=False, log=log)
+            n1 = sweep.run(proj, ingest_fn=fake, cursors_path=cp, reproject_fn=False, log=log,
+                          graph_recover_fn=False)
+            n2 = sweep.run(proj, ingest_fn=fake, cursors_path=cp, reproject_fn=False, log=log,
+                          graph_recover_fn=False)
             self.assertEqual((n1, n2, calls), (1, 0, [1]))
 
     def test_growing_session_digests_only_new_delta(self):
@@ -104,12 +106,28 @@ class RunIsIdempotent(unittest.TestCase):
             write_session(proj, "sessA")
             ingested = []
             fake = lambda items: ingested.append([i["id"] for i in items])
-            sweep.run(proj, ingest_fn=fake, cursors_path=cp, reproject_fn=False, log=log)
+            sweep.run(proj, ingest_fn=fake, cursors_path=cp, reproject_fn=False, log=log,
+                          graph_recover_fn=False)
             # the session grows; a second sweep sees only the new tail
             write_session(proj, "sessA", n_human=6)  # rewrites longer (append-only in spirit)
-            n2 = sweep.run(proj, ingest_fn=fake, cursors_path=cp, reproject_fn=False, log=log)
+            n2 = sweep.run(proj, ingest_fn=fake, cursors_path=cp, reproject_fn=False, log=log,
+                          graph_recover_fn=False)
             self.assertEqual(n2, 1)  # the new delta re-qualified
             self.assertEqual(ingested, [["sessA"], ["sessA"]])
+
+    def test_graph_recovery_runs_even_on_a_no_delta_sweep(self):
+        # Codex P2: graph recovery is NOT gated by new ingest — a no-delta sweep (n==0) after Neo4j
+        # comes back must still heal a publish-time-missed projection. The graph_recover_fn fires
+        # regardless of `n`; reproject (the `if n` path) does not.
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
+            cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
+            # no sessions → n == 0 (no delta)
+            recovered = []
+            n = sweep.run(proj, ingest_fn=lambda items: None, cursors_path=cp,
+                          reproject_fn=False, log=log,
+                          graph_recover_fn=lambda: recovered.append(True))
+            self.assertEqual(n, 0)             # no delta ingested
+            self.assertEqual(recovered, [True])  # but graph recovery STILL ran
 
 
 class ReprojectFoldsCorpusAndReadsTheC3Gate(unittest.TestCase):
@@ -207,7 +225,8 @@ class GraphIngestIsBestEffort(unittest.TestCase):
             def boom(items):
                 raise ModuleNotFoundError("No module named 'graphiti_core'")
 
-            n = sweep.run(proj, ingest_fn=boom, cursors_path=cp, reproject_fn=False, log=log)
+            n = sweep.run(proj, ingest_fn=boom, cursors_path=cp, reproject_fn=False, log=log,
+                          graph_recover_fn=False)
             self.assertEqual(n, 1)                                    # logged despite graph failure
             self.assertEqual(len(eventlog.read(types=["episode"], log=log)), 1)
             self.assertIn("sessA", sweep.load_cursors(cp))           # cursor advanced
