@@ -578,9 +578,12 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
         return  # graph unreachable — nothing to recover into it; skip (no per-item embed storm)
     for item in eventlog.corpus_at(log=log):
         pat = present.get(item["slug"])
-        # skip ONLY if complete AND FRESH: the node's projected_at is at-or-after the log's published
-        # ts for this slug. A republish (newer log ts) or a never-projected republish is STALE → replay.
-        if pat is not None and item.get("ts") is not None and str(pat) >= str(item["ts"]):
+        # skip ONLY if complete AND FRESH: the node's projected_at is at-or-after the log's LATEST
+        # event ts for this slug. `latest_ts` advances to a kernel ADDED LATER (Codex P3), so a
+        # legacy C3-debt repair (kernel appended after publish) makes the slug stale → replay. A
+        # republish (newer ts) or a never-projected republish is likewise STALE → replay.
+        latest = item.get("latest_ts") or item.get("ts")
+        if pat is not None and latest is not None and str(pat) >= str(latest):
             continue  # already projected and current — skip (no re-embed in steady state)
         try:
             # the published event now carries `skill` (Codex P2), so a publish-time-outage replay

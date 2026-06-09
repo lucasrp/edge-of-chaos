@@ -527,6 +527,32 @@ class RichRiteFloorIsContentRelative(unittest.TestCase):
         self.assertFalse(any(v == "rich-rite:external-frame" for v in violations),
                          f"a real bibliography reference must clear external-frame, got {violations}")
 
+    def test_whitespace_bibliography_dict_field_does_not_clear_external_frame(self):
+        # Codex P2: a structured ref with a whitespace-only field {"text":"   "} is not a real
+        # reference — it must NOT clear external-frame.
+        art = _shallow_prose()  # no cites
+        art["content"]["bibliography"] = [{"text": "   ", "url": "  "}]
+        violations = close.check_genus(art)
+        self.assertTrue(any(v == "rich-rite:external-frame" for v in violations),
+                        f"a whitespace-only bibliography ref must NOT clear external-frame, got {violations}")
+
+    def test_placeholder_distills_do_not_clear_lineage(self):
+        # Codex P2: a placeholder distills container ([''], [{}]) is not a real thread — it must NOT
+        # clear rich-rite:lineage when there is no lineage marker in the text.
+        for placeholder in ([""], ["   "], [{}], [{"x": "  "}]):
+            art = _shallow_prose()
+            art["distills"] = placeholder
+            violations = close.check_genus(art)
+            self.assertTrue(any(v == "rich-rite:lineage" for v in violations),
+                            f"placeholder distills {placeholder!r} must NOT clear lineage, got {violations}")
+
+    def test_real_distill_ref_clears_lineage(self):
+        art = _shallow_prose()
+        art["distills"] = ["cluster:recall"]
+        violations = close.check_genus(art)
+        self.assertFalse(any(v == "rich-rite:lineage" for v in violations),
+                         f"a real distill ref must clear lineage, got {violations}")
+
     def test_priority_does_not_clear_lineage_word_boundary(self):
         """Codex P2: the bare `prior` lineage marker must match on a WORD BOUNDARY — `priority`/
         `prioritize` (common planning prose) must NOT clear rich-rite:lineage."""

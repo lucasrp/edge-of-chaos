@@ -284,10 +284,14 @@ def _check_rich_rite(artefato: dict) -> list[str]:
     # rendered `bibliography` block in a section (Codex P2). Only `references` is checked — the ONLY
     # field render_bibliography renders — and only a NON-EMPTY reference counts (Codex P2): a truthy-
     # but-empty payload like [""] renders an empty bibliography and must NOT clear the move.
+    def _nonblank(v):
+        return isinstance(v, str) and v.strip()
     def _has_real_refs(refs):
+        # a reference is real only if it carries NON-BLANK text/url/source (dict) or a non-blank
+        # string (Codex P2): a whitespace-only field {"text":"   "} must NOT clear the move.
         return any(
-            (r.get("text") or r.get("url") or r.get("source")) if isinstance(r, dict)
-            else (isinstance(r, str) and r.strip())
+            (_nonblank(r.get("text")) or _nonblank(r.get("url")) or _nonblank(r.get("source")))
+            if isinstance(r, dict) else _nonblank(r)
             for r in (refs or [])
         )
     bibliography = _has_real_refs(content.get("bibliography")) or any(
@@ -295,11 +299,17 @@ def _check_rich_rite(artefato: dict) -> list[str]:
         and _has_real_refs(b.get("references"))
         for b in blocks
     )
+    # a distill clears lineage only if at least one ref is a REAL non-empty thread (Codex P2): a
+    # placeholder container like [''] or [{}] must NOT clear it (and would not resolve in projection).
+    real_distill = any(
+        (_nonblank(d) or (isinstance(d, dict) and any(_nonblank(v) for v in d.values())))
+        for d in (artefato.get("distills") or [])
+    )
 
     has_derivation = has_filled_block(DERIVATION_BLOCK_TYPES) or marked(DERIVATION_MARKERS)
     has_boundary = has_filled_block(BOUNDARY_BLOCK_TYPES) or marked(BOUNDARY_MARKERS)
     has_frame = external_cite or bibliography
-    has_lineage = bool(artefato.get("distills")) or marked(LINEAGE_MARKERS)
+    has_lineage = real_distill or marked(LINEAGE_MARKERS)
 
     violations = []
     if not has_derivation:

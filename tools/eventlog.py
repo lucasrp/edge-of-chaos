@@ -349,13 +349,20 @@ def fold_corpus(events):
         if t == "artefato.published":
             items[slug] = {"slug": slug, "intent": None, "proposes": p.get("proposes", []),
                            "distills": p.get("distills", []), "cites": p.get("cites", []),
-                           "spec": p.get("spec"), "skill": p.get("skill"), "ts": e.get("ts")}
+                           "spec": p.get("spec"), "skill": p.get("skill"),
+                           "ts": e.get("ts"), "latest_ts": e.get("ts")}
         elif t == "intent.kernel" and slug in items:
             # content rule: only a non-empty stripped intent becomes the why; a blank kernel renders
             # no open-bet. Ordering: `slug in items` already drops a stale pre-publish kernel.
             stripped = _stripped_intent(p.get("intent"))
             if stripped is not None:
                 items[slug]["intent"] = stripped
+            # `latest_ts` advances to the kernel event ts (Codex P3): the graph-recovery freshness
+            # check compares against it, so a kernel ADDED LATER (legacy C3-debt repair) makes the
+            # slug STALE relative to the graph and re-projects — the stale empty kernel is replaced.
+            kts = e.get("ts")
+            if kts and (items[slug].get("latest_ts") is None or kts > items[slug]["latest_ts"]):
+                items[slug]["latest_ts"] = kts
     return list(items.values())
 
 

@@ -790,6 +790,21 @@ class PublishRequiresKernel(unittest.TestCase):
             corpus = eventlog.corpus_at(log=log)
             self.assertEqual(corpus[0]["skill"], "map")
 
+    def test_latest_ts_advances_to_a_kernel_added_later(self):
+        # Codex P3: fold_corpus tracks `latest_ts` advancing to a kernel appended AFTER publish, so a
+        # legacy C3-debt repair makes the slug stale vs the graph and the graph-recovery freshness
+        # check re-projects it. `ts` stays the publish ts (unchanged for existing readers).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog._append_orphan_published_for_test("legacy-c3", log=log)  # published, no kernel
+            item0 = eventlog.corpus_at(log=log)[0]
+            self.assertEqual(item0["latest_ts"], item0["ts"])   # no kernel yet → latest == publish
+            eventlog.kernel("legacy-c3", "open: repaired; bet: x", log=log)  # kernel ADDED LATER
+            item1 = eventlog.corpus_at(log=log)[0]
+            self.assertEqual(item1["ts"], item0["ts"])          # publish ts unchanged
+            self.assertGreaterEqual(item1["latest_ts"], item0["ts"])
+            self.assertNotEqual(item1["latest_ts"], item0["latest_ts"])  # advanced to the kernel ts
+
     def test_missing_skill_folds_as_none_backward_compatible(self):
         # a legacy published event with no skill folds with skill=None (no crash).
         with tempfile.TemporaryDirectory() as tmp:
