@@ -33,6 +33,13 @@ class IntrospectiveMemoryContract(unittest.TestCase):
         self.assertTrue("grounds" in self.lower and "anchors" in self.lower,
                         "memory.md must root the spine to genesis (GROUNDS/ANCHORS)")
 
+    def test_backbone_rebuilds_active_anchors(self):
+        # codex: the backbone sync must REBUILD the Objective's ANCHORS set each project (delete the
+        # stale edges first), else a dropped/superseded Direction stays anchored and recall from
+        # space-0 diverges from the canonical log.
+        self.assertIn("delete r", self.lower, "memory.md must clear stale ANCHORS before re-adding")
+        self.assertIn("rebuild", self.lower)
+
     def test_semantic_artefato_search(self):
         # semantic search of a report by its own content — the embedding on :Artefato.
         for token in ("embedding", "semantic", "text-embedding-3-small", "cosine" if "cosine" in self.lower else "cos"):

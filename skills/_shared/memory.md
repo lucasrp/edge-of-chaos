@@ -158,6 +158,11 @@ with drv.session() as s:
         s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj['body'])
         s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) MERGE (gen)-[:GROUNDS]->(o)", g=g)
     dirs = (eventlog.direction_at() or {})
+    # ANCHORS = the CURRENTLY active steers — REBUILD it from the canonical fold each sync, so a
+    # dropped/superseded Direction stops being anchored (recall from space-0 must match the log,
+    # never accumulate retired steers). Artefato -[:PROPOSES]-> Direction is historical provenance
+    # and is left intact.
+    s.run("MATCH (o:Objective {group_id:$g})-[r:ANCHORS]->(:Direction) DELETE r", g=g)
     for it in dirs.get('set', []) + dirs.get('proposed', []):
         s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it['body'])
         s.run("MATCH (o:Objective {group_id:$g}),(d:Direction {group_id:$g, body:$b}) "
@@ -202,6 +207,9 @@ Notes that keep this honest:
   `:Entity` embeddings still work.
 - The backbone sync (step 0) keeps `:Genesis → :Objective → :Direction` current and rooted at space-0 on
   every project — idempotent, so it self-heals; the objective/directions come from the log (canonical).
+  **`ANCHORS` is rebuilt from the fold each sync** (the active steers only — a dropped/superseded
+  Direction is unanchored), so recall from space-0 never traverses to a retired steer; the historical
+  `Artefato -[:PROPOSES]-> Direction` provenance is left intact.
 
 ## The loop that compounds
 
