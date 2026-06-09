@@ -43,6 +43,46 @@ VISUAL_BLOCK_TYPES = frozenset({
 DATA_TABLE_TYPES = frozenset({"table", "key-value", "kv", "data-table", "stat-row"})
 QUANTITATIVE_ROW_THRESHOLD = 3
 
+# ---------------------------------------------------------------------------
+# The rich-rite floor (#30) — content-relative property gates on the cognitive
+# moves the rich old reports forced. MIRRORS _check_visual_coverage: a TRIGGER
+# (here: a DEVELOPED PROSE synthesis) owes the moves; a non-prose/terse form owes
+# none and is NEVER falsely failed. NEVER a named section, NEVER a word floor —
+# the trigger is a STRUCTURAL count of prose blocks (mirrors QUANTITATIVE_ROW_THRESHOLD),
+# and each move is satisfied by a dedicated palette block OR a content marker ANYWHERE.
+# ---------------------------------------------------------------------------
+
+# Prose-bearing block types (after alias canonicalization). A synthesis carrying enough of
+# these is a "developed prose synthesis" — the trigger that owes the four cognitive moves.
+# A map (ascii-diagram + table) or a terse plan (next-steps-grid) carries none and owes nothing.
+PROSE_BLOCK_TYPES = frozenset({"paragraph", "callout", "subsection"})
+# The structural trigger threshold — NOT a word count. Below it, the artefato is too terse to
+# be a developed synthesis and owes none of the moves (content-relative, like visual-coverage).
+RICH_RITE_PROSE_THRESHOLD = 3
+
+# Palette blocks that, by their mere presence, satisfy a cognitive move (the move is present
+# ANYWHERE — never a named section). Mirrors how a metrics-grid satisfies visual-coverage.
+DERIVATION_BLOCK_TYPES = frozenset({"derivation"})
+BOUNDARY_BLOCK_TYPES = frozenset({"gap-marker", "gap-table", "gap-resolution"})
+
+# Content markers — the move carried in prose rather than a dedicated block. Conservative on
+# purpose: a present, specific marker, not a length proxy. Matched case-insensitively anywhere
+# in the artefato's prose text.
+DERIVATION_MARKERS = (
+    "first principle", "from first principles", "derive", "derivation",
+    "because ", "therefore", "it follows", "follows that", "reason ", "reasoning",
+)
+BOUNDARY_MARKERS = (
+    "what i don't know", "what i do not know", "i don't know", "i do not know",
+    "unknown", "uncertain", "unverified", "inferred", "not sure", "open question",
+    "knowledge boundary", "blind spot", "untested",
+)
+LINEAGE_MARKERS = (
+    "builds on", "build on", "building on", "prior", "lineage", "earlier work",
+    "previous report", "previously", "extends", "extending", "we already",
+    "already know", "already wrote",
+)
+
 
 # ---------------------------------------------------------------------------
 # Genus contract — check_genus
@@ -64,6 +104,7 @@ def check_genus(artefato: dict) -> list[str]:
     violations += _check_intent(artefato.get("intent"))
     violations += _check_block_schemas(artefato.get("content", {}))
     violations += _check_visual_coverage(artefato.get("content", {}))
+    violations += _check_rich_rite(artefato)
     return violations
 
 
@@ -155,6 +196,76 @@ def _is_dense_table(block: dict, block_type: str) -> bool:
     if block_type not in DATA_TABLE_TYPES:
         return False
     return len(block.get("rows", [])) >= QUANTITATIVE_ROW_THRESHOLD
+
+
+def _block_text(block: dict) -> str:
+    """The human-readable text a block carries, for marker scanning — flattens the string
+    values render reads (text/title/bullets/items/...). Type-tolerant: only strings are
+    joined, nested lists are walked one level (bullets, items)."""
+    parts = []
+    for v in block.values():
+        if isinstance(v, str):
+            parts.append(v)
+        elif isinstance(v, list):
+            for it in v:
+                if isinstance(it, str):
+                    parts.append(it)
+                elif isinstance(it, dict):
+                    parts.extend(s for s in it.values() if isinstance(s, str))
+    return " ".join(parts)
+
+
+def _check_rich_rite(artefato: dict) -> list[str]:
+    """The rich-rite floor (#30). CONTENT-RELATIVE, mirroring `_check_visual_coverage`: only a
+    DEVELOPED PROSE synthesis (the trigger — `>= RICH_RITE_PROSE_THRESHOLD` prose blocks, a
+    STRUCTURAL count, NEVER a word floor) owes the four cognitive moves the rich old reports
+    forced. A diagram-form map, a terse plan, or a short bite carries too little prose to be a
+    developed synthesis and owes NONE — never falsely failed (exactly as prose-only content owes
+    no visual).
+
+    Each move is satisfied by its dedicated palette block OR by a content marker present ANYWHERE
+    in the artefato — NEVER a named or ordered section (ADR-0012/0013):
+      - derivation        — a `derivation` block, or a first-principles/reasoning marker;
+      - what-i-dont-know  — a `gap-*` block, or a knowledge-boundary/uncertainty marker;
+      - external-frame    — a non-empty `cites` (a sourced benchmark) or a `bibliography` block,
+                            or a benchmark marker (extends the sourcing strike);
+      - lineage           — a non-empty `distills` (the threads it builds on), or a lineage marker.
+
+    Returns `rich-rite:<move>` for each missing move ([] when none owed or all present)."""
+    content = artefato.get("content", {}) or {}
+    blocks = list(_iter_blocks(content))
+    prose_count = sum(
+        1 for b in blocks
+        if _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph"))
+        in PROSE_BLOCK_TYPES
+    )
+    if prose_count < RICH_RITE_PROSE_THRESHOLD:
+        return []  # not a developed prose synthesis — owes none of the prose moves
+
+    block_types = {
+        _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph"))
+        for b in blocks
+    }
+    text = " ".join(_block_text(b) for b in blocks).lower()
+
+    def marked(markers):
+        return any(m in text for m in markers)
+
+    has_derivation = bool(DERIVATION_BLOCK_TYPES & block_types) or marked(DERIVATION_MARKERS)
+    has_boundary = bool(BOUNDARY_BLOCK_TYPES & block_types) or marked(BOUNDARY_MARKERS)
+    has_frame = bool(artefato.get("cites")) or "bibliography" in block_types
+    has_lineage = bool(artefato.get("distills")) or marked(LINEAGE_MARKERS)
+
+    violations = []
+    if not has_derivation:
+        violations.append("rich-rite:derivation")
+    if not has_boundary:
+        violations.append("rich-rite:what-i-dont-know")
+    if not has_frame:
+        violations.append("rich-rite:external-frame")
+    if not has_lineage:
+        violations.append("rich-rite:lineage")
+    return violations
 
 
 def _iter_blocks(content: dict):

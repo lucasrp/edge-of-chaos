@@ -210,5 +210,51 @@ class ProducerCloseSnippetMintsOverPublishPayload(unittest.TestCase):
                           f"{p}'s publish_fn does not pass verdict=proof")
 
 
+class ProducersWireRealReProduction(unittest.TestCase):
+    """#30 — the rich-rite gate must FORCE depth, not only hard-fail. The producer close snippet
+    must wire `improve_fn` into `close.run_close` (run_close already loops IMPROVE_ROUNDS=2): so a
+    genus/reviewer strike (incl. a rich-rite floor violation) re-PRODUCES a richer draft from the
+    feedback, rather than dead-ending in a hard-fail. A `produce_fn` that just returns the static
+    artefato is no longer enough on its own."""
+
+    def setUp(self):
+        self.texts = {p: _path(p).read_text(encoding="utf-8") for p in PRODUCERS}
+
+    def test_each_producer_wires_improve_fn(self):
+        for p in PRODUCERS:
+            self.assertIn("improve_fn", self.texts[p].replace(" ", ""),
+                          f"{p} does not wire improve_fn into run_close (a strike would only "
+                          "hard-fail, never re-produce richer — #30)")
+
+    def test_each_producer_improve_fn_takes_feedback(self):
+        # improve_fn(artefato, feedback) — run_close hands it the reviewers' rationales+strikes,
+        # which it uses to REVISE the draft. The signature must accept the feedback.
+        for p in PRODUCERS:
+            t = self.texts[p].replace(" ", "")
+            self.assertTrue("improve_fn=lambda" in t or "defimprove_fn" in t,
+                            f"{p}'s improve_fn is not defined to receive the feedback")
+            self.assertIn("feedback", self.texts[p].lower(),
+                          f"{p} does not mention the feedback the improve_fn revises from")
+
+
+class PipelineDocumentsTheReProductionWiring(unittest.TestCase):
+    """#30 — the shared pipeline must document that the producer wires `improve_fn` so the close's
+    improve stage (IMPROVE_ROUNDS) actually re-produces from feedback — the gate forces depth, not
+    only a hard-fail. Pin the load-bearing tokens so the wiring cannot go dormant in prose."""
+
+    def setUp(self):
+        self.text = (REPO / "skills" / "_shared" / "pipeline.md").read_text(encoding="utf-8").lower()
+
+    def test_pipeline_states_the_producer_wires_improve_fn(self):
+        self.assertIn("improve_fn", self.text)
+
+    def test_pipeline_ties_re_production_to_the_gate_forcing_depth(self):
+        # the WHY: without the wiring a gate violation only hard-fails; with it, the close
+        # re-produces a richer draft. The rich-rite floor is named as a strike source.
+        self.assertIn("rich-rite", self.text)
+        self.assertTrue("hard-fail" in self.text or "hard fail" in self.text,
+                        "pipeline must contrast re-production against a bare hard-fail")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -108,8 +108,14 @@ confirm the Direction** — pass its candidate steers and provenance through the
         publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
           skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
           cites=art['cites']); \
-        close.run_close(artefato, produce_fn=lambda: artefato, complete_fn=<review-completer>, \
-          publish_fn=publish_fn)"
+        # WIRE REAL RE-PRODUCTION (#30): improve_fn(art, feedback) REVISES the draft from the \
+        # reviewers' rationales+strikes — incl. a rich-rite floor strike (derivation / \
+        # what-i-dont-know / external-frame / lineage). run_close loops it IMPROVE_ROUNDS=2 BEFORE \
+        # the gating close, so a missing move ENRICHES the draft rather than only hard-failing. \
+        # Re-derive deeper from the named gaps; return the richer artefato (carrying every field). \
+        improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
+        close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
+          complete_fn=<review-completer>, publish_fn=publish_fn)"
 
 **After the close succeeds, project the Artefato into the graph** (`skills/_shared/memory.md`):
 `MERGE (:Artefato …)` plus its `DISTILLS / CITES / PROPOSES` edges (the same `distills` / `proposes` /

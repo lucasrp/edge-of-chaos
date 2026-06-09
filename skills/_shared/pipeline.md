@@ -73,6 +73,17 @@ existing draft**, not re-produce from scratch. The two improve-gates run one aft
 gating review then seals the proof on the final, twice-improved artefato, so the reviewers' pass
 is always of exactly what publishes.
 
+**Wiring the re-production is what makes the floor force depth, not only hard-fail (#30).** Every
+producer-skill MUST wire `improve_fn` (see each SKILL.md's close snippet): the genus contract now
+carries the **rich-rite floor** (`check_genus` returns `rich-rite:<move>` strikes when a *developed
+prose synthesis* lacks a cognitive move — derivation, the "what I don't know" boundary, an external
+frame, lineage; content-relative, never a named section, never a word floor). Without an `improve_fn`,
+a `produce_fn=lambda: artefato` is static, so any strike — a rich-rite floor violation included —
+just bounces to the same draft and **hard-fails** after `BOUNCE_MAX`. With `improve_fn(art, feedback)`
+wired, the `IMPROVE_ROUNDS` passes REVISE the draft from the named gaps BEFORE the gating close — so a
+shallow report is **re-produced richer** (the missing move added) rather than dead-ending. The floor
+is a depth-forcer because the re-production is wired; the gate alone would only reject.
+
 The review and improve subagents — the **adversarial** blind pass, the **feynman** rigor
 reviewer, the **enrichment** (frame / outward-vector) reviewer, and the **improve** reviser — MAY
 reach for the **`/codex` skill** (the Codex CLI: a second, independent model) to pressure-test

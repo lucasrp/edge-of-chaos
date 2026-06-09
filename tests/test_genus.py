@@ -251,5 +251,158 @@ class GenusRejectsMalformedCiteFieldTypes(unittest.TestCase):
                          f"expected no cite violation, got {violations}")
 
 
+def _prose_synthesis():
+    """A developed prose synthesis (>= the rich-rite prose threshold of prose blocks) that
+    carries ALL four cognitive moves — derivation, the knowledge boundary ("what I don't know"),
+    an external frame (a cite), and lineage (a distills thread). The genus floor of the prose
+    genus (#30): a report this developed owes the four moves; this one carries them, so it is
+    clean."""
+    return {
+        "slug": "rich-report",
+        "content": {
+            "sections": [
+                {"title": "The argument", "blocks": [
+                    {"type": "paragraph",
+                     "text": "We derive the read budget from first principles: a session is "
+                             "bounded, therefore the cursor must be a per-session watermark."},
+                    {"type": "paragraph",
+                     "text": "What I don't know: whether the watermark survives a crash — that "
+                             "remains unverified."},
+                    {"type": "paragraph",
+                     "text": "This builds on the prior recall thread, extending its depth."},
+                ]},
+            ],
+        },
+        "cites": [
+            {"ref": "arXiv:2507.02778", "kind": "mundo", "relevant": True,
+             "snippet": "the blind-spot is measured against an external benchmark"},
+        ],
+        "proposes": [{"body": "name the full-read budget", "kind": "constraint"}],
+        "distills": ["cluster:recall"],
+        "intent": "open: budget unnamed; bet: name it next beat",
+        "skill": "report",
+    }
+
+
+def _shallow_prose():
+    """A developed prose synthesis (enough prose to owe the moves) that carries NONE of the
+    four cognitive moves: no derivation, no marked knowledge boundary, no external frame
+    (no cites), no lineage (no distills). The ~2k-word / 0-figure shallow report the floor
+    must reject (#30)."""
+    return {
+        "slug": "shallow-report",
+        "content": {
+            "sections": [
+                {"title": "Findings", "blocks": [
+                    {"type": "paragraph", "text": "The system has three components that interact."},
+                    {"type": "paragraph", "text": "Each component holds its own state internally."},
+                    {"type": "paragraph", "text": "The components are wired together at startup."},
+                ]},
+            ],
+        },
+        "cites": [],
+        "proposes": [{"body": "keep wiring at startup", "kind": "constraint"}],
+        "distills": [],
+        "intent": "open: wiring undocumented; bet: document it",
+        "skill": "report",
+    }
+
+
+class RichRiteFloorIsContentRelative(unittest.TestCase):
+    """#30 — the rich-rite property floor. MIRRORS `_check_visual_coverage`: a DEVELOPED PROSE
+    synthesis (the trigger, content-relative — never a word floor, never a named section) owes
+    the four cognitive moves the rich old reports forced — derivation-from-first-principles, a
+    marked "what I don't know" boundary, an external frame/benchmark, and lineage. A genuinely
+    terse or non-prose artefato (a map's diagram, a short plan) owes NONE and is never failed."""
+
+    def test_shallow_prose_missing_all_four_moves_is_flagged(self):
+        violations = close.check_genus(_shallow_prose())
+        for move in ("derivation", "what-i-dont-know", "external-frame", "lineage"):
+            self.assertTrue(any(f"rich-rite:{move}" == v for v in violations),
+                            f"expected rich-rite:{move} on a shallow developed report, got {violations}")
+
+    def test_rich_prose_with_all_four_moves_is_clean(self):
+        violations = [v for v in close.check_genus(_prose_synthesis()) if v.startswith("rich-rite")]
+        self.assertEqual(violations, [], f"a report carrying all four moves owes nothing, got {violations}")
+
+    def test_terse_prose_below_the_threshold_owes_no_moves(self):
+        """Content-relative: a SHORT artefato (below the prose threshold) is not a developed
+        synthesis and owes none of the moves — exactly as prose-only content owes no visual."""
+        art = _shallow_prose()
+        art["content"]["sections"][0]["blocks"] = [
+            {"type": "paragraph", "text": "One terse observation, nothing more."}]
+        violations = [v for v in close.check_genus(art) if v.startswith("rich-rite")]
+        self.assertEqual(violations, [], f"a terse artefato owes no rich-rite moves, got {violations}")
+
+    def test_diagram_form_map_owes_no_prose_moves(self):
+        """A connections-diagram map (ascii-diagram + table, no developed prose) is non-prose
+        and owes none of the prose cognitive moves — never failed for lacking them."""
+        art = {
+            "slug": "rel-map",
+            "content": {"sections": [{"title": "Map", "blocks": [
+                {"type": "ascii-diagram", "content": "A --applies--> B\nB --rhymes--> C"},
+                {"type": "table", "headers": ["From", "Type", "To"],
+                 "rows": [["A", "application", "B"], ["B", "rhyme", "C"], ["C", "parallel", "D"]]},
+            ]}]},
+            "cites": [], "proposes": [], "distills": [],
+            "intent": "open: relations untraced; bet: trace them", "skill": "map",
+        }
+        violations = [v for v in close.check_genus(art) if v.startswith("rich-rite")]
+        self.assertEqual(violations, [], f"a diagram map owes no prose moves, got {violations}")
+
+    def test_derivation_block_satisfies_the_derivation_move(self):
+        """The move is satisfied by the dedicated palette block OR by content markers — present
+        ANYWHERE, never a named section. A `derivation` block satisfies it even without markers."""
+        art = _shallow_prose()
+        art["content"]["sections"][0]["blocks"].append(
+            {"type": "derivation", "title": "From first principles",
+             "bullets": ["premise", "therefore conclusion"]})
+        violations = close.check_genus(art)
+        self.assertFalse(any(v == "rich-rite:derivation" for v in violations),
+                         f"a derivation block must satisfy the move, got {violations}")
+
+    def test_gap_block_satisfies_the_boundary_move(self):
+        """A `gap-marker`/`gap-table`/`gap-resolution` block satisfies the "what I don't know"
+        boundary move, regardless of prose markers."""
+        art = _shallow_prose()
+        art["content"]["sections"][0]["blocks"].append(
+            {"type": "gap-marker", "text": "unknown: does the watermark survive a crash?"})
+        violations = close.check_genus(art)
+        self.assertFalse(any(v == "rich-rite:what-i-dont-know" for v in violations),
+                         f"a gap block must satisfy the boundary move, got {violations}")
+
+    def test_cites_satisfy_the_external_frame_move(self):
+        """The external-frame move extends the sourcing strike: a non-empty `cites` (a sourced
+        external benchmark) satisfies it. _shallow_prose has none, so adding one clears it."""
+        art = _shallow_prose()
+        art["cites"] = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True,
+                         "snippet": "an external benchmark the report imported"}]
+        violations = close.check_genus(art)
+        self.assertFalse(any(v == "rich-rite:external-frame" for v in violations),
+                         f"a cite must satisfy the external-frame move, got {violations}")
+
+    def test_distills_satisfy_the_lineage_move(self):
+        """A non-empty `distills` (the threads the synthesis builds on) satisfies the lineage move."""
+        art = _shallow_prose()
+        art["distills"] = ["cluster:recall"]
+        violations = close.check_genus(art)
+        self.assertFalse(any(v == "rich-rite:lineage" for v in violations),
+                         f"a distills thread must satisfy the lineage move, got {violations}")
+
+    def test_rich_rite_never_checks_a_named_section(self):
+        """Non-procrusto: the same moves carried in arbitrarily-named/ordered sections still
+        satisfy the gate — the floor reads the blocks, never the layout (ADR-0012/0013)."""
+        art = _prose_synthesis()
+        # scramble: one move per oddly-named section, reverse order
+        blocks = art["content"]["sections"][0]["blocks"]
+        art["content"]["sections"] = [
+            {"title": "zzz last", "blocks": [blocks[2]]},
+            {"title": "middle thoughts", "blocks": [blocks[1]]},
+            {"title": "000 first", "blocks": [blocks[0]]},
+        ]
+        violations = [v for v in close.check_genus(art) if v.startswith("rich-rite")]
+        self.assertEqual(violations, [], f"named/ordered sections must not matter, got {violations}")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
