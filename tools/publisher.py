@@ -191,6 +191,12 @@ def _project_backbone(s, g, log):
         s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj["body"])
         s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) "
               "MERGE (gen)-[:GROUNDS]->(o)", g=g)
+        # ENSURE every Artefato SERVES the objective (Codex P2): an Artefato published BEFORE the
+        # Objective existed had its SERVES no-op at projection time; the backbone (run every canonical
+        # sweep, once an Objective exists) guarantees the hub link so it is reachable from space-0 —
+        # cheap idempotent MERGEs, no embeddings, independent of the per-slug skip-present recovery.
+        s.run("MATCH (a:Artefato {group_id:$g}),(o:Objective {group_id:$g}) "
+              "MERGE (a)-[:SERVES]->(o)", g=g)
     # ANCHORS = the CURRENTLY active steers — REBUILD each sync (DESTRUCTIVE) so a dropped/superseded
     # Direction stops being anchored (recall from space-0 must match the log).
     dirs = eventlog.direction_at(log=log) or {}
@@ -327,6 +333,11 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                 s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
                       "MERGE (src:Source {group_id:$g, key:$key}) MERGE (a)-[:CITES]->(src)",
                       g=g, slug=slug, key=ref)
+            # (3) COMPLETION MARKER — set LAST, only after every edge/embed write succeeded (Codex
+            # P2). `_graph_present_slugs` reads THIS, so a node left incomplete by a publish-time
+            # outage (embed set but SERVES/edges not) is NOT treated as present and is re-projected.
+            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.projection_complete=true",
+                  g=g, slug=slug)
     except Exception as ex:  # noqa: BLE001 — a failed projection is reported, never fatal
         print("project failed (best-effort, reproject next beat):", ex)
     finally:
@@ -467,12 +478,11 @@ def reproject_missing_pages(log=eventlog.LOG, blog_dir=BLOG_DIR, date=None, embe
 def _graph_present_slugs():
     """The slugs FULLY projected into the install graph — read once so recovery replays only the
     missing/incomplete ones (Codex P2): never re-embed the whole corpus each sweep, BUT do re-project
-    a node whose projection was left INCOMPLETE (the embed step is the expensive, most-likely-skipped
-    one — a node created by an initial MERGE but with NO `embedding` is treated as NOT present, so the
-    next sweep re-completes its SERVES/edges/embedding). DISTILLS deferred because a cluster does not
-    exist yet is a separate mechanism (the grill attaches it later) — not a perpetual re-embed.
-    Returns a set, or None on a degrade (no group / no driver / unreachable) — the caller then skips
-    the replay entirely (there is nothing to recover into a graph it cannot read)."""
+    a node whose projection was left INCOMPLETE. Completeness is the `projection_complete` marker that
+    project_artefato sets ONLY as its LAST step (after every edge + embed write succeeded), so a node
+    a publish-time outage left half-projected (embed set but SERVES/edges not) is NOT present and is
+    re-projected. Returns a set, or None on a degrade (no group / no driver / unreachable) — the
+    caller then skips the replay entirely (there is nothing to recover into a graph it cannot read)."""
     try:
         import _identity
         from neo4j import GraphDatabase
@@ -483,10 +493,8 @@ def _graph_present_slugs():
         return None
     try:
         with drv.session() as s:
-            # FULLY projected = the node carries an embedding (the expensive step that the publish-time
-            # outage / no-key path skips). An embedding-less node is re-projected to self-heal.
             return {r["slug"] for r in s.run(
-                "MATCH (a:Artefato {group_id:$g}) WHERE a.embedding IS NOT NULL "
+                "MATCH (a:Artefato {group_id:$g}) WHERE a.projection_complete = true "
                 "RETURN a.slug AS slug", g=g)}
     except Exception:  # noqa: BLE001
         return None

@@ -125,9 +125,9 @@ class RunIsIdempotent(unittest.TestCase):
             recovered = []
             n = sweep.run(proj, ingest_fn=lambda items: None, cursors_path=cp,
                           reproject_fn=False, log=log,
-                          graph_recover_fn=lambda: recovered.append(True))
+                          graph_recover_fn=lambda lg: recovered.append(lg))
             self.assertEqual(n, 0)             # no delta ingested
-            self.assertEqual(recovered, [True])  # but graph recovery STILL ran
+            self.assertEqual(recovered, [log])  # graph recovery ran, with the run's log threaded
 
 
 class ReprojectFoldsCorpusAndReadsTheC3Gate(unittest.TestCase):

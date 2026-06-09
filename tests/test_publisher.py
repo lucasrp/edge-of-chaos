@@ -432,6 +432,27 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                 backbone_fn=None)
             self.assertEqual(projected, ["missing-it"])  # only the missing one replays
 
+    def test_project_artefato_sets_completion_marker_last(self):
+        # Codex P2: completeness is `projection_complete` set as the LAST step (after all edges +
+        # embed), so a half-projected node (embed set, SERVES/edges not) is NOT treated as present.
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        self.assertIn("projection_complete", src,
+                      "project_artefato must set a completion marker after all writes")
+        # the marker must be set AFTER the edge writes (CITES is the last edge loop)
+        self.assertGreater(src.find("projection_complete=true"), src.rfind("[:CITES]->"),
+                           "the completion marker must be the LAST write, after the edge loops")
+        # and _graph_present_slugs reads the completion marker, not bare node/embedding presence
+        self.assertIn("projection_complete", inspect.getsource(publisher._graph_present_slugs))
+
+    def test_backbone_ensures_every_artefato_serves_the_objective(self):
+        # Codex P2: an Artefato published BEFORE the Objective existed had SERVES no-op; the backbone
+        # (every canonical sweep) guarantees the hub link so it is reachable from space-0.
+        import inspect
+        src = inspect.getsource(publisher._project_backbone)
+        self.assertIn("[:SERVES]->", src,
+                      "the backbone must ensure every Artefato SERVES the objective (reachability)")
+
     def test_reproject_graph_rebuilds_the_backbone_even_when_all_slugs_present(self):
         # Codex P2: the spine backbone (ANCHORS rebuild) must run on EVERY canonical sweep so newly
         # folded Directions get anchored — even when every artefato is already present (the steady

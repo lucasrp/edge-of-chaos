@@ -219,15 +219,16 @@ def reproject():
               f"Direction projected from the log; the wiki needs Neo4j")
 
 
-def reproject_graph():
+def reproject_graph(log=eventlog.LOG):
     """Graph recovery (#30): replay any Artefato a transient outage left out of the graph + rebuild
     the spine backbone, so the "reproject next beat" path the publisher promises self-heals. Runs on
     EVERY sweep (Codex P2 — NOT gated by new ingest): if Neo4j was down at publish and the next sweep
-    has no delta, this no-delta sweep still recovers. Best-effort (an unreachable graph degrades
-    inside reproject_graph) — never blocks the sweep (ADR-0011)."""
+    has no delta, this no-delta sweep still recovers. The run's `log` is THREADED through (Codex P2),
+    so a custom-log dry-run does not read/project the real corpus — publisher.reproject_graph
+    default-skips a non-canonical log. Best-effort (an unreachable graph degrades) — never blocks."""
     try:
         import publisher
-        publisher.reproject_graph()
+        publisher.reproject_graph(log=log)
     except Exception as e:
         print(f"sweep: graph reproject skipped ({type(e).__name__}: {e}) — needs Neo4j")
 
@@ -245,8 +246,10 @@ def run(project_dir=PROJECT_DIR, ingest_fn=None, cursors_path=CURSORS, reproject
     if n and reproject_fn is not False:
         (reproject_fn or reproject)()
     # graph recovery runs ALWAYS (not under `if n`) — a no-delta sweep still self-heals the graph.
+    # The run's `log` is threaded through (Codex P2): a custom-log dry-run never projects the real
+    # corpus (publisher.reproject_graph default-skips a non-canonical log).
     if graph_recover_fn is not False:
-        (graph_recover_fn or reproject_graph)()
+        (graph_recover_fn or reproject_graph)(log)
     return n
 
 
