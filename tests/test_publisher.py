@@ -499,13 +499,18 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         self.assertIn("coalesce(e.archived,false)=false", src)
         self.assertIn("e.merged_into IS NULL", src)
 
-    def test_revisit_does_not_re_embed_an_already_embedded_node(self):
-        # Codex P2: a recovery revisit (e.g. an unresolved distill that resolved) re-runs the cheap
-        # edge work WITHOUT a costly re-embed — project_artefato skips the embed if one already exists.
+    def test_embedding_refreshed_on_content_change_skipped_when_unchanged(self):
+        # Codex P2: re-embed only when the embed input CHANGED — a republish with changed intent/spec
+        # refreshes the stale embedding; a pure edge-link revisit (same content) skips the re-embed.
+        # Keyed on a sha256 hash of (slug+intent+spec_text), not bare `IS NOT NULL`.
         import inspect
         src = inspect.getsource(_REAL_PROJECT)
-        self.assertIn("already_embedded", src)
-        self.assertIn("if not already_embedded", src)
+        self.assertIn("embedding_input_hash", src,
+                      "project_artefato must store an embed-input hash to detect content change")
+        self.assertIn("emb_hash", src)
+        # the re-embed condition compares the stored hash, not only embedding presence
+        self.assertIn('row["h"] == emb_hash', src,
+                      "re-embed must be gated on the embed-input hash, not just IS NOT NULL")
 
     def test_backbone_ensures_every_artefato_serves_the_objective(self):
         # Codex P2: an Artefato published BEFORE the Objective existed had SERVES no-op; the backbone

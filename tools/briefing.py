@@ -197,11 +197,14 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
                 g=group, lim=RECALL_ARTEFATO_LIMIT).data()
             # clusters derived from the SAME salient slice (Codex P2): only the clusters the pushed
             # artefatos distill, not every Artefato in the group — so the recall stays salient and
-            # does not grow with the whole corpus.
+            # does not grow with the whole corpus. ACTIVE clusters only (Codex P2): mirror
+            # graph_clusters/the projection resolver — a stale DISTILLS edge to a later-archived/merged
+            # cluster must NOT surface a retired cluster in the briefing.
             slugs = [a["slug"] for a in arts]
             clusters = [r["l"] for r in s.run(
                 "MATCH (a:Artefato {group_id:$g})-[:DISTILLS]->(e:Entity {group_id:$g}) "
                 "WHERE a.slug IN $slugs AND e.curated_cluster IS NOT NULL "
+                "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
                 "RETURN DISTINCT e.curated_cluster AS l ORDER BY l", g=group, slugs=slugs)]
             return {
                 "codename": head["codename"], "voice": head["voice"],

@@ -408,6 +408,14 @@ class RecallPushIsWiredAndPinnedInProse(unittest.TestCase):
                       "recall more on demand", "memory.md"):
             self.assertIn(token, skill, f"assemble SKILL.md missing recall-push token: {token!r}")
 
+    def test_recall_cluster_query_filters_retired_clusters(self):
+        # Codex P2: recall_subgraph's cluster query must filter archived/merged entities (mirror
+        # graph_clusters), so a stale DISTILLS edge to a later-retired cluster is not pushed.
+        import inspect
+        src = inspect.getsource(briefing.recall_subgraph)
+        self.assertIn("coalesce(e.archived,false)=false", src)
+        self.assertIn("e.merged_into IS NULL", src)
+
     def test_compose_briefing_emits_a_recall_section(self):
         # the section is part of the composed briefing (additive), even on a dark graph leg
         with tempfile.TemporaryDirectory() as tmp:

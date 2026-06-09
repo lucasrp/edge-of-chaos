@@ -31,6 +31,7 @@ project-after-publish side-effect — #30) are injectable so a test runs offline
 projection (`project_artefato`) imports neo4j/_identity/openai LAZILY and is fully degrade-safe:
 a missing group/driver/key prints and returns, never raising into the publish (ADR-0011/0006).
 """
+import hashlib
 import html
 import os
 import re
@@ -306,22 +307,24 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # every Artefato SERVES the objective — the hub keeping it reachable from space-0.
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),(o:Objective {group_id:$g}) "
                   "MERGE (a)-[:SERVES]->(o)", g=g, slug=slug)
-            # embed only if the node has NO embedding yet (Codex P2): a recovery revisit (e.g. for an
-            # unresolved distill that resolves later) re-runs the cheap edge work WITHOUT a costly
-            # re-embed — the content embedding does not change on a pure edge-link fix.
-            already_embedded = s.run(
-                "MATCH (a:Artefato {group_id:$g, slug:$slug}) RETURN a.embedding IS NOT NULL AS e",
-                g=g, slug=slug).single()["e"]
-            if not already_embedded:
+            # embed the CONTENT (Codex P2): a concept in the body but not the kernel must still be
+            # semantically recallable over a.embedding. Re-embed only when the EMBED INPUT CHANGED
+            # (Codex P2): store a hash of (slug+intent+spec_text); a republish with changed
+            # intent/spec refreshes the stale embedding, but a pure edge-link revisit (same content,
+            # e.g. an unresolved distill that resolved) skips the costly re-embed (hash unchanged).
+            emb_input = f"{slug}\n{intent}\n{_spec_text(spec)}".strip()
+            emb_hash = hashlib.sha256(emb_input.encode("utf-8")).hexdigest()
+            row = s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
+                        "RETURN a.embedding IS NOT NULL AS e, a.embedding_input_hash AS h",
+                        g=g, slug=slug).single()
+            if not (row["e"] and row["h"] == emb_hash):
                 try:
                     from openai import OpenAI
-                    # embed the CONTENT, not just the kernel (Codex P2): a concept that lives in the
-                    # body but not the kernel must still be semantically recallable over a.embedding.
-                    emb_input = f"{slug}\n{intent}\n{_spec_text(spec)}".strip()
                     emb = OpenAI().embeddings.create(model="text-embedding-3-small",
                                                      input=emb_input).data[0].embedding
-                    s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.embedding=$e",
-                          g=g, slug=slug, e=emb)
+                    s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
+                          "SET a.embedding=$e, a.embedding_input_hash=$h",
+                          g=g, slug=slug, e=emb, h=emb_hash)
                 except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
                     print("embed skipped (best-effort):", ex)
             # (2) edges — distills (slug-resolved), proposes, cites. REBUILD this slug's edge set
