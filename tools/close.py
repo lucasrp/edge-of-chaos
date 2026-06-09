@@ -215,7 +215,11 @@ DIMENSIONS = {
         "internal diagnosis that brings nothing the mentee could not derive from what they "
         "already know does not enrich the frame. Content-relative in VEHICLE — a map may enrich "
         "via a genuinely non-obvious structural insight rather than an external cite — but never "
-        "escapable by relabeling internal restatement as insight."
+        "escapable by relabeling internal restatement as insight. SOURCING GUARD: an imported "
+        "external reference (benchmark, pattern, author, framework) MUST carry a verifiable cite "
+        "or be explicitly marked inferred/unverified — naming an outside authority WITHOUT a "
+        "cite, or overextending an attribution, is HALLUCINATED enrichment and fails (the "
+        "blindfold applies to these external claims like any fact)."
     ),
     "feynman_method": (
         "Derivation-first thinking is visible ANYWHERE in the artefato: reasoning from "
@@ -309,8 +313,11 @@ _REGULAR_FOCUS = (
     "definition, benchmark, named field-pattern, or industry best-practice to enrich it — a "
     "deep recap of the mentee's own model that names nothing in the field and brings nothing "
     "they could not have derived themselves does NOT enrich the frame and must be struck (say "
-    "what outside frame/benchmark/best-practice it should have brought). A genuinely internal "
-    "form (a connections map) that still reveals a non-obvious structure is NOT struck."
+    "what outside frame/benchmark/best-practice it should have brought). ALSO STRIKE hallucinated "
+    "enrichment — a NAMED-BUT-UNSOURCED external (a field/benchmark/author/framework invoked "
+    "without a verifiable cite, or an attribution that looks overextended or inaccurate): naming "
+    "the field without sourcing it is worse than a closed diagnosis. A genuinely internal form "
+    "(a connections map) that still reveals a non-obvious structure is NOT struck."
 )
 
 

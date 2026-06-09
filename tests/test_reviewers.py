@@ -117,6 +117,9 @@ class TenDimsBlindAndPropertyNotSection(unittest.TestCase):
         self.assertIn("enrich", fe)
         self.assertIn("outside", fe)
         self.assertIn("benchmark", fe)
+        # sourcing guard: a named external authority must be cited, else hallucinated enrichment
+        self.assertIn("cite", fe)
+        self.assertIn("hallucinated", fe)
 
     def test_weights_are_a_dict_over_the_ten_dims_summing_to_one(self):
         self.assertIsInstance(close.DIMENSION_WEIGHTS, dict)
