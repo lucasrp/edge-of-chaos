@@ -408,8 +408,27 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             def fake_project(slug, intent, **k):
                 projected.append(slug)
 
-            publisher.reproject_graph(log=log, project_fn=fake_project)
+            publisher.reproject_graph(log=log, project_fn=fake_project,
+                                      present_slugs=lambda: set())  # hermetic: none present
             self.assertEqual(sorted(projected), ["recov-a", "recov-b"])
+
+    def test_reproject_graph_replays_only_missing_slugs(self):
+        # Codex P2: steady-state must NOT re-embed the whole corpus each sweep — reproject_graph
+        # replays only the slugs MISSING from the graph. `present_slugs` reports what is already
+        # projected; only the absent ones go through the (embedding) projection.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            for slug in ("have-it", "missing-it"):
+                publisher.publish(
+                    slug, _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                    log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
+                    verdict=_passing_proof(slug, _spec(), "open: x; bet: y"))
+            projected = []
+            publisher.reproject_graph(
+                log=log,
+                project_fn=lambda slug, *a, **k: projected.append(slug),
+                present_slugs=lambda: {"have-it"})     # have-it already in the graph
+            self.assertEqual(projected, ["missing-it"])  # only the missing one replays
 
     def test_reproject_graph_default_skips_a_non_canonical_log(self):
         # Codex P2: reproject_graph(log=temp_log) with the DEFAULT projector must NOT write into the

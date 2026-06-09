@@ -429,14 +429,44 @@ def reproject_missing_pages(log=eventlog.LOG, blog_dir=BLOG_DIR, date=None, embe
     return redone
 
 
-def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT):
+def _graph_present_slugs():
+    """The slugs ALREADY projected into the install graph — read once so recovery replays ONLY the
+    missing ones (Codex P2: never re-embed the whole corpus each sweep). Returns a set, or None on a
+    degrade (no group / no driver / unreachable) — the caller then skips the replay entirely (there
+    is nothing to recover into a graph it cannot read)."""
+    try:
+        import _identity
+        from neo4j import GraphDatabase
+        uri, user, pw = _identity.neo4j_conn()
+        g = _identity.require_group()
+        drv = GraphDatabase.driver(uri, auth=(user, pw))
+    except Exception:  # noqa: BLE001 — degrade: caller skips the replay
+        return None
+    try:
+        with drv.session() as s:
+            return {r["slug"] for r in s.run(
+                "MATCH (a:Artefato {group_id:$g}) RETURN a.slug AS slug", g=g)}
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        try:
+            drv.close()
+        except Exception:
+            pass
+
+
+def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs=_graph_present_slugs):
     """Graph recovery (Codex P2, #30, ADR-0006: the graph is a re-derivable PROJECTION of the log).
     A transient Neo4j outage at publish time leaves the committed Artefato out of the graph (so
     `recall_subgraph` misses it) — this is the "reproject next beat" path the publish-time catch
-    promises. For EVERY committed Artefato in the log, replay `project_artefato` (idempotent MERGEs,
-    so an already-projected Artefato is unharmed). The published event carries `skill`, so the replay
-    restores the REAL producer identity; the Artefato + its SERVES/DISTILLS/PROPOSES/CITES + embedding
-    are re-derived from the log.
+    promises. Replay `project_artefato` for the MISSING Artefatos only (idempotent MERGEs). The
+    published event carries `skill`, so the replay restores the REAL producer identity; the Artefato
+    + its SERVES/DISTILLS/PROPOSES/CITES + embedding are re-derived from the log.
+
+    REPLAY ONLY THE MISSING (Codex P2): steady-state must NOT re-embed the whole corpus each sweep.
+    `present_slugs()` reports the slugs already in the graph (one cheap read); only the absent ones go
+    through the embedding projection. If `present_slugs()` degrades to None (graph unreachable), the
+    replay is skipped entirely — there is nothing to recover into a graph it cannot read.
 
     Best-effort: a still-unreachable graph degrades inside project_artefato (prints, never raises).
     Call it from the sweep/assemble at beat-open so a missed projection self-heals next beat.
@@ -449,7 +479,12 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT):
         project_fn = project_artefato if log is eventlog.LOG else None
     if project_fn is None:
         return
+    present = present_slugs() if present_slugs is not None else set()
+    if present is None:
+        return  # graph unreachable — nothing to recover into it; skip (no per-item embed storm)
     for item in eventlog.corpus_at(log=log):
+        if item["slug"] in present:
+            continue  # already projected — skip (no re-embed in steady state)
         try:
             # the published event now carries `skill` (Codex P2), so a publish-time-outage replay
             # restores the REAL producer identity even when the node does not exist yet. A legacy
