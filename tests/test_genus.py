@@ -449,6 +449,39 @@ class RichRiteFloorIsContentRelative(unittest.TestCase):
         self.assertFalse(any(v == "rich-rite:external-frame" for v in violations),
                          f"a mundo cite must clear external-frame, got {violations}")
 
+    def test_empty_derivation_block_does_not_clear_the_move(self):
+        """Codex P2: a placeholder palette block with no payload must NOT clear the move — a bare
+        `derivation` block (no title/text/bullets) carries no derivation, so the strike stands."""
+        art = _shallow_prose()
+        art["content"]["sections"][0]["blocks"].append({"type": "derivation"})  # empty
+        violations = close.check_genus(art)
+        self.assertTrue(any(v == "rich-rite:derivation" for v in violations),
+                        f"an empty derivation block must NOT clear the move, got {violations}")
+
+    def test_empty_gap_marker_does_not_clear_the_boundary_move(self):
+        art = _shallow_prose()
+        art["content"]["sections"][0]["blocks"].append({"type": "gap-marker", "text": "   "})
+        violations = close.check_genus(art)
+        self.assertTrue(any(v == "rich-rite:what-i-dont-know" for v in violations),
+                        f"an empty gap-marker must NOT clear the boundary move, got {violations}")
+
+    def test_empty_bibliography_does_not_clear_external_frame(self):
+        art = _shallow_prose()
+        art["content"]["bibliography"] = []  # empty
+        violations = close.check_genus(art)
+        self.assertTrue(any(v == "rich-rite:external-frame" for v in violations),
+                        f"an empty bibliography must NOT clear external-frame, got {violations}")
+
+    def test_filled_derivation_block_clears_the_move(self):
+        # the complement: a derivation block WITH payload clears it (the fix doesn't over-reject)
+        art = _shallow_prose()
+        art["content"]["sections"][0]["blocks"].append(
+            {"type": "derivation", "title": "From first principles",
+             "bullets": ["premise", "therefore conclusion"]})
+        violations = close.check_genus(art)
+        self.assertFalse(any(v == "rich-rite:derivation" for v in violations),
+                         f"a filled derivation block must clear the move, got {violations}")
+
     def test_rich_rite_never_checks_a_named_section(self):
         """Non-procrusto: the same moves carried in arbitrarily-named/ordered sections still
         satisfy the gate — the floor reads the blocks, never the layout (ADR-0012/0013)."""

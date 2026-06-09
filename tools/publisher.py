@@ -218,14 +218,19 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                 s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj["body"])
                 s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) "
                       "MERGE (gen)-[:GROUNDS]->(o)", g=g)
-            dirs = eventlog.direction_at(log=log) or {}
-            # ANCHORS = the CURRENTLY active steers — REBUILD each sync so a dropped/superseded
-            # Direction stops being anchored (recall from space-0 must match the log).
-            s.run("MATCH (o:Objective {group_id:$g})-[r:ANCHORS]->(:Direction) DELETE r", g=g)
-            for it in dirs.get("set", []) + dirs.get("proposed", []):
-                s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
-                s.run("MATCH (o:Objective {group_id:$g}),(d:Direction {group_id:$g, body:$b}) "
-                      "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"])
+            # ANCHORS rebuild is DESTRUCTIVE (DELETE then re-add) and reads the active steers from
+            # the log — so it is CANONICAL-LOG ONLY (Codex P2). A custom/offline log (a test, a
+            # one-off) must NEVER delete the install graph's live Directions; it projects only the
+            # ADD-only Artefato + edges below. The MERGEs above are idempotent and safe either way.
+            if log is eventlog.LOG:
+                dirs = eventlog.direction_at(log=log) or {}
+                # ANCHORS = the CURRENTLY active steers — REBUILD each sync so a dropped/superseded
+                # Direction stops being anchored (recall from space-0 must match the log).
+                s.run("MATCH (o:Objective {group_id:$g})-[r:ANCHORS]->(:Direction) DELETE r", g=g)
+                for it in dirs.get("set", []) + dirs.get("proposed", []):
+                    s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
+                    s.run("MATCH (o:Objective {group_id:$g}),(d:Direction {group_id:$g, body:$b}) "
+                          "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"])
             # (1) the Artefato + its content embedding (semantic search; best-effort). `projected_at`
             # is the recency signal recall-push orders by (#30, Codex P2) — set on every (re)project.
             s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) "
@@ -401,3 +406,25 @@ def reproject_missing_pages(log=eventlog.LOG, blog_dir=BLOG_DIR, date=None, embe
                    if isinstance(c, dict) and c.get("snippet") and c.get("ref") not in yields]
         _signal_cites(slug, body_html, missing, embed_fn, log)
     return redone
+
+
+def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT):
+    """Graph recovery (Codex P2, #30, ADR-0006: the graph is a re-derivable PROJECTION of the log).
+    A transient Neo4j outage at publish time leaves the committed Artefato out of the graph (so
+    `recall_subgraph` misses it) — this is the "reproject next beat" path the publish-time catch
+    promises. For EVERY committed Artefato in the log, replay `project_artefato` (idempotent MERGEs,
+    so an already-projected Artefato is unharmed). `skill` is not on the published event, so the
+    replay uses the producer-neutral default skill (as reproject_missing_pages does for the page);
+    the Artefato + its SERVES/DISTILLS/PROPOSES/CITES + embedding are re-derived from the log.
+
+    Best-effort: a still-unreachable graph degrades inside project_artefato (prints, never raises).
+    Call it from the sweep/assemble at beat-open so a missed projection self-heals next beat."""
+    if project_fn is _DEFAULT_PROJECT:
+        project_fn = project_artefato
+    for item in eventlog.corpus_at(log=log):
+        try:
+            project_fn(item["slug"], item.get("intent") or "", skill="report",
+                       distills=item.get("distills"), proposes=item.get("proposes"),
+                       cites=item.get("cites"), spec=item.get("spec"), log=log)
+        except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
+            print(f"graph reproject skipped for {item.get('slug')!r} (best-effort):", ex)

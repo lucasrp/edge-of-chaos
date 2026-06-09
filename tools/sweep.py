@@ -217,6 +217,14 @@ def reproject():
     except Exception as e:
         print(f"sweep: wiki render skipped ({type(e).__name__}: {e}) — "
               f"Direction projected from the log; the wiki needs Neo4j")
+    # graph reproject (#30): replay any Artefato a transient outage left out of the graph, so the
+    # "reproject next beat" path the publisher promises actually self-heals. Best-effort (an
+    # unreachable graph degrades inside reproject_graph) — never blocks the sweep (ADR-0011).
+    try:
+        import publisher
+        publisher.reproject_graph()
+    except Exception as e:
+        print(f"sweep: graph reproject skipped ({type(e).__name__}: {e}) — needs Neo4j")
 
 
 def run(project_dir=PROJECT_DIR, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,

@@ -377,6 +377,40 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             self.assertEqual([c["slug"] for c in eventlog.corpus_at(log=log)], [slug])
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
 
+    def test_non_canonical_log_skips_the_destructive_backbone_rebuild(self):
+        # Codex P2: project_artefato with a CUSTOM (non-canonical) log must NOT run the destructive
+        # ANCHORS DELETE/rebuild against the install graph — an empty/offline log would wipe live
+        # Directions. The backbone sync is canonical-log only; a custom log projects ADD-only edges.
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        self.assertIn("eventlog.LOG", src,
+                      "project_artefato must gate the backbone rebuild to the canonical log")
+        # the DELETE (the destructive rebuild) must be guarded, not unconditional
+        delete_idx = src.find("DELETE r")
+        canonical_guard = src.rfind("eventlog.LOG", 0, delete_idx)
+        self.assertNotEqual(canonical_guard, -1,
+                            "the ANCHORS DELETE must be guarded by a canonical-log check")
+
+    def test_reproject_graph_replays_committed_artefatos_to_the_graph(self):
+        # Codex P2: a transient graph outage at publish time must be recoverable — reproject_graph
+        # replays every committed Artefato through project_artefato (idempotent) so the "reproject
+        # next beat" path actually exists. Verify it calls the projection per committed corpus item.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            # commit two artefatos to the log (no graph projection — project_fn=None)
+            for slug in ("recov-a", "recov-b"):
+                publisher.publish(
+                    slug, _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                    log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
+                    verdict=_passing_proof(slug, _spec(), "open: x; bet: y"))
+            projected = []
+
+            def fake_project(slug, intent, **k):
+                projected.append(slug)
+
+            publisher.reproject_graph(log=log, project_fn=fake_project)
+            self.assertEqual(sorted(projected), ["recov-a", "recov-b"])
+
     def test_spec_text_flattens_content_for_the_embedding(self):
         # Codex P2: the content embedding must include the body, not just the kernel — a concept in
         # the body but not the kernel must still be in the embed input.

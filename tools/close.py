@@ -201,9 +201,13 @@ def _is_dense_table(block: dict, block_type: str) -> bool:
 def _block_text(block: dict) -> str:
     """The human-readable text a block carries, for marker scanning — flattens the string
     values render reads (text/title/bullets/items/...). Type-tolerant: only strings are
-    joined, nested lists are walked one level (bullets, items)."""
+    joined, nested lists are walked one level (bullets, items). The `type` key is EXCLUDED — it
+    is the block's tag, not content, so a bare `{"type":"derivation"}` placeholder carries no
+    text (it must not self-clear the derivation move via its own type name)."""
     parts = []
-    for v in block.values():
+    for k, v in block.items():
+        if k == "type":
+            continue
         if isinstance(v, str):
             parts.append(v)
         elif isinstance(v, list):
@@ -248,27 +252,33 @@ def _check_rich_rite(artefato: dict) -> list[str]:
     if prose_count < RICH_RITE_PROSE_THRESHOLD:
         return []  # not a developed prose synthesis — owes none of the prose moves
 
-    block_types = {
-        _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph"))
-        for b in blocks
-    }
     text = (" ".join(_block_text(b) for b in blocks) + " " + " ".join(summary_items)).lower()
 
     def marked(markers):
         return any(m in text for m in markers)
 
+    def has_filled_block(types):
+        # a palette block satisfies a move ONLY if it carries actual payload (Codex P2): a bare
+        # placeholder block (no text/items/refs) must not clear the strike.
+        return any(
+            _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph")) in types
+            and _block_text(b).strip()
+            for b in blocks
+        )
+
     # external-frame requires an OUTSIDE benchmark (Codex P2): an `atividade` (internal provenance)
     # cite is the mentee's own work, not an external frame — only an external (`mundo`) cite or a
-    # bibliography clears it. A cite with no/unknown kind is treated conservatively as external
-    # (the reviewer's sourcing strike catches a hallucinated one).
+    # non-empty bibliography clears it. A cite with no/unknown kind is treated conservatively as
+    # external (the reviewer's sourcing strike catches a hallucinated one).
     external_cite = any(
         isinstance(c, dict) and c.get("kind") != "atividade"
         for c in (artefato.get("cites") or [])
     )
+    bibliography = bool(content.get("bibliography"))
 
-    has_derivation = bool(DERIVATION_BLOCK_TYPES & block_types) or marked(DERIVATION_MARKERS)
-    has_boundary = bool(BOUNDARY_BLOCK_TYPES & block_types) or marked(BOUNDARY_MARKERS)
-    has_frame = external_cite or "bibliography" in block_types
+    has_derivation = has_filled_block(DERIVATION_BLOCK_TYPES) or marked(DERIVATION_MARKERS)
+    has_boundary = has_filled_block(BOUNDARY_BLOCK_TYPES) or marked(BOUNDARY_MARKERS)
+    has_frame = external_cite or bibliography
     has_lineage = bool(artefato.get("distills")) or marked(LINEAGE_MARKERS)
 
     violations = []

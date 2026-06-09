@@ -131,16 +131,22 @@ class ReprojectFoldsCorpusAndReadsTheC3Gate(unittest.TestCase):
         eventlog.project_corpus = lambda *a, **k: o["corpus"](log=self.log, out=self.corpus_out)
         eventlog.artefatos_without_kernel = lambda *a, **k: o["awk"](log=self.log)
         sweep.wiki_render = type("X", (), {"main": staticmethod(lambda *a, **k: None)})()
+        # stub the graph reproject so the sweep test never touches Neo4j (CONTRACT C1, #30)
+        import publisher
+        publisher.reproject_graph = lambda *a, **k: None
         return self.log
 
     def setUp(self):
+        import publisher
         self._orig = {"consolidate": eventlog.consolidate_artefato_proposals,
                       "direction": eventlog.project_direction,
                       "corpus": eventlog.project_corpus,
                       "awk": eventlog.artefatos_without_kernel,
-                      "wiki": getattr(sweep, "wiki_render", None)}
+                      "wiki": getattr(sweep, "wiki_render", None),
+                      "reproject_graph": publisher.reproject_graph}
 
     def tearDown(self):
+        import publisher
         o = self._orig
         eventlog.consolidate_artefato_proposals = o["consolidate"]
         eventlog.project_direction = o["direction"]
@@ -148,6 +154,7 @@ class ReprojectFoldsCorpusAndReadsTheC3Gate(unittest.TestCase):
         eventlog.artefatos_without_kernel = o["awk"]
         if o["wiki"] is not None:
             sweep.wiki_render = o["wiki"]
+        publisher.reproject_graph = o["reproject_graph"]
 
     def test_reproject_writes_corpus_md(self):
         with tempfile.TemporaryDirectory() as st:
