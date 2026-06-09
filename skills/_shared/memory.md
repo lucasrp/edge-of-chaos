@@ -55,16 +55,21 @@ re-research, or re-publish what you already know.** Two moments, both mandatory:
 
 ```cypher
 // from a cluster: what have I already produced, and what bets are open?
-// NOTE: cluster refs are slug-form (cluster:genotypeworkflow) but curated_cluster is
-// display-form (Genotype workflow) — ALWAYS match on the normalized form, never exact.
-MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL
-  AND replace(toLower(e.curated_cluster),' ','') = replace(toLower($label),' ','')
+// Pass the DISPLAY label (the briefing/map shows these). curated_cluster IS the display form.
+MATCH (e:Entity {group_id:$g, curated_cluster:$label})
 OPTIONAL MATCH (e)<-[:DISTILLS]-(a:Artefato {group_id:$g})
 OPTIONAL MATCH (a)-[:PROPOSES]->(d:Direction {group_id:$g})
 RETURN e.curated_cluster AS cluster,
        collect(DISTINCT {slug:a.slug, kernel:a.kernel}) AS artefatos,
        collect(DISTINCT d.body) AS open_bets
 ```
+
+**Slug vs display label — the one trap.** `distills` refs are **slug-form** (`cluster:sourcesdelta`);
+`curated_cluster` is **display-form** (`Sources & delta`). The canonical slug rule is **wiki_render's**:
+`re.sub(r'[^a-z]', '', label.lower())` (letters only — drops spaces, `&`, digits, punctuation). **Never
+match a slug against `curated_cluster` directly** (not even space-normalized — `Sources & delta` keeps the
+`&`): resolve it first — fetch the labels, slugify each with the rule above, match — exactly as the
+projection does below.
 
 ```cypher
 // the full spine for orientation: objective → bets → reports → clusters
@@ -107,15 +112,18 @@ with drv.session() as s:
     s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) "
           "SET a.kernel=$k, a.skill=$skill, a.page=$page",
           g=g, slug=slug, k=kernel, skill=skill, page=f"blog/entries/{slug}.html")
-    for ref in distills:                       # link ONLY existing clusters (never fabricate)
-        # distills refs are slug-form (cluster:genotypeworkflow); curated_cluster is display-form
-        # (Genotype workflow) — match on the NORMALIZED form (lowercase, spaces removed), never exact,
-        # or the edge silently never links (the artefato stays unreachable from structural recall).
+    import re
+    cslug = lambda x: re.sub(r'[^a-z]', '', (x or '').lower())   # wiki_render's cluster-slug rule
+    labels = [r['l'] for r in s.run("MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
+                                    "RETURN DISTINCT e.curated_cluster AS l", g=g)]
+    by_slug = {cslug(l): l for l in labels}     # slug -> the display label to MATCH exactly
+    for ref in distills:                        # link ONLY existing clusters (never fabricate)
+        label = by_slug.get(cslug(ref.replace('cluster:', '')))
+        if not label:
+            continue                            # cluster not in the graph yet — the grill attaches it later
         s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
-              "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
-              "AND replace(toLower(e.curated_cluster),' ','') = replace(toLower($l),' ','') "
-              "MERGE (a)-[:DISTILLS]->(e)",
-              g=g, slug=slug, l=ref.replace('cluster:', ''))
+              "MATCH (e:Entity {group_id:$g, curated_cluster:$label}) MERGE (a)-[:DISTILLS]->(e)",
+              g=g, slug=slug, label=label)
     for p in proposes:
         s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
               "MERGE (d:Direction {group_id:$g, body:$b}) MERGE (a)-[:PROPOSES]->(d)",
@@ -127,9 +135,9 @@ with drv.session() as s:
 ```
 
 Notes that keep this honest:
-- `distills` links **only clusters that already exist** — the same refs you gave the close. If the
-  cluster `:Entity` is not in the graph yet, the `MATCH` no-ops; thread maintenance (the grill)
-  attaches it later. Never fabricate a link.
+- `distills` links **only clusters that already exist** — the same refs you gave the close, resolved
+  slug→label by wiki_render's rule. If the cluster is not in the graph yet, the slug-resolve misses and
+  we **skip** it; thread maintenance (the grill) attaches it later. Never fabricate a link.
 - A failed projection **prints the error and continues** — it is best-effort. The log already holds
   the truth; the next beat reprojects.
 - Embedding the spine nodes themselves (semantic search of a report *by its own content*) is the one
