@@ -51,6 +51,24 @@ anterograde amnesia — it must orient **entirely** from this and trust nothing 
 - Keep the three projections (clusters ← graph · Direction ← log · Recap ← corpus) + the source
   orientation. The briefing **is** your interface — small on purpose; high-signal, not a dump.
 
+## The map — announce what exists + the recall affordance (#28)
+
+The briefing is the tattoo: **small on purpose**, and you cannot fold the whole corpus into it. So make
+it carry the **map, not the territory** — the *shape* of the edge's memory plus a pointer to fetch the
+detail on demand:
+
+- Present the existing index **salience-ordered toward the Objective**: the Knowledge clusters by label,
+  the open bets (Direction), and the recent Artefatos as **title + kernel** (their shape, not their
+  bodies). You cannot recall what you do not know exists — the map is what tells the loop *what* is
+  there.
+- **Announce the recall affordance**: state plainly that the loop can **recall the detail on demand**
+  from its own graph, pointing it to `skills/_shared/memory.md`. The map says *what* exists; recall
+  fetches the *content* when a theme makes it relevant.
+
+The detail stays in the graph, one traversal away; the briefing stays a high-signal tattoo. (Trimming
+the deterministic briefing composition itself from full-content to labels-only is a later refinement;
+your job here is to add the affordance so the loop knows it can pull more than the tattoo shows.)
+
 ## Read-only (CONTRACT C1)
 
 You read; you write nothing. No state mutation, no world side effects.

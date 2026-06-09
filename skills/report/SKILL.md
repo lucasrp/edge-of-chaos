@@ -20,7 +20,9 @@ form — live HERE, never in the shared scaffold.
 
 The scaffold names three role-defined slots; report maps each to its prose-synthesis form:
 
-- **`gather-grounding`** (loop1) — **delegate freely** to reach plenitude (`scaffold.md`): explorers read
+- **`gather-grounding`** (loop1) — **delegate freely** to reach plenitude (`scaffold.md`) — but
+  **recall first** (`skills/_shared/memory.md`): pull what you already wrote on this theme from the edge's
+  own graph before exploring, so you build on prior depth rather than restate it. Then explorers read
   the pool the synthesis stands on (Claude sessions, GitHub, exa, the projects' CONTEXT.md), returning
   **evidence** `{source, ref}`; and where the theme has facets, **fan a subagent per facet** to develop
   each deeply, then integrate. Offload the grunt-work so your own context goes to the depth. Depth comes
@@ -108,6 +110,11 @@ confirm the Direction** — pass its candidate steers and provenance through the
           cites=art['cites']); \
         close.run_close(artefato, produce_fn=lambda: artefato, complete_fn=<review-completer>, \
           publish_fn=publish_fn)"
+
+**After the close succeeds, project the Artefato into the graph** (`skills/_shared/memory.md`):
+`MERGE (:Artefato …)` plus its `DISTILLS / CITES / PROPOSES` edges (the same `distills` / `proposes` /
+`cites` you just published) — so the synthesis is recallable next beat. Best-effort: a failed projection
+is reported, never fatal (the log already holds the truth).
 
 The Artefato is **transient** — it cools and is prunable; it also **bears the comment field**, the surface
 the mentee's later comment consolidates from. The durable knowledge it distills lives in the **cluster**,

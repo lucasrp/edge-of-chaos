@@ -22,7 +22,9 @@ form — live HERE, never in the shared scaffold.
 
 The scaffold names three role-defined slots; map maps each to its connections-diagram form:
 
-- **`gather-grounding`** (loop1) — **delegate freely** to map in plenitude (`scaffold.md`): explorers
+- **`gather-grounding`** (loop1) — **delegate freely** to map in plenitude (`scaffold.md`) — but
+  **recall first** (`skills/_shared/memory.md`): pull the connections you already mapped on this theme
+  from the edge's own graph before exploring, so you extend the web rather than redraw it. Then explorers
   cross the context pool (Claude sessions, GitHub, exa, the projects' CONTEXT.md, the Knowledge clusters)
   for the relationships the theme touches — and where the web is wide, **fan a subagent per candidate
   relation or cluster** to trace each branch deeply, then integrate the graph. Each returns **evidence**:
@@ -106,6 +108,11 @@ publish_fn:
           cites=art['cites']); \
         close.run_close(artefato, produce_fn=lambda: artefato, complete_fn=<review-completer>, \
           publish_fn=publish_fn)"
+
+**After the close succeeds, project the Artefato into the graph** (`skills/_shared/memory.md`):
+`MERGE (:Artefato …)` plus its `DISTILLS / CITES / PROPOSES` edges (the same `distills` / `proposes` /
+`cites` you just published) — so the map is recallable next beat. Best-effort: a failed projection is
+reported, never fatal (the log already holds the truth).
 
 The Artefato is **transient** — it cools and is prunable; it also **bears the comment field**, the surface
 the mentee's later comment consolidates from. The durable knowledge it distills lives in the **cluster**,

@@ -26,7 +26,9 @@ The scaffold defines three slots by their **role** in the loop. It says what the
 never what a particular report-form *is*:
 
 - **`gather-grounding`** — loop1's role: the producer **freely delegates to its subagent fleet**
-  to reach plenitude. Gathering grounding is one use — explorers go out and bring back evidence;
+  to reach plenitude. **But recall before you research** (`skills/_shared/memory.md`): first pull the
+  subgraph your theme already touches from the edge's own memory, so explorers chase what is *missing*,
+  not what you already published. Gathering grounding is one use — explorers go out and bring back evidence;
   **decomposing the theme into facets developed in parallel** is another, as is probing the gaps a
   first pass exposes. The producer wields the subagents **as it judges best**, within the runtime's
   concurrency cap — the scaffold offers the affordance and per-form *guidance*, **never a fixed
@@ -78,13 +80,31 @@ The brake is not the producer's discretion: it lives in the protocol. See `tools
 on `critic.ship`, caps serendipity's reopens at `LOOP2_MAX_REOPENS`, and returns the final
 critic verdict.
 
+## The inner passes — recall before you act, project after you publish (#28)
+
+Besides the world and the mentee, the producer has a **third relation: its own memory** — the edge's
+graph (the curated web + the projected spine). It is reached by the producer **directly (rung 1)**, not
+by an explorer: it is *recall*, not research. The discipline and the concrete cypher live in
+**`skills/_shared/memory.md`**; the loop obeys it at two points:
+
+- **Recall-before-act** — at the **start of loop1** (before fanning explorers) and **before the close**:
+  pull the subgraph your theme touches (its clusters, prior Artefatos, open bets). You never re-derive,
+  re-research, or re-publish what you already know — recall is cheap and owned, the world expensive and
+  fuzzy. Recall *feeds* plenitude: you build on the depth of prior Artefatos rather than duplicate them.
+- **Project-after-publish** — immediately **after the close publishes**: project the Artefato into the
+  graph (`MERGE (:Artefato …)` + `DISTILLS/CITES/PROPOSES` edges) so today's output is tomorrow's recall.
+  The log stays canonical (ADR-0006); the graph projection is best-effort (a failed write is reported,
+  never fatal).
+
+This closes the loop `recall → research (the gap) → produce → publish → project → recall`.
+
 ## The context-denial ladder
 
 Each rung sees strictly less than the one before. **Freshness is evidence vs reasoning, not
 cites vs no-cites** (ADR-0013): a later rung is denied the *evidence* and the *session* so its
 read of the text is fresh, not because it lacks links.
 
-1. **producer** — sees all (briefing + Mundo + session + evidence).
+1. **producer** — sees all (briefing + Mundo + session + evidence) **+ its own memory (recall — `skills/_shared/memory.md`)**.
 2. **serendipity** — `+briefing +Mundo`, `−session`.
 3. **critic** — `−briefing`, `−session`.
 4. **reviewers** — content + cites **only** (evidence, session, briefing all denied).

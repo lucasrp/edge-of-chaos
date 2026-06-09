@@ -83,6 +83,16 @@ class ScaffoldSlotsAreRoleNotReportDefined(unittest.TestCase):
         self.assertIn("evidence", self.lower)
         self.assertNotIn("insumos", self.lower)
 
+    def test_states_the_introspective_memory_passes(self):
+        # #28: the producer's THIRD relation — its own memory (the graph), reached by the
+        # producer itself (rung 1), not by an explorer. The loop must wire BOTH passes and
+        # point at the manual, so the capability cannot go dormant (the g.search() cautionary
+        # tale). Grep the load-bearing tokens.
+        for token in ("recall-before-act", "project-after-publish", "memory.md"):
+            self.assertIn(token, self.lower, f"scaffold missing memory token: {token!r}")
+        # recall is the producer's own memory — denied to the deeper rungs (rung-1 only).
+        self.assertIn("recall", self.lower)
+
     def test_states_agentic_grounding_how_no_primitive(self):
         # The actionable HOW (corrects the "materialize a primitive" misframe a beat fell into):
         # explorers ground via the source specs + source-roadmap, agentically, keys loaded; there is
