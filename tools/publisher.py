@@ -50,7 +50,7 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # producer-skills). `skill` is proof-bound but the proof binds whatever the producer supplies,
 # so an out-of-roster value (e.g. `report</p><script>…`) would verify cleanly; this roster is
 # the gate that rejects it BEFORE anything is written, and _page escapes it as defense in depth.
-PRODUCER_ROSTER = ("report", "map", "plan", "grill")
+PRODUCER_ROSTER = ("report", "research", "map", "plan", "discovery", "grill")
 
 
 def _safe_target(slug, blog_dir):

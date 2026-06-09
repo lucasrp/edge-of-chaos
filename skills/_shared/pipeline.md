@@ -22,8 +22,13 @@ directly.
    never report-specifics; the producer skill's mapping supplies the form. The scaffold is where
    the artefato is produced and tightened to a `ship` verdict.
 
-3. **close — reviewers + publisher.** The produced artefato passes the genus conformance
-   contract, then the two blind review gates, then is published atomically with its kernel.
+3. **close — review → improve → publish.** The produced artefato passes the genus conformance
+   contract, then the two blind reviewers — which return **per-dimension rationales** (the
+   actionable FEEDBACK; the 0-5 score is advisory and never gates) and **strikes** (the
+   qualitative gate). When an `improve_fn` is wired, the close runs `IMPROVE_ROUNDS` unconditional
+   **review→improve** passes (the two improve-gates, one after the other) that revise the draft
+   from that feedback BEFORE the gating review seals the proof — so what publishes is exactly what
+   the reviewers passed. Then it publishes atomically with its kernel.
 
 ## The testable surfaces
 
@@ -31,10 +36,14 @@ The prose phases above bottom out in two testable modules in `tools/`:
 
 - **`tools/close.py`** — the genus conformance contract (`check_genus`: output-enforced,
   sections FREE), the two blind reviewers (`feynman_review` rigor+honesty, `regular_review`
-  clarity+craft — both see content + cites only), and `run_close` (the bounded bounce: both
-  reviewers must pass; a strike bounces to the producer to re-produce, capped at `BOUNCE_MAX`,
-  then hard-fails — never unbounded). The producer-loop's brake (`run_loop2`,
-  `LOOP2_MAX_REOPENS`) lives here too.
+  clarity+craft+**frame-enrichment** — the outward vector: it STRIKES a closed internal
+  diagnosis that names nothing in the field and brings no outside benchmark/best-practice to
+  enrich the mentee's frame; both see content + cites only). Each verdict carries per-dimension
+  `rationales` (the FEEDBACK) + `strikes`; the weighted `overall` is advisory and never gates (an
+  LLM 0-5 score is too noisy to threshold). `run_close` adds the optional **improve stage**
+  (`improve_fn`, `IMPROVE_ROUNDS`) before the bounded bounce (both reviewers must pass; a strike
+  bounces to re-produce, capped at `BOUNCE_MAX`, then hard-fails — never unbounded). The
+  producer-loop's brake (`run_loop2`, `LOOP2_MAX_REOPENS`) lives here too.
 
 - **`tools/publisher.py`** — the atomic publish seam: render the artefato → self-contained
   neutral HTML → `publish_artefato_atomic`, which records the `artefato.published` event AND its
@@ -53,6 +62,24 @@ runs at its exit.
 The bounce-bound (`BOUNCE_MAX`) and the loop-2 brake (`LOOP2_MAX_REOPENS`) live in the protocol
 constants, never in the producer's discretion — that is what separates a gate from the
 retry-envelope ADR-0003 killed.
+
+## The improve-gates and cross-model help (codex)
+
+The close is not only a gate — it **refines**. When the producer wires an `improve_fn`,
+`run_close` runs `IMPROVE_ROUNDS` (default 2) **review→improve** passes before the gating review:
+each pass reviews the draft purely for FEEDBACK (the per-dimension `rationales` + the `strikes` —
+the noisy score never drives this) and hands it to the improve subagent, which **revises the
+existing draft**, not re-produce from scratch. The two improve-gates run one after the other; the
+gating review then seals the proof on the final, twice-improved artefato, so the reviewers' pass
+is always of exactly what publishes.
+
+The review and improve subagents — the **adversarial** blind pass, the **feynman** rigor
+reviewer, the **enrichment** (frame / outward-vector) reviewer, and the **improve** reviser — MAY
+reach for the **`/codex` skill** (the Codex CLI: a second, independent model) to pressure-test
+their analysis, when `agent.yaml`'s `subagents.codex_assist.<role>` is true (all on by default).
+Use it to challenge a claim, derive cross-model, or hunt the outside benchmark a frame-closed
+draft is missing — the score is noise; a cross-model second opinion sharpens the *feedback*, which
+is the signal.
 
 ## Producers round-robin; close-roles do NOT
 

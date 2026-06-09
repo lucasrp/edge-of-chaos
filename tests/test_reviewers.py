@@ -74,40 +74,51 @@ def _seen_text(captured):
 # A minimal valid verdict the fake completer can echo back.
 _PASS_VERDICT = (
     '{"pass": true, "scores": {"development_completeness": 4, "narrative_depth": 4, '
-    '"content_depth": 4, "feynman_method": 4, '
+    '"content_depth": 4, "feynman_method": 4, "frame_enrichment": 4, '
     '"intellectual_honesty": 4, "didactic_clarity": 4, "internal_consistency": 4, '
-    '"visualization": 4, "writing_quality": 4}, "strikes": [], "overall": 4.0}'
+    '"visualization": 4, "writing_quality": 4}, '
+    '"rationales": {"frame_enrichment": "names the pattern in the field and brings a benchmark"}, '
+    '"strikes": [], "overall": 4.0}'
 )
 _STRIKE_VERDICT = (
     '{"pass": false, "scores": {"development_completeness": 2, "narrative_depth": 2, '
-    '"content_depth": 3, "feynman_method": 2, '
+    '"content_depth": 3, "feynman_method": 2, "frame_enrichment": 2, '
     '"intellectual_honesty": 2, "didactic_clarity": 3, "internal_consistency": 3, '
     '"visualization": 3, "writing_quality": 3}, '
     '"strikes": ["factual claim not re-sourceable from its cite"], "overall": 2.4}'
 )
 
 _KEPT = {"development_completeness", "narrative_depth", "content_depth", "feynman_method",
-         "intellectual_honesty", "didactic_clarity", "internal_consistency", "visualization",
-         "writing_quality"}
+         "frame_enrichment", "intellectual_honesty", "didactic_clarity", "internal_consistency",
+         "visualization", "writing_quality"}
 
 
-class NineDimsBlindAndPropertyNotSection(unittest.TestCase):
-    """The S7 contract: exactly the 9 dims (depth RESTORED — development_completeness +
-    narrative_depth — without re-introducing the old section-order mandate); weights are a
-    {dim:weight} dict summing to 1.0; the reviewers run blind (cites' content reaches the LLM,
-    the secret evidence/session/briefing never does); the honesty/feynman dim text is
-    property-not-section (says 'anywhere', not 'O que Não Sei'); a FACTUAL claim not
-    re-sourceable from its cite yields a strike."""
+class TenDimsBlindAndPropertyNotSection(unittest.TestCase):
+    """The S7 contract: exactly the 10 dims (depth RESTORED — development_completeness +
+    narrative_depth — plus the outward-vector dim frame_enrichment — without re-introducing the
+    old section-order mandate); weights are a {dim:weight} dict summing to 1.0; the reviewers run
+    blind (cites' content reaches the LLM, the secret evidence/session/briefing never does); the
+    honesty/feynman dim text is property-not-section (says 'anywhere', not 'O que Não Sei'); a
+    FACTUAL claim not re-sourceable from its cite yields a strike."""
 
-    def test_dimensions_are_exactly_the_nine(self):
+    def test_dimensions_are_exactly_the_ten(self):
         self.assertEqual(set(close.DIMENSIONS), _KEPT)
         # the OLD section-mandate dims stay gone — depth is back as PROPERTY, not section order
         self.assertNotIn("structural_completeness", close.DIMENSIONS)
         self.assertNotIn("storytelling", close.DIMENSIONS)
         self.assertIn("development_completeness", close.DIMENSIONS)
         self.assertIn("narrative_depth", close.DIMENSIONS)
+        self.assertIn("frame_enrichment", close.DIMENSIONS)
 
-    def test_weights_are_a_dict_over_the_nine_dims_summing_to_one(self):
+    def test_frame_enrichment_is_the_outward_vector_property(self):
+        # frame_enrichment is content-relative (vehicle-agnostic) but about ENRICHING the
+        # mentee's frame from OUTSIDE it — re-applying their own frame is NOT enrichment.
+        fe = close.DIMENSIONS["frame_enrichment"].lower()
+        self.assertIn("enrich", fe)
+        self.assertIn("outside", fe)
+        self.assertIn("benchmark", fe)
+
+    def test_weights_are_a_dict_over_the_ten_dims_summing_to_one(self):
         self.assertIsInstance(close.DIMENSION_WEIGHTS, dict)
         self.assertEqual(set(close.DIMENSION_WEIGHTS), _KEPT)
         self.assertAlmostEqual(sum(close.DIMENSION_WEIGHTS.values()), 1.0, places=6)
@@ -165,6 +176,44 @@ class NineDimsBlindAndPropertyNotSection(unittest.TestCase):
         self.assertTrue(verdict["pass"])
         self.assertEqual(set(verdict["scores"]), _KEPT)
         self.assertIsInstance(verdict["overall"], float)
+
+    def test_rationales_are_parsed_and_carried_as_feedback(self):
+        # the per-dimension rationale (the actionable FEEDBACK — the signal, vs the noisy score)
+        # is carried through the verdict so the improve-loop and the operator can read the WHY.
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer(_PASS_VERDICT)
+        verdict = close.feynman_review(art, complete_fn=fn)
+        self.assertIn("rationales", verdict)
+        self.assertIsInstance(verdict["rationales"], dict)
+        self.assertIn("names the pattern in the field",
+                      verdict["rationales"]["frame_enrichment"])
+
+    def test_missing_rationales_do_not_fail_the_verdict(self):
+        # rationales are NON-gating: a verdict with none still passes (the gate is pass +
+        # strikes, never the feedback artifact). An LLM score is too noisy to gate on.
+        verdict = close._parse_verdict('{"pass": true, "scores": {}, "strikes": []}')
+        self.assertTrue(verdict["pass"])
+        self.assertEqual(verdict["rationales"], {})
+
+    def test_preamble_requests_a_rationale_per_dimension(self):
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer(_PASS_VERDICT)
+        close.feynman_review(art, complete_fn=fn)
+        self.assertIn("rationale", _seen_text(fn.captured).lower())
+
+    def test_regular_reviewer_owns_the_outward_vector_strike(self):
+        # the regular reviewer is told to STRIKE a closed internal diagnosis that brings no
+        # outside frame/benchmark — the outward-vector enforcement is qualitative (a strike),
+        # never a numeric floor. The feynman focus (rigor/cites) does NOT carry it.
+        art = _artefato_with_hidden_context()
+        rfn = _capturing_completer(_PASS_VERDICT)
+        close.regular_review(art, complete_fn=rfn)
+        regular_seen = _seen_text(rfn.captured).lower()
+        self.assertIn("outward vector", regular_seen)
+        self.assertIn("strike when", regular_seen)
+        ffn = _capturing_completer(_PASS_VERDICT)
+        close.feynman_review(art, complete_fn=ffn)
+        self.assertNotIn("outward vector", _seen_text(ffn.captured).lower())
 
 
 class VerdictParsingFailsClosed(unittest.TestCase):

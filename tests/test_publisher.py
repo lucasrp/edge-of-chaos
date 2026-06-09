@@ -329,7 +329,7 @@ class WrapperMetadataIsEscapedAndSkillIsRostered(unittest.TestCase):
             self.assertFalse((Path(tmp) / f"{slug}.html").exists())
 
     def test_every_in_roster_skill_publishes_a_clean_meta_line(self):
-        for skill in ("report", "map", "plan", "grill"):
+        for skill in publisher.PRODUCER_ROSTER:
             with tempfile.TemporaryDirectory() as tmp:
                 log = Path(tmp) / "log.jsonl"
                 slug = f"clean-{skill}"

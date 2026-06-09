@@ -622,5 +622,101 @@ class StruckVerdictCannotMintOrVerifyAProof(unittest.TestCase):
             )
 
 
+class ImproveGatesRefineBeforeTheGate(unittest.TestCase):
+    """The two improve-gates (one after the other). When `improve_fn` is given, run_close runs
+    IMPROVE_ROUNDS UNCONDITIONAL review→improve passes BEFORE the gating close: each pass reviews
+    the draft purely for FEEDBACK (rationales + strikes — the noisy score never gates) and hands
+    it to improve_fn, which REVISES the draft. The refine never mints/publishes; the gating close
+    seals the proof on the final, twice-improved artefato — so the reviewers' pass is always of
+    exactly what publishes. With no improve_fn the stage is skipped and behaviour is unchanged."""
+
+    def _passing_completer(self):
+        return lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}'
+
+    def test_improve_fn_runs_improve_rounds_times_then_gates_and_publishes(self):
+        calls = {"count": 0, "feedback_lens": []}
+
+        def improve_fn(art, feedback):
+            calls["count"] += 1
+            calls["feedback_lens"].append(len(feedback))  # both reviewers' feedback each round
+            return art
+
+        published = []
+
+        def publish_fn(art, proof):
+            published.append(art)
+
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=self._passing_completer(), publish_fn=publish_fn,
+            improve_fn=improve_fn,
+        )
+        self.assertTrue(result["pass"])
+        self.assertEqual(calls["count"], close.IMPROVE_ROUNDS)   # exactly two improve-gates
+        self.assertEqual(calls["feedback_lens"], [2] * close.IMPROVE_ROUNDS)  # both reviewers
+        self.assertEqual(len(published), 1)
+
+    def test_no_improve_fn_means_no_refinement_behaviour_unchanged(self):
+        published = []
+
+        def publish_fn(art, proof):
+            published.append(art)
+
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=self._passing_completer(), publish_fn=publish_fn,
+        )
+        self.assertTrue(result["pass"])
+        self.assertEqual(len(published), 1)
+
+    def test_published_artefato_is_the_improved_one_proof_binds_to_it(self):
+        # improve_fn revises the draft; the gating close mints the proof on the REVISED artefato,
+        # so what publishes is provably what the reviewers passed.
+        def improve_fn(art, feedback):
+            return {**art, "content": {"sections": [{"title": "Refined", "blocks": [
+                {"type": "paragraph", "text": "improved from the reviewers' feedback."}]}]}}
+
+        published = []
+
+        def publish_fn(art, proof):
+            published.append((art, proof))
+
+        art = _conformant_artefato()
+        result = close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=self._passing_completer(), publish_fn=publish_fn,
+            improve_fn=improve_fn,
+        )
+        self.assertTrue(result["pass"])
+        self.assertEqual(len(published), 1)
+        pub_art, proof = published[0]
+        self.assertIn("Refined", str(pub_art["content"]))
+        # the proof binds to the improved content — verify_proof accepts it against the published spec
+        close.verify_proof(
+            proof, slug=pub_art["slug"], spec=pub_art["content"], intent=pub_art["intent"],
+            cites=pub_art["cites"], proposes=pub_art["proposes"], reviewer_count=2,
+        )
+
+    def test_improve_rounds_is_overridable_per_call(self):
+        calls = {"count": 0}
+
+        def improve_fn(art, feedback):
+            calls["count"] += 1
+            return art
+
+        art = _conformant_artefato()
+        close.run_close(
+            art, produce_fn=lambda: art,
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=self._passing_completer(), improve_fn=improve_fn, improve_rounds=3,
+        )
+        self.assertEqual(calls["count"], 3)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

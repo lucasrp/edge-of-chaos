@@ -204,6 +204,19 @@ DIMENSIONS = {
         "Substance, not placeholders: concrete details, data, numbers, real examples. "
         "No empty or stub content; tables carry real data."
     ),
+    "frame_enrichment": (
+        "Did the artefato ENRICH the mentee's frame — import a definition, benchmark, named "
+        "pattern, or industry best-practice from OUTSIDE the mentee's current frame and fit it "
+        "to their live work, so their MODEL/VISION of what they are doing got better? The "
+        "litmus: did the mentee's frame/modelagem/visão IMPROVE? Naming what they do in the "
+        "field's vocabulary, locating their work among external approaches, bringing an outside "
+        "benchmark or best-practice — these enrich. RE-APPLYING the mentee's OWN existing "
+        "vocabulary/data to itself is NOT enrichment (that is frame application); a closed "
+        "internal diagnosis that brings nothing the mentee could not derive from what they "
+        "already know does not enrich the frame. Content-relative in VEHICLE — a map may enrich "
+        "via a genuinely non-obvious structural insight rather than an external cite — but never "
+        "escapable by relabeling internal restatement as insight."
+    ),
     "feynman_method": (
         "Derivation-first thinking is visible ANYWHERE in the artefato: reasoning from "
         "first principles before reaching for a source. The knowledge boundary is explicit "
@@ -239,14 +252,20 @@ DIMENSIONS = {
 
 # Weights as a {dim: weight} dict (NOT a positional list — the legacy
 # `DIMENSION_WEIGHTS[:len(scores)]` slicing silently mis-paired weights to dims once the
-# dim set changed). The depth cluster — development_completeness + narrative_depth +
-# content_depth + feynman_method — sums to 0.62 and DOMINATES the gate: plenitude is what
-# the gate rewards. They are rescaled by the sum so all nine weights sum to 1.0.
+# dim set changed).
+# NOTE: the weighted `overall` is ADVISORY — it does NOT gate. An LLM 0-5 score is too noisy
+# to threshold (gating on it would be theatre); the gate is the reviewer's `pass` + any STRIKE,
+# and the actionable signal is the per-dimension RATIONALE (feedback), not the number. Weights
+# are kept for color and to keep the dims/weights sets in sync. The depth cluster
+# (development_completeness + narrative_depth + content_depth + feynman_method) plus the
+# outward-vector dim (frame_enrichment) carry the most weight — what we most want surfaced in
+# the rationale-feedback. Rescaled by the sum so all weights sum to 1.0.
 _LEGACY_KEPT_WEIGHTS = {
     "development_completeness": 0.18,
     "narrative_depth": 0.14,
     "content_depth": 0.16,
     "feynman_method": 0.14,
+    "frame_enrichment": 0.15,
     "intellectual_honesty": 0.10,
     "didactic_clarity": 0.10,
     "internal_consistency": 0.06,
@@ -262,8 +281,13 @@ _BLIND_PREAMBLE = (
     "You are a blind quality reviewer for a published Artefato. You see ONLY the artefato's "
     "final content and its cites — you have NO access to the evidence the author read, the "
     "session/transcript, or the briefing. Judge only what is in front of you. Score each "
-    "dimension 0-5. Respond with ONLY a JSON object: "
-    '{"pass": bool, "scores": {dim: int}, "strikes": [str], "overall": float}.'
+    "dimension 0-5 AND give a one-sentence `rationale` for each score — the rationale is the "
+    "actionable FEEDBACK (what is missing and concretely how to improve it); the bare number is "
+    "advisory and is not what gates. Put any blocking, specific defect in `strikes` — a strike "
+    "forces a revision, so be concrete about what is wrong and what would fix it. Respond with "
+    "ONLY a JSON object: "
+    '{"pass": bool, "scores": {dim: int}, "rationales": {dim: str}, "strikes": [str], '
+    '"overall": float}.'
 )
 
 _FEYNMAN_FOCUS = (
@@ -278,8 +302,15 @@ _FEYNMAN_FOCUS = (
 )
 
 _REGULAR_FOCUS = (
-    "FOCUS: clarity and craft. Substance, didactic clarity (every term comprehensible "
-    "somewhere), flowing prose, internal consistency, and content-relative visualization."
+    "FOCUS: clarity, craft, and FRAME-ENRICHMENT. Substance, didactic clarity (every term "
+    "comprehensible somewhere), flowing prose, internal consistency, and content-relative "
+    "visualization. CRUCIAL — the outward vector: STRIKE when the artefato is a CLOSED internal "
+    "diagnosis that re-applies only the mentee's own frame/vocabulary and brings NO outside "
+    "definition, benchmark, named field-pattern, or industry best-practice to enrich it — a "
+    "deep recap of the mentee's own model that names nothing in the field and brings nothing "
+    "they could not have derived themselves does NOT enrich the frame and must be struck (say "
+    "what outside frame/benchmark/best-practice it should have brought). A genuinely internal "
+    "form (a connections map) that still reveals a non-obvious structure is NOT struck."
 )
 
 
@@ -314,6 +345,7 @@ def _failing_verdict(strike: str, scores=None) -> dict:
     return {
         "pass": False,
         "scores": scores if isinstance(scores, dict) else {},
+        "rationales": {},
         "strikes": [strike],
         "overall": 0.0,
     }
@@ -357,6 +389,13 @@ def _parse_verdict(raw: str) -> dict:
     if not isinstance(strikes, list):
         return _failing_verdict(
             f"strikes is not a list, got {type(strikes).__name__}: {strikes!r}", scores)
+    # `rationales` is the per-dimension FEEDBACK (the actionable signal). It is NON-gating: a
+    # missing/malformed rationales map never fails the verdict (the gate is pass + strikes, not
+    # the feedback) — it degrades to {} and the verdict still parses. Carried through so the
+    # improve-loop (run_close's improve_fn) and the operator can read WHY each dim scored as it did.
+    rationales = result.get("rationales", {})
+    if not isinstance(rationales, dict):
+        rationales = {}
     # Exact boolean identity — `bool("false")` is True, so coercion is forbidden here — AND a
     # struck verdict can never pass (Codex round-9 [high]): a non-empty `strikes` list makes the
     # verdict FAIL even when `pass` is True. The close protocol is that ANY reviewer strike must
@@ -378,6 +417,7 @@ def _parse_verdict(raw: str) -> dict:
     return {
         "pass": passed,
         "scores": scores,
+        "rationales": rationales,
         "strikes": strikes,
         "overall": round(float(overall), 2),
     }
@@ -427,6 +467,7 @@ regular_review.identity = REGULAR_REVIEWER_ID
 
 BOUNCE_MAX = 1            # reviewer strike → re-produce, at most this many times
 LOOP2_MAX_REOPENS = 1     # serendipity may reopen loop-1 at most this many times
+IMPROVE_ROUNDS = 2        # unconditional review→improve refinement passes before the gating close
 
 
 # ---------------------------------------------------------------------------
@@ -546,12 +587,23 @@ def verify_proof(proof, *, slug, spec, intent, cites, proposes,
 
 
 def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
-              complete_fn=None, publish_fn=None):
+              complete_fn=None, publish_fn=None, improve_fn=None, improve_rounds=None):
     """The ONE enforced close path (#2): run the genus gate, then BOTH blind review gates,
     bounded; ONLY on pass mint the bound proof and call `publish_fn(artefato, proof)` to
     publish. This is the only way to publish — `publisher.publish` refuses without the bound
     `proof` this mints (it `verify_proof`s the token + digest), so a producer can never reach
     the publisher directly around the gate.
+
+    IMPROVE STAGE (the two improve-gates, one after the other): when `improve_fn` is given,
+    BEFORE the gating close run `improve_rounds` (default IMPROVE_ROUNDS=2) UNCONDITIONAL passes
+    of review→improve. Each pass runs BOTH reviewers purely to PRODUCE FEEDBACK — the
+    per-dimension `rationales` and the `strikes` (the LLM 0-5 score is too noisy to gate on, so
+    the feedback is the signal) — and hands that feedback to `improve_fn(artefato, feedback)`,
+    which REVISES the artefato (it improves the existing draft, it does not re-produce from
+    scratch). These passes NEVER mint or publish; they only refine. The gating close below then
+    runs on the REFINED artefato, so the minted proof binds to the final improved text — the
+    reviewers' pass is always of exactly what publishes. With no `improve_fn` the stage is
+    skipped and behaviour is unchanged.
 
     Genus runs FIRST, every iteration (Codex re-review #2): `check_genus(artefato)` violations
     are a BLOCKING strike that bounces through `produce_fn` BEFORE any reviewer runs or any
@@ -570,6 +622,24 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
     pass (after publishing if a publish_fn was given), else {pass: False, artefato, verdicts}
     after the bound is exhausted (publish_fn is NEVER called on a failing gate). On a genus
     bounce the returned failure carries `genus_violations`."""
+    # IMPROVE STAGE — the two improve-gates, run in sequence (no minting/publishing here). Each
+    # gate reviews the draft purely for FEEDBACK (rationales + strikes) and hands it to
+    # improve_fn, which returns a revised draft. The gating close (below) seals the proof on the
+    # final, twice-improved artefato. A reviewer that raises degrades to a feedback strike here —
+    # the refine never crashes (the gating close enforces correctness afterwards).
+    if improve_fn is not None:
+        rounds = IMPROVE_ROUNDS if improve_rounds is None else improve_rounds
+        for _ in range(rounds):
+            feedback = []
+            for r in reviewers:
+                try:
+                    v = r(artefato, complete_fn)
+                except Exception as e:  # noqa: BLE001 — feedback only; never crash the refine
+                    v = {"pass": False, "scores": {}, "rationales": {},
+                         "strikes": [f"reviewer raised: {type(e).__name__}: {e}"], "overall": 0.0}
+                feedback.append(v)
+            artefato = improve_fn(artefato, feedback)
+
     bounces = 0
     while True:
         violations = check_genus(artefato)
