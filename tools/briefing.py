@@ -25,6 +25,10 @@ STATE = REPO / "state"
 
 KIND_ORDER = ["phase", "priority", "constraint", "thread"]
 
+# recall-push (#30): the SALIENT slice — cap the artefatos pushed into the briefing so it does not
+# grow with the whole corpus (Codex P2). A small, most-recent slice; recall MORE on demand.
+RECALL_ARTEFATO_LIMIT = 8
+
 # The identity fields the genotype CANNOT compose without — a thin agent.yaml that omits any of
 # these is a lobotomy (ADR-0009), not a valid install. The personality `.tpl` substitutes them.
 REQUIRED_IDENTITY = ["name", "mission", "voice"]
@@ -179,10 +183,15 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
             if head is None:
                 return {"codename": None, "voice": None, "objective": None,
                         "bets": [], "artefatos": [], "clusters": []}
-            # salient Artefatos (most recent) + the clusters they DISTILL — reached via SERVES
+            # salient Artefatos (MOST RECENT, capped) + the clusters they DISTILL — reached via
+            # SERVES. Order by `projected_at` (the recency signal) DESC and LIMIT to the salient
+            # slice, so the briefing does NOT grow with the whole corpus (#30, Codex P2). Legacy
+            # nodes with no projected_at sort last (coalesce to '').
             arts = s.run(
                 "MATCH (a:Artefato {group_id:$g})-[:SERVES]->(:Objective {group_id:$g}) "
-                "RETURN a.slug AS slug, a.kernel AS kernel ORDER BY a.slug", g=group).data()
+                "RETURN a.slug AS slug, a.kernel AS kernel "
+                "ORDER BY coalesce(a.projected_at,'') DESC, a.slug LIMIT $lim",
+                g=group, lim=RECALL_ARTEFATO_LIMIT).data()
             clusters = [r["l"] for r in s.run(
                 "MATCH (:Artefato {group_id:$g})-[:DISTILLS]->(e:Entity {group_id:$g}) "
                 "WHERE e.curated_cluster IS NOT NULL "

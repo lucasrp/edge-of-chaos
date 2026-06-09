@@ -362,6 +362,73 @@ class GenusRunsBeforeAnyProofIsMinted(unittest.TestCase):
         self.assertEqual(published, [])  # genus-invalid never reaches publish_fn
 
 
+class GenusViolationsAreFedToReProduction(unittest.TestCase):
+    """Codex P2 (#30) — a genus violation (incl. a rich-rite floor strike) must be FED to the
+    re-production path, not bounce silently to a static draft and hard-fail. When `improve_fn`
+    is wired, a genus violation hands the named violations to `improve_fn(art, feedback)` so the
+    draft is re-produced richer (the floor FORCES depth); without `improve_fn`, behaviour is the
+    unchanged static bounce."""
+
+    def _shallow_developed_prose(self, slug="shallow-dev"):
+        # a developed prose synthesis (>= 3 prose blocks) missing all four cognitive moves —
+        # check_genus returns rich-rite:* strikes.
+        return {
+            "slug": slug,
+            "content": {"sections": [{"title": "Findings", "blocks": [
+                {"type": "paragraph", "text": "The system has three components."},
+                {"type": "paragraph", "text": "Each holds its own state."},
+                {"type": "paragraph", "text": "They are wired at startup."},
+            ]}]},
+            "cites": [], "proposes": [{"body": "x", "kind": "constraint"}],
+            "distills": [], "intent": "open: x; bet: y", "skill": "report",
+        }
+
+    def test_rich_rite_violation_is_handed_to_improve_fn_and_re_produced(self):
+        seen_feedback = {"all": []}
+
+        def improve_fn(art, feedback):
+            # capture the feedback and FIX the violations (add the four moves) — the floor forced it
+            seen_feedback["all"].append(feedback)
+            fixed = {**art}
+            fixed["cites"] = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True,
+                               "snippet": "an external benchmark"}]
+            fixed["distills"] = ["cluster:recall"]
+            fixed["content"] = {"sections": [{"title": "Argument", "blocks": [
+                {"type": "paragraph", "text": "We derive it from first principles, therefore X."},
+                {"type": "paragraph", "text": "What I don't know: whether it survives a crash."},
+                {"type": "paragraph", "text": "This builds on the prior recall thread."},
+            ]}]}
+            return fixed
+
+        published = []
+
+        result = close.run_close(
+            self._shallow_developed_prose(), produce_fn=lambda: self._shallow_developed_prose(),
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
+            improve_fn=improve_fn, publish_fn=lambda a, p: published.append(a),
+        )
+        self.assertTrue(result["pass"], "the floor must re-produce richer, not hard-fail")
+        self.assertEqual(len(published), 1)
+        # the genus feedback reached improve_fn at least once (it carried the rich-rite strikes)
+        flat = str(seen_feedback["all"])
+        self.assertIn("rich-rite", flat,
+                      f"improve_fn was not handed the rich-rite genus feedback: {flat!r}")
+
+    def test_without_improve_fn_genus_violation_is_the_unchanged_static_bounce(self):
+        # no improve_fn → a persistent genus violation bounces to the static produce_fn and
+        # hard-fails (behaviour unchanged; the gate still rejects).
+        result = close.run_close(
+            self._shallow_developed_prose(),
+            produce_fn=lambda: self._shallow_developed_prose(),
+            reviewers=(close.feynman_review, close.regular_review),
+            complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
+        )
+        self.assertFalse(result["pass"])
+        self.assertIn("genus_violations", result)
+        self.assertTrue(any(v.startswith("rich-rite") for v in result["genus_violations"]))
+
+
 class DegradedReviewerOutputCannotMintAPass(unittest.TestCase):
     """Codex round-7 [high]: a degraded/schema-drifted reviewer completion must NOT mint a
     proof. The verdict path (`_parse_verdict`) now fails closed on any non-bool `pass`, so a

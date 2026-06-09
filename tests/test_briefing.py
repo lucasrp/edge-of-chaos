@@ -343,6 +343,18 @@ class RecallPushInjectsTheSalientSubgraph(unittest.TestCase):
         # dead port → connection error inside the leg → None, never an exception
         self.assertIsNone(briefing.recall_subgraph("any-group", uri="bolt://127.0.0.1:1"))
 
+    def test_recall_subgraph_caps_and_orders_artefatos_by_recency(self):
+        # Codex P2: the pushed slice is SALIENT/most-recent, not the whole corpus — recall_subgraph
+        # caps the artefato count and orders by recency, so the briefing does not grow unbounded.
+        self.assertTrue(briefing.RECALL_ARTEFATO_LIMIT >= 1)
+        self.assertLessEqual(briefing.RECALL_ARTEFATO_LIMIT, 12,
+                             "the recall slice must be a SMALL, salient slice, not the whole corpus")
+        import inspect
+        src = inspect.getsource(briefing.recall_subgraph)
+        self.assertIn("RECALL_ARTEFATO_LIMIT", src, "recall_subgraph must apply the cap")
+        self.assertTrue("projected_at" in src or "order by" in src.lower(),
+                        "recall_subgraph must order artefatos by recency, not by slug")
+
     def test_provided_subgraph_renders_as_an_additive_section(self):
         # a populated subgraph (passed explicitly = offline) renders its salient spine
         with tempfile.TemporaryDirectory() as tmp:

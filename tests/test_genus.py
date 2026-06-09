@@ -389,6 +389,66 @@ class RichRiteFloorIsContentRelative(unittest.TestCase):
         self.assertFalse(any(v == "rich-rite:lineage" for v in violations),
                          f"a distills thread must satisfy the lineage move, got {violations}")
 
+    def test_executive_summary_counts_toward_prose_and_carries_moves(self):
+        """Codex P2: render renders top-level `executive_summary`, so the floor must read it too —
+        a report whose moves live in the exec summary must not be falsely flagged, and a
+        summary-heavy report must not evade the floor by having < threshold section paragraphs."""
+        # moves carried ONLY in the executive_summary (with one section paragraph) — must be clean
+        art = {
+            "slug": "summary-rich",
+            "content": {
+                "executive_summary": [
+                    "We derive the budget from first principles, therefore the watermark is per-session.",
+                    "What I don't know: whether it survives a crash (unverified).",
+                    "This builds on the prior recall thread.",
+                ],
+                "sections": [{"title": "Body", "blocks": [
+                    {"type": "paragraph", "text": "the load-bearing detail goes here."}]}],
+            },
+            "cites": [{"ref": "arXiv:1", "kind": "mundo", "relevant": True,
+                       "snippet": "an external benchmark"}],
+            "proposes": [], "distills": [], "intent": "open: x; bet: y", "skill": "report",
+        }
+        violations = [v for v in close.check_genus(art) if v.startswith("rich-rite")]
+        self.assertEqual(violations, [], f"exec-summary moves must satisfy the floor, got {violations}")
+
+    def test_summary_heavy_report_does_not_evade_the_floor(self):
+        """A report whose prose is a long executive_summary (3+ items) but with no moves must be
+        flagged — the exec summary counts toward the prose trigger, so the floor still applies."""
+        art = {
+            "slug": "summary-shallow",
+            "content": {
+                "executive_summary": [
+                    "The system has three components.",
+                    "Each holds its own state.",
+                    "They are wired at startup.",
+                ],
+                "sections": [],
+            },
+            "cites": [], "proposes": [], "distills": [], "intent": "open: x; bet: y", "skill": "report",
+        }
+        violations = [v for v in close.check_genus(art) if v.startswith("rich-rite")]
+        self.assertTrue(any(v == "rich-rite:derivation" for v in violations),
+                        f"a summary-heavy shallow report must not evade the floor, got {violations}")
+
+    def test_external_frame_needs_an_external_cite_not_just_an_internal_one(self):
+        """Codex P2: an `atividade` (internal provenance) cite is NOT the outside benchmark the
+        external-frame move requires — only an external (`mundo`) cite or a bibliography clears it."""
+        art = _shallow_prose()
+        art["cites"] = [{"ref": "github:abc", "kind": "atividade", "relevant": True,
+                         "snippet": "the mentee's own prior commit"}]
+        violations = close.check_genus(art)
+        self.assertTrue(any(v == "rich-rite:external-frame" for v in violations),
+                        f"an internal-only cite must NOT clear external-frame, got {violations}")
+
+    def test_external_frame_cleared_by_a_mundo_cite(self):
+        art = _shallow_prose()
+        art["cites"] = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True,
+                         "snippet": "an external benchmark"}]
+        violations = close.check_genus(art)
+        self.assertFalse(any(v == "rich-rite:external-frame" for v in violations),
+                         f"a mundo cite must clear external-frame, got {violations}")
+
     def test_rich_rite_never_checks_a_named_section(self):
         """Non-procrusto: the same moves carried in arbitrarily-named/ordered sections still
         satisfy the gate — the floor reads the blocks, never the layout (ADR-0012/0013)."""

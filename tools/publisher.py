@@ -35,6 +35,8 @@ import html
 import os
 import re
 from datetime import date as _date
+from datetime import datetime as _dt
+from datetime import timezone as _tz
 from pathlib import Path
 
 import eventlog
@@ -186,10 +188,12 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                 s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
                 s.run("MATCH (o:Objective {group_id:$g}),(d:Direction {group_id:$g, body:$b}) "
                       "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"])
-            # (1) the Artefato + its content embedding (semantic search; best-effort)
+            # (1) the Artefato + its content embedding (semantic search; best-effort). `projected_at`
+            # is the recency signal recall-push orders by (#30, Codex P2) — set on every (re)project.
             s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) "
-                  "SET a.kernel=$k, a.skill=$skill, a.page=$page",
-                  g=g, slug=slug, k=intent, skill=skill, page=f"blog/entries/{slug}.html")
+                  "SET a.kernel=$k, a.skill=$skill, a.page=$page, a.projected_at=$pat",
+                  g=g, slug=slug, k=intent, skill=skill, page=f"blog/entries/{slug}.html",
+                  pat=_dt.now(_tz.utc).isoformat())
             # every Artefato SERVES the objective — the hub keeping it reachable from space-0.
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),(o:Objective {group_id:$g}) "
                   "MERGE (a)-[:SERVES]->(o)", g=g, slug=slug)
@@ -273,8 +277,11 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     out = _safe_target(slug, blog_dir)
 
     cites = cites or []
+    # The publisher-side genus check must see EVERY field check_genus reads, or it disagrees with
+    # run_close's check (Codex P2): the rich-rite floor reads `distills` (lineage) and content, so
+    # a report whose lineage rides on its published `distills` would pass run_close but raise here.
     artefato = {"intent": intent, "proposes": proposes or [], "cites": cites,
-                "content": spec}
+                "content": spec, "distills": distills or [], "skill": skill}
     violations = check_genus(artefato)
     if violations:
         raise ValueError(f"artefato {slug!r} violates the genus contract: {violations}")

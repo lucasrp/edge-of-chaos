@@ -234,7 +234,13 @@ def _check_rich_rite(artefato: dict) -> list[str]:
     Returns `rich-rite:<move>` for each missing move ([] when none owed or all present)."""
     content = artefato.get("content", {}) or {}
     blocks = list(_iter_blocks(content))
-    prose_count = sum(
+    # render renders top-level `executive_summary` as prose too (Codex P2), so it counts toward the
+    # trigger AND toward the marker text — a report whose moves live in the summary is not falsely
+    # flagged, and a summary-heavy report cannot evade the floor with < threshold section paragraphs.
+    summary = content.get("executive_summary") or []
+    summary_items = [s for s in summary if isinstance(s, str) and s.strip()]
+    prose_count = len(summary_items)
+    prose_count += sum(
         1 for b in blocks
         if _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph"))
         in PROSE_BLOCK_TYPES
@@ -246,14 +252,23 @@ def _check_rich_rite(artefato: dict) -> list[str]:
         _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph"))
         for b in blocks
     }
-    text = " ".join(_block_text(b) for b in blocks).lower()
+    text = (" ".join(_block_text(b) for b in blocks) + " " + " ".join(summary_items)).lower()
 
     def marked(markers):
         return any(m in text for m in markers)
 
+    # external-frame requires an OUTSIDE benchmark (Codex P2): an `atividade` (internal provenance)
+    # cite is the mentee's own work, not an external frame — only an external (`mundo`) cite or a
+    # bibliography clears it. A cite with no/unknown kind is treated conservatively as external
+    # (the reviewer's sourcing strike catches a hallucinated one).
+    external_cite = any(
+        isinstance(c, dict) and c.get("kind") != "atividade"
+        for c in (artefato.get("cites") or [])
+    )
+
     has_derivation = bool(DERIVATION_BLOCK_TYPES & block_types) or marked(DERIVATION_MARKERS)
     has_boundary = bool(BOUNDARY_BLOCK_TYPES & block_types) or marked(BOUNDARY_MARKERS)
-    has_frame = bool(artefato.get("cites")) or "bibliography" in block_types
+    has_frame = external_cite or "bibliography" in block_types
     has_lineage = bool(artefato.get("distills")) or marked(LINEAGE_MARKERS)
 
     violations = []
@@ -478,6 +493,20 @@ def _failing_verdict(strike: str, scores=None) -> dict:
         "scores": scores if isinstance(scores, dict) else {},
         "rationales": {},
         "strikes": [strike],
+        "overall": 0.0,
+    }
+
+
+def _genus_feedback(violations: list) -> dict:
+    """A synthetic FAILING verdict carrying the genus violations (incl. the rich-rite floor's
+    `rich-rite:<move>` strikes) as `strikes`, so `improve_fn` is handed the NAMED gap and can
+    re-produce richer — the floor forces depth, not only a hard-fail (Codex P2, #30). Shaped
+    exactly like a reviewer verdict so improve_fn reads it uniformly."""
+    return {
+        "pass": False,
+        "scores": {},
+        "rationales": {},
+        "strikes": list(violations),
         "overall": 0.0,
     }
 
@@ -762,6 +791,12 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
         rounds = IMPROVE_ROUNDS if improve_rounds is None else improve_rounds
         for _ in range(rounds):
             feedback = []
+            # the genus violations (incl. the rich-rite floor strikes) are FED to improve_fn too
+            # (Codex P2, #30): the floor forces depth only if the named gap reaches the reviser —
+            # a synthetic verdict carries them alongside the reviewers' feedback.
+            gv = check_genus(artefato)
+            if gv:
+                feedback.append(_genus_feedback(gv))
             for r in reviewers:
                 try:
                     v = r(artefato, complete_fn)
@@ -779,7 +814,13 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
                 return {"pass": False, "artefato": artefato, "verdicts": [],
                         "genus_violations": violations}
             bounces += 1
-            artefato = produce_fn()
+            # re-produce from the NAMED gap: when improve_fn is wired, hand it the genus
+            # violations so the draft is enriched (the floor forces depth); else the unchanged
+            # static produce_fn bounce (Codex P2, #30).
+            if improve_fn is not None:
+                artefato = improve_fn(artefato, [_genus_feedback(violations)])
+            else:
+                artefato = produce_fn()
             continue
         verdicts = []
         for r in reviewers:
