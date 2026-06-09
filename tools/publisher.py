@@ -127,6 +127,19 @@ def _write_page(out, page):
     os.replace(tmp, out)
 
 
+def _is_canonical_log(log):
+    """True iff `log` is the install's CANONICAL event log — compared by NORMALIZED PATH, not object
+    identity (Codex P3): a caller writing the real log via an equivalent `Path(eventlog.LOG)`, a
+    resolved path, or a string path is still canonical and must project/sync. A temp/dry-run log is
+    not. Path-resolution failures fall back to object identity (never raises)."""
+    if log is eventlog.LOG:
+        return True
+    try:
+        return Path(log).resolve() == Path(eventlog.LOG).resolve()
+    except Exception:  # noqa: BLE001 — a non-path log → not canonical
+        return False
+
+
 def _cluster_slug(label):
     """wiki_render's canonical cluster-slug rule (letters only — drops spaces, &, digits,
     punctuation). The ONE rule the projection resolves a `distills` ref against (memory.md:
@@ -211,7 +224,7 @@ def project_backbone(log=eventlog.LOG):
     """Open a session and project the canonical spine backbone (Codex P2): the ANCHORS rebuild must
     run EVERY canonical sweep so newly-folded Directions get anchored even when no artefato changed.
     CANONICAL-LOG ONLY + degrade-safe — a non-canonical log or an unreachable graph is a no-op."""
-    if log is not eventlog.LOG:
+    if not _is_canonical_log(log):
         return
     try:
         import _identity
@@ -269,7 +282,7 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
     # writes the install group's identity + objective + the destructive ANCHORS rebuild, all of which
     # read the log. A custom/offline log (a test, a dry-run) must NEVER overwrite the install's live
     # Objective or delete its Directions — it projects ONLY the ADD-only Artefato + its edges below.
-    canonical = log is eventlog.LOG
+    canonical = _is_canonical_log(log)
     try:
         with drv.session() as s:
             if canonical:
@@ -433,7 +446,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # canonical-log publish projects by default; a caller wanting to project a custom log must pass
     # an explicit project_fn.
     if project_fn is _DEFAULT_PROJECT:
-        project_fn = project_artefato if log is eventlog.LOG else None
+        project_fn = project_artefato if _is_canonical_log(log) else None
     if project_fn is not None:
         try:
             project_fn(slug, intent, skill=skill, distills=distills, proposes=proposes,
@@ -479,13 +492,13 @@ def reproject_missing_pages(log=eventlog.LOG, blog_dir=BLOG_DIR, date=None, embe
 
 
 def _graph_present_slugs():
-    """The slugs FULLY projected into the install graph — read once so recovery replays only the
-    missing/incomplete ones (Codex P2): never re-embed the whole corpus each sweep, BUT do re-project
-    a node whose projection was left INCOMPLETE. Completeness is the `projection_complete` marker that
-    project_artefato sets ONLY as its LAST step (after every edge + embed write succeeded), so a node
-    a publish-time outage left half-projected (embed set but SERVES/edges not) is NOT present and is
-    re-projected. Returns a set, or None on a degrade (no group / no driver / unreachable) — the
-    caller then skips the replay entirely (there is nothing to recover into a graph it cannot read)."""
+    """The slugs FULLY projected into the install graph, mapped to their `projected_at` — read once so
+    recovery replays only the missing/incomplete/STALE ones (Codex P2): never re-embed the whole
+    corpus each sweep, BUT re-project a node left INCOMPLETE (no `projection_complete` marker — set
+    ONLY as project_artefato's last step) OR STALE (its `projected_at` is older than the log's latest
+    published ts for that slug — a republish whose projection never reached the graph). Returns a dict
+    `{slug: projected_at}`, or None on a degrade (no group / no driver / unreachable) — the caller then
+    skips the replay entirely (there is nothing to recover into a graph it cannot read)."""
     try:
         import _identity
         from neo4j import GraphDatabase
@@ -496,9 +509,9 @@ def _graph_present_slugs():
         return None
     try:
         with drv.session() as s:
-            return {r["slug"] for r in s.run(
+            return {r["slug"]: r["pat"] for r in s.run(
                 "MATCH (a:Artefato {group_id:$g}) WHERE a.projection_complete = true "
-                "RETURN a.slug AS slug", g=g)}
+                "RETURN a.slug AS slug, a.projected_at AS pat", g=g)}
     except Exception:  # noqa: BLE001
         return None
     finally:
@@ -517,10 +530,12 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
     published event carries `skill`, so the replay restores the REAL producer identity; the Artefato
     + its SERVES/DISTILLS/PROPOSES/CITES + embedding are re-derived from the log.
 
-    REPLAY ONLY THE MISSING (Codex P2): steady-state must NOT re-embed the whole corpus each sweep.
-    `present_slugs()` reports the slugs already in the graph (one cheap read); only the absent ones go
-    through the embedding projection. If `present_slugs()` degrades to None (graph unreachable), the
-    replay is skipped entirely — there is nothing to recover into a graph it cannot read.
+    REPLAY ONLY THE MISSING/STALE (Codex P2): steady-state must NOT re-embed the whole corpus each
+    sweep. `present_slugs()` reports `{slug: projected_at}` for complete nodes (one cheap read); a slug
+    is skipped ONLY if it is complete AND its `projected_at` is at-or-after the log's latest published
+    ts for that slug. A republished slug (newer log ts) — or one whose republish projection never
+    reached the graph — is STALE and re-projected, so the graph cannot keep a stale kernel/edges
+    forever. If `present_slugs()` degrades to None (graph unreachable), the replay is skipped entirely.
 
     Best-effort: a still-unreachable graph degrades inside project_artefato (prints, never raises).
     Call it from the sweep/assemble at beat-open so a missed projection self-heals next beat.
@@ -530,7 +545,7 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
     canonical log. Only a canonical-log (`log is eventlog.LOG`) replay projects by default; a caller
     wanting to replay a custom log must pass an explicit project_fn."""
     if project_fn is _DEFAULT_PROJECT:
-        project_fn = project_artefato if log is eventlog.LOG else None
+        project_fn = project_artefato if _is_canonical_log(log) else None
     if project_fn is None:
         return
     # rebuild the spine backbone FIRST, every canonical sweep (Codex P2): the ANCHORS rebuild reads
@@ -538,12 +553,15 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
     # missing — independent of the skip-present optimization below. Cheap (no embeddings), idempotent.
     if backbone_fn is not None:
         backbone_fn(log)
-    present = present_slugs() if present_slugs is not None else set()
+    present = present_slugs() if present_slugs is not None else {}
     if present is None:
         return  # graph unreachable — nothing to recover into it; skip (no per-item embed storm)
     for item in eventlog.corpus_at(log=log):
-        if item["slug"] in present:
-            continue  # already projected — skip (no re-embed in steady state)
+        pat = present.get(item["slug"])
+        # skip ONLY if complete AND FRESH: the node's projected_at is at-or-after the log's published
+        # ts for this slug. A republish (newer log ts) or a never-projected republish is STALE → replay.
+        if pat is not None and item.get("ts") is not None and str(pat) >= str(item["ts"]):
+            continue  # already projected and current — skip (no re-embed in steady state)
         try:
             # the published event now carries `skill` (Codex P2), so a publish-time-outage replay
             # restores the REAL producer identity even when the node does not exist yet. A legacy

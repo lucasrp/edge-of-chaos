@@ -15,6 +15,7 @@ The visual palette below is pinned to the block types in tools/render.py.
 """
 import hashlib
 import json
+import re
 import secrets
 
 from render import BLOCK_SCHEMAS, _BLOCK_TYPE_ALIASES
@@ -257,7 +258,10 @@ def _check_rich_rite(artefato: dict) -> list[str]:
     text = (" ".join(_block_text(b) for b in blocks) + " " + " ".join(summary_items)).lower()
 
     def marked(markers):
-        return any(m in text for m in markers)
+        # WORD-BOUNDARY match, not substring (Codex P2): a bare `prior` must not be cleared by
+        # `priority`/`prioritize`. Each marker (single word or phrase) matches only on word
+        # boundaries; trailing-space markers (e.g. "because ") are stripped and matched the same way.
+        return any(re.search(r"\b" + re.escape(m.strip()) + r"\b", text) for m in markers)
 
     def has_filled_block(types):
         # a palette block satisfies a move ONLY if it carries actual payload (Codex P2): a bare

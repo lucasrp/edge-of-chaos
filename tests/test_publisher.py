@@ -409,14 +409,14 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                 projected.append(slug)
 
             publisher.reproject_graph(log=log, project_fn=fake_project,
-                                      present_slugs=lambda: set(),  # hermetic: none present
+                                      present_slugs=lambda: {},  # hermetic: none present
                                       backbone_fn=None)
             self.assertEqual(sorted(projected), ["recov-a", "recov-b"])
 
     def test_reproject_graph_replays_only_missing_slugs(self):
         # Codex P2: steady-state must NOT re-embed the whole corpus each sweep — reproject_graph
-        # replays only the slugs MISSING from the graph. `present_slugs` reports what is already
-        # projected; only the absent ones go through the (embedding) projection.
+        # replays only the slugs MISSING (or STALE) in the graph. `present_slugs` maps each present
+        # slug to its projected_at; a slug present AND FRESH (projected_at >= log ts) is skipped.
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             for slug in ("have-it", "missing-it"):
@@ -428,9 +428,27 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             publisher.reproject_graph(
                 log=log,
                 project_fn=lambda slug, *a, **k: projected.append(slug),
-                present_slugs=lambda: {"have-it"},     # have-it already in the graph
+                present_slugs=lambda: {"have-it": "9999-01-01T00:00:00+00:00"},  # present + FRESH
                 backbone_fn=None)
             self.assertEqual(projected, ["missing-it"])  # only the missing one replays
+
+    def test_reproject_graph_replays_a_stale_present_slug(self):
+        # Codex P2: a republished slug whose graph node is STALE (projected_at older than the log's
+        # latest published ts) must be RE-projected, even though it is 'present' — the graph cannot
+        # keep an old kernel/edges forever after a republish whose projection never reached Neo4j.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            publisher.publish(
+                "republished", _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
+                verdict=_passing_proof("republished", _spec(), "open: x; bet: y"))
+            projected = []
+            publisher.reproject_graph(
+                log=log,
+                project_fn=lambda slug, *a, **k: projected.append(slug),
+                present_slugs=lambda: {"republished": "2000-01-01T00:00:00+00:00"},  # present but STALE
+                backbone_fn=None)
+            self.assertEqual(projected, ["republished"])  # stale node re-projected
 
     def test_project_artefato_sets_completion_marker_last(self):
         # Codex P2: completeness is `projection_complete` set as the LAST step (after all edges +
@@ -483,7 +501,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             publisher.reproject_graph(
                 log=log,
                 project_fn=lambda slug, *a, **k: projected.append(slug),
-                present_slugs=lambda: {"present-one"},        # already projected
+                present_slugs=lambda: {"present-one": "9999-01-01T00:00:00+00:00"},  # present + fresh
                 backbone_fn=lambda log=None: backbones.append(True))
             self.assertEqual(projected, [])                  # no per-slug re-embed (all present)
             self.assertEqual(backbones, [True])              # but the backbone STILL rebuilt

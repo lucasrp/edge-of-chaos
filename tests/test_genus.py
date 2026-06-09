@@ -510,6 +510,32 @@ class RichRiteFloorIsContentRelative(unittest.TestCase):
         self.assertFalse(any(v == "rich-rite:external-frame" for v in violations),
                          f"a bibliography block must clear external-frame, got {violations}")
 
+    def test_priority_does_not_clear_lineage_word_boundary(self):
+        """Codex P2: the bare `prior` lineage marker must match on a WORD BOUNDARY — `priority`/
+        `prioritize` (common planning prose) must NOT clear rich-rite:lineage."""
+        art = _shallow_prose()  # no distills
+        art["content"]["sections"][0]["blocks"] = [
+            {"type": "paragraph", "text": "We derive this from first principles, therefore X."},
+            {"type": "paragraph", "text": "What I don't know: the crash case is unverified."},
+            {"type": "paragraph", "text": "The top priority is latency; we must prioritize it."},
+        ]
+        art["cites"] = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True, "snippet": "benchmark"}]
+        violations = close.check_genus(art)
+        self.assertTrue(any(v == "rich-rite:lineage" for v in violations),
+                        f"`priority`/`prioritize` must NOT clear lineage, got {violations}")
+
+    def test_genuine_prior_word_clears_lineage(self):
+        # the complement: the genuine `prior` word DOES clear lineage (word-boundary match works)
+        art = _shallow_prose()
+        art["content"]["sections"][0]["blocks"] = [
+            {"type": "paragraph", "text": "We derive this from first principles, therefore X."},
+            {"type": "paragraph", "text": "What I don't know: the crash case is unverified."},
+            {"type": "paragraph", "text": "This extends the prior report on recall."},
+        ]
+        art["cites"] = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True, "snippet": "benchmark"}]
+        violations = [v for v in close.check_genus(art) if v.startswith("rich-rite")]
+        self.assertEqual(violations, [], f"a genuine `prior` must clear lineage, got {violations}")
+
     def test_rich_rite_never_checks_a_named_section(self):
         """Non-procrusto: the same moves carried in arbitrarily-named/ordered sections still
         satisfy the gate — the floor reads the blocks, never the layout (ADR-0012/0013)."""
