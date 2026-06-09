@@ -110,6 +110,31 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
             eventlog.drop("a", "noise", log=log)
             self.assertEqual(eventlog.direction_at(log=log), {"set": [], "proposed": []})
 
+    def test_set_supersedes_a_different_proposed_id(self):
+        # ADR-0007: a direction.set that supersedes a DIFFERENT id must RETIRE that id. Codex
+        # found supersedes was stored on the item but never honored — fold_direction only
+        # dropped via direction.dropped or a same-id set, so the superseded proposal stayed
+        # active alongside the new ruling.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.propose("introspection-ratio-watch", "watch recall/research ratio", log=log)
+            eventlog.set_direction("worthwhile-test", "ship the worthwhile-test metric",
+                                   supersedes="introspection-ratio-watch", log=log)
+            d = eventlog.direction_at(log=log)
+            self.assertEqual([i["id"] for i in d["set"]], ["worthwhile-test"])
+            self.assertEqual(d["proposed"], [],
+                             "supersedes must retire the named id, not leave it active")
+
+    def test_supersedes_does_not_drop_its_own_id(self):
+        # guard: supersedes pointing at the set's own id must NOT delete the item it just set.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.propose("a", "maybe X", log=log)
+            eventlog.set_direction("a", "X ratified", supersedes="a", log=log)
+            d = eventlog.direction_at(log=log)
+            self.assertEqual([i["id"] for i in d["set"]], ["a"])
+            self.assertEqual(d["proposed"], [])
+
     def test_replay_to_past_cursor(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"

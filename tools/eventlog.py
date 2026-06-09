@@ -105,8 +105,13 @@ def fold_direction(events):
                           "tier": "proposed"}
         elif t == "direction.set":
             iid = p.get("id", "_plan")  # legacy {plan} blob folds to a single set item
+            sup = p.get("supersedes")
+            if sup and sup != iid:
+                items.pop(sup, None)  # a set RETIRES the (different) id it supersedes — not just
+                                      # same-id overwrite/dropped. Codex #28-review: supersedes was
+                                      # stored but never honored, leaving the old steer active.
             items[iid] = {"id": iid, "body": p.get("body", p.get("plan", "")),
-                          "kind": p.get("kind", "thread"), "supersedes": p.get("supersedes"),
+                          "kind": p.get("kind", "thread"), "supersedes": sup,
                           "tier": "set"}
         elif t == "direction.dropped":
             items.pop(p.get("id"), None)
