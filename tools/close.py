@@ -55,7 +55,9 @@ QUANTITATIVE_ROW_THRESHOLD = 3
 # Prose-bearing block types (after alias canonicalization). A synthesis carrying enough of
 # these is a "developed prose synthesis" — the trigger that owes the four cognitive moves.
 # A map (ascii-diagram + table) or a terse plan (next-steps-grid) carries none and owes nothing.
-PROSE_BLOCK_TYPES = frozenset({"paragraph", "callout", "subsection"})
+# `subsection` is EXCLUDED (Codex P2): it renders only an <h3> heading, not developed prose — a
+# map/plan using subsection headings around diagrams must NOT be falsely pulled over the threshold.
+PROSE_BLOCK_TYPES = frozenset({"paragraph", "callout"})
 # The structural trigger threshold — NOT a word count. Below it, the artefato is too terse to
 # be a developed synthesis and owes none of the moves (content-relative, like visual-coverage).
 RICH_RITE_PROSE_THRESHOLD = 3
@@ -274,7 +276,13 @@ def _check_rich_rite(artefato: dict) -> list[str]:
         isinstance(c, dict) and c.get("kind") != "atividade"
         for c in (artefato.get("cites") or [])
     )
-    bibliography = bool(content.get("bibliography"))
+    # a non-empty bibliography clears external-frame whether it is the top-level field OR a
+    # rendered `bibliography` block in a section (Codex P2 — render supports both).
+    bibliography = bool(content.get("bibliography")) or any(
+        _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph")) == "bibliography"
+        and (b.get("references") or b.get("entries") or b.get("items"))
+        for b in blocks
+    )
 
     has_derivation = has_filled_block(DERIVATION_BLOCK_TYPES) or marked(DERIVATION_MARKERS)
     has_boundary = has_filled_block(BOUNDARY_BLOCK_TYPES) or marked(BOUNDARY_MARKERS)

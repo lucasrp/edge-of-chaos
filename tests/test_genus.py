@@ -482,6 +482,34 @@ class RichRiteFloorIsContentRelative(unittest.TestCase):
         self.assertFalse(any(v == "rich-rite:derivation" for v in violations),
                          f"a filled derivation block must clear the move, got {violations}")
 
+    def test_subsection_headings_do_not_trip_the_floor(self):
+        """Codex P2: `subsection` renders only an <h3> heading, not developed prose — a map/plan
+        using subsection headings around diagrams/tables must NOT be pulled over the prose
+        threshold and then failed for missing prose moves."""
+        art = {
+            "slug": "headed-map",
+            "content": {"sections": [{"title": "Map", "blocks": [
+                {"type": "subsection", "title": "Cluster A"},
+                {"type": "subsection", "title": "Cluster B"},
+                {"type": "subsection", "title": "Cluster C"},
+                {"type": "ascii-diagram", "content": "A --> B --> C"},
+            ]}]},
+            "cites": [], "proposes": [], "distills": [],
+            "intent": "open: x; bet: y", "skill": "map",
+        }
+        violations = [v for v in close.check_genus(art) if v.startswith("rich-rite")]
+        self.assertEqual(violations, [], f"subsection headings must not trip the floor, got {violations}")
+
+    def test_bibliography_block_clears_external_frame(self):
+        """Codex P2: a developed prose artefato whose outside reference is a rendered
+        `bibliography` block (not top-level `cites`/`bibliography`) clears external-frame."""
+        art = _shallow_prose()  # no cites, no distills
+        art["content"]["sections"][0]["blocks"].append(
+            {"type": "bibliography", "references": ["Smith 2024, On Watermarks"]})
+        violations = close.check_genus(art)
+        self.assertFalse(any(v == "rich-rite:external-frame" for v in violations),
+                         f"a bibliography block must clear external-frame, got {violations}")
+
     def test_rich_rite_never_checks_a_named_section(self):
         """Non-procrusto: the same moves carried in arbitrarily-named/ordered sections still
         satisfy the gate — the floor reads the blocks, never the layout (ADR-0012/0013)."""

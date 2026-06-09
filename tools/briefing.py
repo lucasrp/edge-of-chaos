@@ -522,14 +522,18 @@ def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None,
     if roster is None:
         roster = source_roster(agent_yaml=agent_yaml)
     clusters_was_auto = clusters is _AUTO
-    resolved_group = group if group is not None else (os.environ.get("EDGE_GROUP") or _identity.group())
+    # resolve the group LAZILY — only when an auto-fetch actually needs it (Codex P3): a caller that
+    # pinned BOTH clusters and subgraph (Tier-0 / custom-agent tests) must stay hermetic and not
+    # trigger a default identity lookup that could read the wrong install or fail.
+    def _group():
+        return group if group is not None else (os.environ.get("EDGE_GROUP") or _identity.group())
     if clusters is _AUTO:
-        clusters = graph_clusters(resolved_group)
+        clusters = graph_clusters(_group())
     if subgraph is _AUTO:
         # recall-push (#30): auto-fetch the salient subgraph ONLY when the caller did not opt out
         # of graph fetches (clusters is _AUTO). A caller that pinned clusters (tests, Tier-0) keeps
         # the briefing hermetic — they pass subgraph explicitly when they want it.
-        subgraph = recall_subgraph(resolved_group) if clusters_was_auto else None
+        subgraph = recall_subgraph(_group()) if clusters_was_auto else None
     corpus = corpus_at(seq=seq, ts=ts, log=log)
     parts = [
         BANNER + "\n# Briefing — orient entirely from here",

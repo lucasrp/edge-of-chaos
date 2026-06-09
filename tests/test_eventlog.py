@@ -797,6 +797,17 @@ class PublishRequiresKernel(unittest.TestCase):
             eventlog.publish_artefato_atomic("legacy", intent="open: x; bet: y", log=log)
             self.assertIsNone(eventlog.corpus_at(log=log)[0]["skill"])
 
+    def test_positional_log_call_still_targets_the_given_log(self):
+        # Codex P2: `skill` is keyword-ONLY (after log), so the legacy positional form
+        # (slug, intent, proposes, distills, cites, spec, log) still binds the custom log — the
+        # publish lands in the GIVEN log, never the default, and skill is not the log path.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.publish_artefato_atomic(
+                "pos", "open: x; bet: y", [], [], [], {"sections": []}, log)  # all positional
+            self.assertEqual([c["slug"] for c in eventlog.corpus_at(log=log)], ["pos"])
+            self.assertIsNone(eventlog.corpus_at(log=log)[0]["skill"])  # log not mis-stored as skill
+
     def test_require_kernels_raises_until_kernel_added(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"

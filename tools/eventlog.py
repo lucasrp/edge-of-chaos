@@ -264,7 +264,7 @@ def kernel(slug, intent, log=LOG):
 
 
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
-                            spec=None, skill=None, log=LOG):
+                            spec=None, log=LOG, *, skill=None):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
     publish seam): you cannot publish without the *why*. Both events land in a single
     `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
