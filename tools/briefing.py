@@ -184,11 +184,14 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
                 return {"codename": None, "voice": None, "objective": None,
                         "bets": [], "artefatos": [], "clusters": []}
             # salient Artefatos (MOST RECENT, capped) + the clusters they DISTILL — reached via
-            # SERVES. Order by `projected_at` (the recency signal) DESC and LIMIT to the salient
-            # slice, so the briefing does NOT grow with the whole corpus (#30, Codex P2). Legacy
-            # nodes with no projected_at sort last (coalesce to '').
+            # SERVES. Push ONLY COMPLETE projections (Codex P2): `projection_complete = true` so a
+            # half-projected node (an outage mid-rebuild — stale kernel / missing DISTILLS) is NOT
+            # surfaced as reliable memory; recovery replays it, and the next briefing picks it up once
+            # complete. Order by `projected_at` (recency) DESC and LIMIT to the salient slice, so the
+            # briefing does NOT grow with the whole corpus. Legacy nodes sort last (coalesce to '').
             arts = s.run(
                 "MATCH (a:Artefato {group_id:$g})-[:SERVES]->(:Objective {group_id:$g}) "
+                "WHERE a.projection_complete = true "
                 "RETURN a.slug AS slug, a.kernel AS kernel "
                 "ORDER BY coalesce(a.projected_at,'') DESC, a.slug LIMIT $lim",
                 g=group, lim=RECALL_ARTEFATO_LIMIT).data()
