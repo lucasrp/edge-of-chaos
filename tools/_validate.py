@@ -102,6 +102,14 @@ def _classify_graph(group, mine, total):
     return (None, "group '%s' reachable, empty — fresh install (populates on first sweep)" % group)
 
 
+def _parse_counts(line):
+    """Parse a 'COUNTS <group> <n> <t>' probe line. The group name MAY contain spaces (petertosh's
+    group is 'peter tosh'), so n and t are the LAST two tokens and the group is everything between
+    the 'COUNTS' marker and them — never a fixed 4-way split (that crashes on a spaced group)."""
+    parts = line.split()
+    return " ".join(parts[1:-2]), int(parts[-2]), int(parts[-1])
+
+
 def check_graph(home, repo_tools):
     """Best-effort: the graph the RUNTIME sees — neo4j reachable with the env creds AND the resolved
     group populated (catches the orphan where the group resolves to an empty name). Runs under the
@@ -130,8 +138,8 @@ def check_graph(home, repo_tools):
     out = (res.stdout or res.stderr).strip().splitlines()
     line = out[-1] if out else "no output"
     if line.startswith("COUNTS "):
-        _, grp, n, t = line.split()
-        ok, detail = _classify_graph(grp, int(n), int(t))
+        grp, n, t = _parse_counts(line)
+        ok, detail = _classify_graph(grp, n, t)
         return ("graph", ok, detail)
     if line == "NOPW":
         return ("graph", False, "EDGE_NEO4J_PASSWORD not in env (secrets not loaded into the runtime)")

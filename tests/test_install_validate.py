@@ -21,6 +21,22 @@ import _provision  # noqa: E402
 import _validate    # noqa: E402
 
 
+class CheckGraphParsesGroupWithSpaces(unittest.TestCase):
+    """check_graph's probe prints 'COUNTS <group> <n> <t>', but a group name can contain spaces
+    (petertosh's group is 'peter tosh'). A fixed 4-way line.split() crashes (ValueError: too many
+    values to unpack). _parse_counts takes n/t as the LAST two tokens and the group as everything
+    between the marker and them."""
+
+    def test_group_with_space(self):
+        self.assertEqual(_validate._parse_counts("COUNTS peter tosh 5 46"), ("peter tosh", 5, 46))
+
+    def test_group_no_space(self):
+        self.assertEqual(_validate._parse_counts("COUNTS edge-next 0 46"), ("edge-next", 0, 46))
+
+    def test_group_multiple_spaces(self):
+        self.assertEqual(_validate._parse_counts("COUNTS a b c 1 2"), ("a b c", 1, 2))
+
+
 class PlaceSkipsSelfCopy(unittest.TestCase):
     def test_place_file_same_path_is_noop(self):
         with tempfile.TemporaryDirectory() as d:
