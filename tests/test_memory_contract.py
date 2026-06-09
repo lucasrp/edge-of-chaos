@@ -32,6 +32,10 @@ class IntrospectiveMemoryContract(unittest.TestCase):
             self.assertIn(token, self.lower, f"memory.md missing space-0 token: {token!r}")
         self.assertTrue("grounds" in self.lower and "anchors" in self.lower,
                         "memory.md must root the spine to genesis (GROUNDS/ANCHORS)")
+        # every Artefato SERVES the objective (the hub) so it is reachable from space-0 even before
+        # the grill consolidates the steer it proposed.
+        self.assertIn("serves", self.lower, "every Artefato must SERVE the objective (the hub)")
+        self.assertIn("hub", self.lower)
 
     def test_backbone_rebuilds_active_anchors(self):
         # codex: the backbone sync must REBUILD the Objective's ANCHORS set each project (delete the

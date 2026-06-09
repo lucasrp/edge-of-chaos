@@ -18,7 +18,7 @@ One Neo4j graph (`group_id` = this install's group), two layers in the same grap
 - **The spine** — what the producer projects (you, below): `(:Genesis {group_id, space:0})` (the
   identity root — see **Space 0**), `(:Artefato {group_id, slug, kernel, intent, skill, page, embedding})`,
   `(:Direction {group_id, body})`, `(:Objective {group_id, body})`, joined by
-  `GROUNDS / ANCHORS / DISTILLS / CITES / PROPOSES`.
+  `GROUNDS / ANCHORS / SERVES / DISTILLS / CITES / PROPOSES`.
 
 The **log stays the source of truth** (ADR-0006); the graph is the navigable **projection**. A
 projection write that fails is **reported, never fatal** — the Artefato is already safe in the log;
@@ -43,19 +43,23 @@ with drv.session() as s:
 The graph has an **origin**: the `:Genesis` node (`space:0`), which **is** the edge's identity — its
 **method and personality** (the genotype tattoos, `memory/method.md` + `memory/personality.md`). This is
 where you **wake**: every recall begins at space-0 (*who am I, what is my method*) and navigates **out**
-from there. Everything else plugs into it — the whole spine is **rooted at `:Genesis`**:
-`(:Genesis)-[:GROUNDS]->(:Objective)-[:ANCHORS]->(:Direction)`, and Artefatos hang off the Directions
-they propose and the clusters they distil. Identity is not a footnote beside the graph; it is the graph's
-**center**, and orientation radiates from it. (The rich tattoo text stays in the genotype files — the
-node carries the identity markers and **is the root**; the producer keeps it current in *Project* below.)
+from there. Everything plugs in through the **Objective hub**: `(:Genesis)-[:GROUNDS]->(:Objective)`, the
+active steers `(:Objective)-[:ANCHORS]->(:Direction)`, and **every Artefato `-[:SERVES]->` the Objective**
+(then hangs its clusters via `DISTILLS`, its candidate steers via `PROPOSES`, its sources via `CITES`). So
+from space-0 you reach *everything* through the Objective — a fresh report is reachable from identity even
+before the grill consolidates the steer it proposed. Identity is not a footnote beside the graph; it is the
+graph's **center**, and orientation radiates from it. (The rich tattoo text stays in the genotype files —
+the node carries the identity markers and **is the root**; the producer keeps it current in *Project* below.)
 
-Wake at space-0, then traverse out:
+Wake at space-0, then traverse out through the hub:
 
 ```cypher
 MATCH (gen:Genesis {group_id:$g})
 OPTIONAL MATCH (gen)-[:GROUNDS]->(o:Objective {group_id:$g})
 OPTIONAL MATCH (o)-[:ANCHORS]->(d:Direction {group_id:$g})
-RETURN gen.codename, gen.voice, gen.method, gen.personality, o.body, collect(DISTINCT d.body)
+OPTIONAL MATCH (o)<-[:SERVES]-(a:Artefato {group_id:$g})
+RETURN gen.codename, gen.voice, gen.method, gen.personality, o.body,
+       collect(DISTINCT d.body) AS bets, collect(DISTINCT a.slug) AS reports
 ```
 
 ## Recall — BEFORE you act (recall-before-act)
@@ -170,6 +174,10 @@ with drv.session() as s:
     # (1) the Artefato + its content embedding (semantic search; best-effort — skip if no key)
     s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) SET a.kernel=$k, a.skill=$skill, a.page=$page",
           g=g, slug=slug, k=kernel, skill=skill, page=f"blog/entries/{slug}.html")
+    # every Artefato SERVES the objective — the hub that keeps it reachable from space-0 even before
+    # the grill consolidates the steer it proposed (genotype: an Artefato exists to move the Direction).
+    s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),(o:Objective {group_id:$g}) "
+          "MERGE (a)-[:SERVES]->(o)", g=g, slug=slug)
     try:
         from openai import OpenAI
         emb = OpenAI().embeddings.create(model="text-embedding-3-small",
