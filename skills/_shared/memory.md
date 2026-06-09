@@ -138,10 +138,16 @@ Note it; never invent prior memory to fill the silence.
 
 ## Project — AFTER you publish (project-after-publish)
 
-The close publishes the Artefato to the **log** (canonical, with its `intent.kernel` — C3). **Then you
-project it into the graph**, so today's output is tomorrow's recall. Do it **once**, immediately after
-`run_close` returns success, from the exact fields you published (`slug`, the kernel, `skill`,
-`distills`, `proposes`, `cites`). Run via `tools/edge-python`:
+**This now runs AUTOMATICALLY in the publisher (#30).** `tools/publisher.py:project_artefato` ports the
+deterministic block below and `publisher.publish` calls it as a GUARANTEED, best-effort side-effect right
+after the atomic commit — so the graph grows **model-independently**, not when the producer remembers.
+The block below is the **spec** of what that side-effect writes (and the manual fallback for a one-off
+reproject); you no longer run it by hand in the normal beat.
+
+The close publishes the Artefato to the **log** (canonical, with its `intent.kernel` — C3). **Then it
+projects into the graph**, so today's output is tomorrow's recall. It runs **once**, immediately after
+the atomic publish, from the exact fields published (`slug`, the kernel, `skill`,
+`distills`, `proposes`, `cites`). The ported code (and the equivalent manual run via `tools/edge-python`):
 
 ```python
 import sys; sys.path.insert(0, 'tools')

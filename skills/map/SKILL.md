@@ -127,10 +127,12 @@ publish_fn:
         close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
           complete_fn=<review-completer>, publish_fn=publish_fn)"
 
-**After the close succeeds, project the Artefato into the graph** (`skills/_shared/memory.md`):
-`MERGE (:Artefato …)` plus its `DISTILLS / CITES / PROPOSES` edges (the same `distills` / `proposes` /
-`cites` you just published) — so the map is recallable next beat. Best-effort: a failed projection is
-reported, never fatal (the log already holds the truth).
+**Project-after-publish is now AUTOMATIC** (#30): `publisher.publish` runs the graph projection
+(`MERGE (:Artefato …)` + `SERVES` the objective + `DISTILLS / CITES / PROPOSES` + the content
+embedding + the space-0 backbone, `skills/_shared/memory.md`) as a GUARANTEED, best-effort
+side-effect right after the atomic commit — so the map is recallable next beat **without the
+producer remembering to project**. A failed projection is reported, never fatal (the log is
+canonical; reproject next beat). You do not run the projection snippet by hand anymore.
 
 The Artefato is **transient** — it cools and is prunable; it also **bears the comment field**, the surface
 the mentee's later comment consolidates from. The durable knowledge it distills lives in the **cluster**,

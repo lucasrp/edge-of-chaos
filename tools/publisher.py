@@ -25,8 +25,11 @@ without the *why* (raises with no intent; the kernel rides the same atomic call 
 `artefatos_without_kernel(log) == []` right after). #4 — the slug is validated against a strict
 regex and contained under blog_dir (a `../` slug cannot escape).
 
-Pure import-clean spine: imports only eventlog + render + close (the close-role functions);
-the impure embedder is injectable (embed_fn) so a test runs offline.
+Pure import-clean spine: imports only eventlog + render + close (the close-role functions) at
+module scope; the impure embedder (embed_fn) and the graph projection (project_fn, the
+project-after-publish side-effect — #30) are injectable so a test runs offline. The default
+projection (`project_artefato`) imports neo4j/_identity/openai LAZILY and is fully degrade-safe:
+a missing group/driver/key prints and returns, never raising into the publish (ADR-0011/0006).
 """
 import html
 import os
@@ -122,8 +125,120 @@ def _write_page(out, page):
     os.replace(tmp, out)
 
 
+def _cluster_slug(label):
+    """wiki_render's canonical cluster-slug rule (letters only — drops spaces, &, digits,
+    punctuation). The ONE rule the projection resolves a `distills` ref against (memory.md:
+    the slug↔display trap) — APOC is not installed, so normalize in Python, never cypher."""
+    return re.sub(r"[^a-z]", "", (label or "").lower())
+
+
+def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites=None):
+    """Project a just-published Artefato into the edge's graph — the deterministic spine write
+    that was prose in `skills/_shared/memory.md` (the "Project — AFTER you publish" block) and so
+    got SKIPPED by the producer. Ported here as a GUARANTEED side-effect of every publish so the
+    graph grows model-independently (#30).
+
+    Best-effort / degrade-safe (ADR-0011/0006): the LOG is canonical; this projection is a
+    re-derivable view. ANY failure (no group, no neo4j driver, graph unreachable, no OpenAI key
+    for the embed) PRINTS and returns — it NEVER raises into the publish (`publish` also wraps the
+    call). The next beat reprojects from the log.
+
+    What it writes (idempotent MERGEs), exactly as memory.md specifies:
+      (0) backbone — :Genesis (space-0, codename+voice) -GROUNDS-> :Objective; ANCHORS REBUILT
+          from the canonical fold each sync (drop retired steers; the Artefato->PROPOSES->Direction
+          provenance is left intact);
+      (1) :Artefato MERGE + SERVES the Objective (the hub that keeps it reachable from space-0) +
+          a content `embedding` (text-embedding-3-small, best-effort — skipped if no key);
+      (2) edges — DISTILLS (slug-resolved to existing clusters only, never fabricated), PROPOSES,
+          CITES.
+    `skill` is passed through so the projection records WHICH producer minted the Artefato."""
+    try:
+        import _identity
+        import yaml
+        from neo4j import GraphDatabase
+        uri, user, pw = _identity.neo4j_conn()
+        g = _identity.require_group()
+        distills, proposes, cites = distills or [], proposes or [], cites or []
+        drv = GraphDatabase.driver(uri, auth=(user, pw))
+    except Exception as ex:  # noqa: BLE001 — best-effort; the log already holds the truth
+        print("project skipped (best-effort, graph unreachable):", ex)
+        return
+    try:
+        with drv.session() as s:
+            # (0) keep the SPINE BACKBONE current and ROOTED at space-0 (idempotent, cheap)
+            try:
+                cfg = yaml.safe_load((REPO / "agent.yaml").read_text()) or {}
+            except Exception:  # noqa: BLE001 — agent.yaml read is best-effort
+                cfg = {}
+            s.run("MERGE (gen:Genesis {group_id:$g}) SET gen.space=0, gen.codename=$c, gen.voice=$v, "
+                  "gen.method='memory/method.md', gen.personality='memory/personality.md'",
+                  g=g, c=cfg.get("codename") or cfg.get("name"), v=cfg.get("voice"))
+            obj = eventlog.objective_at() or {}
+            if obj.get("body"):
+                s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj["body"])
+                s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) "
+                      "MERGE (gen)-[:GROUNDS]->(o)", g=g)
+            dirs = eventlog.direction_at() or {}
+            # ANCHORS = the CURRENTLY active steers — REBUILD each sync so a dropped/superseded
+            # Direction stops being anchored (recall from space-0 must match the log).
+            s.run("MATCH (o:Objective {group_id:$g})-[r:ANCHORS]->(:Direction) DELETE r", g=g)
+            for it in dirs.get("set", []) + dirs.get("proposed", []):
+                s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
+                s.run("MATCH (o:Objective {group_id:$g}),(d:Direction {group_id:$g, body:$b}) "
+                      "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"])
+            # (1) the Artefato + its content embedding (semantic search; best-effort)
+            s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) "
+                  "SET a.kernel=$k, a.skill=$skill, a.page=$page",
+                  g=g, slug=slug, k=intent, skill=skill, page=f"blog/entries/{slug}.html")
+            # every Artefato SERVES the objective — the hub keeping it reachable from space-0.
+            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),(o:Objective {group_id:$g}) "
+                  "MERGE (a)-[:SERVES]->(o)", g=g, slug=slug)
+            try:
+                from openai import OpenAI
+                emb = OpenAI().embeddings.create(model="text-embedding-3-small",
+                                                 input=f"{slug}\n{intent}").data[0].embedding
+                s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.embedding=$e",
+                      g=g, slug=slug, e=emb)
+            except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
+                print("embed skipped (best-effort):", ex)
+            # (2) edges — distills (slug-resolved), proposes, cites
+            labels = [r["l"] for r in s.run(
+                "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
+                "RETURN DISTINCT e.curated_cluster AS l", g=g)]
+            by_slug = {_cluster_slug(l): l for l in labels}
+            for ref in distills:                  # link ONLY existing clusters (never fabricate)
+                label = by_slug.get(_cluster_slug(str(ref).replace("cluster:", "")))
+                if not label:
+                    continue                      # cluster not in the graph yet — grill attaches later
+                s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),"
+                      "(e:Entity {group_id:$g, curated_cluster:$label}) "
+                      "MERGE (a)-[:DISTILLS]->(e)", g=g, slug=slug, label=label)
+            for p in proposes:
+                body = p.get("body") if isinstance(p, dict) else None
+                if not body:
+                    continue
+                s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
+                      "MERGE (d:Direction {group_id:$g, body:$b}) MERGE (a)-[:PROPOSES]->(d)",
+                      g=g, slug=slug, b=body)
+            for c in cites:
+                ref = c.get("ref") if isinstance(c, dict) else None
+                if not ref:
+                    continue
+                s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
+                      "MERGE (src:Source {group_id:$g, key:$key}) MERGE (a)-[:CITES]->(src)",
+                      g=g, slug=slug, key=ref)
+    except Exception as ex:  # noqa: BLE001 — a failed projection is reported, never fatal
+        print("project failed (best-effort, reproject next beat):", ex)
+    finally:
+        try:
+            drv.close()
+        except Exception:
+            pass
+
+
 def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=None,
-            cites=None, date=None, log=eventlog.LOG, blog_dir=BLOG_DIR, embed_fn=None) -> Path:
+            cites=None, date=None, log=eventlog.LOG, blog_dir=BLOG_DIR, embed_fn=None,
+            project_fn=project_artefato) -> Path:
     """Publish an Artefato: render → self-contained neutral HTML → atomic state record.
 
     #2/#3 at the seam: RAISES ValueError unless `verdict` is the UNFORGEABLE, BOUND proof
@@ -182,6 +297,19 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
         _signal_cites(slug, body_html, cites, embed_fn, log)
     except Exception:
         pass
+
+    # project-after-publish (#30): a GUARANTEED, best-effort side-effect after the commit — the
+    # spine projection that was prose in memory.md and got skipped, now runs every publish so the
+    # graph grows model-independently. NON-FATAL (ADR-0011/0006): a failed projection is reported,
+    # never breaks the publish — the log is canonical, the next beat reprojects. Injectable so the
+    # seam runs offline. The double-wrap (here + inside project_artefato) is belt-and-suspenders:
+    # even an injected project_fn that raises can never strand the already-committed Artefato.
+    if project_fn is not None:
+        try:
+            project_fn(slug, intent, skill=skill,
+                       distills=distills, proposes=proposes, cites=cites)
+        except Exception as ex:  # noqa: BLE001 — projection is best-effort, never fatal
+            print(f"project skipped for {slug!r} (best-effort, reproject next beat):", ex)
     return out
 
 

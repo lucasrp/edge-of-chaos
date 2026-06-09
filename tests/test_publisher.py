@@ -303,6 +303,84 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             self.assertEqual(eventlog.corpus_at(log=log), [])
 
 
+class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
+    """#30 move 1 — project-after-publish lives IN the publisher (was prose in memory.md the
+    producer skipped). After the atomic commit, `publish` projects the Artefato into the graph
+    as a GUARANTEED, best-effort side-effect: it calls `project_fn` with the EXACT published
+    payload (slug + intent + skill + distills + proposes + cites). A failed projection is
+    REPORTED, never fatal (ADR-0011/0006: the log is truth; reproject next beat). `project_fn`
+    is injectable so the seam runs offline; the default `project_artefato` degrades safely when
+    neo4j/openai are absent (it never raises into the publish)."""
+
+    def test_project_fn_called_after_publish_with_the_published_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "projected"
+            intent = "open: x; bet: y"
+            cites = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True, "snippet": "snip"}]
+            proposes = [{"body": "name it", "kind": "constraint"}]
+            distills = ["cluster:recall"]
+            seen = {}
+
+            def project_fn(s, i, *, skill, distills, proposes, cites):
+                seen.update(slug=s, intent=i, skill=skill, distills=distills,
+                            proposes=proposes, cites=cites)
+
+            publisher.publish(
+                slug, _spec(), intent=intent, skill="report", cites=cites,
+                proposes=proposes, distills=distills, date="2026-06-08",
+                log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=project_fn,
+                verdict=_passing_proof(slug, _spec(), intent, cites=cites,
+                                       proposes=proposes, distills=distills),
+            )
+            self.assertEqual(seen["slug"], slug)
+            self.assertEqual(seen["intent"], intent)
+            self.assertEqual(seen["skill"], "report")
+            self.assertEqual(seen["distills"], distills)
+            self.assertEqual(seen["proposes"], proposes)
+            self.assertEqual(seen["cites"], cites)
+
+    def test_failed_projection_does_not_break_the_publish(self):
+        # ADR-0011: a projection write that fails is REPORTED, never fatal — the page + the
+        # atomic commit still land; the next beat reprojects.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "degrade-safe"
+            intent = "open: x; bet: y"
+
+            def boom_project(*a, **k):
+                raise RuntimeError("neo4j unreachable")
+
+            path = publisher.publish(
+                slug, _spec(), intent=intent, skill="report", date="2026-06-08",
+                log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=boom_project,
+                verdict=_passing_proof(slug, _spec(), intent),
+            )
+            # publish succeeded despite the projection blowing up
+            self.assertTrue(Path(path).exists())
+            self.assertEqual([c["slug"] for c in eventlog.corpus_at(log=log)], [slug])
+            self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
+
+    def test_default_project_artefato_degrades_when_graph_unreachable(self):
+        # the default projection must NEVER raise into the publish even when the graph is
+        # unreachable — it is best-effort; it prints and returns. Point at a dead bolt port so
+        # this is the GENUINE unreachable-graph degrade path, deterministic and offline, and
+        # writes NOTHING to any live graph (no test pollution).
+        prev = os.environ.get("EDGE_NEO4J_URI")
+        os.environ["EDGE_NEO4J_URI"] = "bolt://127.0.0.1:1"
+        try:
+            publisher.project_artefato(
+                "deg", "open: x; bet: y", skill="report",
+                distills=["cluster:recall"], proposes=[], cites=[])
+        except Exception as e:  # noqa: BLE001
+            self.fail(f"project_artefato must degrade safely, raised {e!r}")
+        finally:
+            if prev is None:
+                os.environ.pop("EDGE_NEO4J_URI", None)
+            else:
+                os.environ["EDGE_NEO4J_URI"] = prev
+
+
 class WrapperMetadataIsEscapedAndSkillIsRostered(unittest.TestCase):
     """Codex round-4 [high]: the page wrapper interpolates caller/spec values (date, skill,
     title/slug) into raw HTML. Reviewers only see slug/content/cites; `skill` is proof-bound
