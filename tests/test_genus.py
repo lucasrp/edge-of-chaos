@@ -361,6 +361,36 @@ class RichRiteFloorIsContentRelative(unittest.TestCase):
         self.assertFalse(any(v == "rich-rite:derivation" for v in violations),
                          f"a derivation block must satisfy the move, got {violations}")
 
+    def test_heading_only_derivation_block_does_not_clear_the_move(self):
+        """Codex P2: a derivation block with ONLY a title/label (no text/bullets/conclusion) is a
+        heading placeholder, not actual reasoning — its mere presence must NOT clear
+        rich-rite:derivation (the title is a neutral heading carrying no derivation marker)."""
+        art = _shallow_prose()
+        art["content"]["sections"][0]["blocks"].append(
+            {"type": "derivation", "title": "The setup"})  # heading only, no reasoning payload
+        violations = close.check_genus(art)
+        self.assertTrue(any(v == "rich-rite:derivation" for v in violations),
+                        f"a heading-only derivation must NOT clear the move, got {violations}")
+
+    def test_headers_only_gap_table_does_not_clear_the_boundary_move(self):
+        """Codex P2: a gap-table with ONLY headers (no gaps/rows) is a placeholder — it must NOT
+        clear the what-i-dont-know move."""
+        art = _shallow_prose()
+        art["content"]["sections"][0]["blocks"].append(
+            {"type": "gap-table", "headers": ["gap", "status"]})  # headers only, no gaps/rows
+        violations = close.check_genus(art)
+        self.assertTrue(any(v == "rich-rite:what-i-dont-know" for v in violations),
+                        f"a headers-only gap-table must NOT clear the boundary move, got {violations}")
+
+    def test_gap_table_with_rows_clears_the_boundary_move(self):
+        art = _shallow_prose()
+        art["content"]["sections"][0]["blocks"].append(
+            {"type": "gap-table", "headers": ["gap", "status"],
+             "rows": [["does it survive a crash?", "unknown"]]})
+        violations = close.check_genus(art)
+        self.assertFalse(any(v == "rich-rite:what-i-dont-know" for v in violations),
+                         f"a gap-table with rows must clear the boundary move, got {violations}")
+
     def test_gap_block_satisfies_the_boundary_move(self):
         """A `gap-marker`/`gap-table`/`gap-resolution` block satisfies the "what I don't know"
         boundary move, regardless of prose markers."""

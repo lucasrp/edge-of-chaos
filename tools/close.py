@@ -68,6 +68,16 @@ RICH_RITE_PROSE_THRESHOLD = 3
 DERIVATION_BLOCK_TYPES = frozenset({"derivation"})
 BOUNDARY_BLOCK_TYPES = frozenset({"gap-marker", "gap-table", "gap-resolution"})
 
+# The SUBSTANTIVE content fields per palette block — the move-bearing payload, NOT a heading/label
+# (Codex P2): a derivation `title` or a gap-table `headers` is a placeholder, not the actual
+# reasoning/gap. A block satisfies its move only if at least one of THESE fields is non-blank.
+SUBSTANTIVE_BLOCK_FIELDS = {
+    "derivation": ("text", "bullets", "steps", "conclusion", "code"),
+    "gap-marker": ("text", "description", "label"),
+    "gap-table": ("gaps", "rows"),
+    "gap-resolution": ("text", "answer", "resolution", "gap", "question"),
+}
+
 # Content markers — the move carried in prose rather than a dedicated block. Conservative on
 # purpose: a present, specific marker, not a length proxy. Matched case-insensitively anywhere
 # in the artefato's prose text.
@@ -263,14 +273,27 @@ def _check_rich_rite(artefato: dict) -> list[str]:
         # boundaries; trailing-space markers (e.g. "because ") are stripped and matched the same way.
         return any(re.search(r"\b" + re.escape(m.strip()) + r"\b", text) for m in markers)
 
+    def _field_nonblank(v):
+        if isinstance(v, str):
+            return bool(v.strip())
+        if isinstance(v, list):
+            return any(_field_nonblank(x) for x in v)
+        if isinstance(v, dict):
+            return any(_field_nonblank(x) for x in v.values())
+        return False
+
     def has_filled_block(types):
-        # a palette block satisfies a move ONLY if it carries actual payload (Codex P2): a bare
-        # placeholder block (no text/items/refs) must not clear the strike.
-        return any(
-            _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph")) in types
-            and _block_text(b).strip()
-            for b in blocks
-        )
+        # a palette block satisfies a move ONLY if a SUBSTANTIVE field carries real payload (Codex
+        # P2): a bare placeholder OR a heading-only block (a derivation with just a `title`, a
+        # gap-table with just `headers`) must NOT clear the strike — only the move-bearing fields count.
+        for b in blocks:
+            bt = _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph"))
+            if bt not in types:
+                continue
+            fields = SUBSTANTIVE_BLOCK_FIELDS.get(bt, ())
+            if any(_field_nonblank(b.get(f)) for f in fields):
+                return True
+        return False
 
     # external-frame requires an OUTSIDE benchmark (Codex P2): an `atividade` (internal provenance)
     # cite is the mentee's own work, not an external frame — only an external (`mundo`) cite or a

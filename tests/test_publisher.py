@@ -480,6 +480,17 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                            "the final marker SET must follow the edge writes (last)")
         self.assertLess(clear_idx, set_idx, "clear-false precedes the final SET")
 
+    def test_failed_embed_leaves_projection_incomplete(self):
+        # Codex P2: a FAILED embed (key/service down) must NOT mark the projection complete — the
+        # completion marker is gated on `embed_current`, so recovery retries the embed once creds
+        # recover instead of skipping the slug forever.
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        self.assertIn("embed_current", src, "project_artefato must track embed success")
+        # the completion marker is gated on embed_current AND no unresolved distills
+        self.assertIn("embed_current and not unresolved_distills", src,
+                      "the completion marker must require a current embedding")
+
     def test_unresolved_distill_leaves_projection_incomplete(self):
         # Codex P2: a distill ref whose cluster is not in the graph yet must leave the projection
         # INCOMPLETE (so recovery revisits once the grill attaches the cluster), not mark it done.

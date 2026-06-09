@@ -317,7 +317,8 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             row = s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
                         "RETURN a.embedding IS NOT NULL AS e, a.embedding_input_hash AS h",
                         g=g, slug=slug).single()
-            if not (row["e"] and row["h"] == emb_hash):
+            embed_current = bool(row["e"]) and row["h"] == emb_hash
+            if not embed_current:
                 try:
                     from openai import OpenAI
                     emb = OpenAI().embeddings.create(model="text-embedding-3-small",
@@ -325,8 +326,12 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                     s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
                           "SET a.embedding=$e, a.embedding_input_hash=$h",
                           g=g, slug=slug, e=emb, h=emb_hash)
+                    embed_current = True
                 except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
-                    print("embed skipped (best-effort):", ex)
+                    # a FAILED embed (key/service down) must NOT mark the projection complete (Codex
+                    # P2): leave embed_current False so recovery RETRIES the embed once creds recover,
+                    # instead of skipping the slug forever with no/stale embedding.
+                    print("embed skipped (best-effort, will retry on recovery):", ex)
             # (2) edges — distills (slug-resolved), proposes, cites. REBUILD this slug's edge set
             # each (re)project (Codex P2): clear the slug's OLD DISTILLS/PROPOSES/CITES first, so a
             # republish/replay with corrected provenance does not leave stale clusters/directions/
@@ -367,13 +372,14 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                 s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
                       "MERGE (src:Source {group_id:$g, key:$key}) MERGE (a)-[:CITES]->(src)",
                       g=g, slug=slug, key=ref)
-            # (3) COMPLETION MARKER — set LAST, only after every edge/embed write succeeded AND every
-            # distill ref RESOLVED (Codex P2). `_graph_present_slugs` reads THIS: a node left
-            # incomplete by a publish-time outage (embed set but SERVES/edges not) OR with an
-            # unresolved distill (its cluster not in the graph yet) is NOT present and is re-projected
-            # — so the "grill attaches the cluster later" path actually links it on the next sweep.
+            # (3) COMPLETION MARKER — set LAST, complete ONLY when (a) every edge write succeeded,
+            # (b) the embedding is current (a FAILED embed leaves it false → retried on recovery,
+            # Codex P2), AND (c) every distill ref RESOLVED. `_graph_present_slugs` reads THIS: a node
+            # left half-projected (embed/edge outage) OR with an unresolved distill (cluster not in
+            # the graph yet) is NOT present and is re-projected — so a transient embed outage and the
+            # "grill attaches the cluster later" path both self-heal on the next sweep.
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.projection_complete=$done",
-                  g=g, slug=slug, done=not unresolved_distills)
+                  g=g, slug=slug, done=(embed_current and not unresolved_distills))
     except Exception as ex:  # noqa: BLE001 — a failed projection is reported, never fatal
         print("project failed (best-effort, reproject next beat):", ex)
     finally:
