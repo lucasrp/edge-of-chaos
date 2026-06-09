@@ -457,8 +457,9 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         src = inspect.getsource(_REAL_PROJECT)
         self.assertIn("projection_complete", src,
                       "project_artefato must set a completion marker after all writes")
-        # the marker must be set AFTER the edge writes (CITES is the last edge loop)
-        self.assertGreater(src.find("projection_complete=true"), src.rfind("[:CITES]->"),
+        # the marker must be set AFTER the edge writes (CITES is the last edge loop). The final SET
+        # uses the `$done` param (gated on resolved distills), not a literal — match the param form.
+        self.assertGreater(src.find("projection_complete=$done"), src.rfind("[:CITES]->"),
                            "the completion marker must be the LAST write, after the edge loops")
         # and _graph_present_slugs reads the completion marker, not bare node/embedding presence
         self.assertIn("projection_complete", inspect.getsource(publisher._graph_present_slugs))
@@ -470,14 +471,41 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         # set-true is the LAST step — so a failure between them leaves the marker false.
         import inspect
         src = inspect.getsource(_REAL_PROJECT)
-        clear_idx = src.find("projection_complete=false")
-        set_idx = src.find("projection_complete=true")
+        clear_idx = src.find("projection_complete=false")  # cleared in the first MERGE
+        set_idx = src.find("projection_complete=$done")     # final SET (gated on resolved distills)
         self.assertNotEqual(clear_idx, -1, "republish must CLEAR projection_complete before updating")
         self.assertLess(clear_idx, src.rfind("[:CITES]->"),
                         "the clear must precede the edge writes")
         self.assertGreater(set_idx, src.rfind("[:CITES]->"),
-                           "the set-true must follow the edge writes (last)")
-        self.assertLess(clear_idx, set_idx, "clear-false precedes set-true")
+                           "the final marker SET must follow the edge writes (last)")
+        self.assertLess(clear_idx, set_idx, "clear-false precedes the final SET")
+
+    def test_unresolved_distill_leaves_projection_incomplete(self):
+        # Codex P2: a distill ref whose cluster is not in the graph yet must leave the projection
+        # INCOMPLETE (so recovery revisits once the grill attaches the cluster), not mark it done.
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        self.assertIn("unresolved_distills", src,
+                      "project_artefato must track unresolved distills")
+        # the completion marker is conditional on no unresolved distills
+        self.assertIn("not unresolved_distills", src,
+                      "the completion marker must be gated on resolved distills")
+
+    def test_distill_resolution_uses_active_clusters_only(self):
+        # Codex P2: archived/merged entities are hidden by graph_clusters, so the projection must
+        # resolve distills against ACTIVE clusters only (never link/push a retired cluster).
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        self.assertIn("coalesce(e.archived,false)=false", src)
+        self.assertIn("e.merged_into IS NULL", src)
+
+    def test_revisit_does_not_re_embed_an_already_embedded_node(self):
+        # Codex P2: a recovery revisit (e.g. an unresolved distill that resolved) re-runs the cheap
+        # edge work WITHOUT a costly re-embed — project_artefato skips the embed if one already exists.
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        self.assertIn("already_embedded", src)
+        self.assertIn("if not already_embedded", src)
 
     def test_backbone_ensures_every_artefato_serves_the_objective(self):
         # Codex P2: an Artefato published BEFORE the Objective existed had SERVES no-op; the backbone

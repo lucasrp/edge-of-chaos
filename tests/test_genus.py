@@ -510,6 +510,23 @@ class RichRiteFloorIsContentRelative(unittest.TestCase):
         self.assertFalse(any(v == "rich-rite:external-frame" for v in violations),
                          f"a bibliography block must clear external-frame, got {violations}")
 
+    def test_empty_bibliography_references_do_not_clear_external_frame(self):
+        """Codex P2: a truthy-but-empty bibliography ([""] / [{}]) renders no real reference and must
+        NOT clear rich-rite:external-frame."""
+        for empty in ([""], ["   "], [{}], [{"text": ""}]):
+            art = _shallow_prose()  # no cites
+            art["content"]["bibliography"] = empty
+            violations = close.check_genus(art)
+            self.assertTrue(any(v == "rich-rite:external-frame" for v in violations),
+                            f"empty bibliography {empty!r} must NOT clear external-frame, got {violations}")
+
+    def test_real_bibliography_reference_clears_external_frame(self):
+        art = _shallow_prose()
+        art["content"]["bibliography"] = ["Smith 2024, On Watermarks"]
+        violations = close.check_genus(art)
+        self.assertFalse(any(v == "rich-rite:external-frame" for v in violations),
+                         f"a real bibliography reference must clear external-frame, got {violations}")
+
     def test_priority_does_not_clear_lineage_word_boundary(self):
         """Codex P2: the bare `prior` lineage marker must match on a WORD BOUNDARY — `priority`/
         `prioritize` (common planning prose) must NOT clear rich-rite:lineage."""

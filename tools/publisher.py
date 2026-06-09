@@ -306,17 +306,24 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # every Artefato SERVES the objective — the hub keeping it reachable from space-0.
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),(o:Objective {group_id:$g}) "
                   "MERGE (a)-[:SERVES]->(o)", g=g, slug=slug)
-            try:
-                from openai import OpenAI
-                # embed the CONTENT, not just the kernel (Codex P2): a concept that lives in the
-                # body but not the kernel must still be semantically recallable over a.embedding.
-                emb_input = f"{slug}\n{intent}\n{_spec_text(spec)}".strip()
-                emb = OpenAI().embeddings.create(model="text-embedding-3-small",
-                                                 input=emb_input).data[0].embedding
-                s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.embedding=$e",
-                      g=g, slug=slug, e=emb)
-            except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
-                print("embed skipped (best-effort):", ex)
+            # embed only if the node has NO embedding yet (Codex P2): a recovery revisit (e.g. for an
+            # unresolved distill that resolves later) re-runs the cheap edge work WITHOUT a costly
+            # re-embed — the content embedding does not change on a pure edge-link fix.
+            already_embedded = s.run(
+                "MATCH (a:Artefato {group_id:$g, slug:$slug}) RETURN a.embedding IS NOT NULL AS e",
+                g=g, slug=slug).single()["e"]
+            if not already_embedded:
+                try:
+                    from openai import OpenAI
+                    # embed the CONTENT, not just the kernel (Codex P2): a concept that lives in the
+                    # body but not the kernel must still be semantically recallable over a.embedding.
+                    emb_input = f"{slug}\n{intent}\n{_spec_text(spec)}".strip()
+                    emb = OpenAI().embeddings.create(model="text-embedding-3-small",
+                                                     input=emb_input).data[0].embedding
+                    s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.embedding=$e",
+                          g=g, slug=slug, e=emb)
+                except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
+                    print("embed skipped (best-effort):", ex)
             # (2) edges — distills (slug-resolved), proposes, cites. REBUILD this slug's edge set
             # each (re)project (Codex P2): clear the slug's OLD DISTILLS/PROPOSES/CITES first, so a
             # republish/replay with corrected provenance does not leave stale clusters/directions/
@@ -324,14 +331,22 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # is to the single hub (idempotent) and is left intact.
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug})-[r:DISTILLS|PROPOSES|CITES]->() "
                   "DELETE r", g=g, slug=slug)
+            # resolve distills against ACTIVE clusters only (Codex P2): mirror graph_clusters —
+            # archived/merged entities are hidden, so a retired cluster is never linked or pushed.
             labels = [r["l"] for r in s.run(
                 "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
+                "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
                 "RETURN DISTINCT e.curated_cluster AS l", g=g)]
             by_slug = {_cluster_slug(l): l for l in labels}
-            for ref in distills:                  # link ONLY existing clusters (never fabricate)
+            unresolved_distills = False
+            for ref in distills:                  # link ONLY existing active clusters (never fabricate)
                 label = by_slug.get(_cluster_slug(str(ref).replace("cluster:", "")))
                 if not label:
-                    continue                      # cluster not in the graph yet — grill attaches later
+                    # cluster not in the graph yet — the grill attaches it later. Mark the projection
+                    # INCOMPLETE so recovery REVISITS this slug once the cluster exists (the embed is
+                    # already set, so the revisit is a cheap edge-only re-link, not a re-embed).
+                    unresolved_distills = True
+                    continue
                 s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),"
                       "(e:Entity {group_id:$g, curated_cluster:$label}) "
                       "MERGE (a)-[:DISTILLS]->(e)", g=g, slug=slug, label=label)
@@ -349,11 +364,13 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                 s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
                       "MERGE (src:Source {group_id:$g, key:$key}) MERGE (a)-[:CITES]->(src)",
                       g=g, slug=slug, key=ref)
-            # (3) COMPLETION MARKER — set LAST, only after every edge/embed write succeeded (Codex
-            # P2). `_graph_present_slugs` reads THIS, so a node left incomplete by a publish-time
-            # outage (embed set but SERVES/edges not) is NOT treated as present and is re-projected.
-            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.projection_complete=true",
-                  g=g, slug=slug)
+            # (3) COMPLETION MARKER — set LAST, only after every edge/embed write succeeded AND every
+            # distill ref RESOLVED (Codex P2). `_graph_present_slugs` reads THIS: a node left
+            # incomplete by a publish-time outage (embed set but SERVES/edges not) OR with an
+            # unresolved distill (its cluster not in the graph yet) is NOT present and is re-projected
+            # — so the "grill attaches the cluster later" path actually links it on the next sweep.
+            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.projection_complete=$done",
+                  g=g, slug=slug, done=not unresolved_distills)
     except Exception as ex:  # noqa: BLE001 — a failed projection is reported, never fatal
         print("project failed (best-effort, reproject next beat):", ex)
     finally:
