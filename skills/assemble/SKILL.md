@@ -51,26 +51,22 @@ anterograde amnesia — it must orient **entirely** from this and trust nothing 
 - Keep the three projections (clusters ← graph · Direction ← log · Recap ← corpus) + the source
   orientation. The briefing **is** your interface — small on purpose; high-signal, not a dump.
 
-## The map — announce what exists + the recall affordance (#28)
+## The recall affordance — keep the briefing normal, add the graph (#28)
 
-The briefing is the tattoo: **small on purpose**, and you cannot fold the whole corpus into it. So make
-it carry the **map, not the territory** — the *shape* of the edge's memory plus a pointer to fetch the
-detail on demand:
+**In this first version the briefing is injected normally.** Compose the full deterministic skeleton +
+the Recap + the Knowledge clusters + corpus + Direction exactly as before — **do not thin it** (the
+briefing-lifecycle gate tests this). The graph is **additive**: on top of the normal briefing, tell the
+loop it can **navigate its own memory on demand**.
 
-- **Begin at space 0.** The map's origin is the edge's identity — its method + personality (the
-  `:Genesis` node, `skills/_shared/memory.md`). The loop wakes knowing *who it is*; everything else in
-  the map radiates outward from that root (Objective → Direction → Artefatos → clusters).
-- Present the existing index **salience-ordered toward the Objective**: the Knowledge clusters by label,
-  the open bets (Direction), and the recent Artefatos as **title + kernel** (their shape, not their
-  bodies). You cannot recall what you do not know exists — the map is what tells the loop *what* is
-  there.
-- **Announce the recall affordance**: state plainly that the loop can **recall the detail on demand**
-  from its own graph, pointing it to `skills/_shared/memory.md`. The map says *what* exists; recall
-  fetches the *content* when a theme makes it relevant.
+- **Begin at space 0.** The graph's origin is the edge's identity — its method + personality (the
+  `:Genesis` node, `skills/_shared/memory.md`). The loop wakes knowing *who it is*; orientation radiates
+  out from that root (Objective → Direction → Artefatos → clusters).
+- **Announce the recall affordance**: state plainly that, **beyond** what the briefing already carries,
+  the loop can **recall more on demand** from its own graph — point it to `skills/_shared/memory.md`
+  (structural traversal + semantic search of past Artefatos).
 
-The detail stays in the graph, one traversal away; the briefing stays a high-signal tattoo. (Trimming
-the deterministic briefing composition itself from full-content to labels-only is a later refinement;
-your job here is to add the affordance so the loop knows it can pull more than the tattoo shows.)
+(Later we may turn OFF the briefing parts now duplicated in the graph and lean on recall — **deferred**.
+For now: the full briefing **and** the recall affordance, both.)
 
 ## Read-only (CONTRACT C1)
 

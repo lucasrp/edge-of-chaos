@@ -60,9 +60,10 @@ RETURN gen.codename, gen.voice, gen.method, gen.personality, o.body, collect(DIS
 
 ## Recall — BEFORE you act (recall-before-act)
 
-You wake holding the **map** (the assemble's salience-ordered index of what exists) — but the map is
-**shape, not content**. Before you reach OUT to the world, reach IN. The rule: **you do not re-derive,
-re-research, or re-publish what you already know.** Two moments, both mandatory:
+You wake holding the **full briefing** (injected normally — the tattoos, Knowledge clusters, corpus,
+Direction) **and** the affordance to **recall more on demand** from the graph. Recall is *additive* over
+the briefing in this first version. Before you reach OUT to the world, reach IN. The rule: **you do not
+re-derive, re-research, or re-publish what you already know.** Two moments, both mandatory:
 
 - **recall-before-research** — at the start of loop1, *before* fanning explorers. Pull the subgraph
   your theme touches (its clusters, the prior Artefatos on it, the open bets) so the explorers chase
