@@ -192,10 +192,14 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
                 "RETURN a.slug AS slug, a.kernel AS kernel "
                 "ORDER BY coalesce(a.projected_at,'') DESC, a.slug LIMIT $lim",
                 g=group, lim=RECALL_ARTEFATO_LIMIT).data()
+            # clusters derived from the SAME salient slice (Codex P2): only the clusters the pushed
+            # artefatos distill, not every Artefato in the group — so the recall stays salient and
+            # does not grow with the whole corpus.
+            slugs = [a["slug"] for a in arts]
             clusters = [r["l"] for r in s.run(
-                "MATCH (:Artefato {group_id:$g})-[:DISTILLS]->(e:Entity {group_id:$g}) "
-                "WHERE e.curated_cluster IS NOT NULL "
-                "RETURN DISTINCT e.curated_cluster AS l ORDER BY l", g=group)]
+                "MATCH (a:Artefato {group_id:$g})-[:DISTILLS]->(e:Entity {group_id:$g}) "
+                "WHERE a.slug IN $slugs AND e.curated_cluster IS NOT NULL "
+                "RETURN DISTINCT e.curated_cluster AS l ORDER BY l", g=group, slugs=slugs)]
             return {
                 "codename": head["codename"], "voice": head["voice"],
                 "objective": head["objective"], "bets": [b for b in head["bets"] if b],

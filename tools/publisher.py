@@ -134,7 +134,43 @@ def _cluster_slug(label):
     return re.sub(r"[^a-z]", "", (label or "").lower())
 
 
-def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites=None):
+def _spec_text(spec):
+    """Flatten the published spec to plain text for the content embedding (Codex P2: embed the
+    CONTENT, not just the kernel). Walks the string leaves render reads — executive_summary +
+    every block's string/list-of-string/list-of-dict values — best-effort, bounded for the embed
+    request. Returns '' for a None/empty spec (the embed then falls back to slug+kernel)."""
+    if not isinstance(spec, dict):
+        return ""
+    parts = []
+    _walk_strings(spec.get("executive_summary") or [], parts)
+    for block in _iter_spec_blocks(spec):
+        _walk_strings(block, parts)
+    return " ".join(parts)[:8000]   # bound the embed input
+
+
+def _walk_strings(node, out):
+    """Collect every string leaf under `node` (dict/list nested to any depth — e.g. a table's
+    rows are list-of-lists), so table cells and nested bullets reach the content embedding."""
+    if isinstance(node, str):
+        out.append(node)
+    elif isinstance(node, dict):
+        for v in node.values():
+            _walk_strings(v, out)
+    elif isinstance(node, list):
+        for it in node:
+            _walk_strings(it, out)
+
+
+def _iter_spec_blocks(spec):
+    for key in ("sections", "additional_sections"):
+        for section in spec.get(key, []):
+            for block in section.get("blocks", []):
+                if isinstance(block, dict):
+                    yield block
+
+
+def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites=None,
+                     spec=None, log=eventlog.LOG):
     """Project a just-published Artefato into the edge's graph — the deterministic spine write
     that was prose in `skills/_shared/memory.md` (the "Project — AFTER you publish" block) and so
     got SKIPPED by the producer. Ported here as a GUARANTEED side-effect of every publish so the
@@ -175,12 +211,14 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             s.run("MERGE (gen:Genesis {group_id:$g}) SET gen.space=0, gen.codename=$c, gen.voice=$v, "
                   "gen.method='memory/method.md', gen.personality='memory/personality.md'",
                   g=g, c=cfg.get("codename") or cfg.get("name"), v=cfg.get("voice"))
-            obj = eventlog.objective_at() or {}
+            # read the backbone from the SAME log this Artefato was published to (Codex P2): an
+            # offline/custom-log publish must not rebuild ANCHORS from the module-default log.
+            obj = eventlog.objective_at(log=log) or {}
             if obj.get("body"):
                 s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj["body"])
                 s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) "
                       "MERGE (gen)-[:GROUNDS]->(o)", g=g)
-            dirs = eventlog.direction_at() or {}
+            dirs = eventlog.direction_at(log=log) or {}
             # ANCHORS = the CURRENTLY active steers — REBUILD each sync so a dropped/superseded
             # Direction stops being anchored (recall from space-0 must match the log).
             s.run("MATCH (o:Objective {group_id:$g})-[r:ANCHORS]->(:Direction) DELETE r", g=g)
@@ -199,8 +237,11 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                   "MERGE (a)-[:SERVES]->(o)", g=g, slug=slug)
             try:
                 from openai import OpenAI
+                # embed the CONTENT, not just the kernel (Codex P2): a concept that lives in the
+                # body but not the kernel must still be semantically recallable over a.embedding.
+                emb_input = f"{slug}\n{intent}\n{_spec_text(spec)}".strip()
                 emb = OpenAI().embeddings.create(model="text-embedding-3-small",
-                                                 input=f"{slug}\n{intent}").data[0].embedding
+                                                 input=emb_input).data[0].embedding
                 s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.embedding=$e",
                       g=g, slug=slug, e=emb)
             except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
@@ -240,9 +281,14 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             pass
 
 
+_DEFAULT_PROJECT = object()  # sentinel: "use module project_artefato" (resolved at CALL time so a
+                             # test can patch publisher.project_artefato to stay offline) vs an
+                             # explicit None ("skip the projection") vs an injected fake.
+
+
 def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=None,
             cites=None, date=None, log=eventlog.LOG, blog_dir=BLOG_DIR, embed_fn=None,
-            project_fn=project_artefato) -> Path:
+            project_fn=_DEFAULT_PROJECT) -> Path:
     """Publish an Artefato: render → self-contained neutral HTML → atomic state record.
 
     #2/#3 at the seam: RAISES ValueError unless `verdict` is the UNFORGEABLE, BOUND proof
@@ -311,10 +357,14 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # never breaks the publish — the log is canonical, the next beat reprojects. Injectable so the
     # seam runs offline. The double-wrap (here + inside project_artefato) is belt-and-suspenders:
     # even an injected project_fn that raises can never strand the already-committed Artefato.
+    # resolve the default at CALL time (name lookup) so a test can patch project_artefato to stay
+    # offline; an explicit None skips projection entirely.
+    if project_fn is _DEFAULT_PROJECT:
+        project_fn = project_artefato
     if project_fn is not None:
         try:
-            project_fn(slug, intent, skill=skill,
-                       distills=distills, proposes=proposes, cites=cites)
+            project_fn(slug, intent, skill=skill, distills=distills, proposes=proposes,
+                       cites=cites, spec=spec, log=log)
         except Exception as ex:  # noqa: BLE001 — projection is best-effort, never fatal
             print(f"project skipped for {slug!r} (best-effort, reproject next beat):", ex)
     return out

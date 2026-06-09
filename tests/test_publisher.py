@@ -21,6 +21,20 @@ import close  # noqa: E402
 import eventlog  # noqa: E402
 import publisher  # noqa: E402
 
+_REAL_PROJECT = publisher.project_artefato
+
+
+def setUpModule():
+    """Keep the whole module OFFLINE: the default project_fn now connects to the LIVE graph, so a
+    publish in a test with a temp log would project a test Artefato into the install graph (Codex
+    P2 / pollution). Neutralize the default projection to a no-op for every test that does not
+    inject its own project_fn; the dedicated projection tests inject a fake or restore the real one."""
+    publisher.project_artefato = lambda *a, **k: None
+
+
+def tearDownModule():
+    publisher.project_artefato = _REAL_PROJECT
+
 
 def _fake_embed(text):
     """An offline embedder: a tiny deterministic 2-vector, never an OpenAI call."""
@@ -322,9 +336,9 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             distills = ["cluster:recall"]
             seen = {}
 
-            def project_fn(s, i, *, skill, distills, proposes, cites):
+            def project_fn(s, i, *, skill, distills, proposes, cites, spec=None, log=None):
                 seen.update(slug=s, intent=i, skill=skill, distills=distills,
-                            proposes=proposes, cites=cites)
+                            proposes=proposes, cites=cites, spec=spec, log=log)
 
             publisher.publish(
                 slug, _spec(), intent=intent, skill="report", cites=cites,
@@ -339,6 +353,8 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             self.assertEqual(seen["distills"], distills)
             self.assertEqual(seen["proposes"], proposes)
             self.assertEqual(seen["cites"], cites)
+            self.assertEqual(seen["spec"], _spec())   # the spec is passed for the content embed
+            self.assertEqual(seen["log"], log)         # the projection reads the SAME log (Codex P2)
 
     def test_failed_projection_does_not_break_the_publish(self):
         # ADR-0011: a projection write that fails is REPORTED, never fatal — the page + the
@@ -361,6 +377,24 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             self.assertEqual([c["slug"] for c in eventlog.corpus_at(log=log)], [slug])
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
 
+    def test_spec_text_flattens_content_for_the_embedding(self):
+        # Codex P2: the content embedding must include the body, not just the kernel — a concept in
+        # the body but not the kernel must still be in the embed input.
+        spec = {
+            "executive_summary": ["a summary sentence with CONCEPT_A"],
+            "sections": [{"title": "Body", "blocks": [
+                {"type": "paragraph", "text": "the body mentions CONCEPT_B in prose"},
+                {"type": "table", "headers": ["k"], "rows": [["CONCEPT_C"]]},
+            ]}],
+        }
+        text = publisher._spec_text(spec)
+        self.assertIn("CONCEPT_A", text)
+        self.assertIn("CONCEPT_B", text)
+        self.assertIn("CONCEPT_C", text)
+
+    def test_spec_text_is_empty_for_a_none_spec(self):
+        self.assertEqual(publisher._spec_text(None), "")
+
     def test_default_project_artefato_degrades_when_graph_unreachable(self):
         # the default projection must NEVER raise into the publish even when the graph is
         # unreachable — it is best-effort; it prints and returns. Point at a dead bolt port so
@@ -369,7 +403,9 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         prev = os.environ.get("EDGE_NEO4J_URI")
         os.environ["EDGE_NEO4J_URI"] = "bolt://127.0.0.1:1"
         try:
-            publisher.project_artefato(
+            # exercise the REAL projection (the module no-op patch is bypassed here), against a
+            # dead bolt port — the genuine unreachable-graph degrade path, offline, no pollution.
+            _REAL_PROJECT(
                 "deg", "open: x; bet: y", skill="report",
                 distills=["cluster:recall"], proposes=[], cites=[])
         except Exception as e:  # noqa: BLE001
