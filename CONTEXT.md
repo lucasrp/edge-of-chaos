@@ -85,6 +85,24 @@ demand — the read that **scales past full-read** (no token-budget wall). Trust
 re-ingested** (recall, not a source — the self-reference guard). The **llm-wiki** pages are renders of it. A harm-bearing subset — **the Earmarked** — is what the grill reconciles.
 *Avoid*: RAG, retrieval, top-k, vector DB, memory store (recall is navigation of own knowledge, not a fetch)
 
+**Recall**:
+The **memory-salient brief** — a noun, the yield of recalling (the act stays a lowercase verb,
+exactly as Delta is the yield of updating): the salient subgraph of the **Cortex**, rooted at
+**space-0**, handed to the agent at pre-dispatch by an **independent subagent** fanned beside
+assemble and delta (ADR-0014) — never fused with delta (the subject boundary: delta reads the
+world, recall reads the self; one shared context is where the self-reference guard fails). The
+third view (self-curated · world-new · memory-salient). **The push seeds; navigation deepens**:
+on-demand Cortex navigation stays the loop's own judgment, not the recall agent's.
+*Avoid*: retrieval, fetch, memory query, delta-over-the-wiki, recall-push-inside-assemble
+(superseded — ADR-0014)
+
+**Space-0**:
+The Cortex's **immutable root** — the edge's identity (method + personality) committed as graph
+genesis: never extracted, never aged, never curated away. Everything the edge knows must be
+**reachable from it through the Objective hub** — knowledge that cannot trace back to *who the
+edge is and what it is for* is disconnected by definition. The tattoos under the tattoo.
+*Avoid*: config, system prompt, seed data (it is graph, not scaffolding)
+
 **Earmarked** (the):
 The **harm-bearing subset of the Cortex** — the nodes marked important enough that contradictions in them
 must be **settled by a human** (Voz), not left to rot or decided by rule alone. Defined by **harm potential**,
@@ -113,13 +131,22 @@ project's "replace the code with the wiki").
 **Direction**:
 The mentee's current direction the edge aligns its work to — phase, priorities, constraints,
 what they are working toward now. **Two tiers, mirroring hypothesis/curated**: **proposed** —
-the grill's strategic achados (the open thread, the next bet, the decision not yet made; the
+the grill's strategic findings (the open thread, the next bet, the decision not yet made; the
 **grill consolidates** these) — and **set** — what the mentee has ratified (Voz owns it, their
 correction always wins). The rendered standing page shows **both tiers**; a proposed thread the
 mentee ratifies is **promoted to set** (superseding it), the same promotion the grill runs on
 knowledge. **Co-produced** but Voz-owned. A **standing page**, projected from the log
 (ADR-0006), never hand-edited. The old `config/strategy.md`, as wiki.
 *Avoid*: strategy, plan, goals, alignment (collides with Convergence)
+
+**Steer**:
+The **unit of Direction movement** — a candidate change declared toward the proposed tier: open a
+new thread, confirm or challenge an existing one, or retire one. Two origins, one shape: an
+**Artefato** declares candidate steers at its end (the decision not yet made), and the **grill**
+surfaces them live (its findings). Only the grill consolidates a steer into `proposed`; only Voz
+promotes `proposed`→`set`. A steer is **addressable** — it can be cited, confirmed, contested —
+which is what makes Direction two-tier rather than a wishlist.
+*Avoid*: achado (translated — use finding), suggestion, recommendation, todo
 
 **Idiom**:
 The mentee's own language — their terms and meanings, kept so the edge frames work in their
@@ -146,6 +173,20 @@ strategic realignment (a `Direction` change) has a wide blast radius and can be 
 Accuracy is **not the end**: the edge converges so it can **orient the mentee** — a precise model
 is the precondition for worthwhile mentorship, not a goal in itself.
 *Avoid*: sync, alignment
+
+**Genotype**:
+The shared, **subject-blind** code that propagates across installs (clone → PR → merge →
+propagate). Carries **no identity by design** — no install's name, group, or key may live in it;
+identity arrives only at install-time. The grep-gate (zero install-identity literals in `tools/`)
+is its conformance check.
+*Avoid*: the repo, the codebase, template (it is alive and propagating, not a starting point)
+
+**Install**:
+One living instance of the genotype serving one mentee — its own **identity** (`EDGE_GROUP`),
+corpus, state, and Direction, even when the substrate (graph, host) is shared and split by
+`group_id`. Three today: ed, petertosh, roberto. Absent identity **fails loud**, never defaults —
+an install that has not declared who it is must not write as anyone.
+*Avoid*: instance, deployment, clone (the act, not the thing), agent (overloaded)
 
 ## Knowledge intake / Entrada de conhecimento
 
@@ -268,12 +309,24 @@ residual to Voz** by harm potential. Detects; the rule or the mentee resolves �
 judgment in code. The detector half of `Convergence`.
 *Avoid*: validator, linter, cleanup
 
+**Grill**:
+The edge's **sole curation act** — the live mentor turn where **every promotion happens**:
+hypothesis→curated, `proposed`→`set`, cluster shaping, source-opinion distillation. No other act
+may write the curated tier. **Evidence-first**: observe and verify in silence, ask only the
+residual the evidence cannot reach; prioritized by **harm potential**, never exhaustive.
+**Two-faced by design**: inward it consolidates the model (the resolver half of `Convergence`,
+to Lint's detector half); outward it **generates orientation** from that accuracy. It clarifies
+rather than resolves — it sharpens the path and **queues the next Artefato, never produces one
+in-session**.
+*Avoid*: review, interview, approval, consolidation (one of its faces, not the whole)
+
 ## Beat lifecycle / Ciclo do beat
 
 > A **dispatch** runs as cognitions in fresh contexts (ADR-0004), inside the single dispatch
-> (ADR-0003). The heartbeat beat is the maximal case (three subagents around one judgment loop);
-> a standalone skill wraps fewer. Named so each stays faithful to one task without competing for
-> the main window.
+> (ADR-0003). The beat is a **pure round-robin scheduler** over the producer-skills (ADR-0012) —
+> judgment was evacuated from the loop into the **producer**, and every producer funnels through
+> **one shared pipeline** whose **close** gates the genus. Named so each stays faithful to one
+> task without competing for the main window.
 
 **Dispatch**:
 Any ed-skill invocation — the heartbeat's `/ed-beat`, or a manual `/ed-report`, `/ed-grill`, etc.
@@ -283,6 +336,33 @@ at close — so a **manual `/ed-report` dispatch leaves the same durable residue
 beat**; they differ only in the cognition wrapped (a full judgment loop vs a single Artefato),
 never in the lifecycle around it. The lifecycle belongs to the **dispatch**, not to the beat skill.
 *Avoid*: beat (it is one shell, not the lifecycle), run, invocation
+
+**Beat / Heartbeat** *(synonyms)*:
+The edge's **autonomous pulse** — the cron-fired dispatch (today every 3h) whose loop is a **pure
+round-robin scheduler** over the producer-skills: it carries **only rotation state** (whose turn
+it is), never judgment (ADR-0012 evacuated it from the loop: **breadth comes from rotation, aim
+from Direction — exercised inside the producer**, never here). The moment does not jump the queue.
+Its **cadence is the edge's only spend dial**: cost is tuned by frequency, never by depth — a beat
+is always full-depth (plumbing + rich rite are a floor, not a dial).
+*Avoid*: judgment loop (the old ADR-0004 shape — superseded), lifecycle (that belongs to the
+dispatch), cron (the mechanism, not the concept)
+
+**Wake**:
+Coming online **under command** — the beat's open without its act. Fan the **three briefs**
+(**assemble** in its `/load` aperture + **delta** + **recall**, ADR-0014), render the orientation,
+then **halt**: read-only, no Artefato, no state written; the next move is the operator's word. The
+briefs are the three views: **assemble** the curated self-state, **delta** the world's new,
+**recall** the Cortex's salient — the edge wakes *to itself first* and navigates deeper on demand.
+Distinct from the autonomous beat, which opens identically and then acts.
+*Avoid*: boot, resume, load (the trigger, not the mode), beat-without-artefato (the halt is the
+contract, not a missing step)
+
+**Producer-skill / Producer**:
+A skill that yields **one Artefato in its form** — the roster today: `report`, `research`, `map`,
+`plan`, `discovery`. When its turn comes **the producer** points itself at the most Worthwhile theme
+against Direction + the delta, produces, and exits through the shared pipeline's **close**.
+Theme-choice and production live here, never in the beat.
+*Avoid*: generator, template, cognition (every subagent is one; this is the Artefato-yielding kind)
 
 **Assemble / Consolidação prévia**:
 The opening primitive (**blocking**). It runs the **digestion sweep to currency** — an idempotent,
@@ -307,6 +387,25 @@ no `consolidate→assemble` race. The only close-time act is the thin **intent k
 by whoever lived the session. The word **consolidate** now means only **Hypothesis consolidation**
 (the grill's curation), never a lifecycle close.
 *Avoid*: postflight, save, the 1905-line consolidate-state, posterior close subagent
+
+**Close**:
+The **fixed exit gate of the shared pipeline** every producer funnels through — review (blind:
+the gates see the final text + cites only, and check each **property anywhere, never a named
+section** — ADR-0013) → improve (wired **re-production**: a strike revises the draft rather than
+dead-ending it) → publish (atomic, with the **intent kernel**). **Strikes gate; the weighted
+score is advisory.** Runs at every producer's exit — round-robin is for the producers; the close
+is the gate they share.
+*Avoid*: postflight, consolidate (dissolved — ADR-0008), review (one stage of it)
+
+**Rich rite / Rito rico**:
+The genus floor on the **cognitive moves**: a developed Artefato must show — **anywhere** in the
+text, never as named sections — a **derivation from first principles**, a marked **"what I don't
+know"**, an **outside benchmark/frame**, and the **lineage**. The moves *generate* richness;
+length and figures are its shadow — so the floor is **content-relative, never a word-count**.
+Enforced in the close's genus check as `rich-rite:<move>` strikes, with re-production wired so a
+shallow draft is deepened, not rejected. The worthwhile-test has this floor: quality cannot be
+judged below working plumbing + a rich rite.
+*Avoid*: word-count floor, template, section mandate, completeness checklist
 
 **Briefing**:
 The composite orientation the edge **presents to the agent every time it is loaded to act** (at
