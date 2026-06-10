@@ -72,5 +72,10 @@ after project-in-publisher and recall-push).
   not that the world cooperated.
 - One-beat lag accepted: a stamp is per-dispatch; long operator sessions that publish twice need
   two wakes (re-running the driver is idempotent and cheap).
+- Concurrent dispatches sharing one log (operator + heartbeat in parallel) can consume each
+  other's stamp: A and B both stamp, A publishes, B's older stamp is now stale and B's publish
+  refuses. Accepted: the race is rare, the refusal is loud and names the remedy, and re-running
+  the driver recovers (idempotent). Per-dispatch stamp identity is the known hardening if the
+  race ever becomes frequent.
 - The skills now lag this ADR (build follows): `predispatch.py` + the `close.py` check + entry
   snippets in the producer SKILL.md set + provision re-render.
