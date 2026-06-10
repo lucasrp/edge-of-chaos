@@ -1,25 +1,23 @@
-@import url('https://fonts.googleapis.com/css2?family=Libre+Franklin:ital,wght@0,100..900;1,100..900&display=swap');
-
 :root {
-  /* Brand colors */
-  --brand-blue: #26247B;
-  --brand-green: #008C44;
-  --brand-yellow: #FFCB05;
+  /* Neutral accent (brand deferred — config/branding.yaml later) */
+  --brand-blue: #334155;
+  --brand-green: #475569;
+  --brand-yellow: #64748B;
 
-  /* Web blues */
-  --brand-web-blue: #1C519B;
-  --brand-web-blue-dark: #1A3560;
-  --brand-logo-blue: #26145F;
+  /* Neutral accents (formerly the web-blue scale — same names, neutral values) */
+  --brand-web-blue: #475569;
+  --brand-web-blue-dark: #334155;
+  --brand-logo-blue: #1E293B;
 
-  /* Escala de azul */
-  --blue-50: #F2F6FD;
-  --blue-100: #E1EAFB;
-  --blue-200: #C3D5F7;
-  --blue-600: #1C519B;
-  --blue-700: #1A3560;
-  --blue-800: #1B3158;
-  --blue-900: #1C2C4A;
-  --blue-950: #112240;
+  /* Neutral accent scale (formerly "escala de azul" — same names, slate values) */
+  --blue-50: #F8FAFC;
+  --blue-100: #F1F5F9;
+  --blue-200: #E2E8F0;
+  --blue-600: #475569;
+  --blue-700: #334155;
+  --blue-800: #1E293B;
+  --blue-900: #0F172A;
+  --blue-950: #020617;
 
   /* Escala de cinza */
   --gray-50: #F9FAFB;
@@ -34,7 +32,7 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  font-family: 'Libre Franklin', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 15px;
   line-height: 1.6;
   color: var(--gray-700);
@@ -62,14 +60,6 @@ body {
   height: auto;
 }
 
-/* Forçar logo branco no header escuro */
-.header-content .logo svg path {
-  fill: white;
-}
-/* Manter cores do emblema */
-.header-content .logo svg path[fill="#F8C300"] { fill: #F8C300; }
-.header-content .logo svg path[fill="#007A37"] { fill: #007A37; }
-
 .header-text h1 {
   font-size: 28px;
   font-weight: 700;
@@ -81,11 +71,6 @@ body {
   font-size: 16px;
   font-weight: 400;
   color: rgba(255,255,255,0.92);
-}
-
-.header-stripe {
-  height: 4px;
-  background: linear-gradient(to right, var(--brand-green), var(--brand-yellow), var(--brand-web-blue));
 }
 
 /* --- MAIN CONTENT --- */
@@ -107,14 +92,6 @@ body {
   border-bottom: 2px solid var(--blue-200);
   padding-bottom: 8px;
   margin-bottom: 20px;
-}
-
-.section-lead {
-  font-size: 16px;
-  line-height: 1.7;
-  color: var(--gray-700);
-  margin: -4px 0 18px;
-  max-width: 860px;
 }
 
 .subsection-title {
@@ -236,7 +213,7 @@ tbody tr:hover {
 }
 
 .callout-info    { background: var(--blue-50); border-color: var(--brand-web-blue); }
-.callout-success { background: #DEF7EC; border-color: var(--brand-green); }
+.callout-success { background: #DEF7EC; border-color: #03543F; }
 .callout-warning { background: #FDF6B2; border-color: #D69E2E; }
 .callout-danger  { background: #FDE8E8; border-color: #E53E3E; }
 
@@ -389,7 +366,7 @@ td.cell-partial { background: #FDF6B2; }
   font-weight: 600;
   color: var(--gray-700);
   border-bottom: 1px solid var(--gray-200);
-  font-family: 'Libre Franklin', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
 }
 
@@ -758,7 +735,6 @@ a:hover {
 @media print {
   body { background: white; }
   .report-header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .header-stripe { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .report-content { padding: 20px; }
   .card { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }
   table { page-break-inside: avoid; }
