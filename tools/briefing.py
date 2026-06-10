@@ -25,10 +25,6 @@ STATE = REPO / "state"
 
 KIND_ORDER = ["phase", "priority", "constraint", "thread"]
 
-# recall-push (#30): the SALIENT slice — cap the artefatos pushed into the briefing so it does not
-# grow with the whole corpus (Codex P2). A small, most-recent slice; recall MORE on demand.
-RECALL_ARTEFATO_LIMIT = 8
-
 # The identity fields the genotype CANNOT compose without — a thin agent.yaml that omits any of
 # these is a lobotomy (ADR-0009), not a valid install. The personality `.tpl` substitutes them.
 REQUIRED_IDENTITY = ["name", "mission", "voice"]
@@ -144,81 +140,6 @@ def graph_clusters(group=None, uri=None, user=None, password=None):
         except Exception:
             pass
     return out
-
-
-def recall_subgraph(group=None, uri=None, user=None, password=None):
-    """Recall-push (#30): read the SALIENT SUBGRAPH of the edge's own memory — space-0 (the
-    :Genesis identity root) → the Objective → the active Directions (bets) → the salient Artefatos
-    (most recent, slug+kernel) → the clusters they DISTILL — and return it so `compose_briefing`
-    can PUSH it into the briefing. The producer then wakes with its own memory already in front of
-    it (recall-push), rather than depending on remembering to recall (the dormant g.search() tale).
-
-    Mirrors `graph_clusters` exactly: returns a dict
-    ``{"codename","voice","objective","bets":[...],"artefatos":[{"slug","kernel"}],"clusters":[...]}``
-    on success; **None** on a genuine degrade — no group, the neo4j driver absent, or the graph
-    unreachable. NEVER raises (CONTRACT C1, ADR-0011: a transient outage darkens only this leg).
-    The recall cypher is the space-0 traversal from `skills/_shared/memory.md`."""
-    if not group:
-        return None
-    uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
-    user = user or os.environ.get("EDGE_NEO4J_USER", "neo4j")
-    password = password or os.environ.get("EDGE_NEO4J_PASSWORD") or _identity.neo4j_password()
-    try:
-        from neo4j import GraphDatabase
-    except Exception:
-        return None
-    try:
-        drv = GraphDatabase.driver(uri, auth=(user, password))
-    except Exception:
-        return None
-    try:
-        with drv.session() as s:
-            # space-0 → objective → bets (active ANCHORS only) — the spine head
-            head = s.run(
-                "MATCH (gen:Genesis {group_id:$g}) "
-                "OPTIONAL MATCH (gen)-[:GROUNDS]->(o:Objective {group_id:$g}) "
-                "OPTIONAL MATCH (o)-[:ANCHORS]->(d:Direction {group_id:$g}) "
-                "RETURN gen.codename AS codename, gen.voice AS voice, o.body AS objective, "
-                "collect(DISTINCT d.body) AS bets", g=group).single()
-            if head is None:
-                return {"codename": None, "voice": None, "objective": None,
-                        "bets": [], "artefatos": [], "clusters": []}
-            # salient Artefatos (MOST RECENT, capped) + the clusters they DISTILL — reached via
-            # SERVES. Push ONLY COMPLETE projections (Codex P2): `projection_complete = true` so a
-            # half-projected node (an outage mid-rebuild — stale kernel / missing DISTILLS) is NOT
-            # surfaced as reliable memory; recovery replays it, and the next briefing picks it up once
-            # complete. Order by `projected_at` (recency) DESC and LIMIT to the salient slice, so the
-            # briefing does NOT grow with the whole corpus. Legacy nodes sort last (coalesce to '').
-            arts = s.run(
-                "MATCH (a:Artefato {group_id:$g})-[:SERVES]->(:Objective {group_id:$g}) "
-                "WHERE a.projection_complete = true "
-                "RETURN a.slug AS slug, a.kernel AS kernel "
-                "ORDER BY coalesce(a.projected_at,'') DESC, a.slug LIMIT $lim",
-                g=group, lim=RECALL_ARTEFATO_LIMIT).data()
-            # clusters derived from the SAME salient slice (Codex P2): only the clusters the pushed
-            # artefatos distill, not every Artefato in the group — so the recall stays salient and
-            # does not grow with the whole corpus. ACTIVE clusters only (Codex P2): mirror
-            # graph_clusters/the projection resolver — a stale DISTILLS edge to a later-archived/merged
-            # cluster must NOT surface a retired cluster in the briefing.
-            slugs = [a["slug"] for a in arts]
-            clusters = [r["l"] for r in s.run(
-                "MATCH (a:Artefato {group_id:$g})-[:DISTILLS]->(e:Entity {group_id:$g}) "
-                "WHERE a.slug IN $slugs AND e.curated_cluster IS NOT NULL "
-                "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
-                "RETURN DISTINCT e.curated_cluster AS l ORDER BY l", g=group, slugs=slugs)]
-            return {
-                "codename": head["codename"], "voice": head["voice"],
-                "objective": head["objective"], "bets": [b for b in head["bets"] if b],
-                "artefatos": [{"slug": a["slug"], "kernel": a.get("kernel")} for a in arts],
-                "clusters": clusters,
-            }
-    except Exception:
-        return None
-    finally:
-        try:
-            drv.close()
-        except Exception:
-            pass
 
 
 def _render_direction_items(items):
@@ -358,40 +279,6 @@ def _section_recap(recap):
     return f"## 6. Recap\n\n{body}"
 
 
-def _section_recall(subgraph):
-    """Recall-push (#30) — the salient subgraph of the edge's OWN memory, PUSHED into the briefing
-    so the producer wakes with it in front (not depending on remembering to recall). ADDITIVE: a
-    new section, the rest of the briefing unchanged. Begins at SPACE 0 (the :Genesis identity root),
-    then objective → bets → salient artefatos → clusters. None → a dark-leg marker (graph offline /
-    no group); the briefing still composes (never fatal). Recall MORE on demand via
-    skills/_shared/memory.md (semantic + structural traversal beyond this pushed slice)."""
-    if subgraph is None:
-        return ("## 7. Recall — your own memory (pushed)\n\n"
-                "_Recall leg DARK (graph offline or no group) — the salient subgraph could not be "
-                "pushed this wake. You still hold the full briefing above; recall MORE on demand "
-                "from your own graph (`skills/_shared/memory.md`) when the graph is reachable._")
-    parts = ["## 7. Recall — your own memory (pushed)",
-             "_Begin at **space 0** (your :Genesis identity — method + personality). This salient "
-             "subgraph is PUSHED so you wake holding your own memory; recall MORE on demand "
-             "(`skills/_shared/memory.md`: structural traversal + semantic search of past Artefatos)._"]
-    cn, voice = subgraph.get("codename"), subgraph.get("voice")
-    if cn or voice:
-        parts.append(f"- **space-0 (identity):** {cn or '_codename_'}" + (f" — {voice}" if voice else ""))
-    obj = subgraph.get("objective")
-    parts.append(f"- **Objective (the hub):** {obj}" if obj else "- **Objective (the hub):** _none projected yet_")
-    bets = subgraph.get("bets") or []
-    parts.append("- **Active bets (Directions):** " + ("; ".join(bets) if bets else "_none anchored_"))
-    arts = subgraph.get("artefatos") or []
-    if arts:
-        lines = "\n".join(f"  - **{a['slug']}** — {a.get('kernel') or '_no kernel_'}" for a in arts)
-        parts.append("- **Salient Artefatos (build on, don't repeat):**\n" + lines)
-    else:
-        parts.append("- **Salient Artefatos:** _none projected yet_")
-    clusters = subgraph.get("clusters") or []
-    parts.append("- **Distilled clusters:** " + ("; ".join(clusters) if clusters else "_none yet_"))
-    return "\n".join(parts)
-
-
 BANNER = ("<!-- generated by tools/briefing.py — Memento's tattoo (ADR-0009); "
           "load-bearing lines inscribed from the log, only the Recap synthesized fresh -->")
 
@@ -512,7 +399,7 @@ _AUTO = object()  # sentinel: "fetch clusters for me" vs an explicit None ("I ha
 
 
 def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None, ts=None, group=None,
-                     agent_yaml=AGENT_YAML, memory=MEMORY, subgraph=_AUTO):
+                     agent_yaml=AGENT_YAML, memory=MEMORY):
     """Render the briefing (Memento's tattoo) as one markdown string, from the log. Deterministic:
     sections in tattoo priority (load-bearing first). Cursor-aware (seq/ts) like the folds it reads.
     The genotype-identity head (Personality, Method, Idiom, the declared Source roster) is
@@ -521,25 +408,17 @@ def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None,
     source_roster() (reads agent.yaml); pass it explicitly (e.g. []) to keep compose_briefing a
     pure composer (tests, Tier-0). `clusters` is the Facts leg: left unset, it navigates the Cortex
     for `group` (defaults to EDGE_GROUP) via graph_clusters() and degrades to None on outage.
-    `subgraph` is the recall-push leg (#30): left unset, it auto-fetches the salient subgraph via
-    recall_subgraph() (ONLY when `clusters` was also auto — a caller that pinned clusters keeps the
-    briefing hermetic and passes subgraph explicitly when wanted) and degrades to None on outage.
-    The recall-push section is ADDITIVE — the full briefing above is unchanged."""
+    The memory-salient view is NOT a section here: recall is a third independent brief, peer to
+    this one (ADR-0014, `tools/recall.py:compose_recall_brief`) — the briefing's four parts only."""
     if roster is None:
         roster = source_roster(agent_yaml=agent_yaml)
-    clusters_was_auto = clusters is _AUTO
     # resolve the group LAZILY — only when an auto-fetch actually needs it (Codex P3): a caller that
-    # pinned BOTH clusters and subgraph (Tier-0 / custom-agent tests) must stay hermetic and not
-    # trigger a default identity lookup that could read the wrong install or fail.
+    # pinned clusters (Tier-0 / custom-agent tests) must stay hermetic and not trigger a default
+    # identity lookup that could read the wrong install or fail.
     def _group():
         return group if group is not None else (os.environ.get("EDGE_GROUP") or _identity.group())
     if clusters is _AUTO:
         clusters = graph_clusters(_group())
-    if subgraph is _AUTO:
-        # recall-push (#30): auto-fetch the salient subgraph ONLY when the caller did not opt out
-        # of graph fetches (clusters is _AUTO). A caller that pinned clusters (tests, Tier-0) keeps
-        # the briefing hermetic — they pass subgraph explicitly when they want it.
-        subgraph = recall_subgraph(_group()) if clusters_was_auto else None
     corpus = corpus_at(seq=seq, ts=ts, log=log)
     parts = [
         BANNER + "\n# Briefing — orient entirely from here",
@@ -553,6 +432,5 @@ def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None,
         _section_sources(log, seq, ts, roster),
         _section_clusters(clusters),
         _section_recap(recap),
-        _section_recall(subgraph),
     ]
     return "\n\n".join(parts) + "\n"

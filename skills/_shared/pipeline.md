@@ -12,9 +12,11 @@ directly.
 
 ## The three phases
 
-1. **pre-dispatch — assemble + delta.** Before the producer reasons, the pipeline assembles the
-   briefing (the prior consolidated state, Memento's tattoo) and reads the world delta (what is
-   new at the source keys). This is wake-context injection, not production.
+1. **pre-dispatch — assemble + delta + recall (ADR-0014).** Before the producer reasons, the
+   pipeline assembles the briefing (the prior consolidated state, Memento's tattoo), reads the
+   world delta (what is new at the source keys), and renders the recall brief (the memory-salient
+   subgraph of the Cortex, rooted at space-0 — `skills/recall`, never fused with delta). Three
+   views, three subjects, three faithful agents. This is wake-context injection, not production.
 
 2. **producer-loop — the scaffold.** The producer fills the three role-defined slots of the
    shared scaffold (`skills/_shared/scaffold.md`): loop1 (`gather-grounding`: explorers →

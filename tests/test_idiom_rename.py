@@ -26,8 +26,12 @@ GLOSSARY_HEADER = re.compile(r"^\*\*[^*]+\*\*:\s*$", re.MULTILINE)
 
 # Count captured at test-write time, AFTER auditing CONTEXT.md: 30 headers.
 # CONTEXT.md does not define ``insumos`` as a glossary entry, so the rename
-# touches no header here; this number must stay put.
-EXPECTED_GLOSSARY_COUNT = 30
+# touches no header here. The fence is against ACCIDENTAL drift: a deliberate,
+# Voz-ratified glossary change bumps this pin in the same commit.
+# 2026-06-10 glossary grill (+10): Beat/Heartbeat, Producer-skill, Close,
+# Rich rite, Grill, Genotype, Install, Steer, Wake, Recall, Space-0 (Wake and
+# Recall share the grill; Dispatch header count net unchanged) → 40.
+EXPECTED_GLOSSARY_COUNT = 40
 
 
 def _glossary_header_count(text):
