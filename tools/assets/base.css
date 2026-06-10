@@ -731,6 +731,118 @@ a:hover {
   text-decoration: underline;
 }
 
+/* --- ARTICLE FRAME ---
+   The publisher emits `<article class="report">` directly under <body> with no
+   container element, so without these rules the text runs full-bleed on wide
+   screens and the slug-derived <h1> / <p class="meta"> render unstyled. All
+   rules are scoped to article.report: pages that embed the component classes
+   in another shell are untouched. */
+html {
+  scroll-behavior: smooth;
+}
+
+article.report {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 40px;
+  counter-reset: report-section;
+}
+
+article.report > h1 {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--blue-900);
+  margin-bottom: 4px;
+}
+
+/* Slug-derived titles arrive all-lowercase; sentence-case at display time. */
+article.report > h1::first-letter {
+  text-transform: uppercase;
+}
+
+article.report > .meta {
+  font-size: 14px;
+  color: var(--gray-500);
+  padding-bottom: 16px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+/* Numbered sections: in-text cross-references ("seção 5") stay resolvable
+   without touching content, and the numbers match the generated Sumário. */
+article.report .section-title {
+  counter-increment: report-section;
+  scroll-margin-top: 16px;
+}
+
+article.report .section-title::before {
+  content: counter(report-section) ". ";
+  color: var(--blue-600);
+}
+
+/* --- TABLE OF CONTENTS (injected by page.js when the report has 3+ sections) --- */
+.report-toc {
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 32px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+.report-toc-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gray-500);
+  margin-bottom: 8px;
+}
+
+.report-toc ol {
+  margin: 0;
+  padding-left: 24px;
+  font-size: 14px;
+  line-height: 1.9;
+}
+
+/* --- DIFF TINT (page.js, display-only) ---
+   Plain <pre> patches get per-line tinting reusing the diff palette. Block
+   spans so each line carries its own background. */
+pre .diff-line-add    { display: block; background: #DCFCE7; color: #14532D; }
+pre .diff-line-del    { display: block; background: #FEE2E2; color: #7F1D1D; }
+pre .diff-line-meta   { display: block; color: var(--gray-500); font-weight: 600; }
+
+/* --- LIGHTBOX (page.js) --- */
+article.report figure img {
+  cursor: zoom-in;
+}
+
+.report-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
+}
+
+.report-lightbox img {
+  max-width: 95vw;
+  max-height: 95vh;
+  border-radius: 6px;
+}
+
+/* --- RESPONSIVE --- */
+@media (max-width: 720px) {
+  article.report { padding: 24px 16px; }
+  article.report > h1 { font-size: 24px; }
+}
+
 /* --- PRINT --- */
 @media print {
   body { background: white; }
@@ -744,4 +856,6 @@ a:hover {
   .diff-insert, .diff-delete { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .metric-card { break-inside: avoid; }
   .next-step-card { break-inside: avoid; }
+  article.report { max-width: none; padding: 20px; }
+  pre .diff-line-add, pre .diff-line-del { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }

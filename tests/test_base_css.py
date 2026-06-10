@@ -38,5 +38,22 @@ class NeutralizedNoBrand(unittest.TestCase):
                         "system font stack missing")
 
 
+class PageFrame(unittest.TestCase):
+    """The page-level frame: the publisher emits `<article class="report">` bare
+    under <body>, so base.css must give it a reading column, a styled title/meta,
+    CSS section numbering, and the hooks page.js decorates (sumário, lightbox,
+    diff tint). All scoped to article.report — component classes embedded in
+    another shell are untouched."""
+
+    def test_article_frame_and_enhancement_hooks_present(self):
+        css = CSS.read_text()
+        for token in ("article.report", "counter(report-section)",
+                      ".report-toc", ".report-lightbox",
+                      ".diff-line-add", ".diff-line-del"):
+            self.assertIn(token, css, f"page-frame style missing: {token!r}")
+        # the frame must not reintroduce remote resources
+        self.assertNotIn("@import", css)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
