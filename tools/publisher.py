@@ -437,6 +437,13 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     page (#4). Returns the written page Path. `date` is a param (defaults to today) so tests pin
     it; `embed_fn` is injectable so the source-signal step runs offline.
     """
+    # ADR-0016 FIRST — no wake, no publish: the refusal names the real gap (`no-wake`), not a
+    # proof error. The stamp is checked on the SAME log this publish would commit to.
+    if not eventlog.wake_fresh(log=log):
+        raise RuntimeError(
+            f"no-wake: cannot publish {slug!r} — no dispatch.open newer than the last "
+            "artefato.published on this log (ADR-0016: run tools/predispatch.py at dispatch "
+            "entry; one wake per publish)")
     verify_proof(verdict, slug=slug, spec=spec, intent=intent,
                  cites=cites or [], proposes=proposes or [],
                  distills=distills, skill=skill)

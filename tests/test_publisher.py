@@ -22,18 +22,29 @@ import eventlog  # noqa: E402
 import publisher  # noqa: E402
 
 _REAL_PROJECT = publisher.project_artefato
+_REAL_PUBLISH = publisher.publish
 
 
 def setUpModule():
     """Keep the whole module OFFLINE: the default project_fn now connects to the LIVE graph, so a
     publish in a test with a temp log would project a test Artefato into the install graph (Codex
     P2 / pollution). Neutralize the default projection to a no-op for every test that does not
-    inject its own project_fn; the dedicated projection tests inject a fake or restore the real one."""
+    inject its own project_fn; the dedicated projection tests inject a fake or restore the real one.
+
+    ADR-0016: every publish now requires a fresh wake stamp (no wake, no publish). These tests
+    exercise the publisher's OTHER seams, so the harness stamps the wake on each call's log —
+    the no-wake gate itself is covered in tests/test_predispatch.py."""
     publisher.project_artefato = lambda *a, **k: None
+
+    def stamped_publish(*a, **kw):
+        eventlog.dispatch_open(log=kw.get("log", eventlog.LOG))
+        return _REAL_PUBLISH(*a, **kw)
+    publisher.publish = stamped_publish
 
 
 def tearDownModule():
     publisher.project_artefato = _REAL_PROJECT
+    publisher.publish = _REAL_PUBLISH
 
 
 def _fake_embed(text):

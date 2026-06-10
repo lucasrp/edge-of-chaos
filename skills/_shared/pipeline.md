@@ -12,11 +12,20 @@ directly.
 
 ## The three phases
 
-1. **pre-dispatch — assemble + delta + recall (ADR-0014).** Before the producer reasons, the
-   pipeline assembles the briefing (the prior consolidated state, Memento's tattoo), reads the
-   world delta (what is new at the source keys), and renders the recall brief (the memory-salient
-   subgraph of the Cortex, rooted at space-0 — `skills/recall`, never fused with delta). Three
-   views, three subjects, three faithful agents. This is wake-context injection, not production.
+1. **pre-dispatch — assemble + delta + recall (ADR-0014), mechanically enforced (ADR-0016).**
+   Before the producer reasons, the pipeline assembles the briefing (the prior consolidated
+   state, Memento's tattoo), reads the world delta (what is new at the source keys), and renders
+   the recall brief (the memory-salient subgraph of the Cortex, rooted at space-0 —
+   `skills/recall`, never fused with delta). Three views, three subjects, three faithful agents.
+   This is wake-context injection, not production. **The mechanical floor is the entry-driver**:
+
+       tools/edge-python tools/predispatch.py
+
+   It sweeps to currency (fail-loud store, ADR-0015), composes the briefing + the recall brief,
+   and stamps **`dispatch.open`** in the log. The stamp is the teeth: the publisher refuses to
+   publish without a `dispatch.open` newer than the last `artefato.published` — **no wake, no
+   publish**. Skipping this step dead-ends at the close. Delta stays agentic and is never
+   stamped nor gated (ADR-0001/0011).
 
 2. **producer-loop — the scaffold.** The producer fills the three role-defined slots of the
    shared scaffold (`skills/_shared/scaffold.md`): loop1 (`gather-grounding`: explorers →

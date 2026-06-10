@@ -17,6 +17,18 @@ cognition, fill its three role-defined slots (below), and exit through the share
 `skills/_shared/pipeline.md`. The research-specifics — what a cite, an explorer, a derivation mean for
 *this* form — live HERE, never in the shared scaffold.
 
+## Wake first — the entry-driver (ADR-0016, mechanical)
+
+Before any reasoning, run the mechanical pre-dispatch floor and read its two briefs:
+
+    tools/edge-python tools/predispatch.py
+
+It sweeps the transcript store to currency (fail-loud, ADR-0015), prints the **briefing** and the
+**recall brief**, and stamps `dispatch.open` in the log. **No wake, no publish**: the close's
+publisher refuses without a stamp newer than the last `artefato.published` — skipping this step
+dead-ends at publish. (The delta is separate and agentic — fan `skills/delta` when you judge you
+need the world; it never gates.)
+
 ## Slot mapping — research's fill of the shared role-slots
 
 The scaffold names three role-defined slots; research maps each to its directed-deep-dive form:

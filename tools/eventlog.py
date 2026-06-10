@@ -297,6 +297,24 @@ def require_kernels(log=LOG):
         raise ValueError(f"artefatos published without an intent kernel (C3): {bare}")
 
 
+def dispatch_open(payload=None, log=LOG):
+    """Append a `dispatch.open` event — the wake stamp (ADR-0016). Written by the entry-driver
+    (tools/predispatch.py) after the mechanical pre-dispatch floor lands (sweep → briefing →
+    recall brief). The payload carries the sweep yield (the read-side metric the Direction wants
+    instrumented). The publisher refuses to publish without a stamp newer than the last
+    `artefato.published` — no wake, no publish."""
+    return append("dispatch.open", "dispatch", payload or {}, log=log)
+
+
+def wake_fresh(log=LOG):
+    """True when a `dispatch.open` is newer than the last `artefato.published` (ADR-0016) — one
+    wake per publish; a stamp is consumed by the publish it precedes and cannot be reused."""
+    evs = read(types=["dispatch.open", "artefato.published"], log=log)
+    last_open = max((e["seq"] for e in evs if e["type"] == "dispatch.open"), default=None)
+    last_pub = max((e["seq"] for e in evs if e["type"] == "artefato.published"), default=None)
+    return last_open is not None and (last_pub is None or last_open > last_pub)
+
+
 def source_signal(slug, ref, kind, similarity, log=LOG):
     """Append a `source.signal` event (ADR-0009, source-feedback hypothesis tier). The **score**
     lands in the log — the cosine of a cited snippet vs the Artefato body — keyed to the cited
