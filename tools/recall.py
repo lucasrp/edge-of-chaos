@@ -22,6 +22,27 @@ import _identity  # noqa: E402
 # (Codex P2). A small, most-recent slice; recall MORE on demand.
 RECALL_ARTEFATO_LIMIT = 8
 
+# The recall cyphers as module constants — the runtime artifacts the salience guards live in
+# (cap, recency order, complete-projections-only, retired-cluster filter), testable as
+# interfaces rather than by grepping function source (review: a comment satisfied the old
+# substring assertions while the live query regressed).
+SPINE_QUERY = (
+    "MATCH (gen:Genesis {group_id:$g}) "
+    "OPTIONAL MATCH (gen)-[:GROUNDS]->(o:Objective {group_id:$g}) "
+    "OPTIONAL MATCH (o)-[:ANCHORS]->(d:Direction {group_id:$g}) "
+    "RETURN gen.codename AS codename, gen.voice AS voice, o.body AS objective, "
+    "collect(DISTINCT d.body) AS bets")
+ARTEFATOS_QUERY = (
+    "MATCH (a:Artefato {group_id:$g})-[:SERVES]->(:Objective {group_id:$g}) "
+    "WHERE a.projection_complete = true "
+    "RETURN a.slug AS slug, a.kernel AS kernel "
+    "ORDER BY coalesce(a.projected_at,'') DESC, a.slug LIMIT $lim")
+CLUSTERS_QUERY = (
+    "MATCH (a:Artefato {group_id:$g})-[:DISTILLS]->(e:Entity {group_id:$g}) "
+    "WHERE a.slug IN $slugs AND e.curated_cluster IS NOT NULL "
+    "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
+    "RETURN DISTINCT e.curated_cluster AS l ORDER BY l")
+
 _AUTO = object()
 
 
@@ -53,38 +74,16 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
     try:
         with drv.session() as s:
             # space-0 → objective → bets (active ANCHORS only) — the spine head
-            head = s.run(
-                "MATCH (gen:Genesis {group_id:$g}) "
-                "OPTIONAL MATCH (gen)-[:GROUNDS]->(o:Objective {group_id:$g}) "
-                "OPTIONAL MATCH (o)-[:ANCHORS]->(d:Direction {group_id:$g}) "
-                "RETURN gen.codename AS codename, gen.voice AS voice, o.body AS objective, "
-                "collect(DISTINCT d.body) AS bets", g=group).single()
+            head = s.run(SPINE_QUERY, g=group).single()
             if head is None:
                 return {"codename": None, "voice": None, "objective": None,
                         "bets": [], "artefatos": [], "clusters": []}
             # salient Artefatos (MOST RECENT, capped) + the clusters they DISTILL — reached via
-            # SERVES. Push ONLY COMPLETE projections (Codex P2): `projection_complete = true` so a
-            # half-projected node (an outage mid-rebuild — stale kernel / missing DISTILLS) is NOT
-            # surfaced as reliable memory; recovery replays it, and the next brief picks it up once
-            # complete. Order by `projected_at` (recency) DESC and LIMIT to the salient slice, so
-            # the brief does NOT grow with the whole corpus. Legacy nodes sort last (coalesce to '').
-            arts = s.run(
-                "MATCH (a:Artefato {group_id:$g})-[:SERVES]->(:Objective {group_id:$g}) "
-                "WHERE a.projection_complete = true "
-                "RETURN a.slug AS slug, a.kernel AS kernel "
-                "ORDER BY coalesce(a.projected_at,'') DESC, a.slug LIMIT $lim",
-                g=group, lim=RECALL_ARTEFATO_LIMIT).data()
-            # clusters derived from the SAME salient slice (Codex P2): only the clusters the pushed
-            # artefatos distill, not every Artefato in the group — so the recall stays salient and
-            # does not grow with the whole corpus. ACTIVE clusters only (Codex P2): mirror
-            # graph_clusters/the projection resolver — a stale DISTILLS edge to a later-archived/
-            # merged cluster must NOT surface a retired cluster in the brief.
+            # SERVES. The salience guards (complete-projections-only, recency order, the cap,
+            # the retired-cluster filter) live in the module-level query constants above.
+            arts = s.run(ARTEFATOS_QUERY, g=group, lim=RECALL_ARTEFATO_LIMIT).data()
             slugs = [a["slug"] for a in arts]
-            clusters = [r["l"] for r in s.run(
-                "MATCH (a:Artefato {group_id:$g})-[:DISTILLS]->(e:Entity {group_id:$g}) "
-                "WHERE a.slug IN $slugs AND e.curated_cluster IS NOT NULL "
-                "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
-                "RETURN DISTINCT e.curated_cluster AS l ORDER BY l", g=group, slugs=slugs)]
+            clusters = [r["l"] for r in s.run(CLUSTERS_QUERY, g=group, slugs=slugs)]
             return {
                 "codename": head["codename"], "voice": head["voice"],
                 "objective": head["objective"], "bets": [b for b in head["bets"] if b],

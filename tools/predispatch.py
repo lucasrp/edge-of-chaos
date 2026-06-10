@@ -14,7 +14,9 @@ not look woken — e.g. the transcript store is missing, ADR-0015). A degraded *
 stamps — the gate proves the wake ran, not that the world cooperated (a graph outage darkens the
 recall brief honestly; `compose_recall_brief` itself never raises, the wrap here is defense in
 depth). A raising briefing compose aborts too: `BriefingIdentityError` is a lobotomized install
-(ADR-0009 fail-closed), not an outage.
+(ADR-0009 fail-closed), not an outage. A crash anywhere in the sweep→stamp gap is safe by the
+same shape: the sweep's effects are durable and idempotent, no stamp means the publisher refuses,
+and re-running this driver recovers.
 """
 import sys
 from pathlib import Path

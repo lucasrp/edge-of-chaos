@@ -135,8 +135,10 @@ def _parse_ts(ts):
 def graphiti_ingest(items):
     """Incremental Graphiti extraction (C2): one episode per session-delta, into THIS install's
     own group (agent.yaml identity, #21). Robust: a per-episode failure is logged and skipped (the
-    others still land); returns the set of session ids that ingested, so `execute` advances only
-    those cursors (the rest retry next sweep)."""
+    others still land). Returns the set of session ids that ingested — INFORMATIONAL: `execute`
+    advances cursors unconditionally (Tier-0 is truth; the episode event is already logged), so a
+    failed graph ingest does NOT retry via the cursor — its episode lives in the log awaiting an
+    episode-replay recovery (a known gap, mirror of publisher.reproject_graph for artefatos)."""
     import asyncio
     from graphiti_core import Graphiti
     from graphiti_core.nodes import EpisodeType
@@ -211,9 +213,12 @@ def reproject():
     if missing:
         print(f"sweep: C3 — {len(missing)} published Artefato(s) without an intent.kernel: "
               f"{', '.join(missing)} — edge work without a recorded intent is incomplete (warning)")
+    # identity resolves OUTSIDE the outage catch (ADR-0015): a missing group must fail loud,
+    # never be swallowed and mislabeled as "the wiki needs Neo4j"
+    group = _identity.require_group()
     try:
         import wiki_render
-        wiki_render.main(_identity.require_group(), str(REPO / "state" / "wiki"), "threads")
+        wiki_render.main(group, str(REPO / "state" / "wiki"), "threads")
     except Exception as e:
         print(f"sweep: wiki render skipped ({type(e).__name__}: {e}) — "
               f"Direction projected from the log; the wiki needs Neo4j")
@@ -239,10 +244,23 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
     graph-recover (ALWAYS). `recent=N` bounds this run to the N newest sessions (the rest backfill on
     later sweeps). Graph recovery runs EVERY sweep, independent of `n` (Codex P2), so a no-delta sweep
     after Neo4j comes back still heals a publish-time-missed projection."""
-    cursors = load_cursors(cursors_path)
-    plan = plan_sweep(project_dir, cursors, recent=recent)
-    cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
-    save_cursors(cursors, cursors_path)
+    # The whole load→plan→execute→save window is serialized by an exclusive flock on a sibling
+    # lockfile (the append_batch/next_producer house pattern) — cursors.json is the one shared
+    # mutable state on a multi-dispatch host (operator + heartbeat): two overlapping sweeps would
+    # otherwise read the same base and append duplicate episode events / clobber each other's
+    # cursor advances (review B1, ADR-0008's idempotency is only real under this lock).
+    import fcntl
+    lock_path = Path(cursors_path).with_name(Path(cursors_path).name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        try:
+            cursors = load_cursors(cursors_path)
+            plan = plan_sweep(project_dir, cursors, recent=recent)
+            cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
+            save_cursors(cursors, cursors_path)
+        finally:
+            fcntl.flock(lk, fcntl.LOCK_UN)
     if n and reproject_fn is not False:
         (reproject_fn or reproject)()
     # graph recovery runs ALWAYS (not under `if n`) — a no-delta sweep still self-heals the graph.

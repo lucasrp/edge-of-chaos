@@ -47,9 +47,13 @@ ADR-0016 (pre-dispatch enforcement — the other half of the same incident).
 
 ## Decision
 
-- `_identity.group(require=True)` — the ONE resolution (env → agent.yaml), raising
-  `IdentityError` when absent; `require=False` callers get `None` and must label their degrade
-  honestly. No caller re-implements the precedence; no module caches the result at import time.
+- `_identity.group()` / `_identity.require_group()` — the ONE resolution (env → agent.yaml), in
+  the house two-function shape: `require_group()` raises (`RuntimeError` naming the gap — the
+  install/write posture), `group()` returns `None` and the caller labels its degrade honestly
+  (the runtime/read posture). *(Amended 2026-06-10 review: originally drafted as
+  `group(require=True)` + `IdentityError`; the shipped two-function form is the pre-existing
+  house API and the tests pin it — same substance, one seam, two postures.)* No caller
+  re-implements the precedence; no module caches the result at import time.
 - `_identity.project_dir()` joins the seam — `EDGE_PROJECT_DIR` env, else derived from the
   running `$HOME` (`-home-<user>` per the Claude store convention); **raises when the resolved
   directory does not exist**. "Nothing new" is reserved for a real store with no new lines.

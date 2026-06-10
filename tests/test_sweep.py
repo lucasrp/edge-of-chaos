@@ -75,6 +75,74 @@ class MalformedTranscriptLinesAreSkipped(unittest.TestCase):
                              "the valid turns around the corrupt line must survive")
 
 
+class RunIsSerializedByTheCursorLock(unittest.TestCase):
+    """Codex/Opus review B1 — cursors.json is shared mutable state on a multi-dispatch host
+    (operator + heartbeat): run() must hold an exclusive flock on the cursors lockfile for the
+    whole load->execute->save window, so two overlapping sweeps cannot read the same base and
+    append duplicate episode events / clobber each other's cursor advances."""
+
+    def test_run_blocks_on_an_externally_held_lock(self):
+        import fcntl
+        import threading
+        import time
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
+            write_session(proj, "sessA")
+            cursors_path = Path(st) / "cursors.json"
+            log = Path(st) / "log.jsonl"
+            lock = cursors_path.with_name(cursors_path.name + ".lock")
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            done = []
+            def go():
+                sweep.run(proj, ingest_fn=lambda items: set(), cursors_path=cursors_path,
+                          reproject_fn=False, log=log, graph_recover_fn=False)
+                done.append(True)
+            with lock.open("w") as lk:
+                fcntl.flock(lk, fcntl.LOCK_EX)
+                t = threading.Thread(target=go, daemon=True)
+                t.start()
+                time.sleep(0.5)
+                self.assertEqual(done, [], "run() must block while the cursor lock is held")
+                fcntl.flock(lk, fcntl.LOCK_UN)
+            t.join(timeout=10)
+            self.assertEqual(done, [True], "run() must proceed once the lock is released")
+            evs = eventlog.read(types=["episode"], log=log)
+            self.assertEqual(len(evs), 1)
+
+
+class TruncatedTailDoesNotAdvanceTheWatermark(unittest.TestCase):
+    """Opus review S3 — a transiently-truncated FINAL line (a session being flushed mid-sweep)
+    must not be consumed by the watermark: when the writer completes it, the next sweep must
+    re-read it. (A corrupt INTERIOR line is a crashed writer: dropped and consumed — ee26a48.)"""
+
+    def test_tail_truncation_is_reread_once_completed(self):
+        with tempfile.TemporaryDirectory() as proj:
+            p = write_session(proj, "sessA", n_human=2)
+            complete = p.read_text()
+            p.write_text(complete + '{"type": "user", "message": {"content": TRUNC')  # mid-flush
+            plan = sweep.plan_sweep(proj, {})
+            wm = plan[0]["watermark"]
+            # now the writer finishes the line
+            full_line = '{"type": "user", "message": {"content": "' + BODY + '"}}'
+            p.write_text(complete + full_line + "\n")
+            plan2 = sweep.plan_sweep(proj, {"sessA": wm})
+            self.assertEqual(len(plan2), 1, "the completed tail line must be re-read")
+            self.assertIn("human:", plan2[0]["body"])
+
+
+class ReprojectFailsLoudOnMissingIdentity(unittest.TestCase):
+    """Opus review (correctness #1) — a missing identity inside reproject() must NOT be
+    swallowed by the wiki-render outage catch and mislabeled 'the wiki needs Neo4j'
+    (ADR-0015: silent degrade on missing identity is the disease)."""
+
+    def test_reproject_raises_when_group_unresolvable(self):
+        from unittest import mock
+        import _identity
+        with mock.patch.object(_identity, "group", return_value=None):
+            with self.assertRaises(RuntimeError) as ctx:
+                sweep.reproject()
+        self.assertIn("group", str(ctx.exception).lower())
+
+
 class ExecuteIngestsLogsAdvances(unittest.TestCase):
     """execute ingests qualifying deltas (one episode event each), advances their cursors, and
     leaves thin deltas untouched (not ingested, cursor not advanced)."""

@@ -51,10 +51,14 @@ after project-in-publisher and recall-push).
   briefing, (3) render the recall brief, (4) append **`dispatch.open`** to the Tier-0 log with
   the sweep yield in its payload (sessions digested, episodes appended — the read:write
   numerator the Direction wants instrumented rides along free).
-- **`close.py` gates on the stamp**: publish requires a `dispatch.open` **newer than the last
-  `artefato.published`** (one wake per publish — a stamp cannot be reused across dispatches).
-  Absent or stale stamp → a strike that names the violation (`no-wake`), same vocabulary as the
-  genus gates.
+- **The publish seam gates on the stamp**: publish requires a `dispatch.open` **newer than the
+  last `artefato.published`** (one wake per publish — a stamp cannot be reused across
+  dispatches). Absent or stale stamp → a refusal that names the violation (`no-wake`), raised in
+  `publisher.publish` BEFORE proof verification — the publisher is the one mechanical wall every
+  real publish crosses, so the gate cannot be reached around. *(Amended 2026-06-10 review:
+  originally drafted as a `close.py` strike through the bounce machinery; the publish-seam
+  refusal is strictly stronger — a strike can be re-produced past, a seam refusal cannot — and
+  the tests pin it.)*
 - **Delta is not stamped and not gated** — it remains the agentic, discretionary world-read
   (ADR-0001/0011). The mechanical floor is exactly the scaffolding: sweep + briefing + recall.
 - The **operator wake** (`skills/wake`) runs the same entry-driver (it IS pre-dispatch) but needs
@@ -72,10 +76,11 @@ after project-in-publisher and recall-push).
   not that the world cooperated.
 - One-beat lag accepted: a stamp is per-dispatch; long operator sessions that publish twice need
   two wakes (re-running the driver is idempotent and cheap).
-- Concurrent dispatches sharing one log (operator + heartbeat in parallel) can consume each
-  other's stamp: A and B both stamp, A publishes, B's older stamp is now stale and B's publish
-  refuses. Accepted: the race is rare, the refusal is loud and names the remedy, and re-running
-  the driver recovers (idempotent). Per-dispatch stamp identity is the known hardening if the
-  race ever becomes frequent.
+- Concurrent dispatches sharing one log (operator + heartbeat in parallel — the live fleet
+  reality on three installs) can consume each other's stamp: `wake_fresh` compares global maxima,
+  so **whoever publishes second loses**, regardless of stamp order (A's publish can spend B's
+  newer stamp). Accepted: the refusal is loud and names the remedy, and re-running the driver
+  recovers (idempotent). Per-dispatch stamp identity is the known hardening if the race bites in
+  practice.
 - The skills now lag this ADR (build follows): `predispatch.py` + the `close.py` check + entry
   snippets in the producer SKILL.md set + provision re-render.

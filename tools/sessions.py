@@ -149,6 +149,16 @@ def delta(path, since_line: int):
     """The turns after a raw-line watermark, with the new watermark (total line count).
 
     Transcripts are append-only, so the watermark is the count of raw lines already seen.
-    """
+    A truncated FINAL line (a writer flushing mid-sweep) is NOT consumed by the watermark —
+    when the writer completes it, the next sweep re-reads it (non-lossy raw). A corrupt
+    interior line is a crashed writer: dropped and consumed (`_turns_from_lines`)."""
     lines = Path(path).read_text().splitlines()
-    return _turns_from_lines(lines[since_line:]), len(lines)
+    watermark = len(lines)
+    new = lines[since_line:]
+    if new:
+        try:
+            json.loads(new[-1])
+        except ValueError:
+            watermark -= 1          # leave the half-flushed tail for the next sweep
+            new = new[:-1]
+    return _turns_from_lines(new), watermark

@@ -113,6 +113,72 @@ class EntryDriver(unittest.TestCase):
                              "a dispatch that could not wake must not look woken")
 
 
+class WakeFreshnessRealPaths(unittest.TestCase):
+    """Opus review — the consume semantic through the REAL atomic publish, and the
+    two-stamps case (one wake per publish: extra stamps are spent by the next publish)."""
+
+    def test_atomic_publish_consumes_the_stamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open(log=log)
+            eventlog.publish_artefato_atomic("a-slug", "the why", log=log)
+            self.assertFalse(eventlog.wake_fresh(log=log))
+            eventlog.dispatch_open(log=log)
+            self.assertTrue(eventlog.wake_fresh(log=log))
+
+    def test_two_stamps_then_one_publish_is_stale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open(log=log)
+            eventlog.dispatch_open(log=log)
+            eventlog.publish_artefato_atomic("a-slug", "the why", log=log)
+            self.assertFalse(eventlog.wake_fresh(log=log),
+                             "a publish spends ALL prior stamps (global max), not just one")
+
+
+class EntryDriverRealWiring(unittest.TestCase):
+    """Opus review — the lazy-import production wiring and the REAL degrade paths,
+    not only the injected stand-ins."""
+
+    def test_lazy_default_wiring_resolves_the_real_modules(self):
+        from unittest import mock
+        import sweep as _sweep
+        import briefing as _briefing
+        import recall as _recall
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with mock.patch.object(_sweep, "run", return_value=3), \
+                 mock.patch.object(_briefing, "compose_briefing", return_value="B"), \
+                 mock.patch.object(_recall, "compose_recall_brief", return_value="R"):
+                b, r = predispatch.run(log=log)
+            self.assertEqual((b, r), ("B", "R"))
+            evs = eventlog.read(types=["dispatch.open"], log=log)
+            self.assertEqual(evs[0]["payload"].get("swept_sessions"), 3)
+
+    def test_real_recall_dark_marker_flows_through(self):
+        import recall as _recall
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            _, r = predispatch.run(sweep_fn=lambda: 0, briefing_fn=lambda: "B",
+                                   recall_fn=lambda: _recall.compose_recall_brief(subgraph=None),
+                                   log=log)
+            self.assertIn("DARK", r)
+            self.assertTrue(eventlog.wake_fresh(log=log))
+
+    def test_a_raising_briefing_aborts_before_the_stamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+
+            def lobotomy():
+                raise RuntimeError("BriefingIdentityError: thin agent.yaml")
+
+            with self.assertRaises(RuntimeError):
+                predispatch.run(sweep_fn=lambda: 0, briefing_fn=lobotomy,
+                                recall_fn=lambda: "R", log=log)
+            self.assertFalse(eventlog.wake_fresh(log=log),
+                             "a lobotomized install must not look woken")
+
+
 class TheDriverIsPinnedInProse(unittest.TestCase):
     """Every producer's SKILL.md carries the entry snippet; the pipeline names the stamp."""
 

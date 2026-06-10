@@ -29,20 +29,29 @@ class RecallSubgraphLivesInRecallModule(unittest.TestCase):
         self.assertIsNone(recall.recall_subgraph("any-group", uri="bolt://127.0.0.1:1"))
 
     def test_caps_and_orders_artefatos_by_recency(self):
+        # the guards are asserted on the QUERY CONSTANTS the runtime executes — not on function
+        # source, where a prose comment once satisfied the substring while the live query
+        # regressed (review-proven mutation escape)
         self.assertTrue(recall.RECALL_ARTEFATO_LIMIT >= 1)
         self.assertLessEqual(recall.RECALL_ARTEFATO_LIMIT, 12,
                              "the recall slice must be a SMALL, salient slice, not the whole corpus")
+        self.assertIn("LIMIT $lim", recall.ARTEFATOS_QUERY, "the cap must be in the live query")
+        self.assertIn("ORDER BY coalesce(a.projected_at,'') DESC", recall.ARTEFATOS_QUERY,
+                      "recency order must be in the live query, not a comment")
+        self.assertIn("a.projection_complete = true", recall.ARTEFATOS_QUERY,
+                      "only complete projections are reliable memory")
         import inspect
         src = inspect.getsource(recall.recall_subgraph)
-        self.assertIn("RECALL_ARTEFATO_LIMIT", src, "recall_subgraph must apply the cap")
-        self.assertTrue("projected_at" in src or "order by" in src.lower(),
-                        "recall_subgraph must order artefatos by recency, not by slug")
+        self.assertIn("s.run(ARTEFATOS_QUERY", src,
+                      "recall_subgraph must execute the guarded constant, not an inline copy")
 
     def test_cluster_query_filters_retired_clusters(self):
+        self.assertIn("coalesce(e.archived,false)=false", recall.CLUSTERS_QUERY)
+        self.assertIn("e.merged_into IS NULL", recall.CLUSTERS_QUERY)
         import inspect
         src = inspect.getsource(recall.recall_subgraph)
-        self.assertIn("coalesce(e.archived,false)=false", src)
-        self.assertIn("e.merged_into IS NULL", src)
+        self.assertIn("s.run(CLUSTERS_QUERY", src,
+                      "recall_subgraph must execute the guarded constant, not an inline copy")
 
 
 class ComposeRecallBriefIsTheThirdBrief(unittest.TestCase):

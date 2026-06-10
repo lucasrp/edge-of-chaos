@@ -9,7 +9,13 @@ without steps 2–4: you orient, you do not act. The operator drives from here.
 
 ## 1. Wake — fan the three briefs (blocking; ADR-0004, ADR-0014)
 
-Before anything, get your briefs. Use the **Agent tool** to run the three subagents in parallel and
+First, run the **entry-driver** — the wake IS pre-dispatch (ADR-0016), and the driver performs its
+mechanical floor and stamps `dispatch.open` (so a publish the operator later commands in this
+session finds a fresh wake):
+
+    tools/edge-python tools/predispatch.py
+
+Then get your briefs. Use the **Agent tool** to run the three subagents in parallel and
 **block** on all; do not read these surfaces in your own window (the bookkeeping stays out of it):
 - **assemble** (`skills/assemble`) → the **curated self-state** (Memento's tattoo): curated
   Direction, what is open / the next bet, the corpus, source orientation, knowledge clusters.

@@ -37,7 +37,7 @@ depth fans explorers per lead — but that is the skill's call, not the beat's.)
 ## 3. Close — delegated to the shared pipeline at the skill's exit
 
 The close is **not the beat's job**. Every producer-skill funnels through the **one shared pipeline**
-(`skills/_shared/pipeline.md`): pre-dispatch (assemble + delta) → producer-loop (the scaffold) →
+(`skills/_shared/pipeline.md`): pre-dispatch (assemble + delta + recall, ADR-0014) → producer-loop (the scaffold) →
 **close** (the two blind review gates + the atomic publisher, which emits the mandatory
 `intent.kernel` so CONTRACT C3 holds). The close runs at the skill's **exit** — so a standalone
 `/ed-report` observes the same gates (honors ADR-0008). The bounce-bound lives in the protocol, never

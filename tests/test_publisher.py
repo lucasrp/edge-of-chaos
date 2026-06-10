@@ -47,6 +47,20 @@ def tearDownModule():
     publisher.publish = _REAL_PUBLISH
 
 
+class NoWakeGateIsRealAtTheSeam(unittest.TestCase):
+    """Opus review — the suite's stamped_publish harness masks the wake gate everywhere else,
+    so the gate gets coverage CO-LOCATED with the seam it guards: the REAL publish refuses
+    without a stamp, independent of tests/test_predispatch.py."""
+
+    def test_real_publish_without_stamp_raises_no_wake(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with self.assertRaises(RuntimeError) as ctx:
+                _REAL_PUBLISH("any-slug", "<h1>x</h1>", "intent", skill="report",
+                              verdict={"not": "a proof"}, log=log, blog_dir=tmp)
+            self.assertIn("no-wake", str(ctx.exception))
+
+
 def _fake_embed(text):
     """An offline embedder: a tiny deterministic 2-vector, never an OpenAI call."""
     return [float(len(text)), 1.0]

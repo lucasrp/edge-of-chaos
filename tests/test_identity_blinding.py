@@ -142,6 +142,18 @@ class ProjectDirIsFailLoud(unittest.TestCase):
             with _env(EDGE_PROJECT_DIR=None, HOME=str(home)):
                 self.assertEqual(_identity.project_dir(), store)
 
+    def test_home_with_trailing_slash_resolves_the_same_store(self):
+        # a derivation that read $HOME raw would double-dash the slug and silently scan a
+        # nonexistent store — the roberto-amnesia class this seam exists to kill
+        import tempfile
+        import _identity
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home" / "roberto"
+            store = home / ".claude" / "projects" / str(home).replace("/", "-")
+            store.mkdir(parents=True)
+            with _env(EDGE_PROJECT_DIR=None, HOME=str(home) + "/"):
+                self.assertEqual(_identity.project_dir(), store)
+
     def test_missing_store_raises_never_nothing_new(self):
         import tempfile
         import _identity
