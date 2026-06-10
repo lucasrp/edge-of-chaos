@@ -48,6 +48,26 @@ def require_group(agent_yaml=AGENT_YAML):
     return g
 
 
+def project_dir():
+    """The mentee's Claude transcript store for THIS install (ADR-0015). EDGE_PROJECT_DIR env →
+    derived from the running $HOME per the Claude store convention (/home/x →
+    ~/.claude/projects/-home-x). FAIL-LOUD: a store directory that does not exist raises —
+    "nothing new" is reserved for a real store with nothing new, never for scanning a foreign or
+    absent path (the roberto amnesia: a baked-in dev host path scanned nothing, silently)."""
+    raw = os.environ.get("EDGE_PROJECT_DIR")
+    if raw:
+        p = Path(os.path.expanduser(raw))
+    else:
+        home = Path.home()
+        p = home / ".claude" / "projects" / str(home).replace("/", "-")
+    if not p.is_dir():
+        raise RuntimeError(
+            f"transcript store not found: {p} — set EDGE_PROJECT_DIR to this install's Claude "
+            "projects dir (ADR-0015: the store derives from $HOME, never a baked-in host path; "
+            "a missing store fails loud, never 'nothing new')")
+    return p
+
+
 def edge_home(cfg=None, agent_yaml=AGENT_YAML):
     """The install root for THIS host, from agent.yaml `edge_home` (no baked-in path literal)."""
     cfg = _cfg(agent_yaml) if cfg is None else cfg

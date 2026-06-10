@@ -112,7 +112,7 @@ def compose_recall_brief(subgraph=_AUTO, group=None):
     Begins at SPACE 0 (the :Genesis identity root), then objective → bets → salient artefatos →
     clusters. None → an honest dark marker; NEVER a crash (CONTRACT C1)."""
     if subgraph is _AUTO:
-        g = group if group is not None else (os.environ.get("EDGE_GROUP") or _identity.group())
+        g = group if group is not None else _identity.group()
         subgraph = recall_subgraph(g)
     if subgraph is None:
         return (BANNER + "\n# Recall — the memory-salient brief\n\n"

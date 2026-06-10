@@ -25,13 +25,10 @@ import eventlog
 import sessions
 import _identity
 
-PROJECT_DIR = Path(os.environ.get(
-    "EDGE_PROJECT_DIR", Path.home() / ".claude" / "projects" / "-home-vboxuser"))  # host-configurable
 CURSORS = REPO / "state" / "cursors.json"
-# Per-install graph group — context is SEPARATED per VPS/project (never shared). Derived from
-# agent.yaml identity (EDGE_GROUP override → name/codename), NEVER a baked-in default (#21): a
-# fleet host writes into ITS OWN group, never a cross-tenant one.
-GROUP = _identity.group()
+# Identity (group + store) resolves LAZILY through _identity at call time (ADR-0015): no
+# import-time cache (stale-copy risk), no baked-in host path (the dev's -home-<user> store
+# default sent roberto scanning a nonexistent dir — "nothing new" over a 294-session backlog).
 DISPATCH_MARKER = "Dispatch runtime context"   # strip the edge's own framing (exp-001)
 MIN_CHARS = 200                                 # a substantive delta, not a stray turn
 
@@ -59,12 +56,14 @@ def _qualifies(turns, body):
 
 
 # --- pure plan: the digestible deltas (reads files, no graph/LLM) ---
-def plan_sweep(project_dir=PROJECT_DIR, cursors=None, recent=None):
+def plan_sweep(project_dir=None, cursors=None, recent=None):
     """For each session, the turns after its cursor + the new watermark, in **chronological order**
     (oldest first — bi-temporal ingest wants it). `skip` marks a delta too thin to ingest (left
     un-advanced to grow). Idempotent: a session at its watermark yields nothing new. `recent=N`
     bounds a run to the N most-recently-modified sessions (the rest backfill on later sweeps —
     the cursor makes the full sweep resumable)."""
+    if project_dir is None:
+        project_dir = _identity.project_dir()   # fail-loud seam (ADR-0015), never a baked-in path
     cursors = cursors or {}
     found = []
     for s in sessions.list_sessions(project_dir):
@@ -155,7 +154,8 @@ def graphiti_ingest(items):
                 await g.add_episode(name=f"session-{it['id'][:8]}", episode_body=it["body"],
                                     source=EpisodeType.message,
                                     source_description="Claude work session (mentee<->edge)",
-                                    reference_time=_parse_ts(_first_ts(it["path"])), group_id=GROUP)
+                                    reference_time=_parse_ts(_first_ts(it["path"])),
+                                    group_id=_identity.require_group())
                 ok.add(it["id"])
                 print(f"  + ingested session {it['id'][:8]} ({len(it['body'])} chars)")
             except Exception as e:
@@ -213,7 +213,7 @@ def reproject():
               f"{', '.join(missing)} — edge work without a recorded intent is incomplete (warning)")
     try:
         import wiki_render
-        wiki_render.main(GROUP, str(REPO / "state" / "wiki"), "threads")
+        wiki_render.main(_identity.require_group(), str(REPO / "state" / "wiki"), "threads")
     except Exception as e:
         print(f"sweep: wiki render skipped ({type(e).__name__}: {e}) — "
               f"Direction projected from the log; the wiki needs Neo4j")
@@ -233,7 +233,7 @@ def reproject_graph(log=eventlog.LOG):
         print(f"sweep: graph reproject skipped ({type(e).__name__}: {e}) — needs Neo4j")
 
 
-def run(project_dir=PROJECT_DIR, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,
+def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,
         log=eventlog.LOG, recent=None, graph_recover_fn=None):
     """Full sweep: plan the deltas → ingest + log + advance cursors → re-project (if anything new) →
     graph-recover (ALWAYS). `recent=N` bounds this run to the N newest sessions (the rest backfill on
@@ -263,7 +263,7 @@ def _recent_arg(argv):
 def main(argv):
     recent = _recent_arg(argv)
     if "--plan" in argv:
-        plan = plan_sweep(PROJECT_DIR, load_cursors(), recent=recent)
+        plan = plan_sweep(None, load_cursors(), recent=recent)
         ingest = [p for p in plan if not p["skip"]]
         print(f"plan: {len(plan)} sessions with new lines; {len(ingest)} qualify to ingest"
               + (f" (recent={recent})" if recent else ""))

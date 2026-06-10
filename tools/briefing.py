@@ -416,7 +416,7 @@ def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None,
     # pinned clusters (Tier-0 / custom-agent tests) must stay hermetic and not trigger a default
     # identity lookup that could read the wrong install or fail.
     def _group():
-        return group if group is not None else (os.environ.get("EDGE_GROUP") or _identity.group())
+        return group if group is not None else _identity.group()
     if clusters is _AUTO:
         clusters = graph_clusters(_group())
     corpus = corpus_at(seq=seq, ts=ts, log=log)

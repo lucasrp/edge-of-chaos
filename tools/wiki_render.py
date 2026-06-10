@@ -48,8 +48,9 @@ def idiom():
 
 def identity_name():
     """The host's own wiki identity (agent.yaml name/codename via the graph group) — NEVER a baked-in
-    identity literal (#21). A fleet host renders ITS OWN identity, not the genotype author's."""
-    return _identity.group() or "edge"
+    identity literal (#21). FAIL-LOUD (ADR-0015): a wiki rendered under a fallback name is a silent
+    wrong-author render; an install that has not declared who it is must not render as anyone."""
+    return _identity.require_group()
 
 
 def project_vocab(root=None, max_each=3000, max_total=8000):
