@@ -20,7 +20,8 @@ Then get your briefs. Use the **Agent tool** to run the three subagents in paral
 - **assemble** (`skills/assemble`) → the **curated self-state** (Memento's tattoo): curated
   Direction, what is open / the next bet, the corpus, source orientation, knowledge clusters.
   Invoke it in its **`/load` aperture** — the full active state, not just "what's active."
-  (Assemble runs the idempotent digestion sweep at entry; you do not.)
+  (Assemble's own entry sweep finds the cursors your driver already advanced — idempotent and
+  flock-serialized, so the second pass is a cheap no-op, not a contradiction.)
 - **delta** (`skills/delta`) → the **world's new**: what is new in the mentee's
   Mundo / Atividade / Voz. May be empty — it never gates the wake.
 - **recall** (`skills/recall`) → the **memory-salient**: the salient subgraph of your own Cortex,
