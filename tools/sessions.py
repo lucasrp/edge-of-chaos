@@ -41,10 +41,15 @@ def _text_of(content) -> str:
 
 
 def _turns_from_lines(lines) -> list:
-    """Parse raw transcript lines into ordered human/edge dialogue turns, dropping noise."""
+    """Parse raw transcript lines into ordered human/edge dialogue turns, dropping noise.
+    A corrupt/truncated line (a session written mid-sweep, a crashed writer) is dropped as
+    noise — one bad line must never kill the whole sweep."""
     turns = []
     for line in lines:
-        obj = json.loads(line)
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
         role = ROLES.get(obj.get("type"))
         if not role:
             continue

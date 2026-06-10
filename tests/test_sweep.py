@@ -57,6 +57,24 @@ class PlanSweepSelectsDeltas(unittest.TestCase):
             self.assertIn("reply 9", body, "the most-recent turn must survive (a head-cap would drop it)")
 
 
+class MalformedTranscriptLinesAreSkipped(unittest.TestCase):
+    """A corrupt/truncated raw line (a session written mid-sweep, a crashed writer — the
+    petertosh backfill hit one) must NOT kill the whole sweep: parseable turns are kept, the bad
+    line is dropped as noise (the raw store stays non-lossy; the sweep just doesn't choke)."""
+
+    def test_plan_survives_a_corrupt_line_and_keeps_valid_turns(self):
+        with tempfile.TemporaryDirectory() as proj:
+            p = write_session(proj, "sessA")
+            lines = p.read_text().splitlines()
+            lines.insert(1, '{"type": "user", "message": {"content": TRUNCATED')   # corrupt
+            p.write_text("\n".join(lines) + "\n")
+            plan = sweep.plan_sweep(proj, {})
+            self.assertEqual([x["id"] for x in plan], ["sessA"])
+            self.assertFalse(plan[0]["skip"])
+            self.assertEqual(plan[0]["body"].count("human:"), 3,
+                             "the valid turns around the corrupt line must survive")
+
+
 class ExecuteIngestsLogsAdvances(unittest.TestCase):
     """execute ingests qualifying deltas (one episode event each), advances their cursors, and
     leaves thin deltas untouched (not ingested, cursor not advanced)."""
