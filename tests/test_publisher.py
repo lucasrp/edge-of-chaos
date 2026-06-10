@@ -125,6 +125,12 @@ class PublishIsAtomicAndKerneled(unittest.TestCase):
             self.assertIn('<p class="meta">2026-06-08 · report</p>', text)
             self.assertIn("atomic publish plus kernel in one act", text)
 
+            # the wrapper declares the entries' language and inlines the
+            # page-frame enhancements (assets/page.js) — still self-contained
+            self.assertIn('<html lang="pt-BR">', text)
+            self.assertIn("<script>", text)
+            self.assertIn("report-lightbox", text)    # inlined page.js token
+
             # state recorded ATOMICALLY: the C3 invariant holds right after
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
             corpus = eventlog.corpus_at(log=log)
@@ -787,7 +793,10 @@ class WrapperMetadataIsEscapedAndSkillIsRostered(unittest.TestCase):
                 )
                 text = Path(path).read_text()
                 self.assertIn(f'<p class="meta">2026-06-08 · {skill}</p>', text)
-                self.assertNotIn("<script>", text)
+                # exactly ONE script element reaches the page: the repo-controlled
+                # inlined assets/page.js — nothing injected via the meta line.
+                self.assertEqual(text.count("<script>"), 1)
+                self.assertNotIn("alert(", text)
 
     def test_malicious_date_is_escaped_no_raw_markup_reaches_the_page(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -812,6 +821,20 @@ class WrapperMetadataIsEscapedAndSkillIsRostered(unittest.TestCase):
                                    date="2026-06-08", css="")
             self.assertIn("<title>a b</title>", page)
             self.assertIn("<h1>a b</h1>", page)
+
+    def test_inlined_js_cannot_close_its_own_script_element(self):
+        # page.js is repo-controlled, but defense in depth: a closing script tag
+        # inside it must not terminate the wrapper's script element early.
+        with tempfile.TemporaryDirectory():
+            page = publisher._page("a-b", "<p>body</p>", skill="report",
+                                   date="2026-06-08", css="",
+                                   js='var a = "</script>";')
+            self.assertEqual(page.count("</script>"), 1)  # the wrapper's own close tag
+
+    def test_empty_js_emits_no_script_element(self):
+        page = publisher._page("a-b", "<p>body</p>", skill="report",
+                               date="2026-06-08", css="")
+        self.assertNotIn("<script>", page)
 
 
 class SlugIsContainedUnderBlogDir(unittest.TestCase):

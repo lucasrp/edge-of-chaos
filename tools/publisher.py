@@ -47,6 +47,12 @@ from close import check_genus, verify_proof
 REPO = Path(__file__).resolve().parent.parent
 BLOG_DIR = REPO / "blog" / "entries"
 BASE_CSS = Path(__file__).resolve().parent / "assets" / "base.css"
+BASE_JS = Path(__file__).resolve().parent / "assets" / "page.js"
+
+# Entries are written for the mentee in PT-BR and the wrapper must say so (screen
+# readers, hyphenation and translators key on the lang attribute). One seam to
+# change if that ever stops being true — never sniffed per-entry from content.
+PAGE_LANG = "pt-BR"
 
 # A slug names a single file under blog_dir — lowercase alphanumerics + hyphens, no leading
 # or trailing hyphen, no dots/slashes/spaces. Anything else is rejected (#4: path traversal).
@@ -72,7 +78,7 @@ def _safe_target(slug, blog_dir):
     return target
 
 
-def _page(slug, body_html, *, skill, date, css):
+def _page(slug, body_html, *, skill, date, css, js=""):
     """Wrap the rendered body in a self-contained neutral HTML page (no tricolor stripe —
     the neutralized base.css has no .header-stripe). Matches the existing entry shape:
     `<article class="report">` with `<p class="meta">{date} · {skill}</p>`.
@@ -80,10 +86,21 @@ def _page(slug, body_html, *, skill, date, css):
     Codex round-4 [high]: reviewers only see slug/content/cites, so the wrapper's own
     caller/spec values (date, skill, the slug-derived title) reach the public page as raw
     HTML if not escaped. `html.escape(quote=True)` ALL wrapper text — no wrapper value may
-    inject markup. `body_html` is render.spec_to_html's already-sanitized output, untouched."""
+    inject markup. `body_html` is render.spec_to_html's already-sanitized output, untouched.
+
+    `js` is the repo-controlled assets/page.js (progressive display-only enhancements:
+    sumário, diff tint, lightbox), inlined like the css so the page stays self-contained.
+    It is NOT caller data and is inlined raw — the only sequence that could break out of
+    the <script> element is a closing script tag, which is escaped here as defense in
+    depth. Empty js (the default) emits no script element at all, so the page degrades
+    to the previous shape."""
     title = html.escape(slug.replace("-", " "), quote=True)
+    script = ""
+    if js:
+        safe_js = js.replace("</script>", "<\\/script>")
+        script = f"<script>\n{safe_js}\n</script>"
     return (
-        '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">\n'
+        f'<!DOCTYPE html><html lang="{PAGE_LANG}"><head><meta charset="utf-8">\n'
         f"<title>{title}</title>\n"
         f"<style>\n{css}\n</style></head>\n"
         '<body><article class="report">\n'
@@ -91,7 +108,7 @@ def _page(slug, body_html, *, skill, date, css):
         f'<p class="meta">{html.escape(date, quote=True)} · '
         f'{html.escape(skill, quote=True)}</p>\n\n'
         f"{body_html}\n"
-        "</article></body></html>\n"
+        f"</article>{script}</body></html>\n"
     )
 
 
@@ -115,7 +132,9 @@ def _render_page(slug, spec, *, skill, date):
     the logged spec) emit byte-identical pages. Returns (body_html, page_text)."""
     body_html = render.spec_to_html(spec)
     css = BASE_CSS.read_text()
-    page = _page(slug, body_html, skill=skill, date=date or _date.today().isoformat(), css=css)
+    js = BASE_JS.read_text()
+    page = _page(slug, body_html, skill=skill, date=date or _date.today().isoformat(),
+                 css=css, js=js)
     return body_html, page
 
 
