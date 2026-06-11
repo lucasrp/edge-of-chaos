@@ -49,7 +49,8 @@ This is **not a beat.** Do **not** fan explorers, produce an Artefato, run `skil
 the `intent.kernel` close — those are the beat's autonomous acts (ADR-0009), and wake stops before them.
 
 - **Read-only, fully (CONTRACT C1, hard):** the mentee's world is read-only **and** wake writes no
-  state of its own. Wake reads and renders — nothing else.
+  state of its own beyond the mechanical `dispatch.open` wake stamp (ADR-0016 — the entry-driver's
+  bookkeeping, not a judgment write). Wake reads and renders — nothing else.
 - **Everything downstream is operator-directed.** The next move is the operator's word. When they
   give it, run the skill it names under command — `/ed-grill`, `/ed-report`, the full beat, a direct
   question — each within its own contract. Until then, **wait.**

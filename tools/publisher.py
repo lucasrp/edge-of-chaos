@@ -490,8 +490,12 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # COMMIT POINT (#2, ADR-0006: the log is truth). The atomic event carries the proof-bound
     # spec, so the page is fully regenerable from the log alone. EVERYTHING after this is a
     # recoverable projection (reproject_missing_pages re-derives it from the logged spec/cites).
+    # require_wake=True: the AUTHORITATIVE wake check runs under the eventlog lock at this
+    # commit (codex gate) — the early check at entry is only a fast-fail; one stamp admits
+    # exactly one publish even under concurrent publishers.
     eventlog.publish_artefato_atomic(slug, intent, proposes=proposes, distills=distills,
-                                     cites=cites, spec=spec, skill=skill, log=log)
+                                     cites=cites, spec=spec, skill=skill, log=log,
+                                     require_wake=True)
 
     # the page is a PROJECTION written after the commit — a failure here is recoverable.
     _write_page(out, page)

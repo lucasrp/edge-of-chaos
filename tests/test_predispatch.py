@@ -136,6 +136,35 @@ class WakeFreshnessRealPaths(unittest.TestCase):
                              "a publish spends ALL prior stamps (global max), not just one")
 
 
+class WakeGateIsAuthoritativeUnderTheLock(unittest.TestCase):
+    """Codex gate (BLOCKING) — the early wake_fresh check in publisher.publish is a fast-fail
+    TOCTOU: two concurrent publishers could both observe one stamp as fresh and BOTH publish.
+    The authoritative check lives INSIDE publish_artefato_atomic's locked critical section:
+    one stamp admits exactly one publish, no matter how many callers passed the early check."""
+
+    def test_atomic_publish_with_require_wake_refuses_without_a_stamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with self.assertRaises(RuntimeError) as ctx:
+                eventlog.publish_artefato_atomic("a", "why", log=log, require_wake=True)
+            self.assertIn("no-wake", str(ctx.exception))
+            self.assertEqual(eventlog.read(log=log), [], "a refused publish must write NOTHING")
+
+    def test_one_stamp_admits_exactly_one_publish(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open(log=log)
+            eventlog.publish_artefato_atomic("first", "why", log=log, require_wake=True)
+            with self.assertRaises(RuntimeError) as ctx:
+                eventlog.publish_artefato_atomic("second", "why", log=log, require_wake=True)
+            self.assertIn("no-wake", str(ctx.exception))
+            slugs = [e["payload"]["slug"] for e in
+                     eventlog.read(types=["artefato.published"], log=log)]
+            self.assertEqual(slugs, ["first"],
+                             "the second publish must lose even though a caller-side check "
+                             "could have raced past (the lock-held check is authoritative)")
+
+
 class EntryDriverRealWiring(unittest.TestCase):
     """Opus review — the lazy-import production wiring and the REAL degrade paths,
     not only the injected stand-ins."""

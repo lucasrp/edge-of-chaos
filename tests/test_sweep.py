@@ -94,7 +94,8 @@ class RunIsSerializedByTheCursorLock(unittest.TestCase):
             done = []
             def go():
                 sweep.run(proj, ingest_fn=lambda items: set(), cursors_path=cursors_path,
-                          reproject_fn=False, log=log, graph_recover_fn=False)
+                          reproject_fn=False, log=log, graph_recover_fn=False,
+                          group="test-group")
                 done.append(True)
             with lock.open("w") as lk:
                 fcntl.flock(lk, fcntl.LOCK_EX)
@@ -141,6 +142,38 @@ class ReprojectFailsLoudOnMissingIdentity(unittest.TestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 sweep.reproject()
         self.assertIn("group", str(ctx.exception).lower())
+
+
+class RunPreflightsIdentityBeforeAnyWrite(unittest.TestCase):
+    """Codex gate (BLOCKING) — an install that has not declared who it is must not write as
+    anyone (ADR-0015): Tier-0 episode appends and cursor advances ARE writes. run() must fail
+    loud BEFORE consuming the delta — not mid-sweep after cursors advanced (where a rerun sees
+    the delta as already consumed by a groupless ghost)."""
+
+    def test_run_raises_before_log_or_cursor_writes_when_identity_missing(self):
+        from unittest import mock
+        import _identity
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
+            write_session(proj, "sessA")
+            cursors_path = Path(st) / "cursors.json"
+            log = Path(st) / "log.jsonl"
+            with mock.patch.object(_identity, "group", return_value=None):
+                with self.assertRaises(RuntimeError):
+                    sweep.run(proj, ingest_fn=lambda items: set(), cursors_path=cursors_path,
+                              reproject_fn=False, log=log, graph_recover_fn=False)
+            self.assertFalse(log.exists(), "no episode may land before identity resolves")
+            self.assertEqual(sweep.load_cursors(cursors_path), {},
+                             "no cursor may advance before identity resolves")
+
+    def test_run_with_explicit_group_stays_hermetic(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
+            write_session(proj, "sessA")
+            log = Path(st) / "log.jsonl"
+            n = sweep.run(proj, ingest_fn=lambda items: set(),
+                          cursors_path=Path(st) / "cursors.json",
+                          reproject_fn=False, log=log, graph_recover_fn=False,
+                          group="test-group")
+            self.assertEqual(n, 1)
 
 
 class ExecuteIngestsLogsAdvances(unittest.TestCase):

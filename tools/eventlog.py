@@ -33,7 +33,7 @@ def append(type, subject, payload, log=LOG):
     return append_batch([(type, subject, payload)], log=log)[0]
 
 
-def append_batch(events, log=LOG):
+def append_batch(events, log=LOG, precondition=None):
     """Append SEVERAL events as JSON lines in ONE indivisible file write — there is no
     intermediate state in which only some of them landed (C3 atomicity, #3). Each is stamped
     with a monotonic seq + ISO ts, continuing the log's count. `events` is a list of
@@ -43,13 +43,20 @@ def append_batch(events, log=LOG):
     writers by an exclusive `fcntl.flock` on a sibling lockfile: two overlapping callers would
     otherwise read the same `base` and append duplicate seq ranges, breaking the cursor/replay
     invariant the folds depend on. We flush + fsync before releasing the lock, so the next
-    writer's `read()` sees a fully-durable log when it computes its own base."""
+    writer's `read()` sees a fully-durable log when it computes its own base.
+
+    `precondition` (optional) is a zero-arg callable evaluated UNDER the lock, against the
+    durable log state no concurrent writer can change — it may raise to abort the append with
+    nothing written. This is what makes a check-then-append (e.g. the ADR-0016 wake gate)
+    authoritative rather than a TOCTOU fast-fail."""
     log = Path(log)
     log.parent.mkdir(parents=True, exist_ok=True)
     lock = log.with_name(log.name + ".lock")
     with lock.open("w") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)
         try:
+            if precondition is not None:
+                precondition()
             base = len(read(log=log))
             stamped = [{"seq": base + i + 1, "ts": datetime.now(timezone.utc).isoformat(),
                         "type": t, "subject": s, "payload": p}
@@ -264,7 +271,7 @@ def kernel(slug, intent, log=LOG):
 
 
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
-                            spec=None, log=LOG, *, skill=None):
+                            spec=None, log=LOG, *, skill=None, require_wake=False):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
     publish seam): you cannot publish without the *why*. Both events land in a single
     `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
@@ -279,12 +286,23 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
     (publisher.reproject_missing_pages) rather than an unrecoverable dangling-state."""
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
+
+    def _wake_gate():
+        # ADR-0016, authoritative form (codex gate): evaluated UNDER append_batch's lock, so one
+        # stamp admits exactly ONE publish — a concurrent caller that raced past an early
+        # fast-fail check still loses here, with nothing written.
+        if not wake_fresh(log=log):
+            raise RuntimeError(
+                f"no-wake: cannot publish {slug!r} — no dispatch.open newer than the last "
+                "artefato.published on this log (ADR-0016: run tools/predispatch.py; "
+                "one wake per publish)")
+
     published, kernel_ev = append_batch([
         ("artefato.published", f"artefato:{slug}",
          {"slug": slug, "proposes": proposes or [], "distills": distills or [],
           "cites": cites or [], "spec": spec, "skill": skill}),
         ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
-    ], log=log)
+    ], log=log, precondition=_wake_gate if require_wake else None)
     return published, kernel_ev
 
 

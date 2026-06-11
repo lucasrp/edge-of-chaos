@@ -145,6 +145,7 @@ def graphiti_ingest(items):
     from graphiti_core.llm_client import LLMConfig, OpenAIClient
     _load_openai_key()
     neo = _identity.neo4j_conn()
+    group = _identity.require_group()   # resolved ONCE, before any episode (codex gate)
     ok = set()
 
     async def go():
@@ -157,7 +158,7 @@ def graphiti_ingest(items):
                                     source=EpisodeType.message,
                                     source_description="Claude work session (mentee<->edge)",
                                     reference_time=_parse_ts(_first_ts(it["path"])),
-                                    group_id=_identity.require_group())
+                                    group_id=group)
                 ok.add(it["id"])
                 print(f"  + ingested session {it['id'][:8]} ({len(it['body'])} chars)")
             except Exception as e:
@@ -239,11 +240,17 @@ def reproject_graph(log=eventlog.LOG):
 
 
 def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,
-        log=eventlog.LOG, recent=None, graph_recover_fn=None):
+        log=eventlog.LOG, recent=None, graph_recover_fn=None, group=None):
     """Full sweep: plan the deltas → ingest + log + advance cursors → re-project (if anything new) →
     graph-recover (ALWAYS). `recent=N` bounds this run to the N newest sessions (the rest backfill on
     later sweeps). Graph recovery runs EVERY sweep, independent of `n` (Codex P2), so a no-delta sweep
     after Neo4j comes back still heals a publish-time-missed projection."""
+    # ADR-0015 preflight (codex gate): an install that has not declared who it is must not
+    # write as anyone — Tier-0 episode appends and cursor advances ARE writes. Identity fails
+    # loud HERE, before the delta is consumed, never mid-sweep (where a rerun would see the
+    # delta as already eaten by a groupless ghost). Tests pass `group` explicitly (hermetic).
+    if group is None:
+        group = _identity.require_group()
     # The whole load→plan→execute→save window is serialized by an exclusive flock on a sibling
     # lockfile (the append_batch/next_producer house pattern) — cursors.json is the one shared
     # mutable state on a multi-dispatch host (operator + heartbeat): two overlapping sweeps would
