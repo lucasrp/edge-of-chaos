@@ -66,6 +66,19 @@ Two loops run inside the scaffold:
   evidence. loop1 is the grounding pass: it builds the pile of evidence the producing cognition
   reasons over. (Honoring the operator rename, the grounded material is named **evidence**.)
 
+- **loop1.5 — excavate (EDGE_EXCAVATE, dark by default).** The mechanical enforcement of this
+  scaffold's own plenitude doctrine: a producer reasoning over a large evidence pile writes from one
+  lossy pass with a brevity prior, and the non-obvious long tail — the worthwhile, course-changing
+  material — dies silently in that compression. When `EDGE_EXCAVATE` is on, before the producer
+  converges it runs `tools/excavate.py` over the evidence: a single structured pass working the
+  synthetic grill's four probes (relevance / contradiction / surprise / lineage) **aimed by the
+  Direction**, recovering only what the producer's own thin summary dropped — as an accountable
+  **seed** (each finding cites back into the evidence and states how it bears on the Direction). The
+  producer then develops loop2 **from the seed**, discharging every entry (it lands in the artefato
+  or is cut with a reason). Off ⇒ the stage is a pure no-op with zero model spend; the producer
+  works exactly as today. This is the *collapsed* form of the grill (one extraction pass); the
+  multi-turn agent×agent dialogue is the costed escalation, gated on this cheap cut earning its lift.
+
 - **loop2 — critic / serendipity.** The `converge` slot's critic judges whether the draft is
   **developed to plenitude** and emits a verdict carrying a `ship` boolean; the loop ends the moment
   the critic ships — it ships on *depth reached*, never on *brevity reached*. The `diverge` slot's
