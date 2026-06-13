@@ -75,12 +75,23 @@ def _build_prompt(evidence: str, summary: str, direction: str) -> str:
 
 
 def _coerce_finding(item) -> dict | None:
-    """Admit a finding only if it is a dict carrying all four required keys, non-empty."""
+    """Admit a finding only if it is a dict whose four required keys are each a NON-EMPTY
+    STRING, and whose `probe` names one of the four probes. A structured value in a scalar
+    field (`{"claim": {...}}`) is malformed and dropped, never stringified — accountability
+    means the model returned a real claim/citation, not a coerced object."""
     if not isinstance(item, dict):
         return None
-    if any(not str(item.get(k, "")).strip() for k in _REQUIRED):
+    vals = {}
+    for k in _REQUIRED:
+        v = item.get(k)
+        if not isinstance(v, str) or not v.strip():
+            return None
+        vals[k] = v.strip()
+    probe = vals["probe"].lower()
+    if probe not in PROBES:
         return None
-    return {k: str(item[k]).strip() for k in _REQUIRED}
+    vals["probe"] = probe
+    return vals
 
 
 def _parse_seed(raw: str) -> dict:
@@ -94,19 +105,30 @@ def _parse_seed(raw: str) -> dict:
     fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL | re.IGNORECASE)
     if fence:
         text = fence.group(1).strip()
-    else:
-        # else grab the outermost JSON object if there is leading/trailing prose
-        brace = re.search(r"\{.*\}", text, re.DOTALL)
-        if brace:
-            text = brace.group(0)
-    try:
-        data = json.loads(text)
-    except (json.JSONDecodeError, ValueError):
+    # try the whole (fence-stripped) text first; only then fall back to the outermost {...}
+    # span, so leading/trailing prose is tolerated without a stray prose brace corrupting a
+    # clean parse.
+    candidates = [text]
+    brace = re.search(r"\{.*\}", text, re.DOTALL)
+    if brace and brace.group(0) != text:
+        candidates.append(brace.group(0))
+    data = None
+    for cand in candidates:
+        try:
+            data = json.loads(cand)
+            break
+        except (json.JSONDecodeError, ValueError):
+            continue
+    if data is None:
         return empty
     if not isinstance(data, dict):
         return empty
-    findings = [f for f in (_coerce_finding(x) for x in data.get("findings", []) or []) if f]
-    residuals = [str(r).strip() for r in (data.get("residuals", []) or []) if str(r).strip()]
+    raw_findings = data.get("findings")
+    raw_residuals = data.get("residuals")
+    raw_findings = raw_findings if isinstance(raw_findings, list) else []
+    raw_residuals = raw_residuals if isinstance(raw_residuals, list) else []
+    findings = [f for f in (_coerce_finding(x) for x in raw_findings) if f]
+    residuals = [r.strip() for r in raw_residuals if isinstance(r, str) and r.strip()]
     return {"findings": findings, "residuals": residuals}
 
 

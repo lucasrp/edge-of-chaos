@@ -13,6 +13,7 @@ The load-bearing guarantees under test:
   - the parser is tolerant of fenced/dirty model output and drops malformed findings.
 """
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -112,6 +113,57 @@ class TolerantParser(unittest.TestCase):
         seed = excavate._parse_seed("the model refused and wrote prose")
         self.assertEqual(seed["findings"], [])
         self.assertEqual(seed["residuals"], [])
+
+    def test_nonlist_containers_do_not_crash(self):
+        # Codex GATE [blocking]: a non-list findings/residuals container must not raise.
+        for bad in ('{"findings": 1, "residuals": "nope"}',
+                    '{"findings": {"a": 1}, "residuals": 7}',
+                    '{"findings": null, "residuals": null}'):
+            seed = excavate._parse_seed(bad)
+            self.assertEqual(seed["findings"], [], bad)
+            self.assertEqual(seed["residuals"], [], bad)
+
+    def test_invalid_probe_is_dropped(self):
+        # Codex GATE [substantive]: probe must be one of the four — arbitrary strings rejected.
+        dirty = json.dumps({"findings": [
+            {"claim": "c", "citation": "e", "bears_on": "b", "probe": "madeup"},
+            {"claim": "c", "citation": "e", "bears_on": "b", "probe": "Surprise"},  # case-folded, valid
+        ], "residuals": []})
+        seed = excavate._parse_seed(dirty)
+        self.assertEqual(len(seed["findings"]), 1)
+        self.assertEqual(seed["findings"][0]["probe"], "surprise")
+
+    def test_nonstring_fields_dropped_not_coerced(self):
+        # Codex GATE [substantive]: a structured value in a scalar field is malformed -> drop.
+        dirty = json.dumps({"findings": [
+            {"claim": {"x": 1}, "citation": ["c"], "bears_on": "b", "probe": "relevance"},
+        ], "residuals": [{"not": "a string"}]})
+        seed = excavate._parse_seed(dirty)
+        self.assertEqual(seed["findings"], [])
+        self.assertEqual(seed["residuals"], [])
+
+
+class EnvPathDefault(unittest.TestCase):
+    """The is_enabled=None path actually consults EDGE_EXCAVATE (the production wiring)."""
+    def setUp(self):
+        self._saved = os.environ.get("EDGE_EXCAVATE")
+
+    def tearDown(self):
+        if self._saved is None:
+            os.environ.pop("EDGE_EXCAVATE", None)
+        else:
+            os.environ["EDGE_EXCAVATE"] = self._saved
+
+    def test_env_on_runs_env_off_passthrough(self):
+        spy = _spy_complete(_GOOD_SEED)
+        os.environ["EDGE_EXCAVATE"] = "1"
+        on = excavate.excavate("e", "s", "d", spy)          # is_enabled=None -> env decides
+        self.assertTrue(on["enabled"])
+        self.assertEqual(spy.calls["count"], 1)
+        os.environ["EDGE_EXCAVATE"] = "off"
+        off = excavate.excavate("e", "s", "d", spy)
+        self.assertTrue(off["passthrough"])
+        self.assertEqual(spy.calls["count"], 1, "OFF via env must not spend")
 
 
 if __name__ == "__main__":
