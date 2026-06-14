@@ -440,8 +440,10 @@ The **fixed exit gate of the shared pipeline** every producer funnels through �
 the gates see the final text + cites only, and check each **property anywhere, never a named
 section** — ADR-0013) → improve (wired **re-production**: a strike revises the draft rather than
 dead-ending it) → publish (atomic, with the **intent kernel**). **Strikes gate; the weighted
-score is advisory.** It also **answers every non-answered Directive** before the dispatch ends
-(ADR-0017) — no communication is left hanging. Runs at every producer's exit — round-robin is for
+score is advisory.** Directive resolution is **not** the shared close's job: open Directives are
+resolved by the **grill** close, which writes an explicit `voz.resolved` outcome per Directive
+(ADR-0017) — other producers' closes leave the rail untouched (one lifecycle owner, one `voz.resolved`
+gate). Runs at every producer's exit — round-robin is for
 the producers; the close is the gate they share.
 *Avoid*: postflight, consolidate (dissolved — ADR-0008), review (one stage of it)
 

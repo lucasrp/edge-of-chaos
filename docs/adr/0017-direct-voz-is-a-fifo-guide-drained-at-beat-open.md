@@ -13,8 +13,9 @@ not by jumping the beat queue.
 
 The unit of resolution is the **chat** (a mentee↔edge exchange on the rail — a comment and the
 replies under it), not the individual message and not a global FIFO position. An **open chat** is
-one with a mentee comment the edge has not yet replied to (the `open_comments()` fold = comments
-with no `voz.reply`). Every open chat is **earmarked**, so the **grill loads them all into context**
+one whose mentee comment has **no `voz.resolved` outcome yet** (the `open_comments()` fold = comments
+lacking a `voz.resolved`; `voz.reply` is **presentation only** — the inline answer the dashboard
+renders — never the lifecycle state). Every open chat is **earmarked**, so the **grill loads them all into context**
 at once. From that full context the grill:
 
 - **asks the residual only where ambiguous** — evidence-first, **non-exhaustive**: it questions the
@@ -72,8 +73,8 @@ private 1:1 (human-hub fan-in, shared room).
   promotion happens (ADR-0012-compatible: the beat stays a pure round-robin scheduler; resolution is
   the grill's, not a beat rule).
 - **Open / solved is a fold over the log**, not a mutable flag — `open_comments()` derives from the
-  absence of a `voz.reply`, consistent with the event-sourced model (ADR-0005/0006). No parallel
-  store.
+  absence of a **`voz.resolved`** (not `voz.reply`, which is presentation only), consistent with the
+  event-sourced model (ADR-0005/0006). No parallel store.
 
 ## Considered and deferred
 

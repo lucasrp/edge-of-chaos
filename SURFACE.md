@@ -117,11 +117,12 @@ Operations:
 Decisions:
 - **Dedicated surface, not subsumed by the graph.** The affordance differs: Direction answers "what
   is the edge steering toward, did my steer land?" — a scannable list, not graph exploration.
-
-Gaps:
-- **Voz→Direction provenance** is not in the event model: `propose()` records `from_artefato` /
-  `relates_to`, not the originating `voz.comment`. So per-comment "your steer became this Direction"
-  needs an upstream event-model addition first — deferred; v1 shows the two tiers without it.
+- **Provenance is non-deferred for v1** (adversarial-review iter2 #1 — it was contradictorily both
+  *required* by the Voz-rail outcome decision and *deferred* here). The event model gains:
+  `direction.set` / `direction.proposed` carry `origin_comment_id` when folded from a Directive, and
+  `voz.resolved` carries `direction_id` for the `folded-to-direction` outcome; `propose()` / `set()`
+  take the new param. The surface renders the link **bidirectionally** (steer ⇄ originating comment).
+  The audit promise and its schema land together — no half-state.
 
 ## Cortex graph — surf the agent's brain
 
@@ -185,9 +186,13 @@ Decisions:
   low-trust nodes into the haze, which would **bury the Earmarked** (the harm-bearing subset the
   mentee most needs to correct) — backwards for a correction surface. So in v1 the **Earmarked is a
   first-class overlay**: a harm highlight, never dimmed, regardless of trust tier. Trust sets
-  brightness for the *inert* mass; **harm overrides it** for the Earmarked. The corrective write-path
-  (Voz targeting an Earmarked node — extends `target_ref` beyond slugs) is the bridge to the rail,
-  scope TBD. [adversarial-review iter1 #5]
+  brightness for the *inert* mass; **harm overrides it** for the Earmarked. **The v1 overlay is
+  read-only awareness** — it surfaces the harm frontier so it isn't buried, consistent with the
+  Cortex graph being read-only for the mentee; correcting an Earmarked item still goes through the
+  existing Voz rail (on the relevant publication / via the grill). **Node-targeted Voz** (a
+  `target_ref` addressing an Earmarked node directly, beyond slugs) is an explicit *future*
+  increment — so v1 does not ship a correction surface it cannot structurally back.
+  [adversarial-review iter1 #5, iter2 #4]
 
 Node/edge vocabulary (live, group `edge-next` — the real shape, not #28-speculative):
 - **Asserted spine (the curated Self, ~55 nodes, *faithful*):** `Genesis` (space-0, 1), `Objective`
