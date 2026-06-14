@@ -245,10 +245,11 @@ addressed to the edge — never the ambient Claude Code session), meant to be ac
 guide, not a real-time order** (ADR-0017): it carries Voz's authority but is **resolved by the
 grill**, not by preempting live work — every *open* chat is **earmarked** so the grill loads a
 **harm-ranked batch** (within a chats/tokens cap) of the start-cursor eligible set, **asks the
-residual only where ambiguous**, and **resolves exactly that loaded batch at its close** (writing
-`voz.resolved`, one per `comment_id`), folding the standing-worthy ones into **Direction**. *Solving*
-is exhaustive over the **loaded batch** (coverage; overflow carried to the next grill); *asking* is
-non-exhaustive. Its frictionless, answer-less sibling is a **Vote**. May
+residual only where ambiguous**, and **closes each chat in that loaded batch** — terminal
+`voz.resolved` (one per `comment_id`) or, when it asked and got no answer, a non-terminal
+`voz.clarify` that keeps the chat open — folding the standing-worthy ones into **Direction**.
+*Closing* is exhaustive over the **loaded batch** (every loaded chat terminal-or-parked; overflow
+carried to the next grill); *asking* is non-exhaustive. Its frictionless, answer-less sibling is a **Vote**. May
 *produce* a **Steer**, but is not one.
 *Avoid*: order (it guides; it does not preempt — the real-time path is deferred), command, message,
 steer (a Direction-movement unit, not the instruction itself)

@@ -22,19 +22,24 @@ cap** — the *loaded batch*. From that loaded context the grill:
 
 - **asks the residual only where ambiguous** — evidence-first, **non-exhaustive**: it questions the
   mentee only on the loaded chats the context cannot settle;
-- **resolves exactly the loaded batch at its close** — **coverage over the loaded batch**: every
-  comment in the loaded batch gets a `voz.resolved` (written **idempotently, one per `comment_id`**),
-  so **no loaded chat survives the grill**. Everything *not* loaded — eligible comments the cap
-  excluded, plus any comment arriving after the start cursor — **stays open as overflow** for the next
-  grill; it is **never silently marked resolved** (which would drop high-priority Voz) and never
-  falsifies coverage. The overflow/backlog count **surfaces in the Briefing read-model-health strip**.
-  This bounds the grill against the same context-window overflow seen at a real wake (the digestion
-  sweep), by construction;
+- **closes each loaded chat to a terminal *or* a parked state** — **coverage over the loaded batch**:
+  at close every loaded comment reaches exactly one of — **terminally resolved** (`voz.resolved`,
+  idempotent, one per `comment_id`) **or parked awaiting-clarification** (`voz.clarify {comment_id,
+  question, grill_run_id}`) when the grill had to ask but captured no answer. A **parked chat stays
+  open** (non-terminal — `open_comments()` still lists it, flagged *awaiting-clarification*) and is
+  terminally resolved only once a later grill captures the answer; an **autonomous / non-interactive
+  grill may only park, never fabricate** a terminal `acknowledged` for an unanswered ambiguous chat
+  (else unsettled high-priority Voz would silently vanish). So **no loaded chat is silently dropped**:
+  each is terminal or visibly parked. Everything *not* loaded — eligible comments the cap excluded,
+  plus any comment arriving after the start cursor — **stays open as overflow** for the next grill.
+  The overflow, backlog, and awaiting-clarification counts **surface in the Briefing read-model-health
+  strip**. This bounds the grill against the same context-window overflow seen at a real wake (the
+  digestion sweep), by construction; [adversarial-review iter9 #1]
 - **folds the standing-worthy ones into Direction** — a loaded chat that moves strategy becomes a
   `set` steer (carrying `origin_comment_id`); the rest are answered and closed.
-- **the close is atomic per loaded chat** — a chat's `voz.reply`, `direction.*` steer (with
-  `origin_comment_id` / `direction_id`), and `voz.resolved` land in **one idempotent `append_batch`**
-  keyed by `comment_id` + `grill_run_id`. A crash mid-close leaves a chat **fully resolved or fully
+- **the close is atomic per loaded chat** — a chat's close events (`voz.reply`, `direction.*` steer
+  with `origin_comment_id` / `direction_id`, and its terminal `voz.resolved` **or** non-terminal
+  `voz.clarify`) land in **one idempotent `append_batch`** keyed by `comment_id` + `grill_run_id`. A crash mid-close leaves a chat **fully resolved or fully
   open, never half** — no `direction.set`-without-`voz.resolved` (which would re-fold the steer next
   grill) and no `voz.resolved`-without-Direction (a lost steer / broken audit link); a retry replays
   the identical planned batch. A `folded-to-direction` whose `direction_id` has no matching Direction
@@ -122,10 +127,13 @@ inferring "solved" from reply-absence. An adversarial review surfaced the failur
 could get a reply, drop out of `open_comments()`, and leave **no audit trail** of whether it changed
 Direction or was merely acknowledged.
 
-So the grill close writes an explicit
-`voz.resolved {comment_id, outcome: replied | folded-to-direction | acknowledged, direction_id?}`,
-and a Direction folded from a Directive carries `origin_comment_id`. `open_comments()` keys on the
-**presence of the outcome event**, not on `voz.reply`; a Directive stays visible until its outcome is
-on the log. This **distinguishes** acted-on (`folded-to-direction`, carrying `direction_id`) from
-merely replied/acknowledged — the original distinction, now first-class and auditable, with no
-mutable flag (it stays a fold, just over `voz.resolved`). Still no real-time poller (deferred).
+So the grill close writes an explicit **terminal**
+`voz.resolved {comment_id, outcome: replied | folded-to-direction | acknowledged, direction_id?}` —
+or, when it had to ask and captured no answer, the **non-terminal** `voz.clarify {comment_id,
+question, grill_run_id}` that **keeps the chat open** (an autonomous grill may only park, never
+fabricate `acknowledged`). A Direction folded from a Directive carries `origin_comment_id`.
+`open_comments()` keys on the **absence of a terminal `voz.resolved`** (a parked `voz.clarify` chat is
+still open), not on `voz.reply`; a Directive stays visible until terminally resolved. This
+**distinguishes** acted-on (`folded-to-direction`, carrying `direction_id`) from merely
+replied/acknowledged, and both from *unsettled* (parked) — first-class and auditable, with no mutable
+flag (it stays a fold over `voz.resolved` / `voz.clarify`). Still no real-time poller (deferred).

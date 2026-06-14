@@ -47,10 +47,12 @@ Decisions:
 - **The grill resolves a loaded batch of chats; no pin, no per-Directive FIFO.** At start the grill
   captures the **start cursor** (max event seq) + the **eligible set** (open `comment_id`s as of that
   cursor), then loads a **harm-ranked batch within a max chats/tokens cap** — the *loaded batch*. It
-  **asks the residual only where ambiguous** (evidence-first), **resolves exactly the loaded batch at
-  its close** (`voz.resolved`, idempotent, one per `comment_id`), and folds the standing-worthy ones
-  into **Direction** (a `set` steer with `origin_comment_id`). *Asking* is non-exhaustive (ambiguous
-  only); *solving* is **exhaustive over the loaded batch** — no loaded chat survives. Everything not
+  **asks the residual only where ambiguous** (evidence-first), **closes each loaded chat at its
+  close** — terminal `voz.resolved` (idempotent, one per `comment_id`) or, when it asked and got no
+  answer, a non-terminal `voz.clarify` that keeps the chat **open** — and folds the standing-worthy
+  ones into **Direction** (a `set` steer with `origin_comment_id`). *Asking* is non-exhaustive
+  (ambiguous only); *closing* is **exhaustive over the loaded batch** — every loaded chat is
+  terminally resolved or visibly parked, **none silently dropped**. Everything not
   loaded (eligible chats the cap excluded, plus post-cursor arrivals) **stays open as overflow** for
   the next grill — never silently dropped nor falsely closed — and the backlog **surfaces in the
   Briefing health strip**. So coverage is bounded *by construction* (no unbounded context load). The
@@ -73,11 +75,14 @@ Decisions:
   retries) — not scan-for-max-seq-then-append (a race that forges duplicate seqs in the source of
   truth). [adversarial-review iter1 #3]
 - **A Directive's outcome is recorded, not inferred from reply-absence.** Resolves the long-open
-  `addressed`-vs-`answered` question: the grill close writes an explicit
-  `voz.resolved {comment_id, outcome: replied | folded-to-direction | acknowledged, direction_id?}`,
-  and a Direction folded from a Directive carries `origin_comment_id`. `open_comments()` keys on the
-  **outcome event, not on `voz.reply` presence**; a Directive stays visible until its outcome is on
-  the log. "Did my steer land?" becomes auditable end-to-end. [adversarial-review iter1 #2]
+  `addressed`-vs-`answered` question: the grill close writes a **terminal**
+  `voz.resolved {comment_id, outcome: replied | folded-to-direction | acknowledged, direction_id?}` —
+  or, when it asked and captured no answer, a **non-terminal** `voz.clarify {comment_id, question}`
+  that **keeps the chat open** (an autonomous grill may only park, never fabricate `acknowledged`).
+  A Direction folded from a Directive carries `origin_comment_id`. `open_comments()` keys on the
+  **absence of a terminal `voz.resolved`** (parked chats stay open), not on `voz.reply` presence; a
+  Directive stays visible until terminally resolved. "Did my steer land?" is auditable end-to-end —
+  acted-on, replied, acknowledged, or still *unsettled*. [adversarial-review iter1 #2, iter9 #1]
 
 Gaps:
 - Affordance for a targeted comment shown in the chat to link back to its publication — TBD.
@@ -105,9 +110,10 @@ Operations:
 - **read-model health strip** (v1): a compact objective-state band above the briefing — last
   dispatch, last assemble/grill, log cursor, extraction/sweep errors, graph reachability, open
   Directive count, the **Voz overflow/backlog** (eligible chats the last grill's cap left un-loaded,
-  waiting for the next grill), and **resolution-consistency errors** (a duplicate `voz.resolved`, or a
-  `folded-to-direction` whose `direction_id` has no Direction event). The degraded-mode signal a
-  composed briefing cannot give. [adversarial-review iter1 #6, iter6 #1, iter8 #1]
+  waiting for the next grill), the **awaiting-clarification count** (parked `voz.clarify` chats), and
+  **resolution-consistency errors** (a duplicate `voz.resolved`, or a `folded-to-direction` whose
+  `direction_id` has no Direction event). The degraded-mode signal a composed briefing cannot give.
+  [adversarial-review iter1 #6, iter6 #1, iter8 #1, iter9 #1]
 
 Decisions:
 - **Subsumes the *composed* state, not the *health* of the folds.** The briefing is the human-readable
