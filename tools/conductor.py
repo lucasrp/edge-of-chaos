@@ -194,7 +194,10 @@ def _writer_prompt(node: dict, outline: list[dict], seed: dict, objective: str) 
         continuation = (
             "WRITE AS A CONTINUATION: the frame is ALREADY set by the upstream nodes below — "
             "open MID-STREAM, do NOT re-establish context, do NOT re-introduce the subject, "
-            "do NOT write a fresh intro. Pick up exactly where the upstream left off."
+            "do NOT write a fresh intro. Pick up exactly where the upstream left off. "
+            "Open with the SUBSTANCE of your own finding in your own words — do NOT open with a "
+            "formulaic back-pointer ('That X matters more than it appears', 'This means…', "
+            "'Building on the above'); vary your opening so it does not echo the other nodes."
         )
     return (
         f"You are writing ONE node of a larger, single synthesis. Objective: {objective}\n\n"
@@ -442,8 +445,8 @@ def assemble(nodes: list[dict], seed: dict, objective: str) -> dict:
     # The knowledge boundary — the seed's residuals rendered as an explicit what-i-dont-know,
     # satisfying the rich-rite boundary move.
     residuals = seed.get("residuals") or []
-    boundary = ("What I don't know: " + "; ".join(residuals)) if residuals else (
-        "What I don't know: the open questions this synthesis did not resolve.")
+    boundary = ("; ".join(residuals)) if residuals else (
+        "the open questions this synthesis did not resolve.")
     sections.append({
         "title": "Open questions",
         "blocks": [{"type": "callout", "variant": "info", "title": "What I don't know",
@@ -491,11 +494,20 @@ def _synthetic_prompt(nodes: list[dict], objective: str) -> str:
     )
 
 
+def _substantive(s) -> bool:
+    """A digest contribution is usable as a derivation bullet only if it is a real clause — not a
+    stray fragment ('D', 'Esta.') that a truncated or wrong-language model digest can leave behind.
+    Requires a non-trivial length and at least two words."""
+    return isinstance(s, str) and len(s.strip()) >= 15 and len(s.strip().split()) >= 2
+
+
 def _digest_derivation(nodes: list[dict], lead: str) -> dict:
     """A `derivation` block built from the nodes' digest CONTRIBUTIONS — the rich-rite derivation
-    move, off the digests (not the essays). The bullets are each node's one-line arc contribution."""
+    move, off the digests (not the essays). The bullets are each node's one-line arc contribution;
+    degenerate fragments are dropped so junk never reaches the page."""
     bullets = [c for n in nodes
-               for c in [(n.get("digest") or _empty_digest())["contribution"]] if c]
+               for c in [(n.get("digest") or _empty_digest())["contribution"]]
+               if _substantive(c)]
     return {"type": "derivation", "title": "The through-line",
             "text": lead, "bullets": bullets or [lead]}
 
@@ -504,8 +516,8 @@ def _boundary_block(nodes: list[dict]) -> dict:
     """A `what-i-dont-know` callout — the rich-rite boundary move. Draws the open tensions from the
     digests' `assumed_prior` where present, else a default boundary; always names the lineage."""
     return {"type": "callout", "variant": "info", "title": "What I don't know",
-            "text": ("What I don't know: the open questions this synthesis did not resolve; "
-                     "this builds on the excavate seed and the prior nodes.")}
+            "text": ("The open questions this synthesis did not resolve; "
+                     "it builds on the excavate seed and the prior nodes.")}
 
 
 # The synthetic shape floor — a sane char floor and a prose-presence check (deterministic, free).

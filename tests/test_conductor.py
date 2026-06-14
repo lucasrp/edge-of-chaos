@@ -674,5 +674,53 @@ def _spy_filler_with_digest():
     return complete_fn
 
 
+class LiveTestSurfacedBugsFixed(unittest.TestCase):
+    """The three defects the live deploy-smoke surfaced (2026-06-14), each fixed here."""
+
+    def test_boundary_block_text_does_not_repeat_its_title(self):
+        # bug #2: callout rendered "What I don't knowWhat I don't know:" (title + text mashed)
+        b = conductor._boundary_block([])
+        self.assertEqual(b["title"], "What I don't know")
+        self.assertNotIn("what i don't know", b["text"].lower())
+
+    def test_assemble_boundary_text_does_not_repeat_its_title(self):
+        seed = {"findings": [{"claim": "c", "citation": "e", "bears_on": "b", "probe": "relevance"}],
+                "residuals": ["r1"]}
+        spec = conductor.assemble([], seed, "obj")
+        oq = [s for s in spec["sections"] if s["title"] == "Open questions"][0]
+        self.assertNotIn("what i don't know", oq["blocks"][0]["text"].lower())
+
+    def test_derivation_drops_degenerate_contributions(self):
+        # bug #3: stray fragments ("D", "Esta.") leaked into the derivation bullets
+        nodes = [
+            {"digest": {"bullets": [], "assumed_prior": "", "contribution": "D", "cross_refs": []}},
+            {"digest": {"bullets": [], "assumed_prior": "", "contribution": "Esta.", "cross_refs": []}},
+            {"digest": {"bullets": [], "assumed_prior": "",
+                        "contribution": "this node establishes the medium boundary", "cross_refs": []}},
+        ]
+        d = conductor._digest_derivation(nodes, "lead")
+        self.assertEqual(d["bullets"], ["this node establishes the medium boundary"])
+        self.assertNotIn("D", d["bullets"])
+        self.assertNotIn("Esta.", d["bullets"])
+
+    def test_derivation_falls_back_to_lead_when_all_junk(self):
+        nodes = [{"digest": {"bullets": [], "assumed_prior": "", "contribution": "x", "cross_refs": []}}]
+        d = conductor._digest_derivation(nodes, "the lead clause that is substantive")
+        self.assertEqual(d["bullets"], ["the lead clause that is substantive"])
+
+    def test_continuation_directive_discourages_formulaic_openers(self):
+        # bug #1: 3 of 4 deliver nodes opened "That X matters more than it first appears to"
+        node = {"role": "deliver", "contract": {"intent": "x", "finding_ids": []},
+                "place": {"position": "3 of 5", "established_upstream": "the frame is already set upstream"}}
+        p = conductor._writer_prompt(node, [], {"findings": [], "residuals": []}, "obj")
+        self.assertIn("formulaic", p.lower())
+
+    def test_opening_node_still_establishes_the_frame(self):
+        node = {"role": "motivate", "contract": {"intent": "x", "finding_ids": []},
+                "place": {"position": "1 of 5", "established_upstream": ""}}
+        p = conductor._writer_prompt(node, [], {"findings": [], "residuals": []}, "obj")
+        self.assertIn("opening node", p.lower())
+
+
 if __name__ == "__main__":
     unittest.main()
