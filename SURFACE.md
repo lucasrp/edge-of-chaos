@@ -53,3 +53,46 @@ Decisions:
 Gaps:
 - Affordance for a targeted comment shown in the chat to link back to its publication — TBD.
 - Notification when an answer lands (v1: mentee re-reads; phase 2: poller / push).
+
+## Cortex graph — surf the agent's brain
+
+Type: **projeção navegável** (a read-only fold of the Cortex graph; ADR-0005/0006). Roles: Mentee
+(read + navigate only), edge (writes the graph via extraction + grill curation — the mentee never
+edits it; the write surface stays the Voz rail).
+
+Postura: a **futuristic graph interface** — a dark, force-directed canvas where the Cortex renders
+as a constellation: **space-0** (the identity root: method + personality) as the luminous core,
+knowledge clusters as neighborhoods, and Artefatos / Direction / the Mundo·Atividade·**Self**
+relations as nodes, edges as synapses. The mentee pans, zooms, and clicks to *navigate the agent's
+brain* — expanding a node's neighborhood on click. It is the **same Cortex the edge surfs in recall**
+(#35, #28), now given a window for the mentee.
+
+Operations:
+- **view graph** (v1): open a graph view rendering the Cortex — the same navigable graph recall
+  surfs, not a separate projection. Entry points seeded the way the briefing seeds them (space-0
+  root + the salient subgraph); pan / zoom / click.
+- **inspect node** (v1): click a node → its content; artifact retrieval = traverse to the reference
+  node and fetch the blob (per CONTEXT.md, *Cortex*).
+- **filter** (future): the mentee composes filters to navigate it better — by node type
+  (Mundo / Atividade / Self, cluster, Artefato, Direction), recency, or salience/earmarked. Deferred;
+  v1 ships the unfiltered navigable graph.
+
+Decisions:
+- **Same Cortex, not a parallel projection.** v1 exposes the *same* graph the edge surfs in recall,
+  read-only to the mentee — not a mentee-specific graph. Reason: one brain, one surfing interface
+  (#35); a parallel mentee-graph would be a second store, the failure log-native physics deletes.
+- **Read-only for the mentee.** The mentee navigates; only the edge writes the graph. The mentee's
+  write surface stays the Voz rail — two different surfaces on one substrate.
+- **A JS island, never the app shell** (FRONTEND.md): a graph lib (Cytoscape / vis-network) loaded
+  *only* on this view; the rest of the dashboard stays server-rendered htmx. Honors the hard
+  "cheap on resources" constraint — the heavy lib never touches the read-mostly pages.
+
+Gaps:
+- **Filter taxonomy + UX** (the "navigate it better" set) — deferred to a future increment, not
+  specced. The axes above are candidates, not decided.
+- **Initial viewport**: what the mentee sees first — whole graph vs the space-0 neighborhood vs the
+  salient subgraph. TBD.
+- **Node/edge vocabulary** actually rendered (which Cortex node types + relations surface, and their
+  visual encoding) — TBD; depends on #28's espinha + embed landing.
+- **Live vs snapshot**: does the view re-fold per request (log-native) or read a graph snapshot for
+  pan/zoom performance? TBD — bears on the "cheap" constraint at graph scale.
