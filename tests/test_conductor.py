@@ -744,6 +744,18 @@ class LiveTestSurfacedBugsFixed(unittest.TestCase):
                  self._deliver("n2", "Briefings are lossy folds; recall pulls the detail.")]
         self.assertEqual(conductor.opener_violations(nodes), [])
 
+    def test_opener_gate_no_false_positive_on_bare_demonstrative(self):
+        # "This framework avoids…" is a demonstrative but NOT a back-pointer skeleton
+        nodes = [self._deliver("n1", "This framework avoids the staple by orienting writers early."),
+                 self._deliver("n2", "Recall pulls the detail on demand, not at wake.")]
+        self.assertEqual(conductor.opener_violations(nodes), [])
+
+    def test_opener_gate_no_false_positive_on_shared_article(self):
+        # two nodes both opening with "The" must not be flagged — the article is a stopword
+        nodes = [self._deliver("n1", "The medium is the native order-bearing surface to edge."),
+                 self._deliver("n2", "The dashboard supersedes the old web organ under new physics.")]
+        self.assertEqual(conductor.opener_violations(nodes), [])
+
     def test_opener_flags_empty_when_off(self):
         calls = {"n": 0}
         def spy(p):

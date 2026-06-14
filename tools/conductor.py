@@ -613,8 +613,28 @@ def _genus_violations(spec: dict, objective: str) -> list[str]:
 # place-aware continuation directive ASKS writers to open with substance; this DETECTS when they
 # don't: a deliver node opening with a back-pointer demonstrative, or sharing its opening word with
 # a sibling (the "23 identical That-X intros" signal the prompt alone cannot guarantee against).
-_BANNED_OPENERS = ("that ", "this ", "these ", "those ", "it follows", "building on",
-                   "as noted", "as established", "as we saw", "having established", "as above")
+# Back-pointer opener skeletons: a demonstrative + (optional noun) + a pointer/linking verb
+# ("that wording changes", "that choice matters", "this means", "it follows") — NOT a bare
+# demonstrative, so "This framework avoids…" is left alone; plus the literal lead-in phrases.
+_BANNED_OPENER_RE = re.compile(
+    r"^(this|that|these|those)\s+(\w+\s+){0,2}"
+    r"(is|are|was|were|means|matter|matters|change|changes|show|shows|highlight|highlights|"
+    r"explain|explains|appear|appears|impl(?:y|ies)|underscore|underscores|reinforce|reinforces)\b"
+    r"|^it\s+(follows|means|implies|shows|underscores)\b"
+    r"|^(building on|as noted|as established|as we saw|having established|as above)\b",
+    re.IGNORECASE,
+)
+# Articles/demonstratives excluded from the repeated-opener check — two nodes both opening "The"
+# is not repetition; the FIRST SIGNIFICANT (content) word is the signal.
+_OPENER_STOPWORDS = frozenset({"the", "a", "an", "this", "that", "these", "those", "it", "its",
+                               "in", "on", "of", "to", "and", "but", "so", "as", "for", "with"})
+
+
+def _first_significant(opener: str) -> str:
+    for w in opener.split():
+        if w not in _OPENER_STOPWORDS:
+            return w
+    return ""
 
 
 def _opener(node: dict) -> str:
@@ -633,20 +653,22 @@ def opener_violations(nodes: list[dict]) -> list[dict]:
     word shared with a sibling deliver node. [] iff every deliver node opens with varied substance."""
     delivers = [n for n in nodes if n.get("role") == "deliver"]
     openers = {id(n): _opener(n).lower() for n in delivers}
-    first_word = {}
+    sig_count = {}
     for op in openers.values():
-        if op:
-            first_word[op.split()[0]] = first_word.get(op.split()[0], 0) + 1
+        s = _first_significant(op)
+        if s:
+            sig_count[s] = sig_count.get(s, 0) + 1
     flags = []
     for n in delivers:
         op = openers[id(n)]
         if not op:
             continue
-        if op.startswith(_BANNED_OPENERS):
+        if _BANNED_OPENER_RE.match(op):
             flags.append({"id": n.get("id"), "issue": "formulaic back-pointer opener",
                           "opener": op[:80]})
-        elif first_word.get(op.split()[0], 0) >= 2:
-            flags.append({"id": n.get("id"), "issue": "opener word repeats a sibling's",
+        elif sig_count.get(_first_significant(op), 0) >= 2:
+            flags.append({"id": n.get("id"),
+                          "issue": "opener's first content word repeats a sibling's",
                           "opener": op[:80]})
     return flags
 
