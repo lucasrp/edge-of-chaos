@@ -54,6 +54,50 @@ Gaps:
 - Affordance for a targeted comment shown in the chat to link back to its publication — TBD.
 - Notification when an answer lands (v1: mentee re-reads; phase 2: poller / push).
 
+## Read-side surfaces — one coherent set
+
+The mentee's window is **one navigation**, each surface a fold/projection of the log + graph (no
+parallel store): **Briefing** (self-state landing) → **Direction** (steers, drill-down) → **Blog**
+(Artefatos, the work feed) → **Cortex graph** (explore the brain). The **Voz rail** is the write-side,
+threaded across them. Decided this session: the **briefing subsumes a separate "state" page**, and
+**Direction is a drill-down off the briefing** — not three overlapping pages. Built today: Blog +
+Voz rail. To build: Briefing, Direction, Cortex graph.
+
+## Briefing — the self-state landing
+
+Type: **projeção** (reuses `tools/briefing.py::compose_briefing` — the *same* text the edge wakes to).
+Roles: Mentee (read). The mentee sees the agent's literal wake-state: curated Direction, open bets,
+corpus head, knowledge clusters, source orientation.
+
+Operations:
+- **view briefing** (v1): render the composed wake-briefing. No new fold — calls `compose_briefing`.
+
+Decisions:
+- **Subsumes "state".** The briefing *is* the human-readable self-state; no separate raw-state page
+  in v1. One composed landing, not a pile of projections.
+- **Reuses the wake artifact.** What the mentee reads is exactly what the edge wakes to — no
+  mentee-specific recomposition, no drift.
+
+## Direction — the steers (drill-down)
+
+Type: **projeção** (fold of `direction.*` → two tiers, via `eventlog.direction_at`). Roles: Mentee
+(read), edge (writes via grill/Voz). A focused drill-down off the **Briefing**, distinct from the
+**Cortex graph** (status-scanning your steers ≠ exploring a constellation).
+
+Operations:
+- **view Direction** (v1): the two tiers — **set** (curated, Voz-only — the active steers) and
+  **proposed** (candidates awaiting the grill). Curated prominent, proposed dimmer (same trust-
+  language as the Cortex graph).
+
+Decisions:
+- **Dedicated surface, not subsumed by the graph.** The affordance differs: Direction answers "what
+  is the edge steering toward, did my steer land?" — a scannable list, not graph exploration.
+
+Gaps:
+- **Voz→Direction provenance** is not in the event model: `propose()` records `from_artefato` /
+  `relates_to`, not the originating `voz.comment`. So per-comment "your steer became this Direction"
+  needs an upstream event-model addition first — deferred; v1 shows the two tiers without it.
+
 ## Cortex graph — surf the agent's brain
 
 Type: **projeção navegável** (a read-only fold of the Cortex graph; ADR-0005/0006). Roles: Mentee
