@@ -126,7 +126,10 @@ a fold, no parallel store, `group_id`-scoped per install.
   Directive emits **this**, carrying `origin_comment_id`.
 - `direction.proposed {id, body, from_artefato?, relates_to?, ts}` — candidate tier (artefato / grill
   achados). **Never** carries `origin_comment_id`.
-- `direction.dropped {id, ts}`.
+- `direction.dropped {id, origin_comment_id?, ts}` — retire a steer. Dropping a **`set`** is
+  **Voz-only** and carries `origin_comment_id` (appended atomically with its `voz.resolved` when
+  Directive-driven); a **non-Voz** actor (grill / artefato) may only **propose** a retirement via
+  `direction.proposed` (`relates_to` the target), never drop a `set` directly.
 
 **Invariants**
 - **`open_comments()`** = `voz.comment`s with no terminal `voz.resolved` (a parked `voz.clarify` chat
@@ -140,9 +143,14 @@ a fold, no parallel store, `group_id`-scoped per install.
   overflow.
 - **Atomic close** = a chat's close events land in one `append_batch` keyed by `comment_id` +
   `grill_run_id`, under the `still_open` precondition (crash- and concurrency-safe).
-- **Provenance** = `origin_comment_id` only on `direction.set`; `voz.resolved.direction_id` always
-  points at a `direction.set`. A `folded-to-direction` whose `direction_id` has no `direction.set` is a
-  health-strip error.
+- **Provenance** = `origin_comment_id` rides only Voz-owned curated events (`direction.set`, and a
+  `set`-targeting `direction.dropped`); never on `direction.proposed`. `voz.resolved.direction_id`
+  always points at a `direction.set`. A `folded-to-direction` whose `direction_id` has no
+  `direction.set` is a health-strip error.
+- **Retirement** = a `set` is retired only by a **Voz `direction.dropped`** (carrying
+  `origin_comment_id`); non-Voz actors propose retirement as `direction.proposed` (`relates_to`),
+  never drop a `set`. Create, promote, and retire all preserve the tier-disjoint, Voz-owns-curated
+  model. [adversarial-review iter14 #1]
 
 ## Read-side surfaces — one coherent set
 

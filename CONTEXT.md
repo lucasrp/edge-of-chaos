@@ -171,7 +171,9 @@ candidate** — an **Artefato**'s end-of-run candidate, or a **grill** finding �
 (curated, carrying `origin_comment_id` — Voz is already authority, never routed through `proposed`).
 A standing `proposed` item the mentee later **ratifies** is separately **promoted to `set`** (the
 same promotion the grill runs on knowledge). A steer is **addressable** — cited, confirmed,
-contested — which makes Direction two-tier rather than a wishlist.
+contested — which makes Direction two-tier rather than a wishlist. Likewise **retiring a `set` is
+Voz-only** (`direction.dropped` carrying `origin_comment_id`); a non-Voz steer can only *propose* the
+retirement.
 *Avoid*: achado (translated — use finding), suggestion, recommendation, todo
 
 **Idiom**:
