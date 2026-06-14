@@ -60,12 +60,12 @@ Type: **projeção navegável** (a read-only fold of the Cortex graph; ADR-0005/
 (read + navigate only), edge (writes the graph via extraction + grill curation — the mentee never
 edits it; the write surface stays the Voz rail).
 
-Postura: a **futuristic graph interface** — a dark, force-directed canvas where the Cortex renders
-as a constellation: **space-0** (the identity root: method + personality) as the luminous core,
-knowledge clusters as neighborhoods, and Artefatos / Direction / the Mundo·Atividade·**Self**
-relations as nodes, edges as synapses. The mentee pans, zooms, and clicks to *navigate the agent's
-brain* — expanding a node's neighborhood on click. The territory is the **whole Cortex**, not the
-salient subgraph. **This is not Recall**: Recall is the *agent's* wake-act, where the edge connects
+Postura: a **futuristic graph interface** — a dark, force-directed canvas where the **whole Cortex**
+renders at once as a constellation **centered on space-0** (the identity root: method + personality),
+the luminous core every other node hangs off. The mentee pans, zooms, and clicks to *navigate the
+agent's brain*. The territory is the **whole Cortex**, not the salient subgraph (clusters are *not*
+graph nodes — `Community` = 0; they live as rendered wiki pages, so they do not appear as
+neighborhoods in v1). **This is not Recall**: Recall is the *agent's* wake-act, where the edge connects
 with its own brain (the space-0-rooted salient subgraph, auto-served at pre-dispatch). This is the
 **mentee** freely **surfing** the same graph, read-only, on demand (search is a later affordance) —
 **one brain, two surfers** (#35, #28).
@@ -94,14 +94,28 @@ Decisions:
 - **A JS island, never the app shell** (FRONTEND.md): a graph lib (Cytoscape / vis-network) loaded
   *only* on this view; the rest of the dashboard stays server-rendered htmx. Honors the hard
   "cheap on resources" constraint — the heavy lib never touches the read-mostly pages.
+- **Whole graph, centered on space-0 — then simplify.** v1 renders the *entire* Cortex at once,
+  space-0 as the gravitational core — *not* a spine-first skeleton that expands on demand. The
+  legibility work is **subtractive** (declutter the hairball: visual hierarchy, trust-dimming,
+  layout) — never **additive** (withhold then reveal). Rationale (operator, this session): seeing
+  the whole brain is the point; simplify the view, don't hide it.
+
+Node/edge vocabulary (live, group `edge-next` — the real shape, not #28-speculative):
+- **Asserted spine (the curated Self, ~55 nodes, *faithful*):** `Genesis` (space-0, 1), `Objective`
+  (1), `Direction` (41), `Artefato` (12); edges `GROUNDS` / `ANCHORS` / `SERVES` / `PROPOSES` /
+  `DISTILLS` / `CITES`.
+- **Extracted layer (Graphiti, *hypothesis*, the bulk ~163 nodes):** `Entity` (72), `Episodic` (91,
+  = *Atividade*), `Source` (50, = *Mundo*); edges `MENTIONS` (196), `RELATES_TO` (64).
+- `Community` / `Saga` = 0 (not materialized).
 
 Gaps:
-- **Filter taxonomy + UX** (the "navigate it better" set) — deferred to a future increment, not
-  specced. The axes above are candidates, not decided.
-- **Initial viewport**: where free surf lands first — whole-graph overview vs space-0 as natural
-  center. TBD (not recall-seeded — that salient entry is the *agent's*, not the mentee's; not
-  search-driven — search is deferred).
-- **Node/edge vocabulary** actually rendered (which Cortex node types + relations surface, and their
-  visual encoding) — TBD; depends on #28's espinha + embed landing.
+- **Simplification levers** (THE central v1 question, now that the stance is whole-then-simplify):
+  how to make a ~268-node, ~75%-hypothesis hairball legible — trust-dimming (asserted bright vs
+  extracted faint), importance/size weighting, `Episodic` treatment, edge bundling, force layout,
+  level-of-detail on zoom. Not yet decided.
+- **Trust legibility**: asserted (faithful) vs extracted (hypothesis) must be visually distinct —
+  glossary-mandated ("trust is legible per edge") and load-bearing here since most of the graph is
+  hypothesis. Encoding TBD (see simplification levers).
+- **Filter taxonomy + UX** (the "navigate it better" set) — deferred to a future increment.
 - **Live vs snapshot**: does the view re-fold per request (log-native) or read a graph snapshot for
   pan/zoom performance? TBD — bears on the "cheap" constraint at graph scale.
