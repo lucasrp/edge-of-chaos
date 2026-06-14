@@ -15,7 +15,7 @@ The unit of resolution is the **chat** (a mentee↔edge exchange on the rail —
 replies under it), not the individual message and not a global FIFO position. An **open chat** is
 one whose mentee comment has **no `voz.resolved` outcome yet** (the `open_comments()` fold = comments
 lacking a `voz.resolved`; `voz.reply` is **presentation only** — the inline answer the dashboard
-renders — never the lifecycle state). Every open chat is **earmarked**, so the **grill loads them all into context**
+renders — never the lifecycle state). Every open chat is **earmarked**, so the **grill loads them all — the start-of-grill snapshot — into context**
 at once. From that full context the grill:
 
 - **asks the residual only where ambiguous** — evidence-first, **non-exhaustive**: it questions the
@@ -30,7 +30,7 @@ at once. From that full context the grill:
   steer; the rest are simply answered and closed.
 
 So *earmark = full context*; **asking is non-exhaustive (ambiguous only), solving is exhaustive over
-the start-of-grill snapshot (every chat in it marked solved)**. There is **no pin** — the grill already has every open chat in front of it — and
+the start-of-grill snapshot (every chat in it marked solved)**. There is **no pin** — the grill already has every open chat in the snapshot in front of it — and
 **no per-Directive FIFO / beat-drain**: the beat does not jump its round-robin for a Directive. The
 edge's answer is a `voz.reply` event the **dashboard renders inline** ("agent responds next beat") —
 no external outbound send is required (the dashboard projecting the log *is* the return path).
@@ -67,8 +67,9 @@ private 1:1 (human-hub fan-in, shared room).
 - **Latency up to one grill** before a Directive is acknowledged. The deferred deterministic poller
   is the documented path to close this gap when it is needed.
 - **Resolution is by chat, not by message.** The grill does not drain a queue oldest-first; it loads
-  every open chat and closes all of them in one pass. Coverage is the invariant — no open chat
-  outlives a grill.
+  the **start-of-grill snapshot** of open chats and closes exactly that set in one pass. Coverage is
+  the invariant — **no open chat in the snapshot outlives that grill**; a chat arriving after the
+  snapshot is the next grill's.
 - **The answer travels back out through the Medium** — for the Voz rail that path is the dashboard
   rendering the `voz.reply` event; no separate outbound send. A Directive can only ride a **two-way**
   Medium precisely because a one-way pipe cannot carry the answer back.
@@ -90,7 +91,7 @@ private 1:1 (human-hub fan-in, shared room).
   two-state bookkeeping. Whether "solved" should still distinguish *acted-on* from *replied* is an
   **open question** (see below).
 - **Harm-ranked drain** instead of FIFO: moot under chat-resolution — the grill already prioritises
-  by harm potential when *asking*, and solves exhaustively regardless.
+  by harm potential when *asking*, and solves exhaustively over the snapshot regardless.
 
 ## Resolution — the outcome is recorded, not inferred (adversarial-review iter1 #2)
 
