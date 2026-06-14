@@ -28,14 +28,24 @@ Make `voz.*` writes safe before anything generates from them.
 
 ## Slice 2 — `voz.resolved` lifecycle + the grill drain loop *(audit B, the round-trip)*
 Directing answers back, on its own — no hand-appended replies.
-- **Build:** introduce the terminal-or-parked outcome model (`voz.resolved {outcome}` / `voz.clarify`)
-  per the hardened `SURFACE.md`; `open_comments()` keys on absence of a terminal `voz.resolved` (not
-  `voz.reply`). A **drain** mechanism (endpoint `POST /grill/drain` and/or a runnable tool) that loads
-  the actionable open comments, generates a `voz.reply` per comment via the edge LLM, writes
-  `voz.resolved`, atomically through the canonical append. v1 = a "grill-lite" answerer; folding
-  standing comments into Direction is the Slice-4 hook.
-- **Accept:** post a comment → run the drain → a `voz.reply` is generated and renders inline, and the
-  comment leaves `open_comments()`; the "oi" dead-letter is gone (a real round-trip).
+- **Build:** the terminal-or-parked outcome model (`voz.resolved {outcome}` / `voz.clarify`) per the
+  hardened `SURFACE.md`; `open_comments()` keys on absence of a terminal `voz.resolved` (not
+  `voz.reply`). A **drain** (endpoint `POST /grill/drain` and/or a runnable tool) that loads the
+  **actionable set**, generates a `voz.reply` per comment via the edge LLM, and — when a comment is a
+  **standing Directive** — atomically appends `direction.set` + `voz.resolved {outcome:
+  folded-to-direction, origin_comment_id, direction_id}` (the write-side of the Voz→Direction loop;
+  surfaced in Slice 4). One **idempotent `append_batch`** keyed by `comment_id`+`grill_run_id` under a
+  version guard.
+- **Accept (live verticals + failure modes, NOT just the happy path):**
+  (a) post a comment → drain → a `voz.reply` generates, renders inline, the comment leaves
+  `open_comments()` (the "oi" dead-letter is gone);
+  (b) a **standing Directive** → drain → `direction.set` + `voz.resolved{folded-to-direction,
+  origin_comment_id, direction_id}` land **atomically** (verified end-to-end in Slice 4);
+  (c) the drain loads only the **actionable set** — a parked `voz.clarify` with no answer is **not**
+  re-loaded; a `voz.clarify_answer` re-enters it and terminally resolves;
+  (d) a **stale/concurrent drain must NOT produce a second terminal outcome** (test the version guard);
+  a crash mid-close leaves a chat fully resolved-or-open, never half;
+  (e) a duplicate / orphan `voz.resolved` surfaces as a consistency error.
 - **Deps:** Slice 1 (writes must be trusted before they're auto-resolved).
 
 ## Slice 3 — Briefing surface + read-model health strip *(audit A)*
@@ -51,16 +61,21 @@ See the steers; close the Voz→Direction loop visibly.
 - **Build:** `GET /direction` folding `direction.*` → the two tiers (`set` curated / `proposed`
   candidate), curated prominent / proposed dimmer; render the `origin_comment_id` provenance link
   (steer ⇄ originating comment) where present. Drill-down from the Briefing.
-- **Accept:** `/direction` shows both tiers; a steer folded from a Directive links back to its comment.
-  **Deps:** Slice 3 (drill-down off Briefing); the provenance link is best-effort on existing data.
+- **Accept (live, not seeded):** post a **real** standing Directive in `/chat` → run the drain →
+  `/direction` shows the **new** `set` steer **linked back to its originating comment**
+  (`origin_comment_id`), with `voz.resolved{folded-to-direction}` on the log. Both tiers render
+  (curated prominent, proposed dimmer). "Did my steer land?" is answerable end-to-end for a NEW
+  directive — not from seeded data. **Deps:** Slices 2 (the write-side fold) + 3 (drill-down off
+  Briefing).
 
 ## Slice 5a — Design-doc surfaces *(audit C)*
 The literal "live the documentation," part 1.
 - **Build:** navigable pages for the glossary (`CONTEXT.md`), the ADRs (`docs/adr/*`), and the standing
   pages **Idiom** + **Source roadmap / source-feedback** — rendered from the source files (markdown →
   HTML), one index + per-doc view, in the dark theme.
-- **Accept:** `/docs` (or per-type routes) lists and renders each; the glossary terms and ADRs are
-  readable in-dashboard, not as files. **Deps:** none.
+- **Accept (all four types, not just glossary+ADRs):** glossary terms (`CONTEXT.md`), the ADRs
+  (`docs/adr/*`), the **Idiom** page, AND the **Source roadmap / source-feedback** page each list +
+  render in-dashboard; none forces the mentee back to a file path. **Deps:** none.
 
 ## Slice 5b — Emergent-knowledge surfaces + Cortex wiring *(audit C)*
 Part 2: the wiki and the graph→source bridge.
@@ -68,8 +83,10 @@ Part 2: the wiki and the graph→source bridge.
   `state/wiki/index.html` + `cluster-*.html`); **link Cortex nodes to their source** — clicking an
   `Artefato`/`Direction`/`Source` node in `/cortex` drills into its blog entry / Direction surface /
   source doc.
-- **Accept:** the wiki index + a cluster page render in-dashboard; a Cortex node click navigates to the
-  real surface. **Deps:** Slices 3–5a (the targets the graph links into must exist).
+- **Accept:** the wiki/Knowledge-cluster index + a cluster-thread page render in-dashboard; **clusters
+  are reachable from `/briefing` AND from an Artefato's `distills`** (not just a standalone route); a
+  Cortex `Artefato`/`Direction`/`Source` node click navigates to its real surface (blog entry /
+  Direction / source doc). **Deps:** Slices 3–5a (the targets the graph + distills link into must exist).
 
 ## Slice 6 — Cortex search + filter *(audit D)*
 Navigate the brain, not just stare at it.
