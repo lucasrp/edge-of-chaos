@@ -30,12 +30,12 @@ FIXTURE = {
         {"id": "ep1", "label": "Episodic", "title": "session-x", "trust": "episodic"},
     ],
     "edges": [
-        {"source": "g0", "target": "o1", "type": "GROUNDS"},
-        {"source": "o1", "target": "d1", "type": "ANCHORS"},
-        {"source": "a1", "target": "o1", "type": "SERVES"},
-        {"source": "a1", "target": "e1", "type": "DISTILLS"},
-        {"source": "e1", "target": "s1", "type": "MENTIONS"},
-        {"source": "ep1", "target": "e1", "type": "RELATES_TO"},
+        {"id": "r0", "source": "g0", "target": "o1", "type": "GROUNDS"},
+        {"id": "r1", "source": "o1", "target": "d1", "type": "ANCHORS"},
+        {"id": "r2", "source": "a1", "target": "o1", "type": "SERVES"},
+        {"id": "r3", "source": "a1", "target": "e1", "type": "DISTILLS"},
+        {"id": "r4", "source": "e1", "target": "s1", "type": "MENTIONS"},
+        {"id": "r5", "source": "ep1", "target": "e1", "type": "RELATES_TO"},
     ],
 }
 
@@ -82,6 +82,23 @@ class TestCortexFold(unittest.TestCase):
         self.assertEqual(trust["o1"], "asserted")      # asserted spine
         self.assertEqual(trust["e1"], "extracted")     # extracted dim
         self.assertEqual(trust["ep1"], "episodic")     # episodic faintest
+
+    def test_each_edge_carries_a_stable_id_distinct_from_node_ids(self):
+        # edge ids must not collide with node ids (Cytoscape shares one id namespace) — a
+        # synthetic e<index> scheme aliased node "e1"; the fold carries the relationship id.
+        payload = self.server.cortex_fold()
+        node_ids = {n["id"] for n in payload["nodes"]}
+        edge_ids = [e["id"] for e in payload["edges"]]
+        self.assertEqual(len(edge_ids), len(set(edge_ids)))       # unique
+        self.assertTrue(node_ids.isdisjoint(edge_ids))            # no collision with nodes
+
+    def test_node_mapping_surfaces_the_earmarked_flag(self):
+        # the Earmarked overlay (harm overrides the dim) is wired end-to-end: a node carrying the
+        # earmark signal in its props surfaces earmarked=True so the island can highlight it.
+        plain = self.server._map_node("4:x:0", "Entity", {"name": "human"})
+        self.assertFalse(plain["earmarked"])
+        marked = self.server._map_node("4:x:1", "Entity", {"name": "harm", "earmarked": True})
+        self.assertTrue(marked["earmarked"])
 
 
 class TestCortexRoute(unittest.TestCase):

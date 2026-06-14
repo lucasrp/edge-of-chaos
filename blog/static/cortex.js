@@ -27,17 +27,20 @@
   function tier(t) { return TIER[t] || TIER.extracted; }
 
   var elements = [];
+  var nodeIds = {};
   payload.nodes.forEach(function (n) {
+    nodeIds[n.id] = true;
     elements.push({
       data: { id: n.id, label: n.label, title: n.title, trust: n.trust },
       classes: "tier-" + n.trust + (n.earmarked ? " earmarked" : ""),
     });
   });
   payload.edges.forEach(function (e, i) {
-    // skip edges whose endpoints are not in the payload (defensive — scoped fold should match)
-    elements.push({
-      data: { id: "e" + i, source: e.source, target: e.target, type: e.type },
-    });
+    // skip edges whose endpoints are not in the payload (defensive — the scoped fold should match)
+    if (!nodeIds[e.source] || !nodeIds[e.target]) return;
+    // edge id from the server (relationship id); namespaced fallback never collides with a node id
+    var id = e.id != null ? e.id : "rel:" + i;
+    elements.push({ data: { id: id, source: e.source, target: e.target, type: e.type } });
   });
 
   var cy = cytoscape({

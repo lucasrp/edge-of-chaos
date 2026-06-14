@@ -344,7 +344,7 @@ _CORTEX_NODES_QUERY = (
 )
 _CORTEX_EDGES_QUERY = (
     "MATCH (a {group_id:$g})-[r]->(b {group_id:$g}) "
-    "RETURN elementId(a) AS source, elementId(b) AS target, type(r) AS type"
+    "RETURN elementId(r) AS id, elementId(a) AS source, elementId(b) AS target, type(r) AS type"
 )
 
 
@@ -373,6 +373,19 @@ def _node_title(label, props):
     return label
 
 
+def _map_node(id_, label, props):
+    """One Cortex node → the render payload: id, label, a human title, its trust tier (the
+    brightness axis), and the earmarked flag (the harm overlay — passed through so the overlay is
+    wired end-to-end; harm overrides the dim regardless of trust tier)."""
+    return {
+        "id": id_,
+        "label": label,
+        "title": _node_title(label, props),
+        "trust": _TRUST_BY_LABEL.get(label, "extracted"),
+        "earmarked": bool(props.get("earmarked")),
+    }
+
+
 def _cortex_live(group):
     """Fold the WHOLE Cortex for `group` from neo4j into {nodes, edges}. group_id-scoped on every
     node and both edge endpoints. Returns the payload, or None on a genuine degrade (no driver,
@@ -390,14 +403,9 @@ def _cortex_live(group):
         return None
     try:
         with drv.session() as s:
-            rows = s.run(_CORTEX_NODES_QUERY, g=group).data()
-            nodes = [{
-                "id": r["id"],
-                "label": r["label"],
-                "title": _node_title(r["label"], r["props"]),
-                "trust": _TRUST_BY_LABEL.get(r["label"], "extracted"),
-            } for r in rows]
-            edges = [{"source": r["source"], "target": r["target"], "type": r["type"]}
+            nodes = [_map_node(r["id"], r["label"], r["props"])
+                     for r in s.run(_CORTEX_NODES_QUERY, g=group).data()]
+            edges = [{"id": r["id"], "source": r["source"], "target": r["target"], "type": r["type"]}
                      for r in s.run(_CORTEX_EDGES_QUERY, g=group).data()]
             return {"nodes": nodes, "edges": edges}
     except Exception:
