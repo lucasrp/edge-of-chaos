@@ -135,8 +135,10 @@ So the grill close writes an explicit **terminal**
 or, when it had to ask and captured no answer, the **non-terminal** `voz.clarify {comment_id,
 clarify_id, question, grill_run_id}` that **keeps the chat open** (an autonomous grill may only park,
 never fabricate `acknowledged`). The `voz.clarify` **renders inline** on its chat as the edge's
-question; the mentee answers with a `voz.comment {answers_clarify: clarify_id}`, and a later grill —
-seeing that linked answer — appends the terminal `voz.resolved`. A Direction folded from a Directive
+question; the mentee answers with a **distinct child event** `voz.clarify_answer {clarify_id, body,
+ts}` (**not** a `voz.comment`, so it never becomes a new Directive or enters `open_comments()`), and a
+later grill — seeing that linked answer — appends the terminal `voz.resolved`, consuming the answer
+atomically. A Direction folded from a Directive
 carries `origin_comment_id`. `open_comments()` keys on the **absence of a terminal `voz.resolved`** (a
 parked `voz.clarify` chat is still open), not on `voz.reply`; a Directive stays visible until
 terminally resolved. This

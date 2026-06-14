@@ -26,8 +26,7 @@ presence — see iter1 #2). Roles: Mentee (write + read), edge (replies only).
 
 Operations:
 - **comment** (create a Directive): comment box under a publication *and* in the standalone chat;
-  appends `voz.comment {target_ref?, comment_id, body, ts, answers_clarify?}`. Owes an edge reply →
-  the answer queue.
+  appends `voz.comment {target_ref?, comment_id, body, ts}`. Owes an edge reply → the answer queue.
 - **vote**: 👍/👎 under a publication; appends `voz.vote {slug, value:±1, ts}`. Frictionless, no
   reply owed (the retention signal). Always targets a publication.
 - **view thread** (per-publication): comment+reply thread renders under each post — fold by
@@ -39,11 +38,14 @@ Operations:
 - **view clarification** (v1): a parked `voz.clarify` renders inline under its original chat as the
   edge's open question, flagged *awaiting your answer* — the same inline pattern as a reply, in both
   views.
-- **answer a clarification** (v1): the mentee answers a parked chat with a `voz.comment` carrying
-  `answers_clarify = clarify_id` (the composer is pre-linked from the inline question). The grill fold
-  reads that link: a parked chat *with* a linked answer is **ready for terminal resolution** at the
-  next grill; *without* one it stays awaiting-clarification. So a parked Directive is answerable on its
-  own thread, never rediscovered by heuristic association. [adversarial-review iter10 #2]
+- **answer a clarification** (v1): the mentee answers a parked chat with a **distinct child event**
+  `voz.clarify_answer {clarify_id, body, ts}` — **not** a `voz.comment`, so it is **never a new
+  Directive** and never enters `open_comments()` / the eligible set (this is what stops an answer from
+  re-opening the backlog). The composer is pre-linked from the inline question. The grill fold reads
+  the link: a parked chat *with* a `voz.clarify_answer` is **ready for terminal resolution** at the
+  next grill (which consumes the answer atomically when it appends `voz.resolved`); *without* one it
+  stays awaiting-clarification. So a parked Directive is answerable on its own thread, never
+  rediscovered by heuristic association. [adversarial-review iter10 #2, iter12 #1]
 
 Decisions:
 - Per-publication comments and the standalone chat are **NOT two mediums** — they are two
@@ -100,6 +102,42 @@ Gaps:
 - Auth *mechanism* (session cookie vs reverse-proxy basic-auth, as session-deck does) — unbound; the
   *requirement* is fixed, the mechanism is a build choice.
 
+## Event schema — the normative Voz/Direction contract
+
+The authoritative event list; the prose above must not contradict it. All append-only; everything is
+a fold, no parallel store, `group_id`-scoped per install.
+
+**Voz events**
+- `voz.comment {target_ref?, comment_id, body, ts}` — a mentee Directive (general chat if `target_ref`
+  null). The *only* event that opens a chat.
+- `voz.vote {slug, value: ±1, ts}` — answer-less retention signal; always targets a publication.
+- `voz.reply {comment_id, body, ts}` — the edge's inline answer; **presentation only**, not lifecycle.
+- `voz.clarify {comment_id, clarify_id, question, grill_run_id, ts}` — the grill parks an unsettled
+  loaded chat; **non-terminal** (the chat stays open).
+- `voz.clarify_answer {clarify_id, body, ts}` — the mentee's answer to a clarify; a **child event**,
+  never a `voz.comment`, so it never opens a chat.
+- `voz.resolved {comment_id, outcome: replied | folded-to-direction | acknowledged, direction_id?, grill_run_id, ts}`
+  — the grill's **terminal** outcome; one per `comment_id`, idempotent, under an append-time
+  `still_open(comment_id)` precondition.
+
+**Direction events** (tier-disjoint provenance)
+- `direction.set {id, body, origin_comment_id?, ts}` — curated tier (Voz-only). A `folded-to-direction`
+  Directive emits **this**, carrying `origin_comment_id`.
+- `direction.proposed {id, body, from_artefato?, relates_to?, ts}` — candidate tier (artefato / grill
+  achados). **Never** carries `origin_comment_id`.
+- `direction.dropped {id, ts}`.
+
+**Invariants**
+- **`open_comments()`** = `voz.comment`s with no terminal `voz.resolved` (a parked `voz.clarify` chat
+  is still open; `voz.clarify_answer` and `voz.reply` never affect openness).
+- **Coverage** = every chat in a grill's loaded batch reaches `voz.resolved` (terminal) or
+  `voz.clarify` (parked); un-loaded eligible + post-cursor chats are overflow.
+- **Atomic close** = a chat's close events land in one `append_batch` keyed by `comment_id` +
+  `grill_run_id`, under the `still_open` precondition (crash- and concurrency-safe).
+- **Provenance** = `origin_comment_id` only on `direction.set`; `voz.resolved.direction_id` always
+  points at a `direction.set`. A `folded-to-direction` whose `direction_id` has no `direction.set` is a
+  health-strip error.
+
 ## Read-side surfaces — one coherent set
 
 The mentee's window is **one navigation**, each surface a fold/projection of the log + graph (no
@@ -148,12 +186,15 @@ Operations:
 Decisions:
 - **Dedicated surface, not subsumed by the graph.** The affordance differs: Direction answers "what
   is the edge steering toward, did my steer land?" — a scannable list, not graph exploration.
-- **Provenance is non-deferred for v1** (adversarial-review iter2 #1 — it was contradictorily both
-  *required* by the Voz-rail outcome decision and *deferred* here). The event model gains:
-  `direction.set` / `direction.proposed` carry `origin_comment_id` when folded from a Directive, and
-  `voz.resolved` carries `direction_id` for the `folded-to-direction` outcome; `propose()` / `set()`
-  take the new param. The surface renders the link **bidirectionally** (steer ⇄ originating comment).
-  The audit promise and its schema land together — no half-state.
+- **Provenance is non-deferred for v1, and tier-disjoint** (iter2 #1, iter12 #2). A **Direct Voz
+  `folded-to-direction` always emits `direction.set`** (Voz-grade → curated, never the dim `proposed`
+  tier) carrying `origin_comment_id`; `voz.resolved` carries that steer's `direction_id`. The
+  `proposed` tier is for **non-Voz candidates only** (artefato / grill achados) and carries
+  `from_artefato` / `relates_to`, **never `origin_comment_id`** — so the provenance fields are
+  **disjoint by tier** and a folded Directive can never land as a non-curated item with no promotion
+  owner. `set()` takes `origin_comment_id`; `propose()` keeps `from_artefato` / `relates_to`. The
+  surface renders the link **bidirectionally** (steer ⇄ originating comment). The audit promise and
+  its schema land together — no half-state.
 
 ## Cortex graph — surf the agent's brain
 
