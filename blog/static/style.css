@@ -188,3 +188,42 @@ a:hover { color: #a8c2ff; }
 /* ---- chat page ---- */
 .chat { margin-top: 8px; }
 .chat-item .ctx { display: block; }
+
+/* ---- cortex graph — surf the agent's brain (a dark, full-canvas constellation) ---- */
+.cortex-page {
+  margin: 0; height: 100vh; overflow: hidden;
+  display: flex; flex-direction: column;
+  background:
+    radial-gradient(1200px 700px at 50% 42%, var(--bg-glow), transparent 70%),
+    var(--bg);
+}
+.cortex-head { padding: 14px 20px 10px; flex: 0 0 auto; }
+.cortex-head h1 { margin: 0 0 2px; font-size: 1.15rem; letter-spacing: .2px; }
+.cortex-head .meta { margin: 2px 0 0; }
+.cortex-head a.meta { display: inline-block; margin-bottom: 4px; }
+.cortex-main { flex: 1 1 auto; position: relative; min-height: 0; }
+#cortex { position: absolute; inset: 0; }
+
+/* the read-only inspect panel — a clicked node's content */
+.cortex-inspect {
+  position: fixed; right: 18px; bottom: 18px; max-width: 320px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px 14px;
+  box-shadow: var(--shadow); color: var(--text);
+}
+.cortex-inspect.hidden { display: none; }
+.cortex-inspect .kind {
+  font: 600 .7rem/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--accent);
+}
+.cortex-inspect .title { margin: 6px 0 0; font-size: .9rem; word-break: break-word; }
+
+/* the honest dark state — no group / neo4j unreachable */
+.cortex-dark {
+  margin: 12% auto 0; max-width: 540px; text-align: center;
+  color: var(--text-muted);
+}
+.cortex-dark h2 {
+  font: 600 .8rem/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-dim);
+}

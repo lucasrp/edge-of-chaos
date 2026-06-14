@@ -9,6 +9,7 @@ que o dispatch criou (cites/distills/proposes), mais recente primeiro. As entrie
 import html
 import json
 import os
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -299,9 +300,193 @@ def index():
         '<link rel="stylesheet" href="/static/style.css">'
         '<script src="https://unpkg.com/htmx.org@1.9.12"></script></head><body>'
         '<main class="blog"><h1>edge — artefatos</h1>'
-        '<p class="meta"><a href="/chat">chat com o edge →</a></p>'
+        '<p class="meta"><a href="/chat">chat com o edge →</a> · '
+        '<a href="/cortex">surf the brain (cortex) →</a></p>'
         f'{body}</main>'
         "</body></html>"
+    )
+
+
+# ── Cortex graph — surf the agent's brain (SURFACE.md §"Cortex graph") ──────────────────────────
+#
+# A read-only fold of the WHOLE Cortex, group_id-scoped and fail-dark, shipped as one {nodes, edges}
+# JSON payload to a Cytoscape JS island (loaded only on this view, never the app shell). The island
+# draws a dark, force-directed constellation centered on space-0, with trust-weighted brightness:
+# space-0 brightest → asserted spine bright → extracted Entity/Source dim → Episodic faintest.
+# Live fold per request: one Cypher query → JSON → island; pan/zoom/click is client-side, no re-query.
+
+# Trust tier per label (the brightness axis). Genesis (space-0) is its own tier — the luminous core.
+_TRUST_BY_LABEL = {
+    "Genesis": "space0",
+    "Objective": "asserted", "Direction": "asserted", "Artefato": "asserted",
+    "Entity": "extracted", "Source": "extracted",
+    "Episodic": "episodic",
+}
+
+# The human-readable title per label — what a clicked node shows (inspect node, v1).
+_TITLE_FIELDS = {
+    "Genesis": ("codename",),
+    "Objective": ("body",),
+    "Direction": ("body",),
+    "Artefato": ("slug",),
+    "Entity": ("name",),
+    "Source": ("name", "source_description"),
+    "Episodic": ("name", "summary"),
+}
+
+# The whole-Cortex fold, group-scoped on BOTH endpoints of every edge. We never run a graph-wide
+# MATCH: the fleet co-locates installs in one neo4j keyed by group_id, so an unscoped query would
+# leak another install's brain — and render as a *successful* graph, not an obvious failure. Nodes
+# and edges are two scoped passes so an isolated (edgeless) node still renders.
+_CORTEX_NODES_QUERY = (
+    "MATCH (n {group_id:$g}) "
+    "RETURN elementId(n) AS id, labels(n)[0] AS label, properties(n) AS props"
+)
+_CORTEX_EDGES_QUERY = (
+    "MATCH (a {group_id:$g})-[r]->(b {group_id:$g}) "
+    "RETURN elementId(a) AS source, elementId(b) AS target, type(r) AS type"
+)
+
+
+def _cortex_fixture():
+    """The TDD seam: EDGE_CORTEX_FIXTURE points at a {nodes, edges} JSON file. Set → the fold reads
+    it (no live neo4j); unset → live neo4j. Returns the parsed payload or None."""
+    path = os.environ.get("EDGE_CORTEX_FIXTURE")
+    if not path:
+        return None
+    p = Path(path)
+    if not p.is_file():
+        return None
+    try:
+        return json.loads(p.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _node_title(label, props):
+    """One human-readable line for a node (inspect node, v1) — first non-empty title field, else
+    the label. Truncated so the payload stays light."""
+    for field in _TITLE_FIELDS.get(label, ()):
+        val = props.get(field)
+        if val:
+            return _blurb(str(val), 140)
+    return label
+
+
+def _cortex_live(group):
+    """Fold the WHOLE Cortex for `group` from neo4j into {nodes, edges}. group_id-scoped on every
+    node and both edge endpoints. Returns the payload, or None on a genuine degrade (no driver,
+    graph unreachable). NEVER raises (the dark leg darkens only this view, like recall's CONTRACT C1)."""
+    uri = os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
+    user = os.environ.get("EDGE_NEO4J_USER", "neo4j")
+    password = os.environ.get("EDGE_NEO4J_PASSWORD") or _neo4j_password()
+    try:
+        from neo4j import GraphDatabase
+    except Exception:
+        return None
+    try:
+        drv = GraphDatabase.driver(uri, auth=(user, password))
+    except Exception:
+        return None
+    try:
+        with drv.session() as s:
+            rows = s.run(_CORTEX_NODES_QUERY, g=group).data()
+            nodes = [{
+                "id": r["id"],
+                "label": r["label"],
+                "title": _node_title(r["label"], r["props"]),
+                "trust": _TRUST_BY_LABEL.get(r["label"], "extracted"),
+            } for r in rows]
+            edges = [{"source": r["source"], "target": r["target"], "type": r["type"]}
+                     for r in s.run(_CORTEX_EDGES_QUERY, g=group).data()]
+            return {"nodes": nodes, "edges": edges}
+    except Exception:
+        return None
+    finally:
+        try:
+            drv.close()
+        except Exception:
+            pass
+
+
+def _neo4j_password():
+    """The install's neo4j password via _identity (genotype tool), or the env fallback. Imported
+    lazily so the blog runs even where tools/ is absent."""
+    try:
+        sys.path.insert(0, str(BASE.parent / "tools"))
+        import _identity
+        return _identity.neo4j_password()
+    except Exception:
+        return os.environ.get("EDGE_NEO4J_PASSWORD")
+
+
+def _group():
+    """The install's graph group_id via _identity (EDGE_GROUP → agent.yaml). None if unresolved →
+    the fold goes dark rather than running an unscoped, cross-install query."""
+    try:
+        sys.path.insert(0, str(BASE.parent / "tools"))
+        import _identity
+        return _identity.group()
+    except Exception:
+        return os.environ.get("EDGE_GROUP") or None
+
+
+_GROUP_AUTO = object()
+
+
+def cortex_fold(group=_GROUP_AUTO):
+    """The whole-Cortex fold for this install: {nodes, edges} or None (dark). The fixture seam wins
+    when set (tests, no live neo4j); else it resolves the install group_id and reads live neo4j,
+    fail-dark if the group is absent (NEVER a graph-wide MATCH — cross-install isolation is the
+    group_id, enforced at the query). `group` defaults to the resolved install identity."""
+    fixture = _cortex_fixture()
+    if fixture is not None:
+        return fixture
+    if group is _GROUP_AUTO:
+        group = _group()
+    if not group:
+        return None
+    return _cortex_live(group)
+
+
+def _cortex_dark():
+    """The honest dark state — no group or neo4j unreachable. Never an unscoped graph, never a 500."""
+    return (
+        '<section class="cortex-dark"><h2>cortex — dark</h2>'
+        '<p class="meta">O grafo está escuro: sem group_id resolvido ou neo4j inacessível. '
+        'A projeção é group-scoped e fail-closed — nunca uma query graph-wide. '
+        'Resolva a identidade do install (EDGE_GROUP / agent.yaml) e confirme o neo4j.</p></section>'
+    )
+
+
+@app.get("/cortex")
+def cortex():
+    """Surf the agent's brain: the whole Cortex as a dark, force-directed constellation centered on
+    space-0, trust-weighted, read-only. One live fold → a Cytoscape island; pan/zoom/click client-side."""
+    payload = cortex_fold()
+    if payload is None:
+        graph = _cortex_dark()
+        island = ""
+    else:
+        graph = '<div id="cortex"></div>'
+        data = json.dumps(payload).replace("</", "<\\/")  # safe to embed in <script>
+        island = (
+            '<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>'
+            f'<script id="cortex-data" type="application/json">{data}</script>'
+            '<script src="/static/cortex.js"></script>'
+        )
+    return (
+        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
+        '<title>edge — cortex</title>'
+        '<link rel="stylesheet" href="/static/style.css">'
+        '</head><body class="cortex-page">'
+        '<header class="cortex-head"><h1>edge — cortex</h1>'
+        '<a class="meta" href="/">← artefatos</a>'
+        '<p class="meta">surf the agent\'s brain — pan, zoom, clique num nó. '
+        'space-0 é o núcleo; o brilho cai com a confiança.</p></header>'
+        f'<main class="cortex-main">{graph}</main>'
+        f'{island}'
+        '</body></html>'
     )
 
 
