@@ -26,14 +26,24 @@ presence — see iter1 #2). Roles: Mentee (write + read), edge (replies only).
 
 Operations:
 - **comment** (create a Directive): comment box under a publication *and* in the standalone chat;
-  appends `voz.comment {target_ref?, comment_id, body, ts}`. Owes an edge reply → the answer queue.
+  appends `voz.comment {target_ref?, comment_id, body, ts, answers_clarify?}`. Owes an edge reply →
+  the answer queue.
 - **vote**: 👍/👎 under a publication; appends `voz.vote {slug, value:±1, ts}`. Frictionless, no
   reply owed (the retention signal). Always targets a publication.
 - **view thread** (per-publication): comment+reply thread renders under each post — fold by
   `target_ref = slug`.
-- **view chat** (standalone): one chronological timeline of all `voz.comment` / `voz.reply`, any
-  target, each labelled with its post context when it has one — the same events, unfiltered fold.
+- **view chat** (standalone): one chronological timeline of all `voz.comment` / `voz.reply` /
+  `voz.clarify`, any target, each labelled with its post context when it has one — the same events,
+  unfiltered fold.
 - **view reply**: the edge's `voz.reply` renders inline under the comment it answers, in both views.
+- **view clarification** (v1): a parked `voz.clarify` renders inline under its original chat as the
+  edge's open question, flagged *awaiting your answer* — the same inline pattern as a reply, in both
+  views.
+- **answer a clarification** (v1): the mentee answers a parked chat with a `voz.comment` carrying
+  `answers_clarify = clarify_id` (the composer is pre-linked from the inline question). The grill fold
+  reads that link: a parked chat *with* a linked answer is **ready for terminal resolution** at the
+  next grill; *without* one it stays awaiting-clarification. So a parked Directive is answerable on its
+  own thread, never rediscovered by heuristic association. [adversarial-review iter10 #2]
 
 Decisions:
 - Per-publication comments and the standalone chat are **NOT two mediums** — they are two

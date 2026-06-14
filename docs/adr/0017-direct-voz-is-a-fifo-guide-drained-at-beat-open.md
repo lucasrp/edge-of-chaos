@@ -25,7 +25,7 @@ cap** — the *loaded batch*. From that loaded context the grill:
 - **closes each loaded chat to a terminal *or* a parked state** — **coverage over the loaded batch**:
   at close every loaded comment reaches exactly one of — **terminally resolved** (`voz.resolved`,
   idempotent, one per `comment_id`) **or parked awaiting-clarification** (`voz.clarify {comment_id,
-  question, grill_run_id}`) when the grill had to ask but captured no answer. A **parked chat stays
+  clarify_id, question, grill_run_id}`) when the grill had to ask but captured no answer. A **parked chat stays
   open** (non-terminal — `open_comments()` still lists it, flagged *awaiting-clarification*) and is
   terminally resolved only once a later grill captures the answer; an **autonomous / non-interactive
   grill may only park, never fabricate** a terminal `acknowledged` for an unanswered ambiguous chat
@@ -91,10 +91,13 @@ private 1:1 (human-hub fan-in, shared room).
   where overflow waits for a later grill (the backlog count surfaces in the Briefing health strip).
   The deferred deterministic poller is the documented path to close this gap when it is needed.
 - **Resolution is by chat, not by message.** The grill does not drain a queue oldest-first; it loads
-  a **harm-ranked batch** of the start-cursor eligible set within a max chats/tokens cap and resolves
-  exactly that **loaded batch** in one pass. Coverage is the invariant — **no loaded chat outlives
-  that grill**; eligible chats the cap excluded, and any arriving after the start cursor, stay open as
-  overflow for a later grill (visible in the Briefing health strip).
+  a **harm-ranked batch** of the start-cursor eligible set within a max chats/tokens cap and brings
+  each chat in that **loaded batch** to a **terminal-or-parked** outcome in one pass. Coverage is the
+  invariant — **every loaded chat is terminally resolved (`voz.resolved`) or parked
+  (`voz.clarify`)**; a **parked chat stays open** (awaiting clarification) and **may outlive the
+  grill** until its linked answer is captured and a terminal `voz.resolved` is appended. Eligible
+  chats the cap excluded, and any arriving after the start cursor, stay open as overflow for a later
+  grill (all visible in the Briefing health strip).
 - **The answer travels back out through the Medium** — for the Voz rail that path is the dashboard
   rendering the `voz.reply` event; no separate outbound send. A Directive can only ride a **two-way**
   Medium precisely because a one-way pipe cannot carry the answer back.
@@ -130,10 +133,13 @@ Direction or was merely acknowledged.
 So the grill close writes an explicit **terminal**
 `voz.resolved {comment_id, outcome: replied | folded-to-direction | acknowledged, direction_id?}` —
 or, when it had to ask and captured no answer, the **non-terminal** `voz.clarify {comment_id,
-question, grill_run_id}` that **keeps the chat open** (an autonomous grill may only park, never
-fabricate `acknowledged`). A Direction folded from a Directive carries `origin_comment_id`.
-`open_comments()` keys on the **absence of a terminal `voz.resolved`** (a parked `voz.clarify` chat is
-still open), not on `voz.reply`; a Directive stays visible until terminally resolved. This
+clarify_id, question, grill_run_id}` that **keeps the chat open** (an autonomous grill may only park,
+never fabricate `acknowledged`). The `voz.clarify` **renders inline** on its chat as the edge's
+question; the mentee answers with a `voz.comment {answers_clarify: clarify_id}`, and a later grill —
+seeing that linked answer — appends the terminal `voz.resolved`. A Direction folded from a Directive
+carries `origin_comment_id`. `open_comments()` keys on the **absence of a terminal `voz.resolved`** (a
+parked `voz.clarify` chat is still open), not on `voz.reply`; a Directive stays visible until
+terminally resolved. This
 **distinguishes** acted-on (`folded-to-direction`, carrying `direction_id`) from merely
 replied/acknowledged, and both from *unsettled* (parked) — first-class and auditable, with no mutable
 flag (it stays a fold over `voz.resolved` / `voz.clarify`). Still no real-time poller (deferred).
