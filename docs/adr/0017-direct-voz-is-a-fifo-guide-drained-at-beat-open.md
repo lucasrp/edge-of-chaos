@@ -25,7 +25,13 @@ at once. From that full context the grill:
   exactly that set, so **no open chat in the snapshot survives a grill** and nothing rots; a comment
   landing *after* the snapshot belongs to the next grill — never silently marked resolved (which
   would drop high-priority Voz) nor left to falsify the invariant. `voz.resolved` is written
-  **idempotently, one per `comment_id`**;
+  **idempotently, one per `comment_id`**. The snapshot is also **resource-bounded** — a max
+  (chats / tokens) cap; under backlog the grill loads a **deterministic harm-ranked batch** within the
+  cap and writes `voz.resolved` **only for comments actually in the loaded batch**, leaving overflow
+  open for the next grill and surfacing the backlog as an **overflow signal** in the Briefing
+  read-model-health strip. So coverage is **start- *and* resource-bounded** ("every chat in the loaded
+  batch resolved"), never "all open chats regardless of size" — the same context-window overflow seen
+  at a real wake (the digestion sweep), here bounded by construction;
 - **folds the standing-worthy ones into Direction** — a chat that moves strategy becomes a `set`
   steer; the rest are simply answered and closed.
 

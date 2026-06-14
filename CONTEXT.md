@@ -247,7 +247,7 @@ grill**, not by preempting live work — every *open* chat is **earmarked** so t
 **start-of-grill snapshot** in context, **asks the residual only where ambiguous**, and **marks
 every open chat in that snapshot solved at its close** (writing `voz.resolved`, one per
 `comment_id`), folding the standing-worthy ones into **Direction**. *Solving* is exhaustive **over
-the snapshot** (coverage); *asking* is non-exhaustive. Its frictionless, answer-less sibling is a **Vote**. May
+the snapshot** (start- and resource-bounded; coverage); *asking* is non-exhaustive. Its frictionless, answer-less sibling is a **Vote**. May
 *produce* a **Steer**, but is not one.
 *Avoid*: order (it guides; it does not preempt — the real-time path is deferred), command, message,
 steer (a Direction-movement unit, not the instruction itself)

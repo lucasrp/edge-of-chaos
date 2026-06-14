@@ -51,8 +51,11 @@ Decisions:
   full context; *asking* is non-exhaustive (ambiguous only), *solving* is exhaustive **over the
   snapshot** — the grill captures the open `comment_id`s + max event seq **at start** and resolves
   exactly that set, writing `voz.resolved` **idempotently, one per `comment_id`**; a comment landing
-  after the snapshot is the next grill's (never silently dropped nor falsely closed). No pin — the
-  grill already has every open chat in the snapshot in front of it. [adversarial-review iter3 #1]
+  after the snapshot is the next grill's (never silently dropped nor falsely closed). The snapshot is
+  also **resource-bounded** (max chats/tokens cap; under backlog a harm-ranked batch, `voz.resolved`
+  only for loaded comments, overflow stays open and surfaces in the Briefing health strip) — coverage
+  is start- *and* resource-bounded, never an unbounded context load. No pin — the grill already has
+  every open chat in the snapshot in front of it. [adversarial-review iter3 #1, iter5 #1]
 - **Writes are authenticated, validated, bounded (hard v1 requirement).** The "private authed
   surface" is *enforced, not assumed*: every `voz.*` write route sits behind dashboard auth, with
   CSRF/origin protection, a body-size limit, and `target_ref` validation (reject votes/comments for
