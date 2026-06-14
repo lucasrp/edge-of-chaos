@@ -99,6 +99,13 @@ Decisions:
   legibility work is **subtractive** (declutter the hairball: visual hierarchy, trust-dimming,
   layout) — never **additive** (withhold then reveal). Rationale (operator, this session): seeing
   the whole brain is the point; simplify the view, don't hide it.
+- **Trust-weighted brightness is the primary simplification axis.** Render everything, but weight
+  opacity/brightness by trust + role: **space-0** brightest → asserted spine (`Objective`,
+  `Direction`, `Artefato`) bright, solid edges → extracted `Entity` / `Source` dim → `Episodic`
+  faintest (background haze). The curated mind pops, the hypothesis cloud recedes — subtractive
+  legibility via *opacity*, not removal (honors whole-then-simplify), and glossary-mandated
+  ("trust is legible per edge"). Doubles as the futuristic aesthetic: a glowing core on a faint
+  nebula. Chosen over recency or importance/Earmarked as the *primary* axis.
 
 Node/edge vocabulary (live, group `edge-next` — the real shape, not #28-speculative):
 - **Asserted spine (the curated Self, ~55 nodes, *faithful*):** `Genesis` (space-0, 1), `Objective`
@@ -109,13 +116,9 @@ Node/edge vocabulary (live, group `edge-next` — the real shape, not #28-specul
 - `Community` / `Saga` = 0 (not materialized).
 
 Gaps:
-- **Simplification levers** (THE central v1 question, now that the stance is whole-then-simplify):
-  how to make a ~268-node, ~75%-hypothesis hairball legible — trust-dimming (asserted bright vs
-  extracted faint), importance/size weighting, `Episodic` treatment, edge bundling, force layout,
-  level-of-detail on zoom. Not yet decided.
-- **Trust legibility**: asserted (faithful) vs extracted (hypothesis) must be visually distinct —
-  glossary-mandated ("trust is legible per edge") and load-bearing here since most of the graph is
-  hypothesis. Encoding TBD (see simplification levers).
+- **Secondary simplification levers** (primary = trust-weighted brightness, decided): if the faint
+  `Episodic` haze is still too heavy at ~268 nodes, collapse Episodics into their `MENTIONS` parent;
+  edge bundling; level-of-detail on zoom. Try opacity first, measure before adding. Candidates.
 - **Filter taxonomy + UX** (the "navigate it better" set) — deferred to a future increment.
 - **Live vs snapshot**: does the view re-fold per request (log-native) or read a graph snapshot for
   pan/zoom performance? TBD — bears on the "cheap" constraint at graph scale.
