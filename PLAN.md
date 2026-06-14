@@ -10,6 +10,22 @@ graph (`/cortex`). **Test gate (every slice):** `tools/edge-python tests/test_bl
 affected surface's tests per slice; **Slice 7 runs the full dashboard suite.**
 **Work only in `~/edge-dashboard-wt`** (parallel-git hazard on `~/edge`). Commit per slice.
 
+## Cross-cutting requirements (EVERY slice + EVERY gate)
+1. **Gate against the documented decisions.** Every `/codex:review` (execution) and
+   `/codex:adversarial-review` (design) is run with **all `docs/adr/*.md` + `CONTEXT.md` (glossary) +
+   `CONTRACT.md`** in scope — instruct the review to load them and **flag any violation of a documented
+   decision, glossary term, or contract** (e.g. CONTRACT C1 read-only-on-the-world, ADR-0017 the Voz
+   lifecycle, the `SURFACE.md` surface decisions). The work conforms to the docs, or the doc is updated
+   first (with its own review).
+2. **One design system — maintain the SAME UX components across the project.** Every surface (blog,
+   Cortex, Briefing, Direction, docs) shares **one** component vocabulary: the `blog/static/style.css`
+   design tokens (`:root`), the established component classes (cards, `.meta`, artifact chips, the Voz
+   composer, vote pills), the dark theme, and a **consistent header/nav linking all surfaces** (one app,
+   not a pile of pages). **No one-off per-surface styling** — a new component *extends* the shared set.
+   The full #37 Jinja/Tabler/`ux-catalog` contract (S7) formalizes this; until then every slice reuses +
+   extends the shared vocabulary, and the **shared header/nav is added with the first new surface (S3)
+   and used by all** subsequent surfaces.
+
 ## Sequencing rationale
 The audit's priority B→A→C→D→E, refined by dependency: the **trust boundary precedes the live loop**
 (can't generate replies to spoofable input), and **reads before the docs-graph wiring** (a Cortex node
