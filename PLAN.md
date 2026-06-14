@@ -81,10 +81,16 @@ See the steers; close the Voz→Direction loop visibly.
 The literal "live the documentation," part 1.
 - **Build:** navigable pages for the glossary (`CONTEXT.md`), the ADRs (`docs/adr/*`), and the standing
   pages **Idiom** + **Source roadmap / source-feedback** — rendered from the source files (markdown →
-  HTML), one index + per-doc view, in the dark theme.
-- **Accept (all four types, not just glossary+ADRs):** glossary terms (`CONTEXT.md`), the ADRs
+  HTML) **through the SAME allowlist sanitizer / no-scripts boundary as Slice 5b** (one shared
+  doc-rendering surface; markdown can carry raw HTML, event handlers, or `javascript:` URLs, and these
+  docs are edge-authored + source-derived, so must not execute same-origin in the authed dashboard),
+  one index + per-doc view, dark theme.
+- **Accept (all four types + same-origin safety):** glossary terms (`CONTEXT.md`), the ADRs
   (`docs/adr/*`), the **Idiom** page, AND the **Source roadmap / source-feedback** page each list +
-  render in-dashboard; none forces the mentee back to a file path. **Deps:** none.
+  render in-dashboard; none forces the mentee back to a file path; a **malicious markdown fixture** on
+  at least one design-doc route (a `<script>`, an `onerror=` handler, a `javascript:` URL) renders
+  **inert** — stripped or sandboxed, **cannot perform an authenticated append** (the same negative
+  same-origin test as 5b). **Deps:** none.
 
 ## Slice 5b — Emergent-knowledge surfaces + Cortex wiring *(audit C)*
 Part 2: the wiki and the graph→source bridge.
