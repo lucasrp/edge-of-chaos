@@ -140,17 +140,19 @@ class TestVozRail(unittest.TestCase):
         self.assertEqual(comments[0]["payload"]["target_ref"], "alpha-post")
         self.assertEqual(comments[0]["payload"]["body"], "tighten the framing")
 
-    def test_post_vote_appends_event_and_shows_tally(self):
-        self.client.post("/e/alpha-post/vote", data={"value": "1"})
-        r = self.client.post("/e/alpha-post/vote", data={"value": "-1"})
+    def test_vote_is_a_toggle_capped_at_one(self):
+        # first 👍 → recorded as +1, shown active
+        r = self.client.post("/e/alpha-post/vote", data={"value": "1"})
         self.assertEqual(r.status_code, 200)
-        votes = self._events("voz.vote")
-        self.assertEqual(len(votes), 2)
-        self.assertEqual(votes[0]["payload"], {"slug": "alpha-post", "value": 1})
-        self.assertEqual(votes[1]["payload"]["value"], -1)
-        # the returned fragment shows the running tally (1 up, 1 down)
-        body = r.data.decode()
-        self.assertIn("1", body)
+        self.assertEqual(self._events("voz.vote")[-1]["payload"], {"slug": "alpha-post", "value": 1})
+        self.assertIn('aria-pressed="true"', r.data.decode())  # the like is active
+        # 👍 again toggles it OFF (value 0) — never accumulates past 1
+        r = self.client.post("/e/alpha-post/vote", data={"value": "1"})
+        self.assertEqual(self._events("voz.vote")[-1]["payload"]["value"], 0)
+        self.assertNotIn('aria-pressed="true"', r.data.decode())  # nothing active after unlike
+        # 👎 from neutral switches cleanly to -1 (mutually exclusive)
+        r = self.client.post("/e/alpha-post/vote", data={"value": "-1"})
+        self.assertEqual(self._events("voz.vote")[-1]["payload"]["value"], -1)
 
     def test_open_comments_are_those_without_a_reply(self):
         # two comments; only the first gets an edge reply

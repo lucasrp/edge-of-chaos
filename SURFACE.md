@@ -27,8 +27,10 @@ presence — see iter1 #2). Roles: Mentee (write + read), edge (replies only).
 Operations:
 - **comment** (create a Directive): comment box under a publication *and* in the standalone chat;
   appends `voz.comment {target_ref?, comment_id, body, ts}`. Owes an edge reply → the answer queue.
-- **vote**: 👍/👎 under a publication; appends `voz.vote {slug, value:±1, ts}`. Frictionless, no
-  reply owed (the retention signal). Always targets a publication.
+- **vote**: 👍/👎 under a publication; a **toggle, capped at 1** per mentee — clicking the active
+  button clears it, the two are mutually exclusive. Appends `voz.vote {slug, value: 1 | -1 | 0, ts}`
+  (`0` = cleared); the current vote folds **latest-wins** (single-tenant), not a running sum.
+  Frictionless, no reply owed (the retention signal). Always targets a publication.
 - **view thread** (per-publication): comment+reply thread renders under each post — fold by
   `target_ref = slug`.
 - **view chat** (standalone): one chronological timeline of all `voz.comment` / `voz.reply` /
@@ -114,7 +116,8 @@ a fold, no parallel store, `group_id`-scoped per install.
 **Voz events**
 - `voz.comment {target_ref?, comment_id, body, ts}` — a mentee Directive (general chat if `target_ref`
   null). The *only* event that opens a chat.
-- `voz.vote {slug, value: ±1, ts}` — answer-less retention signal; always targets a publication.
+- `voz.vote {slug, value: 1 | -1 | 0, ts}` — answer-less retention signal; always targets a
+  publication. A **toggle capped at 1** per mentee: folds **latest-wins** (single-tenant), `0` clears.
 - `voz.reply {comment_id, body, ts}` — the edge's inline answer; **presentation only**, not lifecycle.
 - `voz.clarify {comment_id, clarify_id, question, grill_run_id, ts}` — the grill parks an unsettled
   loaded chat; **non-terminal** (the chat stays open).

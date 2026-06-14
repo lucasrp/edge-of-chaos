@@ -116,25 +116,30 @@ def _render_thread(target_ref):
     return f'<ul class="thread" id="thread-{html.escape(target_ref)}">{items}</ul>'
 
 
-def _votes(slug):
-    """Fold the vote tally for a slug → {up, down} (the retention signal)."""
-    up = down = 0
+def _vote_state(slug):
+    """The mentee's *current* vote for a slug (single-tenant toggle): the latest `voz.vote`
+    value wins → 1 (like), -1 (dislike), or 0 (none). A like is a toggle, capped at 1 — not a
+    running sum."""
+    state = 0
     for e in _read_events():
         if e.get("type") == "voz.vote" and e.get("payload", {}).get("slug") == slug:
-            if e["payload"].get("value", 0) > 0:
-                up += 1
-            else:
-                down += 1
-    return {"up": up, "down": down}
+            state = e["payload"].get("value", 0)
+    return state
 
 
 def _render_votes(slug):
-    t = _votes(slug)
+    state = _vote_state(slug)
     s = html.escape(slug)
+
+    def btn(val, emoji, cls):
+        active = state == val
+        return (f'<button type="submit" class="vote {cls}{" active" if active else ""}" '
+                f'name="value" value="{val}" aria-pressed="{"true" if active else "false"}">'
+                f'{emoji} <span class="count">{1 if active else 0}</span></button>')
+
     return (
         f'<form class="votes" hx-post="/e/{s}/vote" hx-target="closest .votes" hx-swap="outerHTML">'
-        f'<button name="value" value="1">👍 <span class="up">{t["up"]}</span></button>'
-        f'<button name="value" value="-1">👎 <span class="down">{t["down"]}</span></button>'
+        f'{btn(1, "👍", "like")}{btn(-1, "👎", "dislike")}'
         '</form>'
     )
 
@@ -196,8 +201,10 @@ def chat():
 
 @app.post("/e/<slug>/vote")
 def post_vote(slug):
-    value = 1 if request.form.get("value") != "-1" else -1
-    _append("voz.vote", f"voz:{slug}", {"slug": slug, "value": value})
+    clicked = 1 if request.form.get("value") != "-1" else -1
+    # toggle: clicking the active button clears it (→0); otherwise set/switch to the clicked value
+    new = 0 if _vote_state(slug) == clicked else clicked
+    _append("voz.vote", f"voz:{slug}", {"slug": slug, "value": new})
     return _render_votes(slug)
 
 
