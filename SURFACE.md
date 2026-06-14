@@ -64,13 +64,17 @@ Postura: a **futuristic graph interface** — a dark, force-directed canvas wher
 as a constellation: **space-0** (the identity root: method + personality) as the luminous core,
 knowledge clusters as neighborhoods, and Artefatos / Direction / the Mundo·Atividade·**Self**
 relations as nodes, edges as synapses. The mentee pans, zooms, and clicks to *navigate the agent's
-brain* — expanding a node's neighborhood on click. It is the **same Cortex the edge surfs in recall**
-(#35, #28), now given a window for the mentee.
+brain* — expanding a node's neighborhood on click. The territory is the **whole Cortex**, not the
+salient subgraph. **This is not Recall**: Recall is the *agent's* wake-act, where the edge connects
+with its own brain (the space-0-rooted salient subgraph, auto-served at pre-dispatch). This is the
+**mentee** freely **searching and surfing** the same graph, read-only, on demand — **one brain, two
+surfers** (#35, #28).
 
 Operations:
-- **view graph** (v1): open a graph view rendering the Cortex — the same navigable graph recall
-  surfs, not a separate projection. Entry points seeded the way the briefing seeds them (space-0
-  root + the salient subgraph); pan / zoom / click.
+- **surf** (v1): freely navigate the whole Cortex — pan / zoom / click a node to expand its
+  neighborhood. The mentee drives the traversal (not the agent's auto-served subgraph).
+- **search** (v1): find a node directly and jump to it — the mentee's own entry into the graph,
+  distinct from the briefing-seeded entry the *agent* gets at wake.
 - **inspect node** (v1): click a node → its content; artifact retrieval = traverse to the reference
   node and fetch the blob (per CONTEXT.md, *Cortex*).
 - **filter** (future): the mentee composes filters to navigate it better — by node type
@@ -78,9 +82,10 @@ Operations:
   v1 ships the unfiltered navigable graph.
 
 Decisions:
-- **Same Cortex, not a parallel projection.** v1 exposes the *same* graph the edge surfs in recall,
-  read-only to the mentee — not a mentee-specific graph. Reason: one brain, one surfing interface
-  (#35); a parallel mentee-graph would be a second store, the failure log-native physics deletes.
+- **Same Cortex, two surfers.** v1 exposes the *same* graph — not a mentee-specific projection. The
+  agent reads it via **Recall** (auto-served salient subgraph, at wake); the mentee reads it via
+  **free search + surf** (the dashboard, on demand, the whole graph). One brain, two read-surfaces;
+  a parallel mentee-graph would be a second store, the failure log-native physics deletes.
 - **Read-only for the mentee.** The mentee navigates; only the edge writes the graph. The mentee's
   write surface stays the Voz rail — two different surfaces on one substrate.
 - **A JS island, never the app shell** (FRONTEND.md): a graph lib (Cytoscape / vis-network) loaded
@@ -90,8 +95,9 @@ Decisions:
 Gaps:
 - **Filter taxonomy + UX** (the "navigate it better" set) — deferred to a future increment, not
   specced. The axes above are candidates, not decided.
-- **Initial viewport**: what the mentee sees first — whole graph vs the space-0 neighborhood vs the
-  salient subgraph. TBD.
+- **Initial viewport**: where free surf lands first — whole-graph overview vs space-0 as natural
+  center vs blank-until-search. TBD (not recall-seeded — that salient entry is the *agent's*, not
+  the mentee's).
 - **Node/edge vocabulary** actually rendered (which Cortex node types + relations surface, and their
   visual encoding) — TBD; depends on #28's espinha + embed landing.
 - **Live vs snapshot**: does the view re-fold per request (log-native) or read a graph snapshot for
