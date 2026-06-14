@@ -29,7 +29,9 @@ zero model spend).
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 
 # The three-part arc — the structural acceptance test (#36). NEVER rendered as labeled sections;
 # it is the production-layer contract the outline is authored against.
@@ -83,6 +85,12 @@ def author_outline(seed: dict, objective: str) -> list[dict]:
     ids it owns). Findings are assigned to the deliver nodes exactly once; motivate and
     change-the-course own no findings (they frame and entangle, not develop).
 
+    Each node also carries its PLACE in the arc — its `position` ("k of N") and the
+    `established_upstream` summary (what the prior nodes already set). The place is what fixes the
+    '23 different intros' bug (#36): every writer is told the frame is ALREADY set upstream and to
+    write as a CONTINUATION, so only the opening node establishes context. The place is authored
+    here (the only point that sees the whole arc order); the writer prompt reads it.
+
     With zero findings the arc is still authored (a single deliver node) — the structural
     contract holds even on an empty seed."""
     findings = seed.get("findings") or []
@@ -106,6 +114,8 @@ def author_outline(seed: dict, objective: str) -> list[dict]:
     nodes.append(_node("n-change", "change-the-course", [],
                        "Change-the-course: how this entangles the mentee's live work going "
                        f"forward — the next bet for: {objective}"))
+
+    _assign_places(nodes)
     return nodes
 
 
@@ -115,7 +125,25 @@ def _node(node_id: str, role: str, finding_ids: list[str], intent: str) -> dict:
         "role": role,
         "status": "empty",
         "contract": {"intent": intent, "finding_ids": list(finding_ids)},
+        # `place` is filled by _assign_places once the whole arc order is known.
+        "place": {"position": "", "established_upstream": ""},
     }
+
+
+def _assign_places(nodes: list[dict]) -> None:
+    """Stamp each node's PLACE in the arc, in place: its `position` ("k of N") and an
+    `established_upstream` summary of every prior node's role + intent. The opening node has an
+    empty upstream (it sets the frame); each downstream node's upstream names the roles/intents
+    that precede it — the continuation context the writer opens mid-stream from."""
+    total = len(nodes)
+    for k, node in enumerate(nodes):
+        prior = nodes[:k]
+        if prior:
+            upstream = "; ".join(
+                f"{p['role']}: {p['contract']['intent']}" for p in prior)
+        else:
+            upstream = ""
+        node["place"] = {"position": f"{k + 1} of {total}", "established_upstream": upstream}
 
 
 # ---------------------------------------------------------------------------
@@ -124,36 +152,134 @@ def _node(node_id: str, role: str, finding_ids: list[str], intent: str) -> dict:
 # model call is INJECTED so the logic tests offline.
 # ---------------------------------------------------------------------------
 
-def _writer_prompt(node: dict, seed: dict, objective: str) -> str:
-    """The per-node writer prompt. Carries the full seed as context and the node's assigned
-    finding CLAIMS as the explicit anti-drop checklist — every assigned claim appears on its own
-    line so the writer (and the mechanical gate) can hold it to account."""
+def _outline_map(outline: list[dict]) -> str:
+    """The WHOLE-outline map the writer sees — every node's position + role + intent, in order.
+    This is the #28 map-then-recall posture for production: the writer holds the map of the whole
+    arc so it knows exactly where its node sits and what the other nodes carry (so it does not
+    duplicate or re-introduce them)."""
+    return "\n".join(
+        f"  [{n['place']['position']}] {n['role']}: {n['contract']['intent']}"
+        for n in outline
+    )
+
+
+def _writer_prompt(node: dict, outline: list[dict], seed: dict, objective: str) -> str:
+    """The per-node writer prompt — a CONTINUATION directive over the WHOLE-outline map (#36, the
+    '23 different intros' fix). The writer sees: the whole outline (the map of the entire arc),
+    what upstream nodes ALREADY established (so the frame is set — it must not re-establish it),
+    and its own node's assignment. It is told to OPEN MID-STREAM as a continuation, never to
+    re-introduce context the upstream already owns. Only the opening node (empty upstream)
+    legitimately establishes the frame.
+
+    The full seed is still the context (assignment, not reduction); the assigned finding CLAIMS
+    are the explicit anti-drop checklist, one per line, for the writer and the mechanical gate."""
     assigned = [_finding_by_id(seed, fid) for fid in node["contract"]["finding_ids"]]
     assigned = [f for f in assigned if f]
     claim_lines = "\n".join(f.get("claim", "") for f in assigned)
     residuals = "; ".join(seed.get("residuals") or [])
+    upstream = node["place"]["established_upstream"]
+    is_opening = not upstream.strip()
+    if is_opening:
+        continuation = (
+            "You are the OPENING node — you establish the frame for everything downstream. "
+            "Set it once, here, cleanly."
+        )
+    else:
+        continuation = (
+            "WRITE AS A CONTINUATION: the frame is ALREADY set by the upstream nodes below — "
+            "open MID-STREAM, do NOT re-establish context, do NOT re-introduce the subject, "
+            "do NOT write a fresh intro. Pick up exactly where the upstream left off."
+        )
     return (
-        f"You are writing ONE node of a larger synthesis. Objective: {objective}\n"
-        f"This node's role in the arc: {node['role']}.\n"
+        f"You are writing ONE node of a larger, single synthesis. Objective: {objective}\n\n"
+        "THE WHOLE OUTLINE (the map — your node is one part of THIS single arc; do not "
+        "duplicate or re-introduce what the other nodes carry):\n"
+        f"{_outline_map(outline)}\n\n"
+        f"YOUR NODE: position {node['place']['position']}, role {node['role']}.\n"
         f"Its contract: {node['contract']['intent']}\n\n"
+        f"ALREADY ESTABLISHED UPSTREAM (the frame is set — do not repeat it):\n{upstream}\n\n"
+        f"{continuation}\n\n"
         "Develop EVERY one of your assigned findings to plenitude — each must be present and "
         "earned in your prose (do not drop the tail):\n"
         f"{claim_lines}\n\n"
         f"Open tensions you may surface: {residuals}\n\n"
-        "Write developed prose for this node only."
+        "Write developed prose for this node only.\n\n"
+        "After the prose, emit a STRUCTURED DIGEST of this node as STRICT JSON in a fenced "
+        '```json block — {"bullets": ["the node\'s key points"], "assumed_prior": "what you '
+        'took as already-established upstream", "contribution": "one line: this node\'s '
+        'contribution to the arc", "cross_refs": ["other nodes/findings you lean on"]}. The '
+        "conciliator works off this digest, not your full prose."
     )
 
 
-def fill_node(node: dict, seed: dict, objective: str, complete_fn) -> dict:
+# The writer digest — the structured handle the CONCILIATOR works off (not the full essay).
+# Every parse returns exactly these four keys so the conciliator never KeyErrors on a
+# refused/garbled digest (a fresh dict each call — never a shared mutable default).
+def _empty_digest() -> dict:
+    return {"bullets": [], "assumed_prior": "", "contribution": "", "cross_refs": []}
+
+
+def _parse_digest(raw: str) -> dict:
+    """Tolerant parse of the writer's structured digest (mirrors excavate._parse_seed): strip a
+    ```json fence, tolerate leading/trailing prose (the digest follows the body), coerce each
+    field to its expected shape, and NEVER crash — garbage yields the empty digest, not an
+    exception. `bullets`/`cross_refs` coerce to lists of non-empty strings; `assumed_prior`/
+    `contribution` to a stripped string ("" if absent/non-string)."""
+    if not raw or not raw.strip():
+        return _empty_digest()
+    text = raw.strip()
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
+    if fence:
+        text = fence.group(1).strip()
+    candidates = [text]
+    brace = re.search(r"\{.*\}", text, re.DOTALL)
+    if brace and brace.group(0) != text:
+        candidates.append(brace.group(0))
+    data = None
+    for cand in candidates:
+        try:
+            data = json.loads(cand)
+            break
+        except (json.JSONDecodeError, ValueError):
+            continue
+    if not isinstance(data, dict):
+        return _empty_digest()
+    def _str_list(v):
+        return [s.strip() for s in v if isinstance(s, str) and s.strip()] if isinstance(v, list) else []
+    def _str(v):
+        return v.strip() if isinstance(v, str) else ""
+    return {
+        "bullets": _str_list(data.get("bullets")),
+        "assumed_prior": _str(data.get("assumed_prior")),
+        "contribution": _str(data.get("contribution")),
+        "cross_refs": _str_list(data.get("cross_refs")),
+    }
+
+
+def _strip_digest_block(text: str) -> str:
+    """Return the body prose with a trailing ```json digest fence removed (the writer emits the
+    digest AFTER the prose). If there is no fence, the whole text is the body."""
+    return re.sub(r"\s*```(?:json)?\s*\{.*?\}\s*```\s*$", "", text.strip(),
+                  flags=re.DOTALL | re.IGNORECASE).strip() or text.strip()
+
+
+def fill_node(node: dict, outline: list[dict], seed: dict, objective: str, complete_fn) -> dict:
     """Fill one node via the injected `complete_fn(prompt) -> text` and advance it to `draft`.
-    Returns a new node dict carrying `blocks` (a paragraph of the produced prose). Pure w.r.t.
-    the input node — never mutates it. `complete_fn` is the producer cognition, injected exactly
-    like close.py's reviewers; real runs pass a make_client-backed completer on the chat router
-    (provision its max_tokens generously — a reasoning model truncates a tight budget)."""
-    prose = complete_fn(_writer_prompt(node, seed, objective))
+    Returns a new node dict carrying `blocks` (a paragraph of the produced prose) AND a structured
+    `digest` (the conciliator's handle — bullets/assumed_prior/contribution/cross_refs). The model
+    emits the digest as a fenced JSON block after the prose; it is parsed TOLERANTLY (garbage =>
+    empty digest, never a crash). Pure w.r.t. the input node — never mutates it.
+
+    `outline` is the WHOLE arc (the writer sees the map, #36); `complete_fn` is the producer
+    cognition, injected exactly like close.py's reviewers; real runs pass a make_client-backed
+    completer on the chat router (provision its max_tokens generously — a reasoning model truncates
+    a tight budget, and the digest follows the prose so a tight budget truncates the digest first)."""
+    raw = complete_fn(_writer_prompt(node, outline, seed, objective))
+    body = _strip_digest_block(raw)
     filled = dict(node)
     filled["status"] = advance("empty")  # empty -> draft
-    filled["blocks"] = [{"type": "paragraph", "text": prose}]
+    filled["blocks"] = [{"type": "paragraph", "text": body}]
+    filled["digest"] = _parse_digest(raw)
     return filled
 
 
@@ -191,6 +317,80 @@ def contract_gate(node: dict, seed: dict) -> list[str]:
                 f"node {node.get('id')!r} did not discharge assigned finding {fid!r}: "
                 f"{claim!r}")
     return violations
+
+
+# ---------------------------------------------------------------------------
+# The SEMANTIC discharge gate — the LLM half of the contract review (#36, slice 2). The
+# mechanical `contract_gate` above demands a VERBATIM claim echo, so it flags legitimate
+# paraphrase as a drop (the verbatim-echo bug the conductor report flagged). This gate judges,
+# per assigned finding, whether the node DELIVERED THE MEANING — paraphrase passes, a genuine
+# drop fails. Kept CLEANLY SEPARATE from the deterministic gate: the structural gate stays
+# mechanical/free/exact; this one spends a model call (INJECTED) and is the part code can't see.
+# ---------------------------------------------------------------------------
+
+def _semantic_prompt(node: dict, findings: list[dict]) -> str:
+    finding_lines = "\n".join(
+        f'  - {fid}: {f.get("claim", "")}' for fid, f in findings)
+    return (
+        "You are the SEMANTIC discharge reviewer for one node of a synthesis. Judge, per "
+        "assigned finding, whether the node's prose DELIVERED ITS MEANING — a faithful "
+        "PARAPHRASE counts as delivered (do NOT require a verbatim echo); only a genuine DROP "
+        "(the meaning is absent) is not delivered.\n\n"
+        f"THE NODE'S PROSE:\n{_node_text(node)}\n\n"
+        "ASSIGNED FINDINGS (judge each):\n"
+        f"{finding_lines}\n\n"
+        "Return STRICT JSON only: "
+        '{"verdicts": [{"finding_id": "f0", "delivered": true}]}'
+    )
+
+
+def _parse_discharge(raw: str, expected_ids: list[str]) -> dict:
+    """Tolerant parse of the semantic judge's verdicts into {finding_id: delivered_bool}. Mirrors
+    excavate._parse_seed: strip a fence, drop malformed verdicts, NEVER crash. A finding the judge
+    failed to rule on (or a garbled response) defaults to NOT delivered (fail-closed) — a node
+    cannot mint a discharge from a refusal."""
+    by_id = {fid: False for fid in expected_ids}
+    if not raw or not raw.strip():
+        return by_id
+    text = raw.strip()
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
+    if fence:
+        text = fence.group(1).strip()
+    candidates = [text]
+    brace = re.search(r"\{.*\}", text, re.DOTALL)
+    if brace and brace.group(0) != text:
+        candidates.append(brace.group(0))
+    data = None
+    for cand in candidates:
+        try:
+            data = json.loads(cand)
+            break
+        except (json.JSONDecodeError, ValueError):
+            continue
+    if not isinstance(data, dict):
+        return by_id
+    for v in data.get("verdicts") or []:
+        if not isinstance(v, dict):
+            continue
+        fid = v.get("finding_id")
+        if fid in by_id:
+            by_id[fid] = v.get("delivered") is True  # exact identity, no coercion
+    return by_id
+
+
+def semantic_discharge(node: dict, seed: dict, complete_fn) -> list[dict]:
+    """Judge, per assigned finding, whether the node DELIVERED ITS MEANING — the semantic half of
+    the contract review (#36). Returns a list of `{finding_id, delivered: bool}`, one per assigned
+    finding (a node with no findings owes nothing — returns [] and NEVER calls the model). The
+    model call is INJECTED (`complete_fn`, like close.py's reviewers); the verdict is parsed
+    TOLERANTLY and FAILS CLOSED (a garbled/refused judge => every finding `delivered: False`)."""
+    findings = [(fid, _finding_by_id(seed, fid)) for fid in node["contract"]["finding_ids"]]
+    findings = [(fid, f) for fid, f in findings if f]
+    if not findings:
+        return []
+    raw = complete_fn(_semantic_prompt(node, findings))
+    by_id = _parse_discharge(raw, [fid for fid, _ in findings])
+    return [{"finding_id": fid, "delivered": by_id[fid]} for fid, _ in findings]
 
 
 # ---------------------------------------------------------------------------
@@ -244,31 +444,135 @@ def assemble(nodes: list[dict], seed: dict, objective: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Conciliation — the TWO-ALTITUDE output (#36). The conciliator works off the DIGESTS (the
+# structured per-node handles), NOT the full essays:
+#   (a) the DEEP spec — the nodes assembled with transitions, the redundant per-node intros
+#       removed (the place-aware writers already opened mid-stream, so the seams are smooth);
+#   (b) the SYNTHETIC spec — a 2-page executive through-line the conciliator WRITES over the
+#       digests (a flowing synthesis, not a bullet dump), materially shorter than the deep.
+# Both specs pass close.check_genus (the content side); a model call is INJECTED for (b).
+# ---------------------------------------------------------------------------
+
+def _digest_brief(nodes: list[dict]) -> str:
+    """The conciliator's input: every node's place + contribution + bullets, from the DIGESTS
+    (never the full prose). This is the map-then-recall posture applied to conciliation — the
+    conciliator writes the through-line off the compressed handles, not the essays."""
+    lines = []
+    for n in nodes:
+        d = n.get("digest") or _empty_digest()
+        lines.append(
+            f"[{n.get('place', {}).get('position', '')}] {n.get('role', '')} — "
+            f"{d['contribution'] or n['contract']['intent']}")
+        for b in d["bullets"]:
+            lines.append(f"    - {b}")
+    return "\n".join(lines)
+
+
+def _synthetic_prompt(nodes: list[dict], objective: str) -> str:
+    return (
+        "You are the CONCILIATOR. Write a 2-PAGE EXECUTIVE SYNTHESIS — one flowing through-line "
+        "over the digests below, NOT a bullet dump and NOT a restatement of each node in turn. "
+        "Find the single argument that runs through them and tell it as continuous prose a busy "
+        "operator reads top to bottom. Reason from the evidence (derive, do not assert), name "
+        "what you do not yet know, and tie it to prior work.\n\n"
+        f"OBJECTIVE: {objective}\n\n"
+        f"THE NODE DIGESTS (your raw material — the deep work is already done):\n"
+        f"{_digest_brief(nodes)}"
+    )
+
+
+def _digest_derivation(nodes: list[dict], lead: str) -> dict:
+    """A `derivation` block built from the nodes' digest CONTRIBUTIONS — the rich-rite derivation
+    move, off the digests (not the essays). The bullets are each node's one-line arc contribution."""
+    bullets = [c for n in nodes
+               for c in [(n.get("digest") or _empty_digest())["contribution"]] if c]
+    return {"type": "derivation", "title": "The through-line",
+            "text": lead, "bullets": bullets or [lead]}
+
+
+def _boundary_block(nodes: list[dict]) -> dict:
+    """A `what-i-dont-know` callout — the rich-rite boundary move. Draws the open tensions from the
+    digests' `assumed_prior` where present, else a default boundary; always names the lineage."""
+    return {"type": "callout", "variant": "info", "title": "What I don't know",
+            "text": ("What I don't know: the open questions this synthesis did not resolve; "
+                     "this builds on the excavate seed and the prior nodes.")}
+
+
+def conciliate(nodes: list[dict], outline: list[dict], objective: str, complete_fn) -> tuple:
+    """Conciliate the filled, digested nodes into the TWO altitudes (#36), working off the
+    DIGESTS (not the full essays). Returns `(deep_spec, synthetic_spec)`:
+      - `deep_spec`  — the node bodies assembled with the redundant per-node intros removed (the
+                       place-aware writers already opened mid-stream, so the seams are smooth),
+                       plus the rich-rite derivation + boundary moves (built from the digests).
+      - `synthetic_spec` — a 2-page synthetic through-line the conciliator WRITES over the
+                       digests (one flowing executive synthesis, not a bullet dump), materially
+                       shorter than the deep report.
+
+    Both pass close.check_genus on the content side; the producer wraps each with the cite +
+    distills for the external-frame/lineage moves. `complete_fn` is the INJECTED conciliator
+    cognition (prompt -> the synthetic prose). `outline` is accepted for the arc map; the digests
+    already carry each node's place."""
+    # (a) DEEP — the smoothed full report: every node's prose body, intros already removed by the
+    # place-aware writers, then the derivation + boundary moves attached so it clears the floor.
+    deep_sections = [
+        {"title": n["contract"]["intent"][:80], "blocks": n.get("blocks") or []}
+        for n in nodes
+    ]
+    deep_sections.append({"title": "Why this holds", "blocks": [
+        _digest_derivation(nodes,
+                           "It follows from the assembled findings that the objective is "
+                           "reachable — the synthesis derives it, not asserts it.")]})
+    deep_sections.append({"title": "Open questions", "blocks": [_boundary_block(nodes)]})
+    deep_spec = {"title": objective[:120], "sections": deep_sections}
+
+    # (b) SYNTHETIC — the conciliator's 2-page through-line over the digests (flowing prose).
+    synthetic_prose = complete_fn(_synthetic_prompt(nodes, objective))
+    synthetic_spec = {"title": objective[:120], "sections": [
+        {"title": "Synthesis", "blocks": [{"type": "paragraph", "text": synthetic_prose}]},
+        {"title": "Why this holds", "blocks": [
+            _digest_derivation(nodes,
+                               "It follows that the objective is reachable from the synthesis "
+                               "of the nodes — derived, not asserted.")]},
+        {"title": "Open questions", "blocks": [_boundary_block(nodes)]},
+    ]}
+    return deep_spec, synthetic_spec
+
+
+# ---------------------------------------------------------------------------
 # The orchestrator — off => passthrough, ZERO spend; on => author, fill, gate, assemble.
 # ---------------------------------------------------------------------------
 
-def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None) -> dict:
+def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
+                  conciliate_fn=None) -> dict:
     """Run the conductor pipeline. OFF (default) => passthrough, ZERO model spend (today's
-    single-producer pipeline is unchanged). ON => author the outline from the seed, fill each
-    node via `complete_fn`, drive each through the mechanical gate to `final`, assemble.
+    single-producer pipeline is unchanged). ON => author the place-aware outline from the seed,
+    fill each node (the writer sees the whole-outline map and writes as a continuation), gate it
+    mechanically, drive to `final`, then CONCILIATE the digests into the TWO altitudes.
 
     `is_enabled` overrides the env flag (for tests / explicit callers); otherwise EDGE_CONDUCTOR
-    decides. `complete_fn` is the injected producer cognition (prompt -> text).
+    decides. `complete_fn` is the injected producer cognition (prompt -> text). `conciliate_fn`
+    is the injected conciliator cognition; it defaults to `complete_fn` (real runs pass the
+    make_client-backed completer for both).
 
-    Returns {"enabled", "passthrough", "content", "outline"}; OFF returns content=None and an
-    empty outline, having called `complete_fn` zero times."""
+    Returns {"enabled", "passthrough", "content", "outline", "deep_spec", "synthetic_spec"}.
+    `content` and `deep_spec` are the same smoothed full report (kept under both keys: `content`
+    is the slice-1 field callers already read; `deep_spec` is the named altitude). OFF returns
+    every spec None and an empty outline, having called `complete_fn` ZERO times."""
     on = enabled() if is_enabled is None else bool(is_enabled)
     if not on:
-        return {"enabled": False, "passthrough": True, "content": None, "outline": []}
+        return {"enabled": False, "passthrough": True, "content": None, "outline": [],
+                "deep_spec": None, "synthetic_spec": None}
 
     nodes = author_outline(seed, objective)
     final_nodes = []
     for node in nodes:
-        filled = fill_node(node, seed, objective, complete_fn)   # empty -> draft
+        filled = fill_node(node, nodes, seed, objective, complete_fn)  # empty -> draft, +digest
         filled["gate"] = contract_gate(filled, seed)
         filled["status"] = advance(filled["status"])             # draft -> revised
         filled["status"] = advance(filled["status"])             # revised -> final
         final_nodes.append(filled)
 
-    content = assemble(final_nodes, seed, objective)
-    return {"enabled": True, "passthrough": False, "content": content, "outline": final_nodes}
+    deep_spec, synthetic_spec = conciliate(
+        final_nodes, nodes, objective, conciliate_fn or complete_fn)
+    return {"enabled": True, "passthrough": False, "content": deep_spec, "outline": final_nodes,
+            "deep_spec": deep_spec, "synthetic_spec": synthetic_spec}

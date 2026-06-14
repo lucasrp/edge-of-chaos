@@ -27,6 +27,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import conductor  # noqa: E402
 import close  # noqa: E402
+import render  # noqa: E402
 
 
 # A realistic excavate seed (the shape tools/excavate.py emits): findings + residuals.
@@ -138,7 +139,7 @@ class LifecycleState(unittest.TestCase):
     def test_fill_drives_empty_to_draft(self):
         nodes = conductor.author_outline(_SEED, _OBJECTIVE)
         spy = _spy_filler()
-        filled = conductor.fill_node(nodes[0], _SEED, _OBJECTIVE, spy)
+        filled = conductor.fill_node(nodes[0], nodes, _SEED, _OBJECTIVE, spy)
         self.assertEqual(filled["status"], "draft")
         self.assertEqual(spy.calls["count"], 1)
         self.assertTrue(filled["blocks"], "a filled node carries content blocks")
@@ -152,7 +153,7 @@ class MechanicalGate(unittest.TestCase):
         spy = _spy_filler()
         # fill the deliver node that owns at least one finding
         deliver = next(n for n in nodes if n["contract"]["finding_ids"])
-        filled = conductor.fill_node(deliver, _SEED, _OBJECTIVE, spy)
+        filled = conductor.fill_node(deliver, nodes, _SEED, _OBJECTIVE, spy)
         self.assertEqual(conductor.contract_gate(filled, _SEED), [])
 
     def test_undischarged_finding_is_flagged(self):
@@ -185,8 +186,8 @@ class Assembly(unittest.TestCase):
         result = conductor.run_conductor(_SEED, _OBJECTIVE, spy, is_enabled=True)
         self.assertTrue(result["enabled"])
         self.assertFalse(result["passthrough"])
-        # one fill call per node
-        self.assertEqual(spy.calls["count"], len(result["outline"]))
+        # one fill call per node, plus one conciliator call (the synthetic through-line)
+        self.assertEqual(spy.calls["count"], len(result["outline"]) + 1)
         content = result["content"]
         self.assertIn("sections", content)
         # wrap in the artefato fields the seed/producer supplies (cites with an outside frame,
@@ -234,6 +235,273 @@ class EnvPathDefault(unittest.TestCase):
         result = conductor.run_conductor(_SEED, _OBJECTIVE, spy)
         self.assertTrue(result["enabled"])
         self.assertGreater(spy.calls["count"], 0)
+
+
+# ===========================================================================
+# ENRICHMENT (slices 2-3): place-aware orientation, writer digests, semantic
+# discharge, conciliation (deep + synthetic), two-altitude output.
+# ===========================================================================
+
+
+class PlaceAwareOrientation(unittest.TestCase):
+    """The '23 different intros' fix: each node knows its PLACE in the arc and what
+    upstream already established, and the writer prompt is a CONTINUATION directive over
+    the WHOLE-outline map — never a standalone intro per node."""
+
+    def test_every_node_carries_its_place(self):
+        nodes = conductor.author_outline(_SEED, _OBJECTIVE)
+        for i, n in enumerate(nodes):
+            self.assertIn("place", n, f"node {i} must carry its place in the arc")
+            place = n["place"]
+            self.assertIn("position", place)        # e.g. "2 of 5"
+            self.assertIn("established_upstream", place)  # what prior nodes set
+
+    def test_first_node_has_no_upstream(self):
+        nodes = conductor.author_outline(_SEED, _OBJECTIVE)
+        self.assertEqual(nodes[0]["place"]["established_upstream"].strip(), "",
+                         "the opening node establishes the frame; nothing precedes it")
+
+    def test_downstream_node_summarizes_what_came_before(self):
+        nodes = conductor.author_outline(_SEED, _OBJECTIVE)
+        # a later node's established_upstream names the roles/intents that precede it
+        last = nodes[-1]
+        upstream = last["place"]["established_upstream"].lower()
+        self.assertTrue(upstream.strip(), "a downstream node must summarize its upstream")
+        self.assertIn("motivate", upstream, "upstream summary names the prior arc roles")
+
+    def test_writer_prompt_is_a_continuation_over_the_whole_map(self):
+        nodes = conductor.author_outline(_SEED, _OBJECTIVE)
+        downstream = nodes[-1]
+        prompt = conductor._writer_prompt(downstream, nodes, _SEED, _OBJECTIVE)
+        low = prompt.lower()
+        # the whole-outline MAP (not just this node) — other nodes' intents are present
+        self.assertIn(nodes[0]["contract"]["intent"][:30].lower(), low,
+                      "the writer must see the WHOLE outline (the map), not just its node")
+        # the continuation directive
+        self.assertIn("continuation", low)
+        self.assertTrue("do not re-establish" in low or "mid-stream" in low
+                        or "do not re-introduce" in low,
+                        "the writer must be told to open mid-stream, not re-establish context")
+        # the upstream context
+        self.assertIn(downstream["place"]["established_upstream"][:30].lower(), low)
+
+
+class WriterDigests(unittest.TestCase):
+    """fill_node returns, alongside the body, a structured digest the conciliator works off."""
+
+    def test_digest_parsed_from_model_output(self):
+        node = conductor.author_outline(_SEED, _OBJECTIVE)[1]
+
+        def complete_fn(prompt):
+            return (
+                "BODY: developed prose for this node that earns store cost rises with corpus size.\n"
+                '```json\n{"bullets": ["cost rises with corpus", "no eviction"], '
+                '"assumed_prior": "the frame is set", '
+                '"contribution": "establishes the read:write cost", '
+                '"cross_refs": ["the eviction rail"]}\n```'
+            )
+
+        filled = conductor.fill_node(node, conductor.author_outline(_SEED, _OBJECTIVE),
+                                     _SEED, _OBJECTIVE, complete_fn)
+        digest = filled["digest"]
+        self.assertEqual(digest["bullets"], ["cost rises with corpus", "no eviction"])
+        self.assertEqual(digest["assumed_prior"], "the frame is set")
+        self.assertEqual(digest["contribution"], "establishes the read:write cost")
+        self.assertEqual(digest["cross_refs"], ["the eviction rail"])
+        # the body is still present and carries the prose
+        self.assertTrue(filled["blocks"], "the body survives alongside the digest")
+
+    def test_garbage_digest_is_empty_never_crashes(self):
+        node = conductor.author_outline(_SEED, _OBJECTIVE)[1]
+
+        def complete_fn(prompt):
+            return "just prose, no json at all, the model refused the schema"
+
+        filled = conductor.fill_node(node, conductor.author_outline(_SEED, _OBJECTIVE),
+                                     _SEED, _OBJECTIVE, complete_fn)
+        digest = filled["digest"]
+        self.assertEqual(digest["bullets"], [])
+        self.assertEqual(digest["assumed_prior"], "")
+        self.assertEqual(digest["contribution"], "")
+        self.assertEqual(digest["cross_refs"], [])
+        # and the body is still the model's text (prose survives a bad digest)
+        self.assertTrue(filled["blocks"])
+
+    def test_parse_digest_direct_tolerance(self):
+        # malformed/garbage shapes never crash, always yield the empty digest shape
+        for bad in ("", "   ", "not json", "{not: valid}", "[]", "null", "{}"):
+            d = conductor._parse_digest(bad)
+            self.assertEqual(set(d), {"bullets", "assumed_prior", "contribution", "cross_refs"})
+            self.assertIsInstance(d["bullets"], list)
+            self.assertIsInstance(d["cross_refs"], list)
+
+
+class SemanticDischarge(unittest.TestCase):
+    """The verbatim-echo fix: a per-finding semantic discharge check via an injected model,
+    SEPARATE from the deterministic structural gate (which stays mechanical)."""
+
+    def test_paraphrase_passes_semantic_even_when_mechanical_would_fail(self):
+        nodes = conductor.author_outline(_SEED, _OBJECTIVE)
+        deliver = next(n for n in nodes if n["contract"]["finding_ids"])
+        # prose that PARAPHRASES the claim (no verbatim echo) — the mechanical gate flags it...
+        paraphrased = {**deliver, "status": "draft",
+                       "blocks": [{"type": "paragraph",
+                                   "text": "storage grows as the corpus expands; the bigger the "
+                                           "body of memory, the steeper the bill."}]}
+        self.assertTrue(conductor.contract_gate(paraphrased, _SEED),
+                        "mechanical gate demands verbatim echo and flags paraphrase")
+
+        # ...but the semantic check (injected judge) passes it per-finding
+        def judge(prompt):
+            return '{"verdicts": [{"finding_id": "f0", "delivered": true}]}'
+
+        result = conductor.semantic_discharge(paraphrased, _SEED, judge)
+        self.assertTrue(all(v["delivered"] for v in result),
+                        "the semantic judge passes legitimate paraphrase")
+        self.assertEqual(result[0]["finding_id"], "f0")
+
+    def test_semantic_flags_a_dropped_finding(self):
+        nodes = conductor.author_outline(_SEED, _OBJECTIVE)
+        deliver = next(n for n in nodes if n["contract"]["finding_ids"])
+        starved = {**deliver, "status": "draft",
+                   "blocks": [{"type": "paragraph", "text": "unrelated filler"}]}
+
+        def judge(prompt):
+            return '{"verdicts": [{"finding_id": "f0", "delivered": false}]}'
+
+        result = conductor.semantic_discharge(starved, _SEED, judge)
+        self.assertFalse(all(v["delivered"] for v in result))
+
+    def test_semantic_tolerant_of_garbage_judge(self):
+        nodes = conductor.author_outline(_SEED, _OBJECTIVE)
+        deliver = next(n for n in nodes if n["contract"]["finding_ids"])
+
+        def judge(prompt):
+            return "the model refused, no json"
+
+        # garbage judge => fail-closed per assigned finding (delivered: False), never crashes
+        result = conductor.semantic_discharge(deliver, _SEED, judge)
+        self.assertTrue(result, "every assigned finding gets a verdict")
+        self.assertFalse(any(v["delivered"] for v in result), "garbage judge fails closed")
+
+    def test_node_with_no_findings_returns_empty(self):
+        nodes = conductor.author_outline(_SEED, _OBJECTIVE)
+        motivate = next(n for n in nodes if not n["contract"]["finding_ids"])
+
+        def judge(prompt):
+            raise AssertionError("must not call the judge when there are no findings")
+
+        self.assertEqual(conductor.semantic_discharge(motivate, _SEED, judge), [])
+
+
+class Conciliation(unittest.TestCase):
+    """conciliate works off the DIGESTS to produce a smoothed DEEP spec and a 2-page
+    SYNTHETIC spec; both pass close.check_genus; the synthetic is materially shorter."""
+
+    def _filled_nodes(self):
+        spy = _spy_filler_with_digest()
+        result = conductor.run_conductor(_SEED, _OBJECTIVE, spy, is_enabled=True)
+        return result["outline"], result
+
+    def test_conciliate_returns_both_specs(self):
+        outline = conductor.author_outline(_SEED, _OBJECTIVE)
+        spy = _spy_filler_with_digest()
+        filled = [conductor.fill_node(n, outline, _SEED, _OBJECTIVE, spy) for n in outline]
+
+        def conciliator(prompt):
+            return "A flowing executive synthesis: cost rises, nothing forgets, the briefing re-derives."
+
+        deep, synthetic = conductor.conciliate(filled, outline, _OBJECTIVE, conciliator)
+        self.assertIn("sections", deep)
+        self.assertIn("sections", synthetic)
+
+    def test_both_specs_pass_check_genus(self):
+        outline = conductor.author_outline(_SEED, _OBJECTIVE)
+        spy = _spy_filler_with_digest()
+        filled = [conductor.fill_node(n, outline, _SEED, _OBJECTIVE, spy) for n in outline]
+
+        def conciliator(prompt):
+            return ("Because the evidence shows it, it follows that cost rises with corpus size, "
+                    "nothing forgets by default, and the briefing re-derives core memory — "
+                    "what i don't know: the live lag; this builds on the excavate seed.")
+
+        deep, synthetic = conductor.conciliate(filled, outline, _OBJECTIVE, conciliator)
+        wrap = lambda spec: {
+            "slug": "conc", "content": spec, "intent": _OBJECTIVE,
+            "cites": [{"ref": "Letta docs", "kind": "mundo", "relevant": True,
+                       "snippet": "core memory is always-in-context working memory"}],
+            "proposes": [{"body": "spec the read panels", "kind": "thread"}],
+            "distills": ["cluster:briefing"],
+        }
+        self.assertEqual(close.check_genus(wrap(deep)), [], "deep spec must pass genus")
+        self.assertEqual(close.check_genus(wrap(synthetic)), [], "synthetic spec must pass genus")
+
+    def test_synthetic_is_materially_shorter_than_deep(self):
+        outline = conductor.author_outline(_SEED, _OBJECTIVE)
+        spy = _spy_filler_with_digest()
+        filled = [conductor.fill_node(n, outline, _SEED, _OBJECTIVE, spy) for n in outline]
+
+        def conciliator(prompt):
+            return ("A short through-line over the digests — it follows that cost rises; "
+                    "what i don't know: the lag; this builds on prior work.")
+
+        deep, synthetic = conductor.conciliate(filled, outline, _OBJECTIVE, conciliator)
+        self.assertLess(_spec_len(synthetic), _spec_len(deep) / 2,
+                        "the synthetic must be materially shorter than the deep report")
+
+
+class TwoAltitudeOutput(unittest.TestCase):
+    """run_conductor returns {deep_spec, synthetic_spec}; both render to non-empty HTML."""
+
+    def test_run_returns_both_specs_that_render(self):
+        spy = _spy_filler_with_digest()
+        result = conductor.run_conductor(_SEED, _OBJECTIVE, spy, is_enabled=True,
+                                         conciliate_fn=_concise_conciliator)
+        self.assertIn("deep_spec", result)
+        self.assertIn("synthetic_spec", result)
+        deep_html = render.spec_to_html(result["deep_spec"])
+        syn_html = render.spec_to_html(result["synthetic_spec"])
+        self.assertTrue(deep_html.strip(), "deep spec renders to non-empty HTML")
+        self.assertTrue(syn_html.strip(), "synthetic spec renders to non-empty HTML")
+
+    def test_off_still_passthrough_zero_spend(self):
+        spy = _spy_filler_with_digest()
+        result = conductor.run_conductor(_SEED, _OBJECTIVE, spy, is_enabled=False)
+        self.assertTrue(result["passthrough"])
+        self.assertIsNone(result["deep_spec"])
+        self.assertIsNone(result["synthetic_spec"])
+        self.assertEqual(spy.calls["count"], 0, "OFF must never call the model")
+
+
+def _spec_len(spec: dict) -> int:
+    """Total prose length of a content spec (for the materially-shorter assertion)."""
+    import json as _json
+    return len(_json.dumps(spec, ensure_ascii=False))
+
+
+def _concise_conciliator(prompt):
+    return ("A flowing synthesis over the digests: it follows that cost rises with corpus size "
+            "and nothing forgets — what i don't know: the live lag; this builds on prior work.")
+
+
+def _spy_filler_with_digest():
+    """Like _spy_filler but also emits a parseable digest block, so fill_node returns a digest."""
+    calls = {"count": 0, "prompts": []}
+
+    def complete_fn(prompt):
+        calls["count"] += 1
+        calls["prompts"].append(prompt)
+        claims = [ln for ln in prompt.splitlines() if ln.strip()]
+        body = ("Because the evidence shows it, it follows that " + " ".join(claims) +
+                " — what i don't know: the open question of scale; this builds on prior work.")
+        digest = ('{"bullets": ["a key point", "another point"], '
+                  '"assumed_prior": "the frame is set upstream", '
+                  '"contribution": "develops the assigned findings", '
+                  '"cross_refs": []}')
+        return body + "\n```json\n" + digest + "\n```"
+
+    complete_fn.calls = calls
+    return complete_fn
 
 
 if __name__ == "__main__":
