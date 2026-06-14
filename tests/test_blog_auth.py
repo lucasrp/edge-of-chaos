@@ -237,6 +237,60 @@ class TestCanonicalAppend(_Base):
         self._post("/e/alpha-post/comment", {"body": "two", "idem_key": "k2"})
         self.assertEqual(self._count(), before + 2)
 
+    def test_rendered_vote_form_carries_an_idempotency_key(self):
+        """The live vote UI must take the idempotent path: the rendered form ships an idem_key, so
+        a rapid double-submit of the SAME rendered button dedupes (no double-toggle back to 0)."""
+        html = self.server._render_votes("alpha-post")
+        self.assertIn('name="idem_key"', html)
+
+    def test_double_submitting_the_same_vote_form_appends_once(self):
+        before = self._count()
+        # extract the key the form rendered, then submit it twice (a double-click on one button)
+        import re
+        html = self.server._render_votes("alpha-post")
+        key = re.search(r'name="idem_key" value="([^"]+)"', html).group(1)
+        self._post("/e/alpha-post/vote", {"value": "1", "idem_key": key})
+        self._post("/e/alpha-post/vote", {"value": "1", "idem_key": key})
+        self.assertEqual(self._count(), before + 1)  # one vote event, not a toggle-back-to-0
+        self.assertEqual(self.server._vote_state("alpha-post"), 1)
+
+
+class TestDnsRebindingDefense(_Base):
+    """A DNS-rebinding page resolves an attacker hostname to 127.0.0.1, so the browser sends a
+    matching Host AND Origin and the peer is loopback — every request.host-relative check passes.
+    The origin must be validated against an ALLOWLISTED dashboard host, not the request's own Host
+    (which the attacker controls). A loopback peer carrying an attacker Host/Origin → rejected."""
+
+    AUTH = "on"
+
+    def setUp(self):
+        super().setUp()
+        os.environ["EDGE_DASH_ORIGIN"] = "127.0.0.1:8780"  # the install's real dashboard host
+
+    def tearDown(self):
+        os.environ.pop("EDGE_DASH_ORIGIN", None)
+        super().tearDown()
+
+    def test_rebinding_host_and_origin_rejected_even_from_loopback(self):
+        before = self._count()
+        # the attacker's rebound name: loopback peer, but Host/Origin = attacker.example
+        r = self.client.post(
+            "/e/alpha-post/comment", data={"body": "rebinding poison"},
+            base_url="http://attacker.example:8780",
+            headers={"Origin": "http://attacker.example:8780"})
+        self.assertIn(r.status_code, (401, 403))
+        self.assertEqual(self._count(), before)
+        self.assertEqual(self._events("voz.comment"), [])
+
+    def test_allowlisted_origin_from_loopback_still_writes(self):
+        before = self._count()
+        r = self.client.post(
+            "/e/alpha-post/comment", data={"body": "real operator"},
+            base_url="http://127.0.0.1:8780",
+            headers={"Origin": "http://127.0.0.1:8780"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self._count(), before + 1)
+
 
 class TestLegitimateMentee(_Base):
     """The gate must NOT break the operator: the local single-tenant mentee on 127.0.0.1, and a

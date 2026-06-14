@@ -58,18 +58,46 @@ def _request_is_local():
     return addr in ("127.0.0.1", "::1", "localhost")
 
 
+def _allowed_hosts():
+    """The allowlist of host[:port] values that ARE this dashboard — what a legitimate same-origin
+    Origin/Host must match. EDGE_DASH_ORIGIN (explicit, comma-separated) wins; else the configured
+    bind host:port plus the loopback names. We validate against THIS set, never the request's own
+    Host header (an attacker controls Host under DNS rebinding — matching request.host to itself is
+    no check at all)."""
+    explicit = os.environ.get("EDGE_DASH_ORIGIN")
+    if explicit:
+        return {h.strip() for h in explicit.split(",") if h.strip()}
+    host = os.environ.get("BLOG_HOST", "127.0.0.1")
+    port = os.environ.get("BLOG_PORT", "8780")
+    hosts = {f"{host}:{port}", host}
+    for name in ("127.0.0.1", "localhost", "[::1]"):
+        hosts.add(f"{name}:{port}")
+        hosts.add(name)
+    return hosts
+
+
+def _hostpart(url_or_authority):
+    """The host[:port] authority from a URL or a bare Host value (strip scheme + path)."""
+    tail = url_or_authority.split("//", 1)[-1]
+    return tail.split("/", 1)[0]
+
+
 def _origin_ok():
-    """CSRF / cross-origin defense: a state-changing POST must originate same-origin. The browser
-    sends Origin (or Referer) on a cross-site form/fetch; if present it must match this host. A
-    cross-origin page POSTing here (CSRF) carries the attacker's Origin → rejected."""
-    host = request.host  # the host:port the dashboard is served on
+    """CSRF / cross-origin + DNS-rebinding defense: a state-changing POST must come from an
+    ALLOWLISTED dashboard origin. Both the request's own Host and its Origin/Referer must be in the
+    allowlist — validating against the allowlist (not against request.host) is what defeats DNS
+    rebinding, where the attacker's rebound name sends a matching Host AND Origin from a loopback
+    peer. A cross-origin page (CSRF) carries the attacker's Origin → not in the allowlist → rejected."""
+    allowed = _allowed_hosts()
+    # The request's claimed Host must itself be a known dashboard host (defeats rebinding).
+    if _hostpart(request.host) not in allowed:
+        return False
     origin = request.headers.get("Origin")
     if origin:
-        # http(s)://host[:port] → compare the host[:port] tail
-        return origin.split("//", 1)[-1] == host
+        return _hostpart(origin) in allowed
     referer = request.headers.get("Referer")
     if referer:
-        return referer.split("//", 1)[-1].split("/", 1)[0] == host
+        return _hostpart(referer) in allowed
     # No Origin/Referer (a non-browser client, e.g. curl from the box) — fall back to the peer
     # check: a loopback peer is the operator's own tool, not a cross-origin browser.
     return _request_is_local()
@@ -241,6 +269,14 @@ def _render_thread(target_ref):
     return f'<ul class="thread" id="thread-{html.escape(target_ref)}">{items}</ul>'
 
 
+def _vote_count(slug):
+    """How many `voz.vote` events this slug has — the render-state nonce for the vote idempotency
+    key (advances on each successful append, so it's stable across one render but distinct after a
+    deliberate new toggle)."""
+    return sum(1 for e in _read_events()
+               if e.get("type") == "voz.vote" and e.get("payload", {}).get("slug") == slug)
+
+
 def _vote_state(slug):
     """The mentee's *current* vote for a slug (single-tenant toggle): the latest `voz.vote`
     value wins → 1 (like), -1 (dislike), or 0 (none). A like is a toggle, capped at 1 — not a
@@ -255,6 +291,10 @@ def _vote_state(slug):
 def _render_votes(slug):
     state = _vote_state(slug)
     s = html.escape(slug)
+    # A per-render idempotency key: stable across this render (a rapid double-click of the same
+    # button reuses it → one append, no toggle-back-to-0), distinct after a successful vote (the
+    # count advances), so the next deliberate click is its own event.
+    idem = html.escape(f"vote:{slug}:{_vote_count(slug)}")
 
     def btn(val, emoji, cls):
         active = state == val
@@ -264,6 +304,7 @@ def _render_votes(slug):
 
     return (
         f'<form class="votes" hx-post="/e/{s}/vote" hx-target="closest .votes" hx-swap="outerHTML">'
+        f'<input type="hidden" name="idem_key" value="{idem}">'
         f'{btn(1, "👍", "like")}{btn(-1, "👎", "dislike")}'
         '</form>'
     )
