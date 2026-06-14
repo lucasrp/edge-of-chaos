@@ -48,10 +48,14 @@ tokens) cap** — the *loaded batch*. From that loaded context the grill:
   the identical planned batch. A `folded-to-direction` (→ `direction.set`) or `retired-direction`
   (→ `direction.dropped`) whose `direction_id` has no matching event is **flagged in the fold / health
   strip** (consistency check, symmetric across create / promote / retire). The batch also carries an
-  append-time **precondition `still_open(comment_id)`** checked under the eventlog lock — so two
+  append-time **version guard** checked under the eventlog lock — it fails unless **no `voz.resolved`
+  *or* `voz.clarify` for that `comment_id` has appeared since the grill's start cursor**
+  (`unchanged_since(comment_id, start_cursor)`, *not* a mere `still_open` test — a parked chat is
+  still open, so still-open alone would let a stale batch double-park or stale-resolve). So two
   concurrent grills (distinct `grill_run_id`s, e.g. a manual `/ed-grill` racing a heartbeat dispatch,
   the parallel-dispatch reality this install already lives with) that loaded the same comment
-  **cannot both close it**: the second's precondition fails and its batch is dropped (the chat was
+  **cannot both close it** — whether the first close resolved or parked it: the stale batch fails the
+  guard and is dropped (the chat was
   already resolved). Duplicate / conflicting `voz.resolved` for one `comment_id` is a **fold /
   health-strip error**, never a silent overwrite. [adversarial-review iter7 #1, iter8 #1]
 

@@ -72,9 +72,12 @@ Decisions:
   per-chat close is **atomic**: `voz.reply` + `direction.*` + `voz.resolved` land in one idempotent
   `append_batch` keyed by `comment_id` + `grill_run_id`, so a crash leaves a chat fully resolved or
   fully open — never a re-folded or lost steer; a `folded-to-direction` (or `retired-direction`) whose
-  `direction_id` has no matching `direction.set` (or `direction.dropped`) is flagged. The append carries a precondition `still_open(comment_id)` under the eventlog
-  lock, so **concurrent grills can't double-resolve** a chat (the second's batch is dropped) — robust
-  to this install's parallel operator/heartbeat dispatches; a duplicate `voz.resolved` is a
+  `direction_id` has no matching `direction.set` (or `direction.dropped`) is flagged. The append carries an append-time **version guard** under the eventlog
+  lock — it fails unless **no `voz.resolved` *or* `voz.clarify` for that `comment_id` has appeared
+  since the grill's start cursor** (`unchanged_since(comment_id, start_cursor)`), so **concurrent
+  grills can't double-close** a chat whether the first close *resolved or parked* it (the stale batch
+  is dropped) — robust to this install's parallel operator/heartbeat dispatches; a duplicate
+  `voz.resolved` is a
   health-strip error. No pin — the grill already has the loaded batch in front of it.
   [adversarial-review iter3 #1, iter5 #1, iter6 #1, iter7 #1]
 - **Writes are authenticated, validated, bounded (hard v1 requirement).** The "private authed
@@ -119,7 +122,8 @@ a fold, no parallel store, `group_id`-scoped per install.
   never a `voz.comment`, so it never opens a chat.
 - `voz.resolved {comment_id, outcome: replied | folded-to-direction | retired-direction | acknowledged, direction_id?, grill_run_id, ts}`
   — the grill's **terminal** outcome; one per `comment_id`, idempotent, under an append-time
-  `still_open(comment_id)` precondition. `direction_id` references the **`direction.set`**
+  **version guard** (`unchanged_since(comment_id, start_cursor)` — no `voz.resolved`/`voz.clarify`
+  since the grill's start cursor). `direction_id` references the **`direction.set`**
   (`folded-to-direction`, incl. a proposed→set ratification) or the **`direction.dropped`**
   (`retired-direction`); absent for `replied` / `acknowledged`.
 
@@ -144,7 +148,10 @@ a fold, no parallel store, `group_id`-scoped per install.
   `voz.resolved` (terminal) or `voz.clarify` (parked); un-loaded actionable + post-cursor chats are
   overflow.
 - **Atomic close** = a chat's close events land in one `append_batch` keyed by `comment_id` +
-  `grill_run_id`, under the `still_open` precondition (crash- and concurrency-safe).
+  `grill_run_id`, under the **version guard** `unchanged_since(comment_id, start_cursor)` — fails if
+  any `voz.resolved`/`voz.clarify` for the chat appeared since the grill's start cursor, so a stale
+  concurrent grill's batch drops whether the first close resolved *or* parked the chat (crash- and
+  concurrency-safe; `still_open` alone is insufficient since a parked chat is still open).
 - **Provenance** = `origin_comment_id` rides only Voz-owned curated events (`direction.set` and a
   `set`-targeting `direction.dropped`); never on `direction.proposed`. A `voz.resolved` with
   `outcome=folded-to-direction` has `direction_id` → a `direction.set`; `outcome=retired-direction` →
