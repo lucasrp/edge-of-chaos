@@ -110,6 +110,20 @@ Navigate the brain, not just stare at it.
 - **Accept:** searching a node label centers it; filtering by type hides/shows classes. **Deps:** the
   `/cortex` island (built).
 
+## Slice 6b — Earmarked corrective write-path *(audit D)*
+Close the safety feedback loop: **correct** a harm-bearing node, don't just see it.
+- **Build:** a **Voz correction entry point from an Earmarked Cortex node** — node-targeted Voz that
+  extends `target_ref` **beyond slugs** to a *validated* Cortex node ref. Extend the Slice-1 write
+  validation to **allowlist valid Cortex node `target_ref`s** (reject invalid/unknown node refs with no
+  append); the correction rides the same auth/CSRF gate + canonical append, and the Slice-2 drain
+  resolves it like any Directive.
+- **Accept:** from an Earmarked node in `/cortex`, an **authenticated** correction posts a `voz.comment`
+  with the node `target_ref` and appears as an open Directive; an **invalid node ref** → rejected, no
+  append; an **unauthenticated / cross-origin** correction → rejected, no append. The Earmarked overlay
+  is no longer read-only — the harm-bearing node is correctable.
+- **Deps:** Slice 1 (auth + validation to extend), Slice 2 (the drain resolves it), the `/cortex`
+  Earmarked overlay (built).
+
 ## Slice 7 — Fleet front-end contract #37 *(audit E)*
 Presentation cleanup; do last, before any non-localhost exposure.
 - **Build:** convert the hand-rolled f-string HTML to Flask+Jinja (`base`/`components`/`partials`/
