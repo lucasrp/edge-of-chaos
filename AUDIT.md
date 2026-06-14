@@ -33,12 +33,21 @@ with a real round-trip**:
   (Voz) but cannot *see* the resulting Direction. **Not built.** → the Voz→Direction loop is invisible:
   "did my steer land?" is unanswerable in the UI.
 
-### B. The direct-side round-trip is broken — you direct, but nothing answers
+### B. The direct-side round-trip is broken — and its trust boundary is missing (they ship together)
+> A live Voz loop on an **unauthenticated** log resolves spoofed Directives and poisoned votes while
+> *looking* like it's living correctly. The drain loop and the write-trust boundary are **one slice**,
+> not loop-now-secure-later.
 - **The grill drain loop** — ed does not actually reply. The operator's "oi" in `/chat` sat **open**;
   the reply was **hand-appended**. Nothing reads `open_comments()` and generates `voz.reply` /
   `voz.resolved`. The return path *renders* but is not *generated*. **Not built.** → directing the edge
-  is a dead letter without a manual close. This is the single biggest break in "living" the dashboard:
-  the interaction loop does not close on its own.
+  is a dead letter without a manual close. The single biggest break in "living" the dashboard.
+- **Authenticated, validated, bounded writes — a HARD v1 prerequisite, not late robustness.**
+  `SURFACE.md` makes dashboard auth + CSRF/origin + `target_ref` validation + a body-size limit + the
+  canonical `eventlog` append a hard v1 requirement, because every `voz.*` write appends to the
+  **authoritative log**. The grill loop **must not** ship before this. **Not built.**
+- **The `voz.resolved` / `voz.clarify` lifecycle** — the drain loop's outcome model per the hardened
+  plan (terminal-or-parked, actionable-set, atomic close, concurrency version-guard). The code today
+  keys on `voz.reply`-absence; the drain loop is built **on** this lifecycle. **Not built.**
 
 ### C. The documentation itself is not surfaced — you read markdown, not live docs
 - **Glossary** (`CONTEXT.md`) — the domain language (Cortex, Recall, Earmarked, Directive, Steer…) is
@@ -48,6 +57,11 @@ with a real round-trip**:
 - **Cortex nodes don't link to their source** — you see the brain, but clicking an `Artefato` /
   `Direction` / `Source` node does not drill into the artefato page, the Direction entry, or the doc it
   represents. The graph is an island disconnected from the read surfaces.
+- **Standing pages — Idiom and Source roadmap.** Beyond Direction (section A), `CONTEXT.md` defines
+  first-class standing pages: the **Idiom** (the mentee-language surface the edge frames in) and the
+  **Source roadmap** + source-feedback (what sources the edge reads, and how each actually yielded).
+  Neither is surfaced. To "live the docs" the mentee must be able to inspect **what the edge reads** and
+  **the language it speaks** — embedded in the Briefing or as drill-downs. **Not built.**
 
 ### D. The Cortex graph's deferred half — you can see the brain but can't navigate it well
 - **Search** (find-and-jump) — deferred in `SURFACE.md`.
@@ -55,25 +69,23 @@ with a real round-trip**:
 - **Earmarked corrective write-path** (correct a harm-bearing node via Voz; `target_ref` beyond slugs)
   — deferred. The overlay is read-only awareness only.
 
-### E. The code lags the hardened plan — slice-2 vs the 17-round design
-- **Voz lifecycle:** the code keys open/answered on `voz.reply`-absence; the hardened plan is
-  `voz.resolved` / `voz.clarify` + the actionable-set + atomic close + the concurrency version-guard.
-  Not built.
-- **Auth / CSRF / target-validation / body-limit** on writes — designed (the "private authed surface"),
-  currently **assumed, not enforced**.
+### E. Presentation-contract cleanup — lower priority for *experiencing*
 - **Fleet front-end contract (#37)** — Jinja/Tabler/`/ux-catalog`; today the HTML is hand-rolled
-  f-strings.
+  f-strings. Maintainability/consistency, not experience-blocking. (The Voz lifecycle + write-auth that
+  were filed here are now **prerequisites in B** — they gate the live Voz loop, not late cleanup.)
 
 ## Priority for *living the documentation* (highest leverage first)
-1. **(B) the grill drain loop** — directing must round-trip, or the dashboard is read-only with a dead
-   comment box. This is the heart of "living."
+1. **(B) the direct-side round-trip + its trust boundary, as ONE slice** — auth + validated/bounded
+   writes + the `voz.resolved` lifecycle + the grill drain loop, shipped **together**. Directing must
+   round-trip AND must not resolve spoofed/poisoned input. The heart of "living," and unsafe without the
+   boundary.
 2. **(A) Briefing + Direction** — see the self-state and the steers; close the Voz→Direction loop
    visibly.
-3. **(C) surface the docs + link Cortex nodes to their source** — the literal "live the documentation":
-   glossary/ADRs as surfaces, and the graph wired into the read surfaces.
+3. **(C) surface the docs (glossary, ADRs, Idiom, Source roadmap) + link Cortex nodes to their source**
+   — the literal "live the documentation": the design docs as navigable surfaces, the graph wired into
+   the read surfaces.
 4. **(D) Cortex search / filter** — navigate the brain, not just stare at it.
-5. **(E) lifecycle / auth / contract hardening** — robustness; lower priority for *experiencing* it,
-   required before exposing it beyond localhost.
+5. **(E) front-end contract (#37)** — presentation cleanup; required before exposing beyond localhost.
 
 ## Open question for the review
 Is "living the documentation" satisfied by surfacing **the edge's runtime state** (Cortex, Artefatos,
