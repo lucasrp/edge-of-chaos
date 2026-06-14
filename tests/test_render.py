@@ -310,5 +310,38 @@ class AttributeValuesCannotBreakOut(unittest.TestCase):
         self._assert_no_handler(render.badge_html("B", self.CLASS_BREAKOUT), "badge_html")
 
 
+class InlineTagSafelistRendersNotEscapes(unittest.TestCase):
+    """A producer spec may emit raw inline formatting tags (<b>, <code>, …); render_text
+    must render those, escape everything else, and never pass an unsafe tag through."""
+
+    def test_safelisted_tags_render(self):
+        for tag in ("b", "i", "strong", "em", "code", "u", "sub", "sup", "mark", "small"):
+            out = render.render_text(f"x <{tag}>y</{tag}> z")
+            self.assertIn(f"<{tag}>y</{tag}>", out, tag)
+        self.assertIn("a<br>b", render.render_text("a<br>b"))
+
+    def test_non_safelisted_angle_brackets_stay_escaped(self):
+        # the exact bug: <slug> placeholders and the like must NOT be eaten as tags
+        out = render.render_text("the <slug>.html file and a <div> block")
+        self.assertIn("&lt;slug&gt;", out)
+        self.assertIn("&lt;div&gt;", out)
+        self.assertNotIn("<slug>", out)
+
+    def test_unsafe_tags_never_pass(self):
+        # only attribute-free safelist tags pass; anything with attributes stays escaped,
+        # so no ACTIVE (unescaped) tag carrying a handler/script can reach the page.
+        for bad in ("<script>alert(1)</script>", "<img src=x onerror=1>", "<b onclick=1>x</b>"):
+            low = render.render_text(bad).lower()
+            self.assertNotIn("<script", low)
+            self.assertNotIn("<img", low)
+            self.assertNotIn("<b onclick", low)
+
+    def test_markdown_still_works_alongside(self):
+        out = render.render_text("**bold** and `code` and <i>raw</i>")
+        self.assertIn("<strong>bold</strong>", out)
+        self.assertIn("<code>code</code>", out)
+        self.assertIn("<i>raw</i>", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

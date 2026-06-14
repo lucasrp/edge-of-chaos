@@ -57,6 +57,15 @@ def render_text(s: str) -> str:
     if not s:
         return ""
     s = html.escape(str(s))
+    # Pass through a SAFELIST of inline formatting tags the producer may emit as raw HTML
+    # (the rest stays escaped — e.g. a literal `<slug>` is still shown verbatim, and no tag
+    # with attributes, `<script>`, or an `on*` handler can slip through). Both opening and
+    # closing forms, optional self-close for void tags. This is what lets a spec write
+    # `<b>…</b>` / `<code>…</code>` without it rendering as literal text.
+    s = re.sub(
+        r'&lt;(/?)(b|i|strong|em|code|u|s|sub|sup|mark|small|br)\s*/?&gt;',
+        lambda m: f'<{m.group(1)}{m.group(2).lower()}>', s, flags=re.IGNORECASE,
+    )
     # Markdown links: [text](url) — after escape, brackets/parens are preserved.
     # The URL is gated through safe_url; an unsafe scheme degrades to plain text.
     s = re.sub(r'\[(.+?)\]\((.+?)\)', _md_link, s)
