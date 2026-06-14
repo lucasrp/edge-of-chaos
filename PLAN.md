@@ -34,8 +34,12 @@ Make `voz.*` writes safe before anything generates from them.
 Directing answers back, on its own — no hand-appended replies.
 - **Build:** the terminal-or-parked outcome model (`voz.resolved {outcome}` / `voz.clarify`) per the
   hardened `SURFACE.md`; `open_comments()` keys on absence of a terminal `voz.resolved` (not
-  `voz.reply`). A **drain** (`POST /grill/drain` behind the Slice-1 gate, and/or a local-only tool) that
-  captures `start_cursor` + the **actionable set**, loads a deterministic **capped batch** (max chats /
+  `voz.reply`). **Migration (do this atomically with the switch):** idempotently **back-fill** every
+  historical `voz.comment` that has a `voz.reply` but no `voz.resolved` with `voz.resolved {outcome:
+  replied}` (legacy-settled) — so flipping the open-test does **not** re-open already-answered threads
+  (incl. the hand-appended "oi"). A **drain** (`POST /grill/drain` behind the Slice-1 gate, and/or a
+  local-only tool) that captures `start_cursor` + the **actionable set**, loads a deterministic
+  **capped batch** (max chats /
   tokens; the **overflow stays open and visible** — never an oversized prompt), generates a `voz.reply`
   per loaded comment via the edge LLM, and — when a comment is a
   **standing Directive** — atomically appends `direction.set` + `voz.resolved {outcome:
@@ -54,7 +58,10 @@ Directing answers back, on its own — no hand-appended replies.
   (e) a duplicate / orphan `voz.resolved` surfaces as a consistency error;
   (f) with **more actionable comments than the cap**, the drain processes only the capped batch and the
   **overflow stays open + visible** (not silently dropped, not stuffed into one oversized prompt);
-  (g) the drain route (if HTTP) **rejects unauthenticated / cross-origin calls with no append** (per Slice 1).
+  (g) the drain route (if HTTP) **rejects unauthenticated / cross-origin calls with no append** (per Slice 1);
+  (h) **legacy compatibility** — historical reply-only comments (e.g. the hand-appended "oi") are **not
+  re-opened** by the lifecycle switch and the drain **never reprocesses** them (no duplicate reply, no
+  re-fold); the back-fill is **idempotent** (re-running adds nothing).
 - **Deps:** Slice 1 (writes must be trusted before they're auto-resolved).
 
 ## Slice 3 — Briefing surface + read-model health strip *(audit A)*
