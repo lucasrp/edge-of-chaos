@@ -24,6 +24,11 @@ import eventlog  # noqa: E402
 
 app = Flask(__name__)
 
+# The default bind port (app.run + the origin allowlist default share this single source of truth,
+# so the operator on the default URL is never rejected by an allowlist that drifted from app.run).
+DEFAULT_PORT = 8766
+LOOPBACK_NAMES = ("127.0.0.1", "localhost", "::1", "[::1]")
+
 # Body-size cap for a Voz write — a comment is prose, not a payload. Oversized → rejected, no
 # append (defends the authoritative log against a flooded body). SURFACE.md: "a body-size limit".
 MAX_BODY_BYTES = 8 * 1024
@@ -38,7 +43,7 @@ app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
 # CSRF/origin check + target_ref validation + a body-size limit (ADR-0017: "the mentee's private,
 # authed surface — a single trusted author"; SURFACE.md hardens that to *enforced, not assumed*).
 # The gate rejects spoofing (cross-origin / unauthenticated), NOT the legitimate local mentee:
-#   - a same-origin request from localhost is auto-granted (the operator on 127.0.0.1:8780);
+#   - a same-origin request from localhost is auto-granted (the operator on 127.0.0.1:<port>);
 #   - a configured EDGE_DASH_TOKEN authorizes a reverse-proxied principal (X-Edge-Token);
 #   - the request Origin/Referer must match the dashboard's own host (CSRF/cross-origin defense).
 # Test seam: EDGE_DASH_AUTH = "on" (real gate) | "off" (disabled, pre-Slice-1) | "test:<who>"
@@ -68,12 +73,21 @@ def _allowed_hosts():
     if explicit:
         return {h.strip() for h in explicit.split(",") if h.strip()}
     host = os.environ.get("BLOG_HOST", "127.0.0.1")
-    port = os.environ.get("BLOG_PORT", "8780")
+    port = os.environ.get("BLOG_PORT", str(DEFAULT_PORT))
     hosts = {f"{host}:{port}", host}
-    for name in ("127.0.0.1", "localhost", "[::1]"):
+    for name in LOOPBACK_NAMES:
         hosts.add(f"{name}:{port}")
         hosts.add(name)
     return hosts
+
+
+def _host_is_loopback():
+    """The request's CLAIMED host is a loopback name → it really is the operator's own browser on
+    this box, not a public host a loopback reverse-proxy peer forwarded. The auto-grant keys on
+    THIS (not the TCP peer alone): behind Caddy `reverse_proxy localhost:<port>` every external
+    client is a loopback peer, so a peer-only auto-grant would let any public visitor write."""
+    name = _hostpart(request.host).rsplit(":", 1)[0]
+    return name in LOOPBACK_NAMES
 
 
 def _hostpart(url_or_authority):
@@ -124,7 +138,10 @@ def authorize_write():
     token = os.environ.get("EDGE_DASH_TOKEN")
     if token and request.headers.get("X-Edge-Token") == token:
         return "token"
-    if _request_is_local():
+    # The local-operator auto-grant requires BOTH a loopback peer AND a loopback claimed Host: the
+    # peer rules out a remote socket, the Host rules out a public name forwarded by a loopback proxy
+    # peer (Caddy). A forwarded public host must carry the token, never ride the loopback auto-grant.
+    if _request_is_local() and _host_is_loopback():
         return "local"
     return None
 
@@ -697,5 +714,5 @@ def static_files(fname):
 if __name__ == "__main__":
     app.run(
         host=os.environ.get("BLOG_HOST", "127.0.0.1"),
-        port=int(os.environ.get("BLOG_PORT", "8766")),
+        port=int(os.environ.get("BLOG_PORT", str(DEFAULT_PORT))),
     )

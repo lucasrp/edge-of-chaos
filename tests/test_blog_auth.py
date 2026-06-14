@@ -292,6 +292,70 @@ class TestDnsRebindingDefense(_Base):
         self.assertEqual(self._count(), before + 1)
 
 
+class TestDefaultPortAllowlist(_Base):
+    """The default allowlist (no EDGE_DASH_ORIGIN, no BLOG_PORT) must include the server's OWN
+    default port — the one app.run binds — so the operator on the default URL is not rejected."""
+
+    AUTH = "on"
+
+    def setUp(self):
+        super().setUp()
+        os.environ.pop("EDGE_DASH_ORIGIN", None)
+        os.environ.pop("BLOG_PORT", None)
+
+    def test_operator_on_the_servers_default_port_can_write(self):
+        # the port app.run() binds by default (the source of truth for "the default URL")
+        port = self.server.DEFAULT_PORT
+        before = self._count()
+        r = self.client.post(
+            "/e/alpha-post/comment", data={"body": "on the default port"},
+            base_url=f"http://127.0.0.1:{port}",
+            headers={"Origin": f"http://127.0.0.1:{port}"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self._count(), before + 1)
+
+
+class TestProxiedLoopbackNotAutoGranted(_Base):
+    """Behind a reverse proxy (Caddy reverse_proxy localhost:<port>), Flask sees EVERY external
+    client as a loopback peer. The loopback auto-grant must therefore NOT fire on a forwarded
+    *public* host — only on a genuine loopback Host/Origin (the operator's own browser). A public
+    host + loopback peer + no token → rejected (else any public visitor could write)."""
+
+    AUTH = "on"
+
+    def setUp(self):
+        super().setUp()
+        # the public host IS allowlisted (so a *tokened* proxied write can work), but that must not
+        # by itself grant a tokenless request just because the proxy peer is loopback.
+        os.environ["EDGE_DASH_ORIGIN"] = "edge.edgeofchaos.net,127.0.0.1:8766,localhost:8766"
+        os.environ.pop("EDGE_DASH_TOKEN", None)
+
+    def tearDown(self):
+        os.environ.pop("EDGE_DASH_ORIGIN", None)
+        super().tearDown()
+
+    def test_public_host_via_proxy_without_token_is_rejected(self):
+        before = self._count()
+        # loopback peer (the proxy), but the forwarded Host/Origin is the public name, no token
+        r = self.client.post(
+            "/e/alpha-post/comment", data={"body": "public poison"},
+            base_url="http://edge.edgeofchaos.net",
+            headers={"Origin": "http://edge.edgeofchaos.net"})
+        self.assertIn(r.status_code, (401, 403))
+        self.assertEqual(self._count(), before)
+        self.assertEqual(self._events("voz.comment"), [])
+
+    def test_loopback_host_still_auto_granted_for_the_operator(self):
+        before = self._count()
+        # the operator's own browser: loopback Host AND Origin → still writes (UX preserved)
+        r = self.client.post(
+            "/e/alpha-post/comment", data={"body": "operator local"},
+            base_url="http://127.0.0.1:8766",
+            headers={"Origin": "http://127.0.0.1:8766"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self._count(), before + 1)
+
+
 class TestLegitimateMentee(_Base):
     """The gate must NOT break the operator: the local single-tenant mentee on 127.0.0.1, and a
     same-origin browser POST, both write normally. The gate is against spoofing, not the operator."""
