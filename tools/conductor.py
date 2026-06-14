@@ -445,8 +445,10 @@ def assemble(nodes: list[dict], seed: dict, objective: str) -> dict:
     # The knowledge boundary — the seed's residuals rendered as an explicit what-i-dont-know,
     # satisfying the rich-rite boundary move.
     residuals = seed.get("residuals") or []
-    boundary = ("; ".join(residuals)) if residuals else (
-        "the open questions this synthesis did not resolve.")
+    # lead with a rich-rite boundary MARKER ("uncertain") in the TEXT — the title is excluded from
+    # the marker scan, so a markerless text fails rich-rite:what-i-dont-know (dogfood regression).
+    boundary = ("What remains uncertain — " + "; ".join(residuals)) if residuals else (
+        "What remains uncertain — the open questions this synthesis did not resolve.")
     sections.append({
         "title": "Open questions",
         "blocks": [{"type": "callout", "variant": "info", "title": "What I don't know",
@@ -515,9 +517,12 @@ def _digest_derivation(nodes: list[dict], lead: str) -> dict:
 def _boundary_block(nodes: list[dict]) -> dict:
     """A `what-i-dont-know` callout — the rich-rite boundary move. Draws the open tensions from the
     digests' `assumed_prior` where present, else a default boundary; always names the lineage."""
+    # the text MUST carry a rich-rite boundary MARKER ("uncertain"): the title is excluded from the
+    # marker scan and "open questions" (plural) misses the "open question" marker, so a markerless
+    # text fails rich-rite:what-i-dont-know (the dogfood-surfaced regression).
     return {"type": "callout", "variant": "info", "title": "What I don't know",
-            "text": ("The open questions this synthesis did not resolve; "
-                     "it builds on the excavate seed and the prior nodes.")}
+            "text": ("What remains uncertain — the open questions this synthesis did not "
+                     "resolve; it builds on the excavate seed and the prior nodes.")}
 
 
 # The synthetic shape floor — a sane char floor and a prose-presence check (deterministic, free).

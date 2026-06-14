@@ -690,6 +690,28 @@ class LiveTestSurfacedBugsFixed(unittest.TestCase):
         oq = [s for s in spec["sections"] if s["title"] == "Open questions"][0]
         self.assertNotIn("what i don't know", oq["blocks"][0]["text"].lower())
 
+    def test_boundary_block_text_carries_a_what_i_dont_know_marker(self):
+        # dogfood regression: the dedup'd boundary text lost its marker (the title is excluded from
+        # the scan), so the deterministic boundary block failed rich-rite:what-i-dont-know on its own.
+        import close as _c
+        txt = conductor._boundary_block([])["text"].lower()
+        self.assertTrue(any(m in txt for m in _c.BOUNDARY_MARKERS),
+                        f"boundary text must carry a what-i-dont-know marker, got: {txt!r}")
+
+    def test_assemble_boundary_satisfies_rich_rite_move(self):
+        # the genus-level capture: with the rich-rite trigger tripped, the boundary block alone must
+        # satisfy what-i-dont-know (the synthesized deep_spec failed this in the dogfood run).
+        import close as _c
+        seed = {"findings": [{"claim": "c", "citation": "e", "bears_on": "b", "probe": "relevance"}],
+                "residuals": ["an open thread"]}
+        nodes = [{"role": "deliver", "contract": {"intent": "a", "finding_ids": ["f0"]},
+                  "blocks": [{"type": "paragraph", "text": "a developed paragraph of real prose here."}]},
+                 {"role": "deliver", "contract": {"intent": "b", "finding_ids": []},
+                  "blocks": [{"type": "paragraph", "text": "another developed paragraph of real prose."}]}]
+        spec = conductor.assemble(nodes, seed, "obj")
+        violations = _c.check_genus({"content": spec, "cites": [], "distills": []})
+        self.assertNotIn("rich-rite:what-i-dont-know", violations)
+
     def test_derivation_drops_degenerate_contributions(self):
         # bug #3: stray fragments ("D", "Esta.") leaked into the derivation bullets
         nodes = [
