@@ -32,6 +32,13 @@ cap** — the *loaded batch*. From that loaded context the grill:
   sweep), by construction;
 - **folds the standing-worthy ones into Direction** — a loaded chat that moves strategy becomes a
   `set` steer (carrying `origin_comment_id`); the rest are answered and closed.
+- **the close is atomic per loaded chat** — a chat's `voz.reply`, `direction.*` steer (with
+  `origin_comment_id` / `direction_id`), and `voz.resolved` land in **one idempotent `append_batch`**
+  keyed by `comment_id` + `grill_run_id`. A crash mid-close leaves a chat **fully resolved or fully
+  open, never half** — no `direction.set`-without-`voz.resolved` (which would re-fold the steer next
+  grill) and no `voz.resolved`-without-Direction (a lost steer / broken audit link); a retry replays
+  the identical planned batch. A `folded-to-direction` whose `direction_id` has no matching Direction
+  event is **flagged in the fold / health strip** (consistency check). [adversarial-review iter7 #1]
 
 So *earmark = eligible-set context*; **asking is non-exhaustive (ambiguous only), solving is exhaustive
 over the loaded batch (every loaded chat resolved; overflow carried forward)**. There is **no pin** —

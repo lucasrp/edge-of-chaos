@@ -53,8 +53,12 @@ Decisions:
   only); *solving* is **exhaustive over the loaded batch** — no loaded chat survives. Everything not
   loaded (eligible chats the cap excluded, plus post-cursor arrivals) **stays open as overflow** for
   the next grill — never silently dropped nor falsely closed — and the backlog **surfaces in the
-  Briefing health strip**. So coverage is bounded *by construction* (no unbounded context load). No
-  pin — the grill already has the loaded batch in front of it. [adversarial-review iter3 #1, iter5 #1, iter6 #1]
+  Briefing health strip**. So coverage is bounded *by construction* (no unbounded context load). The
+  per-chat close is **atomic**: `voz.reply` + `direction.*` + `voz.resolved` land in one idempotent
+  `append_batch` keyed by `comment_id` + `grill_run_id`, so a crash leaves a chat fully resolved or
+  fully open — never a re-folded or lost steer; a `folded-to-direction` with no matching Direction
+  event is flagged. No pin — the grill already has the loaded batch in front of it.
+  [adversarial-review iter3 #1, iter5 #1, iter6 #1, iter7 #1]
 - **Writes are authenticated, validated, bounded (hard v1 requirement).** The "private authed
   surface" is *enforced, not assumed*: every `voz.*` write route sits behind dashboard auth, with
   CSRF/origin protection, a body-size limit, and `target_ref` validation (reject votes/comments for
