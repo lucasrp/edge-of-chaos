@@ -57,8 +57,9 @@ Decisions:
   a reply.
 - Votes require a target (you vote *on* something); comments may be targeted or general.
 - **The grill resolves a loaded batch of chats; no pin, no per-Directive FIFO.** At start the grill
-  captures the **start cursor** (max event seq) + the **eligible set** (open `comment_id`s as of that
-  cursor), then loads a **harm-ranked batch within a max chats/tokens cap** — the *loaded batch*. It
+  captures the **start cursor** (max event seq) + the **actionable set** (open `comment_id`s ≤ the
+  cursor that are *not* parked-without-answer — see the Event-schema invariant), then loads a
+  **harm-ranked batch within a max chats/tokens cap** — the *loaded batch*. It
   **asks the residual only where ambiguous** (evidence-first), **closes each loaded chat at its
   close** — terminal `voz.resolved` (idempotent, one per `comment_id`) or, when it asked and got no
   answer, a non-terminal `voz.clarify` that keeps the chat **open** — and folds the standing-worthy
@@ -130,8 +131,13 @@ a fold, no parallel store, `group_id`-scoped per install.
 **Invariants**
 - **`open_comments()`** = `voz.comment`s with no terminal `voz.resolved` (a parked `voz.clarify` chat
   is still open; `voz.clarify_answer` and `voz.reply` never affect openness).
-- **Coverage** = every chat in a grill's loaded batch reaches `voz.resolved` (terminal) or
-  `voz.clarify` (parked); un-loaded eligible + post-cursor chats are overflow.
+- **Actionable set** (what a grill may load) = open comments that are **either** not awaiting
+  clarification **or** parked *with* a linked `voz.clarify_answer`. A **parked chat without an answer
+  is open but NOT actionable** — held only in the awaiting-clarification health count, never
+  re-loaded, so it cannot consume the cap every grill and starve fresh directives.
+- **Coverage** = every chat in a grill's loaded batch (drawn from the **actionable** set) reaches
+  `voz.resolved` (terminal) or `voz.clarify` (parked); un-loaded actionable + post-cursor chats are
+  overflow.
 - **Atomic close** = a chat's close events land in one `append_batch` keyed by `comment_id` +
   `grill_run_id`, under the `still_open` precondition (crash- and concurrency-safe).
 - **Provenance** = `origin_comment_id` only on `direction.set`; `voz.resolved.direction_id` always

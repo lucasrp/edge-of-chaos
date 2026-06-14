@@ -16,9 +16,12 @@ replies under it), not the individual message and not a global FIFO position. An
 one whose mentee comment has **no `voz.resolved` outcome yet** (the `open_comments()` fold = comments
 lacking a `voz.resolved`; `voz.reply` is **presentation only** — the inline answer the dashboard
 renders — never the lifecycle state). Resolution is **bounded by a loaded batch**, not a close-all. At its start the grill captures the
-**start cursor** (max event seq) and the **eligible set** — the open `comment_id`s as of that cursor.
-It then loads a **deterministic harm-ranked batch** of the eligible set **within a max (chats / tokens)
-cap** — the *loaded batch*. From that loaded context the grill:
+**start cursor** (max event seq) and the **actionable set** — the open `comment_id`s ≤ that cursor
+that are **not parked-without-answer** (a parked `voz.clarify` chat re-enters the actionable set only
+once its `voz.clarify_answer` lands; until then it lives in the awaiting-clarification health count
+and is **never re-loaded**, so it can't consume the cap every grill and starve fresh directives).
+It then loads a **deterministic harm-ranked batch** of the actionable set **within a max (chats /
+tokens) cap** — the *loaded batch*. From that loaded context the grill:
 
 - **asks the residual only where ambiguous** — evidence-first, **non-exhaustive**: it questions the
   mentee only on the loaded chats the context cannot settle;

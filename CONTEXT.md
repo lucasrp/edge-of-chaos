@@ -164,12 +164,14 @@ knowledge. **Co-produced** but Voz-owned. A **standing page**, projected from th
 *Avoid*: strategy, plan, goals, alignment (collides with Convergence)
 
 **Steer**:
-The **unit of Direction movement** — a candidate change declared toward the proposed tier: open a
-new thread, confirm or challenge an existing one, or retire one. Two origins, one shape: an
-**Artefato** declares candidate steers at its end (the decision not yet made), and the **grill**
-surfaces them live (its findings). Only the grill consolidates a steer into `proposed`; only Voz
-promotes `proposed`→`set`. A steer is **addressable** — it can be cited, confirmed, contested —
-which is what makes Direction two-tier rather than a wishlist.
+The **unit of Direction movement** — open a new thread, confirm or challenge an existing one, or
+retire one. **Tier by origin** (the normative split — SURFACE.md event schema): a **non-Voz
+candidate** — an **Artefato**'s end-of-run candidate, or a **grill** finding — lands in the
+**`proposed`** tier; a **Direct Voz** Directive that folds to Direction lands **straight in `set`**
+(curated, carrying `origin_comment_id` — Voz is already authority, never routed through `proposed`).
+A standing `proposed` item the mentee later **ratifies** is separately **promoted to `set`** (the
+same promotion the grill runs on knowledge). A steer is **addressable** — cited, confirmed,
+contested — which makes Direction two-tier rather than a wishlist.
 *Avoid*: achado (translated — use finding), suggestion, recommendation, todo
 
 **Idiom**:
