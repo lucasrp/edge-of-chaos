@@ -57,7 +57,10 @@ Decisions:
   per-chat close is **atomic**: `voz.reply` + `direction.*` + `voz.resolved` land in one idempotent
   `append_batch` keyed by `comment_id` + `grill_run_id`, so a crash leaves a chat fully resolved or
   fully open — never a re-folded or lost steer; a `folded-to-direction` with no matching Direction
-  event is flagged. No pin — the grill already has the loaded batch in front of it.
+  event is flagged. The append carries a precondition `still_open(comment_id)` under the eventlog
+  lock, so **concurrent grills can't double-resolve** a chat (the second's batch is dropped) — robust
+  to this install's parallel operator/heartbeat dispatches; a duplicate `voz.resolved` is a
+  health-strip error. No pin — the grill already has the loaded batch in front of it.
   [adversarial-review iter3 #1, iter5 #1, iter6 #1, iter7 #1]
 - **Writes are authenticated, validated, bounded (hard v1 requirement).** The "private authed
   surface" is *enforced, not assumed*: every `voz.*` write route sits behind dashboard auth, with
@@ -101,9 +104,10 @@ Operations:
 - **view briefing** (v1): render the composed wake-briefing. No new fold — calls `compose_briefing`.
 - **read-model health strip** (v1): a compact objective-state band above the briefing — last
   dispatch, last assemble/grill, log cursor, extraction/sweep errors, graph reachability, open
-  Directive count, and the **Voz overflow/backlog** (eligible chats the last grill's cap left
-  un-loaded, waiting for the next grill). The degraded-mode signal a composed briefing cannot give.
-  [adversarial-review iter1 #6, iter6 #1]
+  Directive count, the **Voz overflow/backlog** (eligible chats the last grill's cap left un-loaded,
+  waiting for the next grill), and **resolution-consistency errors** (a duplicate `voz.resolved`, or a
+  `folded-to-direction` whose `direction_id` has no Direction event). The degraded-mode signal a
+  composed briefing cannot give. [adversarial-review iter1 #6, iter6 #1, iter8 #1]
 
 Decisions:
 - **Subsumes the *composed* state, not the *health* of the folds.** The briefing is the human-readable

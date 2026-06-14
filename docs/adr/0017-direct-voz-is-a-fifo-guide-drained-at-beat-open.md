@@ -38,7 +38,13 @@ cap** — the *loaded batch*. From that loaded context the grill:
   open, never half** — no `direction.set`-without-`voz.resolved` (which would re-fold the steer next
   grill) and no `voz.resolved`-without-Direction (a lost steer / broken audit link); a retry replays
   the identical planned batch. A `folded-to-direction` whose `direction_id` has no matching Direction
-  event is **flagged in the fold / health strip** (consistency check). [adversarial-review iter7 #1]
+  event is **flagged in the fold / health strip** (consistency check). The batch also carries an
+  append-time **precondition `still_open(comment_id)`** checked under the eventlog lock — so two
+  concurrent grills (distinct `grill_run_id`s, e.g. a manual `/ed-grill` racing a heartbeat dispatch,
+  the parallel-dispatch reality this install already lives with) that loaded the same comment
+  **cannot both close it**: the second's precondition fails and its batch is dropped (the chat was
+  already resolved). Duplicate / conflicting `voz.resolved` for one `comment_id` is a **fold /
+  health-strip error**, never a silent overwrite. [adversarial-review iter7 #1, iter8 #1]
 
 So *earmark = eligible-set context*; **asking is non-exhaustive (ambiguous only), solving is exhaustive
 over the loaded batch (every loaded chat resolved; overflow carried forward)**. There is **no pin** —
