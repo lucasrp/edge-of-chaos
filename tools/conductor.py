@@ -609,6 +609,48 @@ def _genus_violations(spec: dict, objective: str) -> list[str]:
     return close.check_genus(artefato)
 
 
+# The opener gate (#1, the formulaic-opener fix's ENFORCEMENT) — deterministic, free. The
+# place-aware continuation directive ASKS writers to open with substance; this DETECTS when they
+# don't: a deliver node opening with a back-pointer demonstrative, or sharing its opening word with
+# a sibling (the "23 identical That-X intros" signal the prompt alone cannot guarantee against).
+_BANNED_OPENERS = ("that ", "this ", "these ", "those ", "it follows", "building on",
+                   "as noted", "as established", "as we saw", "having established", "as above")
+
+
+def _opener(node: dict) -> str:
+    """The first sentence of a node's prose — its opening move. Reads only the block text/body,
+    never the block `type` tag (which _node_text flattens in)."""
+    parts = [b[k] for b in (node.get("blocks") or [])
+             for k in ("text", "body") if isinstance(b.get(k), str)]
+    t = " ".join(parts).strip()
+    if not t:
+        return ""
+    return re.split(r"(?<=[.!?])\s", t, 1)[0].strip()
+
+
+def opener_violations(nodes: list[dict]) -> list[dict]:
+    """Flag deliver nodes whose opening is formulaic: a back-pointer demonstrative, or an opening
+    word shared with a sibling deliver node. [] iff every deliver node opens with varied substance."""
+    delivers = [n for n in nodes if n.get("role") == "deliver"]
+    openers = {id(n): _opener(n).lower() for n in delivers}
+    first_word = {}
+    for op in openers.values():
+        if op:
+            first_word[op.split()[0]] = first_word.get(op.split()[0], 0) + 1
+    flags = []
+    for n in delivers:
+        op = openers[id(n)]
+        if not op:
+            continue
+        if op.startswith(_BANNED_OPENERS):
+            flags.append({"id": n.get("id"), "issue": "formulaic back-pointer opener",
+                          "opener": op[:80]})
+        elif first_word.get(op.split()[0], 0) >= 2:
+            flags.append({"id": n.get("id"), "issue": "opener word repeats a sibling's",
+                          "opener": op[:80]})
+    return flags
+
+
 def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
                   conciliate_fn=None) -> dict:
     """Run the conductor pipeline. OFF (default) => passthrough, ZERO model spend (today's
@@ -637,7 +679,7 @@ def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
         return {"enabled": False, "passthrough": True, "content": None, "outline": [],
                 "deep_spec": None, "synthetic_spec": None,
                 "discharge": [], "genus": {"deep": [], "synthetic": []},
-                "synthetic_shape": []}
+                "synthetic_shape": [], "opener_flags": []}
 
     nodes = author_outline(seed, objective)
     final_nodes = []
@@ -667,4 +709,4 @@ def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
     return {"enabled": True, "passthrough": False, "content": deep_spec, "outline": final_nodes,
             "deep_spec": deep_spec, "synthetic_spec": synthetic_spec,
             "discharge": discharge_failures, "genus": genus,
-            "synthetic_shape": synthetic_shape}
+            "synthetic_shape": synthetic_shape, "opener_flags": opener_violations(final_nodes)}

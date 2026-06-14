@@ -721,6 +721,38 @@ class LiveTestSurfacedBugsFixed(unittest.TestCase):
         p = conductor._writer_prompt(node, [], {"findings": [], "residuals": []}, "obj")
         self.assertIn("opening node", p.lower())
 
+    def _deliver(self, nid, prose):
+        return {"id": nid, "role": "deliver", "blocks": [{"type": "paragraph", "text": prose}]}
+
+    def test_opener_gate_flags_backpointer_openers(self):
+        # the live symptom: "That X matters more than it first appears to"
+        nodes = [self._deliver("n1", "That wording changes the bar more than it appears. More."),
+                 self._deliver("n2", "The medium is the native order-bearing surface. It binds.")]
+        flags = conductor.opener_violations(nodes)
+        ids = {f["id"] for f in flags}
+        self.assertIn("n1", ids)            # back-pointer "That ..." flagged
+        self.assertNotIn("n2", ids)         # substantive opener not flagged
+
+    def test_opener_gate_flags_repeated_opening_word(self):
+        nodes = [self._deliver("n1", "Cortex is the navigable self. It surfaces views."),
+                 self._deliver("n2", "Cortex also bounds what recall can reach. It cools.")]
+        flags = conductor.opener_violations(nodes)
+        self.assertEqual({f["id"] for f in flags}, {"n1", "n2"})  # both open "Cortex"
+
+    def test_opener_gate_clean_on_varied_substance(self):
+        nodes = [self._deliver("n1", "Cortex is the navigable self-graph the edge surfs."),
+                 self._deliver("n2", "Briefings are lossy folds; recall pulls the detail.")]
+        self.assertEqual(conductor.opener_violations(nodes), [])
+
+    def test_opener_flags_empty_when_off(self):
+        calls = {"n": 0}
+        def spy(p):
+            calls["n"] += 1
+            return ""
+        off = conductor.run_conductor({"findings": [], "residuals": []}, "o", spy, is_enabled=False)
+        self.assertEqual(off["opener_flags"], [])
+        self.assertEqual(calls["n"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
