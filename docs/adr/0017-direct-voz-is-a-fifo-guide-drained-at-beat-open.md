@@ -15,28 +15,27 @@ The unit of resolution is the **chat** (a mentee↔edge exchange on the rail —
 replies under it), not the individual message and not a global FIFO position. An **open chat** is
 one whose mentee comment has **no `voz.resolved` outcome yet** (the `open_comments()` fold = comments
 lacking a `voz.resolved`; `voz.reply` is **presentation only** — the inline answer the dashboard
-renders — never the lifecycle state). Every open chat is **earmarked**, so the **grill loads them all — the start-of-grill snapshot — into context**
-at once. From that full context the grill:
+renders — never the lifecycle state). Resolution is **bounded by a loaded batch**, not a close-all. At its start the grill captures the
+**start cursor** (max event seq) and the **eligible set** — the open `comment_id`s as of that cursor.
+It then loads a **deterministic harm-ranked batch** of the eligible set **within a max (chats / tokens)
+cap** — the *loaded batch*. From that loaded context the grill:
 
 - **asks the residual only where ambiguous** — evidence-first, **non-exhaustive**: it questions the
-  mentee only on the chats the loaded context cannot settle;
-- **marks every open chat in its snapshot solved at its close** — **exhaustive over the snapshot**
-  (coverage): the grill captures the open `comment_id`s + the max event seq **at start** and resolves
-  exactly that set, so **no open chat in the snapshot survives a grill** and nothing rots; a comment
-  landing *after* the snapshot belongs to the next grill — never silently marked resolved (which
-  would drop high-priority Voz) nor left to falsify the invariant. `voz.resolved` is written
-  **idempotently, one per `comment_id`**. The snapshot is also **resource-bounded** — a max
-  (chats / tokens) cap; under backlog the grill loads a **deterministic harm-ranked batch** within the
-  cap and writes `voz.resolved` **only for comments actually in the loaded batch**, leaving overflow
-  open for the next grill and surfacing the backlog as an **overflow signal** in the Briefing
-  read-model-health strip. So coverage is **start- *and* resource-bounded** ("every chat in the loaded
-  batch resolved"), never "all open chats regardless of size" — the same context-window overflow seen
-  at a real wake (the digestion sweep), here bounded by construction;
-- **folds the standing-worthy ones into Direction** — a chat that moves strategy becomes a `set`
-  steer; the rest are simply answered and closed.
+  mentee only on the loaded chats the context cannot settle;
+- **resolves exactly the loaded batch at its close** — **coverage over the loaded batch**: every
+  comment in the loaded batch gets a `voz.resolved` (written **idempotently, one per `comment_id`**),
+  so **no loaded chat survives the grill**. Everything *not* loaded — eligible comments the cap
+  excluded, plus any comment arriving after the start cursor — **stays open as overflow** for the next
+  grill; it is **never silently marked resolved** (which would drop high-priority Voz) and never
+  falsifies coverage. The overflow/backlog count **surfaces in the Briefing read-model-health strip**.
+  This bounds the grill against the same context-window overflow seen at a real wake (the digestion
+  sweep), by construction;
+- **folds the standing-worthy ones into Direction** — a loaded chat that moves strategy becomes a
+  `set` steer (carrying `origin_comment_id`); the rest are answered and closed.
 
-So *earmark = full context*; **asking is non-exhaustive (ambiguous only), solving is exhaustive over
-the start-of-grill snapshot (every chat in it marked solved)**. There is **no pin** — the grill already has every open chat in the snapshot in front of it — and
+So *earmark = eligible-set context*; **asking is non-exhaustive (ambiguous only), solving is exhaustive
+over the loaded batch (every loaded chat resolved; overflow carried forward)**. There is **no pin** —
+the grill already has the loaded batch in front of it — and
 **no per-Directive FIFO / beat-drain**: the beat does not jump its round-robin for a Directive. The
 edge's answer is a `voz.reply` event the **dashboard renders inline** ("agent responds next beat") —
 no external outbound send is required (the dashboard projecting the log *is* the return path).
@@ -70,12 +69,14 @@ private 1:1 (human-hub fan-in, shared room).
 
 ## Consequences
 
-- **Latency up to one grill** before a Directive is acknowledged. The deferred deterministic poller
-  is the documented path to close this gap when it is needed.
+- **Latency up to one grill** before a Directive is acknowledged — **more under sustained backlog**,
+  where overflow waits for a later grill (the backlog count surfaces in the Briefing health strip).
+  The deferred deterministic poller is the documented path to close this gap when it is needed.
 - **Resolution is by chat, not by message.** The grill does not drain a queue oldest-first; it loads
-  the **start-of-grill snapshot** of open chats and closes exactly that set in one pass. Coverage is
-  the invariant — **no open chat in the snapshot outlives that grill**; a chat arriving after the
-  snapshot is the next grill's.
+  a **harm-ranked batch** of the start-cursor eligible set within a max chats/tokens cap and resolves
+  exactly that **loaded batch** in one pass. Coverage is the invariant — **no loaded chat outlives
+  that grill**; eligible chats the cap excluded, and any arriving after the start cursor, stay open as
+  overflow for a later grill (visible in the Briefing health strip).
 - **The answer travels back out through the Medium** — for the Voz rail that path is the dashboard
   rendering the `voz.reply` event; no separate outbound send. A Directive can only ride a **two-way**
   Medium precisely because a one-way pipe cannot carry the answer back.
@@ -96,8 +97,9 @@ private 1:1 (human-hub fan-in, shared room).
   context (coverage at its close), which removes the queue, the FIFO rule, the pin, and the
   two-state bookkeeping. Whether "solved" should still distinguish *acted-on* from *replied* is an
   **open question** (see below).
-- **Harm-ranked drain** instead of FIFO: moot under chat-resolution — the grill already prioritises
-  by harm potential when *asking*, and solves exhaustively over the snapshot regardless.
+- **Harm-ranked drain** instead of FIFO: **adopted for batch selection** — when the eligible set
+  exceeds the cap, the loaded batch is chosen harm-ranked (FIFO would resolve trivia while a high-harm
+  Directive overflows). Within a loaded batch the grill solves exhaustively; FIFO ordering is moot.
 
 ## Resolution — the outcome is recorded, not inferred (adversarial-review iter1 #2)
 

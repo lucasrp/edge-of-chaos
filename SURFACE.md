@@ -44,18 +44,17 @@ Decisions:
 - A standalone-chat message is a comment with `target_ref = null` — a general Directive, still owes
   a reply.
 - Votes require a target (you vote *on* something); comments may be targeted or general.
-- **The grill resolves whole chats; no pin, no per-Directive FIFO.** Every *open* mentee↔edge chat
-  is **earmarked**, so the grill loads **all** of them into context. It **asks the residual only
-  where ambiguous** (evidence-first), **marks every open chat in its snapshot solved at its close**
-  (coverage), and folds the standing-worthy ones into **Direction** (a `set` steer). So earmark =
-  full context; *asking* is non-exhaustive (ambiguous only), *solving* is exhaustive **over the
-  snapshot** — the grill captures the open `comment_id`s + max event seq **at start** and resolves
-  exactly that set, writing `voz.resolved` **idempotently, one per `comment_id`**; a comment landing
-  after the snapshot is the next grill's (never silently dropped nor falsely closed). The snapshot is
-  also **resource-bounded** (max chats/tokens cap; under backlog a harm-ranked batch, `voz.resolved`
-  only for loaded comments, overflow stays open and surfaces in the Briefing health strip) — coverage
-  is start- *and* resource-bounded, never an unbounded context load. No pin — the grill already has
-  every open chat in the snapshot in front of it. [adversarial-review iter3 #1, iter5 #1]
+- **The grill resolves a loaded batch of chats; no pin, no per-Directive FIFO.** At start the grill
+  captures the **start cursor** (max event seq) + the **eligible set** (open `comment_id`s as of that
+  cursor), then loads a **harm-ranked batch within a max chats/tokens cap** — the *loaded batch*. It
+  **asks the residual only where ambiguous** (evidence-first), **resolves exactly the loaded batch at
+  its close** (`voz.resolved`, idempotent, one per `comment_id`), and folds the standing-worthy ones
+  into **Direction** (a `set` steer with `origin_comment_id`). *Asking* is non-exhaustive (ambiguous
+  only); *solving* is **exhaustive over the loaded batch** — no loaded chat survives. Everything not
+  loaded (eligible chats the cap excluded, plus post-cursor arrivals) **stays open as overflow** for
+  the next grill — never silently dropped nor falsely closed — and the backlog **surfaces in the
+  Briefing health strip**. So coverage is bounded *by construction* (no unbounded context load). No
+  pin — the grill already has the loaded batch in front of it. [adversarial-review iter3 #1, iter5 #1, iter6 #1]
 - **Writes are authenticated, validated, bounded (hard v1 requirement).** The "private authed
   surface" is *enforced, not assumed*: every `voz.*` write route sits behind dashboard auth, with
   CSRF/origin protection, a body-size limit, and `target_ref` validation (reject votes/comments for
@@ -98,7 +97,9 @@ Operations:
 - **view briefing** (v1): render the composed wake-briefing. No new fold — calls `compose_briefing`.
 - **read-model health strip** (v1): a compact objective-state band above the briefing — last
   dispatch, last assemble/grill, log cursor, extraction/sweep errors, graph reachability, open
-  Directive count. The degraded-mode signal a composed briefing cannot give. [adversarial-review iter1 #6]
+  Directive count, and the **Voz overflow/backlog** (eligible chats the last grill's cap left
+  un-loaded, waiting for the next grill). The degraded-mode signal a composed briefing cannot give.
+  [adversarial-review iter1 #6, iter6 #1]
 
 Decisions:
 - **Subsumes the *composed* state, not the *health* of the folds.** The briefing is the human-readable
