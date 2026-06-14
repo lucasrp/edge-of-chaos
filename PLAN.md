@@ -107,8 +107,9 @@ Part 2: the wiki and the graph→source bridge.
 Navigate the brain, not just stare at it.
 - **Build:** find-and-jump **search** (deterministic label/type match → center the node) and **filter**
   (by node type / Earmarked / recency) over the loaded graph payload — client-side on the island.
-- **Accept:** searching a node label centers it; filtering by type hides/shows classes. **Deps:** the
-  `/cortex` island (built).
+- **Accept:** searching a node label centers it; **filtering by type, by Earmarked-only, and by
+  recency** each hides/shows the right classes deterministically over the loaded payload, **including
+  empty-result behavior** (no stale hidden/visible state). **Deps:** the `/cortex` island (built).
 
 ## Slice 6b — Earmarked corrective write-path *(audit D)*
 Close the safety feedback loop: **correct** a harm-bearing node, don't just see it.
@@ -117,10 +118,14 @@ Close the safety feedback loop: **correct** a harm-bearing node, don't just see 
   validation to **allowlist valid Cortex node `target_ref`s** (reject invalid/unknown node refs with no
   append); the correction rides the same auth/CSRF gate + canonical append, and the Slice-2 drain
   resolves it like any Directive.
-- **Accept:** from an Earmarked node in `/cortex`, an **authenticated** correction posts a `voz.comment`
-  with the node `target_ref` and appears as an open Directive; an **invalid node ref** → rejected, no
-  append; an **unauthenticated / cross-origin** correction → rejected, no append. The Earmarked overlay
-  is no longer read-only — the harm-bearing node is correctable.
+- **Accept (full round-trip, not just the post):** from an Earmarked node in `/cortex`, an
+  **authenticated** correction posts a `voz.comment` with the node `target_ref` → appears as an open
+  Directive → **run the drain** → it reaches a terminal outcome (`voz.reply`/`voz.resolved`, or
+  `direction.set` if standing) with **`origin_comment_id` + the node `target_ref` provenance preserved**,
+  leaves the open backlog, and the **corrective state/link is visible from the Cortex node or the
+  Direction surface**. An **invalid node ref** → rejected, no append; an **unauthenticated /
+  cross-origin** correction → rejected, no append. (Re-runs Slice-2's drain accepts with the **new
+  node-`target_ref` type** so it provably participates in the lifecycle.)
 - **Deps:** Slice 1 (auth + validation to extend), Slice 2 (the drain resolves it), the `/cortex`
   Earmarked overlay (built).
 
