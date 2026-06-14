@@ -5,7 +5,9 @@ Turns `AUDIT.md` into **sequenced, independently-shippable slices**. Each slice 
 (looped until increments are cosmetic). Gated *as a plan* by `/codex:adversarial-review`.
 
 **Already shipped:** blog index + entries, Voz rail (comment/vote-toggle/chat/reply-render), Cortex
-graph (`/cortex`). **Test runner:** `tools/edge-python tests/test_blog.py` (keep green every slice).
+graph (`/cortex`). **Test gate (every slice):** `tools/edge-python tests/test_blog.py` **and**
+`tools/edge-python tests/test_cortex.py` (the Cortex graph is shipped) — keep **both** green; add the
+affected surface's tests per slice; **Slice 7 runs the full dashboard suite.**
 **Work only in `~/edge-dashboard-wt`** (parallel-git hazard on `~/edge`). Commit per slice.
 
 ## Sequencing rationale
@@ -17,21 +19,25 @@ can only link to a Direction/Briefing surface that exists). Each slice ships a w
 
 ## Slice 1 — Voz write trust boundary *(audit B, prerequisite)*
 Make `voz.*` writes safe before anything generates from them.
-- **Build:** a single-tenant auth gate on every write route (`POST /e/<slug>/comment|vote`,
-  `/chat/comment`) — session cookie *or* reverse-proxy header (mechanism is a build choice); CSRF/origin
-  check; `target_ref` validation (reject slugs absent from the published fold); body-size limit; route
-  appends through the **canonical `tools/eventlog` append** (locked, idempotency key), not the
-  hand-rolled `_append`.
-- **Accept:** unauthenticated/cross-origin write → rejected (test); oversized/invalid-slug → rejected;
-  a valid write still appends one event; existing 12 tests green + new auth tests.
+- **Build:** a single-tenant auth gate on **every log-mutating route** — the mentee writes
+  (`POST /e/<slug>/comment|vote`, `/chat/comment`) **and the Slice-2 drain (`POST /grill/drain`) if it
+  is an HTTP route** (otherwise make the drain a **local-only tool** with no public endpoint). Session
+  cookie *or* reverse-proxy header (mechanism is a build choice); CSRF/origin check; `target_ref`
+  validation (reject slugs absent from the published fold); body-size limit; appends through the
+  **canonical `tools/eventlog` append** (locked, idempotency key), not the hand-rolled `_append`.
+- **Accept:** an unauthenticated/cross-origin call to **ANY log-mutating route** (the writes **and** the
+  drain, if HTTP) → **rejected with no append** (test each); oversized / invalid-slug → rejected; a
+  valid write still appends one event; `test_blog.py` + `test_cortex.py` green + new auth tests.
 - **Deps:** none. **Test seam:** an env flag to set/skip the auth principal in tests.
 
 ## Slice 2 — `voz.resolved` lifecycle + the grill drain loop *(audit B, the round-trip)*
 Directing answers back, on its own — no hand-appended replies.
 - **Build:** the terminal-or-parked outcome model (`voz.resolved {outcome}` / `voz.clarify`) per the
   hardened `SURFACE.md`; `open_comments()` keys on absence of a terminal `voz.resolved` (not
-  `voz.reply`). A **drain** (endpoint `POST /grill/drain` and/or a runnable tool) that loads the
-  **actionable set**, generates a `voz.reply` per comment via the edge LLM, and — when a comment is a
+  `voz.reply`). A **drain** (`POST /grill/drain` behind the Slice-1 gate, and/or a local-only tool) that
+  captures `start_cursor` + the **actionable set**, loads a deterministic **capped batch** (max chats /
+  tokens; the **overflow stays open and visible** — never an oversized prompt), generates a `voz.reply`
+  per loaded comment via the edge LLM, and — when a comment is a
   **standing Directive** — atomically appends `direction.set` + `voz.resolved {outcome:
   folded-to-direction, origin_comment_id, direction_id}` (the write-side of the Voz→Direction loop;
   surfaced in Slice 4). One **idempotent `append_batch`** keyed by `comment_id`+`grill_run_id` under a
@@ -45,7 +51,10 @@ Directing answers back, on its own — no hand-appended replies.
   re-loaded; a `voz.clarify_answer` re-enters it and terminally resolves;
   (d) a **stale/concurrent drain must NOT produce a second terminal outcome** (test the version guard);
   a crash mid-close leaves a chat fully resolved-or-open, never half;
-  (e) a duplicate / orphan `voz.resolved` surfaces as a consistency error.
+  (e) a duplicate / orphan `voz.resolved` surfaces as a consistency error;
+  (f) with **more actionable comments than the cap**, the drain processes only the capped batch and the
+  **overflow stays open + visible** (not silently dropped, not stuffed into one oversized prompt);
+  (g) the drain route (if HTTP) **rejects unauthenticated / cross-origin calls with no append** (per Slice 1).
 - **Deps:** Slice 1 (writes must be trusted before they're auto-resolved).
 
 ## Slice 3 — Briefing surface + read-model health strip *(audit A)*
