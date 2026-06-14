@@ -11,14 +11,113 @@ import json
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, abort, request, send_from_directory
 
 BASE = Path(__file__).resolve().parent
 
+# Route writes through the canonical, locked eventlog append (ADR-0006), never a hand-rolled
+# scan-for-max-seq-then-append (a race that forges duplicate seqs in the source of truth).
+sys.path.insert(0, str(BASE.parent / "tools"))
+import eventlog  # noqa: E402
+
 app = Flask(__name__)
+
+# Body-size cap for a Voz write — a comment is prose, not a payload. Oversized → rejected, no
+# append (defends the authoritative log against a flooded body). SURFACE.md: "a body-size limit".
+MAX_BODY_BYTES = 8 * 1024
+# Coarse outer guard: Flask rejects a request whose declared body exceeds this BEFORE parsing
+# (so a flooded write never even materializes a form). Sits above MAX_BODY_BYTES to leave room for
+# the form envelope / url-encoding; the prose itself is capped at MAX_BODY_BYTES on the parsed field.
+app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
+
+# ── Voz write trust boundary (Slice 1, SURFACE.md / AUDIT.md gap B) ─────────────────────────────
+#
+# Every voz.* write mutates the authoritative log, so it sits behind a single-tenant auth gate +
+# CSRF/origin check + target_ref validation + a body-size limit (ADR-0017: "the mentee's private,
+# authed surface — a single trusted author"; SURFACE.md hardens that to *enforced, not assumed*).
+# The gate rejects spoofing (cross-origin / unauthenticated), NOT the legitimate local mentee:
+#   - a same-origin request from localhost is auto-granted (the operator on 127.0.0.1:8780);
+#   - a configured EDGE_DASH_TOKEN authorizes a reverse-proxied principal (X-Edge-Token);
+#   - the request Origin/Referer must match the dashboard's own host (CSRF/cross-origin defense).
+# Test seam: EDGE_DASH_AUTH = "on" (real gate) | "off" (disabled, pre-Slice-1) | "test:<who>"
+# (a fixed authorized principal, no cookie dance).
+
+
+def _auth_mode():
+    return (os.environ.get("EDGE_DASH_AUTH") or "on").strip()
+
+
+def _request_is_local():
+    """The legitimate single-tenant operator: a request whose peer is loopback. The dashboard
+    binds 127.0.0.1 (agent.yaml blog_host), so a loopback peer IS the local mentee — auto-granted,
+    never gated against the operator. remote_addr is the socket peer (spoof-resistant for a
+    bound-local server: a cross-origin browser cannot forge the TCP peer)."""
+    addr = request.remote_addr or ""
+    return addr in ("127.0.0.1", "::1", "localhost")
+
+
+def _origin_ok():
+    """CSRF / cross-origin defense: a state-changing POST must originate same-origin. The browser
+    sends Origin (or Referer) on a cross-site form/fetch; if present it must match this host. A
+    cross-origin page POSTing here (CSRF) carries the attacker's Origin → rejected."""
+    host = request.host  # the host:port the dashboard is served on
+    origin = request.headers.get("Origin")
+    if origin:
+        # http(s)://host[:port] → compare the host[:port] tail
+        return origin.split("//", 1)[-1] == host
+    referer = request.headers.get("Referer")
+    if referer:
+        return referer.split("//", 1)[-1].split("/", 1)[0] == host
+    # No Origin/Referer (a non-browser client, e.g. curl from the box) — fall back to the peer
+    # check: a loopback peer is the operator's own tool, not a cross-origin browser.
+    return _request_is_local()
+
+
+def authorize_write():
+    """The single gate every log-mutating route calls. Returns the authorized principal (truthy)
+    or None (reject → 403). Order: explicit test principal → disabled → configured token → local
+    operator. CSRF/origin is enforced for any non-test, non-disabled grant.
+
+    Route-agnostic by design: the future Slice-2 `POST /grill/drain` (a log-mutating route) is
+    covered simply by calling this gate — no per-route auth. If the drain instead ships as a
+    local-only tool (no HTTP endpoint), there is no public surface to gate. Either way the boundary
+    holds: every HTTP write goes through `authorize_write()`."""
+    mode = _auth_mode()
+    if mode.startswith("test:"):
+        return mode.split(":", 1)[1] or "test"
+    if mode == "off":
+        return "disabled"
+    # Real gate: must pass the CSRF/origin check first (a cross-origin POST is rejected even if it
+    # somehow carried a token — the token is for the reverse proxy's same-origin principal).
+    if not _origin_ok():
+        return None
+    token = os.environ.get("EDGE_DASH_TOKEN")
+    if token and request.headers.get("X-Edge-Token") == token:
+        return "token"
+    if _request_is_local():
+        return "local"
+    return None
+
+
+def _published_slugs():
+    """The set of slugs in the published fold — the only valid `target_ref`s. A vote/comment for a
+    slug absent from this fold is a forged target (log poisoning), not a write."""
+    return {
+        e.get("payload", {}).get("slug", "")
+        for e in _read_events()
+        if e.get("type") == "artefato.published"
+    }
+
+
+def _reject_oversized_body():
+    """Body-size limit: a comment is prose, not a payload. Reject (no append) when the comment body
+    exceeds the cap. Measured on the parsed `body` field (the prose the mentee wrote), so the cap is
+    on what lands in the log, not on the form envelope. The Flask-level MAX_CONTENT_LENGTH is the
+    coarse outer guard against a flooded request before parsing. Returns True → reject."""
+    body = request.form.get("body") or ""
+    return len(body.encode("utf-8")) > MAX_BODY_BYTES
 
 
 def _entries():
@@ -48,17 +147,42 @@ def _read_events():
 
 
 def _append(type_, subject, payload):
-    """Append ONE event to the log — the only write path (no parallel store, ADR-0006)."""
-    event = {
-        "seq": max((e.get("seq", 0) for e in _read_events()), default=0) + 1,
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "type": type_,
-        "subject": subject,
-        "payload": payload,
-    }
-    with _log().open("a") as f:
-        f.write(json.dumps(event) + "\n")
-    return event
+    """Append ONE event through the canonical, locked eventlog primitive (ADR-0006) — monotonic
+    seq under an flock, never a scan-for-max-seq-then-append (a race that forges duplicate seqs in
+    the source of truth). The blog's log path (EDGE_BLOG_LOG, test-overridable) is passed through."""
+    return eventlog.append(type_, subject, payload, log=_log())
+
+
+def _append_voz(type_, subject, payload, idem_key=None):
+    """A Voz write: the canonical locked append, with an OPTIONAL idempotency key that dedupes a
+    double-click / retry. The key check runs as the eventlog `precondition` — evaluated UNDER the
+    lock against the durable log, so it is authoritative (not a TOCTOU fast-fail): a concurrent
+    retry with the same key cannot slip a duplicate in. The key is stored on the payload so a replay
+    of the log can re-derive the dedupe. Returns the stamped event, or the existing one on a dup."""
+    if not idem_key:
+        return eventlog.append(type_, subject, payload, log=_log())
+
+    payload = {**payload, "idem_key": idem_key}
+
+    def _not_already_appended():
+        for e in _read_events():
+            if e.get("type") == type_ and e.get("payload", {}).get("idem_key") == idem_key:
+                raise _DuplicateWrite(e)
+
+    try:
+        return eventlog.append_batch(
+            [(type_, subject, payload)], log=_log(), precondition=_not_already_appended)[0]
+    except _DuplicateWrite as dup:
+        return dup.event
+
+
+class _DuplicateWrite(Exception):
+    """Raised under the eventlog lock when an idempotency key already exists — aborts the append
+    with nothing written, and carries the existing event so the route returns the same result."""
+
+    def __init__(self, event):
+        super().__init__("duplicate idempotency key")
+        self.event = event
 
 
 def _comments(target_ref):
@@ -167,19 +291,31 @@ def _render_chat():
 
 @app.post("/e/<slug>/comment")
 def post_comment(slug):
+    if not authorize_write():
+        abort(403)
+    if slug not in _published_slugs():
+        abort(404)  # forged target_ref — a slug absent from the published fold
+    if _reject_oversized_body():
+        abort(413)
     body = (request.form.get("body") or "").strip()
     if body:
-        _append("voz.comment", f"voz:{slug}",
-                 {"target_ref": slug, "comment_id": uuid.uuid4().hex[:12], "body": body})
+        _append_voz("voz.comment", f"voz:{slug}",
+                    {"target_ref": slug, "comment_id": uuid.uuid4().hex[:12], "body": body},
+                    idem_key=request.form.get("idem_key"))
     return _render_thread(slug)
 
 
 @app.post("/chat/comment")
 def post_chat_comment():
+    if not authorize_write():
+        abort(403)
+    if _reject_oversized_body():
+        abort(413)
     body = (request.form.get("body") or "").strip()
     if body:
-        _append("voz.comment", "voz:chat",
-                 {"target_ref": None, "comment_id": uuid.uuid4().hex[:12], "body": body})
+        _append_voz("voz.comment", "voz:chat",
+                    {"target_ref": None, "comment_id": uuid.uuid4().hex[:12], "body": body},
+                    idem_key=request.form.get("idem_key"))
     return _render_chat()
 
 
@@ -202,10 +338,15 @@ def chat():
 
 @app.post("/e/<slug>/vote")
 def post_vote(slug):
+    if not authorize_write():
+        abort(403)
+    if slug not in _published_slugs():
+        abort(404)  # a vote always targets a publication — reject a forged slug
     clicked = 1 if request.form.get("value") != "-1" else -1
     # toggle: clicking the active button clears it (→0); otherwise set/switch to the clicked value
     new = 0 if _vote_state(slug) == clicked else clicked
-    _append("voz.vote", f"voz:{slug}", {"slug": slug, "value": new})
+    _append_voz("voz.vote", f"voz:{slug}", {"slug": slug, "value": new},
+                idem_key=request.form.get("idem_key"))
     return _render_votes(slug)
 
 
