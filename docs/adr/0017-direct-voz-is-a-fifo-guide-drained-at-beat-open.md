@@ -20,13 +20,17 @@ at once. From that full context the grill:
 
 - **asks the residual only where ambiguous** — evidence-first, **non-exhaustive**: it questions the
   mentee only on the chats the loaded context cannot settle;
-- **marks every open chat solved at its close** — **exhaustive** (coverage): no open chat survives a
-  grill, so nothing rots in a queue;
+- **marks every open chat in its snapshot solved at its close** — **exhaustive over the snapshot**
+  (coverage): the grill captures the open `comment_id`s + the max event seq **at start** and resolves
+  exactly that set, so **no open chat in the snapshot survives a grill** and nothing rots; a comment
+  landing *after* the snapshot belongs to the next grill — never silently marked resolved (which
+  would drop high-priority Voz) nor left to falsify the invariant. `voz.resolved` is written
+  **idempotently, one per `comment_id`**;
 - **folds the standing-worthy ones into Direction** — a chat that moves strategy becomes a `set`
   steer; the rest are simply answered and closed.
 
-So *earmark = full context*; **asking is non-exhaustive (ambiguous only), solving is exhaustive (all
-marked solved)**. There is **no pin** — the grill already has every open chat in front of it — and
+So *earmark = full context*; **asking is non-exhaustive (ambiguous only), solving is exhaustive over
+the start-of-grill snapshot (every chat in it marked solved)**. There is **no pin** — the grill already has every open chat in front of it — and
 **no per-Directive FIFO / beat-drain**: the beat does not jump its round-robin for a Directive. The
 edge's answer is a `voz.reply` event the **dashboard renders inline** ("agent responds next beat") —
 no external outbound send is required (the dashboard projecting the log *is* the return path).

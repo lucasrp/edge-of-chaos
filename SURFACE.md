@@ -46,10 +46,13 @@ Decisions:
 - Votes require a target (you vote *on* something); comments may be targeted or general.
 - **The grill resolves whole chats; no pin, no per-Directive FIFO.** Every *open* mentee↔edge chat
   is **earmarked**, so the grill loads **all** of them into context. It **asks the residual only
-  where ambiguous** (evidence-first), **marks every open chat solved at its close** (coverage), and
-  folds the standing-worthy ones into **Direction** (a `set` steer). So earmark = full context;
-  *asking* is non-exhaustive (ambiguous only), *solving* is exhaustive (all marked solved). No pin —
-  the grill already has every open chat in front of it.
+  where ambiguous** (evidence-first), **marks every open chat in its snapshot solved at its close**
+  (coverage), and folds the standing-worthy ones into **Direction** (a `set` steer). So earmark =
+  full context; *asking* is non-exhaustive (ambiguous only), *solving* is exhaustive **over the
+  snapshot** — the grill captures the open `comment_id`s + max event seq **at start** and resolves
+  exactly that set, writing `voz.resolved` **idempotently, one per `comment_id`**; a comment landing
+  after the snapshot is the next grill's (never silently dropped nor falsely closed). No pin — the
+  grill already has every open chat in front of it. [adversarial-review iter3 #1]
 - **Writes are authenticated, validated, bounded (hard v1 requirement).** The "private authed
   surface" is *enforced, not assumed*: every `voz.*` write route sits behind dashboard auth, with
   CSRF/origin protection, a body-size limit, and `target_ref` validation (reject votes/comments for
