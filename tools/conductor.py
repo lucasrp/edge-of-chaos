@@ -33,6 +33,8 @@ import json
 import os
 import re
 
+import close
+
 # The three-part arc — the structural acceptance test (#36). NEVER rendered as labeled sections;
 # it is the production-layer contract the outline is authored against.
 ARC_ROLES = ("motivate", "deliver", "change-the-course")
@@ -172,12 +174,16 @@ def _writer_prompt(node: dict, outline: list[dict], seed: dict, objective: str) 
     legitimately establishes the frame.
 
     The full seed is still the context (assignment, not reduction); the assigned finding CLAIMS
-    are the explicit anti-drop checklist, one per line, for the writer and the mechanical gate."""
+    are the explicit anti-drop checklist, one per line, for the writer and the mechanical gate.
+
+    `outline` may be empty/None (the back-compat 4-arg `fill_node` path) — then the map is empty
+    and the node falls back to its own place; `place` may be absent — then it opens as the frame."""
     assigned = [_finding_by_id(seed, fid) for fid in node["contract"]["finding_ids"]]
     assigned = [f for f in assigned if f]
     claim_lines = "\n".join(f.get("claim", "") for f in assigned)
     residuals = "; ".join(seed.get("residuals") or [])
-    upstream = node["place"]["established_upstream"]
+    place = node.get("place") or {"position": "", "established_upstream": ""}
+    upstream = place.get("established_upstream", "")
     is_opening = not upstream.strip()
     if is_opening:
         continuation = (
@@ -194,8 +200,8 @@ def _writer_prompt(node: dict, outline: list[dict], seed: dict, objective: str) 
         f"You are writing ONE node of a larger, single synthesis. Objective: {objective}\n\n"
         "THE WHOLE OUTLINE (the map — your node is one part of THIS single arc; do not "
         "duplicate or re-introduce what the other nodes carry):\n"
-        f"{_outline_map(outline)}\n\n"
-        f"YOUR NODE: position {node['place']['position']}, role {node['role']}.\n"
+        f"{_outline_map(outline or [])}\n\n"
+        f"YOUR NODE: position {place.get('position', '')}, role {node['role']}.\n"
         f"Its contract: {node['contract']['intent']}\n\n"
         f"ALREADY ESTABLISHED UPSTREAM (the frame is set — do not repeat it):\n{upstream}\n\n"
         f"{continuation}\n\n"
@@ -225,6 +231,8 @@ def _parse_digest(raw: str) -> dict:
     field to its expected shape, and NEVER crash — garbage yields the empty digest, not an
     exception. `bullets`/`cross_refs` coerce to lists of non-empty strings; `assumed_prior`/
     `contribution` to a stripped string ("" if absent/non-string)."""
+    if not isinstance(raw, str):  # a non-string raw (e.g. a list) has no .strip() — fail soft
+        return _empty_digest()
     if not raw or not raw.strip():
         return _empty_digest()
     text = raw.strip()
@@ -263,15 +271,17 @@ def _strip_digest_block(text: str) -> str:
                   flags=re.DOTALL | re.IGNORECASE).strip() or text.strip()
 
 
-def fill_node(node: dict, outline: list[dict], seed: dict, objective: str, complete_fn) -> dict:
+def fill_node(node: dict, seed: dict, objective: str, complete_fn, *, outline=None) -> dict:
     """Fill one node via the injected `complete_fn(prompt) -> text` and advance it to `draft`.
     Returns a new node dict carrying `blocks` (a paragraph of the produced prose) AND a structured
     `digest` (the conciliator's handle — bullets/assumed_prior/contribution/cross_refs). The model
     emits the digest as a fenced JSON block after the prose; it is parsed TOLERANTLY (garbage =>
     empty digest, never a crash). Pure w.r.t. the input node — never mutates it.
 
-    `outline` is the WHOLE arc (the writer sees the map, #36); `complete_fn` is the producer
-    cognition, injected exactly like close.py's reviewers; real runs pass a make_client-backed
+    `outline` is the WHOLE arc the writer sees as the map (#36); it is KEYWORD-ONLY with a default
+    so the old 4-arg call `fill_node(node, seed, objective, complete_fn)` is NOT broken (back-compat)
+    — without it the writer simply gets no map and falls back to its own place. `complete_fn` is the
+    producer cognition, injected exactly like close.py's reviewers; real runs pass a make_client-backed
     completer on the chat router (provision its max_tokens generously — a reasoning model truncates
     a tight budget, and the digest follows the prose so a tight budget truncates the digest first)."""
     raw = complete_fn(_writer_prompt(node, outline, seed, objective))
@@ -498,15 +508,40 @@ def _boundary_block(nodes: list[dict]) -> dict:
                      "this builds on the excavate seed and the prior nodes.")}
 
 
+# The synthetic shape floor — a sane char floor and a prose-presence check (deterministic, free).
+# The 2-page synthetic is whatever the model returns; an empty string, a one-liner, or a bare
+# bullet dump (no prose paragraphs) is degraded output and must be FLAGGED, not silently shipped.
+_SYNTHETIC_MIN_CHARS = 120
+
+
+def _synthetic_shape_violations(prose) -> list[str]:
+    """Flag a degraded 2-page synthetic ([] iff it is a sane flowing synthesis). Deterministic and
+    free (never an LLM): rejects an empty/non-string body, a body below a sane char floor, and a
+    body that is structurally just a bullet list (every non-blank line a bullet — no prose
+    paragraph)."""
+    if not isinstance(prose, str) or not prose.strip():
+        return ["synthetic is empty"]
+    text = prose.strip()
+    if len(text) < _SYNTHETIC_MIN_CHARS:
+        return [f"synthetic is too short ({len(text)} chars < {_SYNTHETIC_MIN_CHARS})"]
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    bullet = lambda ln: bool(re.match(r"^([-*•]|\d+[.)])\s", ln))
+    if lines and all(bullet(ln) for ln in lines):
+        return ["synthetic is a bare bullet dump (no prose paragraphs)"]
+    return []
+
+
 def conciliate(nodes: list[dict], outline: list[dict], objective: str, complete_fn) -> tuple:
     """Conciliate the filled, digested nodes into the TWO altitudes (#36), working off the
-    DIGESTS (not the full essays). Returns `(deep_spec, synthetic_spec)`:
+    DIGESTS (not the full essays). Returns `(deep_spec, synthetic_spec, synthetic_shape)`:
       - `deep_spec`  — the node bodies assembled with the redundant per-node intros removed (the
                        place-aware writers already opened mid-stream, so the seams are smooth),
                        plus the rich-rite derivation + boundary moves (built from the digests).
       - `synthetic_spec` — a 2-page synthetic through-line the conciliator WRITES over the
                        digests (one flowing executive synthesis, not a bullet dump), materially
                        shorter than the deep report.
+      - `synthetic_shape` — the shape-gate violations of the synthetic PROSE ([] iff sane): empty,
+                       too short, or a bare bullet dump is flagged here, not silently shipped.
 
     Both pass close.check_genus on the content side; the producer wraps each with the cite +
     distills for the external-frame/lineage moves. `complete_fn` is the INJECTED conciliator
@@ -527,6 +562,7 @@ def conciliate(nodes: list[dict], outline: list[dict], objective: str, complete_
 
     # (b) SYNTHETIC — the conciliator's 2-page through-line over the digests (flowing prose).
     synthetic_prose = complete_fn(_synthetic_prompt(nodes, objective))
+    synthetic_shape = _synthetic_shape_violations(synthetic_prose)
     synthetic_spec = {"title": objective[:120], "sections": [
         {"title": "Synthesis", "blocks": [{"type": "paragraph", "text": synthetic_prose}]},
         {"title": "Why this holds", "blocks": [
@@ -535,12 +571,31 @@ def conciliate(nodes: list[dict], outline: list[dict], objective: str, complete_
                                "of the nodes — derived, not asserted.")]},
         {"title": "Open questions", "blocks": [_boundary_block(nodes)]},
     ]}
-    return deep_spec, synthetic_spec
+    return deep_spec, synthetic_spec, synthetic_shape
 
 
 # ---------------------------------------------------------------------------
 # The orchestrator — off => passthrough, ZERO spend; on => author, fill, gate, assemble.
 # ---------------------------------------------------------------------------
+
+# The minimal artefato envelope the PRODUCER always wraps the content in (an external cite + a
+# distill thread + the objective as intent + a thread). The conductor owns only `content`; to
+# genus-validate it WITHOUT falsely flagging the producer's external-frame/lineage moves, the spec
+# is wrapped in this envelope before close.check_genus, so a violation traces to the model-produced
+# CONTENT (a malformed block, missing derivation/boundary, an empty body), not the wrapping.
+def _genus_violations(spec: dict, objective: str) -> list[str]:
+    """Genus-validate a content spec via close.check_genus, wrapping it in the producer's minimal
+    envelope so only CONTENT-side violations (the conductor's responsibility) surface."""
+    artefato = {
+        "content": spec,
+        "intent": objective,
+        "cites": [{"ref": "(conductor probe)", "kind": "mundo",
+                   "snippet": "the external frame the producer supplies"}],
+        "proposes": [{"body": objective, "kind": "thread"}],
+        "distills": ["cluster:conductor"],
+    }
+    return close.check_genus(artefato)
+
 
 def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
                   conciliate_fn=None) -> dict:
@@ -554,25 +609,50 @@ def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
     is the injected conciliator cognition; it defaults to `complete_fn` (real runs pass the
     make_client-backed completer for both).
 
-    Returns {"enabled", "passthrough", "content", "outline", "deep_spec", "synthetic_spec"}.
-    `content` and `deep_spec` are the same smoothed full report (kept under both keys: `content`
-    is the slice-1 field callers already read; `deep_spec` is the named altitude). OFF returns
-    every spec None and an empty outline, having called `complete_fn` ZERO times."""
+    Each filled node carries BOTH gates: the mechanical `gate` (the deterministic contract_gate)
+    AND a semantic `discharge` (the injected per-finding semantic_discharge verdicts) — a node
+    whose findings the judge ruled NOT delivered surfaces as a flagged node, so a semantic failure
+    can block the pipeline. The result also genus-validates BOTH specs (`genus`) and gates the
+    synthetic's SHAPE (`synthetic_shape`), so degraded model output surfaces instead of shipping.
+
+    Returns {"enabled", "passthrough", "content", "outline", "deep_spec", "synthetic_spec",
+    "discharge", "genus", "synthetic_shape"}. `content` and `deep_spec` are the same smoothed full
+    report (kept under both keys: `content` is the slice-1 field callers already read; `deep_spec`
+    is the named altitude). OFF returns every spec None and an empty outline, having called
+    `complete_fn` ZERO times."""
     on = enabled() if is_enabled is None else bool(is_enabled)
     if not on:
         return {"enabled": False, "passthrough": True, "content": None, "outline": [],
-                "deep_spec": None, "synthetic_spec": None}
+                "deep_spec": None, "synthetic_spec": None,
+                "discharge": [], "genus": {"deep": [], "synthetic": []},
+                "synthetic_shape": []}
 
     nodes = author_outline(seed, objective)
     final_nodes = []
     for node in nodes:
-        filled = fill_node(node, nodes, seed, objective, complete_fn)  # empty -> draft, +digest
+        filled = fill_node(node, seed, objective, complete_fn, outline=nodes)  # empty->draft, +digest
         filled["gate"] = contract_gate(filled, seed)
+        # The SEMANTIC half of the contract review (#36) — enforced, not just defined: a node whose
+        # assigned findings the judge ruled NOT delivered is flagged, so it can block the pipeline.
+        filled["discharge"] = semantic_discharge(filled, seed, complete_fn)
         filled["status"] = advance(filled["status"])             # draft -> revised
         filled["status"] = advance(filled["status"])             # revised -> final
         final_nodes.append(filled)
 
-    deep_spec, synthetic_spec = conciliate(
+    # The per-node discharge failures rolled up — which nodes dropped which assigned findings.
+    discharge_failures = [
+        {"id": n.get("id"),
+         "dropped": [v["finding_id"] for v in n.get("discharge", []) if not v["delivered"]]}
+        for n in final_nodes
+        if any(not v["delivered"] for v in n.get("discharge", []))
+    ]
+
+    deep_spec, synthetic_spec, synthetic_shape = conciliate(
         final_nodes, nodes, objective, conciliate_fn or complete_fn)
+    # Genus-validate BOTH specs before return — degraded content surfaces here, not silently ships.
+    genus = {"deep": _genus_violations(deep_spec, objective),
+             "synthetic": _genus_violations(synthetic_spec, objective)}
     return {"enabled": True, "passthrough": False, "content": deep_spec, "outline": final_nodes,
-            "deep_spec": deep_spec, "synthetic_spec": synthetic_spec}
+            "deep_spec": deep_spec, "synthetic_spec": synthetic_spec,
+            "discharge": discharge_failures, "genus": genus,
+            "synthetic_shape": synthetic_shape}

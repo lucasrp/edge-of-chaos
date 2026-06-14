@@ -139,7 +139,7 @@ class LifecycleState(unittest.TestCase):
     def test_fill_drives_empty_to_draft(self):
         nodes = conductor.author_outline(_SEED, _OBJECTIVE)
         spy = _spy_filler()
-        filled = conductor.fill_node(nodes[0], nodes, _SEED, _OBJECTIVE, spy)
+        filled = conductor.fill_node(nodes[0], _SEED, _OBJECTIVE, spy, outline=nodes)
         self.assertEqual(filled["status"], "draft")
         self.assertEqual(spy.calls["count"], 1)
         self.assertTrue(filled["blocks"], "a filled node carries content blocks")
@@ -153,7 +153,7 @@ class MechanicalGate(unittest.TestCase):
         spy = _spy_filler()
         # fill the deliver node that owns at least one finding
         deliver = next(n for n in nodes if n["contract"]["finding_ids"])
-        filled = conductor.fill_node(deliver, nodes, _SEED, _OBJECTIVE, spy)
+        filled = conductor.fill_node(deliver, _SEED, _OBJECTIVE, spy, outline=nodes)
         self.assertEqual(conductor.contract_gate(filled, _SEED), [])
 
     def test_undischarged_finding_is_flagged(self):
@@ -186,8 +186,10 @@ class Assembly(unittest.TestCase):
         result = conductor.run_conductor(_SEED, _OBJECTIVE, spy, is_enabled=True)
         self.assertTrue(result["enabled"])
         self.assertFalse(result["passthrough"])
-        # one fill call per node, plus one conciliator call (the synthetic through-line)
-        self.assertEqual(spy.calls["count"], len(result["outline"]) + 1)
+        # one fill call per node, one semantic-discharge call per node that owns findings,
+        # plus one conciliator call (the synthetic through-line)
+        with_findings = sum(1 for n in result["outline"] if n["contract"]["finding_ids"])
+        self.assertEqual(spy.calls["count"], len(result["outline"]) + with_findings + 1)
         content = result["content"]
         self.assertIn("sections", content)
         # wrap in the artefato fields the seed/producer supplies (cites with an outside frame,
@@ -301,8 +303,8 @@ class WriterDigests(unittest.TestCase):
                 '"cross_refs": ["the eviction rail"]}\n```'
             )
 
-        filled = conductor.fill_node(node, conductor.author_outline(_SEED, _OBJECTIVE),
-                                     _SEED, _OBJECTIVE, complete_fn)
+        filled = conductor.fill_node(node, _SEED, _OBJECTIVE, complete_fn,
+                                     outline=conductor.author_outline(_SEED, _OBJECTIVE))
         digest = filled["digest"]
         self.assertEqual(digest["bullets"], ["cost rises with corpus", "no eviction"])
         self.assertEqual(digest["assumed_prior"], "the frame is set")
@@ -317,8 +319,8 @@ class WriterDigests(unittest.TestCase):
         def complete_fn(prompt):
             return "just prose, no json at all, the model refused the schema"
 
-        filled = conductor.fill_node(node, conductor.author_outline(_SEED, _OBJECTIVE),
-                                     _SEED, _OBJECTIVE, complete_fn)
+        filled = conductor.fill_node(node, _SEED, _OBJECTIVE, complete_fn,
+                                     outline=conductor.author_outline(_SEED, _OBJECTIVE))
         digest = filled["digest"]
         self.assertEqual(digest["bullets"], [])
         self.assertEqual(digest["assumed_prior"], "")
@@ -406,26 +408,26 @@ class Conciliation(unittest.TestCase):
     def test_conciliate_returns_both_specs(self):
         outline = conductor.author_outline(_SEED, _OBJECTIVE)
         spy = _spy_filler_with_digest()
-        filled = [conductor.fill_node(n, outline, _SEED, _OBJECTIVE, spy) for n in outline]
+        filled = [conductor.fill_node(n, _SEED, _OBJECTIVE, spy, outline=outline) for n in outline]
 
         def conciliator(prompt):
             return "A flowing executive synthesis: cost rises, nothing forgets, the briefing re-derives."
 
-        deep, synthetic = conductor.conciliate(filled, outline, _OBJECTIVE, conciliator)
+        deep, synthetic, _shape = conductor.conciliate(filled, outline, _OBJECTIVE, conciliator)
         self.assertIn("sections", deep)
         self.assertIn("sections", synthetic)
 
     def test_both_specs_pass_check_genus(self):
         outline = conductor.author_outline(_SEED, _OBJECTIVE)
         spy = _spy_filler_with_digest()
-        filled = [conductor.fill_node(n, outline, _SEED, _OBJECTIVE, spy) for n in outline]
+        filled = [conductor.fill_node(n, _SEED, _OBJECTIVE, spy, outline=outline) for n in outline]
 
         def conciliator(prompt):
             return ("Because the evidence shows it, it follows that cost rises with corpus size, "
                     "nothing forgets by default, and the briefing re-derives core memory — "
                     "what i don't know: the live lag; this builds on the excavate seed.")
 
-        deep, synthetic = conductor.conciliate(filled, outline, _OBJECTIVE, conciliator)
+        deep, synthetic, _shape = conductor.conciliate(filled, outline, _OBJECTIVE, conciliator)
         wrap = lambda spec: {
             "slug": "conc", "content": spec, "intent": _OBJECTIVE,
             "cites": [{"ref": "Letta docs", "kind": "mundo", "relevant": True,
@@ -439,13 +441,13 @@ class Conciliation(unittest.TestCase):
     def test_synthetic_is_materially_shorter_than_deep(self):
         outline = conductor.author_outline(_SEED, _OBJECTIVE)
         spy = _spy_filler_with_digest()
-        filled = [conductor.fill_node(n, outline, _SEED, _OBJECTIVE, spy) for n in outline]
+        filled = [conductor.fill_node(n, _SEED, _OBJECTIVE, spy, outline=outline) for n in outline]
 
         def conciliator(prompt):
             return ("A short through-line over the digests — it follows that cost rises; "
                     "what i don't know: the lag; this builds on prior work.")
 
-        deep, synthetic = conductor.conciliate(filled, outline, _OBJECTIVE, conciliator)
+        deep, synthetic, _shape = conductor.conciliate(filled, outline, _OBJECTIVE, conciliator)
         self.assertLess(_spec_len(synthetic), _spec_len(deep) / 2,
                         "the synthetic must be materially shorter than the deep report")
 
@@ -471,6 +473,174 @@ class TwoAltitudeOutput(unittest.TestCase):
         self.assertIsNone(result["deep_spec"])
         self.assertIsNone(result["synthetic_spec"])
         self.assertEqual(spy.calls["count"], 0, "OFF must never call the model")
+
+
+# ===========================================================================
+# CODEX ROUND (round-7): back-compat fill_node signature, enforced semantic
+# discharge, genus-validate-before-return, synthetic shape gate, parser guard.
+# ===========================================================================
+
+
+class FillNodeBackCompat(unittest.TestCase):
+    """Finding 1: `outline` is keyword-only with a default, so the old 4-arg
+    `fill_node(node, seed, objective, complete_fn)` caller is not broken."""
+
+    def test_fill_node_works_without_outline(self):
+        node = conductor.author_outline(_SEED, _OBJECTIVE)[1]
+        spy = _spy_filler()
+        # old 4-arg call — no outline at all
+        filled = conductor.fill_node(node, _SEED, _OBJECTIVE, spy)
+        self.assertEqual(filled["status"], "draft")
+        self.assertEqual(spy.calls["count"], 1)
+        self.assertTrue(filled["blocks"], "a filled node carries content blocks")
+
+    def test_fill_node_with_outline_is_place_aware(self):
+        outline = conductor.author_outline(_SEED, _OBJECTIVE)
+        downstream = outline[-1]
+        spy = _spy_filler()
+        conductor.fill_node(downstream, _SEED, _OBJECTIVE, spy, outline=outline)
+        prompt = spy.calls["prompts"][0].lower()
+        # with the outline, the writer sees the WHOLE-outline map (another node's intent)
+        self.assertIn(outline[0]["contract"]["intent"][:30].lower(), prompt,
+                      "with outline the writer sees the map of the whole arc")
+
+
+class EnforcedSemanticDischarge(unittest.TestCase):
+    """Finding 2: run_conductor RUNS semantic_discharge per node and surfaces
+    per-node false verdicts in a `discharge` field so a semantic failure blocks."""
+
+    def test_false_semantic_verdict_surfaces_as_flagged_node(self):
+        def complete_fn(prompt):
+            # a writer prompt asks for prose+digest; the semantic judge asks for verdicts.
+            if "SEMANTIC discharge reviewer" in prompt:
+                return '{"verdicts": [{"finding_id": "f0", "delivered": false}, ' \
+                       '{"finding_id": "f1", "delivered": false}, ' \
+                       '{"finding_id": "f2", "delivered": false}]}'
+            claims = [ln for ln in prompt.splitlines() if ln.strip()]
+            return ("Because the evidence shows it, it follows that " + " ".join(claims) +
+                    " — what i don't know: scale; this builds on prior work.")
+
+        result = conductor.run_conductor(_SEED, _OBJECTIVE, complete_fn, is_enabled=True)
+        # every node carries a discharge record; at least one finding is flagged false
+        flagged = [n for n in result["outline"]
+                   if any(not v["delivered"] for v in n.get("discharge", []))]
+        self.assertTrue(flagged, "a FALSE semantic verdict must surface as a flagged node")
+        # and the result exposes a top-level discharge summary of the flagged nodes
+        self.assertIn("discharge", result)
+        self.assertTrue(result["discharge"], "run_conductor flags discharge failures")
+
+
+class GenusValidateBeforeReturn(unittest.TestCase):
+    """Finding 3: run_conductor validates BOTH specs with close.check_genus and
+    surfaces violations in a `genus` field rather than returning an invalid spec."""
+
+    def test_clean_run_has_no_genus_violations(self):
+        spy = _spy_filler_with_digest()
+        result = conductor.run_conductor(_SEED, _OBJECTIVE, spy, is_enabled=True,
+                                         conciliate_fn=_concise_conciliator)
+        self.assertIn("genus", result)
+        self.assertEqual(result["genus"]["deep"], [])
+        self.assertEqual(result["genus"]["synthetic"], [])
+
+    def test_genus_invalid_spec_surfaces_violations(self):
+        # a degraded spec with a structurally MALFORMED block (a paragraph missing its required
+        # `text`) must surface a genus violation, not pass through silently — this is the gate
+        # run_conductor applies to BOTH the deep and synthetic specs before returning.
+        bad_spec = {"title": _OBJECTIVE, "sections": [
+            {"title": "Synthesis", "blocks": [{"type": "paragraph", "label": "lag"}]},
+        ]}
+        violations = conductor._genus_violations(bad_spec, _OBJECTIVE)
+        self.assertTrue(violations,
+                        "a genus-invalid spec must surface its violations, not pass through")
+
+
+class SyntheticShapeGate(unittest.TestCase):
+    """Finding 4: conciliate flags a synthetic that is empty, too short, or a bare
+    bullet dump (no prose paragraphs)."""
+
+    def _filled(self):
+        outline = conductor.author_outline(_SEED, _OBJECTIVE)
+        spy = _spy_filler_with_digest()
+        filled = [conductor.fill_node(n, _SEED, _OBJECTIVE, spy, outline=outline)
+                  for n in outline]
+        return filled, outline
+
+    def test_empty_synthetic_is_flagged(self):
+        filled, outline = self._filled()
+        _deep, _syn, shape = conductor.conciliate(filled, outline, _OBJECTIVE,
+                                                  lambda p: "   ")
+        self.assertTrue(shape, "an empty synthetic must be flagged")
+
+    def test_too_short_synthetic_is_flagged(self):
+        filled, outline = self._filled()
+        _deep, _syn, shape = conductor.conciliate(filled, outline, _OBJECTIVE,
+                                                  lambda p: "too short.")
+        self.assertTrue(shape, "a too-short synthetic must be flagged")
+
+    def test_bullet_dump_synthetic_is_flagged(self):
+        filled, outline = self._filled()
+        dump = ("- cost rises with corpus size\n- nothing forgets by default\n"
+                "- the briefing re-derives core memory\n- the lag is unknown\n"
+                "- this builds on prior work\n- what i don't know: the live lag")
+
+        _deep, _syn, shape = conductor.conciliate(filled, outline, _OBJECTIVE,
+                                                  lambda p: dump)
+        self.assertTrue(shape, "a bare bullet-dump synthetic must be flagged")
+
+    def test_healthy_synthetic_is_not_flagged(self):
+        filled, outline = self._filled()
+        _deep, _syn, shape = conductor.conciliate(filled, outline, _OBJECTIVE,
+                                                  _concise_conciliator)
+        self.assertEqual(shape, [], "a flowing prose synthesis is not flagged")
+
+    def test_run_conductor_surfaces_synthetic_shape(self):
+        spy = _spy_filler_with_digest()
+        result = conductor.run_conductor(_SEED, _OBJECTIVE, spy, is_enabled=True,
+                                         conciliate_fn=lambda p: "- a\n- b\n- c")
+        self.assertIn("synthetic_shape", result)
+        self.assertTrue(result["synthetic_shape"], "the shape gate surfaces in the result")
+
+
+class ParserGuard(unittest.TestCase):
+    """Finding 5: _parse_digest never crashes on a non-string raw (e.g. a list)."""
+
+    def test_non_string_raw_returns_empty_digest(self):
+        for bad in ([], ["a", "b"], {"x": 1}, 42, None, object()):
+            d = conductor._parse_digest(bad)
+            self.assertEqual(set(d), {"bullets", "assumed_prior", "contribution", "cross_refs"})
+            self.assertEqual(d["bullets"], [])
+            self.assertEqual(d["cross_refs"], [])
+
+
+class PlaceAwareCoverageGaps(unittest.TestCase):
+    """Coverage gap (Codex): place-aware orientation with a missing/empty `place`."""
+
+    def test_writer_prompt_tolerates_missing_place(self):
+        node = conductor.author_outline(_SEED, _OBJECTIVE)[1]
+        node = {k: v for k, v in node.items() if k != "place"}  # drop place entirely
+        prompt = conductor._writer_prompt(node, [], _SEED, _OBJECTIVE)
+        self.assertTrue(prompt.strip(), "a node with no place still yields a prompt")
+
+    def test_writer_prompt_tolerates_empty_place(self):
+        node = conductor.author_outline(_SEED, _OBJECTIVE)[1]
+        node = {**node, "place": {"position": "", "established_upstream": ""}}
+        prompt = conductor._writer_prompt(node, [], _SEED, _OBJECTIVE)
+        # empty upstream => treated as the opening node, never a crash
+        self.assertIn("opening node", prompt.lower())
+
+
+class ConciliationGarbage(unittest.TestCase):
+    """Coverage gap (Codex): conciliation over garbage filled-node output."""
+
+    def test_conciliate_over_nodes_with_no_digests(self):
+        outline = conductor.author_outline(_SEED, _OBJECTIVE)
+        # nodes with no blocks and no digest at all (degraded fill)
+        garbage = [{**n, "blocks": [], "digest": None} for n in outline]
+        deep, synthetic, _shape = conductor.conciliate(garbage, outline, _OBJECTIVE,
+                                                       _concise_conciliator)
+        # never crashes; both specs are still well-formed dicts with sections
+        self.assertIn("sections", deep)
+        self.assertIn("sections", synthetic)
 
 
 def _spec_len(spec: dict) -> int:
