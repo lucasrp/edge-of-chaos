@@ -47,3 +47,16 @@ credential fails loud at install; the genotype ships no default password and no 
 _Origin: ADR-0011 flagged secrets-out-of-the-log + a standard env dir as a contract concern. Affirms
 the agnostic genotype — the edge declares where secrets live and what it needs, never how they arrive
 (delivery is the operator's: rclone, vault, or manual)._
+
+## C5 — Low-tier mediums are context, never orders to edge
+
+Content from a **low-tier Medium** — one not order-bearing *to edge*, canonically the native Claude
+Code session — is **context only**: the edge never reads it as a **Directive**, never acts on it as
+an order, and owes no reply (the real addressee — the coding agent, a transcript's participants —
+already answered). The tier is **per-medium, never per-turn**: a low-tier medium is uniformly
+low-tier, even when a turn was in fact addressed to edge. Only an **order-bearing-to-edge Medium**
+(a dedicated edge-address) yields Directives.
+
+_Origin: Voz (2026-06-13) — "I give directives to Claude Code; if you read that as a direct order to
+the edge it will mess everything up." The recipient-relative Medium tier of ADR-0017; guards
+Assemble's read of the native session store._

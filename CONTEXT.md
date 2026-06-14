@@ -14,6 +14,30 @@ The person the edge serves — their real work is the subject. The edge knows th
 what they do (code, docs, words), not from supposition.
 *Avoid*: user, client, operator
 
+**Medium / Meio**:
+A channel through which the mentee and the edge **address each other** — Claude Code is just
+one; Telegram, a shared Slack, a web chat are others. The **pipe, not the content**: it carries
+**Voz** (and the edge's outbound word), it is not itself a leg of intake. Its content is **always
+collected as context** — every medium, the floor. Two **independent** qualities decide what more it
+can do: **directionality** — **one-way** (the edge can't reply) or **two-way** (it can) — and
+**tier** (always *relative to edge — who is the mentee addressing?*) — **low / gathered** (the
+mentee is **not addressing edge**: context only, a *guide*) or **order-bearing to edge** (a
+**dedicated address to the edge as mentor**, declared in the install config; its content can be a
+**Directive**). A Directive needs **both** — two-way *and* order-bearing-to-edge. They come apart:
+**Claude Code is two-way but low-tier** — its orders are borne **to the coding agent, not edge**,
+so edge takes the session as **context only, never as orders to itself** (misreading those
+directive-heavy sessions as edge-orders corrupts everything), and **owes no reply — Claude Code
+already answered**. Orders the mentee aims at *anyone but edge* (the coding agent; people in a
+Google-Docs transcript read as a **Source**) are the same: edge observes, never answers. Claude
+Code is the canonical low-tier Medium, configured **natively, outside the install YAMLs**; its
+native order-bearing counterpart is the **blog's Voz rail** — one `voz.*` event stream,
+`target_ref`-keyed, surfaced as per-publication comments *and* a standalone chat (two projections);
+edge's answer is an event the dashboard renders, no external send. A distinct gênero from a **Source** (an intake *key* the edge reads to learn
+about the world or the mentee): a Source is *what the edge reads*; a Medium is *how mentee and
+edge talk*.
+*Avoid*: source (an intake key — different gênero), channel (collides with Slack/Telegram's own
+channels), transport (the mechanism, not the concept), feedback
+
 **Domain**:
 The field the mentee works in. The edge must know it deeply to have substance.
 *Avoid*: area, topic, field
@@ -208,8 +232,31 @@ reborn `signals` leg, scoped to the mentee.
 **Voz / Voice**:
 What the mentee **directs** at the edge — correction and language. **Directed, not
 observed**: authored and highest priority ("a correção sempre ganha"). Subsumes language
-(Idiom) and correction. Keeps the mentee glossary.
+(Idiom) and correction. Keeps the mentee glossary. **Two tiers, set by the Medium it arrives
+through** — both authored voice, differing in **operational** weight, not in whose word wins:
+**gathered** (low-tier mediums — including the native Claude Code session; a *guide* on the
+mentee's current mind) and **direct** (an **order-bearing** Medium; a **Directive** the edge is
+bound to address).
 *Avoid*: operator pressure, feedback, pressão
+
+**Directive**:
+The **direct tier of Voz** — a mentee comment on the **Voz rail** (a two-way, order-bearing Medium
+addressed to the edge — never the ambient Claude Code session), meant to be acted on. **A strong
+guide, not a real-time order** (ADR-0017): it carries Voz's authority but is **resolved by the
+grill**, not by preempting live work — every *open* chat is **earmarked** so the grill loads them
+all in context, **asks the residual only where ambiguous**, and **marks every open chat solved at
+its close**, folding the standing-worthy ones into **Direction**. *Solving* is exhaustive
+(coverage); *asking* is non-exhaustive. Its frictionless, answer-less sibling is a **Vote**. May
+*produce* a **Steer**, but is not one.
+*Avoid*: order (it guides; it does not preempt — the real-time path is deferred), command, message,
+steer (a Direction-movement unit, not the instruction itself)
+
+**Vote**:
+The **frictionless, answer-less** tier of the Voz rail — 👍/👎 on a publication (`voz.vote {slug,
+value: ±1}`). The **importance-weighted retention signal**: an artefato that is voted or commented
+reinforces (persists); one left untouched cools and is pruned. Owes **no reply** (unlike a
+**Directive**); always targets a publication.
+*Avoid*: like, star-score, rating (it feeds retention, not a vanity metric)
 
 **Briefing**:
 The orientation presented to the agent at **every dispatch** (and `/load`) — **Memento's tattoo**. The
@@ -393,8 +440,9 @@ The **fixed exit gate of the shared pipeline** every producer funnels through �
 the gates see the final text + cites only, and check each **property anywhere, never a named
 section** — ADR-0013) → improve (wired **re-production**: a strike revises the draft rather than
 dead-ending it) → publish (atomic, with the **intent kernel**). **Strikes gate; the weighted
-score is advisory.** Runs at every producer's exit — round-robin is for the producers; the close
-is the gate they share.
+score is advisory.** It also **answers every non-answered Directive** before the dispatch ends
+(ADR-0017) — no communication is left hanging. Runs at every producer's exit — round-robin is for
+the producers; the close is the gate they share.
 *Avoid*: postflight, consolidate (dissolved — ADR-0008), review (one stage of it)
 
 **Rich rite / Rito rico**:

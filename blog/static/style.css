@@ -38,3 +38,31 @@ code {
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+/* Voz rail — comments, votes, replies (slice 2) */
+.voz { margin-top: var(--space); border-top: 1px solid var(--border); padding-top: var(--space); }
+.votes { display: flex; gap: var(--space); margin-bottom: var(--space); }
+.votes button {
+  font: inherit; cursor: pointer; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 2px 10px;
+}
+.votes button:hover { border-color: var(--accent); }
+.thread, .chat, .replies { list-style: none; }
+.comment, .chat-item {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--space); margin: var(--space) 0;
+}
+.replies { margin-top: 6px; border-left: 2px solid var(--accent); padding-left: var(--space); }
+.reply { padding: 4px 0; }
+.pending { font-style: italic; color: var(--warn); margin-top: 4px; }
+.empty { padding: var(--space) 0; }
+.ctx { display: inline-block; font-size: 0.85em; margin-bottom: 4px; }
+.composer { display: flex; flex-direction: column; gap: 6px; margin-top: var(--space); }
+.composer textarea {
+  font: inherit; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius);
+  min-height: 3em; resize: vertical;
+}
+.composer button {
+  align-self: flex-start; font: inherit; cursor: pointer; color: #fff;
+  background: var(--accent); border: 0; border-radius: var(--radius); padding: 4px 14px;
+}
