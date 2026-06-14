@@ -83,8 +83,11 @@
           "width": 1,
           "curve-style": "haystack",
           "line-color": "#3a4154",
+          // edge brightness follows its source node's trust tier. Use the edge's own source
+          // element (e.source()) — reading the outer `cy` here would fail: mappers run while
+          // cytoscape() is still constructing, before `cy` is assigned.
           "opacity": function (e) {
-            var s = cy.getElementById(e.data("source"));
+            var s = e.source();
             return s.length ? tier(s.data("trust")).edge : 0.2;
           },
         },

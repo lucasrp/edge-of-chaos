@@ -330,7 +330,7 @@ _TITLE_FIELDS = {
     "Direction": ("body",),
     "Artefato": ("slug",),
     "Entity": ("name",),
-    "Source": ("name", "source_description"),
+    "Source": ("name", "source_description", "key"),
     "Episodic": ("name", "summary"),
 }
 

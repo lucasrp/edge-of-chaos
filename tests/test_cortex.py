@@ -100,6 +100,12 @@ class TestCortexFold(unittest.TestCase):
         marked = self.server._map_node("4:x:1", "Entity", {"name": "harm", "earmarked": True})
         self.assertTrue(marked["earmarked"])
 
+    def test_source_inspect_title_falls_back_to_key(self):
+        # CITES-projected Source nodes carry their ref in `key` (name/source_description are null);
+        # the inspect title must surface it, not the generic "Source" label.
+        node = self.server._map_node("4:x:2", "Source", {"key": "arXiv:2304.03442"})
+        self.assertEqual(node["title"], "arXiv:2304.03442")
+
 
 class TestCortexRoute(unittest.TestCase):
     """GET /cortex renders the graph container + the Cytoscape island wired to the payload."""
