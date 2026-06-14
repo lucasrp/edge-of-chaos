@@ -62,6 +62,12 @@ with a real round-trip**:
   **Source roadmap** + source-feedback (what sources the edge reads, and how each actually yielded).
   Neither is surfaced. To "live the docs" the mentee must be able to inspect **what the edge reads** and
   **the language it speaks** — embedded in the Briefing or as drill-downs. **Not built.**
+- **Knowledge clusters / the llm-wiki.** The *other* durable wiki page type (`CONTEXT.md`): the emergent
+  **Knowledge clusters** (grown threads of mentee/domain knowledge) live as rendered pages
+  (`state/wiki/index.html` + `cluster-*.html`), but `blog/server.py` exposes **no wiki route**. The
+  Cortex graph does **not** cover these — `Community` = 0, clusters are not graph nodes in v1. Without a
+  wiki index + cluster-thread drill-down (linked from the Briefing, an Artefato's `distills`, and Cortex
+  node inspection), the mentee reaches the edge's emergent knowledge only as files. **Not built.**
 
 ### D. The Cortex graph's deferred half — you can see the brain but can't navigate it well
 - **Search** (find-and-jump) — deferred in `SURFACE.md`.
@@ -81,9 +87,9 @@ with a real round-trip**:
    boundary.
 2. **(A) Briefing + Direction** — see the self-state and the steers; close the Voz→Direction loop
    visibly.
-3. **(C) surface the docs (glossary, ADRs, Idiom, Source roadmap) + link Cortex nodes to their source**
-   — the literal "live the documentation": the design docs as navigable surfaces, the graph wired into
-   the read surfaces.
+3. **(C) surface the docs (glossary, ADRs, Idiom, Source roadmap, Knowledge clusters/wiki) + link
+   Cortex nodes to their source** — the literal "live the documentation": the design + emergent-knowledge
+   docs as navigable surfaces, the graph wired into the read surfaces.
 4. **(D) Cortex search / filter** — navigate the brain, not just stare at it.
 5. **(E) front-end contract (#37)** — presentation cleanup; required before exposing beyond localhost.
 
