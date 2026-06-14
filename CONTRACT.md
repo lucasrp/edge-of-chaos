@@ -55,7 +55,11 @@ Code session — is **context only**: the edge never reads it as a **Directive**
 an order, and owes no reply (the real addressee — the coding agent, a transcript's participants —
 already answered). The tier is **per-medium, never per-turn**: a low-tier medium is uniformly
 low-tier, even when a turn was in fact addressed to edge. Only an **order-bearing-to-edge Medium**
-(a dedicated edge-address) yields Directives.
+(a dedicated edge-address) yields Directives. **The deterministic escape hatch is the rail, not
+per-turn classification:** to make a Claude-Code thought reach edge as a Directive, the mentee
+restates it on the Voz rail (the order-bearing Medium) — an explicit human act, never an LLM guessing
+which turn was "really" for edge. The cost (re-typing) is deliberate — it keeps the tier
+deterministic and the authoritative log un-poisoned. [adversarial-review iter1 #4]
 
 _Origin: Voz (2026-06-13) — "I give directives to Claude Code; if you read that as a direct order to
 the edge it will mess everything up." The recipient-relative Medium tier of ADR-0017; guards

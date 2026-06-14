@@ -87,9 +87,18 @@ private 1:1 (human-hub fan-in, shared room).
 - **Harm-ranked drain** instead of FIFO: moot under chat-resolution — the grill already prioritises
   by harm potential when *asking*, and solves exhaustively regardless.
 
-## Open question
+## Resolution — the outcome is recorded, not inferred (adversarial-review iter1 #2)
 
-Does **"solved"** collapse the earlier **addressed** (the edge acted on the Directive) vs
-**answered** (the edge replied through the Medium) distinction, or should both still be tracked?
-CONTEXT.md and this ADR use **solved** provisionally (a chat closed at the grill — answered, and
-folded into Direction where standing-worthy). Not yet resolved by the operator.
+The earlier **open question** — does "solved" collapse **addressed** (edge acted on it) vs
+**answered** (edge replied)? — is resolved by *recording the outcome explicitly* rather than
+inferring "solved" from reply-absence. An adversarial review surfaced the failure mode: a Directive
+could get a reply, drop out of `open_comments()`, and leave **no audit trail** of whether it changed
+Direction or was merely acknowledged.
+
+So the grill close writes an explicit
+`voz.resolved {comment_id, outcome: replied | folded-to-direction | acknowledged, direction_id?}`,
+and a Direction folded from a Directive carries `origin_comment_id`. `open_comments()` keys on the
+**presence of the outcome event**, not on `voz.reply`; a Directive stays visible until its outcome is
+on the log. This **distinguishes** acted-on (`folded-to-direction`, carrying `direction_id`) from
+merely replied/acknowledged — the original distinction, now first-class and auditable, with no
+mutable flag (it stays a fold, just over `voz.resolved`). Still no real-time poller (deferred).
