@@ -213,6 +213,14 @@ Decisions:
   forbidden "parallel client store" (that failure mode is *persistent* divergent state; a per-load
   payload can't diverge). Revisit only if scale makes the query or payload hurt — then pagination /
   snapshot, measured, not pre-optimized.
+- **"Whole graph" means the whole Cortex *for this install group* — `group_id`-scoped, fail-closed.**
+  The server resolves the current install `group_id` and **fails dark if it is absent** (never a
+  graph-wide `MATCH`); every node *and* both endpoints of every edge in the query are constrained to
+  that `group_id`. This is **load-bearing on a shared neo4j**: the fleet co-locates installs in one
+  instance keyed by `group_id` (roberto + petertosh share one), so an unscoped query would leak
+  another install's brain into this dashboard — and it would render as a *successful* graph, not an
+  obvious failure. Cross-install isolation is the `group_id`, enforced at the query, not assumed.
+  [adversarial-review iter11 #1]
 - **Earmarked overrides the dim — harm-surfacing beats trust-dimming.** Trust-dimming pushes
   low-trust nodes into the haze, which would **bury the Earmarked** (the harm-bearing subset the
   mentee most needs to correct) — backwards for a correction surface. So in v1 the **Earmarked is a
