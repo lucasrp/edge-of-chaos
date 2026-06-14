@@ -71,8 +71,8 @@ Decisions:
   Briefing health strip**. So coverage is bounded *by construction* (no unbounded context load). The
   per-chat close is **atomic**: `voz.reply` + `direction.*` + `voz.resolved` land in one idempotent
   `append_batch` keyed by `comment_id` + `grill_run_id`, so a crash leaves a chat fully resolved or
-  fully open — never a re-folded or lost steer; a `folded-to-direction` with no matching Direction
-  event is flagged. The append carries a precondition `still_open(comment_id)` under the eventlog
+  fully open — never a re-folded or lost steer; a `folded-to-direction` (or `retired-direction`) whose
+  `direction_id` has no matching `direction.set` (or `direction.dropped`) is flagged. The append carries a precondition `still_open(comment_id)` under the eventlog
   lock, so **concurrent grills can't double-resolve** a chat (the second's batch is dropped) — robust
   to this install's parallel operator/heartbeat dispatches; a duplicate `voz.resolved` is a
   health-strip error. No pin — the grill already has the loaded batch in front of it.
@@ -89,7 +89,7 @@ Decisions:
   truth). [adversarial-review iter1 #3]
 - **A Directive's outcome is recorded, not inferred from reply-absence.** Resolves the long-open
   `addressed`-vs-`answered` question: the grill close writes a **terminal**
-  `voz.resolved {comment_id, outcome: replied | folded-to-direction | acknowledged, direction_id?}` —
+  `voz.resolved {comment_id, outcome: replied | folded-to-direction | retired-direction | acknowledged, direction_id?}` —
   or, when it asked and captured no answer, a **non-terminal** `voz.clarify {comment_id, question}`
   that **keeps the chat open** (an autonomous grill may only park, never fabricate `acknowledged`).
   A Direction folded from a Directive carries `origin_comment_id`. `open_comments()` keys on the
@@ -117,9 +117,11 @@ a fold, no parallel store, `group_id`-scoped per install.
   loaded chat; **non-terminal** (the chat stays open).
 - `voz.clarify_answer {clarify_id, body, ts}` — the mentee's answer to a clarify; a **child event**,
   never a `voz.comment`, so it never opens a chat.
-- `voz.resolved {comment_id, outcome: replied | folded-to-direction | acknowledged, direction_id?, grill_run_id, ts}`
+- `voz.resolved {comment_id, outcome: replied | folded-to-direction | retired-direction | acknowledged, direction_id?, grill_run_id, ts}`
   — the grill's **terminal** outcome; one per `comment_id`, idempotent, under an append-time
-  `still_open(comment_id)` precondition.
+  `still_open(comment_id)` precondition. `direction_id` references the **`direction.set`**
+  (`folded-to-direction`, incl. a proposed→set ratification) or the **`direction.dropped`**
+  (`retired-direction`); absent for `replied` / `acknowledged`.
 
 **Direction events** (tier-disjoint provenance)
 - `direction.set {id, body, origin_comment_id?, ts}` — curated tier (Voz-only). A `folded-to-direction`
@@ -143,10 +145,13 @@ a fold, no parallel store, `group_id`-scoped per install.
   overflow.
 - **Atomic close** = a chat's close events land in one `append_batch` keyed by `comment_id` +
   `grill_run_id`, under the `still_open` precondition (crash- and concurrency-safe).
-- **Provenance** = `origin_comment_id` rides only Voz-owned curated events (`direction.set`, and a
-  `set`-targeting `direction.dropped`); never on `direction.proposed`. `voz.resolved.direction_id`
-  always points at a `direction.set`. A `folded-to-direction` whose `direction_id` has no
-  `direction.set` is a health-strip error.
+- **Provenance** = `origin_comment_id` rides only Voz-owned curated events (`direction.set` and a
+  `set`-targeting `direction.dropped`); never on `direction.proposed`. A `voz.resolved` with
+  `outcome=folded-to-direction` has `direction_id` → a `direction.set`; `outcome=retired-direction` →
+  a `direction.dropped`; **both events carry the same `origin_comment_id`**. The consistency check
+  validates create/promote and retire **symmetrically**: any `direction_id` with no matching event,
+  or any Direction mutation (`set`/`dropped`) folded from a Directive without an `origin_comment_id`,
+  is a health-strip error.
 - **Retirement** = a `set` is retired only by a **Voz `direction.dropped`** (carrying
   `origin_comment_id`); non-Voz actors propose retirement as `direction.proposed` (`relates_to`),
   never drop a `set`. Create, promote, and retire all preserve the tier-disjoint, Voz-owns-curated
@@ -173,8 +178,9 @@ Operations:
   dispatch, last assemble/grill, log cursor, extraction/sweep errors, graph reachability, open
   Directive count, the **Voz overflow/backlog** (eligible chats the last grill's cap left un-loaded,
   waiting for the next grill), the **awaiting-clarification count** (parked `voz.clarify` chats), and
-  **resolution-consistency errors** (a duplicate `voz.resolved`, or a `folded-to-direction` whose
-  `direction_id` has no Direction event). The degraded-mode signal a composed briefing cannot give.
+  **resolution-consistency errors** (a duplicate `voz.resolved`, or a `folded-to-direction` /
+  `retired-direction` whose `direction_id` has no matching `direction.set` / `direction.dropped`). The
+  degraded-mode signal a composed briefing cannot give.
   [adversarial-review iter1 #6, iter6 #1, iter8 #1, iter9 #1]
 
 Decisions:

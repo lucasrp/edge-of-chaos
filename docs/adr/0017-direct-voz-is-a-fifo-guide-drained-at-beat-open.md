@@ -45,8 +45,9 @@ tokens) cap** — the *loaded batch*. From that loaded context the grill:
   `voz.clarify`) land in **one idempotent `append_batch`** keyed by `comment_id` + `grill_run_id`. A crash mid-close leaves a chat **fully resolved or fully
   open, never half** — no `direction.set`-without-`voz.resolved` (which would re-fold the steer next
   grill) and no `voz.resolved`-without-Direction (a lost steer / broken audit link); a retry replays
-  the identical planned batch. A `folded-to-direction` whose `direction_id` has no matching Direction
-  event is **flagged in the fold / health strip** (consistency check). The batch also carries an
+  the identical planned batch. A `folded-to-direction` (→ `direction.set`) or `retired-direction`
+  (→ `direction.dropped`) whose `direction_id` has no matching event is **flagged in the fold / health
+  strip** (consistency check, symmetric across create / promote / retire). The batch also carries an
   append-time **precondition `still_open(comment_id)`** checked under the eventlog lock — so two
   concurrent grills (distinct `grill_run_id`s, e.g. a manual `/ed-grill` racing a heartbeat dispatch,
   the parallel-dispatch reality this install already lives with) that loaded the same comment
@@ -134,7 +135,7 @@ could get a reply, drop out of `open_comments()`, and leave **no audit trail** o
 Direction or was merely acknowledged.
 
 So the grill close writes an explicit **terminal**
-`voz.resolved {comment_id, outcome: replied | folded-to-direction | acknowledged, direction_id?}` —
+`voz.resolved {comment_id, outcome: replied | folded-to-direction | retired-direction | acknowledged, direction_id?}` —
 or, when it had to ask and captured no answer, the **non-terminal** `voz.clarify {comment_id,
 clarify_id, question, grill_run_id}` that **keeps the chat open** (an autonomous grill may only park,
 never fabricate `acknowledged`). The `voz.clarify` **renders inline** on its chat as the edge's
