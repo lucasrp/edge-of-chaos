@@ -106,6 +106,12 @@ Decisions:
   legibility via *opacity*, not removal (honors whole-then-simplify), and glossary-mandated
   ("trust is legible per edge"). Doubles as the futuristic aesthetic: a glowing core on a faint
   nebula. Chosen over recency or importance/Earmarked as the *primary* axis.
+- **Live fold per request, client-side navigation.** On page load the server runs one Cypher query
+  for the whole graph and ships a JSON payload to the island once; pan / zoom / click is client-side,
+  no re-query. Always fresh, server authoritative, no snapshot store. The render payload is *not* the
+  forbidden "parallel client store" (that failure mode is *persistent* divergent state; a per-load
+  payload can't diverge). Revisit only if scale makes the query or payload hurt — then pagination /
+  snapshot, measured, not pre-optimized.
 
 Node/edge vocabulary (live, group `edge-next` — the real shape, not #28-speculative):
 - **Asserted spine (the curated Self, ~55 nodes, *faithful*):** `Genesis` (space-0, 1), `Objective`
@@ -120,5 +126,5 @@ Gaps:
   `Episodic` haze is still too heavy at ~268 nodes, collapse Episodics into their `MENTIONS` parent;
   edge bundling; level-of-detail on zoom. Try opacity first, measure before adding. Candidates.
 - **Filter taxonomy + UX** (the "navigate it better" set) — deferred to a future increment.
-- **Live vs snapshot**: does the view re-fold per request (log-native) or read a graph snapshot for
-  pan/zoom performance? TBD — bears on the "cheap" constraint at graph scale.
+- **Earmarked surfacing** — whether v1 marks the harm-bearing **Earmarked** subset (the bridge from
+  the read-graph to the Voz rail) is unraised; currently out of v1 scope.
