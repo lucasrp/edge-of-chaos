@@ -67,24 +67,27 @@ relations as nodes, edges as synapses. The mentee pans, zooms, and clicks to *na
 brain* — expanding a node's neighborhood on click. The territory is the **whole Cortex**, not the
 salient subgraph. **This is not Recall**: Recall is the *agent's* wake-act, where the edge connects
 with its own brain (the space-0-rooted salient subgraph, auto-served at pre-dispatch). This is the
-**mentee** freely **searching and surfing** the same graph, read-only, on demand — **one brain, two
-surfers** (#35, #28).
+**mentee** freely **surfing** the same graph, read-only, on demand (search is a later affordance) —
+**one brain, two surfers** (#35, #28).
 
 Operations:
 - **surf** (v1): freely navigate the whole Cortex — pan / zoom / click a node to expand its
-  neighborhood. The mentee drives the traversal (not the agent's auto-served subgraph).
-- **search** (v1): find a node directly and jump to it — the mentee's own entry into the graph,
-  distinct from the briefing-seeded entry the *agent* gets at wake.
+  neighborhood. The mentee drives the traversal (not the agent's auto-served subgraph). **This is
+  the v1 surface.**
 - **inspect node** (v1): click a node → its content; artifact retrieval = traverse to the reference
   node and fetch the blob (per CONTEXT.md, *Cortex*).
-- **filter** (future): the mentee composes filters to navigate it better — by node type
-  (Mundo / Atividade / Self, cluster, Artefato, Direction), recency, or salience/earmarked. Deferred;
-  v1 ships the unfiltered navigable graph.
+- **search** (future): find a node directly and jump to it, then surf from there. Deferred — surf is
+  the v1 act. Open when built: **find-and-jump locator** vs **semantic retrieval** (the latter
+  reintroduces the fetch posture the Cortex glossary bans).
+- **filter** (future): narrow the graph to navigate it better — by node type (Mundo / Atividade /
+  Self, cluster, Artefato, Direction), recency, or salience/earmarked. Deferred; v1 ships the
+  unfiltered navigable graph.
 
 Decisions:
 - **Same Cortex, two surfers.** v1 exposes the *same* graph — not a mentee-specific projection. The
   agent reads it via **Recall** (auto-served salient subgraph, at wake); the mentee reads it via
-  **free search + surf** (the dashboard, on demand, the whole graph). One brain, two read-surfaces;
+  **free surf** (the dashboard, on demand, the whole graph; search a later affordance). One brain,
+  two read-surfaces;
   a parallel mentee-graph would be a second store, the failure log-native physics deletes.
 - **Read-only for the mentee.** The mentee navigates; only the edge writes the graph. The mentee's
   write surface stays the Voz rail — two different surfaces on one substrate.
@@ -96,8 +99,8 @@ Gaps:
 - **Filter taxonomy + UX** (the "navigate it better" set) — deferred to a future increment, not
   specced. The axes above are candidates, not decided.
 - **Initial viewport**: where free surf lands first — whole-graph overview vs space-0 as natural
-  center vs blank-until-search. TBD (not recall-seeded — that salient entry is the *agent's*, not
-  the mentee's).
+  center. TBD (not recall-seeded — that salient entry is the *agent's*, not the mentee's; not
+  search-driven — search is deferred).
 - **Node/edge vocabulary** actually rendered (which Cortex node types + relations surface, and their
   visual encoding) — TBD; depends on #28's espinha + embed landing.
 - **Live vs snapshot**: does the view re-fold per request (log-native) or read a graph snapshot for
