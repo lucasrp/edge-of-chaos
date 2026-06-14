@@ -89,13 +89,19 @@ The literal "live the documentation," part 1.
 ## Slice 5b — Emergent-knowledge surfaces + Cortex wiring *(audit C)*
 Part 2: the wiki and the graph→source bridge.
 - **Build:** a **wiki/Knowledge-cluster** index + cluster-thread drill-down (from
-  `state/wiki/index.html` + `cluster-*.html`); **link Cortex nodes to their source** — clicking an
-  `Artefato`/`Direction`/`Source` node in `/cortex` drills into its blog entry / Direction surface /
-  source doc.
+  `state/wiki/index.html` + `cluster-*.html`), served **through an allowlist sanitizer or a sandboxed /
+  no-scripts boundary** — the wiki HTML is **edge-generated and source-derived**, so it must **not**
+  execute same-origin in the authed dashboard (an injected `<script>`/handler could read state and fire
+  authenticated log-mutating POSTs, defeating the Slice-1 gate). **Link Cortex nodes to their source** —
+  clicking an `Artefato`/`Direction`/`Source` node in `/cortex` drills into its blog entry / Direction
+  surface / source doc.
 - **Accept:** the wiki/Knowledge-cluster index + a cluster-thread page render in-dashboard; **clusters
   are reachable from `/briefing` AND from an Artefato's `distills`** (not just a standalone route); a
   Cortex `Artefato`/`Direction`/`Source` node click navigates to its real surface (blog entry /
-  Direction / source doc). **Deps:** Slices 3–5a (the targets the graph + distills link into must exist).
+  Direction / source doc); a **malicious cluster page** (a `<script>`, an `onerror=` handler, a
+  `javascript:` URL) renders **inert** — scripts/handlers stripped or sandboxed, **cannot perform an
+  authenticated append** (test it). **Deps:** Slices 3–5a (the targets the graph + distills link into
+  must exist).
 
 ## Slice 6 — Cortex search + filter *(audit D)*
 Navigate the brain, not just stare at it.
