@@ -433,6 +433,40 @@ class TestSharedReadSurfacesSurviveCorruptTypedField(_BriefingBase):
         self.assertIn('class="health-strip degraded"', r.data.decode())
 
 
+class TestIndexSurvivesCorruptArtifactLists(_BriefingBase):
+    """Codex round-7 [high]: an envelope-valid `artefato.published` with a non-list cites/distills/
+    proposes (`cites: 1`) passes log_is_intact (it doesn't check these), then _artifact_items()
+    iterates it → TypeError → 500 on `/`. _posts() must normalize these to a list so `/` renders 200."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "artefato.published",
+            {"slug": "alpha-post", "cites": 1, "distills": "x", "proposes": 7}),
+        _ev(2, "2026-06-10T09:00:01+00:00", "intent.kernel",
+            {"slug": "alpha-post", "intent": "open: alpha."}),
+    ]
+
+    def test_index_survives_corrupt_artifact_list_fields(self):
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("alpha-post", r.data.decode())
+
+
+class TestBriefingSurvivesCorruptDispatchTs(_BriefingBase):
+    """Codex round-7 [high]: a valid `dispatch.open` with a non-string top-level `ts` (`ts: 123`)
+    reaches _render_health_strip(), which slices `dispatch["ts"][:19]` → TypeError → 500. The strip's
+    core contract is degraded-not-500: the dispatch ts must be coerced before the slice."""
+
+    LOG_LINES = [
+        json.dumps({"seq": 1, "ts": 123, "type": "dispatch.open",
+                    "subject": "dispatch", "payload": {"swept_sessions": 2}}),
+    ]
+
+    def test_non_string_dispatch_ts_fails_dark_not_500(self):
+        r = self.client.get("/briefing")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('class="health-strip', r.data.decode())
+
+
 class TestSharedNav(_BriefingBase):
     """Task B — the shared header/nav (cross-cutting, starts at Slice 3): ONE nav linking all four
     surfaces, on every surface, built from the shared design vocabulary (no one-off styling)."""

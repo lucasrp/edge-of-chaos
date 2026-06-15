@@ -263,6 +263,14 @@ def _as_str(value):
     return value if isinstance(value, str) else str(value)
 
 
+def _as_list(value):
+    """Coerce a payload artifact field (cites/distills/proposes) to a list (round-7): a non-list value
+    (`cites: 1`) is corruption log_is_intact does NOT reject, but _artifact_items iterates it →
+    TypeError. None/falsy → []; a list passes through; any other scalar → [] (a corrupt scalar is not
+    a meaningful single artifact, so drop it rather than render a bogus chip)."""
+    return value if isinstance(value, list) else []
+
+
 def _esc(value):
     """HTML-escape a payload-derived value, COERCING a non-string to str first. log_is_intact rejects
     a corrupt-typed field (e.g. a `voz.comment` whose `body` is a list), but the read boundary still
@@ -684,14 +692,16 @@ def _posts():
         if not isinstance(p, dict):
             continue
         if t == "artefato.published":
-            # coerce slug/ts to str (round-6): a corrupt-typed slug/ts would crash .replace()/[:10]
-            # downstream — a corrupt log must still render 200 (the strip flags it degraded).
+            # coerce slug/ts to str + artifact fields to lists (round-6/7): a corrupt-typed slug/ts
+            # would crash .replace()/[:10]; a non-list cites/distills/proposes (e.g. `cites: 1`, which
+            # log_is_intact does NOT reject) would TypeError _artifact_items' iteration — a corrupt log
+            # must still render 200 (the strip flags it degraded).
             published.append({
                 "slug": _as_str(p.get("slug", "")),
                 "ts": _as_str(e.get("ts", "")),
-                "cites": p.get("cites", []) or [],
-                "distills": p.get("distills", []) or [],
-                "proposes": p.get("proposes", []) or [],
+                "cites": _as_list(p.get("cites")),
+                "distills": _as_list(p.get("distills")),
+                "proposes": _as_list(p.get("proposes")),
             })
         elif t == "intent.kernel":
             kernels[_as_str(p.get("slug", ""))] = p.get("intent", "")
@@ -1046,7 +1056,9 @@ def _last_dispatch():
         return None
     payload = last.get("payload")
     swept = payload.get("swept_sessions") if isinstance(payload, dict) else None
-    return {"ts": last.get("ts", ""), "swept_sessions": swept}
+    # coerce the top-level ts to str (round-7): _render_health_strip slices ts[:19], and a non-string
+    # top-level ts (`ts: 123`) is NOT rejected by log_is_intact — the strip must fail dark, not 500.
+    return {"ts": _as_str(last.get("ts", "")), "swept_sessions": swept}
 
 
 def _log_cursor():
