@@ -522,6 +522,32 @@ class TestNodeContextInPromptAndSnapshot(_Base):
         self.assertEqual([c for c in self._events("voz.comment")
                           if c["payload"]["target_ref"] == "node:bare"], [])
 
+    def test_map_node_content_excludes_the_label_fallback(self):
+        # codex round-7 [high]: _node_title falls back to the LABEL when no content field exists, so a
+        # bare Earmarked Entity maps to title:"Entity". The snapshot's CLAIM context must NOT accept
+        # that display fallback — it derives from the original content fields (name/body/summary/...),
+        # None when absent. So _map_node carries a separate `content` field (no label fallback).
+        bare = self.server._map_node("4:x:1", "Entity", {})           # no content → no claim context
+        self.assertIsNone(bare["content"])
+        self.assertEqual(bare["title"], "Entity")                     # display title still falls back
+        named = self.server._map_node("4:x:2", "Entity", {"name": "a real claim"})
+        self.assertEqual(named["content"], "a real claim")
+
+    def test_live_mapped_bare_earmarked_node_rejects_with_no_append(self):
+        # the live-fold path (through _map_node) — a bare Earmarked Entity with NO content fields must
+        # reject with no append; the label-fallback display title must NOT pass the missing-context
+        # gate (codex round-7 [high]). This exercises _map_node semantics, not a raw fixture title.
+        import json as _json
+        from pathlib import Path as _P
+        # a payload as the LIVE fold would emit it: _map_node already applied, title is the label,
+        # but `content` (the claim) is None → the gate must still reject.
+        mapped = self.server._map_node("live:1", "Entity", {"uuid": "U-bare", "earmarked": True})
+        _P(self.fix).write_text(_json.dumps({"nodes": [mapped], "edges": []}))
+        before = self._count()
+        r = self._post("/cortex/U-bare/comment", {"body": "this is wrong"})
+        self.assertIn(r.status_code, (400, 404, 409, 503))
+        self.assertEqual(self._count(), before)
+
     def test_live_prompt_includes_the_node_context_for_a_node_correction(self):
         sys.path.insert(0, str(BLOG))
         import grill_drain

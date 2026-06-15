@@ -254,11 +254,16 @@ def _node_snapshot_of(node):
     fold). Persisted on the correction comment so the resolver/audit carries usable node context
     without a live graph lookup when the drain runs (the node may be reprojected / the graph dark by
     then) — a natural 'this claim is wrong' is settled against the actual claim, not a context-less
-    body. Empty when the node carries no title (the route fails closed rather than persist an empty
-    snapshot, codex round-6 [medium])."""
+    body.
+
+    node_title is the CLAIM `content` (no label fallback, codex round-7 [high]): a bare Earmarked node
+    maps to a display title of its LABEL ("Entity"), which is NOT claim context — keying the snapshot
+    on `content` keeps the route's missing-context gate truly fail-closed. A raw fixture node that
+    predates the `content` field (no `content` key at all) falls back to its display `title`."""
+    claim = node.get("content") if "content" in node else node.get("title")
     snap = {}
-    if node.get("title"):
-        snap["node_title"] = _as_str(node["title"])
+    if claim:
+        snap["node_title"] = _as_str(claim)
     if node.get("label"):
         snap["node_label"] = _as_str(node["label"])
     return snap
@@ -993,14 +998,24 @@ def _cortex_fixture():
         return None
 
 
-def _node_title(label, props):
-    """One human-readable line for a node (inspect node, v1) — first non-empty title field, else
-    the label. Truncated so the payload stays light."""
+def _node_content(label, props):
+    """The node's CLAIM content — its first non-empty original content field (name/body/summary/slug/
+    key, per _TITLE_FIELDS), or None when ABSENT (codex Slice-6b round-7 [high]). Distinct from
+    `_node_title`, which falls back to the bare LABEL ("Entity") for a contextless display line: a
+    label is NOT claim context the corrective resolver can settle against, so the correction's
+    fail-closed missing-context gate keys on THIS (no label fallback), never on the display title."""
     for field in _TITLE_FIELDS.get(label, ()):
         val = props.get(field)
         if val:
             return _blurb(str(val), 140)
-    return label
+    return None
+
+
+def _node_title(label, props):
+    """One human-readable line for a node (inspect node, v1) — the claim content, else the label (a
+    display fallback so a contextless node still has a visible line). NOT corrective claim context —
+    the correction snapshot uses `_node_content` (no label fallback), see codex round-7."""
+    return _node_content(label, props) or label
 
 
 # A canonical artefato slug (publisher.SLUG_RE): lowercase alphanumerics + hyphens, no leading/
@@ -1098,6 +1113,9 @@ def _map_node(id_, label, props):
         "ref": _node_ref(id_, props),
         "label": label,
         "title": _node_title(label, props),
+        # the CLAIM content (no label fallback) — the corrective snapshot's context source, None when
+        # the node carries no content field, so the missing-context gate is truly fail-closed (round-7).
+        "content": _node_content(label, props),
         "trust": _TRUST_BY_LABEL.get(label, "extracted"),
         # Fail-closed ON TYPE (codex Slice-6b round-2 [high]): preserve ONLY a literal boolean True.
         # A `bool(...)` coercion would promote schema drift — a string "false"/"0" or an int 1 (all
