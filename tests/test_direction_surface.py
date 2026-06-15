@@ -163,6 +163,36 @@ class TestDirectionEmptyAndDark(_DirectionBase):
         self.assertIn("sem", r.data.decode().lower())  # "sem direção ainda" — empty marker
 
 
+class TestDirectionSurvivesCorruptLog(_DirectionBase):
+    """The shared nav routes the mentee across surfaces, so ONE corrupt log must not 500 /direction
+    while the others degrade cleanly (Codex round-4 contract). `direction_at` folds via
+    `eventlog.read`, which is NOT tolerant of a JSON-valid NON-dict line (`[]`, `42`) — it does
+    `e["type"]` and TypeErrors. The route must fold tolerantly so /direction renders 200, the valid
+    steer still shows, and the corrupt line is skipped (the health strip on /briefing flags it)."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "direction.set", {"id": "d1", "body": "a real steer"}),
+        "[]",   # a JSON-valid non-dict line — must be skipped, not crash the fold
+        "42",
+    ]
+
+    def test_direction_renders_200_over_a_non_dict_line(self):
+        r = self.client.get("/direction")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("a real steer", r.data.decode())  # the valid steer still renders
+
+    def test_direction_renders_200_over_a_non_dict_payload(self):
+        # a dict envelope with a corrupt (list) payload — fold_direction does .get on payload
+        self.log.write_text("\n".join([
+            _ev(1, "2026-06-10T09:00:00+00:00", "direction.set", {"id": "d1", "body": "a real steer"}),
+            json.dumps({"seq": 2, "ts": "2026-06-10T09:00:01+00:00", "type": "direction.proposed",
+                        "subject": "direction", "payload": []}),
+        ]) + "\n")
+        r = self.client.get("/direction")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("a real steer", r.data.decode())
+
+
 class TestDirectionNav(_DirectionBase):
     """The shared nav (cross-cutting): Direction is added to the one bar, and /direction carries it.
     The drill-down off the Briefing links into /direction."""

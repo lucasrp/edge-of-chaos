@@ -1323,11 +1323,22 @@ def _render_proposed_item(item):
             f'<p class="body">{body}</p>{prov}</li>')
 
 
+def _direction_fold():
+    """Fold direction.* → the two tiers, over the TOLERANT shared iterator (_read_events), so a
+    JSON-valid non-dict / corrupt-payload line cannot 500 this surface — the same fail-soft posture
+    every other read surface takes (Codex round-4 contract: one corrupt log must not crash a surface
+    the shared nav routes into; /briefing's health strip still flags the corruption). NOT
+    eventlog.direction_at (which folds via the strict eventlog.read — it TypeErrors on a non-dict
+    line). The fold logic itself is reused via eventlog.fold_direction (no parallel fold)."""
+    import eventlog
+    evs = [e for e in _read_events() if e.get("type") in eventlog.DIRECTION_TYPES]
+    return eventlog.fold_direction(evs)
+
+
 def _render_direction():
     """Fold direction.* → the two tiers and render them: `set` (curated, prominent, first) then
     `proposed` (candidate, dimmer). Empty/dark folds render an honest marker, never a 500."""
-    import eventlog
-    d = eventlog.direction_at(log=_log()) or {"set": [], "proposed": []}
+    d = _direction_fold()
     targets = _comment_targets()
     sets, proposed = d.get("set", []), d.get("proposed", [])
     if not sets and not proposed:
