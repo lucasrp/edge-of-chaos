@@ -78,6 +78,7 @@ def log_is_intact(log):
     p = Path(log)
     if not p.is_file():
         return True
+    expected_seq = 0  # eventlog stamps seq = base+i+1 → a clean log is exactly 1,2,3,... in file order
     for line in p.read_text().splitlines():
         if not line.strip():
             continue
@@ -88,6 +89,13 @@ def log_is_intact(log):
         if not isinstance(e, dict):
             return False
         if not isinstance(e.get("seq"), int):
+            return False
+        # The seq invariant the cursor-bound drain depends on: contiguous + increasing in file order
+        # (matches append_batch's base=len(read()) stamping). A gap / out-of-order / duplicate seq
+        # would let a high-seq voz.resolved hide past the start cursor or a comment vanish from the
+        # cursor-bound batch — so a seq-corrupt log degrades, not silently mis-drains.
+        expected_seq += 1
+        if e["seq"] != expected_seq:
             return False
         if not isinstance(e.get("type"), str):
             return False

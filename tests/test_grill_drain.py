@@ -539,6 +539,30 @@ class TestDrainRouteAuthGate(unittest.TestCase):
             fh.write('{"seq": 50, "type": "voz.reply", "payload": {"comment_id": "x", "body": {"k": 1}}}\n')
         self.assertFalse(grill_drain.log_is_intact(self.log))
 
+    def test_non_contiguous_seq_degrades(self):
+        # eventlog stamps seq = base+i+1, so a clean log has seqs exactly 1..N contiguous in file
+        # order. An out-of-order / gapped seq breaks the cursor-bound batch (a high-seq voz.resolved
+        # past the last line, or a hidden comment), so the integrity gate must reject it.
+        import grill_drain
+        with open(self.log, "w") as fh:
+            fh.write('{"seq": 1, "type": "artefato.published", "payload": {"slug": "a"}}\n')
+            fh.write('{"seq": 5, "type": "voz.comment", "payload": {"comment_id": "x", "body": "b"}}\n')
+        self.assertFalse(grill_drain.log_is_intact(self.log))  # gap 1 -> 5
+
+    def test_out_of_order_seq_degrades(self):
+        import grill_drain
+        with open(self.log, "w") as fh:
+            fh.write('{"seq": 2, "type": "artefato.published", "payload": {"slug": "a"}}\n')
+            fh.write('{"seq": 1, "type": "voz.comment", "payload": {"comment_id": "x", "body": "b"}}\n')
+        self.assertFalse(grill_drain.log_is_intact(self.log))  # decreasing
+
+    def test_contiguous_seq_is_intact(self):
+        import grill_drain
+        with open(self.log, "w") as fh:
+            fh.write('{"seq": 1, "type": "artefato.published", "payload": {"slug": "a"}}\n')
+            fh.write('{"seq": 2, "type": "voz.comment", "payload": {"comment_id": "x", "body": "b"}}\n')
+        self.assertTrue(grill_drain.log_is_intact(self.log))
+
     def test_voz_comment_missing_comment_id_degrades(self):
         # the drain indexes comment["comment_id"] directly (clarify_context, _close_one), so a
         # voz.comment with no/blank/non-string comment_id must fail the up-front gate.
