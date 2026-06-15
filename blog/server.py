@@ -908,16 +908,54 @@ def _node_title(label, props):
     return label
 
 
+def _cluster_slug(label):
+    """wiki_render's canonical cluster-slug rule (letters only — drops spaces, &, digits,
+    punctuation), the ONE rule the wiki projection names its `cluster-<slug>.html` pages by. Mirrors
+    publisher._cluster_slug so a Cortex Entity's `curated_cluster` drills into the matching /wiki page
+    (`Introspective memory` → `introspectivememory` → /wiki/introspectivememory)."""
+    return re.sub(r"[^a-z]", "", (label or "").lower())
+
+
+def _node_href(label, props):
+    """The drill-down URL for a Cortex node → its source surface, so the graph stops being a
+    disconnected island (AUDIT.md gap C, PLAN.md Slice 5b). Each maps to a REAL route:
+      - Artefato (`slug`)            → /e/<slug>.html        (its blog entry)
+      - Direction (`body`, no id)    → /direction            (the steer surface — the node has no
+                                                              event id, so the robust target is the
+                                                              scannable list, a real route)
+      - Source (`key`)               → /docs/source-roadmap  (the source doc: what the edge reads)
+      - Entity with `curated_cluster`→ /wiki/<cluster-slug>  (clusters are not graph nodes in v1; an
+                                                              Entity bearing a curated_cluster IS the
+                                                              cluster's graph presence)
+    A node with no source surface (a bare Entity, Episodic, Genesis, Objective) → None (no dead
+    link). The values are graph-derived, so coerce + URL-shape defensively (no breakout)."""
+    if label == "Artefato":
+        slug = props.get("slug")
+        return f"/e/{slug}.html" if slug else None
+    if label == "Direction":
+        return "/direction" if props.get("body") else None
+    if label == "Source":
+        return "/docs/source-roadmap" if (props.get("key") or props.get("name")) else None
+    if label == "Entity":
+        cluster = props.get("curated_cluster")
+        slug = _cluster_slug(str(cluster)) if cluster else ""
+        return f"/wiki/{slug}" if slug else None
+    return None
+
+
 def _map_node(id_, label, props):
     """One Cortex node → the render payload: id, label, a human title, its trust tier (the
-    brightness axis), and the earmarked flag (the harm overlay — passed through so the overlay is
-    wired end-to-end; harm overrides the dim regardless of trust tier)."""
+    brightness axis), the earmarked flag (the harm overlay — passed through so the overlay is wired
+    end-to-end; harm overrides the dim regardless of trust tier), and the source `href` — the
+    drill-down into the node's real surface (blog entry / Direction / source doc / wiki cluster), so
+    a node click navigates instead of dead-ending (the graph stops being an island)."""
     return {
         "id": id_,
         "label": label,
         "title": _node_title(label, props),
         "trust": _TRUST_BY_LABEL.get(label, "extracted"),
         "earmarked": bool(props.get("earmarked")),
+        "href": _node_href(label, props),
     }
 
 

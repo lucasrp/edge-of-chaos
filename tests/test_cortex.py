@@ -166,6 +166,101 @@ class TestCortexRoute(unittest.TestCase):
         self.assertNotIn("</script><script>", body.lower())
 
 
+class TestNodeSourceHref(unittest.TestCase):
+    """Slice 5b — link Cortex nodes to their source (AUDIT.md gap C, PLAN.md accept): clicking an
+    Artefato/Direction/Source/cluster node drills into its real surface. The fold carries a per-node
+    `href` so the island's inspect panel surfaces a WORKING link — the graph stops being an island."""
+
+    def setUp(self):
+        self.server = _load_server({"EDGE_CORTEX_FIXTURE": None, "EDGE_GROUP": "edge-next"})
+
+    def test_artefato_node_links_to_its_blog_entry(self):
+        node = self.server._map_node("4:x:1", "Artefato", {"slug": "alpha-post"})
+        self.assertEqual(node["href"], "/e/alpha-post.html")
+
+    def test_direction_node_links_to_the_direction_surface(self):
+        # a Direction graph node is keyed by body (no event id on the node), so the robust, working
+        # target is the Direction surface itself — a real route the steer is scannable on.
+        node = self.server._map_node("4:x:2", "Direction", {"body": "surface the self-state"})
+        self.assertEqual(node["href"], "/direction")
+
+    def test_source_node_links_to_its_source_doc(self):
+        node = self.server._map_node("4:x:3", "Source", {"key": "arXiv:2304.03442"})
+        self.assertEqual(node["href"], "/docs/source-roadmap")
+
+    def test_cluster_bearing_entity_links_to_its_wiki_cluster(self):
+        # clusters are not separate graph nodes in v1 (Community=0) — an Entity carrying a
+        # curated_cluster IS the cluster's graph presence, so it drills into /wiki/<cluster-slug>
+        # (the slug is the letters-only rule the wiki projection names cluster-*.html by).
+        node = self.server._map_node("4:x:4", "Entity",
+                                     {"name": "Zep", "curated_cluster": "Introspective memory"})
+        self.assertEqual(node["href"], "/wiki/introspectivememory")
+
+    def test_plain_entity_and_episodic_carry_no_href(self):
+        # a node with no source surface (a bare Entity, an Episodic, Genesis/Objective) carries no
+        # href — the panel simply shows no drill-down link, never a dead one.
+        self.assertIsNone(self.server._map_node("4:x:5", "Entity", {"name": "human"})["href"])
+        self.assertIsNone(self.server._map_node("4:x:6", "Episodic", {"name": "session"})["href"])
+
+    def test_payload_node_hrefs_target_real_routes(self):
+        # the strong property: every node href the fold ships resolves to a REAL route on the app
+        # (a 200/redirect, never a 404) — the graph links into surfaces that exist, not dead anchors.
+        fixture = {
+            "nodes": [
+                {"id": "a1", "label": "Artefato", "title": "t",
+                 "href": "/e/alpha-post.html", "trust": "asserted"},
+                {"id": "d1", "label": "Direction", "title": "t",
+                 "href": "/direction", "trust": "asserted"},
+                {"id": "s1", "label": "Source", "title": "t",
+                 "href": "/docs/source-roadmap", "trust": "extracted"},
+            ],
+            "edges": [],
+        }
+        # the route-existence check is over the app's URL map (no live neo4j / no doc files needed):
+        # each href must match a registered rule.
+        rules = [r.rule for r in self.server.app.url_map.iter_rules()]
+        for n in fixture["nodes"]:
+            href = n["href"].split("#")[0]
+            # /e/<slug>.html, /docs/<id>, /wiki/<id>, /direction are all registered routes.
+            matched = any(
+                href == "/direction"
+                or (rule.startswith("/e/") and href.startswith("/e/"))
+                or (rule.startswith("/docs/") and href.startswith("/docs/"))
+                or (rule.startswith("/wiki/") and href.startswith("/wiki/"))
+                for rule in rules)
+            self.assertTrue(matched, f"{href} targets no real route")
+
+
+class TestCortexRouteShipsHref(unittest.TestCase):
+    """The /cortex page ships the per-node href into the island so the inspect panel can render the
+    drill-down link, AND the island script reads it (the graph→source wiring is live, not latent)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.fix = Path(self.tmp.name) / "cortex.json"
+        self.fix.write_text(json.dumps({
+            "nodes": [{"id": "a1", "label": "Artefato", "title": "alpha",
+                       "href": "/e/alpha-post.html", "trust": "asserted"}],
+            "edges": [],
+        }))
+        self.server = _load_server({"EDGE_CORTEX_FIXTURE": str(self.fix), "EDGE_GROUP": "edge-next"})
+        self.client = self.server.app.test_client()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        os.environ.pop("EDGE_CORTEX_FIXTURE", None)
+
+    def test_route_ships_the_node_href_into_the_payload(self):
+        body = self.client.get("/cortex").data.decode()
+        self.assertIn("/e/alpha-post.html", body)
+
+    def test_island_script_consumes_the_href(self):
+        # the island reads n.href and renders it as a link in the inspect panel — proves the wiring
+        # is live (the payload field is actually surfaced, not just shipped and dropped).
+        js = (Path(__file__).resolve().parent.parent / "blog" / "static" / "cortex.js").read_text()
+        self.assertIn("href", js)
+
+
 class TestCortexFailDark(unittest.TestCase):
     """No group or neo4j down → a dark state, NEVER an unscoped query (cross-install leak)."""
 

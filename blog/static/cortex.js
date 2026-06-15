@@ -31,7 +31,7 @@
   payload.nodes.forEach(function (n) {
     nodeIds[n.id] = true;
     elements.push({
-      data: { id: n.id, label: n.label, title: n.title, trust: n.trust },
+      data: { id: n.id, label: n.label, title: n.title, trust: n.trust, href: n.href || null },
       classes: "tier-" + n.trust + (n.earmarked ? " earmarked" : ""),
     });
   });
@@ -151,9 +151,19 @@
     var n = evt.target;
     panel.innerHTML =
       '<span class="kind">' + esc(n.data("label")) + "</span>" +
-      '<p class="title">' + esc(n.data("title")) + "</p>";
+      '<p class="title">' + esc(n.data("title")) + "</p>" +
+      link(n.data("href"));
     panel.classList.remove("hidden");
   });
+
+  // The drill-down into the node's source surface — the graph stops being an island (Slice 5b).
+  // Only an INTERNAL same-origin path (a leading "/", not "//") is ever rendered as a live anchor:
+  // the href is graph-derived, so a "javascript:"/"http://evil" value (or "//host") is dropped, not
+  // turned into a live link. The path is html-escaped into the attribute so it cannot break out.
+  function link(href) {
+    if (typeof href !== "string" || href.charAt(0) !== "/" || href.charAt(1) === "/") return "";
+    return '<p class="source"><a href="' + esc(href) + '">abrir fonte →</a></p>';
+  }
   cy.on("tap", function (evt) {
     if (evt.target === cy) panel.classList.add("hidden"); // tap background → dismiss
   });
