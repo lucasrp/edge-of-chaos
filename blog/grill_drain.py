@@ -491,6 +491,12 @@ def parse_live_plan(raw):
     would silently close a standing Directive as a plain reply and hide a lost steer (ADR-0017)."""
     import json
     park = {"park": True, "question": "Could you clarify what you'd like me to do with this?"}
+
+    def _str(v):
+        """A non-empty STRING field, else None — the render path html.escapes these, so a non-str
+        (dict/list/number) or blank must never be persisted (it would poison the log / 500 a view)."""
+        return v.strip() if isinstance(v, str) and v.strip() else None
+
     try:
         d = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
@@ -499,15 +505,15 @@ def parse_live_plan(raw):
         return park
     outcome = d.get("outcome")
     if outcome == "park":
-        q = d.get("question")
+        q = _str(d.get("question"))
         return {"park": True, "question": q} if q else park
     if outcome == "directive":
-        reply, body = d.get("reply"), d.get("direction_body")
+        reply, body = _str(d.get("reply")), _str(d.get("direction_body"))
         if reply and body:
             return {"reply": reply, "directive": True, "direction_body": body}
-        return park  # a directive with no steer body is not a valid fold → park, don't fake replied
+        return park  # a directive with no valid reply+steer body is not a fold → park, don't fake
     if outcome == "reply":
-        reply = d.get("reply")
+        reply = _str(d.get("reply"))
         return {"reply": reply} if reply else park
     return park  # unknown / missing outcome → park, never fabricate a terminal outcome
 

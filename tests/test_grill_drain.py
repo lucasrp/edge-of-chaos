@@ -725,6 +725,20 @@ class TestLiveGeneratorStructuredPlan(_Base):
         self.assertTrue(plan.get("park"))
         self.assertIn("question", plan)
 
+    def test_non_string_fields_are_coerced_to_park(self):
+        # a live model could emit a non-string reply/question/direction_body; persisting it would
+        # poison the log (the render path html.escapes a str) → coerce to park, never append it.
+        for raw in (
+            '{"outcome":"reply","reply":{"x":1}}',                 # non-string reply
+            '{"outcome":"park","question":["x"]}',                 # non-string question
+            '{"outcome":"directive","reply":"ok","direction_body":42}',  # non-string steer body
+            '{"outcome":"reply","reply":"   "}',                   # whitespace-only reply
+            '{"outcome":"directive","reply":"ok","direction_body":""}',  # empty steer body
+        ):
+            plan = self.drain.parse_live_plan(raw)
+            self.assertTrue(plan.get("park"), raw)
+            self.assertIsInstance(plan["question"], str)
+
     def test_live_generator_folds_a_directive_end_to_end_with_a_stubbed_model(self):
         # wire a FAKE model completer into the structured generator (no real LLM) and prove a
         # standing-directive classification folds to direction.set through the real drain.
