@@ -232,10 +232,13 @@ def _valid_node_target_ref(target_ref):
     payload = cortex_fold()
     if not payload:
         return False  # fail-closed: a dark graph cannot vouch for any node
-    # `is True` (not truthy): fail closed on type so payload schema drift — a string "false"/"0", an
-    # int 1 — never crosses the corrective boundary (codex Slice-6b round-2 [high]). The live fold
-    # already coerces earmarked to a literal bool via _map_node; this guards a raw/fixture payload too.
-    return any(n.get("id") == node_id and n.get("earmarked") is True
+    # Match on the STABLE node `ref` (codex Slice-6b round-4 [medium]) — the rebuild-stable key the
+    # correction persists — falling back to the render `id` for a payload that carries no ref (a raw
+    # fixture). `is True` (not truthy): fail closed on type so payload schema drift — a string
+    # "false"/"0", an int 1 — never crosses the corrective boundary (codex Slice-6b round-2 [high]).
+    return any((n.get("ref") == node_id or
+                (n.get("ref") is None and n.get("id") == node_id))
+               and n.get("earmarked") is True
                for n in payload.get("nodes", []))
 
 
@@ -1025,6 +1028,17 @@ def _node_ts(props):
     return None
 
 
+def _node_ref(id_, props):
+    """The STABLE node reference for the corrective write-path (codex Slice-6b round-4 [medium]):
+    Graphiti's `uuid` property when present (stable across graph rebuilds/reprojections — the durable
+    key a correction's node provenance should ride), else the elementId `id_` as an in-session
+    fallback so no node is left without a correction target. Coerced to a str (graph-derived)."""
+    uuid_prop = props.get("uuid")
+    if isinstance(uuid_prop, str) and uuid_prop:
+        return uuid_prop
+    return _as_str(id_)
+
+
 def _map_node(id_, label, props):
     """One Cortex node → the render payload: id, label, a human title, its trust tier (the
     brightness axis), the earmarked flag (the harm overlay — passed through so the overlay is wired
@@ -1034,6 +1048,13 @@ def _map_node(id_, label, props):
     recency `ts` (Slice 6: the recency filter axis, from the graph stamp; None when unstamped)."""
     return {
         "id": id_,
+        # A STABLE node ref for the corrective write-path (codex Slice-6b round-4 [medium]): the
+        # render `id` is the Neo4j elementId, which is REBUILT/REPROJECTED-unstable — persisting it as
+        # a durable Voz target_ref would orphan a correction's node provenance after a graph rebuild.
+        # So ship a stable ref: Graphiti's `uuid` property (stable across rebuilds) when present, else
+        # the elementId as an in-session fallback. The correction validates + persists THIS, so a
+        # correction stays attributable to the harm node across rebuilds (the id is render-only).
+        "ref": _node_ref(id_, props),
         "label": label,
         "title": _node_title(label, props),
         "trust": _TRUST_BY_LABEL.get(label, "extracted"),

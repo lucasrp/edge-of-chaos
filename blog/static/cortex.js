@@ -174,8 +174,10 @@
   payload.nodes.forEach(function (n) {
     nodeIds[n.id] = true;
     elements.push({
-      data: { id: n.id, label: n.label, title: n.title, trust: n.trust, href: n.href || null,
-              earmarked: !!n.earmarked },
+      // `id` is the elementId (render/session); `ref` is the STABLE node key the correction targets
+      // (Graphiti uuid when present, else the elementId) — durable across graph rebuilds (Slice 6b).
+      data: { id: n.id, ref: n.ref || n.id, label: n.label, title: n.title, trust: n.trust,
+              href: n.href || null, earmarked: !!n.earmarked },
       classes: "tier-" + n.trust + (n.earmarked ? " earmarked" : ""),
     });
   });
@@ -383,7 +385,9 @@
     // The Earmarked corrective write-path (Slice 6b): a harm-bearing node gets a correction composer —
     // node-targeted Voz. Only an Earmarked node (the harm subset the mentee corrects); a plain node
     // stays read-only inspect + the source link, consistent with the read-only Cortex surface.
-    if (n.data("earmarked")) appendCorrection(panel, n.id());
+    // pass the STABLE node ref (not the volatile elementId) so the persisted correction target
+    // survives a graph rebuild/reproject (Slice 6b, codex round-4).
+    if (n.data("earmarked")) appendCorrection(panel, n.data("ref"));
     panel.classList.remove("hidden");
   });
 

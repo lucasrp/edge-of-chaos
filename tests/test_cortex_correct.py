@@ -321,6 +321,59 @@ def _load_server(env):
     return server
 
 
+class TestStableNodeRef(unittest.TestCase):
+    """codex round-4 [medium]: a node correction must NOT persist a rebuild-unstable Neo4j elementId
+    into the durable Voz log. The live fold exposes a STABLE node ref (`ref`, preferring Graphiti's
+    `uuid` property over the volatile elementId); the correction validates + persists THAT, so the
+    correction stays attributable to the harm node after a graph rebuild/reproject with different
+    element ids but the same stable key. The render id (`id`) stays the elementId for the session."""
+
+    def setUp(self):
+        self.server = _load_server({"EDGE_CORTEX_FIXTURE": None, "EDGE_GROUP": "edge-next"})
+
+    def test_map_node_surfaces_a_stable_ref_from_the_uuid_property(self):
+        # an extracted node carries Graphiti's stable `uuid`; the fold surfaces it as the `ref`, so a
+        # graph rebuild (new elementId) does not change the durable correction target.
+        n = self.server._map_node("4:vol:1", "Entity",
+                                  {"name": "harm", "uuid": "stable-uuid-abc", "earmarked": True})
+        self.assertEqual(n["ref"], "stable-uuid-abc")
+        self.assertEqual(n["id"], "4:vol:1")  # the render/session id stays the elementId
+
+    def test_map_node_ref_falls_back_to_element_id_when_no_uuid(self):
+        # a spine node with no Graphiti uuid → the ref falls back to the elementId (still a valid,
+        # in-session stable handle); no node is left without a correction target.
+        n = self.server._map_node("4:vol:2", "Direction", {"body": "a steer"})
+        self.assertEqual(n["ref"], "4:vol:2")
+
+    def test_correction_stays_attributable_after_a_rebuild_with_new_element_ids(self):
+        """The regression codex asked for: a correction validated + persisted against the STABLE ref
+        remains attributable after the Cortex payload is rebuilt with DIFFERENT element ids but the
+        same stable node key."""
+        import json as _json
+        with tempfile.TemporaryDirectory() as td:
+            fix = Path(td) / "cortex.json"
+            # rebuild 1: elementId "old:1", stable ref via uuid "U-harm"
+            fix.write_text(_json.dumps({
+                "nodes": [{"id": "old:1", "ref": "U-harm", "label": "Entity", "title": "h",
+                           "trust": "extracted", "earmarked": True}],
+                "edges": [],
+            }))
+            server = _load_server({"EDGE_CORTEX_FIXTURE": str(fix), "EDGE_GROUP": "edge-next",
+                                   "EDGE_DASH_AUTH": "test:mentee"})
+            # the correction validates against the STABLE ref, not the elementId
+            self.assertTrue(server._valid_node_target_ref("node:U-harm"))
+            self.assertFalse(server._valid_node_target_ref("node:old:1"))  # the volatile id is NOT a target
+            # rebuild 2: the SAME node, new elementId "new:9", same stable ref "U-harm"
+            fix.write_text(_json.dumps({
+                "nodes": [{"id": "new:9", "ref": "U-harm", "label": "Entity", "title": "h",
+                           "trust": "extracted", "earmarked": True}],
+                "edges": [],
+            }))
+            # a correction targeting node:U-harm is STILL attributable (validates) after the rebuild
+            self.assertTrue(server._valid_node_target_ref("node:U-harm"))
+            os.environ.pop("EDGE_DASH_AUTH", None)
+
+
 class TestCorrectionRoundTrip(_Base):
     """The full round-trip (acceptance), ZERO API spend: from an Earmarked node an authenticated
     correction posts a `voz.comment` with the node `target_ref` → it appears as an OPEN Directive →
