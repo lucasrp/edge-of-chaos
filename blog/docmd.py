@@ -40,10 +40,19 @@ _EM = re.compile(r"(?<![*\w])\*([^*\s][^*]*?)\*(?!\w)")
 
 def _href_ok(href):
     """A link href is safe iff its scheme is allowlisted (http/https/mailto/relative/fragment). The
-    href is taken from already-escaped text, so a `javascript:` reads as `javascript:` here — we
-    check the RAW intent by unescaping for the scheme test only. A disallowed scheme → not a live
-    anchor (the link text is kept, the href dropped)."""
-    raw = html.unescape(href).strip().replace("\t", "").replace("\n", "")
+    href arrives ALREADY html-escaped, so we decode it back to the browser's view before deciding —
+    and decode REPEATEDLY until stable, so an entity-obfuscated scheme (`java&#115;cript:`,
+    `javascript&colon;`) cannot smuggle a `javascript:`/`data:` past the allowlist by hiding one
+    decode level deep. All whitespace/control chars are stripped (a `java\\tscript:` trick), then the
+    leading scheme is matched against the allowlist. A disallowed scheme → not a live anchor (the
+    link text is kept, the href dropped)."""
+    raw = href
+    for _ in range(4):  # fixpoint decode — &amp;#115; → &#115; → s, etc.
+        dec = html.unescape(raw)
+        if dec == raw:
+            break
+        raw = dec
+    raw = re.sub(r"[\s\x00-\x1f]", "", raw).strip()
     return bool(_SAFE_SCHEME.match(raw))
 
 

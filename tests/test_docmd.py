@@ -97,6 +97,22 @@ class TestRendersInert(unittest.TestCase):
         self.assertNotIn("javascript:", out.lower())
         self.assertNotIn("<a href=", out.lower())
 
+    def test_entity_obfuscated_scheme_is_rejected(self):
+        # An attacker hides the `javascript:` scheme behind HTML entities, betting the allowlist
+        # checks only one decode level. The href decodes to a fixpoint before the scheme test, so a
+        # numeric/named-entity `javascript:` / `data:` is caught and the link is not live.
+        for src in ("[a](java&#115;cript:alert(1))",
+                    "[b](javascript&colon;alert(1))",
+                    "[c](data:text/html,xx)"):
+            out = docmd.render_doc_html(src + "\n")
+            self.assertNotIn("<a href=", out.lower(), src)
+
+    def test_quote_in_href_cannot_break_the_attribute(self):
+        # A `"` in the href must stay escaped (&quot;) so it cannot close the attribute and inject an
+        # event handler — the whole run was html-escaped before the inline pass.
+        out = docmd.render_doc_html('[a](http://x" onmouseover="alert(1))\n')
+        self.assertNotIn('" onmouseover="', out)
+
     def test_safe_relative_and_http_links_still_render(self):
         # The allowlist must not over-block legitimate links the docs use.
         out = docmd.render_doc_html(
