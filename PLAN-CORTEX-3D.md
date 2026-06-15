@@ -28,17 +28,23 @@ to need a `cortex_fold`/`_map_node` change, that is a STOP-and-flag — it is ou
 headless, exactly as Slice 6 factored `search`/`visible`/`render`/`locate` (see
 `test_cortex.py::CortexFilters*`). Slice 2 (the 3D render slice) runs the full dashboard suite.
 
-**Browser gate (Slice 2 only — the M-GATE is browser behavior, not a Flask response check).** The Python
-suites are Flask response assertions + headless Node `CortexFilters` tests; they can pass with a **blank 3D
-canvas or a broken fallback rung** because WebGL render, camera controls, the Cytoscape fallback, and the
-list fallback are **browser-only**. So Slice 2 adds an explicit **Playwright/headless-Chromium gate** that
-(a) stubs `webglSupported()`→true and asserts a **non-blank** 3D canvas + working orbit/zoom + space-0
-centered; (b) stubs WebGL→false and asserts the **2D Cytoscape island** renders (non-blank, navigable); (c)
-forces Cytoscape render to fail and asserts the **searchable list** DOM renders; (d) forces the list to fail
-and asserts the **honest message**; (e) asserts the 3D + cytoscape `<script>`s load **only** on `/cortex`.
-A 3D/fallback rung that only "passes" a Flask 200 does **not** satisfy the M-GATE. (The operator captured
-the reference live via Playwright; the same harness proves our rungs render. Run it backgrounded against a
-backgrounded server, never `blog/server.py` in the foreground — per the anti-stall rule; `pkill` after.)
+**Browser gate (a RECURRING regression gate from Slice 2 onward — the M-GATE is browser behavior, not a
+Flask response check).** The Python suites are Flask response assertions + headless Node `CortexFilters`
+tests; they can pass with a **blank 3D canvas or a broken fallback rung** because WebGL render, camera
+controls, the Cytoscape fallback, and the list fallback are **browser-only**. So a **Playwright/headless-
+Chromium gate** (added in Slice 2) asserts (a) stub `webglSupported()`→true → a **non-blank** 3D canvas +
+working orbit/zoom + space-0 centered; (b) stub WebGL→false → the **2D Cytoscape island** renders (non-blank,
+navigable); (c) force Cytoscape render to fail → the **searchable list** DOM renders; (d) force the list to
+fail → the **honest message**; (e) the 3D + cytoscape `<script>`s load **only** on `/cortex`. A 3D/fallback
+rung that only "passes" a Flask 200 does **not** satisfy the M-GATE. **Because Slices 3–6 keep mutating the
+SAME browser-only surface** (`cortex.js`, `cortex.html`, `style.css`, the renderer) — node selection, the
+panel, camera fly-to, `?node=`, search, PREV/NEXT, the perf cap — **any slice from Slice 2 onward that
+touches a renderer file MUST re-run the full fallback-ladder browser gate as a regression check** (the
+recurring Flask+Node gate alone cannot catch a regressed canvas or a dead rung). A later slice that breaks a
+WebGL-blocked client's fallback after the one-time gate passed is exactly the regression this recurring gate
+prevents. (The operator captured the reference live via Playwright; the same harness proves our rungs render.
+Run it backgrounded against a backgrounded server, never `blog/server.py` in the foreground — per the
+anti-stall rule; `pkill` after.)
 
 **Work only in `/home/vboxuser/edge-dashboard-wt`** (branch `feat/dashboard-blog-feedback`;
 parallel-git hazard on `~/edge` — never touch it). **CONTRACT C1:** never commit `state/` mutations (the
@@ -149,7 +155,7 @@ do **not** wire 3D rendering yet, so the tree stays green rendering the existing
 - **Deps:** Slice 0. **Files:** `blog/static/vendor/3d-force-graph.min.js`, `blog/static/cortex.js`,
   `tests/test_frontend_contract.py`, `tests/test_cortex.py` (Node-export test for `webglSupported`).
 
-## Slice 2 — The 3D cloud render WITH the M21 fallback chain in the SAME increment *(audit Group 1: M1–M6 + M16–M20 + M-GATE + M21; the M-GATE release gate)*
+## Slice 2 — The 3D cloud render WITH the M21 fallback chain AND the M22 performance floor in the SAME increment *(audit Group 1: M1–M6 + M16–M20 + M-GATE + M21 + the M22 floor; the M-GATE + M22 release gates)*
 The defining slice. Replace the 2D-default render path with: **WebGL→the 3D cloud, else the 2D Cytoscape
 island auto-renders, else a searchable list, else the honest message** — the strict hierarchy, **shipped in
 one increment** (M-GATE: no 3D ships without the fallback; the regression it prevents — a blank/un-navigable
@@ -197,6 +203,18 @@ panel rebuild.
     only by the `cortex()` route).
   - **M20** the render + fallback markup use the Slice-7 vocabulary (the `style.css` tokens, the existing
     `.cortex-page` full-canvas chrome, `pages/cortex.html`); no parallel styling.
+  - **M22 PERFORMANCE FLOOR — settled BEFORE the renderer becomes default, IN THIS SLICE (audit M22/R2):**
+    the audit is explicit that performance + ceiling behavior must be settled **before the renderer ships** —
+    and because each slice is independently shippable, Slice 2 landing a **live, unbounded** force tick at the
+    real graph size IS the regression M22 names. So the **minimum floor lands here**, not in Slice 6:
+    (i) **measure** the current `group_id`'s graph size at build time (`cortex_fold()` on the live install;
+    SURFACE.md records ~268 nodes / ~260 edges for `edge-next`, but it accretes — measure, don't assume);
+    (ii) **freeze / stop the force tick after convergence** (no unbounded live tick — the dominant lever) +
+    cap ticks; (iii) define + assert an explicit **interactive FPS / interaction threshold** at the measured
+    size; (iv) prove a **growth-stress ceiling** (a fixture well above current size degrades via the cap, not
+    a runaway tick). This is the **hard floor**; Slice 6 is only *tuning beyond* it (the Episodic-collapse
+    contingency lever + any finer thresholds). All of (i)–(iv) are client-side over the existing payload —
+    **no `cortex_fold` change.**
   - **`cortex()` route change (template/island wiring only, NOT the fold):** emit BOTH vendored scripts
     (cytoscape for the fallback + 3d-force-graph) island-only, plus the existing `cortex-data` block and
     `cortex.js`; the searchable-list fallback (tier 3) is a server-rendered `<noscript>`-style block from the
@@ -229,9 +247,16 @@ panel rebuild.
   `/cortex`. The fallback ladder is **proven to render**, not merely asserted in prose — a blank 3D canvas or
   a dead rung **fails** this gate. Runs backgrounded against a backgrounded server (never `blog/server.py` in
   the foreground; `pkill` after), the same Playwright harness the operator used to capture the reference.
+  **(j) the M22 floor (proven before default 3D ships):** the force tick **freezes after convergence** (assert
+  it is not running unbounded — bounded tick count / the sim cools to idle); the rendered graph at the
+  **measured** current size hits the stated **interactive FPS threshold** (recorded + checked at build time);
+  a **growth-stress fixture** (well above current size) degrades via the cap rather than a runaway live tick;
+  **no `cortex_fold`/`_map_node` change.**
 - **Codex gate:** `/codex:review` — **challenge the M-GATE explicitly** (is the 2D fallback truly the
-  auto-path, not a list? **does a real-browser test prove each rung renders non-blank, not just return 200?**),
-  the security-seam survival (M17/R5), fail-dark vs M21 distinction (M16), island-only loading (M19), and
+  auto-path, not a list? **does a real-browser test prove each rung renders non-blank, not just return 200?**)
+  **AND the M22 floor** (is the force tick actually frozen + a concrete measured FPS threshold asserted before
+  default 3D ships, not deferred?), the security-seam survival (M17/R5), fail-dark vs M21 distinction (M16),
+  island-only loading (M19), and
   conformance to ADR-0010 + `docs/frontend.md` + SURFACE.md.
 - **Deps:** Slices 0, 1. **Files:** `blog/static/cortex.js`, `blog/templates/pages/cortex.html`,
   `blog/server.py` (the `cortex()` route's **script-tag / list-fallback wiring only** — the fold is
@@ -248,9 +273,13 @@ breakout defense is a security feature, not a rewrite-to-innerHTML).
 - **Build:**
   - **M7** A side panel that **slides in** on node-select (replaces the current floating `.cortex-inspect`),
     built with the Slice-7 vocabulary — a new `inspect_panel` macro in `components/ui.html` (the static
-    shell: regions for term/definition, SEEN-IN-THE-WILD, FULL DEFINITION, the composer slot), registered on
-    `/ux-catalog`; the island fills the regions by DOM API, keeping `esc()` and the no-string-interpolation
-    discipline.
+    shell: regions for term/definition, SEEN-IN-THE-WILD, FULL DEFINITION, the composer slot). **The macro is
+    rendered into `pages/cortex.html` as the empty shell** (so `/cortex` itself carries the macro's DOM
+    regions — NOT a JS-only one-off the island builds from scratch, which would satisfy catalog registration
+    while violating the Slice-7 shared-UX contract on the shipped surface), AND registered on `/ux-catalog`.
+    The island then **fills the macro's empty regions by DOM API** on select, keeping `esc()` and the
+    no-string-interpolation breakout defense. (The island no longer `createElement`s the whole panel; it
+    populates the server-rendered macro shell.)
   - **M8** Term + **one-line definition**: `label` + `title` (`_node_title`, already shipped).
   - **M10** **FULL DEFINITION** prose = `content` (untruncated, already in `_map_node`) + the source
     drill-down as **READ MORE / abrir fonte →** (the existing `href`, via `appendLink`'s internal-path-only
@@ -266,18 +295,24 @@ breakout defense is a security feature, not a rewrite-to-innerHTML).
     shipped trust boundary — `test_cortex_correct.py` must stay green unchanged.
   - **M13** **Dismiss / close**: tap-background or a close affordance returns to the free-flight cloud (the
     existing tap-background dismiss survives).
-- **Accept:** selecting a node slides in the panel with term + one-line definition + the FULL DEFINITION
-  prose + READ MORE; a node **with** `href` shows the SEEN-IN-THE-WILD provenance link, a node **without**
-  `href` **omits** that block (no dead link, no fabricated quote); an Earmarked node still shows the working
-  correction composer and `test_cortex_correct.py` passes unchanged; close/tap-background dismisses; the
-  panel renders via the `inspect_panel` macro listed on `/ux-catalog`; the breakout fixtures (poisoned
-  title/href) stay inert in the panel. Three core suites green.
-- **Codex gate:** `/codex:review` — the macro is on the catalog (M20/G5), the DOM-API breakout defense and
-  `esc()` survive (R5/M17), the correction composer is behaviorally unchanged (M12), no fabricated evidence
-  field (M10b), no server fold touched.
+- **Accept:** **the `/cortex` DOM itself contains the `inspect_panel` macro's shell regions** (assert the
+  rendered page carries the macro markup, not just that `/ux-catalog` lists it — proving the shared macro is
+  used on the shipped surface, not a JS-only one-off); selecting a node slides in the panel with term +
+  one-line definition + the FULL DEFINITION prose + READ MORE; a node **with** `href` shows the
+  SEEN-IN-THE-WILD provenance link, a node **without** `href` **omits** that block (no dead link, no
+  fabricated quote); an Earmarked node still shows the working correction composer and `test_cortex_correct.py`
+  passes unchanged; close/tap-background dismisses; the `inspect_panel` macro is also listed on `/ux-catalog`;
+  the breakout fixtures (poisoned title/href) stay inert in the panel. Three core suites green + the recurring
+  **browser fallback-ladder gate** (this slice touches `cortex.js` + `cortex.html` — re-run it as a
+  regression check that the panel change broke no rung).
+- **Codex gate:** `/codex:review` — the macro is **rendered into `/cortex`** (not just catalog-registered)
+  (M20/G5), the DOM-API breakout defense and `esc()` survive (R5/M17), the correction composer is
+  behaviorally unchanged (M12), no fabricated evidence field (M10b), no server fold touched; **re-run the
+  browser M-GATE** (renderer touched).
 - **Deps:** Slice 2 (the cloud + node selection exist). **Files:** `blog/static/cortex.js`,
-  `blog/templates/components/ui.html`, `blog/templates/pages/ux_catalog.html`, `blog/static/style.css`,
-  `tests/test_cortex.py`, `tests/test_cortex_correct.py`.
+  `blog/templates/components/ui.html`, `blog/templates/pages/cortex.html` (render the macro shell),
+  `blog/templates/pages/ux_catalog.html`, `blog/static/style.css`, `tests/test_cortex.py`,
+  `tests/test_cortex_correct.py`, the browser/Playwright test (re-run).
 
 ## Slice 4 — CONNECTS TO neighbor pills + `?node=` round-trip (the navigation loop) *(audit Group 2: M9, M11; G1, G3, R6)*
 The core *navigation* verb of the experience — graph-as-hypertext: hop node→node. New **client** logic, **no
@@ -301,10 +336,11 @@ server change** (the edges are already in the payload).
   panel for it, and updates `?node=<stable-ref>` in the URL; reloading that URL re-centers+selects the same
   node (round-trip); the inbound `/chat` provenance deep-link still resolves (R6); `neighborIndex` is
   exported + tested headless; the pill macro is on `/ux-catalog`; pills are DOM-API-built (a poisoned
-  neighbor label stays inert). Three suites green.
+  neighbor label stays inert). Three suites green + the recurring **browser fallback-ladder gate** (this slice
+  touches `cortex.js` — re-run it so the camera-fly/`?node=` change broke no rung).
 - **Codex gate:** `/codex:review` — the neighbor index is correct + pure, the `?node=` write uses the stable
   ref (not the render id) and does not break the inbound `locate()` path (R6), no server fold touched (G1/G3
-  are client-only), pills on the catalog (M20).
+  are client-only), pills on the catalog (M20); **re-run the browser M-GATE** (renderer touched).
 - **Deps:** Slice 3 (the panel renders the pills). **Files:** `blog/static/cortex.js`,
   `blog/templates/components/ui.html`, `blog/templates/pages/ux_catalog.html`, `blog/static/style.css`,
   `tests/test_cortex.py`.
@@ -335,41 +371,39 @@ deterministic traversal order.
   `render()` contract); PREV/NEXT step the selection in a **stable, repeatable** order that **survives a
   reload** (assert `traversalOrder` is deterministic over a fixture and ignores Neo4j row order), **respects
   the active filters** (a filtered-out node is skipped), wraps or stops cleanly at the ends, and flies the
-  camera + opens the panel each step; `traversalOrder` is exported + tested headless. Three suites green.
+  camera + opens the panel each step; `traversalOrder` is exported + tested headless. Three suites green + the
+  recurring **browser fallback-ladder gate** (this slice touches `cortex.js` + `cortex.html` — re-run it so
+  search/PREV-NEXT broke no rung).
 - **Codex gate:** `/codex:review` — the traversal order is stable + filter-respecting + server-independent
   (Q8), search stays deterministic (no semantic retrieval), the on-hit camera move replaces `cy.animate`
-  cleanly, no server fold touched.
+  cleanly, no server fold touched; **re-run the browser M-GATE** (renderer touched).
 - **Deps:** Slice 4 (selection + panel + camera-fly exist to drive). **Files:** `blog/static/cortex.js`,
   `blog/templates/pages/cortex.html` (the PREV/NEXT controls), `blog/static/style.css`,
-  `tests/test_cortex.py`.
+  `tests/test_cortex.py`, the browser/Playwright test (re-run).
 
-## Slice 6 — Performance hardening to the measured acceptance bound *(audit Group 4: M22; R1/R2)*
-The 3D experience is feature-complete after Slice 5; this slice makes its cost defensible against the
-documented baseline before it is "done." R1 already accepted the bundle weight — this slice is about the
-**live force-tick**, the growth risk, and the frame-rate floor, not the bundle KB.
+## Slice 6 — Performance tuning BEYOND the Slice-2 floor *(audit Group 4: M22 tuning; R1/R2)*
+The hard M22 floor (measure + freeze-after-convergence + a concrete FPS threshold + a growth-stress ceiling)
+**already shipped in Slice 2** — default 3D never went live without it. This slice is the *tuning beyond* that
+floor: the contingency lever the audit/SURFACE.md name for when the haze is heavy or the graph has grown past
+the Slice-2 measurement. R1 already accepted the bundle weight; this is about the **render density**, not the
+bundle KB.
 - **Build:**
-  - **Measure** the current `group_id`'s graph size at implementation time (`cortex_fold()` on the live
-    install; SURFACE.md records ~268 nodes / ~260 edges for `edge-next`, but the Cortex accretes every beat —
-    measure, don't assume).
-  - **Define + assert a concrete acceptance threshold:** an interactive frame rate at the measured size,
-    plus an explicit **ceiling behavior** — **freeze the layout after convergence** (stop the force tick once
-    settled — the dominant lever, R2) and **cap ticks / cap rendered nodes**, with SURFACE.md's own lever
-    available if the haze is too heavy: **collapse the ~91 Episodics into their `MENTIONS` parent** (a
-    client-side render decision over the existing payload — **no `cortex_fold` change**). The threshold +
-    ceiling behavior are settled **before** this slice closes (R2 is a gate, not a finish).
-  - The freeze-after-convergence + cap is the must; the Episodic-collapse is the contingency lever if the
-    measured frame rate misses the threshold.
-- **Accept:** with the layout frozen after convergence the force tick stops (assert it is not running
-  unbounded — e.g. tick count is bounded / the sim cools to idle); the rendered graph at the measured size
-  hits the stated interactive frame-rate threshold (documented + checked at build time); a growth-stress
-  fixture (well above the current size) degrades via the cap / Episodic-collapse rather than a runaway live
-  tick; **no `cortex_fold`/`_map_node` change** (collapse is a client render decision). Three suites green;
-  the measured number + threshold + chosen ceiling behavior are recorded (in the slice's test/notes).
-- **Codex gate:** `/codex:review` — the freeze + cap actually bound the tick, the threshold is concrete +
-  measured (not "feels fast"), the Episodic-collapse stays client-side (no server fold), conformance to
-  SURFACE.md's stated lever.
-- **Deps:** Slices 2–5 (the full renderer to bound). **Files:** `blog/static/cortex.js`,
-  `tests/test_cortex.py`.
+  - **Re-measure** the current `group_id`'s graph size (it accretes every beat — the Slice-2 number may be
+    stale); if it now misses the Slice-2 FPS threshold, engage the lever below.
+  - **The Episodic-collapse lever (SURFACE.md's own suggestion):** collapse the ~91 `Episodic` nodes into
+    their `MENTIONS` parent so the faint haze stops costing render budget — a **client-side render decision
+    over the existing payload, no `cortex_fold` change.** Plus any finer level-of-detail / edge-bundling
+    tuning beyond the Slice-2 cap.
+- **Accept:** with the lever engaged the rendered density drops and the measured FPS recovers above the
+  Slice-2 threshold at the re-measured (grown) size; the Episodic-collapse is a **client render decision**
+  (the payload + `cortex_fold`/`_map_node` are **unchanged**); the Slice-2 floor (frozen tick, FPS threshold,
+  growth-stress ceiling) **still holds** (re-run that acceptance). Three suites green + the renderer-touching
+  recurring **browser fallback-ladder gate** (this slice touches `cortex.js`); the re-measured number +
+  the engaged lever are recorded.
+- **Codex gate:** `/codex:review` — the lever is genuinely client-side (no server fold), the Slice-2 floor is
+  not regressed, conformance to SURFACE.md's stated lever; **re-run the browser M-GATE** (renderer touched).
+- **Deps:** Slices 2–5 (the full renderer to tune). **Files:** `blog/static/cortex.js`,
+  `tests/test_cortex.py`, the browser/Playwright test (re-run).
 
 ---
 
