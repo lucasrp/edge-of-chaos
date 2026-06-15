@@ -491,6 +491,29 @@ class TestDrainRouteAuthGate(unittest.TestCase):
             fh.write('{"seq": 50, "type": "voz.reply", "payload": {"comment_id": "x", "body": {"k": 1}}}\n')
         self.assertFalse(grill_drain.log_is_intact(self.log))
 
+    def test_voz_comment_missing_body_degrades(self):
+        # the drain indexes comment["body"] directly (_build_live_prompt, _harm_score), so a
+        # voz.comment with NO body must fail the up-front gate — else a KeyError 500s the live drain.
+        import grill_drain
+        with open(self.log, "a") as fh:
+            fh.write('{"seq": 50, "type": "voz.comment", "payload": {"comment_id": "x"}}\n')  # no body
+        self.assertFalse(grill_drain.log_is_intact(self.log))
+
+    def test_route_degrades_on_a_comment_missing_body_generator_backed(self):
+        with open(self.log, "a") as fh:
+            fh.write('{"seq": 50, "type": "voz.comment", "payload": '
+                     '{"target_ref": "alpha-post", "comment_id": "nobody"}}\n')  # no body
+        called = {"n": 0}
+        self.server.DRAIN_REPLY_GENERATOR = lambda c: (called.__setitem__("n", called["n"] + 1)
+                                                       or {"reply": "x"})
+        try:
+            r = self.client.post("/grill/drain")
+            self.assertNotEqual(r.status_code, 500)
+            self.assertEqual(json.loads(r.data)["backfill"], "degraded")
+        finally:
+            self.server.DRAIN_REPLY_GENERATOR = None
+        self.assertEqual(called["n"], 0)
+
     def test_route_degrades_on_a_preexisting_non_string_payload(self):
         # a pre-existing poisoned Voz payload (envelope-valid, body non-string) → the route degrades
         # before the drain/generator, never 500. Proven on the generator-backed path (no spend).

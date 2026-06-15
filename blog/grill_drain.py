@@ -94,19 +94,28 @@ def log_is_intact(log):
         payload = e.get("payload")
         if not isinstance(payload, dict):
             return False
-        # The string fields the drain folds (_harm_score, _close_one, clarify_context) and the blog
-        # render path (html.escape) index — a non-string here would crash a later fold/view.
-        for field in _REQUIRED_STRING_FIELDS.get(e["type"], ()):
+        t = e["type"]
+        # REQUIRED fields the drain indexes DIRECTLY (e.g. comment["body"] in _build_live_prompt /
+        # _harm_score) must be PRESENT and a non-empty string — a missing one would KeyError the
+        # live drain, a non-string would crash .lower(). Must-exist, not just valid-if-present.
+        for field in _REQUIRED_STRING_FIELDS.get(t, ()):
+            v = payload.get(field)
+            if not isinstance(v, str) or not v.strip():
+                return False
+        # PRESENT-ONLY fields: only a fold/render touches them, and only when present — a non-string
+        # here would crash html.escape, but absence is handled elsewhere, so reject only a present non-str.
+        for field in _OPTIONAL_STRING_FIELDS.get(t, ()):
             if field in payload and not isinstance(payload[field], str):
                 return False
     return True
 
 
-# The payload string fields each Voz/Direction event type carries that a fold or the render path
-# treats as a string. Validated by log_is_intact when present (a missing field is a different,
-# already-handled concern; a PRESENT non-string is the poison that crashes .lower()/html.escape).
+# Fields the drain indexes directly → must be present non-empty strings (a missing one KeyErrors).
 _REQUIRED_STRING_FIELDS = {
     "voz.comment": ("body",),
+}
+# Fields only a fold/render touches when present → reject a present non-string (poison), tolerate absence.
+_OPTIONAL_STRING_FIELDS = {
     "voz.reply": ("body",),
     "voz.clarify": ("question",),
     "voz.clarify_answer": ("body",),
