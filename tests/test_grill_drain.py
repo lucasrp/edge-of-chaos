@@ -180,6 +180,31 @@ class TestLegacyBackfill(_Base):
         self.assertEqual(self.drain.backfill_legacy_resolved(self.log), [])
         self.assertIn(cid, [c["comment_id"] for c in self.server.open_comments()])
 
+    def test_backfill_skips_a_replied_comment_with_an_unanswered_clarify(self):
+        # a legacy comment with a real reply BUT a later unanswered voz.clarify is PARKED awaiting
+        # clarification — the back-fill must NOT terminally close it as 'replied' (ADR-0017: a parked
+        # chat is non-terminal). It stays open and is not actionable until the clarify is answered.
+        cid = self._comment("a directive", "alpha-post")
+        self._add("voz.reply", "voz:alpha-post", {"comment_id": cid, "body": "a partial answer"})
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": cid, "clarify_id": "q1", "question": "but which?", "grill_run_id": "g0"})
+        self.assertEqual(self.drain.backfill_legacy_resolved(self.log), [])  # not back-filled
+        self.assertIn(cid, [c["comment_id"] for c in self.server.open_comments()])  # still open
+        self.assertNotIn(cid, [c["comment_id"]
+                               for c in self.drain.actionable_set(self.log)])  # parked, not actionable
+
+    def test_backfill_resumes_after_the_clarify_is_answered(self):
+        # once the parked clarify is answered, the comment is no longer awaiting-clarification; the
+        # drain (not the reply-only back-fill) is what terminally resolves it.
+        cid = self._comment("a directive", "alpha-post")
+        self._add("voz.reply", "voz:alpha-post", {"comment_id": cid, "body": "a partial answer"})
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": cid, "clarify_id": "q1", "question": "but which?", "grill_run_id": "g0"})
+        self._add("voz.clarify_answer", "voz:alpha-post", {"clarify_id": "q1", "body": "this one"})
+        # back-fill still skips it (it is not a plain reply-only legacy comment — it's an active
+        # clarify thread the drain owns), but it IS actionable now.
+        self.assertIn(cid, [c["comment_id"] for c in self.drain.actionable_set(self.log)])
+
     def test_backfill_does_not_touch_an_unreplied_comment(self):
         # a fresh, never-replied directive must stay open (the back-fill is reply-only).
         open_cid = self._comment("a fresh directive", "alpha-post")

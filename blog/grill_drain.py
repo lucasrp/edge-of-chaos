@@ -248,7 +248,12 @@ def _legacy_targets(log):
                if e.get("type") == "voz.reply"
                and isinstance(e["payload"].get("body"), str) and e["payload"]["body"].strip()}
     resolved = terminally_resolved(log)
-    target_set = {cid for cid in replied if cid and cid not in resolved}
+    # A comment PARKED awaiting clarification is non-terminal even if it has a reply — the drain owns
+    # its terminal close once the clarify is answered. The reply-only back-fill must NOT close it
+    # (ADR-0017: a parked chat stays open), so exclude anything awaiting clarification.
+    awaiting = _awaiting_clarification(log)
+    target_set = {cid for cid in replied
+                  if cid and cid not in resolved and cid not in awaiting}
     order = [e["payload"].get("comment_id") for e in _events(log)
              if e.get("type") == "voz.comment"]
     return [cid for cid in order if cid in target_set]
@@ -275,10 +280,13 @@ def backfill_legacy_resolved(log, grill_run_id="legacy-backfill", _force_targets
     appended = []
 
     def _under_lock():
-        # Re-derive the still-unresolved subset UNDER the lock (authoritative), preserving the
-        # caller's order. A target a concurrent drain resolved since we observed it is dropped here.
+        # Re-derive the still-eligible subset UNDER the lock (authoritative), preserving the caller's
+        # order. A target a concurrent drain resolved — or PARKED (a voz.clarify) — since we observed
+        # it is dropped here, so a race can't back-fill over a now-parked or now-resolved chat.
         resolved_now = terminally_resolved(log)
-        live = [cid for cid in targets if cid not in resolved_now]
+        awaiting_now = _awaiting_clarification(log)
+        live = [cid for cid in targets
+                if cid not in resolved_now and cid not in awaiting_now]
         appended[:] = [("voz.resolved", "voz:backfill",
                         {"comment_id": cid, "outcome": "replied", "grill_run_id": grill_run_id})
                        for cid in live]
