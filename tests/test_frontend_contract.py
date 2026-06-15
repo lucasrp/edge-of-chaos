@@ -197,5 +197,33 @@ class TablerOverDarkIdentity(unittest.TestCase):
                         "style.css (dark identity) must load AFTER tabler to win the cascade")
 
 
+class DefaultLogNotPollutedBySmokeTests(unittest.TestCase):
+    """CONTRACT C1 guard (codex Slice-7 round-1 [high]): the DEFAULT committed authoritative log
+    (state/events/log.jsonl) must never gain ad-hoc Voz smoke-test events. A `git add -A` once swept
+    live browser-test voz.* events into it — unresolved voz.comment events fold as REAL open
+    Directives, poisoning shipped state. Auth/browser coverage belongs in hermetic tests that point
+    EDGE_BLOG_LOG at a tmp file; the committed log must stay clean. This tripwire fails if a known
+    smoke-test body (or the manual-test shape) reappears in the committed log."""
+
+    LOG = BLOG.parent / "state" / "events" / "log.jsonl"
+
+    def test_committed_log_has_no_smoke_test_voz_bodies(self):
+        if not self.LOG.is_file():
+            self.skipTest("no committed default log in this checkout")
+        text = self.LOG.read_text()
+        for body in ("teste-do-browser", "via-localhost", "sem-porta", "pwned"):
+            self.assertNotIn(body, text,
+                             f"smoke-test Voz body {body!r} leaked into the committed authoritative log")
+
+    def test_committed_log_is_intact(self):
+        # the committed default log must satisfy the SAME strict integrity check the drain gates on —
+        # contiguous int seqs, dict envelopes, no poisoned payload (a polluted/seq-gapped commit fails).
+        if not self.LOG.is_file():
+            self.skipTest("no committed default log in this checkout")
+        import grill_drain
+        self.assertTrue(grill_drain.log_is_intact(self.LOG),
+                        "the committed default authoritative log is not intact")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
