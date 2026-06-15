@@ -661,6 +661,38 @@ class TestIslandRender(unittest.TestCase):
         """)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
+    def test_default_all_checked_keeps_a_schema_drifted_unknown_label_visible(self):
+        # codex round-2 [medium]: the type controls are a fixed label list, but the live fold tolerates
+        # UNKNOWN labels (_map_node maps them to `extracted`). With every control checked (the default),
+        # typeSelection → null (no type filter) so an unknown-label node stays VISIBLE + SEARCHABLE —
+        # not silently dropped on the first control event. Only an actual UNCHECK narrows.
+        proc = _run_island_logic("""
+            const labels = ['Genesis','Objective','Direction','Artefato','Entity','Source','Episodic'];
+            const p = {nodes: [
+              {id:'k', label:'Community', title:'a cluster node', trust:'extracted', earmarked:false, ts:'2026-07-01'},
+              {id:'a1', label:'Artefato', title:'alpha', trust:'asserted', earmarked:false, ts:'2026-04-01'},
+            ], edges: []};
+            // all checked → no type filter; the unknown-label node is visible by default
+            const allChecked = CortexFilters.typeSelection(labels, labels);
+            assert.strictEqual(allChecked, null);
+            const r = CortexFilters.render(p, {types: allChecked, query: 'cluster'});
+            assert.ok(r.visibleIds.has('k'));            // schema-drifted node visible by default
+            assert.strictEqual(r.searchHit, 'k');        // and searchable (a locator over the WHOLE graph)
+            // an actual narrowing (uncheck one) becomes an explicit allow-list
+            const narrowed = CortexFilters.typeSelection(labels, ['Artefato']);
+            assert.deepStrictEqual(narrowed, ['Artefato']);
+            assert.ok(!CortexFilters.render(p, {types: narrowed}).visibleIds.has('k'));
+            // empty selection is still distinct: hide all
+            assert.deepStrictEqual(CortexFilters.typeSelection(labels, []), []);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_control_state_uses_type_selection_not_raw_checked_list(self):
+        # the DOM control state must route the checked boxes through typeSelection (so all-checked →
+        # null), not pass the raw fixed-label list as an allow-list (the round-2 schema-drift bug).
+        js = CORTEX_JS.read_text()
+        self.assertIn("CortexFilters.typeSelection", js)
+
     def test_island_render_drives_the_dom_no_filtered_out_bypass(self):
         # the DOM island must render from render()/visible() and must NOT carry the bypass that
         # removed `filtered-out` from a search hit (which resurrected a filtered node).

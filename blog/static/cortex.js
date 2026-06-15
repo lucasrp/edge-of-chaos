@@ -17,6 +17,19 @@
   // shown set from scratch every call, so there is no accumulated hidden/visible state — toggling a
   // filter off restores the full set cleanly (the no-stale-state contract).
   var CortexFilters = {
+    // typeSelection(allLabels, checkedLabels) → the `types` value for visible()/render(). When EVERY
+    // control is checked (the default), returns null = "no type filter" so a schema-drifted node whose
+    // label is NOT in the fixed control list (the live fold tolerates unknown labels — _map_node maps
+    // them to `extracted`) stays visible + searchable by default (codex round-2 [medium]). Only once
+    // the user actually UNCHECKS a type does it become an explicit allow-list. An empty selection →
+    // [] (hide all), distinct from null.
+    typeSelection: function (allLabels, checkedLabels) {
+      var all = (allLabels || []).length;
+      var checked = (checkedLabels || []).length;
+      if (all > 0 && checked === all) return null; // all checked → no filter (whole graph)
+      return (checkedLabels || []).slice();
+    },
+
     // search(payload, query) → {matchId, count}. Deterministic substring match over a node's title,
     // label (node type), and id. Empty / whitespace query → no match (clears the locator, never a
     // match-all). matchId is the FIRST matching node in payload order — the one to center on.
@@ -306,8 +319,12 @@
   function controlState() {
     var types = null;
     if (typeBoxes.length) {
-      types = typeBoxes.filter(function (b) { return b.checked; })
-                       .map(function (b) { return b.value; });
+      // route through typeSelection: all-checked → null (no type filter) so a schema-drifted node
+      // whose label is not a control stays visible + searchable by default (codex round-2 [medium]).
+      var allLabels = typeBoxes.map(function (b) { return b.value; });
+      var checked = typeBoxes.filter(function (b) { return b.checked; })
+                             .map(function (b) { return b.value; });
+      types = CortexFilters.typeSelection(allLabels, checked);
     }
     var recencyFraction = 0;
     if (recencyRange) recencyFraction = (parseFloat(recencyRange.value) || 0) / 100;
