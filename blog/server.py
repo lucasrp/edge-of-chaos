@@ -546,9 +546,13 @@ def post_clarify_answer(clarify_id):
         abort(404)  # an answer for a clarify that does not exist — a forged child ref
     body = (request.form.get("body") or "").strip()
     if body:
+        # Single-writer per clarify_id (idem key = the clarify_id ALONE, not clarify_id+body): a
+        # parked question has ONE answer, so a stale-tab/retry with DIFFERENT text is dropped under
+        # the lock — never a second, conflicting voz.clarify_answer the close could resolve on the
+        # wrong one (the answer the drain snapshotted is the only answer there can be). First wins.
         _append_voz("voz.clarify_answer", f"voz:{target or 'chat'}",
                     {"clarify_id": clarify_id, "body": body},
-                    idem_key=_comment_idem_key(request.form.get("clarify_id"), body))
+                    idem_key=f"clarify-answer:{clarify_id}")
     return _render_thread(target) if target else _render_chat()
 
 

@@ -104,8 +104,9 @@ def consistency_errors(log):
     (more than one terminal outcome for a `comment_id`), an ORPHAN `voz.resolved` (no preceding
     `voz.comment`), and a `folded-to-direction`/`retired-direction` whose `direction_id` has no
     matching `direction.set`/`direction.dropped`. Symmetric across create/promote/retire."""
-    comment_ids, resolved_counts, set_ids, dropped_ids = set(), {}, set(), set()
-    folds = []  # (comment_id, outcome, direction_id)
+    comment_ids, resolved_counts = set(), {}
+    set_origin, dropped_origin = {}, {}  # direction id -> origin_comment_id (None if absent)
+    folds = []  # (comment_id, outcome, direction_id, resolved_origin)
     for e in _events(log):
         t, p = e.get("type"), e.get("payload", {})
         if t == "voz.comment":
@@ -114,22 +115,35 @@ def consistency_errors(log):
             cid = p.get("comment_id")
             resolved_counts[cid] = resolved_counts.get(cid, 0) + 1
             if p.get("outcome") in ("folded-to-direction", "retired-direction"):
-                folds.append((cid, p.get("outcome"), p.get("direction_id")))
+                folds.append((cid, p.get("outcome"), p.get("direction_id"),
+                              p.get("origin_comment_id")))
         elif t == "direction.set":
-            set_ids.add(p.get("id"))
+            set_origin[p.get("id")] = p.get("origin_comment_id")
         elif t == "direction.dropped":
-            dropped_ids.add(p.get("id"))
+            dropped_origin[p.get("id")] = p.get("origin_comment_id")
     errors = []
     for cid, n in resolved_counts.items():
         if n > 1:
             errors.append({"kind": "duplicate-resolved", "comment_id": cid, "count": n})
         if cid not in comment_ids:
             errors.append({"kind": "orphan-resolved", "comment_id": cid})
-    for cid, outcome, did in folds:
-        target = set_ids if outcome == "folded-to-direction" else dropped_ids
-        if did not in target:
+    for cid, outcome, did, resolved_origin in folds:
+        origins = set_origin if outcome == "folded-to-direction" else dropped_origin
+        if did not in origins:
             errors.append({"kind": "dangling-direction", "comment_id": cid,
                            "outcome": outcome, "direction_id": did})
+            continue
+        # ADR-0007 / SURFACE.md provenance: the matched Direction mutation MUST carry an
+        # origin_comment_id, and it must equal the resolved event's origin_comment_id — else the
+        # steer⇄comment audit link is broken (a folded Directive with no/with wrong provenance).
+        dir_origin = origins[did]
+        if not dir_origin:
+            errors.append({"kind": "provenance-missing", "comment_id": cid,
+                           "outcome": outcome, "direction_id": did})
+        elif dir_origin != resolved_origin:
+            errors.append({"kind": "provenance-mismatch", "comment_id": cid,
+                           "outcome": outcome, "direction_id": did,
+                           "direction_origin": dir_origin, "resolved_origin": resolved_origin})
     return errors
 
 

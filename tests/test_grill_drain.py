@@ -291,6 +291,22 @@ class TestClarifyAnswerSurface(_Base):
         self.assertEqual(ans[0]["payload"]["body"], "the left framing")
         self.assertEqual(len(self._events("voz.comment")), before_comments)  # no new comment
 
+    def test_clarify_answer_is_single_writer_per_clarify_id(self):
+        # the gate's finding: a second, DIFFERENT-body answer for the same clarify_id must NOT
+        # append a conflicting voz.clarify_answer (which a dict-keyed fold would silently collapse
+        # and a stale drain could resolve on the wrong one). First answer wins, under the lock.
+        cid = self._comment("ambiguous one", "alpha-post")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": cid, "clarify_id": "q1", "question": "which?", "grill_run_id": "g0"})
+        self.client.post("/clarify/q1/answer", data={"body": "answer A"})
+        before = len(self._events("voz.clarify_answer"))
+        # a stale tab / retry submits a DIFFERENT body for the same clarify → rejected, no second event
+        self.client.post("/clarify/q1/answer", data={"body": "answer B — conflicting"})
+        self.assertEqual(len(self._events("voz.clarify_answer")), before)  # still exactly one
+        ans = self._events("voz.clarify_answer")
+        self.assertEqual(len(ans), 1)
+        self.assertEqual(ans[0]["payload"]["body"], "answer A")  # first answer wins
+
     def test_clarify_answer_re_enters_then_drains_to_terminal(self):
         # end-to-end: park → answer via the route → drain terminally resolves.
         cid = self._comment("ambiguous one", "alpha-post")
@@ -566,10 +582,43 @@ class TestConsistencyErrors(_Base):
         errs = self.drain.consistency_errors(self.log)
         self.assertTrue(any(e["kind"] == "dangling-direction" for e in errs))
 
+    def test_folded_direction_missing_origin_comment_id_is_a_consistency_error(self):
+        # ADR-0007/SURFACE: a Direction mutation folded from a Directive MUST carry origin_comment_id.
+        # A direction.set the resolved points at, but with NO origin_comment_id, is a broken audit link.
+        cid = self._comment("steer", "alpha-post")
+        self._add("direction.set", "direction",
+                  {"id": "d1", "body": "a steer", "kind": "thread", "supersedes": None})  # no origin!
+        self._add("voz.resolved", "voz:alpha-post",
+                  {"comment_id": cid, "outcome": "folded-to-direction",
+                   "origin_comment_id": cid, "direction_id": "d1", "grill_run_id": "g1"})
+        errs = self.drain.consistency_errors(self.log)
+        self.assertTrue(any(e["kind"] == "provenance-missing" for e in errs))
+
+    def test_folded_direction_mismatched_origin_is_a_consistency_error(self):
+        # the direction.set carries a DIFFERENT origin_comment_id than the resolved event → mismatch.
+        cid = self._comment("steer", "alpha-post")
+        self._add("direction.set", "direction",
+                  {"id": "d1", "body": "a steer", "kind": "thread", "supersedes": None,
+                   "origin_comment_id": "someone-else"})
+        self._add("voz.resolved", "voz:alpha-post",
+                  {"comment_id": cid, "outcome": "folded-to-direction",
+                   "origin_comment_id": cid, "direction_id": "d1", "grill_run_id": "g1"})
+        errs = self.drain.consistency_errors(self.log)
+        self.assertTrue(any(e["kind"] == "provenance-mismatch" for e in errs))
+
     def test_a_clean_drain_has_no_consistency_errors(self):
         self._comment("clean", "alpha-post")
         self.drain.drain(self.log, self._reply_stub(), grill_run_id="g1")
         self.assertEqual(self.drain.consistency_errors(self.log), [])
+
+    def test_a_clean_fold_has_no_provenance_error(self):
+        # the real drain fold carries matching origin_comment_id on both events → clean.
+        cid = self._comment("a standing steer", "alpha-post")
+        self.drain.drain(self.log,
+                         lambda c: {"reply": "r", "directive": True, "direction_body": "x"},
+                         grill_run_id="g1")
+        errs = self.drain.consistency_errors(self.log)
+        self.assertEqual([e for e in errs if "provenance" in e["kind"]], [])
 
 
 class TestCapAndOverflow(_Base):
