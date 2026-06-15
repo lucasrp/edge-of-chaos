@@ -164,6 +164,7 @@ _NAV_LINKS = (
     ("/briefing", "briefing"),
     ("/direction", "direction"),
     ("/docs", "docs"),
+    ("/wiki", "wiki"),
 )
 
 
@@ -782,12 +783,25 @@ def _posts():
     return posts
 
 
+def _distill_chip(d):
+    """One `distills` chip. A distilled Knowledge cluster carries the form `cluster:<id>` — render it
+    as a LIVE drill-down into the cluster thread (/wiki/<id>), so clusters are reachable from an
+    Artefato's distills (PLAN.md accept), not just the standalone /wiki route. Any other distill ref
+    renders as plain escaped text (no link)."""
+    s = str(d)
+    if s.startswith("cluster:") and len(s) > len("cluster:"):
+        cid = s[len("cluster:"):]
+        return (f'<li class="distill">distills · '
+                f'<a href="{_wiki_href(html.escape(cid))}">{html.escape(s)}</a></li>')
+    return f'<li class="distill">distills · {html.escape(s)}</li>'
+
+
 def _artifact_items(post):
     items = []
     for c in post["cites"]:
         items.append(f'<li class="cite">cites · {html.escape(str(c))}</li>')
     for d in post["distills"]:
-        items.append(f'<li class="distill">distills · {html.escape(str(d))}</li>')
+        items.append(_distill_chip(d))
     for pr in post["proposes"]:
         body = pr.get("body", "") if isinstance(pr, dict) else str(pr)
         items.append(f'<li class="proposes">proposes · {_esc(body)}</li>')
@@ -1321,7 +1335,8 @@ def briefing_surface():
         '<main class="blog briefing-page"><h1>edge — briefing</h1>'
         '<p class="meta">a self-state landing — exatamente o que o edge lê ao acordar '
         '(Memento\'s tattoo), com o health strip do read-model acima. '
-        'Drill-down: <a href="/direction">os steers (Direction) →</a></p>'
+        'Drill-down: <a href="/direction">os steers (Direction) →</a> · '
+        '<a href="/wiki">Knowledge clusters (wiki) →</a></p>'
         f'{strip}{briefing_block}</main>'
         '</body></html>'
     )
@@ -1645,6 +1660,164 @@ def doc_view(doc_id):
         f'<article class="doc-body">{rendered}</article></main>'
         '</body></html>'
     )
+
+
+# ── Emergent-knowledge surface — the wiki / Knowledge clusters (Slice 5b, AUDIT.md gap C) ────────
+#
+# The edge's emergent Knowledge clusters (the llm-wiki) live as rendered HTML pages
+# (state/wiki/index.html + cluster-*.html) — `GET /wiki` indexes them and `GET /wiki/<cluster>`
+# drills into one thread, in-dashboard, so the mentee never reaches them only as files.
+#
+# ⚠️ SECURITY (PLAN.md, do not skip): unlike the design docs (markdown → docmd), the wiki pages are
+# FULL edge-generated, SOURCE-DERIVED HTML. They must NOT execute same-origin in the authed
+# dashboard: an injected `<script>` / `on*=` handler / `javascript:` URL could otherwise read state
+# and fire an authenticated log-mutating POST, defeating the Slice-1 write gate. So a cluster page is
+# rendered INERT by ISOLATION, not by trusting a denylist scrub of arbitrary HTML: the raw page is
+# served from a dedicated `/wiki/<cluster>/raw` route under a `default-src 'none'` + `sandbox` CSP
+# and embedded in a `sandbox`ed iframe (NO allow-scripts, NO allow-same-origin) — scripts never run,
+# handlers never fire, and even a hypothetical execution has no same-origin access to the dashboard.
+# The /wiki INDEX never embeds raw HTML at all: it re-renders a server-built list of cluster links
+# (the cluster *titles* are html-escaped), so the index page itself carries no source HTML.
+
+# The restrictive CSP for a raw cluster response: forbid ALL active content (default-src 'none'), and
+# add the `sandbox` directive as a second, header-level isolation even when loaded directly (no
+# scripts, no same-origin, no forms). allow-* is DELIBERATELY absent — re-enabling scripts or
+# same-origin would defeat the boundary.
+_WIKI_RAW_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+
+
+def _wiki_root():
+    """The directory the edge's wiki pages live under (index.html + cluster-*.html), env-overridable
+    for tests (CONTRACT C1 — a throwaway tree, never the real state/wiki as the system under test).
+    Unset → the install's real wiki at <root>/state/wiki."""
+    override = os.environ.get("EDGE_WIKI_ROOT")
+    return Path(override) if override else _docs_root() / "state" / "wiki"
+
+
+def _cluster_title(path):
+    """A cluster page's human title = its <title> (or the first <h1>), tag-stripped + unescaped, else
+    the file stem. Read defensively — a missing/unreadable file falls back to the stem, never raises.
+    Only ever used as ESCAPED text on the index, never as live markup."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return path.stem
+    for pat in (r"<title[^>]*>(.*?)</title>", r"<h1[^>]*>(.*?)</h1>"):
+        m = re.search(pat, text, re.IGNORECASE | re.DOTALL)
+        if m:
+            # strip any nested tags (e.g. an <h1>Title <span>tag</span></h1>) then unescape entities.
+            inner = re.sub(r"<[^>]+>", "", m.group(1))
+            inner = html.unescape(inner).strip()
+            if inner:
+                return inner
+    return path.stem
+
+
+def _cluster_registry():
+    """The ordered registry of every Knowledge cluster: (cluster_id, title, source Path). The
+    `cluster_id` is the stable, URL-safe handle a /wiki/<cluster_id> view resolves — derived from the
+    `cluster-<id>.html` filename. This is the ALLOWLIST: a /wiki/<id> view resolves only over this
+    list, so a forged id / traversal attempt reaches no file (404), never an arbitrary filesystem
+    read. Sorted by id for a stable index."""
+    root = _wiki_root()
+    if not root.is_dir():
+        return []
+    entries = []
+    for f in sorted(root.glob("cluster-*.html")):
+        cid = f.stem[len("cluster-"):]
+        if cid:
+            entries.append((cid, _cluster_title(f), f))
+    return entries
+
+
+def _cluster_by_id(cluster_id):
+    """Resolve a `cluster_id` to its source Path, or None. The lookup is over the registry allowlist,
+    so an arbitrary/forged id (incl. a traversal attempt) resolves to None → the route 404s, never an
+    arbitrary filesystem read."""
+    for cid, _title, path in _cluster_registry():
+        if cid == cluster_id:
+            return path
+    return None
+
+
+def _wiki_href(cluster_id):
+    """The in-dashboard drill-down URL for a cluster id (the rewrite target for a relative
+    `cluster-<id>.html` link on the source index)."""
+    return f"/wiki/{cluster_id}"
+
+
+@app.get("/wiki")
+def wiki_index():
+    """The Knowledge-cluster index: every cluster as a navigable in-dashboard link (the relative
+    `cluster-*.html` file links rewritten to /wiki/<id>). A server-built list — the index page embeds
+    NO source HTML, so it carries no injection surface; the cluster titles are html-escaped. Read-only
+    fold of the wiki registry; zero API spend."""
+    items = "".join(
+        f'<li><a href="{_wiki_href(cid)}">{html.escape(title)}</a></li>'
+        for cid, title, _ in _cluster_registry()
+    )
+    body = (f'<ul class="wiki-clusters">{items}</ul>' if items
+            else '<p class="meta">sem clusters ainda</p>')
+    return (
+        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
+        '<title>edge — wiki</title>'
+        '<link rel="stylesheet" href="/static/style.css">'
+        '</head><body>'
+        f'{_site_nav("/wiki")}'
+        '<main class="blog wiki-page"><h1>edge — wiki</h1>'
+        '<p class="meta">os Knowledge clusters do edge — conhecimento emergente, navegável aqui. '
+        'Cada cluster é HTML edge-gerado, renderizado isolado (sandbox), nunca como arquivo.</p>'
+        f'{body}</main>'
+        '</body></html>'
+    )
+
+
+@app.get("/wiki/<cluster_id>")
+def wiki_cluster(cluster_id):
+    """A single Knowledge cluster, isolated in a `sandbox`ed iframe pointing at the raw sub-route. The
+    `cluster_id` resolves over the registry allowlist (an unknown/forged id or traversal → 404). The
+    raw edge-generated HTML never lands in THIS authed parent document — it lives only inside the
+    sandboxed frame (no allow-scripts, no allow-same-origin), so nothing executes same-origin."""
+    if _cluster_by_id(cluster_id) is None:
+        abort(404)
+    title = next((t for cid, t, _ in _cluster_registry() if cid == cluster_id), cluster_id)
+    cid = html.escape(cluster_id)
+    return (
+        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
+        f'<title>edge — {html.escape(title)}</title>'
+        '<link rel="stylesheet" href="/static/style.css">'
+        '</head><body>'
+        f'{_site_nav("/wiki")}'
+        '<main class="blog wiki-page wiki-cluster">'
+        f'<p class="meta"><a href="/wiki">← wiki</a> · {html.escape(title)} · '
+        'isolado (sandbox), inerte por construção</p>'
+        # sandbox="" (empty value) = the most restrictive: no scripts, no same-origin, no forms. The
+        # edge-generated HTML renders inside this frame only, never in the authed parent.
+        f'<iframe class="wiki-frame" src="/wiki/{cid}/raw" sandbox="" '
+        f'title="{html.escape(title)}" referrerpolicy="no-referrer"></iframe>'
+        '</main></body></html>'
+    )
+
+
+@app.get("/wiki/<cluster_id>/raw")
+def wiki_cluster_raw(cluster_id):
+    """The raw edge-generated cluster HTML — the iframe `src`. Served under a `default-src 'none'` +
+    `sandbox` CSP and X-Frame-Options/nosniff, so even loaded directly it executes nothing and has no
+    same-origin access to the dashboard. The id resolves over the registry allowlist (forged/traversal
+    → 404). This is the ONE place the source HTML is served, and it is sandboxed at the header level."""
+    path = _cluster_by_id(cluster_id)
+    if path is None:
+        abort(404)
+    try:
+        source = path.read_text()
+    except OSError:
+        abort(404)
+    return source, 200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": _WIKI_RAW_CSP,
+        "X-Frame-Options": "SAMEORIGIN",
+        "X-Content-Type-Options": "nosniff",
+    }
 
 
 @app.get("/e/<path:name>")
