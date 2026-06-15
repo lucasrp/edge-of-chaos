@@ -746,6 +746,39 @@ def cortex():
     )
 
 
+# ── Slice 2 — the grill drain route (POST /grill/drain), behind the Slice-1 auth gate ───────────
+#
+# The drain directs answers back on its own (the grill_drain module). This HTTP entry point sits
+# behind authorize_write() exactly like every other log-mutating route (a drain appends to the
+# authoritative log). ⚠️ COST: the reply-generator hits the edge's chat router (gpt-5.4 on the
+# user's OpenAI API), billed per call. So the route NEVER spends by default — a live drain runs only
+# when the operator opts in with EDGE_DRAIN_LIVE=1 (otherwise 503, no append). Tests inject a stub
+# via DRAIN_REPLY_GENERATOR (zero real LLM calls). The drain itself can also run as a local-only
+# tool: `grill_drain.drain(log, grill_drain.live_reply_generator())`.
+
+# A test/local seam: when set (callable(comment)->plan), the route uses it instead of the live
+# generator — so the suite drives the route end-to-end with NO API spend.
+DRAIN_REPLY_GENERATOR = None
+
+
+@app.post("/grill/drain")
+def grill_drain_route():
+    if not authorize_write():
+        abort(403)  # per Slice 1 — unauthenticated / cross-origin → rejected, no append
+    import grill_drain
+    reply_fn = DRAIN_REPLY_GENERATOR
+    if reply_fn is None:
+        if os.environ.get("EDGE_DRAIN_LIVE") != "1":
+            # Default: refuse to spend the user's OpenAI API. No generator, no append.
+            return ('{"status": "no-generator", "detail": "live drain disabled '
+                    '(set EDGE_DRAIN_LIVE=1 to spend the edge OpenAI API)"}', 503,
+                    {"Content-Type": "application/json"})
+        reply_fn = grill_drain.live_reply_generator()  # ⚠️ spends the user's OpenAI API
+    loaded = grill_drain.drain(_log(), reply_fn)
+    return (json.dumps({"status": "drained", "loaded": [c.get("comment_id") for c in loaded]}),
+            200, {"Content-Type": "application/json"})
+
+
 @app.get("/e/<path:name>")
 def entry(name):
     entries = _entries()

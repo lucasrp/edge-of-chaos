@@ -118,5 +118,359 @@ class TestOpenCommentsKeyOnResolved(_Base):
         self.assertIn(cid, opens)  # parked is non-terminal — still open
 
 
+class TestLegacyBackfill(_Base):
+    """Acceptance (h): the lifecycle switch must NOT re-open historical reply-only comments (incl.
+    the hand-appended "oi"), and the back-fill is IDEMPOTENT — re-running adds nothing."""
+
+    def test_backfill_closes_a_historical_reply_only_comment(self):
+        # the "oi" dead-letter: a comment hand-answered with a voz.reply but never voz.resolved.
+        cid = self._comment("oi", "alpha-post")
+        self._add("voz.reply", "voz:alpha-post", {"comment_id": cid, "body": "hand reply"})
+        # before back-fill the switch would (wrongly) re-open it
+        self.assertIn(cid, [c["comment_id"] for c in self.server.open_comments()])
+        self.drain.backfill_legacy_resolved(self.log)
+        # after: closed, with a voz.resolved{replied}
+        self.assertNotIn(cid, [c["comment_id"] for c in self.server.open_comments()])
+        res = [e for e in self._events("voz.resolved") if e["payload"]["comment_id"] == cid]
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["payload"]["outcome"], "replied")
+
+    def test_backfill_is_idempotent(self):
+        cid = self._comment("oi", "alpha-post")
+        self._add("voz.reply", "voz:alpha-post", {"comment_id": cid, "body": "hand reply"})
+        first = self.drain.backfill_legacy_resolved(self.log)
+        self.assertEqual(len(first), 1)
+        before = len(self._events())
+        second = self.drain.backfill_legacy_resolved(self.log)
+        self.assertEqual(second, [])  # re-running adds NOTHING
+        self.assertEqual(len(self._events()), before)
+
+    def test_backfill_does_not_touch_an_unreplied_comment(self):
+        # a fresh, never-replied directive must stay open (the back-fill is reply-only).
+        open_cid = self._comment("a fresh directive", "alpha-post")
+        self.drain.backfill_legacy_resolved(self.log)
+        self.assertIn(open_cid, [c["comment_id"] for c in self.server.open_comments()])
+
+    def test_drain_never_reprocesses_a_backfilled_comment(self):
+        # acceptance (h): after back-fill, a drain must not re-reply or re-fold the legacy comment.
+        cid = self._comment("oi", "alpha-post")
+        self._add("voz.reply", "voz:alpha-post", {"comment_id": cid, "body": "hand reply"})
+        self.drain.backfill_legacy_resolved(self.log)
+        replies_before = len(self._events("voz.reply"))
+        loaded = self.drain.drain(self.log, self._reply_stub(), grill_run_id="g1")
+        self.assertEqual([c["comment_id"] for c in loaded], [])  # nothing actionable
+        self.assertEqual(len(self._events("voz.reply")), replies_before)  # no new reply
+
+
+class TestActionableSet(_Base):
+    """Acceptance (c): the drain loads only the actionable set — a parked voz.clarify with no
+    answer is NOT re-loaded; a voz.clarify_answer re-enters it."""
+
+    def test_parked_clarify_without_answer_is_not_actionable(self):
+        cid = self._comment("ambiguous one", "alpha-post")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": cid, "clarify_id": "q1", "question": "which?", "grill_run_id": "g0"})
+        actionable = [c["comment_id"] for c in self.drain.actionable_set(self.log)]
+        self.assertNotIn(cid, actionable)
+        # but it IS still open (parked, in the awaiting-clarification count)
+        self.assertIn(cid, [c["comment_id"] for c in self.server.open_comments()])
+
+    def test_clarify_answer_re_enters_the_actionable_set(self):
+        cid = self._comment("ambiguous one", "alpha-post")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": cid, "clarify_id": "q1", "question": "which?", "grill_run_id": "g0"})
+        self._add("voz.clarify_answer", "voz:alpha-post", {"clarify_id": "q1", "body": "the left one"})
+        actionable = [c["comment_id"] for c in self.drain.actionable_set(self.log)]
+        self.assertIn(cid, actionable)  # the answer re-enters it
+
+    def test_answered_clarify_drains_to_a_terminal_resolution(self):
+        # acceptance (c, full): a parked chat WITH a clarify_answer re-enters the actionable set and
+        # a later drain terminally resolves it.
+        cid = self._comment("ambiguous one", "alpha-post")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": cid, "clarify_id": "q1", "question": "which?", "grill_run_id": "g0"})
+        self._add("voz.clarify_answer", "voz:alpha-post", {"clarify_id": "q1", "body": "the left one"})
+        self.drain.drain(self.log, self._reply_stub(), grill_run_id="g1")
+        res = [e for e in self._events("voz.resolved") if e["payload"]["comment_id"] == cid]
+        self.assertEqual(len(res), 1)  # terminally resolved
+        self.assertNotIn(cid, [c["comment_id"] for c in self.server.open_comments()])
+
+    def test_clarify_answer_is_never_a_new_directive(self):
+        # a voz.clarify_answer must never open a chat (it is a child event, not a voz.comment).
+        cid = self._comment("ambiguous one", "alpha-post")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": cid, "clarify_id": "q1", "question": "which?", "grill_run_id": "g0"})
+        before = [c["comment_id"] for c in self.server.open_comments()]
+        self._add("voz.clarify_answer", "voz:alpha-post", {"clarify_id": "q1", "body": "answer"})
+        after = [c["comment_id"] for c in self.server.open_comments()]
+        self.assertEqual(set(after), set(before))  # no NEW open chat from the answer
+
+
+class TestDrainRouteAuthGate(unittest.TestCase):
+    """Acceptance (g): the drain route (HTTP) sits behind the Slice-1 auth gate — an
+    unauthenticated / cross-origin call is rejected with NO append (per Slice 1). And the route
+    NEVER calls a live LLM in tests (the reply-generator is injectable; default refuses to spend)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.log = root / "log.jsonl"
+        self.log.write_text("\n".join([
+            _ev(1, "2026-06-10T09:00:00+00:00", "artefato.published", "artefato:alpha-post",
+                {"slug": "alpha-post", "cites": [], "distills": [], "proposes": []}),
+        ]) + "\n")
+        os.environ["EDGE_BLOG_LOG"] = str(self.log)
+        os.environ["EDGE_BLOG_ENTRIES"] = str(root)
+        os.environ["EDGE_BLOG_STATIC"] = str(root)
+        os.environ["EDGE_DASH_AUTH"] = "on"  # the real gate
+        os.environ.pop("EDGE_DASH_TOKEN", None)
+        import server
+        importlib.reload(server)
+        self.server = server
+        self.client = server.app.test_client()
+
+    def tearDown(self):
+        for k in ("EDGE_BLOG_LOG", "EDGE_DASH_AUTH", "EDGE_DASH_TOKEN"):
+            os.environ.pop(k, None)
+        self.tmp.cleanup()
+
+    def _count(self):
+        return len([ln for ln in self.log.read_text().splitlines() if ln.strip()])
+
+    def test_unauthenticated_drain_is_rejected_with_no_append(self):
+        before = self._count()
+        r = self.client.post("/grill/drain", environ_overrides={"REMOTE_ADDR": "10.0.0.5"})
+        self.assertIn(r.status_code, (401, 403))
+        self.assertEqual(self._count(), before)  # nothing appended
+
+    def test_cross_origin_drain_is_rejected_with_no_append(self):
+        before = self._count()
+        r = self.client.post("/grill/drain", headers={"Origin": "http://evil.example"})
+        self.assertIn(r.status_code, (401, 403))
+        self.assertEqual(self._count(), before)
+
+    def test_authed_drain_does_not_call_a_live_llm_by_default(self):
+        # the operator triggers the route, but no reply-generator is configured → the route must
+        # NOT invoke a live LLM (no API spend). It returns a "no generator" signal, no append.
+        before = self._count()
+        r = self.client.post("/grill/drain")  # local operator, authed
+        self.assertIn(r.status_code, (200, 503))
+        # whatever the status, nothing was generated (no voz.reply / voz.resolved) — no LLM spend
+        types = [json.loads(ln)["type"] for ln in self.log.read_text().splitlines() if ln.strip()]
+        self.assertNotIn("voz.reply", types)
+
+    def test_authed_drain_with_injected_stub_runs_end_to_end_no_llm(self):
+        # the route's vertical, proven with a STUB generator (no API spend): an authed drain
+        # replies + resolves an open comment through the HTTP entry point.
+        import uuid
+        cid = uuid.uuid4().hex[:12]
+        # seed an open comment via the canonical append
+        import eventlog
+        eventlog.append("voz.comment", "voz:alpha-post",
+                        {"target_ref": "alpha-post", "comment_id": cid, "body": "steer it"},
+                        log=self.log)
+        self.server.DRAIN_REPLY_GENERATOR = lambda c: {"reply": "stub reply, no llm"}
+        try:
+            r = self.client.post("/grill/drain")
+            self.assertEqual(r.status_code, 200)
+            self.assertIn(cid, json.loads(r.data)["loaded"])
+        finally:
+            self.server.DRAIN_REPLY_GENERATOR = None
+        types = [json.loads(ln)["type"] for ln in self.log.read_text().splitlines() if ln.strip()]
+        self.assertIn("voz.reply", types)
+        self.assertIn("voz.resolved", types)
+
+
+class TestDrainHappyPath(_Base):
+    """Acceptance (a): post a comment → drain → a voz.reply generates, the comment leaves
+    open_comments() (the dead-letter is gone)."""
+
+    def test_drain_replies_and_closes_a_comment(self):
+        cid = self._comment("tighten the framing", "alpha-post")
+        self.assertIn(cid, [c["comment_id"] for c in self.server.open_comments()])
+        loaded = self.drain.drain(self.log, self._reply_stub("ed says"), grill_run_id="g1")
+        self.assertEqual([c["comment_id"] for c in loaded], [cid])
+        # a voz.reply generated (from the stub — no real LLM)
+        replies = [e for e in self._events("voz.reply") if e["payload"]["comment_id"] == cid]
+        self.assertEqual(len(replies), 1)
+        self.assertIn("ed says", replies[0]["payload"]["body"])
+        # a terminal voz.resolved{replied} landed; the comment left open_comments()
+        res = [e for e in self._events("voz.resolved") if e["payload"]["comment_id"] == cid]
+        self.assertEqual(res[0]["payload"]["outcome"], "replied")
+        self.assertNotIn(cid, [c["comment_id"] for c in self.server.open_comments()])
+
+    def test_reply_fn_is_called_once_per_loaded_comment_no_real_llm(self):
+        # prove the generator is pluggable + stubbed: the suite makes ZERO real LLM calls.
+        self._comment("one", "alpha-post")
+        self._comment("two", "beta-post")
+        calls = []
+
+        def spy(comment):
+            calls.append(comment["comment_id"])
+            return {"reply": "ok"}
+
+        self.drain.drain(self.log, spy, grill_run_id="g1")
+        self.assertEqual(len(calls), 2)
+
+    def test_drain_is_idempotent_under_the_same_grill_run_id(self):
+        # acceptance (d, idempotency): re-running the SAME grill_run_id adds nothing (a retry
+        # replays the identical planned batch).
+        self._comment("a directive", "alpha-post")
+        self.drain.drain(self.log, self._reply_stub(), grill_run_id="g1")
+        before = len(self._events())
+        # the SAME run id over a fresh actionable read — the comment is already closed, so it is
+        # no longer actionable; even if it were, the precondition would drop the duplicate.
+        self.drain.drain(self.log, self._reply_stub(), grill_run_id="g1")
+        self.assertEqual(len(self._events()), before)
+
+
+class TestFoldToDirection(_Base):
+    """Acceptance (b): a standing Directive → drain → direction.set + voz.resolved{
+    folded-to-direction, origin_comment_id, direction_id} land ATOMICALLY."""
+
+    @staticmethod
+    def _directive_stub():
+        def gen(comment):
+            return {"reply": "folding this into a steer",
+                    "directive": True, "direction_body": "standing: " + comment["body"]}
+        return gen
+
+    def test_standing_directive_folds_to_direction_atomically(self):
+        cid = self._comment("always cite an outside benchmark", "alpha-post")
+        self.drain.drain(self.log, self._directive_stub(), grill_run_id="g1")
+        # direction.set with origin_comment_id
+        sets = [e for e in self._events("direction.set")
+                if e["payload"].get("origin_comment_id") == cid]
+        self.assertEqual(len(sets), 1)
+        direction_id = sets[0]["payload"]["id"]
+        # voz.resolved{folded-to-direction} carrying origin_comment_id + the matching direction_id
+        res = [e for e in self._events("voz.resolved") if e["payload"]["comment_id"] == cid]
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["payload"]["outcome"], "folded-to-direction")
+        self.assertEqual(res[0]["payload"]["origin_comment_id"], cid)
+        self.assertEqual(res[0]["payload"]["direction_id"], direction_id)
+        # no consistency error — the direction_id resolves to a real direction.set
+        self.assertEqual(self.drain.consistency_errors(self.log), [])
+
+    def test_fold_is_one_atomic_append_batch(self):
+        # the reply + direction.set + voz.resolved share ONE write — contiguous seqs, no half-state.
+        cid = self._comment("a standing steer", "alpha-post")
+        comment_seq = self._events("voz.comment")[-1]["seq"]
+        self.drain.drain(self.log, self._directive_stub(), grill_run_id="g1")
+        # the three CLOSE events (exclude the seeding voz.comment, which shares comment_id == cid)
+        seqs = sorted(e["seq"] for e in self._events()
+                      if e["seq"] > comment_seq
+                      and (e.get("payload", {}).get("comment_id") == cid
+                           or e.get("payload", {}).get("origin_comment_id") == cid))
+        self.assertEqual(len(seqs), 3)  # voz.reply + direction.set + voz.resolved
+        # contiguous (one append_batch stamps a contiguous seq range — no interleaving, no half)
+        self.assertEqual(seqs, list(range(seqs[0], seqs[0] + 3)))
+
+
+class TestVersionGuardConcurrency(_Base):
+    """Acceptance (d): a stale/concurrent drain must NOT produce a second terminal outcome (the
+    version guard); a crash mid-close leaves a chat fully resolved-or-open, never half."""
+
+    def test_a_stale_drain_cannot_double_close(self):
+        cid = self._comment("contested", "alpha-post")
+        # drain A captures its start cursor (before any close)
+        start_cursor = self.drain._start_cursor(self.log)
+        # drain B (a concurrent grill) closes the chat first
+        self.drain.drain(self.log, self._reply_stub("B"), grill_run_id="gB")
+        self.assertEqual(len(self._events("voz.resolved")), 1)
+        # drain A now tries to close the SAME comment with its STALE cursor → guard drops it
+        comment = [c for c in self.drain.open_comments(self.log) if c["comment_id"] == cid]
+        # (it already left open; simulate A still holding the loaded comment)
+        loaded_comment = {"comment_id": cid, "target_ref": "alpha-post", "body": "contested"}
+        result = self.drain._close_one(
+            self.log, loaded_comment, {"reply": "A"}, "gA", start_cursor)
+        self.assertEqual(result, [])  # stale batch dropped
+        self.assertEqual(len(self._events("voz.resolved")), 1)  # still exactly one terminal outcome
+
+    def test_a_stale_drain_cannot_double_park(self):
+        # the guard tests BOTH resolved AND clarify — a parked chat is still open, so still_open
+        # alone would let a stale grill double-park. The guard catches it.
+        cid = self._comment("ambiguous", "alpha-post")
+        start_cursor = self.drain._start_cursor(self.log)
+        # grill B parks it
+        self.drain._close_one(self.log, {"comment_id": cid, "target_ref": "alpha-post",
+                                         "body": "ambiguous"},
+                              {"park": True, "question": "which?"}, "gB", start_cursor=self.drain._start_cursor(self.log))
+        self.assertEqual(len(self._events("voz.clarify")), 1)
+        # grill A, stale cursor, tries to close → dropped (a clarify appeared since A's cursor)
+        result = self.drain._close_one(
+            self.log, {"comment_id": cid, "target_ref": "alpha-post", "body": "ambiguous"},
+            {"reply": "A"}, "gA", start_cursor)
+        self.assertEqual(result, [])
+        self.assertEqual(len(self._events("voz.resolved")), 0)  # not terminally closed by the stale A
+
+
+class TestConsistencyErrors(_Base):
+    """Acceptance (e): a duplicate / orphan voz.resolved surfaces as a consistency error."""
+
+    def test_duplicate_resolved_is_a_consistency_error(self):
+        cid = self._comment("once", "alpha-post")
+        self._add("voz.resolved", "voz:alpha-post",
+                  {"comment_id": cid, "outcome": "replied", "grill_run_id": "g1"})
+        self._add("voz.resolved", "voz:alpha-post",
+                  {"comment_id": cid, "outcome": "replied", "grill_run_id": "g2"})
+        errs = self.drain.consistency_errors(self.log)
+        self.assertTrue(any(e["kind"] == "duplicate-resolved" and e["comment_id"] == cid
+                            for e in errs))
+
+    def test_orphan_resolved_is_a_consistency_error(self):
+        # a voz.resolved with no preceding voz.comment
+        self._add("voz.resolved", "voz:alpha-post",
+                  {"comment_id": "ghost", "outcome": "replied", "grill_run_id": "g1"})
+        errs = self.drain.consistency_errors(self.log)
+        self.assertTrue(any(e["kind"] == "orphan-resolved" and e["comment_id"] == "ghost"
+                            for e in errs))
+
+    def test_dangling_direction_id_is_a_consistency_error(self):
+        cid = self._comment("steer", "alpha-post")
+        self._add("voz.resolved", "voz:alpha-post",
+                  {"comment_id": cid, "outcome": "folded-to-direction",
+                   "origin_comment_id": cid, "direction_id": "nope", "grill_run_id": "g1"})
+        errs = self.drain.consistency_errors(self.log)
+        self.assertTrue(any(e["kind"] == "dangling-direction" for e in errs))
+
+    def test_a_clean_drain_has_no_consistency_errors(self):
+        self._comment("clean", "alpha-post")
+        self.drain.drain(self.log, self._reply_stub(), grill_run_id="g1")
+        self.assertEqual(self.drain.consistency_errors(self.log), [])
+
+
+class TestCapAndOverflow(_Base):
+    """Acceptance (f): with more actionable comments than the cap, the drain processes only the
+    capped batch and the overflow stays open + visible (not dropped, not one oversized prompt)."""
+
+    def test_overflow_beyond_the_cap_stays_open(self):
+        cids = [self._comment(f"directive {i}", "alpha-post") for i in range(5)]
+        loaded = self.drain.drain(self.log, self._reply_stub(), grill_run_id="g1", cap=2)
+        self.assertEqual(len(loaded), 2)  # only the cap loaded
+        closed = [c["comment_id"] for c in loaded]
+        still_open = [c["comment_id"] for c in self.server.open_comments()]
+        # the 3 overflow remain open + visible; the 2 loaded left
+        self.assertEqual(len(still_open), 3)
+        for cid in cids:
+            self.assertEqual(cid in closed, cid not in still_open)
+
+    def test_harm_ranked_batch_loads_the_harmful_first(self):
+        # deterministic harm-ranking: a body flagged harmful loads before a benign one under a cap.
+        benign = self._comment("a routine note", "alpha-post")
+        harmful = self._comment("this is wrong and unsafe, correct it", "alpha-post")
+        loaded = self.drain.drain(self.log, self._reply_stub(), grill_run_id="g1", cap=1)
+        self.assertEqual([c["comment_id"] for c in loaded], [harmful])
+        self.assertIn(benign, [c["comment_id"] for c in self.server.open_comments()])
+
+    def test_overflow_is_loaded_by_a_second_drain(self):
+        for i in range(3):
+            self._comment(f"d{i}", "alpha-post")
+        self.drain.drain(self.log, self._reply_stub(), grill_run_id="g1", cap=2)
+        self.assertEqual(len(self.server.open_comments()), 1)
+        self.drain.drain(self.log, self._reply_stub(), grill_run_id="g2", cap=2)
+        self.assertEqual(self.server.open_comments(), [])  # the overflow drained next run
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
