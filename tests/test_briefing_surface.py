@@ -402,6 +402,37 @@ class TestSharedReadSurfacesSurviveNonDictPayload(_BriefingBase):
         self.assertIn('class="health-strip degraded"', r.data.decode())
 
 
+class TestSharedReadSurfacesSurviveCorruptTypedField(_BriefingBase):
+    """Codex round-6 [high]: a dict event with a dict payload but a CORRUPT-typed field — a
+    `voz.comment` whose `body` is a list (log_is_intact rejects it: body must be a non-empty string) —
+    still passed _read_events(), then the render folds call `html.escape(c.get("body"))` on the list
+    → TypeError → 500 on `/`, `/chat`. Every render fold must coerce-then-escape so a corrupt typed
+    field renders inert (200), while the health strip still flags the corruption degraded."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "artefato.published",
+            {"slug": "alpha-post", "cites": [], "distills": [], "proposes": []}),
+        _ev(2, "2026-06-10T09:00:01+00:00", "intent.kernel",
+            {"slug": "alpha-post", "intent": "open: alpha."}),
+        # a voz.comment whose body + comment_id are corrupt types — render folds escape them
+        json.dumps({"seq": 3, "ts": "2026-06-10T09:00:02+00:00", "type": "voz.comment",
+                    "subject": "voz:chat", "payload": {"comment_id": ["x"], "body": [], "target_ref": None}}),
+    ]
+
+    def test_index_survives_a_corrupt_typed_field(self):
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("alpha-post", r.data.decode())
+
+    def test_chat_survives_a_corrupt_typed_field(self):
+        self.assertEqual(self.client.get("/chat").status_code, 200)
+
+    def test_briefing_survives_and_flags_a_corrupt_typed_field(self):
+        r = self.client.get("/briefing")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('class="health-strip degraded"', r.data.decode())
+
+
 class TestSharedNav(_BriefingBase):
     """Task B — the shared header/nav (cross-cutting, starts at Slice 3): ONE nav linking all four
     surfaces, on every surface, built from the shared design vocabulary (no one-off styling)."""

@@ -225,14 +225,52 @@ def _read_events():
             continue
         if not isinstance(e, dict):
             continue
-        # Normalize a corrupt (non-dict) payload to {} so downstream folds — which do
-        # `e.get("payload",{}).get(...)` and unpack `**e["payload"]` — never AttributeError/TypeError
-        # on it (Codex round-5): a dict envelope with `payload:[]` is corruption, but a read surface
-        # must render 200, not 500. The corruption is NOT swallowed — _log_corrupt() reads the RAW log
-        # via log_is_intact(), so the health strip still flags it degraded.
-        if not isinstance(e.get("payload"), dict):
-            e = {**e, "payload": {}}
-        yield e
+        yield _normalize_event(e)
+
+
+# The payload fields the read folds use as a dict/set KEY (comment_id, clarify_id, slug, target_ref)
+# or HTML-escape (body, question). log_is_intact rejects a corrupt-typed one, but the tolerant read
+# boundary still yields the event — and a non-str KEY is unhashable (TypeError in a fold) while a
+# non-str escape input crashes html.escape. Coercing these to str at the ONE shared boundary makes
+# EVERY downstream fold safe over a corrupt log (Codex round-6), instead of guarding N fold sites.
+_COERCE_STR_FIELDS = ("comment_id", "clarify_id", "slug", "target_ref", "body", "question")
+
+
+def _normalize_event(e):
+    """Make a yielded event safe for the tolerant read folds over a corrupt log (Codex round-4/5/6):
+    a corrupt (non-dict) `payload` → {} (folds do `.get`/`**payload` on it); a corrupt-typed key/escape
+    field → str (a non-str dict/set key is unhashable; a non-str escape input crashes html.escape).
+    Returns a shallow-normalized copy; the ORIGINAL log is untouched, so _log_corrupt() (log_is_intact
+    over the raw lines) still SURFACES the corruption as degraded — normalized for render, flagged for
+    truth. `target_ref` is coerced only when PRESENT-and-non-None (None is the valid general-chat key)."""
+    payload = e.get("payload")
+    if not isinstance(payload, dict):
+        return {**e, "payload": {}}
+    fixes = {}
+    for f in _COERCE_STR_FIELDS:
+        v = payload.get(f)
+        if v is None:
+            continue  # absent, or a valid None target_ref — leave it
+        if not isinstance(v, str):
+            fixes[f] = str(v)
+    return {**e, "payload": {**payload, **fixes}} if fixes else e
+
+
+def _as_str(value):
+    """Coerce a payload-derived value to a str (round-6): a corrupt-typed field — a slug/ts that is a
+    list/int — would crash a string op (`.replace`, slicing, a dict key) downstream of the tolerant
+    read boundary. Coercing keeps a corrupt log renderable (200); the strip still flags it degraded."""
+    return value if isinstance(value, str) else str(value)
+
+
+def _esc(value):
+    """HTML-escape a payload-derived value, COERCING a non-string to str first. log_is_intact rejects
+    a corrupt-typed field (e.g. a `voz.comment` whose `body` is a list), but the read boundary still
+    yields that event — so a render fold that did `html.escape(corrupt_field)` would TypeError → 500
+    on a shared surface (Codex round-6). Coerce-then-escape renders the corrupt field INERT (a 200),
+    while the health strip flags the log degraded (log_is_intact over the raw log). Use this for any
+    value sourced from a log payload; `html.escape` directly is fine for known-str literals/labels."""
+    return html.escape(value if isinstance(value, str) else str(value))
 
 
 def _append(type_, subject, payload):
@@ -363,10 +401,10 @@ def _clarify_block(c, clarifies_by_id):
         return ""
     blocks = []
     for q in clarifies:
-        qid = html.escape(q.get("clarify_id", ""))
+        qid = _esc(q.get("clarify_id", ""))
         blocks.append(
             '<li class="clarify">'
-            f'<p class="question body">{html.escape(q.get("question", ""))}</p>'
+            f'<p class="question body">{_esc(q.get("question", ""))}</p>'
             '<p class="pending meta">aguardando sua resposta</p>'
             f'<form class="composer clarify-answer" hx-post="/clarify/{qid}/answer" '
             'hx-target="closest .thread, closest .chat" hx-swap="outerHTML" '
@@ -390,14 +428,14 @@ def _replies_block(c, replies_by_id, clarifies_by_id=None):
         pending = '' if clarify else '<p class="pending meta">edge responde no próximo beat</p>'
         return f'{pending}{clarify}'
     items = "".join(
-        f'<li class="reply"><p class="body">{html.escape(r.get("body", ""))}</p></li>'
+        f'<li class="reply"><p class="body">{_esc(r.get("body", ""))}</p></li>'
         for r in replies
     )
     return f'<ul class="replies">{items}</ul>{clarify}'
 
 
 def _render_comment(c, replies_by_id, clarifies_by_id=None):
-    body = f'<p class="body">{html.escape(c.get("body", ""))}</p>'
+    body = f'<p class="body">{_esc(c.get("body", ""))}</p>'
     return f'<li class="comment">{body}{_replies_block(c, replies_by_id, clarifies_by_id)}</li>'
 
 
@@ -483,9 +521,9 @@ def _render_votes(slug):
 
 def _render_chat_item(c, replies_by_id, clarifies_by_id=None):
     target = c.get("target_ref")
-    label = (f'<a class="ctx" href="/e/{html.escape(target)}.html">em {html.escape(target)}</a>'
+    label = (f'<a class="ctx" href="/e/{_esc(target)}.html">em {_esc(target)}</a>'
              if target else '<span class="ctx meta">chat geral</span>')
-    body = f'<p class="body">{html.escape(c.get("body", ""))}</p>'
+    body = f'<p class="body">{_esc(c.get("body", ""))}</p>'
     return (f'<li class="chat-item">{label}{body}'
             f'{_replies_block(c, replies_by_id, clarifies_by_id)}</li>')
 
@@ -630,7 +668,7 @@ def post_vote(slug):
 
 def _blurb(intent, n=220):
     """One-line blog blurb from the artefato's intent kernel."""
-    intent = " ".join((intent or "").split())
+    intent = " ".join(_as_str(intent or "").split())
     return intent if len(intent) <= n else intent[:n].rstrip() + "…"
 
 
@@ -646,15 +684,17 @@ def _posts():
         if not isinstance(p, dict):
             continue
         if t == "artefato.published":
+            # coerce slug/ts to str (round-6): a corrupt-typed slug/ts would crash .replace()/[:10]
+            # downstream — a corrupt log must still render 200 (the strip flags it degraded).
             published.append({
-                "slug": p.get("slug", ""),
-                "ts": e.get("ts", ""),
+                "slug": _as_str(p.get("slug", "")),
+                "ts": _as_str(e.get("ts", "")),
                 "cites": p.get("cites", []) or [],
                 "distills": p.get("distills", []) or [],
                 "proposes": p.get("proposes", []) or [],
             })
         elif t == "intent.kernel":
-            kernels[p.get("slug", "")] = p.get("intent", "")
+            kernels[_as_str(p.get("slug", ""))] = p.get("intent", "")
     posts = [{
         **a,
         "title": a["slug"].replace("-", " "),
@@ -673,7 +713,7 @@ def _artifact_items(post):
         items.append(f'<li class="distill">distills · {html.escape(str(d))}</li>')
     for pr in post["proposes"]:
         body = pr.get("body", "") if isinstance(pr, dict) else str(pr)
-        items.append(f'<li class="proposes">proposes · {html.escape(body)}</li>')
+        items.append(f'<li class="proposes">proposes · {_esc(body)}</li>')
     return f'<ul class="artifacts">{"".join(items)}</ul>' if items else ""
 
 
