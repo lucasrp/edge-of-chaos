@@ -33,10 +33,14 @@ Flask response check).** The Python suites are Flask response assertions + headl
 tests; they can pass with a **blank 3D canvas or a broken fallback rung** because WebGL render, camera
 controls, the Cytoscape fallback, and the list fallback are **browser-only**. So a **Playwright/headless-
 Chromium gate** (added in Slice 2) asserts (a) stub `webglSupported()`→true → a **non-blank** 3D canvas +
-working orbit/zoom + space-0 centered; (b) stub WebGL→false → the **2D Cytoscape island** renders (non-blank,
-navigable); (c) force Cytoscape render to fail → the **searchable list** DOM renders; (d) force the list to
-fail → the **honest message**; (e) the 3D + cytoscape `<script>`s load **only** on `/cortex`. A 3D/fallback
-rung that only "passes" a Flask 200 does **not** satisfy the M-GATE. **Because Slices 3–6 keep mutating the
+working orbit/zoom + space-0 centered; **(a2) WebGL probes true BUT the 3D constructor throws / first paint
+is blank / a `webglcontextlost` fires → the 2D Cytoscape island renders non-blank + navigable** (the
+init-failure fallback, distinct from the probe-false one — without this the exact blank-Cortex-with-data
+regression slips back in); (b) stub WebGL→false → the **2D Cytoscape island** renders (non-blank, navigable);
+(c) force Cytoscape render to fail → the **searchable list** DOM renders; (d) force the list to fail → the
+**honest message**; (e) the 3D + cytoscape `<script>`s load **only** on `/cortex`. **Every later rerun of
+this gate (Slices 3–6) includes case (a2)**, not only the probe-false path. A 3D/fallback rung that only
+"passes" a Flask 200 does **not** satisfy the M-GATE. **Because Slices 3–6 keep mutating the
 SAME browser-only surface** (`cortex.js`, `cortex.html`, `style.css`, the renderer) — node selection, the
 panel, camera fly-to, `?node=`, search, PREV/NEXT, labels, the perf cap — **any slice from Slice 2 onward
 that touches a renderer file MUST re-run, as a regression check, BOTH (1) the full fallback-ladder browser
