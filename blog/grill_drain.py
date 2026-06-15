@@ -248,15 +248,25 @@ def _legacy_targets(log):
                if e.get("type") == "voz.reply"
                and isinstance(e["payload"].get("body"), str) and e["payload"]["body"].strip()}
     resolved = terminally_resolved(log)
-    # A comment PARKED awaiting clarification is non-terminal even if it has a reply — the drain owns
-    # its terminal close once the clarify is answered. The reply-only back-fill must NOT close it
-    # (ADR-0017: a parked chat stays open), so exclude anything awaiting clarification.
-    awaiting = _awaiting_clarification(log)
+    # A comment with ANY voz.clarify history is DRAIN-OWNED, not a plain reply-only legacy chat —
+    # the drain must terminally resolve it so it consumes the answer + clarify_context (ADR-0017).
+    # Excluding only *awaiting* clarifies is insufficient: once answered, the comment leaves
+    # _awaiting_clarification and an old reply would let the back-fill close it before the drain runs.
+    # So exclude every clarify-touched comment from the reply-only back-fill, answered or not.
+    clarify_owned = _clarify_touched(log)
     target_set = {cid for cid in replied
-                  if cid and cid not in resolved and cid not in awaiting}
+                  if cid and cid not in resolved and cid not in clarify_owned}
     order = [e["payload"].get("comment_id") for e in _events(log)
              if e.get("type") == "voz.comment"]
     return [cid for cid in order if cid in target_set]
+
+
+def _clarify_touched(log):
+    """`comment_id`s that have EVER been parked with a `voz.clarify` — answered or not. These are
+    drain-owned (the drain consumes the answer + clarify_context to resolve them terminally), so the
+    reply-only legacy back-fill must never close them, even after the clarify is answered."""
+    return {e["payload"].get("comment_id")
+            for e in _events(log) if e.get("type") == "voz.clarify"}
 
 
 def backfill_legacy_resolved(log, grill_run_id="legacy-backfill", _force_targets=None):
@@ -284,9 +294,9 @@ def backfill_legacy_resolved(log, grill_run_id="legacy-backfill", _force_targets
         # order. A target a concurrent drain resolved — or PARKED (a voz.clarify) — since we observed
         # it is dropped here, so a race can't back-fill over a now-parked or now-resolved chat.
         resolved_now = terminally_resolved(log)
-        awaiting_now = _awaiting_clarification(log)
+        clarify_owned_now = _clarify_touched(log)
         live = [cid for cid in targets
-                if cid not in resolved_now and cid not in awaiting_now]
+                if cid not in resolved_now and cid not in clarify_owned_now]
         appended[:] = [("voz.resolved", "voz:backfill",
                         {"comment_id": cid, "outcome": "replied", "grill_run_id": grill_run_id})
                        for cid in live]
