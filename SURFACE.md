@@ -1,7 +1,8 @@
 # edge — Surface
 
 What each concept exposes to the mentee. Companion to `CONTEXT.md` (what words mean) and
-`FRONTEND.md` (how to implement). Built via `/pocock-grill-ux-with-docs`.
+`docs/frontend.md` (how to implement — the canonical front-end doc). Built via
+`/pocock-grill-ux-with-docs`.
 
 ## Directives
 
@@ -263,7 +264,7 @@ Decisions:
   a parallel mentee-graph would be a second store, the failure log-native physics deletes.
 - **Read-only for the mentee.** The mentee navigates; only the edge writes the graph. The mentee's
   write surface stays the Voz rail — two different surfaces on one substrate.
-- **A JS island, never the app shell** (FRONTEND.md): a graph lib (Cytoscape / vis-network) loaded
+- **A JS island, never the app shell** (docs/frontend.md): a graph lib (Cytoscape / vis-network) loaded
   *only* on this view; the rest of the dashboard stays server-rendered htmx. Honors the hard
   "cheap on resources" constraint — the heavy lib never touches the read-mostly pages.
 - **Whole graph, centered on space-0 — then simplify.** v1 renders the *entire* Cortex at once,
