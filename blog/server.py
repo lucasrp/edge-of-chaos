@@ -967,10 +967,16 @@ def _migrate_voz_lifecycle():
     """Startup migration (ADR-0017): run the idempotent legacy back-fill BEFORE any open_comments()
     projection is exposed, so the read-side switch (openness keys on terminal voz.resolved) never
     shows a historical voz.reply-only chat as open. Independent of the drain / reply generator.
-    Idempotent + lock-guarded, fail-soft (a missing/locked log must not crash server startup)."""
+    Idempotent + lock-guarded, fail-soft (a missing/locked log must not crash server startup).
+
+    Gated by log_is_intact (the SAME strict check the route uses): on a corrupt / seq-gapped log the
+    back-fill must NOT run — append_batch stamps from base=len(read()), so on a gapped log it would
+    forge a DUPLICATE seq and worsen the authoritative log. A corrupt log degrades (stays as-is);
+    the route surfaces it (backfill: degraded)."""
     try:
         import grill_drain
-        grill_drain.backfill_legacy_resolved(_log())
+        if grill_drain.log_is_intact(_log()):
+            grill_drain.backfill_legacy_resolved(_log())
     except Exception:
         pass  # never block startup on the migration; the route also back-fills as a backstop
 

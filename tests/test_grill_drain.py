@@ -402,6 +402,38 @@ class TestClarifyAnswerGated(unittest.TestCase):
         self.assertEqual(self._count(), before)
 
 
+class TestStartupMigrationGuarded(unittest.TestCase):
+    """The import-time migration (_migrate_voz_lifecycle) must NOT append to a seq-corrupt log — a
+    back-fill there stamps from base=len(read()), which on a gapped log would forge a DUPLICATE seq
+    and worsen the authoritative log. It must check log_is_intact first (same gate as the route)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.log = root / "log.jsonl"
+        # a seq-GAPPED log (1,3) with a legacy reply-only comment the back-fill would target
+        self.log.write_text(
+            '{"seq": 1, "type": "voz.comment", "payload": {"target_ref": null, '
+            '"comment_id": "c1", "body": "oi"}}\n'
+            '{"seq": 3, "type": "voz.reply", "payload": {"comment_id": "c1", "body": "hand reply"}}\n')
+        os.environ["EDGE_BLOG_LOG"] = str(self.log)
+        os.environ["EDGE_BLOG_ENTRIES"] = str(root)
+        os.environ["EDGE_BLOG_STATIC"] = str(root)
+        os.environ["EDGE_DASH_AUTH"] = "off"
+
+    def tearDown(self):
+        for k in ("EDGE_BLOG_LOG", "EDGE_DASH_AUTH"):
+            os.environ.pop(k, None)
+        self.tmp.cleanup()
+
+    def test_import_migration_does_not_append_to_a_seq_corrupt_log(self):
+        before = len([ln for ln in self.log.read_text().splitlines() if ln.strip()])
+        import server
+        importlib.reload(server)  # triggers _migrate_voz_lifecycle on import
+        after = len([ln for ln in self.log.read_text().splitlines() if ln.strip()])
+        self.assertEqual(after, before)  # nothing appended past the corrupt log
+
+
 class TestDrainRouteAuthGate(unittest.TestCase):
     """Acceptance (g): the drain route (HTTP) sits behind the Slice-1 auth gate — an
     unauthenticated / cross-origin call is rejected with NO append (per Slice 1). And the route
