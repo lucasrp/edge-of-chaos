@@ -229,9 +229,12 @@ Decisions:
 
 ## Cortex graph — surf the agent's brain
 
-Type: **projeção navegável** (a read-only fold of the Cortex graph; ADR-0005/0006). Roles: Mentee
-(read + navigate only), edge (writes the graph via extraction + grill curation — the mentee never
-edits it; the write surface stays the Voz rail).
+Type: **projeção navegável** (a fold of the Cortex graph; ADR-0005/0006). Roles: Mentee
+(reads + navigates + **searches/filters** the graph, and **corrects an Earmarked node** via the Voz
+rail), edge (writes the graph via extraction + grill curation). **The mentee never edits the graph** —
+the one write affordance is the Earmarked node-targeted Voz **correction** (a Voz comment, not a graph
+mutation; the write surface stays the Voz rail). So the surface is **navigate + a gated correction
+write**, not read-only.
 
 Postura: a **futuristic graph interface** — a dark, force-directed canvas where the **whole Cortex**
 renders at once as a constellation **centered on space-0** (the identity root: method + personality),
@@ -240,7 +243,8 @@ agent's brain*. The territory is the **whole Cortex**, not the salient subgraph 
 graph nodes — `Community` = 0; they live as rendered wiki pages, so they do not appear as
 neighborhoods in v1). **This is not Recall**: Recall is the *agent's* wake-act, where the edge connects
 with its own brain (the space-0-rooted salient subgraph, auto-served at pre-dispatch). This is the
-**mentee** freely **surfing** the same graph, read-only, on demand (search is a later affordance) —
+**mentee** freely **surfing** the same graph, on demand — with **search + filter** (shipped, Slice 6)
+to find the way through it and a **gated correction** on an Earmarked node (shipped, Slice 6b) —
 **one brain, two surfers** (#35, #28).
 
 Operations:
@@ -249,21 +253,35 @@ Operations:
   the v1 surface.**
 - **inspect node** (v1): click a node → its content; artifact retrieval = traverse to the reference
   node and fetch the blob (per CONTEXT.md, *Cortex*).
-- **search** (future): find a node directly and jump to it, then surf from there. Deferred — surf is
-  the v1 act. Open when built: **find-and-jump locator** vs **semantic retrieval** (the latter
-  reintroduces the fetch posture the Cortex glossary bans).
-- **filter** (future): narrow the graph to navigate it better — by node type (Mundo / Atividade /
-  Self, cluster, Artefato, Direction), recency, or salience/earmarked. Deferred; v1 ships the
-  unfiltered navigable graph.
+- **search** (shipped, Slice 6): find a node directly and jump to it, then surf from there. It is a
+  **find-and-jump locator** — a deterministic substring match over the loaded payload's title / type /
+  id / stable ref — **NOT semantic retrieval** (the banned-fetch posture the Cortex glossary bans
+  stays explicit: no embedding/fetch, only locate-and-center over what is already loaded).
+- **filter** (shipped, Slice 6): narrow the graph to navigate it better — by node **type** (the trust
+  classes), **Earmarked-only**, or **recency** — recomputed purely from the one loaded payload (no
+  re-query, no stale hidden state). Deterministic, client-side over the loaded fold.
+- **correct an Earmarked node** (shipped, Slice 6b): an Earmarked (harm-bearing) node carries a
+  **correction composer** — node-targeted Voz. `POST /cortex/<node_id>/comment` writes a `voz.comment`
+  whose `target_ref` is the **node ref** (`node:<id>`), through the same canonical append + the Slice-1
+  auth/CSRF/origin gate. **Fail-closed node-ref validation** (the ref must be a node present in the
+  `group_id`-scoped payload **and** Earmarked — an inert or forged node ref rejects, no append),
+  **idempotent nonce** (a double-submit/retry dedupes to one Directive), **same-origin** fetch. The
+  drain folds it like any Directive (`direction.set` carrying `origin_comment_id`; the node
+  `target_ref` is the provenance). This is the mentee's **only** write affordance on the Cortex — a Voz
+  comment, **not** a graph mutation.
 
 Decisions:
 - **Same Cortex, two surfers.** v1 exposes the *same* graph — not a mentee-specific projection. The
   agent reads it via **Recall** (auto-served salient subgraph, at wake); the mentee reads it via
-  **free surf** (the dashboard, on demand, the whole graph; search a later affordance). One brain,
+  **free surf** (the dashboard, on demand, the whole graph; with search + filter, Slice 6). One brain,
   two read-surfaces;
   a parallel mentee-graph would be a second store, the failure log-native physics deletes.
-- **Read-only for the mentee.** The mentee navigates; only the edge writes the graph. The mentee's
-  write surface stays the Voz rail — two different surfaces on one substrate.
+- **The mentee navigates + corrects, never edits the graph.** The mentee surfs, searches, filters,
+  and **corrects an Earmarked node** (Slice 6b) — but the correction is a **Voz comment**, not a graph
+  write. Only the edge writes the graph (extraction + grill curation). The mentee's write surface stays
+  the Voz rail — two different surfaces on one substrate. So the surface is **not read-only**: it is
+  read + navigate + a single gated correction affordance, all of which leave the graph itself
+  edge-owned.
 - **A JS island, never the app shell** (docs/frontend.md): a graph lib (Cytoscape / vis-network) loaded
   *only* on this view; the rest of the dashboard stays server-rendered htmx. Honors the hard
   "cheap on resources" constraint — the heavy lib never touches the read-mostly pages.
@@ -297,13 +315,14 @@ Decisions:
   low-trust nodes into the haze, which would **bury the Earmarked** (the harm-bearing subset the
   mentee most needs to correct) — backwards for a correction surface. So in v1 the **Earmarked is a
   first-class overlay**: a harm highlight, never dimmed, regardless of trust tier. Trust sets
-  brightness for the *inert* mass; **harm overrides it** for the Earmarked. **The v1 overlay is
-  read-only awareness** — it surfaces the harm frontier so it isn't buried, consistent with the
-  Cortex graph being read-only for the mentee; correcting an Earmarked item still goes through the
-  existing Voz rail (on the relevant publication / via the grill). **Node-targeted Voz** (a
-  `target_ref` addressing an Earmarked node directly, beyond slugs) is an explicit *future*
-  increment — so v1 does not ship a correction surface it cannot structurally back.
-  [adversarial-review iter1 #5, iter2 #4]
+  brightness for the *inert* mass; **harm overrides it** for the Earmarked. The overlay surfaces the
+  harm frontier so it isn't buried; **correcting an Earmarked node is now shipped (Slice 6b) as
+  node-targeted Voz** — a `target_ref` addressing the Earmarked node directly (`node:<id>`, beyond
+  slugs), `POST /cortex/<node_id>/comment` through the Slice-1 auth/CSRF gate, fail-closed node-ref
+  validation (present in the scoped payload **and** Earmarked), idempotent nonce. The correction is a
+  **Voz comment that folds into a Directive** (`origin_comment_id` provenance), **not** a graph
+  mutation — so the harm frontier is both surfaced **and** correctable without the mentee ever editing
+  the graph. [adversarial-review iter1 #5, iter2 #4]
 
 Node/edge vocabulary (live, group `edge-next` — the real shape, not #28-speculative):
 - **Asserted spine (the curated Self, ~55 nodes, *faithful*):** `Genesis` (space-0, 1), `Objective`
@@ -317,6 +336,25 @@ Gaps:
 - **Secondary simplification levers** (primary = trust-weighted brightness, decided): if the faint
   `Episodic` haze is still too heavy at ~268 nodes, collapse Episodics into their `MENTIONS` parent;
   edge bundling; level-of-detail on zoom. Try opacity first, measure before adding. Candidates.
-- **Filter taxonomy + UX** (the "navigate it better" set) — deferred to a future increment.
-- **Earmarked corrective write-path** — surfacing the Earmarked is now v1 (overlay, decided above);
-  the *write* path (Voz targeting an Earmarked node, `target_ref` beyond slugs) is the open bridge.
+- **Filter taxonomy + UX** (the "navigate it better" set) — **shipped (Slice 6):** type / Earmarked /
+  recency, client-side over the loaded payload. Further axes (cluster, Artefato/Direction) are
+  candidates beyond the current set.
+- **Earmarked corrective write-path** — **shipped (Slice 6b):** surfacing the Earmarked is v1
+  (overlay), and the *write* path (node-targeted Voz, `target_ref` beyond slugs) is now closed — see
+  the Operations + Earmarked decision above.
+
+Next direction (R1, settled — the v-next, not yet built):
+- **A 3D "navigate the brain" cloud replaces the 2D island.** The 2D Cytoscape constellation becomes a
+  dark, luminous, **trust-weighted 3D force-directed cloud** (`3d-force-graph` = three.js + d3-force-3d,
+  one self-hosted UMD bundle on the `/cortex` island only — the heavy lib never touches the read-mostly
+  shell). Trust stays the sole size+brightness axis (space-0 brightest core → Episodic faintest haze);
+  per-tier edges and the Earmarked red overlay survive the port. Camera = orbit + zoom + pan; **nodes
+  are not draggable and graph mutation stays edge-owned, but the Slice-6b node-targeted Voz correction
+  affordance survives the 3D port** (the surface stays navigate + the gated correction, never reverted
+  to a read-only cloud). The cheap-on-resources constraint is amended **for this island specifically**
+  to accept the bundle weight (`docs/frontend.md` R1 amendment); it stands everywhere else.
+- **The 2D Cytoscape island is retained as the required WebGL fallback (M21), not deleted.** The render
+  degrades on a strict hierarchy: **WebGL → 3D cloud, else the 2D Cytoscape island auto-renders, else a
+  searchable list, else the honest message.** This is a release gate (a WebGL-incapable client still
+  navigates the Cortex), distinct from fail-dark (M16, which is for *absent* graph data, not an
+  unsupported renderer).

@@ -39,6 +39,27 @@ log, htmx + islands dão a riqueza — incluindo navegação de grafo — sem ne
 se uma view algum dia precisar de live-collab ou estado local pesado, *aquela view* vira uma
 island; o app shell nunca.
 
+### Amendment R1 — o bundle 3D/WebGL aceito **só na island `/cortex`** (direção, v-next)
+**Decisão settled (R1):** a próxima direção do `/cortex` é trocar a island 2D Cytoscape por uma
+nuvem 3D force-directed (`3d-force-graph` = three.js + d3-force-3d + câmera + picking num único
+bundle UMD), dark e luminosa, *trust-weighted*. Esse bundle é **substancialmente mais pesado** que
+a Cytoscape — e a constraint cheap-on-resources é emendada **para a island `/cortex` especificamente**
+para aceitar esse peso: o teto "*aquela view* vira uma island; o app shell nunca" é exatamente o que
+mantém a emenda dentro do contrato — a lib pesada é carregada **só** na rota `cortex()` (a island),
+**nunca** toca as páginas read-mostly (a regra M19). **Para toda outra superfície a constraint
+permanece intacta** — nenhum framework client pesado fora da island do grafo.
+A island 2D Cytoscape **não é deletada**: ela permanece como o **fallback WebGL obrigatório** (ver a
+cadeia M21 abaixo). Esta é a direção planejada — a nuvem 3D substitui a island 2D como renderer
+default; a Cytoscape vira o fallback. (O bundle 3D só entra em `§Supply chain` quando for vendorado
+de fato.)
+
+### M21 — a cadeia de fallback do renderer (direção, v-next)
+Distinta do fail-dark (M16, que é para *ausência de dados de grafo*), a cadeia M21 cobre um *renderer
+não-suportado com dados presentes*: **WebGL → nuvem 3D, senão → a island 2D Cytoscape auto-renderiza,
+senão → uma lista navegável pesquisável, senão → a mensagem honesta**. É uma hierarquia estrita (um
+*release gate*, não otimização de perf): um cliente sem WebGL ainda navega o Cortex pela Cytoscape.
+A cadeia é planejada para entrar **junto** com o render 3D, nunca atrás dele.
+
 ## Supply chain — self-hosted, no CDN (Slice 7 #37)
 Todo JS/CSS de terceiros é **vendored** em `blog/static/vendor/` e servido localmente — **nenhum
 `<script src="https://…">` de CDN** em nenhuma página. Fecha o achado de supply-chain (um CDN é
@@ -93,7 +114,13 @@ uma dependência de execução remota numa superfície authed). Versões pinadas
 ## Domínio do dashboard (o que cada superfície mostra)
 - **Blog** (`/`): lista de entries (Artefatos) — cards — + o render do artefato HTML + o Voz rail.
 - **Chat** (`/chat`): o timeline unificado de `voz.*`.
-- **Cortex** (`/cortex`): a island do grafo (read-only surf da brain).
+- **Cortex** (`/cortex`): a island do grafo — surf navegável da brain, com **search**
+  (find-and-jump determinístico) + **filtro** (tipo / Earmarked / recência) sobre o payload (Slice 6)
+  e a **correção node-targeted Voz** num nó Earmarked (Slice 6b: `POST /cortex/<node_id>/comment`).
+  O mentee **navega** o grafo e **corrige** um nó Earmarked pelo rail Voz — não é mais "read-only":
+  é leitura + um *write affordance gated* (validação fail-closed do node-ref, nonce idempotente,
+  same-origin pelo gate auth/CSRF da Slice 1). O mentee nunca *edita o grafo* — o write é um comentário
+  Voz, não uma mutação de grafo.
 - **Briefing** (`/briefing`): a self-state landing + o health strip do read-model.
 - **Direction** (`/direction`): os dois tiers de steers (set curado / proposed candidato).
 - **Docs** (`/docs`) e **Wiki** (`/wiki`): a documentação navegável e os Knowledge clusters.
