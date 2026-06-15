@@ -171,9 +171,13 @@ Cortex on a WebGL-blocked VM — is exactly what 3D-first would introduce). The 
 stays the **current minimal floating panel** (kind + title + source link + Earmarked composer, unchanged
 behavior) — the *enriched* panel is Slice 3, so this slice's surface is the cloud + the fallback, not the
 panel rebuild.
-- **Build (the renderer branch in `cortex.js`, behind `webglSupported()`):**
+- **Build (the renderer branch in `cortex.js`, behind `webglSupported()` AND a 3D-init/first-paint success
+  check — see M21 below: the probe is necessary, not sufficient):**
   - **M1** 3D force-directed render of the existing `{nodes, edges}` payload (consumed unchanged) — spheres,
-    force-laid, thin edges, via `3d-force-graph`.
+    force-laid, thin edges, via `3d-force-graph`. **The constructor + first paint are wrapped in a failure
+    path** (try/catch + a non-blank-canvas check + a `webglcontextlost` handler) so a missing/corrupt lib, a
+    throw on init, a blank first paint, or a lost context drops to the 2D Cytoscape fallback (M21 rung 2),
+    never a blank-with-data `/cortex`.
   - **M2** Camera: orbit (drag-to-rotate) + scroll-zoom + pan (Q7 settled); **read-only camera, nodes not
     draggable** (the 3D analog of `autoungrabify`). Match the reference's "drag to rotate · scroll to zoom."
   - **M3** Trust-weighted **luminosity** preserved: port the `TIER` map (space-0 brightest core → asserted
@@ -193,10 +197,18 @@ panel rebuild.
   - **M6** **Labels** legible against the dark cloud: space-0 always labeled, plus the
     hovered/selected/search-hit node, scaled by trust tier (Q5 settled — not all-nodes-labeled). Text-only /
     sprite labels, **never raw-HTML from payload** (R5 / cross-cutting #3).
-  - **M21 fallback chain (the M-GATE, in THIS increment):**
-    1. WebGL available → the 3D cloud (default).
-    2. WebGL **unavailable** → the **2D Cytoscape island auto-renders** — the existing, tested code +
-       vendored `cytoscape.min.js`, **not deleted, not bypassed** (the single mandated fallback path).
+  - **M21 fallback chain (the M-GATE, in THIS increment) — triggered on RENDER FAILURE, not just the
+    capability probe:** the probe is necessary but **not sufficient** — WebGL can be present while
+    `3d-force-graph` is missing/corrupt, throws on construction, loses its context, or paints a blank canvas.
+    So the hierarchy gates on **3D actually initializing AND painting**, not merely on `webglSupported()`:
+    1. **WebGL available AND the 3D renderer successfully constructs + first-paints** → the 3D cloud (default).
+       The 3D construction + first render are wrapped in a **failure path** (try/catch around the constructor
+       + a first-paint / non-blank-canvas check + a `webglcontextlost` handler); **any** of {probe false,
+       constructor throws, first paint blank, context lost} → drop to rung 2.
+    2. WebGL unavailable **OR the 3D renderer failed/blanked** → the **2D Cytoscape island auto-renders** —
+       the existing, tested code + vendored `cytoscape.min.js`, **not deleted, not bypassed** (the single
+       mandated fallback path; this is the rung that prevents the exact high-cost regression M21 names —
+       data present, `/cortex` blank/dead).
     3. Cytoscape also fails to render (canvas/2D unavailable too) → an **accessible searchable node/edge
        list** with the source-drill links + node selection (tertiary).
     4. Even the list cannot render → the **honest fail-dark-style message** (the floor).
@@ -245,6 +257,10 @@ panel rebuild.
   trace to `TIER`/`TIER.edge`/`earmarked`; space-0 + the selected node are labeled.
   (b) **WebGL forced unavailable (stub `webglSupported()`→false) → the 2D Cytoscape island auto-renders** and
   is navigable (the existing island behavior) — the single mandated fallback, **not a list, not a message**.
+  (b2) **WebGL present BUT the 3D renderer fails (force the `3d-force-graph` constructor to throw / first
+  paint to blank / a `webglcontextlost` event, with `webglSupported()`→true) → the 2D Cytoscape island
+  auto-renders** non-blank + navigable — the probe passing is **not** enough; a 3D init/first-paint failure
+  must drop to 2D, never leave `/cortex` blank-with-data (the exact regression M21 prevents).
   (c) Cytoscape render forced to fail → the **searchable node/edge list** renders with source links + node
   selection.
   (d) list render forced to fail → the **honest message** (the floor).
@@ -258,12 +274,15 @@ panel rebuild.
   suite green.
   **(i) the browser gate (the M-GATE proven in a real renderer, NOT just a Flask 200):** a new
   Playwright/headless-Chromium test asserts each rung renders — WebGL→true: a **non-blank** 3D canvas
-  (pixel/canvas-nonempty check) + orbit/zoom respond + space-0 centered; WebGL→false (stubbed): the **2D
-  Cytoscape island** renders non-blank + navigable; Cytoscape render forced to fail: the **searchable list**
-  DOM renders; list forced to fail: the **honest message**; and the 3D + cytoscape `<script>`s load only on
-  `/cortex`. The fallback ladder is **proven to render**, not merely asserted in prose — a blank 3D canvas or
-  a dead rung **fails** this gate. Runs backgrounded against a backgrounded server (never `blog/server.py` in
-  the foreground; `pkill` after), the same Playwright harness the operator used to capture the reference.
+  (pixel/canvas-nonempty check) + orbit/zoom respond + space-0 centered; **WebGL→true but the 3D
+  constructor/first-paint forced to throw/blank (or a `webglcontextlost`): the 2D Cytoscape island renders
+  non-blank + navigable** (the init-failure fallback, not just the probe-false one); WebGL→false (stubbed):
+  the **2D Cytoscape island** renders non-blank + navigable; Cytoscape render forced to fail: the
+  **searchable list** DOM renders; list forced to fail: the **honest message**; and the 3D + cytoscape
+  `<script>`s load only on `/cortex`. The fallback ladder is **proven to render**, not merely asserted in
+  prose — a blank 3D canvas or a dead rung **fails** this gate. Runs backgrounded against a backgrounded
+  server (never `blog/server.py` in the foreground; `pkill` after), the same Playwright harness the operator
+  used to capture the reference.
   **(j) the M22 floor — the PINNED numbers met before default 3D ships:** the force tick **freezes within
   ≤ 2.0 s / ≤ 300 ticks** then idles (assert no unbounded tick); the renderer sustains **≥ 30 FPS over a 5 s
   window** while orbiting at the **measured** baseline size in the headless-Chromium gate profile; the
