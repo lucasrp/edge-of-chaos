@@ -265,6 +265,26 @@ class TestHealthStripFailsDarkOnSchemaDrift(_BriefingBase):
         self.assertIn('class="health-strip', body)  # the strip still renders
 
 
+class TestHealthStripFailsDarkOnDriftedSeq(_BriefingBase):
+    """Codex round-2 [high]: a JSON-valid DICT event with a schema-drifted `seq` (a string/list)
+    passes `_dict_events()` yet makes `max()` raise in `_log_cursor()`. The degraded fallback must be
+    type-stable so the renderer's int comparisons (`backlog > 0`) don't then TypeError → 500. One
+    normal event + one dict event with a non-int seq → /briefing returns 200 with the degraded strip."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "dispatch.open", {"swept_sessions": 2}, subject="dispatch"),
+        # a JSON-valid dict whose seq is a string — drifts past _dict_events, breaks max()
+        json.dumps({"seq": "not-an-int", "ts": "2026-06-10T09:00:01+00:00",
+                    "type": "voz.comment", "subject": "x", "payload": {"comment_id": "c1"}}),
+    ]
+
+    def test_drifted_seq_fails_dark_not_500(self):
+        r = self.client.get("/briefing")
+        self.assertEqual(r.status_code, 200)  # fail dark, not 500
+        body = r.data.decode()
+        self.assertIn('class="health-strip degraded"', body)
+
+
 class TestBriefingDarkOnThinOverrideGenotype(_BriefingBase):
     """Codex [medium]: with EDGE_BRIEFING_AGENT_YAML set to a THIN/malformed agent.yaml,
     source_roster() must not escape the dark fallback — the override path must fail dark exactly like

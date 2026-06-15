@@ -969,6 +969,17 @@ def _dict_events():
     return (e for e in _read_events() if isinstance(e, dict))
 
 
+def _log_has_schema_drift():
+    """True when the log carries a schema-drifted line — a JSON-valid NON-dict (`[]`, `42`, a string)
+    or a dict event whose `seq` is missing/not an int. Either is a corrupt read-model the health strip
+    must SURFACE as degraded (Codex round-2): the strip tolerates drift without crashing AND flags it,
+    rather than silently skipping it (silent tolerance would hide a real corruption from the mentee)."""
+    for e in _read_events():
+        if not isinstance(e, dict) or not isinstance(e.get("seq"), int):
+            return True
+    return False
+
+
 def _last_dispatch():
     """The newest `dispatch.open` (the wake stamp, ADR-0016): {ts, swept_sessions} or None. The
     `swept_sessions` is the documented degrade signal — a value of 0 is a degraded sweep (a
@@ -985,8 +996,11 @@ def _last_dispatch():
 
 
 def _log_cursor():
-    """The log cursor = the max seq in the log (the read-model's currency). 0 on an empty log."""
-    return max((e.get("seq", 0) for e in _dict_events()), default=0)
+    """The log cursor = the max seq in the log (the read-model's currency). 0 on an empty log. Only
+    INT seqs count — a schema-drifted dict event with a string/list `seq` (Codex round-2 [high]) is
+    skipped, never fed to max() (mixed-type max raises), so a corrupt log degrades deterministically."""
+    return max((e["seq"] for e in _dict_events()
+                if isinstance(e.get("seq"), int)), default=0)
 
 
 def _graph_reachable():
@@ -1020,11 +1034,14 @@ def _graph_reachable():
 
 def _degraded_strip(reason):
     """The fail-dark fallback the health strip renders when its OWN fold raises — a fully-degraded band
-    (every metric `—`, `degraded: True`) rather than a 500. The strip's whole job is to be the
-    degraded-mode signal, so it must itself never crash the landing (Codex [high])."""
+    (`degraded: True`) rather than a 500. The strip's whole job is to be the degraded-mode signal, so
+    it must itself never crash the landing (Codex round-1/2 [high]). The bad-state is carried as
+    explicit `*_bad` booleans (not derived from the displayed values with `> 0`), so the renderer never
+    compares a string placeholder with an int — that chained TypeError was the round-2 finding."""
     return {"dispatch_ts": None, "log_cursor": "—", "swept_sessions": None,
             "swept_degraded": True, "graph_reachable": False, "open_directives": "—",
-            "voz_backlog": "—", "awaiting_clarification": "—", "consistency_errors": "—",
+            "voz_backlog": "—", "voz_backlog_bad": True, "awaiting_clarification": "—",
+            "consistency_errors": "—", "consistency_bad": True,
             "degraded": True, "fold_error": reason}
 
 
@@ -1056,7 +1073,8 @@ def health_strip_data():
             consistency = [{"kind": "voz-fold-degraded"}]
         backlog = max(open_directives - awaiting, 0)  # eligible-but-unloaded overflow (actionable)
         swept_degraded = swept == 0  # the documented degrade: a sweep that swept nothing
-        degraded = swept_degraded or (not graph_reachable) or bool(consistency)
+        schema_drift = _log_has_schema_drift()  # a corrupt read-model line — surface, don't hide it
+        degraded = (swept_degraded or (not graph_reachable) or bool(consistency) or schema_drift)
         return {
             "dispatch_ts": dispatch["ts"] if dispatch else None,
             "log_cursor": log_cursor,
@@ -1065,8 +1083,10 @@ def health_strip_data():
             "graph_reachable": graph_reachable,
             "open_directives": open_directives,
             "voz_backlog": backlog,
+            "voz_backlog_bad": backlog > 0,
             "awaiting_clarification": awaiting,
             "consistency_errors": len(consistency),
+            "consistency_bad": bool(consistency),
             "degraded": degraded,
         }
     except Exception as e:
@@ -1095,10 +1115,12 @@ def _render_health_strip():
         _metric("swept sessions", "swept-sessions", swept, bad=h["swept_degraded"]),
         _metric("graph", "graph-reachable", graph, bad=not h["graph_reachable"]),
         _metric("open Directives", "open-directives", h["open_directives"]),
-        _metric("Voz backlog", "voz-backlog", h["voz_backlog"], bad=h["voz_backlog"] > 0),
+        # bad-state from explicit booleans (never re-derived with `> 0` — a degraded fallback carries
+        # string placeholders, and comparing those with an int would TypeError → 500, Codex round-2).
+        _metric("Voz backlog", "voz-backlog", h["voz_backlog"], bad=h["voz_backlog_bad"]),
         _metric("awaiting clarify", "awaiting-clarification", h["awaiting_clarification"]),
         _metric("consistency errors", "consistency-errors", h["consistency_errors"],
-                bad=h["consistency_errors"] > 0),
+                bad=h["consistency_bad"]),
     ]
     cls = "health-strip degraded" if h["degraded"] else "health-strip"
     note = ('<p class="health-note meta">read-model degraded — a fold beneath the briefing is stale '
