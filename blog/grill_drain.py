@@ -238,10 +238,15 @@ def consistency_errors(log):
 
 
 def _legacy_targets(log):
-    """`comment_id`s (in append order, deterministic) with a `voz.reply` but NO terminal
-    `voz.resolved` — the legacy-settled set the back-fill closes."""
+    """`comment_id`s (in append order, deterministic) with a REAL `voz.reply` but NO terminal
+    `voz.resolved` — the legacy-settled set the back-fill closes. A reply counts only if its body is
+    a non-empty string: a bodyless / blank / schema-drifted `voz.reply` is NOT a usable answer, so
+    back-filling `voz.resolved{replied}` from it would silently close an unanswered directive
+    (ADR-0017) — that comment must stay open, not be marked legacy-settled."""
     replied = {e["payload"].get("comment_id")
-               for e in _events(log) if e.get("type") == "voz.reply"}
+               for e in _events(log)
+               if e.get("type") == "voz.reply"
+               and isinstance(e["payload"].get("body"), str) and e["payload"]["body"].strip()}
     resolved = terminally_resolved(log)
     target_set = {cid for cid in replied if cid and cid not in resolved}
     order = [e["payload"].get("comment_id") for e in _events(log)

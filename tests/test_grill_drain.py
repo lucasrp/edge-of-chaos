@@ -163,6 +163,23 @@ class TestLegacyBackfill(_Base):
         self.assertEqual(len(res), 1)  # exactly one terminal outcome
         self.assertEqual(self.drain.consistency_errors(self.log), [])  # no duplicate-resolved
 
+    def test_backfill_ignores_a_bodyless_reply(self):
+        # a schema-drifted / hand-appended voz.reply with a missing or blank body is NOT a real
+        # answer — the back-fill must not treat it as legacy-settled and close the directive, or an
+        # unanswered comment would silently leave open_comments() with no usable reply (ADR-0017).
+        cid = self._comment("a real directive", "alpha-post")
+        # a reply event for cid, but with a blank body (no usable answer)
+        self._add("voz.reply", "voz:alpha-post", {"comment_id": cid, "body": "   "})
+        appended = self.drain.backfill_legacy_resolved(self.log)
+        self.assertEqual(appended, [])  # not back-filled
+        self.assertIn(cid, [c["comment_id"] for c in self.server.open_comments()])  # still open
+
+    def test_backfill_ignores_a_reply_with_no_body_key(self):
+        cid = self._comment("a real directive", "alpha-post")
+        self._add("voz.reply", "voz:alpha-post", {"comment_id": cid})  # no body at all
+        self.assertEqual(self.drain.backfill_legacy_resolved(self.log), [])
+        self.assertIn(cid, [c["comment_id"] for c in self.server.open_comments()])
+
     def test_backfill_does_not_touch_an_unreplied_comment(self):
         # a fresh, never-replied directive must stay open (the back-fill is reply-only).
         open_cid = self._comment("a fresh directive", "alpha-post")
