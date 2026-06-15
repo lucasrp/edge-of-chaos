@@ -318,3 +318,38 @@ a:hover { color: #a8c2ff; }
 /* the Voz→Direction provenance link (steer ⇄ originating comment) — a quiet from-a-Directive marker */
 .steer .provenance { margin-top: 8px; font-size: .8rem; }
 .steer .provenance a { font-family: var(--font-mono); }
+
+/* ---- design-doc surfaces (Slice 5a) — extends the shared cards/meta vocabulary, no one-off ---- */
+.docs-page .doc-group { margin: 28px 0; }
+.docs-page .doc-group h2 {
+  font: 600 .66rem/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-dim); margin-bottom: 10px;
+}
+.docs-page .doc-list { list-style: none; }
+.docs-page .doc-list li {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); margin: 8px 0;
+}
+.docs-page .doc-list a { display: block; padding: 12px 16px; color: var(--text); }
+.docs-page .doc-list a:hover { background: var(--surface-2); color: var(--accent); }
+
+/* a rendered doc body — the same quiet reading surface as a post, scoped to sanitized markup */
+.doc-body { margin-top: 24px; }
+.doc-body h1 { font-size: 1.7rem; font-weight: 700; letter-spacing: -.02em; margin: 26px 0 10px; }
+.doc-body h2 { font-size: 1.25rem; font-weight: 650; margin: 24px 0 8px; }
+.doc-body h3 { font-size: 1.05rem; font-weight: 600; margin: 20px 0 6px; color: var(--text-muted); }
+.doc-body h4, .doc-body h5, .doc-body h6 {
+  font: 600 .82rem/1.4 var(--font-sans); color: var(--text-muted); margin: 16px 0 4px;
+}
+.doc-body p { margin: 10px 0; }
+.doc-body ul { margin: 10px 0 10px 22px; }
+.doc-body li { margin: 4px 0; }
+.doc-body blockquote {
+  border-left: 2px solid var(--accent); padding: 4px 0 4px 16px; margin: 14px 0;
+  color: var(--text-muted);
+}
+.doc-body pre {
+  display: block; padding: 14px 16px; margin: 14px 0; overflow-x: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.doc-body pre code { background: none; border: none; padding: 0; }

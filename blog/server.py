@@ -163,6 +163,7 @@ _NAV_LINKS = (
     ("/chat", "chat"),
     ("/briefing", "briefing"),
     ("/direction", "direction"),
+    ("/docs", "docs"),
 )
 
 
@@ -1505,6 +1506,145 @@ def grill_drain_route():
     return (json.dumps({"status": "drained", "backfill": "ok",
                         "loaded": [c.get("comment_id") for c in loaded]}),
             200, {"Content-Type": "application/json"})
+
+
+# ── Design-doc surfaces (Slice 5a, AUDIT.md gap C, PLAN.md Slice 5a) ─────────────────────────────
+#
+# Make the edge's documentation NAVIGABLE in-dashboard, not read as files. The FOUR design-doc types
+# — glossary (CONTEXT.md), the ADRs (docs/adr/*.md), the Idiom standing page (state/idiom.md), and
+# the Source roadmap (state/source-roadmap.md) — each list on `/docs` and render on `/docs/<doc_id>`.
+#
+# ⚠️ SECURITY (PLAN.md, do not skip): these docs are edge-authored AND source-derived, so the
+# markdown can carry raw HTML, event handlers, or `javascript:` URLs. EVERY doc view renders through
+# the SHARED allowlist sanitizer `docmd.render_doc_html` (the same boundary Slice 5b's wiki/cluster
+# pages will reuse) — markdown → INERT HTML — so nothing executes same-origin in the authed
+# dashboard. An injected `<script>` / `on*=` handler / `javascript:` URL could otherwise read state
+# and fire an authenticated log-mutating POST, defeating the Slice-1 write gate. The doc surfaces are
+# READ-ONLY (no write route), so they carry no auth gate; their boundary is the sanitizer.
+import docmd  # noqa: E402  (the shared doc-rendering surface)
+
+
+def _docs_root():
+    """The repo root the doc sources live under (CONTEXT.md, docs/adr/, state/). The blog package
+    sits one level down, so the root is BASE.parent — the same anchor _log() uses."""
+    return BASE.parent
+
+
+def _doc_path(env, *default_parts):
+    """A doc source path, env-overridable for tests (CONTRACT C1 — a throwaway tree, never the real
+    repo docs as the system under test). Unset → the install's real doc at <root>/<default_parts>."""
+    override = os.environ.get(env)
+    return Path(override) if override else _docs_root().joinpath(*default_parts)
+
+
+def _adr_dir():
+    return _doc_path("EDGE_DOCS_ADR_DIR", "docs", "adr")
+
+
+def _adr_title(path):
+    """An ADR's human title = its first `# ` heading line (the ADR convention), else the file stem.
+    Read defensively — a missing/unreadable file falls back to the stem, never raises."""
+    try:
+        for line in path.read_text().splitlines():
+            if line.startswith("# "):
+                return line[2:].strip()
+    except OSError:
+        pass
+    return path.stem
+
+
+def _doc_registry():
+    """The ordered registry of every design-doc surface: (doc_id, kind, title, source Path). The
+    `doc_id` is the stable, URL-safe handle a /docs/<doc_id> view resolves. ADRs expand to one entry
+    per file (sorted by number); the three standing docs are single entries. Skips a source that is
+    absent on disk, so an install missing a doc degrades (the entry just doesn't list) rather than
+    offering a dead link."""
+    entries = []
+    glossary = _doc_path("EDGE_DOCS_GLOSSARY", "CONTEXT.md")
+    if glossary.is_file():
+        entries.append(("glossary", "glossary", "Glossary (CONTEXT.md)", glossary))
+    idiom = _doc_path("EDGE_DOCS_IDIOM", "state", "idiom.md")
+    if idiom.is_file():
+        entries.append(("idiom", "standing page", "Idiom", idiom))
+    roadmap = _doc_path("EDGE_DOCS_ROADMAP", "state", "source-roadmap.md")
+    if roadmap.is_file():
+        entries.append(("source-roadmap", "standing page", "Source roadmap", roadmap))
+    adr_dir = _adr_dir()
+    if adr_dir.is_dir():
+        for f in sorted(adr_dir.glob("*.md")):
+            entries.append((f"adr/{f.stem}", "ADR", _adr_title(f), f))
+    return entries
+
+
+def _doc_by_id(doc_id):
+    """Resolve a `doc_id` to its (kind, title, Path), or None. The lookup is over the registry (the
+    allowlist of real docs), so an arbitrary/forged id resolves to None → the route 404s. This is
+    ALSO the path-traversal defense: a request can only reach a doc the registry enumerated, never an
+    attacker-chosen filesystem path (`../../etc/passwd`)."""
+    for did, kind, title, path in _doc_registry():
+        if did == doc_id:
+            return kind, title, path
+    return None
+
+
+@app.get("/docs")
+def docs_index():
+    """The design-doc index: every doc type (glossary, ADRs, Idiom, Source roadmap) as a navigable
+    link — none forces the mentee to a file path. A read-only fold of the doc registry; zero API
+    spend. Grouped by kind so the four types read as four sections, not one flat list."""
+    by_kind = {}
+    for did, kind, title, _ in _doc_registry():
+        by_kind.setdefault(kind, []).append((did, title))
+    sections = []
+    for kind in ("glossary", "standing page", "ADR"):
+        items = by_kind.get(kind)
+        if not items:
+            continue
+        links = "".join(
+            f'<li><a href="/docs/{html.escape(did)}">{html.escape(title)}</a></li>'
+            for did, title in items)
+        sections.append(f'<section class="doc-group"><h2>{html.escape(kind)}</h2>'
+                        f'<ul class="doc-list">{links}</ul></section>')
+    body = "".join(sections) or '<p class="meta">sem docs ainda</p>'
+    return (
+        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
+        '<title>edge — docs</title>'
+        '<link rel="stylesheet" href="/static/style.css">'
+        '</head><body>'
+        f'{_site_nav("/docs")}'
+        '<main class="blog docs-page"><h1>edge — docs</h1>'
+        '<p class="meta">a documentação do edge, navegável aqui — glossário, ADRs, Idiom, '
+        'Source roadmap. Renderizada inerte (sanitizada), nunca como arquivo.</p>'
+        f'{body}</main>'
+        '</body></html>'
+    )
+
+
+@app.get("/docs/<path:doc_id>")
+def doc_view(doc_id):
+    """A single design-doc, rendered markdown → INERT HTML through the SHARED sanitizer
+    (docmd.render_doc_html). The `doc_id` resolves over the registry allowlist (an unknown/forged id
+    or a traversal attempt → 404, never an arbitrary filesystem read). Read-only; zero API spend."""
+    found = _doc_by_id(doc_id)
+    if found is None:
+        abort(404)
+    kind, title, path = found
+    try:
+        source = path.read_text()
+    except OSError:
+        abort(404)
+    rendered = docmd.render_doc_html(source)
+    return (
+        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
+        f'<title>edge — {html.escape(title)}</title>'
+        '<link rel="stylesheet" href="/static/style.css">'
+        '</head><body>'
+        f'{_site_nav("/docs")}'
+        '<main class="blog doc-page">'
+        f'<p class="meta"><a href="/docs">← docs</a> · {html.escape(kind)}</p>'
+        f'<article class="doc-body">{rendered}</article></main>'
+        '</body></html>'
+    )
 
 
 @app.get("/e/<path:name>")
