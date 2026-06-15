@@ -1760,19 +1760,30 @@ def _cluster_title(path):
     return path.stem
 
 
+# The canonical wiki cluster-id shape — letters-only, the EXACT rule wiki_render names its
+# `cluster-<slug>.html` pages by (_cluster_slug). The registry FAILS CLOSED on any other id (codex
+# round-2 [high]): a corrupt/drifted wiki tree carrying a filename like `cluster-x" onclick=….html`
+# must NOT enter the allowlist — the /wiki index is an unsandboxed authed page, and a non-canonical id
+# interpolated into an href would be a same-origin breakout vector (an authenticated POST, defeating
+# the Slice-1 gate). Only a letters-only id is a real cluster page; anything else is dropped.
+_CLUSTER_ID_RE = re.compile(r"^[a-z]+$")
+
+
 def _cluster_registry():
     """The ordered registry of every Knowledge cluster: (cluster_id, title, source Path). The
     `cluster_id` is the stable, URL-safe handle a /wiki/<cluster_id> view resolves — derived from the
     `cluster-<id>.html` filename. This is the ALLOWLIST: a /wiki/<id> view resolves only over this
     list, so a forged id / traversal attempt reaches no file (404), never an arbitrary filesystem
-    read. Sorted by id for a stable index."""
+    read. FAILS CLOSED on a non-canonical id (codex round-2 [high]): a malformed filename (a drifted
+    tree carrying a quote / handler in the stem) is dropped before it can reach the index's href —
+    only the wiki renderer's own letters-only id shape is admitted. Sorted by id for a stable index."""
     root = _wiki_root()
     if not root.is_dir():
         return []
     entries = []
     for f in sorted(root.glob("cluster-*.html")):
         cid = f.stem[len("cluster-"):]
-        if cid:
+        if cid and _CLUSTER_ID_RE.match(cid):
             entries.append((cid, _cluster_title(f), f))
     return entries
 
@@ -1800,7 +1811,9 @@ def wiki_index():
     NO source HTML, so it carries no injection surface; the cluster titles are html-escaped. Read-only
     fold of the wiki registry; zero API spend."""
     items = "".join(
-        f'<li><a href="{_wiki_href(cid)}">{html.escape(title)}</a></li>'
+        # cid is letters-only by the registry's canonical gate; html.escape is belt-and-suspenders so
+        # the index href can never carry a breakout even if the gate were ever loosened.
+        f'<li><a href="{html.escape(_wiki_href(cid))}">{html.escape(title)}</a></li>'
         for cid, title, _ in _cluster_registry()
     )
     body = (f'<ul class="wiki-clusters">{items}</ul>' if items

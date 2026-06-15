@@ -230,6 +230,36 @@ class TestMaliciousClusterIsInertAndCannotAppend(_WikiBase):
         self.assertIn("legible cluster prose.", raw)
 
 
+class TestMaliciousClusterFilenameCannotXssTheIndex(_WikiBase):
+    """SECURITY (codex round-2 [high]): the /wiki INDEX is an unsandboxed authed page. A corrupt /
+    drifted wiki tree could carry a cluster FILENAME like `cluster-x" onclick="alert(1).html` — if
+    the registry returned that suffix verbatim and the index interpolated it into an `href="..."`, it
+    would break out and bind a same-origin handler (an authenticated POST, defeating the Slice-1
+    gate). The registry must FAIL CLOSED: only a canonical, letters-only cluster id is accepted (the
+    wiki renderer's own naming rule), so a malformed filename is dropped, never linked."""
+
+    CLUSTERS = {
+        "cluster-introspectivememory.html": _CLUSTER_A,
+        # a poisoned filename: a quote + an event-handler payload smuggled into the stem.
+        'cluster-x" onclick="alert(1).html': _CLUSTER_B,
+    }
+
+    def test_index_does_not_emit_the_poisoned_filename_as_markup(self):
+        html = self.client.get("/wiki").get_data(as_text=True)
+        # no live attribute breakout — the handler text never appears as a live `onclick="`.
+        self.assertNotIn('onclick="', html)
+        # the canonical cluster still lists (the boundary drops only the malformed one).
+        self.assertIn("/wiki/introspectivememory", html)
+
+    def test_poisoned_cluster_id_is_not_registered(self):
+        ids = {cid for cid, _t, _p in self.server._cluster_registry()}
+        self.assertIn("introspectivememory", ids)
+        # the malformed id is rejected by the canonical-id gate — it never enters the allowlist.
+        self.assertNotIn('x" onclick="alert(1)', ids)
+        for cid in ids:
+            self.assertRegex(cid, r"^[a-z]+$", f"non-canonical cluster id leaked: {cid!r}")
+
+
 class TestWikiReachableFromBriefingAndDistills(unittest.TestCase):
     """ACCEPTANCE (PLAN.md Slice 5b): clusters are reachable from /briefing AND from an Artefato's
     `distills` — not just a standalone /wiki route. The blog index renders an Artefato's distilled
