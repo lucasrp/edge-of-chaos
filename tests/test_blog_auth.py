@@ -280,6 +280,26 @@ class TestCanonicalAppend(_Base):
         self.assertEqual(self._count(), before + 1)  # one Directive, not two
         self.assertEqual(len(self._events("voz.comment")), 1)
 
+    def test_second_distinct_comment_from_same_render_is_not_dropped(self):
+        """The nonce dedupes a TRUE resubmit (same body, double-fire), but a legitimate SECOND,
+        DISTINCT comment typed into the same still-rendered composer (same render nonce) must NOT
+        be silently dropped. The per-render nonce is stable across a render, so keying the
+        idempotency check on the nonce ALONE would dedupe two different directives into one —
+        dropping the follow-up. Key on the nonce + the body so only an identical resubmit dedupes."""
+        before = self._count()
+        import re
+        rail = self.server._render_rail("alpha-post")
+        composer = rail.split('class="composer"', 1)[1]
+        nonce = re.search(r'name="comment_nonce" value="([^"]+)"', composer).group(1)
+        # Two DISTINCT follow-up comments from the one rendered page (htmx swapped only the thread,
+        # the composer's hidden nonce is unchanged) — both must land.
+        self._post("/e/alpha-post/comment", {"body": "first directive", "comment_nonce": nonce})
+        self._post("/e/alpha-post/comment", {"body": "a different follow-up", "comment_nonce": nonce})
+        self.assertEqual(self._count(), before + 2)  # both directives, none dropped
+        bodies = [e["payload"]["body"] for e in self._events("voz.comment")]
+        self.assertIn("first directive", bodies)
+        self.assertIn("a different follow-up", bodies)
+
     def test_like_then_dislike_from_one_render_are_both_recorded(self):
         """👍 then 👎 before the swap completes (SAME nonce, DIFFERENT value) are distinct actions,
         not a duplicate retry — both append; only a same-button retry dedupes."""

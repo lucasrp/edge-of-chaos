@@ -6,6 +6,7 @@ O índice é uma PROJEÇÃO do log (ADR-0005: a página re-renderiza do log, sem
 que o dispatch criou (cites/distills/proposes), mais recente primeiro. As entries continuam servidas de
 `entries/*.html`. Paths overridáveis por env (EDGE_BLOG_ENTRIES/STATIC/LOG) para teste.
 """
+import hashlib
 import html
 import json
 import os
@@ -249,6 +250,19 @@ def _comment_nonce(target_ref):
     return f"comment:{target_ref}:{n}"
 
 
+def _comment_idem_key(nonce, body):
+    """The idempotency key for a comment append = the render nonce + a digest of the body. The
+    nonce alone is stable across a render (it does not advance until the page reloads), so keying
+    on it ALONE would dedupe two *distinct* follow-up comments typed into the same still-rendered
+    composer into one — silently dropping the second. Binding the body means only a TRUE resubmit
+    (same render, identical text — a double-fire) dedupes; a different follow-up is a new key, so it
+    appends. Mirrors the vote route, which keys on nonce + the submitted value."""
+    if not nonce:
+        return None
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+    return f"{nonce}:{digest}"
+
+
 def _replies():
     """Fold edge replies keyed by the comment_id they answer."""
     out = {}
@@ -373,7 +387,7 @@ def post_comment(slug):
     if body:
         _append_voz("voz.comment", f"voz:{slug}",
                     {"target_ref": slug, "comment_id": uuid.uuid4().hex[:12], "body": body},
-                    idem_key=request.form.get("comment_nonce"))
+                    idem_key=_comment_idem_key(request.form.get("comment_nonce"), body))
     return _render_thread(slug)
 
 
@@ -387,7 +401,7 @@ def post_chat_comment():
     if body:
         _append_voz("voz.comment", "voz:chat",
                     {"target_ref": None, "comment_id": uuid.uuid4().hex[:12], "body": body},
-                    idem_key=request.form.get("comment_nonce"))
+                    idem_key=_comment_idem_key(request.form.get("comment_nonce"), body))
     return _render_chat()
 
 
