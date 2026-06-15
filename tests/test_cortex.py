@@ -710,5 +710,104 @@ class TestIslandRender(unittest.TestCase):
         self.assertNotIn('hit.removeClass("filtered-out")', js)
 
 
+def _run_probe_logic(js_body):
+    """Drive the exported webglSupported() probe under Node (no DOM). cortex.js exports it alongside
+    CortexFilters; the probe takes an injectable canvas factory so it is testable headless (the same
+    Node-export pattern as CortexFilters). `js_body` asserts via `assert` then the harness prints OK."""
+    harness = textwrap.dedent("""
+        const assert = require('assert');
+        const { webglSupported } = require(%r);
+        %s
+        console.log('OK');
+    """) % (str(CORTEX_JS), js_body)
+    return subprocess.run([NODE, "-e", harness], capture_output=True, text=True)
+
+
+@unittest.skipIf(NODE is None, "node not available to drive the island logic")
+class TestWebglProbe(unittest.TestCase):
+    """Slice 1 — the WebGL capability seam (G4 / prereq for the M-GATE). webglSupported() is a pure,
+    exported, side-effect-free try/catch probe: it asks a throwaway <canvas> for a webgl /
+    experimental-webgl context and returns a boolean. It takes an injectable canvas factory so it is
+    testable headless under Node (no `document`); the DOM island guard still gates real browser use.
+    NO render swap here — /cortex still renders the 2D Cytoscape island (Slice 2 wires the renderer)."""
+
+    def test_probe_is_exported_for_node(self):
+        proc = _run_probe_logic("assert.strictEqual(typeof webglSupported, 'function');")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_probe_true_when_a_context_is_available(self):
+        # a stubbed canvas factory whose getContext returns a (fake) context → the probe reports true.
+        proc = _run_probe_logic("""
+            const factory = () => ({ getContext: (kind) => (kind === 'webgl' ? {} : null) });
+            assert.strictEqual(webglSupported(factory), true);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_probe_falls_back_to_experimental_webgl(self):
+        # some contexts only answer to 'experimental-webgl' — the probe must try it too.
+        proc = _run_probe_logic("""
+            const factory = () => ({
+              getContext: (kind) => (kind === 'experimental-webgl' ? {} : null) });
+            assert.strictEqual(webglSupported(factory), true);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_probe_false_when_no_context(self):
+        # getContext returns null for every kind (WebGL blocked / unavailable) → the probe reports false.
+        proc = _run_probe_logic("""
+            const factory = () => ({ getContext: () => null });
+            assert.strictEqual(webglSupported(factory), false);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_probe_is_false_not_a_throw_when_getContext_throws(self):
+        # a hardened context that THROWS on getContext must be caught — the probe returns false, never
+        # propagates (a throw here would crash the island before the fallback ladder can engage).
+        proc = _run_probe_logic("""
+            const factory = () => ({ getContext: () => { throw new Error('blocked'); } });
+            assert.strictEqual(webglSupported(factory), false);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_probe_is_callable_in_node_without_document(self):
+        # with no factory AND no `document` (Node), the probe must be callable and return a boolean
+        # (false), never throw — the DOM island guard gates the real browser path.
+        proc = _run_probe_logic("""
+            const v = webglSupported();
+            assert.strictEqual(typeof v, 'boolean');
+            assert.strictEqual(v, false);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_probe_releases_the_context_it_acquires(self):
+        # SIDE-EFFECT-FREE (codex Slice-1 round-1 [medium]): WebGL context quotas are low on
+        # constrained browsers / VMs, so the probe must RELEASE the throwaway context it creates —
+        # else it can starve the real Slice-2 renderer it is meant to gate. It releases via the
+        # WEBGL_lose_context extension's loseContext().
+        proc = _run_probe_logic("""
+            let lost = 0;
+            const gl = { getExtension: (n) =>
+              (n === 'WEBGL_lose_context' ? { loseContext: () => { lost++; } } : null) };
+            const factory = () => ({ getContext: () => gl });
+            assert.strictEqual(webglSupported(factory), true);  // still reports true
+            assert.strictEqual(lost, 1);                        // and released exactly once
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_probe_tolerates_missing_or_throwing_cleanup_api(self):
+        # the cleanup is best-effort: a context with no WEBGL_lose_context (extension absent) or whose
+        # loseContext throws must NOT break the probe — it still returns true, never propagates.
+        proc = _run_probe_logic("""
+            const noExt = () => ({ getContext: () => ({ getExtension: () => null }) });
+            assert.strictEqual(webglSupported(noExt), true);
+            const throwsExt = () => ({ getContext: () => ({
+              getExtension: () => ({ loseContext: () => { throw new Error('x'); } }) }) });
+            assert.strictEqual(webglSupported(throwsExt), true);
+            const noGetExt = () => ({ getContext: () => ({}) });   // context lacks getExtension entirely
+            assert.strictEqual(webglSupported(noGetExt), true);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

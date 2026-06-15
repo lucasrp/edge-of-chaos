@@ -160,11 +160,47 @@
     },
   };
 
+  // webglSupported(canvasFactory) → boolean. The capability seam the M21 fallback ladder branches on
+  // (Slice 1 / audit G4): a side-effect-free try/catch that asks a throwaway <canvas> for a `webgl`
+  // (then `experimental-webgl`) context and reports whether one is available. The probe is necessary
+  // but NOT sufficient for 3D (Slice 2 also wraps the renderer's construct + first-paint) — here it
+  // only reports the capability. `canvasFactory` is injectable so the probe is testable headless under
+  // Node (no `document`); in the browser it defaults to document.createElement("canvas"). With no
+  // factory and no `document` (Node) it returns false — callable, never throwing, so the DOM island
+  // guard (below) still gates real use. Any throw (a hardened/blocked context) is caught → false,
+  // never propagated (a throw here would crash the island before the fallback can engage).
+  function webglSupported(canvasFactory) {
+    try {
+      var make = canvasFactory;
+      if (typeof make !== "function") {
+        if (typeof document === "undefined") return false; // Node, no injected factory
+        make = function () { return document.createElement("canvas"); };
+      }
+      var canvas = make();
+      if (!canvas || typeof canvas.getContext !== "function") return false;
+      var gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+      if (!gl) return false;
+      // Release the throwaway context (codex Slice-1 round-1): WebGL context quotas are low on
+      // constrained browsers / VMs, so the probe must not leak the context it acquires — that could
+      // starve the real Slice-2 renderer this probe gates. Best-effort: a missing/throwing cleanup
+      // API must not break the probe (it still reports true).
+      try {
+        var lose = typeof gl.getExtension === "function" ? gl.getExtension("WEBGL_lose_context") : null;
+        if (lose && typeof lose.loseContext === "function") lose.loseContext();
+      } catch (cleanupErr) { /* best-effort release; ignore */ }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   // Export the pure logic for Node (tests) AND attach it to the browser global (the DOM island reads
-  // it below). Requiring this file in Node only defines + exports CortexFilters — the DOM island
-  // block is guarded on `document`/`cytoscape`, so it never runs without a browser.
-  if (typeof module !== "undefined" && module.exports) module.exports = { CortexFilters: CortexFilters };
+  // it below). Requiring this file in Node only defines + exports CortexFilters + webglSupported — the
+  // DOM island block is guarded on `document`/`cytoscape`, so it never runs without a browser.
+  if (typeof module !== "undefined" && module.exports)
+    module.exports = { CortexFilters: CortexFilters, webglSupported: webglSupported };
   root.CortexFilters = CortexFilters;
+  root.webglSupported = webglSupported;
 
   // ── DOM island — only in the browser, only with cytoscape + the mount + the payload ─────────────
   if (typeof document === "undefined" || typeof cytoscape === "undefined") return;

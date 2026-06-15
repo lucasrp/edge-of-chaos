@@ -66,6 +66,9 @@ Todo JS/CSS de terceiros é **vendored** em `blog/static/vendor/` e servido loca
 uma dependência de execução remota numa superfície authed). Versões pinadas:
 - `vendor/htmx.min.js` — htmx 1.9.12
 - `vendor/cytoscape.min.js` — Cytoscape 3.30.2 (só carregada em `/cortex`)
+- `vendor/3d-force-graph.min.js` — 3d-force-graph 1.80.0 (~1283 KB; bundle UMD = three.js +
+  d3-force-3d; **só na island `/cortex`**, nunca o app shell — M19/R1). O render swap é Slice 2;
+  o asset é vendorado aqui (o doc e o arquivo entram juntos).
 - `vendor/tabler.min.css` — Tabler 1.0.0-beta20
 
 ## UX Catalog (style guide vivo)

@@ -111,6 +111,34 @@ class SelfHostedJS(unittest.TestCase):
         vendor = BLOG / "static" / "vendor"
         self.assertTrue((vendor / "htmx.min.js").is_file(), "vendored htmx missing")
         self.assertTrue((vendor / "cytoscape.min.js").is_file(), "vendored cytoscape missing")
+        # Slice 1 — the 3D force-graph bundle (three.js + d3-force-3d, one UMD min file) is vendored
+        # self-hosted, pinned, NO CDN. The render swap is Slice 2 — here the asset just lands on disk.
+        self.assertTrue((vendor / "3d-force-graph.min.js").is_file(),
+                        "vendored 3d-force-graph missing")
+
+    def test_3d_force_graph_served_locally(self):
+        # the vendored 3D bundle is served from /static/vendor with a 200 (self-hosted, no CDN).
+        r = self.client.get("/static/vendor/3d-force-graph.min.js")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("javascript", r.headers.get("Content-Type", "").lower())
+
+    def test_3d_force_graph_header_pins_version_and_size(self):
+        # the file header comment records the exact pinned version + bundle size (KB) so the
+        # supply-chain provenance is auditable from the asset itself (PLAN Slice 1 accept).
+        head = (BLOG / "static" / "vendor" / "3d-force-graph.min.js").read_text(
+            errors="replace")[:1024]
+        self.assertIn("3d-force-graph", head)
+        self.assertIn("1.80.0", head)       # exact pinned version
+        self.assertRegex(head, r"\bKB\b")   # the bundle size in KB is recorded
+
+    def test_3d_force_graph_not_loaded_anywhere_yet(self):
+        # Slice 1 is the asset + the probe, NOT the render swap — no page references the 3D bundle
+        # via a <script> yet (that wiring is Slice 2, island-only). The file is on disk + served,
+        # but unreferenced, so /cortex still renders the existing 2D Cytoscape island unchanged.
+        for path in ("/", "/cortex"):
+            body = self.client.get(path).data.decode()
+            self.assertNotIn("3d-force-graph.min.js", body,
+                             f"{path} already references the 3D bundle — that swap is Slice 2")
 
     def test_no_cdn_script_src_on_any_page(self):
         for path in ("/", "/chat", "/briefing", "/direction", "/docs", "/wiki", "/cortex"):
