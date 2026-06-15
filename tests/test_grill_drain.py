@@ -407,6 +407,27 @@ class TestDrainRouteAuthGate(unittest.TestCase):
         types = [json.loads(ln)["type"] for ln in self.log.read_text().splitlines() if ln.strip()]
         self.assertNotIn("voz.reply", types)
 
+    def test_no_generator_route_still_backfills_legacy_so_nothing_reopens(self):
+        # the gate's finding: an upgraded install with a historical voz.reply-only comment and NO
+        # generator. The lifecycle switch is live, so without a back-fill the legacy chat shows as
+        # open. The route must migrate it (back-fill) even on the no-generator 503 path — the
+        # migration is independent of the reply generator (ADR-0017: switch ships WITH the back-fill).
+        import eventlog
+        eventlog.append("voz.comment", "voz:alpha-post",
+                        {"target_ref": "alpha-post", "comment_id": "legacy1", "body": "oi"},
+                        log=self.log)
+        eventlog.append("voz.reply", "voz:alpha-post",
+                        {"comment_id": "legacy1", "body": "hand reply"}, log=self.log)
+        # before: the switch would show it open
+        self.assertIn("legacy1", [c["comment_id"] for c in self.server.open_comments()])
+        r = self.client.post("/grill/drain")  # authed, no generator → 503 path
+        self.assertEqual(r.status_code, 503)
+        # but the legacy chat was migrated: it is NOT open, with a back-filled voz.resolved
+        self.assertNotIn("legacy1", [c["comment_id"] for c in self.server.open_comments()])
+        types = [json.loads(ln)["type"] for ln in self.log.read_text().splitlines() if ln.strip()]
+        self.assertIn("voz.resolved", types)
+        self.assertNotIn("voz.reply", types[types.index("voz.resolved"):])  # no NEW reply generated
+
     def test_authed_drain_with_injected_stub_runs_end_to_end_no_llm(self):
         # the route's vertical, proven with a STUB generator (no API spend): an authed drain
         # replies + resolves an open comment through the HTTP entry point.

@@ -888,13 +888,20 @@ def grill_drain_route():
     if not authorize_write():
         abort(403)  # per Slice 1 — unauthenticated / cross-origin → rejected, no append
     import grill_drain
+    # The lifecycle switch (open_comments keys on voz.resolved) is live the moment this ships, so the
+    # legacy back-fill must run INDEPENDENTLY of the reply generator — else an upgraded install with
+    # historical voz.reply-only comments shows them as open until a (possibly never-run) live drain.
+    # Idempotent + lock-guarded, so running it on every drain (incl. the no-generator path) is free
+    # after the first and cannot reopen/reprocess (ADR-0017: the switch ships WITH the back-fill).
+    grill_drain.backfill_legacy_resolved(_log())
     reply_fn = DRAIN_REPLY_GENERATOR
     if reply_fn is None:
         if os.environ.get("EDGE_DRAIN_LIVE") != "1":
-            # Default: refuse to spend the user's OpenAI API. No generator, no append.
+            # Default: refuse to spend the user's OpenAI API. The migration already ran above; this
+            # path appends no reply (no generator) — only the lifecycle back-fill, which is correct.
             return ('{"status": "no-generator", "detail": "live drain disabled '
-                    '(set EDGE_DRAIN_LIVE=1 to spend the edge OpenAI API)"}', 503,
-                    {"Content-Type": "application/json"})
+                    '(set EDGE_DRAIN_LIVE=1 to spend the edge OpenAI API); legacy back-fill applied"}',
+                    503, {"Content-Type": "application/json"})
         reply_fn = grill_drain.live_reply_generator()  # ⚠️ spends the user's OpenAI API
     loaded = grill_drain.drain(_log(), reply_fn)
     return (json.dumps({"status": "drained", "loaded": [c.get("comment_id") for c in loaded]}),
@@ -913,6 +920,22 @@ def entry(name):
 @app.get("/static/<path:fname>")
 def static_files(fname):
     return send_from_directory(_static(), fname)
+
+
+def _migrate_voz_lifecycle():
+    """Startup migration (ADR-0017): run the idempotent legacy back-fill BEFORE any open_comments()
+    projection is exposed, so the read-side switch (openness keys on terminal voz.resolved) never
+    shows a historical voz.reply-only chat as open. Independent of the drain / reply generator.
+    Idempotent + lock-guarded, fail-soft (a missing/locked log must not crash server startup)."""
+    try:
+        import grill_drain
+        grill_drain.backfill_legacy_resolved(_log())
+    except Exception:
+        pass  # never block startup on the migration; the route also back-fills as a backstop
+
+
+# Migrate on import so the very first read surface (index / chat) already reflects the switch.
+_migrate_voz_lifecycle()
 
 
 if __name__ == "__main__":
