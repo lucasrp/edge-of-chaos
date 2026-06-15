@@ -1369,6 +1369,10 @@ def _cortex_controls():
         f'<div class="ctrl-row ctrl-types">{types}</div>'
         '<div class="ctrl-row">'
         '<label class="ctrl-toggle"><input id="cortex-earmarked" type="checkbox"> só Earmarked</label>'
+        # The Episodic-collapse perf lever (Slice 6): a client-side render decision that folds the
+        # faint Episodic haze out of the RENDERED set to keep the 3D render performant as the graph
+        # grows (the fold payload is untouched). Reuses the shared .ctrl-toggle component vocabulary.
+        '<label class="ctrl-toggle"><input id="cortex-collapse" type="checkbox"> colapsar Episodic</label>'
         '<label class="ctrl-recency">recência '
         '<input id="cortex-recency" type="range" min="0" max="100" value="0" '
         'aria-label="recência mínima"></label>'

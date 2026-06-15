@@ -488,6 +488,92 @@ class CortexBrowserGate(unittest.TestCase):
             f"3D sustained {fps_a:.1f} then {fps_b:.1f} FPS over 5s — below the 30 FPS floor (M22)")
         page.close()
 
+    # ── Slice 6 — the Episodic-collapse perf lever drops the RENDERED density (the fold is untouched) ──
+    def test_episodic_collapse_lever_drops_rendered_density(self):
+        # engage the client-side collapse toggle on the live 3D rung: the rendered node set must drop
+        # by the episodic haze (the lever's whole point — keep the render performant as the graph
+        # grows, beyond the M22 floor), while EVERY non-episodic node stays. A render decision over
+        # the SAME payload — the embedded data block is never re-fetched or mutated.
+        page = self._page()
+        page.wait_for_function("() => window.__cortexMetrics && window.__cortexMetrics.stopped",
+                               timeout=8000)
+        before = page.evaluate("() => window.__cortexGraph.graphData().nodes.length")
+        # the full payload also carries episodics (the haze is present before the lever)
+        ep_total = page.evaluate("""() => JSON.parse(
+            document.getElementById('cortex-data').textContent).nodes
+            .filter(n => n.trust === 'episodic').length""")
+        self.assertGreater(ep_total, 0, "the baseline fixture has no episodic haze to collapse")
+        # engage the lever
+        page.evaluate("""() => {
+            const b = document.getElementById('cortex-collapse');
+            b.checked = true; b.dispatchEvent(new Event('change', {bubbles:true}));
+        }""")
+        page.wait_for_timeout(400)
+        # an Earmarked episodic is NEVER folded out (M4 / SURFACE.md harm-surfacing) — so the drop is
+        # the episodic haze MINUS any Earmarked episodics, which stay surfaced + correctable.
+        ep_harm = page.evaluate("""() => JSON.parse(
+            document.getElementById('cortex-data').textContent).nodes
+            .filter(n => n.trust === 'episodic' && n.earmarked).length""")
+        after = page.evaluate("() => window.__cortexGraph.graphData().nodes.length")
+        self.assertEqual(after, before - (ep_total - ep_harm),
+                         f"collapse dropped {before-after} nodes, expected {ep_total-ep_harm} "
+                         f"(the {ep_total} episodics minus {ep_harm} Earmarked harm nodes)")
+        # only NON-Earmarked episodics fold out; an Earmarked episodic stays rendered (harm surfaced)
+        ep_plain_rendered = page.evaluate(
+            "() => window.__cortexGraph.graphData().nodes"
+            ".filter(n => n.trust === 'episodic' && !n.earmarked).length")
+        self.assertEqual(ep_plain_rendered, 0,
+                         "a plain episodic node survived the collapse in the rendered set")
+        ep_harm_rendered = page.evaluate(
+            "() => window.__cortexGraph.graphData().nodes"
+            ".filter(n => n.trust === 'episodic' && n.earmarked).length")
+        self.assertEqual(ep_harm_rendered, ep_harm,
+                         "an Earmarked episodic was buried by the collapse — harm-surfacing violated")
+        self.assertGreaterEqual(
+            page.evaluate(
+                "() => window.__cortexGraph.graphData().nodes.filter(n => n.trust==='space0').length"),
+            1, "the space-0 core was wrongly collapsed (the lever must only fold the episodic haze)")
+        # the embedded fold payload is UNCHANGED — the lever is a RENDER decision, not a data change
+        payload_ep = page.evaluate("""() => JSON.parse(
+            document.getElementById('cortex-data').textContent).nodes
+            .filter(n => n.trust === 'episodic').length""")
+        self.assertEqual(payload_ep, ep_total, "the lever mutated the embedded payload (must be render-only)")
+        # toggling it OFF restores the full haze (the no-stale-state contract, end to end)
+        page.evaluate("""() => {
+            const b = document.getElementById('cortex-collapse');
+            b.checked = false; b.dispatchEvent(new Event('change', {bubbles:true}));
+        }""")
+        page.wait_for_timeout(400)
+        restored = page.evaluate("() => window.__cortexGraph.graphData().nodes.length")
+        self.assertEqual(restored, before, "disengaging the collapse did not restore the full haze")
+        page.close()
+
+    def test_episodic_collapse_keeps_the_m22_floor(self):
+        # with the lever ENGAGED the M22 floor must still hold: the (lighter) graph still converges +
+        # freezes within the pinned ceiling and idles — collapse improves headroom, never regresses it.
+        # Engaging the toggle re-pushes the (lighter) graphData, which reheats the sim under the SAME
+        # cooldownTicks(300)/cooldownTime(2000) cap; it must converge again and then go quiet.
+        page = self._page()
+        page.wait_for_function("() => window.__cortexMetrics && window.__cortexMetrics.stopped",
+                               timeout=8000)
+        frozen_ticks = page.evaluate("() => window.__cortexMetrics.ticks")
+        page.evaluate("""() => {
+            const b = document.getElementById('cortex-collapse');
+            b.checked = true; b.dispatchEvent(new Event('change', {bubbles:true}));
+        }""")
+        # the re-push reheats the lighter sim under the same cap; wait for the tick count to STABILIZE
+        # (a converged sim stops climbing), then assert it is bounded by the per-run 300-tick cap.
+        page.wait_for_timeout(3000)  # past the 2.0s cooldown + margin for the reheated run
+        t1 = page.evaluate("() => window.__cortexMetrics.ticks")
+        page.wait_for_timeout(1200)
+        t2 = page.evaluate("() => window.__cortexMetrics.ticks")
+        self.assertEqual(t1, t2, "the collapsed-graph tick never settled — an unbounded live tick (M22)")
+        # the reheated run's own ticks (since the first freeze) stayed within the pinned per-run cap
+        reheat_ticks = t2 - frozen_ticks
+        self.assertLessEqual(reheat_ticks, 300,
+                             f"collapsed-graph reheat ran {reheat_ticks} ticks — past the 300-tick cap")
+        page.close()
+
     # ── (j-iv) the growth-stress ceiling — a ~1000-node fixture still converges-and-freezes ────────
     def test_m22_growth_fixture_converges_and_freezes(self):
         # serve a separate ~1000-node fixture via a second backgrounded server, prove freeze + cap.

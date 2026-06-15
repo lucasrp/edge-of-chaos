@@ -185,6 +185,8 @@ class TestCortexRoute(unittest.TestCase):
         self.assertIn('id="cortex-earmarked"', body)
         # the recency control
         self.assertIn('id="cortex-recency"', body)
+        # the Episodic-collapse perf lever (Slice 6) — folds the faint haze out of the RENDERED set
+        self.assertIn('id="cortex-collapse"', body)
 
     def test_search_and_filter_controls_absent_on_the_dark_page(self):
         # fail-dark stays clean — no controls leak onto the dark page (nothing to navigate).
@@ -730,6 +732,108 @@ class TestIslandFilter(unittest.TestCase):
             assert.strictEqual(vis.size, 8);
         """)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+
+
+@unittest.skipIf(NODE is None, "node not available to drive the island logic")
+class TestIslandEpisodicCollapse(unittest.TestCase):
+    """Slice 6 — the Episodic-collapse perf lever (SURFACE.md's own suggestion). A CLIENT-SIDE render
+    decision over the EXISTING payload (the fold / cortex_fold / _map_node are UNCHANGED): when
+    engaged, the faint `episodic` haze (~91 nodes + their MENTIONS edges) folds out of the RENDERED
+    set so it stops costing render budget beyond the Slice-2 M22 floor. It is one more independent AND
+    predicate in `visible()` — pure over (payload, control-state), recomputed from scratch, so it
+    composes with type/Earmarked/recency/search and toggling it off restores the haze cleanly (the
+    no-stale-state contract). It NEVER touches the data — only which nodes the renderer draws."""
+
+    PAYLOAD = json.dumps(ISLAND_PAYLOAD)
+
+    def test_collapse_drops_the_episodic_haze_from_the_rendered_set(self):
+        # engaged → the episodic-tier nodes leave the visible set; every other tier stays.
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const vis = CortexFilters.visible(p, {{collapseEpisodic: true}});
+            assert.ok(!vis.has('ep1'));                 // episodic folded out
+            assert.ok(!vis.has('ep2'));                 // including the unstamped episodic
+            assert.ok(vis.has('g0') && vis.has('e1') && vis.has('s1'));  // every non-episodic stays
+            assert.strictEqual(vis.size, 6);            // 8 nodes − 2 episodic
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_collapse_off_keeps_the_full_haze(self):
+        # the lever is opt-in: absent / false → the episodic haze is rendered (the v1 surf posture).
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            assert.strictEqual(CortexFilters.visible(p, {{collapseEpisodic: false}}).size, 8);
+            assert.strictEqual(CortexFilters.visible(p, {{}}).size, 8);    // default off
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_collapse_is_pure_no_stale_state_when_toggled_off(self):
+        # the no-stale-state contract: engaging then disengaging recovers the FULL set (recomputed
+        # from the immutable payload, never a stale hidden remainder).
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const collapsed = CortexFilters.visible(p, {{collapseEpisodic: true}});
+            assert.strictEqual(collapsed.size, 6);
+            const restored = CortexFilters.visible(p, {{collapseEpisodic: false}});
+            assert.strictEqual(restored.size, 8);       // the haze is back, no stale remainder
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_collapse_composes_with_the_other_filters(self):
+        # an independent AND with type/Earmarked/recency — intersect, never resurrect. Type-select
+        # Episodic AND collapse → the empty set (the predicates intersect, collapse wins on episodic).
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const onlyEp = CortexFilters.visible(p, {{types: ['Episodic']}});
+            assert.strictEqual(onlyEp.size, 2);          // both episodics with the type filter alone
+            const collapsedEp = CortexFilters.visible(
+              p, {{types: ['Episodic'], collapseEpisodic: true}});
+            assert.strictEqual(collapsedEp.size, 0);     // collapse folds them out of the type set too
+            // and it composes with Earmarked: collapse leaves the non-episodic harm node visible
+            const harm = CortexFilters.visible(p, {{earmarkedOnly: true, collapseEpisodic: true}});
+            assert.deepStrictEqual([...harm], ['e1']);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_collapse_never_hides_an_earmarked_episodic_node(self):
+        # the harm-surfacing contract (M4 / SURFACE.md): an Earmarked node is NEVER buried regardless
+        # of its tier — so the perf lever must KEEP an Earmarked episodic node visible (and thus its
+        # correction composer reachable), even while it folds the rest of the episodic haze. Harm
+        # overrides the collapse exactly as it overrides the trust-dim. [codex adversarial-review #1]
+        proc = _run_island_logic("""
+            const p = {nodes: [
+              {id:'g0', label:'Genesis', title:'ed', trust:'space0', earmarked:false},
+              {id:'ep_plain', label:'Episodic', title:'session-x', trust:'episodic', earmarked:false},
+              {id:'ep_harm',  label:'Episodic', title:'harmful session', trust:'episodic', earmarked:true},
+            ], edges: []};
+            const vis = CortexFilters.visible(p, {collapseEpisodic: true});
+            assert.ok(!vis.has('ep_plain'));   // the plain episodic haze folds out
+            assert.ok(vis.has('ep_harm'));     // the Earmarked episodic is NEVER buried
+            assert.ok(vis.has('g0'));          // non-episodic stays
+            // and search can still locate it — the correction path stays reachable under the lever
+            const r = CortexFilters.render(p, {collapseEpisodic: true, query: 'harmful'});
+            assert.strictEqual(r.searchHit, 'ep_harm');
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_render_search_does_not_resurrect_a_collapsed_episodic(self):
+        # the combined render() authority: a query that matches a collapsed episodic node must NOT
+        # resurrect it as the hit (search never overrides a not-rendered node — same as the filters).
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const r = CortexFilters.render(p, {{collapseEpisodic: true, query: 'session-x'}});
+            assert.ok(!r.visibleIds.has('ep1'));         // ep1 (session-x) is folded out
+            assert.strictEqual(r.searchHit, null);       // no resurrection of a collapsed node
+            assert.strictEqual(r.searchCount, 0);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_control_state_reads_the_collapse_toggle(self):
+        # the DOM control state must read a collapse toggle into the render state (the lever is wired,
+        # not dead markup) — pin the wiring so the perf lever actually reaches visible()/render().
+        js = CORTEX_JS.read_text()
+        self.assertIn("collapseEpisodic", js)
+        self.assertIn("cortex-collapse", js)
 
 
 @unittest.skipIf(NODE is None, "node not available to drive the island logic")
