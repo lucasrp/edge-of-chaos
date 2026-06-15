@@ -845,16 +845,7 @@ def post_clarify_answer(clarify_id):
 
 @app.get("/chat")
 def chat():
-    return (
-        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
-        '<title>edge — chat</title>'
-        '<link rel="stylesheet" href="/static/style.css">'
-        '<script src="https://unpkg.com/htmx.org@1.9.12"></script></head><body>'
-        f'{_site_nav("/chat")}'
-        f'<main class="blog"><h1>edge — chat</h1>'
-        f'{_chat_region()}</main>'
-        "</body></html>"
-    )
+    return _page("pages/chat.html", current="/chat", htmx=True, chat_region=_safe(_chat_region()))
 
 
 @app.post("/e/<slug>/vote")
@@ -1298,24 +1289,14 @@ def cortex():
         graph = '<div id="cortex"></div>'
         data = _json_for_script(payload)  # XSS-safe to embed in a <script> data block
         island = (
-            '<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>'
+            # The Cytoscape lib is SELF-HOSTED (Slice 7 #37: no CDN supply chain) and loaded ONLY on
+            # this view (a JS island, never the app shell). The data block is _json_for_script-safe.
+            '<script src="/static/vendor/cytoscape.min.js"></script>'
             f'<script id="cortex-data" type="application/json">{data}</script>'
             '<script src="/static/cortex.js"></script>'
         )
-    return (
-        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
-        '<title>edge — cortex</title>'
-        '<link rel="stylesheet" href="/static/style.css">'
-        '</head><body class="cortex-page">'
-        '<header class="cortex-head"><h1>edge — cortex</h1>'
-        f'{_site_nav("/cortex")}'
-        '<p class="meta">surf the agent\'s brain — pan, zoom, clique num nó. '
-        'space-0 é o núcleo; o brilho cai com a confiança.</p>'
-        f'{controls}</header>'
-        f'<main class="cortex-main">{graph}</main>'
-        f'{island}'
-        '</body></html>'
-    )
+    return _page("pages/cortex.html", current="/cortex",
+                 controls=_safe(controls), graph=_safe(graph), island=_safe(island))
 
 
 @app.post("/cortex/<node_id>/comment")
@@ -1637,20 +1618,8 @@ def briefing_surface():
                           '(ADR-0009). O health strip acima ainda projeta do log.</p></section>')
     else:
         briefing_block = f'<pre class="briefing-text">{html.escape(text)}</pre>'
-    return (
-        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
-        '<title>edge — briefing</title>'
-        '<link rel="stylesheet" href="/static/style.css">'
-        '<script src="https://unpkg.com/htmx.org@1.9.12"></script></head><body>'
-        f'{_site_nav("/briefing")}'
-        '<main class="blog briefing-page"><h1>edge — briefing</h1>'
-        '<p class="meta">a self-state landing — exatamente o que o edge lê ao acordar '
-        '(Memento\'s tattoo), com o health strip do read-model acima. '
-        'Drill-down: <a href="/direction">os steers (Direction) →</a> · '
-        '<a href="/wiki">Knowledge clusters (wiki) →</a></p>'
-        f'{strip}{briefing_block}</main>'
-        '</body></html>'
-    )
+    return _page("pages/briefing.html", current="/briefing", htmx=True,
+                 strip=_safe(strip), briefing_block=_safe(briefing_block))
 
 
 # ── Direction surface (Slice 4, SURFACE.md §"Direction", AUDIT.md gap A, ADR-0007) ──────────────
@@ -1754,18 +1723,8 @@ def direction_surface():
     """The steers, scannable: the two tiers (`set` curated/prominent, `proposed` candidate/dimmer) +
     the Voz→Direction provenance link. A read-only fold of direction.* (eventlog.direction_at) — zero
     API spend. 'Did my steer land?' is answerable here for a folded Directive (the origin link)."""
-    return (
-        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
-        '<title>edge — direction</title>'
-        '<link rel="stylesheet" href="/static/style.css">'
-        '<script src="https://unpkg.com/htmx.org@1.9.12"></script></head><body>'
-        f'{_site_nav("/direction")}'
-        '<main class="blog direction-page"><h1>edge — direction</h1>'
-        '<p class="meta">os steers do edge — set (curado, Voz) prominente, proposed (candidato) '
-        'mais apagado. Um steer dobrado de um Directive linka de volta ao comentário de origem.</p>'
-        f'{_render_direction()}</main>'
-        '</body></html>'
-    )
+    return _page("pages/direction.html", current="/direction", htmx=True,
+                 direction_html=_safe(_render_direction()))
 
 
 # ── Slice 2 — the grill drain route (POST /grill/drain), behind the Slice-1 auth gate ───────────
@@ -1932,18 +1891,7 @@ def docs_index():
         sections.append(f'<section class="doc-group"><h2>{html.escape(kind)}</h2>'
                         f'<ul class="doc-list">{links}</ul></section>')
     body = "".join(sections) or '<p class="meta">sem docs ainda</p>'
-    return (
-        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
-        '<title>edge — docs</title>'
-        '<link rel="stylesheet" href="/static/style.css">'
-        '</head><body>'
-        f'{_site_nav("/docs")}'
-        '<main class="blog docs-page"><h1>edge — docs</h1>'
-        '<p class="meta">a documentação do edge, navegável aqui — glossário, ADRs, Idiom, '
-        'Source roadmap. Renderizada inerte (sanitizada), nunca como arquivo.</p>'
-        f'{body}</main>'
-        '</body></html>'
-    )
+    return _page("pages/docs_index.html", current="/docs", body=_safe(body))
 
 
 @app.get("/docs/<path:doc_id>")
@@ -1960,17 +1908,8 @@ def doc_view(doc_id):
     except OSError:
         abort(404)
     rendered = docmd.render_doc_html(source)
-    return (
-        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
-        f'<title>edge — {html.escape(title)}</title>'
-        '<link rel="stylesheet" href="/static/style.css">'
-        '</head><body>'
-        f'{_site_nav("/docs")}'
-        '<main class="blog doc-page">'
-        f'<p class="meta"><a href="/docs">← docs</a> · {html.escape(kind)}</p>'
-        f'<article class="doc-body">{rendered}</article></main>'
-        '</body></html>'
-    )
+    return _page("pages/doc_view.html", current="/docs", doc_title=title, doc_kind=kind,
+                 doc_html=_safe(rendered))
 
 
 # ── Emergent-knowledge surface — the wiki / Knowledge clusters (Slice 5b, AUDIT.md gap C) ────────
@@ -2117,18 +2056,7 @@ def wiki_index():
     )
     body = (f'<ul class="wiki-clusters">{items}</ul>' if items
             else '<p class="meta">sem clusters ainda</p>')
-    return (
-        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
-        '<title>edge — wiki</title>'
-        '<link rel="stylesheet" href="/static/style.css">'
-        '</head><body>'
-        f'{_site_nav("/wiki")}'
-        '<main class="blog wiki-page"><h1>edge — wiki</h1>'
-        '<p class="meta">os Knowledge clusters do edge — conhecimento emergente, navegável aqui. '
-        'Cada cluster é HTML edge-gerado, renderizado isolado (sandbox), nunca como arquivo.</p>'
-        f'{body}</main>'
-        '</body></html>'
-    )
+    return _page("pages/wiki_index.html", current="/wiki", body=_safe(body))
 
 
 @app.get("/wiki/<cluster_id>")
@@ -2140,22 +2068,8 @@ def wiki_cluster(cluster_id):
     if _cluster_by_id(cluster_id) is None:
         abort(404)
     title = next((t for cid, t, _ in _cluster_registry() if cid == cluster_id), cluster_id)
-    cid = html.escape(cluster_id)
-    return (
-        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
-        f'<title>edge — {html.escape(title)}</title>'
-        '<link rel="stylesheet" href="/static/style.css">'
-        '</head><body>'
-        f'{_site_nav("/wiki")}'
-        '<main class="blog wiki-page wiki-cluster">'
-        f'<p class="meta"><a href="/wiki">← wiki</a> · {html.escape(title)} · '
-        'isolado (sandbox), inerte por construção</p>'
-        # sandbox="" (empty value) = the most restrictive: no scripts, no same-origin, no forms. The
-        # edge-generated HTML renders inside this frame only, never in the authed parent.
-        f'<iframe class="wiki-frame" src="/wiki/{cid}/raw" sandbox="" '
-        f'title="{html.escape(title)}" referrerpolicy="no-referrer"></iframe>'
-        '</main></body></html>'
-    )
+    return _page("pages/wiki_cluster.html", current="/wiki",
+                 cluster_id=cluster_id, cluster_title=title)
 
 
 @app.get("/wiki/<cluster_id>/raw")
