@@ -476,6 +476,13 @@ def drain(log, reply_fn, grill_run_id=None, cap=DEFAULT_BATCH_CAP, run_backfill=
     # OpenAI call is then discarded by the guard (a wasted spend, not idempotent). The lock makes the
     # second drain re-read the now-closed state and never generate for an already-resolved comment.
     with _drain_lock(log):
+        # Fail closed on a corrupt log in the CORE path (not only the HTTP route): a malformed /
+        # schema-drifted / seq-gapped log makes any canonical append forge a duplicate seq and the
+        # folds raise — so degrade (no back-fill, no generation, no append) here too. This protects a
+        # local-tool caller that bypasses the route's gate. The check is under the drain lock, so it
+        # is consistent with the close attempts below.
+        if not log_is_intact(log):
+            return []
         # Ship the lifecycle switch atomically with the back-fill (ADR-0017 migration; acceptance h):
         # close every historical reply-only comment so the switch never RE-OPENS / the drain never
         # RE-PROCESSES it. Idempotent. `run_backfill=False` lets a caller that already migrated under

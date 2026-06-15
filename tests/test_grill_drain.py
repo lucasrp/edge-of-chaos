@@ -924,6 +924,31 @@ class TestLiveGeneratorStructuredPlan(_Base):
         self.assertEqual(res[0]["payload"]["outcome"], "folded-to-direction")
 
 
+class TestCoreDrainFailsClosedOnCorruptLog(_Base):
+    """The core drain() API (usable as a local tool, not only via the HTTP route) must itself
+    fail-closed on a corrupt log — no back-fill append, no generator invocation — so a caller that
+    bypasses the route's gate cannot append over / spend on a seq-corrupt or schema-drifted log."""
+
+    def test_drain_on_a_seq_gapped_legacy_log_appends_nothing_and_calls_no_generator(self):
+        # a seq-gapped log (1,2,3 then a gap to 9) with a legacy reply-only target
+        import eventlog
+        cid = self._comment("oi", "alpha-post")  # contiguous so far
+        eventlog.append("voz.reply", "voz:alpha-post", {"comment_id": cid, "body": "hand reply"},
+                        log=self.log)
+        with open(self.log, "a") as fh:  # inject a seq gap
+            fh.write('{"seq": 99, "type": "voz.comment", "payload": '
+                     '{"target_ref": "alpha-post", "comment_id": "gap", "body": "post-gap"}}\n')
+        before = len([ln for ln in self.log.read_text().splitlines() if ln.strip()])
+        called = {"n": 0}
+        loaded = self.drain.drain(self.log,
+                                  lambda c: (called.__setitem__("n", called["n"] + 1) or {"reply": "x"}),
+                                  grill_run_id="g1")
+        self.assertEqual(loaded, [])           # degraded — nothing loaded
+        self.assertEqual(called["n"], 0)       # generator never invoked
+        after = len([ln for ln in self.log.read_text().splitlines() if ln.strip()])
+        self.assertEqual(after, before)        # nothing appended over the corrupt log
+
+
 class TestDrainConcurrencyDoesNotDoubleSpend(_Base):
     """The paid reply-generator must not be invoked twice for the same comment under overlapping
     drains (the version guard keeps DATA consistent, but a wasted paid call is not idempotent). A
