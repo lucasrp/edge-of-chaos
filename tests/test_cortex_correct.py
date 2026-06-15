@@ -374,6 +374,78 @@ class TestStableNodeRef(unittest.TestCase):
             os.environ.pop("EDGE_DASH_AUTH", None)
 
 
+class TestNodeCorrectionRenders(_Base):
+    """codex round-5 [medium]: a node-targeted correction must NOT render a dead `/e/node:...html`
+    publication link in the chat. Direction provenance drills into /chat, so the chat is where an
+    operator inspects the originating correction — a bogus slug link makes the node attribution
+    unusable from the dashboard. A node target renders a node-aware (Cortex) context, not a slug link."""
+
+    AUTH = "test:mentee"
+
+    def test_node_targeted_comment_does_not_render_a_dead_publication_link(self):
+        import eventlog
+        eventlog.append("voz.comment", "voz:node:e1",
+                        {"target_ref": "node:e1", "comment_id": "ncorr", "body": "fix this node"},
+                        log=self.log)
+        chat = self.server._render_chat()
+        self.assertNotIn("/e/node:e1.html", chat)   # NOT a bogus publication link
+        self.assertNotIn('href="/e/node:', chat)
+
+    def test_node_targeted_comment_renders_a_cortex_aware_context(self):
+        import eventlog
+        eventlog.append("voz.comment", "voz:node:e1",
+                        {"target_ref": "node:e1", "comment_id": "ncorr2", "body": "fix this node"},
+                        log=self.log)
+        chat = self.server._render_chat()
+        # a node-aware label: it drills into /cortex (the surface that renders the node), keyed by ref
+        self.assertIn("/cortex", chat)
+        self.assertIn("node-ctx", chat)  # a distinct node-context class, not the slug `ctx` link
+
+    def test_slug_targeted_comment_still_renders_its_publication_link(self):
+        # the slug path is UNCHANGED — a real slug still drills into its blog entry.
+        r = self._post("/e/alpha-post/comment", {"body": "on the post"})
+        self.assertEqual(r.status_code, 200)
+        chat = self.server._render_chat()
+        self.assertIn("/e/alpha-post.html", chat)
+
+
+class TestNodeContextInPromptAndSnapshot(_Base):
+    """codex round-5 [high]: a node correction must carry usable NODE CONTEXT so the resolver settles
+    the actual node-specific error, not a context-less body. The correction route SNAPSHOTS the node
+    title/label onto the comment at write time (so the context is preserved in the durable log without
+    a live graph lookup), and the live-prompt builder INCLUDES the target_ref + that snapshot — so a
+    natural 'this claim is wrong' is resolved against the claim, never blindly closed. ZERO API spend
+    (the prompt is built, never sent — we assert its TEXT, not a model call)."""
+
+    AUTH = "test:mentee"
+
+    def test_correction_snapshots_the_node_title_and_label(self):
+        # the persisted correction comment carries a node-context snapshot (title + label) of e1
+        self._post("/cortex/e1/comment", {"body": "this claim is wrong"})
+        p = next(c["payload"] for c in self._events("voz.comment")
+                 if c["payload"]["target_ref"] == "node:e1")
+        self.assertEqual(p.get("node_title"), "a harmful claim")  # e1's title in the fixture
+        self.assertEqual(p.get("node_label"), "Entity")
+
+    def test_live_prompt_includes_the_node_context_for_a_node_correction(self):
+        sys.path.insert(0, str(BLOG))
+        import grill_drain
+        comment = {"comment_id": "x", "target_ref": "node:e1", "body": "this claim is wrong",
+                   "node_title": "a harmful claim", "node_label": "Entity"}
+        prompt = grill_drain._build_live_prompt(comment)
+        # the resolver SEES the node it is correcting — the title/label + the node target_ref
+        self.assertIn("a harmful claim", prompt)
+        self.assertIn("Entity", prompt)
+        self.assertIn("node:e1", prompt)
+
+    def test_live_prompt_for_a_plain_comment_is_unchanged(self):
+        # a non-node comment carries no node-context block (no regression to the slug/chat path)
+        sys.path.insert(0, str(BLOG))
+        import grill_drain
+        prompt = grill_drain._build_live_prompt({"comment_id": "y", "target_ref": None, "body": "hi"})
+        self.assertNotIn("Cortex node", prompt)
+
+
 class TestCorrectionRoundTrip(_Base):
     """The full round-trip (acceptance), ZERO API spend: from an Earmarked node an authenticated
     correction posts a `voz.comment` with the node `target_ref` → it appears as an OPEN Directive →

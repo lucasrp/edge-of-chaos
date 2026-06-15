@@ -215,6 +215,29 @@ def _node_id_of(target_ref):
     return target_ref[len(_NODE_REF_PREFIX):]
 
 
+def _node_snapshot(target_ref):
+    """A durable {node_title, node_label} snapshot of the Earmarked node a correction targets,
+    looked up from the group-scoped cortex payload at WRITE time (codex Slice-6b round-5 [high]).
+    Persisted on the correction comment so the resolver/audit carries usable node context WITHOUT a
+    live graph lookup (the node may be reprojected with a new elementId, or the graph dark, by the
+    time the drain runs) — a natural 'this claim is wrong' is then settled against the actual claim,
+    not a context-less body. Returns {} if the node can't be resolved (the validator already gated
+    existence, so this is a belt-and-suspenders for a graph that went dark between calls)."""
+    node_id = _node_id_of(target_ref)
+    payload = cortex_fold()
+    if not payload:
+        return {}
+    for n in payload.get("nodes", []):
+        if n.get("ref") == node_id or (n.get("ref") is None and n.get("id") == node_id):
+            snap = {}
+            if n.get("title"):
+                snap["node_title"] = _as_str(n["title"])
+            if n.get("label"):
+                snap["node_label"] = _as_str(n["label"])
+            return snap
+    return {}
+
+
 def _valid_node_target_ref(target_ref):
     """A node `target_ref` is valid iff it is `node:<id>` and <id> is an EARMARKED node in the
     group-scoped cortex payload — fail-closed (a dark graph has no valid nodes → reject). Reuses the
@@ -645,13 +668,32 @@ def _render_votes(slug):
     )
 
 
+def _target_ctx_label(target):
+    """The chat item's context label for a comment's `target_ref`. Three cases:
+      - a node ref (`node:<ref>`, Slice 6b): a Cortex-aware label drilling into /cortex — NEVER a
+        `/e/node:….html` publication link (codex round-5 [medium]: a node correction is the harm
+        item, and Direction provenance drills into /chat, so the audit path must reach the NODE, not
+        a dead slug). The node ref also rides the /cortex search so the operator can locate the node.
+      - a slug ref: the publication link into its blog entry (unchanged).
+      - None: the general chat."""
+    if _is_node_target_ref(target):
+        node_id = _node_id_of(target)
+        # /cortex?node=<ref> — a node-aware drill-down (the search island centers it); the ref is
+        # url-encoded into a query param, html-escaped for the attribute (graph-derived, defensive).
+        from urllib.parse import quote
+        href = f"/cortex?node={quote(node_id, safe='')}"
+        return (f'<a class="node-ctx ctx" href="{html.escape(href)}">'
+                f'correção de nó · {_esc(node_id)}</a>')
+    if target:
+        return f'<a class="ctx" href="/e/{_esc(target)}.html">em {_esc(target)}</a>'
+    return '<span class="ctx meta">chat geral</span>'
+
+
 def _render_chat_item(c, replies_by_id, clarifies_by_id=None, folded_by_id=None):
     # the stable per-comment anchor (FIX 3): the chat renders EVERY comment, so a steer's provenance
     # link targets /chat#comment-{id} and this is the element it centers (sanitized via _anchor_id).
     anchor = html.escape(_anchor_id("comment", c.get("comment_id", "")))
-    target = c.get("target_ref")
-    label = (f'<a class="ctx" href="/e/{_esc(target)}.html">em {_esc(target)}</a>'
-             if target else '<span class="ctx meta">chat geral</span>')
+    label = _target_ctx_label(c.get("target_ref"))
     body = f'<p class="body">{_esc(c.get("body", ""))}</p>'
     return (f'<li class="chat-item" id="{anchor}">{label}{body}'
             f'{_replies_block(c, replies_by_id, clarifies_by_id, folded_by_id)}</li>')
@@ -1257,7 +1299,7 @@ def post_cortex_correction(node_id):
         # correction under backlog). The drain ranks on it; it is otherwise inert metadata on the log.
         _append_voz("voz.comment", f"voz:{target_ref}",
                     {"target_ref": target_ref, "comment_id": uuid.uuid4().hex[:12], "body": body,
-                     "harm": _CORRECTION_HARM},
+                     "harm": _CORRECTION_HARM, **_node_snapshot(target_ref)},
                     idem_key=_comment_idem_key(request.form.get("comment_nonce"), body))
     # A small confirmation fragment for the inspect-panel composer (htmx swaps it in place).
     return ('<p class="correction-ok meta">correção registrada · '

@@ -165,6 +165,8 @@ a:hover { color: #a8c2ff; }
   color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em;
 }
 .ctx[href]:hover { color: var(--accent); }
+/* a node correction's context label (Slice 6b) — extends .ctx with the harm cue, drills into /cortex */
+.node-ctx { color: var(--harm, #f87171); }
 
 /* ---- composer ---- */
 .composer { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }

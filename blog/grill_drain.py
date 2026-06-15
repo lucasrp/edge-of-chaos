@@ -552,8 +552,23 @@ _LIVE_PROMPT = (
 
 def _build_live_prompt(comment):
     """The live prompt for a loaded comment, folding in any clarification Q/A so the reply RESOLVES
-    using the mentee's answer, never re-asks past it (ADR-0017 'seeing that linked answer')."""
-    prompt = _LIVE_PROMPT + comment["body"]
+    using the mentee's answer, never re-asks past it (ADR-0017 'seeing that linked answer').
+
+    For a node-targeted CORRECTION (target_ref `node:<ref>`, Slice 6b), the resolver must SEE the
+    node it is correcting — else a natural 'this claim is wrong' gives the model no claim to settle
+    (codex round-5 [high]). So prepend the node context (its label/title snapshot + the node
+    target_ref) captured at write time, so the correction is resolved against the actual harm node."""
+    prompt = _LIVE_PROMPT
+    target = comment.get("target_ref")
+    if isinstance(target, str) and target.startswith("node:"):
+        ctx = f"This corrects a Cortex node ({target}"
+        if comment.get("node_label"):
+            ctx += f", a {comment['node_label']}"
+        ctx += ")."
+        if comment.get("node_title"):
+            ctx += f" The node: {comment['node_title']}"
+        prompt += ctx + "\n\n"
+    prompt += comment["body"]
     for qa in comment.get("clarify") or []:
         prompt += f"\n\nYou earlier asked: {qa['question']}"
         if qa.get("answer"):
