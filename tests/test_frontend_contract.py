@@ -198,22 +198,43 @@ class TablerOverDarkIdentity(unittest.TestCase):
 
 
 class DefaultLogNotPollutedBySmokeTests(unittest.TestCase):
-    """CONTRACT C1 guard (codex Slice-7 round-1 [high]): the DEFAULT committed authoritative log
-    (state/events/log.jsonl) must never gain ad-hoc Voz smoke-test events. A `git add -A` once swept
-    live browser-test voz.* events into it — unresolved voz.comment events fold as REAL open
-    Directives, poisoning shipped state. Auth/browser coverage belongs in hermetic tests that point
-    EDGE_BLOG_LOG at a tmp file; the committed log must stay clean. This tripwire fails if a known
-    smoke-test body (or the manual-test shape) reappears in the committed log."""
+    """CONTRACT C1 guard (codex Slice-7 round-1/2 [high]): the DEFAULT committed authoritative log
+    (state/events/log.jsonl) must never gain ad-hoc Voz events. A `git add -A` once swept live
+    browser-test voz.* events into it — unresolved voz.comment events fold as REAL open Directives,
+    poisoning shipped state. Real Voz writes happen at RUNTIME against the live log, never the
+    checked-in baseline; auth/browser coverage belongs in hermetic tests that point EDGE_BLOG_LOG at
+    a tmp file. So the guard is STRUCTURAL, not a literal-body denylist (round-2 [high]: a denylist of
+    known strings lets a NEW body slip through the same way): the committed log must carry ZERO voz.*
+    events of ANY type/body — any present is pollution by construction."""
 
     LOG = BLOG.parent / "state" / "events" / "log.jsonl"
 
-    def test_committed_log_has_no_smoke_test_voz_bodies(self):
+    def _committed_events(self):
+        out = []
+        for line in self.LOG.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                e = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(e, dict):
+                out.append(e)
+        return out
+
+    def test_committed_log_carries_no_voz_events(self):
+        # STRUCTURAL guard (round-2 [high]): not a denylist of known smoke-test bodies, but the whole
+        # class — ANY voz.* event in the committed baseline is ad-hoc pollution (the baseline has none;
+        # real Voz lands at runtime on the live log). A new manual POST with any body fails this.
         if not self.LOG.is_file():
             self.skipTest("no committed default log in this checkout")
-        text = self.LOG.read_text()
-        for body in ("teste-do-browser", "via-localhost", "sem-porta", "pwned"):
-            self.assertNotIn(body, text,
-                             f"smoke-test Voz body {body!r} leaked into the committed authoritative log")
+        voz = [e.get("type") for e in self._committed_events()
+               if str(e.get("type", "")).startswith("voz.")]
+        self.assertEqual(voz, [],
+                         f"the committed authoritative log carries {len(voz)} ad-hoc voz.* event(s) "
+                         f"({voz!r}) — Voz writes belong on the live runtime log / hermetic tests, "
+                         f"never the checked-in baseline (CONTRACT C1)")
 
     def test_committed_log_is_intact(self):
         # the committed default log must satisfy the SAME strict integrity check the drain gates on —
