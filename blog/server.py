@@ -1298,6 +1298,42 @@ def _json_for_script(payload):
     return out
 
 
+def _cortex_list(payload):
+    """The M21 rung-3 fallback — a server-rendered, navigable node list from the SAME {nodes, edges}
+    payload. It is the tertiary rung BELOW the 2D Cytoscape fallback: shipped (hidden) on every
+    /cortex render so it works even if JS is dead OR both WebGL renderers fail; the island reveals it
+    only when 3D AND Cytoscape are both unavailable (M21 rung 3). Every node title is html-escaped at
+    the boundary (a graph title derives from Direction/Source/Entity content — the same XSS posture as
+    the embed); a node's drill-down link is rendered ONLY for an INTERNAL same-origin path (a leading
+    "/", not "//") — the exact internal-path-only guard the inspect panel's appendLink applies — so a
+    poisoned/external href is never turned into a live anchor. No fold/query change: this reads the
+    payload the route already holds."""
+    items = []
+    for n in payload.get("nodes", []):
+        label = _esc(n.get("label", ""))
+        title = _esc(n.get("title", "") or n.get("id", ""))
+        href = n.get("href")
+        # internal same-origin path only (leading "/", not "//") — drop external / javascript: / //host
+        link = ""
+        if isinstance(href, str) and href[:1] == "/" and href[1:2] != "/":
+            link = f' <a class="list-source" href="{_esc(href)}">abrir fonte →</a>'
+        items.append(
+            f'<li class="cortex-list-item"><span class="kind">{label}</span>'
+            f'<span class="title">{title}</span>{link}</li>'
+        )
+    # Rendered VISIBLE by default (codex round-1 [high]): the list is the JS-DEAD navigable fallback,
+    # so a failed/absent cortex.js (or JS disabled) must still leave a navigable list, never a blank
+    # graph area. The island HIDES it (sets `hidden`) only AFTER a graph rung successfully paints —
+    # progressive enhancement, the M21 "works even if JS is dead" posture.
+    return (
+        '<section id="cortex-list" class="cortex-list" aria-label="cortex node list">'
+        '<h2>cortex — lista</h2>'
+        '<p class="meta">O grafo navegável como lista — cada nó com seu tipo e a fonte (quando há). '
+        'É a forma textual do Cortex (também o fallback quando não há renderizador gráfico).</p>'
+        f'<ul class="cortex-list-nodes">{"".join(items)}</ul></section>'
+    )
+
+
 def _cortex_dark():
     """The honest dark state — no group or neo4j unreachable. Never an unscoped graph, never a 500."""
     return (
@@ -1354,11 +1390,17 @@ def cortex():
         controls = ""
     else:
         controls = _cortex_controls()
-        graph = '<div id="cortex"></div>'
+        # the 3D mount the island draws into (M1), plus the server-rendered list fallback (M21 rung 3,
+        # hidden until the island reveals it when both WebGL renderers fail / JS is dead).
+        graph = '<div id="cortex"></div>' + _cortex_list(payload)
         data = _json_for_script(payload)  # XSS-safe to embed in a <script> data block
         island = (
-            # The Cytoscape lib is SELF-HOSTED (Slice 7 #37: no CDN supply chain) and loaded ONLY on
-            # this view (a JS island, never the app shell). The data block is _json_for_script-safe.
+            # The renderer libs are SELF-HOSTED (Slice 7 #37 / M18: no CDN supply chain) and loaded
+            # ONLY on this view (a JS island, never the app shell — M19). 3d-force-graph is the default
+            # renderer (M1); cytoscape is the mandated WebGL/init-failure fallback (M21 rung 2), shipped
+            # alongside so the island can fall through the ladder client-side. The data block is
+            # _json_for_script-safe (M17).
+            '<script src="/static/vendor/3d-force-graph.min.js"></script>'
             '<script src="/static/vendor/cytoscape.min.js"></script>'
             f'<script id="cortex-data" type="application/json">{data}</script>'
             '<script src="/static/cortex.js"></script>'

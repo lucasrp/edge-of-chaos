@@ -215,6 +215,116 @@ class TestCortexRoute(unittest.TestCase):
         self.assertNotIn("</script><script>", body.lower())
 
 
+class TestCortexRenderSlice2(unittest.TestCase):
+    """Slice 2 — the 3D cloud render + the M21 fallback ladder, wired by the cortex() route.
+
+    The route now emits BOTH vendored island scripts (3d-force-graph for the default render +
+    cytoscape for the auto-fallback rung) island-only, plus a server-rendered searchable list
+    fallback (M21 rung 3) drawn from the SAME payload so it works even if JS is dead. The fold,
+    _map_node, _json_for_script, group scoping and fail-dark are UNCHANGED (front-end envelope only).
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.fix = Path(self.tmp.name) / "cortex.json"
+        self.fix.write_text(json.dumps(FIXTURE))
+        self.server = _load_server({
+            "EDGE_CORTEX_FIXTURE": str(self.fix),
+            "EDGE_GROUP": "edge-next",
+        })
+        self.client = self.server.app.test_client()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        os.environ.pop("EDGE_CORTEX_FIXTURE", None)
+
+    def test_route_emits_the_3d_force_graph_bundle_island_only(self):
+        # M1/M18/M19 — the 3D bundle is the default renderer, self-hosted, loaded ONLY on /cortex.
+        body = self.client.get("/cortex").data.decode()
+        self.assertIn("/static/vendor/3d-force-graph.min.js", body)
+
+    def test_route_still_emits_the_cytoscape_fallback_bundle(self):
+        # M21 rung 2 — the 2D Cytoscape island is the mandated WebGL/init-failure fallback, never
+        # deleted. Both lib scripts ship island-only so the ladder can fall through client-side.
+        body = self.client.get("/cortex").data.decode()
+        self.assertIn("/static/vendor/cytoscape.min.js", body)
+        self.assertIn("/static/cortex.js", body)
+
+    def test_neither_3d_nor_cytoscape_load_on_the_app_shell(self):
+        # M19 — the heavy three.js bundle must never touch the read-mostly pages, only the island.
+        for path in ("/", "/direction", "/docs", "/ux-catalog"):
+            body = self.client.get(path).data.decode()
+            self.assertNotIn("3d-force-graph.min.js", body,
+                             f"{path} loads the 3D bundle (must be /cortex-only — M19)")
+            self.assertNotIn("cytoscape.min.js", body,
+                             f"{path} loads cytoscape (must be /cortex-only — M19)")
+
+    def test_route_ships_a_server_rendered_searchable_list_fallback(self):
+        # M21 rung 3 — a server-rendered node/edge list from the SAME payload, so the Cortex stays
+        # navigable even if BOTH WebGL renderers and JS are dead. It carries each node's title + a
+        # source-drill link when the node has an href.
+        body = self.client.get("/cortex").data.decode()
+        self.assertIn("cortex-list", body)            # the list fallback container
+        self.assertIn("the hub", body)                # a node title rendered server-side
+        self.assertIn("Genesis", body)                # the node-type label is shown
+
+    def test_list_fallback_is_visible_when_js_is_dead(self):
+        # codex round-1 [high]: the list is the JS-DEAD navigable fallback (M21 "works even if JS is
+        # dead"). If the server emitted it `hidden`, a failed/absent cortex.js leaves a blank graph
+        # area — the exact regression M21 prevents. So the server renders it VISIBLE (no `hidden`
+        # attribute); the island HIDES it only AFTER a graph rung successfully paints (progressive
+        # enhancement). The JS therefore carries the hide-on-mount call, not the server the hide.
+        body = self.client.get("/cortex").data.decode()
+        # the list block must NOT carry a `hidden` attribute on its container (would blank a no-JS client)
+        idx = body.index('id="cortex-list"')
+        container = body[idx - 40:idx + 80]
+        self.assertNotIn(" hidden", container,
+                         "the server hid the list — a no-JS client gets a blank graph area (M21 fail)")
+        # the island hides the list once a graph renderer mounts (so it does not double-render under 3D)
+        js = (Path(__file__).resolve().parent.parent / "blog" / "static" / "cortex.js").read_text()
+        self.assertIn("cortex-list", js)
+        self.assertIn("hideList", js)
+
+    def test_list_fallback_links_only_to_internal_node_sources(self):
+        # the list's drill links reuse the same internal-path provenance the panel does — a node
+        # with an internal href links to it; a node without one carries no dead link.
+        self.fix.write_text(json.dumps({
+            "nodes": [
+                {"id": "a1", "label": "Artefato", "title": "alpha",
+                 "href": "/e/alpha-post.html", "trust": "asserted"},
+                {"id": "e1", "label": "Entity", "title": "bare", "trust": "extracted"},
+            ],
+            "edges": [],
+        }))
+        server = _load_server({"EDGE_CORTEX_FIXTURE": str(self.fix), "EDGE_GROUP": "edge-next"})
+        body = server.app.test_client().get("/cortex").data.decode()
+        self.assertIn('href="/e/alpha-post.html"', body)   # the node with a source drills in
+        # the bare Entity has no href → it is listed but carries no anchor of its own
+        self.assertIn(">bare<", body)
+
+    def test_list_fallback_escapes_a_poisoned_title(self):
+        # the server-rendered list is built with Jinja autoescaping (html.escape), so a node title
+        # carrying an HTML/attribute breakout payload is inert in the list rung too (M17/R5).
+        poison = '<img src=x onerror="fetch(\'/grill/drain\',{method:\'POST\'})">'
+        self.fix.write_text(json.dumps({
+            "nodes": [{"id": "g0", "label": "Genesis", "title": poison, "trust": "space0"}],
+            "edges": [],
+        }))
+        server = _load_server({"EDGE_CORTEX_FIXTURE": str(self.fix), "EDGE_GROUP": "edge-next"})
+        body = server.app.test_client().get("/cortex").data.decode()
+        self.assertNotIn("<img src=x onerror=", body)   # never a live element
+        self.assertIn("&lt;img", body)                  # escaped, inert
+
+    def test_list_fallback_absent_on_the_dark_page(self):
+        # fail-dark (M16) stays distinct from the M21 chain — no list/scripts leak onto the dark page.
+        server = _load_server({"EDGE_CORTEX_FIXTURE": None})
+        server._group = lambda: None
+        body = server.app.test_client().get("/cortex").data.decode()
+        self.assertNotIn("cortex-list", body)
+        self.assertNotIn("3d-force-graph.min.js", body)
+        self.assertIn("dark", body.lower())
+
+
 class TestNodeSourceHref(unittest.TestCase):
     """Slice 5b — link Cortex nodes to their source (AUDIT.md gap C, PLAN.md accept): clicking an
     Artefato/Direction/Source/cluster node drills into its real surface. The fold carries a per-node
@@ -440,6 +550,15 @@ class TestControlsStyling(unittest.TestCase):
         block = css[idx:idx + 1400]
         for token in ("var(--surface", "var(--border", "var(--text", "var(--font-mono"):
             self.assertIn(token, block, f"controls do not reuse shared token: {token}")
+
+    def test_graph_mount_overlay_is_scoped_to_an_attached_renderer(self):
+        # codex round-2 [high]: the full-canvas absolute #cortex mount must apply ONLY once a graph
+        # renderer attaches (data-renderer). An EMPTY #cortex (JS dead) must not overlay the in-flow
+        # list fallback and intercept its clicks. Pin the scoped selector, and that the unscoped
+        # `#cortex { position: absolute` form is gone.
+        css = self.STYLE.read_text()
+        self.assertIn("#cortex[data-renderer]", css)
+        self.assertNotIn("#cortex { position: absolute", css)
 
 
 @unittest.skipIf(NODE is None, "node not available to drive the island logic")
@@ -807,6 +926,203 @@ class TestWebglProbe(unittest.TestCase):
             assert.strictEqual(webglSupported(noGetExt), true);
         """)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+
+
+def _run_render_logic(js_body):
+    """Drive the exported CortexRender pure logic under Node (no DOM): the trust-weighted 3D node /
+    edge style mappers (M3/M3b/M4) and the M21 fallback-ladder DECISION (chooseRenderer) are factored
+    out of the DOM island so the ladder's hierarchy + the trust legibility are testable headless,
+    exactly as CortexFilters / webglSupported are."""
+    harness = textwrap.dedent("""
+        const assert = require('assert');
+        const { CortexRender } = require(%r);
+        %s
+        console.log('OK');
+    """) % (str(CORTEX_JS), js_body)
+    return subprocess.run([NODE, "-e", harness], capture_output=True, text=True)
+
+
+@unittest.skipIf(NODE is None, "node not available to drive the island logic")
+class TestCortexRenderLogic(unittest.TestCase):
+    """Slice 2 — the pure, exported render logic the DOM island uses:
+      * the M21 fallback LADDER decision (chooseRenderer) — a strict hierarchy, tested headless;
+      * the trust-weighted 3D node style (M3/M4) + edge style (M3b) mappers — trust stays the sole
+        size+brightness axis, and the Earmarked harm overlay overrides the dim.
+    """
+
+    def test_chooseRenderer_picks_3d_when_webgl_and_init_succeed(self):
+        proc = _run_render_logic("""
+            assert.strictEqual(
+              CortexRender.chooseRenderer({webgl: true, force3dOk: true}), '3d');
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_chooseRenderer_falls_to_cytoscape_when_webgl_absent(self):
+        # M21 rung 2 — WebGL unavailable → the 2D Cytoscape island, NOT a list, NOT a message.
+        proc = _run_render_logic("""
+            assert.strictEqual(
+              CortexRender.chooseRenderer({webgl: false, cytoscapeOk: true}), 'cytoscape');
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_chooseRenderer_falls_to_cytoscape_when_3d_init_fails_despite_webgl(self):
+        # the init-failure rung (the regression M21 prevents): the probe passing is NOT sufficient —
+        # a 3D constructor throw / blank first paint / lost context still drops to the 2D island.
+        proc = _run_render_logic("""
+            assert.strictEqual(
+              CortexRender.chooseRenderer({webgl: true, force3dOk: false, cytoscapeOk: true}),
+              'cytoscape');
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_chooseRenderer_falls_to_list_when_both_graph_renderers_fail(self):
+        # M21 rung 3 — Cytoscape also fails to render → the searchable list.
+        proc = _run_render_logic("""
+            assert.strictEqual(
+              CortexRender.chooseRenderer(
+                {webgl: true, force3dOk: false, cytoscapeOk: false, listOk: true}), 'list');
+            assert.strictEqual(
+              CortexRender.chooseRenderer(
+                {webgl: false, cytoscapeOk: false, listOk: true}), 'list');
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_chooseRenderer_falls_to_message_when_even_the_list_fails(self):
+        # M21 rung 4 — the floor: the honest message.
+        proc = _run_render_logic("""
+            assert.strictEqual(
+              CortexRender.chooseRenderer(
+                {webgl: false, cytoscapeOk: false, listOk: false}), 'message');
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_node3d_style_is_trust_weighted_brightest_at_space0(self):
+        # M3 — trust is the SOLE size+brightness axis: space-0 brightest+biggest, episodic faintest.
+        proc = _run_render_logic("""
+            const s0 = CortexRender.node3dStyle({trust: 'space0'});
+            const ep = CortexRender.node3dStyle({trust: 'episodic'});
+            const as = CortexRender.node3dStyle({trust: 'asserted'});
+            const ex = CortexRender.node3dStyle({trust: 'extracted'});
+            // brightness (opacity) strictly falls space0 > asserted > extracted > episodic
+            assert.ok(s0.opacity > as.opacity);
+            assert.ok(as.opacity > ex.opacity);
+            assert.ok(ex.opacity > ep.opacity);
+            // size falls the same way (trust is the sole size axis)
+            assert.ok(s0.size > as.size && as.size > ex.size && ex.size > ep.size);
+            // a color is assigned per tier
+            assert.ok(typeof s0.color === 'string' && s0.color.length > 0);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_node3d_style_earmarked_overrides_the_trust_dim(self):
+        # M4 — the Earmarked harm overlay: a harm node is NEVER dimmed regardless of its trust tier,
+        # and reads with the red harm cue (the red-border treatment survives the 3D port).
+        proc = _run_render_logic("""
+            // a faint episodic node that is Earmarked must NOT stay faint — harm overrides the dim
+            const plain = CortexRender.node3dStyle({trust: 'episodic', earmarked: false});
+            const harm  = CortexRender.node3dStyle({trust: 'episodic', earmarked: true});
+            assert.ok(harm.opacity > plain.opacity);   // never dimmed
+            assert.strictEqual(harm.opacity, 1);        // full brightness
+            assert.ok(harm.earmarked === true);         // carries the harm cue for the red overlay
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_node3d_color_bakes_luminosity_brightest_at_space0(self):
+        # M3/R4 — the vendored bundle does not expose THREE, so per-node material opacity is not
+        # reachable; the tier luminosity is baked into the COLOR (blended toward the dark bg by
+        # 1-opacity). A bright tier stays near its hue; a faint tier collapses toward #0a0c11. space-0
+        # reads brightest, episodic dimmest — the same trust-luminosity legibility via nodeColor.
+        proc = _run_render_logic("""
+            const lum = (hex) => { const h = hex.replace('#',''); return (
+              parseInt(h.slice(0,2),16) + parseInt(h.slice(2,4),16) + parseInt(h.slice(4,6),16)); };
+            const s0 = CortexRender.node3dColor({trust:'space0'});
+            const as = CortexRender.node3dColor({trust:'asserted'});
+            const ex = CortexRender.node3dColor({trust:'extracted'});
+            const ep = CortexRender.node3dColor({trust:'episodic'});
+            // luminosity (summed channels, against the dark bg) strictly falls with trust
+            assert.ok(lum(s0) > lum(as), 'space0 not brighter than asserted');
+            assert.ok(lum(as) > lum(ex), 'asserted not brighter than extracted');
+            assert.ok(lum(ex) > lum(ep), 'extracted not brighter than episodic');
+            // an Earmarked node is full red, never blended toward the bg (M4)
+            assert.strictEqual(CortexRender.node3dColor({trust:'episodic', earmarked:true}), '#f87171');
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_edge3d_style_follows_the_source_tier_asserted_stronger(self):
+        # M3b — trust-weighted EDGES: an asserted-spine edge reads STRONGER than an extracted/episodic
+        # one (the curated-vs-hypothesis channel), tied to the per-tier TIER.edge values.
+        proc = _run_render_logic("""
+            const asserted = CortexRender.edge3dStyle({trust: 'asserted'});
+            const extracted = CortexRender.edge3dStyle({trust: 'extracted'});
+            const episodic = CortexRender.edge3dStyle({trust: 'episodic'});
+            assert.ok(asserted.opacity > extracted.opacity);
+            assert.ok(extracted.opacity > episodic.opacity);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_edge3d_color_bakes_source_tier_luminosity(self):
+        # codex round-3 [medium] — the M3b channel must reach the RENDERED edge brightness, not only a
+        # coarse width threshold. edge3dColor bakes the source-tier edge opacity into the COLOR
+        # (blended toward the dark bg), so an asserted-spine edge reads BRIGHTER than an extracted, and
+        # extracted brighter than episodic — extracted vs episodic are NO LONGER identical.
+        proc = _run_render_logic("""
+            const lum = (hex) => { const h = hex.replace('#',''); return (
+              parseInt(h.slice(0,2),16) + parseInt(h.slice(2,4),16) + parseInt(h.slice(4,6),16)); };
+            const a = CortexRender.edge3dColor({trust:'asserted'});
+            const e = CortexRender.edge3dColor({trust:'extracted'});
+            const p = CortexRender.edge3dColor({trust:'episodic'});
+            assert.ok(lum(a) > lum(e), 'asserted edge not brighter than extracted');
+            assert.ok(lum(e) > lum(p), 'extracted edge not brighter than episodic (channel lost)');
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_3d_link_render_consumes_per_link_luminosity_not_uniform(self):
+        # codex round-3 [medium] next-step — prove the SHIPPED 3D chain wires the per-link source-tier
+        # luminosity into the rendered edge color (linkColor reads l.__color), not a uniform color +
+        # global opacity. A pure edge3dColor passing is not enough; the render chain must consume it.
+        js = CORTEX_JS.read_text()
+        self.assertIn("edge3dColor", js)
+        self.assertIn("__color: CortexRender.edge3dColor", js)
+        self.assertIn(".linkColor(function (l) { return l.__color; })", js)
+        # the old uniform link color + 0.5 global opacity must be gone (it dropped the M3b channel)
+        self.assertNotIn('.linkColor(function () { return "#3a4154"; })', js)
+
+    def test_control_listeners_bound_once_to_a_mutable_current_adapter(self):
+        # codex round-4 [medium]: a late 3D demotion (context loss / blank paint) re-enters the ladder
+        # at the Cytoscape rung. The control listeners must be bound ONCE and dispatch to a mutable
+        # currentAdapter — NOT re-bound per mount (which would leave a stale 3D adapter firing against
+        # a destroyed Graph after the failure it is meant to survive). Pin the single-bind structure.
+        js = CORTEX_JS.read_text()
+        self.assertIn("currentAdapter", js)
+        self.assertIn("wireControls", js)
+        self.assertIn("controlsWired", js)             # the idempotent one-time-bind guard
+        self.assertNotIn("bindControls", js)           # the per-mount re-bind pattern is gone
+        # the demotion path swaps the adapter, not re-binds: currentAdapter is assigned in the driver
+        self.assertIn("currentAdapter = adapter", js)
+        # codex round-6 [medium]: the post-swap replay is CONDITIONAL on a non-default control state —
+        # an unconditional render() on the DEFAULT first 3D mount would push the full graph a 2nd time
+        # (reheating the sim + racing the first-paint check). Pin the guard.
+        self.assertIn("isDefaultControlState", js)
+        self.assertIn("if (!isDefaultControlState(controlState())) render();", js)
+
+    def test_render_logic_is_exported_and_wired_in_the_island(self):
+        # the DOM island must USE the exported decision + mappers (not an inline parallel copy) so the
+        # headless tests actually gate the shipped behavior.
+        js = CORTEX_JS.read_text()
+        self.assertIn("CortexRender", js)
+        self.assertIn("chooseRenderer", js)
+        # the M22 freeze contract is wired: the force tick is bounded (cooldown), never unbounded.
+        self.assertIn("cooldownTicks", js)
+        self.assertIn("cooldownTime", js)
+        # nodes are not draggable in 3D (the read-only camera, the analog of autoungrabify)
+        self.assertIn("enableNodeDrag", js)
+        # M6 labels are TEXT-only HTML overlays positioned via the lib's graph2ScreenCoords and set
+        # with .textContent — NEVER the lib's HTML nodeLabel tooltip fed payload content (R5 /
+        # cross-cutting #3): a poisoned title is inert (text, not raw HTML). Pin the safe mechanism.
+        self.assertIn("graph2ScreenCoords", js)
+        self.assertIn("cortex-label", js)
+        # the lib's HTML nodeLabel tooltip is NOT fed payload content (it would render as raw HTML)
+        self.assertNotIn(".nodeLabel(", js)
 
 
 if __name__ == "__main__":

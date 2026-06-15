@@ -266,7 +266,22 @@ a:hover { color: #a8c2ff; }
 .cortex-head .meta { margin: 2px 0 0; }
 .cortex-head a.meta { display: inline-block; margin-bottom: 4px; }
 .cortex-main { flex: 1 1 auto; position: relative; min-height: 0; }
-#cortex { position: absolute; inset: 0; }
+/* the graph mount becomes the full-canvas overlay ONLY once a graph renderer attaches (data-renderer
+   set by the island when 3D/Cytoscape paints). An EMPTY #cortex (JS dead / no renderer) must NOT
+   overlay the in-flow list fallback — else the absolute mount intercepts clicks and the navigable
+   list is unreachable (codex round-2 [high]). With no data-renderer the mount stays in-flow + empty
+   (zero height), so the visible .cortex-list receives the clicks. */
+#cortex[data-renderer] { position: absolute; inset: 0; }
+
+/* M6 — the 3D label overlay: TEXT-only HTML labels tracked over the canvas (the vendored bundle
+   hides THREE, so sprite labels are unreachable). space-0 is always labeled; the selected/search-hit
+   node too. Reuse the dark identity (mono, dim text, a dark text-outline shadow for legibility). */
+.cortex-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.cortex-label {
+  position: absolute; transform: translate(-50%, -160%);
+  font: 600 .7rem/1 var(--font-mono); letter-spacing: .06em; color: #e8ebf3;
+  text-shadow: 0 0 4px #0a0c11, 0 0 4px #0a0c11; white-space: nowrap;
+}
 
 /* the read-only inspect panel — a clicked node's content */
 .cortex-inspect {
@@ -328,6 +343,34 @@ a:hover { color: #a8c2ff; }
 
 /* the located node's marker label sits on the dark canvas — the search hit highlight (cortex.js
    styles the node itself via `.search-hit`); nothing else needed here. */
+
+/* ---- the M21 fallback rungs (Slice 2) — the searchable list (rung 3) + the honest message (rung 4).
+   Reuse the shared surface/border/mono token vocabulary, no one-off styling. Shipped hidden; the
+   island reveals the list only when both WebGL renderers fail. ---- */
+.cortex-list {
+  position: absolute; inset: 0; overflow-y: auto;
+  padding: 16px 20px; color: var(--text);
+}
+.cortex-list h2 {
+  font: 600 .8rem/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-dim); margin: 0 0 6px;
+}
+.cortex-list .meta { margin: 0 0 14px; max-width: 640px; }
+.cortex-list-nodes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cortex-list-item {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.cortex-list-item:hover { border-color: var(--accent); }
+.cortex-list-item.list-hit { border-color: #facc15; box-shadow: 0 0 0 2px rgba(250, 204, 21, .25); }
+.cortex-list-item .kind {
+  font: 600 .68rem/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--accent); flex: 0 0 auto;
+}
+.cortex-list-item .title { color: var(--text); word-break: break-word; }
+.cortex-list-item .list-source { font-family: var(--font-mono); font-size: .8rem; color: var(--accent); }
+.cortex-message { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 
 /* the honest dark state — no group / neo4j unreachable */
 .cortex-dark {

@@ -1,11 +1,13 @@
-// cortex.js — the Cytoscape island. Draws the whole-Cortex {nodes, edges} payload as a dark,
-// force-directed constellation centered on space-0, trust-weighted by brightness. Read-only:
-// pan / zoom / click a node to inspect it. Loaded ONLY on /cortex (a JS island, not the app shell).
+// cortex.js — the Cortex render island. Draws the whole-Cortex {nodes, edges} payload as a dark,
+// luminous, trust-weighted graph centered on space-0. Loaded ONLY on /cortex (a JS island, not the
+// app shell — M19). Read-only: orbit/pan/zoom, click a node to inspect it.
 //
-// Slice 6 — navigate the brain: find-and-jump SEARCH (deterministic label/type/title match → center
-// the node) and FILTER (by node type / Earmarked-only / recency) over the one loaded payload, all
-// client-side. The pure search/filter logic is factored into CortexFilters (below) so it is testable
-// under Node with no DOM (exported via module.exports); the DOM island wires it to the controls.
+// Slice 2 — the 3D force-directed cloud (3d-force-graph) as the DEFAULT renderer, behind the M21
+// fallback ladder: WebGL→3D, else the 2D Cytoscape island, else a server-rendered searchable list,
+// else the honest message. The ladder gates on the 3D renderer ACTUALLY initializing + first-painting
+// (the probe is necessary, NOT sufficient). The PURE pieces are factored + exported for headless Node
+// tests: CortexFilters (search/filter, Slice 6), webglSupported (the capability probe, Slice 1), and
+// CortexRender (the ladder decision + the trust-weighted 3D node/edge style mappers, Slice 2).
 
 (function (root) {
   "use strict";
@@ -194,20 +196,123 @@
     }
   }
 
+  // ── CortexRender — pure, exported render logic (Slice 2): the M21 fallback-ladder DECISION and the
+  // trust-weighted 3D node/edge style mappers. Factored out of the DOM island so the ladder hierarchy
+  // (M21) and the trust legibility (M3/M3b/M4) are testable headless under Node, exactly as
+  // CortexFilters / webglSupported are. ────────────────────────────────────────────────────────────
+  //
+  // TIER — the single trust-weight table (space-0 brightest core → asserted bright → extracted dim →
+  // episodic faintest haze). Trust is the SOLE size+brightness axis (Q2: no second centrality axis).
+  // `edge` is the per-tier edge opacity (M3b: asserted spine edges read STRONGER than the haze).
+  var RENDER_TIER = {
+    space0:    { opacity: 1.00, size: 9.0, color: "#cfe0ff", edge: 0.85 },
+    asserted:  { opacity: 0.95, size: 5.2, color: "#7aa2f7", edge: 0.55 },
+    extracted: { opacity: 0.42, size: 3.0, color: "#9aa3b8", edge: 0.22 },
+    episodic:  { opacity: 0.18, size: 2.0, color: "#69728a", edge: 0.10 },
+  };
+  function renderTier(t) { return RENDER_TIER[t] || RENDER_TIER.extracted; }
+
+  var CortexRender = {
+    TIER: RENDER_TIER,
+
+    // chooseRenderer(caps) → which M21 rung renders, a STRICT hierarchy (the M-GATE). caps:
+    //   webgl       — webglSupported() (the capability probe; necessary, NOT sufficient).
+    //   force3dOk   — the 3D constructor + first-paint actually succeeded (probe true is not enough:
+    //                 a missing/corrupt lib, a throw on init, a blank first paint, or a lost context
+    //                 all set this false → drop to rung 2, never a blank-with-data /cortex).
+    //   cytoscapeOk — the 2D Cytoscape island rendered (rung 2, the single mandated WebGL fallback).
+    //   listOk      — the searchable list rendered (rung 3, tertiary).
+    // Returns '3d' | 'cytoscape' | 'list' | 'message' (rung 4, the honest floor).
+    chooseRenderer: function (caps) {
+      caps = caps || {};
+      if (caps.webgl && caps.force3dOk) return "3d";       // rung 1 — the 3D cloud (default)
+      if (caps.cytoscapeOk) return "cytoscape";            // rung 2 — the 2D Cytoscape island
+      if (caps.listOk) return "list";                      // rung 3 — the searchable list
+      return "message";                                    // rung 4 — the honest message (floor)
+    },
+
+    // node3dStyle(node) → {color, size, opacity, earmarked} for the 3D render. M3: trust-weighted
+    // luminosity (brightness + size both fall with trust). M4: an Earmarked node is NEVER dimmed
+    // (harm overrides the trust-dim) and carries the harm cue for the red overlay.
+    node3dStyle: function (node) {
+      node = node || {};
+      var t = renderTier(node.trust);
+      var earmarked = !!node.earmarked;
+      return {
+        color: t.color,
+        size: t.size,
+        // harm overrides the dim — an Earmarked node reads at full brightness regardless of its tier.
+        opacity: earmarked ? 1 : t.opacity,
+        earmarked: earmarked,
+      };
+    },
+
+    // edge3dStyle(node) → {opacity} for an edge, weighted by its SOURCE node's trust tier (M3b):
+    // asserted-spine edges (GROUNDS/ANCHORS/SERVES) read stronger than extracted/episodic (the
+    // hypothesis haze) — the curated-vs-hypothesis channel, not styling.
+    edge3dStyle: function (sourceNode) {
+      return { opacity: renderTier((sourceNode || {}).trust).edge };
+    },
+
+    // edge3dColor(sourceNode) → the trust-LUMINOSITY-baked hex color for an edge (M3b). Same reason
+    // as node3dColor: the vendored build hides THREE, so a per-link MATERIAL opacity is not reachable;
+    // the source tier's edge brightness (TIER.edge) is baked into the edge COLOR by blending the base
+    // edge hue toward the dark background by (1 - edge-opacity). So an asserted-spine edge
+    // (GROUNDS/ANCHORS/SERVES) reads BRIGHT and an extracted/episodic edge collapses toward the
+    // background haze — the curated-vs-hypothesis channel preserved as luminosity, via the supported
+    // linkColor accessor (not just edge WIDTH). Pure + deterministic → testable headless.
+    edge3dColor: function (sourceNode) {
+      return blendToBg("#5b6479", renderTier((sourceNode || {}).trust).edge);
+    },
+
+    // node3dColor(node) → the trust-LUMINOSITY-baked hex color for the 3D render. The vendored
+    // 3d-force-graph build does not expose its THREE namespace, so per-node MATERIAL opacity is not
+    // reachable; instead the tier's luminosity (opacity) is baked into the COLOR by blending the tier
+    // hue toward the dark background (#0a0c11) by (1 - opacity) — so a faint episodic node reads as a
+    // dim haze and the bright space-0 core pops, the SAME trust-luminosity legibility, via the
+    // supported nodeColor accessor (M3/R4). An Earmarked node is full red, never blended (M4: harm
+    // overrides the dim). Pure + deterministic → testable headless.
+    node3dColor: function (node) {
+      node = node || {};
+      if (node.earmarked) return "#f87171";       // M4 — harm reads red, never dimmed
+      var t = renderTier(node.trust);
+      return blendToBg(t.color, t.opacity);
+    },
+  };
+
+  // blendToBg(hex, opacity) → the hex color blended toward the dark background by (1-opacity). The
+  // background is the Cortex dark space (#0a0c11). A high-opacity tier stays near its hue; a faint
+  // tier collapses toward the background → the luminosity haze, baked into the color channel.
+  var BG_RGB = [0x0a, 0x0c, 0x11];
+  function blendToBg(hex, opacity) {
+    var h = String(hex).replace("#", "");
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    var a = Math.max(0, Math.min(1, opacity));
+    function mix(c, bg) { return Math.round(c * a + bg * (1 - a)); }
+    function hx(v) { var s = v.toString(16); return s.length === 1 ? "0" + s : s; }
+    return "#" + hx(mix(r, BG_RGB[0])) + hx(mix(g, BG_RGB[1])) + hx(mix(b, BG_RGB[2]));
+  }
+
   // Export the pure logic for Node (tests) AND attach it to the browser global (the DOM island reads
-  // it below). Requiring this file in Node only defines + exports CortexFilters + webglSupported — the
-  // DOM island block is guarded on `document`/`cytoscape`, so it never runs without a browser.
+  // it below). Requiring this file in Node only defines + exports the pure namespaces — the DOM island
+  // block is guarded on `document`, so it never runs without a browser.
   if (typeof module !== "undefined" && module.exports)
-    module.exports = { CortexFilters: CortexFilters, webglSupported: webglSupported };
+    module.exports = { CortexFilters: CortexFilters, webglSupported: webglSupported,
+                       CortexRender: CortexRender };
   root.CortexFilters = CortexFilters;
   root.webglSupported = webglSupported;
+  root.CortexRender = CortexRender;
 
-  // ── DOM island — only in the browser, only with cytoscape + the mount + the payload ─────────────
-  if (typeof document === "undefined" || typeof cytoscape === "undefined") return;
+
+  // ── DOM island — only in the browser, with the mount + the payload. The renderer libs are loaded
+  // per the M21 ladder: the island runs even when `cytoscape` is undefined (the 3D renderer does not
+  // need it; cytoscape is only rung 2). ────────────────────────────────────────────────────────────
+  if (typeof document === "undefined") return;
 
   var dataEl = document.getElementById("cortex-data");
   var mount = document.getElementById("cortex");
-  if (!dataEl || !mount) return;
+  if (!dataEl || !mount) return; // no payload block / no mount → fail-dark page or another surface
 
   var payload;
   try {
@@ -217,263 +322,40 @@
     return;
   }
 
-  // Brightness per trust tier — space-0 brightest, asserted spine bright, extracted dim,
-  // Episodic faintest (background haze). Subtractive legibility via opacity, not removal.
-  var TIER = {
-    space0:    { opacity: 1.00, size: 46, color: "#cfe0ff", border: "#7aa2f7", edge: 0.85 },
-    asserted:  { opacity: 0.95, size: 26, color: "#7aa2f7", border: "#5b7fd6", edge: 0.55 },
-    extracted: { opacity: 0.42, size: 16, color: "#9aa3b8", border: "#69728a", edge: 0.22 },
-    episodic:  { opacity: 0.18, size: 11, color: "#69728a", border: "#3a4154", edge: 0.10 },
-  };
-  function tier(t) { return TIER[t] || TIER.extracted; }
+  // ── Shared inspect panel + node lookups (used by WHICHEVER renderer rung mounts) ─────────────────
+  var nodeById = {};
+  payload.nodes.forEach(function (n) { nodeById[n.id] = n; });
 
-  var elements = [];
-  var nodeIds = {};
-  payload.nodes.forEach(function (n) {
-    nodeIds[n.id] = true;
-    elements.push({
-      // `id` is the elementId (render/session); `ref` is the STABLE node key the correction targets
-      // (Graphiti uuid when present, else the elementId) — durable across graph rebuilds (Slice 6b).
-      data: { id: n.id, ref: n.ref || n.id, label: n.label, title: n.title, trust: n.trust,
-              href: n.href || null, earmarked: !!n.earmarked },
-      classes: "tier-" + n.trust + (n.earmarked ? " earmarked" : ""),
-    });
-  });
-  payload.edges.forEach(function (e, i) {
-    // skip edges whose endpoints are not in the payload (defensive — the scoped fold should match)
-    if (!nodeIds[e.source] || !nodeIds[e.target]) return;
-    // edge id from the server (relationship id); namespaced fallback never collides with a node id
-    var id = e.id != null ? e.id : "rel:" + i;
-    elements.push({ data: { id: id, source: e.source, target: e.target, type: e.type } });
-  });
-
-  var cy = cytoscape({
-    container: mount,
-    elements: elements,
-    minZoom: 0.05,
-    maxZoom: 4,
-    wheelSensitivity: 0.25,
-    boxSelectionEnabled: false,
-    autoungrabify: true, // read-only: nodes are not draggable
-    style: [
-      {
-        selector: "node",
-        style: {
-          "background-color": function (n) { return tier(n.data("trust")).color; },
-          "width": function (n) { return tier(n.data("trust")).size; },
-          "height": function (n) { return tier(n.data("trust")).size; },
-          "opacity": function (n) { return tier(n.data("trust")).opacity; },
-          "border-width": 1,
-          "border-color": function (n) { return tier(n.data("trust")).border; },
-          "label": "",
-        },
-      },
-      {
-        // space-0: the luminous core, always labelled
-        selector: "node.tier-space0",
-        style: {
-          "label": "space-0",
-          "color": "#e8ebf3",
-          "font-size": 13,
-          "text-valign": "center",
-          "text-halign": "center",
-          "text-outline-width": 3,
-          "text-outline-color": "#0a0c11",
-        },
-      },
-      {
-        selector: "edge",
-        style: {
-          "width": 1,
-          "curve-style": "haystack",
-          "line-color": "#3a4154",
-          // edge brightness follows its source node's trust tier. Use the edge's own source
-          // element (e.source()) — reading the outer `cy` here would fail: mappers run while
-          // cytoscape() is still constructing, before `cy` is assigned.
-          "opacity": function (e) {
-            var s = e.source();
-            return s.length ? tier(s.data("trust")).edge : 0.2;
-          },
-        },
-      },
-      {
-        // Earmarked overlay — harm overrides the dim, never dimmed regardless of trust tier.
-        selector: "node.earmarked",
-        style: {
-          "border-color": "#f87171",
-          "border-width": 3,
-          "opacity": 1,
-        },
-      },
-      {
-        // a search hit — the located node pops above the constellation so the eye lands on it.
-        selector: "node.search-hit",
-        style: {
-          "border-color": "#facc15",
-          "border-width": 4,
-          "opacity": 1,
-          "label": "data(title)",
-          "color": "#e8ebf3",
-          "font-size": 12,
-          "text-valign": "bottom",
-          "text-margin-y": 6,
-          "text-wrap": "wrap",
-          "text-max-width": "220px",
-          "text-outline-width": 3,
-          "text-outline-color": "#0a0c11",
-        },
-      },
-      {
-        // a node hidden by a filter — display:none removes it (and its edges) from the canvas.
-        selector: "node.filtered-out",
-        style: { "display": "none" },
-      },
-      {
-        selector: "node:selected",
-        style: {
-          "border-color": "#9d7cf7",
-          "border-width": 3,
-          "opacity": 1,
-          "label": "data(title)",
-          "color": "#e8ebf3",
-          "font-size": 12,
-          "text-valign": "bottom",
-          "text-margin-y": 6,
-          "text-wrap": "wrap",
-          "text-max-width": "220px",
-          "text-outline-width": 3,
-          "text-outline-color": "#0a0c11",
-        },
-      },
-    ],
-    layout: {
-      name: "cose",
-      idealEdgeLength: 90,
-      nodeOverlap: 8,
-      gravity: 0.6,
-      numIter: 1000,
-      animate: false,
-      randomize: true,
-    },
-  });
-
-  // Center the view on space-0 once laid out — the gravitational core the mentee orients from. A
-  // ?node=<stable-ref> deep-link (the /chat provenance link from a node correction, Slice 6b round-6)
-  // instead centers + selects the originating node, located by its STABLE ref (not the volatile
-  // render id) — so node-targeted correction provenance is actually auditable from the dashboard.
-  cy.ready(function () {
-    var deepRef = null;
-    try {
-      deepRef = new URLSearchParams(location.search).get("node");
-    } catch (e) { deepRef = null; }
-    var deepId = deepRef ? CortexFilters.locate(payload, deepRef) : null;
-    var deep = deepId ? cy.getElementById(deepId) : null;
-    if (deep && deep.length) {
-      deep.select();
-      cy.center(deep);
-      cy.zoom({ level: 1.1, position: deep.position() });
-      return;
-    }
-    var core = cy.nodes(".tier-space0");
-    if (core.length) {
-      cy.center(core);
-      cy.zoom({ level: 0.6, position: core.position() });
-    } else {
-      cy.fit(undefined, 40);
-    }
-  });
-
-  // ── Filter controls — recompute the visible set from the payload + the live control state, then
-  // toggle `.filtered-out` deterministically. Pure recompute every change → no stale hidden state. ──
-  var search = document.getElementById("cortex-search");
-  var searchStatus = document.getElementById("cortex-search-status");
-  var earmarkedBox = document.getElementById("cortex-earmarked");
-  var recencyRange = document.getElementById("cortex-recency");
-  var typeBoxes = Array.prototype.slice.call(
-    document.querySelectorAll('input[name="cortex-type"]'));
-
-  function controlState() {
-    var types = null;
-    if (typeBoxes.length) {
-      // route through typeSelection: all-checked → null (no type filter) so a schema-drifted node
-      // whose label is not a control stays visible + searchable by default (codex round-2 [medium]).
-      var allLabels = typeBoxes.map(function (b) { return b.value; });
-      var checked = typeBoxes.filter(function (b) { return b.checked; })
-                             .map(function (b) { return b.value; });
-      types = CortexFilters.typeSelection(allLabels, checked);
-    }
-    var recencyFraction = 0;
-    if (recencyRange) recencyFraction = (parseFloat(recencyRange.value) || 0) / 100;
-    return {
-      types: types,
-      earmarkedOnly: !!(earmarkedBox && earmarkedBox.checked),
-      recencyFraction: recencyFraction,
-      query: search ? search.value : "",
-    };
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
-  // Render from ONE combined state every change (codex round-1 [medium]): apply filters AND search
-  // together so the search hit is always a VISIBLE node — never resurrect a filtered-out node, and
-  // the status is recomputed from the combined set (no stale visible state).
-  function render() {
-    var r = CortexFilters.render(payload, controlState());
-    cy.batch(function () {
-      cy.nodes().forEach(function (n) {
-        var id = n.id();
-        if (r.visibleIds.has(id)) n.removeClass("filtered-out");
-        else n.addClass("filtered-out");
-        if (id === r.searchHit) n.addClass("search-hit");
-        else n.removeClass("search-hit");
-      });
-    });
-    var q = (search ? search.value : "").trim();
-    if (searchStatus) {
-      if (!q) searchStatus.textContent = "";
-      else if (r.searchHit == null) searchStatus.textContent = "sem resultado";
-      else searchStatus.textContent = r.searchCount > 1 ? r.searchCount + " resultados" : "1 resultado";
-    }
-    if (r.searchHit != null) {
-      var hit = cy.getElementById(r.searchHit);
-      if (hit.length) cy.animate({ center: { eles: hit }, zoom: 1.1 }, { duration: 280 });
-    }
+  // The drill-down into the node's source surface — built with DOM APIs (createElement + assign
+  // a.href / a.textContent), NEVER by interpolating the graph-derived href into an `href="..."`
+  // attribute STRING (codex round-1 [high]): esc() does not escape quotes, so a poisoned value
+  // carrying `" onclick=...` would break out of a string attribute and bind a same-origin handler →
+  // an authenticated mutating POST, defeating the Slice-1 gate. Assigning a.href sets the attribute
+  // verbatim. Only an INTERNAL same-origin path (leading "/", not "//") is ever linked.
+  function appendLink(into, href) {
+    if (typeof href !== "string" || href.charAt(0) !== "/" || href.charAt(1) === "/") return;
+    var p = document.createElement("p");
+    p.className = "source";
+    var a = document.createElement("a");
+    a.href = href;                 // verbatim attribute assignment — no string interpolation
+    a.textContent = "abrir fonte →";
+    p.appendChild(a);
+    into.appendChild(p);
   }
-
-  typeBoxes.forEach(function (b) { b.addEventListener("change", render); });
-  if (earmarkedBox) earmarkedBox.addEventListener("change", render);
-  if (recencyRange) recencyRange.addEventListener("input", render);
-  if (search) search.addEventListener("input", render);
-
-  // Inspect node (v1): click → show its title in a read-only panel.
-  var panel = document.createElement("div");
-  panel.id = "cortex-inspect";
-  panel.className = "cortex-inspect hidden";
-  document.body.appendChild(panel);
-
-  cy.on("tap", "node", function (evt) {
-    var n = evt.target;
-    panel.innerHTML =
-      '<span class="kind">' + esc(n.data("label")) + "</span>" +
-      '<p class="title">' + esc(n.data("title")) + "</p>";
-    appendLink(panel, n.data("href"));
-    // The Earmarked corrective write-path (Slice 6b): a harm-bearing node gets a correction composer —
-    // node-targeted Voz. Only an Earmarked node (the harm subset the mentee corrects); a plain node
-    // stays read-only inspect + the source link, consistent with the read-only Cortex surface.
-    // pass the STABLE node ref (not the volatile elementId) so the persisted correction target
-    // survives a graph rebuild/reproject (Slice 6b, codex round-4).
-    if (n.data("earmarked")) appendCorrection(panel, n.data("ref"));
-    panel.classList.remove("hidden");
-  });
 
   // The correction composer for an Earmarked node — a small Voz composer that POSTs a voz.comment
   // whose target_ref is the node ref. Built with DOM APIs (createElement + assign form.action), NEVER
   // by interpolating the graph-derived node id into an action="..." attribute STRING (the same
-  // breakout defense as appendLink — a poisoned id carrying a quote could otherwise bind a handler).
-  // The id is url-encoded into the same-origin route path; the POST is same-origin (the dashboard's
-  // own page), so it rides the Slice-1 auth/CSRF gate exactly like every other Voz write.
+  // breakout defense as appendLink). The id is url-encoded into the same-origin route path; the POST
+  // is same-origin, so it rides the Slice-1 auth/CSRF gate exactly like every other Voz write.
   function appendCorrection(into, nodeId) {
     var form = document.createElement("form");
     form.className = "composer correction";
-    // verbatim property assignment of a same-origin path — no attribute-string interpolation
     form.action = "/cortex/" + encodeURIComponent(nodeId) + "/comment";
     form.method = "post";
     var heading = document.createElement("p");
@@ -491,23 +373,12 @@
     form.appendChild(btn);
     var status = document.createElement("p");
     status.className = "correction-status meta";
-    // A stable per-render comment_nonce so the route takes the IDEMPOTENT append path — a
-    // double-click / transport retry (same nonce + same body) dedupes to one Directive, so a flaky
-    // submit can't create duplicate corrections (which, if standing, fold into duplicate
-    // direction.set). It ADVANCES after each successful submit, so a deliberate second correction
-    // still lands — the same stable-then-advance pattern as the server-rendered Voz composers.
-    //
-    // The nonce base is RENDER-UNIQUE (a fresh token per panel build), NOT a fixed `:0` (codex
-    // round-2 [medium]): the panel is rebuilt every time the mentee re-taps the node, and a fixed
-    // seed would reset to `corr:<id>:0`, so the SAME correction body after reopening the panel would
-    // collide on the server idempotency key and be silently dropped. A unique seed per build means a
-    // double-fire WITHIN one render still dedupes (same token + same nonceN), while a deliberate
-    // repeat after a rebuild carries a new token → it lands (no same-body follow-up loss).
+    // A render-unique idempotent nonce base (codex round-2 [medium]): a fresh token per panel build,
+    // advancing after each successful submit, so a double-fire within one render dedupes while a
+    // deliberate repeat after a rebuild still lands. Same stable-then-advance pattern as the Voz rail.
     var renderToken = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     var nonceN = 0;
     function nonce() { return "corr:" + nodeId + ":" + renderToken + ":" + nonceN; }
-    // submit via fetch (same-origin) so the panel stays in place and shows the confirmation inline,
-    // instead of a full-page navigation away from the constellation.
     form.addEventListener("submit", function (evt) {
       evt.preventDefault();
       var body = ta.value;
@@ -526,30 +397,629 @@
     into.appendChild(status);
   }
 
-  // The drill-down into the node's source surface — the graph stops being an island (Slice 5b).
-  // Built with DOM APIs (createElement + assign a.href / a.textContent), NEVER by interpolating the
-  // graph-derived href into an `href="..."` attribute STRING (codex round-1 [high]): the panel's
-  // esc() does not escape quotes, so a poisoned value carrying `" onclick=...` would break out of a
-  // string attribute and bind a same-origin handler → an authenticated mutating POST, defeating the
-  // Slice-1 gate. Assigning a.href sets the attribute value verbatim — there is no attribute syntax
-  // to break out of. Only an INTERNAL same-origin path (a leading "/", not "//") is ever linked: a
-  // "javascript:" / "http://evil" / "//host" value is dropped, not turned into a live anchor.
-  function appendLink(into, href) {
-    if (typeof href !== "string" || href.charAt(0) !== "/" || href.charAt(1) === "/") return;
-    var p = document.createElement("p");
-    p.className = "source";
-    var a = document.createElement("a");
-    a.href = href;                 // verbatim attribute assignment — no string interpolation
-    a.textContent = "abrir fonte →";
-    p.appendChild(a);
-    into.appendChild(p);
-  }
-  cy.on("tap", function (evt) {
-    if (evt.target === cy) panel.classList.add("hidden"); // tap background → dismiss
-  });
+  // The floating inspect panel (Slice 2: the CURRENT minimal panel — kind + title + source link +
+  // Earmarked composer; the enriched slide-in panel is Slice 3). Shared across renderers: a node
+  // object (from the payload) drives it, so 3D and Cytoscape (and the list) all open the same panel.
+  var panel = document.createElement("div");
+  panel.id = "cortex-inspect";
+  panel.className = "cortex-inspect hidden";
+  document.body.appendChild(panel);
 
-  function esc(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function showPanel(node) {
+    if (!node) return;
+    // esc() escapes &<> — the kind/title are rendered as TEXT content of these spans/paras, never as
+    // an attribute, so a poisoned title cannot break out (M17/R5). The source link + the composer are
+    // built with DOM APIs (no attribute-string interpolation).
+    panel.innerHTML =
+      '<span class="kind">' + esc(node.label) + "</span>" +
+      '<p class="title">' + esc(node.title) + "</p>";
+    appendLink(panel, node.href);
+    // The Earmarked corrective write-path (Slice 6b): only a harm node gets a correction composer,
+    // targeted by its STABLE ref (not the volatile render id) so the persisted target survives a rebuild.
+    if (node.earmarked) appendCorrection(panel, node.ref || node.id);
+    panel.classList.remove("hidden");
   }
+  function hidePanel() { panel.classList.add("hidden"); }
+
+  // hideList() — the server renders #cortex-list VISIBLE (the JS-dead navigable fallback, codex
+  // round-1 [high]); when a GRAPH rung (3D or Cytoscape) successfully paints, the island hides the
+  // list so it does not double-render under the canvas. Progressive enhancement: no graph rung → the
+  // list stays visible (a failed/absent cortex.js leaves a navigable list, never a blank area).
+  function hideList() {
+    var list = document.getElementById("cortex-list");
+    if (list) list.hidden = true;
+  }
+
+  // The ?node=<stable-ref> deep-link (the /chat provenance link from a node correction, Slice 6b):
+  // located by its STABLE ref (not the volatile render id) via the unchanged CortexFilters.locate.
+  function deepLinkId() {
+    var deepRef = null;
+    try { deepRef = new URLSearchParams(location.search).get("node"); } catch (e) { deepRef = null; }
+    return deepRef ? CortexFilters.locate(payload, deepRef) : null;
+  }
+
+  // ── Filter controls (Slice 6, retained) — the shared controlState + the bound `render()` are wired
+  // to WHICHEVER renderer mounted via a small adapter the renderer provides. ───────────────────────
+  var search = document.getElementById("cortex-search");
+  var searchStatus = document.getElementById("cortex-search-status");
+  var earmarkedBox = document.getElementById("cortex-earmarked");
+  var recencyRange = document.getElementById("cortex-recency");
+  var typeBoxes = Array.prototype.slice.call(
+    document.querySelectorAll('input[name="cortex-type"]'));
+
+  function controlState() {
+    var types = null;
+    if (typeBoxes.length) {
+      var allLabels = typeBoxes.map(function (b) { return b.value; });
+      var checked = typeBoxes.filter(function (b) { return b.checked; })
+                             .map(function (b) { return b.value; });
+      types = CortexFilters.typeSelection(allLabels, checked);
+    }
+    var recencyFraction = 0;
+    if (recencyRange) recencyFraction = (parseFloat(recencyRange.value) || 0) / 100;
+    return {
+      types: types,
+      earmarkedOnly: !!(earmarkedBox && earmarkedBox.checked),
+      recencyFraction: recencyFraction,
+      query: search ? search.value : "",
+    };
+  }
+
+  // currentAdapter — the ONE active renderer's control adapter. The control listeners are wired ONCE
+  // (wireControls) and always dispatch to whatever currentAdapter is NOW (codex round-4 [medium]): on
+  // a late demotion (WebGL context loss / async blank-paint), the ladder swaps currentAdapter to the
+  // fallback rung's adapter — it does NOT re-bind listeners. So a stale 3D adapter (whose Graph is
+  // destroyed) never fires against search/filter input after the failure it is meant to survive.
+  var currentAdapter = null;
+  var controlsWired = false;
+  function render() {
+    var adapter = currentAdapter;
+    if (!adapter) return;                 // no active renderer (e.g. the message floor) → controls no-op
+    var r = CortexFilters.render(payload, controlState());
+    adapter.applyVisible(r.visibleIds, r.searchHit);
+    var q = (search ? search.value : "").trim();
+    if (searchStatus) {
+      if (!q) searchStatus.textContent = "";
+      else if (r.searchHit == null) searchStatus.textContent = "sem resultado";
+      else searchStatus.textContent =
+        r.searchCount > 1 ? r.searchCount + " resultados" : "1 resultado";
+    }
+    if (r.searchHit != null && adapter.flyTo) adapter.flyTo(r.searchHit);
+  }
+  function wireControls() {
+    if (controlsWired) return;            // bind exactly once — a re-mount only swaps currentAdapter
+    controlsWired = true;
+    typeBoxes.forEach(function (b) { b.addEventListener("change", render); });
+    if (earmarkedBox) earmarkedBox.addEventListener("change", render);
+    if (recencyRange) recencyRange.addEventListener("input", render);
+    if (search) search.addEventListener("input", render);
+  }
+
+  // ── Rung 1: the 3D force-directed cloud (M1–M6 + the M22 freeze). Returns a control adapter on
+  // success, or null on ANY init/first-paint failure (so the ladder drops to rung 2 — the regression
+  // M21 prevents: a blank-with-data /cortex when the probe passed but the renderer did not paint). ──
+  function mount3D() {
+    if (typeof ForceGraph3D === "undefined") return null; // lib missing/corrupt → drop to rung 2
+    try {
+      // Build the lib's {nodes, links} from the payload (consumed unchanged). Each node carries its
+      // trust-weighted SIZE (CortexRender.node3dStyle) + its luminosity-baked COLOR (node3dColor,
+      // M3/M4); each link its source-tier luminosity color (edge3dColor) + width weight (edge3dStyle,
+      // M3b) — all from the PURE, headless-tested CortexRender mappers.
+      var idSet = {};
+      payload.nodes.forEach(function (n) { idSet[n.id] = true; });
+      var gnodes = payload.nodes.map(function (n) {
+        var s = CortexRender.node3dStyle(n);
+        return { id: n.id, ref: n.ref || n.id, label: n.label, title: n.title, trust: n.trust,
+                 href: n.href || null, earmarked: !!n.earmarked,
+                 // M3: luminosity baked into the color (the vendored build hides THREE), size by tier.
+                 __color: CortexRender.node3dColor(n), __size: s.size };
+      });
+      var glinks = [];
+      payload.edges.forEach(function (e) {
+        if (!idSet[e.source] || !idSet[e.target]) return; // defensive: scoped fold should match
+        var src = nodeById[e.source];
+        glinks.push({ source: e.source, target: e.target, type: e.type,
+                      // M3b: source-tier edge brightness — baked into the COLOR (luminosity), with
+                      // width as the SECONDARY trust signal (asserted spine thicker).
+                      __opacity: CortexRender.edge3dStyle(src).opacity,
+                      __color: CortexRender.edge3dColor(src) });
+      });
+
+      // M22 metrics — the browser gate reads window.__cortexMetrics to assert the force tick freezes
+      // (≤300 ticks / ≤2.0s, then `stopped`) and is not unbounded. tickStart is stamped on the first
+      // tick; frozenAt on engine stop. Production-harmless (a tiny counter object).
+      var metrics = { ticks: 0, started: Date.now(), tickStart: null, frozenAt: null, stopped: false };
+      if (typeof window !== "undefined") window.__cortexMetrics = metrics;
+
+      var Graph = ForceGraph3D()(mount)
+        .backgroundColor("#0a0c11")          // the dark space (the edge's dark identity, M3/M20)
+        .showNavInfo(false)
+        .enableNodeDrag(false)               // read-only camera — nodes are NOT draggable (M2, analog of autoungrabify)
+        .nodeRelSize(1)
+        .nodeVal(function (n) { return n.__size; })           // size = trust tier (M3)
+        // M3/M4: the trust-LUMINOSITY-baked color (haze blended toward bg) — Earmarked → full red.
+        // Trust is the SOLE size+brightness axis (Q2), legible against depth (R4: no fog to fight it).
+        .nodeColor(function (n) { return n.__color; })
+        // M3b: per-link luminosity by source tier — the asserted spine reads BRIGHT, the extracted/
+        // episodic haze collapses toward the bg. linkColor carries the brightness; width is secondary.
+        .linkColor(function (l) { return l.__color; })
+        .linkOpacity(1)                                    // opacity is baked into the per-link color
+        .linkWidth(function (l) { return l.__opacity > 0.5 ? 0.6 : 0.2; })  // secondary: asserted spine thicker (M3b)
+        // M22 — the force tick FREEZES: cap at 300 ticks OR 2.0s wall-clock, whichever first, then the
+        // sim stops (no unbounded live tick on a growing graph). This is the pinned ceiling (rung ii).
+        .cooldownTicks(300)
+        .cooldownTime(2000)
+        .onEngineTick(function () {
+          if (metrics.tickStart == null) metrics.tickStart = Date.now();
+          metrics.ticks++;
+        })
+        .onNodeClick(function (n) { selectedId = n.id; showPanel(nodeById[n.id]); flyTo3D(n); updateLabels(); })
+        .onBackgroundClick(function () { selectedId = null; hidePanel(); updateLabels(); })
+        .graphData({ nodes: gnodes, links: glinks });
+
+      // ── M6 labels — legible against the dark cloud, TEXT-ONLY, never raw-HTML from payload (R5).
+      // The vendored build hides its THREE namespace (no sprite labels reachable), so labels are HTML
+      // overlay <div>s tracked over the canvas via the lib's graph2ScreenCoords. space-0 is ALWAYS
+      // labeled (the literal "space-0", a constant — never payload); the selected/search-hit node is
+      // labeled with its TITLE set via .textContent (NOT innerHTML), so a poisoned title is inert.
+      var labelLayer = document.createElement("div");
+      labelLayer.className = "cortex-labels";
+      labelLayer.setAttribute("aria-hidden", "true");
+      mount.appendChild(labelLayer);
+      var labelEls = {};   // nodeId → overlay div
+      var selectedId = null;
+      function labelText(n) {
+        return n.trust === "space0" ? "space-0" : (n.title == null ? "" : String(n.title));
+      }
+      function ensureLabel(id) {
+        if (labelEls[id]) return labelEls[id];
+        var el = document.createElement("div");
+        el.className = "cortex-label";
+        labelLayer.appendChild(el);
+        labelEls[id] = el;
+        return el;
+      }
+      function labeledIds() {
+        var ids = {};
+        payload.nodes.forEach(function (n) { if (n.trust === "space0") ids[n.id] = true; });
+        if (selectedId) ids[selectedId] = true;
+        return ids;
+      }
+      function updateLabels() {
+        var want = labeledIds();
+        // drop labels no longer wanted
+        Object.keys(labelEls).forEach(function (id) {
+          if (!want[id]) { labelLayer.removeChild(labelEls[id]); delete labelEls[id]; }
+        });
+        var gd = Graph.graphData ? Graph.graphData() : { nodes: [] };
+        gd.nodes.forEach(function (n) {
+          if (!want[n.id] || typeof n.x !== "number" || !Graph.graph2ScreenCoords) return;
+          var c = Graph.graph2ScreenCoords(n.x, n.y, n.z);
+          var el = ensureLabel(n.id);
+          var txt = labelText(nodeById[n.id] || n);
+          if (el.textContent !== txt) el.textContent = txt;   // TEXT-only — no innerHTML from payload
+          el.style.left = c.x + "px";
+          el.style.top = c.y + "px";
+        });
+      }
+
+      // Center / orient on space-0 on load (M5), or center+select a ?node= deep-link (R6). A correct
+      // camera cut is acceptable v1 (tweening is N3); set the camera after the engine settles.
+      var deepId = deepLinkId();
+      Graph.onEngineStop(function () {
+        // M22 — the sim has converged + frozen (cooldownTicks/cooldownTime reached). Stamp the freeze
+        // so the browser gate can assert it happened within the pinned ceiling and then idles.
+        if (!metrics.stopped) { metrics.stopped = true; metrics.frozenAt = Date.now(); }
+        var targetId = deepId;
+        if (!targetId) {
+          var core = payload.nodes.filter(function (n) { return n.trust === "space0"; })[0];
+          targetId = core ? core.id : (payload.nodes[0] && payload.nodes[0].id);
+        }
+        var node = targetId && Graph.graphData().nodes.filter(
+          function (n) { return n.id === targetId; })[0];
+        if (node && typeof node.x === "number") {
+          flyTo3D(node, true);
+          if (deepId) showPanel(nodeById[deepId]);
+        }
+      });
+
+      // flyTo3D(node, instant) — move the camera to look at a node (the search/deep-link fly target).
+      function flyTo3D(node, instant) {
+        if (!node || typeof node.x !== "number") return;
+        var dist = 120;
+        var ratio = 1 + dist / Math.hypot(node.x || 1, node.y || 1, node.z || 1);
+        Graph.cameraPosition(
+          { x: (node.x || 0) * ratio, y: (node.y || 0) * ratio, z: (node.z || 0) * ratio },
+          { x: node.x || 0, y: node.y || 0, z: node.z || 0 },
+          instant ? 0 : 600);
+      }
+
+      // First-paint / non-blank check (M21 rung 1's success gate): the WebGL renderer must have a live
+      // canvas with non-zero size. If the lib produced no canvas, or a lost context, treat init as a
+      // FAILURE → the caller drops to rung 2 (never a blank-with-data /cortex).
+      var canvas = mount.querySelector("canvas");
+      if (!canvas || !canvas.width || !canvas.height) {
+        try { if (Graph._destructor) Graph._destructor(); } catch (e) {}
+        mount.innerHTML = "";
+        return null;
+      }
+      // a lost context AFTER init also drops to the 2D fallback (the renderer can't keep painting).
+      canvas.addEventListener("webglcontextlost", function () {
+        demote3D();
+      });
+
+      // a test/forced-failure hook: window.__cortexForce3dFail makes init report failure (so the
+      // browser gate can exercise the init-failure rung with WebGL genuinely present).
+      if (typeof window !== "undefined" && window.__cortexForce3dFail) {
+        try { if (Graph._destructor) Graph._destructor(); } catch (e) {}
+        mount.innerHTML = "";
+        return null;
+      }
+
+      // demote3D() — tear down the 3D rung and re-enter the ladder at the 2D Cytoscape rung. Guarded
+      // so a blank-check AND a later context-loss cannot both demote (double mount).
+      var demoted = false;
+      function demote3D() {
+        if (demoted) return;
+        demoted = true;
+        try { if (Graph._destructor) Graph._destructor(); } catch (e) {}
+        mount.innerHTML = "";
+        mount.removeAttribute("data-renderer");
+        if (typeof window !== "undefined") window.__cortexGraph = null;
+        mountLadderFrom("cytoscape");
+      }
+
+      // ASYNC first-PAINT / non-blank PIXEL check (codex round-1 [high]): a sized canvas is necessary
+      // but NOT sufficient — a 3d-force-graph that allocates a WebGL canvas yet paints NOTHING (renders
+      // no nodes, clears to background, silently fails) would otherwise set data-renderer="3d" and block
+      // the lower rungs (the exact blank-with-data regression M21 prevents). 3d-force-graph paints on
+      // requestAnimationFrame, so the readback waits two frames, then samples the GL drawing buffer
+      // (gl.readPixels) for ANY non-background pixel. All-background after first paint → the renderer is
+      // blank → demote to the 2D Cytoscape rung. (preserveDrawingBuffer is not set, so we read inside a
+      // RAF — the buffer is valid until the next paint.) Failure handling (codex round-8 [medium]): if we
+      // HAVE a usable GL context but the readback itself THROWS, that is an anomalous/broken renderer →
+      // DEMOTE (do not trust a 3D rung whose buffer we cannot read). Only when we genuinely cannot
+      // OBTAIN a context to verify (gl null / no readPixels — a browser that hides it on a HEALTHY
+      // renderer) do we leave 3D up on the canvas-exists evidence, rather than false-demote a working
+      // cloud. So an unverifiable-because-broken path demotes; an unverifiable-because-unavailable path
+      // (context present, healthy, readback simply not exposed) does not.
+      function firstPaintCheck() {
+        if (typeof window !== "undefined" && window.__cortexForceBlank) { demote3D(); return; }
+        var gl = null;
+        try {
+          var r = Graph.renderer && Graph.renderer();
+          gl = r && (r.getContext ? r.getContext() : null);
+        } catch (e) { gl = null; }
+        if (!gl || typeof gl.readPixels !== "function") return; // no context to verify → leave 3D up
+        try {
+          // test hook: simulate a broken-renderer readback that throws (so the gate can prove the
+          // throwing-readback path DEMOTES, codex round-8 [medium]). Production-absent.
+          if (typeof window !== "undefined" && window.__cortexForceReadbackThrow)
+            throw new Error("forced readback failure");
+          var w = canvas.width, h = canvas.height;
+          var sw = Math.min(64, w), sh = Math.min(64, h);
+          var x = Math.max(0, Math.floor((w - sw) / 2)), y = Math.max(0, Math.floor((h - sh) / 2));
+          var buf = new Uint8Array(sw * sh * 4);
+          gl.readPixels(x, y, sw, sh, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+          var painted = false;
+          // the background is #0a0c11 (r=10,g=12,b=17). A pixel that differs beyond a small tolerance
+          // from the background = real painted content (a node/edge/label).
+          for (var i = 0; i < buf.length; i += 4) {
+            if (Math.abs(buf[i] - 10) > 6 || Math.abs(buf[i + 1] - 12) > 6 ||
+                Math.abs(buf[i + 2] - 17) > 6) { painted = true; break; }
+          }
+          if (!painted) demote3D();
+        } catch (e) {
+          // we HAD a GL context but the readback threw → an anomalous/broken renderer; do not trust a
+          // 3D rung whose drawing buffer we cannot read → demote to the 2D Cytoscape fallback.
+          demote3D();
+        }
+      }
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(function () { requestAnimationFrame(firstPaintCheck); });
+      }
+
+      mount.setAttribute("data-renderer", "3d");
+      hideList();   // a graph rung painted → hide the JS-dead list fallback (no double-render)
+      // expose the live Graph for the browser gate (the FPS-window orbit reads it). Harmless in prod.
+      if (typeof window !== "undefined") window.__cortexGraph = Graph;
+
+      // keep the M6 overlay labels positioned over their nodes every frame (camera moves + the layout
+      // settling). Stops when the rung is demoted (the loop checks `demoted`). Cheap: a handful of
+      // labels (space-0 + the selected node), positioned via the lib's graph2ScreenCoords.
+      (function labelLoop() {
+        if (demoted) return;
+        updateLabels();
+        if (typeof requestAnimationFrame === "function") requestAnimationFrame(labelLoop);
+      })();
+
+      // a test-only counter so the browser gate can prove a DEFAULT first mount does NOT re-push the
+      // graph (which would reheat the sim). Negligible in production.
+      if (typeof window !== "undefined") window.__cortexGraphDataCalls = 0;
+      return {
+        applyVisible: function (visibleIds, hitId) {
+          var nodes = payload.nodes.filter(function (n) { return visibleIds.has(n.id); });
+          var nodeOk = {}; nodes.forEach(function (n) { nodeOk[n.id] = true; });
+          var links = glinks.filter(function (l) {
+            var s = l.source.id || l.source, t = l.target.id || l.target;
+            return nodeOk[s] && nodeOk[t];
+          });
+          if (typeof window !== "undefined") window.__cortexGraphDataCalls++;
+          Graph.graphData({
+            nodes: gnodes.filter(function (n) { return nodeOk[n.id]; }),
+            links: links,
+          });
+          if (hitId != null) selectedId = hitId;   // M6: the search hit gets labeled
+          updateLabels();
+        },
+        flyTo: function (id) {
+          var node = Graph.graphData().nodes.filter(function (n) { return n.id === id; })[0];
+          if (node) { selectedId = id; flyTo3D(node); showPanel(nodeById[id]); updateLabels(); }
+        },
+      };
+    } catch (e) {
+      // ANY throw on construction (a missing/corrupt lib, a bad WebGL context) → drop to rung 2.
+      try { mount.innerHTML = ""; } catch (e2) {}
+      return null;
+    }
+  }
+
+  // ── Rung 2: the 2D Cytoscape island (the existing, tested renderer — the single mandated WebGL /
+  // init-failure fallback, NEVER deleted). Returns a control adapter, or null if cytoscape is absent
+  // or cannot render (then drop to rung 3). ───────────────────────────────────────────────────────
+  function mountCytoscape() {
+    if (typeof cytoscape === "undefined") return null;
+    var TIER = {
+      space0:    { opacity: 1.00, size: 46, color: "#cfe0ff", border: "#7aa2f7", edge: 0.85 },
+      asserted:  { opacity: 0.95, size: 26, color: "#7aa2f7", border: "#5b7fd6", edge: 0.55 },
+      extracted: { opacity: 0.42, size: 16, color: "#9aa3b8", border: "#69728a", edge: 0.22 },
+      episodic:  { opacity: 0.18, size: 11, color: "#69728a", border: "#3a4154", edge: 0.10 },
+    };
+    function tier(t) { return TIER[t] || TIER.extracted; }
+    try {
+      var elements = [];
+      var nodeIds = {};
+      payload.nodes.forEach(function (n) {
+        nodeIds[n.id] = true;
+        elements.push({
+          data: { id: n.id, ref: n.ref || n.id, label: n.label, title: n.title, trust: n.trust,
+                  href: n.href || null, earmarked: !!n.earmarked },
+          classes: "tier-" + n.trust + (n.earmarked ? " earmarked" : ""),
+        });
+      });
+      payload.edges.forEach(function (e, i) {
+        if (!nodeIds[e.source] || !nodeIds[e.target]) return;
+        var id = e.id != null ? e.id : "rel:" + i;
+        elements.push({ data: { id: id, source: e.source, target: e.target, type: e.type } });
+      });
+
+      var cy = cytoscape({
+        container: mount,
+        elements: elements,
+        minZoom: 0.05,
+        maxZoom: 4,
+        wheelSensitivity: 0.25,
+        boxSelectionEnabled: false,
+        autoungrabify: true, // read-only: nodes are not draggable
+        style: [
+          { selector: "node", style: {
+              "background-color": function (n) { return tier(n.data("trust")).color; },
+              "width": function (n) { return tier(n.data("trust")).size; },
+              "height": function (n) { return tier(n.data("trust")).size; },
+              "opacity": function (n) { return tier(n.data("trust")).opacity; },
+              "border-width": 1,
+              "border-color": function (n) { return tier(n.data("trust")).border; },
+              "label": "" } },
+          { selector: "node.tier-space0", style: {
+              "label": "space-0", "color": "#e8ebf3", "font-size": 13,
+              "text-valign": "center", "text-halign": "center",
+              "text-outline-width": 3, "text-outline-color": "#0a0c11" } },
+          { selector: "edge", style: {
+              "width": 1, "curve-style": "haystack", "line-color": "#3a4154",
+              "opacity": function (e) {
+                var s = e.source();
+                return s.length ? tier(s.data("trust")).edge : 0.2; } } },
+          { selector: "node.earmarked", style: {
+              "border-color": "#f87171", "border-width": 3, "opacity": 1 } },
+          { selector: "node.search-hit", style: {
+              "border-color": "#facc15", "border-width": 4, "opacity": 1,
+              "label": "data(title)", "color": "#e8ebf3", "font-size": 12,
+              "text-valign": "bottom", "text-margin-y": 6, "text-wrap": "wrap",
+              "text-max-width": "220px", "text-outline-width": 3, "text-outline-color": "#0a0c11" } },
+          { selector: "node.filtered-out", style: { "display": "none" } },
+          { selector: "node:selected", style: {
+              "border-color": "#9d7cf7", "border-width": 3, "opacity": 1,
+              "label": "data(title)", "color": "#e8ebf3", "font-size": 12,
+              "text-valign": "bottom", "text-margin-y": 6, "text-wrap": "wrap",
+              "text-max-width": "220px", "text-outline-width": 3, "text-outline-color": "#0a0c11" } },
+        ],
+        layout: { name: "cose", idealEdgeLength: 90, nodeOverlap: 8, gravity: 0.6,
+                  numIter: 1000, animate: false, randomize: true },
+      });
+
+      cy.ready(function () {
+        var deepId = deepLinkId();
+        var deep = deepId ? cy.getElementById(deepId) : null;
+        if (deep && deep.length) {
+          deep.select(); cy.center(deep);
+          cy.zoom({ level: 1.1, position: deep.position() });
+          showPanel(nodeById[deepId]);
+          return;
+        }
+        var core = cy.nodes(".tier-space0");
+        if (core.length) { cy.center(core); cy.zoom({ level: 0.6, position: core.position() }); }
+        else cy.fit(undefined, 40);
+      });
+
+      cy.on("tap", "node", function (evt) { showPanel(nodeById[evt.target.id()]); });
+      cy.on("tap", function (evt) { if (evt.target === cy) hidePanel(); });
+
+      mount.setAttribute("data-renderer", "cytoscape");
+      hideList();   // a graph rung painted → hide the JS-dead list fallback (no double-render)
+      return {
+        applyVisible: function (visibleIds, hitId) {
+          cy.batch(function () {
+            cy.nodes().forEach(function (n) {
+              var id = n.id();
+              if (visibleIds.has(id)) n.removeClass("filtered-out");
+              else n.addClass("filtered-out");
+              if (id === hitId) n.addClass("search-hit");
+              else n.removeClass("search-hit");
+            });
+          });
+        },
+        flyTo: function (id) {
+          var hit = cy.getElementById(id);
+          if (hit.length) cy.animate({ center: { eles: hit }, zoom: 1.1 }, { duration: 280 });
+        },
+      };
+    } catch (e) {
+      try { mount.innerHTML = ""; } catch (e2) {}
+      return null;
+    }
+  }
+
+  // ── Rung 3: the server-rendered SEARCHABLE list (#cortex-list, rendered VISIBLE by the route — the
+  // JS-dead fallback). Bind node selection + make it genuinely searchable: a search hit MARKS +
+  // SCROLLS the matching item into view + opens its panel (codex round-1 [medium]); filters hide the
+  // non-visible items. Returns the adapter, or null if the block is absent (then drop to rung 4). ──
+  function mountList() {
+    var list = document.getElementById("cortex-list");
+    if (!list) return null;
+    try {
+      mount.style.display = "none";          // hide the dead canvas mount
+      list.hidden = false;                   // ensure visible even if a prior rung had hidden it
+      var items = Array.prototype.slice.call(list.querySelectorAll(".cortex-list-item"));
+      // make each item open the inspect panel (node selection — keeps the list navigable). The item
+      // text/source are already server-escaped + internal-only; selection just opens the same panel.
+      payload.nodes.forEach(function (n, i) {
+        var el = items[i];
+        if (!el) return;
+        el.setAttribute("role", "button");
+        el.setAttribute("tabindex", "0");
+        el.addEventListener("click", function (evt) {
+          if (evt.target.tagName === "A") return; // let the source link navigate
+          locateInList(n.id);
+        });
+      });
+
+      // locateInList(id) — mark the matching item, scroll it into view, open its panel. The list's
+      // analog of the 3D/2D camera fly-to (so the degraded rung is genuinely searchable, not a
+      // manual scan of 353+ rows).
+      function locateInList(id) {
+        var idx = -1;
+        payload.nodes.forEach(function (n, i) { if (n.id === id) idx = i; });
+        if (idx < 0) return;
+        items.forEach(function (el) { el.classList.remove("list-hit"); });
+        var el = items[idx];
+        if (el) {
+          el.classList.add("list-hit");
+          if (el.scrollIntoView) el.scrollIntoView({ block: "center" });
+        }
+        showPanel(nodeById[id]);
+      }
+
+      // M5/R6 — the ?node=<stable-ref> provenance deep-link (the /chat correction link) must resolve
+      // on the LIST rung too (codex round-7 [medium]): when WebGL AND Cytoscape are degraded, the list
+      // is the navigable fallback, so it must still locate + open the originating node — else node-
+      // targeted correction provenance is unauditable exactly when the graph renderers are down.
+      var deepId = deepLinkId();
+      if (deepId) locateInList(deepId);
+
+      return {
+        applyVisible: function (visibleIds, hitId) {
+          payload.nodes.forEach(function (n, i) {
+            if (items[i]) items[i].hidden = !visibleIds.has(n.id);
+          });
+          // a search hit on the list MARKS + SCROLLS the match (no camera — this IS the navigation).
+          items.forEach(function (el) { if (el) el.classList.remove("list-hit"); });
+          if (hitId != null) locateInList(hitId);
+        },
+        flyTo: null, // applyVisible already marks+scrolls the hit; no separate camera move
+      };
+    } catch (e) { return null; }
+  }
+
+  // ── Rung 4: the honest message (the floor) — the renderer is gone, but say so honestly (distinct
+  // from fail-dark M16, which is for ABSENT data; here the data is present, the renderer is not). ──
+  function mountMessage() {
+    mount.style.display = "block";
+    mount.innerHTML = "";
+    var box = document.createElement("section");
+    box.className = "cortex-list cortex-message";
+    var h = document.createElement("h2");
+    h.textContent = "cortex — renderizador indisponível";
+    var p = document.createElement("p");
+    p.className = "meta";
+    p.textContent = "Nenhum renderizador disponível neste cliente (sem WebGL, sem canvas 2D, " +
+                    "e sem a lista). Os dados do grafo existem; abra /cortex num navegador com " +
+                    "WebGL ou canvas para navegar.";
+    box.appendChild(h); box.appendChild(p);
+    mount.appendChild(box);
+  }
+
+  // ── The M21 ladder driver — pick the rung by capability + actual render success, mount it, and bind
+  // the controls to it. mountLadderFrom(rung) lets a late failure (a lost WebGL context) re-enter the
+  // ladder at the next rung down without re-probing. ──────────────────────────────────────────────
+  // Forced-failure hooks (read at mount time; absent in production → no behavior change) let the
+  // browser gate exercise every rung deterministically: force the WebGL probe false (rung 2 probe-
+  // false, case b), force the 3D init to fail with WebGL present (rung 2 init-failure, case a2 — read
+  // inside mount3D), force the Cytoscape render to fail (rung 3, case c), force the list to fail
+  // (rung 4, case d). The forced-failure flags only ever make a rung FAIL — they never resurrect one.
+  function forced(name) {
+    return typeof window !== "undefined" && window[name];
+  }
+
+  function mountLadderFrom(startRung) {
+    var adapter = null, rung = "message";
+
+    if (startRung === "3d" || startRung == null) {
+      // the probe is necessary, NOT sufficient: WebGL present → also require the 3D renderer to
+      // actually construct + first-paint (mount3D returns null on any init/first-paint failure).
+      var webgl = forced("__cortexForceWebgl") === false ? false : webglSupported();
+      var a3d = webgl ? mount3D() : null;
+      if (a3d) { adapter = a3d; rung = "3d"; }
+      else startRung = "cytoscape";              // probe false OR 3D init/first-paint failed → rung 2
+    }
+    if (!adapter && (startRung === "cytoscape")) {
+      var acy = forced("__cortexForceCytoscapeFail") ? null : mountCytoscape();
+      if (acy) { adapter = acy; rung = "cytoscape"; }
+      else startRung = "list";
+    }
+    if (!adapter && (startRung === "list")) {
+      var al = forced("__cortexForceListFail") ? null : mountList();
+      if (al) { adapter = al; rung = "list"; }
+      else startRung = "message";
+    }
+    if (!adapter) { mountMessage(); rung = "message"; }
+
+    document.documentElement.setAttribute("data-cortex-renderer", rung);
+    // SWAP the active adapter (codex round-4 [medium]) — a re-entry (a late 3D demotion) replaces the
+    // adapter the ONE set of control listeners dispatches to; the stale 3D adapter is dropped, never
+    // left bound. Controls are wired exactly once (wireControls is idempotent).
+    currentAdapter = adapter;             // null on the message floor → controls no-op
+    if (adapter) {
+      wireControls();
+      // REPLAY the live control state into the freshly mounted adapter (codex round-5 [medium]) — but
+      // ONLY when it is NON-DEFAULT (codex round-6 [medium]): on a late demotion where the user had
+      // already entered a query / changed filters, re-apply it so the fallback mounts WITH the current
+      // hit + filter set. On a DEFAULT first mount (no query, all types, no Earmarked/recency) the
+      // adapter already holds the full graph, so skip the replay — calling render() would push the full
+      // graph through the renderer a SECOND time (3d-force-graph would reheat the sim + race the
+      // first-paint check, burning the M22 budget).
+      if (!isDefaultControlState(controlState())) render();
+    }
+    return rung;
+  }
+
+  // isDefaultControlState(state) → true iff no narrowing is active (no query, no type filter, no
+  // Earmarked-only, no recency) — i.e. the adapter's freshly-loaded full graph already matches it.
+  function isDefaultControlState(state) {
+    state = state || {};
+    var q = String(state.query == null ? "" : state.query).trim();
+    return q === "" && state.types == null && !state.earmarkedOnly &&
+           !(typeof state.recencyFraction === "number" && state.recencyFraction > 0);
+  }
+
+  mountLadderFrom("3d");
 })(typeof globalThis !== "undefined" ? globalThis : this);

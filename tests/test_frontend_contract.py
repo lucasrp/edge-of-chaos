@@ -131,14 +131,20 @@ class SelfHostedJS(unittest.TestCase):
         self.assertIn("1.80.0", head)       # exact pinned version
         self.assertRegex(head, r"\bKB\b")   # the bundle size in KB is recorded
 
-    def test_3d_force_graph_not_loaded_anywhere_yet(self):
-        # Slice 1 is the asset + the probe, NOT the render swap — no page references the 3D bundle
-        # via a <script> yet (that wiring is Slice 2, island-only). The file is on disk + served,
-        # but unreferenced, so /cortex still renders the existing 2D Cytoscape island unchanged.
-        for path in ("/", "/cortex"):
+    def test_3d_force_graph_loaded_island_only_on_cortex(self):
+        # Slice 2 — the render swap: the 3D bundle IS now the default renderer on /cortex, loaded
+        # island-only (M19). It must appear on /cortex but NEVER on the read-mostly app shell (the
+        # heavy three.js bundle must not tax other pages). The 2D Cytoscape bundle stays loaded
+        # alongside it as the mandated WebGL/init-failure fallback (M21 rung 2), also island-only.
+        cortex = self.client.get("/cortex").data.decode()
+        self.assertIn("/static/vendor/3d-force-graph.min.js", cortex)
+        self.assertIn("/static/vendor/cytoscape.min.js", cortex)
+        for path in ("/", "/chat", "/briefing", "/direction", "/docs", "/wiki", "/ux-catalog"):
             body = self.client.get(path).data.decode()
             self.assertNotIn("3d-force-graph.min.js", body,
-                             f"{path} already references the 3D bundle — that swap is Slice 2")
+                             f"{path} loads the 3D bundle — it must be /cortex-island-only (M19)")
+            self.assertNotIn("cytoscape.min.js", body,
+                             f"{path} loads cytoscape — it must be /cortex-island-only (M19)")
 
     def test_no_cdn_script_src_on_any_page(self):
         for path in ("/", "/chat", "/briefing", "/direction", "/docs", "/wiki", "/cortex"):
