@@ -161,6 +161,7 @@ _NAV_LINKS = (
     ("/cortex", "cortex"),
     ("/chat", "chat"),
     ("/briefing", "briefing"),
+    ("/direction", "direction"),
 )
 
 
@@ -1253,8 +1254,115 @@ def briefing_surface():
         f'{_site_nav("/briefing")}'
         '<main class="blog briefing-page"><h1>edge — briefing</h1>'
         '<p class="meta">a self-state landing — exatamente o que o edge lê ao acordar '
-        '(Memento\'s tattoo), com o health strip do read-model acima.</p>'
+        '(Memento\'s tattoo), com o health strip do read-model acima. '
+        'Drill-down: <a href="/direction">os steers (Direction) →</a></p>'
         f'{strip}{briefing_block}</main>'
+        '</body></html>'
+    )
+
+
+# ── Direction surface (Slice 4, SURFACE.md §"Direction", AUDIT.md gap A, ADR-0007) ──────────────
+#
+# The steers, as a projeção: a fold of `direction.*` via `eventlog.direction_at` → the TWO tiers.
+# `set` (curated, Voz-only — the active steers) renders PROMINENT and first; `proposed` (candidates
+# awaiting the grill — artefato / grill achados) renders DIMMER below, the same trust-language as the
+# Cortex graph (curated pops, the hypothesis cloud recedes). A read-only projection, no parallel store.
+#
+# The Voz→Direction provenance link (the loop's READ side; the write side is the Slice-2 drain): a
+# `set` steer folded from a Directive carries `origin_comment_id`. The surface renders it
+# BIDIRECTIONALLY (steer ⇄ originating comment) — a visible "from a Directive" marker that drills into
+# the comment's chat/post context (the slug's post, or /chat for a general-chat Directive). Provenance
+# is tier-disjoint: a `set` carries `origin_comment_id`, a `proposed` carries `from_artefato` — never
+# the reverse (ADR-0007 / SURFACE.md). A pure fold over the one log; zero API spend.
+
+
+def _comment_targets():
+    """Map every `comment_id` → its `target_ref` (a slug, or None for the general chat). The
+    provenance link resolves the originating comment's context through this — a folded steer carries
+    only the `origin_comment_id`, so the surface looks up where that comment lives to link it."""
+    return {e.get("payload", {}).get("comment_id"): e.get("payload", {}).get("target_ref")
+            for e in _read_events() if e.get("type") == "voz.comment"}
+
+
+def _origin_href(target_ref):
+    """The drill-down URL for a steer's originating comment: its publication post when the Directive
+    targeted a slug, else the general chat. The bidirectional link's steer→comment direction."""
+    return f"/e/{target_ref}.html" if target_ref else "/chat"
+
+
+def _provenance_block(origin_comment_id, targets):
+    """The steer⇄originating-comment provenance link for a `set` steer folded from a Directive
+    (SURFACE.md: 'renders the link bidirectionally'). Rendered only when origin_comment_id is present
+    (a non-Voz grill-direct set has none → no marker). Drills into the comment's chat/post context."""
+    if not origin_comment_id:
+        return ""
+    href = _origin_href(targets.get(origin_comment_id))
+    cid = _esc(origin_comment_id)
+    return (f'<p class="provenance meta">from a Directive · '
+            f'<a href="{href}" data-origin-comment="{cid}">{cid}</a></p>')
+
+
+def _render_set_item(item, targets):
+    """One curated (`set`) steer: its kind + body, plus the Voz provenance link where present."""
+    kind = _esc(item.get("kind", "thread"))
+    body = _esc(item.get("body", ""))
+    prov = _provenance_block(item.get("origin_comment_id"), targets)
+    return (f'<li class="steer"><span class="kind">{kind}</span>'
+            f'<p class="body">{body}</p>{prov}</li>')
+
+
+def _render_proposed_item(item):
+    """One candidate (`proposed`) steer: its kind + body, plus its artefato provenance (from_artefato)
+    where present — tier-disjoint, NEVER an origin_comment_id (that rides only the curated tier)."""
+    kind = _esc(item.get("kind", "thread"))
+    body = _esc(item.get("body", ""))
+    src = item.get("from_artefato")
+    prov = (f'<p class="provenance meta">from <a href="/e/{_esc(src)}.html">{_esc(src)}</a></p>'
+            if src else "")
+    return (f'<li class="steer"><span class="kind">{kind}</span>'
+            f'<p class="body">{body}</p>{prov}</li>')
+
+
+def _render_direction():
+    """Fold direction.* → the two tiers and render them: `set` (curated, prominent, first) then
+    `proposed` (candidate, dimmer). Empty/dark folds render an honest marker, never a 500."""
+    import eventlog
+    d = eventlog.direction_at(log=_log()) or {"set": [], "proposed": []}
+    targets = _comment_targets()
+    sets, proposed = d.get("set", []), d.get("proposed", [])
+    if not sets and not proposed:
+        return '<p class="meta">sem direção ainda — nenhum steer.</p>'
+    set_items = ("".join(_render_set_item(i, targets) for i in sets)
+                 or '<li class="empty meta">nenhum steer curado ainda</li>')
+    prop_items = ("".join(_render_proposed_item(i) for i in proposed)
+                  or '<li class="empty meta">nenhum candidato no momento</li>')
+    return (
+        '<section class="direction-tier set">'
+        '<h2 class="tier-title">set — curados (Voz)</h2>'
+        '<p class="tier-note meta">os steers ativos — a maior autoridade.</p>'
+        f'<ul class="steers">{set_items}</ul></section>'
+        '<section class="direction-tier proposed">'
+        '<h2 class="tier-title">proposed — candidatos (grill achados)</h2>'
+        '<p class="tier-note meta">hipóteses aguardando o grill — confiança menor.</p>'
+        f'<ul class="steers">{prop_items}</ul></section>'
+    )
+
+
+@app.get("/direction")
+def direction_surface():
+    """The steers, scannable: the two tiers (`set` curated/prominent, `proposed` candidate/dimmer) +
+    the Voz→Direction provenance link. A read-only fold of direction.* (eventlog.direction_at) — zero
+    API spend. 'Did my steer land?' is answerable here for a folded Directive (the origin link)."""
+    return (
+        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
+        '<title>edge — direction</title>'
+        '<link rel="stylesheet" href="/static/style.css">'
+        '<script src="https://unpkg.com/htmx.org@1.9.12"></script></head><body>'
+        f'{_site_nav("/direction")}'
+        '<main class="blog direction-page"><h1>edge — direction</h1>'
+        '<p class="meta">os steers do edge — set (curado, Voz) prominente, proposed (candidato) '
+        'mais apagado. Um steer dobrado de um Directive linka de volta ao comentário de origem.</p>'
+        f'{_render_direction()}</main>'
         '</body></html>'
     )
 

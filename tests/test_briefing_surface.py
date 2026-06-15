@@ -522,7 +522,8 @@ class TestSharedNav(_BriefingBase):
         _ev(3, "2026-06-10T09:00:02+00:00", "objective.set", {"body": "ship it"}),
     ]
 
-    NAV_TARGETS = ('href="/"', 'href="/cortex"', 'href="/chat"', 'href="/briefing"')
+    NAV_TARGETS = ('href="/"', 'href="/cortex"', 'href="/chat"', 'href="/briefing"',
+                   'href="/direction"')
 
     def _assert_nav(self, body):
         self.assertIn('class="site-nav"', body)

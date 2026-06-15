@@ -285,3 +285,36 @@ a:hover { color: #a8c2ff; }
   font: 600 .8rem/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase;
   color: var(--text-dim);
 }
+
+/* ---- Direction surface — the two-tier steers (Slice 4) ---- */
+/* Same trust-language as the Cortex graph: the curated `set` tier POPS, the `proposed` hypothesis
+   tier RECEDES — by opacity, not removal (extends the shared card vocabulary, no one-off styling). */
+.direction-tier { margin: 30px 0; }
+.direction-tier .tier-title {
+  font: 600 .72rem/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-dim); margin-bottom: 4px;
+}
+.direction-tier.set .tier-title { color: var(--accent); }
+.direction-tier .tier-note { margin-bottom: 12px; }
+.direction-tier.proposed { opacity: .68; }  /* the hypothesis cloud recedes — trust-dimming */
+
+.steers { list-style: none; }
+.steer {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px 16px; margin: 10px 0;
+}
+/* the curated tier is brighter, with the accent spine — the active steers, highest authority */
+.direction-tier.set .steer {
+  background: linear-gradient(180deg, var(--surface), var(--bg) 320%);
+  border-left: 2px solid var(--accent);
+}
+.steer .kind {
+  display: inline-block; font: 600 .64rem/1 var(--font-mono);
+  letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim);
+  padding: 3px 9px; border-radius: var(--pill);
+  background: var(--surface-2); border: 1px solid var(--border-soft); margin-bottom: 8px;
+}
+.steer .body { color: var(--text); }
+/* the Voz→Direction provenance link (steer ⇄ originating comment) — a quiet from-a-Directive marker */
+.steer .provenance { margin-top: 8px; font-size: .8rem; }
+.steer .provenance a { font-family: var(--font-mono); }
