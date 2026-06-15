@@ -325,6 +325,44 @@ class TestClarifyAnswerSurface(_Base):
         # a pre-linked answer composer targets the clarify_id
         self.assertIn('name="clarify_id" value="q1"', thread)
 
+    def test_clarify_form_htmx_target_is_a_valid_single_selector_per_surface(self):
+        # codex Slice-7 round-3 [high]: htmx hx-target takes ONE extended selector, not a comma list.
+        # `closest .thread, closest .chat` is parsed as `closest` + the malformed selector
+        # `.thread, closest .chat`, so on /chat (a .chat ancestor, NO .thread) target resolution fails
+        # and a general parked voz.clarify can never be answered from the UI. Each surface must render
+        # the SINGLE correct `closest` selector for an ancestor that actually exists there.
+        cid_t = self._comment("ambiguous thread one", "alpha-post")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": cid_t, "clarify_id": "qt", "question": "which framing?",
+                   "grill_run_id": "g0"})
+        cid_c = self._comment("ambiguous general one", None)  # a general-chat Directive
+        self._add("voz.clarify", "voz:chat",
+                  {"comment_id": cid_c, "clarify_id": "qc", "question": "which scope?",
+                   "grill_run_id": "g0"})
+        thread = self.server._render_thread("alpha-post")
+        chat = self.server._render_chat()
+        # the post thread's clarify form targets a .thread ancestor (which exists there)
+        self.assertIn('hx-target="closest .thread"', thread)
+        # the standalone chat's clarify form targets a .chat ancestor (no .thread there)
+        self.assertIn('hx-target="closest .chat"', chat)
+        # the malformed combined directive is gone from BOTH surfaces
+        self.assertNotIn("closest .thread, closest .chat", thread)
+        self.assertNotIn("closest .thread, closest .chat", chat)
+
+    def test_general_chat_clarify_can_be_answered_through_the_route(self):
+        # the end-to-end the broken target wedged: a general voz.clarify (target_ref null) parked in
+        # /chat is answerable — the route appends exactly one voz.clarify_answer and re-renders the chat.
+        cid = self._comment("ambiguous general one", None)
+        self._add("voz.clarify", "voz:chat",
+                  {"comment_id": cid, "clarify_id": "qc", "question": "which scope?",
+                   "grill_run_id": "g0"})
+        r = self.client.post("/clarify/qc/answer", data={"body": "the broad scope"})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('class="chat"', r.data.decode())  # the chat region re-renders
+        ans = self._events("voz.clarify_answer")
+        self.assertEqual(len(ans), 1)
+        self.assertEqual(ans[0]["payload"]["clarify_id"], "qc")
+
     def test_clarify_answer_route_appends_a_child_event_not_a_comment(self):
         cid = self._comment("ambiguous one", "alpha-post")
         self._add("voz.clarify", "voz:alpha-post",

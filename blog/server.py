@@ -547,13 +547,22 @@ def _clarifications():
     return out
 
 
-def _clarify_block(c, clarifies_by_id):
+def _clarify_block(c, clarifies_by_id, surface="thread"):
     """The edge's open clarification question(s) under a comment + a pre-linked answer composer (the
     same inline pattern as a reply, SURFACE.md "view/answer a clarification"). The mentee answers
-    with a distinct `voz.clarify_answer` child event — never a new `voz.comment`."""
+    with a distinct `voz.clarify_answer` child event — never a new `voz.comment`.
+
+    `surface` is the ancestor the answer form's htmx swap REPLACES — "thread" under a post (the
+    `<ul class="thread">` the answer route re-renders) or "chat" in the standalone chat (the
+    `<ul class="chat">`). htmx `hx-target` takes ONE extended selector, NOT a comma list (codex
+    Slice-7 round-3 [high]): the old `closest .thread, closest .chat` parsed as `closest` + the
+    malformed selector `.thread, closest .chat`, so on /chat (a `.chat` ancestor, no `.thread`) the
+    target failed to resolve and a general parked clarify could never be answered from the UI. Each
+    surface now emits the SINGLE `closest .<surface>` for an ancestor that actually exists there."""
     clarifies = clarifies_by_id.get(c.get("comment_id"), [])
     if not clarifies:
         return ""
+    target = f"closest .{surface}"
     blocks = []
     for q in clarifies:
         qid = _esc(q.get("clarify_id", ""))
@@ -562,7 +571,7 @@ def _clarify_block(c, clarifies_by_id):
             f'<p class="question body">{_esc(q.get("question", ""))}</p>'
             '<p class="pending meta">aguardando sua resposta</p>'
             f'<form class="composer clarify-answer" hx-post="/clarify/{qid}/answer" '
-            'hx-target="closest .thread, closest .chat" hx-swap="outerHTML" '
+            f'hx-target="{target}" hx-swap="outerHTML" '
             'hx-on::after-request="this.reset()">'
             f'<input type="hidden" name="clarify_id" value="{qid}">'
             '<textarea name="body" placeholder="responda ao edge…" required></textarea>'
@@ -586,16 +595,17 @@ def _folded_marker(c, folded_by_id):
             f'<a href="/direction{anchor}">ver em Direction →</a></p>')
 
 
-def _replies_block(c, replies_by_id, clarifies_by_id=None, folded_by_id=None):
+def _replies_block(c, replies_by_id, clarifies_by_id=None, folded_by_id=None, surface="thread"):
     """The replies under a comment + any open clarification question, or the 'agent responds next
     beat' affordance if it is open and unanswered. A parked `voz.clarify` renders inline as the
     edge's question with a pre-linked answer composer (ADR-0017: a parked chat stays answerable). A
-    Directive that folded into a steer carries an inline link to /direction (the bidirectional link)."""
+    Directive that folded into a steer carries an inline link to /direction (the bidirectional link).
+    `surface` ("thread"|"chat") is the swap ancestor the clarify form targets — see `_clarify_block`."""
     if clarifies_by_id is None:
         clarifies_by_id = _clarifications()
     if folded_by_id is None:
         folded_by_id = _folded_directions()
-    clarify = _clarify_block(c, clarifies_by_id)
+    clarify = _clarify_block(c, clarifies_by_id, surface)
     folded = _folded_marker(c, folded_by_id)
     replies = replies_by_id.get(c.get("comment_id"), [])
     if not replies:
@@ -613,8 +623,9 @@ def _render_comment(c, replies_by_id, clarifies_by_id=None, folded_by_id=None):
     # and the post thread carries the same id so the originating comment is reachable in either view.
     anchor = html.escape(_anchor_id("comment", c.get("comment_id", "")))
     body = f'<p class="body">{_esc(c.get("body", ""))}</p>'
+    # surface="thread": a post thread's clarify answer swaps the <ul class="thread"> the route returns.
     return (f'<li class="comment" id="{anchor}">{body}'
-            f'{_replies_block(c, replies_by_id, clarifies_by_id, folded_by_id)}</li>')
+            f'{_replies_block(c, replies_by_id, clarifies_by_id, folded_by_id, surface="thread")}</li>')
 
 
 def _render_thread(target_ref):
@@ -725,8 +736,10 @@ def _render_chat_item(c, replies_by_id, clarifies_by_id=None, folded_by_id=None)
     anchor = html.escape(_anchor_id("comment", c.get("comment_id", "")))
     label = _target_ctx_label(c.get("target_ref"))
     body = f'<p class="body">{_esc(c.get("body", ""))}</p>'
+    # surface="chat": the standalone chat has a .chat ancestor (no .thread), so the clarify answer
+    # form swaps the <ul class="chat"> the answer route returns — see _clarify_block (round-3 [high]).
     return (f'<li class="chat-item" id="{anchor}">{label}{body}'
-            f'{_replies_block(c, replies_by_id, clarifies_by_id, folded_by_id)}</li>')
+            f'{_replies_block(c, replies_by_id, clarifies_by_id, folded_by_id, surface="chat")}</li>')
 
 
 def _render_chat():
