@@ -170,19 +170,13 @@ _NAV_LINKS = (
 )
 
 
-def _site_nav(current):
-    """The shared header/nav, rendered with the CURRENT surface marked (aria-current="page") so the
-    bar reads as one app. `current` is the active path ("/", "/cortex", "/chat", "/briefing").
-    Renders through the shared `partials/nav.html` Jinja partial (the template scaffold), so the bar
-    is one source of truth across every surface (the Slice-7 #37 contract)."""
-    return Markup(render_template("partials/nav.html", nav_links=_NAV_LINKS, current=current))
-
-
 def _page(template, **ctx):
     """Render a full page through the Jinja scaffold (`base.html` + the shared head/nav partials),
     threading the standard context every surface shares (`nav_links` for the bar, `current` for the
     active marker). A surface passes its own page template (under `pages/`) + its fold context; any
-    pre-rendered fragment HTML it threads in is wrapped Markup so Jinja does not double-escape it."""
+    pre-rendered fragment HTML it threads in is wrapped Markup so Jinja does not double-escape it.
+    The shared nav is ONE source of truth: every page (and the cortex head) includes
+    `partials/nav.html` with these `nav_links` (the Slice-7 #37 contract)."""
     return render_template(template, nav_links=_NAV_LINKS, **ctx)
 
 
