@@ -969,15 +969,20 @@ def _dict_events():
     return (e for e in _read_events() if isinstance(e, dict))
 
 
-def _log_has_schema_drift():
-    """True when the log carries a schema-drifted line — a JSON-valid NON-dict (`[]`, `42`, a string)
-    or a dict event whose `seq` is missing/not an int. Either is a corrupt read-model the health strip
-    must SURFACE as degraded (Codex round-2): the strip tolerates drift without crashing AND flags it,
-    rather than silently skipping it (silent tolerance would hide a real corruption from the mentee)."""
-    for e in _read_events():
-        if not isinstance(e, dict) or not isinstance(e.get("seq"), int):
-            return True
-    return False
+def _log_corrupt():
+    """True when the authoritative log is NOT intact — reusing the ONE strict integrity predicate the
+    drain gates on (`grill_drain.log_is_intact`): a malformed (non-JSON) line, a JSON-valid non-dict,
+    a missing/non-int/non-contiguous `seq` (a gap forges a duplicate seq under append_batch), or a
+    poisoned payload field. Codex round-3 [high]: the strip's own `_read_events()` SILENTLY DROPS a
+    JSONDecodeError line, so a truly malformed line was invisible — /briefing could read healthy while
+    the drain refuses to run (the Voz write path is dead). Sharing log_is_intact gives the strip and
+    the drain ONE corruption model, so a corrupt log SURFACES as degraded instead of hiding. NEVER
+    raises — a probe failure is itself a degraded signal (returns True)."""
+    try:
+        import grill_drain
+        return not grill_drain.log_is_intact(_log())
+    except Exception:
+        return True
 
 
 def _last_dispatch():
@@ -1073,8 +1078,8 @@ def health_strip_data():
             consistency = [{"kind": "voz-fold-degraded"}]
         backlog = max(open_directives - awaiting, 0)  # eligible-but-unloaded overflow (actionable)
         swept_degraded = swept == 0  # the documented degrade: a sweep that swept nothing
-        schema_drift = _log_has_schema_drift()  # a corrupt read-model line — surface, don't hide it
-        degraded = (swept_degraded or (not graph_reachable) or bool(consistency) or schema_drift)
+        log_corrupt = _log_corrupt()  # the same integrity model the drain gates on — surface, don't hide
+        degraded = (swept_degraded or (not graph_reachable) or bool(consistency) or log_corrupt)
         return {
             "dispatch_ts": dispatch["ts"] if dispatch else None,
             "log_cursor": log_cursor,

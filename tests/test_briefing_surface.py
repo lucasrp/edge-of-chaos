@@ -285,6 +285,42 @@ class TestHealthStripFailsDarkOnDriftedSeq(_BriefingBase):
         self.assertIn('class="health-strip degraded"', body)
 
 
+class TestHealthStripFailsDarkOnMalformedLine(_BriefingBase):
+    """Codex round-3 [high]: `_read_events()` SILENTLY DROPS a JSONDecodeError line, so a truly
+    malformed (non-JSON) line was invisible to the strip — /briefing could read healthy while
+    grill_drain.log_is_intact() treats the SAME line as corrupt and the drain refuses to run (the Voz
+    write/drain path is dead). The strip must reuse the ONE strict integrity predicate
+    (log_is_intact) so its corruption model matches the drain's: a malformed line → 200 + degraded."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "dispatch.open", {"swept_sessions": 3}, subject="dispatch"),
+        "{not valid json at all",  # a malformed (non-JSON) line — _read_events drops it silently
+    ]
+
+    def test_malformed_line_renders_200_and_visibly_degraded(self):
+        r = self.client.get("/briefing")
+        self.assertEqual(r.status_code, 200)
+        body = r.data.decode()
+        self.assertIn('class="health-strip degraded"', body)
+
+
+class TestHealthStripFailsDarkOnSeqGap(_BriefingBase):
+    """Codex round-3 [high]: a seq GAP / non-contiguous seq is corruption the drain's log_is_intact()
+    rejects (append_batch stamps base=len(read())+i+1, so a gap would forge a duplicate seq). The
+    strip must flag it degraded too — the same predicate, one corruption model."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "dispatch.open", {"swept_sessions": 1}, subject="dispatch"),
+        _ev(5, "2026-06-10T09:00:01+00:00", "objective.set", {"body": "ship it"}),  # seq jumps 1->5
+    ]
+
+    def test_seq_gap_renders_200_and_visibly_degraded(self):
+        r = self.client.get("/briefing")
+        self.assertEqual(r.status_code, 200)
+        body = r.data.decode()
+        self.assertIn('class="health-strip degraded"', body)
+
+
 class TestBriefingDarkOnThinOverrideGenotype(_BriefingBase):
     """Codex [medium]: with EDGE_BRIEFING_AGENT_YAML set to a THIN/malformed agent.yaml,
     source_roster() must not escape the dark fallback — the override path must fail dark exactly like
