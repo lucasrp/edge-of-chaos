@@ -57,9 +57,13 @@ def _spy_filler():
     def complete_fn(prompt):
         calls["count"] += 1
         calls["prompts"].append(prompt)
-        # Echo back the assigned claims so the node discharges them, plus a derivation/boundary/
-        # lineage marker so the assembled whole clears the rich-rite floor.
-        claims = [ln for ln in prompt.splitlines() if ln.strip()]
+        # Echo back the ASSIGNED claims (the anti-drop checklist between "do not drop the tail):"
+        # and "Open tensions") so the node discharges them — NOT the whole prompt (which now carries
+        # the type->format rule with stray numbers that D5's numeric-density gate would read). Plus a
+        # derivation/boundary/lineage marker so the assembled whole clears the rich-rite floor.
+        import re as _re
+        m = _re.search(r"do not drop the tail\):\n(.*?)\n\nOpen tensions", prompt, _re.DOTALL)
+        claims = [ln for ln in (m.group(1) if m else "").splitlines() if ln.strip()]
         body = ("Because the evidence shows it, it follows that " + " ".join(claims) +
                 " — what i don't know: the open question of scale; this builds on prior work.")
         return body
@@ -555,8 +559,10 @@ class GenusValidateBeforeReturn(unittest.TestCase):
 
 
 class SyntheticShapeGate(unittest.TestCase):
-    """Finding 4: conciliate flags a synthetic that is empty, too short, or a bare
-    bullet dump (no prose paragraphs)."""
+    """Finding 4 (D3-revised): conciliate flags a synthetic that is empty or too short, and
+    (the strengthened, content-relative check) one whose quantitative material owes a visual it
+    does not carry. The OLD "bare bullet dump" penalty is REMOVED — structure is now WANTED, not
+    penalized (D3); a well-formed bulleted/structured synthetic is no longer flagged for its shape."""
 
     def _filled(self):
         outline = conductor.author_outline(_SEED, _OBJECTIVE)
@@ -577,7 +583,9 @@ class SyntheticShapeGate(unittest.TestCase):
                                                   lambda p: "too short.")
         self.assertTrue(shape, "a too-short synthetic must be flagged")
 
-    def test_bullet_dump_synthetic_is_flagged(self):
+    def test_bullet_dump_synthetic_is_not_flagged_for_shape(self):
+        # D3: the bare-bullet-dump penalty is REMOVED — a structured (non-prose) synthetic with no
+        # quantitative material owing a visual is NOT flagged for its shape. Structure is wanted now.
         filled, outline = self._filled()
         dump = ("- cost rises with corpus size\n- nothing forgets by default\n"
                 "- the briefing re-derives core memory\n- the lag is unknown\n"
@@ -585,7 +593,7 @@ class SyntheticShapeGate(unittest.TestCase):
 
         _deep, _syn, shape = conductor.conciliate(filled, outline, _OBJECTIVE,
                                                   lambda p: dump)
-        self.assertTrue(shape, "a bare bullet-dump synthetic must be flagged")
+        self.assertEqual(shape, [], "a structured synthetic owing no visual is not flagged (D3)")
 
     def test_healthy_synthetic_is_not_flagged(self):
         filled, outline = self._filled()
@@ -661,8 +669,18 @@ def _spy_filler_with_digest():
     def complete_fn(prompt):
         calls["count"] += 1
         calls["prompts"].append(prompt)
-        claims = [ln for ln in prompt.splitlines() if ln.strip()]
-        body = ("Because the evidence shows it, it follows that " + " ".join(claims) +
+        # echo ONLY the assigned-claim checklist (not the whole prompt, whose type->format rule
+        # carries stray numbers D5's numeric-density gate would read), and DEVELOP each claim to
+        # plenitude (a real deliver node is a developed paragraph, not a one-liner) so the deep
+        # report stays materially larger than the 2-page synthetic.
+        import re as _re
+        m = _re.search(r"do not drop the tail\):\n(.*?)\n\nOpen tensions", prompt, _re.DOTALL)
+        claims = [ln for ln in (m.group(1) if m else "").splitlines() if ln.strip()]
+        developed = " ".join(
+            f"Because the evidence shows it, it follows that {c}; this is developed to plenitude "
+            f"here, drawn out across its implications for the live work, not merely gestured at."
+            for c in claims)
+        body = ((developed or "Because the evidence shows it, the frame is set here.") +
                 " — what i don't know: the open question of scale; this builds on prior work.")
         digest = ('{"bullets": ["a key point", "another point"], '
                   '"assumed_prior": "the frame is set upstream", '
