@@ -952,11 +952,18 @@ def _node_href(label, props):
     return None
 
 
-# The recency stamp per node (Slice 6 filter axis): Graphiti stamps `created_at` / `valid_at`; the
-# asserted spine may carry a plain `ts`. First present wins — no extra query (already in
-# properties(n), cheap). Coerced to a str the client can order/threshold; absent → None (no recency
-# position). group-scoped like the rest of the fold (it reads only this node's already-scoped props).
-_TS_FIELDS = ("ts", "created_at", "valid_at")
+# The recency stamp per node (Slice 6 filter axis), in priority order:
+#   - `projected_at` — the Artefato projection's recency stamp (tools/publisher.py: the signal
+#     recall-push orders by). The live Artefato node carries ONLY this, so it must come first or a
+#     recent published Artefato would serialize ts:null and the recency filter would drop it
+#     (codex round-3 [medium]).
+#   - `created_at` / `valid_at` — Graphiti's extracted-layer stamps.
+#   - `ts` — a plain fallback (fixtures / any spine node carrying one).
+# First present wins — no extra query (already in properties(n), cheap). Coerced to a str the client
+# orders/thresholds by; absent → None (no recency position — e.g. content-keyed Genesis/Objective/
+# Direction, which carry no stamp). group-scoped like the rest of the fold (it reads only this node's
+# already-scoped props).
+_TS_FIELDS = ("projected_at", "created_at", "valid_at", "ts")
 
 
 def _node_ts(props):

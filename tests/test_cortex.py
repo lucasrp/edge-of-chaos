@@ -118,6 +118,15 @@ class TestCortexFold(unittest.TestCase):
         plain = self.server._map_node("4:x:9", "Entity", {"name": "e"})
         self.assertIsNone(plain["ts"])
 
+    def test_artefato_recency_uses_its_projected_at_stamp(self):
+        # codex round-3 [medium]: the live Artefato projection stamps recency as `projected_at`
+        # (tools/publisher.py — the recency signal recall-push orders by), NOT created_at/valid_at.
+        # Without it a live Artefato serializes ts:null and the recency filter would DROP recent
+        # published work. _node_ts must read projected_at so an Artefato survives recency ranking.
+        node = self.server._map_node("4:x:a", "Artefato",
+                                     {"slug": "alpha-post", "projected_at": "2026-06-10T12:00:00Z"})
+        self.assertEqual(node["ts"], "2026-06-10T12:00:00Z")
+
 
 class TestCortexRoute(unittest.TestCase):
     """GET /cortex renders the graph container + the Cytoscape island wired to the payload."""
