@@ -342,6 +342,34 @@ class TestBriefingDarkOnThinOverrideGenotype(_BriefingBase):
         self.assertIn('class="health-strip', body)  # the strip still folds independently
 
 
+class TestSharedReadSurfacesSurviveNonDictLine(_BriefingBase):
+    """Codex round-4 [medium]: the shared nav now routes users across surfaces, so a single corrupt
+    log must not 500 one surface while another handles it. A JSON-valid NON-dict line (`[]`, `42`) is
+    a corruption case; the blog index + chat parse the log directly and called `e.get(...)` on each
+    JSON value → AttributeError. Every read surface (`/`, `/chat`, `/briefing`) must render 200 over
+    it (the non-dict line is skipped — it was never a valid event), not crash."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "artefato.published",
+            {"slug": "alpha-post", "cites": [], "distills": [], "proposes": []}),
+        _ev(2, "2026-06-10T09:00:01+00:00", "intent.kernel",
+            {"slug": "alpha-post", "intent": "open: alpha."}),
+        "[]",   # a JSON-valid non-dict line — must be skipped by every read fold, not crash .get()
+        "42",
+    ]
+
+    def test_index_survives_a_non_dict_line(self):
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("alpha-post", r.data.decode())  # the valid post still renders
+
+    def test_chat_survives_a_non_dict_line(self):
+        self.assertEqual(self.client.get("/chat").status_code, 200)
+
+    def test_briefing_survives_a_non_dict_line(self):
+        self.assertEqual(self.client.get("/briefing").status_code, 200)
+
+
 class TestSharedNav(_BriefingBase):
     """Task B — the shared header/nav (cross-cutting, starts at Slice 3): ONE nav linking all four
     surfaces, on every surface, built from the shared design vocabulary (no one-off styling)."""

@@ -206,7 +206,13 @@ def _log():
 
 
 def _read_events():
-    """Yield every event in the log, oldest→newest, skipping blanks/garbage."""
+    """Yield every event in the log, oldest→newest, skipping blanks/garbage. "Garbage" includes a
+    JSON-valid but NON-dict line (`[]`, `42`, a bare string) — one of the corruption cases
+    log_is_intact rejects: every read fold here indexes events with `e.get(...)`, so a non-dict would
+    AttributeError the surface. Since the shared nav routes the mentee across these surfaces, ONE
+    corrupt log must not 500 `/` or `/chat` while `/briefing` degrades cleanly (Codex round-4) — so
+    the shared iterator skips non-dicts centrally; the health strip still SURFACES the corruption via
+    _log_corrupt (log_is_intact over the raw lines), so it is flagged, not silently swallowed."""
     log = _log()
     if not log.is_file():
         return
@@ -214,9 +220,11 @@ def _read_events():
         if not line.strip():
             continue
         try:
-            yield json.loads(line)
+            e = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if isinstance(e, dict):
+            yield e
 
 
 def _append(type_, subject, payload):
@@ -624,18 +632,11 @@ def _posts():
     Folds `artefato.published` (slug + the artifacts it created) joined to its `intent.kernel`
     (the blurb). The log is append-order (oldest→newest); we reverse for newest-first.
     """
-    log = _log()
-    if not log.is_file():
-        return []
     published, kernels = [], {}
-    for line in log.read_text().splitlines():
-        if not line.strip():
+    for e in _read_events():  # the shared iterator — skips blanks/garbage AND non-dict lines (round-4)
+        t, p = e.get("type"), e.get("payload") or {}
+        if not isinstance(p, dict):
             continue
-        try:
-            e = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        t, p = e.get("type"), e.get("payload", {})
         if t == "artefato.published":
             published.append({
                 "slug": p.get("slug", ""),
