@@ -151,6 +151,51 @@ class TestDirectionProvenanceLink(_DirectionBase):
         self.assertNotIn('class="provenance', body)
 
 
+class TestVozCommentLinksBackToItsSteer(_DirectionBase):
+    """The OTHER half of the bidirectional link (SURFACE.md: 'renders the link bidirectionally,
+    steer ⇄ originating comment'). The Direction surface links steer→comment; the Voz rail must link
+    the originating comment→steer — so a Directive that landed shows, inline in the thread/chat, that
+    it folded into a steer, drilling into /direction. 'Did my steer land?' is answerable from BOTH
+    ends."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "artefato.published",
+            {"slug": "alpha-post", "cites": [], "distills": [], "proposes": []}),
+        _ev(2, "2026-06-10T09:00:01+00:00", "voz.comment",
+            {"target_ref": "alpha-post", "comment_id": "c-folded", "body": "steer the framing"}),
+        _ev(3, "2026-06-10T09:00:02+00:00", "voz.reply",
+            {"comment_id": "c-folded", "body": "folding this into a steer"}),
+        _ev(4, "2026-06-10T09:00:03+00:00", "direction.set",
+            {"id": "d-folded", "body": "always test the framing", "origin_comment_id": "c-folded"}),
+        _ev(5, "2026-06-10T09:00:04+00:00", "voz.resolved",
+            {"comment_id": "c-folded", "outcome": "folded-to-direction",
+             "origin_comment_id": "c-folded", "direction_id": "d-folded"}),
+    ]
+
+    def test_chat_shows_a_folded_comment_links_to_direction(self):
+        body = self.client.get("/chat").data.decode()
+        # the comment that folded into a steer carries an inline marker linking to /direction
+        self.assertIn('class="folded-marker', body)
+        self.assertIn('href="/direction"', body)
+
+    def test_post_thread_shows_a_folded_comment_links_to_direction(self):
+        body = self.client.get("/").data.decode()
+        self.assertIn('class="folded-marker', body)
+
+    def test_a_plainly_replied_comment_has_no_folded_marker(self):
+        # a comment resolved as a plain reply (not folded) shows NO steer link
+        self.log.write_text("\n".join([
+            _ev(1, "2026-06-10T09:00:00+00:00", "voz.comment",
+                {"target_ref": None, "comment_id": "c-plain", "body": "a question"}),
+            _ev(2, "2026-06-10T09:00:01+00:00", "voz.reply",
+                {"comment_id": "c-plain", "body": "an answer"}),
+            _ev(3, "2026-06-10T09:00:02+00:00", "voz.resolved",
+                {"comment_id": "c-plain", "outcome": "replied"}),
+        ]) + "\n")
+        body = self.client.get("/chat").data.decode()
+        self.assertNotIn('class="folded-marker', body)
+
+
 class TestDirectionEmptyAndDark(_DirectionBase):
     """The empty case renders cleanly (no direction events at all) — a 200 with an honest empty
     marker, never a 500 or a blank."""

@@ -373,6 +373,20 @@ def _terminally_resolved():
     }
 
 
+def _folded_directions():
+    """Map `comment_id` → the `direction_id` of the steer it folded into, from every
+    `voz.resolved {outcome: folded-to-direction}` (SURFACE.md / ADR-0017). This is the comment→steer
+    half of the bidirectional Voz→Direction link: the Direction surface links a steer back to its
+    origin comment; the Voz rail uses THIS to link a folded Directive forward to /direction, so 'did
+    my steer land?' is answerable from the comment too."""
+    return {
+        e.get("payload", {}).get("comment_id"): e.get("payload", {}).get("direction_id")
+        for e in _read_events()
+        if e.get("type") == "voz.resolved"
+        and e.get("payload", {}).get("outcome") == "folded-to-direction"
+    }
+
+
 def open_comments():
     """The answer queue: every `voz.comment` with no TERMINAL `voz.resolved` yet (any target). A
     fold, not a flag (ADR-0017). A replied-but-unresolved comment is still open; a parked
@@ -425,37 +439,56 @@ def _clarify_block(c, clarifies_by_id):
     return f'<ul class="clarifies">{"".join(blocks)}</ul>'
 
 
-def _replies_block(c, replies_by_id, clarifies_by_id=None):
+def _folded_marker(c, folded_by_id):
+    """The comment→steer half of the bidirectional Voz→Direction link: when this Directive folded
+    into a curated steer (`voz.resolved{folded-to-direction}`), an inline marker drilling into
+    /direction (SURFACE.md: 'renders the link bidirectionally, steer ⇄ originating comment'). The
+    Direction surface links the steer back here; this links here forward to the steer. None otherwise."""
+    if folded_by_id is None or c.get("comment_id") not in folded_by_id:
+        return ""
+    did = folded_by_id.get(c.get("comment_id"))
+    anchor = f'#steer-{_esc(did)}' if did else ""
+    return (f'<p class="folded-marker meta">dobrado num steer · '
+            f'<a href="/direction{anchor}">ver em Direction →</a></p>')
+
+
+def _replies_block(c, replies_by_id, clarifies_by_id=None, folded_by_id=None):
     """The replies under a comment + any open clarification question, or the 'agent responds next
     beat' affordance if it is open and unanswered. A parked `voz.clarify` renders inline as the
-    edge's question with a pre-linked answer composer (ADR-0017: a parked chat stays answerable)."""
+    edge's question with a pre-linked answer composer (ADR-0017: a parked chat stays answerable). A
+    Directive that folded into a steer carries an inline link to /direction (the bidirectional link)."""
     if clarifies_by_id is None:
         clarifies_by_id = _clarifications()
+    if folded_by_id is None:
+        folded_by_id = _folded_directions()
     clarify = _clarify_block(c, clarifies_by_id)
+    folded = _folded_marker(c, folded_by_id)
     replies = replies_by_id.get(c.get("comment_id"), [])
     if not replies:
-        pending = '' if clarify else '<p class="pending meta">edge responde no próximo beat</p>'
-        return f'{pending}{clarify}'
+        pending = '' if (clarify or folded) else '<p class="pending meta">edge responde no próximo beat</p>'
+        return f'{pending}{clarify}{folded}'
     items = "".join(
         f'<li class="reply"><p class="body">{_esc(r.get("body", ""))}</p></li>'
         for r in replies
     )
-    return f'<ul class="replies">{items}</ul>{clarify}'
+    return f'<ul class="replies">{items}</ul>{clarify}{folded}'
 
 
-def _render_comment(c, replies_by_id, clarifies_by_id=None):
+def _render_comment(c, replies_by_id, clarifies_by_id=None, folded_by_id=None):
     body = f'<p class="body">{_esc(c.get("body", ""))}</p>'
-    return f'<li class="comment">{body}{_replies_block(c, replies_by_id, clarifies_by_id)}</li>'
+    return (f'<li class="comment">{body}'
+            f'{_replies_block(c, replies_by_id, clarifies_by_id, folded_by_id)}</li>')
 
 
 def _render_thread(target_ref):
     comments = _comments(target_ref)
     replies_by_id = _replies()
     clarifies_by_id = _clarifications()
+    folded_by_id = _folded_directions()  # computed once per render, threaded through (not per-comment)
     if not comments:
         items = '<li class="empty meta">sem comentários ainda</li>'
     else:
-        items = "".join(_render_comment(c, replies_by_id, clarifies_by_id) for c in comments)
+        items = "".join(_render_comment(c, replies_by_id, clarifies_by_id, folded_by_id) for c in comments)
     return f'<ul class="thread">{items}</ul>'
 
 
@@ -528,13 +561,13 @@ def _render_votes(slug):
     )
 
 
-def _render_chat_item(c, replies_by_id, clarifies_by_id=None):
+def _render_chat_item(c, replies_by_id, clarifies_by_id=None, folded_by_id=None):
     target = c.get("target_ref")
     label = (f'<a class="ctx" href="/e/{_esc(target)}.html">em {_esc(target)}</a>'
              if target else '<span class="ctx meta">chat geral</span>')
     body = f'<p class="body">{_esc(c.get("body", ""))}</p>'
     return (f'<li class="chat-item">{label}{body}'
-            f'{_replies_block(c, replies_by_id, clarifies_by_id)}</li>')
+            f'{_replies_block(c, replies_by_id, clarifies_by_id, folded_by_id)}</li>')
 
 
 def _render_chat():
@@ -543,10 +576,11 @@ def _render_chat():
                 for e in _read_events() if e.get("type") == "voz.comment"]
     replies_by_id = _replies()
     clarifies_by_id = _clarifications()
+    folded_by_id = _folded_directions()  # computed once per render, threaded through (not per-comment)
     if not comments:
         items = '<li class="empty meta">sem mensagens ainda</li>'
     else:
-        items = "".join(_render_chat_item(c, replies_by_id, clarifies_by_id) for c in comments)
+        items = "".join(_render_chat_item(c, replies_by_id, clarifies_by_id, folded_by_id) for c in comments)
     return f'<ul class="chat">{items}</ul>'
 
 
