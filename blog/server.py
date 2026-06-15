@@ -999,23 +999,26 @@ def _cortex_fixture():
 
 
 def _node_content(label, props):
-    """The node's CLAIM content — its first non-empty original content field (name/body/summary/slug/
-    key, per _TITLE_FIELDS), or None when ABSENT (codex Slice-6b round-7 [high]). Distinct from
-    `_node_title`, which falls back to the bare LABEL ("Entity") for a contextless display line: a
-    label is NOT claim context the corrective resolver can settle against, so the correction's
-    fail-closed missing-context gate keys on THIS (no label fallback), never on the display title."""
+    """The node's FULL CLAIM content — its first non-empty original content field (name/body/summary/
+    slug/key, per _TITLE_FIELDS), whitespace-normalized but NOT truncated (codex Slice-6b round-8
+    [high]: the corrective snapshot is the claim the resolver settles against — a harmful clause past
+    the display-blurb cutoff must reach it, or a standing fold acts on incomplete context). Returns
+    None when ABSENT (codex round-7 [high]): distinct from `_node_title`, which falls back to the bare
+    LABEL — a label is NOT claim context, so the fail-closed missing-context gate keys on THIS."""
     for field in _TITLE_FIELDS.get(label, ()):
         val = props.get(field)
         if val:
-            return _blurb(str(val), 140)
+            return " ".join(str(val).split())  # normalized, full — never truncated for the claim
     return None
 
 
 def _node_title(label, props):
-    """One human-readable line for a node (inspect node, v1) — the claim content, else the label (a
-    display fallback so a contextless node still has a visible line). NOT corrective claim context —
-    the correction snapshot uses `_node_content` (no label fallback), see codex round-7."""
-    return _node_content(label, props) or label
+    """One human-readable DISPLAY line for a node (inspect node, v1) — the claim content (truncated to
+    a light blurb), else the label (a display fallback so a contextless node still has a visible line).
+    NOT corrective claim context — the correction snapshot uses the FULL `_node_content` (no truncation,
+    no label fallback), see codex round-7/8."""
+    content = _node_content(label, props)
+    return _blurb(content, 140) if content else label
 
 
 # A canonical artefato slug (publisher.SLUG_RE): lowercase alphanumerics + hyphens, no leading/

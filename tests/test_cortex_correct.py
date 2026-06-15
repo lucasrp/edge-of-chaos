@@ -533,6 +533,28 @@ class TestNodeContextInPromptAndSnapshot(_Base):
         named = self.server._map_node("4:x:2", "Entity", {"name": "a real claim"})
         self.assertEqual(named["content"], "a real claim")
 
+    def test_snapshot_carries_the_full_claim_not_a_truncated_blurb(self):
+        # codex round-8 [high]: the corrective snapshot must carry the FULL claim, not the 140-char
+        # display blurb — a harmful clause past char 140 must reach the resolver, or a standing fold
+        # acts on incomplete context. The display title may stay truncated; the snapshot must not.
+        import json as _json
+        from pathlib import Path as _P
+        long_claim = ("benign preamble " * 12) + "THE HARMFUL CLAUSE IS HERE PAST 140 CHARS"
+        self.assertGreater(len(long_claim), 140)
+        mapped = self.server._map_node("live:L", "Entity",
+                                       {"uuid": "U-long", "name": long_claim, "earmarked": True})
+        _P(self.fix).write_text(_json.dumps({"nodes": [mapped], "edges": []}))
+        self._post("/cortex/U-long/comment", {"body": "this is wrong"})
+        p = next(c["payload"] for c in self._events("voz.comment")
+                 if c["payload"]["target_ref"] == "node:U-long")
+        # the full claim is preserved (the harmful clause past 140 chars is present)
+        self.assertIn("THE HARMFUL CLAUSE IS HERE PAST 140 CHARS", p["node_title"])
+        # and the live prompt then carries the complete claim
+        sys.path.insert(0, str(BLOG))
+        import grill_drain
+        prompt = grill_drain._build_live_prompt({**p, "clarify": []})
+        self.assertIn("THE HARMFUL CLAUSE IS HERE PAST 140 CHARS", prompt)
+
     def test_live_mapped_bare_earmarked_node_rejects_with_no_append(self):
         # the live-fold path (through _map_node) — a bare Earmarked Entity with NO content fields must
         # reject with no append; the label-fallback display title must NOT pass the missing-context
