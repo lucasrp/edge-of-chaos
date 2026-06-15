@@ -414,6 +414,13 @@
     form.appendChild(btn);
     var status = document.createElement("p");
     status.className = "correction-status meta";
+    // A stable per-render comment_nonce so the route takes the IDEMPOTENT append path — a
+    // double-click / transport retry (same nonce + same body) dedupes to one Directive, so a flaky
+    // submit can't create duplicate corrections (which, if standing, fold into duplicate
+    // direction.set). It ADVANCES after each successful submit, so a deliberate second correction
+    // still lands — the same stable-then-advance pattern as the server-rendered Voz composers.
+    var nonceN = 0;
+    function nonce() { return "corr:" + nodeId + ":" + nonceN; }
     // submit via fetch (same-origin) so the panel stays in place and shows the confirmation inline,
     // instead of a full-page navigation away from the constellation.
     form.addEventListener("submit", function (evt) {
@@ -423,9 +430,10 @@
       fetch(form.action, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "body=" + encodeURIComponent(body),
+        body: "body=" + encodeURIComponent(body) +
+              "&comment_nonce=" + encodeURIComponent(nonce()),
       }).then(function (r) {
-        if (r.ok) { ta.value = ""; status.textContent = "correção registrada"; }
+        if (r.ok) { ta.value = ""; nonceN++; status.textContent = "correção registrada"; }
         else status.textContent = "correção recusada (" + r.status + ")";
       }).catch(function () { status.textContent = "falha ao enviar"; });
     });

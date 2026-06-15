@@ -123,6 +123,15 @@ class TestNodeTargetRefValidation(_Base):
         # a node id absent from the payload → not a valid target (forged node ref)
         self.assertFalse(self.server._valid_node_target_ref("node:ghost"))
 
+    def test_non_earmarked_node_ref_is_rejected(self):
+        # codex round-1 [high]: the corrective write-path is for the HARM-settled Earmarked subset
+        # (SURFACE.md: Earmarked = harm-surfacing; the correction surface backs the harm frontier).
+        # A real-but-INERT node (a1, not earmarked) is navigable, not correctable — the server must
+        # enforce earmarked, not just node existence, or a crafted POST expands Voz corrective
+        # authority beyond the eligible subset and pollutes the Directive backlog / curated Direction.
+        self.assertFalse(self.server._valid_node_target_ref("node:a1"))    # exists, NOT earmarked
+        self.assertTrue(self.server._valid_node_target_ref("node:e1"))     # exists AND earmarked
+
 
 class TestCorrectionAppend(_Base):
     """An authenticated correction from an Earmarked node posts a `voz.comment` whose `target_ref`
@@ -141,6 +150,29 @@ class TestCorrectionAppend(_Base):
         self.assertEqual(comments[0]["payload"]["body"], "this claim is wrong — correct it")
         self.assertIn("comment_id", comments[0]["payload"])
 
+    def test_duplicate_correction_nonce_appends_once(self):
+        # codex round-1 [medium]: the correction route honors the SAME idempotency model as every
+        # other Voz composer — a double-fire (same comment_nonce + same body, a double-click / retry)
+        # appends exactly ONCE, so a flaky network / double-submit can't create duplicate open
+        # Directives (which, if standing, would fold into duplicate direction.set).
+        before = self._count()
+        r1 = self._post("/cortex/e1/comment",
+                        {"body": "double correction", "comment_nonce": "corr:e1:0"})
+        r2 = self._post("/cortex/e1/comment",
+                        {"body": "double correction", "comment_nonce": "corr:e1:0"})
+        self.assertEqual(r1.status_code, 200)
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(self._count(), before + 1)  # ONE event, not two
+        self.assertEqual(len(self._events("voz.comment")), 1)
+
+    def test_distinct_correction_nonces_both_append(self):
+        # a deliberate second correction (advanced nonce, e.g. after a successful first) still lands —
+        # the nonce dedupes a transport retry, never a legitimate follow-up correction.
+        before = self._count()
+        self._post("/cortex/e1/comment", {"body": "one", "comment_nonce": "corr:e1:0"})
+        self._post("/cortex/e1/comment", {"body": "two", "comment_nonce": "corr:e1:1"})
+        self.assertEqual(self._count(), before + 2)
+
 
 class TestCorrectionRejected(_Base):
     """The reject cases (acceptance): an invalid/unknown node ref → rejected, no append; an
@@ -154,6 +186,16 @@ class TestCorrectionRejected(_Base):
                        local=True)
         self.assertIn(r.status_code, (400, 404))
         self.assertEqual(self._count(), before)  # nothing appended
+        self.assertEqual(self._events("voz.comment"), [])
+
+    def test_correction_on_a_non_earmarked_node_is_rejected_with_no_append(self):
+        # codex round-1 [high]: a1 is a real node but NOT earmarked → not correctable. A crafted POST
+        # to a non-earmarked node must reject with no append (the harm boundary is server-enforced,
+        # not UI-only) — else Voz corrective authority leaks beyond the Earmarked harm subset.
+        before = self._count()
+        r = self._post("/cortex/a1/comment", {"body": "correcting an inert node"}, local=True)
+        self.assertIn(r.status_code, (400, 404))
+        self.assertEqual(self._count(), before)
         self.assertEqual(self._events("voz.comment"), [])
 
     def test_unauthenticated_correction_is_rejected_with_no_append(self):
@@ -197,6 +239,14 @@ class TestCorrectionEntryPoint(unittest.TestCase):
         self.assertIn("/comment", self.JS)
         # the composer posts a body (the correction prose) — a textarea/field named "body"
         self.assertIn('"body"', self.JS)
+
+    def test_composer_sends_a_comment_nonce_for_idempotency(self):
+        # codex round-1 [medium]: the composer must carry a stable per-render comment_nonce so the
+        # route takes the idempotent append path — a double-submit can't create duplicate Directives
+        # (which, if standing, fold into duplicate direction.set). It advances after a successful
+        # submit (the same stable-then-advance pattern as the other Voz composers), so a deliberate
+        # repeat still lands.
+        self.assertIn("comment_nonce", self.JS)
 
     def test_correction_url_is_built_dom_safe_not_attribute_string_interp(self):
         # SECURITY: the node id is graph-derived; building the POST URL by interpolating it into an

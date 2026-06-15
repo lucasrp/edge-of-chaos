@@ -210,9 +210,14 @@ def _node_id_of(target_ref):
 
 
 def _valid_node_target_ref(target_ref):
-    """A node `target_ref` is valid iff it is `node:<id>` and <id> is a node in the group-scoped
-    cortex payload — fail-closed (a dark graph has no valid nodes → reject). Reuses the existing
-    scoped fold (no new query); an unknown node id is a forged target, rejected with no append."""
+    """A node `target_ref` is valid iff it is `node:<id>` and <id> is an EARMARKED node in the
+    group-scoped cortex payload — fail-closed (a dark graph has no valid nodes → reject). Reuses the
+    existing scoped fold (no new query). The EARMARKED requirement is load-bearing, not UI sugar: the
+    corrective write-path is for the harm-settled Earmarked subset (SURFACE.md: Earmarked is the harm
+    frontier; CONTEXT.md: an inert node is navigable, not correctable). Without it a crafted POST to a
+    non-Earmarked node would expand Voz corrective authority beyond the eligible subset and pollute the
+    open Directive backlog / curated Direction with provenance to nodes never eligible for correction.
+    So an unknown OR a non-Earmarked node id is a forged target, rejected with no append."""
     if not _is_node_target_ref(target_ref):
         return False
     node_id = _node_id_of(target_ref)
@@ -221,7 +226,7 @@ def _valid_node_target_ref(target_ref):
     payload = cortex_fold()
     if not payload:
         return False  # fail-closed: a dark graph cannot vouch for any node
-    return any(n.get("id") == node_id for n in payload.get("nodes", []))
+    return any(n.get("id") == node_id and n.get("earmarked") for n in payload.get("nodes", []))
 
 
 def _reject_oversized_body():
