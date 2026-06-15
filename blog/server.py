@@ -71,7 +71,9 @@ def _allowed_hosts():
     no check at all)."""
     explicit = os.environ.get("EDGE_DASH_ORIGIN")
     if explicit:
-        return {h.strip() for h in explicit.split(",") if h.strip()}
+        # Normalize each entry to scheme-stripped host[:port] (the same shape _origin_ok compares),
+        # so a configured `https://edge.example` matches an Origin of `https://edge.example`.
+        return {_hostpart(h.strip()) for h in explicit.split(",") if h.strip()}
     host = os.environ.get("BLOG_HOST", "127.0.0.1")
     port = os.environ.get("BLOG_PORT", str(DEFAULT_PORT))
     hosts = {f"{host}:{port}", host}
@@ -239,6 +241,14 @@ def _comments(target_ref):
     ]
 
 
+def _comment_nonce(target_ref):
+    """The render nonce for a comment composer's idempotency key: the thread's comment count,
+    stable across one render and advancing after each successful comment. A double-click on the
+    same render dedupes to one Directive; a deliberate second comment (count advanced) is distinct."""
+    n = sum(1 for _ in _comments(target_ref))
+    return f"comment:{target_ref}:{n}"
+
+
 def _replies():
     """Fold edge replies keyed by the comment_id they answer."""
     out = {}
@@ -305,13 +315,17 @@ def _vote_state(slug):
     return state
 
 
+def _vote_nonce(slug):
+    """The render nonce for the vote idempotency key: stable across one render, advances on each
+    successful vote (the count). Combined with the submitted value in the route, it dedupes a
+    same-button double-click while keeping a 👍-then-👎 from one render as two distinct actions."""
+    return f"vote:{slug}:{_vote_count(slug)}"
+
+
 def _render_votes(slug):
     state = _vote_state(slug)
     s = html.escape(slug)
-    # A per-render idempotency key: stable across this render (a rapid double-click of the same
-    # button reuses it → one append, no toggle-back-to-0), distinct after a successful vote (the
-    # count advances), so the next deliberate click is its own event.
-    idem = html.escape(f"vote:{slug}:{_vote_count(slug)}")
+    nonce = html.escape(_vote_nonce(slug))
 
     def btn(val, emoji, cls):
         active = state == val
@@ -321,7 +335,7 @@ def _render_votes(slug):
 
     return (
         f'<form class="votes" hx-post="/e/{s}/vote" hx-target="closest .votes" hx-swap="outerHTML">'
-        f'<input type="hidden" name="idem_key" value="{idem}">'
+        f'<input type="hidden" name="idem_nonce" value="{nonce}">'
         f'{btn(1, "👍", "like")}{btn(-1, "👎", "dislike")}'
         '</form>'
     )
@@ -359,7 +373,7 @@ def post_comment(slug):
     if body:
         _append_voz("voz.comment", f"voz:{slug}",
                     {"target_ref": slug, "comment_id": uuid.uuid4().hex[:12], "body": body},
-                    idem_key=request.form.get("idem_key"))
+                    idem_key=request.form.get("comment_nonce"))
     return _render_thread(slug)
 
 
@@ -373,14 +387,16 @@ def post_chat_comment():
     if body:
         _append_voz("voz.comment", "voz:chat",
                     {"target_ref": None, "comment_id": uuid.uuid4().hex[:12], "body": body},
-                    idem_key=request.form.get("idem_key"))
+                    idem_key=request.form.get("comment_nonce"))
     return _render_chat()
 
 
 @app.get("/chat")
 def chat():
+    nonce = html.escape(_comment_nonce(None))
     form = ('<form class="composer" hx-post="/chat/comment" hx-target="#chat" hx-swap="outerHTML" '
             'hx-on::after-request="this.reset()">'
+            f'<input type="hidden" name="comment_nonce" value="{nonce}">'
             '<textarea name="body" placeholder="fale com o edge…" required></textarea>'
             '<button type="submit">enviar</button></form>')
     return (
@@ -403,8 +419,11 @@ def post_vote(slug):
     clicked = 1 if request.form.get("value") != "-1" else -1
     # toggle: clicking the active button clears it (→0); otherwise set/switch to the clicked value
     new = 0 if _vote_state(slug) == clicked else clicked
-    _append_voz("voz.vote", f"voz:{slug}", {"slug": slug, "value": new},
-                idem_key=request.form.get("idem_key"))
+    # Dedup key = the render nonce + the clicked value, so a same-button double-click dedupes but
+    # a 👍-then-👎 from one render are two distinct actions (different value → different key).
+    nonce = request.form.get("idem_nonce")
+    idem = f"{nonce}:{clicked}" if nonce else None
+    _append_voz("voz.vote", f"voz:{slug}", {"slug": slug, "value": new}, idem_key=idem)
     return _render_votes(slug)
 
 
@@ -467,9 +486,11 @@ def _artifact_items(post):
 def _render_rail(slug):
     """The Voz rail under a post: vote control + comment thread + composer (htmx-wired)."""
     s = html.escape(slug)
+    nonce = html.escape(_comment_nonce(slug))
     composer = (
         f'<form class="composer" hx-post="/e/{s}/comment" hx-target="#thread-{s}" '
         'hx-swap="outerHTML" hx-on::after-request="this.reset()">'
+        f'<input type="hidden" name="comment_nonce" value="{nonce}">'
         '<textarea name="body" placeholder="comente (vira um Directive)…" required></textarea>'
         '<button type="submit">comentar</button></form>'
     )

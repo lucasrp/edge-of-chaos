@@ -219,40 +219,76 @@ class TestCanonicalAppend(_Base):
         # the canonical append continues the log's count (max seq was 4 → 5)
         self.assertEqual(comments[0]["seq"], 5)
 
-    def test_duplicate_idempotency_key_appends_once(self):
+    def test_duplicate_comment_nonce_appends_once(self):
         before = self._count()
-        # same key twice (a double-click / retry) → exactly one append
+        # same comment_nonce twice (a double-click / retry) → exactly one append
         r1 = self._post("/e/alpha-post/comment",
-                        {"body": "double click", "idem_key": "dup-key-123"})
+                        {"body": "double click", "comment_nonce": "dup-key-123"})
         r2 = self._post("/e/alpha-post/comment",
-                        {"body": "double click", "idem_key": "dup-key-123"})
+                        {"body": "double click", "comment_nonce": "dup-key-123"})
         self.assertEqual(r1.status_code, 200)
         self.assertEqual(r2.status_code, 200)
         self.assertEqual(self._count(), before + 1)  # ONE event, not two
         self.assertEqual(len(self._events("voz.comment")), 1)
 
-    def test_distinct_idempotency_keys_both_append(self):
+    def test_distinct_comment_nonces_both_append(self):
         before = self._count()
-        self._post("/e/alpha-post/comment", {"body": "one", "idem_key": "k1"})
-        self._post("/e/alpha-post/comment", {"body": "two", "idem_key": "k2"})
+        self._post("/e/alpha-post/comment", {"body": "one", "comment_nonce": "k1"})
+        self._post("/e/alpha-post/comment", {"body": "two", "comment_nonce": "k2"})
         self.assertEqual(self._count(), before + 2)
 
-    def test_rendered_vote_form_carries_an_idempotency_key(self):
-        """The live vote UI must take the idempotent path: the rendered form ships an idem_key, so
-        a rapid double-submit of the SAME rendered button dedupes (no double-toggle back to 0)."""
-        html = self.server._render_votes("alpha-post")
-        self.assertIn('name="idem_key"', html)
-
-    def test_double_submitting_the_same_vote_form_appends_once(self):
-        before = self._count()
-        # extract the key the form rendered, then submit it twice (a double-click on one button)
+    def _vote_nonce(self, slug):
         import re
+        html = self.server._render_votes(slug)
+        return re.search(r'name="idem_nonce" value="([^"]+)"', html).group(1)
+
+    def test_rendered_vote_form_carries_a_render_nonce(self):
+        """The live vote UI takes the idempotent path: the form ships a render nonce, and the route
+        composes the dedup key from nonce + the submitted value (per-button)."""
         html = self.server._render_votes("alpha-post")
-        key = re.search(r'name="idem_key" value="([^"]+)"', html).group(1)
-        self._post("/e/alpha-post/vote", {"value": "1", "idem_key": key})
-        self._post("/e/alpha-post/vote", {"value": "1", "idem_key": key})
-        self.assertEqual(self._count(), before + 1)  # one vote event, not a toggle-back-to-0
+        self.assertIn('name="idem_nonce"', html)
+
+    def test_double_submitting_the_same_vote_button_appends_once(self):
+        before = self._count()
+        # a double-click on the SAME button (same nonce + same value) → one append, no toggle-to-0
+        nonce = self._vote_nonce("alpha-post")
+        self._post("/e/alpha-post/vote", {"value": "1", "idem_nonce": nonce})
+        self._post("/e/alpha-post/vote", {"value": "1", "idem_nonce": nonce})
+        self.assertEqual(self._count(), before + 1)
         self.assertEqual(self.server._vote_state("alpha-post"), 1)
+
+    def test_comment_composer_carries_a_render_nonce(self):
+        """The per-post comment composer ships its own render nonce so the live UI takes the
+        idempotent path — a double-click does not turn one Directive into two open comments. The
+        composer's field is distinct from the vote form's nonce in the same rail."""
+        rail = self.server._render_rail("alpha-post")
+        composer = rail.split('class="composer"', 1)[1]
+        self.assertIn('name="comment_nonce"', composer)
+
+    def test_chat_composer_carries_a_render_nonce(self):
+        html = self.client.get("/chat").data.decode()
+        self.assertIn('name="comment_nonce"', html)
+
+    def test_double_submitting_the_same_comment_nonce_appends_once(self):
+        before = self._count()
+        import re
+        rail = self.server._render_rail("alpha-post")
+        composer = rail.split('class="composer"', 1)[1]
+        nonce = re.search(r'name="comment_nonce" value="([^"]+)"', composer).group(1)
+        self._post("/e/alpha-post/comment", {"body": "double directive", "comment_nonce": nonce})
+        self._post("/e/alpha-post/comment", {"body": "double directive", "comment_nonce": nonce})
+        self.assertEqual(self._count(), before + 1)  # one Directive, not two
+        self.assertEqual(len(self._events("voz.comment")), 1)
+
+    def test_like_then_dislike_from_one_render_are_both_recorded(self):
+        """👍 then 👎 before the swap completes (SAME nonce, DIFFERENT value) are distinct actions,
+        not a duplicate retry — both append; only a same-button retry dedupes."""
+        before = self._count()
+        nonce = self._vote_nonce("alpha-post")
+        self._post("/e/alpha-post/vote", {"value": "1", "idem_nonce": nonce})
+        self._post("/e/alpha-post/vote", {"value": "-1", "idem_nonce": nonce})
+        self.assertEqual(self._count(), before + 2)
+        self.assertEqual(self.server._vote_state("alpha-post"), -1)
 
 
 class TestDnsRebindingDefense(_Base):
@@ -311,6 +347,33 @@ class TestDefaultPortAllowlist(_Base):
             "/e/alpha-post/comment", data={"body": "on the default port"},
             base_url=f"http://127.0.0.1:{port}",
             headers={"Origin": f"http://127.0.0.1:{port}"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self._count(), before + 1)
+
+
+class TestExplicitOriginWithScheme(_Base):
+    """EDGE_DASH_ORIGIN given as a full origin (with scheme) must still authorize: the allowlist is
+    compared against scheme-stripped host[:port], so each configured entry is normalized the same
+    way. Otherwise a normal `https://edge.example` config rejects every legitimate write."""
+
+    AUTH = "on"
+
+    def setUp(self):
+        super().setUp()
+        os.environ["EDGE_DASH_ORIGIN"] = "https://edge.example"
+        os.environ["EDGE_DASH_TOKEN"] = "tok"
+
+    def tearDown(self):
+        os.environ.pop("EDGE_DASH_ORIGIN", None)
+        super().tearDown()
+
+    def test_scheme_qualified_explicit_origin_authorizes(self):
+        before = self._count()
+        r = self.client.post(
+            "/e/alpha-post/comment", data={"body": "from the configured origin"},
+            base_url="https://edge.example",
+            headers={"Origin": "https://edge.example", "X-Edge-Token": "tok"},
+            environ_overrides={"REMOTE_ADDR": "10.0.0.5"})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(self._count(), before + 1)
 
