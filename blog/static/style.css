@@ -422,6 +422,39 @@ a:hover { color: #a8c2ff; }
   background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm);
 }
 
+/* ---- /ux-catalog — the living style guide (Slice 7 #37) — extends the shared vocabulary ---- */
+.ux-catalog-page { max-width: 860px; }
+.catalog-section {
+  margin: 30px 0; padding: 20px 22px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.catalog-h {
+  font: 600 .72rem/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 6px;
+}
+.catalog-h code { font-size: .82em; color: var(--text-muted); background: none; border: 0; padding: 0; }
+.catalog-section > .meta { margin-bottom: 14px; }
+.token-grid { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.token {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--surface-2); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm); padding: 8px 10px;
+}
+.token .swatch {
+  width: 22px; height: 22px; flex: 0 0 auto; border-radius: 6px;
+  border: 1px solid var(--border); box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+}
+.token .token-name { color: var(--text); background: none; border: 0; padding: 0; font-size: .76rem; }
+.token .token-val { color: var(--text-dim); background: none; border: 0; padding: 0; margin-left: auto; font-size: .72rem; }
+.catalog-btn {
+  font: inherit; font-weight: 600; cursor: pointer; color: #0a0c11;
+  background: linear-gradient(95deg, var(--accent), var(--accent-2));
+  border: 0; border-radius: var(--pill); padding: 7px 20px;
+}
+.macro-list { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
+.macro-list li { background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: var(--pill); padding: 4px 12px; }
+.macro-list code { background: none; border: 0; padding: 0; color: var(--accent); font-size: .8rem; }
+
 /* ---- Tabler bridge — keep the dark identity over the component framework (Slice 7 #37) ----
    Tabler ships a LIGHT default. We adopt its component vocabulary (cards/badges/grid/forms) but
    the operator approved THIS dark theme, so the edge :root tokens above own the palette. This block

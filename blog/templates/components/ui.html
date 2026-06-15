@@ -1,0 +1,27 @@
+{#- Shared component macros — the ONE component vocabulary every surface reuses (FRONTEND.md /
+    docs/frontend.md: "HTML repetido vira macro em components/"). These mirror the dark-theme
+    classes in style.css; the /ux-catalog renders them live so the catalog cannot drift from the
+    CSS. New components EXTEND this set (and get registered here), never a one-off per-surface style. -#}
+
+{%- macro badge(text, kind='') -%}
+<span class="artifacts"><li class="{{ kind | e }}">{{ text | e }}</li></span>
+{%- endmacro -%}
+
+{%- macro nav_pill(path, label, active=false) -%}
+<a href="{{ path | e }}"{% if active %} aria-current="page"{% endif %}>{{ label | e }}</a>
+{%- endmacro -%}
+
+{#- a primary action button — the composer's gradient pill, the catalog's reference button -#}
+{%- macro action_button(label) -%}
+<button type="button" class="catalog-btn">{{ label | e }}</button>
+{%- endmacro -%}
+
+{#- the steer card (Direction's curated/proposed tiers reuse .steer) -#}
+{%- macro steer(kind, body) -%}
+<li class="steer"><span class="kind">{{ kind | e }}</span><p class="body">{{ body | e }}</p></li>
+{%- endmacro -%}
+
+{#- one health-strip metric cell (the briefing read-model band) -#}
+{%- macro metric(label, key, value, bad=false) -%}
+<span class="{{ 'metric bad' if bad else 'metric' }}"><span class="m-label">{{ label | e }}</span><span class="m-val" data-metric="{{ key | e }}">{{ value | e }}</span></span>
+{%- endmacro -%}

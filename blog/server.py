@@ -956,6 +956,52 @@ def index():
     return _page("pages/index.html", current="/", htmx=True, posts_html=_safe(body))
 
 
+# ── /ux-catalog — the living style guide (Slice 7 #37, docs/frontend.md §"UX Catalog") ───────────
+#
+# A self-documenting page: the design TOKENS (parsed LIVE from style.css :root, so the catalog can
+# never drift from the actual stylesheet), the shared component VOCABULARY rendered as real
+# instances (composer, vote pills, artifact chips, threads, steer cards, health metrics), and the
+# Jinja MACROS in components/ui.html. "Antes de criar um componente, cheque o /ux-catalog."
+
+# The :root token name → value pairs, e.g. (--accent, #7aa2f7). Letters/digits/hyphen names, any
+# value up to the `;`. Parsed from the FIRST :root block (the identity source of truth).
+_ROOT_TOKEN_RE = re.compile(r"(--[a-z0-9-]+)\s*:\s*([^;]+);")
+
+
+def _design_tokens():
+    """The design tokens (name, value) parsed LIVE from style.css's first `:root` block — so the
+    /ux-catalog documents the ACTUAL stylesheet, never a hand-copied list that drifts. Returns an
+    ordered list; an unreadable/absent stylesheet degrades to [] (the catalog still renders)."""
+    try:
+        css = (_static() / "style.css").read_text()
+    except OSError:
+        return []
+    start = css.find(":root")
+    if start == -1:
+        return []
+    block = css[start:css.find("}", start)]
+    seen, tokens = set(), []
+    for name, value in _ROOT_TOKEN_RE.findall(block):
+        if name in seen:
+            continue
+        seen.add(name)
+        tokens.append((name, value.strip()))
+    return tokens
+
+
+# The macro names registered in components/ui.html — listed on the catalog so a builder can find a
+# reusable component before authoring a one-off. (The names mirror the `{% macro %}` defs there.)
+_UI_MACROS = ("badge", "nav_pill", "action_button", "steer", "metric")
+
+
+@app.get("/ux-catalog")
+def ux_catalog():
+    """The living style guide: the design tokens (live from style.css), the shared component
+    vocabulary rendered as real instances, and the Jinja macros. Read-only; zero API spend."""
+    return _page("pages/ux_catalog.html", current="/ux-catalog",
+                 tokens=_design_tokens(), macros=_UI_MACROS)
+
+
 # ── Cortex graph — surf the agent's brain (SURFACE.md §"Cortex graph") ──────────────────────────
 #
 # A read-only fold of the WHOLE Cortex, group_id-scoped and fail-dark, shipped as one {nodes, edges}
