@@ -491,6 +491,17 @@ class TestDrainRouteAuthGate(unittest.TestCase):
             fh.write('{"seq": 50, "type": "voz.reply", "payload": {"comment_id": "x", "body": {"k": 1}}}\n')
         self.assertFalse(grill_drain.log_is_intact(self.log))
 
+    def test_voz_comment_missing_comment_id_degrades(self):
+        # the drain indexes comment["comment_id"] directly (clarify_context, _close_one), so a
+        # voz.comment with no/blank/non-string comment_id must fail the up-front gate.
+        import grill_drain
+        for payload in ('{"body": "x"}', '{"comment_id": "", "body": "x"}',
+                        '{"comment_id": 123, "body": "x"}'):
+            with open(self.log, "w") as fh:  # fresh log each iteration
+                fh.write('{"seq": 1, "type": "artefato.published", "payload": {"slug": "alpha-post"}}\n')
+                fh.write(f'{{"seq": 2, "type": "voz.comment", "payload": {payload}}}\n')
+            self.assertFalse(grill_drain.log_is_intact(self.log), payload)
+
     def test_voz_comment_missing_body_degrades(self):
         # the drain indexes comment["body"] directly (_build_live_prompt, _harm_score), so a
         # voz.comment with NO body must fail the up-front gate — else a KeyError 500s the live drain.

@@ -111,8 +111,9 @@ def log_is_intact(log):
 
 
 # Fields the drain indexes directly → must be present non-empty strings (a missing one KeyErrors).
+# voz.comment.comment_id is indexed in clarify_context / _close_one; body in _build_live_prompt.
 _REQUIRED_STRING_FIELDS = {
-    "voz.comment": ("body",),
+    "voz.comment": ("comment_id", "body"),
 }
 # Fields only a fold/render touches when present → reject a present non-string (poison), tolerate absence.
 _OPTIONAL_STRING_FIELDS = {

@@ -150,6 +150,21 @@ class TestCortexRoute(unittest.TestCase):
         body = self.client.get("/").data.decode()
         self.assertIn('href="/cortex"', body)
 
+    def test_node_title_cannot_break_out_of_the_json_script_tag(self):
+        # graph node titles derive from Direction/Source/Entity content — a crafted title with a
+        # mixed-case </SCRIPT> must NOT break out of the <script type="application/json"> data block
+        # and execute same-origin (it could fire POST /grill/drain, defeating the Slice-1 gate).
+        poison = "</SCRIPT><script>fetch('/grill/drain',{method:'POST'})//"
+        fix = {"nodes": [{"id": "g0", "label": "Genesis", "title": poison, "trust": "space0"}],
+               "edges": []}
+        self.fix.write_text(json.dumps(fix))
+        server = _load_server({"EDGE_CORTEX_FIXTURE": str(self.fix), "EDGE_GROUP": "edge-next"})
+        body = server.app.test_client().get("/cortex").data.decode()
+        # the raw closing tag (any case) must not appear verbatim — it is escaped, so the browser
+        # never sees a real </script> inside the data block and cannot execute the injected script.
+        self.assertNotIn("</SCRIPT>", body)
+        self.assertNotIn("</script><script>", body.lower())
+
 
 class TestCortexFailDark(unittest.TestCase):
     """No group or neo4j down → a dark state, NEVER an unscoped query (cross-install leak)."""

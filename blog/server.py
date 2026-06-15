@@ -827,6 +827,21 @@ def cortex_fold(group=_GROUP_AUTO):
     return _cortex_live(group)
 
 
+def _json_for_script(payload):
+    """Serialize a payload as JSON safe to embed in a `<script>` data block. A `<script
+    type="application/json">` is raw-text until the parser hits a `</script` (case-insensitive), and
+    a bare `<`/`>` plus the JSON line separators U+2028/U+2029 are the script-context breakout
+    vectors. We escape `<`, `>`, `&` (as unicode escapes JSON still parses) and the separators —
+    case-independent and complete, so a graph node title carrying `</SCRIPT><script>…` (titles
+    derive from Direction/Source/Entity content) can never break out and drive a same-origin
+    mutating POST, which would defeat the Slice-1 write gate."""
+    out = (json.dumps(payload)
+           .replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"))
+    # U+2028 / U+2029 are valid in JSON strings but break a <script> data block — escape them.
+    out = out.replace(chr(0x2028), "\\u2028").replace(chr(0x2029), "\\u2029")
+    return out
+
+
 def _cortex_dark():
     """The honest dark state — no group or neo4j unreachable. Never an unscoped graph, never a 500."""
     return (
@@ -847,7 +862,7 @@ def cortex():
         island = ""
     else:
         graph = '<div id="cortex"></div>'
-        data = json.dumps(payload).replace("</", "<\\/")  # safe to embed in <script>
+        data = _json_for_script(payload)  # XSS-safe to embed in a <script> data block
         island = (
             '<script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>'
             f'<script id="cortex-data" type="application/json">{data}</script>'
