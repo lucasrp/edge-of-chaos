@@ -945,11 +945,15 @@ def _compose_briefing_text():
     kwargs = {"log": _log(), "clusters": None, "recap": None}
     if agent_yaml is not None:
         kwargs["agent_yaml"] = agent_yaml
-        # roster reads agent.yaml too — keep it pointed at the same (test) genotype.
-        kwargs["roster"] = briefing.source_roster(agent_yaml=agent_yaml)
     if memory is not None:
         kwargs["memory"] = memory
     try:
+        # roster reads agent.yaml too — resolve it INSIDE the catch (Codex [medium]): a thin/malformed
+        # override agent.yaml makes source_roster raise BriefingIdentityError, which must fail DARK
+        # here exactly like the default path (where compose_briefing resolves the roster under its own
+        # fail-closed), never escape to a 500.
+        if agent_yaml is not None:
+            kwargs["roster"] = briefing.source_roster(agent_yaml=agent_yaml)
         return briefing.compose_briefing(**kwargs)
     except briefing.BriefingIdentityError:
         return None
@@ -957,23 +961,32 @@ def _compose_briefing_text():
         return None
 
 
+def _dict_events():
+    """`_read_events()` filtered to dict envelopes only — a JSON-VALID but schema-drifted line (`[]`,
+    `42`, a bare string) parses fine yet has no `.get`, so a fold that calls `e.get(...)` on it would
+    crash (Codex [high]). The health-strip folds read through this so a corrupt/upgraded log degrades
+    DARK, never 500s the landing (the same posture the drain takes on a schema-drifted line)."""
+    return (e for e in _read_events() if isinstance(e, dict))
+
+
 def _last_dispatch():
     """The newest `dispatch.open` (the wake stamp, ADR-0016): {ts, swept_sessions} or None. The
     `swept_sessions` is the documented degrade signal — a value of 0 is a degraded sweep (a
     context-window overflow swept nothing) even though the briefing composes clean."""
     last = None
-    for e in _read_events():
+    for e in _dict_events():
         if e.get("type") == "dispatch.open":
             last = e
     if last is None:
         return None
-    return {"ts": last.get("ts", ""),
-            "swept_sessions": (last.get("payload") or {}).get("swept_sessions")}
+    payload = last.get("payload")
+    swept = payload.get("swept_sessions") if isinstance(payload, dict) else None
+    return {"ts": last.get("ts", ""), "swept_sessions": swept}
 
 
 def _log_cursor():
     """The log cursor = the max seq in the log (the read-model's currency). 0 on an empty log."""
-    return max((e.get("seq", 0) for e in _read_events()), default=0)
+    return max((e.get("seq", 0) for e in _dict_events()), default=0)
 
 
 def _graph_reachable():
@@ -1005,42 +1018,60 @@ def _graph_reachable():
         return False
 
 
+def _degraded_strip(reason):
+    """The fail-dark fallback the health strip renders when its OWN fold raises — a fully-degraded band
+    (every metric `—`, `degraded: True`) rather than a 500. The strip's whole job is to be the
+    degraded-mode signal, so it must itself never crash the landing (Codex [high])."""
+    return {"dispatch_ts": None, "log_cursor": "—", "swept_sessions": None,
+            "swept_degraded": True, "graph_reachable": False, "open_directives": "—",
+            "voz_backlog": "—", "awaiting_clarification": "—", "consistency_errors": "—",
+            "degraded": True, "fold_error": reason}
+
+
 def health_strip_data():
     """Fold the read-model health strip from the log (SURFACE.md §Briefing "read-model health strip").
     Every metric is a fold, no parallel store. `degraded` is the fail-dark flag: True when any signal
     is degraded (a swept-nothing sweep, an unreachable graph, or a resolution-consistency error) — the
-    band renders visibly degraded, never blank. NEVER raises (a degraded fold is data, not a crash)."""
+    band renders visibly degraded, never blank. NEVER raises (a degraded/corrupt read-model is the
+    very thing the strip signals): a fold exception (e.g. a schema-drifted log line) returns the
+    fully-degraded fallback, not a 500 (Codex [high])."""
     import grill_drain
-    log = _log()
-    dispatch = _last_dispatch()
-    swept = dispatch.get("swept_sessions") if dispatch else None
-    # Graph reachability — a CHEAP, BOUNDED probe (neo4j only, never an LLM): a single RETURN 1 under
-    # a short timeout, so an unreachable neo4j degrades fast rather than hanging the landing.
-    graph_reachable = _graph_reachable()
     try:
-        open_directives = len(grill_drain.open_comments(log))
-        actionable = len(grill_drain.actionable_set(log))
-        awaiting = open_directives - actionable  # parked voz.clarify with no answer
-        consistency = grill_drain.consistency_errors(log)
-    except Exception:
-        # the Voz folds degraded — surface it as a degraded strip rather than crashing the landing.
-        open_directives = actionable = awaiting = 0
-        consistency = [{"kind": "voz-fold-degraded"}]
-    backlog = max(open_directives - awaiting, 0)  # eligible-but-unloaded overflow proxy (actionable)
-    swept_degraded = swept == 0  # the documented degrade: a sweep that swept nothing
-    degraded = swept_degraded or (not graph_reachable) or bool(consistency)
-    return {
-        "dispatch_ts": dispatch["ts"] if dispatch else None,
-        "log_cursor": _log_cursor(),
-        "swept_sessions": swept,
-        "swept_degraded": swept_degraded,
-        "graph_reachable": graph_reachable,
-        "open_directives": open_directives,
-        "voz_backlog": backlog,
-        "awaiting_clarification": awaiting,
-        "consistency_errors": len(consistency),
-        "degraded": degraded,
-    }
+        log = _log()
+        # dispatch + cursor read through _dict_events() (schema-drift safe — Codex [high]).
+        dispatch = _last_dispatch()
+        swept = dispatch.get("swept_sessions") if dispatch else None
+        log_cursor = _log_cursor()
+        # Graph reachability — a CHEAP, BOUNDED probe (neo4j only, never an LLM): a single RETURN 1
+        # under a short timeout, so an unreachable neo4j degrades fast rather than hanging the landing.
+        graph_reachable = _graph_reachable()
+        try:
+            open_directives = len(grill_drain.open_comments(log))
+            actionable = len(grill_drain.actionable_set(log))
+            awaiting = open_directives - actionable  # parked voz.clarify with no answer
+            consistency = grill_drain.consistency_errors(log)
+        except Exception:
+            # the Voz folds degraded — surface it as a degraded strip rather than crashing the landing.
+            open_directives = actionable = awaiting = 0
+            consistency = [{"kind": "voz-fold-degraded"}]
+        backlog = max(open_directives - awaiting, 0)  # eligible-but-unloaded overflow (actionable)
+        swept_degraded = swept == 0  # the documented degrade: a sweep that swept nothing
+        degraded = swept_degraded or (not graph_reachable) or bool(consistency)
+        return {
+            "dispatch_ts": dispatch["ts"] if dispatch else None,
+            "log_cursor": log_cursor,
+            "swept_sessions": swept,
+            "swept_degraded": swept_degraded,
+            "graph_reachable": graph_reachable,
+            "open_directives": open_directives,
+            "voz_backlog": backlog,
+            "awaiting_clarification": awaiting,
+            "consistency_errors": len(consistency),
+            "degraded": degraded,
+        }
+    except Exception as e:
+        # the read-model fold itself raised (a corrupt log past what _dict_events filters) — fail DARK.
+        return _degraded_strip(f"{type(e).__name__}")
 
 
 def _metric(label, key, value, bad=False):

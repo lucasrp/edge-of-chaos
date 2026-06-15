@@ -244,6 +244,48 @@ class TestBriefingComposeFailsDark(_BriefingBase):
         self.assertIn('class="health-strip', body)
 
 
+class TestHealthStripFailsDarkOnSchemaDrift(_BriefingBase):
+    """Codex [high]: a JSON-VALID but schema-drifted log line (`[]`, `42`, a bare string) must NOT
+    500 the landing — `_last_dispatch()` / `_log_cursor()` call `.get()`/`["seq"]` on each event, so a
+    non-dict event would crash outside the guarded Voz-fold. The health strip's contract is fail-dark
+    on corrupt read-model input: a visible degraded band, never a blanked page. This is a realistic
+    upgrade/corruption path (the drain treats schema-drifted lines as a fail-closed condition)."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "dispatch.open", {"swept_sessions": 2}, subject="dispatch"),
+        "[]",          # a JSON-valid non-dict line (schema drift)
+        "42",          # a bare scalar
+        '"a string"',  # a bare string
+    ]
+
+    def test_schema_drift_does_not_500_the_briefing(self):
+        r = self.client.get("/briefing")
+        self.assertEqual(r.status_code, 200)  # fail dark, not 500
+        body = r.data.decode()
+        self.assertIn('class="health-strip', body)  # the strip still renders
+
+
+class TestBriefingDarkOnThinOverrideGenotype(_BriefingBase):
+    """Codex [medium]: with EDGE_BRIEFING_AGENT_YAML set to a THIN/malformed agent.yaml,
+    source_roster() must not escape the dark fallback — the override path must fail dark exactly like
+    the default path (which catches roster failures inside compose_briefing)."""
+
+    LOG_LINES = [_ev(1, "2026-06-10T09:00:00+00:00", "objective.set", {"body": "ship it"})]
+
+    def setUp(self):
+        super().setUp()
+        # overwrite the genotype agent.yaml with a thin one (no sources) → source_roster raises
+        thin = Path(os.environ["EDGE_BRIEFING_AGENT_YAML"])
+        thin.write_text("name: ed\n")  # no sources: → BriefingIdentityError from source_roster
+
+    def test_thin_override_renders_dark_not_500(self):
+        r = self.client.get("/briefing")
+        self.assertEqual(r.status_code, 200)  # dark, not a 500
+        body = r.data.decode()
+        self.assertIn("dark", body.lower())
+        self.assertIn('class="health-strip', body)  # the strip still folds independently
+
+
 class TestSharedNav(_BriefingBase):
     """Task B — the shared header/nav (cross-cutting, starts at Slice 3): ONE nav linking all four
     surfaces, on every surface, built from the shared design vocabulary (no one-off styling)."""
