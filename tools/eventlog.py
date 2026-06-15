@@ -119,6 +119,7 @@ def fold_direction(events):
                                       # stored but never honored, leaving the old steer active.
             items[iid] = {"id": iid, "body": p.get("body", p.get("plan", "")),
                           "kind": p.get("kind", "thread"), "supersedes": sup,
+                          "origin_comment_id": p.get("origin_comment_id"),
                           "tier": "set"}
         elif t == "direction.dropped":
             items.pop(p.get("id"), None)

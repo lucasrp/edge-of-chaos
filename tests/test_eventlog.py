@@ -110,6 +110,28 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
             eventlog.drop("a", "noise", log=log)
             self.assertEqual(eventlog.direction_at(log=log), {"set": [], "proposed": []})
 
+    def test_set_carries_origin_comment_id_through_the_fold(self):
+        # Slice 4: a Voz `folded-to-direction` writes `direction.set {..., origin_comment_id}`; the
+        # fold must CARRY that provenance into the `set` item so the Direction surface can render the
+        # steer⇄originating-comment link (SURFACE.md: provenance is tier-disjoint, non-deferred for v1).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("direction.set", "direction",
+                            {"id": "d1", "body": "always cite a benchmark",
+                             "origin_comment_id": "c-abc123"}, log=log)
+            d = eventlog.direction_at(log=log)
+            self.assertEqual(d["set"][0]["origin_comment_id"], "c-abc123")
+
+    def test_proposed_never_carries_origin_comment_id(self):
+        # Tier-disjoint provenance (ADR-0007 / SURFACE.md): origin_comment_id rides ONLY the curated
+        # `set` tier; a proposed item carries from_artefato/relates_to and origin_comment_id is None.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.propose("a", "explore X", from_artefato="alpha-post", log=log)
+            d = eventlog.direction_at(log=log)
+            self.assertIsNone(d["proposed"][0].get("origin_comment_id"))
+            self.assertEqual(d["proposed"][0]["from_artefato"], "alpha-post")
+
     def test_set_supersedes_a_different_proposed_id(self):
         # ADR-0007: a direction.set that supersedes a DIFFERENT id must RETIRE that id. Codex
         # found supersedes was stored on the item but never honored — fold_direction only
