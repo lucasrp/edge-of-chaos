@@ -41,10 +41,14 @@ SAME browser-only surface** (`cortex.js`, `cortex.html`, `style.css`, the render
 panel, camera fly-to, `?node=`, search, PREV/NEXT, labels, the perf cap — **any slice from Slice 2 onward
 that touches a renderer file MUST re-run, as a regression check, BOTH (1) the full fallback-ladder browser
 gate AND (2) the pinned M22 floor** (force tick still freezes ≤2.0 s / ≤300 ticks then idles, and the
-renderer still sustains ≥30 FPS over a 5 s orbit window at the measured baseline size in the headless-Chromium
-profile). The recurring Flask+Node gate alone catches **neither** a regressed canvas / dead rung **nor** a
-dropped frame rate or a reintroduced live tick — and a later slice (the panel, camera fly-to, labels) can do
-exactly either. So the recurring renderer gate = **the fallback ladder + the M22 floor, together**, on every
+renderer still sustains ≥30 FPS over a 5 s orbit window in the headless-Chromium profile). **The FPS floor is
+run at the CURRENT live graph size, not the stale Slice-2 baseline** — every renderer-touching slice
+**re-measures** the current `group_id` payload and gates ≥30 FPS at **`max(Slice-2 baseline, current live
+size)`** (the Cortex accretes every beat, so a slice could otherwise ship green while the grown live `/cortex`
+runs sluggish; the synthetic ~1 000-node fixture only proves freeze/cap behavior, **not** the live FPS floor).
+The recurring Flask+Node gate alone catches **neither** a regressed canvas / dead rung **nor** a dropped
+frame rate or a reintroduced live tick — and a later slice (the panel, camera fly-to, labels) can do exactly
+either. So the recurring renderer gate = **the fallback ladder + the M22 floor, together**, on every
 renderer-touching slice; a slice that drops below 30 FPS or unfreezes the tick is **not green**, the same way
 a dead fallback rung is not. (The operator captured the reference live via Playwright; the same harness proves
 our rungs render *and* measures FPS. Run it backgrounded against a backgrounded server, never `blog/server.py`
