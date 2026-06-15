@@ -1,0 +1,10 @@
+{#- The shared <head>: Tabler is the component vocabulary, loaded FIRST; the edge dark
+    identity (style.css :root tokens) loads AFTER so its palette wins the cascade — the
+    operator-approved dark theme does not regress under the framework. htmx is vendored
+    locally (no CDN supply chain) and included only where a page opts in via `htmx`. -#}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ title | default('edge') }}{% endblock %}</title>
+<link rel="stylesheet" href="/static/vendor/tabler.min.css">
+<link rel="stylesheet" href="/static/style.css">
+{% if htmx %}<script src="/static/vendor/htmx.min.js"></script>{% endif %}

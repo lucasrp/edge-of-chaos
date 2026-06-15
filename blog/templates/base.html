@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="{{ lang | default('pt') }}">
+<head>
+  {% include "partials/head.html" %}
+  {% block head_extra %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  {% block chrome %}
+  {% include "partials/nav.html" %}
+  {% endblock %}
+  {% block content %}{% endblock %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

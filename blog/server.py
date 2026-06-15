@@ -15,7 +15,8 @@ import sys
 import uuid
 from pathlib import Path
 
-from flask import Flask, abort, request, send_from_directory
+from flask import Flask, abort, render_template, request, send_from_directory
+from markupsafe import Markup
 
 BASE = Path(__file__).resolve().parent
 
@@ -24,7 +25,7 @@ BASE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE.parent / "tools"))
 import eventlog  # noqa: E402
 
-app = Flask(__name__)
+app = Flask(__name__)  # template_folder=blog/templates, static_folder=blog/static (the scaffold)
 
 # The default bind port (app.run + the origin allowlist default share this single source of truth,
 # so the operator on the default URL is never rejected by an allowlist that drifted from app.run).
@@ -165,17 +166,32 @@ _NAV_LINKS = (
     ("/direction", "direction"),
     ("/docs", "docs"),
     ("/wiki", "wiki"),
+    ("/ux-catalog", "ux-catalog"),
 )
 
 
 def _site_nav(current):
     """The shared header/nav, rendered with the CURRENT surface marked (aria-current="page") so the
-    bar reads as one app. `current` is the active path ("/", "/cortex", "/chat", "/briefing")."""
-    items = []
-    for path, label in _NAV_LINKS:
-        active = ' aria-current="page"' if path == current else ""
-        items.append(f'<a href="{path}"{active}>{html.escape(label)}</a>')
-    return f'<nav class="site-nav">{"".join(items)}</nav>'
+    bar reads as one app. `current` is the active path ("/", "/cortex", "/chat", "/briefing").
+    Renders through the shared `partials/nav.html` Jinja partial (the template scaffold), so the bar
+    is one source of truth across every surface (the Slice-7 #37 contract)."""
+    return Markup(render_template("partials/nav.html", nav_links=_NAV_LINKS, current=current))
+
+
+def _page(template, **ctx):
+    """Render a full page through the Jinja scaffold (`base.html` + the shared head/nav partials),
+    threading the standard context every surface shares (`nav_links` for the bar, `current` for the
+    active marker). A surface passes its own page template (under `pages/`) + its fold context; any
+    pre-rendered fragment HTML it threads in is wrapped Markup so Jinja does not double-escape it."""
+    return render_template(template, nav_links=_NAV_LINKS, **ctx)
+
+
+def _safe(html_str):
+    """Wrap server-rendered fragment HTML (the existing f-string render helpers — thread regions,
+    health strip, …) as Markup so the page template injects it verbatim. The fragment builders
+    already html-escape every log-derived value at the boundary, so this re-marks ALREADY-safe HTML;
+    it never trusts raw user input (that is escaped upstream in `_esc`/`html.escape`)."""
+    return Markup(html_str)
 
 
 def _published_slugs():
