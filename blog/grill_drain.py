@@ -58,6 +58,28 @@ def _events(log, until_seq=None):
     return out
 
 
+def log_is_intact(log):
+    """True iff EVERY non-blank line parses as JSON — the SAME strict parse `eventlog.read` (and so
+    the canonical `append_batch` seq-stamping) uses. The route validates this up front: a malformed
+    / schema-drifted line makes any canonical append raise (a miscounted base seq corrupts the
+    source of truth), so the drain must degrade BEFORE building/calling a reply generator (no API
+    spend) or attempting any close — not rely on the back-fill happening to append as a side-detector
+    (it returns early when there are no legacy targets, missing the corruption)."""
+    import json
+    from pathlib import Path
+    p = Path(log)
+    if not p.is_file():
+        return True
+    for line in p.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            json.loads(line)
+        except json.JSONDecodeError:
+            return False
+    return True
+
+
 # ── The lifecycle folds — openness, the actionable set, consistency ─────────────────────────────
 
 

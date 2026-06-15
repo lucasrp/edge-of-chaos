@@ -448,6 +448,47 @@ class TestDrainRouteAuthGate(unittest.TestCase):
         after = len([ln for ln in self.log.read_text().splitlines() if ln.strip()])
         self.assertEqual(after, before)  # nothing appended past the corrupt log
 
+    def test_malformed_log_with_no_backfill_target_still_degrades_no_generator(self):
+        # the gate's finding: a corrupt log with an OPEN voz.comment but NO legacy reply-only target
+        # → the back-fill returns [] early (no append), so it can't be the corruption detector. The
+        # route must validate the log strictly up front and degrade — no drain, no append.
+        import eventlog
+        eventlog.append("voz.comment", "voz:alpha-post",
+                        {"target_ref": "alpha-post", "comment_id": "open1", "body": "a fresh one"},
+                        log=self.log)
+        with open(self.log, "a") as fh:
+            fh.write("{ not valid json\n")
+        before = len([ln for ln in self.log.read_text().splitlines() if ln.strip()])
+        r = self.client.post("/grill/drain")  # no generator
+        self.assertNotEqual(r.status_code, 500)
+        self.assertEqual(json.loads(r.data)["backfill"], "degraded")
+        after = len([ln for ln in self.log.read_text().splitlines() if ln.strip()])
+        self.assertEqual(after, before)  # nothing appended
+
+    def test_malformed_log_with_no_backfill_target_degrades_before_generator(self):
+        # same corrupt-no-target log, but a generator IS set. The route must degrade BEFORE building
+        # or calling the generator — no API spend, no 500, no append.
+        import eventlog
+        eventlog.append("voz.comment", "voz:alpha-post",
+                        {"target_ref": "alpha-post", "comment_id": "open1", "body": "a fresh one"},
+                        log=self.log)
+        with open(self.log, "a") as fh:
+            fh.write("{ not valid json\n")
+        called = {"n": 0}
+
+        def gen(c):
+            called["n"] += 1  # if this ever fires on a corrupt log, that's a (potential live) spend
+            return {"reply": "x"}
+
+        self.server.DRAIN_REPLY_GENERATOR = gen
+        try:
+            r = self.client.post("/grill/drain")
+            self.assertNotEqual(r.status_code, 500)
+            self.assertEqual(json.loads(r.data)["backfill"], "degraded")
+        finally:
+            self.server.DRAIN_REPLY_GENERATOR = None
+        self.assertEqual(called["n"], 0)  # the generator was never invoked on a corrupt log
+
     def test_route_backfills_on_a_clean_upgraded_log(self):
         # the clean upgrade path: a historical reply-only comment, no garbage → the route migrates
         # it (the back-fill succeeds) and reports backfill ok, so nothing reopens.

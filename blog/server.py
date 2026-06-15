@@ -895,20 +895,27 @@ def grill_drain_route():
     # after the first and cannot reopen/reprocess (ADR-0017: the switch ships WITH the back-fill).
     # Fail-soft (same contract as the startup migration): a malformed/schema-drifted legacy line must
     # not 500 the route — degrade to the controlled response, never crash before it.
+    # Validate the authoritative log up front, with the SAME strict parse the canonical append uses
+    # to stamp seqs. A malformed/schema-drifted line makes any append raise (a miscounted base seq
+    # corrupts the source of truth), so we degrade BEFORE building or calling any reply generator (no
+    # API spend), before the back-fill, before any close — independent of whether there is a legacy
+    # back-fill target (the back-fill returns early with no target and so cannot be the detector).
+    if not grill_drain.log_is_intact(_log()):
+        return (json.dumps({"status": "migration-degraded", "backfill": "degraded",
+                            "detail": "the event log has a malformed line; no drain performed, no "
+                                      "append, no generator invoked — resolve the log first"}),
+                503, {"Content-Type": "application/json"})
+    # Log is intact → run the guarded migration. (Kept fail-soft as a belt-and-suspenders backstop;
+    # on an intact log it cannot raise.) drain() below is called with run_backfill=False so it never
+    # re-enters the unguarded back-fill.
     migrate_ok = True
     try:
         grill_drain.backfill_legacy_resolved(_log())
     except Exception:
         migrate_ok = False
-    # If the migration degraded (a corrupt/schema-drifted legacy log), DO NOT proceed to drain — a
-    # drain would append over a log we could not safely migrate (a miscounted seq corrupts the source
-    # of truth). Return the controlled degraded response, no append, never a 500. This is the single
-    # fail-soft point; drain() below is called with run_backfill=False so it never re-enters the
-    # unguarded back-fill and re-raises on the same corrupt log.
     if not migrate_ok:
         return (json.dumps({"status": "migration-degraded", "backfill": "degraded",
-                            "detail": "legacy back-fill could not complete (corrupt/legacy log); "
-                                      "no drain performed, no append — resolve the log first"}),
+                            "detail": "legacy back-fill could not complete; no drain, no append"}),
                 503, {"Content-Type": "application/json"})
     reply_fn = DRAIN_REPLY_GENERATOR
     if reply_fn is None:
