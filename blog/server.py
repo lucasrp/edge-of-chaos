@@ -1069,33 +1069,64 @@ def _log_cursor():
                 if isinstance(e.get("seq"), int)), default=0)
 
 
-def _graph_reachable():
-    """A CHEAP, BOUNDED graph-reachability probe for the health strip (neo4j only, NEVER an LLM —
-    zero API spend). Distinct from cortex_fold() (which loads the WHOLE graph): the strip only needs
-    a yes/no, so a single `RETURN 1` under a short connection timeout suffices and an unreachable
-    neo4j degrades fast (a few seconds), not a 60s hang on the landing. The Cortex fixture seam wins
-    when set, so tests stay hermetic (a fixture means the dashboard renders the graph → reachable).
-    Returns True/False; NEVER raises (a dark graph is a degraded signal, not a crash)."""
-    if os.environ.get("EDGE_CORTEX_FIXTURE"):
-        return True
-    group = _group()
-    if not group:
-        return False
+# The hard client-side deadline (seconds) on the graph-reachability probe — a neo4j that ACCEPTS a
+# connection but stalls on query execution must not hang /briefing past this, regardless of whether
+# the server honors the per-query timeout (Codex round-8). The strip degrades dark promptly.
+_GRAPH_PROBE_DEADLINE = 4
+
+# Test seam: a callable()->bool that replaces the real neo4j probe (tests inject a blocking/raising
+# one to prove the deadline bounds /briefing without a live neo4j). None → the real probe.
+GRAPH_PROBE = None
+
+
+def _neo4j_probe():
+    """The raw neo4j reachability probe: a single `RETURN 1` with BOTH a connection/pool timeout AND a
+    server-side per-query transaction timeout. NEVER an LLM (zero API spend). Returns True/False; may
+    block if neo4j accepts the connection then stalls — the caller bounds it with a hard deadline."""
     uri = os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
     user = os.environ.get("EDGE_NEO4J_USER", "neo4j")
     password = os.environ.get("EDGE_NEO4J_PASSWORD") or _neo4j_password()
     try:
-        from neo4j import GraphDatabase
+        from neo4j import GraphDatabase, Query
         drv = GraphDatabase.driver(uri, auth=(user, password), connection_timeout=3,
                                    connection_acquisition_timeout=3, max_transaction_retry_time=0)
         try:
             with drv.session() as s:
-                s.run("RETURN 1").consume()
+                s.run(Query("RETURN 1", timeout=3)).consume()  # server-side query deadline too
             return True
         finally:
             drv.close()
     except Exception:
         return False
+
+
+def _graph_reachable():
+    """A CHEAP, BOUNDED graph-reachability probe for the health strip (neo4j only, NEVER an LLM —
+    zero API spend). Distinct from cortex_fold() (which loads the WHOLE graph): the strip only needs a
+    yes/no. The probe runs under a HARD client-side deadline in a daemon thread (Codex round-8): a
+    neo4j that accepts the connection but stalls on the query cannot hang /briefing past the deadline —
+    the strip degrades dark promptly. The Cortex fixture seam wins when set (tests stay hermetic).
+    Returns True/False; NEVER raises (a dark graph is a degraded signal, not a crash)."""
+    if os.environ.get("EDGE_CORTEX_FIXTURE"):
+        return True
+    if not _group():
+        return False
+    probe = GRAPH_PROBE or _neo4j_probe
+    import threading
+    result = {"ok": False}
+
+    def _run():
+        try:
+            result["ok"] = bool(probe())
+        except Exception:
+            result["ok"] = False
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(_GRAPH_PROBE_DEADLINE)
+    # If the probe thread is still alive past the deadline (a stalled query), treat the graph as
+    # unreachable (dark) and return immediately — the daemon thread cannot block process exit.
+    return result["ok"] if not t.is_alive() else False
 
 
 def _degraded_strip(reason):

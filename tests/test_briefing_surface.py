@@ -467,6 +467,49 @@ class TestBriefingSurvivesCorruptDispatchTs(_BriefingBase):
         self.assertIn('class="health-strip', r.data.decode())
 
 
+class TestGraphProbeIsHardBounded(_BriefingBase):
+    """Codex round-8 [high]: a neo4j that ACCEPTS the connection then stalls on the query would hang
+    /briefing past the connection-timeout (which only bounds connect/pool-borrow, not query/consume).
+    The probe runs under a HARD client-side deadline in a daemon thread → a stalled probe returns dark
+    promptly, the strip degrades, /briefing renders 200 without waiting on the graph."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "dispatch.open", {"swept_sessions": 2}, subject="dispatch"),
+    ]
+
+    def setUp(self):
+        super().setUp()
+        # a fixture would short-circuit the probe → unset it so the GRAPH_PROBE seam is exercised.
+        os.environ.pop("EDGE_CORTEX_FIXTURE", None)
+        os.environ["EDGE_GROUP"] = "test-group"  # _group() truthy so the probe actually runs
+
+    def tearDown(self):
+        os.environ.pop("EDGE_GROUP", None)
+        self.server.GRAPH_PROBE = None
+        super().tearDown()
+
+    def test_a_stalled_probe_does_not_hang_briefing(self):
+        import time
+        blocked = {"released": False}
+
+        def _stall():
+            time.sleep(30)  # a stalled query — far past the deadline
+            blocked["released"] = True
+            return True
+
+        self.server.GRAPH_PROBE = _stall
+        self.server._GRAPH_PROBE_DEADLINE = 0.5  # shrink the deadline so the test is fast
+        t0 = time.time()
+        r = self.client.get("/briefing")
+        elapsed = time.time() - t0
+        self.assertEqual(r.status_code, 200)
+        self.assertLess(elapsed, 5, "the probe deadline did not bound /briefing")
+        body = r.data.decode()
+        # the graph reads DARK (the stalled probe timed out) → the strip is degraded
+        self.assertIn('data-metric="graph-reachable">DARK', body)
+        self.assertIn('class="health-strip degraded"', body)
+
+
 class TestSharedNav(_BriefingBase):
     """Task B — the shared header/nav (cross-cutting, starts at Slice 3): ONE nav linking all four
     surfaces, on every surface, built from the shared design vocabulary (no one-off styling)."""
