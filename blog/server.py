@@ -574,6 +574,10 @@ def _clarify_block(c, clarifies_by_id, surface="thread"):
             f'hx-target="{target}" hx-swap="outerHTML" '
             'hx-on::after-request="this.reset()">'
             f'<input type="hidden" name="clarify_id" value="{qid}">'
+            # the SUBMITTING surface, so the answer route returns the matching fragment (chat vs
+            # thread) — /chat renders slug-/node-targeted comments too, so target_ref alone can't tell
+            # a chat submission from a thread one (codex Slice-7 round-4 [high]).
+            f'<input type="hidden" name="surface" value="{html.escape(surface)}">'
             '<textarea name="body" placeholder="responda ao edge…" required></textarea>'
             '<button type="submit">responder</button></form></li>'
         )
@@ -847,6 +851,17 @@ def post_clarify_answer(clarify_id):
         _append_voz("voz.clarify_answer", f"voz:{target or 'chat'}",
                     {"clarify_id": clarify_id, "body": body},
                     idem_key=f"clarify-answer:{clarify_id}")
+    # Return the fragment for the SUBMITTING surface, not the comment's target_ref (codex Slice-7
+    # round-4 [high]): /chat renders slug-/node-targeted comments too, so a clarify answered from the
+    # chat must get back the <ul class="chat"> timeline — returning _render_thread(target) would let
+    # htmx swap the whole chat list with a single-thread projection, dropping the timeline. The form
+    # carries a validated `surface`; absent/unknown falls back to the target-based projection (a
+    # post-thread or general chat), preserving the pre-round-4 behavior for any non-form caller.
+    surface = request.form.get("surface")
+    if surface == "chat":
+        return _render_chat()
+    if surface == "thread":
+        return _render_thread(target)
     return _render_thread(target) if target else _render_chat()
 
 

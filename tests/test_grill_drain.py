@@ -356,12 +356,50 @@ class TestClarifyAnswerSurface(_Base):
         self._add("voz.clarify", "voz:chat",
                   {"comment_id": cid, "clarify_id": "qc", "question": "which scope?",
                    "grill_run_id": "g0"})
-        r = self.client.post("/clarify/qc/answer", data={"body": "the broad scope"})
+        r = self.client.post("/clarify/qc/answer", data={"body": "the broad scope", "surface": "chat"})
         self.assertEqual(r.status_code, 200)
         self.assertIn('class="chat"', r.data.decode())  # the chat region re-renders
         ans = self._events("voz.clarify_answer")
         self.assertEqual(len(ans), 1)
         self.assertEqual(ans[0]["payload"]["clarify_id"], "qc")
+
+    def test_chat_clarify_form_carries_its_surface_so_the_route_can_match_it(self):
+        # codex Slice-7 round-4 [high]: the answer route must return the fragment for the SUBMITTING
+        # surface, not the comment's target_ref. /chat renders EVERY comment (slug-, node-, and
+        # general-targeted), so a clarify form on /chat must carry surface=chat — else the route can't
+        # tell a chat submission from a thread one and may swap the chat list with thread markup.
+        self._comment("slug-targeted in chat", "alpha-post", comment_id="cs")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": "cs", "clarify_id": "qs", "question": "which?", "grill_run_id": "g0"})
+        chat = self.server._render_chat()
+        thread = self.server._render_thread("alpha-post")
+        self.assertIn('name="surface" value="chat"', chat)      # chat forms declare the chat surface
+        self.assertIn('name="surface" value="thread"', thread)  # thread forms declare the thread surface
+
+    def test_slug_targeted_clarify_answered_from_chat_returns_the_chat_fragment(self):
+        # codex Slice-7 round-4 [high]: a slug-targeted comment (target_ref='alpha-post') shown in
+        # /chat, answered from the chat surface, must get back a <ul class="chat"> — NOT a
+        # <ul class="thread"> that htmx would swap over the whole chat timeline (dropping it).
+        self._comment("slug-targeted ambiguous", "alpha-post", comment_id="cs")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": "cs", "clarify_id": "qs", "question": "which?", "grill_run_id": "g0"})
+        r = self.client.post("/clarify/qs/answer", data={"body": "the left", "surface": "chat"})
+        self.assertEqual(r.status_code, 200)
+        root = r.data.decode().lstrip()
+        self.assertTrue(root.startswith('<ul class="chat"'),
+                        f"chat-surface answer must return the chat fragment, got: {root[:40]!r}")
+        self.assertEqual(len(self._events("voz.clarify_answer")), 1)
+
+    def test_slug_targeted_clarify_answered_from_thread_returns_the_thread_fragment(self):
+        # the post-thread surface still gets the thread fragment (the swap replaces the post's thread).
+        self._comment("slug-targeted ambiguous", "alpha-post", comment_id="ct")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": "ct", "clarify_id": "qt2", "question": "which?", "grill_run_id": "g0"})
+        r = self.client.post("/clarify/qt2/answer", data={"body": "the left", "surface": "thread"})
+        self.assertEqual(r.status_code, 200)
+        root = r.data.decode().lstrip()
+        self.assertTrue(root.startswith('<ul class="thread"'),
+                        f"thread-surface answer must return the thread fragment, got: {root[:40]!r}")
 
     def test_clarify_answer_route_appends_a_child_event_not_a_comment(self):
         cid = self._comment("ambiguous one", "alpha-post")
