@@ -425,6 +425,29 @@ class TestDrainRouteAuthGate(unittest.TestCase):
         self.assertEqual(r.status_code, 503)
         self.assertEqual(json.loads(r.data)["backfill"], "degraded")  # surfaced, not crashed
 
+    def test_generator_backed_route_does_not_500_on_a_malformed_log(self):
+        # the gate's finding: with a generator configured, the route still drained — and drain()
+        # re-ran the back-fill unguarded → 500 on a corrupt log. Now a degraded migration aborts the
+        # drain with a controlled degraded response, and nothing is appended past the corrupt log.
+        import eventlog
+        eventlog.append("voz.comment", "voz:alpha-post",
+                        {"target_ref": "alpha-post", "comment_id": "legacy1", "body": "oi"},
+                        log=self.log)
+        eventlog.append("voz.reply", "voz:alpha-post",
+                        {"comment_id": "legacy1", "body": "hand reply"}, log=self.log)
+        with open(self.log, "a") as fh:
+            fh.write("{ not valid json\n")
+        before = len([ln for ln in self.log.read_text().splitlines() if ln.strip()])
+        self.server.DRAIN_REPLY_GENERATOR = lambda c: {"reply": "stub, no llm"}
+        try:
+            r = self.client.post("/grill/drain")  # generator set → would have drained
+            self.assertNotEqual(r.status_code, 500)  # must NOT 500
+            self.assertEqual(json.loads(r.data)["backfill"], "degraded")
+        finally:
+            self.server.DRAIN_REPLY_GENERATOR = None
+        after = len([ln for ln in self.log.read_text().splitlines() if ln.strip()])
+        self.assertEqual(after, before)  # nothing appended past the corrupt log
+
     def test_route_backfills_on_a_clean_upgraded_log(self):
         # the clean upgrade path: a historical reply-only comment, no garbage → the route migrates
         # it (the back-fill succeeds) and reports backfill ok, so nothing reopens.

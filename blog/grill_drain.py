@@ -354,7 +354,7 @@ class _AlreadyClosed(Exception):
     re-run path: nothing is written, the drain reports the chat as already handled."""
 
 
-def drain(log, reply_fn, grill_run_id=None, cap=DEFAULT_BATCH_CAP):
+def drain(log, reply_fn, grill_run_id=None, cap=DEFAULT_BATCH_CAP, run_backfill=True):
     """Run one grill drain over `log`.
 
     Captures the start cursor + actionable set, loads a deterministic harm-ranked CAPPED batch,
@@ -376,7 +376,10 @@ def drain(log, reply_fn, grill_run_id=None, cap=DEFAULT_BATCH_CAP):
     # can observe the log, close every historical reply-only comment (legacy-settled) so the switch
     # never RE-OPENS or the drain never RE-PROCESSES it (ADR-0017 migration; acceptance h). Idempotent
     # — a no-op once the log is migrated, so running it every drain costs nothing after the first.
-    backfill_legacy_resolved(log)
+    # `run_backfill=False` lets a caller that ALREADY ran the migration under its own fail-soft guard
+    # (the HTTP route) skip this second, unguarded call — so a corrupt log can't 500 the route here.
+    if run_backfill:
+        backfill_legacy_resolved(log)
     start_cursor = _start_cursor(log)
     # Snapshot the actionable set AT the cursor: a comment arriving after start_cursor (e.g. a
     # concurrent operator post, or one landing mid-drain) is NOT in this batch — it stays open as

@@ -900,18 +900,29 @@ def grill_drain_route():
         grill_drain.backfill_legacy_resolved(_log())
     except Exception:
         migrate_ok = False
+    # If the migration degraded (a corrupt/schema-drifted legacy log), DO NOT proceed to drain — a
+    # drain would append over a log we could not safely migrate (a miscounted seq corrupts the source
+    # of truth). Return the controlled degraded response, no append, never a 500. This is the single
+    # fail-soft point; drain() below is called with run_backfill=False so it never re-enters the
+    # unguarded back-fill and re-raises on the same corrupt log.
+    if not migrate_ok:
+        return (json.dumps({"status": "migration-degraded", "backfill": "degraded",
+                            "detail": "legacy back-fill could not complete (corrupt/legacy log); "
+                                      "no drain performed, no append — resolve the log first"}),
+                503, {"Content-Type": "application/json"})
     reply_fn = DRAIN_REPLY_GENERATOR
     if reply_fn is None:
         if os.environ.get("EDGE_DRAIN_LIVE") != "1":
             # Default: refuse to spend the user's OpenAI API. The migration already ran above; this
             # path appends no reply (no generator) — only the lifecycle back-fill, which is correct.
-            return (json.dumps({"status": "no-generator", "backfill": "ok" if migrate_ok else "degraded",
+            return (json.dumps({"status": "no-generator", "backfill": "ok",
                                 "detail": "live drain disabled (set EDGE_DRAIN_LIVE=1 to spend the "
                                           "edge OpenAI API); legacy back-fill applied"}),
                     503, {"Content-Type": "application/json"})
         reply_fn = grill_drain.live_reply_generator()  # ⚠️ spends the user's OpenAI API
-    loaded = grill_drain.drain(_log(), reply_fn)
-    return (json.dumps({"status": "drained", "backfill": "ok" if migrate_ok else "degraded",
+    # run_backfill=False: the guarded migration above already ran — never re-enter it unguarded here.
+    loaded = grill_drain.drain(_log(), reply_fn, run_backfill=False)
+    return (json.dumps({"status": "drained", "backfill": "ok",
                         "loaded": [c.get("comment_id") for c in loaded]}),
             200, {"Content-Type": "application/json"})
 
