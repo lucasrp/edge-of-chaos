@@ -283,28 +283,76 @@ a:hover { color: #a8c2ff; }
   text-shadow: 0 0 4px #0a0c11, 0 0 4px #0a0c11; white-space: nowrap;
 }
 
-/* the read-only inspect panel — a clicked node's content */
+/* the enriched slide-in inspect panel (Slice 3, M7) — a clicked node's structured content. A
+   right-anchored side panel that SLIDES in on select (the reference's behavior), built on the dark
+   identity tokens (no parallel styling). Hidden = translated off-canvas; .hidden display:none keeps
+   it out of the flow until first reveal. */
 .cortex-inspect {
-  position: fixed; right: 18px; bottom: 18px; max-width: 320px;
-  background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 12px 14px;
-  box-shadow: var(--shadow); color: var(--text);
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(360px, 92vw);
+  display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+  background: var(--surface-2); border-left: 1px solid var(--border);
+  padding: 20px 18px 22px; box-shadow: var(--shadow); color: var(--text);
+  transform: translateX(0); transition: transform .22s ease;
+  z-index: 5;
 }
-.cortex-inspect.hidden { display: none; }
+/* M7 — the hidden state keeps the panel RENDERED off-canvas (transform), not display:none, so the
+   slide-in transition has a visible start (translateX(100%)) and end (translateX(0)). visibility +
+   pointer-events keep the off-canvas panel inert (no click interception, removed from a11y/tab order)
+   while still animatable — display:none would jump-cut both directions (codex finding). */
+.cortex-inspect.hidden {
+  transform: translateX(100%); visibility: hidden; pointer-events: none;
+}
+/* M13 — the dismiss control, top-right of the panel */
+.cortex-inspect-close {
+  position: absolute; top: 10px; right: 12px;
+  background: none; border: none; color: var(--text-dim);
+  font-size: 1.2rem; line-height: 1; cursor: pointer; padding: 2px 6px;
+}
+.cortex-inspect-close:hover { color: var(--text); }
+.cortex-inspect-head { padding-right: 22px; }
 .cortex-inspect .kind {
   font: 600 .7rem/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase;
   color: var(--accent);
 }
-.cortex-inspect .title { margin: 6px 0 0; font-size: .9rem; word-break: break-word; }
-/* the node→source drill-down (Slice 5b) — the graph stops being an island */
+.cortex-inspect .title { margin: 6px 0 0; font-size: .95rem; word-break: break-word; }
+/* M10 — FULL DEFINITION prose + the READ MORE drill (the graph stops being an island) */
+.cortex-inspect-full .full-definition {
+  margin: 0; font-size: .86rem; line-height: 1.5; color: var(--text); word-break: break-word;
+}
+.cortex-inspect .read-more { margin: 10px 0 0; font-size: .82rem; }
+.cortex-inspect .read-more a { font-family: var(--font-mono); color: var(--accent); }
+/* M10b — SEEN IN THE WILD: the node's REAL href provenance (omitted when absent — no dead block) */
+.cortex-inspect-wild:empty { display: none; }
+.cortex-inspect-wild { border-top: 1px solid var(--border); padding-top: 12px; }
+.cortex-inspect .wild-label {
+  margin: 0 0 4px; font: 600 .68rem/1 var(--font-mono); letter-spacing: .1em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.cortex-inspect .wild-source { margin: 0; font-size: .82rem; }
+.cortex-inspect .wild-source a { font-family: var(--font-mono); color: var(--accent); }
+/* the clean Slice-4 seam — the CONNECTS-TO pills mount here later (empty + collapsed in Slice 3) */
+.cortex-inspect-connects:empty { display: none; }
+/* the node→source drill-down (legacy .source class, retained) */
 .cortex-inspect .source { margin: 10px 0 0; font-size: .82rem; }
 .cortex-inspect .source a { font-family: var(--font-mono); color: var(--accent); }
 /* the Earmarked corrective write-path (Slice 6b) — a node-targeted Voz composer in the inspect
    panel, reusing the shared .composer vocabulary; only the harm-cue label colour extends it. */
-.cortex-inspect .composer.correction { margin-top: 12px; }
+.cortex-inspect-composer:empty { display: none; }
+.cortex-inspect-composer { border-top: 1px solid var(--border); padding-top: 12px; }
+.cortex-inspect .composer.correction { margin-top: 0; }
 .cortex-inspect .correction-label { margin: 0 0 2px; color: var(--harm, #f87171); }
 .cortex-inspect .correction-status:empty { display: none; }
 .cortex-inspect .correction-status { margin: 6px 0 0; }
+/* the /ux-catalog demo renders the shell un-dismissed (relative, in-flow) so the live instance is
+   visible in the style guide — the catalog shows the macro, the panel still slides in on /cortex. */
+.catalog-inspect-demo { position: relative; min-height: 200px; }
+.catalog-inspect-demo .cortex-inspect {
+  position: relative; inset: auto; width: 100%; max-width: 360px;
+  transform: none; box-shadow: none;
+}
+.catalog-inspect-demo .cortex-inspect.hidden {
+  transform: none; visibility: visible; pointer-events: auto;
+}
 
 /* ---- cortex search + filter controls (Slice 6) — extends the shared token/component vocabulary,
    no one-off styling: the same surface/border/mono-meta language as the inspect panel + nav ---- */

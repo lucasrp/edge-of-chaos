@@ -25,3 +25,23 @@
 {%- macro metric(label, key, value, bad=false) -%}
 <span class="{{ 'metric bad' if bad else 'metric' }}"><span class="m-label">{{ label | e }}</span><span class="m-val" data-metric="{{ key | e }}">{{ value | e }}</span></span>
 {%- endmacro -%}
+
+{#- The Cortex inspect panel (Slice 3, M7) — the enriched slide-in side panel that opens on
+    node-select. Rendered as an EMPTY shell: the cortex.js island FILLS each data-panel-region by DOM
+    API + esc() on select (the breakout defense is a security feature — the macro never interpolates
+    payload content; it only lays out the regions). The composer slot stays empty until an Earmarked
+    node is selected (the island appends the Slice-6b correction composer there, verbatim). The
+    `connects` region is the clean seam the Slice-4 CONNECTS-TO pills mount into — present, not wired. -#}
+{%- macro inspect_panel() -%}
+<aside id="cortex-inspect" class="cortex-inspect hidden" aria-hidden="true">
+  <button type="button" class="cortex-inspect-close" aria-label="fechar">×</button>
+  <header class="cortex-inspect-head">
+    <span class="kind" data-panel-region="term"></span>
+    <p class="title" data-panel-region="definition"></p>
+  </header>
+  <section class="cortex-inspect-full" data-panel-region="full"></section>
+  <section class="cortex-inspect-wild" data-panel-region="wild"></section>
+  <nav class="cortex-inspect-connects" data-panel-region="connects"></nav>
+  <div class="cortex-inspect-composer" data-panel-region="composer"></div>
+</aside>
+{%- endmacro -%}

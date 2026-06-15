@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "components/ui.html" import inspect_panel with context %}
 {% block title %}edge — cortex{% endblock %}
 {% block body_class %}cortex-page{% endblock %}
 {#- The full-canvas island: the nav lives INSIDE the head (a corner subset), not the centered
@@ -10,5 +11,9 @@
 <p class="meta">surf the agent's brain — pan, zoom, clique num nó. space-0 é o núcleo; o brilho cai com a confiança.</p>
 {{ controls }}</header>
 <main class="cortex-main">{{ graph }}</main>
+{#- Slice 3 (M7/G5): the enriched inspect panel shell — the shared macro, rendered into the shipped
+    /cortex DOM only when there is a graph to inspect (the island fills it on select). Absent on the
+    fail-dark page (no payload → no island), keeping the dark state clean. -#}
+{% if island %}{{ inspect_panel() }}{% endif %}
 {% endblock %}
 {% block scripts %}{{ island }}{% endblock %}

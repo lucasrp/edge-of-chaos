@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "components/ui.html" import steer, metric with context %}
+{% from "components/ui.html" import steer, metric, inspect_panel with context %}
 {% block title %}edge — ux-catalog{% endblock %}
 {% block body_class %}ux-catalog{% endblock %}
 {% block content %}
@@ -97,6 +97,15 @@ componente, cheque aqui — pode já existir. Ao adicionar uma variante, registr
   <section class="doc-group"><h3>ADR</h3>
     <ul class="doc-list"><li><a href="#">um doc navegável (glossário, ADR, Idiom, roadmap)</a></li></ul>
   </section>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">cortex inspect panel — <code>.cortex-inspect</code> (<code>inspect_panel</code>)</h2>
+  <p class="meta">o painel lateral enriquecido do Cortex (Slice 3): desliza ao selecionar um nó —
+  termo + definição, FULL DEFINITION + READ MORE, SEEN IN THE WILD (a procedência real do nó), o
+  compositor de correção do nó Earmarked, e o fechar. O island preenche as regiões por DOM API +
+  <code>esc()</code> (a defesa de breakout). Mostrado aqui como a casca vazia (não dispensada).</p>
+  <div class="catalog-inspect-demo">{{ inspect_panel() }}</div>
 </section>
 
 <section class="catalog-section">

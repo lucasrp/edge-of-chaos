@@ -1125,5 +1125,150 @@ class TestCortexRenderLogic(unittest.TestCase):
         self.assertNotIn(".nodeLabel(", js)
 
 
+class TestSlice3InspectPanelShell(unittest.TestCase):
+    """Slice 3 — the enriched slide-in inspect panel as a SERVER-RENDERED Jinja macro shell.
+
+    The panel's MARKUP is now a registered `inspect_panel` macro in components/ui.html, rendered
+    into pages/cortex.html (so the shipped /cortex DOM carries the empty regions — NOT a JS-only
+    one-off the island builds from scratch), AND registered on /ux-catalog. The island then FILLS
+    the macro's empty regions by DOM API + esc() on select (the breakout defense survives — it is a
+    security feature, not a rewrite-to-innerHTML)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.fix = Path(self.tmp.name) / "cortex.json"
+        self.fix.write_text(json.dumps(FIXTURE))
+        self.server = _load_server({
+            "EDGE_CORTEX_FIXTURE": str(self.fix),
+            "EDGE_GROUP": "edge-next",
+        })
+        self.client = self.server.app.test_client()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        os.environ.pop("EDGE_CORTEX_FIXTURE", None)
+
+    def test_cortex_dom_carries_the_inspect_panel_macro_shell(self):
+        # M7/G5 — the shared macro is USED on the shipped surface: the /cortex DOM itself carries the
+        # inspect_panel shell regions (not merely that /ux-catalog lists it). The island POPULATES
+        # this shell; it does not createElement the whole panel.
+        body = self.client.get("/cortex").data.decode()
+        self.assertIn('id="cortex-inspect"', body)
+        # the structured regions the island fills by DOM API (M8 term/def, M10 full-definition, M10b
+        # seen-in-the-wild, the composer slot, the dismiss control)
+        self.assertIn('data-panel-region="term"', body)
+        self.assertIn('data-panel-region="definition"', body)
+        self.assertIn('data-panel-region="full"', body)
+        self.assertIn('data-panel-region="wild"', body)
+        self.assertIn('data-panel-region="composer"', body)
+        # the dismiss / close control (M13)
+        self.assertIn("cortex-inspect-close", body)
+        # a clean seam for the Slice-4 CONNECTS-TO pills to mount later (NOT wired in Slice 3)
+        self.assertIn('data-panel-region="connects"', body)
+
+    def test_inspect_panel_shell_is_hidden_until_a_node_is_selected(self):
+        # the macro renders the panel in its dismissed state — the island reveals it on select (M13).
+        body = self.client.get("/cortex").data.decode()
+        self.assertIn('id="cortex-inspect" class="cortex-inspect hidden"', body)
+
+    def test_inspect_panel_shell_absent_on_the_dark_page(self):
+        # fail-dark stays clean (M16) — no panel shell leaks onto the dark page (nothing to inspect).
+        server = _load_server({"EDGE_CORTEX_FIXTURE": None})
+        server._group = lambda: None
+        body = server.app.test_client().get("/cortex").data.decode()
+        self.assertNotIn('id="cortex-inspect"', body)
+        self.assertIn("dark", body.lower())
+
+    def test_inspect_panel_macro_is_registered_on_the_catalog(self):
+        # M20/G5 — every NEW shared component is registered on the living /ux-catalog so a builder
+        # finds it before authoring a one-off.
+        self.assertIn("inspect_panel", self.server._UI_MACROS)
+        body = self.client.get("/ux-catalog").data.decode()
+        self.assertIn("inspect_panel", body)
+        # the catalog renders the macro as a real instance (the shell), not just its name
+        self.assertIn('class="cortex-inspect', body)
+
+
+class TestSlice3InspectPanelIsland(unittest.TestCase):
+    """Slice 3 — the island FILLS the server-rendered macro shell by DOM API + esc() (the breakout
+    defense survives), carrying M8 (term + one-line definition), M10 (FULL DEFINITION prose +
+    READ MORE source drill), M10b (SEEN IN THE WILD = the node's REAL href provenance, omitted when
+    absent — never a fabricated quote), M12 (the Earmarked composer preserved verbatim), M13 (dismiss)."""
+
+    def setUp(self):
+        self.js = CORTEX_JS.read_text()
+
+    def test_island_populates_the_macro_shell_not_createElement_the_panel(self):
+        # G5/M7 — the island no longer builds the whole panel: it LOOKS UP the server-rendered shell
+        # and fills its regions. (The old `createElement("div")` + `panel.id = "cortex-inspect"`
+        # construction is gone; the shell is server-rendered.)
+        self.assertIn('getElementById("cortex-inspect")', self.js)
+        self.assertNotIn('panel.id = "cortex-inspect"', self.js)
+        # the regions are addressed by the macro's data-panel-region hooks (via the panelRegion lookup)
+        self.assertIn('data-panel-region="', self.js)   # the selector that targets the shell's slots
+        self.assertIn('panelRegion("full")', self.js)
+        self.assertIn('panelRegion("wild")', self.js)
+
+    def test_panel_fill_uses_textContent_not_innerHTML_from_payload(self):
+        # R5/M17 — the breakout defense: the term/definition/full-definition prose are written as TEXT
+        # (.textContent), NEVER innerHTML interpolated from the payload. textContent never parses
+        # markup, so a poisoned title/content carrying `</script><script>` / `" onclick=` is inert.
+        self.assertIn(".textContent", self.js)
+        # the panel fill region prose is set via textContent (the M8/M10 fields)
+        self.assertIn("termEl.textContent", self.js)
+        self.assertIn("pp.textContent = String(prose)", self.js)
+        # no payload value is ever assigned into innerHTML inside the panel fill (the breakout surface)
+        self.assertNotIn('innerHTML = "<', self.js)
+        self.assertNotIn("innerHTML = '<", self.js)
+        # the old innerHTML-from-payload panel build is GONE (it concatenated esc(node.title) into markup)
+        self.assertNotIn("'<span class=\"kind\">' + ", self.js)
+
+    def test_full_definition_renders_the_untruncated_content(self):
+        # M10 — the FULL DEFINITION prose body is the node's `content` (untruncated, already in the
+        # payload via _map_node). The island reads content from the full payload node (the renderer's
+        # local node object carries only the truncated `title`; content lives on payload.nodes).
+        self.assertIn(".content", self.js)
+        # READ MORE / abrir fonte → the existing href drill, via the unchanged appendLink guard (M10)
+        self.assertIn("appendLink", self.js)
+
+    def test_seen_in_the_wild_maps_to_the_real_href_and_omits_when_absent(self):
+        # M10b — SEEN IN THE WILD is the node's REAL href provenance (no fabrication). When a node has
+        # an href it surfaces as the provenance affordance; when it does not, the block is OMITTED (no
+        # dead link, no placeholder). The same internal-path-only appendLink guard is reused, and the
+        # "omit when absent" branch keys off appendLink's return value.
+        self.assertIn('panelRegion("wild")', self.js)
+        self.assertIn("if (linked)", self.js)  # the OMIT-when-no-href branch (M10b)
+        # no fabricated evidence-quote string is authored in the island (M10b: provenance, not a quote)
+        self.assertNotIn("SEEN IN THE WILD:", self.js)  # no hardcoded fake evidence text
+
+    def test_correction_composer_preserved_verbatim(self):
+        # M12 — the Slice-6b Earmarked correction composer is preserved VERBATIM in behavior: the
+        # same DOM-safe form.action + encodeURIComponent + the stable-then-advance nonce + same-origin
+        # POST through the Slice-1 gate. test_cortex_correct.py pins the route; here we pin the island
+        # still builds the same composer (a regression breaks a shipped trust boundary).
+        self.assertIn("appendCorrection", self.js)
+        self.assertIn('encodeURIComponent(nodeId)', self.js)
+        self.assertIn('form.action = "/cortex/"', self.js)
+        # the stable-then-advance idempotent nonce survives the panel rebuild
+        self.assertIn("comment_nonce", self.js)
+        # only an Earmarked node gets the composer (the harm-settled subset), keyed by the STABLE ref
+        self.assertIn("node.earmarked", self.js)
+        self.assertIn("node.ref || node.id", self.js)
+
+    def test_dismiss_returns_to_the_free_flight_cloud(self):
+        # M13 — a close affordance (and the existing tap-background) dismiss the panel back to the
+        # cloud. The close control is wired by the island.
+        self.assertIn("cortex-inspect-close", self.js)
+        self.assertIn("hidePanel", self.js)
+
+    def test_connects_to_pill_seam_is_present_but_not_wired(self):
+        # The panel shell has an OBVIOUS place for the Slice-4 CONNECTS-TO pills to mount later (the
+        # `connects` region in the macro), but Slice 3 does NOT wire them from the island — no neighbor
+        # index, no pill rendering, the island never touches the connects region. A clean seam, not a
+        # half-build. (The seam's presence in the shipped DOM is pinned in the shell test.)
+        self.assertNotIn('panelRegion("connects")', self.js)  # the island leaves the seam untouched
+        self.assertNotIn("neighborIndex", self.js)  # Slice 4 builds this
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

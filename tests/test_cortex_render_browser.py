@@ -64,6 +64,8 @@ def _make_fixture(path, n_nodes, n_edges):
             "label": {"space0": "Genesis", "asserted": "Direction",
                       "extracted": "Entity", "episodic": "Episodic"}[trust],
             "title": f"node {i}",
+            # the FULL DEFINITION prose (M10) — untruncated, distinct from the one-line title
+            "content": f"the full untruncated definition of node {i}, longer than the title blurb",
             "trust": trust,
             "earmarked": (i % 97 == 0),
         }
@@ -397,6 +399,117 @@ class CortexBrowserGate(unittest.TestCase):
             " return !!p && !p.classList.contains('hidden'); }")
         self.assertTrue(panel_open, "the deep-linked node's inspect panel did not open on the list rung")
         page.close()
+
+    # ── Slice 3 — the enriched inspect panel populates the SERVER-RENDERED macro shell on select ─────
+    def test_slice3_panel_fills_the_macro_shell_regions(self):
+        # M7/M8/M10/M10b/M13 — selecting a node fills the inspect_panel macro's regions: term +
+        # one-line definition + the FULL DEFINITION prose + READ MORE, and SEEN IN THE WILD when the
+        # node has a real href. Driven deterministically via the list rung (?node=n5 — n5 has /direction
+        # href + content). The shell is the SERVER-rendered macro (not a JS-built div).
+        page = self._page(
+            "window.__cortexForceWebgl = false; window.__cortexForceCytoscapeFail = true;",
+            url="/cortex?node=n5")
+        page.wait_for_function(
+            "() => document.documentElement.getAttribute('data-cortex-renderer') === 'list'",
+            timeout=4000)
+        page.wait_for_timeout(300)
+        # the panel is the macro shell (an <aside id=cortex-inspect> with data-panel-region slots)
+        is_macro_shell = page.evaluate(
+            "() => { const p = document.getElementById('cortex-inspect');"
+            " return !!p && p.tagName === 'ASIDE' &&"
+            " !!p.querySelector('[data-panel-region=\"term\"]'); }")
+        self.assertTrue(is_macro_shell, "the panel is not the server-rendered macro shell (G5 fail)")
+        # M8 — term + one-line definition filled
+        term = page.evaluate(
+            "() => document.querySelector('[data-panel-region=\"term\"]').textContent")
+        definition = page.evaluate(
+            "() => document.querySelector('[data-panel-region=\"definition\"]').textContent")
+        self.assertTrue(term, "the term region is empty (M8)")
+        self.assertIn("node 5", definition, "the one-line definition did not fill (M8)")
+        # M10 — the FULL DEFINITION untruncated prose + READ MORE drill
+        full = page.evaluate(
+            "() => document.querySelector('[data-panel-region=\"full\"]').textContent")
+        self.assertIn("full untruncated definition", full, "the FULL DEFINITION prose did not fill (M10)")
+        read_more = page.evaluate(
+            "() => { const a = document.querySelector('.cortex-inspect .read-more a');"
+            " return a ? a.getAttribute('href') : null; }")
+        self.assertEqual(read_more, "/direction", "READ MORE did not link the source href (M10)")
+        # M10b — SEEN IN THE WILD surfaces the REAL href provenance (n5 has /direction)
+        wild = page.evaluate(
+            "() => { const a = document.querySelector('.cortex-inspect .wild-source a');"
+            " return a ? a.getAttribute('href') : null; }")
+        self.assertEqual(wild, "/direction", "SEEN IN THE WILD did not surface the href provenance (M10b)")
+        page.close()
+
+    def test_slice3_panel_omits_seen_in_the_wild_when_no_href(self):
+        # M10b — a node WITHOUT an href omits the SEEN-IN-THE-WILD block (no dead link, no placeholder,
+        # no fabricated quote). n1 (i%5 != 0) carries no href in the fixture.
+        page = self._page(
+            "window.__cortexForceWebgl = false; window.__cortexForceCytoscapeFail = true;",
+            url="/cortex?node=n1")
+        page.wait_for_function(
+            "() => document.documentElement.getAttribute('data-cortex-renderer') === 'list'",
+            timeout=4000)
+        page.wait_for_timeout(300)
+        open_ = page.evaluate(
+            "() => { const p = document.getElementById('cortex-inspect');"
+            " return !!p && !p.classList.contains('hidden'); }")
+        self.assertTrue(open_, "the panel did not open for n1")
+        wild_empty = page.evaluate(
+            "() => { const w = document.querySelector('[data-panel-region=\"wild\"]');"
+            " return !!w && w.children.length === 0 && (w.textContent || '').trim() === ''; }")
+        self.assertTrue(wild_empty, "SEEN IN THE WILD was not omitted for a node with no href (M10b)")
+        page.close()
+
+    def test_slice3_close_control_dismisses_the_panel(self):
+        # M13 — the explicit close control returns to the free-flight cloud (the panel re-hides).
+        page = self._page(
+            "window.__cortexForceWebgl = false; window.__cortexForceCytoscapeFail = true;",
+            url="/cortex?node=n5")
+        page.wait_for_function(
+            "() => document.documentElement.getAttribute('data-cortex-renderer') === 'list'",
+            timeout=4000)
+        page.wait_for_timeout(300)
+        page.click(".cortex-inspect-close")
+        page.wait_for_timeout(150)
+        hidden = page.evaluate(
+            "() => document.getElementById('cortex-inspect').classList.contains('hidden')")
+        self.assertTrue(hidden, "the close control did not dismiss the panel (M13)")
+        page.close()
+
+    def test_slice3_panel_slides_off_canvas_to_on_canvas(self):
+        # M7 (codex finding) — the hidden state must keep the panel RENDERED off-canvas so the slide-in
+        # transition has a visible start/end (NOT display:none, which jump-cuts). Assert: a node with
+        # NO ?node= deep-link starts hidden + off-canvas (translateX != 0), and selecting it (via the
+        # list rung's deep-link) moves it on-canvas (translateX ≈ 0). The transform is the M7 channel.
+        def tx(page):
+            return page.evaluate("""() => {
+                const p = document.getElementById('cortex-inspect');
+                const m = new DOMMatrixReadOnly(getComputedStyle(p).transform);
+                return m.m41;  // the translateX in px
+            }""")
+        # hidden (no deep-link): off-canvas + display NOT none (still rendered, animatable)
+        page = self._page(
+            "window.__cortexForceWebgl = false; window.__cortexForceCytoscapeFail = true;")
+        page.wait_for_function(
+            "() => document.documentElement.getAttribute('data-cortex-renderer') === 'list'",
+            timeout=4000)
+        page.wait_for_timeout(200)
+        display = page.evaluate(
+            "() => getComputedStyle(document.getElementById('cortex-inspect')).display")
+        self.assertNotEqual(display, "none", "the hidden panel is display:none — the slide jump-cuts (M7)")
+        self.assertGreater(tx(page), 50, "the hidden panel is not off-canvas (no slide start state, M7)")
+        page.close()
+        # open (deep-link select): on-canvas (translateX ≈ 0)
+        page2 = self._page(
+            "window.__cortexForceWebgl = false; window.__cortexForceCytoscapeFail = true;",
+            url="/cortex?node=n5")
+        page2.wait_for_function(
+            "() => document.documentElement.getAttribute('data-cortex-renderer') === 'list'",
+            timeout=4000)
+        page2.wait_for_timeout(500)  # let the .22s slide transition settle
+        self.assertLess(abs(tx(page2)), 5, "the open panel did not slide on-canvas (translateX ≈ 0, M7)")
+        page2.close()
 
     # ── (d) list forced to fail → the honest message ───────────────────────────────────────────────
     def test_d_list_failure_falls_to_message(self):

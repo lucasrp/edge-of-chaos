@@ -326,26 +326,26 @@
   var nodeById = {};
   payload.nodes.forEach(function (n) { nodeById[n.id] = n; });
 
-  function esc(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
-
   // The drill-down into the node's source surface — built with DOM APIs (createElement + assign
   // a.href / a.textContent), NEVER by interpolating the graph-derived href into an `href="..."`
   // attribute STRING (codex round-1 [high]): esc() does not escape quotes, so a poisoned value
   // carrying `" onclick=...` would break out of a string attribute and bind a same-origin handler →
   // an authenticated mutating POST, defeating the Slice-1 gate. Assigning a.href sets the attribute
   // verbatim. Only an INTERNAL same-origin path (leading "/", not "//") is ever linked.
-  function appendLink(into, href) {
-    if (typeof href !== "string" || href.charAt(0) !== "/" || href.charAt(1) === "/") return;
+  // label/className default to the legacy "abrir fonte →"/"source" (the unchanged drill semantics);
+  // Slice 3 passes distinct labels for the FULL DEFINITION's READ MORE and the SEEN-IN-THE-WILD
+  // provenance — same DOM-API construction, same internal-path-only guard. Returns true iff a link was
+  // appended (so M10b can OMIT the SEEN-IN-THE-WILD block when the node has no internal href).
+  function appendLink(into, href, label, className) {
+    if (typeof href !== "string" || href.charAt(0) !== "/" || href.charAt(1) === "/") return false;
     var p = document.createElement("p");
-    p.className = "source";
+    p.className = className || "source";
     var a = document.createElement("a");
     a.href = href;                 // verbatim attribute assignment — no string interpolation
-    a.textContent = "abrir fonte →";
+    a.textContent = label || "abrir fonte →";
     p.appendChild(a);
     into.appendChild(p);
+    return true;
   }
 
   // The correction composer for an Earmarked node — a small Voz composer that POSTs a voz.comment
@@ -397,29 +397,80 @@
     into.appendChild(status);
   }
 
-  // The floating inspect panel (Slice 2: the CURRENT minimal panel — kind + title + source link +
-  // Earmarked composer; the enriched slide-in panel is Slice 3). Shared across renderers: a node
-  // object (from the payload) drives it, so 3D and Cytoscape (and the list) all open the same panel.
-  var panel = document.createElement("div");
-  panel.id = "cortex-inspect";
-  panel.className = "cortex-inspect hidden";
-  document.body.appendChild(panel);
+  // The enriched slide-in inspect panel (Slice 3, M7/M8/M10/M10b/M12/M13). The MARKUP is the
+  // server-rendered `inspect_panel` Jinja macro shell (components/ui.html), present in the shipped
+  // /cortex DOM (G5/M20: the shared component is USED on the surface, not a JS-only one-off). The
+  // island POPULATES the shell's data-panel-region slots by DOM API + .textContent on select —
+  // keeping the no-string-interpolation breakout defense (R5/M17): a poisoned title/content stays
+  // inert TEXT (textContent never parses markup, the same defense the M6 labels use). The
+  // node object (from the renderer) carries the display fields; the FULL DEFINITION `content` lives on
+  // the full payload node (nodeById), which the renderer's local copy omits.
+  var panel = document.getElementById("cortex-inspect");
+  function panelRegion(name) {
+    return panel ? panel.querySelector('[data-panel-region="' + name + '"]') : null;
+  }
 
   function showPanel(node) {
-    if (!node) return;
-    // esc() escapes &<> — the kind/title are rendered as TEXT content of these spans/paras, never as
-    // an attribute, so a poisoned title cannot break out (M17/R5). The source link + the composer are
-    // built with DOM APIs (no attribute-string interpolation).
-    panel.innerHTML =
-      '<span class="kind">' + esc(node.label) + "</span>" +
-      '<p class="title">' + esc(node.title) + "</p>";
-    appendLink(panel, node.href);
-    // The Earmarked corrective write-path (Slice 6b): only a harm node gets a correction composer,
-    // targeted by its STABLE ref (not the volatile render id) so the persisted target survives a rebuild.
-    if (node.earmarked) appendCorrection(panel, node.ref || node.id);
+    if (!node || !panel) return;
+    var full = nodeById[node.id] || node;  // the full payload node carries the untruncated `content`
+    // M8 — term + one-line definition: label + title, set as TEXT (.textContent), never markup.
+    var termEl = panelRegion("term");
+    if (termEl) termEl.textContent = node.label == null ? "" : String(node.label);
+    var defEl = panelRegion("definition");
+    if (defEl) defEl.textContent = node.title == null ? "" : String(node.title);
+
+    // M10 — FULL DEFINITION prose = the untruncated `content` (text-only), + the source drill as
+    // READ MORE → (the existing internal-path-only appendLink guard, unchanged construction).
+    var fullEl = panelRegion("full");
+    if (fullEl) {
+      fullEl.textContent = "";
+      var prose = full.content;
+      if (prose != null && String(prose).trim() !== "") {
+        var pp = document.createElement("p");
+        pp.className = "full-definition";
+        pp.textContent = String(prose);   // TEXT-only — no innerHTML from payload (R5/M17)
+        fullEl.appendChild(pp);
+      }
+      appendLink(fullEl, node.href, "ler mais / abrir fonte →", "read-more");
+    }
+
+    // M10b — SEEN IN THE WILD = the node's REAL href provenance (no fabricated quote). When the node
+    // has an internal href, surface it as the where-this-is-seen affordance; when it does NOT,
+    // appendLink returns false and the block stays EMPTY (omitted — no dead link, no placeholder).
+    var wildEl = panelRegion("wild");
+    if (wildEl) {
+      wildEl.textContent = "";
+      var label = document.createElement("p");
+      label.className = "wild-label meta";
+      label.textContent = "visto na prática →";
+      var linked = appendLink(wildEl, node.href, "abrir a fonte de origem →", "wild-source");
+      if (linked) wildEl.insertBefore(label, wildEl.firstChild);
+      else wildEl.textContent = "";  // M10b: omit the block entirely when there is no provenance href
+    }
+
+    // M12 — the Earmarked correction composer, preserved VERBATIM in the composer slot: only a harm
+    // node gets it, targeted by its STABLE ref (not the volatile render id), same DOM-safe form.action
+    // + encodeURIComponent + stable-then-advance nonce + same-origin POST through the Slice-1 gate.
+    var composerEl = panelRegion("composer");
+    if (composerEl) {
+      composerEl.textContent = "";
+      if (node.earmarked) appendCorrection(composerEl, node.ref || node.id);
+    }
+
     panel.classList.remove("hidden");
+    panel.setAttribute("aria-hidden", "false");
   }
-  function hidePanel() { panel.classList.add("hidden"); }
+  function hidePanel() {
+    if (!panel) return;
+    panel.classList.add("hidden");
+    panel.setAttribute("aria-hidden", "true");
+  }
+  // M13 — the close affordance dismisses the panel back to the free-flight cloud (the existing
+  // tap-background dismiss is wired per-renderer; this is the explicit close control on the shell).
+  if (panel) {
+    var closeBtn = panel.querySelector(".cortex-inspect-close");
+    if (closeBtn) closeBtn.addEventListener("click", hidePanel);
+  }
 
   // hideList() — the server renders #cortex-list VISIBLE (the JS-dead navigable fallback, codex
   // round-1 [high]); when a GRAPH rung (3D or Cytoscape) successfully paints, the island hides the
