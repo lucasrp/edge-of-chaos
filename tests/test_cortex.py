@@ -260,6 +260,47 @@ class TestCortexRouteShipsHref(unittest.TestCase):
         js = (Path(__file__).resolve().parent.parent / "blog" / "static" / "cortex.js").read_text()
         self.assertIn("href", js)
 
+    def test_panel_link_is_built_via_dom_apis_not_attribute_string_interp(self):
+        # SECURITY (codex round-1 [high]): the panel's esc() escapes &<> but NOT quotes, and an
+        # Artefato href is built from a graph/log-derived slug. Interpolating href into an
+        # `href="..."` attribute string lets a slug carrying `" onclick="fetch(...)"` break out of
+        # the attribute and bind a same-origin handler → an authenticated mutating POST, defeating the
+        # Slice-1 gate. The link must be built with DOM APIs (createElement + assign a.href), which
+        # CANNOT be broken out of by attribute injection. Pin the safe construction.
+        js = (Path(__file__).resolve().parent.parent / "blog" / "static" / "cortex.js").read_text()
+        self.assertIn('createElement("a")', js)
+        # the unsafe pattern (a quoted href attribute built from the dynamic value) must be gone.
+        self.assertNotIn("'<a href=\"' + ", js)
+        self.assertNotIn("setAttribute(\"href\"", js)  # a string attr is the same breakout surface
+
+
+class TestNodeHrefIsRouteShaped(unittest.TestCase):
+    """SECURITY (codex round-1 [high]): _node_href is built from graph/log-derived props (a slug, a
+    cluster label), so its output must be a canonical, route-shaped value — never a vector carrying a
+    quote / handler / whitespace that a downstream renderer could mis-handle. The server constrains
+    the path segment; the island then renders it via DOM APIs (no attribute interpolation)."""
+
+    def setUp(self):
+        self.server = _load_server({"EDGE_CORTEX_FIXTURE": None, "EDGE_GROUP": "edge-next"})
+
+    def test_artefato_href_drops_a_slug_with_quotes_or_handler_chars(self):
+        # a poisoned slug (a quote + an event-handler payload) must NOT yield a live href — the
+        # server rejects a slug that is not a canonical slug shape (lowercase alnum + hyphen).
+        poison = self.server._map_node("4:x:9", "Artefato",
+                                       {"slug": 'x" onclick="fetch(\'/grill/drain\')'})
+        self.assertIsNone(poison["href"])
+
+    def test_artefato_href_keeps_a_canonical_slug(self):
+        ok = self.server._map_node("4:x:10", "Artefato", {"slug": "alpha-post-2"})
+        self.assertEqual(ok["href"], "/e/alpha-post-2.html")
+
+    def test_cluster_slug_is_letters_only_so_it_cannot_carry_a_breakout(self):
+        # the cluster slug is letters-only by construction (the wiki naming rule), so any quote /
+        # handler / path char in the source label is dropped before it reaches a URL.
+        node = self.server._map_node("4:x:11", "Entity",
+                                     {"name": "z", "curated_cluster": 'a"/onerror=b 0'})
+        self.assertEqual(node["href"], "/wiki/aonerrorb")
+
 
 class TestCortexFailDark(unittest.TestCase):
     """No group or neo4j down → a dark state, NEVER an unscoped query (cross-install leak)."""

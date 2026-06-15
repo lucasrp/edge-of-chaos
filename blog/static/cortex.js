@@ -151,18 +151,28 @@
     var n = evt.target;
     panel.innerHTML =
       '<span class="kind">' + esc(n.data("label")) + "</span>" +
-      '<p class="title">' + esc(n.data("title")) + "</p>" +
-      link(n.data("href"));
+      '<p class="title">' + esc(n.data("title")) + "</p>";
+    appendLink(panel, n.data("href"));
     panel.classList.remove("hidden");
   });
 
   // The drill-down into the node's source surface — the graph stops being an island (Slice 5b).
-  // Only an INTERNAL same-origin path (a leading "/", not "//") is ever rendered as a live anchor:
-  // the href is graph-derived, so a "javascript:"/"http://evil" value (or "//host") is dropped, not
-  // turned into a live link. The path is html-escaped into the attribute so it cannot break out.
-  function link(href) {
-    if (typeof href !== "string" || href.charAt(0) !== "/" || href.charAt(1) === "/") return "";
-    return '<p class="source"><a href="' + esc(href) + '">abrir fonte →</a></p>';
+  // Built with DOM APIs (createElement + assign a.href / a.textContent), NEVER by interpolating the
+  // graph-derived href into an `href="..."` attribute STRING (codex round-1 [high]): the panel's
+  // esc() does not escape quotes, so a poisoned value carrying `" onclick=...` would break out of a
+  // string attribute and bind a same-origin handler → an authenticated mutating POST, defeating the
+  // Slice-1 gate. Assigning a.href sets the attribute value verbatim — there is no attribute syntax
+  // to break out of. Only an INTERNAL same-origin path (a leading "/", not "//") is ever linked: a
+  // "javascript:" / "http://evil" / "//host" value is dropped, not turned into a live anchor.
+  function appendLink(into, href) {
+    if (typeof href !== "string" || href.charAt(0) !== "/" || href.charAt(1) === "/") return;
+    var p = document.createElement("p");
+    p.className = "source";
+    var a = document.createElement("a");
+    a.href = href;                 // verbatim attribute assignment — no string interpolation
+    a.textContent = "abrir fonte →";
+    p.appendChild(a);
+    into.appendChild(p);
   }
   cy.on("tap", function (evt) {
     if (evt.target === cy) panel.classList.add("hidden"); // tap background → dismiss

@@ -908,11 +908,18 @@ def _node_title(label, props):
     return label
 
 
+# A canonical artefato slug (publisher.SLUG_RE): lowercase alphanumerics + hyphens, no leading/
+# trailing hyphen. A graph/log-derived slug that is NOT this shape is poisoned — never turned into a
+# live href (codex round-1 [high]: a slug carrying `" onclick=...` must not reach the URL).
+_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
 def _cluster_slug(label):
     """wiki_render's canonical cluster-slug rule (letters only — drops spaces, &, digits,
     punctuation), the ONE rule the wiki projection names its `cluster-<slug>.html` pages by. Mirrors
     publisher._cluster_slug so a Cortex Entity's `curated_cluster` drills into the matching /wiki page
-    (`Introspective memory` → `introspectivememory` → /wiki/introspectivememory)."""
+    (`Introspective memory` → `introspectivememory` → /wiki/introspectivememory). Letters-only by
+    construction, so a quote / handler / path char in the source label is dropped before it is a URL."""
     return re.sub(r"[^a-z]", "", (label or "").lower())
 
 
@@ -931,7 +938,9 @@ def _node_href(label, props):
     link). The values are graph-derived, so coerce + URL-shape defensively (no breakout)."""
     if label == "Artefato":
         slug = props.get("slug")
-        return f"/e/{slug}.html" if slug else None
+        # only a CANONICAL slug (publisher's shape) becomes a live href — a poisoned slug carrying a
+        # quote / handler / path char is not route-shaped, so it drills nowhere (no breakout vector).
+        return f"/e/{slug}.html" if isinstance(slug, str) and _SLUG_RE.match(slug) else None
     if label == "Direction":
         return "/direction" if props.get("body") else None
     if label == "Source":
