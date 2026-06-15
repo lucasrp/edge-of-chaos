@@ -123,11 +123,15 @@ def log_is_intact(log):
 _REQUIRED_STRING_FIELDS = {
     "voz.comment": ("comment_id", "body"),
 }
-# Fields only a fold/render touches when present → reject a present non-string (poison), tolerate absence.
+# Fields only a fold/render touches when present → reject a present non-string (poison/unhashable),
+# tolerate absence. Includes every id used as a SET/DICT KEY in the folds (comment_id / clarify_id):
+# a non-string there (e.g. a list) is unhashable and would TypeError _awaiting_clarification /
+# _clarify_touched / terminally_resolved, instead of the promised fail-closed degrade.
 _OPTIONAL_STRING_FIELDS = {
-    "voz.reply": ("body",),
-    "voz.clarify": ("question",),
-    "voz.clarify_answer": ("body",),
+    "voz.reply": ("comment_id", "body"),
+    "voz.clarify": ("comment_id", "clarify_id", "question"),
+    "voz.clarify_answer": ("clarify_id", "body"),
+    "voz.resolved": ("comment_id",),
     "direction.set": ("body",),
 }
 

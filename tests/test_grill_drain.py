@@ -929,6 +929,27 @@ class TestCoreDrainFailsClosedOnCorruptLog(_Base):
     fail-closed on a corrupt log — no back-fill append, no generator invocation — so a caller that
     bypasses the route's gate cannot append over / spend on a seq-corrupt or schema-drifted log."""
 
+    def test_drain_on_unhashable_clarify_id_fails_closed(self):
+        # a voz.clarify with a non-string (unhashable) comment_id/clarify_id passes a question-only
+        # check but would TypeError the set/dict-keyed folds — the core drain must fail closed.
+        import grill_drain
+        self._comment("a directive", "alpha-post")  # keep seqs contiguous
+        with open(self.log, "a") as fh:
+            fh.write('{"seq": 99, "type": "voz.clarify", "payload": '
+                     '{"comment_id": ["x"], "clarify_id": "q1", "question": "?"}}\n')
+        # (seq 99 also makes it gapped, but assert the schema check independently too)
+        with open(self.log, "w") as fh:  # a contiguous log whose only flaw is the unhashable id
+            fh.write('{"seq": 1, "type": "artefato.published", "payload": {"slug": "alpha-post"}}\n')
+            fh.write('{"seq": 2, "type": "voz.clarify", "payload": '
+                     '{"comment_id": ["x"], "clarify_id": "q1", "question": "?"}}\n')
+        self.assertFalse(grill_drain.log_is_intact(self.log))
+        called = {"n": 0}
+        loaded = self.drain.drain(self.log,
+                                  lambda c: (called.__setitem__("n", called["n"] + 1) or {"reply": "x"}),
+                                  grill_run_id="g1")
+        self.assertEqual(loaded, [])
+        self.assertEqual(called["n"], 0)
+
     def test_drain_on_a_seq_gapped_legacy_log_appends_nothing_and_calls_no_generator(self):
         # a seq-gapped log (1,2,3 then a gap to 9) with a legacy reply-only target
         import eventlog
