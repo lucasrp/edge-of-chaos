@@ -31,38 +31,39 @@ import eventlog  # noqa: E402
 DEFAULT_BATCH_CAP = 8
 
 
-def _events(log):
-    """Every event in the log, oldest→newest (a thin wrapper over the canonical read)."""
-    return eventlog.read(log=log)
+def _events(log, until_seq=None):
+    """Every event in the log, oldest→newest (a thin wrapper over the canonical read). `until_seq`
+    bounds the fold at a cursor (seq <= n) — the snapshot the cursor-bound actionable set reads."""
+    return eventlog.read(until_seq=until_seq, log=log)
 
 
 # ── The lifecycle folds — openness, the actionable set, consistency ─────────────────────────────
 
 
-def terminally_resolved(log):
+def terminally_resolved(log, until_seq=None):
     """`comment_id`s with a TERMINAL `voz.resolved`. A `voz.reply` is presentation only; a parked
     `voz.clarify` is non-terminal. Openness keys on the ABSENCE of a member here (ADR-0017)."""
     return {e["payload"].get("comment_id")
-            for e in _events(log) if e.get("type") == "voz.resolved"}
+            for e in _events(log, until_seq) if e.get("type") == "voz.resolved"}
 
 
-def open_comments(log):
+def open_comments(log, until_seq=None):
     """Every `voz.comment` with no terminal `voz.resolved` (any target). A replied-but-unresolved
-    or parked chat is still open. A fold, not a flag."""
-    resolved = terminally_resolved(log)
-    return [e["payload"] for e in _events(log)
+    or parked chat is still open. A fold, not a flag. `until_seq` bounds it at a cursor."""
+    resolved = terminally_resolved(log, until_seq)
+    return [e["payload"] for e in _events(log, until_seq)
             if e.get("type") == "voz.comment"
             and e["payload"].get("comment_id") not in resolved]
 
 
-def _awaiting_clarification(log):
+def _awaiting_clarification(log, until_seq=None):
     """`comment_id`s parked by a `voz.clarify` with NO subsequent `voz.clarify_answer` for that
     clarify. A parked-without-answer chat is open but NOT actionable (it lives only in the
     awaiting-clarification health count, never re-loaded — so it can't consume the cap every grill
     and starve fresh directives, SURFACE.md / ADR-0017)."""
     parked = {}          # comment_id -> set(clarify_id) still unanswered
     answered = set()     # clarify_ids that have a clarify_answer
-    for e in _events(log):
+    for e in _events(log, until_seq):
         t, p = e.get("type"), e.get("payload", {})
         if t == "voz.clarify":
             parked.setdefault(p.get("comment_id"), set()).add(p.get("clarify_id"))
@@ -71,13 +72,31 @@ def _awaiting_clarification(log):
     return {cid for cid, clarifies in parked.items() if clarifies - answered}
 
 
-def actionable_set(log):
+def actionable_set(log, until_seq=None):
     """What a grill MAY load: open comments that are EITHER not awaiting clarification OR parked
     *with* a linked `voz.clarify_answer` (the answer re-enters the chat into the actionable set,
     terminally resolvable at the next grill). A parked-without-answer chat is excluded. SURFACE.md
-    "Actionable set" invariant. Returns the comment payloads, in append order (deterministic)."""
-    awaiting = _awaiting_clarification(log)
-    return [c for c in open_comments(log) if c.get("comment_id") not in awaiting]
+    "Actionable set" invariant. `until_seq` bounds it at the grill's start cursor, so a comment
+    arriving AFTER the cursor cannot enter THIS batch (ADR-0017 cursor-bound invariant — ordering is
+    not race-dependent). Returns the comment payloads, in append order (deterministic)."""
+    awaiting = _awaiting_clarification(log, until_seq)
+    return [c for c in open_comments(log, until_seq) if c.get("comment_id") not in awaiting]
+
+
+def clarify_context(log, comment_id, until_seq=None):
+    """The linked clarification Q/A history for a comment: a list of {question, answer} for every
+    `voz.clarify` on this comment_id paired with its `voz.clarify_answer` (answer None if still
+    awaiting). The drain passes this to `reply_fn` so the generator RESOLVES using the mentee's
+    answer (ADR-0017 'seeing that linked answer'), not just the comment body. Empty list if none."""
+    questions, answers = [], {}
+    for e in _events(log, until_seq):
+        t, p = e.get("type"), e.get("payload", {})
+        if t == "voz.clarify" and p.get("comment_id") == comment_id:
+            questions.append((p.get("clarify_id"), p.get("question")))
+        elif t == "voz.clarify_answer":
+            answers[p.get("clarify_id")] = p.get("body")
+    return [{"clarify_id": qid, "question": q, "answer": answers.get(qid)}
+            for qid, q in questions]
 
 
 def consistency_errors(log):
@@ -117,26 +136,58 @@ def consistency_errors(log):
 # ── The legacy back-fill — shipped atomically with the lifecycle switch ──────────────────────────
 
 
-def backfill_legacy_resolved(log, grill_run_id="legacy-backfill"):
-    """Idempotently back-fill `voz.resolved{outcome: replied}` for every historical `voz.comment`
-    that has a `voz.reply` but NO terminal `voz.resolved` (legacy-settled). Flipping `open_comments`
-    to key on `voz.resolved` would otherwise RE-OPEN already-answered threads (incl. a hand-appended
-    reply like the operator's "oi"); this back-fill keeps them closed. Re-running adds NOTHING (the
-    second pass sees the resolved it wrote → empty) — proven idempotent. Returns the appended events."""
+def _legacy_targets(log):
+    """`comment_id`s (in append order, deterministic) with a `voz.reply` but NO terminal
+    `voz.resolved` — the legacy-settled set the back-fill closes."""
     replied = {e["payload"].get("comment_id")
                for e in _events(log) if e.get("type") == "voz.reply"}
     resolved = terminally_resolved(log)
-    targets = [cid for cid in replied if cid and cid not in resolved]
-    # Deterministic order (append order of the comments) so a replay is byte-stable.
+    target_set = {cid for cid in replied if cid and cid not in resolved}
     order = [e["payload"].get("comment_id") for e in _events(log)
              if e.get("type") == "voz.comment"]
-    targets = [cid for cid in order if cid in targets]
+    return [cid for cid in order if cid in target_set]
+
+
+def backfill_legacy_resolved(log, grill_run_id="legacy-backfill", _force_targets=None):
+    """Idempotently back-fill `voz.resolved{outcome: replied}` for every historical `voz.comment`
+    that has a `voz.reply` but NO terminal `voz.resolved` (legacy-settled). Flipping `open_comments`
+    to key on `voz.resolved` would otherwise RE-OPEN already-answered threads (incl. a hand-appended
+    reply like the operator's "oi"); this back-fill keeps them closed.
+
+    Idempotent even under CONCURRENT drains: the unresolved set is RE-COMPUTED under the eventlog
+    lock (the `precondition`) against the durable log no concurrent writer can change, and any
+    `comment_id` a racing drain already resolved is dropped from the batch there — so two concurrent
+    back-fills never serialize a duplicate terminal `voz.resolved` (a permanent consistency error).
+    Re-running adds NOTHING once the log is migrated. Returns the appended events.
+
+    `_force_targets` (test seam) injects a stale pre-observed target list to exercise the race; the
+    under-lock recheck still drops an already-resolved one."""
+    targets = _force_targets if _force_targets is not None else _legacy_targets(log)
     if not targets:
         return []
-    batch = [("voz.resolved", "voz:backfill",
-              {"comment_id": cid, "outcome": "replied", "grill_run_id": grill_run_id})
-             for cid in targets]
-    return eventlog.append_batch(batch, log=log)
+
+    appended = []
+
+    def _under_lock():
+        # Re-derive the still-unresolved subset UNDER the lock (authoritative), preserving the
+        # caller's order. A target a concurrent drain resolved since we observed it is dropped here.
+        resolved_now = terminally_resolved(log)
+        live = [cid for cid in targets if cid not in resolved_now]
+        appended[:] = [("voz.resolved", "voz:backfill",
+                        {"comment_id": cid, "outcome": "replied", "grill_run_id": grill_run_id})
+                       for cid in live]
+        if not appended:
+            raise _NothingToBackfill()
+
+    try:
+        return eventlog.append_batch(appended, log=log, precondition=_under_lock)
+    except _NothingToBackfill:
+        return []
+
+
+class _NothingToBackfill(Exception):
+    """Raised under the lock when the recheck finds every target already resolved (a concurrent
+    drain won the race) — aborts the back-fill with nothing written."""
 
 
 # ── Harm ranking + the cap — deterministic batch selection ───────────────────────────────────────
@@ -292,8 +343,16 @@ def drain(log, reply_fn, grill_run_id=None, cap=DEFAULT_BATCH_CAP):
     # — a no-op once the log is migrated, so running it every drain costs nothing after the first.
     backfill_legacy_resolved(log)
     start_cursor = _start_cursor(log)
-    loaded, _overflow = rank_and_cap(actionable_set(log), cap)
+    # Snapshot the actionable set AT the cursor: a comment arriving after start_cursor (e.g. a
+    # concurrent operator post, or one landing mid-drain) is NOT in this batch — it stays open as
+    # overflow for the next grill. This makes batch selection cursor-bound, never race-dependent
+    # (ADR-0017). The version guard separately protects each close against a concurrent grill.
+    loaded, _overflow = rank_and_cap(actionable_set(log, until_seq=start_cursor), cap)
     for comment in loaded:
+        # Enrich each loaded comment with its linked clarify Q/A so reply_fn resolves USING the
+        # mentee's answer (ADR-0017 'seeing that linked answer'), not just the comment body.
+        comment = {**comment,
+                   "clarify": clarify_context(log, comment["comment_id"], until_seq=start_cursor)}
         plan = reply_fn(comment)
         _close_one(log, comment, plan, grill_run_id, start_cursor)
     return loaded
@@ -336,6 +395,12 @@ def live_reply_generator():
     def gen(comment):
         prompt = ("You are the edge replying to a mentee Directive on the Voz rail. Reply directly, "
                   "technically, skeptically — name the tradeoff. Directive:\n\n" + comment["body"])
+        # Fold in any clarification Q/A so the reply RESOLVES using the mentee's answer, never
+        # re-asks or guesses past it (ADR-0017 'seeing that linked answer').
+        for qa in comment.get("clarify") or []:
+            prompt += f"\n\nYou earlier asked: {qa['question']}"
+            if qa.get("answer"):
+                prompt += f"\nThe mentee answered: {qa['answer']}"
         return {"reply": _llm.complete(client, model, prompt)}
 
     return gen

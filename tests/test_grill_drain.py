@@ -146,6 +146,23 @@ class TestLegacyBackfill(_Base):
         self.assertEqual(second, [])  # re-running adds NOTHING
         self.assertEqual(len(self._events()), before)
 
+    def test_backfill_is_idempotent_under_a_concurrent_duplicate(self):
+        # the concurrency hazard the gate flagged: two drains both compute the same legacy target,
+        # then serialize. The under-lock precondition must make the SECOND a no-op for that
+        # comment_id, so there is never a duplicate terminal voz.resolved (a permanent consistency
+        # error). We simulate the race by interleaving: back-fill targeting cid runs twice with the
+        # SAME pre-observed state, and the per-comment precondition drops the duplicate.
+        cid = self._comment("oi", "alpha-post")
+        self._add("voz.reply", "voz:alpha-post", {"comment_id": cid, "body": "hand reply"})
+        # first back-fill closes it
+        self.drain.backfill_legacy_resolved(self.log)
+        # a STALE second back-fill that still "thinks" cid is a target (force it) must not duplicate
+        forced = self.drain.backfill_legacy_resolved(self.log, _force_targets=[cid])
+        self.assertEqual(forced, [])  # precondition dropped the duplicate
+        res = [e for e in self._events("voz.resolved") if e["payload"]["comment_id"] == cid]
+        self.assertEqual(len(res), 1)  # exactly one terminal outcome
+        self.assertEqual(self.drain.consistency_errors(self.log), [])  # no duplicate-resolved
+
     def test_backfill_does_not_touch_an_unreplied_comment(self):
         # a fresh, never-replied directive must stay open (the back-fill is reply-only).
         open_cid = self._comment("a fresh directive", "alpha-post")
@@ -210,6 +227,28 @@ class TestActionableSet(_Base):
         res = [e for e in self._events("voz.resolved") if e["payload"]["comment_id"] == cid]
         self.assertEqual(len(res), 1)  # terminally resolved
         self.assertNotIn(cid, [c["comment_id"] for c in self.server.open_comments()])
+
+    def test_reply_fn_receives_the_clarify_question_and_answer_context(self):
+        # the gate's finding: the reply generator must SEE the linked clarify Q + answer before it
+        # terminally resolves (ADR-0017 'seeing that linked answer'), not just the comment body.
+        cid = self._comment("ambiguous one", "alpha-post")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": cid, "clarify_id": "q1", "question": "which framing?",
+                   "grill_run_id": "g0"})
+        self._add("voz.clarify_answer", "voz:alpha-post",
+                  {"clarify_id": "q1", "body": "the second framing"})
+        seen = {}
+
+        def gen(comment):
+            seen["clarify"] = comment.get("clarify")  # the drain must pass the Q/A context
+            return {"reply": "ok"}
+
+        self.drain.drain(self.log, gen, grill_run_id="g1")
+        self.assertIsNotNone(seen.get("clarify"))
+        # the context carries the edge's question AND the mentee's answer
+        flat = json.dumps(seen["clarify"])
+        self.assertIn("which framing?", flat)
+        self.assertIn("the second framing", flat)
 
     def test_clarify_answer_is_never_a_new_directive(self):
         # a voz.clarify_answer must never open a chat (it is a child event, not a voz.comment).
@@ -555,6 +594,41 @@ class TestCapAndOverflow(_Base):
         loaded = self.drain.drain(self.log, self._reply_stub(), grill_run_id="g1", cap=1)
         self.assertEqual([c["comment_id"] for c in loaded], [harmful])
         self.assertIn(benign, [c["comment_id"] for c in self.server.open_comments()])
+
+    def test_actionable_set_is_bounded_by_a_cursor(self):
+        # ADR-0017 cursor-bound invariant: actionable_set(log, until_seq=cursor) sees only comments
+        # at/under the cursor — a post-cursor arrival is NOT in the batch.
+        old = self._comment("before the cursor", "alpha-post")
+        cursor = self.drain._start_cursor(self.log)
+        new = self._comment("after the cursor", "alpha-post")
+        bounded = [c["comment_id"] for c in self.drain.actionable_set(self.log, until_seq=cursor)]
+        self.assertIn(old, bounded)
+        self.assertNotIn(new, bounded)  # post-cursor arrival excluded
+
+    def test_drain_does_not_load_a_post_cursor_arrival(self):
+        # a high-harm comment arriving AFTER the cursor must not displace a cursor-bound comment
+        # under the cap — the batch is cursor-bounded so ordering is not race-dependent. Simulate by
+        # asserting the drain's loaded set is drawn only from the pre-cursor snapshot.
+        old = self._comment("a routine pre-cursor note", "alpha-post")
+        # the drain captures its cursor, THEN (in a race) a high-harm comment lands — but the drain
+        # already snapshotted the actionable set at its cursor, so the new one is overflow.
+        import eventlog
+        # monkeypatch: inject a post-cursor arrival mid-drain via a spy reply_fn on the first call
+        injected = {"done": False}
+
+        def racing_reply(comment):
+            if not injected["done"]:
+                injected["done"] = True
+                eventlog.append("voz.comment", "voz:alpha-post",
+                                {"target_ref": "alpha-post", "comment_id": "racer",
+                                 "body": "wrong unsafe harm correct it now"}, log=self.log)
+            return {"reply": "ok"}
+
+        loaded = self.drain.drain(self.log, racing_reply, grill_run_id="g1", cap=5)
+        loaded_ids = [c["comment_id"] for c in loaded]
+        self.assertIn(old, loaded_ids)
+        self.assertNotIn("racer", loaded_ids)  # the post-cursor arrival is not in THIS batch
+        self.assertIn("racer", [c["comment_id"] for c in self.server.open_comments()])  # overflow
 
     def test_overflow_is_loaded_by_a_second_drain(self):
         for i in range(3):
