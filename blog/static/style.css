@@ -278,6 +278,12 @@ a:hover { color: #a8c2ff; }
 /* the node→source drill-down (Slice 5b) — the graph stops being an island */
 .cortex-inspect .source { margin: 10px 0 0; font-size: .82rem; }
 .cortex-inspect .source a { font-family: var(--font-mono); color: var(--accent); }
+/* the Earmarked corrective write-path (Slice 6b) — a node-targeted Voz composer in the inspect
+   panel, reusing the shared .composer vocabulary; only the harm-cue label colour extends it. */
+.cortex-inspect .composer.correction { margin-top: 12px; }
+.cortex-inspect .correction-label { margin: 0 0 2px; color: var(--harm, #f87171); }
+.cortex-inspect .correction-status:empty { display: none; }
+.cortex-inspect .correction-status { margin: 6px 0 0; }
 
 /* ---- cortex search + filter controls (Slice 6) — extends the shared token/component vocabulary,
    no one-off styling: the same surface/border/mono-meta language as the inspect panel + nav ---- */

@@ -174,7 +174,8 @@
   payload.nodes.forEach(function (n) {
     nodeIds[n.id] = true;
     elements.push({
-      data: { id: n.id, label: n.label, title: n.title, trust: n.trust, href: n.href || null },
+      data: { id: n.id, label: n.label, title: n.title, trust: n.trust, href: n.href || null,
+              earmarked: !!n.earmarked },
       classes: "tier-" + n.trust + (n.earmarked ? " earmarked" : ""),
     });
   });
@@ -379,8 +380,58 @@
       '<span class="kind">' + esc(n.data("label")) + "</span>" +
       '<p class="title">' + esc(n.data("title")) + "</p>";
     appendLink(panel, n.data("href"));
+    // The Earmarked corrective write-path (Slice 6b): a harm-bearing node gets a correction composer —
+    // node-targeted Voz. Only an Earmarked node (the harm subset the mentee corrects); a plain node
+    // stays read-only inspect + the source link, consistent with the read-only Cortex surface.
+    if (n.data("earmarked")) appendCorrection(panel, n.id());
     panel.classList.remove("hidden");
   });
+
+  // The correction composer for an Earmarked node — a small Voz composer that POSTs a voz.comment
+  // whose target_ref is the node ref. Built with DOM APIs (createElement + assign form.action), NEVER
+  // by interpolating the graph-derived node id into an action="..." attribute STRING (the same
+  // breakout defense as appendLink — a poisoned id carrying a quote could otherwise bind a handler).
+  // The id is url-encoded into the same-origin route path; the POST is same-origin (the dashboard's
+  // own page), so it rides the Slice-1 auth/CSRF gate exactly like every other Voz write.
+  function appendCorrection(into, nodeId) {
+    var form = document.createElement("form");
+    form.className = "composer correction";
+    // verbatim property assignment of a same-origin path — no attribute-string interpolation
+    form.action = "/cortex/" + encodeURIComponent(nodeId) + "/comment";
+    form.method = "post";
+    var heading = document.createElement("p");
+    heading.className = "correction-label meta";
+    heading.textContent = "corrigir este nó (vira um Directive) →";
+    var ta = document.createElement("textarea");
+    ta.name = "body";
+    ta.required = true;
+    ta.placeholder = "o que está errado / o que corrigir…";
+    var btn = document.createElement("button");
+    btn.type = "submit";
+    btn.textContent = "corrigir";
+    form.appendChild(heading);
+    form.appendChild(ta);
+    form.appendChild(btn);
+    var status = document.createElement("p");
+    status.className = "correction-status meta";
+    // submit via fetch (same-origin) so the panel stays in place and shows the confirmation inline,
+    // instead of a full-page navigation away from the constellation.
+    form.addEventListener("submit", function (evt) {
+      evt.preventDefault();
+      var body = ta.value;
+      if (!body || !body.trim()) return;
+      fetch(form.action, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "body=" + encodeURIComponent(body),
+      }).then(function (r) {
+        if (r.ok) { ta.value = ""; status.textContent = "correção registrada"; }
+        else status.textContent = "correção recusada (" + r.status + ")";
+      }).catch(function () { status.textContent = "falha ao enviar"; });
+    });
+    into.appendChild(form);
+    into.appendChild(status);
+  }
 
   // The drill-down into the node's source surface — the graph stops being an island (Slice 5b).
   // Built with DOM APIs (createElement + assign a.href / a.textContent), NEVER by interpolating the

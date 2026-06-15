@@ -188,6 +188,42 @@ def _published_slugs():
     }
 
 
+# ── Node-targeted Voz — the Earmarked corrective write-path (Slice 6b, SURFACE.md / AUDIT.md gap D) ─
+#
+# A correction `target_ref` addresses a Cortex NODE directly, beyond the slug namespace: it carries
+# the `node:<node_id>` prefix. A slug never contains `:` (publisher's SLUG_RE), so this is
+# unambiguous against a bare-slug target_ref — the existing slug validation is untouched. The node
+# ref is VALID iff <node_id> is a node in the group_id-scoped cortex payload (cortex_fold, already
+# scoped + fail-dark): an unknown/forged node ref — or any ref while the graph is dark — fails closed,
+# so the correction is rejected with NO append (the same trust posture as the slug allowlist).
+_NODE_REF_PREFIX = "node:"
+
+
+def _is_node_target_ref(target_ref):
+    """True when a `target_ref` is a Cortex node ref (`node:<id>`) rather than a bare slug."""
+    return isinstance(target_ref, str) and target_ref.startswith(_NODE_REF_PREFIX)
+
+
+def _node_id_of(target_ref):
+    """The `<node_id>` of a `node:<id>` target_ref (the part after the prefix)."""
+    return target_ref[len(_NODE_REF_PREFIX):]
+
+
+def _valid_node_target_ref(target_ref):
+    """A node `target_ref` is valid iff it is `node:<id>` and <id> is a node in the group-scoped
+    cortex payload — fail-closed (a dark graph has no valid nodes → reject). Reuses the existing
+    scoped fold (no new query); an unknown node id is a forged target, rejected with no append."""
+    if not _is_node_target_ref(target_ref):
+        return False
+    node_id = _node_id_of(target_ref)
+    if not node_id:
+        return False
+    payload = cortex_fold()
+    if not payload:
+        return False  # fail-closed: a dark graph cannot vouch for any node
+    return any(n.get("id") == node_id for n in payload.get("nodes", []))
+
+
 def _reject_oversized_body():
     """Body-size limit: a comment is prose, not a payload. Reject (no append) when the comment body
     exceeds the cap. Measured on the parsed `body` field (the prose the mentee wrote), so the cap is
@@ -1155,6 +1191,30 @@ def cortex():
         f'{island}'
         '</body></html>'
     )
+
+
+@app.post("/cortex/<node_id>/comment")
+def post_cortex_correction(node_id):
+    """The Earmarked corrective write-path (Slice 6b): a node-targeted Voz correction. Posts a
+    `voz.comment` whose `target_ref` is the Cortex NODE ref (`node:<id>`), so the mentee can CORRECT
+    a harm-bearing node, not just see it. Rides the SAME Slice-1 gate + body-size limit + canonical
+    append as every other Voz write; the node-ref validation is fail-closed (an unknown node id — or
+    a dark graph — → 404, no append). The Slice-2 drain then resolves it like any Directive."""
+    if not authorize_write():
+        abort(403)  # per Slice 1 — unauthenticated / cross-origin → rejected, no append
+    target_ref = f"{_NODE_REF_PREFIX}{node_id}"
+    if not _valid_node_target_ref(target_ref):
+        abort(404)  # a forged / unknown node ref (or a dark graph) — fail-closed, no append
+    if _reject_oversized_body():
+        abort(413)
+    body = (request.form.get("body") or "").strip()
+    if body:
+        _append_voz("voz.comment", f"voz:{target_ref}",
+                    {"target_ref": target_ref, "comment_id": uuid.uuid4().hex[:12], "body": body},
+                    idem_key=_comment_idem_key(request.form.get("comment_nonce"), body))
+    # A small confirmation fragment for the inspect-panel composer (htmx swaps it in place).
+    return ('<p class="correction-ok meta">correção registrada · '
+            'vira um Directive que o edge resolve no próximo grill</p>')
 
 
 # ── Briefing surface + read-model health strip (Slice 3, SURFACE.md §"Briefing", AUDIT.md gap A) ──
