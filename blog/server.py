@@ -223,8 +223,16 @@ def _read_events():
             e = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(e, dict):
-            yield e
+        if not isinstance(e, dict):
+            continue
+        # Normalize a corrupt (non-dict) payload to {} so downstream folds — which do
+        # `e.get("payload",{}).get(...)` and unpack `**e["payload"]` — never AttributeError/TypeError
+        # on it (Codex round-5): a dict envelope with `payload:[]` is corruption, but a read surface
+        # must render 200, not 500. The corruption is NOT swallowed — _log_corrupt() reads the RAW log
+        # via log_is_intact(), so the health strip still flags it degraded.
+        if not isinstance(e.get("payload"), dict):
+            e = {**e, "payload": {}}
+        yield e
 
 
 def _append(type_, subject, payload):

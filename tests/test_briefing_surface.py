@@ -370,6 +370,38 @@ class TestSharedReadSurfacesSurviveNonDictLine(_BriefingBase):
         self.assertEqual(self.client.get("/briefing").status_code, 200)
 
 
+class TestSharedReadSurfacesSurviveNonDictPayload(_BriefingBase):
+    """Codex round-5 [high]: a dict event with a NON-dict `payload` (`{"type":"voz.comment",
+    "payload":[]}`) is corruption log_is_intact rejects, but it passed _read_events() — then downstream
+    folds do `e.get("payload",{}).get(...)` or unpack `**e["payload"]` → AttributeError/TypeError →
+    500 on `/`, `/chat`. The shared boundary must normalize a non-dict payload so every read surface
+    renders 200; the health strip still SURFACES it as degraded (log_is_intact over the raw log)."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "artefato.published",
+            {"slug": "alpha-post", "cites": [], "distills": [], "proposes": []}),
+        _ev(2, "2026-06-10T09:00:01+00:00", "intent.kernel",
+            {"slug": "alpha-post", "intent": "open: alpha."}),
+        # a dict envelope with a corrupt (list) payload — folds unpack `**payload` / `.get` on it
+        json.dumps({"seq": 3, "ts": "2026-06-10T09:00:02+00:00", "type": "voz.comment",
+                    "subject": "voz:chat", "payload": []}),
+    ]
+
+    def test_index_survives_a_non_dict_payload(self):
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("alpha-post", r.data.decode())
+
+    def test_chat_survives_a_non_dict_payload(self):
+        self.assertEqual(self.client.get("/chat").status_code, 200)
+
+    def test_briefing_survives_and_flags_a_non_dict_payload(self):
+        r = self.client.get("/briefing")
+        self.assertEqual(r.status_code, 200)
+        # the corrupt payload is a log_is_intact failure → the strip must flag degraded
+        self.assertIn('class="health-strip degraded"', r.data.decode())
+
+
 class TestSharedNav(_BriefingBase):
     """Task B — the shared header/nav (cross-cutting, starts at Slice 3): ONE nav linking all four
     surfaces, on every surface, built from the shared design vocabulary (no one-off styling)."""
