@@ -295,6 +295,34 @@ class TestStaleClusterFilesAreNotIndexed(_WikiBase):
         self.assertEqual(ids, {"introspectivememory", "noncurated"})
 
 
+class TestNoIndexFailsClosed(_WikiBase):
+    """CORRECTNESS (codex round-4 [medium], ADR-0005): the canonical index.html IS the projection of
+    which clusters are current. If it is missing/unreadable there is NO current projection — so /wiki
+    must FAIL CLOSED (an honest empty state), NEVER fall back to globbing every on-disk cluster file
+    (that re-enables the stale-file republication round-3 closed: a crashed/partial render or a
+    deleted index could otherwise resurface retired pages)."""
+
+    def setUp(self):
+        super().setUp()
+        # remove the canonical index AFTER setup wrote it — simulate a crashed/partial render.
+        (Path(self.tmp.name) / "wiki" / "index.html").unlink()
+
+    def test_index_lists_nothing_without_a_canonical_index(self):
+        html = self.client.get("/wiki").get_data(as_text=True)
+        self.assertEqual(self.client.get("/wiki").status_code, 200)
+        # no stale cluster file is republished — the index degrades to the empty marker.
+        self.assertNotIn("/wiki/introspectivememory", html)
+        self.assertNotIn("/wiki/noncurated", html)
+
+    def test_clusters_are_unreachable_without_a_canonical_index(self):
+        # the registry is the allowlist — with no projection, every drill-down 404s (no stale read).
+        self.assertEqual(self.client.get("/wiki/introspectivememory").status_code, 404)
+        self.assertEqual(self.client.get("/wiki/introspectivememory/raw").status_code, 404)
+
+    def test_registry_is_empty_without_a_canonical_index(self):
+        self.assertEqual(self.server._cluster_registry(), [])
+
+
 class TestWikiReachableFromBriefingAndDistills(unittest.TestCase):
     """ACCEPTANCE (PLAN.md Slice 5b): clusters are reachable from /briefing AND from an Artefato's
     `distills` — not just a standalone /wiki route. The blog index renders an Artefato's distilled

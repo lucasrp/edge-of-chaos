@@ -1779,14 +1779,18 @@ def _current_cluster_ids():
     """The set of cluster ids the CANONICAL index.html currently links (codex round-3 [medium],
     ADR-0005 rendered-projection): wiki_render overwrites current pages but does NOT prune retired /
     renamed / merged cluster files, so a raw glob would surface stale pages the projection dropped —
-    the dashboard would disagree with the canonical wiki. So the registry's allowlist is the index's
-    OWN links. None (no index) → None, the signal to fall back to the on-disk glob (a partial wiki
-    still lists rather than going blank). Each id is gated to the canonical letters-only shape."""
+    the dashboard would disagree with the canonical wiki. The index IS the projection, so its links
+    are the registry's allowlist.
+
+    FAILS CLOSED when the index is missing/unreadable (codex round-4 [medium]): no readable index =
+    no current projection, so it returns the EMPTY set — never a glob fallback that would re-enable
+    the stale-file republication (a crashed/partial render or a deleted index must NOT resurface
+    retired pages). Each id is gated to the canonical letters-only shape."""
     index = _wiki_root() / "index.html"
     try:
         text = index.read_text()
     except OSError:
-        return None
+        return set()  # fail closed — no projection means no current clusters, never a stale glob
     return {m.group(1).lower() for m in _INDEX_CLUSTER_LINK.finditer(text)
             if _CLUSTER_ID_RE.match(m.group(1).lower())}
 
@@ -1799,21 +1803,21 @@ def _cluster_registry():
 
     The allowlist is the CURRENT projection — the cluster ids the canonical index.html links (codex
     round-3 [medium], ADR-0005): a stale cluster-*.html the renderer no longer links is NOT surfaced
-    (the dashboard agrees with the canonical wiki, never republishes retired knowledge). Falls back to
-    the on-disk glob only when there is no index at all (a partial wiki still lists). Every id is
-    FAILED CLOSED to the canonical letters-only shape (codex round-2 [high]) — a malformed filename
+    (the dashboard agrees with the canonical wiki, never republishes retired knowledge). A
+    missing/unreadable index FAILS CLOSED (codex round-4 [medium]): `_current_cluster_ids()` returns
+    the empty set, so the registry is empty — never a glob that would resurface retired pages. Every
+    id is also gated to the canonical letters-only shape (codex round-2 [high]) — a malformed filename
     never enters the allowlist. Sorted by id for a stable index."""
     root = _wiki_root()
     if not root.is_dir():
         return []
-    current = _current_cluster_ids()
+    current = _current_cluster_ids()  # the index's own links; {} (empty) when there is no projection
     entries = []
     for f in sorted(root.glob("cluster-*.html")):
         cid = f.stem[len("cluster-"):]
         if not (cid and _CLUSTER_ID_RE.match(cid)):
             continue
-        # honor the projection: when an index exists, list only the clusters it currently links.
-        if current is not None and cid not in current:
+        if cid not in current:  # honor the projection — list only clusters the index currently links
             continue
         entries.append((cid, _cluster_title(f), f))
     return entries
