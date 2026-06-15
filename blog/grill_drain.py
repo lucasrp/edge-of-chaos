@@ -394,28 +394,53 @@ def drain(log, reply_fn, grill_run_id=None, cap=DEFAULT_BATCH_CAP, run_backfill=
 
     Returns the list of LOADED comments (those the drain attempted to close this run)."""
     grill_run_id = grill_run_id or uuid.uuid4().hex[:12]
-    # Ship the lifecycle switch atomically with the back-fill: before the new open/actionable fold
-    # can observe the log, close every historical reply-only comment (legacy-settled) so the switch
-    # never RE-OPENS or the drain never RE-PROCESSES it (ADR-0017 migration; acceptance h). Idempotent
-    # — a no-op once the log is migrated, so running it every drain costs nothing after the first.
-    # `run_backfill=False` lets a caller that ALREADY ran the migration under its own fail-soft guard
-    # (the HTTP route) skip this second, unguarded call — so a corrupt log can't 500 the route here.
-    if run_backfill:
-        backfill_legacy_resolved(log)
-    start_cursor = _start_cursor(log)
-    # Snapshot the actionable set AT the cursor: a comment arriving after start_cursor (e.g. a
-    # concurrent operator post, or one landing mid-drain) is NOT in this batch — it stays open as
-    # overflow for the next grill. This makes batch selection cursor-bound, never race-dependent
-    # (ADR-0017). The version guard separately protects each close against a concurrent grill.
-    loaded, _overflow = rank_and_cap(actionable_set(log, until_seq=start_cursor), cap)
-    for comment in loaded:
-        # Enrich each loaded comment with its linked clarify Q/A so reply_fn resolves USING the
-        # mentee's answer (ADR-0017 'seeing that linked answer'), not just the comment body.
-        comment = {**comment,
-                   "clarify": clarify_context(log, comment["comment_id"], until_seq=start_cursor)}
-        plan = reply_fn(comment)
-        _close_one(log, comment, plan, grill_run_id, start_cursor)
-    return loaded
+    # Serialize the WHOLE drain (snapshot → generate → close) across processes with an exclusive
+    # flock on a sibling lockfile. The append-time version guard already keeps DATA consistent under
+    # concurrency, but without this lock two overlapping live drains could each invoke the PAID
+    # reply-generator for the same loaded comment before either close runs — the loser's expensive
+    # OpenAI call is then discarded by the guard (a wasted spend, not idempotent). The lock makes the
+    # second drain re-read the now-closed state and never generate for an already-resolved comment.
+    with _drain_lock(log):
+        # Ship the lifecycle switch atomically with the back-fill (ADR-0017 migration; acceptance h):
+        # close every historical reply-only comment so the switch never RE-OPENS / the drain never
+        # RE-PROCESSES it. Idempotent. `run_backfill=False` lets a caller that already migrated under
+        # its own fail-soft guard (the HTTP route) skip this second, unguarded call.
+        if run_backfill:
+            backfill_legacy_resolved(log)
+        start_cursor = _start_cursor(log)
+        # Snapshot the actionable set AT the cursor: a comment arriving after start_cursor stays open
+        # as overflow — batch selection is cursor-bound, never race-dependent (ADR-0017).
+        loaded, _overflow = rank_and_cap(actionable_set(log, until_seq=start_cursor), cap)
+        for comment in loaded:
+            # Enrich each loaded comment with its linked clarify Q/A so reply_fn resolves USING the
+            # mentee's answer (ADR-0017 'seeing that linked answer'), not just the comment body.
+            comment = {**comment,
+                       "clarify": clarify_context(log, comment["comment_id"], until_seq=start_cursor)}
+            plan = reply_fn(comment)
+            _close_one(log, comment, plan, grill_run_id, start_cursor)
+        return loaded
+
+
+import contextlib  # noqa: E402
+import fcntl  # noqa: E402
+
+
+@contextlib.contextmanager
+def _drain_lock(log):
+    """An exclusive cross-process lock for the duration of a drain — serializes overlapping drains
+    so the paid reply-generator is never invoked twice for the same comment (cost-idempotency). A
+    sibling lockfile beside the log, flock-held, mirrors eventlog's locking discipline. Separate
+    from the eventlog append lock (a finer lock the closes still take) — this one spans the whole
+    snapshot→generate→close window, which the append lock deliberately does not."""
+    from pathlib import Path
+    lock = Path(log).with_name(Path(log).name + ".drain.lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with lock.open("w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lk, fcntl.LOCK_UN)
 
 
 # ── The LIVE reply-generator — wired to the edge's chat router. SPENDS THE USER'S OpenAI API. ─────
