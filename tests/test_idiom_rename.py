@@ -31,7 +31,9 @@ GLOSSARY_HEADER = re.compile(r"^\*\*[^*]+\*\*:\s*$", re.MULTILINE)
 # 2026-06-10 glossary grill (+10): Beat/Heartbeat, Producer-skill, Close,
 # Rich rite, Grill, Genotype, Install, Steer, Wake, Recall, Space-0 (Wake and
 # Recall share the grill; Dispatch header count net unchanged) → 40.
-EXPECTED_GLOSSARY_COUNT = 40
+# 2026-06-15 dashboard comms-model (#38, Voz-ratified): +3 glossary entities from
+# the mentee↔edge communication model (Medium / Voz-tier / Directive / Vote) → 43.
+EXPECTED_GLOSSARY_COUNT = 43
 
 
 def _glossary_header_count(text):
