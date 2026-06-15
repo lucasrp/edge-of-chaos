@@ -132,6 +132,38 @@ class TestNodeTargetRefValidation(_Base):
         self.assertFalse(self.server._valid_node_target_ref("node:a1"))    # exists, NOT earmarked
         self.assertTrue(self.server._valid_node_target_ref("node:e1"))     # exists AND earmarked
 
+    def test_truthy_but_non_boolean_earmarked_is_rejected(self):
+        # codex round-2 [high]: fail closed ON TYPE. Schema drift in the payload — a string "false" /
+        # "0" or an int 1 — is TRUTHY, so a `bool(...)` / truthy check would promote an inert node
+        # into the eligible harm subset. Only a LITERAL boolean True crosses the corrective boundary.
+        import json as _json
+        from pathlib import Path as _P
+        # rewrite the fixture with poisoned earmarked values on otherwise-valid nodes
+        poisoned = {
+            "nodes": [
+                {"id": "p_str", "label": "Entity", "title": "x", "trust": "extracted", "earmarked": "false"},
+                {"id": "p_zero", "label": "Entity", "title": "y", "trust": "extracted", "earmarked": "0"},
+                {"id": "p_int", "label": "Entity", "title": "z", "trust": "extracted", "earmarked": 1},
+                {"id": "p_true", "label": "Entity", "title": "real", "trust": "extracted", "earmarked": True},
+            ],
+            "edges": [],
+        }
+        _P(self.fix).write_text(_json.dumps(poisoned))
+        # a truthy-but-non-boolean earmarked must NOT validate (only literal True does)
+        self.assertFalse(self.server._valid_node_target_ref("node:p_str"))
+        self.assertFalse(self.server._valid_node_target_ref("node:p_zero"))
+        self.assertFalse(self.server._valid_node_target_ref("node:p_int"))
+        self.assertTrue(self.server._valid_node_target_ref("node:p_true"))
+
+    def test_map_node_preserves_only_literal_boolean_earmarked(self):
+        # codex round-2 [high]: the LIVE fold (_map_node) must not coerce a truthy non-bool into True.
+        # A poisoned prop ("false" / "0" / 1) → earmarked False; only a literal True stays True.
+        self.assertIs(self.server._map_node("4:x:1", "Entity", {"earmarked": "false"})["earmarked"], False)
+        self.assertIs(self.server._map_node("4:x:2", "Entity", {"earmarked": "0"})["earmarked"], False)
+        self.assertIs(self.server._map_node("4:x:3", "Entity", {"earmarked": 1})["earmarked"], False)
+        self.assertIs(self.server._map_node("4:x:4", "Entity", {"earmarked": True})["earmarked"], True)
+        self.assertIs(self.server._map_node("4:x:5", "Entity", {})["earmarked"], False)
+
 
 class TestCorrectionAppend(_Base):
     """An authenticated correction from an Earmarked node posts a `voz.comment` whose `target_ref`
@@ -247,6 +279,16 @@ class TestCorrectionEntryPoint(unittest.TestCase):
         # submit (the same stable-then-advance pattern as the other Voz composers), so a deliberate
         # repeat still lands.
         self.assertIn("comment_nonce", self.JS)
+
+    def test_composer_nonce_is_render_unique_not_a_fixed_zero(self):
+        # codex round-2 [medium]: the nonce must SURVIVE a panel rebuild. A hardcoded `corr:<id>:0`
+        # seed resets to the same value every time appendCorrection rebuilds the composer, so the
+        # same body after reopening the panel collides on the server idempotency key and is silently
+        # dropped (the same same-body-follow-up loss the server-rendered composers avoid). The nonce
+        # base must be RENDER-UNIQUE (a fresh token per build), stable only for retries within a render.
+        # We pin the unique seed (a Date.now()/random token) so the base differs across rebuilds.
+        self.assertTrue("Date.now()" in self.JS or "Math.random()" in self.JS,
+                        "the correction nonce must seed from a render-unique token (Date.now/random)")
 
     def test_correction_url_is_built_dom_safe_not_attribute_string_interp(self):
         # SECURITY: the node id is graph-derived; building the POST URL by interpolating it into an

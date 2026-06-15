@@ -419,8 +419,16 @@
     // submit can't create duplicate corrections (which, if standing, fold into duplicate
     // direction.set). It ADVANCES after each successful submit, so a deliberate second correction
     // still lands — the same stable-then-advance pattern as the server-rendered Voz composers.
+    //
+    // The nonce base is RENDER-UNIQUE (a fresh token per panel build), NOT a fixed `:0` (codex
+    // round-2 [medium]): the panel is rebuilt every time the mentee re-taps the node, and a fixed
+    // seed would reset to `corr:<id>:0`, so the SAME correction body after reopening the panel would
+    // collide on the server idempotency key and be silently dropped. A unique seed per build means a
+    // double-fire WITHIN one render still dedupes (same token + same nonceN), while a deliberate
+    // repeat after a rebuild carries a new token → it lands (no same-body follow-up loss).
+    var renderToken = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     var nonceN = 0;
-    function nonce() { return "corr:" + nodeId + ":" + nonceN; }
+    function nonce() { return "corr:" + nodeId + ":" + renderToken + ":" + nonceN; }
     // submit via fetch (same-origin) so the panel stays in place and shows the confirmation inline,
     // instead of a full-page navigation away from the constellation.
     form.addEventListener("submit", function (evt) {

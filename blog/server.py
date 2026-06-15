@@ -226,7 +226,11 @@ def _valid_node_target_ref(target_ref):
     payload = cortex_fold()
     if not payload:
         return False  # fail-closed: a dark graph cannot vouch for any node
-    return any(n.get("id") == node_id and n.get("earmarked") for n in payload.get("nodes", []))
+    # `is True` (not truthy): fail closed on type so payload schema drift — a string "false"/"0", an
+    # int 1 — never crosses the corrective boundary (codex Slice-6b round-2 [high]). The live fold
+    # already coerces earmarked to a literal bool via _map_node; this guards a raw/fixture payload too.
+    return any(n.get("id") == node_id and n.get("earmarked") is True
+               for n in payload.get("nodes", []))
 
 
 def _reject_oversized_body():
@@ -1027,7 +1031,11 @@ def _map_node(id_, label, props):
         "label": label,
         "title": _node_title(label, props),
         "trust": _TRUST_BY_LABEL.get(label, "extracted"),
-        "earmarked": bool(props.get("earmarked")),
+        # Fail-closed ON TYPE (codex Slice-6b round-2 [high]): preserve ONLY a literal boolean True.
+        # A `bool(...)` coercion would promote schema drift — a string "false"/"0" or an int 1 (all
+        # truthy) — into an eligible harm node, expanding the node-targeted Voz corrective boundary
+        # beyond the Earmarked harm-settled subset. Only `is True` crosses; anything else → False.
+        "earmarked": props.get("earmarked") is True,
         "href": _node_href(label, props),
         "ts": _node_ts(props),
     }
