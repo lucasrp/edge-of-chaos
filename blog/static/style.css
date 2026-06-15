@@ -194,6 +194,59 @@ a:hover { color: #a8c2ff; }
 .chat { margin-top: 8px; }
 .chat-item .ctx { display: block; }
 
+/* ---- shared header/nav — one app, linking every surface (Slice 3, cross-cutting) ---- */
+.site-nav {
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  max-width: 720px; margin: 0 auto; padding: 14px 22px 0;
+}
+.site-nav a {
+  font-family: var(--font-mono); font-size: 0.78rem;
+  letter-spacing: 0.04em; color: var(--text-muted);
+  padding: 5px 12px; border-radius: var(--pill);
+  border: 1px solid transparent; transition: all .15s ease;
+}
+.site-nav a:hover { color: var(--text); border-color: var(--border); background: var(--surface-2); }
+.site-nav a[aria-current="page"] {
+  color: var(--accent); border-color: rgba(122,162,247,.35); background: var(--accent-soft);
+}
+/* the corner subset on the full-canvas cortex page — sits in the head, not centered */
+.cortex-head .site-nav { max-width: none; margin: 0; padding: 0 0 4px; }
+
+/* ---- read-model health strip — the degraded-mode signal above the briefing ---- */
+.briefing-page { max-width: 860px; }
+.health-strip {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px 16px; margin: 8px 0 26px;
+}
+.health-title {
+  font: 600 .68rem/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-dim); margin-bottom: 12px;
+}
+.health-metrics { display: flex; flex-wrap: wrap; gap: 10px 22px; }
+.metric { display: flex; flex-direction: column; gap: 2px; }
+.metric .m-label {
+  font-size: .66rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim);
+}
+.metric .m-val { font-family: var(--font-mono); font-size: .9rem; color: var(--text); }
+.metric.bad .m-val { color: var(--dislike); }
+/* fail dark — a degraded read-model paints the whole band, never a blank */
+.health-strip.degraded { border-color: var(--dislike); box-shadow: 0 0 0 1px var(--dislike-soft) inset; }
+.health-note { margin-top: 12px; color: var(--dislike); }
+
+/* ---- briefing text — the literal tattoo, rendered monospace-faithful (markdown source) ---- */
+.briefing-text {
+  display: block; white-space: pre-wrap; word-wrap: break-word;
+  font-family: var(--font-mono); font-size: .82rem; line-height: 1.65;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 20px 22px;
+}
+.briefing-dark { color: var(--text-muted); padding: 20px 0; }
+.briefing-dark h2 {
+  font: 600 .8rem/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text-dim); margin-bottom: 8px;
+}
+
 /* ---- cortex graph — surf the agent's brain (a dark, full-canvas constellation) ---- */
 .cortex-page {
   margin: 0; height: 100vh; overflow: hidden;

@@ -149,6 +149,31 @@ def authorize_write():
     return None
 
 
+# ── Shared header/nav + design system (cross-cutting, starts at Slice 3 per PLAN.md) ────────────
+#
+# ONE navigation linking every surface — "one app, not a pile of pages". Built from the shared
+# style.css design vocabulary (the .meta tokens, the dark theme); the only new component class is
+# `.site-nav`, an EXTENSION of the shared set, not a one-off per-surface style. Every read surface
+# (blog index, /chat, /briefing) carries the full bar; the full-canvas /cortex carries a corner
+# subset (it is a full-screen island, so the bar would fight the canvas).
+_NAV_LINKS = (
+    ("/", "artefatos"),
+    ("/cortex", "cortex"),
+    ("/chat", "chat"),
+    ("/briefing", "briefing"),
+)
+
+
+def _site_nav(current):
+    """The shared header/nav, rendered with the CURRENT surface marked (aria-current="page") so the
+    bar reads as one app. `current` is the active path ("/", "/cortex", "/chat", "/briefing")."""
+    items = []
+    for path, label in _NAV_LINKS:
+        active = ' aria-current="page"' if path == current else ""
+        items.append(f'<a href="{path}"{active}>{html.escape(label)}</a>')
+    return f'<nav class="site-nav">{"".join(items)}</nav>'
+
+
 def _published_slugs():
     """The set of slugs in the published fold — the only valid `target_ref`s. A vote/comment for a
     slug absent from this fold is a forged target (log poisoning), not a write."""
@@ -563,7 +588,8 @@ def chat():
         '<title>edge — chat</title>'
         '<link rel="stylesheet" href="/static/style.css">'
         '<script src="https://unpkg.com/htmx.org@1.9.12"></script></head><body>'
-        f'<main class="blog"><h1>edge — chat</h1><a class="meta" href="/">← artefatos</a>'
+        f'{_site_nav("/chat")}'
+        f'<main class="blog"><h1>edge — chat</h1>'
         f'{_chat_region()}</main>'
         "</body></html>"
     )
@@ -669,9 +695,8 @@ def index():
         '<title>edge — artefatos</title>'
         '<link rel="stylesheet" href="/static/style.css">'
         '<script src="https://unpkg.com/htmx.org@1.9.12"></script></head><body>'
+        f'{_site_nav("/")}'
         '<main class="blog"><h1>edge — artefatos</h1>'
-        '<p class="meta"><a href="/chat">chat com o edge →</a> · '
-        '<a href="/cortex">surf the brain (cortex) →</a></p>'
         f'{body}</main>'
         "</body></html>"
     )
@@ -874,11 +899,212 @@ def cortex():
         '<link rel="stylesheet" href="/static/style.css">'
         '</head><body class="cortex-page">'
         '<header class="cortex-head"><h1>edge — cortex</h1>'
-        '<a class="meta" href="/">← artefatos</a>'
+        f'{_site_nav("/cortex")}'
         '<p class="meta">surf the agent\'s brain — pan, zoom, clique num nó. '
         'space-0 é o núcleo; o brilho cai com a confiança.</p></header>'
         f'<main class="cortex-main">{graph}</main>'
         f'{island}'
+        '</body></html>'
+    )
+
+
+# ── Briefing surface + read-model health strip (Slice 3, SURFACE.md §"Briefing", AUDIT.md gap A) ──
+#
+# The self-state landing: render `tools/briefing.py::compose_briefing` — the EXACT text the edge
+# wakes to (Memento's tattoo) — as the wake artifact, no mentee-specific recomposition (SURFACE.md:
+# "reuses the wake artifact, no drift"). ⚠️ COST: compose_briefing is a PURE FOLD over the log +
+# genotype — it makes NO LLM/API call. The two non-log legs that could touch the world are pinned
+# to their non-generating values on render: clusters=None (the Tier-0 value — never _AUTO, which
+# would navigate neo4j) and recap=None (a slot marker, never an LLM-synthesized recap). So rendering
+# /briefing costs ZERO API spend (the operator just got burned on spend — this route is paranoid).
+#
+# Above the briefing sits the read-model HEALTH STRIP — the degraded-mode signal a composed briefing
+# cannot give (a briefing can read plausible while the folds beneath it are stale: SURFACE.md cites a
+# real wake where the sweep degraded to swept_sessions:0 yet the briefing composed clean). It folds
+# the log independently of the composer, and fails DARK (a visible degraded band), never blank.
+
+
+def _briefing_paths():
+    """The genotype inputs compose_briefing reads (agent.yaml + memory/), env-overridable for tests
+    (CONTRACT C1: a test points these at a throwaway genotype, never real state/). Unset → the
+    install's real genotype (the briefing IS the install's self-state)."""
+    from pathlib import Path as _P
+    agent_yaml = os.environ.get("EDGE_BRIEFING_AGENT_YAML")
+    memory = os.environ.get("EDGE_BRIEFING_MEMORY")
+    return (_P(agent_yaml) if agent_yaml else None, _P(memory) if memory else None)
+
+
+def _compose_briefing_text():
+    """Call tools/briefing.compose_briefing as a PURE projection of THIS dashboard's log — clusters
+    and recap pinned to None so the render makes ZERO API/LLM call (and never even probes neo4j).
+    Returns the composed markdown string, or None on a fail-closed genotype error (a thin agent.yaml /
+    absent doctrine) so the route can render dark rather than 500 (CONTRACT C1: degrade this view)."""
+    sys.path.insert(0, str(BASE.parent / "tools"))
+    import briefing
+    agent_yaml, memory = _briefing_paths()
+    kwargs = {"log": _log(), "clusters": None, "recap": None}
+    if agent_yaml is not None:
+        kwargs["agent_yaml"] = agent_yaml
+        # roster reads agent.yaml too — keep it pointed at the same (test) genotype.
+        kwargs["roster"] = briefing.source_roster(agent_yaml=agent_yaml)
+    if memory is not None:
+        kwargs["memory"] = memory
+    try:
+        return briefing.compose_briefing(**kwargs)
+    except briefing.BriefingIdentityError:
+        return None
+    except Exception:
+        return None
+
+
+def _last_dispatch():
+    """The newest `dispatch.open` (the wake stamp, ADR-0016): {ts, swept_sessions} or None. The
+    `swept_sessions` is the documented degrade signal — a value of 0 is a degraded sweep (a
+    context-window overflow swept nothing) even though the briefing composes clean."""
+    last = None
+    for e in _read_events():
+        if e.get("type") == "dispatch.open":
+            last = e
+    if last is None:
+        return None
+    return {"ts": last.get("ts", ""),
+            "swept_sessions": (last.get("payload") or {}).get("swept_sessions")}
+
+
+def _log_cursor():
+    """The log cursor = the max seq in the log (the read-model's currency). 0 on an empty log."""
+    return max((e.get("seq", 0) for e in _read_events()), default=0)
+
+
+def _graph_reachable():
+    """A CHEAP, BOUNDED graph-reachability probe for the health strip (neo4j only, NEVER an LLM —
+    zero API spend). Distinct from cortex_fold() (which loads the WHOLE graph): the strip only needs
+    a yes/no, so a single `RETURN 1` under a short connection timeout suffices and an unreachable
+    neo4j degrades fast (a few seconds), not a 60s hang on the landing. The Cortex fixture seam wins
+    when set, so tests stay hermetic (a fixture means the dashboard renders the graph → reachable).
+    Returns True/False; NEVER raises (a dark graph is a degraded signal, not a crash)."""
+    if os.environ.get("EDGE_CORTEX_FIXTURE"):
+        return True
+    group = _group()
+    if not group:
+        return False
+    uri = os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
+    user = os.environ.get("EDGE_NEO4J_USER", "neo4j")
+    password = os.environ.get("EDGE_NEO4J_PASSWORD") or _neo4j_password()
+    try:
+        from neo4j import GraphDatabase
+        drv = GraphDatabase.driver(uri, auth=(user, password), connection_timeout=3,
+                                   connection_acquisition_timeout=3, max_transaction_retry_time=0)
+        try:
+            with drv.session() as s:
+                s.run("RETURN 1").consume()
+            return True
+        finally:
+            drv.close()
+    except Exception:
+        return False
+
+
+def health_strip_data():
+    """Fold the read-model health strip from the log (SURFACE.md §Briefing "read-model health strip").
+    Every metric is a fold, no parallel store. `degraded` is the fail-dark flag: True when any signal
+    is degraded (a swept-nothing sweep, an unreachable graph, or a resolution-consistency error) — the
+    band renders visibly degraded, never blank. NEVER raises (a degraded fold is data, not a crash)."""
+    import grill_drain
+    log = _log()
+    dispatch = _last_dispatch()
+    swept = dispatch.get("swept_sessions") if dispatch else None
+    # Graph reachability — a CHEAP, BOUNDED probe (neo4j only, never an LLM): a single RETURN 1 under
+    # a short timeout, so an unreachable neo4j degrades fast rather than hanging the landing.
+    graph_reachable = _graph_reachable()
+    try:
+        open_directives = len(grill_drain.open_comments(log))
+        actionable = len(grill_drain.actionable_set(log))
+        awaiting = open_directives - actionable  # parked voz.clarify with no answer
+        consistency = grill_drain.consistency_errors(log)
+    except Exception:
+        # the Voz folds degraded — surface it as a degraded strip rather than crashing the landing.
+        open_directives = actionable = awaiting = 0
+        consistency = [{"kind": "voz-fold-degraded"}]
+    backlog = max(open_directives - awaiting, 0)  # eligible-but-unloaded overflow proxy (actionable)
+    swept_degraded = swept == 0  # the documented degrade: a sweep that swept nothing
+    degraded = swept_degraded or (not graph_reachable) or bool(consistency)
+    return {
+        "dispatch_ts": dispatch["ts"] if dispatch else None,
+        "log_cursor": _log_cursor(),
+        "swept_sessions": swept,
+        "swept_degraded": swept_degraded,
+        "graph_reachable": graph_reachable,
+        "open_directives": open_directives,
+        "voz_backlog": backlog,
+        "awaiting_clarification": awaiting,
+        "consistency_errors": len(consistency),
+        "degraded": degraded,
+    }
+
+
+def _metric(label, key, value, bad=False):
+    """One health-strip cell: a labelled metric carrying a stable data-metric hook (for tests + a
+    future poller) and a `bad` flag that paints the degraded ones."""
+    cls = "metric bad" if bad else "metric"
+    return (f'<span class="{cls}"><span class="m-label">{html.escape(label)}</span>'
+            f'<span class="m-val" data-metric="{key}">{html.escape(str(value))}</span></span>')
+
+
+def _render_health_strip():
+    """The compact health band above the briefing — the degraded-mode signal. Fails DARK: a degraded
+    fold paints the band `degraded` (a visible amber state), never a blank. Each cell folds the log."""
+    h = health_strip_data()
+    dispatch = h["dispatch_ts"][:19].replace("T", " ") if h["dispatch_ts"] else "—"
+    swept = h["swept_sessions"] if h["swept_sessions"] is not None else "—"
+    graph = "reachable" if h["graph_reachable"] else "DARK"
+    cells = [
+        _metric("last dispatch", "last-dispatch", dispatch),
+        _metric("log cursor", "log-cursor", h["log_cursor"]),
+        _metric("swept sessions", "swept-sessions", swept, bad=h["swept_degraded"]),
+        _metric("graph", "graph-reachable", graph, bad=not h["graph_reachable"]),
+        _metric("open Directives", "open-directives", h["open_directives"]),
+        _metric("Voz backlog", "voz-backlog", h["voz_backlog"], bad=h["voz_backlog"] > 0),
+        _metric("awaiting clarify", "awaiting-clarification", h["awaiting_clarification"]),
+        _metric("consistency errors", "consistency-errors", h["consistency_errors"],
+                bad=h["consistency_errors"] > 0),
+    ]
+    cls = "health-strip degraded" if h["degraded"] else "health-strip"
+    note = ('<p class="health-note meta">read-model degraded — a fold beneath the briefing is stale '
+            'or failing (a swept-nothing sweep, an unreachable graph, or a resolution-consistency '
+            'error). The composed briefing may read clean regardless.</p>') if h["degraded"] else ""
+    return (f'<section class="{cls}" aria-label="read-model health">'
+            f'<h2 class="health-title">read-model health</h2>'
+            f'<div class="health-metrics">{"".join(cells)}</div>{note}</section>')
+
+
+@app.get("/briefing")
+def briefing_surface():
+    """The self-state landing: the read-model health strip (degraded-mode signal) above the composed
+    wake-briefing (Memento's tattoo — exactly what the edge wakes to). A PURE projection — ZERO API
+    spend on render (compose_briefing is a fold; clusters/recap pinned to None). Fails DARK (a visible
+    degraded band), never blank, when a fold degrades."""
+    strip = _render_health_strip()
+    text = _compose_briefing_text()
+    if text is None:
+        # compose_briefing failed closed (a thin genotype) — render DARK, not a 500. The health strip
+        # still renders (it folds the log independently of the composer).
+        briefing_block = ('<section class="briefing-dark"><h2>briefing — dark</h2>'
+                          '<p class="meta">A briefing não pôde compor: identidade genótipo fina '
+                          '(agent.yaml/memory). É fail-closed — resolva a identidade do install '
+                          '(ADR-0009). O health strip acima ainda projeta do log.</p></section>')
+    else:
+        briefing_block = f'<pre class="briefing-text">{html.escape(text)}</pre>'
+    return (
+        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
+        '<title>edge — briefing</title>'
+        '<link rel="stylesheet" href="/static/style.css">'
+        '<script src="https://unpkg.com/htmx.org@1.9.12"></script></head><body>'
+        f'{_site_nav("/briefing")}'
+        '<main class="blog briefing-page"><h1>edge — briefing</h1>'
+        '<p class="meta">a self-state landing — exatamente o que o edge lê ao acordar '
+        '(Memento\'s tattoo), com o health strip do read-model acima.</p>'
+        f'{strip}{briefing_block}</main>'
         '</body></html>'
     )
 
