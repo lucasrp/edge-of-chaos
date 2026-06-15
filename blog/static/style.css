@@ -1,5 +1,9 @@
 /* style.css — edge blog: a dark, quiet, operational reading surface.
-   Hand-rolled (cheap on resources). Slice 1+2; the fleet Jinja/Tabler contract (#37) is separate. */
+   The fleet Jinja/Tabler #37 contract (Slice 7): Tabler supplies the component vocabulary
+   (grid, cards, badges); this stylesheet loads AFTER it and OWNS the identity — the
+   operator-approved dark palette. The :root tokens below are the source of truth; the
+   `--tblr-*` bridge (bottom of file) maps them onto Tabler's variables so its components
+   inherit the dark theme instead of regressing to Tabler's light default. */
 
 :root {
   --bg:          #0a0c11;
@@ -417,3 +421,34 @@ a:hover { color: #a8c2ff; }
   width: 100%; min-height: 70vh; margin-top: 18px;
   background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm);
 }
+
+/* ---- Tabler bridge — keep the dark identity over the component framework (Slice 7 #37) ----
+   Tabler ships a LIGHT default. We adopt its component vocabulary (cards/badges/grid/forms) but
+   the operator approved THIS dark theme, so the edge :root tokens above own the palette. This block
+   maps the edge tokens onto Tabler's own `--tblr-*` variables so Tabler components inherit the dark
+   surface/border/text/accent instead of regressing to white. It is a token re-map, not a per-surface
+   override — the identity stays one source of truth (the :root scale), the components come from Tabler. */
+:root {
+  color-scheme: dark;
+  --tblr-body-bg: var(--bg);
+  --tblr-body-color: var(--text);
+  --tblr-bg-surface: var(--surface);
+  --tblr-bg-surface-secondary: var(--surface-2);
+  --tblr-border-color: var(--border);
+  --tblr-border-color-translucent: var(--border-soft);
+  --tblr-secondary: var(--text-muted);
+  --tblr-muted: var(--text-muted);
+  --tblr-primary: var(--accent);
+  --tblr-primary-rgb: 122, 162, 247;
+  --tblr-link-color: var(--accent);
+  --tblr-link-hover-color: #a8c2ff;
+  --tblr-card-bg: var(--surface);
+  --tblr-card-border-color: var(--border);
+  --tblr-font-sans-serif: var(--font-sans);
+  --tblr-font-monospace: var(--font-mono);
+  --tblr-heading-color: var(--text);
+}
+/* Tabler sets the page background on .page / html; the edge `body` rule already paints the dark
+   gradient, but pin Tabler's own surfaces dark so an embedded Tabler card/table reads on-theme. */
+.card { background: var(--surface); border-color: var(--border); color: var(--text); }
+.table { color: var(--text); }

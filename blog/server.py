@@ -962,16 +962,7 @@ def _render_post(post):
 def index():
     posts = _posts()
     body = "".join(_render_post(p) for p in posts) or '<p class="meta">sem artefatos ainda</p>'
-    return (
-        '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
-        '<title>edge — artefatos</title>'
-        '<link rel="stylesheet" href="/static/style.css">'
-        '<script src="https://unpkg.com/htmx.org@1.9.12"></script></head><body>'
-        f'{_site_nav("/")}'
-        '<main class="blog"><h1>edge — artefatos</h1>'
-        f'{body}</main>'
-        "</body></html>"
-    )
+    return _page("pages/index.html", current="/", htmx=True, posts_html=_safe(body))
 
 
 # ── Cortex graph — surf the agent's brain (SURFACE.md §"Cortex graph") ──────────────────────────

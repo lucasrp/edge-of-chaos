@@ -213,8 +213,10 @@ class TestVozRail(unittest.TestCase):
         self.assertIn('hx-post="/e/alpha-post/comment"', body)
         # the seeded comment renders in the thread under the post
         self.assertIn("rail comment", body)
-        # htmx is loaded so the fragment swaps work
-        self.assertIn("htmx.org", body)
+        # htmx is loaded so the fragment swaps work — self-hosted (Slice 7 #37: no CDN supply chain)
+        self.assertIn("htmx", body)
+        self.assertIn("/static/vendor/htmx.min.js", body)
+        self.assertNotIn("unpkg.com", body)
         # a link to the standalone chat exists
         self.assertIn('href="/chat"', body)
 
