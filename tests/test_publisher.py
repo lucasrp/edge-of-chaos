@@ -94,6 +94,21 @@ def _spec():
     }
 
 
+def _floored_spec():
+    # valid for EVERY roster skill's presentation floor at once (map: >=2 illustrations; plan:
+    # framed steps + an illustration; discovery: contextual framing). ascii-diagram/next-steps-grid/
+    # callout are zero-dep, so these publishes clear genus without vl-convert. report/research owe none.
+    # No executive_summary: with 1 paragraph + 1 callout the prose count is 2 (< the rich-rite
+    # threshold of 3), so a developed-prose synthesis is NOT triggered for report/research.
+    return {"sections": [{"title": "Body", "blocks": [
+        {"type": "paragraph", "text": "atomic publish plus kernel in one act."},
+        {"type": "ascii-diagram", "content": "A --> B"},
+        {"type": "ascii-diagram", "content": "B --> C"},
+        {"type": "next-steps-grid", "items": ["step one", "step two"]},
+        {"type": "callout", "text": "framing context"},
+    ]}]}
+
+
 class PublishIsAtomicAndKerneled(unittest.TestCase):
     """publish writes a self-contained neutral HTML page (inlined base.css, the meta line,
     `<article class="report">`) AND records the published event + its kernel atomically, so
@@ -702,9 +717,9 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             try:
                 with self.assertRaises(OSError):
                     publisher.publish(
-                        slug, _spec(), intent="open: x; bet: y", skill="map", date="2026-06-08",
+                        slug, _floored_spec(), intent="open: x; bet: y", skill="map", date="2026-06-08",
                         log=log, blog_dir=blog, embed_fn=_fake_embed, project_fn=None,
-                        verdict=_passing_proof(slug, _spec(), "open: x; bet: y", skill="map"))
+                        verdict=_passing_proof(slug, _floored_spec(), "open: x; bet: y", skill="map"))
             finally:
                 os.replace = orig_replace
             publisher.reproject_missing_pages(log=log, blog_dir=blog, date="2026-06-08")
@@ -718,9 +733,9 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             slug = "skill-persisted"
             publisher.publish(
-                slug, _spec(), intent="open: x; bet: y", skill="map", date="2026-06-08",
+                slug, _floored_spec(), intent="open: x; bet: y", skill="map", date="2026-06-08",
                 log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
-                verdict=_passing_proof(slug, _spec(), "open: x; bet: y", skill="map"))
+                verdict=_passing_proof(slug, _floored_spec(), "open: x; bet: y", skill="map"))
             self.assertEqual(eventlog.corpus_at(log=log)[0]["skill"], "map")
 
     def test_project_artefato_clears_stale_edges_before_re_adding(self):
@@ -787,9 +802,9 @@ class WrapperMetadataIsEscapedAndSkillIsRostered(unittest.TestCase):
                 log = Path(tmp) / "log.jsonl"
                 slug = f"clean-{skill}"
                 path = publisher.publish(
-                    slug, _spec(), intent="open: x; bet: y", skill=skill,
+                    slug, _floored_spec(), intent="open: x; bet: y", skill=skill,
                     date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
-                    verdict=_passing_proof(slug, _spec(), "open: x; bet: y", skill=skill),
+                    verdict=_passing_proof(slug, _floored_spec(), "open: x; bet: y", skill=skill),
                 )
                 text = Path(path).read_text()
                 self.assertIn(f'<p class="meta">2026-06-08 · {skill}</p>', text)

@@ -111,6 +111,29 @@ by an explorer: it is *recall*, not research. The discipline and the concrete cy
 
 This closes the loop `recall → research (the gap) → produce → publish → project → recall`.
 
+## The type→format rule — reach the whole palette, lead with your floor
+
+The writer's default is prose; left alone it answers every content-shape with a paragraph and the rich
+palette (`tools/render.py` `BLOCK_SCHEMAS`) goes unused. This rule is **property-not-section** (ADR-0012/0013):
+it says **which block fits which content shape**, never a mandatory ordered section — no block here is owed by
+position, only by what the content *is*. Match the shape, reach for the block:
+
+- **3+ values / metrics** → `metrics-grid`.
+- **a comparison** → `comparison-table` (or `comparison` for a two-sided pros/cons).
+- **before / after** → `diff-block`.
+- **a reasoning chain** → `derivation`.
+- **an open boundary** (a gap, an unknown) → `gap-table` (several) or `gap-marker` (one).
+- **verbatim source evidence** → `evidence`.
+- **quantitative data to visualize** → `chart` (`line` · `sparkline` · `bar` · `scatter` · `slopegraph`).
+- **a relation / dependency / flow** → `diagram` (`dag` · `force`); `ascii-diagram` is the zero-dep fallback.
+
+A producer **leads with the blocks its descriptor's `richness.require` names** (`tools/producer_descriptor.py`)
+— `map` leads with illustrations (`diagram`, `ascii-diagram`); `plan` leads with framed steps
+(`next-steps-grid` / `numbered-card`) and a dependency `diagram`; `discovery` leads with a framing `callout`
+— while the **full palette above stays reachable** for whatever else the content owes. Leading is by
+**declaration**, not a fixed position: the floor blocks surface first because the form owes them, not because
+a section mandates them.
+
 ## The context-denial ladder
 
 Each rung sees strictly less than the one before. **Freshness is evidence vs reasoning, not

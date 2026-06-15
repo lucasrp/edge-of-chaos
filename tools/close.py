@@ -19,6 +19,8 @@ import re
 import secrets
 
 from render import BLOCK_SCHEMAS, _BLOCK_TYPE_ALIASES
+import render
+import producer_descriptor
 
 # ---------------------------------------------------------------------------
 # Genus contract constants — the pinned field shapes + the visual palette
@@ -29,7 +31,7 @@ from render import BLOCK_SCHEMAS, _BLOCK_TYPE_ALIASES
 # `comparison-table` is treated as visual (it is a styled side-by-side, not a raw grid).
 VISUAL_BLOCK_TYPES = frozenset({
     "raw-html", "svg", "html", "custom-html",   # chart / svg escape hatch
-    "ascii-diagram",
+    "ascii-diagram", "diagram", "chart",
     "metrics-grid", "metrics", "metric-card", "metric-cards", "kpi-row", "kpi-grid", "stats",
     "next-steps-grid", "steps",
     "comparison", "pros-cons", "compare",
@@ -117,7 +119,12 @@ def check_genus(artefato: dict) -> list[str]:
     violations += _check_intent(artefato.get("intent"))
     violations += _check_block_schemas(artefato.get("content", {}))
     violations += _check_visual_coverage(artefato.get("content", {}))
+    violations += _check_evidence_anchors(artefato.get("content", {}))
     violations += _check_rich_rite(artefato)
+    # The shared producer protocol's PRESENTATION floor — the producer's declared, additive
+    # obligations (Phase 0: permissive => no-op). The rich rite above stays the unconditional,
+    # content-relative genus gate; this only ADDS, never narrows it.
+    violations += producer_descriptor.presentation_violations(artefato)
     return violations
 
 
@@ -187,6 +194,20 @@ def _check_block_schemas(content: dict) -> list[str]:
     return violations
 
 
+def _check_evidence_anchors(content: dict) -> list[str]:
+    """Every evidence block must pass anchor integrity (quote_text matches its sha256 anchor) — so a
+    block with a mismatched/forged anchor cannot pass genus and render as 'evidence'. Source-corpus
+    authenticity needs the corpus (unavailable here); the anchor-integrity floor is always enforceable."""
+    violations = []
+    for block in _iter_blocks(content):
+        raw_type = block.get("type", "paragraph")
+        if _BLOCK_TYPE_ALIASES.get(raw_type, raw_type) == "evidence":
+            ok, reason = render.verify_evidence(block)  # sources=None => anchor-integrity only
+            if not ok:
+                violations.append(f"evidence-anchor: {reason}")
+    return violations
+
+
 def _check_visual_coverage(content: dict) -> list[str]:
     """Flag "visual-coverage" iff the content has quantitative/multi-value material
     but no visual palette element. Content with no quantitative material owes none.
@@ -195,9 +216,19 @@ def _check_visual_coverage(content: dict) -> list[str]:
     has_quantitative = False
     has_visual = bool(content.get("metrics"))  # top-level metrics grid is a visual
     for block in _iter_blocks(content):
-        block_type = block.get("type", "paragraph")
+        raw_type = block.get("type", "paragraph")
+        block_type = _BLOCK_TYPE_ALIASES.get(raw_type, raw_type)  # canonicalize (graphviz->diagram, kpi-grid->metrics-grid)
         if block_type in VISUAL_BLOCK_TYPES:
-            has_visual = True
+            # a chart/diagram only counts as a real visual if it would ACTUALLY render (vl-convert
+            # present + the recipe validates + renders) — the renderable-not-just-present rule.
+            if block_type == "diagram":
+                if render.diagram_renderable(block):
+                    has_visual = True
+            elif block_type == "chart":
+                if render.chart_renderable(block):
+                    has_visual = True
+            else:
+                has_visual = True
         if _is_dense_table(block, block_type):
             has_quantitative = True
     if has_quantitative and not has_visual:
