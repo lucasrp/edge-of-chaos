@@ -53,6 +53,7 @@ class _Base(unittest.TestCase):
         import server
         importlib.reload(server)
         self.server = server
+        self.client = server.app.test_client()
         import grill_drain
         importlib.reload(grill_drain)
         self.drain = grill_drain
@@ -161,6 +162,21 @@ class TestLegacyBackfill(_Base):
         self.assertEqual([c["comment_id"] for c in loaded], [])  # nothing actionable
         self.assertEqual(len(self._events("voz.reply")), replies_before)  # no new reply
 
+    def test_drain_backfills_legacy_before_loading_so_it_never_reprocesses(self):
+        # acceptance (h), the integration the gate flagged: an UPGRADED log with a historical
+        # reply-only comment and NO explicit back-fill call. The drain itself must back-fill first,
+        # so the legacy comment is never loaded/re-replied by the lifecycle switch.
+        cid = self._comment("oi", "alpha-post")
+        self._add("voz.reply", "voz:alpha-post", {"comment_id": cid, "body": "hand reply"})
+        replies_before = len(self._events("voz.reply"))
+        loaded = self.drain.drain(self.log, self._reply_stub(), grill_run_id="g1")
+        self.assertNotIn(cid, [c["comment_id"] for c in loaded])  # legacy not re-loaded
+        self.assertEqual(len(self._events("voz.reply")), replies_before)  # no duplicate reply
+        # it got a back-filled voz.resolved{replied}, exactly one, and is closed
+        res = [e for e in self._events("voz.resolved") if e["payload"]["comment_id"] == cid]
+        self.assertEqual(len(res), 1)
+        self.assertNotIn(cid, [c["comment_id"] for c in self.server.open_comments()])
+
 
 class TestActionableSet(_Base):
     """Acceptance (c): the drain loads only the actionable set — a parked voz.clarify with no
@@ -204,6 +220,83 @@ class TestActionableSet(_Base):
         self._add("voz.clarify_answer", "voz:alpha-post", {"clarify_id": "q1", "body": "answer"})
         after = [c["comment_id"] for c in self.server.open_comments()]
         self.assertEqual(set(after), set(before))  # no NEW open chat from the answer
+
+
+class TestClarifyAnswerSurface(_Base):
+    """The parked-clarify lifecycle must be answerable from the dashboard (ADR-0017/SURFACE.md):
+    the edge's voz.clarify question renders inline, and the mentee answers with a distinct
+    voz.clarify_answer child event — never a new voz.comment, so it never opens a chat."""
+
+    def test_clarify_question_renders_inline_in_the_thread(self):
+        cid = self._comment("ambiguous one", "alpha-post")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": cid, "clarify_id": "q1", "question": "which framing?",
+                   "grill_run_id": "g0"})
+        thread = self.server._render_thread("alpha-post")
+        self.assertIn("which framing?", thread)            # the question is surfaced
+        self.assertIn("aguardando sua resposta", thread)   # flagged awaiting your answer
+        # a pre-linked answer composer targets the clarify_id
+        self.assertIn('name="clarify_id" value="q1"', thread)
+
+    def test_clarify_answer_route_appends_a_child_event_not_a_comment(self):
+        cid = self._comment("ambiguous one", "alpha-post")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": cid, "clarify_id": "q1", "question": "which?", "grill_run_id": "g0"})
+        before_comments = len(self._events("voz.comment"))
+        r = self.client.post("/clarify/q1/answer", data={"body": "the left framing"})
+        self.assertEqual(r.status_code, 200)
+        # it appended a voz.clarify_answer, NOT a voz.comment (never a new Directive)
+        ans = self._events("voz.clarify_answer")
+        self.assertEqual(len(ans), 1)
+        self.assertEqual(ans[0]["payload"]["clarify_id"], "q1")
+        self.assertEqual(ans[0]["payload"]["body"], "the left framing")
+        self.assertEqual(len(self._events("voz.comment")), before_comments)  # no new comment
+
+    def test_clarify_answer_re_enters_then_drains_to_terminal(self):
+        # end-to-end: park → answer via the route → drain terminally resolves.
+        cid = self._comment("ambiguous one", "alpha-post")
+        self._add("voz.clarify", "voz:alpha-post",
+                  {"comment_id": cid, "clarify_id": "q1", "question": "which?", "grill_run_id": "g0"})
+        self.client.post("/clarify/q1/answer", data={"body": "the left one"})
+        self.drain.drain(self.log, self._reply_stub(), grill_run_id="g1")
+        self.assertNotIn(cid, [c["comment_id"] for c in self.server.open_comments()])
+
+
+class TestClarifyAnswerGated(unittest.TestCase):
+    """The voz.clarify_answer route mutates the authoritative log, so it rides the Slice-1 gate:
+    an unauthenticated / cross-origin call is rejected with no append."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.log = root / "log.jsonl"
+        self.log.write_text(_ev(1, "2026-06-10T09:00:00+00:00", "voz.clarify", "voz:alpha-post",
+                                 {"comment_id": "c1", "clarify_id": "q1", "question": "which?",
+                                  "grill_run_id": "g0"}) + "\n")
+        os.environ["EDGE_BLOG_LOG"] = str(self.log)
+        os.environ["EDGE_BLOG_ENTRIES"] = str(root)
+        os.environ["EDGE_BLOG_STATIC"] = str(root)
+        os.environ["EDGE_DASH_AUTH"] = "on"
+        os.environ.pop("EDGE_DASH_TOKEN", None)
+        import server
+        importlib.reload(server)
+        self.server = server
+        self.client = server.app.test_client()
+
+    def tearDown(self):
+        for k in ("EDGE_BLOG_LOG", "EDGE_DASH_AUTH", "EDGE_DASH_TOKEN"):
+            os.environ.pop(k, None)
+        self.tmp.cleanup()
+
+    def _count(self):
+        return len([ln for ln in self.log.read_text().splitlines() if ln.strip()])
+
+    def test_unauthenticated_clarify_answer_rejected_no_append(self):
+        before = self._count()
+        r = self.client.post("/clarify/q1/answer", data={"body": "spoofed"},
+                             environ_overrides={"REMOTE_ADDR": "10.0.0.5"})
+        self.assertIn(r.status_code, (401, 403))
+        self.assertEqual(self._count(), before)
 
 
 class TestDrainRouteAuthGate(unittest.TestCase):

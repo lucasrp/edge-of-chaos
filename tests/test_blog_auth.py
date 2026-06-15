@@ -280,6 +280,26 @@ class TestCanonicalAppend(_Base):
         self.assertEqual(self._count(), before + 1)  # one Directive, not two
         self.assertEqual(len(self._events("voz.comment")), 1)
 
+    def test_two_intentional_same_body_comments_after_first_append_both_land(self):
+        """A deliberate REPEAT (e.g. sending the same short acknowledgement twice) from the live UI
+        must BOTH land — the composer refreshes its nonce after each successful append, so the
+        second submission carries a NEW key and is not mistaken for a transport retry. (Codex gate:
+        the medium finding — same-body follow-ups were still deduped on a stable render nonce.)"""
+        import re
+        before = self._count()
+        # render 1 → submit "ok"
+        rail = self.server._render_rail("alpha-post")
+        composer = rail.split('class="composer"', 1)[1]
+        nonce1 = re.search(r'name="comment_nonce" value="([^"]+)"', composer).group(1)
+        r1 = self._post("/e/alpha-post/comment", {"body": "ok", "comment_nonce": nonce1})
+        # the swapped fragment must carry a FRESH composer nonce (the count advanced)
+        nonce2 = re.search(r'name="comment_nonce" value="([^"]+)"', r1.data.decode()).group(1)
+        self.assertNotEqual(nonce1, nonce2)
+        # a deliberate second "ok" with the refreshed nonce → also lands (not deduped)
+        self._post("/e/alpha-post/comment", {"body": "ok", "comment_nonce": nonce2})
+        self.assertEqual(self._count(), before + 2)  # both same-body comments landed
+        self.assertEqual(len(self._events("voz.comment")), 2)
+
     def test_second_distinct_comment_from_same_render_is_not_dropped(self):
         """The nonce dedupes a TRUE resubmit (same body, double-fire), but a legitimate SECOND,
         DISTINCT comment typed into the same still-rendered composer (same render nonce) must NOT

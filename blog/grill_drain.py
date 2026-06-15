@@ -286,6 +286,11 @@ def drain(log, reply_fn, grill_run_id=None, cap=DEFAULT_BATCH_CAP):
 
     Returns the list of LOADED comments (those the drain attempted to close this run)."""
     grill_run_id = grill_run_id or uuid.uuid4().hex[:12]
+    # Ship the lifecycle switch atomically with the back-fill: before the new open/actionable fold
+    # can observe the log, close every historical reply-only comment (legacy-settled) so the switch
+    # never RE-OPENS or the drain never RE-PROCESSES it (ADR-0017 migration; acceptance h). Idempotent
+    # — a no-op once the log is migrated, so running it every drain costs nothing after the first.
+    backfill_legacy_resolved(log)
     start_cursor = _start_cursor(log)
     loaded, _overflow = rank_and_cap(actionable_set(log), cap)
     for comment in loaded:

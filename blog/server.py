@@ -297,31 +297,102 @@ def open_comments():
     ]
 
 
-def _replies_block(c, replies_by_id):
-    """The replies under a comment, or the 'agent responds next beat' affordance if it is open."""
+def _clarifications():
+    """Fold parked `voz.clarify` questions keyed by the comment_id they ask about, dropping any
+    whose `voz.clarify_answer` has already landed (an answered clarify is no longer awaiting the
+    mentee). This is what the dashboard renders inline so a parked chat is answerable, not stuck."""
+    answered = {e.get("payload", {}).get("clarify_id")
+                for e in _read_events() if e.get("type") == "voz.clarify_answer"}
+    out = {}
+    for e in _read_events():
+        if e.get("type") == "voz.clarify":
+            p = e.get("payload", {})
+            if p.get("clarify_id") in answered:
+                continue
+            out.setdefault(p.get("comment_id"), []).append(p)
+    return out
+
+
+def _clarify_block(c, clarifies_by_id):
+    """The edge's open clarification question(s) under a comment + a pre-linked answer composer (the
+    same inline pattern as a reply, SURFACE.md "view/answer a clarification"). The mentee answers
+    with a distinct `voz.clarify_answer` child event — never a new `voz.comment`."""
+    clarifies = clarifies_by_id.get(c.get("comment_id"), [])
+    if not clarifies:
+        return ""
+    blocks = []
+    for q in clarifies:
+        qid = html.escape(q.get("clarify_id", ""))
+        blocks.append(
+            '<li class="clarify">'
+            f'<p class="question body">{html.escape(q.get("question", ""))}</p>'
+            '<p class="pending meta">aguardando sua resposta</p>'
+            f'<form class="composer clarify-answer" hx-post="/clarify/{qid}/answer" '
+            'hx-target="closest .thread, closest .chat" hx-swap="outerHTML" '
+            'hx-on::after-request="this.reset()">'
+            f'<input type="hidden" name="clarify_id" value="{qid}">'
+            '<textarea name="body" placeholder="responda ao edge…" required></textarea>'
+            '<button type="submit">responder</button></form></li>'
+        )
+    return f'<ul class="clarifies">{"".join(blocks)}</ul>'
+
+
+def _replies_block(c, replies_by_id, clarifies_by_id=None):
+    """The replies under a comment + any open clarification question, or the 'agent responds next
+    beat' affordance if it is open and unanswered. A parked `voz.clarify` renders inline as the
+    edge's question with a pre-linked answer composer (ADR-0017: a parked chat stays answerable)."""
+    if clarifies_by_id is None:
+        clarifies_by_id = _clarifications()
+    clarify = _clarify_block(c, clarifies_by_id)
     replies = replies_by_id.get(c.get("comment_id"), [])
     if not replies:
-        return '<p class="pending meta">edge responde no próximo beat</p>'
+        pending = '' if clarify else '<p class="pending meta">edge responde no próximo beat</p>'
+        return f'{pending}{clarify}'
     items = "".join(
         f'<li class="reply"><p class="body">{html.escape(r.get("body", ""))}</p></li>'
         for r in replies
     )
-    return f'<ul class="replies">{items}</ul>'
+    return f'<ul class="replies">{items}</ul>{clarify}'
 
 
-def _render_comment(c, replies_by_id):
+def _render_comment(c, replies_by_id, clarifies_by_id=None):
     body = f'<p class="body">{html.escape(c.get("body", ""))}</p>'
-    return f'<li class="comment">{body}{_replies_block(c, replies_by_id)}</li>'
+    return f'<li class="comment">{body}{_replies_block(c, replies_by_id, clarifies_by_id)}</li>'
 
 
 def _render_thread(target_ref):
     comments = _comments(target_ref)
     replies_by_id = _replies()
+    clarifies_by_id = _clarifications()
     if not comments:
         items = '<li class="empty meta">sem comentários ainda</li>'
     else:
-        items = "".join(_render_comment(c, replies_by_id) for c in comments)
-    return f'<ul class="thread" id="thread-{html.escape(target_ref)}">{items}</ul>'
+        items = "".join(_render_comment(c, replies_by_id, clarifies_by_id) for c in comments)
+    return f'<ul class="thread">{items}</ul>'
+
+
+def _comment_composer(slug):
+    """The per-post comment composer, rendered with the CURRENT fresh nonce. It posts to and swaps
+    the whole thread region (thread + this composer), so each successful append re-renders the
+    composer with an ADVANCED nonce — a deliberate repeat (same body) then carries a new key and is
+    not mistaken for a transport retry (Codex gate: the stable-render-nonce same-body drop)."""
+    s = html.escape(slug)
+    nonce = html.escape(_comment_nonce(slug))
+    return (
+        f'<form class="composer" hx-post="/e/{s}/comment" hx-target="#thread-region-{s}" '
+        'hx-swap="outerHTML" hx-on::after-request="this.reset()">'
+        f'<input type="hidden" name="comment_nonce" value="{nonce}">'
+        '<textarea name="body" placeholder="comente (vira um Directive)…" required></textarea>'
+        '<button type="submit">comentar</button></form>'
+    )
+
+
+def _thread_region(slug):
+    """The swappable per-post region = the thread + a fresh-nonce composer. Returned by the comment
+    route so the swap refreshes the composer's nonce on every successful append."""
+    s = html.escape(slug)
+    return (f'<div class="thread-region" id="thread-region-{s}">'
+            f'{_render_thread(slug)}{_comment_composer(slug)}</div>')
 
 
 def _vote_count(slug):
@@ -369,12 +440,13 @@ def _render_votes(slug):
     )
 
 
-def _render_chat_item(c, replies_by_id):
+def _render_chat_item(c, replies_by_id, clarifies_by_id=None):
     target = c.get("target_ref")
     label = (f'<a class="ctx" href="/e/{html.escape(target)}.html">em {html.escape(target)}</a>'
              if target else '<span class="ctx meta">chat geral</span>')
     body = f'<p class="body">{html.escape(c.get("body", ""))}</p>'
-    return f'<li class="chat-item">{label}{body}{_replies_block(c, replies_by_id)}</li>'
+    return (f'<li class="chat-item">{label}{body}'
+            f'{_replies_block(c, replies_by_id, clarifies_by_id)}</li>')
 
 
 def _render_chat():
@@ -382,11 +454,31 @@ def _render_chat():
     comments = [{**e["payload"], "ts": e.get("ts", "")}
                 for e in _read_events() if e.get("type") == "voz.comment"]
     replies_by_id = _replies()
+    clarifies_by_id = _clarifications()
     if not comments:
         items = '<li class="empty meta">sem mensagens ainda</li>'
     else:
-        items = "".join(_render_chat_item(c, replies_by_id) for c in comments)
+        items = "".join(_render_chat_item(c, replies_by_id, clarifies_by_id) for c in comments)
     return f'<ul class="chat">{items}</ul>'
+
+
+def _chat_composer():
+    """The standalone-chat composer with the CURRENT fresh nonce. Posts to and swaps the whole chat
+    region (timeline + this composer), so each successful append advances the nonce — a deliberate
+    same-body repeat then carries a new key and is not deduped as a transport retry."""
+    nonce = html.escape(_comment_nonce(None))
+    return ('<form class="composer" hx-post="/chat/comment" hx-target="#chat-region" '
+            'hx-swap="outerHTML" hx-on::after-request="this.reset()">'
+            f'<input type="hidden" name="comment_nonce" value="{nonce}">'
+            '<textarea name="body" placeholder="fale com o edge…" required></textarea>'
+            '<button type="submit">enviar</button></form>')
+
+
+def _chat_region():
+    """The swappable standalone-chat region = a fresh-nonce composer + the timeline. Returned by the
+    chat-comment route so the swap refreshes the composer's nonce on every successful append."""
+    return (f'<div class="chat-region" id="chat-region">'
+            f'{_chat_composer()}<div id="chat">{_render_chat()}</div></div>')
 
 
 @app.post("/e/<slug>/comment")
@@ -402,7 +494,9 @@ def post_comment(slug):
         _append_voz("voz.comment", f"voz:{slug}",
                     {"target_ref": slug, "comment_id": uuid.uuid4().hex[:12], "body": body},
                     idem_key=_comment_idem_key(request.form.get("comment_nonce"), body))
-    return _render_thread(slug)
+    # Return the whole region (thread + a FRESH-nonce composer) so the swap advances the nonce —
+    # a deliberate same-body repeat then carries a new key and is not dropped as a retry.
+    return _thread_region(slug)
 
 
 @app.post("/chat/comment")
@@ -416,24 +510,57 @@ def post_chat_comment():
         _append_voz("voz.comment", "voz:chat",
                     {"target_ref": None, "comment_id": uuid.uuid4().hex[:12], "body": body},
                     idem_key=_comment_idem_key(request.form.get("comment_nonce"), body))
-    return _render_chat()
+    # The whole region (fresh-nonce composer + timeline) so the swap advances the nonce.
+    return _chat_region()
+
+
+def _clarify_target(clarify_id):
+    """Resolve the target_ref of the comment a clarify_id asks about — so the answer route can
+    re-render the right projection (the slug thread, or the general chat). Returns (found, target)."""
+    comment_of = {}  # clarify_id -> comment_id
+    target_of = {}   # comment_id -> target_ref
+    for e in _read_events():
+        t, p = e.get("type"), e.get("payload", {})
+        if t == "voz.clarify":
+            comment_of[p.get("clarify_id")] = p.get("comment_id")
+        elif t == "voz.comment":
+            target_of[p.get("comment_id")] = p.get("target_ref")
+    cid = comment_of.get(clarify_id)
+    if cid is None:
+        return False, None
+    return True, target_of.get(cid)
+
+
+@app.post("/clarify/<clarify_id>/answer")
+def post_clarify_answer(clarify_id):
+    """Answer a parked `voz.clarify` with a DISTINCT child event `voz.clarify_answer` (SURFACE.md /
+    ADR-0017) — never a `voz.comment`, so it never opens a new chat or re-enters the backlog. Rides
+    the Slice-1 auth gate + body-size limit (it mutates the authoritative log). Re-renders the
+    comment's projection (slug thread or general chat) so the inline question is resolved."""
+    if not authorize_write():
+        abort(403)
+    if _reject_oversized_body():
+        abort(413)
+    found, target = _clarify_target(clarify_id)
+    if not found:
+        abort(404)  # an answer for a clarify that does not exist — a forged child ref
+    body = (request.form.get("body") or "").strip()
+    if body:
+        _append_voz("voz.clarify_answer", f"voz:{target or 'chat'}",
+                    {"clarify_id": clarify_id, "body": body},
+                    idem_key=_comment_idem_key(request.form.get("clarify_id"), body))
+    return _render_thread(target) if target else _render_chat()
 
 
 @app.get("/chat")
 def chat():
-    nonce = html.escape(_comment_nonce(None))
-    form = ('<form class="composer" hx-post="/chat/comment" hx-target="#chat" hx-swap="outerHTML" '
-            'hx-on::after-request="this.reset()">'
-            f'<input type="hidden" name="comment_nonce" value="{nonce}">'
-            '<textarea name="body" placeholder="fale com o edge…" required></textarea>'
-            '<button type="submit">enviar</button></form>')
     return (
         '<!DOCTYPE html><html lang="pt"><head><meta charset="utf-8">'
         '<title>edge — chat</title>'
         '<link rel="stylesheet" href="/static/style.css">'
         '<script src="https://unpkg.com/htmx.org@1.9.12"></script></head><body>'
         f'<main class="blog"><h1>edge — chat</h1><a class="meta" href="/">← artefatos</a>'
-        f'{form}<div id="chat">{_render_chat()}</div></main>'
+        f'{_chat_region()}</main>'
         "</body></html>"
     )
 
@@ -512,17 +639,8 @@ def _artifact_items(post):
 
 
 def _render_rail(slug):
-    """The Voz rail under a post: vote control + comment thread + composer (htmx-wired)."""
-    s = html.escape(slug)
-    nonce = html.escape(_comment_nonce(slug))
-    composer = (
-        f'<form class="composer" hx-post="/e/{s}/comment" hx-target="#thread-{s}" '
-        'hx-swap="outerHTML" hx-on::after-request="this.reset()">'
-        f'<input type="hidden" name="comment_nonce" value="{nonce}">'
-        '<textarea name="body" placeholder="comente (vira um Directive)…" required></textarea>'
-        '<button type="submit">comentar</button></form>'
-    )
-    return f'<div class="voz">{_render_votes(slug)}{_render_thread(slug)}{composer}</div>'
+    """The Voz rail under a post: vote control + the thread region (thread + fresh-nonce composer)."""
+    return f'<div class="voz">{_render_votes(slug)}{_thread_region(slug)}</div>'
 
 
 def _render_post(post):

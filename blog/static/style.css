@@ -153,6 +153,11 @@ a:hover { color: #a8c2ff; }
 .comment .body, .chat-item .body { color: var(--text); }
 .replies { margin-top: 10px; border-left: 2px solid var(--accent); padding-left: 14px; }
 .reply { padding: 5px 0; color: var(--text-muted); font-size: 0.94em; }
+/* a parked voz.clarify: the edge's open question + answer composer — extends .replies, amber
+   (the awaiting-answer signal), so the inline pattern matches but reads as unsettled. */
+.clarifies { list-style: none; margin-top: 10px; border-left: 2px solid #d6a35a; padding-left: 14px; }
+.clarify { padding: 5px 0; }
+.clarify .question { color: var(--text); }
 .pending { font-style: italic; color: #d6a35a; margin-top: 6px; font-size: 0.86em; }
 .empty { padding: 18px 0; color: var(--text-dim); text-align: center; }
 .ctx {
