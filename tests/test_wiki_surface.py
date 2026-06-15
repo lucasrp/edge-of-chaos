@@ -183,6 +183,11 @@ class TestMaliciousClusterIsInertAndCannotAppend(_WikiBase):
     defeating the Slice-1 write gate. Auth is ON (the real posture) and the test_client is loopback —
     so a write WOULD be authorized; the page must be inert because nothing CAN execute the POST."""
 
+    # the index must LINK the pwned cluster for it to be current (the registry honors the projection).
+    INDEX = (
+        "<!doctype html><html><body><h1>wiki</h1>"
+        '<p>• <a href="cluster-pwned.html">Pwned cluster</a></p></body></html>'
+    )
     CLUSTERS = {"cluster-pwned.html": _MALICIOUS_CLUSTER}
 
     def setUp(self):
@@ -258,6 +263,36 @@ class TestMaliciousClusterFilenameCannotXssTheIndex(_WikiBase):
         self.assertNotIn('x" onclick="alert(1)', ids)
         for cid in ids:
             self.assertRegex(cid, r"^[a-z]+$", f"non-canonical cluster id leaked: {cid!r}")
+
+
+class TestStaleClusterFilesAreNotIndexed(_WikiBase):
+    """CORRECTNESS (codex round-3 [medium], ADR-0005 rendered-projection): the canonical
+    state/wiki/index.html is the source of truth for which clusters are CURRENT. wiki_render
+    overwrites current pages but does NOT prune retired/renamed/merged cluster files, so a stale
+    cluster-*.html can linger on disk. The dashboard must agree with the projection — the registry
+    derives its allowlist from the CURRENT index links, so a stale file is neither listed on /wiki
+    nor reachable at /wiki/<stale> (it is not in the projection)."""
+
+    # the index (_INDEX) links ONLY introspectivememory + noncurated — but a stale file lingers.
+    CLUSTERS = {
+        "cluster-introspectivememory.html": _CLUSTER_A,
+        "cluster-noncurated.html": _CLUSTER_B,
+        "cluster-stale.html": _CLUSTER_B,  # retired/renamed — no longer linked by the index
+    }
+
+    def test_stale_cluster_is_not_listed_on_the_index(self):
+        html = self.client.get("/wiki").get_data(as_text=True)
+        self.assertIn("/wiki/introspectivememory", html)
+        self.assertNotIn("/wiki/stale", html)  # the projection dropped it
+
+    def test_stale_cluster_is_not_reachable_at_its_drilldown(self):
+        # not in the current projection → 404, even though the file is still on disk.
+        self.assertEqual(self.client.get("/wiki/stale").status_code, 404)
+        self.assertEqual(self.client.get("/wiki/stale/raw").status_code, 404)
+
+    def test_registry_matches_the_current_index_projection(self):
+        ids = {cid for cid, _t, _p in self.server._cluster_registry()}
+        self.assertEqual(ids, {"introspectivememory", "noncurated"})
 
 
 class TestWikiReachableFromBriefingAndDistills(unittest.TestCase):

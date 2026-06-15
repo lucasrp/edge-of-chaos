@@ -1769,22 +1769,53 @@ def _cluster_title(path):
 _CLUSTER_ID_RE = re.compile(r"^[a-z]+$")
 
 
+# A relative `cluster-<id>.html` link on the canonical wiki index.html — the CURRENT projection of
+# which clusters exist (ADR-0005: the wiki is a re-rendered projection of the graph; index.html is
+# its source of truth). We honor the index, not a raw on-disk glob.
+_INDEX_CLUSTER_LINK = re.compile(r'href="cluster-([a-z]+)\.html"', re.IGNORECASE)
+
+
+def _current_cluster_ids():
+    """The set of cluster ids the CANONICAL index.html currently links (codex round-3 [medium],
+    ADR-0005 rendered-projection): wiki_render overwrites current pages but does NOT prune retired /
+    renamed / merged cluster files, so a raw glob would surface stale pages the projection dropped —
+    the dashboard would disagree with the canonical wiki. So the registry's allowlist is the index's
+    OWN links. None (no index) → None, the signal to fall back to the on-disk glob (a partial wiki
+    still lists rather than going blank). Each id is gated to the canonical letters-only shape."""
+    index = _wiki_root() / "index.html"
+    try:
+        text = index.read_text()
+    except OSError:
+        return None
+    return {m.group(1).lower() for m in _INDEX_CLUSTER_LINK.finditer(text)
+            if _CLUSTER_ID_RE.match(m.group(1).lower())}
+
+
 def _cluster_registry():
-    """The ordered registry of every Knowledge cluster: (cluster_id, title, source Path). The
-    `cluster_id` is the stable, URL-safe handle a /wiki/<cluster_id> view resolves — derived from the
-    `cluster-<id>.html` filename. This is the ALLOWLIST: a /wiki/<id> view resolves only over this
-    list, so a forged id / traversal attempt reaches no file (404), never an arbitrary filesystem
-    read. FAILS CLOSED on a non-canonical id (codex round-2 [high]): a malformed filename (a drifted
-    tree carrying a quote / handler in the stem) is dropped before it can reach the index's href —
-    only the wiki renderer's own letters-only id shape is admitted. Sorted by id for a stable index."""
+    """The ordered registry of every CURRENT Knowledge cluster: (cluster_id, title, source Path). The
+    `cluster_id` is the stable, URL-safe handle a /wiki/<cluster_id> view resolves. This is the
+    ALLOWLIST: a /wiki/<id> view resolves only over this list, so a forged id / traversal attempt
+    reaches no file (404), never an arbitrary filesystem read.
+
+    The allowlist is the CURRENT projection — the cluster ids the canonical index.html links (codex
+    round-3 [medium], ADR-0005): a stale cluster-*.html the renderer no longer links is NOT surfaced
+    (the dashboard agrees with the canonical wiki, never republishes retired knowledge). Falls back to
+    the on-disk glob only when there is no index at all (a partial wiki still lists). Every id is
+    FAILED CLOSED to the canonical letters-only shape (codex round-2 [high]) — a malformed filename
+    never enters the allowlist. Sorted by id for a stable index."""
     root = _wiki_root()
     if not root.is_dir():
         return []
+    current = _current_cluster_ids()
     entries = []
     for f in sorted(root.glob("cluster-*.html")):
         cid = f.stem[len("cluster-"):]
-        if cid and _CLUSTER_ID_RE.match(cid):
-            entries.append((cid, _cluster_title(f), f))
+        if not (cid and _CLUSTER_ID_RE.match(cid)):
+            continue
+        # honor the projection: when an index exists, list only the clusters it currently links.
+        if current is not None and cid not in current:
+            continue
+        entries.append((cid, _cluster_title(f), f))
     return entries
 
 
