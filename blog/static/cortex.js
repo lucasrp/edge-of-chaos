@@ -41,10 +41,13 @@
       var count = 0;
       for (var i = 0; i < nodes.length; i++) {
         var n = nodes[i];
+        // the haystack includes the stable `ref` (Slice 6b round-6) so a correction's node ref (a
+        // uuid, distinct from the render id) is searchable — the /chat provenance link is keyed by it.
         var hay = (
           String(n.title == null ? "" : n.title) + "\n" +
           String(n.label == null ? "" : n.label) + "\n" +
-          String(n.id == null ? "" : n.id)
+          String(n.id == null ? "" : n.id) + "\n" +
+          String(n.ref == null ? "" : n.ref)
         ).toLowerCase();
         if (hay.indexOf(q) !== -1) {
           if (matchId === null) matchId = n.id;
@@ -52,6 +55,24 @@
         }
       }
       return { matchId: matchId, count: count };
+    },
+
+    // locate(payload, ref) → the RENDER id of the node whose stable `ref` matches (then a render-id
+    // fallback), or null. Drives the /cortex?node=<stable-ref> provenance link from a node correction
+    // (Slice 6b round-6): the persisted target is the stable ref (a uuid), distinct from the volatile
+    // render id, so the locator must match `ref` first to center the originating node.
+    locate: function (payload, ref) {
+      var want = String(ref == null ? "" : ref);
+      if (!want) return null;
+      var nodes = (payload && payload.nodes) || [];
+      var i;
+      for (i = 0; i < nodes.length; i++) {
+        if (String(nodes[i].ref == null ? "" : nodes[i].ref) === want) return nodes[i].id;
+      }
+      for (i = 0; i < nodes.length; i++) {
+        if (String(nodes[i].id == null ? "" : nodes[i].id) === want) return nodes[i].id;
+      }
+      return null;
     },
 
     // visible(payload, state) → a Set of node ids to SHOW. state (all optional):
@@ -126,7 +147,8 @@
           var hay = (
             String(n.title == null ? "" : n.title) + "\n" +
             String(n.label == null ? "" : n.label) + "\n" +
-            String(n.id == null ? "" : n.id)
+            String(n.id == null ? "" : n.id) + "\n" +
+            String(n.ref == null ? "" : n.ref)
           ).toLowerCase();
           if (hay.indexOf(q) !== -1) {
             if (searchHit === null) searchHit = n.id;
@@ -299,8 +321,23 @@
     },
   });
 
-  // Center the view on space-0 once laid out — the gravitational core the mentee orients from.
+  // Center the view on space-0 once laid out — the gravitational core the mentee orients from. A
+  // ?node=<stable-ref> deep-link (the /chat provenance link from a node correction, Slice 6b round-6)
+  // instead centers + selects the originating node, located by its STABLE ref (not the volatile
+  // render id) — so node-targeted correction provenance is actually auditable from the dashboard.
   cy.ready(function () {
+    var deepRef = null;
+    try {
+      deepRef = new URLSearchParams(location.search).get("node");
+    } catch (e) { deepRef = null; }
+    var deepId = deepRef ? CortexFilters.locate(payload, deepRef) : null;
+    var deep = deepId ? cy.getElementById(deepId) : null;
+    if (deep && deep.length) {
+      deep.select();
+      cy.center(deep);
+      cy.zoom({ level: 1.1, position: deep.position() });
+      return;
+    }
     var core = cy.nodes(".tier-space0");
     if (core.length) {
       cy.center(core);

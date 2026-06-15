@@ -215,54 +215,53 @@ def _node_id_of(target_ref):
     return target_ref[len(_NODE_REF_PREFIX):]
 
 
-def _node_snapshot(target_ref):
-    """A durable {node_title, node_label} snapshot of the Earmarked node a correction targets,
-    looked up from the group-scoped cortex payload at WRITE time (codex Slice-6b round-5 [high]).
-    Persisted on the correction comment so the resolver/audit carries usable node context WITHOUT a
-    live graph lookup (the node may be reprojected with a new elementId, or the graph dark, by the
-    time the drain runs) — a natural 'this claim is wrong' is then settled against the actual claim,
-    not a context-less body. Returns {} if the node can't be resolved (the validator already gated
-    existence, so this is a belt-and-suspenders for a graph that went dark between calls)."""
+def _resolve_node_target_ref(target_ref):
+    """Resolve a node `target_ref` to its matched EARMARKED node from ONE group-scoped cortex read
+    (codex Slice-6b round-6 [medium]: validation + snapshot from the SAME fold, no TOCTOU window
+    where the graph degrades between two reads and lands a correction without its node context).
+    Returns the matched node dict (carrying title/label/ref) or None — fail-closed on a dark graph,
+    an unknown node, or a non-Earmarked node:
+      - the EARMARKED requirement is load-bearing (SURFACE.md: Earmarked is the harm frontier;
+        CONTEXT.md: an inert node is navigable, not correctable) — a non-Earmarked target would
+        expand Voz corrective authority beyond the harm-settled subset;
+      - match on the STABLE `ref` (codex round-4), falling back to the render `id` for a raw fixture
+        payload that carries no ref;
+      - `earmarked is True` (not truthy): fail closed on type so schema drift ("false"/"0"/1) never
+        crosses the boundary (codex round-2)."""
+    if not _is_node_target_ref(target_ref):
+        return None
     node_id = _node_id_of(target_ref)
+    if not node_id:
+        return None
     payload = cortex_fold()
     if not payload:
-        return {}
+        return None  # fail-closed: a dark graph cannot vouch for any node
     for n in payload.get("nodes", []):
-        if n.get("ref") == node_id or (n.get("ref") is None and n.get("id") == node_id):
-            snap = {}
-            if n.get("title"):
-                snap["node_title"] = _as_str(n["title"])
-            if n.get("label"):
-                snap["node_label"] = _as_str(n["label"])
-            return snap
-    return {}
+        matches = (n.get("ref") == node_id or (n.get("ref") is None and n.get("id") == node_id))
+        if matches and n.get("earmarked") is True:
+            return n
+    return None
 
 
 def _valid_node_target_ref(target_ref):
-    """A node `target_ref` is valid iff it is `node:<id>` and <id> is an EARMARKED node in the
-    group-scoped cortex payload — fail-closed (a dark graph has no valid nodes → reject). Reuses the
-    existing scoped fold (no new query). The EARMARKED requirement is load-bearing, not UI sugar: the
-    corrective write-path is for the harm-settled Earmarked subset (SURFACE.md: Earmarked is the harm
-    frontier; CONTEXT.md: an inert node is navigable, not correctable). Without it a crafted POST to a
-    non-Earmarked node would expand Voz corrective authority beyond the eligible subset and pollute the
-    open Directive backlog / curated Direction with provenance to nodes never eligible for correction.
-    So an unknown OR a non-Earmarked node id is a forged target, rejected with no append."""
-    if not _is_node_target_ref(target_ref):
-        return False
-    node_id = _node_id_of(target_ref)
-    if not node_id:
-        return False
-    payload = cortex_fold()
-    if not payload:
-        return False  # fail-closed: a dark graph cannot vouch for any node
-    # Match on the STABLE node `ref` (codex Slice-6b round-4 [medium]) — the rebuild-stable key the
-    # correction persists — falling back to the render `id` for a payload that carries no ref (a raw
-    # fixture). `is True` (not truthy): fail closed on type so payload schema drift — a string
-    # "false"/"0", an int 1 — never crosses the corrective boundary (codex Slice-6b round-2 [high]).
-    return any((n.get("ref") == node_id or
-                (n.get("ref") is None and n.get("id") == node_id))
-               and n.get("earmarked") is True
-               for n in payload.get("nodes", []))
+    """A node `target_ref` is valid iff it resolves to an Earmarked node in the group-scoped cortex
+    payload (`_resolve_node_target_ref`) — fail-closed. Thin wrapper kept for the validation seam."""
+    return _resolve_node_target_ref(target_ref) is not None
+
+
+def _node_snapshot_of(node):
+    """A durable {node_title, node_label} snapshot from an ALREADY-RESOLVED node (one read, no second
+    fold). Persisted on the correction comment so the resolver/audit carries usable node context
+    without a live graph lookup when the drain runs (the node may be reprojected / the graph dark by
+    then) — a natural 'this claim is wrong' is settled against the actual claim, not a context-less
+    body. Empty when the node carries no title (the route fails closed rather than persist an empty
+    snapshot, codex round-6 [medium])."""
+    snap = {}
+    if node.get("title"):
+        snap["node_title"] = _as_str(node["title"])
+    if node.get("label"):
+        snap["node_label"] = _as_str(node["label"])
+    return snap
 
 
 def _reject_oversized_body():
@@ -1285,8 +1284,17 @@ def post_cortex_correction(node_id):
     if not authorize_write():
         abort(403)  # per Slice 1 — unauthenticated / cross-origin → rejected, no append
     target_ref = f"{_NODE_REF_PREFIX}{node_id}"
-    if not _valid_node_target_ref(target_ref):
-        abort(404)  # a forged / unknown node ref (or a dark graph) — fail-closed, no append
+    # Resolve validation + the node-context snapshot from ONE cortex read (codex round-6 [medium]):
+    # no TOCTOU window where the graph degrades between a validate read and a snapshot read and lands
+    # a correction without its node context.
+    node = _resolve_node_target_ref(target_ref)
+    if node is None:
+        abort(404)  # a forged / unknown / non-Earmarked node ref (or a dark graph) — fail-closed
+    snapshot = _node_snapshot_of(node)
+    if "node_title" not in snapshot:
+        # fail-closed: never persist a node correction with no usable CLAIM context (the title is the
+        # node's content the resolver settles against; a bare label like "Entity" is not enough).
+        abort(409)
     if _reject_oversized_body():
         abort(413)
     body = (request.form.get("body") or "").strip()
@@ -1297,9 +1305,10 @@ def post_cortex_correction(node_id):
         # numeric `harm` field, so stamping it here makes a NEUTRALLY-worded correction rank as harm
         # work and load first — never overflow behind unrelated keyword-rich chatter (hidden safety
         # correction under backlog). The drain ranks on it; it is otherwise inert metadata on the log.
+        # The node snapshot rides along so the resolver/audit sees the node it corrects.
         _append_voz("voz.comment", f"voz:{target_ref}",
                     {"target_ref": target_ref, "comment_id": uuid.uuid4().hex[:12], "body": body,
-                     "harm": _CORRECTION_HARM, **_node_snapshot(target_ref)},
+                     "harm": _CORRECTION_HARM, **snapshot},
                     idem_key=_comment_idem_key(request.form.get("comment_nonce"), body))
     # A small confirmation fragment for the inspect-panel composer (htmx swaps it in place).
     return ('<p class="correction-ok meta">correção registrada · '

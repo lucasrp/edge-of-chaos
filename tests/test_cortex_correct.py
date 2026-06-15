@@ -321,6 +321,72 @@ def _load_server(env):
     return server
 
 
+import shutil
+import subprocess
+
+NODE = shutil.which("node")
+CORTEX_JS = BLOG / "static" / "cortex.js"
+
+
+def _run_island_logic(js_body):
+    harness = (
+        "const assert = require('assert');\n"
+        "const { CortexFilters } = require(%r);\n" % str(CORTEX_JS)
+    ) + js_body
+    return subprocess.run([NODE, "-e", harness], capture_output=True, text=True)
+
+
+@unittest.skipIf(NODE is None, "node not available to drive the island logic")
+class TestIslandLocatesByStableRef(unittest.TestCase):
+    """codex round-6 [medium]: the /chat provenance link is /cortex?node=<stable-ref>, so the island
+    must LOCATE a node by its stable `ref` (the round-4 uuid, which differs from the render id), not
+    only by title/label/id. The locator finds the node whose `ref` (then `id`) matches — so a
+    correction link actually centers the originating node."""
+
+    PAYLOAD = json.dumps({"nodes": [
+        {"id": "render:9", "ref": "U-harm", "label": "Entity", "title": "a claim", "trust": "extracted"},
+        {"id": "other:1", "ref": "U-other", "label": "Entity", "title": "another", "trust": "extracted"},
+    ], "edges": []})
+
+    def test_locate_finds_a_node_by_its_stable_ref(self):
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const id = CortexFilters.locate(p, 'U-harm');
+            assert.strictEqual(id, 'render:9');   // located by stable ref, returns the render id
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_locate_falls_back_to_render_id(self):
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const id = CortexFilters.locate(p, 'render:9');
+            assert.strictEqual(id, 'render:9');   // a render id still locates (fallback)
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_locate_unknown_ref_returns_null(self):
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            assert.strictEqual(CortexFilters.locate(p, 'nope'), null);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_search_haystack_includes_the_stable_ref(self):
+        # manually searching the uuid must also find it (the haystack includes ref)
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const r = CortexFilters.search(p, 'U-harm');
+            assert.strictEqual(r.matchId, 'render:9');
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_island_parses_the_node_query_param(self):
+        # the DOM island reads ?node= and centers the located node (asserted over source).
+        js = CORTEX_JS.read_text()
+        self.assertIn("location.search", js)
+        self.assertIn("CortexFilters.locate", js)
+
+
 class TestStableNodeRef(unittest.TestCase):
     """codex round-4 [medium]: a node correction must NOT persist a rebuild-unstable Neo4j elementId
     into the durable Voz log. The live fold exposes a STABLE node ref (`ref`, preferring Graphiti's
@@ -426,6 +492,35 @@ class TestNodeContextInPromptAndSnapshot(_Base):
                  if c["payload"]["target_ref"] == "node:e1")
         self.assertEqual(p.get("node_title"), "a harmful claim")  # e1's title in the fixture
         self.assertEqual(p.get("node_label"), "Entity")
+
+    def test_resolve_returns_the_matched_node_and_snapshot_in_one_read(self):
+        # codex round-6 [medium]: validation + snapshot come from ONE fold (no TOCTOU between two
+        # cortex_fold reads). _resolve_node_target_ref returns the matched earmarked node or None.
+        node = self.server._resolve_node_target_ref("node:e1")
+        self.assertIsNotNone(node)
+        self.assertEqual(node["title"], "a harmful claim")
+        self.assertEqual(node["label"], "Entity")
+        # a non-earmarked / unknown node → None (fail-closed)
+        self.assertIsNone(self.server._resolve_node_target_ref("node:a1"))
+        self.assertIsNone(self.server._resolve_node_target_ref("node:ghost"))
+
+    def test_correction_is_not_appended_when_node_context_cannot_be_captured(self):
+        # codex round-6 [medium]: if the matched node carries NO usable context (no title/label), the
+        # write must abort fail-closed — never land a node correction with an empty snapshot (the
+        # resolver would then settle a vague 'this is wrong' against no node). A node whose title is
+        # absent has no context to preserve → rejected, no append.
+        import json as _json
+        from pathlib import Path as _P
+        _P(self.fix).write_text(_json.dumps({
+            "nodes": [{"id": "bare", "label": "Entity", "trust": "extracted", "earmarked": True}],
+            "edges": [],
+        }))  # earmarked but NO title — no usable context snapshot
+        before = self._count()
+        r = self._post("/cortex/bare/comment", {"body": "fix it"})
+        self.assertIn(r.status_code, (400, 404, 409, 503))
+        self.assertEqual(self._count(), before)
+        self.assertEqual([c for c in self._events("voz.comment")
+                          if c["payload"]["target_ref"] == "node:bare"], [])
 
     def test_live_prompt_includes_the_node_context_for_a_node_correction(self):
         sys.path.insert(0, str(BLOG))
