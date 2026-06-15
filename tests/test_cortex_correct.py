@@ -390,6 +390,36 @@ class TestCorrectionRoundTrip(_Base):
         # and the originating comment still carries its node target_ref (provenance to the node)
         self.assertEqual(self._events("voz.comment")[0]["payload"]["target_ref"], "node:e1")
 
+    def test_neutral_earmarked_correction_stamps_harm_and_outranks_a_neutral_comment(self):
+        """codex round-3 [medium]: an Earmarked correction is harm work BY CONSTRUCTION (it targets a
+        node CONTEXT.md defines as the harm-bearing subset that must be settled by Voz), so it must
+        rank as harm-bearing even with NEUTRAL wording — else it scores 0 on the keyword/numeric
+        harm-rank and overflows behind unrelated keyword-rich comments (delayed/hidden safety
+        correction under backlog). The correction route stamps a machine-readable `harm` signal on the
+        comment, so the drain's deterministic ranking loads it FIRST under a tight cap. ZERO API spend."""
+        drain = self._import_drain()
+        import eventlog
+        # a plain chat comment with NEUTRAL wording (no harm keywords) → harm score 0
+        eventlog.append("voz.comment", "voz:chat",
+                        {"target_ref": None, "comment_id": "plain1", "body": "a routine note"},
+                        log=self.log)
+        # the Earmarked node correction, also NEUTRALLY worded (no harm keywords in the body)
+        r = self._post("/cortex/e1/comment", {"body": "please revisit this one"})
+        self.assertEqual(r.status_code, 200)
+        corr_cid = next(c["payload"]["comment_id"] for c in self._events("voz.comment")
+                        if c["payload"]["target_ref"] == "node:e1")
+        # the correction comment carries a machine-readable harm signal (the drain ranks on it)
+        corr_payload = next(c["payload"] for c in self._events("voz.comment")
+                            if c["payload"]["comment_id"] == corr_cid)
+        self.assertIn("harm", corr_payload)
+        self.assertGreater(corr_payload["harm"], 0)
+        # with a cap of 1, the harm-ranked drain loads the EARMARKED correction first (not the plain one)
+        stub = lambda comment: {"reply": "noted."}
+        loaded = drain.drain(self.log, stub, grill_run_id="g4", cap=1)
+        self.assertEqual([c["comment_id"] for c in loaded], [corr_cid])
+        # the plain neutral comment stays open as overflow (not silently dropped, not falsely closed)
+        self.assertIn("plain1", [c["comment_id"] for c in drain.open_comments(self.log)])
+
     def test_drain_run_was_zero_api_spend(self):
         """Belt-and-suspenders: the round-trip drain used the injected stub, never the live
         generator factory (which would spend the user's OpenAI API). The stub is the only callable

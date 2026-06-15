@@ -198,6 +198,12 @@ def _published_slugs():
 # so the correction is rejected with NO append (the same trust posture as the slug allowlist).
 _NODE_REF_PREFIX = "node:"
 
+# The harm score stamped on a node-targeted correction (codex Slice-6b round-3 [medium]). An
+# Earmarked correction is harm work BY CONSTRUCTION, so it must outrank the drain's keyword scan
+# ceiling (the count of _HARM_MARKERS a body could hit) — set above it so a neutrally-worded
+# correction loads before unrelated keyword-rich chatter, never overflowing the harm frontier.
+_CORRECTION_HARM = 100.0
+
 
 def _is_node_target_ref(target_ref):
     """True when a `target_ref` is a Cortex node ref (`node:<id>`) rather than a bare slug."""
@@ -1222,8 +1228,15 @@ def post_cortex_correction(node_id):
         abort(413)
     body = (request.form.get("body") or "").strip()
     if body:
+        # Stamp a machine-readable harm signal (codex Slice-6b round-3 [medium]): an Earmarked
+        # correction is harm work BY CONSTRUCTION — it targets the harm-bearing subset CONTEXT.md says
+        # must be settled by Voz. The drain's deterministic harm-rank (_harm_score) honors an explicit
+        # numeric `harm` field, so stamping it here makes a NEUTRALLY-worded correction rank as harm
+        # work and load first — never overflow behind unrelated keyword-rich chatter (hidden safety
+        # correction under backlog). The drain ranks on it; it is otherwise inert metadata on the log.
         _append_voz("voz.comment", f"voz:{target_ref}",
-                    {"target_ref": target_ref, "comment_id": uuid.uuid4().hex[:12], "body": body},
+                    {"target_ref": target_ref, "comment_id": uuid.uuid4().hex[:12], "body": body,
+                     "harm": _CORRECTION_HARM},
                     idem_key=_comment_idem_key(request.form.get("comment_nonce"), body))
     # A small confirmation fragment for the inspect-panel composer (htmx swaps it in place).
     return ('<p class="correction-ok meta">correção registrada · '
