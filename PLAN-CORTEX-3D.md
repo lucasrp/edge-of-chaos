@@ -203,18 +203,27 @@ panel rebuild.
     only by the `cortex()` route).
   - **M20** the render + fallback markup use the Slice-7 vocabulary (the `style.css` tokens, the existing
     `.cortex-page` full-canvas chrome, `pages/cortex.html`); no parallel styling.
-  - **M22 PERFORMANCE FLOOR — settled BEFORE the renderer becomes default, IN THIS SLICE (audit M22/R2):**
-    the audit is explicit that performance + ceiling behavior must be settled **before the renderer ships** —
-    and because each slice is independently shippable, Slice 2 landing a **live, unbounded** force tick at the
-    real graph size IS the regression M22 names. So the **minimum floor lands here**, not in Slice 6:
-    (i) **measure** the current `group_id`'s graph size at build time (`cortex_fold()` on the live install;
-    SURFACE.md records ~268 nodes / ~260 edges for `edge-next`, but it accretes — measure, don't assume);
-    (ii) **freeze / stop the force tick after convergence** (no unbounded live tick — the dominant lever) +
-    cap ticks; (iii) define + assert an explicit **interactive FPS / interaction threshold** at the measured
-    size; (iv) prove a **growth-stress ceiling** (a fixture well above current size degrades via the cap, not
-    a runaway tick). This is the **hard floor**; Slice 6 is only *tuning beyond* it (the Episodic-collapse
-    contingency lever + any finer thresholds). All of (i)–(iv) are client-side over the existing payload —
-    **no `cortex_fold` change.**
+  - **M22 PERFORMANCE FLOOR — PINNED NUMBERS, settled BEFORE the renderer becomes default, IN THIS SLICE
+    (audit M22/R2):** the audit is explicit that performance + ceiling behavior must be settled **before the
+    renderer ships** — and because each slice is independently shippable, Slice 2 landing a **live, unbounded**
+    force tick at the real graph size IS the regression M22 names. The floor is **pinned with concrete numbers
+    in this plan** (not "define a threshold after seeing results" — a post-hoc weak threshold would let a
+    sluggish renderer pass), and Slice 2 **fails** if any are unmet:
+    (i) **measure** the current `group_id`'s graph size at build time (`cortex_fold()` on the live install) +
+    record it; baseline ~268 nodes / ~260 edges (`edge-next`, SURFACE.md), but it accretes — measure, don't
+    assume.
+    (ii) **Force-tick ceiling (PINNED):** the layout **freezes within ≤ 2.0 s wall-clock OR ≤ 300 ticks**,
+    whichever first, then **stops** (the `cooldownTicks`/`cooldownTime` convergence condition is set, not
+    left to run) — assert the sim is idle (no further ticks) after convergence. No unbounded live tick.
+    (iii) **Interactive frame-rate floor (PINNED):** **≥ 30 FPS sustained over a 5 s measurement window**
+    while orbiting, at the measured baseline size, in **headless Chromium (the Playwright gate's profile)** —
+    the same fixed profile every run, so the number is comparable, not hardware-lottery. Slice 2 fails below 30.
+    (iv) **Growth-stress ceiling (PINNED fixture):** a **synthetic fixture of ~1 000 nodes / ~1 000 edges
+    (~4× the baseline)** must still **converge-and-freeze** (rung (ii)) and degrade via the cap — **never a
+    runaway live tick** — even if it renders below 30 FPS (the cap, not the FPS floor, is what (iv) proves).
+    This is the **hard floor**; Slice 6 is only *tuning beyond* it (the Episodic-collapse contingency lever +
+    any finer thresholds). All of (i)–(iv) are client-side over the existing payload — **no `cortex_fold`
+    change** (the 1 000-node fixture is a test-only synthetic payload, not a graph mutation).
   - **`cortex()` route change (template/island wiring only, NOT the fold):** emit BOTH vendored scripts
     (cytoscape for the fallback + 3d-force-graph) island-only, plus the existing `cortex-data` block and
     `cortex.js`; the searchable-list fallback (tier 3) is a server-rendered `<noscript>`-style block from the
@@ -247,16 +256,18 @@ panel rebuild.
   `/cortex`. The fallback ladder is **proven to render**, not merely asserted in prose — a blank 3D canvas or
   a dead rung **fails** this gate. Runs backgrounded against a backgrounded server (never `blog/server.py` in
   the foreground; `pkill` after), the same Playwright harness the operator used to capture the reference.
-  **(j) the M22 floor (proven before default 3D ships):** the force tick **freezes after convergence** (assert
-  it is not running unbounded — bounded tick count / the sim cools to idle); the rendered graph at the
-  **measured** current size hits the stated **interactive FPS threshold** (recorded + checked at build time);
-  a **growth-stress fixture** (well above current size) degrades via the cap rather than a runaway live tick;
-  **no `cortex_fold`/`_map_node` change.**
+  **(j) the M22 floor — the PINNED numbers met before default 3D ships:** the force tick **freezes within
+  ≤ 2.0 s / ≤ 300 ticks** then idles (assert no unbounded tick); the renderer sustains **≥ 30 FPS over a 5 s
+  window** while orbiting at the **measured** baseline size in the headless-Chromium gate profile; the
+  **~1 000-node / ~1 000-edge growth fixture** still converges-and-freezes + degrades via the cap (no runaway
+  tick); the measured baseline size is recorded; **no `cortex_fold`/`_map_node` change** (the growth fixture
+  is a test-only synthetic payload). Slice 2 **fails** if any pinned number is unmet.
 - **Codex gate:** `/codex:review` — **challenge the M-GATE explicitly** (is the 2D fallback truly the
   auto-path, not a list? **does a real-browser test prove each rung renders non-blank, not just return 200?**)
-  **AND the M22 floor** (is the force tick actually frozen + a concrete measured FPS threshold asserted before
-  default 3D ships, not deferred?), the security-seam survival (M17/R5), fail-dark vs M21 distinction (M16),
-  island-only loading (M19), and
+  **AND the M22 floor** (are the PINNED numbers — ≤2s/≤300-tick freeze, ≥30 FPS over 5 s in the fixed headless
+  profile, the ~1 000-node growth fixture converging — actually asserted and failing the slice if unmet,
+  before default 3D ships, not a post-hoc weak threshold?), the security-seam survival (M17/R5), fail-dark vs
+  M21 distinction (M16), island-only loading (M19), and
   conformance to ADR-0010 + `docs/frontend.md` + SURFACE.md.
 - **Deps:** Slices 0, 1. **Files:** `blog/static/cortex.js`, `blog/templates/pages/cortex.html`,
   `blog/server.py` (the `cortex()` route's **script-tag / list-fallback wiring only** — the fold is
