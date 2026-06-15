@@ -273,13 +273,27 @@ def _replies():
     return out
 
 
+def _terminally_resolved():
+    """The set of `comment_id`s that have a TERMINAL `voz.resolved` (ADR-0017 / SURFACE.md). This
+    — not `voz.reply` presence — is what closes a chat: a `voz.reply` is presentation only, a
+    parked `voz.clarify` is non-terminal (the chat stays open). `open_comments()` keys on the
+    ABSENCE of a member here."""
+    return {
+        e.get("payload", {}).get("comment_id")
+        for e in _read_events()
+        if e.get("type") == "voz.resolved"
+    }
+
+
 def open_comments():
-    """The answer queue: every comment with no `voz.reply` yet (any target). A fold, not a flag."""
-    answered = set(_replies())
+    """The answer queue: every `voz.comment` with no TERMINAL `voz.resolved` yet (any target). A
+    fold, not a flag (ADR-0017). A replied-but-unresolved comment is still open; a parked
+    `voz.clarify` chat is still open; only a terminal `voz.resolved` closes it."""
+    resolved = _terminally_resolved()
     return [
         {**e["payload"], "ts": e.get("ts", "")}
         for e in _read_events()
-        if e.get("type") == "voz.comment" and e.get("payload", {}).get("comment_id") not in answered
+        if e.get("type") == "voz.comment" and e.get("payload", {}).get("comment_id") not in resolved
     ]
 
 

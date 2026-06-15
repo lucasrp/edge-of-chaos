@@ -154,13 +154,16 @@ class TestVozRail(unittest.TestCase):
         r = self.client.post("/e/alpha-post/vote", data={"value": "-1"})
         self.assertEqual(self._events("voz.vote")[-1]["payload"]["value"], -1)
 
-    def test_open_comments_are_those_without_a_reply(self):
-        # two comments; only the first gets an edge reply
+    def test_open_comments_are_those_without_a_terminal_resolved(self):
+        # two comments; only the first reaches a TERMINAL voz.resolved (ADR-0017: openness keys on
+        # voz.resolved absence, NOT voz.reply — a reply is presentation only).
         self.client.post("/e/alpha-post/comment", data={"body": "first"})
         cid = self._events("voz.comment")[0]["payload"]["comment_id"]
         self.client.post("/e/beta-post/comment", data={"body": "second"})
         self.server._append("voz.reply", "voz:alpha-post",
                              {"comment_id": cid, "body": "answered"})
+        self.server._append("voz.resolved", "voz:alpha-post",
+                             {"comment_id": cid, "outcome": "replied", "grill_run_id": "g1"})
         opens = self.server.open_comments()
         bodies = [c["body"] for c in opens]
         self.assertEqual(bodies, ["second"])
