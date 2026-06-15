@@ -261,7 +261,7 @@ panel rebuild.
   trace to `TIER`/`TIER.edge`/`earmarked`; space-0 + the selected node are labeled.
   (b) **WebGL forced unavailable (stub `webglSupported()`→false) → the 2D Cytoscape island auto-renders** and
   is navigable (the existing island behavior) — the single mandated fallback, **not a list, not a message**.
-  (b2) **WebGL present BUT the 3D renderer fails (force the `3d-force-graph` constructor to throw / first
+  (a2) **WebGL present BUT the 3D renderer fails (force the `3d-force-graph` constructor to throw / first
   paint to blank / a `webglcontextlost` event, with `webglSupported()`→true) → the 2D Cytoscape island
   auto-renders** non-blank + navigable — the probe passing is **not** enough; a 3D init/first-paint failure
   must drop to 2D, never leave `/cortex` blank-with-data (the exact regression M21 prevents).
