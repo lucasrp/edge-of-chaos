@@ -279,6 +279,44 @@ a:hover { color: #a8c2ff; }
 .cortex-inspect .source { margin: 10px 0 0; font-size: .82rem; }
 .cortex-inspect .source a { font-family: var(--font-mono); color: var(--accent); }
 
+/* ---- cortex search + filter controls (Slice 6) — extends the shared token/component vocabulary,
+   no one-off styling: the same surface/border/mono-meta language as the inspect panel + nav ---- */
+.cortex-controls {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 8px; padding: 10px 12px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow);
+}
+.cortex-controls .ctrl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.cortex-controls #cortex-search {
+  flex: 1 1 220px; min-width: 180px; font: inherit; font-size: .86rem; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--pill); padding: 6px 14px;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.cortex-controls #cortex-search::placeholder { color: var(--text-dim); }
+.cortex-controls #cortex-search:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.cortex-controls .ctrl-status {
+  font-family: var(--font-mono); font-size: .72rem; color: var(--text-dim);
+  letter-spacing: .04em; white-space: nowrap;
+}
+.cortex-controls .ctrl-types { gap: 6px 12px; }
+.cortex-controls .ctrl-type,
+.cortex-controls .ctrl-toggle,
+.cortex-controls .ctrl-recency {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  font-family: var(--font-mono); font-size: .74rem; letter-spacing: .03em; color: var(--text-muted);
+}
+.cortex-controls .ctrl-type:hover,
+.cortex-controls .ctrl-toggle:hover { color: var(--text); }
+.cortex-controls input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+.cortex-controls #cortex-recency { accent-color: var(--accent); cursor: pointer; }
+
+/* the located node's marker label sits on the dark canvas — the search hit highlight (cortex.js
+   styles the node itself via `.search-hit`); nothing else needed here. */
+
 /* the honest dark state — no group / neo4j unreachable */
 .cortex-dark {
   margin: 12% auto 0; max-width: 540px; text-align: center;

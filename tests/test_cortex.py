@@ -106,6 +106,18 @@ class TestCortexFold(unittest.TestCase):
         node = self.server._map_node("4:x:2", "Source", {"key": "arXiv:2304.03442"})
         self.assertEqual(node["title"], "arXiv:2304.03442")
 
+    def test_node_mapping_surfaces_a_recency_ts(self):
+        # Slice 6 — the recency filter axis. _map_node carries a per-node `ts` from the graph props
+        # (Graphiti stamps created_at/valid_at; the asserted spine may carry a plain `ts`), coerced
+        # to a string so the client can order/threshold by recency. No extra query — it is already in
+        # properties(n), kept cheap. Absent stamp → None (the node simply has no recency position).
+        stamped = self.server._map_node("4:x:7", "Episodic", {"name": "s", "created_at": "2026-06-01T00:00:00Z"})
+        self.assertEqual(stamped["ts"], "2026-06-01T00:00:00Z")
+        valid = self.server._map_node("4:x:8", "Entity", {"name": "e", "valid_at": "2026-05-09T10:00:00Z"})
+        self.assertEqual(valid["ts"], "2026-05-09T10:00:00Z")
+        plain = self.server._map_node("4:x:9", "Entity", {"name": "e"})
+        self.assertIsNone(plain["ts"])
+
 
 class TestCortexRoute(unittest.TestCase):
     """GET /cortex renders the graph container + the Cytoscape island wired to the payload."""
@@ -149,6 +161,34 @@ class TestCortexRoute(unittest.TestCase):
     def test_index_links_to_cortex(self):
         body = self.client.get("/").data.decode()
         self.assertIn('href="/cortex"', body)
+
+    def test_route_renders_search_and_filter_controls(self):
+        # Slice 6 — navigate the brain. The page ships the find-and-jump search box + the filter
+        # controls (by node type, Earmarked-only, recency) the island wires up client-side. They are
+        # present in the static markup so the controls exist even before the island mounts.
+        body = self.client.get("/cortex").data.decode()
+        # the find-and-jump search box
+        self.assertIn('id="cortex-search"', body)
+        # a node-type filter for each trust-class label (deterministic over the loaded payload)
+        for label in ("Genesis", "Objective", "Direction", "Artefato", "Entity", "Source", "Episodic"):
+            self.assertIn(f'value="{label}"', body)
+        # the Earmarked-only toggle (harm subset)
+        self.assertIn('id="cortex-earmarked"', body)
+        # the recency control
+        self.assertIn('id="cortex-recency"', body)
+
+    def test_search_and_filter_controls_absent_on_the_dark_page(self):
+        # fail-dark stays clean — no controls leak onto the dark page (nothing to navigate).
+        server = _load_server({"EDGE_CORTEX_FIXTURE": None})
+        server._group = lambda: None
+        body = server.app.test_client().get("/cortex").data.decode()
+        self.assertNotIn('id="cortex-search"', body)
+        self.assertIn("dark", body.lower())
+
+    def test_island_script_is_loaded_for_the_filter_logic(self):
+        # the controls are wired by the island (cortex.js) — present so the filter/search logic runs.
+        body = self.client.get("/cortex").data.decode()
+        self.assertIn("/static/cortex.js", body)
 
     def test_node_title_cannot_break_out_of_the_json_script_tag(self):
         # graph node titles derive from Direction/Source/Entity content — a crafted title with a
@@ -333,6 +373,203 @@ class TestCortexFailDark(unittest.TestCase):
         self.assertIn("dark", body.lower())
         # no node payload leaked into the dark page
         self.assertNotIn('"nodes"', body)
+
+
+import shutil
+import subprocess
+import textwrap
+
+CORTEX_JS = Path(__file__).resolve().parent.parent / "blog" / "static" / "cortex.js"
+NODE = shutil.which("node")
+
+
+def _run_island_logic(js_body):
+    """Drive the pure island logic (CortexFilters) under Node: cortex.js exports CortexFilters when
+    required as a CommonJS module (no DOM / no cytoscape needed for the pure search/filter logic).
+    `js_body` asserts via `assert` and prints results; a non-zero exit fails the Python test. This
+    keeps the JS island logic factored + testable under the standard `tools/edge-python` gate."""
+    harness = textwrap.dedent("""
+        const assert = require('assert');
+        const { CortexFilters } = require(%r);
+        %s
+        console.log('OK');
+    """) % (str(CORTEX_JS), js_body)
+    proc = subprocess.run([NODE, "-e", harness], capture_output=True, text=True)
+    return proc
+
+
+# A pure-logic fixture (no DOM): space-0 + the spine + extracted + episodic, with recency stamps and
+# one Earmarked node. Ordered oldest→newest by ts so recency thresholds are unambiguous.
+ISLAND_PAYLOAD = {
+    "nodes": [
+        {"id": "g0", "label": "Genesis", "title": "ed", "trust": "space0", "ts": "2026-01-01", "earmarked": False},
+        {"id": "o1", "label": "Objective", "title": "the hub", "trust": "asserted", "ts": "2026-02-01", "earmarked": False},
+        {"id": "d1", "label": "Direction", "title": "ship the cortex", "trust": "asserted", "ts": "2026-03-01", "earmarked": False},
+        {"id": "a1", "label": "Artefato", "title": "alpha-post", "trust": "asserted", "ts": "2026-04-01", "earmarked": False},
+        {"id": "e1", "label": "Entity", "title": "harmful claim", "trust": "extracted", "ts": "2026-05-01", "earmarked": True},
+        {"id": "s1", "label": "Source", "title": "arxiv-2304", "trust": "extracted", "ts": "2026-05-15", "earmarked": False},
+        {"id": "ep1", "label": "Episodic", "title": "session-x", "trust": "episodic", "ts": "2026-06-01", "earmarked": False},
+        {"id": "ep2", "label": "Episodic", "title": "session-y", "trust": "episodic", "ts": None, "earmarked": False},
+    ],
+    "edges": [],
+}
+
+
+class TestControlsStyling(unittest.TestCase):
+    """Cross-cutting (PLAN.md §2 — one design system): the Slice 6 controls reuse the SHARED
+    style.css design tokens / component vocabulary, no one-off styling. The controls panel is styled,
+    and it draws on the :root tokens (var(--...)) the rest of the dashboard uses."""
+
+    STYLE = (Path(__file__).resolve().parent.parent / "blog" / "static" / "style.css")
+
+    def test_controls_are_styled_with_shared_tokens(self):
+        css = self.STYLE.read_text()
+        # the controls panel is styled (not unstyled native chrome)
+        self.assertIn(".cortex-controls", css)
+        # and it reuses the shared design tokens, not one-off literals — pin a few load-bearing ones
+        idx = css.index(".cortex-controls")
+        block = css[idx:idx + 1400]
+        for token in ("var(--surface", "var(--border", "var(--text", "var(--font-mono"):
+            self.assertIn(token, block, f"controls do not reuse shared token: {token}")
+
+
+@unittest.skipIf(NODE is None, "node not available to drive the island logic")
+class TestIslandSearch(unittest.TestCase):
+    """Slice 6 — find-and-jump search: a deterministic label/type/title match over the loaded
+    payload (NOT semantic retrieval — SURFACE.md bans the fetch posture). Returns the matched node
+    id to center, and handles empty / no-match cleanly."""
+
+    PAYLOAD = json.dumps(ISLAND_PAYLOAD)
+
+    def test_search_matches_a_node_by_title_and_returns_its_id(self):
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const r = CortexFilters.search(p, 'alpha');
+            assert.strictEqual(r.matchId, 'a1');
+            assert.strictEqual(r.count, 1);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_search_matches_by_node_type_label(self):
+        # typing a node type (e.g. "Direction") finds nodes of that type — deterministic label match.
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const r = CortexFilters.search(p, 'Direction');
+            assert.strictEqual(r.matchId, 'd1');
+            assert.ok(r.count >= 1);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_search_is_case_insensitive(self):
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const r = CortexFilters.search(p, 'ARXIV');
+            assert.strictEqual(r.matchId, 's1');
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_empty_query_matches_nothing_cleanly(self):
+        # an empty / whitespace search is not a match-all — it clears the locator, no node centered.
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const blank = CortexFilters.search(p, '   ');
+            assert.strictEqual(blank.matchId, null);
+            assert.strictEqual(blank.count, 0);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_no_match_returns_null_not_a_crash(self):
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const miss = CortexFilters.search(p, 'zzz-no-such-node');
+            assert.strictEqual(miss.matchId, null);
+            assert.strictEqual(miss.count, 0);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+
+@unittest.skipIf(NODE is None, "node not available to drive the island logic")
+class TestIslandFilter(unittest.TestCase):
+    """Slice 6 — filter the loaded payload: by node type, Earmarked-only, recency. `visible()` is a
+    PURE function of (payload, control-state) → the set of node ids to show, recomputed from scratch
+    each call. No accumulated hidden/visible state: toggling a filter off restores cleanly (the
+    no-stale-state contract)."""
+
+    PAYLOAD = json.dumps(ISLAND_PAYLOAD)
+
+    def test_filter_by_type_shows_only_the_selected_classes(self):
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const vis = CortexFilters.visible(p, {{types: ['Artefato','Direction']}});
+            assert.deepStrictEqual([...vis].sort(), ['a1','d1']);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_filter_by_type_empty_selection_hides_everything(self):
+        # an empty type selection → an empty result set (not a stale match-all). Empty-result behavior.
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const vis = CortexFilters.visible(p, {{types: []}});
+            assert.strictEqual(vis.size, 0);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_earmarked_only_shows_just_the_harm_subset(self):
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const vis = CortexFilters.visible(p, {{earmarkedOnly: true}});
+            assert.deepStrictEqual([...vis], ['e1']);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_recency_threshold_keeps_only_the_most_recent(self):
+        # recencyFraction 0 → all; 1 → only the most recent stamped node; an unstamped node is
+        # treated as oldest (hidden first as the threshold rises). Deterministic over `ts`.
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const all = CortexFilters.visible(p, {{recencyFraction: 0}});
+            assert.strictEqual(all.size, 8);                  // 0 → everything
+            const newest = CortexFilters.visible(p, {{recencyFraction: 1}});
+            assert.deepStrictEqual([...newest], ['ep1']);     // ts 2026-06-01 is the most recent
+            const half = CortexFilters.visible(p, {{recencyFraction: 0.5}});
+            assert.ok(half.has('ep1') && half.has('s1'));     // recent kept
+            assert.ok(!half.has('g0'));                       // oldest dropped
+            assert.ok(!half.has('ep2'));                      // unstamped treated as oldest
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_filters_compose_type_and_earmarked(self):
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            // Entity is selected AND earmarked-only → just the earmarked Entity
+            const vis = CortexFilters.visible(p, {{types: ['Entity','Source'], earmarkedOnly: true}});
+            assert.deepStrictEqual([...vis], ['e1']);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_no_stale_state_toggling_a_filter_off_restores_the_full_set(self):
+        # the no-stale-state contract: visible() is pure over the immutable payload — narrowing then
+        # widening recovers the FULL set, never a stale hidden remainder.
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const narrowed = CortexFilters.visible(p, {{types: ['Genesis']}});
+            assert.strictEqual(narrowed.size, 1);
+            const restored = CortexFilters.visible(p, {{}});   // no filters → all nodes
+            assert.strictEqual(restored.size, 8);
+            // a second narrowing is computed from the payload, not from the prior result
+            const reNarrowed = CortexFilters.visible(p, {{earmarkedOnly: true}});
+            assert.deepStrictEqual([...reNarrowed], ['e1']);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_default_state_shows_every_node(self):
+        # no control state at all → the unfiltered graph (the v1 surf posture is preserved).
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const vis = CortexFilters.visible(p, {{}});
+            assert.strictEqual(vis.size, 8);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
 if __name__ == "__main__":

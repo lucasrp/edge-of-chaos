@@ -952,12 +952,28 @@ def _node_href(label, props):
     return None
 
 
+# The recency stamp per node (Slice 6 filter axis): Graphiti stamps `created_at` / `valid_at`; the
+# asserted spine may carry a plain `ts`. First present wins — no extra query (already in
+# properties(n), cheap). Coerced to a str the client can order/threshold; absent → None (no recency
+# position). group-scoped like the rest of the fold (it reads only this node's already-scoped props).
+_TS_FIELDS = ("ts", "created_at", "valid_at")
+
+
+def _node_ts(props):
+    for field in _TS_FIELDS:
+        val = props.get(field)
+        if val:
+            return _as_str(val)
+    return None
+
+
 def _map_node(id_, label, props):
     """One Cortex node → the render payload: id, label, a human title, its trust tier (the
     brightness axis), the earmarked flag (the harm overlay — passed through so the overlay is wired
-    end-to-end; harm overrides the dim regardless of trust tier), and the source `href` — the
+    end-to-end; harm overrides the dim regardless of trust tier), the source `href` — the
     drill-down into the node's real surface (blog entry / Direction / source doc / wiki cluster), so
-    a node click navigates instead of dead-ending (the graph stops being an island)."""
+    a node click navigates instead of dead-ending (the graph stops being an island) — and the
+    recency `ts` (Slice 6: the recency filter axis, from the graph stamp; None when unstamped)."""
     return {
         "id": id_,
         "label": label,
@@ -965,6 +981,7 @@ def _map_node(id_, label, props):
         "trust": _TRUST_BY_LABEL.get(label, "extracted"),
         "earmarked": bool(props.get("earmarked")),
         "href": _node_href(label, props),
+        "ts": _node_ts(props),
     }
 
 
@@ -1064,15 +1081,52 @@ def _cortex_dark():
     )
 
 
+# The node-type labels the filter exposes, in trust order (space-0 first). One checkbox per label;
+# the island maps a label → its node class and shows/hides deterministically over the loaded payload.
+_CORTEX_FILTER_LABELS = ("Genesis", "Objective", "Direction", "Artefato", "Entity", "Source", "Episodic")
+
+
+def _cortex_controls():
+    """The search + filter controls (Slice 6) — find-and-jump search, node-type checkboxes,
+    Earmarked-only toggle, recency slider. Static markup the island wires client-side; it reuses the
+    shared style.css component vocabulary (no one-off styling). Rendered only when there is a graph
+    to navigate (never on the dark page)."""
+    types = "".join(
+        f'<label class="ctrl-type"><input type="checkbox" name="cortex-type" value="{label}" checked> '
+        f'{html.escape(label)}</label>'
+        for label in _CORTEX_FILTER_LABELS
+    )
+    return (
+        '<aside class="cortex-controls" aria-label="search and filter">'
+        '<div class="ctrl-row">'
+        '<input id="cortex-search" type="search" autocomplete="off" '
+        'placeholder="buscar nó (label/tipo)…" aria-label="buscar nó">'
+        '<span id="cortex-search-status" class="ctrl-status" role="status"></span>'
+        '</div>'
+        f'<div class="ctrl-row ctrl-types">{types}</div>'
+        '<div class="ctrl-row">'
+        '<label class="ctrl-toggle"><input id="cortex-earmarked" type="checkbox"> só Earmarked</label>'
+        '<label class="ctrl-recency">recência '
+        '<input id="cortex-recency" type="range" min="0" max="100" value="0" '
+        'aria-label="recência mínima"></label>'
+        '</div>'
+        '</aside>'
+    )
+
+
 @app.get("/cortex")
 def cortex():
     """Surf the agent's brain: the whole Cortex as a dark, force-directed constellation centered on
-    space-0, trust-weighted, read-only. One live fold → a Cytoscape island; pan/zoom/click client-side."""
+    space-0, trust-weighted, read-only. One live fold → a Cytoscape island; pan/zoom/click client-side.
+    The search + filter controls (Slice 6) ride above the canvas — find-and-jump + type / Earmarked /
+    recency narrowing, all client-side over the one loaded payload (no new server round-trips)."""
     payload = cortex_fold()
     if payload is None:
         graph = _cortex_dark()
         island = ""
+        controls = ""
     else:
+        controls = _cortex_controls()
         graph = '<div id="cortex"></div>'
         data = _json_for_script(payload)  # XSS-safe to embed in a <script> data block
         island = (
@@ -1088,7 +1142,8 @@ def cortex():
         '<header class="cortex-head"><h1>edge — cortex</h1>'
         f'{_site_nav("/cortex")}'
         '<p class="meta">surf the agent\'s brain — pan, zoom, clique num nó. '
-        'space-0 é o núcleo; o brilho cai com a confiança.</p></header>'
+        'space-0 é o núcleo; o brilho cai com a confiança.</p>'
+        f'{controls}</header>'
         f'<main class="cortex-main">{graph}</main>'
         f'{island}'
         '</body></html>'

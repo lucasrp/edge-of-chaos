@@ -1,12 +1,108 @@
 // cortex.js — the Cytoscape island. Draws the whole-Cortex {nodes, edges} payload as a dark,
 // force-directed constellation centered on space-0, trust-weighted by brightness. Read-only:
 // pan / zoom / click a node to inspect it. Loaded ONLY on /cortex (a JS island, not the app shell).
-(function () {
+//
+// Slice 6 — navigate the brain: find-and-jump SEARCH (deterministic label/type/title match → center
+// the node) and FILTER (by node type / Earmarked-only / recency) over the one loaded payload, all
+// client-side. The pure search/filter logic is factored into CortexFilters (below) so it is testable
+// under Node with no DOM (exported via module.exports); the DOM island wires it to the controls.
+
+(function (root) {
   "use strict";
+
+  // ── Pure island logic — no DOM, deterministic over the loaded payload (testable in Node) ────────
+  //
+  // SURFACE.md: search is a find-and-jump LOCATOR (label/type match), NOT semantic retrieval — the
+  // banned fetch posture. visible() is a PURE function of (payload, control-state): it recomputes the
+  // shown set from scratch every call, so there is no accumulated hidden/visible state — toggling a
+  // filter off restores the full set cleanly (the no-stale-state contract).
+  var CortexFilters = {
+    // search(payload, query) → {matchId, count}. Deterministic substring match over a node's title,
+    // label (node type), and id. Empty / whitespace query → no match (clears the locator, never a
+    // match-all). matchId is the FIRST matching node in payload order — the one to center on.
+    search: function (payload, query) {
+      var q = String(query == null ? "" : query).trim().toLowerCase();
+      if (!q) return { matchId: null, count: 0 };
+      var nodes = (payload && payload.nodes) || [];
+      var matchId = null;
+      var count = 0;
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        var hay = (
+          String(n.title == null ? "" : n.title) + "\n" +
+          String(n.label == null ? "" : n.label) + "\n" +
+          String(n.id == null ? "" : n.id)
+        ).toLowerCase();
+        if (hay.indexOf(q) !== -1) {
+          if (matchId === null) matchId = n.id;
+          count++;
+        }
+      }
+      return { matchId: matchId, count: count };
+    },
+
+    // visible(payload, state) → a Set of node ids to SHOW. state (all optional):
+    //   types          — array of selected node-type labels (Genesis…Episodic). Omitted/null = all
+    //                     types; an EMPTY array = no type selected → an empty result (not match-all).
+    //   earmarkedOnly  — true → keep only Earmarked (the harm subset).
+    //   recencyFraction— 0 = show all; 1 = only the single most-recent stamped node; f in (0,1) keeps
+    //                    the most-recent ceil((1-f)*N) nodes by `ts`. An unstamped node (ts null) is
+    //                    treated as OLDEST (hidden first as the threshold rises). Deterministic.
+    // Each predicate is an independent AND — composing filters just intersects them; recompute from
+    // the payload, never from a prior result, so there is no stale hidden/visible state.
+    visible: function (payload, state) {
+      state = state || {};
+      var nodes = (payload && payload.nodes) || [];
+      var ids = new Set();
+
+      var typeSet = null;
+      if (state.types != null) typeSet = new Set(state.types);
+
+      // recency cutoff: the rank index below which nodes are dropped, computed once over sorted ts.
+      var recencyKeep = null; // a Set of ids the recency threshold keeps; null = keep all
+      var f = state.recencyFraction;
+      if (typeof f === "number" && f > 0) {
+        // sort a copy by ts ascending; an absent ts sorts oldest. Keep the most-recent ceil((1-f)*N).
+        var ranked = nodes.slice().sort(function (a, b) {
+          var ta = a.ts == null ? "" : String(a.ts);
+          var tb = b.ts == null ? "" : String(b.ts);
+          if (ta < tb) return -1;
+          if (ta > tb) return 1;
+          return 0;
+        });
+        // keep the most-recent ceil((1-f)*N), but never fewer than 1 while the filter is engaged
+        // (f>0) and the graph is non-empty — so the slider at max still leaves the single newest node.
+        var keepCount = Math.ceil((1 - f) * ranked.length);
+        if (ranked.length > 0 && keepCount < 1) keepCount = 1;
+        recencyKeep = new Set();
+        for (var k = ranked.length - keepCount; k < ranked.length; k++) {
+          if (k >= 0) recencyKeep.add(ranked[k].id);
+        }
+      }
+
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        if (typeSet && !typeSet.has(n.label)) continue;
+        if (state.earmarkedOnly && !n.earmarked) continue;
+        if (recencyKeep && !recencyKeep.has(n.id)) continue;
+        ids.add(n.id);
+      }
+      return ids;
+    },
+  };
+
+  // Export the pure logic for Node (tests) AND attach it to the browser global (the DOM island reads
+  // it below). Requiring this file in Node only defines + exports CortexFilters — the DOM island
+  // block is guarded on `document`/`cytoscape`, so it never runs without a browser.
+  if (typeof module !== "undefined" && module.exports) module.exports = { CortexFilters: CortexFilters };
+  root.CortexFilters = CortexFilters;
+
+  // ── DOM island — only in the browser, only with cytoscape + the mount + the payload ─────────────
+  if (typeof document === "undefined" || typeof cytoscape === "undefined") return;
 
   var dataEl = document.getElementById("cortex-data");
   var mount = document.getElementById("cortex");
-  if (!dataEl || !mount || typeof cytoscape === "undefined") return;
+  if (!dataEl || !mount) return;
 
   var payload;
   try {
@@ -102,6 +198,29 @@
         },
       },
       {
+        // a search hit — the located node pops above the constellation so the eye lands on it.
+        selector: "node.search-hit",
+        style: {
+          "border-color": "#facc15",
+          "border-width": 4,
+          "opacity": 1,
+          "label": "data(title)",
+          "color": "#e8ebf3",
+          "font-size": 12,
+          "text-valign": "bottom",
+          "text-margin-y": 6,
+          "text-wrap": "wrap",
+          "text-max-width": "220px",
+          "text-outline-width": 3,
+          "text-outline-color": "#0a0c11",
+        },
+      },
+      {
+        // a node hidden by a filter — display:none removes it (and its edges) from the canvas.
+        selector: "node.filtered-out",
+        style: { "display": "none" },
+      },
+      {
         selector: "node:selected",
         style: {
           "border-color": "#9d7cf7",
@@ -140,6 +259,66 @@
       cy.fit(undefined, 40);
     }
   });
+
+  // ── Filter controls — recompute the visible set from the payload + the live control state, then
+  // toggle `.filtered-out` deterministically. Pure recompute every change → no stale hidden state. ──
+  var search = document.getElementById("cortex-search");
+  var searchStatus = document.getElementById("cortex-search-status");
+  var earmarkedBox = document.getElementById("cortex-earmarked");
+  var recencyRange = document.getElementById("cortex-recency");
+  var typeBoxes = Array.prototype.slice.call(
+    document.querySelectorAll('input[name="cortex-type"]'));
+
+  function controlState() {
+    var types = null;
+    if (typeBoxes.length) {
+      types = typeBoxes.filter(function (b) { return b.checked; })
+                       .map(function (b) { return b.value; });
+    }
+    var recencyFraction = 0;
+    if (recencyRange) recencyFraction = (parseFloat(recencyRange.value) || 0) / 100;
+    return {
+      types: types,
+      earmarkedOnly: !!(earmarkedBox && earmarkedBox.checked),
+      recencyFraction: recencyFraction,
+    };
+  }
+
+  function applyFilters() {
+    var vis = CortexFilters.visible(payload, controlState());
+    cy.batch(function () {
+      cy.nodes().forEach(function (n) {
+        if (vis.has(n.id())) n.removeClass("filtered-out");
+        else n.addClass("filtered-out");
+      });
+    });
+  }
+
+  typeBoxes.forEach(function (b) { b.addEventListener("change", applyFilters); });
+  if (earmarkedBox) earmarkedBox.addEventListener("change", applyFilters);
+  if (recencyRange) recencyRange.addEventListener("input", applyFilters);
+
+  // ── Search — find-and-jump: locate the matched node, mark it, center the view on it. ────────────
+  function runSearch() {
+    cy.nodes().removeClass("search-hit");
+    var q = search ? search.value : "";
+    var r = CortexFilters.search(payload, q);
+    if (!q.trim()) { if (searchStatus) searchStatus.textContent = ""; return; }
+    if (r.matchId == null) {
+      if (searchStatus) searchStatus.textContent = "sem resultado";
+      return;
+    }
+    if (searchStatus) {
+      searchStatus.textContent = r.count > 1 ? r.count + " resultados" : "1 resultado";
+    }
+    var hit = cy.getElementById(r.matchId);
+    if (hit.length) {
+      hit.removeClass("filtered-out"); // a hit is always shown, even if a filter would hide it
+      hit.addClass("search-hit");
+      cy.animate({ center: { eles: hit }, zoom: 1.1 }, { duration: 280 });
+    }
+  }
+  if (search) search.addEventListener("input", runSearch);
 
   // Inspect node (v1): click → show its title in a read-only panel.
   var panel = document.createElement("div");
@@ -182,4 +361,4 @@
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
-})();
+})(typeof globalThis !== "undefined" ? globalThis : this);
