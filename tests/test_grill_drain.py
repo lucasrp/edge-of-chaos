@@ -407,6 +407,38 @@ class TestDrainRouteAuthGate(unittest.TestCase):
         types = [json.loads(ln)["type"] for ln in self.log.read_text().splitlines() if ln.strip()]
         self.assertNotIn("voz.reply", types)
 
+    def test_route_does_not_500_on_a_malformed_legacy_line(self):
+        # the gate's finding: a schema-drifted / garbage line in an upgraded log must not crash the
+        # route before the controlled response. The back-fill is fail-soft (same contract as the
+        # startup migration): the route returns its controlled 503, flagging the migration degraded
+        # rather than 500ing. A corrupt log is surfaced, never silently appended past (a miscounted
+        # seq would corrupt the source of truth) — honest degrade over a forged write.
+        import eventlog
+        eventlog.append("voz.comment", "voz:alpha-post",
+                        {"target_ref": "alpha-post", "comment_id": "legacy1", "body": "oi"},
+                        log=self.log)
+        eventlog.append("voz.reply", "voz:alpha-post",
+                        {"comment_id": "legacy1", "body": "hand reply"}, log=self.log)
+        with open(self.log, "a") as fh:
+            fh.write("{ this is not valid json at all\n")
+        r = self.client.post("/grill/drain")  # must NOT 500
+        self.assertEqual(r.status_code, 503)
+        self.assertEqual(json.loads(r.data)["backfill"], "degraded")  # surfaced, not crashed
+
+    def test_route_backfills_on_a_clean_upgraded_log(self):
+        # the clean upgrade path: a historical reply-only comment, no garbage → the route migrates
+        # it (the back-fill succeeds) and reports backfill ok, so nothing reopens.
+        import eventlog
+        eventlog.append("voz.comment", "voz:alpha-post",
+                        {"target_ref": "alpha-post", "comment_id": "legacy1", "body": "oi"},
+                        log=self.log)
+        eventlog.append("voz.reply", "voz:alpha-post",
+                        {"comment_id": "legacy1", "body": "hand reply"}, log=self.log)
+        r = self.client.post("/grill/drain")
+        self.assertEqual(r.status_code, 503)
+        self.assertEqual(json.loads(r.data)["backfill"], "ok")
+        self.assertNotIn("legacy1", [c["comment_id"] for c in self.server.open_comments()])
+
     def test_no_generator_route_still_backfills_legacy_so_nothing_reopens(self):
         # the gate's finding: an upgraded install with a historical voz.reply-only comment and NO
         # generator. The lifecycle switch is live, so without a back-fill the legacy chat shows as

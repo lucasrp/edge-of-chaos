@@ -32,9 +32,30 @@ DEFAULT_BATCH_CAP = 8
 
 
 def _events(log, until_seq=None):
-    """Every event in the log, oldest→newest (a thin wrapper over the canonical read). `until_seq`
-    bounds the fold at a cursor (seq <= n) — the snapshot the cursor-bound actionable set reads."""
-    return eventlog.read(until_seq=until_seq, log=log)
+    """Every event in the log, oldest→newest. `until_seq` bounds the fold at a cursor (seq <= n) —
+    the snapshot the cursor-bound actionable set reads.
+
+    TOLERANT of malformed / schema-drifted lines (skips garbage), like the server's `_read_events`
+    projection — a single bad legacy line must NOT crash the lifecycle fold or the migration (the
+    canonical `eventlog.read` would raise on it). This keeps the back-fill fail-soft by construction,
+    so both the startup migration AND the drain route stay robust on an upgraded log."""
+    import json
+    from pathlib import Path
+    p = Path(log)
+    if not p.is_file():
+        return []
+    out = []
+    for line in p.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if until_seq is not None and e.get("seq", 0) > until_seq:
+            continue
+        out.append(e)
+    return out
 
 
 # ── The lifecycle folds — openness, the actionable set, consistency ─────────────────────────────

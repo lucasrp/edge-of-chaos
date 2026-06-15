@@ -893,18 +893,26 @@ def grill_drain_route():
     # historical voz.reply-only comments shows them as open until a (possibly never-run) live drain.
     # Idempotent + lock-guarded, so running it on every drain (incl. the no-generator path) is free
     # after the first and cannot reopen/reprocess (ADR-0017: the switch ships WITH the back-fill).
-    grill_drain.backfill_legacy_resolved(_log())
+    # Fail-soft (same contract as the startup migration): a malformed/schema-drifted legacy line must
+    # not 500 the route — degrade to the controlled response, never crash before it.
+    migrate_ok = True
+    try:
+        grill_drain.backfill_legacy_resolved(_log())
+    except Exception:
+        migrate_ok = False
     reply_fn = DRAIN_REPLY_GENERATOR
     if reply_fn is None:
         if os.environ.get("EDGE_DRAIN_LIVE") != "1":
             # Default: refuse to spend the user's OpenAI API. The migration already ran above; this
             # path appends no reply (no generator) — only the lifecycle back-fill, which is correct.
-            return ('{"status": "no-generator", "detail": "live drain disabled '
-                    '(set EDGE_DRAIN_LIVE=1 to spend the edge OpenAI API); legacy back-fill applied"}',
+            return (json.dumps({"status": "no-generator", "backfill": "ok" if migrate_ok else "degraded",
+                                "detail": "live drain disabled (set EDGE_DRAIN_LIVE=1 to spend the "
+                                          "edge OpenAI API); legacy back-fill applied"}),
                     503, {"Content-Type": "application/json"})
         reply_fn = grill_drain.live_reply_generator()  # ⚠️ spends the user's OpenAI API
     loaded = grill_drain.drain(_log(), reply_fn)
-    return (json.dumps({"status": "drained", "loaded": [c.get("comment_id") for c in loaded]}),
+    return (json.dumps({"status": "drained", "backfill": "ok" if migrate_ok else "degraded",
+                        "loaded": [c.get("comment_id") for c in loaded]}),
             200, {"Content-Type": "application/json"})
 
 
