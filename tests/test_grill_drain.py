@@ -448,6 +448,34 @@ class TestDrainRouteAuthGate(unittest.TestCase):
         after = len([ln for ln in self.log.read_text().splitlines() if ln.strip()])
         self.assertEqual(after, before)  # nothing appended past the corrupt log
 
+    def test_schema_drifted_event_degrades_not_500(self):
+        # the gate's finding: a syntactically-valid JSON line that is NOT a well-formed event
+        # envelope (missing seq, or a non-dict payload) passes a JSON-only guard but can 500 the
+        # drain folds (e['seq'], e['payload'].get(...)). The up-front validator must reject the
+        # envelope shape too → controlled degrade, no 500, no generator, no append.
+        import eventlog
+        eventlog.append("voz.comment", "voz:alpha-post",
+                        {"target_ref": "alpha-post", "comment_id": "open1", "body": "fresh"},
+                        log=self.log)
+        with open(self.log, "a") as fh:
+            fh.write('{"seq": 999, "type": "voz.comment", "payload": "not-a-dict"}\n')  # bad payload
+        called = {"n": 0}
+        self.server.DRAIN_REPLY_GENERATOR = lambda c: (called.__setitem__("n", called["n"] + 1)
+                                                       or {"reply": "x"})
+        try:
+            r = self.client.post("/grill/drain")
+            self.assertNotEqual(r.status_code, 500)
+            self.assertEqual(json.loads(r.data)["backfill"], "degraded")
+        finally:
+            self.server.DRAIN_REPLY_GENERATOR = None
+        self.assertEqual(called["n"], 0)  # generator never invoked on a schema-drifted log
+
+    def test_event_missing_seq_degrades(self):
+        import grill_drain
+        with open(self.log, "a") as fh:
+            fh.write('{"type": "voz.comment", "payload": {"comment_id": "x", "body": "b"}}\n')  # no seq
+        self.assertFalse(grill_drain.log_is_intact(self.log))
+
     def test_malformed_log_with_no_backfill_target_still_degrades_no_generator(self):
         # the gate's finding: a corrupt log with an OPEN voz.comment but NO legacy reply-only target
         # → the back-fill returns [] early (no append), so it can't be the corruption detector. The
@@ -668,6 +696,48 @@ class TestVersionGuardConcurrency(_Base):
             {"reply": "A"}, "gA", start_cursor)
         self.assertEqual(result, [])
         self.assertEqual(len(self._events("voz.resolved")), 0)  # not terminally closed by the stale A
+
+
+class TestLiveGeneratorStructuredPlan(_Base):
+    """The live generator must return a STRUCTURED plan (so a standing Directive folds to direction,
+    not silently closes as 'replied'), and on an invalid/unclassifiable model output it must PARK
+    (never fabricate a terminal 'replied' that hides a lost steer). Tested via the pure plan-parser
+    with the model call stubbed — NO real LLM (a live call would spend the edge OpenAI API)."""
+
+    def test_parse_plan_classifies_a_standing_directive_as_folded(self):
+        raw = '{"outcome": "directive", "reply": "folding this", "direction_body": "always cite a benchmark"}'
+        plan = self.drain.parse_live_plan(raw)
+        self.assertTrue(plan.get("directive"))
+        self.assertEqual(plan["reply"], "folding this")
+        self.assertEqual(plan["direction_body"], "always cite a benchmark")
+
+    def test_parse_plan_classifies_a_plain_reply(self):
+        raw = '{"outcome": "reply", "reply": "noted, here is the tradeoff"}'
+        plan = self.drain.parse_live_plan(raw)
+        self.assertFalse(plan.get("directive"))
+        self.assertFalse(plan.get("park"))
+        self.assertEqual(plan["reply"], "noted, here is the tradeoff")
+
+    def test_invalid_model_output_parks_never_fabricates_replied(self):
+        # unparseable / unclassifiable output must PARK (non-terminal), never close as replied —
+        # an autonomous grill may only park, never fabricate a terminal outcome (ADR-0017).
+        plan = self.drain.parse_live_plan("the model returned prose, not json")
+        self.assertTrue(plan.get("park"))
+        self.assertIn("question", plan)
+
+    def test_live_generator_folds_a_directive_end_to_end_with_a_stubbed_model(self):
+        # wire a FAKE model completer into the structured generator (no real LLM) and prove a
+        # standing-directive classification folds to direction.set through the real drain.
+        cid = self._comment("always cite an outside benchmark", "alpha-post")
+        fake_model = lambda prompt: ('{"outcome": "directive", "reply": "folding", '
+                                     '"direction_body": "always cite an outside benchmark"}')
+        gen = self.drain.structured_reply_generator(fake_model)
+        self.drain.drain(self.log, gen, grill_run_id="g1")
+        sets = [e for e in self._events("direction.set")
+                if e["payload"].get("origin_comment_id") == cid]
+        self.assertEqual(len(sets), 1)
+        res = [e for e in self._events("voz.resolved") if e["payload"]["comment_id"] == cid]
+        self.assertEqual(res[0]["payload"]["outcome"], "folded-to-direction")
 
 
 class TestDrainConcurrencyDoesNotDoubleSpend(_Base):

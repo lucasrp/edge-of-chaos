@@ -59,12 +59,15 @@ def _events(log, until_seq=None):
 
 
 def log_is_intact(log):
-    """True iff EVERY non-blank line parses as JSON — the SAME strict parse `eventlog.read` (and so
-    the canonical `append_batch` seq-stamping) uses. The route validates this up front: a malformed
-    / schema-drifted line makes any canonical append raise (a miscounted base seq corrupts the
-    source of truth), so the drain must degrade BEFORE building/calling a reply generator (no API
-    spend) or attempting any close — not rely on the back-fill happening to append as a side-detector
-    (it returns early when there are no legacy targets, missing the corruption)."""
+    """True iff EVERY non-blank line is a well-formed EVENT ENVELOPE — not merely valid JSON. The
+    route validates this up front: a malformed OR schema-drifted line makes a canonical append
+    raise (a miscounted base seq corrupts the source of truth) or the drain folds raise on a missing
+    field (`e['seq']`, `e['payload'].get(...)`). So the drain must degrade BEFORE building/calling a
+    reply generator (no API spend) or any close — and a JSON-only check is insufficient: a valid
+    JSON line with a non-dict payload or missing seq would pass it and 500 the drain later.
+
+    The envelope every fold indexes: a dict carrying an int `seq`, a str `type`, and a dict
+    `payload`. (Matches what `eventlog` stamps and what the lifecycle folds read.)"""
     import json
     from pathlib import Path
     p = Path(log)
@@ -74,8 +77,16 @@ def log_is_intact(log):
         if not line.strip():
             continue
         try:
-            json.loads(line)
+            e = json.loads(line)
         except json.JSONDecodeError:
+            return False
+        if not isinstance(e, dict):
+            return False
+        if not isinstance(e.get("seq"), int):
+            return False
+        if not isinstance(e.get("type"), str):
+            return False
+        if not isinstance(e.get("payload"), dict):
             return False
     return True
 
@@ -451,13 +462,74 @@ def _drain_lock(log):
 # (EDGE_DRAIN_LIVE=1). The model is configured in agent.yaml `routers.chat.model` (gpt-5.4); swap
 # it there. To run a live drain from a local tool: `drain(log, live_reply_generator())`.
 
+_LIVE_PROMPT = (
+    "You are the edge resolving a mentee Directive on the Voz rail. Reply directly, technically, "
+    "skeptically — name the tradeoff. Decide the OUTCOME and return ONLY JSON:\n"
+    '  - a plain answer:      {"outcome":"reply","reply":"<your reply>"}\n'
+    '  - a STANDING steer     {"outcome":"directive","reply":"<your reply>",'
+    '"direction_body":"<the steer, imperative>"}  (use this only when the Directive moves strategy)\n'
+    '  - you must ASK first:  {"outcome":"park","question":"<your clarifying question>"}\n'
+    "Directive:\n\n")
+
+
+def _build_live_prompt(comment):
+    """The live prompt for a loaded comment, folding in any clarification Q/A so the reply RESOLVES
+    using the mentee's answer, never re-asks past it (ADR-0017 'seeing that linked answer')."""
+    prompt = _LIVE_PROMPT + comment["body"]
+    for qa in comment.get("clarify") or []:
+        prompt += f"\n\nYou earlier asked: {qa['question']}"
+        if qa.get("answer"):
+            prompt += f"\nThe mentee answered: {qa['answer']}"
+    return prompt
+
+
+def parse_live_plan(raw):
+    """Parse a model's raw output into a VALIDATED close plan. A `directive` outcome folds to
+    `direction.set` (carrying the steer body); a `reply` is a plain terminal reply; ANYTHING the
+    model returns that does not validate (not JSON, unknown outcome, missing required field) is
+    coerced to a PARK — an autonomous grill may only park, never fabricate a terminal `replied` that
+    would silently close a standing Directive as a plain reply and hide a lost steer (ADR-0017)."""
+    import json
+    park = {"park": True, "question": "Could you clarify what you'd like me to do with this?"}
+    try:
+        d = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return park
+    if not isinstance(d, dict):
+        return park
+    outcome = d.get("outcome")
+    if outcome == "park":
+        q = d.get("question")
+        return {"park": True, "question": q} if q else park
+    if outcome == "directive":
+        reply, body = d.get("reply"), d.get("direction_body")
+        if reply and body:
+            return {"reply": reply, "directive": True, "direction_body": body}
+        return park  # a directive with no steer body is not a valid fold → park, don't fake replied
+    if outcome == "reply":
+        reply = d.get("reply")
+        return {"reply": reply} if reply else park
+    return park  # unknown / missing outcome → park, never fabricate a terminal outcome
+
+
+def structured_reply_generator(model_fn):
+    """A reply-generator (callable(comment) -> validated plan) over an injected `model_fn(prompt) ->
+    raw_text`. Separating the model call lets tests drive the full structured/fold/park contract with
+    a FAKE completer (no real LLM). `live_reply_generator()` wires `model_fn` to the edge chat router."""
+    def gen(comment):
+        return parse_live_plan(model_fn(_build_live_prompt(comment)))
+    return gen
+
+
 def live_reply_generator():
-    """Build the LIVE reply-generator (callable(comment) -> plan) on the edge's chat router.
+    """Build the LIVE reply-generator on the edge's chat router (structured outcome contract).
 
     ⚠️ Returns a callable that SPENDS THE USER'S OpenAI API per invocation (gpt-5.4 on
     ~/edge/secrets/openai.env). Imported lazily so the module loads with no edge runtime present;
     raises if the runtime/secret is unavailable rather than silently degrading. The model lives in
-    agent.yaml `routers.chat`."""
+    agent.yaml `routers.chat`. The returned generator classifies each Directive (reply / standing /
+    park) so a live drain DOES fold standing steers to direction.set — never closes one as a plain
+    `replied` (parse_live_plan parks on any unclassifiable output)."""
     import importlib
     import os
     tools = str(BASE.parent / "tools")
@@ -476,16 +548,4 @@ def live_reply_generator():
         raise RuntimeError(f"live drain: no API key for chat router ({var}) — refusing to spend.")
     client = _llm.make_client(router, api_key)
     model = router.get("model")
-
-    def gen(comment):
-        prompt = ("You are the edge replying to a mentee Directive on the Voz rail. Reply directly, "
-                  "technically, skeptically — name the tradeoff. Directive:\n\n" + comment["body"])
-        # Fold in any clarification Q/A so the reply RESOLVES using the mentee's answer, never
-        # re-asks or guesses past it (ADR-0017 'seeing that linked answer').
-        for qa in comment.get("clarify") or []:
-            prompt += f"\n\nYou earlier asked: {qa['question']}"
-            if qa.get("answer"):
-                prompt += f"\nThe mentee answered: {qa['answer']}"
-        return {"reply": _llm.complete(client, model, prompt)}
-
-    return gen
+    return structured_reply_generator(lambda prompt: _llm.complete(client, model, prompt))
