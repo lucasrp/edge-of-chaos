@@ -28,6 +28,25 @@ def cosine(a, b):
     return dot / (na * nb) if na and nb else 0.0
 
 
+def _physical_len(log):
+    """The count of physical (non-blank) lines in the log — the AUTHORITATIVE write base for seq
+    stamping (`seq = base + i + 1`), decoupled from the tolerant projection `read()`. `read()` now
+    SKIPS a JSON-valid non-dict line (codex Slice-4 round-2), so using `len(read())` as the append
+    base would UNDERCOUNT a log with a corrupt non-event line mid-history and stamp a DUPLICATE seq —
+    corrupting the append-only source of truth under the exact corruption model this slice survives
+    (codex round-3 [high]). The seq invariant (`log_is_intact`: seqs are exactly 1..N in file order)
+    is physical-line-count-based, so the write base must be too — strict for writes, tolerant only
+    for read-side projections."""
+    log = Path(log)
+    if not log.exists():
+        return 0
+    # `line.strip()` — the SAME blank-line semantics log_is_intact uses (it skips `not line.strip()`).
+    # A whitespace-only line is NOT a seq slot; counting it would stamp the next seq one too high and
+    # permanently break contiguity (codex Slice-4 round-5 [high]). A JSON-valid corrupt non-event line
+    # (`[]`) IS counted — it occupied a seq when written, so the base must include it.
+    return sum(1 for line in log.read_text().splitlines() if line.strip())
+
+
 def append(type, subject, payload, log=LOG):
     """Append ONE event as a JSON line; stamp a monotonic seq + ISO ts. Returns the event."""
     return append_batch([(type, subject, payload)], log=log)[0]
@@ -57,7 +76,7 @@ def append_batch(events, log=LOG, precondition=None):
         try:
             if precondition is not None:
                 precondition()
-            base = len(read(log=log))
+            base = _physical_len(log)
             stamped = [{"seq": base + i + 1, "ts": datetime.now(timezone.utc).isoformat(),
                         "type": t, "subject": s, "payload": p}
                        for i, (t, s, p) in enumerate(events)]
@@ -72,13 +91,20 @@ def append_batch(events, log=LOG, precondition=None):
 
 def read(types=None, until_seq=None, until_ts=None, log=LOG):
     """Replay the log in order, optionally keeping only `types` and stopping at a cursor
-    (until_seq: seq<=n; until_ts: ts<=t). The cursor is what makes replay reconstruct a past."""
+    (until_seq: seq<=n; until_ts: ts<=t). The cursor is what makes replay reconstruct a past.
+
+    Skips a JSON-valid NON-dict line (`[]`, `42`, a bare string): it is not an event envelope, and
+    the filters below index `e["type"]`/`e["seq"]`/`e["ts"]`, so a non-dict would TypeError the read
+    BEFORE any tolerant fold (e.g. fold_direction) could apply — aborting the sweep's projection on a
+    corrupt log (codex Slice-4 round-2 [medium]). Skipping centrally keeps the projections fail-dark;
+    log_is_intact still surfaces the corruption as degraded (the raw lines are untouched)."""
     log = Path(log)
     if not log.exists():
         return []
-    events = [json.loads(line) for line in log.read_text().splitlines() if line]
+    events = [e for line in log.read_text().splitlines() if line.strip()
+              for e in [json.loads(line)] if isinstance(e, dict)]
     if types is not None:
-        events = [e for e in events if e["type"] in types]
+        events = [e for e in events if e.get("type") in types]
     if until_seq is not None:
         events = [e for e in events if e["seq"] <= until_seq]
     if until_ts is not None:
@@ -97,22 +123,39 @@ def fold_direction(events):
     opens/updates a `set` item and **outranks** proposed for the same id (curado > hipótese, a
     correção sempre ganha); `direction.dropped` removes the id (persist-until-dropped — nothing is
     lost by omission). Returns {"set": [...], "proposed": [...]} in insertion order.
+
+    Fail-dark over a corrupt log (Slice 4 [high]): `id`/`supersedes` are used AS dict keys, so a
+    JSON-valid event with a non-string (unhashable, e.g. list) key field would TypeError this fold —
+    the canonical fold every projection (direction_at/project_direction/the sweep) flows through.
+    A corrupt-keyed event is SKIPPED, not crashed; the valid steers still fold (the health strip /
+    log_is_intact surfaces the corruption as degraded). `supersedes` is honored only when usable.
     """
+    def _key(v):  # a usable dict key = a hashable str; anything else is corrupt → not a key
+        return v if isinstance(v, str) else None
+
     items = {}  # id -> item (carries 'tier')
     for e in events:
-        t, p = e.get("type"), e.get("payload", {}) or {}
+        t = e.get("type")
+        payload = e.get("payload")
+        # a TRUTHY non-dict payload (a string / non-empty list) would AttributeError p.get(...) below
+        # — `or {}` only catches the falsy case (codex Slice-4 round-3 [medium]). isinstance is the
+        # real guard: a non-dict payload folds to {} (no foldable item), the valid events still fold.
+        p = payload if isinstance(payload, dict) else {}
         if t == "direction.proposed":
-            iid = p.get("id")
+            iid = _key(p.get("id"))
             if iid is None:
-                continue
+                continue  # absent OR corrupt-typed id — not a foldable proposed item
             if items.get(iid, {}).get("tier") == "set":
                 continue  # set outranks proposed
             items[iid] = {"id": iid, "body": p.get("body", ""), "kind": p.get("kind", "thread"),
                           "from_artefato": p.get("from_artefato"), "relates_to": p.get("relates_to"),
                           "tier": "proposed"}
         elif t == "direction.set":
-            iid = p.get("id", "_plan")  # legacy {plan} blob folds to a single set item
-            sup = p.get("supersedes")
+            raw_id = p.get("id")
+            if raw_id is not None and _key(raw_id) is None:
+                continue  # a present-but-corrupt id can't key the fold — skip (fail-dark)
+            iid = _key(raw_id) or "_plan"  # legacy {plan} blob (no id) folds to a single set item
+            sup = _key(p.get("supersedes"))  # a corrupt supersedes is ignored, never an items.pop key
             if sup and sup != iid:
                 items.pop(sup, None)  # a set RETIRES the (different) id it supersedes — not just
                                       # same-id overwrite/dropped. Codex #28-review: supersedes was
@@ -122,7 +165,7 @@ def fold_direction(events):
                           "origin_comment_id": p.get("origin_comment_id"),
                           "tier": "set"}
         elif t == "direction.dropped":
-            items.pop(p.get("id"), None)
+            items.pop(_key(p.get("id")), None)
     return {"set": [i for i in items.values() if i["tier"] == "set"],
             "proposed": [i for i in items.values() if i["tier"] == "proposed"]}
 
@@ -496,8 +539,12 @@ def source_feedback_at(seq=None, ts=None, log=LOG):
 
 
 def _direction_ids(events):
-    return {(e.get("payload") or {}).get("id") for e in events
-            if e.get("type") in DIRECTION_TYPES} - {None}
+    # shares fold_direction's payload/key tolerance (Slice 4 [high], round-4): a TRUTHY non-dict
+    # payload (string/list) would AttributeError `.get`, and a non-string id is unhashable in this
+    # set comprehension — so normalize the payload to a dict and keep only str ids (fail-dark).
+    return {p.get("id") for e in events if e.get("type") in DIRECTION_TYPES
+            for p in [e.get("payload") if isinstance(e.get("payload"), dict) else {}]
+            if isinstance(p.get("id"), str)}
 
 
 def consolidate_artefato_proposals(log=LOG):

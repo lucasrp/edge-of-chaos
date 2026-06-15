@@ -10,6 +10,7 @@ import hashlib
 import html
 import json
 import os
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -234,6 +235,12 @@ def _read_events():
 # boundary still yields the event — and a non-str KEY is unhashable (TypeError in a fold) while a
 # non-str escape input crashes html.escape. Coercing these to str at the ONE shared boundary makes
 # EVERY downstream fold safe over a corrupt log (Codex round-6), instead of guarding N fold sites.
+#
+# Direction KEY fields (id / supersedes / dropped-id) are DELIBERATELY NOT here: coercing a corrupt
+# `id: ["bad"]` to the string "['bad']" would make eventlog.fold_direction FOLD it as an active
+# curated steer — promoting POISONED data onto the trusted surface (codex Slice-4 round-2 [high]).
+# The canonical fold instead SKIPS a non-string key field (fail-dark); the route relies on that, and
+# coerces only display values (origin_comment_id/direction_id) at render time via _anchor_id/_esc.
 _COERCE_STR_FIELDS = ("comment_id", "clarify_id", "slug", "target_ref", "body", "question")
 
 
@@ -280,6 +287,22 @@ def _esc(value):
     while the health strip flags the log degraded (log_is_intact over the raw log). Use this for any
     value sourced from a log payload; `html.escape` directly is fine for known-str literals/labels."""
     return html.escape(value if isinstance(value, str) else str(value))
+
+
+def _anchor_id(prefix, value):
+    """A stable, HTML-safe, INJECTIVE fragment id (`{prefix}-{sanitized}-{hash}`) for a drill-down
+    anchor — used on BOTH ends of a steer⇄comment link so the href fragment and the target element id
+    agree exactly. An id (a direction_id / comment_id) is normally a uuid-hex slug, but a
+    corrupt/legacy one can carry whitespace or unsafe chars; an HTML `id` with a space is invalid and
+    breaks the anchor. So collapse every non-[a-zA-Z0-9_-] run to a single `-` for a readable prefix,
+    then append a short digest of the ORIGINAL value so distinct ids never collide (codex Slice-4
+    round-5 [med]: `a:b`/`a/b`/`a b` all sanitize to `a-b` — a lossy collapse would drill the marker
+    into the wrong steer). Same input → same output at both ends, so the anchor still matches. Coerce
+    a non-str first (corrupt log, fail-dark)."""
+    value = value if isinstance(value, str) else str(value)
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]+', '-', value)
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:8]
+    return f"{prefix}-{sanitized}-{digest}"
 
 
 def _append(type_, subject, payload):
@@ -447,7 +470,9 @@ def _folded_marker(c, folded_by_id):
     if folded_by_id is None or c.get("comment_id") not in folded_by_id:
         return ""
     did = folded_by_id.get(c.get("comment_id"))
-    anchor = f'#steer-{_esc(did)}' if did else ""
+    # the fragment is sanitized via _anchor_id so it matches the steer element's id on /direction
+    # (FIX 2: the marker used to point at #steer-{id} with no matching element — a dead anchor).
+    anchor = f'#{_anchor_id("steer", did)}' if did else ""
     return (f'<p class="folded-marker meta">dobrado num steer · '
             f'<a href="/direction{anchor}">ver em Direction →</a></p>')
 
@@ -475,8 +500,11 @@ def _replies_block(c, replies_by_id, clarifies_by_id=None, folded_by_id=None):
 
 
 def _render_comment(c, replies_by_id, clarifies_by_id=None, folded_by_id=None):
+    # the stable per-comment anchor (FIX 3): a steer's provenance link drills into /chat#comment-{id},
+    # and the post thread carries the same id so the originating comment is reachable in either view.
+    anchor = html.escape(_anchor_id("comment", c.get("comment_id", "")))
     body = f'<p class="body">{_esc(c.get("body", ""))}</p>'
-    return (f'<li class="comment">{body}'
+    return (f'<li class="comment" id="{anchor}">{body}'
             f'{_replies_block(c, replies_by_id, clarifies_by_id, folded_by_id)}</li>')
 
 
@@ -562,11 +590,14 @@ def _render_votes(slug):
 
 
 def _render_chat_item(c, replies_by_id, clarifies_by_id=None, folded_by_id=None):
+    # the stable per-comment anchor (FIX 3): the chat renders EVERY comment, so a steer's provenance
+    # link targets /chat#comment-{id} and this is the element it centers (sanitized via _anchor_id).
+    anchor = html.escape(_anchor_id("comment", c.get("comment_id", "")))
     target = c.get("target_ref")
     label = (f'<a class="ctx" href="/e/{_esc(target)}.html">em {_esc(target)}</a>'
              if target else '<span class="ctx meta">chat geral</span>')
     body = f'<p class="body">{_esc(c.get("body", ""))}</p>'
-    return (f'<li class="chat-item">{label}{body}'
+    return (f'<li class="chat-item" id="{anchor}">{label}{body}'
             f'{_replies_block(c, replies_by_id, clarifies_by_id, folded_by_id)}</li>')
 
 
@@ -1310,38 +1341,37 @@ def briefing_surface():
 # the reverse (ADR-0007 / SURFACE.md). A pure fold over the one log; zero API spend.
 
 
-def _comment_targets():
-    """Map every `comment_id` → its `target_ref` (a slug, or None for the general chat). The
-    provenance link resolves the originating comment's context through this — a folded steer carries
-    only the `origin_comment_id`, so the surface looks up where that comment lives to link it."""
-    return {e.get("payload", {}).get("comment_id"): e.get("payload", {}).get("target_ref")
-            for e in _read_events() if e.get("type") == "voz.comment"}
+def _origin_href(comment_id):
+    """The drill-down URL for a steer's originating comment: a surface that ACTUALLY renders that
+    comment, at its stable anchor (FIX 3). The old `/e/{slug}.html` pointed at the STATIC artifact
+    file — which renders the post body, NOT the Voz rail / the comment — so the link landed nowhere.
+    `/chat` renders EVERY comment (targeted or general), so the robust target is `/chat#comment-{id}`;
+    the chat carries the matching `id="comment-{id}"` (sanitized identically via _anchor_id)."""
+    return f"/chat#{_anchor_id('comment', comment_id)}"
 
 
-def _origin_href(target_ref):
-    """The drill-down URL for a steer's originating comment: its publication post when the Directive
-    targeted a slug, else the general chat. The bidirectional link's steer→comment direction."""
-    return f"/e/{target_ref}.html" if target_ref else "/chat"
-
-
-def _provenance_block(origin_comment_id, targets):
+def _provenance_block(origin_comment_id):
     """The steer⇄originating-comment provenance link for a `set` steer folded from a Directive
     (SURFACE.md: 'renders the link bidirectionally'). Rendered only when origin_comment_id is present
-    (a non-Voz grill-direct set has none → no marker). Drills into the comment's chat/post context."""
+    (a non-Voz grill-direct set has none → no marker). Drills into a surface that renders the comment."""
     if not origin_comment_id:
         return ""
-    href = _origin_href(targets.get(origin_comment_id))
+    href = _origin_href(origin_comment_id)
     cid = _esc(origin_comment_id)
     return (f'<p class="provenance meta">from a Directive · '
             f'<a href="{href}" data-origin-comment="{cid}">{cid}</a></p>')
 
 
-def _render_set_item(item, targets):
-    """One curated (`set`) steer: its kind + body, plus the Voz provenance link where present."""
+def _render_set_item(item):
+    """One curated (`set`) steer: its kind + body, plus the Voz provenance link where present. Carries
+    a stable `id="steer-{sanitized id}"` (FIX 2) so the comment→steer marker (`_folded_marker` →
+    `/direction#steer-{id}`) drills into THIS element — the href fragment and the id are sanitized
+    identically via `_anchor_id`, so the anchor centers the actual steer instead of landing nowhere."""
+    anchor = _anchor_id("steer", item.get("id", ""))
     kind = _esc(item.get("kind", "thread"))
     body = _esc(item.get("body", ""))
-    prov = _provenance_block(item.get("origin_comment_id"), targets)
-    return (f'<li class="steer"><span class="kind">{kind}</span>'
+    prov = _provenance_block(item.get("origin_comment_id"))
+    return (f'<li class="steer" id="{html.escape(anchor)}"><span class="kind">{kind}</span>'
             f'<p class="body">{body}</p>{prov}</li>')
 
 
@@ -1373,11 +1403,10 @@ def _render_direction():
     """Fold direction.* → the two tiers and render them: `set` (curated, prominent, first) then
     `proposed` (candidate, dimmer). Empty/dark folds render an honest marker, never a 500."""
     d = _direction_fold()
-    targets = _comment_targets()
     sets, proposed = d.get("set", []), d.get("proposed", [])
     if not sets and not proposed:
         return '<p class="meta">sem direção ainda — nenhum steer.</p>'
-    set_items = ("".join(_render_set_item(i, targets) for i in sets)
+    set_items = ("".join(_render_set_item(i) for i in sets)
                  or '<li class="empty meta">nenhum steer curado ainda</li>')
     prop_items = ("".join(_render_proposed_item(i) for i in proposed)
                   or '<li class="empty meta">nenhum candidato no momento</li>')

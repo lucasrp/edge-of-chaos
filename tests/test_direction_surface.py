@@ -124,21 +124,34 @@ class TestDirectionProvenanceLink(_DirectionBase):
         self.assertIn("c-origin", body)
         self.assertIn('class="provenance', body)
 
-    def test_provenance_links_to_the_comments_post_context(self):
-        # the originating comment targeted a publication → the link drills into that post
+    def test_provenance_links_to_a_surface_that_renders_the_comment(self):
+        # FIX 3: even a targeted Directive drills into /chat#comment-{id} — the chat renders EVERY
+        # comment, so the link lands on a surface that ACTUALLY shows the originating comment (the old
+        # /e/{slug}.html pointed at the static post file, which renders no comment / no Voz rail). The
+        # link targets a /chat#comment-... fragment that matches a rendered comment element.
+        import re
         body = self.client.get("/direction").data.decode()
-        self.assertIn('href="/e/alpha-post.html"', body)
+        m = re.search(r'href="/chat#(comment-[^"]+)"', body)
+        self.assertIsNotNone(m, "steer→comment href must drill into /chat#comment-<id>")
+        self.assertNotIn('href="/e/alpha-post.html" data-origin-comment', body)
+        chat = self.client.get("/chat").data.decode()
+        self.assertIn(f'id="{m.group(1)}"', chat)  # the chat renders the comment at that anchor
 
     def test_a_general_chat_directive_links_to_chat(self):
-        # a steer folded from a general-chat Directive (target_ref None) links to /chat
+        # a steer folded from a general-chat Directive (target_ref None) links to /chat at the anchor
+        # of the comment the chat renders.
         self.log.write_text("\n".join([
             _ev(1, "2026-06-10T09:00:00+00:00", "voz.comment",
                 {"target_ref": None, "comment_id": "c-chat", "body": "a general steer"}),
             _ev(2, "2026-06-10T09:00:01+00:00", "direction.set",
                 {"id": "d-chat", "body": "a folded general steer", "origin_comment_id": "c-chat"}),
         ]) + "\n")
+        import re
         body = self.client.get("/direction").data.decode()
-        self.assertIn('href="/chat"', body)
+        m = re.search(r'href="/chat#(comment-[^"]+)"', body)
+        self.assertIsNotNone(m)
+        chat = self.client.get("/chat").data.decode()
+        self.assertIn(f'id="{m.group(1)}"', chat)
 
     def test_a_non_voz_set_has_no_provenance_marker(self):
         # a direction.set with NO origin_comment_id (a grill-direct set) renders without the link
@@ -149,6 +162,70 @@ class TestDirectionProvenanceLink(_DirectionBase):
         body = self.client.get("/direction").data.decode()
         self.assertIn("a plain grill steer", body)
         self.assertNotIn('class="provenance', body)
+
+
+class TestSteerLinksToARenderedComment(_DirectionBase):
+    """FIX 3: the steer→comment provenance link used to point at `/e/{target_ref}.html` — the STATIC
+    artifact file, which renders the post body, NOT the Voz rail / the originating comment. The link
+    must land on a surface that ACTUALLY renders that comment, at a stable per-comment anchor. `/chat`
+    renders every comment (targeted or general), so the steer→comment href is `/chat#comment-{id}`,
+    and the chat (and post threads) carry `id="comment-{comment_id}"` so the anchor centers it."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "artefato.published",
+            {"slug": "alpha-post", "cites": [], "distills": [], "proposes": []}),
+        _ev(2, "2026-06-10T09:00:01+00:00", "voz.comment",
+            {"target_ref": "alpha-post", "comment_id": "c-origin", "body": "steer the framing"}),
+        _ev(3, "2026-06-10T09:00:02+00:00", "direction.set",
+            {"id": "d-folded", "body": "frame every artefato as a steer test",
+             "origin_comment_id": "c-origin"}),
+        _ev(4, "2026-06-10T09:00:03+00:00", "voz.resolved",
+            {"comment_id": "c-origin", "outcome": "folded-to-direction",
+             "origin_comment_id": "c-origin", "direction_id": "d-folded"}),
+    ]
+
+    def test_steer_origin_href_targets_a_rendered_comment_anchor(self):
+        import re
+        direction = self.client.get("/direction").data.decode()
+        # the provenance link drills into a comment anchor on a surface that renders the comment
+        m = re.search(r'href="(/chat#comment-[^"]+)"', direction)
+        self.assertIsNotNone(m, "steer→comment href must target /chat#comment-<id>")
+        anchor = m.group(1).split("#", 1)[1]
+        # the chat actually renders the comment carrying that exact element id
+        chat = self.client.get("/chat").data.decode()
+        self.assertIn(f'id="{anchor}"', chat)
+
+    def test_steer_origin_href_is_not_the_static_artifact_file(self):
+        # the dead link was /e/{target_ref}.html (the static file, no Voz rail) — it must be gone from
+        # the provenance link (the steer's origin must reach a surface that renders the comment).
+        direction = self.client.get("/direction").data.decode()
+        self.assertNotIn('href="/e/alpha-post.html" data-origin-comment', direction)
+
+    def test_post_thread_comment_carries_its_anchor(self):
+        # the per-publication thread renders the comment too — it must carry a comment-<...> anchor id
+        # so a reader landing from the steer can also find it in its post context. The id matches the
+        # steer's provenance fragment (same _anchor_id helper both ends).
+        import re
+        direction = self.client.get("/direction").data.decode()
+        anchor = re.search(r'href="/chat#(comment-[^"]+)"', direction).group(1)
+        body = self.client.get("/").data.decode()
+        self.assertIn(f'id="{anchor}"', body)
+
+    def test_general_chat_directive_steer_links_to_chat_anchor(self):
+        # a steer folded from a general-chat Directive (target_ref None) still links into /chat at the
+        # comment anchor the chat renders — every comment is in the chat regardless of target.
+        self.log.write_text("\n".join([
+            _ev(1, "2026-06-10T09:00:00+00:00", "voz.comment",
+                {"target_ref": None, "comment_id": "c-chat", "body": "a general steer"}),
+            _ev(2, "2026-06-10T09:00:01+00:00", "direction.set",
+                {"id": "d-chat", "body": "a folded general steer", "origin_comment_id": "c-chat"}),
+        ]) + "\n")
+        import re
+        direction = self.client.get("/direction").data.decode()
+        m = re.search(r'href="/chat#(comment-[^"]+)"', direction)
+        self.assertIsNotNone(m)
+        chat = self.client.get("/chat").data.decode()
+        self.assertIn(f'id="{m.group(1)}"', chat)
 
 
 class TestVozCommentLinksBackToItsSteer(_DirectionBase):
@@ -196,6 +273,109 @@ class TestVozCommentLinksBackToItsSteer(_DirectionBase):
         self.assertNotIn('class="folded-marker', body)
 
 
+class TestFoldedMarkerDrillsIntoTheSteer(_DirectionBase):
+    """FIX 2: the comment→steer marker builds `/direction#steer-{direction_id}` (_folded_marker), but
+    the set steer must carry a MATCHING element `id="steer-{id}"` or the anchor lands nowhere. The
+    marker's href fragment and the steer element's id must agree (sanitized identically), so the
+    drill-down centers the actual steer (SURFACE.md: 'renders the link bidirectionally')."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "voz.comment",
+            {"target_ref": None, "comment_id": "c-folded", "body": "steer the framing"}),
+        _ev(2, "2026-06-10T09:00:01+00:00", "direction.set",
+            {"id": "d-folded", "body": "always test the framing", "origin_comment_id": "c-folded"}),
+        _ev(3, "2026-06-10T09:00:02+00:00", "voz.resolved",
+            {"comment_id": "c-folded", "outcome": "folded-to-direction",
+             "origin_comment_id": "c-folded", "direction_id": "d-folded"}),
+    ]
+
+    def test_set_steer_carries_a_stable_anchor_id(self):
+        # the set steer renders a stable steer-<...> element id (the drill-down target). The exact
+        # format is an implementation detail (sanitized + hashed for injectivity); what matters is a
+        # `steer-` id is present and the marker (test below) drills into it.
+        import re
+        body = self.client.get("/direction").data.decode()
+        self.assertRegex(body, r'<li class="steer" id="steer-[^"]+"')
+
+    def test_marker_href_anchor_matches_a_rendered_steer_id(self):
+        # the marker (rendered on the Voz rail) points at #steer-<sanitized id>; that exact id must
+        # exist on /direction — extract the fragment from /chat's marker and assert the element exists.
+        import re
+        chat = self.client.get("/chat").data.decode()
+        m = re.search(r'href="/direction#(steer-[^"]+)"', chat)
+        self.assertIsNotNone(m, "the folded marker must carry a #steer-<id> anchor")
+        anchor = m.group(1)
+        direction = self.client.get("/direction").data.decode()
+        self.assertIn(f'id="{anchor}"', direction)
+
+    def test_anchor_id_is_sanitized_for_an_unsafe_direction_id(self):
+        # a direction_id with whitespace / unsafe chars must sanitize IDENTICALLY on both ends so the
+        # marker fragment and the element id still agree (no broken anchor, no malformed HTML id).
+        self.log.write_text("\n".join([
+            _ev(1, "2026-06-10T09:00:00+00:00", "voz.comment",
+                {"target_ref": None, "comment_id": "c-x", "body": "a directive"}),
+            _ev(2, "2026-06-10T09:00:01+00:00", "direction.set",
+                {"id": "weird id/with spaces", "body": "a steer", "origin_comment_id": "c-x"}),
+            _ev(3, "2026-06-10T09:00:02+00:00", "voz.resolved",
+                {"comment_id": "c-x", "outcome": "folded-to-direction",
+                 "origin_comment_id": "c-x", "direction_id": "weird id/with spaces"}),
+        ]) + "\n")
+        import re
+        chat = self.client.get("/chat").data.decode()
+        m = re.search(r'href="/direction#(steer-[^"]+)"', chat)
+        self.assertIsNotNone(m)
+        anchor = m.group(1)
+        # the anchor carries no raw space (sanitized) and the steer element matches it exactly
+        self.assertNotIn(" ", anchor)
+        direction = self.client.get("/direction").data.decode()
+        self.assertIn(f'id="{anchor}"', direction)
+
+
+class TestSteerAnchorsAreInjective(_DirectionBase):
+    """FIX 2 / codex round-5 [med]: a lossy sanitizer that collapses every non-[a-zA-Z0-9_-] run to a
+    single `-` makes distinct ids (`a:b`, `a/b`, `a b`, `a-b`) share ONE fragment — so two folded
+    steers collide and a comment marker drills into the wrong (or ambiguous) steer. The anchor must
+    be INJECTIVE: distinct direction ids → distinct element ids, on BOTH the link and the target."""
+
+    LOG_LINES = [
+        _ev(1, "2026-06-10T09:00:00+00:00", "voz.comment",
+            {"target_ref": None, "comment_id": "c-a", "body": "directive a"}),
+        _ev(2, "2026-06-10T09:00:01+00:00", "voz.comment",
+            {"target_ref": None, "comment_id": "c-b", "body": "directive b"}),
+        # two distinct ids that a lossy collapse would map to the SAME fragment ("steer-a-b")
+        _ev(3, "2026-06-10T09:00:02+00:00", "direction.set",
+            {"id": "a:b", "body": "steer colon", "origin_comment_id": "c-a"}),
+        _ev(4, "2026-06-10T09:00:03+00:00", "direction.set",
+            {"id": "a/b", "body": "steer slash", "origin_comment_id": "c-b"}),
+        _ev(5, "2026-06-10T09:00:04+00:00", "voz.resolved",
+            {"comment_id": "c-a", "outcome": "folded-to-direction",
+             "origin_comment_id": "c-a", "direction_id": "a:b"}),
+        _ev(6, "2026-06-10T09:00:05+00:00", "voz.resolved",
+            {"comment_id": "c-b", "outcome": "folded-to-direction",
+             "origin_comment_id": "c-b", "direction_id": "a/b"}),
+    ]
+
+    def test_distinct_ids_get_distinct_steer_element_ids(self):
+        import re
+        body = self.client.get("/direction").data.decode()
+        ids = re.findall(r'<li class="steer" id="(steer-[^"]+)"', body)
+        self.assertEqual(len(ids), 2)
+        self.assertEqual(len(set(ids)), 2, f"steer ids must be distinct (injective): {ids}")
+
+    def test_each_marker_drills_into_the_right_steer(self):
+        # the marker for comment c-a (folded into a:b) must anchor a DIFFERENT steer than c-b (a/b);
+        # each marker's fragment must match exactly one rendered steer element id.
+        import re
+        chat = self.client.get("/chat").data.decode()
+        markers = re.findall(r'href="/direction#(steer-[^"]+)"', chat)
+        self.assertEqual(len(markers), 2)
+        self.assertEqual(len(set(markers)), 2, f"markers must target distinct steers: {markers}")
+        direction = self.client.get("/direction").data.decode()
+        for anchor in markers:
+            self.assertEqual(direction.count(f'id="{anchor}"'), 1,
+                             f"{anchor} must match exactly one steer element")
+
+
 class TestDirectionEmptyAndDark(_DirectionBase):
     """The empty case renders cleanly (no direction events at all) — a 200 with an honest empty
     marker, never a 500 or a blank."""
@@ -236,6 +416,67 @@ class TestDirectionSurvivesCorruptLog(_DirectionBase):
         r = self.client.get("/direction")
         self.assertEqual(r.status_code, 200)
         self.assertIn("a real steer", r.data.decode())
+
+    def test_direction_renders_200_over_a_list_valued_id(self):
+        # a JSON-valid direction.set whose `id` is a LIST — fold_direction uses `id` as a dict KEY
+        # (`items[iid] = ...`), and a list is unhashable → TypeError → 500. The corrupt steer is
+        # SKIPPED (NOT coerced into an active steer — codex round-2 [high]: coercing it would promote
+        # POISONED data onto the trusted curated tier); the valid one still shows.
+        self.log.write_text("\n".join([
+            _ev(1, "2026-06-10T09:00:00+00:00", "direction.set", {"id": "d1", "body": "a real steer"}),
+            _ev(2, "2026-06-10T09:00:01+00:00", "direction.set",
+                {"id": ["not", "a", "string"], "body": "a corrupt steer"}),
+        ]) + "\n")
+        r = self.client.get("/direction")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("a real steer", r.data.decode())
+        # the corrupt-id steer must be ABSENT — never promoted to the curated tier (fail-dark, not
+        # fail-poison). Its body never reaches the trusted surface.
+        self.assertNotIn("a corrupt steer", r.data.decode())
+
+    def test_direction_renders_200_over_a_list_valued_supersedes(self):
+        # a direction.set whose `supersedes` is a LIST — fold_direction does `items.pop(sup, ...)`,
+        # and pop with an unhashable key TypeErrors. A corrupt supersedes is IGNORED (never an
+        # items.pop key), so it can't retire a real steer: d1 STAYS active alongside d2.
+        self.log.write_text("\n".join([
+            _ev(1, "2026-06-10T09:00:00+00:00", "direction.set", {"id": "d1", "body": "a real steer"}),
+            _ev(2, "2026-06-10T09:00:01+00:00", "direction.set",
+                {"id": "d2", "body": "another steer", "supersedes": ["d1"]}),
+        ]) + "\n")
+        r = self.client.get("/direction")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("another steer", r.data.decode())
+        # a corrupt supersedes must NOT retire the real steer it (malformedly) names
+        self.assertIn("a real steer", r.data.decode())
+
+    def test_direction_renders_200_over_a_list_valued_origin_comment_id(self):
+        # a direction.set whose `origin_comment_id` is a LIST — the provenance link builds an anchor
+        # from it; the read boundary must coerce it so the surface renders inert (a 200), not 500.
+        self.log.write_text("\n".join([
+            _ev(1, "2026-06-10T09:00:00+00:00", "voz.comment",
+                {"target_ref": None, "comment_id": "c1", "body": "a directive"}),
+            _ev(2, "2026-06-10T09:00:01+00:00", "direction.set",
+                {"id": "d1", "body": "a real steer", "origin_comment_id": ["c1"]}),
+        ]) + "\n")
+        r = self.client.get("/direction")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("a real steer", r.data.decode())
+
+    def test_direction_renders_200_over_a_list_valued_direction_id_on_resolved(self):
+        # a voz.resolved{folded-to-direction} whose `direction_id` is a LIST — the Voz rail's
+        # _folded_directions maps comment_id → direction_id and the marker uses it as an anchor; the
+        # comment→steer fold must not crash a surface that renders it.
+        self.log.write_text("\n".join([
+            _ev(1, "2026-06-10T09:00:00+00:00", "voz.comment",
+                {"target_ref": None, "comment_id": "c1", "body": "a directive"}),
+            _ev(2, "2026-06-10T09:00:01+00:00", "direction.set",
+                {"id": "d1", "body": "a real steer", "origin_comment_id": "c1"}),
+            _ev(3, "2026-06-10T09:00:02+00:00", "voz.resolved",
+                {"comment_id": "c1", "outcome": "folded-to-direction",
+                 "origin_comment_id": "c1", "direction_id": ["d1"]}),
+        ]) + "\n")
+        self.assertEqual(self.client.get("/direction").status_code, 200)
+        self.assertEqual(self.client.get("/chat").status_code, 200)
 
 
 class TestDirectionNav(_DirectionBase):

@@ -571,6 +571,28 @@ class TestDrainRouteAuthGate(unittest.TestCase):
             fh.write('{"seq": 50, "type": "voz.reply", "payload": {"comment_id": "x", "body": {"k": 1}}}\n')
         self.assertFalse(grill_drain.log_is_intact(self.log))
 
+    def test_non_string_direction_set_id_degrades(self):
+        # fold_direction uses direction.set.id AS a dict KEY (`items[iid] = ...`); a list-valued id
+        # is unhashable → TypeError in the fold, the consistency check, AND any direction_at read. So
+        # the up-front integrity gate must reject it, like every other id used as a fold key. The seq
+        # stays contiguous (2 after the setup's seq-1 line) so this isolates the id-TYPE rejection,
+        # not the seq-gap rule.
+        import grill_drain
+        with open(self.log, "w") as fh:
+            fh.write('{"seq": 1, "type": "artefato.published", "payload": {"slug": "a"}}\n')
+            fh.write('{"seq": 2, "type": "direction.set", "payload": '
+                     '{"id": ["not", "a", "string"], "body": "a steer"}}\n')
+        self.assertFalse(grill_drain.log_is_intact(self.log))
+
+    def test_string_direction_set_id_is_intact(self):
+        # the positive control: a well-typed direction.set.id passes the gate (the rule rejects only
+        # a corrupt-TYPED id, not the field's presence).
+        import grill_drain
+        with open(self.log, "w") as fh:
+            fh.write('{"seq": 1, "type": "artefato.published", "payload": {"slug": "a"}}\n')
+            fh.write('{"seq": 2, "type": "direction.set", "payload": {"id": "d1", "body": "a steer"}}\n')
+        self.assertTrue(grill_drain.log_is_intact(self.log))
+
     def test_non_contiguous_seq_degrades(self):
         # eventlog stamps seq = base+i+1, so a clean log has seqs exactly 1..N contiguous in file
         # order. An out-of-order / gapped seq breaks the cursor-bound batch (a high-seq voz.resolved

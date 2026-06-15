@@ -171,6 +171,107 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(eventlog.direction_at(log=Path(tmp) / "log.jsonl"))
 
+    def test_fold_tolerates_a_list_valued_id(self):
+        # Slice 4 [high]: fold_direction uses direction.set/proposed/dropped `id` AS a dict KEY; a
+        # JSON-valid log with a LIST-valued id is unhashable → TypeError in the CANONICAL fold (not
+        # just the /direction route). The fold must SKIP the corrupt event and still surface the valid
+        # steers — direction_at()/project_direction()/the sweep all flow through here.
+        for corrupt in ("direction.set", "direction.proposed", "direction.dropped"):
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                with open(log, "w") as fh:
+                    fh.write(json.dumps({"seq": 1, "ts": "t", "type": "direction.set",
+                                         "subject": "direction",
+                                         "payload": {"id": "good", "body": "a real steer"}}) + "\n")
+                    fh.write(json.dumps({"seq": 2, "ts": "t", "type": corrupt, "subject": "direction",
+                                         "payload": {"id": ["not", "a", "string"],
+                                                     "body": "corrupt"}}) + "\n")
+                d = eventlog.direction_at(log=log)  # must not raise
+                # the corrupt event is SKIPPED, not folded — only the valid steer survives (fail-dark,
+                # never fail-poison: a corrupt id must not land as an active item).
+                self.assertEqual([i["id"] for i in d["set"]], ["good"], corrupt)
+                self.assertNotIn("corrupt", [i["body"] for i in d["set"] + d["proposed"]], corrupt)
+
+    def test_fold_tolerates_a_truthy_non_dict_payload(self):
+        # codex round-3 [medium]: a JSON-valid direction.* with a TRUTHY non-dict payload (a string /
+        # non-empty list) passes `p = e.get("payload", {}) or {}` (only falsy → {}) and then
+        # `p.get(...)` AttributeErrors the canonical fold — before the id/supersedes tolerance runs.
+        # sweep.py calls project_direction() unguarded, so this must normalize, not crash.
+        for bad_payload in ('"a string payload"', '[1, 2, 3]'):
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                with open(log, "w") as fh:
+                    fh.write(json.dumps({"seq": 1, "ts": "t", "type": "direction.set",
+                                         "subject": "direction",
+                                         "payload": {"id": "good", "body": "a real steer"}}) + "\n")
+                    fh.write('{"seq": 2, "ts": "t", "type": "direction.proposed", '
+                             f'"subject": "direction", "payload": {bad_payload}}}\n')
+                d = eventlog.direction_at(log=log)  # must not raise
+                self.assertEqual([i["id"] for i in d["set"]], ["good"], bad_payload)
+
+    def test_fold_tolerates_a_list_valued_supersedes(self):
+        # a direction.set whose `supersedes` is a LIST — fold_direction does `items.pop(sup)`, and
+        # pop with an unhashable key TypeErrors the canonical fold. It must skip-or-ignore and render.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(json.dumps({"seq": 1, "ts": "t", "type": "direction.set",
+                                     "subject": "direction",
+                                     "payload": {"id": "good", "body": "a real steer"}}) + "\n")
+                fh.write(json.dumps({"seq": 2, "ts": "t", "type": "direction.set",
+                                     "subject": "direction",
+                                     "payload": {"id": "other", "body": "another steer",
+                                                 "supersedes": ["good"]}}) + "\n")
+            d = eventlog.direction_at(log=log)  # must not raise
+            self.assertIn("other", [i["id"] for i in d["set"]])
+
+    def test_direction_at_tolerates_a_non_dict_log_line(self):
+        # codex round-2 [medium]: a JSON-valid NON-dict line (`[]`, `42`) must not crash the canonical
+        # read BEFORE fold_direction's tolerance can apply — read() does e["type"]/e["seq"]/e["ts"]
+        # on every parsed value. The typed read must skip non-dict envelopes so direction_at survives
+        # (tools/sweep.py calls project_direction() unguarded — the route's private iterator does not
+        # protect that path). The valid steer still folds.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(json.dumps({"seq": 1, "ts": "t", "type": "direction.set",
+                                     "subject": "direction",
+                                     "payload": {"id": "good", "body": "a real steer"}}) + "\n")
+                fh.write("[]\n")
+                fh.write("42\n")
+            d = eventlog.direction_at(log=log)  # must not raise
+            self.assertEqual([i["id"] for i in d["set"]], ["good"])
+
+    def test_project_direction_tolerates_a_non_dict_log_line(self):
+        # the sweep's projection path (tools.sweep → project_direction) must also survive a non-dict
+        # line — it flows through the same read()/fold_direction, so the read-level skip protects it.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            out = Path(tmp) / "DIRECTION.md"
+            with open(log, "w") as fh:
+                fh.write(json.dumps({"seq": 1, "ts": "t", "type": "direction.set",
+                                     "subject": "direction",
+                                     "payload": {"id": "good", "body": "a real steer"}}) + "\n")
+                fh.write("[]\n")
+            text = eventlog.project_direction(log=log, out=out)  # must not raise
+            self.assertIn("a real steer", text)
+
+    def test_project_direction_tolerates_a_list_valued_id(self):
+        # the projection caller (sweep/reprojection) must also survive a corrupt id — it flows through
+        # fold_direction, so hardening the canonical fold protects it too (codex Slice-4 [high]).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            out = Path(tmp) / "DIRECTION.md"
+            with open(log, "w") as fh:
+                fh.write(json.dumps({"seq": 1, "ts": "t", "type": "direction.set",
+                                     "subject": "direction",
+                                     "payload": {"id": "good", "body": "a real steer"}}) + "\n")
+                fh.write(json.dumps({"seq": 2, "ts": "t", "type": "direction.set",
+                                     "subject": "direction",
+                                     "payload": {"id": ["bad"], "body": "corrupt"}}) + "\n")
+            text = eventlog.project_direction(log=log, out=out)  # must not raise
+            self.assertIn("a real steer", text)
+
 
 class ProjectDirectionRendersBothTiers(unittest.TestCase):
     """The Direction page is a fold OUTPUT (ADR-0006/0007), banner-marked, with Set and Proposed
@@ -228,6 +329,24 @@ class ArtefatoProposalsConsolidateIntoProposedTier(unittest.TestCase):
             eventlog.drop("r:0", "rejected", log=log)
             self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 0)
             self.assertEqual(eventlog.direction_at(log=log)["proposed"], [])
+
+    def test_consolidation_tolerates_a_corrupt_direction_payload(self):
+        # codex Slice-4 round-4 [high]: _direction_ids() (the dedupe set) does
+        # `(e.get("payload") or {}).get("id")` — a TRUTHY non-dict direction.* payload (string/list)
+        # AttributeErrors it, and sweep.py calls consolidate_artefato_proposals() BEFORE
+        # project_direction(), so one corrupt event would stop the sweep from adding proposals even
+        # though direction_at() now tolerates it. Consolidation must share the fold's tolerance.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write('{"seq": 1, "ts": "t", "type": "direction.set", "subject": "direction", '
+                         '"payload": "a corrupt string payload"}\n')
+                fh.write('{"seq": 2, "ts": "t", "type": "direction.proposed", "subject": "direction", '
+                         '"payload": [1, 2, 3]}\n')
+            eventlog._append_orphan_published_for_test("r", proposes=[{"body": "X"}], log=log)
+            # must not raise — the valid candidate still consolidates past the corrupt direction events
+            self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 1)
+            self.assertIn("X", [i["body"] for i in eventlog.direction_at(log=log)["proposed"]])
 
 
 class IntentKernelPairsToItsArtefato(unittest.TestCase):
@@ -962,6 +1081,44 @@ class AppendBatchIsSerializedAcrossConcurrentWriters(unittest.TestCase):
                 self.assertEqual(len(seqs), 2 * n)
                 self.assertEqual(sorted(seqs), list(range(1, 2 * n + 1)))
                 self.assertEqual(seqs, sorted(seqs))  # strictly monotonic in file order
+
+
+class AppendBaseIsPhysicalNotTolerantRead(unittest.TestCase):
+    """Codex Slice-4 round-3 [high]: read() now SKIPS a JSON-valid non-dict line, but the append
+    base must stay the PHYSICAL line count — else a corrupt non-event line mid-log makes
+    len(read()) undercount and the next append stamps a DUPLICATE seq, corrupting the append-only
+    source of truth under the very corruption model this slice survives. Strict for writes, tolerant
+    only for read-side projections (ADR-0006 deterministic-replay invariant)."""
+
+    def test_append_after_a_mid_log_non_dict_line_does_not_reuse_a_seq(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(json.dumps({"seq": 1, "ts": "t", "type": "direction.set",
+                                     "subject": "direction", "payload": {"id": "a", "body": "x"}}) + "\n")
+                fh.write("[]\n")  # a corrupt non-dict line read() now skips — but it OCCUPIES seq 2
+                fh.write(json.dumps({"seq": 3, "ts": "t", "type": "direction.set",
+                                     "subject": "direction", "payload": {"id": "b", "body": "y"}}) + "\n")
+            ev = eventlog.append("direction.set", "direction", {"id": "c", "body": "z"}, log=log)
+            # the new event must take seq 4 (physical base 3), NOT reuse seq 3 (len(read())==2 → 3)
+            self.assertEqual(ev["seq"], 4)
+
+    def test_append_base_ignores_a_whitespace_only_line(self):
+        # codex round-5 [high]: _physical_len must use the SAME blank-line semantics as log_is_intact
+        # (which skips `not line.strip()`). A whitespace-only line is NOT an event slot — counting it
+        # would stamp the next seq one too high, permanently breaking seq contiguity (a harmless blank
+        # turned into irreversible source-of-truth corruption). The next append takes seq 2, not 3.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(json.dumps({"seq": 1, "ts": "t", "type": "direction.set",
+                                     "subject": "direction", "payload": {"id": "a", "body": "x"}}) + "\n")
+                fh.write("   \n")  # whitespace-only — a blank line, NOT an occupied seq slot
+            ev = eventlog.append("direction.set", "direction", {"id": "b", "body": "y"}, log=log)
+            self.assertEqual(ev["seq"], 2)
+            # and the resulting log is seq-contiguous (log_is_intact would accept it)
+            seqs = [e["seq"] for e in eventlog.read(log=log)]
+            self.assertEqual(seqs, [1, 2])
 
 
 class CosineIsPureSimilarity(unittest.TestCase):

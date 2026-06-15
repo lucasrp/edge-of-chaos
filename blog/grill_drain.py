@@ -132,7 +132,10 @@ _OPTIONAL_STRING_FIELDS = {
     "voz.clarify": ("comment_id", "clarify_id", "question"),
     "voz.clarify_answer": ("clarify_id", "body"),
     "voz.resolved": ("comment_id",),
-    "direction.set": ("body",),
+    # direction.set.id is the fold's dict KEY (`items[iid]` in fold_direction) — a non-string is
+    # unhashable and TypeErrors the fold / consistency check / direction_at. PRESENT-only: a legacy
+    # {plan} blob with no id folds to a single "_plan" item, so absence is valid, a non-string is not.
+    "direction.set": ("body", "id"),
 }
 
 
