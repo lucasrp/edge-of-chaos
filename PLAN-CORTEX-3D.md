@@ -38,13 +38,17 @@ navigable); (c) force Cytoscape render to fail → the **searchable list** DOM r
 fail → the **honest message**; (e) the 3D + cytoscape `<script>`s load **only** on `/cortex`. A 3D/fallback
 rung that only "passes" a Flask 200 does **not** satisfy the M-GATE. **Because Slices 3–6 keep mutating the
 SAME browser-only surface** (`cortex.js`, `cortex.html`, `style.css`, the renderer) — node selection, the
-panel, camera fly-to, `?node=`, search, PREV/NEXT, the perf cap — **any slice from Slice 2 onward that
-touches a renderer file MUST re-run the full fallback-ladder browser gate as a regression check** (the
-recurring Flask+Node gate alone cannot catch a regressed canvas or a dead rung). A later slice that breaks a
-WebGL-blocked client's fallback after the one-time gate passed is exactly the regression this recurring gate
-prevents. (The operator captured the reference live via Playwright; the same harness proves our rungs render.
-Run it backgrounded against a backgrounded server, never `blog/server.py` in the foreground — per the
-anti-stall rule; `pkill` after.)
+panel, camera fly-to, `?node=`, search, PREV/NEXT, labels, the perf cap — **any slice from Slice 2 onward
+that touches a renderer file MUST re-run, as a regression check, BOTH (1) the full fallback-ladder browser
+gate AND (2) the pinned M22 floor** (force tick still freezes ≤2.0 s / ≤300 ticks then idles, and the
+renderer still sustains ≥30 FPS over a 5 s orbit window at the measured baseline size in the headless-Chromium
+profile). The recurring Flask+Node gate alone catches **neither** a regressed canvas / dead rung **nor** a
+dropped frame rate or a reintroduced live tick — and a later slice (the panel, camera fly-to, labels) can do
+exactly either. So the recurring renderer gate = **the fallback ladder + the M22 floor, together**, on every
+renderer-touching slice; a slice that drops below 30 FPS or unfreezes the tick is **not green**, the same way
+a dead fallback rung is not. (The operator captured the reference live via Playwright; the same harness proves
+our rungs render *and* measures FPS. Run it backgrounded against a backgrounded server, never `blog/server.py`
+in the foreground — per the anti-stall rule; `pkill` after.)
 
 **Work only in `/home/vboxuser/edge-dashboard-wt`** (branch `feat/dashboard-blog-feedback`;
 parallel-git hazard on `~/edge` — never touch it). **CONTRACT C1:** never commit `state/` mutations (the
@@ -314,12 +318,12 @@ breakout defense is a security feature, not a rewrite-to-innerHTML).
   fabricated quote); an Earmarked node still shows the working correction composer and `test_cortex_correct.py`
   passes unchanged; close/tap-background dismisses; the `inspect_panel` macro is also listed on `/ux-catalog`;
   the breakout fixtures (poisoned title/href) stay inert in the panel. Three core suites green + the recurring
-  **browser fallback-ladder gate** (this slice touches `cortex.js` + `cortex.html` — re-run it as a
-  regression check that the panel change broke no rung).
+  **browser gate (fallback ladder + the M22 floor)** (this slice touches `cortex.js` + `cortex.html` — re-run
+  it: the panel change broke no rung AND did not drop below 30 FPS / unfreeze the tick).
 - **Codex gate:** `/codex:review` — the macro is **rendered into `/cortex`** (not just catalog-registered)
   (M20/G5), the DOM-API breakout defense and `esc()` survive (R5/M17), the correction composer is
   behaviorally unchanged (M12), no fabricated evidence field (M10b), no server fold touched; **re-run the
-  browser M-GATE** (renderer touched).
+  browser M-GATE + the M22 floor** (renderer touched).
 - **Deps:** Slice 2 (the cloud + node selection exist). **Files:** `blog/static/cortex.js`,
   `blog/templates/components/ui.html`, `blog/templates/pages/cortex.html` (render the macro shell),
   `blog/templates/pages/ux_catalog.html`, `blog/static/style.css`, `tests/test_cortex.py`,
@@ -347,11 +351,13 @@ server change** (the edges are already in the payload).
   panel for it, and updates `?node=<stable-ref>` in the URL; reloading that URL re-centers+selects the same
   node (round-trip); the inbound `/chat` provenance deep-link still resolves (R6); `neighborIndex` is
   exported + tested headless; the pill macro is on `/ux-catalog`; pills are DOM-API-built (a poisoned
-  neighbor label stays inert). Three suites green + the recurring **browser fallback-ladder gate** (this slice
-  touches `cortex.js` — re-run it so the camera-fly/`?node=` change broke no rung).
+  neighbor label stays inert). Three suites green + the recurring **browser gate (fallback ladder + the M22
+  floor)** (this slice touches `cortex.js` — re-run it: the camera-fly/`?node=` change broke no rung AND held
+  ≥30 FPS / the frozen tick).
 - **Codex gate:** `/codex:review` — the neighbor index is correct + pure, the `?node=` write uses the stable
   ref (not the render id) and does not break the inbound `locate()` path (R6), no server fold touched (G1/G3
-  are client-only), pills on the catalog (M20); **re-run the browser M-GATE** (renderer touched).
+  are client-only), pills on the catalog (M20); **re-run the browser M-GATE + the M22 floor** (renderer
+  touched — camera fly-to can re-trigger ticking).
 - **Deps:** Slice 3 (the panel renders the pills). **Files:** `blog/static/cortex.js`,
   `blog/templates/components/ui.html`, `blog/templates/pages/ux_catalog.html`, `blog/static/style.css`,
   `tests/test_cortex.py`.
@@ -383,11 +389,11 @@ deterministic traversal order.
   reload** (assert `traversalOrder` is deterministic over a fixture and ignores Neo4j row order), **respects
   the active filters** (a filtered-out node is skipped), wraps or stops cleanly at the ends, and flies the
   camera + opens the panel each step; `traversalOrder` is exported + tested headless. Three suites green + the
-  recurring **browser fallback-ladder gate** (this slice touches `cortex.js` + `cortex.html` — re-run it so
-  search/PREV-NEXT broke no rung).
+  recurring **browser gate (fallback ladder + the M22 floor)** (this slice touches `cortex.js` + `cortex.html`
+  — re-run it: search/PREV-NEXT broke no rung AND held ≥30 FPS / the frozen tick).
 - **Codex gate:** `/codex:review` — the traversal order is stable + filter-respecting + server-independent
   (Q8), search stays deterministic (no semantic retrieval), the on-hit camera move replaces `cy.animate`
-  cleanly, no server fold touched; **re-run the browser M-GATE** (renderer touched).
+  cleanly, no server fold touched; **re-run the browser M-GATE + the M22 floor** (renderer touched).
 - **Deps:** Slice 4 (selection + panel + camera-fly exist to drive). **Files:** `blog/static/cortex.js`,
   `blog/templates/pages/cortex.html` (the PREV/NEXT controls), `blog/static/style.css`,
   `tests/test_cortex.py`, the browser/Playwright test (re-run).
@@ -409,10 +415,11 @@ bundle KB.
   Slice-2 threshold at the re-measured (grown) size; the Episodic-collapse is a **client render decision**
   (the payload + `cortex_fold`/`_map_node` are **unchanged**); the Slice-2 floor (frozen tick, FPS threshold,
   growth-stress ceiling) **still holds** (re-run that acceptance). Three suites green + the renderer-touching
-  recurring **browser fallback-ladder gate** (this slice touches `cortex.js`); the re-measured number +
-  the engaged lever are recorded.
+  recurring **browser gate (fallback ladder + the M22 floor)** (this slice touches `cortex.js`); the
+  re-measured number + the engaged lever are recorded.
 - **Codex gate:** `/codex:review` — the lever is genuinely client-side (no server fold), the Slice-2 floor is
-  not regressed, conformance to SURFACE.md's stated lever; **re-run the browser M-GATE** (renderer touched).
+  not regressed, conformance to SURFACE.md's stated lever; **re-run the browser M-GATE + the M22 floor**
+  (renderer touched).
 - **Deps:** Slices 2–5 (the full renderer to tune). **Files:** `blog/static/cortex.js`,
   `tests/test_cortex.py`, the browser/Playwright test (re-run).
 
