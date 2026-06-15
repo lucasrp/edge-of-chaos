@@ -476,6 +476,38 @@ class TestDrainRouteAuthGate(unittest.TestCase):
             fh.write('{"type": "voz.comment", "payload": {"comment_id": "x", "body": "b"}}\n')  # no seq
         self.assertFalse(grill_drain.log_is_intact(self.log))
 
+    def test_non_string_voz_comment_body_degrades(self):
+        # an envelope-valid voz.comment whose payload.body is a non-string would 500 _harm_score's
+        # .lower() in the drain — the up-front health check must reject it so the route degrades.
+        import grill_drain
+        with open(self.log, "a") as fh:
+            fh.write('{"seq": 50, "type": "voz.comment", "payload": '
+                     '{"comment_id": "x", "body": ["not", "a", "string"]}}\n')
+        self.assertFalse(grill_drain.log_is_intact(self.log))
+
+    def test_non_string_voz_reply_body_degrades(self):
+        import grill_drain
+        with open(self.log, "a") as fh:
+            fh.write('{"seq": 50, "type": "voz.reply", "payload": {"comment_id": "x", "body": {"k": 1}}}\n')
+        self.assertFalse(grill_drain.log_is_intact(self.log))
+
+    def test_route_degrades_on_a_preexisting_non_string_payload(self):
+        # a pre-existing poisoned Voz payload (envelope-valid, body non-string) → the route degrades
+        # before the drain/generator, never 500. Proven on the generator-backed path (no spend).
+        with open(self.log, "a") as fh:
+            fh.write('{"seq": 50, "type": "voz.comment", "payload": '
+                     '{"target_ref": "alpha-post", "comment_id": "poison", "body": [1, 2]}}\n')
+        called = {"n": 0}
+        self.server.DRAIN_REPLY_GENERATOR = lambda c: (called.__setitem__("n", called["n"] + 1)
+                                                       or {"reply": "x"})
+        try:
+            r = self.client.post("/grill/drain")
+            self.assertNotEqual(r.status_code, 500)
+            self.assertEqual(json.loads(r.data)["backfill"], "degraded")
+        finally:
+            self.server.DRAIN_REPLY_GENERATOR = None
+        self.assertEqual(called["n"], 0)
+
     def test_malformed_log_with_no_backfill_target_still_degrades_no_generator(self):
         # the gate's finding: a corrupt log with an OPEN voz.comment but NO legacy reply-only target
         # → the back-fill returns [] early (no append), so it can't be the corruption detector. The

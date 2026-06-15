@@ -67,7 +67,12 @@ def log_is_intact(log):
     JSON line with a non-dict payload or missing seq would pass it and 500 the drain later.
 
     The envelope every fold indexes: a dict carrying an int `seq`, a str `type`, and a dict
-    `payload`. (Matches what `eventlog` stamps and what the lifecycle folds read.)"""
+    `payload`. (Matches what `eventlog` stamps and what the lifecycle folds read.)
+
+    Beyond the envelope, the STRING payload fields the drain/render folds index must themselves be
+    strings — an envelope-valid `voz.comment` with a non-string `body` would pass an envelope-only
+    check, then crash `_harm_score().lower()` (drain) or `html.escape()` (render). So those fields
+    are validated per type too, and a poisoned-but-valid-JSON event degrades the route deterministically."""
     import json
     from pathlib import Path
     p = Path(log)
@@ -86,9 +91,27 @@ def log_is_intact(log):
             return False
         if not isinstance(e.get("type"), str):
             return False
-        if not isinstance(e.get("payload"), dict):
+        payload = e.get("payload")
+        if not isinstance(payload, dict):
             return False
+        # The string fields the drain folds (_harm_score, _close_one, clarify_context) and the blog
+        # render path (html.escape) index — a non-string here would crash a later fold/view.
+        for field in _REQUIRED_STRING_FIELDS.get(e["type"], ()):
+            if field in payload and not isinstance(payload[field], str):
+                return False
     return True
+
+
+# The payload string fields each Voz/Direction event type carries that a fold or the render path
+# treats as a string. Validated by log_is_intact when present (a missing field is a different,
+# already-handled concern; a PRESENT non-string is the poison that crashes .lower()/html.escape).
+_REQUIRED_STRING_FIELDS = {
+    "voz.comment": ("body",),
+    "voz.reply": ("body",),
+    "voz.clarify": ("question",),
+    "voz.clarify_answer": ("body",),
+    "direction.set": ("body",),
+}
 
 
 # ── The lifecycle folds — openness, the actionable set, consistency ─────────────────────────────
