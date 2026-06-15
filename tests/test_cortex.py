@@ -523,18 +523,50 @@ class TestIslandFilter(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_recency_threshold_keeps_only_the_most_recent(self):
-        # recencyFraction 0 → all; 1 → only the most recent stamped node; an unstamped node is
-        # treated as oldest (hidden first as the threshold rises). Deterministic over `ts`.
+        # recencyFraction 0 → all; the cutoff ranks ONLY stamped nodes (an unstamped node has "no
+        # recency position" per the server contract, so it is dropped whenever recency is engaged —
+        # never fabricated as recent). 1 → the single most-recent STAMPED node. Deterministic over ts.
         proc = _run_island_logic(f"""
             const p = {self.PAYLOAD};
             const all = CortexFilters.visible(p, {{recencyFraction: 0}});
-            assert.strictEqual(all.size, 8);                  // 0 → everything
+            assert.strictEqual(all.size, 8);                  // 0 → everything (recency off)
             const newest = CortexFilters.visible(p, {{recencyFraction: 1}});
             assert.deepStrictEqual([...newest], ['ep1']);     // ts 2026-06-01 is the most recent
             const half = CortexFilters.visible(p, {{recencyFraction: 0.5}});
             assert.ok(half.has('ep1') && half.has('s1'));     // recent kept
-            assert.ok(!half.has('g0'));                       // oldest dropped
-            assert.ok(!half.has('ep2'));                      // unstamped treated as oldest
+            assert.ok(!half.has('g0'));                       // oldest stamped dropped
+            assert.ok(!half.has('ep2'));                      // unstamped has no recency position
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_recency_on_an_all_unstamped_payload_drops_everything(self):
+        # codex round-1 [medium]: an all-unstamped graph must NOT fabricate a "newest" node from the
+        # last payload entry. With recency engaged and no stamped nodes, the kept set is empty.
+        proc = _run_island_logic("""
+            const p = {nodes: [
+              {id:'x', label:'Entity', title:'a', trust:'extracted', ts:null},
+              {id:'y', label:'Entity', title:'b', trust:'extracted', ts:null},
+            ], edges: []};
+            assert.strictEqual(CortexFilters.visible(p, {recencyFraction: 1}).size, 0);
+            assert.strictEqual(CortexFilters.visible(p, {recencyFraction: 0.5}).size, 0);
+            // recency OFF still shows them (they exist, they just have no recency position)
+            assert.strictEqual(CortexFilters.visible(p, {recencyFraction: 0}).size, 2);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_recency_on_a_mixed_payload_ranks_only_stamped_nodes(self):
+        # codex round-1 [medium]: when unstamped nodes outnumber stamped ones, a moderate threshold
+        # must keep only real stamped recents — never an arbitrary unstamped node.
+        proc = _run_island_logic("""
+            const p = {nodes: [
+              {id:'u1', label:'Entity', title:'u', trust:'extracted', ts:null},
+              {id:'u2', label:'Entity', title:'u', trust:'extracted', ts:null},
+              {id:'u3', label:'Entity', title:'u', trust:'extracted', ts:null},
+              {id:'s_old', label:'Entity', title:'s', trust:'extracted', ts:'2026-01-01'},
+              {id:'s_new', label:'Entity', title:'s', trust:'extracted', ts:'2026-09-01'},
+            ], edges: []};
+            const r = CortexFilters.visible(p, {recencyFraction: 0.5}); // keep most-recent ceil(.5*2)=1
+            assert.deepStrictEqual([...r], ['s_new']);
         """)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
@@ -570,6 +602,71 @@ class TestIslandFilter(unittest.TestCase):
             assert.strictEqual(vis.size, 8);
         """)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+
+
+@unittest.skipIf(NODE is None, "node not available to drive the island logic")
+class TestIslandRender(unittest.TestCase):
+    """Slice 6, codex round-1 [medium] — ONE combined search+filter state. render(payload, state) is
+    the single authority the DOM renders from: the search hit is the first node that matches the
+    query AND survives the active filters (search must NOT resurrect a filtered-out node), and the
+    reported count reflects only visible matches. Both empty-result paths (filter-then-search and
+    search-then-filter) resolve cleanly with no stale visible state."""
+
+    PAYLOAD = json.dumps(ISLAND_PAYLOAD)
+
+    def test_search_respects_the_active_filters_no_resurrection(self):
+        # filter to Source-only, then search the Artefato — the Artefato is filtered out, so it must
+        # NOT become the (visible) hit. The hit is null and the count is 0 (empty-result).
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const r = CortexFilters.render(p, {{types: ['Source'], query: 'alpha'}});
+            assert.ok(!r.visibleIds.has('a1'));        // the filtered-out Artefato stays hidden
+            assert.strictEqual(r.searchHit, null);     // no resurrection of a hidden node
+            assert.strictEqual(r.searchCount, 0);      // empty-result over the visible set
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_search_hit_is_the_first_visible_match(self):
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const r = CortexFilters.render(p, {{types: ['Artefato','Source'], query: 'a'}});
+            // 'a' matches several titles; the hit is the FIRST in payload order among VISIBLE nodes
+            assert.ok(r.visibleIds.has(r.searchHit));
+            assert.strictEqual(r.searchHit, 'a1');     // alpha-post, first visible match
+            assert.ok(r.searchCount >= 1);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_changing_a_filter_recomputes_the_search_count(self):
+        # search-then-filter: a result that the new filter hides must drop to empty — the count is
+        # recomputed from the combined state, never stale.
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const before = CortexFilters.render(p, {{query: 'alpha'}});
+            assert.strictEqual(before.searchHit, 'a1');
+            assert.strictEqual(before.searchCount, 1);
+            const after = CortexFilters.render(p, {{query: 'alpha', earmarkedOnly: true}});
+            assert.strictEqual(after.searchHit, null);   // alpha-post is not Earmarked → hidden
+            assert.strictEqual(after.searchCount, 0);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_empty_query_leaves_the_filtered_set_with_no_hit(self):
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const r = CortexFilters.render(p, {{types: ['Genesis'], query: ''}});
+            assert.deepStrictEqual([...r.visibleIds], ['g0']);  // the filter still applies
+            assert.strictEqual(r.searchHit, null);              // no query → no hit
+            assert.strictEqual(r.searchCount, 0);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_island_render_drives_the_dom_no_filtered_out_bypass(self):
+        # the DOM island must render from render()/visible() and must NOT carry the bypass that
+        # removed `filtered-out` from a search hit (which resurrected a filtered node).
+        js = CORTEX_JS.read_text()
+        self.assertIn("CortexFilters.render", js)
+        self.assertNotIn('hit.removeClass("filtered-out")', js)
 
 
 if __name__ == "__main__":

@@ -45,9 +45,11 @@
     //   types          — array of selected node-type labels (Genesis…Episodic). Omitted/null = all
     //                     types; an EMPTY array = no type selected → an empty result (not match-all).
     //   earmarkedOnly  — true → keep only Earmarked (the harm subset).
-    //   recencyFraction— 0 = show all; 1 = only the single most-recent stamped node; f in (0,1) keeps
-    //                    the most-recent ceil((1-f)*N) nodes by `ts`. An unstamped node (ts null) is
-    //                    treated as OLDEST (hidden first as the threshold rises). Deterministic.
+    //   recencyFraction— 0 = recency OFF (show all). f in (0,1] ranks ONLY the STAMPED nodes by `ts`
+    //                    and keeps the most-recent ceil((1-f)*Ns) of them (>=1 while engaged); 1 = the
+    //                    single most-recent stamped node. An UNSTAMPED node (ts null) has "no recency
+    //                    position" (the server contract) → it is NEVER fabricated as recent: with
+    //                    recency engaged it is dropped, never an arbitrary keep (codex round-1 [med]).
     // Each predicate is an independent AND — composing filters just intersects them; recompute from
     // the payload, never from a prior result, so there is no stale hidden/visible state.
     visible: function (payload, state) {
@@ -58,25 +60,26 @@
       var typeSet = null;
       if (state.types != null) typeSet = new Set(state.types);
 
-      // recency cutoff: the rank index below which nodes are dropped, computed once over sorted ts.
-      var recencyKeep = null; // a Set of ids the recency threshold keeps; null = keep all
+      // recency cutoff: rank ONLY stamped nodes; a node must be in this Set to pass when recency is
+      // engaged, so an unstamped node (no recency position) is dropped, never invented as recent.
+      var recencyKeep = null; // a Set of ids the recency threshold keeps; null = recency OFF
       var f = state.recencyFraction;
       if (typeof f === "number" && f > 0) {
-        // sort a copy by ts ascending; an absent ts sorts oldest. Keep the most-recent ceil((1-f)*N).
-        var ranked = nodes.slice().sort(function (a, b) {
-          var ta = a.ts == null ? "" : String(a.ts);
-          var tb = b.ts == null ? "" : String(b.ts);
+        var stamped = nodes.filter(function (n) { return n.ts != null && String(n.ts) !== ""; });
+        stamped.sort(function (a, b) {
+          var ta = String(a.ts), tb = String(b.ts);
           if (ta < tb) return -1;
           if (ta > tb) return 1;
           return 0;
         });
-        // keep the most-recent ceil((1-f)*N), but never fewer than 1 while the filter is engaged
-        // (f>0) and the graph is non-empty — so the slider at max still leaves the single newest node.
-        var keepCount = Math.ceil((1 - f) * ranked.length);
-        if (ranked.length > 0 && keepCount < 1) keepCount = 1;
+        // keep the most-recent ceil((1-f)*Ns) STAMPED nodes; never fewer than 1 while engaged with at
+        // least one stamped node — so the slider at max leaves the single newest, and an all-unstamped
+        // graph keeps NONE (the kept set is empty, not a fabricated last-payload node).
+        var keepCount = Math.ceil((1 - f) * stamped.length);
+        if (stamped.length > 0 && keepCount < 1) keepCount = 1;
         recencyKeep = new Set();
-        for (var k = ranked.length - keepCount; k < ranked.length; k++) {
-          if (k >= 0) recencyKeep.add(ranked[k].id);
+        for (var k = stamped.length - keepCount; k < stamped.length; k++) {
+          if (k >= 0) recencyKeep.add(stamped[k].id);
         }
       }
 
@@ -88,6 +91,37 @@
         ids.add(n.id);
       }
       return ids;
+    },
+
+    // render(payload, state) → the ONE combined search+filter state the DOM renders from (codex
+    // round-1 [medium]): the visible set (filters), plus the search hit — the FIRST node that matches
+    // the query AND survives the active filters (search NEVER resurrects a filtered-out node) — and
+    // the count of VISIBLE matches. state extends visible()'s with `query`. Pure: recomputed every
+    // change, so filter↔search interactions are always consistent (no stale visible state, both
+    // empty-result paths resolve cleanly).
+    render: function (payload, state) {
+      state = state || {};
+      var visibleIds = this.visible(payload, state);
+      var nodes = (payload && payload.nodes) || [];
+      var q = String(state.query == null ? "" : state.query).trim().toLowerCase();
+      var searchHit = null;
+      var searchCount = 0;
+      if (q) {
+        for (var i = 0; i < nodes.length; i++) {
+          var n = nodes[i];
+          if (!visibleIds.has(n.id)) continue; // a hit must be a VISIBLE node — no resurrection
+          var hay = (
+            String(n.title == null ? "" : n.title) + "\n" +
+            String(n.label == null ? "" : n.label) + "\n" +
+            String(n.id == null ? "" : n.id)
+          ).toLowerCase();
+          if (hay.indexOf(q) !== -1) {
+            if (searchHit === null) searchHit = n.id;
+            searchCount++;
+          }
+        }
+      }
+      return { visibleIds: visibleIds, searchHit: searchHit, searchCount: searchCount };
     },
   };
 
@@ -281,44 +315,40 @@
       types: types,
       earmarkedOnly: !!(earmarkedBox && earmarkedBox.checked),
       recencyFraction: recencyFraction,
+      query: search ? search.value : "",
     };
   }
 
-  function applyFilters() {
-    var vis = CortexFilters.visible(payload, controlState());
+  // Render from ONE combined state every change (codex round-1 [medium]): apply filters AND search
+  // together so the search hit is always a VISIBLE node — never resurrect a filtered-out node, and
+  // the status is recomputed from the combined set (no stale visible state).
+  function render() {
+    var r = CortexFilters.render(payload, controlState());
     cy.batch(function () {
       cy.nodes().forEach(function (n) {
-        if (vis.has(n.id())) n.removeClass("filtered-out");
+        var id = n.id();
+        if (r.visibleIds.has(id)) n.removeClass("filtered-out");
         else n.addClass("filtered-out");
+        if (id === r.searchHit) n.addClass("search-hit");
+        else n.removeClass("search-hit");
       });
     });
-  }
-
-  typeBoxes.forEach(function (b) { b.addEventListener("change", applyFilters); });
-  if (earmarkedBox) earmarkedBox.addEventListener("change", applyFilters);
-  if (recencyRange) recencyRange.addEventListener("input", applyFilters);
-
-  // ── Search — find-and-jump: locate the matched node, mark it, center the view on it. ────────────
-  function runSearch() {
-    cy.nodes().removeClass("search-hit");
-    var q = search ? search.value : "";
-    var r = CortexFilters.search(payload, q);
-    if (!q.trim()) { if (searchStatus) searchStatus.textContent = ""; return; }
-    if (r.matchId == null) {
-      if (searchStatus) searchStatus.textContent = "sem resultado";
-      return;
-    }
+    var q = (search ? search.value : "").trim();
     if (searchStatus) {
-      searchStatus.textContent = r.count > 1 ? r.count + " resultados" : "1 resultado";
+      if (!q) searchStatus.textContent = "";
+      else if (r.searchHit == null) searchStatus.textContent = "sem resultado";
+      else searchStatus.textContent = r.searchCount > 1 ? r.searchCount + " resultados" : "1 resultado";
     }
-    var hit = cy.getElementById(r.matchId);
-    if (hit.length) {
-      hit.removeClass("filtered-out"); // a hit is always shown, even if a filter would hide it
-      hit.addClass("search-hit");
-      cy.animate({ center: { eles: hit }, zoom: 1.1 }, { duration: 280 });
+    if (r.searchHit != null) {
+      var hit = cy.getElementById(r.searchHit);
+      if (hit.length) cy.animate({ center: { eles: hit }, zoom: 1.1 }, { duration: 280 });
     }
   }
-  if (search) search.addEventListener("input", runSearch);
+
+  typeBoxes.forEach(function (b) { b.addEventListener("change", render); });
+  if (earmarkedBox) earmarkedBox.addEventListener("change", render);
+  if (recencyRange) recencyRange.addEventListener("input", render);
+  if (search) search.addEventListener("input", render);
 
   // Inspect node (v1): click → show its title in a read-only panel.
   var panel = document.createElement("div");
