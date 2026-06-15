@@ -555,6 +555,26 @@ class TestNodeContextInPromptAndSnapshot(_Base):
         prompt = grill_drain._build_live_prompt({**p, "clarify": []})
         self.assertIn("THE HARMFUL CLAUSE IS HERE PAST 140 CHARS", prompt)
 
+    def test_snapshot_claim_is_bounded_so_one_claim_cannot_wedge_the_drain(self):
+        # codex round-8 [high]: removing truncation must not let a pathologically large extracted
+        # claim blow the prompt/token budget and wedge the corrective drain (harm=100 keeps it at the
+        # head of every drain — ADR-0017's max-tokens cap / never-an-oversized-prompt). The snapshot
+        # claim is BOUNDED at write time (the same "prose, not a payload" bound the Voz path uses), so
+        # the assembled prompt is bounded by construction — the full harmful clause still fits for any
+        # realistic extracted claim, but a multi-MB claim cannot wedge the head of the queue.
+        import json as _json
+        from pathlib import Path as _P
+        huge_claim = "x" * (self.server.MAX_BODY_BYTES * 4)  # a pathologically large extracted claim
+        mapped = self.server._map_node("live:H", "Entity",
+                                       {"uuid": "U-huge", "name": huge_claim, "earmarked": True})
+        _P(self.fix).write_text(_json.dumps({"nodes": [mapped], "edges": []}))
+        r = self._post("/cortex/U-huge/comment", {"body": "this is wrong"})
+        # the correction may land, but the persisted claim is bounded (cannot wedge the drain prompt)
+        if r.status_code == 200:
+            p = next(c["payload"] for c in self._events("voz.comment")
+                     if c["payload"]["target_ref"] == "node:U-huge")
+            self.assertLessEqual(len(p["node_title"].encode("utf-8")), self.server.MAX_BODY_BYTES)
+
     def test_live_mapped_bare_earmarked_node_rejects_with_no_append(self):
         # the live-fold path (through _map_node) — a bare Earmarked Entity with NO content fields must
         # reject with no append; the label-fallback display title must NOT pass the missing-context

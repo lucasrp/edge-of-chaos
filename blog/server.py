@@ -263,10 +263,26 @@ def _node_snapshot_of(node):
     claim = node.get("content") if "content" in node else node.get("title")
     snap = {}
     if claim:
-        snap["node_title"] = _as_str(claim)
+        # Bound the persisted claim (codex Slice-6b round-8 [high]): the full claim rides into the
+        # live prompt (no truncation of the harmful clause), but an UNBOUNDED extracted claim could
+        # blow the prompt/token budget — and with harm=100 the correction sits at the head of every
+        # drain, wedging the corrective path (ADR-0017's max-tokens cap / never-an-oversized-prompt).
+        # Cap at the same MAX_BODY_BYTES "prose, not a payload" bound the rest of the Voz write path
+        # uses: comfortably larger than any realistic extracted claim, bounded by construction.
+        snap["node_title"] = _cap_bytes(_as_str(claim), MAX_BODY_BYTES)
     if node.get("label"):
         snap["node_label"] = _as_str(node["label"])
     return snap
+
+
+def _cap_bytes(text, limit):
+    """Truncate `text` to at most `limit` UTF-8 bytes WITHOUT splitting a multibyte char (encode →
+    slice → decode-ignore drops a dangling partial). Used to bound a persisted node claim so it can
+    never blow the corrective drain's prompt budget (codex round-8)."""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= limit:
+        return text
+    return encoded[:limit].decode("utf-8", "ignore")
 
 
 def _reject_oversized_body():
