@@ -8,6 +8,7 @@ model's background, so the floor must track the live distribution (research spec
 the vectors and the floor moves — and that it degrades to no-floor on thin input.
 """
 import math
+import statistics
 import sys
 import unittest
 from pathlib import Path
@@ -15,12 +16,6 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import relate  # noqa: E402
-
-try:
-    import statistics
-    _percentile_ref = None  # we hand-roll the reference below to avoid statistics version drift
-except Exception:  # pragma: no cover
-    pass
 
 
 def _cos(a, b):
@@ -60,6 +55,15 @@ class RelativeFloorIsPercentileOfLivePairs(unittest.TestCase):
         self.assertIsNotNone(floor)
         self.assertAlmostEqual(floor, expected, places=9)
 
+        # pct is a real METHOD PARAMETER, not a hardcoded 87 inside the function: a distinct
+        # pct on the SAME corpus must route through _percentile and yield a different floor.
+        rank60 = (60 / 100) * (len(ordered) - 1)
+        lo60, hi60 = int(math.floor(rank60)), int(math.ceil(rank60))
+        expected60 = ordered[lo60] + (ordered[hi60] - ordered[lo60]) * (rank60 - lo60)
+        floor60 = relate.relative_floor(vectors, pct=60)
+        self.assertAlmostEqual(floor60, expected60, places=9)
+        self.assertNotAlmostEqual(floor60, floor, places=6)  # the pct knob actually moves it
+
         # It is RELATIVE: a different live distribution yields a different floor.
         tighter = [unit(d) for d in (0, 2, 4, 6, 8)]  # all near-parallel → higher cosines
         floor_tighter = relate.relative_floor(tighter, pct=87)
@@ -89,6 +93,32 @@ class FloorDegradesOnThinInput(unittest.TestCase):
         self.assertIsNone(relate.relative_floor([[1.0, 0.0]]))
         # None / garbage embeddings do not crash the floor either.
         self.assertIsNone(relate.relative_floor(None))
+
+
+class FloorNeverRaisesOnBadVectors(unittest.TestCase):
+    """The docstring promises "never raises". eventlog.cosine raises TypeError on
+    non-numeric elements, so a corpus with a malformed vector must degrade to None
+    (no floor), not propagate the exception (mirrors eventlog.cosine's degrade rule)."""
+
+    def test_non_numeric_vectors_degrade_to_none(self):
+        bad = [[1.0, 0.0], ["a", "b"]]  # second vector is non-numeric → cosine would raise
+        self.assertIsNone(relate.relative_floor(bad))
+        none_el = [[1.0, 0.0], [None, 1.0]]
+        self.assertIsNone(relate.relative_floor(none_el))
+
+
+class PercentileMatchesStatisticsQuantiles(unittest.TestCase):
+    """The docstring claims parity with statistics.quantiles. Pin it for the small-N
+    cases the reviewer flagged (N=2,3): inclusive method == our (n-1) linear interpolation
+    for integer percentiles."""
+
+    def test_parity_with_statistics_quantiles_small_n(self):
+        for values in ([0.1, 0.5], [0.1, 0.5, 0.9], [0.2, 0.4, 0.6, 0.8]):
+            for pct in (50, 60, 87):
+                q = statistics.quantiles(values, n=100, method="inclusive")
+                ref = q[pct - 1]  # n=100 → q[i] is the (i+1)-th percentile
+                got = relate._percentile(values, pct)
+                self.assertAlmostEqual(got, ref, places=12, msg=f"{values} @ {pct}")
 
 
 if __name__ == "__main__":
