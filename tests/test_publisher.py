@@ -736,9 +736,20 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         for label in ("BUILDS_ON", "SUPERSEDES", "CONTRADICTS"):
             self.assertIn(label, delete_clause,
                           f"{label} must be in the destructive edge-rebuild DELETE set")
-        # the edge is DIRECTED this -> prior (MERGE (a)-[:LABEL]->(p)), never the reverse
-        self.assertIn("MERGE (a)-[:", src,
-                      "the lineage edge must be directed this(a) -> prior(p)")
+        # the edge is DIRECTED this -> prior. Assert the LINEAGE-SPECIFIC Cypher shape, not the
+        # generic "MERGE (a)-[:" (Codex: that is also emitted by SERVES/DISTILLS/PROPOSES/CITES, so a
+        # deleted/inverted lineage block would not trip it). The lineage MERGE is the ONLY one that
+        # (a) interpolates its label from the fixed allowlist via `%s` and (b) targets the prior
+        # Artefato `(p)` — every other authored edge targets (o)/(e)/(d)/(src). Both pin the block.
+        self.assertIn("MERGE (a)-[:%s]->(p)", src,
+                      "the lineage edge must interpolate the allowlist label via %s and be directed "
+                      "this(a) -> prior(p) — distinct from the (o)/(e)/(d)/(src) authored edges")
+        # the label that fills %s comes from the allowlist lookup, never raw caller data
+        self.assertIn("LINEAGE_LABELS.get(item.get(\"type\"))", src,
+                      "the %s label must be the fixed-allowlist value, not interpolated caller data")
+        # and it is directed this -> prior, NOT prior -> this (a reversed MERGE must not appear)
+        self.assertNotIn("MERGE (p)-[:", src,
+                         "the lineage edge must be this -> prior, never prior -> this")
 
     def test_unresolved_lineage_prior_leaves_projection_incomplete(self):
         # Cortex-v1 (brick-1, L4): a lineage ref whose prior :Artefato is not in the graph yet
