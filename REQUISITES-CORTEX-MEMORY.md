@@ -21,9 +21,12 @@ the count-pin fence (`tests/test_idiom_rename.py` `EXPECTED_GLOSSARY_COUNT`).
   entry-point push; deep navigation is a mid-turn pull (ADR-0011's "navigation is judgment in the
   loop", now mechanized as a tool rather than left to prose the agent must remember to run).
 - **Read-only** on the graph. The self/world boundary (ADR-0014) is **no longer held by phase
-  separation** (a standing tool cannot be phase-scoped) — it is held by the explicit `cortex_*`
-  **tool-name boundary** + agent discipline + the **write-free read** (no telemetry into the truth
-  path).
+  separation** (a standing tool cannot be phase-scoped) — it is held by **three layers**: the
+  explicit `cortex_*` **tool-name boundary**, the **write-free read** (no telemetry into the truth
+  path), AND a **v1-mandatory per-cognition allowlist** that DENIES `cortex_*` to delta/world
+  subagents (§4 / N5). Read-only stops durable graph contamination; the allowlist stops the
+  *in-context* mixing ADR-0014 names (world-new delta + recalled-self in one context). Both are
+  required — neither alone replaces the phase split.
 - **Feedback** = the EXISTING curated doors (value = `cites`/`distills` at close; correction =
   node-targeted Voz / Earmarked) PLUS a new **implicit usage counter**, behind an `EDGE_CORTEX_USAGE`
   on/off toggle for A/B.
@@ -40,7 +43,7 @@ confirms direction and sharpens four specifics. The frame, mapped to edge nouns:
 | Active reconstruction beats passive top-k; *strictly* more expressive (MRAgent) | "navigate the Cortex" (ADR-0010), surf the typed web (recall.surf) | Make navigation a **mid-turn pull**, not just a prose affordance — the MCP |
 | Multi-signal retrieval (semantic + BM25 + entity) beats vector-only (Mem0 2026) | embeddings on Artefatos; Graphiti entity web; substring search | `cortex_search` is substring-only — adopt **structural+keyword first, semantic next** |
 | Reinforcement-by-use causes **semantic drift** if it writes back (SSGM) | log-is-truth; curated tier behind the grill | The usage counter MUST stay **off the truth path** — the design's resolution is the SOTA-correct one |
-| Memory poisoning propagates via shared memory / unsanitized tool output (WorkOS, arXiv 2603.20357, 2604.16548) | group_id isolation; C1 read-only world | The **write-free read** is the prescribed defense; the boundary is the tool-name, validated |
+| Memory poisoning propagates via shared memory / unsanitized tool output (WorkOS, arXiv 2603.20357, 2604.16548) | group_id isolation; C1 read-only world | **Write-free read + subject-scope deny** (delta/world denied the self door) is the prescribed defense; boundary = scope wall, not tool-name alone |
 | Dual-track (mutable graph + immutable ledger) bounds drift (SSGM) | log (truth) + Cortex (projection) — ADR-0006 | Already correct; name it as the governance invariant the usage store must not breach |
 | Async / non-blocking memory ops (Mem0 2026) | projection is best-effort, never fatal | The MCP read must be **bounded-latency, fail-dark**, never block the beat |
 | Token preload tax grows with store (Latenode) | recall cap = 8 salient Artefatos | Keep the **seed small**; depth is pulled, not preloaded — already right, make it a requirement |
@@ -70,19 +73,34 @@ structurally) — reuse `recall.surf_subgraph`. `cortex_node(ref)` returns a nod
 (filter `cortex_fold`). Together they implement the SOTA's agent-controlled multi-step traversal: the
 agent picks the next hop from evidence already in hand, not a fixed top-k.
 
-**F4 — Lookup (`cortex_search`).** Locate nodes by label/title. v1 substring; **REQUIRED upgrade**
-(§6 R4) to multi-signal: structural/keyword first, then semantic via the existing Artefato embeddings
-— never semantic-only (Mem0 2026: entity-aware retrieval needs more than cosine; Latenode: keyword
-miss is a named brittleness).
+**F4 — Lookup (`cortex_search`).** Locate nodes by label/title.
+- **v1 (ship gate): label/keyword substring is ACCEPTABLE** — it is a known-incomplete path, shipped
+  deliberately because navigation (F3) is the primary recall mode and `cortex_search` is the
+  fallback locator. v1 does NOT claim SOTA-conformant retrieval on this tool.
+- **v1.1 (explicit, non-blocking follow-up — NOT a v1 acceptance blocker): multi-signal**
+  (structural/keyword first, then semantic via the existing Artefato embeddings — never
+  semantic-only). Mem0 2026: entity-aware retrieval needs more than cosine; Latenode: keyword miss is
+  a named brittleness. This is the FIRST follow-up (R4), gated by its own tests, not deferred to a
+  vague "v2."
+
+The contract is unambiguous: substring is a conformant v1 ship; multi-signal is a named v1.1 with
+its own gate. v1 is NOT declared SOTA-conformant on search.
 
 **F5 — Read-only.** No tool writes the graph. All curated writes stay owned by the close/grill
 (ADR-0008 pull-at-open: `cites`/`distills`, Direction/Voz/Earmarked). No mid-work raw graph writes,
 ever. (CONTRACT C1 extended to the self: the door reads the self, never mutates it.)
 
-**F6 — Group-scoped, fail-dark.** Every tool is scoped to the install's `graph_group` (no graph-wide
-MATCH — cross-install isolation is the `group_id`, enforced at the query, exactly as `cortex_fold`
-does). Every tool returns an **honest dark marker** (never raises) on unresolved group or neo4j
-outage (CONTRACT C1 degrade, ADR-0011 "name the leg that darkened, never block the beat").
+**F6 — Group-scoped; identity fails loud, runtime fails dark.** Every tool is scoped to the install's
+`graph_group` (no graph-wide MATCH — cross-install isolation is the `group_id`, enforced at the query,
+exactly as `cortex_fold` does). Two FAILURE CLASSES, never conflated (ADR-0015):
+- **Unresolved identity (no `EDGE_GROUP`) FAILS LOUD** — the MCP server resolves identity through the
+  canonical seam (`_identity`) at startup, BEFORE it serves any call; an unidentified install must
+  not serve `cortex_*` at all (ADR-0015 rejects silent read-side degrade: a darkened unidentified
+  install hides empty/foreign state — the exact multi-tenant contamination ADR-0015 was written to
+  stop). This is NOT the C1 dark path.
+- **Transient graph health (neo4j down/slow AFTER a group is resolved) FAILS DARK** — an honest dark
+  marker, never a raise (CONTRACT C1 degrade, ADR-0011 "name the leg that darkened, never block the
+  beat"). Fail-dark is reserved for runtime outage of a KNOWN group, never for missing identity.
 
 **F7 — Usage telemetry + A/B toggle (`EDGE_CORTEX_USAGE`, default off).**
 - OFF: no telemetry write, no re-rank — a clean side-effect-free baseline.
@@ -130,15 +148,26 @@ holds; ADR-0008 (curated-write ownership) holds; ADR-0010 (recall-not-intake) ho
 SSGM dual-track invariant: the mutable read-rank is reconcilable-to-zero against the immutable log;
 drift is bounded because the read door can never reinforce the authoritative self.
 
-**N5 — Boundary safety under inheritance.** The door inherited into every fanned subagent is safe
-*because* it is write-free (no Tier-0 write, no recall-rank fold): a delta/world subagent reading its
-own memory cannot reinforce the authoritative self. The per-cognition allowlist (expose to
-lead/recall, deny to delta) remains an available tightening (N5a, below) but is not required for
-safety in v1.
+**N5 — Boundary safety: write-free read AND v1 allowlist.** Two guards, BOTH required:
+- **Write-free read** (no Tier-0 write, no recall-rank fold) stops a subagent from reinforcing the
+  *authoritative durable self*.
+- **The per-cognition allowlist is a v1 REQUIREMENT** (not an optional tightening): `cortex_*` is
+  exposed to the lead/recall path and DENIED to delta/world subagents. This stops the *in-context*
+  contamination ADR-0014 names — a delta/world subagent pulling self-memory while it evaluates world
+  signal, where one is read as the other (read-only does not prevent this; it only prevents durable
+  writes). This is the SOTA scope-isolation prescription (WorkOS / arXiv 2603.20357: deny which
+  agents read which memory scopes). Mechanically: the `--mcp-config` allowlist on the parent grants
+  `cortex_*` to the lead; the delta/world subagent dispatch withholds it.
 
-**N6 — Fail-loud identity, fail-dark runtime.** Absent identity (`EDGE_GROUP`) fails loud at the
-identity seam (ADR-0015 / Install glossary); a transient graph outage fails dark (C1). The two are
-not the same failure and must not be conflated.
+The settled "one inherited door" decision is honored for the *lead and its in-cognition fan-out*; the
+exclusion is specifically the **delta/world subject** (the half ADR-0014 must keep separate), which is
+a deny-by-subject, not a re-introduction of phase separation.
+
+**N6 — Fail-loud identity, fail-dark runtime (see F6).** Absent identity (`EDGE_GROUP`) FAILS LOUD at
+the identity seam BEFORE the server serves any call (ADR-0015 / Install glossary — silent darkening of
+an unidentified install is forbidden); a transient graph outage of a *resolved* group FAILS DARK (C1).
+The two are different failures and must never be conflated. (F6 is the functional statement of this
+split; N6 is its non-functional invariant.)
 
 ---
 
@@ -155,19 +184,28 @@ chose:
    world into the self. The self-reference guard is about **intake** (writing the world into the
    self); this door never writes.
 2. **No write back into self-state.** No Tier-0 event, no recall-rank fold. The channel by which
-   world-signal could reinforce self (the boundary collapse) requires the usage WRITE to be
-   authoritative — and it is not (N4). This is exactly SSGM's finding: reinforcement that writes back
-   drifts; reinforcement kept off the truth path does not.
-3. **The boundary is now the tool-name + provenance + discipline.** `cortex_*` is the self door;
-   source keys (github/exa/drive) are the world door. They are different tools with different names;
-   an agent does not confuse "navigate my own memory" with "read the world" because the verbs and the
-   tool surfaces differ. Provenance marking (F9) keeps hypothesis from being read as fact inside the
-   self read.
+   world-signal could reinforce the *durable* self (the boundary collapse) requires the usage WRITE
+   to be authoritative — and it is not (N4). This is exactly SSGM's finding: reinforcement that writes
+   back drifts; reinforcement kept off the truth path does not. **But write-free alone is not
+   enough** — it stops durable contamination, not the *in-context* mixing of guard 3.
+3. **A v1-mandatory scope deny on the delta/world subject (the in-context guard).** ADR-0014's named
+   failure is one CONTEXT holding world-new delta beside recalled-self, where one is read as the
+   other — and a read-only door does NOT prevent that (the polluted observation forms before any
+   write). So the allowlist DENIES `cortex_*` to the delta/world subagent (N5) — the SOTA
+   scope-isolation prescription. The self door is exposed to the lead and its in-cognition fan-out;
+   the world-reading subject does not get the self door. This is a deny-by-subject, replacing the
+   phase split with a scope wall, not abandoning it.
+4. **The boundary is also the tool-name + provenance.** `cortex_*` is the self door; source keys
+   (github/exa/drive) are the world door — different tools, different names; an agent does not confuse
+   "navigate my own memory" with "read the world." Provenance marking (F9) keeps hypothesis from being
+   read as fact inside the self read.
 
 This is the WorkOS / arXiv-2603.20357 prescription for multi-agent memory: read/write gating + scope
-isolation + unsanitized-tool-output discipline. The edge satisfies all three: read-only (gate),
-group_id (scope), and the curated-write tier behind the grill (no tool output becomes authoritative
-memory without a human).
+isolation + unsanitized-tool-output discipline. The edge satisfies all three: read-only + the
+delta/world deny (gate + scope), group_id (cross-install scope), and the curated-write tier behind the
+grill (no tool output becomes authoritative memory without a human). The replacement for ADR-0014's
+phase split is therefore **subject-scope isolation**, not "tool-name discipline alone" — which is why
+the allowlist is a v1 requirement, not a tightening.
 
 ---
 
@@ -234,9 +272,13 @@ Grounded in `DESIGN-CORTEX-MCP.md` (the v1 spec), `tools/recall.py` (the reuse b
 
 ### The cortex MCP v1 (`tools/cortex_mcp.py`, per DESIGN-CORTEX-MCP.md)
 
-- **R1 — Build it to the spec; it conforms.** The design doc is SOTA-aligned (active navigation,
-  read-only, write-free usage, dual-track isolation). Ship v1 as specified. The refactors below are
-  the deltas the SOTA adds ON TOP.
+- **R1 — Build it to the inlined v1 contract (Appendix A); it conforms.** The v1 spec
+  (`DESIGN-CORTEX-MCP.md`) lives in the parallel `edge-cortex-mcp` worktree, NOT this branch — so the
+  normative v1 contract (tools, return shapes, failure markers, timeout, telemetry semantics) is
+  **inlined in Appendix A** below, making this doc self-validating. The design is SOTA-aligned (active
+  navigation, read-only, write-free usage, dual-track isolation). Ship v1 to Appendix A; the refactors
+  below are the deltas the SOTA adds ON TOP (and where they override the v1 design — R6 — it is
+  flagged).
 - **R2 — Mark provenance on every returned node (NEW, F9).** v1's tool returns
   `{slug, kernel, labels, hops}`. ADD a `tier: asserted|extracted` field (asserted = spine
   nodes/edges that fold from the log; extracted = Graphiti `:Entity`/`RELATES_TO`). The agent must
@@ -245,20 +287,24 @@ Grounded in `DESIGN-CORTEX-MCP.md` (the v1 spec), `tools/recall.py` (the reuse b
 - **R3 — Bound every tool's latency (NEW, N1).** v1 says "fail-dark on outage" but a slow (not down)
   neo4j blocks the beat. ADD an explicit driver/query timeout; the dark marker is the timeout value.
   SOTA: Mem0 async-default.
-- **R4 — `cortex_search`: substring → multi-signal (CHANGE, F4).** v1 is label/title substring only
-  (a named non-goal). The SOTA names substring as brittle (Latenode) and cosine-only as insufficient
-  (Mem0). The right v1.1 is: substring/keyword + structural match FIRST, then rank candidates by
-  cosine over the EXISTING Artefato embeddings (already in `recall`/the project block) — never
-  semantic-only. Keep it a label/keyword tool in v1 if it must ship fast, but file R4 as the first
-  follow-up, not "v2 someday."
+- **R4 — `cortex_search`: substring (v1) → multi-signal (v1.1, own gate) (CHANGE, F4).** v1 ships
+  label/title substring (acceptable — F4 ship gate). v1.1 (the FIRST follow-up, NOT a v1 blocker,
+  gated by its own tests): substring/keyword + structural match FIRST, then rank candidates by cosine
+  over the EXISTING Artefato embeddings (already in `recall`/the project block) — never semantic-only.
+  The SOTA names substring as brittle (Latenode) and cosine-only as insufficient (Mem0); v1 does not
+  claim to clear that bar, v1.1 does.
 - **R5 — Usage re-rank reads recency+frequency, not frequency (CONFIRM, F7/N3).** The design already
   says recency+frequency — keep it; do not let the implementation collapse to a raw count. Recency is
   first-class (Designing Agentic Memory 2026). Add a half-life so a stale-hot ref decays in the
   re-rank (off-truth-path decay is allowed per §5-REJECT-decay's carve-out).
-- **R6 — Per-cognition allowlist as a documented tightening, not a v1 requirement (N5a).** v1 ships
-  one inherited door (settled). DOCUMENT the allowlist seam (expose to lead/recall, deny to delta) so
-  the operator can tighten without re-architecting, per the multi-agent isolation literature — but do
-  not gate v1 on it (the write-free read already makes inheritance safe).
+- **R6 — Per-cognition allowlist is a v1 REQUIREMENT (CHANGE, N5).** Supersedes the v1 design's
+  "one inherited door, allowlist optional" stance. The MCP config grants `cortex_*` to the lead/recall
+  path and DENIES it to the delta/world subagent dispatch. Rationale: read-only stops durable writes,
+  NOT the in-context world+self mixing ADR-0014 names (the contamination forms before any write);
+  scope isolation is the SOTA fix (WorkOS / arXiv 2603.20357). Build: the `build_beat_command`
+  `--mcp-config` allowlist differentiates by dispatched subject — lead/recall get the door, delta/world
+  do not. (This is the one place this doc overrides the v1 DESIGN's settled "inherited everywhere"
+  line; the override is gate-driven, per codex iter1.)
 
 ### `tools/recall.py`
 
@@ -393,7 +439,10 @@ And the same-commit fence bump (only on ratification):
 ## 8. ADR / CONTRACT conformance check
 
 - **ADR-0014 (recall third independent brief, self/world boundary):** held by §4 — boundary moves
-  from phase-separation to tool-name + write-free read + provenance. Conforms.
+  from phase-separation to **subject-scope isolation** (the v1-mandatory deny of `cortex_*` to the
+  delta/world subagent, N5) + write-free read + tool-name + provenance. The in-context mixing ADR-0014
+  names is blocked by the scope wall, not merely by read-only. Conforms (no ADR amendment needed — the
+  scope deny preserves the subject split).
 - **ADR-0008 (curated writes pull-at-open):** held by F5 — no tool writes; curation stays the grill's.
   Conforms.
 - **ADR-0011 (navigation is judgment in the loop; source blind to subject):** held — navigation is now
@@ -403,8 +452,10 @@ And the same-commit fence bump (only on ratification):
   the MCP IS this capability, made pull-able. Conforms.
 - **ADR-0006 (log is truth; graph/pages are projections):** held by N4 — usage store is off the truth
   path; the dual-track invariant is named. Conforms.
-- **ADR-0015 (identity resolves at one fail-loud seam):** held by N6 — identity fails loud, runtime
-  fails dark. Conforms.
+- **ADR-0015 (identity resolves at one fail-loud seam):** held by F6/N6 — identity resolves at the
+  canonical seam at startup and FAILS LOUD if absent (the server refuses to serve an unidentified
+  install — no silent read-side degrade); only a *resolved* group's transient outage fails dark.
+  Conforms.
 - **CONTRACT C1 (no external side effects / read-only):** extended to the self — the door reads the
   self, mutates nothing. Conforms.
 - **CONTRACT C2 (extraction incremental):** untouched — the door reads, does not extract. Conforms.
@@ -420,6 +471,59 @@ And the same-commit fence bump (only on ratification):
 - **`cortex_search` ranking weights** (R4): structural-vs-keyword-vs-semantic blend is a tuning knob
   once multi-signal lands.
 - **Whether the dashboard heat overlay (R11) ships in v1.1 or later** — operator call; non-blocking.
+
+---
+
+## Appendix A — Normative v1 MCP contract (inlined; self-validating)
+
+The v1 spec authored in the parallel `edge-cortex-mcp` worktree (`DESIGN-CORTEX-MCP.md`) is NOT on
+this branch. The normative v1 contract is therefore inlined here so conformance is checkable from this
+doc alone (codex iter1 finding 3).
+
+**Transport.** A minimal stdio JSON-RPC 2.0 server (`tools/cortex_mcp.py`, `command: edge-python`),
+implementing `initialize` / `tools/list` / `tools/call` only. No `mcp` SDK dependency (N2). Persists
+across beats/sessions; registered on the parent `claude -p` via `--mcp-config` and (per R6) granted by
+subject — lead/recall yes, delta/world no.
+
+**Startup (F6/N6).** Resolve identity (`graph_group` from `_identity`) at startup. If absent → FAIL
+LOUD (refuse to serve; ADR-0015). If present → serve; per-call neo4j health is the only fail-dark
+surface.
+
+**Tools (all group-scoped; all return a dark marker on transient outage, never raise):**
+
+| Tool | Args | Returns (success) | Backend (reuse) |
+|---|---|---|---|
+| `cortex_recall` | — | salient seed brief (markdown text) | `recall.recall_subgraph` → `compose_recall_brief` |
+| `cortex_surf` | `seeds[]`, `hops≤2` | `[{slug, kernel, labels, hops, tier}]` ordered hops,slug (re-ranked if usage ON) | `recall.surf_subgraph` (+R8 tier) |
+| `cortex_node` | `ref` | node + immediate neighbors, each with `tier` | filter `cortex_fold` |
+| `cortex_search` | `query` | `[{slug/ref, label, tier}]` — v1 substring; v1.1 multi-signal (F4) | filter `cortex_fold` (+R8 tier) |
+
+**Dark marker.** A structured value, e.g. `{"dark": true, "leg": "cortex", "reason": "graph offline"}`
+(or the recall brief's existing dark-leg markdown for `cortex_recall`) — the SAME shape the recall
+brief already uses. Never an exception; the caller sees an honest "this leg is dark," orients from
+elsewhere (ADR-0011).
+
+**Timeout (N1/R3).** Each tool sets an explicit neo4j driver/query timeout; on timeout it returns the
+dark marker (the timeout's value), never blocks the beat.
+
+**Provenance (F9/R2/R8).** Every returned node/edge carries `tier ∈ {asserted, extracted}` — asserted
+= spine nodes/edges that fold from the log; extracted = Graphiti `:Entity`/`RELATES_TO` hypotheses.
+
+**Usage telemetry (F7/N3/N4).** `EDGE_CORTEX_USAGE=off` (default) → no write, no re-rank. `=on` →
+append `{ts, tool, refs, run_id}` to `state/cortex/usage.jsonl` (NON-authoritative; excluded from
+replay and every fold) AND apply the ephemeral recency+frequency re-rank to `cortex_surf`/`cortex_search`
+results, computed over PRIOR telemetry only (the current write never affects its own ordering). Cold
+store → ON == OFF.
+
+**Non-goals (v1).** No graph writes (curated salience promotion is v2, via the grill). No semantic
+search (v1.1 — R4). No dashboard wiring (F10/R10-R11 are post-v1).
+
+**Acceptance (v1 ship gate).** (a) all four tools return correct group-scoped data against a fixture
+and a dark marker on a forced outage; (b) identity-absent startup fails loud; (c) `cortex_*` denied to
+a delta/world dispatch, granted to lead/recall; (d) usage OFF == no write/no re-rank; usage ON DIVERGES
+from OFF on a seeded `usage.jsonl` and CONVERGES on a cold store; (e) no `state/` or graph write occurs
+on any read path. Multi-signal search (F4 v1.1) and provenance-on-dashboard (R11) are EXCLUDED from the
+v1 gate.
 
 ---
 
