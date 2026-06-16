@@ -17,6 +17,8 @@ Degrade contract is recall_subgraph's, verbatim (CONTRACT C1, ADR-0011): a dark 
 NEVER a crash. No ranking weight in v1 (ORDER BY hops, slug only; the 1/|P| hub-damping rank is OUT).
 """
 import inspect
+import os
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -53,9 +55,16 @@ class SurfQueryIsAssociativeOnly(unittest.TestCase):
 
     def test_surf_query_is_associative_only(self):
         q = recall.SURF_QUERY
-        # the typed associative vocabulary — every load-bearing relation in the allowlist
-        for rel in ("BUILDS_ON", "SUPERSEDES", "CONTRADICTS", "RELATES_TO", "CITES"):
-            self.assertIn(rel, q, f"the surf allowlist must include {rel}")
+        # the allowlist is PINNED EXACTLY — extract the rel-type alternation the runtime walks
+        # ([:A|B|C*1..2]) and assert the set equals the five associative types and nothing else.
+        # A bare assertIn loop would silently pass a smuggled sixth (non-SERVES) relation; the
+        # set-equality closes the allowlist so any addition/removal trips this test (review FIX-1).
+        m = re.search(r"\[:([A-Z_|]+)\*1\.\.2\]", q)
+        self.assertIsNotNone(m, "the surf must walk a bounded typed-relation alternation [:..*1..2]")
+        rels = set(m.group(1).split("|"))
+        self.assertEqual(
+            rels, {"BUILDS_ON", "SUPERSEDES", "CONTRADICTS", "RELATES_TO", "CITES"},
+            "the surf allowlist must be EXACTLY the five associative types — no more, no fewer")
         # bounded hops *1..2 (a multi-hop reach, not the whole graph)
         self.assertIn("*1..2", q, "the surf must bound the walk to *1..2 hops")
         # the hub is excluded STRUCTURALLY, by omission — SERVES is never a pass-through hop
@@ -87,6 +96,26 @@ class SurfDegradesToNoneOffline(unittest.TestCase):
     def test_surf_degrades_to_none_without_seeds(self):
         self.assertIsNone(recall.surf_subgraph([]))
         self.assertIsNone(recall.surf_subgraph(None))
+
+    def test_surf_degrades_to_none_when_identity_resolution_raises(self):
+        # Identity/credential resolution is INSIDE the guard (review FIX-2): a misconfigured install
+        # where _identity.group() (or neo4j_password()) raises must darken this leg, never propagate.
+        # The fallbacks only fire when the arg AND the env are empty, so clear the env to force them.
+        def _boom():
+            raise RuntimeError("no identity here")
+        cases = {"group": "EDGE_GROUP", "neo4j_password": "EDGE_NEO4J_PASSWORD"}
+        for attr, env in cases.items():
+            with self.subTest(attr=attr):
+                orig = getattr(recall._identity, attr)
+                saved_env = os.environ.pop(env, None)
+                setattr(recall._identity, attr, _boom)
+                try:
+                    # group=None forces _identity.group(); password=None forces neo4j_password()
+                    self.assertIsNone(recall.surf_subgraph(["A"]))
+                finally:
+                    setattr(recall._identity, attr, orig)
+                    if saved_env is not None:
+                        os.environ[env] = saved_env
 
 
 @unittest.skipUnless(_NEO4J, "neo4j not reachable (live surf-traversal test)")

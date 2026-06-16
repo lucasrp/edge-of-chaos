@@ -132,12 +132,18 @@ def surf_subgraph(seeds, group=None, uri=None, user=None, password=None):
     `recall_subgraph`'s degrade scaffolding verbatim — a transient outage darkens only this leg."""
     if not seeds:
         return None
-    group = group or _identity.group()
-    if not group:
+    # Identity/credential resolution is GUARDED too (CONTRACT C1, review FIX-2): `_identity.group()`
+    # and `_identity.neo4j_password()` can raise on a misconfigured install — that must darken this
+    # leg, never propagate. So the whole resolution sits inside a try, like every other failure path.
+    try:
+        group = group or _identity.group()
+        if not group:
+            return None
+        uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
+        user = user or os.environ.get("EDGE_NEO4J_USER", "neo4j")
+        password = password or os.environ.get("EDGE_NEO4J_PASSWORD") or _identity.neo4j_password()
+    except Exception:
         return None
-    uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
-    user = user or os.environ.get("EDGE_NEO4J_USER", "neo4j")
-    password = password or os.environ.get("EDGE_NEO4J_PASSWORD") or _identity.neo4j_password()
     try:
         from neo4j import GraphDatabase
     except Exception:
