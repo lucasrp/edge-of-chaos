@@ -160,7 +160,59 @@
       }
       return { visibleIds: visibleIds, searchHit: searchHit, searchCount: searchCount };
     },
+
+    // traversalOrder(payload, state) → an ARRAY of node ids in a STABLE, server-INDEPENDENT order, for
+    // PREV/NEXT (M15). The order is computed CLIENT-SIDE over explicit node fields — sort by
+    //   (trust-tier rank, label, normalized title, ref-or-id)
+    // with the ref (then id) the final tie-breaker — NOT raw Neo4j payload row order (Q8): the Cortex
+    // fold runs its Cypher with no ORDER BY and serializes .data() directly, so row order is NOT stable
+    // across requests/versions/plans. The client sort over stable fields makes traversal repeatable
+    // across a reload with no server change. The set is INTERSECTED with the active filter (visible()),
+    // so PREV/NEXT walks the filtered+sorted set, never resurrecting a filtered-out node (consistent
+    // with render()'s no-resurrection rule). Pure + deterministic → testable headless.
+    traversalOrder: function (payload, state) {
+      var visibleIds = this.visible(payload, state);
+      var nodes = ((payload && payload.nodes) || []).filter(function (n) {
+        return visibleIds.has(n.id);
+      });
+      var sorted = nodes.slice().sort(function (a, b) {
+        var ra = traversalTierRank(a.trust), rb = traversalTierRank(b.trust);
+        if (ra !== rb) return ra - rb;
+        var la = String(a.label == null ? "" : a.label);
+        var lb = String(b.label == null ? "" : b.label);
+        if (la !== lb) return la < lb ? -1 : 1;
+        var ta = normalizeTitle(a.title), tb = normalizeTitle(b.title);
+        if (ta !== tb) return ta < tb ? -1 : 1;
+        // the STABLE ref (a uuid, falling back to the render id when a node carries no ref) is the
+        // primary tie-breaker. When two nodes COLLIDE on ref (schema/data-dedup drift), break the tie
+        // on the render `id` so the order is a TOTAL order (codex Slice-5 round-4 [medium]) — never a
+        // comparator 0 that lets the unstable Neo4j row order leak through stable sort. So traversal is
+        // deterministic + reload-stable even under duplicate refs (the drift this client sort survives).
+        var ka = String(a.ref == null ? a.id : a.ref);
+        var kb = String(b.ref == null ? b.id : b.ref);
+        if (ka !== kb) return ka < kb ? -1 : 1;
+        var ia = String(a.id), ib = String(b.id);
+        if (ia !== ib) return ia < ib ? -1 : 1;
+        return 0;
+      });
+      return sorted.map(function (n) { return n.id; });
+    },
   };
+
+  // traversalTierRank(trust) → the trust-tier ORDER for the stable traversal sort (space-0 core first,
+  // episodic haze last). An unknown tier ranks AFTER episodic (a defined constant, never NaN), so a
+  // schema-drifted node still sorts deterministically by the later (label/title/ref) keys.
+  var TRAVERSAL_TIER_RANK = { space0: 0, asserted: 1, extracted: 2, episodic: 3 };
+  function traversalTierRank(trust) {
+    var r = TRAVERSAL_TIER_RANK[trust];
+    return typeof r === "number" ? r : 4;
+  }
+
+  // normalizeTitle(title) → the title lowercased + whitespace-collapsed, so the sort is stable across
+  // incidental case / spacing differences (the stable-ordering key, not a display string).
+  function normalizeTitle(title) {
+    return String(title == null ? "" : title).trim().replace(/\s+/g, " ").toLowerCase();
+  }
 
   // webglSupported(canvasFactory) → boolean. The capability seam the M21 fallback ladder branches on
   // (Slice 1 / audit G4): a side-effect-free try/catch that asks a throwaway <canvas> for a `webgl`
@@ -407,6 +459,11 @@
 
   function showPanel(node) {
     if (!node) return;
+    // M15 (codex Slice-5 round-2 [medium]) — showPanel is the ONE sink every selection flows through
+    // (3D click, Cytoscape tap, list locate, search, deep-link, PREV/NEXT). Anchor the traversal cursor
+    // here so a manual node click then PREV/NEXT steps from the CLICKED node — not a stale search/
+    // deep-link/older cursor. `traversalCursor` is hoisted (declared below); by call time it is live.
+    traversalCursor = node.id;
     // esc() escapes &<> — the kind/title are rendered as TEXT content of these spans/paras, never as
     // an attribute, so a poisoned title cannot break out (M17/R5). The source link + the composer are
     // built with DOM APIs (no attribute-string interpolation).
@@ -485,6 +542,9 @@
         r.searchCount > 1 ? r.searchCount + " resultados" : "1 resultado";
     }
     if (r.searchHit != null && adapter.flyTo) adapter.flyTo(r.searchHit);
+    // M15 — seed the PREV/NEXT cursor on a search hit (M14 fly-to + M15 share a position), so stepping
+    // continues FROM where search landed; a no-hit / empty query leaves the cursor where it was.
+    if (r.searchHit != null) traversalCursor = r.searchHit;
   }
   function wireControls() {
     if (controlsWired) return;            // bind exactly once — a re-mount only swaps currentAdapter
@@ -493,7 +553,61 @@
     if (earmarkedBox) earmarkedBox.addEventListener("change", render);
     if (recencyRange) recencyRange.addEventListener("input", render);
     if (search) search.addEventListener("input", render);
+    if (prevBtn) prevBtn.addEventListener("click", function () { step(-1); });
+    if (nextBtn) nextBtn.addEventListener("click", function () { step(1); });
   }
+
+  // ── M15 PREV / NEXT traversal — step the selection + fly the camera along the STABLE, filter-
+  // respecting order CortexFilters.traversalOrder computes (NOT payload order, Q8). The cursor is a
+  // module-scoped id (seeded by search / deep-link); each step recomputes the order from the LIVE
+  // control state (so it tracks the active filter), finds the cursor, and moves one place. ──────────
+  var prevBtn = document.getElementById("cortex-prev");
+  var nextBtn = document.getElementById("cortex-next");
+  var traversalCursor = null;   // the id PREV/NEXT last landed on (or the search/deep-link seed)
+
+  // writeNodeParam(ref) — persist the SELECTED node into ?node=<stable-ref> via replaceState (no
+  // history spam): the stable `ref` (a uuid, what locate() resolves inbound), not the volatile render
+  // id, so a reload re-centers the same node. Same-origin URL mutation only; best-effort (a hostile
+  // history API must never break a step).
+  function writeNodeParam(ref) {
+    if (!ref || typeof history === "undefined" || !history.replaceState) return;
+    try {
+      var url = new URL(location.href);
+      url.searchParams.set("node", String(ref));
+      history.replaceState(history.state, "", url.toString());
+    } catch (e) { /* best-effort URL write — a step must never throw on it */ }
+  }
+
+  // selectNode(id) — the shared selection move PREV/NEXT drives: fly the camera (the active adapter),
+  // open the inspect panel, persist ?node=, and advance the cursor. Reuses the existing Slice-2
+  // selection path (the adapter.flyTo + the shared showPanel), so it works on whatever rung mounted.
+  function selectNode(id) {
+    var node = nodeById[id];
+    if (!node) return;
+    traversalCursor = id;
+    if (currentAdapter && currentAdapter.flyTo) currentAdapter.flyTo(id);
+    showPanel(node);
+    writeNodeParam(node.ref || node.id);
+  }
+
+  // step(delta) — move one place along the current (filtered) traversalOrder. With no prior cursor,
+  // delta>0 starts at the first node and delta<0 at the last; otherwise it walks from the cursor,
+  // CLAMPING at the ends (no wrap — the reference's PREV/NEXT stop cleanly at the boundary). A cursor
+  // that the active filter has hidden is treated as "off the order" → the step re-enters at an end.
+  function step(delta) {
+    var order = CortexFilters.traversalOrder(payload, controlState());
+    if (!order.length) return;            // nothing visible to traverse
+    var idx = traversalCursor == null ? -1 : order.indexOf(traversalCursor);
+    var next;
+    if (idx === -1) next = delta > 0 ? 0 : order.length - 1;
+    else next = idx + delta;
+    if (next < 0 || next >= order.length) return;   // clamp at the ends (no wrap)
+    selectNode(order[next]);
+  }
+
+  // seed the cursor from a ?node= deep-link so the FIRST PREV/NEXT continues from the deep-linked
+  // node (its render id, resolved by the unchanged locate()), not from an end of the order.
+  traversalCursor = deepLinkId();
 
   // ── Rung 1: the 3D force-directed cloud (M1–M6 + the M22 freeze). Returns a control adapter on
   // success, or null on ANY init/first-paint failure (so the ladder drops to rung 2 — the regression
@@ -871,6 +985,11 @@
         flyTo: function (id) {
           var hit = cy.getElementById(id);
           if (hit.length) cy.animate({ center: { eles: hit }, zoom: 1.1 }, { duration: 280 });
+          // open the inspect panel for the located node too (codex Slice-5 round-3 [medium]): the 3D +
+          // list flyTo paths reach showPanel, so the rung-2 fallback must match — search / PREV/NEXT on
+          // the Cytoscape rung opens the SAME panel (Slice-7 UX parity), and routes the selection
+          // through the one showPanel sink (so the traversal cursor anchors here as well).
+          if (nodeById[id]) showPanel(nodeById[id]);
         },
       };
     } catch (e) {
@@ -935,7 +1054,11 @@
           items.forEach(function (el) { if (el) el.classList.remove("list-hit"); });
           if (hitId != null) locateInList(hitId);
         },
-        flyTo: null, // applyVisible already marks+scrolls the hit; no separate camera move
+        // the list's analog of a camera move (codex Slice-5 round-1 [medium]): PREV/NEXT drives the
+        // active adapter's flyTo, so on the degraded list rung a step must MARK + SCROLL the traversed
+        // item (locateInList), not just open the panel + write the URL — else the visible fallback
+        // navigation surface goes stale while the cursor advances.
+        flyTo: function (id) { locateInList(id); },
       };
     } catch (e) { return null; }
   }

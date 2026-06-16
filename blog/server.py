@@ -1373,6 +1373,12 @@ def _cortex_controls():
         '<input id="cortex-recency" type="range" min="0" max="100" value="0" '
         'aria-label="recência mínima"></label>'
         '</div>'
+        # Slice 5 / M15 — PREV/NEXT traversal: step the selection along the island's stable, filter-
+        # respecting traversalOrder (the reference's `← PREV / NEXT →`). Static markup the island wires.
+        '<div class="ctrl-row cortex-traversal">'
+        '<button id="cortex-prev" type="button" class="ctrl-btn" aria-label="nó anterior">← prev</button>'
+        '<button id="cortex-next" type="button" class="ctrl-btn" aria-label="próximo nó">next →</button>'
+        '</div>'
         '</aside>'
     )
 

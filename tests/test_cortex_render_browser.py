@@ -358,6 +358,21 @@ class CortexBrowserGate(unittest.TestCase):
         self.assertTrue(page.evaluate("() => !!document.querySelector('#cortex canvas')"))
         page.close()
 
+    def test_search_opens_the_inspect_panel_on_the_cytoscape_rung(self):
+        # M14 / Slice-5 round-3 [medium] — on the mandated WebGL fallback (Cytoscape rung), a search hit
+        # must OPEN the inspect panel for the located node (Slice-7 panel parity with 3D/list), not just
+        # center the camera. The Cytoscape flyTo now reaches the shared showPanel sink.
+        page = self._page("window.__cortexForceWebgl = false;")
+        page.wait_for_timeout(800)
+        self.assertEqual(self._rung(page), "cytoscape")
+        page.fill("#cortex-search", "node 5")
+        page.wait_for_timeout(300)
+        panel_open = page.evaluate(
+            "() => { const p = document.getElementById('cortex-inspect');"
+            " return !!p && !p.classList.contains('hidden'); }")
+        self.assertTrue(panel_open, "Cytoscape-rung search did not open the inspect panel for the hit")
+        page.close()
+
     # ── (c) Cytoscape render forced to fail → the searchable list renders ──────────────────────────
     def test_c_cytoscape_failure_falls_to_list(self):
         page = self._page(
@@ -396,6 +411,45 @@ class CortexBrowserGate(unittest.TestCase):
             "() => { const p = document.getElementById('cortex-inspect');"
             " return !!p && !p.classList.contains('hidden'); }")
         self.assertTrue(panel_open, "the deep-linked node's inspect panel did not open on the list rung")
+        page.close()
+
+    # ── PREV/NEXT steps from the CURRENTLY-SELECTED node, incl. a manual click (Slice 5 / M15, codex
+    # round-2 [medium]) — exercised on the deterministic list rung (no WebGL timing). Click an item,
+    # press NEXT, and assert traversal lands on the traversalOrder successor of the CLICKED node, not
+    # a stale search/deep-link/first-item position. ────────────────────────────────────────────────
+    def test_prev_next_steps_from_a_clicked_node_on_the_list_rung(self):
+        page = self._page(
+            "window.__cortexForceWebgl = false; window.__cortexForceCytoscapeFail = true;")
+        page.wait_for_function(
+            "() => document.documentElement.getAttribute('data-cortex-renderer') === 'list'",
+            timeout=4000)
+        # the traversalOrder over the (unfiltered) payload, computed in-page via the exported pure logic
+        order = page.evaluate(
+            "() => CortexFilters.traversalOrder("
+            "JSON.parse(document.getElementById('cortex-data').textContent), {})")
+        self.assertGreater(len(order), 3, "need several nodes to step between")
+        # pick a node in the MIDDLE of the order (not first/last) so NEXT has a well-defined successor
+        clicked = order[len(order) // 2]
+        expected_next = order[len(order) // 2 + 1]
+        # find + click that node's list item (the list is server-rendered in payload order)
+        idx = page.evaluate(
+            "(id) => { const p = JSON.parse(document.getElementById('cortex-data').textContent);"
+            " return p.nodes.findIndex(n => n.id === id); }", clicked)
+        items = page.query_selector_all(".cortex-list-item")
+        items[idx].click()
+        page.wait_for_timeout(150)
+        # NEXT → the cursor must step from the CLICKED node to its order-successor
+        page.click("#cortex-next")
+        page.wait_for_timeout(200)
+        # the marked (.list-hit) item is the expected successor (the list flyTo marks+scrolls it)
+        hit_idx = page.evaluate(
+            "() => { const items = Array.from(document.querySelectorAll('.cortex-list-item'));"
+            " return items.findIndex(el => el.classList.contains('list-hit')); }")
+        hit_id = page.evaluate(
+            "(i) => { const p = JSON.parse(document.getElementById('cortex-data').textContent);"
+            " return p.nodes[i] && p.nodes[i].id; }", hit_idx)
+        self.assertEqual(hit_id, expected_next,
+                         "NEXT did not step from the clicked node along traversalOrder")
         page.close()
 
     # ── (d) list forced to fail → the honest message ───────────────────────────────────────────────
