@@ -30,6 +30,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 
+import cortex_usage  # noqa: E402 — the Usage signal: off-truth-path telemetry + A/B re-rank (F7/N4)
+
 PROTOCOL_VERSION = "2024-11-05"
 
 # Tool input schemas (MCP tools/list). Minimal + explicit so a caller (and the harness) can validate.
@@ -106,7 +108,7 @@ class CortexServer:
     ADR-0015) — the server refuses to serve `cortex_*` at all. Only a RESOLVED group's runtime outage
     is allowed to fail dark, and that is decided per call (a backend returning None / raising)."""
 
-    def __init__(self, group, recall_fn=None, surf_fn=None, fold_fn=None, subject=None):
+    def __init__(self, group, recall_fn=None, surf_fn=None, fold_fn=None, subject=None, run_id=None):
         if not group:
             # FAIL LOUD — the identity wall (ADR-0015). An unidentified install must not serve a single
             # cortex_* call; a silent dark here would hide empty/foreign state (multi-tenant leak).
@@ -120,6 +122,7 @@ class CortexServer:
         # carry the dispatched subject when the harness routes the door through one server.
         self.subject = subject or os.environ.get("EDGE_CORTEX_SUBJECT")
         self._denied = (self.subject or "").lower() in _DENIED_SUBJECTS
+        self.run_id = run_id or os.environ.get("EDGE_RUN_ID")
         self._recall_fn = recall_fn or self._live_recall
         self._surf_fn = surf_fn or self._live_surf
         self._fold_fn = fold_fn or self._live_fold
@@ -205,6 +208,12 @@ class CortexServer:
     # Every tool wraps its backend so a runtime outage (None) OR a raising backend darkens THIS leg
     # only (C1) — never the server. The identity wall is already past (constructor); here it is pure
     # runtime fail-dark.
+    def _record(self, tool, refs):
+        """Append the Usage signal for this read — ONLY when EDGE_CORTEX_USAGE=on, and ALWAYS AFTER
+        the result is built/ranked (N3: the current write never affects its own ordering). Off-truth-
+        path, non-authoritative, best-effort (N4)."""
+        cortex_usage.record(tool, refs, run_id=self.run_id)
+
     def _t_cortex_recall(self, args):
         try:
             sub = self._recall_fn(group=self.group)
@@ -212,6 +221,7 @@ class CortexServer:
             return _dark(f"recall backend error: {type(e).__name__}")
         if sub is None:
             return _dark("graph offline (recall)")
+        self._record("cortex_recall", [a.get("slug") for a in (sub.get("artefatos") or [])])
         return sub
 
     def _t_cortex_surf(self, args):
@@ -228,6 +238,10 @@ class CortexServer:
         if peers is None:
             return _dark("graph offline (surf)")
         peers = [p for p in peers if p.get("hops") is None or p.get("hops") <= hops]
+        # F7/N3 — re-rank over PRIOR telemetry, THEN record this read (rank before write, so the
+        # current call never reinforces its own order). OFF → rerank is a no-op (base hops,slug order).
+        peers = cortex_usage.rerank(peers, key="slug")
+        self._record("cortex_surf", [p.get("slug") for p in peers])
         return {"nodes": peers, "hops": hops}
 
     def _t_cortex_node(self, args):
@@ -244,6 +258,7 @@ class CortexServer:
             return {"node": None, "neighbors": []}
         neighbor_refs = self._neighbor_refs(ref, fold)
         neighbors = [nodes[r] for r in neighbor_refs if r in nodes]
+        self._record("cortex_node", [ref])
         return {"node": node, "neighbors": neighbors}
 
     def _t_cortex_search(self, args):
@@ -259,6 +274,9 @@ class CortexServer:
             hay = " ".join(str(n.get(f, "")) for f in ("label", "title")).lower()
             if query and query in hay:
                 results.append(n)
+        # F7/N3 — re-rank over PRIOR telemetry by node ref, THEN record (rank before write).
+        results = cortex_usage.rerank(results, key="ref")
+        self._record("cortex_search", [n.get("ref") or n.get("id") for n in results])
         return {"results": results}
 
     # --- fold helpers -----------------------------------------------------------------------------

@@ -362,6 +362,66 @@ class BoundedLatencyFailDark(unittest.TestCase):
         self.assertLess(elapsed, 20, "the dark must come within a bounded budget, not block the beat")
 
 
+class UsageSignalWiring(unittest.TestCase):
+    """Slice 3 — the four tools record the Usage signal (off-truth-path, F7/N4) and surf/search apply
+    the read-time re-rank, all behind EDGE_CORTEX_USAGE. OFF: no write, no re-rank. The current write
+    never affects its own ordering (rank before record, N3). Acceptance (d)+(e)."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = Path(self.tmp.name) / "usage.jsonl"
+        os.environ["EDGE_CORTEX_USAGE_PATH"] = str(self.store)
+        os.environ.pop("EDGE_CORTEX_USAGE", None)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        for k in ("EDGE_CORTEX_USAGE", "EDGE_CORTEX_USAGE_PATH"):
+            os.environ.pop(k, None)
+
+    def test_usage_off_writes_nothing_and_leaves_base_order(self):
+        # acceptance (d): OFF == no write AND no re-rank.
+        srv = _server()
+        out = _tool(srv, "cortex_surf", {"seeds": ["active-recall"]})
+        self.assertEqual([n["slug"] for n in out["nodes"]], ["passive-topk", "arxiv-2606"])  # base order
+        _tool(srv, "cortex_recall")
+        _tool(srv, "cortex_node", {"ref": "a1"})
+        _tool(srv, "cortex_search", {"query": "arxiv"})
+        self.assertFalse(self.store.exists(), "OFF must write no telemetry on ANY read path")
+
+    def test_usage_on_appends_one_line_per_read(self):
+        os.environ["EDGE_CORTEX_USAGE"] = "on"
+        srv = _server()
+        _tool(srv, "cortex_surf", {"seeds": ["active-recall"]})
+        _tool(srv, "cortex_search", {"query": "arxiv"})
+        lines = self.store.read_text().strip().splitlines()
+        self.assertEqual(len(lines), 2)
+        tools = {__import__("json").loads(l)["tool"] for l in lines}
+        self.assertEqual(tools, {"cortex_surf", "cortex_search"})
+
+    def test_usage_on_diverges_from_off_once_a_result_has_history(self):
+        # acceptance (d): ON re-orders the SAME set by prior usage; here arxiv-2606 has prior history,
+        # so it sorts ahead of passive-topk — DIVERGING from the OFF base order.
+        import json as _json
+        import time as _time
+        with self.store.open("w") as f:
+            for _ in range(5):
+                f.write(_json.dumps({"ts": _time.time(), "tool": "cortex_surf",
+                                     "refs": ["arxiv-2606"], "run_id": "prior"}) + "\n")
+        os.environ["EDGE_CORTEX_USAGE"] = "on"
+        out = _tool(_server(), "cortex_surf", {"seeds": ["active-recall"]})
+        self.assertEqual(out["nodes"][0]["slug"], "arxiv-2606",
+                         "ON must promote a ref with prior usage ahead of the base hops/slug order")
+
+    def test_a_dark_read_records_nothing(self):
+        # a dark leg surfaced no refs — it reinforces nothing (no usage line for an outage).
+        os.environ["EDGE_CORTEX_USAGE"] = "on"
+        srv = _server(surf_fn=lambda seeds, group=None: None)
+        out = _tool(srv, "cortex_surf", {"seeds": ["x"]})
+        self.assertTrue(out.get("dark"))
+        self.assertFalse(self.store.exists(), "a dark read must not write a usage line")
+
+
 class ReadOnlyNoWritePath(unittest.TestCase):
     """F5/N4 — the door is read-only: no tool exposes a write, and the server holds no graph-mutating
     method (the boundary is the tool-name set + the absence of any write surface)."""
