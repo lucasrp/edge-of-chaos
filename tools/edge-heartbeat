@@ -18,6 +18,8 @@ import _beat
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", required=True)
+    ap.add_argument("--group", default=None,
+                    help="Override the graph group for the cortex door (else identity resolves it)")
     ap.add_argument("--dry-run", action="store_true", help="Print the command and prompt; do not invoke claude")
     args = ap.parse_args()
 
@@ -29,7 +31,16 @@ def main() -> None:
         if not args.dry_run:
             raise
         claude_bin = "claude"
-    cmd = _beat.build_beat_command(claude_bin)
+    # Slice 6 (F1) — register the standing cortex read door on the lead beat. Best-effort: if the
+    # config can't be generated (no identity, etc.), the beat still launches without the door (the
+    # door darkens, never blocks the beat — ADR-0011). The delta subagent denies it via disallowed-tools.
+    try:
+        mcp_config_path = _beat.ensure_cortex_config(home, group=args.group)
+    except Exception as e:  # noqa: BLE001 — a missing door never blocks the beat
+        print(f"edge-heartbeat: cortex door not registered ({type(e).__name__}: {e}) — "
+              f"the beat runs without mid-turn recall; recall still seeds at wake", file=sys.stderr)
+        mcp_config_path = None
+    cmd = _beat.build_beat_command(claude_bin, mcp_config_path=mcp_config_path)
 
     if args.dry_run:
         print(" ".join(cmd))

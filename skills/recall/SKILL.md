@@ -31,9 +31,11 @@ marker, never a crash — the wake still composes from the briefing and the delt
 Return the composed brief verbatim (plus, when the graph is reachable and Direction names live
 bets, you MAY deepen the salient slice with a focused traversal toward those bets — additive,
 bounded, never a re-render of the whole graph). **The push seeds; navigation deepens**: on-demand
-Cortex navigation beyond your brief belongs to the loop's own judgment via
-`skills/_shared/memory.md` (structural traversal + semantic search of past Artefatos) — point to
-it, do not pre-chew it.
+Cortex navigation beyond your brief belongs to the loop's own judgment — now **mechanized as the
+standing `cortex` read door** (`cortex_recall`/`cortex_surf`/`cortex_node`/`cortex_search`, registered
+on the lead beat via `--mcp-config`; `skills/_shared/memory.md` documents it) — point to it, do not
+pre-chew it. The door is the SELF door (denied to the delta/world subject, N5); you are recall, so you
+hold it.
 
 ## Read-only (CONTRACT C1)
 
