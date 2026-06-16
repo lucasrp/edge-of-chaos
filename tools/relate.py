@@ -209,3 +209,106 @@ def nominate(embeddings=None, *, group=_AUTO, floor=_AUTO, pct=87,
             if j in topk[i] and i in topk[j] and _cos(i, j) >= floor:
                 cands.add(frozenset({slugs[i], slugs[j]}))
     return cands
+
+
+# ---------------------------------------------------------------------------
+# Stage 2a — the NLI ROUTER (research spec C2, lines 42-44, 54).
+#
+# NLI/entailment runs FIRST, BEFORE any relate framing, and in BOTH directions. By the time a
+# relate-typer runs, cosine (Stage 1) has ALREADY guaranteed the pair is topically close — so a
+# single 'related?' prompt is primed to say yes and will never surface the negation. The
+# contradiction signal must be extracted by a DECOUPLED, high-recall NLI path, not a post-filter
+# (spec line 54). So the router calls `nli_fn` first and only THEN hands survivors to the typer:
+#   contradiction (calibrated) -> a MACHINE-FOUND `contradicts` OFFER (returned, NOT persisted;
+#                                 C2c: the author confirms a directed claim, the machine never
+#                                 auto-writes one) — and the pair NEVER reaches the relate typer;
+#   entailment / neutral       -> pass the pair THROUGH to the relate typer (C2b).
+#
+# OPEN (spec U1 — NLI on long notes): NLI models are sentence-pair-trained but Artefato notes are
+# paragraphs; a relate-router over whole notes can miss a contradiction buried in one. Claim-
+# sentence decomposition + pairwise NLI is the documented fix and is NOT built here — deferred.
+# OPEN (spec U4 — two-pass cost): NLI-on-every-pair THEN a typer is a latency/cost multiplier; the
+# cheap-judge-then-escalate cascade that bounds it is deferred together WITH the heartbeat
+# scheduling (issue item 4 / report item 5, both OUT of v1). v1 ships the router, not the cascade.
+# ---------------------------------------------------------------------------
+
+# Calibration threshold for "this is a contradiction, not just topical proximity". A bare
+# `label == "contradiction"` is not enough — the NLI score must clear this floor before the pair is
+# pulled out of the typer path into an offer (spec line 43: "contradiction (calibrated)"). Like
+# `pct`, this is a METHOD PARAMETER to be tuned on the Cortex, not a trusted constant.
+NLI_CONTRADICTION_TAU = 0.5
+
+
+def _neutral(_a, _b):
+    """The degraded NLI verdict: neutral, pass-through. No key / no client / a raising completer
+    all resolve HERE — a darkened router is high-recall (everything reaches the typer), never a
+    crash and never an invented contradiction (CONTRACT C1: degrade-safe, never raises)."""
+    return {"label": "neutral", "score": 0.0}
+
+
+def _default_nli_fn(a_text, b_text):
+    """The production default behind the `nli_fn` seam (tests inject a fake). v1 ships the SEAM,
+    not the live entailment call: the real NLI completer is a make_client-backed prompt scheduled
+    INTO the heartbeat, and that scheduling is deferred together with the U4 cheap-judge cascade
+    (issue item 4 / report item 5, OUT of v1). Until then the default degrades to neutral pass-
+    through — a darkened router is high-recall (every pair reaches the typer), never a crash and
+    never an invented contradiction (CONTRACT C1: degrade-safe, never raises). This is the
+    no-key/no-client branch that `route`'s degrade tests pin; wiring the live call only changes
+    what happens WHEN a key is present, not this fallback."""
+    return _neutral(a_text, b_text)
+
+
+def _calibrated_contradiction(verdict):
+    """A verdict is a calibrated contradiction iff label==contradiction AND score>=tau. A malformed
+    or missing verdict (a degraded / raising nli_fn) is NOT a contradiction — it passes through."""
+    try:
+        return (verdict.get("label") == "contradiction"
+                and float(verdict.get("score", 0.0)) >= NLI_CONTRADICTION_TAU)
+    except Exception:
+        return False
+
+
+def route(pairs, *, nli_fn=None, type_fn=None):
+    """Stage 2a router: partition C1's candidate pairs by an NLI-FIRST verdict (spec C2).
+
+    `pairs` is an iterable of ``(a_text, b_text)`` — the full text of both notes (NOT the cosine
+    score: that would anchor the typer, spec line 45). For each pair, `nli_fn` runs in BOTH
+    directions BEFORE any relate framing:
+      - a CALIBRATED contradiction in EITHER direction -> a machine-found `contradicts` OFFER
+        (returned, not persisted; C2c) and the pair does NOT reach the relate typer;
+      - otherwise (entailment / neutral, both directions) -> the pair passes to the relate typer.
+
+    Returns ``(offers, passed)``: `offers` is a list of offer records
+    ``{type:"contradicts", origin:"machine-found", pair:(a,b), nli:<verdict>}`` (the author confirms
+    these — the machine never auto-writes a directed claim); `passed` is the list of pairs handed
+    on to C2b. When `type_fn` is supplied, each passed pair is also forwarded to it here (the C2b
+    typer is a later slice; this slice only proves the routing + ordering into that seam).
+
+    Seams: `nli_fn(a_text, b_text) -> {label, score}` defaults to the real entailment completer,
+    which degrades to neutral pass-through with no key (never raises). `type_fn(a_text, b_text)` is
+    the C2b grounded typer, injected. Degrade-safe (CONTRACT C1): an nli_fn that raises degrades
+    THAT pair to neutral pass-through, never dropping the batch and never propagating."""
+    nli_fn = nli_fn or _default_nli_fn
+    offers = []
+    passed = []
+    for a_text, b_text in pairs:
+        # BOTH directions, FIRST — NLI is asymmetric, and the spec wants the refutation surfaced
+        # before any similarity framing biases the call. A raising nli_fn degrades to neutral.
+        try:
+            fwd = nli_fn(a_text, b_text)
+            rev = nli_fn(b_text, a_text)
+        except Exception:
+            fwd = rev = _neutral(a_text, b_text)
+        if _calibrated_contradiction(fwd) or _calibrated_contradiction(rev):
+            verdict = fwd if _calibrated_contradiction(fwd) else rev
+            offers.append({
+                "type": "contradicts",
+                "origin": "machine-found",
+                "pair": (a_text, b_text),
+                "nli": verdict,
+            })
+            continue  # NEVER pass a contradiction to the relate typer (spec line 54)
+        passed.append((a_text, b_text))
+        if type_fn is not None:
+            type_fn(a_text, b_text)
+    return offers, passed

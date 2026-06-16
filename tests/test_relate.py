@@ -212,6 +212,121 @@ class ReaderDegradesOnExplicitNoneGroup(unittest.TestCase):
         self.assertEqual(relate._read_artefato_embeddings(group=None), [])
 
 
+class NliRouterRunsBeforeRelateTyper(unittest.TestCase):
+    """Stage 2 router (C2a) — NLI/entailment FIRST, BOTH directions, BEFORE any relate framing
+    (research spec lines 42-44, 54). Cosine has ALREADY guaranteed topical closeness, so a
+    relate-primed prompt is blind to refutation: the contradiction signal must be extracted by a
+    DECOUPLED high-recall NLI path, not a post-filter. So the router calls nli_fn FIRST; only
+    entailment/neutral pairs reach the relate typer (C2b); a calibrated contradiction short-circuits
+    to a MACHINE-FOUND contradicts OFFER (C2c) and NEVER touches the typer. nli_fn and type_fn are
+    both INJECTED here (spies), so these pin the ORDER and the ROUTING, not OpenAI."""
+
+    def test_nli_runs_before_relate_typer(self):
+        # Spies record the global call order. An injected contradiction must short-circuit: the
+        # relate type_fn must NEVER be called for that pair, and NLI must have run before it.
+        order = []
+
+        def nli(a, b):
+            order.append(("nli", a, b))
+            return {"label": "contradiction", "score": 0.95}
+
+        def type_fn(a, b):
+            order.append(("type", a, b))
+            return {"type": "relates_to", "context": "shared claim", "confidence": 0.9}
+
+        pairs = [("A is true", "A is false")]
+        relate.route(pairs, nli_fn=nli, type_fn=type_fn)
+
+        # NLI ran; the relate typer NEVER ran on a contradiction pair.
+        self.assertTrue(any(c[0] == "nli" for c in order), "NLI must run")
+        self.assertFalse(any(c[0] == "type" for c in order),
+                         "relate typer must NOT run when NLI calibrates a contradiction")
+        # And NLI ran FIRST (it is the first recorded call).
+        self.assertEqual(order[0][0], "nli")
+
+    def test_nli_runs_both_directions(self):
+        # NLI is asymmetric (entailment(A,B) != entailment(B,A)); the spec says BOTH directions.
+        # A contradiction surfacing only in the B->A direction must still route to an offer.
+        seen = []
+
+        def nli(a, b):
+            seen.append((a, b))
+            # contradiction only when called as (B, A)
+            return {"label": "contradiction" if a == "B" else "neutral", "score": 0.9}
+
+        def type_fn(a, b):
+            raise AssertionError("typer must not run when a direction calibrates contradiction")
+
+        offers, passed = relate.route([("A", "B")], nli_fn=nli, type_fn=type_fn)
+        self.assertIn(("A", "B"), seen)
+        self.assertIn(("B", "A"), seen)
+        self.assertEqual(len(offers), 1)
+        self.assertEqual(passed, [])
+
+    def test_contradiction_pair_is_routed_to_offer_not_relate(self):
+        # A calibrated contradiction becomes a MACHINE-FOUND contradicts OFFER record — RETURNED,
+        # not persisted (C2c: offer for the author to confirm, do not auto-write a directed claim).
+        def nli(a, b):
+            return {"label": "contradiction", "score": 0.91}
+
+        def type_fn(a, b):
+            raise AssertionError("contradiction must not reach the relate typer")
+
+        offers, passed = relate.route([("note-x", "note-y")], nli_fn=nli, type_fn=type_fn)
+        self.assertEqual(passed, [], "a contradiction pair is NOT passed to the typer")
+        self.assertEqual(len(offers), 1)
+        offer = offers[0]
+        # machine-found, contradicts, an OFFER (not persisted), carrying its NLI provenance.
+        self.assertEqual(offer["type"], "contradicts")
+        self.assertEqual(offer["origin"], "machine-found")
+        self.assertEqual(offer["pair"], ("note-x", "note-y"))
+        self.assertEqual(offer["nli"]["label"], "contradiction")
+
+    def test_neutral_passes_to_typer(self):
+        # entailment / neutral -> the pair is passed THROUGH to the relate typer (C2b). Pin both.
+        for label in ("neutral", "entailment"):
+            with self.subTest(label=label):
+                typed = []
+
+                def nli(a, b):
+                    return {"label": label, "score": 0.8}
+
+                def type_fn(a, b):
+                    typed.append((a, b))
+                    return {"type": "relates_to", "context": "c", "confidence": 0.8}
+
+                offers, passed = relate.route([("p", "q")], nli_fn=nli, type_fn=type_fn)
+                self.assertEqual(offers, [], f"{label} must NOT become a contradiction offer")
+                self.assertEqual(passed, [("p", "q")], f"{label} must pass to the typer")
+                self.assertEqual(typed, [("p", "q")], f"{label} must reach type_fn")
+
+    def test_nli_degrades_without_key(self):
+        # Degrade-safe: with NO injected nli_fn and no key/client reachable, the default NLI must
+        # resolve to neutral (pass-through) and NEVER raise — a darkened router is high-recall,
+        # not a crash. Every pair passes to the typer; no contradiction offers are invented.
+        typed = []
+
+        def type_fn(a, b):
+            typed.append((a, b))
+            return None
+
+        # No nli_fn supplied -> default runs; no client is reachable in the test env -> neutral.
+        offers, passed = relate.route([("a", "b"), ("c", "d")], type_fn=type_fn)
+        self.assertEqual(offers, [], "a dark NLI must not fabricate contradiction offers")
+        self.assertEqual(passed, [("a", "b"), ("c", "d")], "dark NLI passes everything through")
+        self.assertEqual(typed, [("a", "b"), ("c", "d")])
+
+    def test_nli_swallows_a_raising_nli_fn(self):
+        # "never raises": an nli_fn that throws (transient outage / bad parse) degrades that pair to
+        # neutral pass-through, not a crash that drops the whole batch.
+        def boom(a, b):
+            raise RuntimeError("nli endpoint down")
+
+        offers, passed = relate.route([("a", "b")], nli_fn=boom, type_fn=lambda a, b: None)
+        self.assertEqual(offers, [])
+        self.assertEqual(passed, [("a", "b")])
+
+
 class PercentileMatchesStatisticsQuantiles(unittest.TestCase):
     """The docstring claims parity with statistics.quantiles. Pin it for the small-N
     cases the reviewer flagged (N=2,3): inclusive method == our (n-1) linear interpolation
