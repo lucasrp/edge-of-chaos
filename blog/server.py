@@ -1181,6 +1181,18 @@ def _node_ref(id_, props):
     return _as_str(id_)
 
 
+def _context_only(label, props):
+    """The medium-authority marker for a node (R10/F9/C5), from the ONE shared derivation
+    (tools/cortex_provenance) so the dashboard and the MCP never diverge. Lazily imported so the blog
+    still loads where tools/ is absent; fail-safe context_only=true for an extracted node on any error."""
+    try:
+        sys.path.insert(0, str(BASE.parent / "tools"))
+        import cortex_provenance
+        return cortex_provenance.context_only_for(label, props)
+    except Exception:  # noqa: BLE001 — fail-safe: an extracted node is context_only, a spine node is not
+        return _TRUST_BY_LABEL.get(label, "extracted") == "extracted"
+
+
 def _map_node(id_, label, props):
     """One Cortex node → the render payload: id, label, a human title, its trust tier (the
     brightness axis), the earmarked flag (the harm overlay — passed through so the overlay is wired
@@ -1203,6 +1215,11 @@ def _map_node(id_, label, props):
         # the node carries no content field, so the missing-context gate is truly fail-closed (round-7).
         "content": _node_content(label, props),
         "trust": _TRUST_BY_LABEL.get(label, "extracted"),
+        # R10/F9 — the dashboard inherits the SAME medium-authority marker the MCP returns (one
+        # derivation, cortex_provenance), so the two reads do not diverge: an extracted/low-tier node
+        # is context_only on the page too (C5). `trust` (above) stays the brightness axis; context_only
+        # is the orthogonal authority axis. Fail-safe: unknown-Medium extracted ⇒ context_only=true.
+        "context_only": _context_only(label, props),
         # Fail-closed ON TYPE (codex Slice-6b round-2 [high]): preserve ONLY a literal boolean True.
         # A `bool(...)` coercion would promote schema drift — a string "false"/"0" or an int 1 (all
         # truthy) — into an eligible harm node, expanding the node-targeted Voz corrective boundary
@@ -1403,6 +1420,46 @@ def _cortex_controls():
     )
 
 
+def _cortex_usage_heat():
+    """R11 — the READ-ONLY usage heat overlay. When EDGE_CORTEX_USAGE=on, render a heat block from
+    state/cortex/usage.jsonl (the Usage signal, a NON-AUTHORITATIVE store — N4): the hot refs and their
+    recency+frequency scores, so the operator can SEE the A/B treatment. OFF (default) → "" (absent
+    entirely, the clean baseline). It is a RENDER of a non-authoritative store: NO write affordance, NO
+    fold entry, NO graph mutation — it reads cortex_usage's scores and lays them over the page. Returns
+    the overlay HTML, or "" when off / empty / on error (never blocks the page)."""
+    try:
+        sys.path.insert(0, str(BASE.parent / "tools"))
+        import cortex_usage
+        if not cortex_usage.enabled():
+            return ""
+        scores = cortex_usage._scores()
+        if not scores:
+            return ""
+        # top hot refs by score (descending), bounded — a legible overlay, not the whole store.
+        hot = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:25]
+        data = _json_for_script({"hot": [{"ref": r, "score": round(s, 4)} for r, s in hot]})
+        top = hot[0][1] or 1.0   # guard the heat-normalization division (all-zero / stale-decayed store)
+        rows = "".join(
+            f'<li class="usage-heat-item"><span class="ref">{_esc(r)}</span>'
+            f'<span class="score" style="--heat:{min(1.0, s / top):.3f}">{s:.2f}</span></li>'
+            for r, s in hot
+        )
+        # READ-ONLY by construction: a <section> + a <script> data block + a static list. No <form>, no
+        # button, no POST — the overlay can carry no write affordance (N4). The data block is
+        # _json_for_script-safe (the same XSS guard the fold embed uses).
+        return (
+            '<section id="cortex-usage-heat" class="cortex-usage-heat" aria-label="usage heat (read-only)">'
+            '<h2>usage — heat</h2>'
+            '<p class="meta">Sinal de uso (não-autoritativo, EDGE_CORTEX_USAGE=on): os nós mais lidos, '
+            'por recência+frequência. Apenas leitura — não escreve no grafo, não entra em nenhum fold.</p>'
+            f'<ul class="cortex-usage-heat-list">{rows}</ul>'
+            f'<script id="cortex-usage-data" type="application/json">{data}</script>'
+            '</section>'
+        )
+    except Exception:  # noqa: BLE001 — the overlay never blocks the page (it is a non-essential render)
+        return ""
+
+
 @app.get("/cortex")
 def cortex():
     """Surf the agent's brain: the whole Cortex as a dark, force-directed constellation centered on
@@ -1418,7 +1475,9 @@ def cortex():
         controls = _cortex_controls()
         # the 3D mount the island draws into (M1), plus the server-rendered list fallback (M21 rung 3,
         # hidden until the island reveals it when both WebGL renderers fail / JS is dead).
-        graph = '<div id="cortex"></div>' + _cortex_list(payload)
+        # R11 — the read-only usage heat overlay rides ABOVE the canvas when EDGE_CORTEX_USAGE=on
+        # (absent otherwise). A render of the non-authoritative usage store: no write, no fold (N4).
+        graph = _cortex_usage_heat() + '<div id="cortex"></div>' + _cortex_list(payload)
         data = _json_for_script(payload)  # XSS-safe to embed in a <script> data block
         island = (
             # The renderer libs are SELF-HOSTED (Slice 7 #37 / M18: no CDN supply chain) and loaded
