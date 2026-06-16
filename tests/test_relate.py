@@ -107,6 +107,68 @@ class FloorNeverRaisesOnBadVectors(unittest.TestCase):
         self.assertIsNone(relate.relative_floor(none_el))
 
 
+class NominateMutualKnnAboveFloor(unittest.TestCase):
+    """Stage 1 NOMINATE — mutual-kNN with k = round(log2 N), above the relative floor.
+    The corpus of embeddings is INJECTED (fake vectors), so these pin the method, not OpenAI:
+      - k follows round(log2 N) exactly (k=4 at N=16, k=3 at N=8);
+      - a one-directional top-k membership (hub) produces NO candidate — only a mutual pair survives;
+      - a mutual pair whose cosine sits BELOW the relative floor is not nominated;
+      - no graph (no reader, no creds) degrades to [] and never raises.
+    Candidates come back as a set of frozenset({slug_i, slug_j}) — undirected, deduped."""
+
+    @staticmethod
+    def _unit(deg):
+        r = math.radians(deg)
+        return [math.cos(r), math.sin(r)]
+
+    def test_k_is_round_log2_n(self):
+        # k = round(log2 N): N=16 -> 4, N=8 -> 3. Pin via the injected corpus size.
+        self.assertEqual(relate._k_for(16), 4)
+        self.assertEqual(relate._k_for(8), 3)
+
+    def test_mutual_knn_drops_one_directional_edges(self):
+        # Four near-parallel notes (a tight cluster) plus one OUTLIER far away. With k=round(log2 4)=2,
+        # each cluster note's top-2 are its two nearest cluster peers; the outlier is in NOBODY's top-2
+        # (it is everyone's farthest), and the outlier's OWN top-2 point back into the cluster — a
+        # one-directional membership. Mutual-kNN must drop every outlier edge and keep cluster pairs.
+        corpus = [
+            ("a", self._unit(0)),
+            ("b", self._unit(4)),
+            ("c", self._unit(8)),
+            ("d", self._unit(12)),
+            ("z", self._unit(170)),  # outlier: far from the cluster
+        ]
+        # floor low enough that the cluster's own pairs clear it but the test is about mutuality.
+        cands = relate.nominate(embeddings=corpus, floor=-1.0)
+        # No candidate may include the outlier — its top-k membership is one-directional only.
+        for pair in cands:
+            self.assertNotIn("z", pair, f"one-directional hub edge survived: {sorted(pair)}")
+        # A genuinely mutual cluster pair is kept (a<->b are each other's nearest).
+        self.assertIn(frozenset({"a", "b"}), cands)
+
+    def test_below_floor_excluded(self):
+        # A mutual pair (each is the other's sole nearest neighbour) whose cosine is BELOW the floor
+        # must NOT be nominated — mutuality is necessary but not sufficient; the floor still gates.
+        a, b = self._unit(0), self._unit(40)  # cos(40deg) ~= 0.766
+        corpus = [("a", a), ("b", b)]
+        cos_ab = _cos(a, b)
+        # Floor just ABOVE their cosine -> excluded even though they are mutual.
+        self.assertEqual(relate.nominate(embeddings=corpus, floor=cos_ab + 0.05), set())
+        # Floor just BELOW -> the same mutual pair IS nominated (proves the floor is the only gate).
+        self.assertEqual(relate.nominate(embeddings=corpus, floor=cos_ab - 0.05),
+                         {frozenset({"a", "b"})})
+
+    def test_nominate_degrades_offline(self):
+        # No graph reachable (no reader, no creds, no group) -> [] / empty set, never a raise.
+        self.assertEqual(relate.nominate(group=None), set())
+        # An injected reader that returns nothing (dark/empty graph) also degrades, not crashes.
+        self.assertEqual(relate.nominate(read_fn=lambda **_: []), set())
+        # A reader that itself raises (transient outage) is swallowed -> empty, never propagates.
+        def boom(**_):
+            raise RuntimeError("neo4j down")
+        self.assertEqual(relate.nominate(read_fn=boom, group="g"), set())
+
+
 class PercentileMatchesStatisticsQuantiles(unittest.TestCase):
     """The docstring claims parity with statistics.quantiles. Pin it for the small-N
     cases the reviewer flagged (N=2,3): inclusive method == our (n-1) linear interpolation
