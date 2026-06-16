@@ -195,6 +195,15 @@ def normalize_block(block: dict):
     block_type, canon = render.canonical_block(block)
     if block_type is None:
         return None
+    # Required-field gate — drop a block missing a render-required field (mirrors
+    # close._check_block_schemas on the CANONICAL block, where synonyms are already resolved). This
+    # keeps normalize and the genus gate in lockstep: a block that survives normalize can never trip
+    # the genus "missing required field" check (e.g. a comparison-table the LLM emitted without headers).
+    schema = render.BLOCK_SCHEMAS.get(block_type)
+    if schema:
+        for field in schema.get("required", []):
+            if field not in canon:
+                return None
     # render-smoke — the no-crash / renderability check (mechanism 1, NEVER the substance oracle).
     try:
         html = render.render_block(block)

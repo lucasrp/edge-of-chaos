@@ -292,7 +292,7 @@ _TYPE_FORMAT_RULE = (
     "THE TYPE->FORMAT RULE — match the content shape, reach for the block (never a mandatory "
     "section, only what the content IS):\n"
     "- 3+ values / metrics -> metrics-grid (items each {value, label}).\n"
-    "- a comparison -> comparison-table (rows each {cells:[...]}).\n"
+    "- a comparison -> comparison-table (REQUIRED headers:[col,...] AND rows each {cells:[...]}).\n"
     "- before / after -> diff-block (lines each {type:insert|delete, text}).\n"
     "- a reasoning chain -> derivation (text + bullets).\n"
     "- an open boundary (a gap, an unknown) -> gap-table (gaps each {id, description, need, "

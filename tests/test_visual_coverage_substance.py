@@ -262,6 +262,20 @@ class NumericZeroMetricIsSubstantive(unittest.TestCase):
         self.assertEqual(_coverage(_dense_table(), grid), ["visual-coverage"])
 
 
+class RequiredFieldGate(unittest.TestCase):
+    # Live-run finding: the writer emitted comparison-table without `headers` (a render-required
+    # field) — normalize must drop it so it never reaches (and trips) the genus required-field check.
+    def test_comparison_table_without_headers_dropped(self):
+        import blocks
+        self.assertIsNone(blocks.normalize_block(
+            {"type": "comparison-table", "rows": [{"cells": ["a", "b"]}]}))
+
+    def test_comparison_table_with_headers_kept(self):
+        import blocks
+        self.assertIsNotNone(blocks.normalize_block(
+            {"type": "comparison-table", "headers": ["x", "y"], "rows": [{"cells": ["a", "b"]}]}))
+
+
 class RawHtmlPayloadSubstance(unittest.TestCase):
     # Codex P2 (review r4): empty leaf/wrapper markup is NOT a substantive visual.
     def test_empty_leaf_raw_html_does_not_clear(self):
