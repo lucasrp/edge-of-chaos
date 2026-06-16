@@ -31,6 +31,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 
 import cortex_usage  # noqa: E402 — the Usage signal: off-truth-path telemetry + A/B re-rank (F7/N4)
+import cortex_provenance  # noqa: E402 — the two orthogonal markers on every read (F9/C5)
 
 PROTOCOL_VERSION = "2024-11-05"
 
@@ -243,7 +244,17 @@ class CortexServer:
             return _dark(f"recall backend error: {type(e).__name__}")
         if sub is None:
             return _dark("graph offline (recall)")
-        self._record("cortex_recall", [a.get("slug") for a in (sub.get("artefatos") or [])])
+        # F9/R8b — the SEED carries BOTH markers too (the first + most-likely read, the worst place to
+        # drop one). Its spine (artefatos) is asserted/order-bearing; its DISTILLED clusters are the
+        # extracted half (context_only fail-safe). Mark each so the seed never presents an extracted
+        # cluster as unmarked fact NOR low-tier content as order-bearing.
+        sub = dict(sub)
+        sub["artefatos"] = [cortex_provenance.mark_node(a, label="Artefato")
+                            for a in (sub.get("artefatos") or [])]
+        sub["clusters"] = [cortex_provenance.mark_node(
+            {"cluster": c} if not isinstance(c, dict) else c, label="Entity")
+            for c in (sub.get("clusters") or [])]
+        self._record("cortex_recall", [a.get("slug") for a in sub["artefatos"]])
         return sub
 
     def _t_cortex_surf(self, args):
@@ -260,6 +271,8 @@ class CortexServer:
         if peers is None:
             return _dark("graph offline (surf)")
         peers = [p for p in peers if p.get("hops") is None or p.get("hops") <= hops]
+        # F9 — mark BOTH axes on every surfed peer (tier from labels(n); context_only fail-safe).
+        peers = [cortex_provenance.mark_node(p) for p in peers]
         # F7/N3 — re-rank over PRIOR telemetry, THEN record this read (rank before write, so the
         # current call never reinforces its own order). OFF → rerank is a no-op (base hops,slug order).
         peers = cortex_usage.rerank(peers, key="slug")
@@ -280,6 +293,9 @@ class CortexServer:
             return {"node": None, "neighbors": []}
         neighbor_refs = self._neighbor_refs(ref, fold)
         neighbors = [nodes[r] for r in neighbor_refs if r in nodes]
+        # F9 — mark BOTH axes on the node AND every neighbor (the fold node carries `label`/props).
+        node = cortex_provenance.mark_node(node)
+        neighbors = [cortex_provenance.mark_node(nb) for nb in neighbors]
         self._record("cortex_node", [ref])
         return {"node": node, "neighbors": neighbors}
 
@@ -296,6 +312,8 @@ class CortexServer:
             hay = " ".join(str(n.get(f, "")) for f in ("label", "title")).lower()
             if query and query in hay:
                 results.append(n)
+        # F9 — mark BOTH axes on every search hit.
+        results = [cortex_provenance.mark_node(n) for n in results]
         # F7/N3 — re-rank over PRIOR telemetry by node ref, THEN record (rank before write).
         results = cortex_usage.rerank(results, key="ref")
         self._record("cortex_search", [n.get("ref") or n.get("id") for n in results])

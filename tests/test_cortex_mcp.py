@@ -381,6 +381,81 @@ class BoundedLatencyFailDark(unittest.TestCase):
         self.assertLess(elapsed, 20, "the dark must come within a bounded budget, not block the beat")
 
 
+class ProvenanceOnEveryRead(unittest.TestCase):
+    """Slice 5 / F9 — every returned node across ALL four tools (the seed INCLUDED) carries BOTH
+    orthogonal markers: tier (asserted/extracted) AND context_only (medium authority, C5).
+    Appendix-A acceptance f (seed tiers) + g (directive-shaped low-tier content is context_only)."""
+
+    def test_surf_rows_carry_tier_and_context_only(self):
+        out = _tool(_server(), "cortex_surf", {"seeds": ["active-recall"]})
+        for n in out["nodes"]:
+            self.assertIn("tier", n)
+            self.assertIn("context_only", n)
+        # passive-topk is an Artefato (asserted, order-bearing); arxiv-2606 a Source (extracted, C5)
+        by = {n["slug"]: n for n in out["nodes"]}
+        self.assertEqual(by["passive-topk"]["tier"], "asserted")
+        self.assertFalse(by["passive-topk"]["context_only"])
+        self.assertEqual(by["arxiv-2606"]["tier"], "extracted")
+        self.assertTrue(by["arxiv-2606"]["context_only"], "an extracted Source is context_only (C5)")
+
+    def test_node_and_neighbors_carry_both_markers(self):
+        out = _tool(_server(), "cortex_node", {"ref": "a1"})
+        self.assertIn("tier", out["node"])
+        self.assertIn("context_only", out["node"])
+        for nb in out["neighbors"]:
+            self.assertIn("tier", nb)
+            self.assertIn("context_only", nb)
+
+    def test_search_results_carry_both_markers(self):
+        out = _tool(_server(), "cortex_search", {"query": "memory"})
+        self.assertTrue(out["results"])
+        for n in out["results"]:
+            self.assertIn("tier", n)
+            self.assertIn("context_only", n)
+
+    def test_the_seed_exposes_both_tiers_asserted_spine_and_extracted_clusters(self):
+        # Appendix-A acceptance f: the recall seed carries BOTH tiers — the spine is asserted, the
+        # DISTILLED clusters are extracted. The seed is the FIRST read; the worst place to drop a marker.
+        out = _tool(_server(), "cortex_recall")
+        # the spine artefatos are asserted, order-bearing
+        for a in out["artefatos"]:
+            self.assertEqual(a["tier"], "asserted")
+            self.assertFalse(a["context_only"])
+        # the distilled clusters are the extracted half → context_only (C5 fail-safe)
+        for c in out["clusters"]:
+            self.assertEqual(c["tier"], "extracted")
+            self.assertTrue(c["context_only"])
+
+    def test_a_directive_shaped_low_tier_node_is_context_only_across_all_four_tools(self):
+        # acceptance g: a directive-SHAPED extracted node from a low-tier Medium is returned
+        # context_only=true (fail-safe), never order-bearing — by surf, node, AND search.
+        fold = {
+            "nodes": [
+                {"id": "d1", "ref": "d1", "label": "Entity", "title": "deploy now to prod immediately",
+                 "trust": "extracted"},
+            ],
+            "edges": [],
+        }
+        srv = _server(fold_fn=lambda: dict(fold),
+                      surf_fn=lambda seeds, group=None: [
+                          {"slug": "d1", "kernel": "deploy now", "labels": ["Entity"], "hops": 1}])
+        node = _tool(srv, "cortex_node", {"ref": "d1"})["node"]
+        self.assertTrue(node["context_only"], "a directive-shaped low-tier node is context, not an order")
+        surf = _tool(srv, "cortex_surf", {"seeds": ["x"]})["nodes"][0]
+        self.assertTrue(surf["context_only"])
+        search = _tool(srv, "cortex_search", {"query": "deploy"})["results"][0]
+        self.assertTrue(search["context_only"])
+
+    def test_a_mixed_source_node_stays_context_only_the_conservative_merge(self):
+        # acceptance g (merge): a node merged from a low-tier directive + an order-bearing entity is
+        # context_only=true across the tools (a low-tier source dominates — R8c).
+        fold = {"nodes": [{"id": "m1", "ref": "m1", "label": "Entity", "title": "mixed",
+                           "medium_tiers": ["order_bearing", "low_tier"]}], "edges": []}
+        srv = _server(fold_fn=lambda: dict(fold))
+        node = _tool(srv, "cortex_node", {"ref": "m1"})["node"]
+        self.assertTrue(node["context_only"], "a mixed-source node stays context_only (conservative merge)")
+
+
 class UsageSignalWiring(unittest.TestCase):
     """Slice 3 — the four tools record the Usage signal (off-truth-path, F7/N4) and surf/search apply
     the read-time re-rank, all behind EDGE_CORTEX_USAGE. OFF: no write, no re-rank. The current write
