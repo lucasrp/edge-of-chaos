@@ -24,6 +24,14 @@ node's `finding_ids` are its responsibility + anti-drop checklist, so two writer
 the same finding. The model call is INJECTED (`complete_fn`) so the logic tests offline, exactly
 like close.py's reviewers and excavate.py.
 
+The writer cognition DEFAULTS to the host agent's OWN subagents, not the gpt-5.4 OpenAI API (#40):
+the writer call is a synchronous in-process Python call, but a subagent dispatch is a harness tool
+call the Python cannot make — so the SKILL fans one subagent per node and feeds the collected prose
+back through the orchestration-layer bridge (`node_briefs` → fan subagents → `subagent_completer`).
+The gpt-5.4 route (`_llm.make_client` on the chat router) is then an explicit FALLBACK passed as
+`complete_fn`, never the default. The semantic judge (`discharge_fn`) and conciliator
+(`conciliate_fn`) are their own injected cognitions (their own subagents under #40).
+
 Gated by EDGE_CONDUCTOR (off => passthrough, today's single-producer pipeline byte-for-byte AND
 zero model spend).
 """
@@ -34,6 +42,7 @@ import os
 import re
 
 import close
+import blocks as block_validation
 
 # The three-part arc — the structural acceptance test (#36). NEVER rendered as labeled sections;
 # it is the production-layer contract the outline is authored against.
@@ -212,13 +221,89 @@ def _writer_prompt(node: dict, outline: list[dict], seed: dict, objective: str) 
         "earned in your prose (do not drop the tail):\n"
         f"{claim_lines}\n\n"
         f"Open tensions you may surface: {residuals}\n\n"
-        "Write developed prose for this node only.\n\n"
-        "After the prose, emit a STRUCTURED DIGEST of this node as STRICT JSON in a fenced "
-        '```json block — {"bullets": ["the node\'s key points"], "assumed_prior": "what you '
-        'took as already-established upstream", "contribution": "one line: this node\'s '
-        'contribution to the arc", "cross_refs": ["other nodes/findings you lean on"]}. The '
-        "conciliator works off this digest, not your full prose."
+        f"{_TYPE_FORMAT_RULE}\n\n"
+        "Write developed prose for this node, THEN emit ONE fenced ```json ENVELOPE — STRICT "
+        "JSON — carrying the node's content as TYPED BLOCKS following the rule above:\n"
+        '{"title": <a SHORT content-derived section title (NEVER the scaffold intent above)>, '
+        '"blocks": [<the typed blocks: a paragraph for the prose, PLUS the metrics-grid/'
+        'comparison-table/diff-block/derivation/gap-table/chart the content shape owes>], '
+        '"digest": {"bullets": ["the node\'s key points"], "assumed_prior": "what you took as '
+        'already-established upstream", "contribution": "one line: this node\'s contribution to '
+        'the arc", "cross_refs": ["other nodes/findings you lean on"]}}. The conciliator works '
+        "off the digest, not your full prose."
     )
+
+
+# ---------------------------------------------------------------------------
+# The subagent-default bridge (#40) — the orchestration-layer fan-out seam. The writer cognition
+# defaults to the host agent's OWN subagents (one per node), not the gpt-5.4 OpenAI API. A subagent
+# dispatch is a harness tool call (Agent/Task), NOT callable from inside this Python — so the SKILL
+# fans the subagents and feeds their collected outputs back in through this seam:
+#   node_briefs(seed, objective)      -> [{id, role, prompt}], one per outline node (what to dispatch)
+#   subagent_completer(briefs, outputs) -> the complete_fn(prompt)->text the pipeline already consumes
+# The Python keeps the structure (outline → fill → gate → assemble); the WRITING is the subagents'.
+# The gpt-5.4 route is no longer the default — it is an explicit fallback the skill builds only when
+# subagents are unavailable, and passes as `complete_fn` exactly as before.
+# ---------------------------------------------------------------------------
+
+def node_briefs(seed: dict, objective: str) -> list[dict]:
+    """The per-node writer briefs the orchestration layer fans to subagents — one per outline
+    node, in arc order, each carrying its `id`, `role`, and the exact `prompt` `fill_node` would
+    otherwise hand the injected completer. The skill dispatches one subagent per brief, collects
+    `{node_id -> prose}`, and hands both back to `subagent_completer`. This is the only point a
+    subagent dispatch is reachable (the skill layer); the Python cannot dispatch one itself."""
+    nodes = author_outline(seed, objective)
+    return [
+        {"id": n["id"], "role": n["role"],
+         "prompt": _writer_prompt(n, nodes, seed, objective)}
+        for n in nodes
+    ]
+
+
+def subagent_completer(briefs: list[dict], outputs: dict):
+    """Build the `complete_fn(prompt) -> text` the existing pipeline consumes, backed by the
+    subagent prose the skill already collected. Each brief maps a node's writer `prompt` to its
+    `id`; `outputs` maps `id -> prose`. The returned completer resolves an incoming writer prompt
+    by EXACT match to its brief, then returns that node's subagent prose — so `run_conductor`'s
+    writer cognition is the host agent's own subagents, the gpt-5.4 API never touched.
+
+    A prompt with no matching brief, or a node with no collected prose, is a wiring bug (the skill
+    dispatched fewer subagents than nodes) — it FAILS LOUD (KeyError), never fabricates or returns
+    empty. The completer only ever sees WRITER prompts: the semantic judge and the conciliator are
+    their own injected cognitions (`run_conductor`'s `discharge_fn` / `conciliate_fn`)."""
+    prompt_to_id = {b["prompt"]: b["id"] for b in briefs}
+
+    def complete_fn(prompt: str) -> str:
+        node_id = prompt_to_id.get(prompt)
+        if node_id is None:
+            raise KeyError("subagent_completer: no brief matches this writer prompt "
+                           "(the orchestration layer dispatched fewer subagents than nodes)")
+        if node_id not in outputs:
+            raise KeyError(f"subagent_completer: no subagent prose collected for node {node_id!r}")
+        return outputs[node_id]
+
+    return complete_fn
+
+
+# The type->format rule (compact inline of skills/_shared/scaffold.md:114-135) — which block fits
+# which content shape (property-not-section, ADR-0012/0013). The conductor's writers were taught
+# NONE of it (D1), so they answered every shape with a paragraph; injecting it is the producer fix.
+_TYPE_FORMAT_RULE = (
+    "THE TYPE->FORMAT RULE — match the content shape, reach for the block (never a mandatory "
+    "section, only what the content IS):\n"
+    "- 3+ values / metrics -> metrics-grid (items each {value, label}).\n"
+    "- a comparison -> comparison-table (REQUIRED headers:[col,...] AND rows each {cells:[...]}).\n"
+    "- before / after -> diff-block (lines each {type:insert|delete, text}).\n"
+    "- a reasoning chain -> derivation (text + bullets).\n"
+    "- an open boundary (a gap, an unknown) -> gap-table (gaps each {id, description, need, "
+    "status}).\n"
+    "- quantitative data to visualize -> chart (line|sparkline|bar|scatter|slopegraph, with "
+    "data).\n"
+    "- a relation / dependency / flow -> diagram (dag|force); ascii-diagram is the zero-dep "
+    "fallback.\n"
+    "Default is prose; left alone you answer every shape with a paragraph and the rich palette "
+    "goes unused. Lead with the block the content owes."
+)
 
 
 # The writer digest — the structured handle the CONCILIATOR works off (not the full essay).
@@ -255,6 +340,16 @@ def _parse_digest(raw: str) -> dict:
             continue
     if not isinstance(data, dict):
         return _empty_digest()
+    return _coerce_digest(data)
+
+
+def _coerce_digest(data: dict) -> dict:
+    """Coerce a parsed dict into the four-key digest shape — the field coercion shared by the flat
+    `_parse_digest` and the nested `_parse_writer_output` (so the conciliator's digest parse is
+    never orphaned by the new envelope, finding 1). `bullets`/`cross_refs` coerce to lists of
+    non-empty strings; `assumed_prior`/`contribution` to a stripped string."""
+    if not isinstance(data, dict):
+        return _empty_digest()
     def _str_list(v):
         return [s.strip() for s in v if isinstance(s, str) and s.strip()] if isinstance(v, list) else []
     def _str(v):
@@ -267,11 +362,60 @@ def _parse_digest(raw: str) -> dict:
     }
 
 
+def _parse_writer_output(raw: str) -> dict:
+    """Parse the writer's fenced ```json ENVELOPE {"title","blocks","digest"} into a dict carrying
+    `title` (the content-derived section title, or None), `blocks` (normalized + substance-validated
+    via blocks.normalize_blocks — hollow/malformed blocks dropped), and `digest` (coerced). The
+    digest is read from the NESTED `digest` key, falling back to the top-level dict (`or data`) so a
+    writer that emits a flat top-level digest is still parsed (back-compat, finding 1). NEVER crashes
+    — a garbled envelope yields {title:None, blocks:[], digest: empty}."""
+    data = _parse_envelope(raw)
+    if not isinstance(data, dict):
+        return {"title": None, "blocks": [], "digest": _empty_digest()}
+    title = data.get("title")
+    title = title.strip() if isinstance(title, str) and title.strip() else None
+    return {
+        "title": title,
+        "blocks": block_validation.normalize_blocks(data.get("blocks")),
+        "digest": _coerce_digest(data.get("digest") or data),
+    }
+
+
+def _parse_envelope(raw: str):
+    """Tolerant fence->dict parse shared by the digest/envelope parsers (mirrors _parse_digest's
+    fence handling): strip a ```json fence, tolerate surrounding prose, return the dict or None."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text = raw.strip()
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
+    if fence:
+        text = fence.group(1).strip()
+    candidates = [text]
+    brace = re.search(r"\{.*\}", text, re.DOTALL)
+    if brace and brace.group(0) != text:
+        candidates.append(brace.group(0))
+    for cand in candidates:
+        try:
+            data = json.loads(cand)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
+
+
 def _strip_digest_block(text: str) -> str:
     """Return the body prose with a trailing ```json digest fence removed (the writer emits the
     digest AFTER the prose). If there is no fence, the whole text is the body."""
     return re.sub(r"\s*```(?:json)?\s*\{.*?\}\s*```\s*$", "", text.strip(),
                   flags=re.DOTALL | re.IGNORECASE).strip() or text.strip()
+
+
+def _prose_outside_fences(raw) -> str:
+    """The writer/conciliator's real prose OUTSIDE any fenced code block. `_strip_digest_block`
+    returns the raw fence when stripping leaves no body, so a JSON-ONLY envelope would render as raw
+    JSON; this returns only genuine prose ('' when the output is fence-only) — Codex P2."""
+    return re.sub(r"```.*?```", "", raw, flags=re.DOTALL).strip() if isinstance(raw, str) else ""
 
 
 def fill_node(node: dict, seed: dict, objective: str, complete_fn, *, outline=None) -> dict:
@@ -288,11 +432,25 @@ def fill_node(node: dict, seed: dict, objective: str, complete_fn, *, outline=No
     completer on the chat router (provision its max_tokens generously — a reasoning model truncates
     a tight budget, and the digest follows the prose so a tight budget truncates the digest first)."""
     raw = complete_fn(_writer_prompt(node, outline, seed, objective))
-    body = _strip_digest_block(raw)
+    parsed = _parse_writer_output(raw)
     filled = dict(node)
     filled["status"] = advance("empty")  # empty -> draft
-    filled["blocks"] = [{"type": "paragraph", "text": body}]
-    filled["digest"] = _parse_digest(raw)
+    # the writer's typed blocks (normalized: hollow/malformed dropped). When the writer wrote
+    # developed prose BEFORE the fenced envelope but the envelope carried only a visual block, the
+    # prose (the finding claim) would vanish from contract_gate/opener/discharge — so preserve it as
+    # a leading paragraph whenever no prose-bearing block is present (Codex P2). Use prose OUTSIDE the
+    # fence so a JSON-only envelope never renders raw JSON; if there is no real prose AND no block,
+    # the node is empty and contract_gate flags it (the writer produced nothing).
+    body = _prose_outside_fences(raw)
+    blocks = parsed["blocks"]
+    if body and not any(
+            isinstance(b, dict) and b.get("type") in ("paragraph", "callout")
+            and isinstance(b.get("text"), str) and b.get("text", "").strip()
+            for b in blocks):
+        blocks = [{"type": "paragraph", "text": body}] + blocks
+    filled["blocks"] = blocks or ([{"type": "paragraph", "text": body}] if body else [])
+    filled["title"] = parsed["title"]
+    filled["digest"] = parsed["digest"]
     return filled
 
 
@@ -300,12 +458,46 @@ def fill_node(node: dict, seed: dict, objective: str, complete_fn, *, outline=No
 # The mechanical contract gate — deterministic code (check_genus-style), never an LLM.
 # ---------------------------------------------------------------------------
 
+# Block chrome — heading/label/type fields that are NOT delivered prose; excluded (at the BLOCK
+# level) from the contract gate's text so a claim placed only in a `title`/`header` cannot spoof
+# discharge (Codex P2). Nested payload (a metric item's label, a table cell, a bullet) still counts.
+# Styling fields that are NEVER visible content — excluded at EVERY nesting level so a claim hidden
+# in a CSS class/variant cannot spoof contract discharge (Codex P2, review r7). NOTE: `id` and
+# `badge` are NOT here — they render as visible content (gap-marker/gap-table ids, diagram node-label
+# fallback, badge labels), so excluding them would falsely fail valid discharge (review r8).
+_NONCONTENT_FIELDS = frozenset({"type", "classes", "class", "style", "badge_class",
+                                "badge_variant", "variant"})
+# Block-level heading fields — excluded only at the BLOCK top level (a metric item's `label` and a
+# table cell ARE data, so these are NOT excluded at deeper levels).
+_BLOCK_HEADING_FIELDS = frozenset({"title", "label", "header", "headers"})
+
+
+def _strings(v) -> list:
+    """Every VISIBLE string nested anywhere in `v` — skips styling/structural fields
+    (`classes`/`style`/`variant`/…) at every depth so non-content metadata never counts as payload."""
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, list):
+        return [s for x in v for s in _strings(x)]
+    if isinstance(v, dict):
+        return [s for k, x in v.items() if k not in _NONCONTENT_FIELDS for s in _strings(x)]
+    return []
+
+
 def _node_text(node: dict) -> str:
+    """The SUBSTANTIVE text a node's blocks carry (for the contract/opener gates). EXCLUDES block
+    heading chrome (title/label/header/headers) at the block level AND styling metadata
+    (classes/style/variant/…) at every level — so neither a heading-only placeholder nor a claim
+    hidden in a CSS class can spoof discharge; nested payload (paragraph text, bullets, metric
+    labels, table cells) still counts."""
     parts = []
     for b in node.get("blocks") or []:
-        for v in b.values():
-            if isinstance(v, str):
-                parts.append(v)
+        if not isinstance(b, dict):
+            continue
+        for k, v in b.items():
+            if k in _NONCONTENT_FIELDS or k in _BLOCK_HEADING_FIELDS:
+                continue
+            parts.extend(_strings(v))
     return " ".join(parts)
 
 
@@ -410,6 +602,22 @@ def semantic_discharge(node: dict, seed: dict, complete_fn) -> list[dict]:
 # Assemble — the filled nodes into one `content` block-spec that passes close.check_genus.
 # ---------------------------------------------------------------------------
 
+def _section_title(node: dict, seed: dict) -> str:
+    """A content-derived section title (D4) — NEVER the arc scaffold `intent` (which renders as a
+    raw '<h2>Deliver: develop the finding to plenitude — …' heading). Prefers the writer's own
+    `title`; else a deterministic clean title from the deliver node's assigned finding `claim`;
+    else a generic, scaffold-free fallback. Capped at 80 chars."""
+    title = node.get("title")
+    if isinstance(title, str) and title.strip():
+        return title.strip()[:80]
+    for fid in node.get("contract", {}).get("finding_ids", []):
+        claim = (_finding_by_id(seed, fid) or {}).get("claim", "")
+        if claim.strip():
+            return claim.strip()[:80]
+    return {"motivate": "Why this matters", "deliver": "The finding",
+            "change-the-course": "What this changes"}.get(node.get("role"), "Synthesis")
+
+
 def assemble(nodes: list[dict], seed: dict, objective: str) -> dict:
     """Assemble the filled nodes into one artefato `content` spec (the shape
     `close.run_close`/`publisher.publish` consume). Each node becomes a free section (sections
@@ -421,7 +629,7 @@ def assemble(nodes: list[dict], seed: dict, objective: str) -> dict:
     sections = []
     for node in nodes:
         sections.append({
-            "title": node["contract"]["intent"][:80],
+            "title": _section_title(node, seed),
             "blocks": node.get("blocks") or [],
         })
 
@@ -485,11 +693,15 @@ def _digest_brief(nodes: list[dict]) -> str:
 
 def _synthetic_prompt(nodes: list[dict], objective: str) -> str:
     return (
-        "You are the CONCILIATOR. Write a 2-PAGE EXECUTIVE SYNTHESIS — one flowing through-line "
-        "over the digests below, NOT a bullet dump and NOT a restatement of each node in turn. "
-        "Find the single argument that runs through them and tell it as continuous prose a busy "
-        "operator reads top to bottom. Reason from the evidence (derive, do not assert), name "
-        "what you do not yet know, and tie it to prior work.\n\n"
+        "You are the CONCILIATOR. Write a 2-PAGE EXECUTIVE SYNTHESIS over the digests below — "
+        "find the single argument that runs through them and tell it for a busy operator who "
+        "reads top to bottom. Reason from the evidence (derive, do not assert), name what you do "
+        "not yet know, and tie it to prior work.\n\n"
+        f"{_TYPE_FORMAT_RULE}\n\n"
+        "Emit ONE fenced ```json spec — STRICT JSON — carrying the synthesis as TYPED BLOCKS "
+        'following the rule above: {"blocks": [<a paragraph for the through-line prose, PLUS the '
+        "metrics-grid/comparison-table/diff-block/derivation/gap-table/chart any quantitative or "
+        'multi-value material owes>]}.\n\n'
         f"OBJECTIVE: {objective}\n\n"
         f"THE NODE DIGESTS (your raw material — the deep work is already done):\n"
         f"{_digest_brief(nodes)}"
@@ -525,49 +737,59 @@ def _boundary_block(nodes: list[dict]) -> dict:
                      "resolve; it builds on the excavate seed and the prior nodes.")}
 
 
-# The synthetic shape floor — a sane char floor and a prose-presence check (deterministic, free).
-# The 2-page synthetic is whatever the model returns; an empty string, a one-liner, or a bare
-# bullet dump (no prose paragraphs) is degraded output and must be FLAGGED, not silently shipped.
+# The synthetic shape floor — a sane char floor + a content-relative visual-density check
+# (deterministic, free). The 2-page synthetic is whatever the model returns; an empty string or a
+# one-liner is degraded output and must be FLAGGED, not silently shipped. The OLD "bare bullet dump"
+# penalty is REMOVED (D3): it pushed AWAY from visual density — structure is now what we WANT. In its
+# place, a content-relative density check: a synthetic whose quantitative/multi-value material owes a
+# visual it does not carry FLAGS via the strengthened close gate (the same gate that bites the deep).
+def _blocks_text(blocks) -> str:
+    """The substantive prose text a list of blocks carries (the _block_text idiom, excluding
+    heading/label fields), for the synthetic char floor."""
+    return " ".join(close._block_text(b) for b in (blocks or []) if isinstance(b, dict))
+
+
 _SYNTHETIC_MIN_CHARS = 120
 
 
-def _synthetic_shape_violations(prose) -> list[str]:
-    """Flag a degraded 2-page synthetic ([] iff it is a sane flowing synthesis). Deterministic and
-    free (never an LLM): rejects an empty/non-string body, a body below a sane char floor, and a
-    body that is structurally just a bullet list (every non-blank line a bullet — no prose
-    paragraph)."""
-    if not isinstance(prose, str) or not prose.strip():
+def _synthetic_shape_violations(synth_blocks, full_spec, objective: str) -> list[str]:
+    """Flag a degraded 2-page synthetic ([] iff it is a sane, content-appropriately-visual
+    synthesis). Deterministic and free (never an LLM): rejects an empty conciliator body and a body
+    below a sane char floor (measured over the CONCILIATOR's own blocks, not the appended
+    derivation/boundary scaffold), then adds the strengthened content-relative visual-coverage
+    check (via `_genus_violations` on the full spec) so a synthetic that owes a visual and does not
+    carry one is flagged — the flip from the old anti-bullet penalty (D3)."""
+    text = _blocks_text(synth_blocks).strip()
+    if not text:
         return ["synthetic is empty"]
-    text = prose.strip()
     if len(text) < _SYNTHETIC_MIN_CHARS:
         return [f"synthetic is too short ({len(text)} chars < {_SYNTHETIC_MIN_CHARS})"]
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    bullet = lambda ln: bool(re.match(r"^([-*•]|\d+[.)])\s", ln))
-    if lines and all(bullet(ln) for ln in lines):
-        return ["synthetic is a bare bullet dump (no prose paragraphs)"]
-    return []
+    return _genus_violations(full_spec, objective)
 
 
-def conciliate(nodes: list[dict], outline: list[dict], objective: str, complete_fn) -> tuple:
+def conciliate(nodes: list[dict], outline: list[dict], objective: str, complete_fn,
+               *, seed=None) -> tuple:
     """Conciliate the filled, digested nodes into the TWO altitudes (#36), working off the
     DIGESTS (not the full essays). Returns `(deep_spec, synthetic_spec, synthetic_shape)`:
       - `deep_spec`  — the node bodies assembled with the redundant per-node intros removed (the
                        place-aware writers already opened mid-stream, so the seams are smooth),
                        plus the rich-rite derivation + boundary moves (built from the digests).
       - `synthetic_spec` — a 2-page synthetic through-line the conciliator WRITES over the
-                       digests (one flowing executive synthesis, not a bullet dump), materially
-                       shorter than the deep report.
-      - `synthetic_shape` — the shape-gate violations of the synthetic PROSE ([] iff sane): empty,
-                       too short, or a bare bullet dump is flagged here, not silently shipped.
+                       digests, emitted as TYPED BLOCKS (D3), materially shorter than the deep.
+      - `synthetic_shape` — the shape-gate violations of the synthetic spec ([] iff sane): empty,
+                       too short, or owing-a-visual-it-lacks is flagged here, not silently shipped.
 
     Both pass close.check_genus on the content side; the producer wraps each with the cite +
     distills for the external-frame/lineage moves. `complete_fn` is the INJECTED conciliator
-    cognition (prompt -> the synthetic prose). `outline` is accepted for the arc map; the digests
-    already carry each node's place."""
-    # (a) DEEP — the smoothed full report: every node's prose body, intros already removed by the
-    # place-aware writers, then the derivation + boundary moves attached so it clears the floor.
+    cognition (prompt -> the synthetic spec). `outline` is accepted for the arc map; the digests
+    already carry each node's place. `seed` is keyword-only (default None) for the content-derived
+    section titles (D4); the deep titles also fall back to the writer's own node `title`."""
+    seed = seed or {}
+    # (a) DEEP — the smoothed full report: every node's typed blocks (already normalized in
+    # fill_node — hollow/malformed dropped), with content-derived titles (D4, never the scaffold
+    # intent), then the derivation + boundary moves attached so it clears the floor.
     deep_sections = [
-        {"title": n["contract"]["intent"][:80], "blocks": n.get("blocks") or []}
+        {"title": _section_title(n, seed), "blocks": n.get("blocks") or []}
         for n in nodes
     ]
     deep_sections.append({"title": "Why this holds", "blocks": [
@@ -577,17 +799,26 @@ def conciliate(nodes: list[dict], outline: list[dict], objective: str, complete_
     deep_sections.append({"title": "Open questions", "blocks": [_boundary_block(nodes)]})
     deep_spec = {"title": objective[:120], "sections": deep_sections}
 
-    # (b) SYNTHETIC — the conciliator's 2-page through-line over the digests (flowing prose).
-    synthetic_prose = complete_fn(_synthetic_prompt(nodes, objective))
-    synthetic_shape = _synthetic_shape_violations(synthetic_prose)
+    # (b) SYNTHETIC — the conciliator's 2-page through-line over the digests, now emitted as TYPED
+    # BLOCKS (D3) and normalized (hollow/malformed dropped). Falls back to one paragraph if empty.
+    raw = complete_fn(_synthetic_prompt(nodes, objective))
+    parsed = _parse_writer_output(raw)
+    # fallback to the conciliator's loose prose ONLY if it wrote real prose OUTSIDE the fence —
+    # `_strip_digest_block` returns the raw fenced JSON when stripping leaves no body, so use a
+    # fence-stripped body; if that is empty, leave synth_blocks empty so the shape gate flags
+    # "synthetic is empty" instead of rendering raw JSON as prose (Codex P2).
+    prose_body = _prose_outside_fences(raw)
+    synth_blocks = parsed["blocks"] or (
+        [{"type": "paragraph", "text": prose_body}] if prose_body else [])
     synthetic_spec = {"title": objective[:120], "sections": [
-        {"title": "Synthesis", "blocks": [{"type": "paragraph", "text": synthetic_prose}]},
+        {"title": "Synthesis", "blocks": synth_blocks},
         {"title": "Why this holds", "blocks": [
             _digest_derivation(nodes,
                                "It follows that the objective is reachable from the synthesis "
                                "of the nodes — derived, not asserted.")]},
         {"title": "Open questions", "blocks": [_boundary_block(nodes)]},
     ]}
+    synthetic_shape = _synthetic_shape_violations(synth_blocks, synthetic_spec, objective)
     return deep_spec, synthetic_spec, synthetic_shape
 
 
@@ -679,16 +910,20 @@ def opener_violations(nodes: list[dict]) -> list[dict]:
 
 
 def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
-                  conciliate_fn=None) -> dict:
+                  conciliate_fn=None, discharge_fn=None) -> dict:
     """Run the conductor pipeline. OFF (default) => passthrough, ZERO model spend (today's
     single-producer pipeline is unchanged). ON => author the place-aware outline from the seed,
     fill each node (the writer sees the whole-outline map and writes as a continuation), gate it
     mechanically, drive to `final`, then CONCILIATE the digests into the TWO altitudes.
 
     `is_enabled` overrides the env flag (for tests / explicit callers); otherwise EDGE_CONDUCTOR
-    decides. `complete_fn` is the injected producer cognition (prompt -> text). `conciliate_fn`
-    is the injected conciliator cognition; it defaults to `complete_fn` (real runs pass the
-    make_client-backed completer for both).
+    decides. `complete_fn` is the injected WRITER cognition (prompt -> text). The subagent-default
+    path (#40) passes `subagent_completer(briefs, outputs)` here — the writers are the host agent's
+    own subagents, no gpt-5.4 API; the gpt-5.4 route is an explicit fallback the skill builds only
+    when subagents are unavailable. `conciliate_fn` is the injected conciliator cognition and
+    `discharge_fn` the injected semantic-judge cognition; BOTH default to `complete_fn` (today's
+    behavior, byte-for-byte). Under the subagent-default path each is its OWN subagent, so the
+    writer bridge only ever sees writer prompts.
 
     Each filled node carries BOTH gates: the mechanical `gate` (the deterministic contract_gate)
     AND a semantic `discharge` (the injected per-finding semantic_discharge verdicts) — a node
@@ -715,7 +950,9 @@ def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
         filled["gate"] = contract_gate(filled, seed)
         # The SEMANTIC half of the contract review (#36) — enforced, not just defined: a node whose
         # assigned findings the judge ruled NOT delivered is flagged, so it can block the pipeline.
-        filled["discharge"] = semantic_discharge(filled, seed, complete_fn)
+        # The judge is its own injected cognition (`discharge_fn`, a subagent under #40); defaults
+        # to `complete_fn` so today's single-completer behavior is unchanged.
+        filled["discharge"] = semantic_discharge(filled, seed, discharge_fn or complete_fn)
         filled["status"] = advance(filled["status"])             # draft -> revised
         filled["status"] = advance(filled["status"])             # revised -> final
         final_nodes.append(filled)
@@ -729,7 +966,7 @@ def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
     ]
 
     deep_spec, synthetic_spec, synthetic_shape = conciliate(
-        final_nodes, nodes, objective, conciliate_fn or complete_fn)
+        final_nodes, nodes, objective, conciliate_fn or complete_fn, seed=seed)
     # Genus-validate BOTH specs before return — degraded content surfaces here, not silently ships.
     genus = {"deep": _genus_violations(deep_spec, objective),
              "synthetic": _genus_violations(synthetic_spec, objective)}

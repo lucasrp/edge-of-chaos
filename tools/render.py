@@ -143,7 +143,7 @@ def renderer(block_type: str):
 def render_paragraph(b):
     safe = safe_style(b["style"]) if b.get("style") else ""
     style = f' style="{safe}"' if safe else ""
-    return f'<p{style}>{render_text(b["text"])}</p>'
+    return f'<p{style}>{render_text(b.get("text", ""))}</p>'
 
 
 @renderer("subsection")
@@ -156,6 +156,8 @@ def render_concept_grid(b):
     items = b.get("items", []) or b.get("concepts", [])
     cells = []
     for item in items:
+        if not isinstance(item, dict):  # fail-closed: a non-dict item has no name/text
+            continue
         cells.append(
             f'<div class="callout callout-info">'
             f'<strong>{render_text(item.get("name", item.get("title", "(sem nome)")))}</strong><br>'
@@ -178,7 +180,7 @@ def render_callout(b):
         title_html = f'<strong>{render_text(b["title"])}</strong><br>'
     return (
         f'<div class="callout callout-{attr_value(variant)}">'
-        f'{title_html}{render_text(b["text"])}'
+        f'{title_html}{render_text(b.get("text", ""))}'
         f'</div>'
     )
 
@@ -348,7 +350,10 @@ def render_table(b):
     for h in b.get("headers", []):
         parts.append(f'<th>{render_text(h)}</th>')
     parts.append('</tr></thead><tbody>')
-    for i, row in enumerate(b.get("rows", [])):
+    rows = b.get("rows", [])
+    for i, row in enumerate(rows if isinstance(rows, list) else []):
+        if not isinstance(row, (list, tuple)):  # fail-closed: a non-iterable row has no cells
+            continue
         tr_class = ""
         if i == score_row_idx:
             tr_class = ' class="score-row"'
@@ -374,21 +379,27 @@ def render_comparison_table(b):
     for h in b.get("headers", []):
         parts.append(f'<th>{render_text(h)}</th>')
     parts.append('</tr></thead><tbody>')
-    for row in b["rows"]:
+    for row in b.get("rows", []):
+        if not isinstance(row, dict):  # fail-closed: a non-dict row has no cells/classes
+            continue
         cells = row.get("cells", [])
         classes = row.get("classes", [])
+        if not isinstance(classes, list):  # classes must index by column — degrade if not a list
+            classes = []
         parts.append('<tr>')
-        for j, cell in enumerate(cells):
+        for j, cell in enumerate(cells if isinstance(cells, list) else []):
             cls = classes[j] if j < len(classes) else ""
             td_cls = f' class="{attr_value(cls)}"' if cls else ""
             parts.append(f'<td{td_cls}>{render_text(str(cell))}</td>')
         parts.append('</tr>')
-    if b.get("score_row"):
-        sr = b["score_row"]
+    sr = b.get("score_row")
+    if isinstance(sr, dict):  # fail-closed: only a dict score_row carries cells/classes
         cells = sr.get("cells", [])
         classes = sr.get("classes", [])
+        if not isinstance(classes, list):
+            classes = []
         parts.append('<tr class="score-row">')
-        for j, cell in enumerate(cells):
+        for j, cell in enumerate(cells if isinstance(cells, list) else []):
             cls = classes[j] if j < len(classes) else ""
             td_cls = f' class="{attr_value(cls)}"' if cls else ""
             parts.append(f'<td{td_cls}>{render_text(str(cell))}</td>')
@@ -607,7 +618,8 @@ def render_template_block(b):
 @renderer("next-steps-grid")
 def render_next_steps_grid(b):
     parts = ['<div class="next-steps-grid">']
-    steps = list(b.get("steps", []) or b.get("items", []))
+    raw_steps = b.get("steps", []) or b.get("items", [])
+    steps = list(raw_steps) if isinstance(raw_steps, list) else []
     # Support now/next/later grouping (flatten into steps)
     if not steps:
         for phase_key in ("now", "next", "later"):
@@ -621,9 +633,11 @@ def render_next_steps_grid(b):
             elif isinstance(phase_items, str):
                 steps.append({"title": phase_items, "phase": phase_key})
     for step in steps:
-        # Normalize: string → dict
+        # Normalize: string → dict; a non-dict/non-str step (int, None) is skipped (fail-closed).
         if isinstance(step, str):
             step = {"title": step}
+        elif not isinstance(step, dict):
+            continue
         parts.append('<div class="next-step-card">')
         # Support both "number" and "phase"/"priority" as the badge
         badge = step.get("number") or step.get("phase") or step.get("priority") or step.get("owner") or ""
@@ -667,11 +681,13 @@ def render_diff_block(b):
             f'<div class="diff-block-header">{render_text(b["header"])}</div>'
         )
     for line in b.get("lines", []):
+        if not isinstance(line, dict):  # fail-closed: a non-dict line has no type/text
+            continue
         line_type = line.get("type", "context")
         css_class = f"diff-{attr_value(line_type)}"
         prefix = {"insert": "+ ", "delete": "- ", "context": "  "}.get(line_type, "  ")
         parts.append(
-            f'<div class="{css_class}">{prefix}{render_pre(line["text"])}</div>'
+            f'<div class="{css_class}">{prefix}{render_pre(line.get("text", ""))}</div>'
         )
     parts.append('</div>')
     return "\n".join(parts)
@@ -1197,25 +1213,22 @@ _BLOCK_TYPE_ALIASES = {
 # Dispatch
 # ---------------------------------------------------------------------------
 
-def render_block(block: dict) -> str:
-    """Dispatch a single block to its renderer.
+def canonical_block(block: dict):
+    """Return `(block_type, normalized_block)`: the canonical type (aliases resolved) and a NEW
+    block dict with field synonyms normalized to the canonical fields each renderer reads
+    (e.g. `content`→`text` for paragraph, `text`→`content` for raw-html). Returns `(None, block)`
+    for a non-dict / non-string-type block. PURE — never mutates the caller's block.
 
-    Unknown block type → an HTML comment, never an exception. Field synonyms are
-    normalized to the canonical field the renderer expects.
-
-    PURE w.r.t. its input: alias-type rewrites and synonym normalization build a NEW
-    block dict (a shallow copy is enough — only top-level keys are reassigned/popped),
-    so the caller's proof-bound block is never mutated.
-    """
+    The single source of truth for canonicalization, shared by `render_block` and the substance
+    predicate (`tools/blocks.py`) so the gate sees the SAME canonical fields the renderer reads."""
+    if not isinstance(block, dict):
+        return None, block
     block_type = block.get("type", "paragraph")
+    if not isinstance(block_type, str):
+        return None, block
     if block_type in _BLOCK_TYPE_ALIASES:
         block_type = _BLOCK_TYPE_ALIASES[block_type]
         block = {**block, "type": block_type}
-    fn = RENDERERS.get(block_type)
-    if fn is None:
-        return f'<!-- unknown block type: {html.escape(block_type)} -->'
-
-    # Apply field synonyms (e.g. content → text for paragraph)
     schema = BLOCK_SCHEMAS.get(block_type)
     if schema:
         synonyms = schema.get("synonyms", {})
@@ -1225,16 +1238,42 @@ def render_block(block: dict) -> str:
             for syn, canonical in synonyms.items():
                 if syn in block and canonical not in block:
                     block[canonical] = block.pop(syn)
+    return block_type, block
 
-    return fn(block)
+
+def render_block(block: dict) -> str:
+    """Dispatch a single block to its renderer.
+
+    Unknown block type → an HTML comment, never an exception. Field synonyms are
+    normalized to the canonical field the renderer expects (via `canonical_block`).
+
+    PURE w.r.t. its input: alias-type rewrites and synonym normalization build a NEW
+    block dict, so the caller's proof-bound block is never mutated.
+    """
+    if not isinstance(block, dict):  # fail-closed: a non-dict block degrades, never crashes
+        return "<!-- malformed block: not a mapping -->"
+    raw_type = block.get("type", "paragraph")
+    if not isinstance(raw_type, str):  # a non-string type can't alias/dispatch — degrade
+        return f'<!-- malformed block type: {html.escape(str(raw_type))} -->'
+    block_type, block = canonical_block(block)
+    fn = RENDERERS.get(block_type)
+    if fn is None:
+        return f'<!-- unknown block type: {html.escape(block_type)} -->'
+    try:
+        return fn(block)
+    except Exception:  # fail-closed backstop: any malformed payload (e.g. `lines: null`, a
+        # non-dict nested entry) degrades to a comment — render NEVER crashes the page.
+        return f'<!-- block render error: {html.escape(block_type)} -->'
 
 
 def render_section(section: dict) -> str:
     """Render a section with title and blocks."""
+    if not isinstance(section, dict):  # fail-closed: a non-dict section degrades, never crashes
+        return ""
     parts = ['<div class="section">']
     if section.get("title"):
         parts.append(f'<h2 class="section-title">{render_text(section["title"])}</h2>')
-    for block in section.get("blocks", []):
+    for block in (section.get("blocks") or []):  # `or []` — an explicit null blocks is not iterable
         parts.append(render_block(block))
     parts.append('</div>')
     return "\n".join(parts)
@@ -1256,11 +1295,13 @@ def render_executive_summary(items: list) -> str:
 def _render_metrics_items(items: list) -> str:
     """Render a metrics grid from a list of {value, label} items."""
     parts = ['<div class="metrics-grid">']
-    for m in items:
+    for m in items if isinstance(items, list) else []:
+        if not isinstance(m, dict):  # fail-closed: a non-dict item has no value/label
+            continue
         parts.append(
             f'<div class="metric-card">'
-            f'<div class="metric-value">{render_text(m["value"])}</div>'
-            f'<div class="metric-label">{render_text(m["label"])}</div>'
+            f'<div class="metric-value">{render_text(m.get("value", ""))}</div>'
+            f'<div class="metric-label">{render_text(m.get("label", ""))}</div>'
             f'</div>'
         )
     parts.append('</div>')
@@ -1295,10 +1336,10 @@ def spec_to_html(spec: dict) -> str:
     if spec.get("metrics"):
         parts.append(_render_metrics_items(spec["metrics"]))
 
-    for section in spec.get("sections", []):
+    for section in (spec.get("sections") or []):  # `or []` — explicit null is not iterable
         parts.append(render_section(section))
 
-    for section in spec.get("additional_sections", []):
+    for section in (spec.get("additional_sections") or []):
         parts.append(render_section(section))
 
     if spec.get("bibliography"):

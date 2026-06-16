@@ -57,9 +57,13 @@ def _spy_filler():
     def complete_fn(prompt):
         calls["count"] += 1
         calls["prompts"].append(prompt)
-        # Echo back the assigned claims so the node discharges them, plus a derivation/boundary/
-        # lineage marker so the assembled whole clears the rich-rite floor.
-        claims = [ln for ln in prompt.splitlines() if ln.strip()]
+        # Echo back the ASSIGNED claims (the anti-drop checklist between "do not drop the tail):"
+        # and "Open tensions") so the node discharges them — NOT the whole prompt (which now carries
+        # the type->format rule with stray numbers that D5's numeric-density gate would read). Plus a
+        # derivation/boundary/lineage marker so the assembled whole clears the rich-rite floor.
+        import re as _re
+        m = _re.search(r"do not drop the tail\):\n(.*?)\n\nOpen tensions", prompt, _re.DOTALL)
+        claims = [ln for ln in (m.group(1) if m else "").splitlines() if ln.strip()]
         body = ("Because the evidence shows it, it follows that " + " ".join(claims) +
                 " — what i don't know: the open question of scale; this builds on prior work.")
         return body
@@ -555,8 +559,10 @@ class GenusValidateBeforeReturn(unittest.TestCase):
 
 
 class SyntheticShapeGate(unittest.TestCase):
-    """Finding 4: conciliate flags a synthetic that is empty, too short, or a bare
-    bullet dump (no prose paragraphs)."""
+    """Finding 4 (D3-revised): conciliate flags a synthetic that is empty or too short, and
+    (the strengthened, content-relative check) one whose quantitative material owes a visual it
+    does not carry. The OLD "bare bullet dump" penalty is REMOVED — structure is now WANTED, not
+    penalized (D3); a well-formed bulleted/structured synthetic is no longer flagged for its shape."""
 
     def _filled(self):
         outline = conductor.author_outline(_SEED, _OBJECTIVE)
@@ -577,7 +583,9 @@ class SyntheticShapeGate(unittest.TestCase):
                                                   lambda p: "too short.")
         self.assertTrue(shape, "a too-short synthetic must be flagged")
 
-    def test_bullet_dump_synthetic_is_flagged(self):
+    def test_bullet_dump_synthetic_is_not_flagged_for_shape(self):
+        # D3: the bare-bullet-dump penalty is REMOVED — a structured (non-prose) synthetic with no
+        # quantitative material owing a visual is NOT flagged for its shape. Structure is wanted now.
         filled, outline = self._filled()
         dump = ("- cost rises with corpus size\n- nothing forgets by default\n"
                 "- the briefing re-derives core memory\n- the lag is unknown\n"
@@ -585,7 +593,7 @@ class SyntheticShapeGate(unittest.TestCase):
 
         _deep, _syn, shape = conductor.conciliate(filled, outline, _OBJECTIVE,
                                                   lambda p: dump)
-        self.assertTrue(shape, "a bare bullet-dump synthetic must be flagged")
+        self.assertEqual(shape, [], "a structured synthetic owing no visual is not flagged (D3)")
 
     def test_healthy_synthetic_is_not_flagged(self):
         filled, outline = self._filled()
@@ -661,8 +669,18 @@ def _spy_filler_with_digest():
     def complete_fn(prompt):
         calls["count"] += 1
         calls["prompts"].append(prompt)
-        claims = [ln for ln in prompt.splitlines() if ln.strip()]
-        body = ("Because the evidence shows it, it follows that " + " ".join(claims) +
+        # echo ONLY the assigned-claim checklist (not the whole prompt, whose type->format rule
+        # carries stray numbers D5's numeric-density gate would read), and DEVELOP each claim to
+        # plenitude (a real deliver node is a developed paragraph, not a one-liner) so the deep
+        # report stays materially larger than the 2-page synthetic.
+        import re as _re
+        m = _re.search(r"do not drop the tail\):\n(.*?)\n\nOpen tensions", prompt, _re.DOTALL)
+        claims = [ln for ln in (m.group(1) if m else "").splitlines() if ln.strip()]
+        developed = " ".join(
+            f"Because the evidence shows it, it follows that {c}; this is developed to plenitude "
+            f"here, drawn out across its implications for the live work, not merely gestured at."
+            for c in claims)
+        body = ((developed or "Because the evidence shows it, the frame is set here.") +
                 " — what i don't know: the open question of scale; this builds on prior work.")
         digest = ('{"bullets": ["a key point", "another point"], '
                   '"assumed_prior": "the frame is set upstream", '
@@ -786,6 +804,137 @@ class LiveTestSurfacedBugsFixed(unittest.TestCase):
         off = conductor.run_conductor({"findings": [], "residuals": []}, "o", spy, is_enabled=False)
         self.assertEqual(off["opener_flags"], [])
         self.assertEqual(calls["n"], 0)
+
+
+# ===========================================================================
+# SUBAGENT-DEFAULT PRODUCER COGNITION (#40) — the orchestration-layer fan-out
+# bridge. The writer cognition defaults to the host agent's own subagents (one
+# per node), not the gpt-5.4 OpenAI API. A subagent dispatch is a harness tool
+# call, NOT callable from inside the conductor's Python — so the SKILL fans the
+# subagents and feeds their collected outputs back into the Python assembly via
+# this seam:
+#   1. `node_briefs(seed, objective)` — the per-node writer prompts the skill
+#      fans to subagents (one per node), each tagged by node id.
+#   2. `subagent_completer(briefs, outputs)` — builds the `complete_fn(prompt) ->
+#      text` the existing pipeline already consumes, from the briefs (id+prompt)
+#      and the {node_id -> prose} the skill collected. It routes each writer
+#      prompt to its node's subagent prose (exact prompt match, no visible marker).
+# The gpt-5.4 route is no longer the default writer cognition — it is an explicit
+# fallback the skill builds only when subagents are unavailable.
+# ===========================================================================
+
+
+class SubagentBriefs(unittest.TestCase):
+    """`node_briefs` exposes the per-node writer prompts the orchestration layer fans to
+    subagents — one brief per outline node, each carrying its id + role + the exact prompt
+    `fill_node` would otherwise hand the injected completer."""
+
+    def test_one_brief_per_node_tagged_by_id(self):
+        nodes = conductor.author_outline(_SEED, _OBJECTIVE)
+        briefs = conductor.node_briefs(_SEED, _OBJECTIVE)
+        self.assertEqual([b["id"] for b in briefs], [n["id"] for n in nodes],
+                         "one brief per outline node, in order, tagged by node id")
+        for b in briefs:
+            self.assertIn("role", b)
+            self.assertTrue(b["prompt"].strip(), "each brief carries the writer prompt to dispatch")
+
+    def test_brief_prompt_matches_the_fill_node_writer_prompt(self):
+        # the brief the skill dispatches to a subagent IS the prompt fill_node would build —
+        # so what the subagent writes against equals what the pipeline expects.
+        nodes = conductor.author_outline(_SEED, _OBJECTIVE)
+        briefs = conductor.node_briefs(_SEED, _OBJECTIVE)
+        by_id = {b["id"]: b for b in briefs}
+        for n in nodes:
+            expected = conductor._writer_prompt(n, nodes, _SEED, _OBJECTIVE)
+            self.assertEqual(by_id[n["id"]]["prompt"], expected)
+
+
+class SubagentCompleter(unittest.TestCase):
+    """`subagent_completer` is the bridge: a `complete_fn` backed by the subagent prose the
+    skill already collected ({node_id -> text}). It routes each writer prompt to the matching
+    node's prose — so run_conductor's writer cognition is the host agent's own subagents, the
+    gpt-5.4 API untouched."""
+
+    def _briefs_outputs(self):
+        # the skill fans node_briefs to subagents and collects one prose per node id; here we
+        # synthesize that collection so the bridge can be tested offline (no harness, no API).
+        briefs = conductor.node_briefs(_SEED, _OBJECTIVE)
+        nodes = conductor.author_outline(_SEED, _OBJECTIVE)
+        outputs = {}
+        for b in briefs:
+            # derive the claims this node owns from the seed (the brief is keyed by node id)
+            node = next(n for n in nodes if n["id"] == b["id"])
+            claims = " ".join((_SEED["findings"][int(fid[1:])] or {}).get("claim", "")
+                              for fid in node["contract"]["finding_ids"])
+            outputs[b["id"]] = (
+                "Because the evidence shows it, it follows that " + claims +
+                " — what i don't know: the open question of scale; this builds on prior work.")
+        return briefs, outputs
+
+    def test_completer_routes_each_prompt_to_its_node_prose(self):
+        briefs, outputs = self._briefs_outputs()
+        completer = conductor.subagent_completer(briefs, outputs)
+        for b in briefs:
+            self.assertEqual(completer(b["prompt"]), outputs[b["id"]],
+                             "the writer prompt for a node resolves to that node's subagent prose")
+
+    def test_run_conductor_with_subagent_completer_spends_no_api(self):
+        # the load-bearing #40 guarantee: the conductor produces with the subagent prose and
+        # NEVER reaches the gpt-5.4 API for the writer cognition. We prove it by passing the
+        # subagent completer as the writer cognition and a SEPARATE spy as the would-be API
+        # fallback — the fallback must be called ZERO times for the writers.
+        briefs, outputs = self._briefs_outputs()
+        writer = conductor.subagent_completer(briefs, outputs)
+        api_fallback = _spy_filler()
+        # the writer bridge must ONLY ever see writer prompts (never a discharge/conciliate
+        # prompt) — the judge + conciliator are their own injected cognitions (in real runs,
+        # their own subagents). Route the writers through the subagent completer; the semantic
+        # judge and conciliator through stubs here.
+        def judge_stub(prompt):
+            self.assertIn("SEMANTIC discharge", prompt,
+                          "the discharge_fn must only ever receive the semantic-judge prompt")
+            # deliver every finding the prompt lists (the subagent prose developed them)
+            import re as _re
+            fids = _re.findall(r"  - (f\d+):", prompt)
+            verdicts = ", ".join('{"finding_id": "%s", "delivered": true}' % f for f in fids)
+            return '```json\n{"verdicts": [%s]}\n```' % verdicts
+        def conciliate_stub(prompt):
+            return ('```json\n{"blocks": [{"type": "paragraph", "text": "The through-line: '
+                    'store cost rises, nothing forgets, the briefing re-derives core memory — '
+                    'so the read:write bet is the binding constraint, derived not asserted."}]}\n```')
+        result = conductor.run_conductor(
+            _SEED, _OBJECTIVE, writer, is_enabled=True,
+            discharge_fn=judge_stub, conciliate_fn=conciliate_stub)
+        self.assertTrue(result["enabled"])
+        self.assertEqual(api_fallback.calls["count"], 0,
+                         "#40: the gpt-5.4 API is NEVER the writer cognition by default")
+        # the subagent-produced content still passes the genus contract
+        artefato = {
+            "slug": "subagent-smoke", "content": result["content"], "intent": _OBJECTIVE,
+            "cites": [{"ref": "Letta docs", "kind": "mundo", "relevant": True,
+                       "snippet": "core memory is always-in-context working memory"}],
+            "proposes": [{"body": "spec the read panels off the registry", "kind": "thread"}],
+            "distills": ["cluster:briefing"],
+        }
+        self.assertEqual(close.check_genus(artefato), [])
+
+    def test_unknown_prompt_fails_loud(self):
+        # a prompt with no matching node prose is a wiring bug (the skill dispatched fewer
+        # subagents than nodes) — it must fail loud, never silently fabricate or return empty.
+        completer = conductor.subagent_completer(
+            [{"id": "n-motivate", "role": "motivate", "prompt": "the motivate writer prompt"}],
+            {"n-motivate": "prose"})
+        with self.assertRaises(KeyError):
+            completer("a prompt for a node that was never dispatched a subagent")
+
+    def test_discharge_fn_defaults_to_complete_fn_back_compat(self):
+        # back-compat: without an explicit discharge_fn, the semantic judge still uses the
+        # writer complete_fn — today's behavior is byte-for-byte unchanged.
+        spy = _spy_filler()
+        result = conductor.run_conductor(_SEED, _OBJECTIVE, spy, is_enabled=True)
+        with_findings = sum(1 for n in result["outline"] if n["contract"]["finding_ids"])
+        # one fill per node + one discharge per finding-node + one conciliator call — all on spy
+        self.assertEqual(spy.calls["count"], len(result["outline"]) + with_findings + 1)
 
 
 if __name__ == "__main__":

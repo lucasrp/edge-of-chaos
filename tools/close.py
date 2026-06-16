@@ -21,6 +21,7 @@ import secrets
 from render import BLOCK_SCHEMAS, _BLOCK_TYPE_ALIASES
 import render
 import producer_descriptor
+import blocks as block_validation
 
 # ---------------------------------------------------------------------------
 # Genus contract constants — the pinned field shapes + the visual palette
@@ -45,6 +46,22 @@ VISUAL_BLOCK_TYPES = frozenset({
 # aliases) with enough data rows is the trigger; the threshold mirrors the task spec.
 DATA_TABLE_TYPES = frozenset({"table", "key-value", "kv", "data-table", "stat-row"})
 QUANTITATIVE_ROW_THRESHOLD = 3
+
+# D5 — the numeric-density quant-prose trigger. Prose carrying >= this many DISTINCT numeric
+# magnitudes owes a visual just as a dense table does (the conductor's failure mode: quantitative
+# PROSE, no tables). Numeric-density ONLY — years and version tokens are excluded so dates/versions
+# never falsely trip; there is NO comparison-word branch (comparison structure is the writer's job).
+QUANT_PROSE_TOKENS = 3
+# A numeric magnitude: a number with an optional unit suffix. The leading \b and the requirement of
+# a digit-led token keep it from matching mid-word.
+_MAGNITUDE_RE = re.compile(
+    r"\b\d[\d.,]*\s?(?:%|x|×|k|m|bn|ms|s|kb|mb|gb)?\b", re.IGNORECASE)
+# Excluded magnitudes: 4-digit years and TRUE version tokens — v-prefixed (v1.9 / v1.9.0) or
+# 3+-component semver (1.9.0). A bare decimal like 0.91 or 1.5% is a MAGNITUDE, not a version.
+_YEAR_RE = re.compile(r"\b(?:19\d\d|20\d\d)\b")
+_VERSION_RE = re.compile(r"\bv\d+(?:\.\d+)+\b|\b\d+\.\d+\.\d+\b", re.IGNORECASE)
+# Full dates — stripped WHOLE so their day/month components (01, 15) never count as magnitudes.
+_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}/\d{2,4}\b|\b\d{4}-\d{2}\b")
 
 # ---------------------------------------------------------------------------
 # The rich-rite floor (#30) — content-relative property gates on the cognitive
@@ -208,28 +225,69 @@ def _check_evidence_anchors(content: dict) -> list[str]:
     return violations
 
 
+def _type(block: dict) -> str:
+    """The block's CANONICAL type (alias-resolved), defaulting to paragraph."""
+    raw = block.get("type", "paragraph") if isinstance(block, dict) else "paragraph"
+    return _BLOCK_TYPE_ALIASES.get(raw, raw)
+
+
+def _visual_substantive(block: dict, block_type: str) -> bool:
+    """A block counts as a satisfying visual iff it is a VISUAL_BLOCK_TYPES member AND it renders
+    safe + carries a substantive payload (the single rule, via `blocks.normalize_block` — never the
+    type-only test). chart/diagram renderability is folded into that predicate."""
+    if block_type not in VISUAL_BLOCK_TYPES:
+        return False
+    return block_validation.normalize_block(block) is not None
+
+
+def _metrics_substantive(metrics) -> bool:
+    """Top-level `content.metrics` is itself a visual; validate it with the SAME metrics-grid item
+    rule (>= 1 item with both value+label) so a hollow top-level metrics never clears a gate."""
+    return block_validation.metrics_grid_substantive({"items": metrics})
+
+
+def _numeric_dense(text: str) -> bool:
+    """True iff `text` carries >= QUANT_PROSE_TOKENS DISTINCT numeric magnitudes, EXCLUDING 4-digit
+    years and version tokens — D5's quant-prose trigger (numeric-density only, no comparison-word
+    branch). Distinct so '42% 42% 42%' is one magnitude, not three."""
+    if not isinstance(text, str) or not text:
+        return False
+    # strip full dates, version tokens, and years FIRST so their digits never count as magnitudes.
+    scrubbed = _DATE_RE.sub(" ", text)
+    scrubbed = _VERSION_RE.sub(" ", scrubbed)
+    scrubbed = _YEAR_RE.sub(" ", scrubbed)
+    magnitudes = {m.group(0).strip().lower() for m in _MAGNITUDE_RE.finditer(scrubbed)
+                  if m.group(0).strip()}
+    return len(magnitudes) >= QUANT_PROSE_TOKENS
+
+
+def _nonvisual_text(block: dict) -> str:
+    """The substantive prose text a NON-VISUAL block carries (the `_block_text` idiom — excludes the
+    heading/label/header fields), for the numeric-density scan."""
+    return _block_text(block)
+
+
 def _check_visual_coverage(content: dict) -> list[str]:
     """Flag "visual-coverage" iff the content has quantitative/multi-value material
-    but no visual palette element. Content with no quantitative material owes none.
-    Traverses the FULL render tree (#7): top-level metrics is itself a visual; dense tables
-    anywhere render touches — sections AND additional_sections — count."""
+    but no SUBSTANTIVE visual palette element. Content with no quantitative material owes none.
+    Traverses the FULL render tree (#7): top-level metrics is itself a visual (validated with the
+    metrics-grid item rule); dense tables AND numeric-dense prose (D5) anywhere render touches —
+    sections AND additional_sections — count as the quantitative trigger. A visual satisfies the
+    owe only if it renders safe AND carries a substantive payload (D6) — a hollow/header-only block
+    no longer clears it."""
     has_quantitative = False
-    has_visual = bool(content.get("metrics"))  # top-level metrics grid is a visual
+    has_visual = _metrics_substantive(content.get("metrics"))  # top-level metrics grid is a visual
     for block in _iter_blocks(content):
-        raw_type = block.get("type", "paragraph")
-        block_type = _BLOCK_TYPE_ALIASES.get(raw_type, raw_type)  # canonicalize (graphviz->diagram, kpi-grid->metrics-grid)
-        if block_type in VISUAL_BLOCK_TYPES:
-            # a chart/diagram only counts as a real visual if it would ACTUALLY render (vl-convert
-            # present + the recipe validates + renders) — the renderable-not-just-present rule.
-            if block_type == "diagram":
-                if render.diagram_renderable(block):
-                    has_visual = True
-            elif block_type == "chart":
-                if render.chart_renderable(block):
-                    has_visual = True
-            else:
-                has_visual = True
+        block_type = _type(block)  # canonicalize (graphviz->diagram, kpi-grid->metrics-grid)
+        substantive_visual = _visual_substantive(block, block_type)
+        if substantive_visual:
+            has_visual = True
         if _is_dense_table(block, block_type):
+            has_quantitative = True
+        # D5: a NON-VISUAL block burying >= QUANT_PROSE_TOKENS magnitudes in its prose is the
+        # quantitative trigger too (a real visual is excluded — already credited by substance,
+        # so a metrics-grid of the numbers does not self-trip).
+        elif not substantive_visual and _numeric_dense(_nonvisual_text(block)):
             has_quantitative = True
     if has_quantitative and not has_visual:
         return ["visual-coverage"]
