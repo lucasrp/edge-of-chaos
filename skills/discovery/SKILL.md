@@ -114,12 +114,13 @@ publish_fn:
         proposes=[{'body':'…','kind':'lens'}]  # [] if a standalone bizu ; \
         distills=['cluster:<label>']  # the existing threads it connects to — [] if none fits ; \
         cites=[{'ref':'<source-key>','kind':'mundo','relevant':True,'snippet':'<the text you used>'}]; \
+        lineage=[{'type':'builds_on','slug':'<prior-slug>'}]  # [] if none — the prior R1's surf OFFERS ; \
         artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
-          'cites':cites,'distills':distills,'skill':'discovery'}; \
+          'cites':cites,'distills':distills,'skill':'discovery','lineage':lineage}; \
         pub=publisher.publish; \
         publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
           skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
-          cites=art['cites']); \
+          cites=art['cites'], lineage=art['lineage']); \
         # WIRE REAL RE-PRODUCTION (#30): improve_fn(art, feedback) REVISES the draft from the \
         # reviewers' rationales+strikes — incl. a rich-rite floor strike (derivation / \
         # what-i-dont-know / external-frame / lineage). run_close loops it IMPROVE_ROUNDS=2 BEFORE \
