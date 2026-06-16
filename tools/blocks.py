@@ -49,11 +49,13 @@ def metrics_grid_substantive(block: dict) -> bool:
 
 
 def _comparison_table_substantive(block: dict) -> bool:
-    """>= 1 row with non-empty `cells` (headers alone never qualify)."""
+    """>= 1 row whose `cells` is a non-empty LIST with a nonblank entry (headers alone never
+    qualify; a scalar `cells` renders nothing, so it is not substantive — Codex P2)."""
     rows = block.get("rows")
     if not isinstance(rows, list):
         return False
-    return any(isinstance(r, dict) and _nonblank(r.get("cells")) for r in rows)
+    return any(isinstance(r, dict) and isinstance(r.get("cells"), (list, tuple))
+               and any(_nonblank(c) for c in r["cells"]) for r in rows)
 
 
 def _diff_block_substantive(block: dict) -> bool:

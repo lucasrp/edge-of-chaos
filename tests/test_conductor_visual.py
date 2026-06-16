@@ -322,6 +322,25 @@ class WriterProsePreserved(unittest.TestCase):
         self.assertIn("metrics-grid", {b.get("type") for b in filled["blocks"]})
 
 
+class NodeTextExcludesChrome(unittest.TestCase):
+    # Codex P2 (review r6): a claim placed only in block chrome (title/header) must NOT count toward
+    # contract discharge; nested payload (prose, bullets, metric labels, cells) must.
+    def test_chrome_excluded_payload_counted(self):
+        node = {"blocks": [
+            {"type": "metrics-grid", "title": "CHROMECLAIM",
+             "items": [{"value": "3x", "label": "PAYLOADLABEL"}]},
+            {"type": "comparison-table", "header": "ALSO_CHROME",
+             "rows": [{"cells": ["CELLPAYLOAD", "x"]}]},
+            {"type": "paragraph", "text": "PROSEPAYLOAD here"},
+        ]}
+        txt = conductor._node_text(node)
+        self.assertNotIn("CHROMECLAIM", txt)
+        self.assertNotIn("ALSO_CHROME", txt)
+        self.assertIn("PAYLOADLABEL", txt)
+        self.assertIn("CELLPAYLOAD", txt)
+        self.assertIn("PROSEPAYLOAD", txt)
+
+
 class SyntheticEmptyEnvelopeFlagged(unittest.TestCase):
     # Codex P2 (review r4): a conciliator returning ONLY a fenced envelope whose blocks all drop
     # must flag "synthetic is empty", not render the raw JSON as prose.

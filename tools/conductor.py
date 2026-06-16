@@ -24,6 +24,14 @@ node's `finding_ids` are its responsibility + anti-drop checklist, so two writer
 the same finding. The model call is INJECTED (`complete_fn`) so the logic tests offline, exactly
 like close.py's reviewers and excavate.py.
 
+The writer cognition DEFAULTS to the host agent's OWN subagents, not the gpt-5.4 OpenAI API (#40):
+the writer call is a synchronous in-process Python call, but a subagent dispatch is a harness tool
+call the Python cannot make — so the SKILL fans one subagent per node and feeds the collected prose
+back through the orchestration-layer bridge (`node_briefs` → fan subagents → `subagent_completer`).
+The gpt-5.4 route (`_llm.make_client` on the chat router) is then an explicit FALLBACK passed as
+`complete_fn`, never the default. The semantic judge (`discharge_fn`) and conciliator
+(`conciliate_fn`) are their own injected cognitions (their own subagents under #40).
+
 Gated by EDGE_CONDUCTOR (off => passthrough, today's single-producer pipeline byte-for-byte AND
 zero model spend).
 """
@@ -226,6 +234,57 @@ def _writer_prompt(node: dict, outline: list[dict], seed: dict, objective: str) 
     )
 
 
+# ---------------------------------------------------------------------------
+# The subagent-default bridge (#40) — the orchestration-layer fan-out seam. The writer cognition
+# defaults to the host agent's OWN subagents (one per node), not the gpt-5.4 OpenAI API. A subagent
+# dispatch is a harness tool call (Agent/Task), NOT callable from inside this Python — so the SKILL
+# fans the subagents and feeds their collected outputs back in through this seam:
+#   node_briefs(seed, objective)      -> [{id, role, prompt}], one per outline node (what to dispatch)
+#   subagent_completer(briefs, outputs) -> the complete_fn(prompt)->text the pipeline already consumes
+# The Python keeps the structure (outline → fill → gate → assemble); the WRITING is the subagents'.
+# The gpt-5.4 route is no longer the default — it is an explicit fallback the skill builds only when
+# subagents are unavailable, and passes as `complete_fn` exactly as before.
+# ---------------------------------------------------------------------------
+
+def node_briefs(seed: dict, objective: str) -> list[dict]:
+    """The per-node writer briefs the orchestration layer fans to subagents — one per outline
+    node, in arc order, each carrying its `id`, `role`, and the exact `prompt` `fill_node` would
+    otherwise hand the injected completer. The skill dispatches one subagent per brief, collects
+    `{node_id -> prose}`, and hands both back to `subagent_completer`. This is the only point a
+    subagent dispatch is reachable (the skill layer); the Python cannot dispatch one itself."""
+    nodes = author_outline(seed, objective)
+    return [
+        {"id": n["id"], "role": n["role"],
+         "prompt": _writer_prompt(n, nodes, seed, objective)}
+        for n in nodes
+    ]
+
+
+def subagent_completer(briefs: list[dict], outputs: dict):
+    """Build the `complete_fn(prompt) -> text` the existing pipeline consumes, backed by the
+    subagent prose the skill already collected. Each brief maps a node's writer `prompt` to its
+    `id`; `outputs` maps `id -> prose`. The returned completer resolves an incoming writer prompt
+    by EXACT match to its brief, then returns that node's subagent prose — so `run_conductor`'s
+    writer cognition is the host agent's own subagents, the gpt-5.4 API never touched.
+
+    A prompt with no matching brief, or a node with no collected prose, is a wiring bug (the skill
+    dispatched fewer subagents than nodes) — it FAILS LOUD (KeyError), never fabricates or returns
+    empty. The completer only ever sees WRITER prompts: the semantic judge and the conciliator are
+    their own injected cognitions (`run_conductor`'s `discharge_fn` / `conciliate_fn`)."""
+    prompt_to_id = {b["prompt"]: b["id"] for b in briefs}
+
+    def complete_fn(prompt: str) -> str:
+        node_id = prompt_to_id.get(prompt)
+        if node_id is None:
+            raise KeyError("subagent_completer: no brief matches this writer prompt "
+                           "(the orchestration layer dispatched fewer subagents than nodes)")
+        if node_id not in outputs:
+            raise KeyError(f"subagent_completer: no subagent prose collected for node {node_id!r}")
+        return outputs[node_id]
+
+    return complete_fn
+
+
 # The type->format rule (compact inline of skills/_shared/scaffold.md:114-135) — which block fits
 # which content shape (property-not-section, ADR-0012/0013). The conductor's writers were taught
 # NONE of it (D1), so they answered every shape with a paragraph; injecting it is the producer fix.
@@ -399,12 +458,36 @@ def fill_node(node: dict, seed: dict, objective: str, complete_fn, *, outline=No
 # The mechanical contract gate — deterministic code (check_genus-style), never an LLM.
 # ---------------------------------------------------------------------------
 
+# Block chrome — heading/label/type fields that are NOT delivered prose; excluded (at the BLOCK
+# level) from the contract gate's text so a claim placed only in a `title`/`header` cannot spoof
+# discharge (Codex P2). Nested payload (a metric item's label, a table cell, a bullet) still counts.
+_BLOCK_CHROME_FIELDS = frozenset({"type", "title", "label", "header", "headers", "variant",
+                                  "badge", "badge_class", "style"})
+
+
+def _strings(v) -> list:
+    """Every string nested anywhere in `v` (lists/dicts at any depth) — the substantive payload."""
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, list):
+        return [s for x in v for s in _strings(x)]
+    if isinstance(v, dict):
+        return [s for x in v.values() for s in _strings(x)]
+    return []
+
+
 def _node_text(node: dict) -> str:
+    """The SUBSTANTIVE text a node's blocks carry (for the contract/opener gates). EXCLUDES BLOCK
+    chrome (type/title/label/header/headers/…) so a heading-only placeholder cannot spoof discharge,
+    but counts nested payload — paragraph text, bullets, metric labels, table cells."""
     parts = []
     for b in node.get("blocks") or []:
-        for v in b.values():
-            if isinstance(v, str):
-                parts.append(v)
+        if not isinstance(b, dict):
+            continue
+        for k, v in b.items():
+            if k in _BLOCK_CHROME_FIELDS:
+                continue
+            parts.extend(_strings(v))
     return " ".join(parts)
 
 
@@ -817,16 +900,20 @@ def opener_violations(nodes: list[dict]) -> list[dict]:
 
 
 def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
-                  conciliate_fn=None) -> dict:
+                  conciliate_fn=None, discharge_fn=None) -> dict:
     """Run the conductor pipeline. OFF (default) => passthrough, ZERO model spend (today's
     single-producer pipeline is unchanged). ON => author the place-aware outline from the seed,
     fill each node (the writer sees the whole-outline map and writes as a continuation), gate it
     mechanically, drive to `final`, then CONCILIATE the digests into the TWO altitudes.
 
     `is_enabled` overrides the env flag (for tests / explicit callers); otherwise EDGE_CONDUCTOR
-    decides. `complete_fn` is the injected producer cognition (prompt -> text). `conciliate_fn`
-    is the injected conciliator cognition; it defaults to `complete_fn` (real runs pass the
-    make_client-backed completer for both).
+    decides. `complete_fn` is the injected WRITER cognition (prompt -> text). The subagent-default
+    path (#40) passes `subagent_completer(briefs, outputs)` here — the writers are the host agent's
+    own subagents, no gpt-5.4 API; the gpt-5.4 route is an explicit fallback the skill builds only
+    when subagents are unavailable. `conciliate_fn` is the injected conciliator cognition and
+    `discharge_fn` the injected semantic-judge cognition; BOTH default to `complete_fn` (today's
+    behavior, byte-for-byte). Under the subagent-default path each is its OWN subagent, so the
+    writer bridge only ever sees writer prompts.
 
     Each filled node carries BOTH gates: the mechanical `gate` (the deterministic contract_gate)
     AND a semantic `discharge` (the injected per-finding semantic_discharge verdicts) — a node
@@ -853,7 +940,9 @@ def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
         filled["gate"] = contract_gate(filled, seed)
         # The SEMANTIC half of the contract review (#36) — enforced, not just defined: a node whose
         # assigned findings the judge ruled NOT delivered is flagged, so it can block the pipeline.
-        filled["discharge"] = semantic_discharge(filled, seed, complete_fn)
+        # The judge is its own injected cognition (`discharge_fn`, a subagent under #40); defaults
+        # to `complete_fn` so today's single-completer behavior is unchanged.
+        filled["discharge"] = semantic_discharge(filled, seed, discharge_fn or complete_fn)
         filled["status"] = advance(filled["status"])             # draft -> revised
         filled["status"] = advance(filled["status"])             # revised -> final
         final_nodes.append(filled)
