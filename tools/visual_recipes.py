@@ -71,8 +71,15 @@ def _apply_facet(spec, data, facet_field):
     for row in data:
         if not isinstance(row, dict) or facet_field not in row:
             return None, f"facet field {facet_field!r} missing from a data row"
-    # Lift the encoding/mark into a faceted spec; the inner view keeps the same encoding+mark.
+    # Lift the encoding/mark into a faceted spec; the inner view keeps the same encoding+mark. The
+    # faceted wrapper DROPS top-level width/height (D-F) — so each small-multiple cell must carry its
+    # own sizing, else the inner views auto-layout to portrait. Per-cell is smaller (landscape) since
+    # there are `columns` of them.
     inner = {"mark": spec["mark"], "encoding": spec["encoding"]}
+    cell_w = spec.get("width", 480)
+    cell_h = spec.get("height", 300)
+    inner["width"] = max(160, cell_w // 2)
+    inner["height"] = max(100, int(inner["width"] * (cell_h / cell_w))) if cell_w else 120
     faceted = {
         "$schema": spec["$schema"],
         "data": spec["data"],
@@ -86,9 +93,14 @@ def _apply_facet(spec, data, facet_field):
 
 
 def _vl_base(data_values):
+    # Default LANDSCAPE dimensions (D-F) — Vega-Lite auto-layout makes few-category charts tall/narrow
+    # portraits (the 288x405 2-bar mess). An explicit landscape default fixes it; sparkline overrides to
+    # 120x30 after this, and dag/force build their own Vega specs (untouched).
     return {
         "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
         "background": "white",
+        "width": 480,
+        "height": 300,
         "data": {"values": data_values},
     }
 
@@ -151,10 +163,18 @@ def chart_bar(payload):
     spec["mark"] = "bar"
     cat = {"field": "label", "type": "nominal"}
     val = {"field": "value", "type": "quantitative"}
-    if payload.get("horizontal"):
-        spec["encoding"] = {"y": cat, "x": val}
-    else:
-        spec["encoding"] = {"x": cat, "y": val}
+    horizontal = bool(payload.get("horizontal"))
+    x_enc, y_enc = (val, cat) if horizontal else (cat, val)
+    # Honor the producer's in-language axis titles by FINAL axis position (x_label → the x axis,
+    # y_label → the y axis) — assign AFTER the orientation swap so a horizontal bar doesn't get the
+    # titles crossed. Else Vega shows the raw field names 'label'/'value' (English-ish chrome).
+    xt = _axis_safe(payload["x_label"]) if _nonblank_str(payload.get("x_label")) else None
+    yt = _axis_safe(payload["y_label"]) if _nonblank_str(payload.get("y_label")) else None
+    x_enc = {**x_enc, "axis": {"title": xt}}
+    y_enc = {**y_enc, "axis": {"title": yt}}
+    if not horizontal:                       # category ticks on x → keep them horizontal (readable)
+        x_enc["axis"]["labelAngle"] = 0
+    spec["encoding"] = {"x": x_enc, "y": y_enc}
     if _nonblank_str(payload.get("title")):
         spec["title"] = payload["title"]
     return _apply_facet(spec, data, payload.get("facet"))

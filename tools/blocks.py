@@ -16,6 +16,8 @@ gate's `_visual_substantive(block, block_type) := normalize_block(block) is not 
 """
 from __future__ import annotations
 
+import re
+
 import render
 
 
@@ -40,12 +42,16 @@ def _nonblank(v) -> bool:
     return bool(v)
 
 
+def _metrics_quantitative_items(block: dict) -> list:
+    """The metric items whose `value` is quantitative AND have a nonblank `label` — delegated to the
+    render seam's `quantitative_metric_items` so the gate and the renderer share ONE filler rule (D-D)."""
+    return render.quantitative_metric_items(_items(block, "items", "metrics"))
+
+
 def metrics_grid_substantive(block: dict) -> bool:
-    """A metrics-grid (and its aliases) is substantive iff >= 1 item carries BOTH value+label."""
-    return any(
-        isinstance(it, dict) and _nonblank(it.get("value")) and _nonblank(it.get("label"))
-        for it in _items(block, "items", "metrics")
-    )
+    """A metrics-grid (and its aliases) is substantive iff >= 1 item has a QUANTITATIVE value + label
+    (D-D: a nonblank-but-textual value like "pré-CSS" is filler, not a metric)."""
+    return bool(_metrics_quantitative_items(block))
 
 
 def _comparison_table_substantive(block: dict) -> bool:
@@ -195,6 +201,15 @@ def normalize_block(block: dict):
     block_type, canon = render.canonical_block(block)
     if block_type is None:
         return None
+    # metrics-grid: ITEM-LEVEL filter (D-D) — a block-level keep/drop leaks filler in a MIXED grid
+    # (render emits EVERY item). Repair the block to only quantitative-value items; drop if none remain.
+    if block_type == "metrics-grid":
+        items = _metrics_quantitative_items(canon)
+        if not items:
+            return None
+        block = {k: v for k, v in block.items() if k != "metrics"}
+        block["items"] = items
+        block_type, canon = render.canonical_block(block)
     # Required-field gate — drop a block missing a render-required field (mirrors
     # close._check_block_schemas on the CANONICAL block, where synonyms are already resolved). This
     # keeps normalize and the genus gate in lockstep: a block that survives normalize can never trip

@@ -695,26 +695,35 @@ def _spy_filler_with_digest():
 class LiveTestSurfacedBugsFixed(unittest.TestCase):
     """The three defects the live deploy-smoke surfaced (2026-06-14), each fixed here."""
 
-    def test_boundary_block_text_does_not_repeat_its_title(self):
-        # bug #2: callout rendered "What I don't knowWhat I don't know:" (title + text mashed)
-        b = conductor._boundary_block([])
-        self.assertEqual(b["title"], "What I don't know")
-        self.assertNotIn("what i don't know", b["text"].lower())
+    def test_boundary_is_a_gap_table_block(self):
+        # structure-not-strings (Slice 1): the what-i-dont-know move is a gap-table BLOCK (satisfied
+        # BY TYPE), NOT an English callout carrying a keyword marker.
+        b = conductor._residual_gaps({"residuals": ["an open thread"]})
+        self.assertEqual(b["type"], "gap-table")
+        self.assertTrue(b["gaps"])
+        self.assertEqual(b["gaps"][0]["description"], "an open thread")
 
-    def test_assemble_boundary_text_does_not_repeat_its_title(self):
+    def test_assemble_boundary_is_a_gap_table_no_english_title(self):
         seed = {"findings": [{"claim": "c", "citation": "e", "bears_on": "b", "probe": "relevance"}],
                 "residuals": ["r1"]}
         spec = conductor.assemble([], seed, "obj")
-        oq = [s for s in spec["sections"] if s["title"] == "Open questions"][0]
-        self.assertNotIn("what i don't know", oq["blocks"][0]["text"].lower())
+        self.assertNotIn("Open questions", [s["title"] for s in spec["sections"]])
+        self.assertIn("gap-table", [b.get("type") for s in spec["sections"] for b in s["blocks"]])
 
-    def test_boundary_block_text_carries_a_what_i_dont_know_marker(self):
-        # dogfood regression: the dedup'd boundary text lost its marker (the title is excluded from
-        # the scan), so the deterministic boundary block failed rich-rite:what-i-dont-know on its own.
-        import close as _c
-        txt = conductor._boundary_block([])["text"].lower()
-        self.assertTrue(any(m in txt for m in _c.BOUNDARY_MARKERS),
-                        f"boundary text must carry a what-i-dont-know marker, got: {txt!r}")
+    def test_assumed_prior_is_never_rendered_as_a_gap(self):
+        # codex P2: `assumed_prior` is what a node took as ESTABLISHED upstream — the OPPOSITE of an
+        # open gap. With no real residuals, the boundary must be OMITTED, not filled with priors.
+        self.assertIsNone(conductor._residual_gaps({"residuals": []}))
+        seed = {"findings": [{"claim": "c", "citation": "e", "bears_on": "b", "probe": "relevance"}],
+                "residuals": []}
+        nodes = [{"role": "deliver", "contract": {"intent": "a", "finding_ids": []},
+                  "blocks": [{"type": "paragraph", "text": "developed prose here, real and full."}],
+                  "digest": {"bullets": [], "assumed_prior": "the upstream schema is fixed",
+                             "contribution": "develops the core claim to plenitude", "cross_refs": []}}]
+        spec = conductor.assemble(nodes, seed, "obj")
+        gap_descs = [g.get("description") for s in spec["sections"] for b in s["blocks"]
+                     if b.get("type") == "gap-table" for g in b.get("gaps", [])]
+        self.assertNotIn("the upstream schema is fixed", gap_descs)
 
     def test_assemble_boundary_satisfies_rich_rite_move(self):
         # the genus-level capture: with the rich-rite trigger tripped, the boundary block alone must
@@ -738,15 +747,17 @@ class LiveTestSurfacedBugsFixed(unittest.TestCase):
             {"digest": {"bullets": [], "assumed_prior": "",
                         "contribution": "this node establishes the medium boundary", "cross_refs": []}},
         ]
-        d = conductor._digest_derivation(nodes, "lead")
+        d = conductor._digest_derivation(nodes)
         self.assertEqual(d["bullets"], ["this node establishes the medium boundary"])
         self.assertNotIn("D", d["bullets"])
         self.assertNotIn("Esta.", d["bullets"])
 
-    def test_derivation_falls_back_to_lead_when_all_junk(self):
+    def test_derivation_returns_none_when_all_junk(self):
+        # codex P2: when EVERY contribution is junk ("x" fails _substantive), emit NO derivation block
+        # rather than rendering the raw fragment — the old raw-contributions fallback reintroduced the
+        # exact junk the filter suppresses. None lets the close gate flag the missing move honestly.
         nodes = [{"digest": {"bullets": [], "assumed_prior": "", "contribution": "x", "cross_refs": []}}]
-        d = conductor._digest_derivation(nodes, "the lead clause that is substantive")
-        self.assertEqual(d["bullets"], ["the lead clause that is substantive"])
+        self.assertIsNone(conductor._digest_derivation(nodes))
 
     def test_continuation_directive_discourages_formulaic_openers(self):
         # bug #1: 3 of 4 deliver nodes opened "That X matters more than it first appears to"

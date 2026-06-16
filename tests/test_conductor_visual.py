@@ -28,25 +28,28 @@ def _fixture_seed():
     """A seed whose findings each carry ONE type->format trigger (F1..F6). The finding `claim` is
     the anti-drop checklist; the fake writer keys its typed block off the finding-id position."""
     return {
+        # Slice 3: each finding ROUTES to a form via its probe/claim; the writer follows that per-node
+        # form guidance (de-collision spreads collisions across forms). NO finding routes to a chart —
+        # the visual invariant makes chart/diagram Slice-4-only.
         "findings": [
-            # F1 — 3+ values -> metrics-grid
-            {"claim": "three magnitudes move together under load",
-             "bears_on": "the throughput bet", "citation": "bench p.1"},
-            # F2 — a comparison -> comparison-table
-            {"claim": "the two retrieval strategies diverge on cost and recall",
-             "bears_on": "the strategy choice", "citation": "bench p.2"},
-            # F3 — before / after -> diff-block
-            {"claim": "the rewrite changes the close gate from advisory to blocking",
-             "bears_on": "the enforcement rail", "citation": "ADR-0012"},
-            # F4 — a reasoning chain -> derivation
-            {"claim": "the gate must bite on substance because type-only clears hollow blocks",
-             "bears_on": "the visual-coverage gate", "citation": "audit D6"},
-            # F5 — an open boundary -> gap-table
+            # F0 — surprise probe -> comparison-table
+            {"claim": "the expected store ordering did not hold under load",
+             "bears_on": "the throughput bet", "citation": "bench p.1", "probe": "surprise"},
+            # F1 — contradiction probe -> comparison-table -> de-collides to diff-block
+            {"claim": "the evidence undercuts the summary's own recall claim",
+             "bears_on": "the strategy choice", "citation": "bench p.2", "probe": "contradiction"},
+            # F2 — lineage probe -> derivation
+            {"claim": "the blocking gate idea traces back to the close protocol",
+             "bears_on": "the enforcement rail", "citation": "ADR-0012", "probe": "lineage"},
+            # F3 — before/after claim -> diff-block -> de-collides to table
+            {"claim": "the close gate was advisory before the rewrite and blocking after",
+             "bears_on": "the gate rail", "citation": "audit D6", "probe": "relevance"},
+            # F4 — an open boundary (prose; the writer's gap block is consolidated by reconcile)
             {"claim": "the live lag at 50 entities remains unmeasured",
-             "bears_on": "the eviction rail", "citation": "open"},
-            # F6 — quantitative data to plot -> chart
-            {"claim": "the cost curve is plottable across corpus sizes",
-             "bears_on": "the read:write bet", "citation": "bench p.3"},
+             "bears_on": "the eviction rail", "citation": "open", "probe": "relevance"},
+            # F5 — plain prose finding (no structured form owed)
+            {"claim": "the read path dominates the write path in this workload",
+             "bears_on": "the read:write bet", "citation": "bench p.3", "probe": "relevance"},
         ],
         "residuals": ["is the lag live at 50 entities?"],
         "enabled": True,
@@ -54,29 +57,30 @@ def _fixture_seed():
     }
 
 
-# The correct typed block per finding-id (f0..f5). Each is the SUBSTANTIVE canonical shape its
-# trigger owes — the writer's job under the type->format rule.
-def _typed_block(fid: str, claim: str) -> dict:
+# Slice 3: a SUBSTANTIVE block of the form the node's guidance asked for — the fake writer FOLLOWS
+# its per-node target_form (like a real subagent), so whatever de-collision assigned, the writer
+# emits it and it survives the form gate. None for prose-only / an unknown form.
+def _block_for_form(form: str) -> dict | None:
     return {
-        "f0": {"type": "metrics-grid", "items": [
-            {"value": "42%", "label": "cost"}, {"value": "30ms", "label": "latency"},
-            {"value": "3x", "label": "throughput"}]},
-        "f1": {"type": "comparison-table", "headers": ["dim", "dense", "sparse"], "rows": [
+        "metrics-grid": {"type": "metrics-grid", "items": [
+            {"value": "42%", "label": "cost"}, {"value": "3x", "label": "throughput"}]},
+        "comparison-table": {"type": "comparison-table", "headers": ["dim", "dense", "sparse"], "rows": [
             {"cells": ["cost", "high", "low"]}, {"cells": ["recall", "0.9", "0.7"]}]},
-        "f2": {"type": "diff-block", "header": "advisory -> blocking", "lines": [
+        "diff-block": {"type": "diff-block", "header": "advisory -> blocking", "lines": [
             {"type": "delete", "text": "the gate was advisory, computed and ignored"},
             {"type": "insert", "text": "the gate now bounces a flat spec through improve_fn"}]},
-        "f3": {"type": "derivation", "title": "Why substance, not type",
-               "text": "Because a type-only count clears a hollow block, it follows that the gate "
-                       "must read the payload.",
-               "bullets": ["type-only is payload-blind", "therefore read the payload"]},
-        "f4": {"type": "gap-table", "gaps": [
-            {"id": 1, "description": "live lag at 50 entities", "need": "a load test",
-             "status": "open"}]},
-        "f5": {"type": "chart", "chart": "bar", "data": [
-            {"label": "1k", "value": 10}, {"label": "10k", "value": 32},
-            {"label": "100k", "value": 71}]},
-    }[fid]
+        "derivation": {"type": "derivation",
+                       "bullets": ["type-only is payload-blind", "therefore read the payload"]},
+        "table": {"type": "table", "headers": ["k", "v"], "rows": [["a", "1"], ["b", "2"]]},
+        "gap-table": {"type": "gap-table", "gaps": [{"description": "an open thread on scale"}]},
+    }.get(form)
+
+
+def _form_in_prompt(prompt: str) -> str:
+    """Recover the per-node form the writer guidance asked for (Slice 3) — a real writer reads this
+    same line and emits exactly that block. '' when the node is prose-only."""
+    m = re.search(r"owes ONE structured block: a ([\w-]+)", prompt)
+    return m.group(1) if m else ""
 
 
 def _finding_id_in_prompt(prompt: str, seed: dict) -> str:
@@ -116,7 +120,10 @@ def _make_fake_writer(seed: dict):
                  "— what i don't know: the open question of scale; this builds on prior work.")
         if fid:
             claim = conductor._finding_by_id(seed, fid).get("claim", "")
-            blocks = [{"type": "paragraph", "text": prose}, _typed_block(fid, claim)]
+            blocks = [{"type": "paragraph", "text": prose}]
+            fb = _block_for_form(_form_in_prompt(prompt))   # follow the per-node form guidance
+            if fb:
+                blocks.append(fb)
             digest = _digest(fid)
             title = f"How {claim[:40]}"
         else:
@@ -216,11 +223,24 @@ class PerTriggerBlockPresent(unittest.TestCase):
             is_enabled=True, conciliate_fn=_make_recording_conciliator())
         self.deep = self.result["deep_spec"]
 
-    def test_per_trigger_block_present(self):
+    def test_forms_varied_and_no_drawn_visual(self):
+        # Slice 3: findings route to DISTINCT forms (de-collision) and the writer follows guidance,
+        # so the report is structurally VARIED — and the visual invariant holds: NO chart/diagram
+        # appears per-node (those are Slice-4-only, grounded). The consolidated gap-table (the
+        # boundary) and the digest derivation are always present.
         types = _block_types(self.deep)
-        for expected in ("metrics-grid", "comparison-table", "diff-block",
-                         "derivation", "gap-table", "chart"):
-            self.assertIn(expected, types, f"deep_spec must carry a {expected} block")
+        self.assertNotIn("chart", types, "visual invariant: no per-node chart")
+        self.assertNotIn("diagram", types, "visual invariant: no per-node diagram")
+        self.assertIn("gap-table", types, "the consolidated boundary must be present")
+        self.assertIn("derivation", types, "the digest derivation move must be present")
+        structured = types - {"paragraph", "callout", "list"}
+        self.assertGreaterEqual(len(structured), 3,
+                                f"the report must be structurally varied, got {structured}")
+
+    def test_diversity_gate_passes_on_varied_report(self):
+        # run_conductor scores only the authored node sections; the varied fixture must clear it.
+        self.assertEqual(self.result["diversity"]["violations"], [],
+                         "the varied report must clear the structural diversity gate")
 
     def test_blocks_substantive(self):
         for b in _all_blocks(self.deep):

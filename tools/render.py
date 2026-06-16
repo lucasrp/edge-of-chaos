@@ -241,8 +241,10 @@ def _render_single_numbered_card(b, default_num=""):
 
 @renderer("flow-example")
 def render_flow_example(b):
-    input_label = b.get("input_label", "Input")
-    output_label = b.get("output_label", "Output")
+    # No hardcoded English "Input"/"Output" (structure not strings): the labels render ONLY if the
+    # producer supplies them (in-language); the yellow/green styling already distinguishes the two.
+    input_label = b.get("input_label", "")
+    output_label = b.get("output_label", "")
     parts = ['<div class="card">']
     if b.get("label"):
         parts.append('<div class="card-header">')
@@ -250,10 +252,11 @@ def render_flow_example(b):
         parts.append('</div>')
 
     # Input pre (yellow)
-    parts.append(
-        f'<p style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">'
-        f'{render_text(input_label)}:</p>'
-    )
+    if input_label:
+        parts.append(
+            f'<p style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">'
+            f'{render_text(input_label)}:</p>'
+        )
     parts.append(
         f'<pre style="font-family: \'Courier New\', monospace; font-size: 12px; '
         f'line-height: 1.55; background: #FDF6B2; padding: 12px; border-radius: 6px; '
@@ -262,10 +265,11 @@ def render_flow_example(b):
     )
 
     # Output pre (green)
-    parts.append(
-        f'<p style="font-size: 13px; font-weight: 600; margin-top: 12px; '
-        f'margin-bottom: 8px;">{render_text(output_label)}:</p>'
-    )
+    if output_label:
+        parts.append(
+            f'<p style="font-size: 13px; font-weight: 600; margin-top: 12px; '
+            f'margin-bottom: 8px;">{render_text(output_label)}:</p>'
+        )
     parts.append(
         f'<pre style="font-family: \'Courier New\', monospace; font-size: 12px; '
         f'line-height: 1.55; background: #DEF7EC; padding: 12px; border-radius: 6px; '
@@ -779,12 +783,15 @@ def render_raw_html(b):
 
 @renderer("derivation")
 def render_derivation(b):
-    """Block for 'what I derived from scratch' — purple-bordered card."""
+    """Block for 'what I derived from scratch' — purple-bordered card. The header renders ONLY when
+    the spec carries a `title` — no hardcoded-language default (structure not strings); the icon-only
+    header still marks the block visually when untitled."""
     parts = ['<div class="derivation">']
+    title = b.get("title")
     parts.append('<div class="derivation-header">')
     parts.append('<span class="derivation-icon">D</span>')
-    title = b.get("title", "Derivacao")
-    parts.append(f'<span class="derivation-title">{render_text(title)}</span>')
+    if title:
+        parts.append(f'<span class="derivation-title">{render_text(title)}</span>')
     parts.append('</div>')
     if b.get("text"):
         parts.append(f'<p>{render_text(b["text"])}</p>')
@@ -802,58 +809,73 @@ def render_derivation(b):
 
 @renderer("gap-marker")
 def render_gap_marker(b):
-    """Individual [GAP: ...] callout — amber/orange styling."""
-    gap_id = b.get("id", "")
-    label = f'GAP{" #" + str(gap_id) if gap_id else ""}'
+    """A gap callout — amber/orange styling IS the marker (structure not strings: no hardcoded "GAP").
+    The gap text is the one semantic field; `label`/`description` are synonyms for it (see BLOCK_SCHEMAS),
+    so they are NOT a separate badge — they would be canonicalized into `text` before this renderer runs.
+    An optional structural `id` (language-neutral) renders as a "#id" tag."""
     parts = ['<div class="gap-marker">']
-    parts.append(f'<span class="gap-marker-label">{html.escape(label)}</span>')
+    if b.get("id"):
+        parts.append(f'<span class="gap-marker-label">#{html.escape(str(b["id"]))}</span>')
     parts.append(f'{render_text(b["text"])}')
     parts.append('</div>')
     return "\n".join(parts)
 
 
+_GAP_STATUS_CLS = {
+    "resolvido": "gap-status-resolved", "resolved": "gap-status-resolved",
+    "parcial": "gap-status-partial", "partial": "gap-status-partial",
+    "aberto": "gap-status-open", "open": "gap-status-open",
+}
+
+
 @renderer("gap-table")
 def render_gap_table(b):
-    """Table of all gaps with status tracking (resolved/partial/open)."""
-    # Fallback: if spec uses headers/rows (table format), delegate to table renderer
-    if not b.get("gaps") and b.get("headers") and b.get("rows"):
+    """Gaps, language-agnostic (structure not strings). TWO shapes, no hybrid guessing:
+      (1) `gaps` — a list of semantic dicts {description, need?, status?} → a clean list with ZERO
+          hardcoded chrome (the producer never has to name columns; status text is its own in-language
+          value, only the CSS color is mapped; an absent status renders no badge).
+      (2) `headers`+`rows` — explicit pre-laid-out cells → the generic labeled table verbatim.
+    There is deliberately no `headers`+`gaps`(dicts) path: positionally mapping in-language headers onto
+    a fixed dict schema misaligns the moment the producer's column order differs (e.g. an `id` column).
+    A producer who wants labeled columns supplies `rows`; otherwise the dict list is the canonical form."""
+    # Shape (2): custom labeled table — rows are already cells, so they can never misalign.
+    if b.get("headers") and b.get("rows"):
         return render_table(b)
-    status_cls = {
-        "resolvido": "gap-status-resolved",
-        "resolved": "gap-status-resolved",
-        "parcial": "gap-status-partial",
-        "partial": "gap-status-partial",
-        "aberto": "gap-status-open",
-        "open": "gap-status-open",
-    }
-    parts = ['<div class="table-wrapper">', '<table>', '<thead>', '<tr>']
-    parts.append('<th>#</th><th>Gap</th><th>O que preciso saber</th><th>Status</th>')
-    parts.append('</tr></thead><tbody>')
-    for row in b.get("gaps", []):
-        num = row.get("id", "")
-        desc = row.get("description", "")
-        need = row.get("need", "")
-        status = row.get("status", "aberto")
-        cls = status_cls.get(status.lower(), "gap-status-open")
-        parts.append('<tr>')
-        parts.append(f'<td style="font-weight:600;text-align:center;">{html.escape(str(num))}</td>')
-        parts.append(f'<td>{render_text(desc)}</td>')
-        parts.append(f'<td>{render_text(need)}</td>')
-        parts.append(f'<td><span class="{cls}">{html.escape(status.upper())}</span></td>')
-        parts.append('</tr>')
-    parts.append('</tbody></table></div>')
+    gaps = b.get("gaps", [])
+
+    def _badge(status):
+        if not status:
+            return ""
+        cls = _GAP_STATUS_CLS.get(str(status).lower(), "gap-status-open")
+        return f' <span class="{cls}">{html.escape(str(status).upper())}</span>'
+
+    # Shape (1): language-agnostic list (zero hardcoded chrome). Headers without rows are ignored —
+    # the gaps still render in full; only the unusable column labels are dropped.
+    parts = ['<div class="gap-table"><ul>']
+    for row in gaps:
+        # An `id` is language-neutral chrome and pairs with gap-resolution.gap_id — keep it as a "#id" tag.
+        idtag = (f'<span class="gap-marker-label">#{html.escape(str(row["id"]))}</span> '
+                 if row.get("id") else "")
+        desc = render_text(row.get("description", ""))
+        need = f' — {render_text(row.get("need", ""))}' if row.get("need") else ""
+        parts.append(f'<li>{idtag}{desc}{need}{_badge(row.get("status", ""))}</li>')
+    parts.append('</ul></div>')
     return "\n".join(parts)
 
 
 @renderer("gap-resolution")
 def render_gap_resolution(b):
     """Links a gap to its resolution — amber header, green answer."""
-    gap_id = b.get("gap_id", "")
-    gap_label = f'Gap #{gap_id}' if gap_id else "Gap"
+    # No hardcoded "Gap" label (structure not strings): a producer may pass `label` in-language; else
+    # the styling marks it. An `gap_id` shows as "#id".
+    label = (b.get("label") or "").strip()
+    if b.get("gap_id"):
+        label = (f'{label} #{b["gap_id"]}').strip()
     parts = ['<div class="gap-resolution">']
     # Header: the gap
     parts.append('<div class="gap-resolution-header">')
-    parts.append(f'<span class="gap-marker-label">{html.escape(gap_label)}</span>')
+    if label:
+        parts.append(f'<span class="gap-marker-label">{html.escape(label)}</span>')
     parts.append(f'{render_text(b.get("gap", ""))}')
     parts.append('</div>')
     # Body: context/evidence (optional)
@@ -1279,25 +1301,56 @@ def render_section(section: dict) -> str:
     return "\n".join(parts)
 
 
-def render_executive_summary(items: list) -> str:
-    """Render executive summary block."""
-    parts = [
-        '<div class="executive-summary">',
-        '<h3>Resumo Executivo</h3>',
-        '<ul>',
-    ]
+def render_executive_summary(items: list, title: str = "") -> str:
+    """Render executive summary block. No hardcoded "Resumo Executivo" heading (structure not
+    strings): the heading renders ONLY if the producer supplies `title` (in-language)."""
+    parts = ['<div class="executive-summary">']
+    if title:
+        parts.append(f'<h3>{render_text(title)}</h3>')
+    parts.append('<ul>')
     for item in items:
         parts.append(f'<li>{render_text(item)}</li>')
     parts.append('</ul></div>')
     return "\n".join(parts)
 
 
-def _render_metrics_items(items: list) -> str:
-    """Render a metrics grid from a list of {value, label} items."""
-    parts = ['<div class="metrics-grid">']
-    for m in items if isinstance(items, list) else []:
-        if not isinstance(m, dict):  # fail-closed: a non-dict item has no value/label
+_METRIC_QUANT_RE = re.compile(r"\d")  # a metric VALUE must carry a digit (42%, 3x, 30ms, 9) — not "pré-CSS"
+
+
+def _metric_value_is_quantitative(v) -> bool:
+    """A metric card's value is real iff it is a number (incl. 0) or a digit-bearing token; a purely
+    textual value ("pré-CSS", "célula") is a filler card masquerading as a metric (D-D)."""
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, (int, float)):
+        return True
+    return isinstance(v, str) and bool(_METRIC_QUANT_RE.search(v))
+
+
+def quantitative_metric_items(items) -> list:
+    """The metric items with a QUANTITATIVE value AND a nonblank label — the only renderable cards.
+    The single source of truth for "what is a real metric card", shared by the render seam (below) and
+    the substance gate (`tools/blocks.py`), so top-level `content.metrics` and block-level `metrics-grid`
+    filter filler identically (D-D)."""
+    out = []
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict) or not _metric_value_is_quantitative(it.get("value")):
             continue
+        label = it.get("label")
+        if isinstance(label, (int, float)) and not isinstance(label, bool) or str(label or "").strip():
+            out.append(it)
+    return out
+
+
+def _render_metrics_items(items: list) -> str:
+    """Render a metrics grid from a list of {value, label} items. Filler cards (non-quantitative value
+    or blank label) are dropped at this seam so BOTH top-level `content.metrics` and block-level
+    `metrics-grid` are filtered identically (D-D). Returns "" if no real card survives."""
+    real = quantitative_metric_items(items)
+    if not real:
+        return ""
+    parts = ['<div class="metrics-grid">']
+    for m in real:
         parts.append(
             f'<div class="metric-card">'
             f'<div class="metric-value">{render_text(m.get("value", ""))}</div>'
@@ -1331,10 +1384,13 @@ def spec_to_html(spec: dict) -> str:
     parts = []
 
     if spec.get("executive_summary"):
-        parts.append(render_executive_summary(spec["executive_summary"]))
+        parts.append(render_executive_summary(
+            spec["executive_summary"], spec.get("executive_summary_title", "")))
 
     if spec.get("metrics"):
-        parts.append(_render_metrics_items(spec["metrics"]))
+        metrics_html = _render_metrics_items(spec["metrics"])  # filler-filtered; "" if none survive
+        if metrics_html:
+            parts.append(metrics_html)
 
     for section in (spec.get("sections") or []):  # `or []` — explicit null is not iterable
         parts.append(render_section(section))
