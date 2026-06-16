@@ -17,8 +17,8 @@ spec re-renders the exact page and the logged cites re-emit the missing signals 
 Three gates at this seam: #2/#3 — the publisher REFUSES unless handed the UNFORGEABLE, BOUND
 proof `close.run_close` mints: `close.verify_proof` requires the run_close-only token, a sha256
 digest that BINDS to this exact publish payload (slug + spec + intent + cites + proposes +
-distills + skill — EVERY persisted publish arg, so distills/skill cannot be altered post-mint to
-poison provenance), both blind reviewers passed, AND the verdicts carry both CANONICAL reviewer
+distills + skill + lineage — EVERY persisted publish arg, so distills/skill/lineage cannot be
+altered post-mint to poison provenance), both blind reviewers passed, AND the verdicts carry both CANONICAL reviewer
 identities — so a forged dict, a stale/cross-artefato proof (digest mismatch), a single-reviewer
 proof, or a proof built from fake/injected reviewers cannot back-door the gate. C3 — there is no path that publishes
 without the *why* (raises with no intent; the kernel rides the same atomic call so
@@ -63,6 +63,13 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # so an out-of-roster value (e.g. `report</p><script>…`) would verify cleanly; this roster is
 # the gate that rejects it BEFORE anything is written, and _page escapes it as defense in depth.
 PRODUCER_ROSTER = ("report", "research", "map", "plan", "discovery", "grill")
+
+# Cortex-v1 (brick-1, L4): the AUTHORED typed lineage relations and their graph-edge labels — a
+# FIXED Python allowlist. The producer-supplied `item["type"]` is mapped through THIS dict; an
+# out-of-allowlist type is dropped (never linked), and the label NEVER comes from caller data — so
+# no caller string is ever interpolated into Cypher. The edge is directed this -> prior.
+LINEAGE_LABELS = {"builds_on": "BUILDS_ON", "supersedes": "SUPERSEDES",
+                  "contradicts": "CONTRADICTS"}
 
 
 def _safe_target(slug, blog_dir):
@@ -286,7 +293,7 @@ def project_backbone(log=eventlog.LOG):
 
 
 def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites=None,
-                     spec=None, log=eventlog.LOG):
+                     spec=None, lineage=None, log=eventlog.LOG):
     """Project a just-published Artefato into the edge's graph — the deterministic spine write
     that was prose in `skills/_shared/memory.md` (the "Project — AFTER you publish" block) and so
     got SKIPPED by the producer. Ported here as a GUARANTEED side-effect of every publish so the
@@ -312,6 +319,7 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
         uri, user, pw = _identity.neo4j_conn()
         g = _identity.require_group()
         distills, proposes, cites = distills or [], proposes or [], cites or []
+        lineage = lineage or []
         drv = GraphDatabase.driver(uri, auth=(user, pw))
     except Exception as ex:  # noqa: BLE001 — best-effort; the log already holds the truth
         print("project skipped (best-effort, graph unreachable):", ex)
@@ -375,7 +383,16 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # republish/replay with corrected provenance does not leave stale clusters/directions/
             # sources behind — recall stays a faithful projection of the log's latest payload. SERVES
             # is to the single hub (idempotent) and is left intact.
-            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug})-[r:DISTILLS|PROPOSES|CITES]->() "
+            # C2 CARVE-OUT: DISTILLS/PROPOSES/CITES are AUTHORED edges — the producer declared the
+            # distill/proposal/citation and they are proof-bound into the close digest. They are NOT
+            # the cosine-nominated RELATES_TO path, which is the ONLY edge C2 (mutual-kNN candidate →
+            # NLI/entailment → grounded typer) governs. RELATES_TO is OUT of v1's publisher entirely
+            # (research spec: cosine-nominates-the-author-disposes); these MERGEs emit directly by
+            # design and require no NLI gating.
+            # L4: the three AUTHORED lineage labels JOIN this destructive rebuild set so a corrected
+            # republish (lineage now points elsewhere, or is removed) strands no stale lineage edge.
+            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug})"
+                  "-[r:DISTILLS|PROPOSES|CITES|BUILDS_ON|SUPERSEDES|CONTRADICTS]->() "
                   "DELETE r", g=g, slug=slug)
             # resolve distills against ACTIVE clusters only (Codex P2): mirror graph_clusters —
             # archived/merged entities are hidden, so a retired cluster is never linked or pushed.
@@ -410,14 +427,39 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                 s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
                       "MERGE (src:Source {group_id:$g, key:$key}) MERGE (a)-[:CITES]->(src)",
                       g=g, slug=slug, key=ref)
+            # (2b) L4 — AUTHORED typed lineage as DIRECTED edges this -> prior. The producer's
+            # `item["type"]` is mapped through the FIXED LINEAGE_LABELS allowlist (an out-of-allowlist
+            # type is dropped); the label is a literal from that dict, never interpolated caller data,
+            # so the Cypher is fixed per label. The prior is named by `target` (the prior Artefato
+            # slug). If the prior :Artefato is not in the graph yet (out-of-order publish), the MERGE
+            # matches nothing — treat as UNRESOLVED (mirror unresolved_distills): leave the projection
+            # incomplete so the next sweep re-projects once the prior lands.
+            unresolved_lineage = False
+            for item in lineage:
+                if not isinstance(item, dict):
+                    continue
+                label = LINEAGE_LABELS.get(item.get("type"))
+                prior = item.get("target") or item.get("slug")
+                if not (label and prior):
+                    continue
+                row = s.run(
+                    "MATCH (a:Artefato {group_id:$g, slug:$slug}),"
+                    "(p:Artefato {group_id:$g, slug:$prior}) "
+                    "MERGE (a)-[:%s]->(p) RETURN count(p) AS n" % label,
+                    g=g, slug=slug, prior=prior).single()
+                if not row or row["n"] == 0:
+                    unresolved_lineage = True   # prior not in the graph yet — revisit next sweep
             # (3) COMPLETION MARKER — set LAST, complete ONLY when (a) every edge write succeeded,
             # (b) the embedding is current (a FAILED embed leaves it false → retried on recovery,
-            # Codex P2), AND (c) every distill ref RESOLVED. `_graph_present_slugs` reads THIS: a node
-            # left half-projected (embed/edge outage) OR with an unresolved distill (cluster not in
-            # the graph yet) is NOT present and is re-projected — so a transient embed outage and the
-            # "grill attaches the cluster later" path both self-heal on the next sweep.
+            # Codex P2), (c) every distill ref RESOLVED, AND (d) every lineage prior RESOLVED (L4).
+            # `_graph_present_slugs` reads THIS: a node left half-projected (embed/edge outage), with
+            # an unresolved distill (cluster not in the graph yet), OR an unresolved lineage prior
+            # (out-of-order publish) is NOT present and is re-projected — so a transient embed outage,
+            # the "grill attaches the cluster later" path, and the "prior lands later" path all
+            # self-heal on the next sweep.
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.projection_complete=$done",
-                  g=g, slug=slug, done=(embed_current and not unresolved_distills))
+                  g=g, slug=slug,
+                  done=(embed_current and not unresolved_distills and not unresolved_lineage))
     except Exception as ex:  # noqa: BLE001 — a failed projection is reported, never fatal
         print("project failed (best-effort, reproject next beat):", ex)
     finally:
@@ -433,16 +475,16 @@ _DEFAULT_PROJECT = object()  # sentinel: "use module project_artefato" (resolved
 
 
 def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=None,
-            cites=None, date=None, log=eventlog.LOG, blog_dir=BLOG_DIR, embed_fn=None,
-            project_fn=_DEFAULT_PROJECT) -> Path:
+            cites=None, lineage=None, date=None, log=eventlog.LOG, blog_dir=BLOG_DIR,
+            embed_fn=None, project_fn=_DEFAULT_PROJECT) -> Path:
     """Publish an Artefato: render → self-contained neutral HTML → atomic state record.
 
     #2/#3 at the seam: RAISES ValueError unless `verdict` is the UNFORGEABLE, BOUND proof
     `close.run_close` mints — `close.verify_proof` requires the run_close-only token, a digest
     that BINDS to THIS exact payload (slug + spec + intent + cites + proposes + distills +
-    skill), both blind reviewers passed, and both CANONICAL reviewer identities are present. A
-    hand-built dict, a proof minted for a different artefato (digest mismatch), an altered
-    distills/skill, a single-reviewer proof, or a proof from fake reviewers raises here, before
+    skill + lineage), both blind reviewers passed, and both CANONICAL reviewer identities are
+    present. A hand-built dict, a proof minted for a different artefato (digest mismatch), an
+    altered distills/skill/lineage, a single-reviewer proof, or a proof from fake reviewers raises here, before
     any HTML or state lands — the publisher is never a back door around the gate. C3 at the seam: RAISES when `intent` is
     missing/empty — you cannot publish without the kernel (and defensively when the genus
     contract is violated). #4 at the seam: the slug is validated + contained under blog_dir,
@@ -465,7 +507,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
             "entry; one wake per publish)")
     verify_proof(verdict, slug=slug, spec=spec, intent=intent,
                  cites=cites or [], proposes=proposes or [],
-                 distills=distills, skill=skill)
+                 distills=distills, skill=skill, lineage=lineage)
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
     if skill not in PRODUCER_ROSTER:
@@ -495,7 +537,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # exactly one publish even under concurrent publishers.
     eventlog.publish_artefato_atomic(slug, intent, proposes=proposes, distills=distills,
                                      cites=cites, spec=spec, skill=skill, log=log,
-                                     require_wake=True)
+                                     lineage=lineage, require_wake=True)
 
     # the page is a PROJECTION written after the commit — a failure here is recoverable.
     _write_page(out, page)
@@ -525,7 +567,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     if project_fn is not None:
         try:
             project_fn(slug, intent, skill=skill, distills=distills, proposes=proposes,
-                       cites=cites, spec=spec, log=log)
+                       cites=cites, spec=spec, lineage=lineage, log=log)
         except Exception as ex:  # noqa: BLE001 — projection is best-effort, never fatal
             print(f"project skipped for {slug!r} (best-effort, reproject next beat):", ex)
     return out
@@ -646,6 +688,7 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
             # event with no skill folds to None, which coalesce preserves (never clobbers).
             project_fn(item["slug"], item.get("intent") or "", skill=item.get("skill"),
                        distills=item.get("distills"), proposes=item.get("proposes"),
-                       cites=item.get("cites"), spec=item.get("spec"), log=log)
+                       cites=item.get("cites"), spec=item.get("spec"),
+                       lineage=item.get("lineage"), log=log)
         except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
             print(f"graph reproject skipped for {item.get('slug')!r} (best-effort):", ex)

@@ -66,6 +66,19 @@ Two loops run inside the scaffold:
   evidence. loop1 is the grounding pass: it builds the pile of evidence the producing cognition
   reasons over. (Honoring the operator rename, the grounded material is named **evidence**.)
 
+- **loop1.5 — excavate (EDGE_EXCAVATE, dark by default).** The mechanical enforcement of this
+  scaffold's own plenitude doctrine: a producer reasoning over a large evidence pile writes from one
+  lossy pass with a brevity prior, and the non-obvious long tail — the worthwhile, course-changing
+  material — dies silently in that compression. When `EDGE_EXCAVATE` is on, before the producer
+  converges it runs `tools/excavate.py` over the evidence: a single structured pass working the
+  synthetic grill's four probes (relevance / contradiction / surprise / lineage) **aimed by the
+  Direction**, recovering only what the producer's own thin summary dropped — as an accountable
+  **seed** (each finding cites back into the evidence and states how it bears on the Direction). The
+  producer then develops loop2 **from the seed**, discharging every entry (it lands in the artefato
+  or is cut with a reason). Off ⇒ the stage is a pure no-op with zero model spend; the producer
+  works exactly as today. This is the *collapsed* form of the grill (one extraction pass); the
+  multi-turn agent×agent dialogue is the costed escalation, gated on this cheap cut earning its lift.
+
 - **loop2 — critic / serendipity.** The `converge` slot's critic judges whether the draft is
   **developed to plenitude** and emits a verdict carrying a `ship` boolean; the loop ends the moment
   the critic ships — it ships on *depth reached*, never on *brevity reached*. The `diverge` slot's
@@ -97,6 +110,29 @@ by an explorer: it is *recall*, not research. The discipline and the concrete cy
   never fatal).
 
 This closes the loop `recall → research (the gap) → produce → publish → project → recall`.
+
+## The type→format rule — reach the whole palette, lead with your floor
+
+The writer's default is prose; left alone it answers every content-shape with a paragraph and the rich
+palette (`tools/render.py` `BLOCK_SCHEMAS`) goes unused. This rule is **property-not-section** (ADR-0012/0013):
+it says **which block fits which content shape**, never a mandatory ordered section — no block here is owed by
+position, only by what the content *is*. Match the shape, reach for the block:
+
+- **3+ values / metrics** → `metrics-grid`.
+- **a comparison** → `comparison-table` (or `comparison` for a two-sided pros/cons).
+- **before / after** → `diff-block`.
+- **a reasoning chain** → `derivation`.
+- **an open boundary** (a gap, an unknown) → `gap-table` (several) or `gap-marker` (one).
+- **verbatim source evidence** → `evidence`.
+- **quantitative data to visualize** → `chart` (`line` · `sparkline` · `bar` · `scatter` · `slopegraph`).
+- **a relation / dependency / flow** → `diagram` (`dag` · `force`); `ascii-diagram` is the zero-dep fallback.
+
+A producer **leads with the blocks its descriptor's `richness.require` names** (`tools/producer_descriptor.py`)
+— `map` leads with illustrations (`diagram`, `ascii-diagram`); `plan` leads with framed steps
+(`next-steps-grid` / `numbered-card`) and a dependency `diagram`; `discovery` leads with a framing `callout`
+— while the **full palette above stays reachable** for whatever else the content owes. Leading is by
+**declaration**, not a fixed position: the floor blocks surface first because the form owes them, not because
+a section mandates them.
 
 ## The context-denial ladder
 

@@ -43,6 +43,23 @@ CLUSTERS_QUERY = (
     "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
     "RETURN DISTINCT e.curated_cluster AS l ORDER BY l")
 
+# The SURF query — the topology read a SELECT cannot do (Cortex-v1 brick-1, schema report
+# `the-graph-you-filled-like-a-list`, move 2). From the seed Artefatos it walks ONLY the typed
+# associative peer web — BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES — direction-agnostic,
+# bounded to *1..2 hops, and returns the reachable Artefatos/Sources. SERVES (the degree-44
+# classification hub that "reaches everything and therefore discriminates nothing") is excluded
+# STRUCTURALLY, by omission from the allowlist — it is never a pass-through hop. No ranking weight
+# in v1: ORDER BY hops, slug only (the 1/|P| hub-damping rank from the report is OUT of brick-1).
+# The seam (research `cosine-nominates-the-author-disposes`, R1): this OFFERS candidate priors the
+# producer authors typed lineage FROM — the wiring into authoring context is the L6 doc, not code.
+SURF_QUERY = (
+    "MATCH (seed:Artefato {group_id:$g}) WHERE seed.slug IN $seeds "
+    "MATCH p=(seed)-[:BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES*1..2]-(n) "
+    "WHERE (n:Artefato OR n:Source) AND n.group_id=$g AND NOT n.slug IN $seeds "
+    "RETURN DISTINCT n.slug AS slug, n.kernel AS kernel, labels(n) AS labels, "
+    "min(length(p)) AS hops "
+    "ORDER BY hops, slug")
+
 _AUTO = object()
 
 
@@ -90,6 +107,56 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
                 "artefatos": [{"slug": a["slug"], "kernel": a.get("kernel")} for a in arts],
                 "clusters": clusters,
             }
+    except Exception:
+        return None
+    finally:
+        try:
+            drv.close()
+        except Exception:
+            pass
+
+
+def surf_subgraph(seeds, group=None, uri=None, user=None, password=None):
+    """SURF the associative peer web from `seeds` — the multi-hop topology read a SELECT cannot do
+    (Cortex-v1 brick-1). From the seed Artefato slugs it walks ONLY the typed associative edges
+    (BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES, *1..2 hops, direction-agnostic) and returns
+    the reachable peers as a list of ``{"slug","kernel","labels","hops"}`` dicts, ordered by hops
+    then slug. SERVES (the degree-44 hub) is excluded STRUCTURALLY by omission — D-hangs-off-the-hub
+    is never surfed.
+
+    The seam (research R1): this also OFFERS candidate priors for the producer to author typed
+    lineage FROM — the wiring into authoring context is the L6 doc, not this function.
+
+    Returns the peer list on success; **None** on a genuine degrade — no seeds, no group, the neo4j
+    driver absent, or the graph unreachable. NEVER raises (CONTRACT C1, ADR-0011): this reuses
+    `recall_subgraph`'s degrade scaffolding verbatim — a transient outage darkens only this leg."""
+    if not seeds:
+        return None
+    # Identity/credential resolution is GUARDED too (CONTRACT C1, review FIX-2): `_identity.group()`
+    # and `_identity.neo4j_password()` can raise on a misconfigured install — that must darken this
+    # leg, never propagate. So the whole resolution sits inside a try, like every other failure path.
+    try:
+        group = group or _identity.group()
+        if not group:
+            return None
+        uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
+        user = user or os.environ.get("EDGE_NEO4J_USER", "neo4j")
+        password = password or os.environ.get("EDGE_NEO4J_PASSWORD") or _identity.neo4j_password()
+    except Exception:
+        return None
+    try:
+        from neo4j import GraphDatabase
+    except Exception:
+        return None
+    try:
+        drv = GraphDatabase.driver(uri, auth=(user, password))
+    except Exception:
+        return None
+    try:
+        with drv.session() as s:
+            rows = s.run(SURF_QUERY, g=group, seeds=list(seeds)).data()
+            return [{"slug": r["slug"], "kernel": r.get("kernel"),
+                     "labels": r.get("labels"), "hops": r["hops"]} for r in rows]
     except Exception:
         return None
     finally:

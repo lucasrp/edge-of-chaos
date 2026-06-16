@@ -19,6 +19,8 @@ import re
 import secrets
 
 from render import BLOCK_SCHEMAS, _BLOCK_TYPE_ALIASES
+import render
+import producer_descriptor
 
 # ---------------------------------------------------------------------------
 # Genus contract constants — the pinned field shapes + the visual palette
@@ -29,7 +31,7 @@ from render import BLOCK_SCHEMAS, _BLOCK_TYPE_ALIASES
 # `comparison-table` is treated as visual (it is a styled side-by-side, not a raw grid).
 VISUAL_BLOCK_TYPES = frozenset({
     "raw-html", "svg", "html", "custom-html",   # chart / svg escape hatch
-    "ascii-diagram",
+    "ascii-diagram", "diagram", "chart",
     "metrics-grid", "metrics", "metric-card", "metric-cards", "kpi-row", "kpi-grid", "stats",
     "next-steps-grid", "steps",
     "comparison", "pros-cons", "compare",
@@ -117,7 +119,12 @@ def check_genus(artefato: dict) -> list[str]:
     violations += _check_intent(artefato.get("intent"))
     violations += _check_block_schemas(artefato.get("content", {}))
     violations += _check_visual_coverage(artefato.get("content", {}))
+    violations += _check_evidence_anchors(artefato.get("content", {}))
     violations += _check_rich_rite(artefato)
+    # The shared producer protocol's PRESENTATION floor — the producer's declared, additive
+    # obligations (Phase 0: permissive => no-op). The rich rite above stays the unconditional,
+    # content-relative genus gate; this only ADDS, never narrows it.
+    violations += producer_descriptor.presentation_violations(artefato)
     return violations
 
 
@@ -187,6 +194,20 @@ def _check_block_schemas(content: dict) -> list[str]:
     return violations
 
 
+def _check_evidence_anchors(content: dict) -> list[str]:
+    """Every evidence block must pass anchor integrity (quote_text matches its sha256 anchor) — so a
+    block with a mismatched/forged anchor cannot pass genus and render as 'evidence'. Source-corpus
+    authenticity needs the corpus (unavailable here); the anchor-integrity floor is always enforceable."""
+    violations = []
+    for block in _iter_blocks(content):
+        raw_type = block.get("type", "paragraph")
+        if _BLOCK_TYPE_ALIASES.get(raw_type, raw_type) == "evidence":
+            ok, reason = render.verify_evidence(block)  # sources=None => anchor-integrity only
+            if not ok:
+                violations.append(f"evidence-anchor: {reason}")
+    return violations
+
+
 def _check_visual_coverage(content: dict) -> list[str]:
     """Flag "visual-coverage" iff the content has quantitative/multi-value material
     but no visual palette element. Content with no quantitative material owes none.
@@ -195,9 +216,19 @@ def _check_visual_coverage(content: dict) -> list[str]:
     has_quantitative = False
     has_visual = bool(content.get("metrics"))  # top-level metrics grid is a visual
     for block in _iter_blocks(content):
-        block_type = block.get("type", "paragraph")
+        raw_type = block.get("type", "paragraph")
+        block_type = _BLOCK_TYPE_ALIASES.get(raw_type, raw_type)  # canonicalize (graphviz->diagram, kpi-grid->metrics-grid)
         if block_type in VISUAL_BLOCK_TYPES:
-            has_visual = True
+            # a chart/diagram only counts as a real visual if it would ACTUALLY render (vl-convert
+            # present + the recipe validates + renders) — the renderable-not-just-present rule.
+            if block_type == "diagram":
+                if render.diagram_renderable(block):
+                    has_visual = True
+            elif block_type == "chart":
+                if render.chart_renderable(block):
+                    has_visual = True
+            else:
+                has_visual = True
         if _is_dense_table(block, block_type):
             has_quantitative = True
     if has_quantitative and not has_visual:
@@ -252,7 +283,8 @@ def _check_rich_rite(artefato: dict) -> list[str]:
       - what-i-dont-know  — a `gap-*` block, or a knowledge-boundary/uncertainty marker;
       - external-frame    — a non-empty `cites` (a sourced benchmark) or a `bibliography` block,
                             or a benchmark marker (extends the sourcing strike);
-      - lineage           — a non-empty `distills` (the threads it builds on), or a lineage marker.
+      - lineage           — a non-empty `distills` (the threads it builds on), a non-empty authored
+                            `lineage` typed edge (a {type,slug} with a non-blank slug), or a marker.
 
     Returns `rich-rite:<move>` for each missing move ([] when none owed or all present)."""
     content = artefato.get("content", {}) or {}
@@ -334,11 +366,20 @@ def _check_rich_rite(artefato: dict) -> list[str]:
         (_nonblank(d) or (isinstance(d, dict) and any(_nonblank(v) for v in d.values())))
         for d in (artefato.get("distills") or [])
     )
+    # Cortex-v1 (slice lineage-rich-rite): the AUTHORED typed lineage (the builds_on/supersedes/
+    # contradicts edges the publisher materializes) ALSO clears the move — a developed synthesis
+    # that names its prior thread as a typed edge owes no distill. Mirrors real_distill/_nonblank:
+    # an item clears it only if its `slug` is a NON-BLANK string (a placeholder {} or {"slug":"  "}
+    # would not resolve in projection, so it must not clear the move either).
+    real_lineage = any(
+        isinstance(item, dict) and _nonblank(item.get("slug"))
+        for item in (artefato.get("lineage") or [])
+    )
 
     has_derivation = has_filled_block(DERIVATION_BLOCK_TYPES) or marked(DERIVATION_MARKERS)
     has_boundary = has_filled_block(BOUNDARY_BLOCK_TYPES) or marked(BOUNDARY_MARKERS)
     has_frame = external_cite or bibliography
-    has_lineage = real_distill or marked(LINEAGE_MARKERS)
+    has_lineage = real_distill or real_lineage or marked(LINEAGE_MARKERS)
 
     violations = []
     if not has_derivation:
@@ -727,16 +768,22 @@ IMPROVE_ROUNDS = 2        # unconditional review→improve refinement passes bef
 _PROOF_TOKEN = secrets.token_hex(32)
 
 
-def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=None) -> str:
+def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=None,
+                 lineage=None) -> str:
     """The sha256 digest BINDING a proof to the EXACT publish payload. Canonical JSON
     (sorted keys) so the same payload always digests identically and the publisher can
     recompute it from the args it is about to publish — any difference (different slug, spec,
-    intent, cites, proposes, distills, or skill) yields a different digest and is rejected.
+    intent, cites, proposes, distills, skill, or lineage) yields a different digest and is
+    rejected.
 
     Codex re-review #3: `distills` and `skill` are page/state-affecting publish arguments
     (they ride the durable `artefato.published` event), so they MUST be bound — otherwise a
     proof-holder could alter them at publish time without invalidating the proof (poisoning
-    provenance)."""
+    provenance).
+
+    Cortex-v1 (brick-1): `lineage` (the AUTHORED typed builds_on/supersedes/contradicts edges
+    the publisher materializes as DIRECTED edges) is bound for the same reason — without the
+    bind the authored lineage is forgeable at publish time."""
     payload = {
         "slug": slug,
         "spec": spec,
@@ -745,16 +792,17 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
         "proposes": proposes or [],
         "distills": distills or [],
         "skill": skill,
+        "lineage": lineage or [],
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
-                distills=None, skill=None) -> dict:
+                distills=None, skill=None, lineage=None) -> dict:
     """Mint the bound, token-stamped proof for a passing close. Carries BOTH reviewer
     verdicts (each stamped by run_close with its canonical reviewer identity), the digest of
-    the exact payload (now including distills + skill), and the run_close-only token.
+    the exact payload (now including distills + skill + lineage), and the run_close-only token.
 
     Codex re-review #3: this is module-PRIVATE — ONLY `run_close` (and the explicit test-only
     seam standing in for it) calls it. It is no longer a public function a producer could call
@@ -764,7 +812,7 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
         "verdicts": list(verdicts),
         "digest": proof_digest(slug=slug, spec=spec, intent=intent,
                                cites=cites, proposes=proposes,
-                               distills=distills, skill=skill),
+                               distills=distills, skill=skill, lineage=lineage),
         "token": _PROOF_TOKEN,
     }
 
@@ -782,14 +830,14 @@ def _verdict_clean(verdict) -> bool:
 
 
 def verify_proof(proof, *, slug, spec, intent, cites, proposes,
-                 distills=None, skill=None, reviewer_count=2):
+                 distills=None, skill=None, lineage=None, reviewer_count=2):
     """Verify a proof BINDS to the payload being published — raise ValueError otherwise,
     BEFORE any state/HTML is written. Refuses unless: the token is run_close's (not a
-    fabricated one), the digest matches THIS payload — now including distills + skill, so a
-    proof-holder cannot alter the persisted distills/skill (#3) — all `reviewer_count`
-    reviewers passed (a single-reviewer proof is rejected), AND the verdicts carry BOTH
-    canonical reviewer identities (a proof built from fake/injected reviewers is rejected on
-    identity grounds, #3)."""
+    fabricated one), the digest matches THIS payload — now including distills + skill +
+    lineage, so a proof-holder cannot alter the persisted distills/skill/lineage (#3) — all
+    `reviewer_count` reviewers passed (a single-reviewer proof is rejected), AND the verdicts
+    carry BOTH canonical reviewer identities (a proof built from fake/injected reviewers is
+    rejected on identity grounds, #3)."""
     if not isinstance(proof, dict):
         raise ValueError(f"cannot publish artefato {slug!r}: no proof (#2)")
     if not secrets.compare_digest(str(proof.get("token", "")), _PROOF_TOKEN):
@@ -798,11 +846,11 @@ def verify_proof(proof, *, slug, spec, intent, cites, proposes,
             "publish only through close.run_close (#2)")
     expected = proof_digest(slug=slug, spec=spec, intent=intent,
                             cites=cites, proposes=proposes,
-                            distills=distills, skill=skill)
+                            distills=distills, skill=skill, lineage=lineage)
     if not secrets.compare_digest(str(proof.get("digest", "")), expected):
         raise ValueError(
             f"cannot publish artefato {slug!r}: proof digest does not bind to this "
-            "payload (minted for a different artefato, or distills/skill altered) (#3)")
+            "payload (minted for a different artefato, or distills/skill/lineage altered) (#3)")
     verdicts = proof.get("verdicts") or []
     if len(verdicts) != reviewer_count or not all(_verdict_clean(v) for v in verdicts):
         raise ValueError(
@@ -916,7 +964,8 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
                 slug=artefato.get("slug"), spec=artefato.get("content"),
                 intent=artefato.get("intent"), cites=artefato.get("cites"),
                 proposes=artefato.get("proposes"),
-                distills=artefato.get("distills"), skill=artefato.get("skill"))
+                distills=artefato.get("distills"), skill=artefato.get("skill"),
+                lineage=artefato.get("lineage"))
             if publish_fn is not None:
                 publish_fn(artefato, proof)
             return proof

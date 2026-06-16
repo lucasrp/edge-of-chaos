@@ -13,9 +13,13 @@ Pure Python: no YAML loading, no config/paths imports, no render-log file deps. 
 on bare python3. An unknown block type degrades to an HTML comment — it never raises.
 """
 import copy
+import hashlib
 import html
+import json
 import re
 from html.parser import HTMLParser
+
+import visual_recipes
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +61,15 @@ def render_text(s: str) -> str:
     if not s:
         return ""
     s = html.escape(str(s))
+    # Pass through a SAFELIST of inline formatting tags the producer may emit as raw HTML
+    # (the rest stays escaped — e.g. a literal `<slug>` is still shown verbatim, and no tag
+    # with attributes, `<script>`, or an `on*` handler can slip through). Both opening and
+    # closing forms, optional self-close for void tags. This is what lets a spec write
+    # `<b>…</b>` / `<code>…</code>` without it rendering as literal text.
+    s = re.sub(
+        r'&lt;(/?)(b|i|strong|em|code|u|s|sub|sup|mark|small|br)\s*/?&gt;',
+        lambda m: f'<{m.group(1)}{m.group(2).lower()}>', s, flags=re.IGNORECASE,
+    )
     # Markdown links: [text](url) — after escape, brackets/parens are preserved.
     # The URL is gated through safe_url; an unsafe scheme degrades to plain text.
     s = re.sub(r'\[(.+?)\]\((.+?)\)', _md_link, s)
@@ -450,6 +463,120 @@ def render_ascii_diagram(b):
     return "\n".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Visual recipe set — the `chart` (Vega-Lite) and `diagram` (full Vega) blocks of the shared rich
+# producer protocol (docs/specs/visual-recipe-set.md). The writer NEVER emits Vega: it emits the
+# edge's own tiny schema (data + light config); `visual_recipes` expands that into the chosen
+# CLOSED recipe's spec, `vl-convert` renders it to SVG (pure-Python, no system binary, no root),
+# and the SVG is allowlist-SANITIZED before inlining — no script, no event handlers, no
+# foreignObject, no external href/image. Both blocks are capability-gated on `vl-convert` (absent →
+# the block degrades to a comment, never a crash, never raw passthrough) and FAIL CLOSED on a
+# malformed payload (a clear comment from the recipe validator, never a blank chart, never a raise).
+# Store the SCHEMA, never the SVG (the SVG is a re-rendered projection — ADR-0006).
+# ---------------------------------------------------------------------------
+
+
+def _vl_convert():
+    """Import vl-convert lazily so the module is import-clean where the wheel is absent (the gate is
+    defense; the wheel is present by default). Returns the module, or None when not installed."""
+    try:
+        import vl_convert  # noqa: PLC0415 — capability probe, intentionally local
+        return vl_convert
+    except ImportError:
+        return None
+
+
+def diagram_available() -> bool:
+    """True iff the visual backend (`vl-convert`) is importable — the chart/diagram capability."""
+    return _vl_convert() is not None
+
+
+def _sanitize_svg(svg: str) -> str:
+    """Strip everything script/network-capable from vl-convert-generated SVG before inlining:
+    <script>, on* event handlers, <foreignObject>, <image>, and any non-fragment href/xlink:href.
+    The inlined SVG must be inert. This is the trust boundary — applied to EVERY vl-convert SVG
+    (chart and diagram). (Vega/vl-convert output is well-formed and predictable; this is an
+    allowlist-leaning strip, not a general HTML sanitizer.)"""
+    svg = re.sub(r"<script\b[^>]*>.*?</script\s*>", "", svg, flags=re.I | re.S)
+    svg = re.sub(r"<script\b[^>]*/?>", "", svg, flags=re.I)
+    svg = re.sub(r"<foreignObject\b.*?</foreignObject\s*>", "", svg, flags=re.I | re.S)
+    svg = re.sub(r"<image\b[^>]*/?>", "", svg, flags=re.I)
+    # event handlers — quoted (double/single) AND unquoted values
+    svg = re.sub(r"\son[a-zA-Z]+\s*=\s*\"[^\"]*\"", "", svg, flags=re.I)
+    svg = re.sub(r"\son[a-zA-Z]+\s*=\s*'[^']*'", "", svg, flags=re.I)
+    svg = re.sub(r"\son[a-zA-Z]+\s*=\s*[^\s>]+", "", svg, flags=re.I)
+    # href / xlink:href — keep ONLY same-document #fragments; strip external/js, quoted or unquoted
+    svg = re.sub(r"\s(?:xlink:)?href\s*=\s*\"(?!#)[^\"]*\"", "", svg, flags=re.I)
+    svg = re.sub(r"\s(?:xlink:)?href\s*=\s*'(?!#)[^']*'", "", svg, flags=re.I)
+    svg = re.sub(r"\s(?:xlink:)?href\s*=\s*(?![\"']?#)[^\s>]+", "", svg, flags=re.I)
+    return svg
+
+
+def _render_vega(builder, payload, kind, vega_to_svg):
+    """Shared chart/diagram render path. `builder(payload) -> (spec, error)`; `vega_to_svg` is the
+    vl-convert function for the backend (vegalite_to_svg / vega_to_svg). Returns the inlined,
+    sanitized `<div class="kind">…</div>`, or a clear comment on a malformed payload / render
+    failure. NEVER raises — a renderer must never crash the page."""
+    if not isinstance(payload, dict):
+        return f"<!-- {kind}: payload must be a mapping -->"
+    spec, error = builder(payload)
+    if error:
+        return f"<!-- {kind}: {html.escape(str(error))} -->"
+    try:
+        raw = vega_to_svg(json.dumps(spec))
+    except Exception as e:  # noqa: BLE001 — never let a renderer crash the page
+        return f"<!-- {kind}: render failed: {html.escape(type(e).__name__)} -->"
+    svg = _sanitize_svg(raw)
+    return f'<div class="{kind}">{svg}</div>'
+
+
+def chart_renderable(block: dict) -> bool:
+    """True iff a `chart` block would ACTUALLY render to a visual: vl-convert importable, the recipe
+    VALIDATES, AND it actually renders (build spec + vl-convert succeeds). Gates (visual-coverage,
+    the presentation floor) use this so a malformed/blank chart never satisfies a visual obligation."""
+    return _renderable(block, visual_recipes.build_chart, "vegalite_to_svg")
+
+
+def diagram_renderable(block: dict) -> bool:
+    """True iff a `diagram` block would ACTUALLY render to a visual: vl-convert importable, the
+    recipe VALIDATES, AND it actually renders. The authoritative renderable check the gates use so a
+    non-rendering diagram (no vl-convert, malformed topology, unknown layout) never satisfies a
+    visual obligation."""
+    return _renderable(block, visual_recipes.build_diagram, "vega_to_svg")
+
+
+def _renderable(block, builder, fn_name) -> bool:
+    if not isinstance(block, dict):
+        return False
+    vl = _vl_convert()
+    if vl is None:
+        return False
+    spec, error = builder(block)
+    if error:
+        return False
+    try:
+        getattr(vl, fn_name)(json.dumps(spec))
+    except Exception:  # noqa: BLE001
+        return False
+    return True
+
+
+@renderer("chart")
+def render_chart(b):
+    vl = _vl_convert()
+    if vl is None:
+        return "<!-- chart unavailable: vl-convert not installed -->"
+    return _render_vega(visual_recipes.build_chart, b, "chart", vl.vegalite_to_svg)
+
+
+@renderer("diagram")
+def render_diagram(b):
+    vl = _vl_convert()
+    if vl is None:
+        return "<!-- diagram unavailable: vl-convert not installed -->"
+    return _render_vega(visual_recipes.build_diagram, b, "diagram", vl.vega_to_svg)
+
+
 @renderer("template-block")
 def render_template_block(b):
     parts = ['<div class="card">']
@@ -790,11 +917,96 @@ def render_glossary(b):
 # Block schemas — co-located with renderers, one entry per block type
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Evidence — the verbatim-quote block (Phase 0: evidence-safety + authenticity).
+# A claim discharges by paraphrase; an EVIDENCE item discharges only by a verbatim
+# quote PROVABLY copied from its cited source. The block carries source_ref + anchor
+# (sha256 of the verbatim span); verify_evidence checks the anchor matches the stored
+# text AND (when a source corpus is supplied) that the quote is the cited source's span.
+# ---------------------------------------------------------------------------
+
+@renderer("evidence")
+def render_evidence(b):
+    """A verbatim source quote with attribution, rendered as a blockquote. The quote is
+    HTML-escaped ONLY (never markdown-transformed), so the displayed span stays byte-faithful
+    to the anchored/verified text — `**x**`, backticks, `--`, and `[a](b)` survive literally."""
+    raw = b.get("quote_text") or b.get("quote") or b.get("text") or ""
+    quote = html.escape(raw if isinstance(raw, str) else "", quote=False)
+    attribution = b.get("attribution") or b.get("source_ref") or b.get("source") or ""
+    cite = f'<cite>{render_text(attribution)}</cite>' if attribution else ""
+    return (
+        # white-space:pre-wrap keeps newlines and runs of spaces — the displayed span must stay
+        # byte-faithful to the anchored quote, and HTML would otherwise collapse them.
+        f'<blockquote class="callout callout-info evidence">'
+        f'<span class="evidence-quote" style="white-space:pre-wrap">{quote}</span>'
+        f'{("<br>" + cite) if cite else ""}'
+        f'</blockquote>'
+    )
+
+
+def evidence_anchor(text: str) -> str:
+    """The canonical anchor for a verbatim span: a sha256 hexdigest of its UTF-8 bytes."""
+    return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()
+
+
+def verify_evidence(block: dict, sources: dict | None = None) -> tuple[bool, str]:
+    """Prove an evidence block is authentic, not merely preserved. Returns (ok, reason).
+
+    Checks, in order:
+      1. anchor integrity  — `anchor` must equal sha256(quote_text) (tamper check);
+      2. source presence   — `source_ref` must resolve in the supplied `sources` corpus;
+      3. span authenticity — quote_text must appear verbatim in the cited source text.
+    `sources` is source_ref -> full source text. When None, only the anchor check runs
+    (preservation-only mode); pass the corpus to prove the quote was copied, not fabricated.
+    """
+    quote = block.get("quote_text") or block.get("quote") or block.get("text") or ""
+    if not isinstance(quote, str) or not quote:
+        return False, "evidence quote_text is missing or not a string"
+    ref = block.get("source_ref") or block.get("source")
+    if not isinstance(ref, str) or not ref.strip():
+        return False, "evidence source_ref is missing or blank"
+    if block.get("anchor") != evidence_anchor(quote):
+        return False, "anchor mismatch: quote_text does not match its anchor (tampered)"
+    if sources is None:
+        return True, ""
+    if ref not in sources:
+        return False, f"source_ref {ref!r} resolves to no cited source"
+    if quote not in sources[ref]:
+        return False, "quote_text is not a verbatim span of the cited source (fabricated or altered)"
+    return True, ""
+
+
+def is_evidence_discharged(block: dict, sources: dict | None = None) -> bool:
+    """The discharge predicate the close/producer gate calls. Discharge **requires** the source
+    corpus: an evidence item that cannot be proven against its cited source does not discharge —
+    anchor-only preservation (a self-consistent hash) is NOT proof of authenticity, so a fabricated
+    quote can never discharge. Paraphrase (text not in the cited source span) never discharges."""
+    if sources is None:
+        return False
+    return verify_evidence(block, sources)[0]
+
+
 BLOCK_SCHEMAS = {
     "paragraph": {
         "required": ["text"],
         "optional": ["style"],
         "synonyms": {"content": "text", "description": "text", "body": "text"},
+    },
+    "evidence": {
+        "required": ["quote_text", "source_ref", "anchor"],
+        "optional": ["attribution"],
+        "synonyms": {"text": "quote_text", "quote": "quote_text", "source": "source_ref"},
+    },
+    "chart": {
+        "required": ["chart", "data"],
+        "optional": ["title", "x_label", "y_label", "before_label", "after_label",
+                     "horizontal", "facet", "v"],
+        "synonyms": {"recipe": "chart", "values": "data", "rows": "data"},
+    },
+    "diagram": {
+        "required": ["layout", "nodes"],
+        "optional": ["edges", "title", "orientation", "v"],
+        "synonyms": {"recipe": "layout", "links": "edges"},
     },
     "subsection": {
         "required": ["title"],
@@ -964,6 +1176,20 @@ _BLOCK_TYPE_ALIASES = {
     "info": "callout",
     "alert": "callout",
     "tip": "callout",
+    # Evidence aliases — the verbatim-quote block
+    "quote": "evidence",
+    "blockquote": "evidence",
+    "verbatim": "evidence",
+    # Diagram aliases — the Vega graph-layout illustration block (dag/force)
+    "graph": "diagram",
+    "dag": "diagram",
+    "force-graph": "diagram",
+    "network": "diagram",
+    # Chart aliases — the Vega-Lite data-chart block (line/sparkline/bar/scatter/slopegraph)
+    "vega-lite": "chart",
+    "vegalite": "chart",
+    "plot": "chart",
+    "graph-chart": "chart",
 }
 
 

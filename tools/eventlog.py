@@ -315,7 +315,7 @@ def kernel(slug, intent, log=LOG):
 
 
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
-                            spec=None, log=LOG, *, skill=None, require_wake=False):
+                            spec=None, log=LOG, *, lineage=None, skill=None, require_wake=False):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
     publish seam): you cannot publish without the *why*. Both events land in a single
     `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
@@ -327,7 +327,12 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
     `content`) in its payload, INSIDE this same single batch. The page (blog/entries/<slug>.html)
     is a PROJECTION (ADR-0006: the log is truth); carrying the spec makes the page fully
     regenerable from the log alone, so a page-write failure after this commit is recoverable
-    (publisher.reproject_missing_pages) rather than an unrecoverable dangling-state."""
+    (publisher.reproject_missing_pages) rather than an unrecoverable dangling-state.
+
+    Cortex-v1 (brick-1, slice L2): the payload also carries the authored typed `lineage` (keyword-
+    only; the legacy positional form stops at `log`) — builds_on/supersedes/contradicts, the same
+    list the close proof binds — so it folds onto the corpus item (fold_corpus) and a later slice
+    replays it as DIRECTED edges. No lineage folds to []."""
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
 
@@ -344,7 +349,7 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
     published, kernel_ev = append_batch([
         ("artefato.published", f"artefato:{slug}",
          {"slug": slug, "proposes": proposes or [], "distills": distills or [],
-          "cites": cites or [], "spec": spec, "skill": skill}),
+          "cites": cites or [], "lineage": lineage or [], "spec": spec, "skill": skill}),
         ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
     ], log=log, precondition=_wake_gate if require_wake else None)
     return published, kernel_ev
@@ -416,8 +421,9 @@ CORPUS_TYPES = ["artefato.published", "intent.kernel"]
 def fold_corpus(events):
     """Pure fold of `{artefato.published, intent.kernel}` events → the corpus (ADR-0009): the edge's
     own published steps, each paired with its *why*. In one pass, seq order: an `artefato.published`
-    opens a corpus item keyed by slug (carrying its proposes/distills/cites, the proof-bound spec
-    so the page projection is regenerable from the log, and published ts); an `intent.kernel`
+    opens a corpus item keyed by slug (carrying its proposes/distills/cites, the authored typed
+    lineage so a later replay can re-derive its DIRECTED edges, the proof-bound spec so the page
+    projection is regenerable from the log, and published ts); an `intent.kernel`
     writes the `intent` onto its slug's item. An Artefato with no kernel folds with
     `intent=None` (a step whose why is not yet recorded — C3 debt). Returns items in publish order."""
     items = {}  # slug -> item
@@ -429,6 +435,7 @@ def fold_corpus(events):
         if t == "artefato.published":
             items[slug] = {"slug": slug, "intent": None, "proposes": p.get("proposes", []),
                            "distills": p.get("distills", []), "cites": p.get("cites", []),
+                           "lineage": p.get("lineage", []),
                            "spec": p.get("spec"), "skill": p.get("skill"),
                            "ts": e.get("ts"), "latest_ts": e.get("ts")}
         elif t == "intent.kernel" and slug in items:
