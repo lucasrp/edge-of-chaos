@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import unittest
+import uuid
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -76,6 +77,17 @@ class SurfQueryIsAssociativeOnly(unittest.TestCase):
         src = inspect.getsource(recall.surf_subgraph)
         self.assertIn("s.run(SURF_QUERY", src,
                       "surf_subgraph must execute SURF_QUERY, not an inline copy")
+
+    def test_surf_query_scopes_the_path_wide_not_just_endpoints(self):
+        # R7b / GitHub #41 — the variable-length *1..2 walk must constrain EVERY node on the path
+        # to the group, not only `seed` and the terminal `n`. On the SHARED neo4j a foreign
+        # INTERMEDIATE bridge node could route which same-group peers surface — a cross-install
+        # topology leak that looks scoped (rows same-group) while the traversal was contaminated.
+        # Pinned on the QUERY constant the runtime executes (review-proven: a comment is not the query).
+        q = recall.SURF_QUERY
+        self.assertIn("all(x IN nodes(p) WHERE x.group_id=$g)", q,
+                      "the surf must constrain EVERY node on the *1..2 path to the group (R7b/#41), "
+                      "not only the seed and the terminal node")
 
     def test_surf_does_not_touch_the_recall_spine_constants(self):
         # surgical: the surf is ADDITIVE — the existing recall constants are untouched.
@@ -180,6 +192,92 @@ class SurfWalksTheAssociativeWebNotTheHub(unittest.TestCase):
         self.assertNotIn(self.D, slugs,
                          "D hangs ONLY off the SERVES hub — must NEVER be surfed (hub excluded)")
         self.assertNotIn(self.A, slugs, "the seed is not its own neighbour")
+
+
+@unittest.skipUnless(_NEO4J, "neo4j not reachable (live foreign-bridge isolation test)")
+class SurfPathIsScopedAgainstAForeignBridge(unittest.TestCase):
+    """R7b / GitHub #41 — LIVE isolation: a same-group A and C, joined ONLY through a FOREIGN
+    intermediate bridge B (a different group_id), via associative edges A-[:RELATES_TO]-B(foreign)
+    -[:RELATES_TO]-C. Without path-wide scoping the *1..2 walk routes A→B→C and C surfaces — a
+    cross-install topology leak. With `all(x IN nodes(p) WHERE x.group_id=$g)`, B is off-path, so C
+    must NOT surface through the foreign bridge.
+
+    Cross-tenant-SAFE on the shared neo4j (codex Slice-1 [medium]): the foreign group AND every node
+    carry a UNIQUE per-run marker (`_run`), and cleanup deletes ONLY nodes carrying THIS run's marker
+    — never a fixed foreign group id, never an unqualified DELETE of data outside the install. So the
+    test that PROVES isolation cannot itself mutate another install's brain."""
+
+    def _session(self):
+        import _identity
+        from neo4j import GraphDatabase
+        uri, user, pw = _identity.neo4j_conn()
+        self._g = _identity.require_group()
+        self._uri, self._user, self._pw = uri, user, pw
+        self._drv = GraphDatabase.driver(uri, auth=(user, pw))
+        return self._drv.session()
+
+    def _cleanup(self, s):
+        # marker-scoped: delete ONLY this run's synthetic nodes (mine + foreign), never a fixed
+        # foreign group — so a collision with real data is impossible (codex Slice-1 [medium]).
+        s.run("MATCH (n {test_marker:$m}) DETACH DELETE n", m=self._run)
+
+    def setUp(self):
+        self._run = "cv1b-" + uuid.uuid4().hex[:12]          # unique per run
+        self._fg = self._run + "-foreign-group"              # a foreign group that exists only now
+        self.A, self.C = self._run + "-a", self._run + "-c"
+        self.BRIDGE = self._run + "-bridge"
+        self.s = self._session()
+        self._cleanup(self.s)
+        # A (mine) -RELATES_TO- B (FOREIGN) -RELATES_TO- C (mine): C is reachable from A ONLY by
+        # passing through the foreign bridge B. Endpoints same-group; the bridge a foreign group.
+        # Every node stamps `test_marker` so cleanup is marker-scoped, never group-wide.
+        self.s.run(
+            "MERGE (a:Artefato {group_id:$g, slug:$A}) SET a.test_marker=$m "
+            "MERGE (c:Artefato {group_id:$g, slug:$C}) SET c.test_marker=$m "
+            "MERGE (b:Artefato {group_id:$fg, slug:$B}) SET b.test_marker=$m "
+            "MERGE (a)-[:RELATES_TO]->(b) "
+            "MERGE (b)-[:RELATES_TO]->(c)",
+            g=self._g, fg=self._fg, A=self.A, C=self.C, B=self.BRIDGE, m=self._run)
+
+    def tearDown(self):
+        try:
+            self._cleanup(self.s)
+        finally:
+            self.s.close()
+            self._drv.close()
+
+    def test_a_foreign_bridge_cannot_route_a_same_group_peer_into_surf(self):
+        out = recall.surf_subgraph([self.A], group=self._g,
+                                   uri=self._uri, user=self._user, password=self._pw)
+        self.assertIsNotNone(out, "a reachable graph must surf, not degrade")
+        slugs = {n["slug"] for n in out}
+        self.assertNotIn(self.C, slugs,
+                         "C is reachable ONLY through a FOREIGN intermediate bridge — path-wide "
+                         "scoping (R7b/#41) must keep it OUT of the surf")
+        self.assertNotIn(self.BRIDGE, slugs, "the foreign bridge itself must never surface")
+
+
+class SessionHelperGuardsTheConnection(unittest.TestCase):
+    """R7 — the open/resolve/fail-dark/close boilerplate that recall_subgraph and surf_subgraph each
+    re-implement (and the incoming MCP would copy a third time) is extracted into ONE guarded
+    `_session(group)` context helper. It yields a live session, or yields None on every degrade (no
+    group, neo4j driver absent, graph unreachable) — NEVER raises (CONTRACT C1) — and always closes
+    the driver. Both reused functions execute it, not an inline copy."""
+
+    def test_session_yields_none_without_group(self):
+        with recall._session(None) as s:
+            self.assertIsNone(s, "no group must yield None (the dark leg), never raise")
+
+    def test_session_yields_none_on_unreachable_graph(self):
+        with recall._session("any-group", uri="bolt://127.0.0.1:1") as s:
+            self.assertIsNone(s, "an unreachable graph must yield None, never raise")
+
+    def test_reused_functions_go_through_the_helper(self):
+        # the de-dup is REAL: both functions execute the shared helper, not an inline driver-open.
+        for fn in (recall.recall_subgraph, recall.surf_subgraph):
+            src = inspect.getsource(fn)
+            self.assertIn("_session(", src,
+                          f"{fn.__name__} must open its session through the shared _session helper")
 
 
 if __name__ == "__main__":
