@@ -378,6 +378,30 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             )
             self.assertTrue(Path(path).exists())
 
+    def test_authored_lineage_rides_the_real_publish_seam_into_event_and_corpus(self):
+        # Cortex-v1 (brick-1, slice lineage-event-roundtrip): the FULL publisher seam — not just the
+        # low-level eventlog primitive — must carry the proof-bound authored lineage into the durable
+        # `artefato.published` event AND the corpus fold. verify_proof binds lineage, but publish must
+        # then HAND it to publish_artefato_atomic, or it disappears between proof and persistence
+        # (Codex SUBSTANTIVE: lineage dropped at the seam). Asserts the raw event payload AND the
+        # corpus item both carry the exact list.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "seam-roundtrip-lineage"
+            lineage = [{"type": "supersedes", "target": "thread-7"},
+                       {"type": "builds_on", "target": "thread-3"}]
+            proof = _passing_proof(slug, _spec(), "open: x; bet: y", lineage=lineage)
+            publisher.publish(
+                slug, _spec(), intent="open: x; bet: y", skill="report",
+                date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                lineage=lineage, verdict=proof,
+            )
+            published = [e for e in eventlog.read(types=["artefato.published"], log=log)
+                         if e["payload"]["slug"] == slug]
+            self.assertEqual(published[0]["payload"]["lineage"], lineage)
+            corpus = [c for c in eventlog.corpus_at(log=log) if c["slug"] == slug]
+            self.assertEqual(corpus[0]["lineage"], lineage)
+
     def test_lineage_binds_in_the_proof_digest(self):
         # Cortex-v1 (brick-1): the proof binds the AUTHORED typed `lineage` exactly as it binds
         # distills/skill — without it the field is forgeable at publish time. Mirrors

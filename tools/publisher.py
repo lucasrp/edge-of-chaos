@@ -495,7 +495,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # exactly one publish even under concurrent publishers.
     eventlog.publish_artefato_atomic(slug, intent, proposes=proposes, distills=distills,
                                      cites=cites, spec=spec, skill=skill, log=log,
-                                     require_wake=True)
+                                     lineage=lineage, require_wake=True)
 
     # the page is a PROJECTION written after the commit — a failure here is recoverable.
     _write_page(out, page)
