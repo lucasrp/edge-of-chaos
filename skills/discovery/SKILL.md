@@ -80,11 +80,11 @@ You do **not** inline an `eventlog` publish snippet, and you **never** call `pub
 that is the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
 passing-review proof only `close.run_close` mints (it raises without a valid `verdict=`). The proof is
 bound to a sha256 **digest** of the exact publish payload (slug + spec + intent + cites + proposes +
-**distills** + **skill** — EVERY persisted publish arg), carries **both** reviewer verdicts, and stamps a
+**distills** + **skill** + **lineage** — EVERY persisted publish arg), carries **both** reviewer verdicts, and stamps a
 `run_close`-only secret token — so a hand-built dict, a stale proof, a proof minted for a different
-artefato (digest mismatch), or one with `distills`/`skill` altered post-mint cannot publish. Exit through
+artefato (digest mismatch), or one with `distills`/`skill`/`lineage` altered post-mint cannot publish. Exit through
 the enforced close: build the artefato carrying **every proof-bound field** (`slug`, `intent`,
-`content`=spec, `cites`, `proposes`, **`distills`**, **`skill`**) so the minted digest equals the publish
+`content`=spec, `cites`, `proposes`, **`distills`**, **`skill`**, **`lineage`**) so the minted digest equals the publish
 payload, then call `close.run_close(artefato, produce_fn, publish_fn=…)`, which runs the genus contract
 **first** (a genus violation bounces — it can never mint a pass proof) → **both blind reviewers** (bounded
 bounce, `BOUNCE_MAX` — a strike re-produces, then hard-fails) → and **only on pass** mints the bound proof
@@ -114,12 +114,13 @@ publish_fn:
         proposes=[{'body':'…','kind':'lens'}]  # [] if a standalone bizu ; \
         distills=['cluster:<label>']  # the existing threads it connects to — [] if none fits ; \
         cites=[{'ref':'<source-key>','kind':'mundo','relevant':True,'snippet':'<the text you used>'}]; \
+        lineage=[{'type':'builds_on','slug':'<prior-slug>'}]  # [] if none — the prior R1's surf OFFERS ; \
         artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
-          'cites':cites,'distills':distills,'skill':'discovery'}; \
+          'cites':cites,'distills':distills,'skill':'discovery','lineage':lineage}; \
         pub=publisher.publish; \
         publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
           skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
-          cites=art['cites']); \
+          cites=art['cites'], lineage=art['lineage']); \
         # WIRE REAL RE-PRODUCTION (#30): improve_fn(art, feedback) REVISES the draft from the \
         # reviewers' rationales+strikes — incl. a rich-rite floor strike (derivation / \
         # what-i-dont-know / external-frame / lineage). run_close loops it IMPROVE_ROUNDS=2 BEFORE \

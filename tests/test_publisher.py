@@ -25,6 +25,25 @@ _REAL_PROJECT = publisher.project_artefato
 _REAL_PUBLISH = publisher.publish
 
 
+def _neo4j_reachable():
+    """True iff the install's Neo4j is reachable — gates the live lineage-edge test (which writes
+    real :Artefato nodes + lineage edges). Offline/CI degrades to skip, never fails."""
+    try:
+        import _identity
+        from neo4j import GraphDatabase
+        uri, user, pw = _identity.neo4j_conn()
+        _identity.require_group()
+        drv = GraphDatabase.driver(uri, auth=(user, pw))
+        drv.verify_connectivity()
+        drv.close()
+        return True
+    except Exception:  # noqa: BLE001 — no graph → skip the live test
+        return False
+
+
+_NEO4J = _neo4j_reachable()
+
+
 def setUpModule():
     """Keep the whole module OFFLINE: the default project_fn now connects to the LIVE graph, so a
     publish in a test with a temp log would project a test Artefato into the install graph (Codex
@@ -67,13 +86,13 @@ def _fake_embed(text):
 
 
 def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
-                   distills=None, skill="report"):
+                   distills=None, skill="report", lineage=None):
     """A BOUND passing proof for the exact payload — minted via close's PRIVATE `_mint_proof`
     the same way `run_close` mints it (run_close-only token + sha256 digest of
-    slug+spec+intent+cites+proposes+distills+skill + both passing reviewer verdicts carrying
-    the CANONICAL reviewer identities). This is the explicit TEST-ONLY seam standing in for
-    run_close; it stamps the two canonical identities verify_proof requires. The publisher
-    refuses anything not bound to the payload (and identities) it is actually publishing."""
+    slug+spec+intent+cites+proposes+distills+skill+lineage + both passing reviewer verdicts
+    carrying the CANONICAL reviewer identities). This is the explicit TEST-ONLY seam standing
+    in for run_close; it stamps the two canonical identities verify_proof requires. The
+    publisher refuses anything not bound to the payload (and identities) it is publishing."""
     verdicts = [
         {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
          "reviewer": close.FEYNMAN_REVIEWER_ID},
@@ -82,7 +101,7 @@ def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
     ]
     return close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
                              cites=cites or [], proposes=proposes or [],
-                             distills=distills, skill=skill)
+                             distills=distills, skill=skill, lineage=lineage)
 
 
 def _spec():
@@ -341,6 +360,103 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             )
             self.assertTrue(Path(path).exists())
 
+    def test_altered_lineage_at_the_seam_raises_and_writes_nothing(self):
+        # Cortex-v1 (brick-1): the proof binds `lineage` end-to-end. A proof-holder who alters the
+        # authored typed lineage at publish time (poisoning provenance) is rejected at the REAL
+        # publish seam — the digest no longer matches. Mirrors test_altered_distills_at_the_seam.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "bound-lineage-seam"
+            reviewed_lineage = [{"type": "supersedes", "target": "thread-7"}]
+            proof = _passing_proof(slug, _spec(), "open: x; bet: y",
+                                   lineage=reviewed_lineage)
+            with self.assertRaises(ValueError):
+                publisher.publish(
+                    slug, _spec(), intent="open: x; bet: y", skill="report",
+                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                    lineage=[{"type": "contradicts", "target": "POISONED at publish"}],
+                    verdict=proof,
+                )
+            self.assertEqual(eventlog.corpus_at(log=log), [])
+            self.assertFalse((Path(tmp) / f"{slug}.html").exists())
+
+    def test_bound_lineage_publishes_when_unchanged(self):
+        # The matching lineage publishes cleanly through the real seam (the bind does not
+        # over-reject) — closing the integration gap so a non-empty lineage artefato is
+        # publishable end-to-end, not just verifiable at the close layer.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "matching-lineage"
+            reviewed_lineage = [{"type": "builds_on", "target": "thread-3"}]
+            proof = _passing_proof(slug, _spec(), "open: x; bet: y",
+                                   lineage=reviewed_lineage)
+            path = publisher.publish(
+                slug, _spec(), intent="open: x; bet: y", skill="report",
+                date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                lineage=reviewed_lineage, verdict=proof,
+            )
+            self.assertTrue(Path(path).exists())
+
+    def test_authored_lineage_rides_the_real_publish_seam_into_event_and_corpus(self):
+        # Cortex-v1 (brick-1, slice lineage-event-roundtrip): the FULL publisher seam — not just the
+        # low-level eventlog primitive — must carry the proof-bound authored lineage into the durable
+        # `artefato.published` event AND the corpus fold. verify_proof binds lineage, but publish must
+        # then HAND it to publish_artefato_atomic, or it disappears between proof and persistence
+        # (Codex SUBSTANTIVE: lineage dropped at the seam). Asserts the raw event payload AND the
+        # corpus item both carry the exact list.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "seam-roundtrip-lineage"
+            lineage = [{"type": "supersedes", "target": "thread-7"},
+                       {"type": "builds_on", "target": "thread-3"}]
+            proof = _passing_proof(slug, _spec(), "open: x; bet: y", lineage=lineage)
+            publisher.publish(
+                slug, _spec(), intent="open: x; bet: y", skill="report",
+                date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                lineage=lineage, verdict=proof,
+            )
+            published = [e for e in eventlog.read(types=["artefato.published"], log=log)
+                         if e["payload"]["slug"] == slug]
+            self.assertEqual(published[0]["payload"]["lineage"], lineage)
+            corpus = [c for c in eventlog.corpus_at(log=log) if c["slug"] == slug]
+            self.assertEqual(corpus[0]["lineage"], lineage)
+
+    def test_lineage_binds_in_the_proof_digest(self):
+        # Cortex-v1 (brick-1): the proof binds the AUTHORED typed `lineage` exactly as it binds
+        # distills/skill — without it the field is forgeable at publish time. Mirrors
+        # test_altered_distills_at_the_seam: the proof verifies against the SAME lineage, but an
+        # ALTERED lineage (poisoned authored provenance) is rejected — the digest no longer matches.
+        slug = "bound-lineage"
+        lineage = [{"type": "supersedes", "target": "thread-7"},
+                   {"type": "builds_on", "target": "thread-3"}]
+        proof = _passing_proof(slug, _spec(), "open: x; bet: y", lineage=lineage)
+        # verifies against the SAME lineage it was minted over...
+        close.verify_proof(
+            proof, slug=slug, spec=_spec(), intent="open: x; bet: y",
+            cites=[], proposes=[], skill="report", lineage=lineage, reviewer_count=2,
+        )
+        # ...but an ALTERED lineage (forged authored provenance) is rejected.
+        with self.assertRaises(ValueError):
+            close.verify_proof(
+                proof, slug=slug, spec=_spec(), intent="open: x; bet: y",
+                cites=[], proposes=[], skill="report",
+                lineage=[{"type": "contradicts", "target": "POISONED at publish"}],
+                reviewer_count=2,
+            )
+
+    def test_empty_lineage_is_back_compat(self):
+        # A proof minted with NO lineage (the param unset) verifies against [] AND against an
+        # unset lineage — so every prior offline mint/verify (which never passes lineage) keeps
+        # binding identically. lineage `None`/`[]`/unset are one and the same in the digest.
+        slug = "no-lineage"
+        proof = _passing_proof(slug, _spec(), "open: x; bet: y")
+        for lineage in (None, []):
+            close.verify_proof(
+                proof, slug=slug, spec=_spec(), intent="open: x; bet: y",
+                cites=[], proposes=[], skill="report", lineage=lineage,
+                reviewer_count=2,
+            )
+
     def test_run_close_failing_gate_never_publishes(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
@@ -380,18 +496,21 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             cites = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True, "snippet": "snip"}]
             proposes = [{"body": "name it", "kind": "constraint"}]
             distills = ["cluster:recall"]
+            lineage = [{"type": "supersedes", "target": "thread-7"}]
             seen = {}
 
-            def project_fn(s, i, *, skill, distills, proposes, cites, spec=None, log=None):
+            def project_fn(s, i, *, skill, distills, proposes, cites, spec=None,
+                           lineage=None, log=None):
                 seen.update(slug=s, intent=i, skill=skill, distills=distills,
-                            proposes=proposes, cites=cites, spec=spec, log=log)
+                            proposes=proposes, cites=cites, spec=spec,
+                            lineage=lineage, log=log)
 
             publisher.publish(
                 slug, _spec(), intent=intent, skill="report", cites=cites,
-                proposes=proposes, distills=distills, date="2026-06-08",
+                proposes=proposes, distills=distills, lineage=lineage, date="2026-06-08",
                 log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=project_fn,
                 verdict=_passing_proof(slug, _spec(), intent, cites=cites,
-                                       proposes=proposes, distills=distills),
+                                       proposes=proposes, distills=distills, lineage=lineage),
             )
             self.assertEqual(seen["slug"], slug)
             self.assertEqual(seen["intent"], intent)
@@ -400,6 +519,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             self.assertEqual(seen["proposes"], proposes)
             self.assertEqual(seen["cites"], cites)
             self.assertEqual(seen["spec"], _spec())   # the spec is passed for the content embed
+            self.assertIs(seen["lineage"], lineage)  # the EXACT bound list rides to projection (L3), not a copy
             self.assertEqual(seen["log"], log)         # the projection reads the SAME log (Codex P2)
 
     def test_failed_projection_does_not_break_the_publish(self):
@@ -458,6 +578,29 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                                       present_slugs=lambda: {},  # hermetic: none present
                                       backbone_fn=None)
             self.assertEqual(sorted(projected), ["recov-a", "recov-b"])
+
+    def test_reproject_graph_replays_the_authored_lineage(self):
+        # Cortex-v1 (brick-1, L3): the REPLAY path must mirror the forward path — reproject_graph
+        # must pass the committed `lineage` to project_fn, or a transient-outage recovery silently
+        # drops the authored typed lineage and the directed edges never re-derive (Codex SUBSTANTIVE).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "recov-lineage"
+            lineage = [{"type": "supersedes", "target": "thread-7"}]
+            publisher.publish(
+                slug, _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None, lineage=lineage,
+                verdict=_passing_proof(slug, _spec(), "open: x; bet: y", lineage=lineage))
+            seen = {}
+
+            def fake_project(s, intent, *, skill=None, distills=None, proposes=None,
+                             cites=None, spec=None, lineage=None, log=None):
+                seen["lineage"] = lineage
+
+            publisher.reproject_graph(log=log, project_fn=fake_project,
+                                      present_slugs=lambda: {},  # hermetic: none present
+                                      backbone_fn=None)
+            self.assertEqual(seen["lineage"], lineage)  # the logged lineage rides the replay
 
     def test_reproject_graph_replays_only_missing_slugs(self):
         # Codex P2: steady-state must NOT re-embed the whole corpus each sweep — reproject_graph
@@ -568,6 +711,57 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         src = inspect.getsource(_REAL_PROJECT)
         self.assertIn("coalesce(e.archived,false)=false", src)
         self.assertIn("e.merged_into IS NULL", src)
+
+    def test_lineage_edges_are_a_fixed_allowlist_directed_this_to_prior(self):
+        # Cortex-v1 (brick-1, L4): project_artefato materializes the AUTHORED typed lineage as
+        # DIRECTED graph edges this -> prior, mapping item type through a FIXED Python allowlist
+        # (never interpolating caller data into Cypher), and rebuilds them destructively like the
+        # other authored edges so a corrected republish strands no stale edge.
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        # the fixed allowlist maps the three authored relation types to their labels — keyed on the
+        # producer-supplied type, never interpolating caller data (the LABEL is a fixed dict value)
+        self.assertEqual(publisher.LINEAGE_LABELS,
+                         {"builds_on": "BUILDS_ON", "supersedes": "SUPERSEDES",
+                          "contradicts": "CONTRADICTS"},
+                         "the lineage allowlist must map the three authored types to fixed labels")
+        # the projection maps the producer type through THAT allowlist (no caller string in Cypher)
+        self.assertIn("LINEAGE_LABELS", src,
+                      "project_artefato must map item type through the fixed LINEAGE_LABELS allowlist")
+        # the three labels JOIN the destructive edge-rebuild DELETE set (so a corrected republish
+        # does not strand a stale lineage edge — mirrors the DISTILLS/PROPOSES/CITES rebuild)
+        delete_idx = src.find("DELETE r")
+        self.assertNotEqual(delete_idx, -1)
+        delete_clause = src[src.rfind("MATCH", 0, delete_idx):delete_idx]
+        for label in ("BUILDS_ON", "SUPERSEDES", "CONTRADICTS"):
+            self.assertIn(label, delete_clause,
+                          f"{label} must be in the destructive edge-rebuild DELETE set")
+        # the edge is DIRECTED this -> prior. Assert the LINEAGE-SPECIFIC Cypher shape, not the
+        # generic "MERGE (a)-[:" (Codex: that is also emitted by SERVES/DISTILLS/PROPOSES/CITES, so a
+        # deleted/inverted lineage block would not trip it). The lineage MERGE is the ONLY one that
+        # (a) interpolates its label from the fixed allowlist via `%s` and (b) targets the prior
+        # Artefato `(p)` — every other authored edge targets (o)/(e)/(d)/(src). Both pin the block.
+        self.assertIn("MERGE (a)-[:%s]->(p)", src,
+                      "the lineage edge must interpolate the allowlist label via %s and be directed "
+                      "this(a) -> prior(p) — distinct from the (o)/(e)/(d)/(src) authored edges")
+        # the label that fills %s comes from the allowlist lookup, never raw caller data
+        self.assertIn("LINEAGE_LABELS.get(item.get(\"type\"))", src,
+                      "the %s label must be the fixed-allowlist value, not interpolated caller data")
+        # and it is directed this -> prior, NOT prior -> this (a reversed MERGE must not appear)
+        self.assertNotIn("MERGE (p)-[:", src,
+                         "the lineage edge must be this -> prior, never prior -> this")
+
+    def test_unresolved_lineage_prior_leaves_projection_incomplete(self):
+        # Cortex-v1 (brick-1, L4): a lineage ref whose prior :Artefato is not in the graph yet
+        # (out-of-order publish) must leave the projection INCOMPLETE so recovery revisits once the
+        # prior lands — mirroring the unresolved-distills self-heal, not silently dropping the edge.
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        self.assertIn("unresolved_lineage", src,
+                      "project_artefato must track an unresolved lineage prior")
+        # the completion marker is gated on the resolved lineage too
+        self.assertIn("not unresolved_lineage", src,
+                      "the completion marker must be gated on the resolved lineage prior")
 
     def test_embedding_refreshed_on_content_change_skipped_when_unchanged(self):
         # Codex P2: re-embed only when the embed input CHANGED — a republish with changed intent/spec
@@ -1040,6 +1234,71 @@ class PublishIsRecoverableAfterTheCommit(unittest.TestCase):
             self.assertEqual((blog / f"{slug}.html").read_bytes(), before)
             # the signal count did not double (already-landed signals are not re-emitted)
             self.assertEqual(eventlog.source_yield_at(log=log)["arXiv:1"]["count"], 1)
+
+
+@unittest.skipUnless(_NEO4J, "neo4j not reachable (live lineage-edge projection test)")
+class LineageEdgesAreDirectedInTheLiveGraph(unittest.TestCase):
+    """Cortex-v1 (brick-1, L4) — LIVE: project_artefato materializes the authored typed lineage
+    as DIRECTED graph edges this -> prior. Gated on a reachable Neo4j (~/edge-experiments/.venv);
+    uses dedicated `cv1l-*` test slugs and DETACH-DELETEs them on teardown so it leaves the
+    install graph clean. Asserts: (1) supersedes lands the directed edge this -> prior; (2) the
+    REVERSE edge does NOT exist; (3) a corrected republish REMOVES the stale edge."""
+
+    THIS = "cv1l-this"
+    PRIOR = "cv1l-prior"
+    OTHER = "cv1l-other"
+
+    def _session(self):
+        import _identity
+        from neo4j import GraphDatabase
+        uri, user, pw = _identity.neo4j_conn()
+        self._g = _identity.require_group()
+        self._drv = GraphDatabase.driver(uri, auth=(user, pw))
+        return self._drv.session()
+
+    def _cleanup(self, s):
+        s.run("MATCH (a:Artefato {group_id:$g}) WHERE a.slug IN $slugs DETACH DELETE a",
+              g=self._g, slugs=[self.THIS, self.PRIOR, self.OTHER])
+
+    def setUp(self):
+        self.s = self._session()
+        self._cleanup(self.s)
+        # pre-create the prior :Artefato nodes the lineage points at (the "prior already landed"
+        # path) — bare MERGE, no objective/embed dependency, so the edge MERGE can match.
+        for slug in (self.PRIOR, self.OTHER):
+            self.s.run("MERGE (a:Artefato {group_id:$g, slug:$slug})", g=self._g, slug=slug)
+
+    def tearDown(self):
+        try:
+            self._cleanup(self.s)
+        finally:
+            self.s.close()
+            self._drv.close()
+
+    def _edge(self, frm, label, to):
+        return self.s.run(
+            "MATCH (a:Artefato {group_id:$g, slug:$frm})-[r:%s]->"
+            "(b:Artefato {group_id:$g, slug:$to}) RETURN count(r) AS n" % label,
+            g=self._g, frm=frm, to=to).single()["n"]
+
+    def test_supersedes_lands_directed_and_corrected_republish_removes_stale(self):
+        # (1) project with supersedes -> prior: the directed edge this -> prior exists...
+        _REAL_PROJECT(self.THIS, "open: x; bet: y", skill="report",
+                      lineage=[{"type": "supersedes", "target": self.PRIOR}],
+                      log="/tmp/cv1l-noncanonical.jsonl")  # non-canonical: ADD-only, no backbone
+        self.assertEqual(self._edge(self.THIS, "SUPERSEDES", self.PRIOR), 1,
+                         "supersedes must land the directed edge this -> prior")
+        # (2) ...and the REVERSE edge does NOT exist (direction is unrecoverable, must be exact)
+        self.assertEqual(self._edge(self.PRIOR, "SUPERSEDES", self.THIS), 0,
+                         "the reverse lineage edge must NOT exist (direction is load-bearing)")
+        # (3) a corrected republish (now supersedes OTHER, not PRIOR) removes the stale edge.
+        _REAL_PROJECT(self.THIS, "open: x; bet: y", skill="report",
+                      lineage=[{"type": "supersedes", "target": self.OTHER}],
+                      log="/tmp/cv1l-noncanonical.jsonl")
+        self.assertEqual(self._edge(self.THIS, "SUPERSEDES", self.PRIOR), 0,
+                         "the corrected republish must remove the stale supersedes edge")
+        self.assertEqual(self._edge(self.THIS, "SUPERSEDES", self.OTHER), 1,
+                         "the corrected republish must land the new supersedes edge")
 
 
 if __name__ == "__main__":
