@@ -81,6 +81,23 @@ class TheDeltaWorldSubjectIsDenied(unittest.TestCase):
     def test_delta_is_not_in_the_allowlist(self):
         self.assertNotIn("mcp__cortex__*", cortex_config.allowed_tools(subject="delta"))
 
+    def test_a_world_or_source_reading_explorer_is_denied(self):
+        # codex final-round [high]: not only `delta` — ANY world/source-reading subject (the explorers
+        # a producer fans for the world) is denied the self door. The allowlist is fail-closed, so an
+        # explorer/source/world subject is not granted, and disallowed_tools removes the server for it.
+        for subj in ("explorer", "source", "world", "delta"):
+            with self.subTest(subject=subj):
+                self.assertEqual(cortex_config.allowed_tools(subject=subj), [])
+                self.assertIn("mcp__cortex__*", cortex_config.disallowed_tools(subject=subj))
+
+    def test_the_scaffold_instructs_the_explorer_deny(self):
+        # the genotype mechanism: the ONE shared dispatch-shape (the scaffold) instructs that a
+        # world-reading explorer subagent is fanned WITHOUT the self door (disallowed-tools), so the
+        # boundary is mechanical across EVERY producer, not only the standalone delta skill.
+        text = (REPO / "skills" / "_shared" / "scaffold.md").read_text()
+        self.assertRegex(text, r"disallowed-tools:\s*mcp__cortex__\*",
+                         "the scaffold must instruct the explorer/world-reader deny (N5/R6)")
+
     def test_the_delta_skill_frontmatter_declares_the_deny_with_the_skill_key(self):
         # the genotype artifact the harness reads: skills/delta/SKILL.md is a SKILL, so the deny rides
         # the SKILL frontmatter key `disallowed-tools` (kebab-case) — NOT the subagent camelCase
