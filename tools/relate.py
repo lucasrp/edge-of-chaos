@@ -230,6 +230,15 @@ def nominate(embeddings=None, *, group=_AUTO, floor=_AUTO, pct=87,
 # OPEN (spec U4 — two-pass cost): NLI-on-every-pair THEN a typer is a latency/cost multiplier; the
 # cheap-judge-then-escalate cascade that bounds it is deferred together WITH the heartbeat
 # scheduling (issue item 4 / report item 5, both OUT of v1). v1 ships the router, not the cascade.
+#
+# OPEN (L1 — authored lineage bound into the close proof digest): the research spec REVISES the
+# plan so AUTHORED, intent-bearing edges (builds_on/supersedes/contradicts) are author-asserted at
+# PUBLISH and MUST be bound into the close proof digest — the `lineage-proof-bind` slice (L1) that
+# adds a `lineage` field to `proof_digest`/`verify_proof` in close.py, on the L1->L3->L4 critical
+# path. That is a SEPARATE slice on the close/publish seam and is NOT in this Stage-2a router: the
+# router only DISCOVERS a *machine-found* `contradicts` OFFER for the author to confirm (C2c) and
+# NEVER mints or proof-binds a directed edge itself. L1 is deferred to its own slice; the offer
+# record below is deliberately the discovery hand-off, not the authored, digest-bound lineage edge.
 # ---------------------------------------------------------------------------
 
 # Calibration threshold for "this is a contradiction, not just topical proximity". A bare
@@ -301,6 +310,9 @@ def route(pairs, *, nli_fn=None, type_fn=None):
             fwd = rev = _neutral(a_text, b_text)
         if _calibrated_contradiction(fwd) or _calibrated_contradiction(rev):
             verdict = fwd if _calibrated_contradiction(fwd) else rev
+            # L1 OPEN: this is a DISCOVERY offer, not an authored, proof-bound lineage edge. The
+            # author confirms it at publish; binding `lineage` into the close proof digest is the
+            # separate `lineage-proof-bind` slice (close.py), deferred — see the Stage-2a notes above.
             offers.append({
                 "type": "contradicts",
                 "origin": "machine-found",

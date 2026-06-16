@@ -244,6 +244,31 @@ class NliRouterRunsBeforeRelateTyper(unittest.TestCase):
         # And NLI ran FIRST (it is the first recorded call).
         self.assertEqual(order[0][0], "nli")
 
+    def test_nli_both_directions_run_before_typer_on_surviving_pair(self):
+        # The ordering proof on a SURVIVING (neutral/entailment) pair — the case where the typer
+        # is NOT trivially skipped. A spy records every call in global order; the contract is that
+        # BOTH NLI directions (forward then reverse) run BEFORE type_fn is ever invoked. A
+        # contradiction pair (where the typer is skipped) cannot prove "NLI-before-typer" because
+        # the typer never runs at all; this pins the order for a pair that DOES reach the typer.
+        order = []
+
+        def nli(a, b):
+            order.append(("nli", a, b))
+            return {"label": "neutral", "score": 0.1}
+
+        def type_fn(a, b):
+            order.append(("type", a, b))
+            return {"type": "relates_to", "context": "shared topic", "confidence": 0.8}
+
+        relate.route([("alpha", "beta")], nli_fn=nli, type_fn=type_fn)
+
+        # Exact, ordered: forward NLI, reverse NLI, THEN the relate typer — no interleaving.
+        self.assertEqual(order, [
+            ("nli", "alpha", "beta"),
+            ("nli", "beta", "alpha"),
+            ("type", "alpha", "beta"),
+        ])
+
     def test_nli_runs_both_directions(self):
         # NLI is asymmetric (entailment(A,B) != entailment(B,A)); the spec says BOTH directions.
         # A contradiction surfacing only in the B->A direction must still route to an offer.
