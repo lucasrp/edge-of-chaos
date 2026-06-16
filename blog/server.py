@@ -1225,15 +1225,30 @@ def _cortex_live(group):
     except Exception:
         return None
     try:
-        drv = GraphDatabase.driver(uri, auth=(user, password))
+        # N1/R3 — bound the connect + pool-acquire so the standing read door (the MCP rides this fold
+        # for cortex_node/cortex_search) DARKENS within a budget on a slow/absent graph, never hangs.
+        try:
+            budget = float(os.environ.get("EDGE_CORTEX_TIMEOUT", "5"))
+        except (TypeError, ValueError):
+            budget = 5.0
+        drv = GraphDatabase.driver(uri, auth=(user, password),
+                                   connection_timeout=budget, connection_acquisition_timeout=budget)
     except Exception:
         return None
     try:
+        # N1/R3 — bound the QUERY execution too (not only the connect): a connected-but-stalling fold
+        # query must darken within the budget, never hang the standing read door the MCP rides.
+        try:
+            from neo4j import Query
+            nodes_q = Query(_CORTEX_NODES_QUERY, timeout=budget)
+            edges_q = Query(_CORTEX_EDGES_QUERY, timeout=budget)
+        except Exception:
+            nodes_q, edges_q = _CORTEX_NODES_QUERY, _CORTEX_EDGES_QUERY
         with drv.session() as s:
             nodes = [_map_node(r["id"], r["label"], r["props"])
-                     for r in s.run(_CORTEX_NODES_QUERY, g=group).data()]
+                     for r in s.run(nodes_q, g=group).data()]
             edges = [{"id": r["id"], "source": r["source"], "target": r["target"], "type": r["type"]}
-                     for r in s.run(_CORTEX_EDGES_QUERY, g=group).data()]
+                     for r in s.run(edges_q, g=group).data()]
             return {"nodes": nodes, "edges": edges}
     except Exception:
         return None

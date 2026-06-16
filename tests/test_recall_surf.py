@@ -75,8 +75,9 @@ class SurfQueryIsAssociativeOnly(unittest.TestCase):
         self.assertIn("ORDER BY hops", q, "v1 orders by hops, slug only — no ranking weight")
         # surf_subgraph executes the guarded constant, not an inline copy
         src = inspect.getsource(recall.surf_subgraph)
-        self.assertIn("s.run(SURF_QUERY", src,
-                      "surf_subgraph must execute SURF_QUERY, not an inline copy")
+        self.assertIn("s.run(_q(SURF_QUERY)", src,
+                      "surf_subgraph must execute SURF_QUERY (timeout-wrapped, N1/R3), "
+                      "not an inline copy")
 
     def test_surf_query_scopes_the_path_wide_not_just_endpoints(self):
         # R7b / GitHub #41 — the variable-length *1..2 walk must constrain EVERY node on the path

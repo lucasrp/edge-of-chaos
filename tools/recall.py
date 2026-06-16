@@ -70,6 +70,35 @@ SURF_QUERY = (
 
 _AUTO = object()
 
+# N1/R3 — the bounded-latency budget (seconds). Every cortex_* read rides a driver opened with these
+# timeouts, so a slow/absent graph DARKENS within the budget instead of blocking the standing server
+# (Mem0 async-default; CONTRACT C1: name the dark leg, never block the beat). The dark marker IS the
+# timeout's value. EDGE_CORTEX_TIMEOUT (seconds) tunes it per host; a small default keeps the beat live.
+def _timeout_s():
+    try:
+        return float(os.environ.get("EDGE_CORTEX_TIMEOUT", "5"))
+    except (TypeError, ValueError):
+        return 5.0
+
+
+def _driver_kwargs():
+    """Connection timeouts for a fail-dark driver (N1/R3): bound BOTH the TCP connect and the pool
+    acquisition so neither can hang the standing read door."""
+    t = _timeout_s()
+    return {"connection_timeout": t, "connection_acquisition_timeout": t}
+
+
+def _q(text):
+    """Wrap a cypher string in a neo4j.Query carrying the SERVER-SIDE execution timeout (N1/R3): the
+    connection timeout bounds the CONNECT, this bounds the QUERY itself — an already-connected slow
+    query darkens within the budget instead of hanging the standing server. Falls back to the bare
+    string if the neo4j Query type is unavailable (the caller's outer guard still darkens)."""
+    try:
+        from neo4j import Query
+        return Query(text, timeout=_timeout_s())
+    except Exception:
+        return text
+
 
 @contextmanager
 def _session(group, uri=None, user=None, password=None):
@@ -110,7 +139,7 @@ def _session(group, uri=None, user=None, password=None):
         return
     drv = None
     try:
-        drv = GraphDatabase.driver(uri, auth=(user, password))
+        drv = GraphDatabase.driver(uri, auth=(user, password), **_driver_kwargs())
         drv.verify_connectivity()   # the driver is LAZY — an unreachable graph fails HERE, not on
                                     # open; verify so a dark graph yields None (the dark leg), not a
                                     # live-looking session that explodes on the first s.run().
@@ -155,16 +184,16 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
             if s is None:
                 return None
             # space-0 → objective → bets (active ANCHORS only) — the spine head
-            head = s.run(SPINE_QUERY, g=group).single()
+            head = s.run(_q(SPINE_QUERY), g=group).single()
             if head is None:
                 return {"codename": None, "voice": None, "objective": None,
                         "bets": [], "artefatos": [], "clusters": []}
             # salient Artefatos (MOST RECENT, capped) + the clusters they DISTILL — reached via
             # SERVES. The salience guards (complete-projections-only, recency order, the cap,
             # the retired-cluster filter) live in the module-level query constants above.
-            arts = s.run(ARTEFATOS_QUERY, g=group, lim=RECALL_ARTEFATO_LIMIT).data()
+            arts = s.run(_q(ARTEFATOS_QUERY), g=group, lim=RECALL_ARTEFATO_LIMIT).data()
             slugs = [a["slug"] for a in arts]
-            clusters = [r["l"] for r in s.run(CLUSTERS_QUERY, g=group, slugs=slugs)]
+            clusters = [r["l"] for r in s.run(_q(CLUSTERS_QUERY), g=group, slugs=slugs)]
             return {
                 "codename": head["codename"], "voice": head["voice"],
                 "objective": head["objective"], "bets": [b for b in head["bets"] if b],
@@ -201,7 +230,7 @@ def surf_subgraph(seeds, group=None, uri=None, user=None, password=None):
         with _session(group, uri, user, password) as s:
             if s is None:
                 return None
-            rows = s.run(SURF_QUERY, g=group, seeds=list(seeds)).data()
+            rows = s.run(_q(SURF_QUERY), g=group, seeds=list(seeds)).data()
             return [{"slug": r["slug"], "kernel": r.get("kernel"),
                      "labels": r.get("labels"), "hops": r["hops"]} for r in rows]
     except Exception:

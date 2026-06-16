@@ -1,0 +1,345 @@
+"""cortex_mcp — the standing, READ-ONLY `cortex` MCP server: the Cortex (the edge's own memory) made
+pull-able at EVERY step of self-work, not only the wake-time push (REQUISITES-CORTEX-MEMORY, ADR-0014
+recall-as-seed). Genotype tool — subject-blind, no identity literals (N2).
+
+The single-shot `claude -p` beat can only reach mid-turn information through a tool call, so the
+omnipresent door is a standing MCP server. This is a minimal stdio JSON-RPC 2.0 server (initialize /
+tools/list / tools/call ONLY) — zero new runtime deps, no `mcp` SDK (N2), unit-testable with injectable
+backends and `EDGE_CORTEX_FIXTURE`.
+
+Four read tools, all group-scoped, all reusing the existing backends (never a forked read path, R10):
+  - cortex_recall  → the salient seed subgraph         (recall.recall_subgraph)
+  - cortex_surf    → the typed associative peer web     (recall.surf_subgraph, *1..2 hops)
+  - cortex_node    → a node + immediate neighbors        (filter server.cortex_fold)
+  - cortex_search  → nodes by label/title substring (v1) (filter server.cortex_fold)
+
+Two failure classes, NEVER conflated (ADR-0015, F6/N6):
+  - Unresolved identity (no group) FAILS LOUD at startup: the server REFUSES to construct/serve, so an
+    unidentified install never darkens silently (which would hide empty/foreign state — the exact
+    multi-tenant contamination ADR-0015 forbids). This is NOT the C1 dark path.
+  - Transient graph health of a RESOLVED group FAILS DARK per call: a {"dark": true, "leg": "cortex",
+    "reason": ...} marker, never a raise (CONTRACT C1, ADR-0011: name the dark leg, never block the beat).
+
+Read-only (F5): no tool writes the graph; all curated writes stay owned by the close/grill (ADR-0008).
+"""
+import json
+import os
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "tools"))
+
+PROTOCOL_VERSION = "2024-11-05"
+
+# Tool input schemas (MCP tools/list). Minimal + explicit so a caller (and the harness) can validate.
+_TOOLS = [
+    {
+        "name": "cortex_recall",
+        "description": ("The seed: the salient subgraph of your own memory rooted at space-0 "
+                        "(identity → objective → bets → salient Artefatos → distilled clusters). "
+                        "The same content pushed at wake, now pullable mid-turn. Capped small; "
+                        "pull deeper with cortex_surf/cortex_node."),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "cortex_surf",
+        "description": ("Walk the typed associative peer web from seed Artefato slugs "
+                        "(BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES, <=2 hops; SERVES "
+                        "excluded). Active, agent-controlled navigation: pick the next hop from "
+                        "evidence in hand."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "seeds": {"type": "array", "items": {"type": "string"},
+                          "description": "Artefato slugs to surf from."},
+                "hops": {"type": "integer", "description": "1 or 2 (clamped to 2)."},
+            },
+            "required": ["seeds"],
+        },
+    },
+    {
+        "name": "cortex_node",
+        "description": "A node and its immediate neighbors, by ref/slug.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"ref": {"type": "string", "description": "The node ref/slug."}},
+            "required": ["ref"],
+        },
+    },
+    {
+        "name": "cortex_search",
+        "description": ("Locate nodes by label/title substring (v1: substring — a fallback locator; "
+                        "navigation is the primary recall mode)."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "A label/title substring."}},
+            "required": ["query"],
+        },
+    },
+]
+
+_TOOL_NAMES = {t["name"] for t in _TOOLS}
+MAX_HOPS = 2
+
+# R6/N5 — the per-cognition deny, enforceable at the server (not only by the harness config). The
+# delta/world subject reads the WORLD; it must NOT inherit the SELF door (ADR-0014's self/world wall —
+# a read-only door does not stop the IN-CONTEXT mixing of world-new beside recalled-self). A server
+# constructed for a denied subject withholds cortex_* entirely (empty tools/list, refused tools/call).
+# Everything else — the lead and the self-reading fan (recall/report/map/plan/...) — gets the door.
+# The config-level --mcp-config allowlist (Slice 6) is the harness half; this is the server half.
+_DENIED_SUBJECTS = {"delta", "world"}
+
+
+def _dark(reason):
+    """The honest dark marker — the SAME shape the recall brief's dark leg uses (Appendix A). A
+    structured value the caller orients away from; NEVER an exception (C1, ADR-0011)."""
+    return {"dark": True, "leg": "cortex", "reason": reason}
+
+
+class CortexServer:
+    """The standing read door. Backends are injectable (unit tests pass fixtures; production wires the
+    reused recall/fold functions), so the server is testable without a live neo4j or the `mcp` SDK.
+
+    `group` is resolved by the caller (the live entrypoint resolves it LOUD via _identity.require_group
+    at startup). A falsy group here means an unidentified install: the constructor RAISES (F6/N6,
+    ADR-0015) — the server refuses to serve `cortex_*` at all. Only a RESOLVED group's runtime outage
+    is allowed to fail dark, and that is decided per call (a backend returning None / raising)."""
+
+    def __init__(self, group, recall_fn=None, surf_fn=None, fold_fn=None, subject=None):
+        if not group:
+            # FAIL LOUD — the identity wall (ADR-0015). An unidentified install must not serve a single
+            # cortex_* call; a silent dark here would hide empty/foreign state (multi-tenant leak).
+            raise RuntimeError(
+                "cortex MCP: no graph group resolved — refusing to serve an unidentified install "
+                "(set EDGE_GROUP or agent.yaml name/codename; ADR-0015: never silently darken "
+                "an unidentified install — that hides empty/foreign state)")
+        self.group = group
+        # R6/N5 — the subject scope. A denied subject (delta/world) gets NO door; default/lead/recall
+        # and the self-reading fan get all four tools. EDGE_CORTEX_SUBJECT lets the live entrypoint
+        # carry the dispatched subject when the harness routes the door through one server.
+        self.subject = subject or os.environ.get("EDGE_CORTEX_SUBJECT")
+        self._denied = (self.subject or "").lower() in _DENIED_SUBJECTS
+        self._recall_fn = recall_fn or self._live_recall
+        self._surf_fn = surf_fn or self._live_surf
+        self._fold_fn = fold_fn or self._live_fold
+
+    def _visible_tools(self):
+        """The tools this subject may see — none for a denied (delta/world) subject (R6/N5)."""
+        return [] if self._denied else _TOOLS
+
+    # --- live backends (the reuse: never a forked read path, R10) ---------------------------------
+    def _live_recall(self, group=None):
+        import recall
+        return recall.recall_subgraph(group or self.group)
+
+    def _live_surf(self, seeds, group=None):
+        import recall
+        return recall.surf_subgraph(seeds, group=group or self.group)
+
+    def _live_fold(self):
+        sys.path.insert(0, str(REPO / "blog"))
+        import server
+        return server.cortex_fold(self.group)
+
+    # --- JSON-RPC dispatch ------------------------------------------------------------------------
+    def handle(self, msg):
+        """Dispatch one JSON-RPC message. A request (has `id`) returns a response object; a
+        notification (no `id`) returns None. NEVER raises out (availability is the standing door's
+        contract): a malformed envelope is -32600, a bad method -32601, bad params/tool -32602, a
+        runtime outage a dark tool result, and any UNEXPECTED internal error -32603 — the process
+        survives model-generated bad args or a client bug (codex Slice-2 [medium])."""
+        if not isinstance(msg, dict):
+            return self._err(None, -32600, "invalid request: not a JSON object")
+        method = msg.get("method")
+        mid = msg.get("id")
+        if "id" not in msg:
+            # a notification is the ABSENCE of `id` (e.g. notifications/initialized) — accept, no
+            # response. A request carrying an EXPLICIT `id: null` is a request (JSON-RPC permits a null
+            # id), and must get a response with id null — never silently dropped (codex Slice-2 [medium]).
+            return None
+        try:
+            if method == "initialize":
+                return self._ok(mid, {
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "cortex", "version": "1"},
+                })
+            if method == "tools/list":
+                return self._ok(mid, {"tools": self._visible_tools()})
+            if method == "tools/call":
+                params = msg.get("params") or {}
+                if not isinstance(params, dict):
+                    raise _ToolError("invalid params: expected an object")
+                return self._ok(mid, self._call_tool(params))
+            return self._err(mid, -32601, f"method not found: {method}")
+        except _ToolError as e:
+            return self._err(mid, -32602, str(e))
+        except Exception as e:  # noqa: BLE001 — the standing server must survive ANY unexpected error
+            return self._err(mid, -32603, f"internal error: {type(e).__name__}")
+
+    def _call_tool(self, params):
+        name = params.get("name")
+        if name not in _TOOL_NAMES:
+            raise _ToolError(f"unknown tool: {name}")
+        if self._denied:
+            # R6/N5 — a denied subject cannot call the door even by name (the deny is not cosmetic).
+            raise _ToolError(f"tool denied to subject '{self.subject}': {name}")
+        args = params.get("arguments")
+        if args is None:
+            args = {}
+        if not isinstance(args, dict):
+            raise _ToolError("invalid arguments: expected an object")
+        fn = getattr(self, f"_t_{name}")
+        return fn(args)
+
+    @staticmethod
+    def _ok(mid, result):
+        return {"jsonrpc": "2.0", "id": mid, "result": result}
+
+    @staticmethod
+    def _err(mid, code, message):
+        return {"jsonrpc": "2.0", "id": mid, "error": {"code": code, "message": message}}
+
+    # --- the four read tools ----------------------------------------------------------------------
+    # Every tool wraps its backend so a runtime outage (None) OR a raising backend darkens THIS leg
+    # only (C1) — never the server. The identity wall is already past (constructor); here it is pure
+    # runtime fail-dark.
+    def _t_cortex_recall(self, args):
+        try:
+            sub = self._recall_fn(group=self.group)
+        except Exception as e:  # noqa: BLE001 — defense in depth: a raising backend darkens the leg
+            return _dark(f"recall backend error: {type(e).__name__}")
+        if sub is None:
+            return _dark("graph offline (recall)")
+        return sub
+
+    def _t_cortex_surf(self, args):
+        seeds = args.get("seeds") or []
+        hops = args.get("hops", MAX_HOPS)
+        try:
+            hops = min(int(hops), MAX_HOPS)
+        except (TypeError, ValueError):
+            hops = MAX_HOPS
+        try:
+            peers = self._surf_fn(seeds, group=self.group)
+        except Exception as e:  # noqa: BLE001
+            return _dark(f"surf backend error: {type(e).__name__}")
+        if peers is None:
+            return _dark("graph offline (surf)")
+        peers = [p for p in peers if p.get("hops") is None or p.get("hops") <= hops]
+        return {"nodes": peers, "hops": hops}
+
+    def _t_cortex_node(self, args):
+        ref = args.get("ref")
+        if not isinstance(ref, str):
+            raise _ToolError("invalid ref: expected a string")
+        fold = self._safe_fold()
+        if fold is None:
+            return _dark("graph offline (node)")
+        nodes = {n.get("ref") or n.get("id"): n for n in fold.get("nodes", [])}
+        node = nodes.get(ref)
+        if node is None:
+            # a ref absent from a HEALTHY fold is "no such node", not a dark graph.
+            return {"node": None, "neighbors": []}
+        neighbor_refs = self._neighbor_refs(ref, fold)
+        neighbors = [nodes[r] for r in neighbor_refs if r in nodes]
+        return {"node": node, "neighbors": neighbors}
+
+    def _t_cortex_search(self, args):
+        q = args.get("query")
+        if not isinstance(q, str):
+            raise _ToolError("invalid query: expected a string")
+        query = q.lower()
+        fold = self._safe_fold()
+        if fold is None:
+            return _dark("graph offline (search)")
+        results = []
+        for n in fold.get("nodes", []):
+            hay = " ".join(str(n.get(f, "")) for f in ("label", "title")).lower()
+            if query and query in hay:
+                results.append(n)
+        return {"results": results}
+
+    # --- fold helpers -----------------------------------------------------------------------------
+    def _safe_fold(self):
+        """The fold backend, guarded: None (or a raise) → None so the caller darkens this leg."""
+        try:
+            return self._fold_fn()
+        except Exception:  # noqa: BLE001
+            return None
+
+    @staticmethod
+    def _neighbor_refs(ref, fold):
+        """The refs immediately adjacent to `ref` over the fold edges (either direction). Edges carry
+        source/target as the node `id`; the fold maps id->ref via _node_ref, so resolve id->ref."""
+        id_to_ref = {n.get("id"): (n.get("ref") or n.get("id")) for n in fold.get("nodes", [])}
+        ref_to_ids = {}
+        for n in fold.get("nodes", []):
+            ref_to_ids.setdefault(n.get("ref") or n.get("id"), set()).add(n.get("id"))
+        my_ids = ref_to_ids.get(ref, {ref})
+        out = []
+        seen = set()
+        for e in fold.get("edges", []):
+            s, t = e.get("source"), e.get("target")
+            other = None
+            if s in my_ids:
+                other = t
+            elif t in my_ids:
+                other = s
+            if other is not None:
+                oref = id_to_ref.get(other, other)
+                if oref != ref and oref not in seen:
+                    seen.add(oref)
+                    out.append(oref)
+        return out
+
+
+class _ToolError(Exception):
+    """An invalid tool request (unknown tool / bad args) — a JSON-RPC error, NOT a dark leg."""
+
+
+def _resolve_group_loud():
+    """The identity seam (F6/N6, ADR-0015): resolve the install group at startup and FAIL LOUD if
+    absent — the server must not serve an unidentified install."""
+    import _identity
+    return _identity.require_group()
+
+
+def process_line(server, line):
+    """Turn ONE input line into the response object (or None for a blank line / notification). Total:
+    a parse failure is a JSON-RPC -32700 parse error (id null), so a client never waits forever on a
+    bad frame (codex Slice-2 [medium]); an unexpected handler error is -32603 — the loop never dies."""
+    line = line.strip()
+    if not line:
+        return None
+    try:
+        msg = json.loads(line)
+    except json.JSONDecodeError:
+        return {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
+    try:
+        return server.handle(msg)
+    except Exception:  # noqa: BLE001 — handle() is already total, but the loop never dies on a bug
+        return {"jsonrpc": "2.0", "id": msg.get("id") if isinstance(msg, dict) else None,
+                "error": {"code": -32603, "message": "internal error"}}
+
+
+def serve_stdio(server):
+    """The stdio JSON-RPC loop: one JSON message per line in, one response line out (notifications and
+    blank lines produce no line). Blocks reading stdin until EOF; the standing-server entrypoint."""
+    for line in sys.stdin:
+        resp = process_line(server, line)
+        if resp is not None:
+            sys.stdout.write(json.dumps(resp) + "\n")
+            sys.stdout.flush()
+
+
+def main():
+    # Identity resolves ONCE, LOUD, before any call (ADR-0015). An unidentified install exits non-zero
+    # at startup — it never serves a single cortex_* call.
+    group = _resolve_group_loud()
+    serve_stdio(CortexServer(group))
+
+
+if __name__ == "__main__":
+    main()
