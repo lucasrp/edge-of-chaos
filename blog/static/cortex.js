@@ -86,6 +86,9 @@
     //                    single most-recent stamped node. An UNSTAMPED node (ts null) has "no recency
     //                    position" (the server contract) → it is NEVER fabricated as recent: with
     //                    recency engaged it is dropped, never an arbitrary keep (codex round-1 [med]).
+    //   collapseEpisodic— true → fold the faint `episodic` haze out of the RENDERED set (the Slice-6
+    //                    perf lever, SURFACE.md). A client-side render decision over the SAME payload
+    //                    (the fold is untouched); the episodic's MENTIONS edges drop with it.
     // Each predicate is an independent AND — composing filters just intersects them; recompute from
     // the payload, never from a prior result, so there is no stale hidden/visible state.
     visible: function (payload, state) {
@@ -124,6 +127,16 @@
         if (typeSet && !typeSet.has(n.label)) continue;
         if (state.earmarkedOnly && !n.earmarked) continue;
         if (recencyKeep && !recencyKeep.has(n.id)) continue;
+        // Episodic-collapse perf lever (Slice 6, SURFACE.md): when engaged, the faint `episodic`
+        // haze (~91 nodes + their MENTIONS edges) folds OUT of the rendered set so it stops costing
+        // render budget beyond the M22 floor. A CLIENT-SIDE render decision over the EXISTING payload
+        // — one more independent AND predicate, recomputed from scratch (no stale state); the data /
+        // fold / _map_node are untouched. The episodic's MENTIONS edges drop with it (an endpoint is
+        // hidden), collapsing it into its parent in the render — exactly the density reduction.
+        // An Earmarked episodic is NEVER folded out (M4 / SURFACE.md harm-surfacing: harm overrides
+        // the trust-tier treatment, just as it overrides the trust-dim — so the harm stays visible
+        // and its correction composer reachable even with the lever on).
+        if (state.collapseEpisodic && n.trust === "episodic" && !n.earmarked) continue;
         ids.add(n.id);
       }
       return ids;
@@ -553,6 +566,7 @@
   var searchStatus = document.getElementById("cortex-search-status");
   var earmarkedBox = document.getElementById("cortex-earmarked");
   var recencyRange = document.getElementById("cortex-recency");
+  var collapseBox = document.getElementById("cortex-collapse"); // the Episodic-collapse perf lever (Slice 6)
   var typeBoxes = Array.prototype.slice.call(
     document.querySelectorAll('input[name="cortex-type"]'));
 
@@ -570,6 +584,7 @@
       types: types,
       earmarkedOnly: !!(earmarkedBox && earmarkedBox.checked),
       recencyFraction: recencyFraction,
+      collapseEpisodic: !!(collapseBox && collapseBox.checked),
       query: search ? search.value : "",
     };
   }
@@ -604,6 +619,7 @@
     typeBoxes.forEach(function (b) { b.addEventListener("change", render); });
     if (earmarkedBox) earmarkedBox.addEventListener("change", render);
     if (recencyRange) recencyRange.addEventListener("input", render);
+    if (collapseBox) collapseBox.addEventListener("change", render);
     if (search) search.addEventListener("input", render);
     if (prevBtn) prevBtn.addEventListener("click", function () { step(-1); });
     if (nextBtn) nextBtn.addEventListener("click", function () { step(1); });
@@ -1188,12 +1204,15 @@
   }
 
   // isDefaultControlState(state) → true iff no narrowing is active (no query, no type filter, no
-  // Earmarked-only, no recency) — i.e. the adapter's freshly-loaded full graph already matches it.
+  // Earmarked-only, no recency, no Episodic-collapse) — i.e. the adapter's freshly-loaded full graph
+  // already matches it. The collapse lever counts as a narrowing: with it engaged, a late demotion
+  // must REPLAY it into the fallback (so the haze stays folded) rather than skipping the replay.
   function isDefaultControlState(state) {
     state = state || {};
     var q = String(state.query == null ? "" : state.query).trim();
     return q === "" && state.types == null && !state.earmarkedOnly &&
-           !(typeof state.recencyFraction === "number" && state.recencyFraction > 0);
+           !(typeof state.recencyFraction === "number" && state.recencyFraction > 0) &&
+           !state.collapseEpisodic;
   }
 
   mountLadderFrom("3d");
