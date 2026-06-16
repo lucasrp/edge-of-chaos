@@ -67,13 +67,13 @@ def _fake_embed(text):
 
 
 def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
-                   distills=None, skill="report"):
+                   distills=None, skill="report", lineage=None):
     """A BOUND passing proof for the exact payload — minted via close's PRIVATE `_mint_proof`
     the same way `run_close` mints it (run_close-only token + sha256 digest of
-    slug+spec+intent+cites+proposes+distills+skill + both passing reviewer verdicts carrying
-    the CANONICAL reviewer identities). This is the explicit TEST-ONLY seam standing in for
-    run_close; it stamps the two canonical identities verify_proof requires. The publisher
-    refuses anything not bound to the payload (and identities) it is actually publishing."""
+    slug+spec+intent+cites+proposes+distills+skill+lineage + both passing reviewer verdicts
+    carrying the CANONICAL reviewer identities). This is the explicit TEST-ONLY seam standing
+    in for run_close; it stamps the two canonical identities verify_proof requires. The
+    publisher refuses anything not bound to the payload (and identities) it is publishing."""
     verdicts = [
         {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
          "reviewer": close.FEYNMAN_REVIEWER_ID},
@@ -82,7 +82,7 @@ def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
     ]
     return close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
                              cites=cites or [], proposes=proposes or [],
-                             distills=distills, skill=skill)
+                             distills=distills, skill=skill, lineage=lineage)
 
 
 def _spec():
@@ -340,6 +340,42 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                 distills=reviewed_distills, verdict=proof,
             )
             self.assertTrue(Path(path).exists())
+
+    def test_lineage_binds_in_the_proof_digest(self):
+        # Cortex-v1 (brick-1): the proof binds the AUTHORED typed `lineage` exactly as it binds
+        # distills/skill — without it the field is forgeable at publish time. Mirrors
+        # test_altered_distills_at_the_seam: the proof verifies against the SAME lineage, but an
+        # ALTERED lineage (poisoned authored provenance) is rejected — the digest no longer matches.
+        slug = "bound-lineage"
+        lineage = [{"type": "supersedes", "target": "thread-7"},
+                   {"type": "builds_on", "target": "thread-3"}]
+        proof = _passing_proof(slug, _spec(), "open: x; bet: y", lineage=lineage)
+        # verifies against the SAME lineage it was minted over...
+        close.verify_proof(
+            proof, slug=slug, spec=_spec(), intent="open: x; bet: y",
+            cites=[], proposes=[], skill="report", lineage=lineage, reviewer_count=2,
+        )
+        # ...but an ALTERED lineage (forged authored provenance) is rejected.
+        with self.assertRaises(ValueError):
+            close.verify_proof(
+                proof, slug=slug, spec=_spec(), intent="open: x; bet: y",
+                cites=[], proposes=[], skill="report",
+                lineage=[{"type": "contradicts", "target": "POISONED at publish"}],
+                reviewer_count=2,
+            )
+
+    def test_empty_lineage_is_back_compat(self):
+        # A proof minted with NO lineage (the param unset) verifies against [] AND against an
+        # unset lineage — so every prior offline mint/verify (which never passes lineage) keeps
+        # binding identically. lineage `None`/`[]`/unset are one and the same in the digest.
+        slug = "no-lineage"
+        proof = _passing_proof(slug, _spec(), "open: x; bet: y")
+        for lineage in (None, []):
+            close.verify_proof(
+                proof, slug=slug, spec=_spec(), intent="open: x; bet: y",
+                cites=[], proposes=[], skill="report", lineage=lineage,
+                reviewer_count=2,
+            )
 
     def test_run_close_failing_gate_never_publishes(self):
         with tempfile.TemporaryDirectory() as tmp:
