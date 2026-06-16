@@ -66,9 +66,10 @@ def _call(srv, method, params=None, id=1):
 
 
 def _tool(srv, name, args=None):
-    """Invoke a tool via tools/call and return the parsed structured result (the tool's payload)."""
+    """Invoke a tool via tools/call and return the tool's domain payload — unwrapped from the MCP
+    CallToolResult envelope ({content, structuredContent, isError}) the server now returns."""
     resp = _call(srv, "tools/call", {"name": name, "arguments": args or {}})
-    return resp["result"]
+    return resp["result"]["structuredContent"]
 
 
 class JsonRpcEnvelope(unittest.TestCase):
@@ -99,6 +100,24 @@ class JsonRpcEnvelope(unittest.TestCase):
     def test_tools_call_unknown_tool_returns_an_error(self):
         resp = _call(_server(), "tools/call", {"name": "cortex_delete", "arguments": {}})
         self.assertIn("error", resp)
+
+    def test_tools_call_returns_a_valid_mcp_calltoolresult_envelope(self):
+        # codex Slice-4 [high]: a successful tools/call must return the MCP CallToolResult envelope
+        # (content blocks + structuredContent), NOT the raw domain payload — else Claude Code can list
+        # the tools but fail to surface the call result on the non-test path.
+        resp = _call(_server(), "tools/call", {"name": "cortex_recall", "arguments": {}})
+        result = resp["result"]
+        self.assertIn("content", result)
+        self.assertEqual(result["content"][0]["type"], "text")
+        self.assertIn("structuredContent", result)
+        self.assertEqual(result["structuredContent"]["codename"], "ed")
+        self.assertFalse(result.get("isError"), "a healthy read is not an error")
+
+    def test_a_dark_tools_call_marks_isError_in_the_envelope(self):
+        srv = _server(recall_fn=lambda group=None: None)
+        result = _call(srv, "tools/call", {"name": "cortex_recall", "arguments": {}})["result"]
+        self.assertTrue(result["structuredContent"]["dark"])
+        self.assertTrue(result["isError"], "a dark leg must surface as isError in the envelope")
 
     def test_notifications_initialized_is_accepted_with_no_response(self):
         # a JSON-RPC notification (ABSENCE of id) must not get a response object back

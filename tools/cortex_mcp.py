@@ -84,13 +84,24 @@ _TOOLS = [
 _TOOL_NAMES = {t["name"] for t in _TOOLS}
 MAX_HOPS = 2
 
-# R6/N5 — the per-cognition deny, enforceable at the server (not only by the harness config). The
-# delta/world subject reads the WORLD; it must NOT inherit the SELF door (ADR-0014's self/world wall —
-# a read-only door does not stop the IN-CONTEXT mixing of world-new beside recalled-self). A server
-# constructed for a denied subject withholds cortex_* entirely (empty tools/list, refused tools/call).
-# Everything else — the lead and the self-reading fan (recall/report/map/plan/...) — gets the door.
-# The config-level --mcp-config allowlist (Slice 6) is the harness half; this is the server half.
-_DENIED_SUBJECTS = {"delta", "world"}
+# R6/N5 — the per-cognition policy as an ALLOWLIST (fail-closed, codex Slice-4 [high]).
+#
+# THE PRIMARY ENFORCEMENT IS CONFIG-SIDE, NOT HERE (codex Slice-4 [high], honest boundary): a delta/
+# world dispatch is given a --mcp-config that registers NO cortex server at all (cortex_config.mcp_config
+# returns {} for a non-granted subject) AND the delta SKILL declares `disallowed-tools: mcp__cortex__*`.
+# So the world-reading subject never inherits the door in the first place — that is the wall. This
+# server-side check is a SECONDARY, best-effort guard: a standing stdio server cannot see a PER-CALLER
+# subject over one shared pipe, so it enforces the subject of the PROCESS it was launched as
+# (EDGE_CORTEX_SUBJECT, baked per-config). It catches a server mistakenly launched FOR a world subject;
+# it cannot, alone, stop a world subagent that inherited a lead-scoped server — which is exactly why the
+# config-side omission + skill deny are the v1-required wall, not this check.
+#
+# The door is GRANTED only to an explicit self-cognition; an explicitly-UNKNOWN subject is DENIED. A
+# server with NO subject signal is the LEAD's own default server (the live main() path) — granted.
+GRANTED_SUBJECTS = {
+    "lead", "recall", "assemble", "wake", "beat", "consolidate",
+    "report", "map", "plan", "research", "critique", "discovery", "grill",
+}
 
 
 def _dark(reason):
@@ -117,11 +128,14 @@ class CortexServer:
                 "(set EDGE_GROUP or agent.yaml name/codename; ADR-0015: never silently darken "
                 "an unidentified install — that hides empty/foreign state)")
         self.group = group
-        # R6/N5 — the subject scope. A denied subject (delta/world) gets NO door; default/lead/recall
-        # and the self-reading fan get all four tools. EDGE_CORTEX_SUBJECT lets the live entrypoint
-        # carry the dispatched subject when the harness routes the door through one server.
+        # R6/N5 — the subject scope, ALLOWLIST + fail-closed (codex Slice-4 [high]). A subject that is
+        # an explicit self-cognition (GRANTED_SUBJECTS) gets the door; an explicitly-UNKNOWN subject is
+        # denied. A bare None/empty subject is the LEAD's own default server (the live main() path) —
+        # granted, since the lead/self config never sets a foreign subject. EDGE_CORTEX_SUBJECT carries
+        # the dispatched subject when the harness routes the door through one server.
         self.subject = subject or os.environ.get("EDGE_CORTEX_SUBJECT")
-        self._denied = (self.subject or "").lower() in _DENIED_SUBJECTS
+        s = (self.subject or "").lower()
+        self._denied = bool(s) and s not in GRANTED_SUBJECTS
         self.run_id = run_id or os.environ.get("EDGE_RUN_ID")
         self._recall_fn = recall_fn or self._live_recall
         self._surf_fn = surf_fn or self._live_surf
@@ -174,7 +188,15 @@ class CortexServer:
                 params = msg.get("params") or {}
                 if not isinstance(params, dict):
                     raise _ToolError("invalid params: expected an object")
-                return self._ok(mid, self._call_tool(params))
+                payload = self._call_tool(params)
+                # MCP CallToolResult envelope (codex Slice-4 [high]): a tools/call result is NOT the
+                # raw domain payload — it is {content:[{type:text,...}], structuredContent: payload}.
+                # A dark leg sets isError=true so the client sees an honest failed-but-structured read.
+                return self._ok(mid, {
+                    "content": [{"type": "text", "text": json.dumps(payload)}],
+                    "structuredContent": payload,
+                    "isError": bool(isinstance(payload, dict) and payload.get("dark")),
+                })
             return self._err(mid, -32601, f"method not found: {method}")
         except _ToolError as e:
             return self._err(mid, -32602, str(e))
