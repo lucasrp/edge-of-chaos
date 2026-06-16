@@ -192,6 +192,12 @@ class ExecuteIngestsLogsAdvances(unittest.TestCase):
             eps = eventlog.read(types=["episode"], log=log)
             self.assertEqual(len(eps), 1)
             self.assertEqual(eps[0]["payload"]["session"], "sessA")
+            # R8c part 1 (F9-dep) — the episode STAMPS its source-Medium tier at ingest: the native
+            # Claude work session is a LOW-TIER Medium (C5), so the truth-path record carries
+            # medium_tier=low_tier. The read door surfaces context_only from this provenance; until the
+            # stamp propagates onto merged Graphiti nodes (v1.1), the read-door fail-safe holds C5.
+            self.assertEqual(eps[0]["payload"]["medium_tier"], "low_tier",
+                             "a native Claude session is a low-tier Medium — stamp it at ingest (R8c)")
 
     def test_thin_not_ingested_or_advanced(self):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:

@@ -42,16 +42,18 @@ class RecallSubgraphLivesInRecallModule(unittest.TestCase):
                       "only complete projections are reliable memory")
         import inspect
         src = inspect.getsource(recall.recall_subgraph)
-        self.assertIn("s.run(ARTEFATOS_QUERY", src,
-                      "recall_subgraph must execute the guarded constant, not an inline copy")
+        self.assertIn("s.run(_q(ARTEFATOS_QUERY)", src,
+                      "recall_subgraph must execute the guarded constant (timeout-wrapped, N1/R3), "
+                      "not an inline copy")
 
     def test_cluster_query_filters_retired_clusters(self):
         self.assertIn("coalesce(e.archived,false)=false", recall.CLUSTERS_QUERY)
         self.assertIn("e.merged_into IS NULL", recall.CLUSTERS_QUERY)
         import inspect
         src = inspect.getsource(recall.recall_subgraph)
-        self.assertIn("s.run(CLUSTERS_QUERY", src,
-                      "recall_subgraph must execute the guarded constant, not an inline copy")
+        self.assertIn("s.run(_q(CLUSTERS_QUERY)", src,
+                      "recall_subgraph must execute the guarded constant (timeout-wrapped, N1/R3), "
+                      "not an inline copy")
 
 
 class ComposeRecallBriefIsTheThirdBrief(unittest.TestCase):

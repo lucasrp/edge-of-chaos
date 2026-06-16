@@ -13,6 +13,7 @@ Degrade contract unchanged (CONTRACT C1): a dark graph yields an honest marker, 
 """
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -52,15 +53,116 @@ CLUSTERS_QUERY = (
 # in v1: ORDER BY hops, slug only (the 1/|P| hub-damping rank from the report is OUT of brick-1).
 # The seam (research `cosine-nominates-the-author-disposes`, R1): this OFFERS candidate priors the
 # producer authors typed lineage FROM — the wiring into authoring context is the L6 doc, not code.
+# PATH-WIDE group scoping (R7b / GitHub #41): the variable-length *1..2 walk constrains EVERY node
+# on the path — `all(x IN nodes(p) WHERE x.group_id=$g)` — not only `seed` and the terminal `n`.
+# On the SHARED neo4j (roberto/petertosh, one graph split by group_id) a FOREIGN intermediate bridge
+# node could otherwise route which same-group peers surface — a cross-install topology leak that
+# LOOKS scoped (rows are same-group) while the traversal itself was contaminated. With every path
+# node pinned to $g, an off-group bridge is off-path, so it can neither surface nor route.
 SURF_QUERY = (
     "MATCH (seed:Artefato {group_id:$g}) WHERE seed.slug IN $seeds "
     "MATCH p=(seed)-[:BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES*1..2]-(n) "
     "WHERE (n:Artefato OR n:Source) AND n.group_id=$g AND NOT n.slug IN $seeds "
+    "AND all(x IN nodes(p) WHERE x.group_id=$g) "
     "RETURN DISTINCT n.slug AS slug, n.kernel AS kernel, labels(n) AS labels, "
     "min(length(p)) AS hops "
     "ORDER BY hops, slug")
 
 _AUTO = object()
+
+# N1/R3 — the bounded-latency budget (seconds). Every cortex_* read rides a driver opened with these
+# timeouts, so a slow/absent graph DARKENS within the budget instead of blocking the standing server
+# (Mem0 async-default; CONTRACT C1: name the dark leg, never block the beat). The dark marker IS the
+# timeout's value. EDGE_CORTEX_TIMEOUT (seconds) tunes it per host; a small default keeps the beat live.
+def _timeout_s():
+    try:
+        return float(os.environ.get("EDGE_CORTEX_TIMEOUT", "5"))
+    except (TypeError, ValueError):
+        return 5.0
+
+
+def _driver_kwargs():
+    """Connection timeouts for a fail-dark driver (N1/R3): bound BOTH the TCP connect and the pool
+    acquisition so neither can hang the standing read door."""
+    t = _timeout_s()
+    return {"connection_timeout": t, "connection_acquisition_timeout": t}
+
+
+def _q(text):
+    """Wrap a cypher string in a neo4j.Query carrying the SERVER-SIDE execution timeout (N1/R3): the
+    connection timeout bounds the CONNECT, this bounds the QUERY itself — an already-connected slow
+    query darkens within the budget instead of hanging the standing server. Falls back to the bare
+    string if the neo4j Query type is unavailable (the caller's outer guard still darkens)."""
+    try:
+        from neo4j import Query
+        return Query(text, timeout=_timeout_s())
+    except Exception:
+        return text
+
+
+@contextmanager
+def _session(group, uri=None, user=None, password=None):
+    """The ONE guarded connection seam (R7): open driver → yield a live neo4j session → always close.
+    recall_subgraph, surf_subgraph, AND the cortex MCP all read the same self-graph; each used to
+    re-implement this open/resolve/fail-dark/close boilerplate. Extracted here so the scaffolding
+    lives in one place (a real three-call-site de-dup, not a speculative abstraction).
+
+    This is the RUNTIME connection seam, POST-identity — its only failure mode is fail-DARK (C1,
+    ADR-0011): YIELDS the session on success; YIELDS None on every genuine runtime degrade — the
+    neo4j driver absent, the graph unreachable/unverifiable, or a guarded credential resolution that
+    raised on a misconfigured install. NEVER raises (a transient outage darkens only this leg); the
+    driver is closed in `finally` regardless. Callers branch on `s is None` for the dark marker.
+
+    The fail-LOUD identity boundary (F6/N6, ADR-0015) does NOT live here — it is the caller's
+    startup responsibility: the cortex MCP resolves `_identity.require_group()` ONCE at startup and
+    refuses to serve an unidentified install BEFORE any tool runs (an unidentified install must not
+    even reach this seam). recall_subgraph/surf_subgraph are the runtime-degrade callers whose
+    documented contract is "None on no group" (compose_recall_brief/predispatch depend on a dark
+    recall leg at wake, never a crash); they pass a falsy group here only as already-resolved, so the
+    falsy-group → None branch is the runtime degrade, not the identity wall. Keeping the two failure
+    classes at their correct layers is exactly ADR-0015's distinction (absent identity ≠ graph
+    outage): the wall is loud at the server's startup seam, dark at this per-query connection."""
+    if not group:
+        yield None
+        return
+    try:
+        uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
+        user = user or os.environ.get("EDGE_NEO4J_USER", "neo4j")
+        password = password or os.environ.get("EDGE_NEO4J_PASSWORD") or _identity.neo4j_password()
+    except Exception:
+        yield None
+        return
+    try:
+        from neo4j import GraphDatabase
+    except Exception:
+        yield None
+        return
+    drv = None
+    try:
+        drv = GraphDatabase.driver(uri, auth=(user, password), **_driver_kwargs())
+        drv.verify_connectivity()   # the driver is LAZY — an unreachable graph fails HERE, not on
+                                    # open; verify so a dark graph yields None (the dark leg), not a
+                                    # live-looking session that explodes on the first s.run().
+    except Exception:
+        if drv is not None:
+            try:
+                drv.close()
+            except Exception:
+                pass
+        yield None
+        return
+    try:
+        with drv.session() as s:
+            yield s
+    finally:
+        # Close the driver no matter what. An exception thrown back IN from the caller's body (a
+        # mid-query outage) propagates out of the `with` — the callers each wrap the whole block in
+        # `try/except: return None`, so it darkens their leg there. We must NOT swallow-and-re-yield
+        # here (a generator may yield only once) — close, then let it propagate to the caller's guard.
+        try:
+            drv.close()
+        except Exception:
+            pass
 
 
 def recall_subgraph(group=None, uri=None, user=None, password=None):
@@ -77,30 +179,21 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
     The recall cypher is the space-0 traversal from `skills/_shared/memory.md`."""
     if not group:
         return None
-    uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
-    user = user or os.environ.get("EDGE_NEO4J_USER", "neo4j")
-    password = password or os.environ.get("EDGE_NEO4J_PASSWORD") or _identity.neo4j_password()
     try:
-        from neo4j import GraphDatabase
-    except Exception:
-        return None
-    try:
-        drv = GraphDatabase.driver(uri, auth=(user, password))
-    except Exception:
-        return None
-    try:
-        with drv.session() as s:
+        with _session(group, uri, user, password) as s:
+            if s is None:
+                return None
             # space-0 → objective → bets (active ANCHORS only) — the spine head
-            head = s.run(SPINE_QUERY, g=group).single()
+            head = s.run(_q(SPINE_QUERY), g=group).single()
             if head is None:
                 return {"codename": None, "voice": None, "objective": None,
                         "bets": [], "artefatos": [], "clusters": []}
             # salient Artefatos (MOST RECENT, capped) + the clusters they DISTILL — reached via
             # SERVES. The salience guards (complete-projections-only, recency order, the cap,
             # the retired-cluster filter) live in the module-level query constants above.
-            arts = s.run(ARTEFATOS_QUERY, g=group, lim=RECALL_ARTEFATO_LIMIT).data()
+            arts = s.run(_q(ARTEFATOS_QUERY), g=group, lim=RECALL_ARTEFATO_LIMIT).data()
             slugs = [a["slug"] for a in arts]
-            clusters = [r["l"] for r in s.run(CLUSTERS_QUERY, g=group, slugs=slugs)]
+            clusters = [r["l"] for r in s.run(_q(CLUSTERS_QUERY), g=group, slugs=slugs)]
             return {
                 "codename": head["codename"], "voice": head["voice"],
                 "objective": head["objective"], "bets": [b for b in head["bets"] if b],
@@ -109,11 +202,6 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
             }
     except Exception:
         return None
-    finally:
-        try:
-            drv.close()
-        except Exception:
-            pass
 
 
 def surf_subgraph(seeds, group=None, uri=None, user=None, password=None):
@@ -132,38 +220,21 @@ def surf_subgraph(seeds, group=None, uri=None, user=None, password=None):
     `recall_subgraph`'s degrade scaffolding verbatim — a transient outage darkens only this leg."""
     if not seeds:
         return None
-    # Identity/credential resolution is GUARDED too (CONTRACT C1, review FIX-2): `_identity.group()`
-    # and `_identity.neo4j_password()` can raise on a misconfigured install — that must darken this
-    # leg, never propagate. So the whole resolution sits inside a try, like every other failure path.
+    # Identity resolution is GUARDED (CONTRACT C1, review FIX-2): `_identity.group()` can raise on a
+    # misconfigured install — that must darken this leg, never propagate. The connection scaffolding
+    # (driver open / password resolve / fail-dark / close) is the shared `_session` helper (R7).
     try:
         group = group or _identity.group()
         if not group:
             return None
-        uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
-        user = user or os.environ.get("EDGE_NEO4J_USER", "neo4j")
-        password = password or os.environ.get("EDGE_NEO4J_PASSWORD") or _identity.neo4j_password()
-    except Exception:
-        return None
-    try:
-        from neo4j import GraphDatabase
-    except Exception:
-        return None
-    try:
-        drv = GraphDatabase.driver(uri, auth=(user, password))
-    except Exception:
-        return None
-    try:
-        with drv.session() as s:
-            rows = s.run(SURF_QUERY, g=group, seeds=list(seeds)).data()
+        with _session(group, uri, user, password) as s:
+            if s is None:
+                return None
+            rows = s.run(_q(SURF_QUERY), g=group, seeds=list(seeds)).data()
             return [{"slug": r["slug"], "kernel": r.get("kernel"),
                      "labels": r.get("labels"), "hops": r["hops"]} for r in rows]
     except Exception:
         return None
-    finally:
-        try:
-            drv.close()
-        except Exception:
-            pass
 
 
 BANNER = ("<!-- generated by tools/recall.py — the memory-salient brief (ADR-0014); "

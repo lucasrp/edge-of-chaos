@@ -450,6 +450,22 @@ a:hover { color: #a8c2ff; }
 .cortex-list-item .list-source { font-family: var(--font-mono); font-size: .8rem; color: var(--accent); }
 .cortex-message { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 
+/* R11 — the read-only usage heat overlay (EDGE_CORTEX_USAGE=on). A render of the NON-AUTHORITATIVE
+   usage store: no write affordance, no fold. Reuses the cortex-list component vocabulary. */
+.cortex-usage-heat { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 8px; background: rgba(250, 204, 21, .04); }
+.cortex-usage-heat h2 {
+  font: 600 .68rem/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase;
+  color: #facc15; margin: 0 0 4px;
+}
+.cortex-usage-heat-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex;
+  flex-wrap: wrap; gap: 6px 10px; }
+.usage-heat-item { display: inline-flex; align-items: baseline; gap: 6px;
+  font-family: var(--font-mono); font-size: .8rem; }
+.usage-heat-item .ref { color: var(--text); word-break: break-word; }
+/* --heat ∈ [0,1] drives the warmth; pure read-out, no interactivity */
+.usage-heat-item .score { color: #facc15; opacity: calc(.35 + .65 * var(--heat, 0)); }
+
 /* the honest dark state — no group / neo4j unreachable */
 .cortex-dark {
   margin: 12% auto 0; max-width: 540px; text-align: center;

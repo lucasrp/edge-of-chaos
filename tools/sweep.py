@@ -88,8 +88,14 @@ def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
     fatal — the graph is a projection rebuildable from the log. Returns (cursors, n_logged)."""
     qualifying = [it for it in plan if not it.get("skip") and it.get("body", "").strip()]
     for it in qualifying:                              # Tier-0: the log + cursor, unconditionally
+        # R8c part 1 (F9-dep, C5): STAMP the source Medium's tier on the episode at ingest. The native
+        # Claude work session is a LOW-TIER Medium (context, never an order — C5), so the truth-path
+        # record carries medium_tier=low_tier. This is the provenance the read door's context_only axis
+        # reads; propagating it onto MERGED Graphiti nodes (the conservative lattice) is the v1.1 build,
+        # until which the read-door fail-safe (unknown ⇒ context_only) holds the C5 invariant.
         eventlog.append("episode", f"session:{it['id']}",
-                        {"session": it["id"], "watermark": it["watermark"], "chars": len(it["body"])},
+                        {"session": it["id"], "watermark": it["watermark"], "chars": len(it["body"]),
+                         "medium_tier": "low_tier"},
                         log=log)
         cursors[it["id"]] = it["watermark"]
     if qualifying and ingest_fn is not None:           # Tier-1: graph projection, best-effort

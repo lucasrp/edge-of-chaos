@@ -108,9 +108,29 @@ def resolve_claude_bin() -> str:
     raise FileNotFoundError("claude CLI not found on PATH or common install locations")
 
 
-def build_beat_command(claude_bin: str) -> list:
-    """One beat = one single-shot `claude -p -`, permissions bypassed. No retry, no envelope."""
-    return [claude_bin, "-p", "-", "--dangerously-skip-permissions"]
+def build_beat_command(claude_bin: str, mcp_config_path=None) -> list:
+    """One beat = one single-shot `claude -p -`, permissions bypassed. No retry, no envelope.
+
+    When `mcp_config_path` is given (Slice 6, F1), the lead beat is launched with `--mcp-config <path>`
+    so the standing `cortex` read door is registered on the parent claude -p — pullable mid-turn by the
+    lead AND the self-reading subagents it fans. The world-reading delta subagent is denied via its own
+    skill `disallowed-tools: mcp__cortex__*` (Slice 4), so inheriting the parent server is safe. Without
+    a path the command is the unchanged base single-shot invocation (backward-compatible)."""
+    cmd = [claude_bin, "-p", "-", "--dangerously-skip-permissions"]
+    if mcp_config_path:
+        cmd += ["--mcp-config", str(mcp_config_path)]
+    return cmd
+
+
+def ensure_cortex_config(home, group=None):
+    """Generate (idempotently) the LEAD's cortex --mcp-config for THIS install and return its path
+    (Slice 6, F1/N2). A genotype path: the group resolves from identity at runtime (subject=lead, the
+    granted self-cognition), so the door deploys to the fleet without an identity literal. The config
+    is a RUNTIME artifact under state/cortex/ (gitignored, never committed) — it derives per install."""
+    import cortex_config
+    path = Path(os.path.expanduser(str(home))) / "state" / "cortex" / "lead.mcp.json"
+    cortex_config.write_config(path, subject="lead", group=group, home=str(home))
+    return path
 
 
 def build_beat_env(home) -> dict:

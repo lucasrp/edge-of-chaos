@@ -3,3 +3,6 @@ __pycache__/
 secrets/
 .venv/
 *.lock
+# the Usage signal store — a runtime, NON-AUTHORITATIVE artifact (N4): never self-state, never
+# committed. It is reconcilable-to-zero against the log; the committed tree stays clean.
+state/cortex/
