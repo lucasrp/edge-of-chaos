@@ -77,11 +77,11 @@ You do **not** inline an `eventlog` publish snippet, and you **never** call `pub
 that is the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
 passing-review proof only `close.run_close` mints (it raises without a valid `verdict=`). The proof is
 bound to a sha256 **digest** of the exact publish payload (slug + spec + intent + cites + proposes +
-**distills** + **skill** — EVERY persisted publish arg), carries **both** reviewer verdicts, and stamps a
+**distills** + **skill** + **lineage** — EVERY persisted publish arg), carries **both** reviewer verdicts, and stamps a
 `run_close`-only secret token — so a hand-built dict, a stale proof, a proof minted for a different
-artefato (digest mismatch), or one with `distills`/`skill` altered post-mint cannot publish. Exit through
+artefato (digest mismatch), or one with `distills`/`skill`/`lineage` altered post-mint cannot publish. Exit through
 the enforced close: build the artefato carrying **every proof-bound field** (`slug`, `intent`,
-`content`=spec, `cites`, `proposes`, **`distills`**, **`skill`**) so the minted digest equals the publish
+`content`=spec, `cites`, `proposes`, **`distills`**, **`skill`**, **`lineage`**) so the minted digest equals the publish
 payload, then call `close.run_close(artefato, produce_fn, publish_fn=…)`, which runs the genus contract
 **first** (a genus violation bounces — it can never mint a pass proof) → **both blind reviewers** (bounded
 bounce, `BOUNCE_MAX` — a strike re-produces, then hard-fails) → and **only on pass** mints the bound proof
