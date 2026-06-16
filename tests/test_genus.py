@@ -430,6 +430,37 @@ class RichRiteFloorIsContentRelative(unittest.TestCase):
         self.assertFalse(any(v == "rich-rite:lineage" for v in violations),
                          f"a distills thread must satisfy the lineage move, got {violations}")
 
+    def test_authored_lineage_satisfies_the_lineage_move(self):
+        """Cortex-v1 (slice lineage-rich-rite): a non-empty `lineage` list with at least one
+        AUTHORED typed edge whose slug is a non-blank string (the builds_on/supersedes/contradicts
+        the publisher materializes) satisfies the lineage move — even with empty distills."""
+        art = _shallow_prose()  # distills [] and no lineage marker — would be struck
+        art["lineage"] = [{"type": "builds_on", "slug": "the-prior-thread"}]
+        violations = close.check_genus(art)
+        self.assertFalse(any(v == "rich-rite:lineage" for v in violations),
+                         f"an authored lineage edge must satisfy the lineage move, got {violations}")
+
+    def test_empty_lineage_and_distills_and_no_marker_is_struck(self):
+        """Regression guard: the same developed-prose artefato with empty distills AND empty
+        lineage AND no lineage marker is still struck rich-rite:lineage — the OR must not blanket-
+        clear the move."""
+        art = _shallow_prose()
+        art["distills"] = []
+        art["lineage"] = []
+        violations = close.check_genus(art)
+        self.assertTrue(any(v == "rich-rite:lineage" for v in violations),
+                        f"empty distills + empty lineage + no marker must be struck, got {violations}")
+
+    def test_blank_slug_lineage_does_not_clear_the_move(self):
+        """Mirror real_distill/_nonblank: a placeholder lineage item whose slug is blank (or
+        missing) is not a real authored thread and must NOT clear the move."""
+        art = _shallow_prose()
+        art["distills"] = []
+        art["lineage"] = [{"type": "builds_on", "slug": "   "}, {"type": "supersedes"}]
+        violations = close.check_genus(art)
+        self.assertTrue(any(v == "rich-rite:lineage" for v in violations),
+                        f"a blank-slug lineage item must NOT clear the move, got {violations}")
+
     def test_executive_summary_counts_toward_prose_and_carries_moves(self):
         """Codex P2: render renders top-level `executive_summary`, so the floor must read it too —
         a report whose moves live in the exec summary must not be falsely flagged, and a

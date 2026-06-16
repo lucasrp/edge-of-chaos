@@ -283,7 +283,8 @@ def _check_rich_rite(artefato: dict) -> list[str]:
       - what-i-dont-know  — a `gap-*` block, or a knowledge-boundary/uncertainty marker;
       - external-frame    — a non-empty `cites` (a sourced benchmark) or a `bibliography` block,
                             or a benchmark marker (extends the sourcing strike);
-      - lineage           — a non-empty `distills` (the threads it builds on), or a lineage marker.
+      - lineage           — a non-empty `distills` (the threads it builds on), a non-empty authored
+                            `lineage` typed edge (a {type,slug} with a non-blank slug), or a marker.
 
     Returns `rich-rite:<move>` for each missing move ([] when none owed or all present)."""
     content = artefato.get("content", {}) or {}
@@ -365,11 +366,20 @@ def _check_rich_rite(artefato: dict) -> list[str]:
         (_nonblank(d) or (isinstance(d, dict) and any(_nonblank(v) for v in d.values())))
         for d in (artefato.get("distills") or [])
     )
+    # Cortex-v1 (slice lineage-rich-rite): the AUTHORED typed lineage (the builds_on/supersedes/
+    # contradicts edges the publisher materializes) ALSO clears the move — a developed synthesis
+    # that names its prior thread as a typed edge owes no distill. Mirrors real_distill/_nonblank:
+    # an item clears it only if its `slug` is a NON-BLANK string (a placeholder {} or {"slug":"  "}
+    # would not resolve in projection, so it must not clear the move either).
+    real_lineage = any(
+        isinstance(item, dict) and _nonblank(item.get("slug"))
+        for item in (artefato.get("lineage") or [])
+    )
 
     has_derivation = has_filled_block(DERIVATION_BLOCK_TYPES) or marked(DERIVATION_MARKERS)
     has_boundary = has_filled_block(BOUNDARY_BLOCK_TYPES) or marked(BOUNDARY_MARKERS)
     has_frame = external_cite or bibliography
-    has_lineage = real_distill or marked(LINEAGE_MARKERS)
+    has_lineage = real_distill or real_lineage or marked(LINEAGE_MARKERS)
 
     violations = []
     if not has_derivation:
