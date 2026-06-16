@@ -186,6 +186,21 @@ class TestCortexRoute(unittest.TestCase):
         # the recency control
         self.assertIn('id="cortex-recency"', body)
 
+    def test_route_renders_prev_next_traversal_controls(self):
+        # Slice 5 / M15 — the reference's `← PREV / NEXT →`. The page ships the traversal buttons (in
+        # the existing controls aside) the island wires to step the stable traversalOrder. Present in
+        # the static markup so they exist even before the island mounts.
+        body = self.client.get("/cortex").data.decode()
+        self.assertIn('id="cortex-prev"', body)
+        self.assertIn('id="cortex-next"', body)
+
+    def test_traversal_controls_absent_on_the_dark_page(self):
+        # fail-dark stays clean — no traversal controls leak onto the dark page (nothing to navigate).
+        server = _load_server({"EDGE_CORTEX_FIXTURE": None})
+        server._group = lambda: None
+        body = server.app.test_client().get("/cortex").data.decode()
+        self.assertNotIn('id="cortex-prev"', body)
+
     def test_search_and_filter_controls_absent_on_the_dark_page(self):
         # fail-dark stays clean — no controls leak onto the dark page (nothing to navigate).
         server = _load_server({"EDGE_CORTEX_FIXTURE": None})
@@ -547,9 +562,18 @@ class TestControlsStyling(unittest.TestCase):
         self.assertIn(".cortex-controls", css)
         # and it reuses the shared design tokens, not one-off literals — pin a few load-bearing ones
         idx = css.index(".cortex-controls")
-        block = css[idx:idx + 1400]
+        block = css[idx:idx + 1600]
         for token in ("var(--surface", "var(--border", "var(--text", "var(--font-mono"):
             self.assertIn(token, block, f"controls do not reuse shared token: {token}")
+
+    def test_traversal_buttons_reuse_shared_tokens(self):
+        # Slice 5 / M15 — the PREV/NEXT buttons live in the controls aside and reuse the shared design
+        # vocabulary (no one-off styling), same as the Slice 6 controls (PLAN.md §2, one design system).
+        css = self.STYLE.read_text()
+        self.assertIn(".cortex-traversal", css)
+        idx = css.index(".cortex-traversal")
+        block = css[idx:idx + 600]
+        self.assertIn("var(--", block, "traversal buttons do not reuse shared tokens")
 
     def test_graph_mount_overlay_is_scoped_to_an_attached_renderer(self):
         # codex round-2 [high]: the full-canvas absolute #cortex mount must apply ONLY once a graph
@@ -827,6 +851,134 @@ class TestIslandRender(unittest.TestCase):
         js = CORTEX_JS.read_text()
         self.assertIn("CortexFilters.render", js)
         self.assertNotIn('hit.removeClass("filtered-out")', js)
+
+
+@unittest.skipIf(NODE is None, "node not available to drive the island logic")
+class TestIslandTraversal(unittest.TestCase):
+    """Slice 5 / M15 — PREV/NEXT walks a STABLE, server-independent order. traversalOrder(payload,
+    state) is a pure exported helper that sorts the currently-VISIBLE (filtered) node set by explicit
+    node fields `(trust-tier rank, label, normalized title, ref)` with `ref` the final tie-breaker —
+    NOT raw Neo4j payload row order (the fold has no ORDER BY, so row order is non-deterministic, Q8).
+    The order is intersected with the active filter set, so PREV/NEXT respects filters (consistent
+    with render()'s no-resurrection rule)."""
+
+    PAYLOAD = json.dumps(ISLAND_PAYLOAD)
+
+    def test_traversal_order_is_sorted_by_trust_tier_then_label_title_ref(self):
+        # the stable order: space0 first (rank 0), then asserted, extracted, episodic; within a tier
+        # by label, then normalized title, then ref. The fixture's nodes carry distinct tiers/labels.
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const order = CortexFilters.traversalOrder(p, {{}});
+            // space-0 (Genesis) leads; episodic trails. Within asserted: Artefato < Direction < Objective
+            // (label asc); extracted: Entity < Source; episodic: ep1 (session-x) < ep2 (session-y).
+            assert.deepStrictEqual(order,
+              ['g0', 'a1', 'd1', 'o1', 'e1', 's1', 'ep1', 'ep2']);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_traversal_order_ignores_neo4j_row_order(self):
+        # determinism over a SHUFFLED payload: the client-side sort must produce the SAME order no
+        # matter the order Neo4j serialized the rows in (the Q8 guarantee — survives a reload).
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const shuffled = {{nodes: p.nodes.slice().reverse(), edges: p.edges}};
+            const a = CortexFilters.traversalOrder(p, {{}});
+            const b = CortexFilters.traversalOrder(shuffled, {{}});
+            assert.deepStrictEqual(a, b);   // same stable order regardless of input row order
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_traversal_order_respects_the_active_filters(self):
+        # PREV/NEXT traverses the FILTERED set, not the whole graph — a filtered-out node is never in
+        # the order (the no-resurrection rule, consistent with render()/visible()).
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const order = CortexFilters.traversalOrder(p, {{types: ['Artefato', 'Source']}});
+            assert.deepStrictEqual(order, ['a1', 's1']);  // only the two visible tiers, in stable order
+            // an Earmarked-only filter narrows to the harm subset
+            assert.deepStrictEqual(
+              CortexFilters.traversalOrder(p, {{earmarkedOnly: true}}), ['e1']);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_ref_is_the_final_tie_breaker(self):
+        # two nodes identical in (tier, label, normalized title) sort by ref, deterministically — the
+        # render id is never the sort key (it is the volatile one). Title is normalized (case/space).
+        proc = _run_island_logic("""
+            const p = {nodes: [
+              {id: 'n2', ref: 'ref-b', label: 'Entity', title: '  Twin  ', trust: 'extracted'},
+              {id: 'n1', ref: 'ref-a', label: 'Entity', title: 'twin',     trust: 'extracted'},
+            ], edges: []};
+            const order = CortexFilters.traversalOrder(p, {});
+            assert.deepStrictEqual(order, ['n1', 'n2']);  // ref-a before ref-b (the final tie-breaker)
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_ref_collision_breaks_the_tie_on_id_for_a_total_order(self):
+        # codex Slice-5 round-4 [medium]: two nodes identical in (tier, label, normalized title) AND
+        # sharing a `ref` (schema/data-dedup drift) must STILL sort deterministically — the comparator
+        # falls through to the render `id` so the order is a TOTAL order, never a 0 that lets unstable
+        # Neo4j row order leak through stable sort. Reversed payload order → the SAME result.
+        proc = _run_island_logic("""
+            const mk = (id) => ({id, ref: 'dup-ref', label: 'Entity', title: 'same', trust: 'extracted'});
+            const fwd = {nodes: [mk('z'), mk('a')], edges: []};
+            const rev = {nodes: [mk('a'), mk('z')], edges: []};
+            const a = CortexFilters.traversalOrder(fwd, {});
+            const b = CortexFilters.traversalOrder(rev, {});
+            assert.deepStrictEqual(a, ['a', 'z']);   // id is the final tie-breaker → total order
+            assert.deepStrictEqual(a, b);            // reload-stable regardless of input row order
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_traversal_order_falls_back_to_id_when_ref_absent(self):
+        # a node with no `ref` still sorts deterministically (the locate()/visible() contract uses id);
+        # the tie-breaker uses ref-or-id so the order never depends on undefined comparisons.
+        proc = _run_island_logic("""
+            const p = {nodes: [
+              {id: 'b', label: 'Entity', title: 'same', trust: 'extracted'},
+              {id: 'a', label: 'Entity', title: 'same', trust: 'extracted'},
+            ], edges: []};
+            assert.deepStrictEqual(CortexFilters.traversalOrder(p, {}), ['a', 'b']);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_traversal_order_empty_when_everything_filtered_out(self):
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            assert.deepStrictEqual(CortexFilters.traversalOrder(p, {{types: []}}), []);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_search_fly_to_drives_the_camera_from_render(self):
+        # M14 — search is a find-and-jump that FLIES the camera: the DOM render() path drives the
+        # active adapter's flyTo with the search hit (reusing CortexFilters.render's visible hit, no
+        # reimplemented search). Pin the wiring so the camera-drive is not silently dropped.
+        js = CORTEX_JS.read_text()
+        self.assertIn("adapter.flyTo(r.searchHit)", js)
+
+    def test_prev_next_steps_use_the_stable_traversal_order(self):
+        # M15 — the DOM PREV/NEXT controls step the SORTED order (not payload order): the island must
+        # consult CortexFilters.traversalOrder and bind the controls.
+        js = CORTEX_JS.read_text()
+        self.assertIn("CortexFilters.traversalOrder", js)
+        self.assertIn("cortex-prev", js)
+        self.assertIn("cortex-next", js)
+
+    def test_prev_next_persists_the_selected_node_in_the_url(self):
+        # M15 — each step updates ?node= with the STABLE ref (not the volatile render id) via
+        # replaceState (no history spam), so a reload re-centers the traversed node (the locate()
+        # inbound contract). Pin the write so the URL persistence is not silently dropped.
+        js = CORTEX_JS.read_text()
+        self.assertIn("history.replaceState", js)
+        self.assertIn('searchParams.set("node"', js)
+
+    def test_prev_next_drives_the_list_fallback_not_only_the_graph(self):
+        # codex Slice-5 round-1 [medium] — on the degraded M21 list rung the list adapter must expose a
+        # flyTo that MARKS + SCROLLS the traversed item (locateInList), so PREV/NEXT keeps the visible
+        # fallback navigation surface in sync (not just the panel + URL). The null flyTo is gone.
+        js = CORTEX_JS.read_text()
+        self.assertNotIn("flyTo: null", js)
 
 
 def _run_probe_logic(js_body):

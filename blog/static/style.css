@@ -388,6 +388,18 @@ a:hover { color: #a8c2ff; }
 .cortex-controls .ctrl-toggle:hover { color: var(--text); }
 .cortex-controls input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
 .cortex-controls #cortex-recency { accent-color: var(--accent); cursor: pointer; }
+/* Slice 5 / M15 — the PREV/NEXT traversal buttons: shared token vocabulary, no one-off styling. */
+.cortex-controls .cortex-traversal { gap: 8px; }
+.cortex-controls .ctrl-btn {
+  font-family: var(--font-mono); font-size: .74rem; letter-spacing: .03em; color: var(--text-muted);
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--pill); padding: 5px 14px; cursor: pointer;
+  transition: border-color .15s ease, color .15s ease;
+}
+.cortex-controls .ctrl-btn:hover { color: var(--text); border-color: var(--accent); }
+.cortex-controls .ctrl-btn:focus-visible {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+}
 
 /* the located node's marker label sits on the dark canvas — the search hit highlight (cortex.js
    styles the node itself via `.search-hit`); nothing else needed here. */
