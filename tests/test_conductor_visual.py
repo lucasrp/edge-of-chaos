@@ -330,15 +330,16 @@ class NodeTextExcludesChrome(unittest.TestCase):
             {"type": "metrics-grid", "title": "CHROMECLAIM",
              "items": [{"value": "3x", "label": "PAYLOADLABEL"}]},
             {"type": "comparison-table", "header": "ALSO_CHROME",
-             "rows": [{"cells": ["CELLPAYLOAD", "x"]}]},
+             "rows": [{"cells": ["CELLPAYLOAD", "x"], "classes": ["CSSCLAIM-spoof"]}]},
             {"type": "paragraph", "text": "PROSEPAYLOAD here"},
         ]}
         txt = conductor._node_text(node)
-        self.assertNotIn("CHROMECLAIM", txt)
-        self.assertNotIn("ALSO_CHROME", txt)
-        self.assertIn("PAYLOADLABEL", txt)
-        self.assertIn("CELLPAYLOAD", txt)
-        self.assertIn("PROSEPAYLOAD", txt)
+        self.assertNotIn("CHROMECLAIM", txt)       # block title is chrome
+        self.assertNotIn("ALSO_CHROME", txt)       # block header is chrome
+        self.assertNotIn("CSSCLAIM-spoof", txt)    # nested CSS classes are styling, not content
+        self.assertIn("PAYLOADLABEL", txt)         # nested metric label is data
+        self.assertIn("CELLPAYLOAD", txt)          # nested table cell is data
+        self.assertIn("PROSEPAYLOAD", txt)         # prose is data
 
 
 class SyntheticEmptyEnvelopeFlagged(unittest.TestCase):

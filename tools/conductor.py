@@ -461,31 +461,39 @@ def fill_node(node: dict, seed: dict, objective: str, complete_fn, *, outline=No
 # Block chrome — heading/label/type fields that are NOT delivered prose; excluded (at the BLOCK
 # level) from the contract gate's text so a claim placed only in a `title`/`header` cannot spoof
 # discharge (Codex P2). Nested payload (a metric item's label, a table cell, a bullet) still counts.
-_BLOCK_CHROME_FIELDS = frozenset({"type", "title", "label", "header", "headers", "variant",
-                                  "badge", "badge_class", "style"})
+# Styling/structural fields that are NEVER visible content — excluded at EVERY nesting level so a
+# claim hidden in a CSS class / variant / id cannot spoof contract discharge (Codex P2, review r7).
+_NONCONTENT_FIELDS = frozenset({"type", "classes", "class", "style", "badge", "badge_class",
+                                "badge_variant", "variant", "id"})
+# Block-level heading fields — excluded only at the BLOCK top level (a metric item's `label` and a
+# table cell ARE data, so these are NOT excluded at deeper levels).
+_BLOCK_HEADING_FIELDS = frozenset({"title", "label", "header", "headers"})
 
 
 def _strings(v) -> list:
-    """Every string nested anywhere in `v` (lists/dicts at any depth) — the substantive payload."""
+    """Every VISIBLE string nested anywhere in `v` — skips styling/structural fields
+    (`classes`/`style`/`variant`/…) at every depth so non-content metadata never counts as payload."""
     if isinstance(v, str):
         return [v]
     if isinstance(v, list):
         return [s for x in v for s in _strings(x)]
     if isinstance(v, dict):
-        return [s for x in v.values() for s in _strings(x)]
+        return [s for k, x in v.items() if k not in _NONCONTENT_FIELDS for s in _strings(x)]
     return []
 
 
 def _node_text(node: dict) -> str:
-    """The SUBSTANTIVE text a node's blocks carry (for the contract/opener gates). EXCLUDES BLOCK
-    chrome (type/title/label/header/headers/…) so a heading-only placeholder cannot spoof discharge,
-    but counts nested payload — paragraph text, bullets, metric labels, table cells."""
+    """The SUBSTANTIVE text a node's blocks carry (for the contract/opener gates). EXCLUDES block
+    heading chrome (title/label/header/headers) at the block level AND styling metadata
+    (classes/style/variant/…) at every level — so neither a heading-only placeholder nor a claim
+    hidden in a CSS class can spoof discharge; nested payload (paragraph text, bullets, metric
+    labels, table cells) still counts."""
     parts = []
     for b in node.get("blocks") or []:
         if not isinstance(b, dict):
             continue
         for k, v in b.items():
-            if k in _BLOCK_CHROME_FIELDS:
+            if k in _NONCONTENT_FIELDS or k in _BLOCK_HEADING_FIELDS:
                 continue
             parts.extend(_strings(v))
     return " ".join(parts)
