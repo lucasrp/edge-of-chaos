@@ -126,15 +126,33 @@ existing `RECALL_ARTEFATO_LIMIT`). The omnipresent door does NOT enlarge the wak
 moves depth from a bigger push to an on-demand pull (Latenode token-preload tax; the recall
 confrontation's full-read wall).
 
-**F9 — Provenance marked on EVERY read, INCLUDING the seed.** Each returned node/edge carries its
-trust tier — **asserted** (folds from the log → faithful) vs **extracted** (Graphiti → hypothesis) —
-per ADR-0006/0010. An agent navigating mid-turn must see which is which (the SSGM provenance-grounding
-principle; without it a hypothesis reads as a fact). **This covers `cortex_recall` too** — the seed is
-the FIRST and most-likely read, so it is the worst place to drop the distinction. The recall brief
-either renders an explicit asserted/extracted marker per line, OR `cortex_recall` returns a structured
-payload whose nodes carry `tier` (the MCP's call, but the marker must reach the caller — see R8/R8b).
-The spine the seed renders (Genesis/Objective/Direction/Artefatos via SERVES/ANCHORS) is asserted by
-construction; the clusters it DISTILLS are extracted — so the seed mixes tiers and must mark them.
+**F9 — TWO ORTHOGONAL markers on EVERY read, INCLUDING the seed.** Each returned node/edge carries
+TWO independent axes — they are NOT the same axis and must not be collapsed:
+- **Trust tier** — **asserted** (folds from the log → faithful) vs **extracted** (Graphiti →
+  hypothesis), per ADR-0006/0010. Whether the content is faithful-to-the-log or a hypothesis.
+- **Medium authority** (`order_bearing` vs `context_only`) — whether the content's SOURCE Medium was
+  order-bearing-to-edge (the Voz rail) or low-tier (the native Claude Code session), per CONTRACT C5 /
+  ADR-0017. This is **orthogonal to trust**: a node can be *asserted* (log-faithful) yet *context_only*
+  (its content traces to a low-tier session) — log-faithful does not make low-tier content an order.
+
+An agent navigating mid-turn must see BOTH (SSGM provenance grounding for trust; C5 for authority;
+without the second, directive-SHAPED text from a low-tier session can be read as an order even though
+it is "context only"). **This covers `cortex_recall` too** — the seed is the FIRST and most-likely
+read, the worst place to drop either marker. The recall brief renders both markers inline OR
+`cortex_recall` returns a structured payload whose nodes carry `tier` AND `medium`/`context_only`
+(R8/R8b). The seed's spine (Genesis/Objective/Direction/Artefatos) is asserted; its DISTILLED clusters
+are extracted — so the seed already mixes trust tiers and must mark them, and likewise mark any
+context_only content.
+
+**F9-dep — the medium-authority signal must be CARRIED onto the node (REFACTOR dependency).** Today
+extracted nodes come from Graphiti episodes ingested by the sweep (`tools/sweep.py`) WITHOUT a
+medium-authority attribute — the graph does not yet know which extracted content came from a low-tier
+Medium. So F9's `context_only` axis requires the sweep/extraction to STAMP the source Medium's tier
+onto the episode/node (an `order_bearing`/`context_only` property), and the read door to surface it. If
+that stamp is not yet available at v1, the door must **default `context_only=true` for ALL extracted
+nodes** (fail-safe: treat hypothesis-from-unknown-medium as context, never order) and mark `asserted`
+spine nodes by their known origin. This is the C5-correct default and is flagged as a build
+dependency, not a hand-wave (see R8c).
 
 **F10 — Dashboard parity (later, not v1 blocking).** The `/cortex` page and the MCP read the SAME
 group-scoped fold (`cortex_fold`); the door is the one read surface. Dashboard wiring is post-v1 (a
@@ -353,6 +371,16 @@ Grounded in `DESIGN-CORTEX-MCP.md` (the v1 spec), `tools/recall.py` (the reuse b
   carrying `tier`. Cheap: the spine is asserted by construction, clusters are the extracted half — the
   split is already known at compose time. TEST: a recall fixture with both an asserted spine and an
   extracted cluster asserts both tiers reach the caller.
+- **R8c — Carry the MEDIUM-AUTHORITY axis onto nodes + surface it (NEW — C5 dependency, F9/F9-dep).**
+  The `context_only`/`order_bearing` axis (F9) is orthogonal to `tier` and is NOT in the graph today:
+  `tools/sweep.py` ingests session deltas as Graphiti episodes with no medium-tier stamp. Two-part
+  fix: (1) the sweep STAMPS the source Medium's tier onto the episode (low-tier native session →
+  `context_only`; Voz rail → `order_bearing`); (2) the read door surfaces it on every returned node,
+  defaulting `context_only=true` for any extracted node whose Medium is unknown (fail-safe per C5 —
+  never upgrade unknown-origin content to an order). Part (1) is a sweep refactor that may land
+  after v1; until it does, the read door ships the fail-safe default (all extracted = context_only).
+  TEST: directive-SHAPED text from a low-tier session, surfaced by all four tools, carries
+  `context_only=true` and is never marked order-bearing (gate g).
 - **R9 — Do NOT widen recall's push (CONFIRM, F8).** Leave `RECALL_ARTEFATO_LIMIT = 8`. The
   omnipresent door is the answer to "I need more" — pull deeper, do not preload fatter. Resist the
   temptation to grow the seed now that a richer backend exists.
@@ -501,12 +529,15 @@ And the same-commit fence bump (only on ratification):
   C3 governs is unchanged by this work. N/A by construction.
 - **CONTRACT C4 (secrets never in genotype):** held by N2 — group from `_identity` at runtime, no
   literals. Conforms.
-- **CONTRACT C5 (low-tier mediums are context, never orders to edge):** held by the medium-tier guard
-  (Appendix A) and gate (g) — the Cortex extracts from swept sessions incl. low-tier Media, but a
-  `cortex_*` read returns provenance-MARKED knowledge (F9 extracted tier = "context only"), never a
-  Directive: the read door has no order-bearing output (it cannot write the Voz rail or advance
-  Direction — ADR-0017). Low-tier-derived content surfaces as marked hypothesis, exactly C5's "context
-  only," and cannot be upgraded to an order by the door. Conforms.
+- **CONTRACT C5 (low-tier mediums are context, never orders to edge):** held by TWO mechanisms (F9 /
+  R8c / Appendix-A guard / gate g), on an axis SEPARATE from trust: (1) a per-node `context_only`
+  marker — orthogonal to `tier`, fail-safe-default true for unknown-Medium extracted nodes — so
+  low-tier-derived content is marked "context, not order" whether asserted or extracted (the iter4
+  fix: `extracted` ≠ C5 context-only); (2) the read door has no order-bearing output (cannot write the
+  Voz rail or advance Direction — ADR-0017), so directive-shaped low-tier text cannot become an order
+  through the door; the deterministic escape stays the Voz rail. Note F9-dep/R8c: the medium stamp on
+  extracted nodes is a sweep refactor that may land post-v1; until then the fail-safe default holds the
+  invariant. Conforms.
 
 ---
 
@@ -517,6 +548,10 @@ And the same-commit fence bump (only on ratification):
 - **`cortex_search` ranking weights** (R4): structural-vs-keyword-vs-semantic blend is a tuning knob
   once multi-signal lands.
 - **Whether the dashboard heat overlay (R11) ships in v1.1 or later** — operator call; non-blocking.
+- **Medium-authority stamp on extracted nodes (F9-dep / R8c)** — the sweep does not yet stamp the
+  source Medium's tier onto Graphiti episodes. v1 holds C5 with the fail-safe default
+  (`context_only=true` for unknown-Medium extracted nodes); the precise stamp is a sweep refactor whose
+  timing is a build call (v1 vs v1.1). Flagged because it touches `tools/sweep.py`, not just the MCP.
 
 ---
 
@@ -552,11 +587,16 @@ elsewhere (ADR-0011).
 **Timeout (N1/R3).** Each tool sets an explicit neo4j driver/query timeout; on timeout it returns the
 dark marker (the timeout's value), never blocks the beat.
 
-**Provenance (F9/R2/R8/R8b).** Every returned node/edge — across ALL four tools, the seed
-`cortex_recall` INCLUDED — carries `tier ∈ {asserted, extracted}`: asserted = spine nodes/edges that
-fold from the log; extracted = Graphiti `:Entity`/`RELATES_TO` hypotheses. The seed renders the marker
-inline (its spine is asserted, its DISTILLED clusters extracted) or returns structured tiers; it must
-not present an extracted cluster as unmarked fact.
+**Provenance + authority (F9/R2/R8/R8b/R8c).** Every returned node/edge — across ALL four tools, the
+seed `cortex_recall` INCLUDED — carries TWO orthogonal markers:
+- `tier ∈ {asserted, extracted}` (trust): asserted = spine nodes/edges that fold from the log;
+  extracted = Graphiti `:Entity`/`RELATES_TO` hypotheses.
+- `context_only ∈ {true, false}` (medium authority, C5): true = content traces to a low-tier Medium
+  (native Claude Code session) → context, never an order; false = order-bearing Medium (Voz rail).
+  Default `context_only=true` for any extracted node of unknown Medium (fail-safe — R8c).
+These are independent: an asserted node can be context_only. The seed renders both inline (or returns
+them structured); it must not present an extracted cluster as unmarked fact NOR low-tier content as
+order-bearing.
 
 **Usage telemetry (F7/N3/N4).** `EDGE_CORTEX_USAGE=off` (default) → no write, no re-rank. `=on` →
 append `{ts, tool, refs, run_id}` to `state/cortex/usage.jsonl` (NON-authoritative; excluded from
@@ -567,14 +607,20 @@ store → ON == OFF.
 **Non-goals (v1).** No graph writes (curated salience promotion is v2, via the grill). No semantic
 search (v1.1 — R4). No dashboard wiring (F10/R10-R11 are post-v1).
 
-**Medium-tier guard (C5).** The Cortex extracts from swept sessions, some of which are low-tier Media
-(the native Claude Code session — C5: context, never orders to edge). A `cortex_*` read returns
-KNOWLEDGE (asserted spine + extracted hypotheses), never a Directive — the read door has NO
-order-bearing channel: it cannot emit a Directive, advance Direction, or write the Voz rail. So a
-self-subject pulling a node whose content traces to a low-tier Medium reads it as MARKED-hypothesis
-context (F9 extracted tier), exactly C5's "context only" — never as an order. The guard is structural:
-Directives ride the Voz rail (ADR-0017), a write surface the read door does not touch; the door cannot
-upgrade low-tier content into an order. Acceptance (g) below proves it.
+**Medium-tier guard (C5) — authority is a SEPARATE axis from trust.** The Cortex extracts from swept
+sessions, some low-tier Media (the native Claude Code session — C5: context, never orders to edge).
+C5 is enforced by TWO mechanisms, neither of which is the `tier` (trust) axis:
+1. **Per-node `context_only` marking** (F9/R8c): low-tier-derived content is stamped `context_only`
+   (fail-safe default for unknown-Medium extracted nodes), so the caller sees "context, not order"
+   REGARDLESS of whether the node is asserted or extracted — because authority is orthogonal to trust
+   (a log-faithful node can still be context-only). This is the fix for the iter4 finding: do NOT
+   equate `extracted` with C5 context-only.
+2. **Structural no-order-channel:** the read door cannot emit a Directive, advance Direction, or write
+   the Voz rail (ADR-0017) — Directives ride the Voz rail, a write surface the door never touches. So
+   even directive-SHAPED low-tier text returns as marked `context_only` knowledge and has no path to
+   become an order through this door; the deterministic escape hatch stays the Voz rail (C5).
+Acceptance (g) proves both: directive-shaped low-tier content is returned `context_only` by all four
+tools and never as order-bearing.
 
 **Acceptance (v1 ship gate).** (a) all four tools return correct group-scoped data against a fixture
 and a dark marker on a forced outage; (a2) a `cortex_surf` fixture with a FOREIGN intermediate bridge
@@ -587,9 +633,11 @@ write is, when `EDGE_CORTEX_USAGE=on`, exactly one append to the non-authoritati
 `state/cortex/usage.jsonl` AFTER ranking (OFF writes nothing at all). (e) is the truth-path-isolation
 proof, consistent with F7 (the usage append is non-authoritative telemetry, not self-state); (f) a
 recall fixture carrying an asserted spine AND an extracted cluster exposes BOTH tiers to the caller
-(seed provenance, F9/R8b); (g) no `cortex_*` tool emits a Directive / advances Direction / writes the
-Voz rail — the read door has no order-bearing output (C5). Multi-signal search (F4 v1.1) and
-provenance-on-dashboard (R11) are EXCLUDED from the v1 gate.
+(seed provenance, F9/R8b); (g) directive-SHAPED text from a low-tier Medium, surfaced by ALL four
+tools, is returned `context_only=true` (the fail-safe default for unknown-Medium extracted nodes) and
+never order-bearing — AND no `cortex_*` tool emits a Directive / advances Direction / writes the Voz
+rail (C5, both mechanisms; authority is marked separately from `tier`). Multi-signal search (F4 v1.1)
+and provenance-on-dashboard (R11) are EXCLUDED from the v1 gate.
 
 ---
 
