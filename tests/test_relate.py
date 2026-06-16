@@ -167,6 +167,49 @@ class NominateMutualKnnAboveFloor(unittest.TestCase):
         def boom(**_):
             raise RuntimeError("neo4j down")
         self.assertEqual(relate.nominate(read_fn=boom, group="g"), set())
+        # A MALFORMED vector in the injected corpus (non-numeric element) also degrades to empty
+        # and never raises — eventlog.cosine would TypeError, but "never raises" is the contract.
+        self.assertEqual(
+            relate.nominate(embeddings=[("a", [1.0, 0.0]), ("b", ["bad", 0.0])], floor=0.0),
+            set())
+
+    def test_nominate_resolves_floor_from_corpus_not_caller(self):
+        # The C1 floor is the relative percentile of THIS corpus, NOT a caller-supplied constant.
+        # Omit `floor` (floor=_AUTO) so nominate must resolve it via relative_floor(vectors, pct).
+        # Five vectors at known angles → a known pairwise-cosine distribution; shifting `pct`
+        # moves the floor and so changes which mutual pairs survive — proving the gate is the
+        # computed corpus percentile, not a fixed number.
+        corpus = [(s, self._unit(d)) for s, d in zip("abcde", (0, 10, 20, 40, 80))]
+        vectors = [v for _, v in corpus]
+
+        # A LOW percentile floor (pct=10) sits near the bottom of the distribution → permissive,
+        # so the mutual cluster pairs clear it.
+        loose = relate.nominate(embeddings=corpus, pct=10)
+        # A HIGH percentile floor (pct=99) sits near the top → strict, so strictly fewer survive.
+        strict = relate.nominate(embeddings=corpus, pct=99)
+        self.assertNotEqual(loose, strict)
+        self.assertTrue(strict.issubset(loose),
+                        "a higher percentile floor must only ever REMOVE candidates")
+        self.assertLess(len(strict), len(loose))
+
+        # And the resolved gate is exactly relative_floor(vectors, pct), not a constant: replaying
+        # nominate with that explicit floor must reproduce the _AUTO result for the SAME pct.
+        for pct in (10, 99):
+            resolved = relate.relative_floor(vectors, pct=pct)
+            self.assertEqual(
+                relate.nominate(embeddings=corpus, pct=pct),
+                relate.nominate(embeddings=corpus, floor=resolved),
+                f"_AUTO floor must equal relative_floor(corpus, pct={pct})")
+
+
+class ReaderDegradesOnExplicitNoneGroup(unittest.TestCase):
+    """The reader's docstring promises `group=None -> []` (degrade, no cross-tenant default).
+    A DIRECT helper call with group=None must therefore degrade to [] — it must NOT self-resolve
+    to this install's own group. Auto-resolution is gated behind the _AUTO sentinel (parity with
+    nominate), so the explicit None is honoured as a degrade."""
+
+    def test_reader_explicit_none_group_degrades_to_empty(self):
+        self.assertEqual(relate._read_artefato_embeddings(group=None), [])
 
 
 class PercentileMatchesStatisticsQuantiles(unittest.TestCase):

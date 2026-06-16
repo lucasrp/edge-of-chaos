@@ -86,15 +86,20 @@ def _k_for(n):
     return round(math.log2(n))
 
 
-def _read_artefato_embeddings(group=None, uri=None, user=None, password=None):
+def _read_artefato_embeddings(group=_AUTO, uri=None, user=None, password=None):
     """Read every fully-projected Artefato in THIS group that has an embedding, as
     ``[(slug, embedding), ...]``. The corpus the nominator runs over: `project_artefato` stores
     `a.embedding` (text-embedding-3-small) and flips `a.projection_complete=true` as its LAST step,
     so this reads ONLY complete nodes with a non-null vector. Degrade-safe (CONTRACT C1, ADR-0011):
     no group / no driver / unreachable graph → ``[]``, never raises — the default reader behind
-    `nominate`'s seam (tests inject their own corpus instead)."""
+    `nominate`'s seam (tests inject their own corpus instead).
+
+    Group resolution mirrors `nominate`: ``group`` left as `_AUTO` (the unset default) resolves THIS
+    install's own corpus via `_identity.group`; an EXPLICIT ``group=None`` is a degrade (no
+    cross-tenant default) → ``[]``, never the install's graph. `nominate` always passes an explicit
+    `group=g`, so this auto-resolution is only the standalone-call convenience."""
     try:
-        group = group or _identity.group()
+        group = _identity.group() if group is _AUTO else group
         if not group:
             return []
         uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
