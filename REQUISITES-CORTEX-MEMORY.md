@@ -1,11 +1,12 @@
 # REQUISITES — Cortex as omnipresent memory
 
-The edge's own memory (the **Cortex**) available at **every step of productive work**, to **every
-phase and every fanned subagent** — not only the wake-time push. The settled mechanism is a standing
-**`cortex` MCP** server (read-navigation), since the single-shot `claude -p` beat can only reach
-mid-turn information through a tool call. This document fixes the requirements, grounds each design
-choice in the 2026 SOTA, and prescribes the concrete refactor of what we built (`DESIGN-CORTEX-MCP.md`
-v1, `tools/recall.py`, the `/cortex` dashboard).
+The edge's own memory (the **Cortex**) available at **every step of self-work**, to **the lead beat
+and the self-reading subjects it fans** — not only the wake-time push, and (the one scope wall)
+**NOT to the delta/world-reading subject** (ADR-0014 keeps that split — §4/N5). The settled mechanism
+is a standing **`cortex` MCP** server (read-navigation), since the single-shot `claude -p` beat can
+only reach mid-turn information through a tool call. This document fixes the requirements, grounds each
+design choice in the 2026 SOTA, and prescribes the concrete refactor of what we built (the cortex MCP
+v1 — contract inlined in Appendix A, `tools/recall.py`, the `/cortex` dashboard).
 
 Scope of authority: this is a requirements + refactor doc on `feat/cortex-requisites`. It **proposes**
 glossary changes (§7) but does not enact them — an actual `CONTEXT.md` edit is Voz-ratified and trips
@@ -16,7 +17,8 @@ the count-pin fence (`tests/test_idiom_rename.py` `EXPECTED_GLOSSARY_COUNT`).
 ## 0. The design this serves (settled — refined here, not relitigated)
 
 - The Cortex stops being reachable only at pre-dispatch (the recall PUSH, ADR-0014). It becomes
-  **pullable at every step** by the lead beat AND every fanned subagent, via a tool.
+  **pullable at every step** by the lead beat and the self-reading subjects it fans, via a tool —
+  but NOT by the delta/world-reading subject (the one scope wall, N5).
 - **`recall` stops being a *phase* and becomes the *seed*.** The pre-dispatch recall brief is the
   entry-point push; deep navigation is a mid-turn pull (ADR-0011's "navigation is judgment in the
   loop", now mechanized as a tool rather than left to prose the agent must remember to run).
@@ -59,9 +61,13 @@ This doc's job is to make the implementation conform to that frame and not regre
 
 ## 2. Functional requirements
 
-**F1 — Omnipresent read door.** A standing `cortex` MCP server exposes the Cortex as pull-able tools
-to the lead beat and every Task-fanned subagent, persisting across beats/sessions. Inherited via
-`--mcp-config` on the parent `claude -p`.
+**F1 — Omnipresent read door (subject-scoped, NOT unconditionally inherited).** A standing `cortex`
+MCP server exposes the Cortex as pull-able tools to the **lead beat and its permitted in-cognition
+fan-out (the self-reading subjects)**, persisting across beats/sessions, via `--mcp-config` on the
+parent `claude -p`. **The delta/world subagent dispatch is DENIED `cortex_*`** (N5/R6) — "omnipresent"
+means present at every STEP of self-work, not present to the world-reading subject. The door is NOT
+unconditionally inherited by every Task-fanned subagent; inheritance is gated by subject so the
+ADR-0014 self/world split survives (the in-context mixing a read-only door does not stop).
 
 **F2 — The seed (`cortex_recall`).** Returns the salient subgraph rooted at space-0 (reuse
 `recall.recall_subgraph` → `compose_recall_brief`). This is the same content as the pre-dispatch push,
@@ -72,6 +78,11 @@ typed associative web (BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES, SERVES
 structurally) — reuse `recall.surf_subgraph`. `cortex_node(ref)` returns a node + immediate neighbors
 (filter `cortex_fold`). Together they implement the SOTA's agent-controlled multi-step traversal: the
 agent picks the next hop from evidence already in hand, not a fixed top-k.
+**PATH-WIDE group scoping is REQUIRED (not just endpoints):** the variable-length 2-hop traversal must
+constrain EVERY node on the path to the group (`all(x IN nodes(p) WHERE x.group_id=$g)`), not only the
+seed and the terminal node. The current `recall.SURF_QUERY` scopes only `seed` and `n` — on the SHARED
+neo4j (roberto/petertosh share one graph split by `group_id`), a foreign intermediate bridge node
+could influence which same-group peers are returned. This is a v1 isolation blocker — see R7b.
 
 **F4 — Lookup (`cortex_search`).** Locate nodes by label/title.
 - **v1 (ship gate): label/keyword substring is ACCEPTABLE** — it is a known-incomplete path, shipped
@@ -315,6 +326,16 @@ Grounded in `DESIGN-CORTEX-MCP.md` (the v1 spec), `tools/recall.py` (the reuse b
   This is the surgical de-dup the MCP refactor forces — not a speculative abstraction (it has three
   call sites the moment the MCP lands). Keep `recall_subgraph`/`surf_subgraph` signatures stable; the
   MCP imports them as-is.
+- **R7b — Scope the SURF traversal PATH-WIDE (CHANGE — v1 isolation blocker, F3/F6).** `SURF_QUERY`
+  (recall.py:55-61) constrains only `seed` (`slug IN $seeds`, group-scoped seeds) and the terminal `n`
+  (`n.group_id=$g`); the variable-length `*1..2` path can pass through an intermediate node with no
+  group constraint. On the shared neo4j (roberto/petertosh, one graph by `group_id`), a foreign bridge
+  node could route which same-group peers surface — a cross-install topology leak that LOOKS scoped
+  (rows are same-group) while the traversal was contaminated. FIX: add `all(x IN nodes(p) WHERE
+  x.group_id=$g)` to the WHERE (or expand to explicitly-scoped 1-hop + 2-hop patterns). TEST: a
+  fixture with a foreign intermediate bridge asserting it cannot affect surf results. This fixes the
+  ONE reused backend the MCP inherits — `cortex_fold` already scopes correctly (it is a flat
+  group-filtered read, no variable-length path), so the leak is specific to surf.
 - **R8 — Return provenance from the reused functions (CHANGE, supports R2).** `surf_subgraph` already
   returns `labels`; `recall_subgraph` returns bare dicts. Add the `tier` derivation here (one place)
   so both the brief and the MCP get it, rather than the MCP re-deriving it. Keep the brief's rendered
@@ -356,7 +377,8 @@ loop's own judgment" already anticipates this; the sharpening is to name that na
 Drafted addition to the **Recall** entry (after the "push seeds" sentence):
 > The push remains the pre-dispatch seed; deep navigation is now a **mid-turn pull** through the
 > standing `cortex` read door (the loop's judgment, mechanized as a tool — available to the lead beat
-> and every fanned subagent), not only the recall agent's one-shot brief.
+> and the self-reading subjects it fans, DENIED to the delta/world subject so the subject split
+> survives), not only the recall agent's one-shot brief.
 
 This is a definition sharpen on an existing header — **count stays 43**.
 
@@ -368,8 +390,8 @@ terms, the existing RAG/retrieval/top-k/vector-DB/memory-store set already cover
 
 Drafted addition (after "the read that scales past full-read"):
 > The on-demand navigation is exposed as the standing **`cortex` read door** (read-only; the self
-> query, never intake — ADR-0014's boundary now held by the tool-name + the write-free read, not by
-> phase separation).
+> query, never intake — ADR-0014's boundary now held by **subject-scope isolation** (the delta/world
+> subject is denied the door) + the write-free read + the tool-name, replacing phase separation).
 
 Count stays 43.
 
@@ -410,13 +432,15 @@ This is the one entry that **bumps the count to 44** and requires Voz ratificati
  on-demand Cortex navigation stays the loop's own judgment, not the recall agent's.
 +The push remains the pre-dispatch seed; deep navigation is now a **mid-turn pull** through the
 +standing `cortex` read door (the loop's judgment, mechanized as a tool — available to the lead beat
-+and every fanned subagent), not only the recall agent's one-shot brief.
++and the self-reading subjects it fans, DENIED to the delta/world subject), not only the recall agent's
++one-shot brief.
  *Avoid*: retrieval, fetch, memory query, delta-over-the-wiki, recall-push-inside-assemble
 
  **Cortex**:
  ... the edge *navigates* it on demand — the read that **scales past full-read** (no token-budget wall).
 +The on-demand navigation is exposed as the standing **`cortex` read door** (read-only; the self query,
-+never intake — ADR-0014's boundary now held by the tool-name + the write-free read, not by phase).
++never intake — ADR-0014's boundary now held by subject-scope isolation (the delta/world subject is
++denied the door) + the write-free read + the tool-name, replacing phase separation).
  Trust is legible per edge: ...
 
 +**Usage signal**:
@@ -519,11 +543,16 @@ store → ON == OFF.
 search (v1.1 — R4). No dashboard wiring (F10/R10-R11 are post-v1).
 
 **Acceptance (v1 ship gate).** (a) all four tools return correct group-scoped data against a fixture
-and a dark marker on a forced outage; (b) identity-absent startup fails loud; (c) `cortex_*` denied to
-a delta/world dispatch, granted to lead/recall; (d) usage OFF == no write/no re-rank; usage ON DIVERGES
-from OFF on a seeded `usage.jsonl` and CONVERGES on a cold store; (e) no `state/` or graph write occurs
-on any read path. Multi-signal search (F4 v1.1) and provenance-on-dashboard (R11) are EXCLUDED from the
-v1 gate.
+and a dark marker on a forced outage; (a2) a `cortex_surf` fixture with a FOREIGN intermediate bridge
+node asserts it cannot affect results (path-wide scoping, R7b); (b) identity-absent startup fails loud
+(refuses to serve); (c) `cortex_*` denied to a delta/world dispatch (negative `tools/list` test),
+granted to lead/recall; (d) usage OFF == no write AND no re-rank; usage ON DIVERGES from OFF on a
+seeded `usage.jsonl` and CONVERGES on a cold store; (e) **no AUTHORITATIVE write occurs on any read
+path** — no graph write, no Tier-0 event, no corpus/recall/Direction/curated fold; the ONLY permitted
+write is, when `EDGE_CORTEX_USAGE=on`, exactly one append to the non-authoritative
+`state/cortex/usage.jsonl` AFTER ranking (OFF writes nothing at all). (e) is the truth-path-isolation
+proof, and it is consistent with F7: the usage append is non-authoritative telemetry, not a self-state
+write. Multi-signal search (F4 v1.1) and provenance-on-dashboard (R11) are EXCLUDED from the v1 gate.
 
 ---
 
