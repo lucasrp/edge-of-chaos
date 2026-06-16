@@ -577,6 +577,19 @@ class TestControlsStyling(unittest.TestCase):
         block = css[idx:idx + 600]
         self.assertIn("var(--", block, "traversal buttons do not reuse shared tokens")
 
+    def test_connects_pill_style_is_unscoped_and_reuses_shared_tokens(self):
+        # Slice 4 / M20 (codex round-1 [medium]) — the CONNECTS-TO pill style must apply wherever
+        # .connects-pill appears (the panel AND the /ux-catalog reference), not only under
+        # .cortex-inspect, so the catalog proves the real shared dark-mono pill vocabulary (no default
+        # button). And it reuses the shared :root tokens, not one-off literals.
+        css = self.STYLE.read_text()
+        self.assertIn(".connects-pill {", css)             # un-scoped base rule
+        self.assertNotIn(".cortex-inspect .connects-pill {", css)  # not scoped away from the catalog
+        idx = css.index(".connects-pill {")
+        block = css[idx:idx + 400]
+        for token in ("var(--font-mono", "var(--bg", "var(--border", "var(--pill"):
+            self.assertIn(token, block, f"the pill does not reuse shared token: {token}")
+
     def test_graph_mount_overlay_is_scoped_to_an_attached_renderer(self):
         # codex round-2 [high]: the full-canvas absolute #cortex mount must apply ONLY once a graph
         # renderer attaches (data-renderer). An EMPTY #cortex (JS dead) must not overlay the in-flow
@@ -1085,6 +1098,91 @@ class TestIslandTraversal(unittest.TestCase):
         self.assertNotIn("flyTo: null", js)
 
 
+# A neighbor fixture (no DOM): a small directed graph so adjacency is unambiguous. space-0 connects
+# OUT to a1 and b1; a1 connects out to c1; b1 also connects out to a1 (so a1 has b1 as an inbound
+# neighbor). An edge to a missing endpoint is dropped (defensive over a scoped fold).
+NEIGHBOR_PAYLOAD = {
+    "nodes": [
+        {"id": "g0", "ref": "ref-g0", "label": "Genesis", "title": "ed", "trust": "space0"},
+        {"id": "a1", "ref": "ref-a1", "label": "Direction", "title": "alpha", "trust": "asserted"},
+        {"id": "b1", "ref": "ref-b1", "label": "Entity", "title": "beta", "trust": "extracted"},
+        {"id": "c1", "ref": "ref-c1", "label": "Source", "title": "gamma", "trust": "extracted"},
+    ],
+    "edges": [
+        {"id": "r0", "source": "g0", "target": "a1", "type": "GROUNDS"},
+        {"id": "r1", "source": "g0", "target": "b1", "type": "MENTIONS"},
+        {"id": "r2", "source": "a1", "target": "c1", "type": "RELATES_TO"},
+        {"id": "r3", "source": "b1", "target": "a1", "type": "MENTIONS"},
+        {"id": "r4", "source": "g0", "target": "missing", "type": "MENTIONS"},  # dropped (no endpoint)
+    ],
+}
+
+
+@unittest.skipIf(NODE is None, "node not available to drive the island logic")
+class TestIslandNeighborIndex(unittest.TestCase):
+    """Slice 4 / M9 — CONNECTS-TO: a pure exported neighborIndex(payload) builds a nodeId → neighbor-id
+    list from edges[] once at load (G1, client-only — the edges are already in the payload, no server
+    change). Undirected adjacency (a hop is a hop either way), de-duplicated, no self-loops, defensive
+    over edges whose endpoint is missing from the scoped fold. Headless under Node, like the other pure
+    helpers."""
+
+    PAYLOAD = json.dumps(NEIGHBOR_PAYLOAD)
+
+    def test_index_maps_each_node_to_its_neighbor_ids(self):
+        # g0 connects to a1 + b1; a1 connects to g0, c1 (out) and b1 (inbound from r3) — adjacency is
+        # undirected (a CONNECTS-TO hop works either direction). The order follows first-seen edge order.
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const idx = CortexFilters.neighborIndex(p);
+            assert.deepStrictEqual(idx['g0'], ['a1', 'b1']);
+            assert.deepStrictEqual(idx['a1'].slice().sort(), ['b1', 'c1', 'g0']);
+            assert.deepStrictEqual(idx['b1'].slice().sort(), ['a1', 'g0']);
+            assert.deepStrictEqual(idx['c1'], ['a1']);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_index_drops_edges_with_a_missing_endpoint(self):
+        # the r4 edge points at a node id not in nodes[] (a scoped fold could ship a dangling edge) —
+        # it must NOT create a phantom 'missing' neighbor on g0 nor a 'missing' key.
+        proc = _run_island_logic(f"""
+            const p = {self.PAYLOAD};
+            const idx = CortexFilters.neighborIndex(p);
+            assert.ok(idx['g0'].indexOf('missing') === -1);  // no phantom neighbor
+            assert.ok(!('missing' in idx));                  // no key for the absent node
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_index_dedupes_parallel_edges_and_drops_self_loops(self):
+        # two edges between the same pair → ONE neighbor entry; a self-loop is never a neighbor of
+        # itself (a node is not its own CONNECTS-TO pill).
+        proc = _run_island_logic("""
+            const p = {nodes: [
+              {id: 'x', label: 'Entity', title: 'x', trust: 'extracted'},
+              {id: 'y', label: 'Entity', title: 'y', trust: 'extracted'},
+            ], edges: [
+              {id: 'e0', source: 'x', target: 'y', type: 'MENTIONS'},
+              {id: 'e1', source: 'y', target: 'x', type: 'RELATES_TO'},  // parallel (reverse) → dedupe
+              {id: 'e2', source: 'x', target: 'x', type: 'MENTIONS'},    // self-loop → dropped
+            ]};
+            const idx = CortexFilters.neighborIndex(p);
+            assert.deepStrictEqual(idx['x'], ['y']);   // one entry, no self
+            assert.deepStrictEqual(idx['y'], ['x']);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_index_is_empty_for_an_isolated_node(self):
+        # a node with no edges has no neighbors — an empty list (or absent key), never a crash.
+        proc = _run_island_logic("""
+            const p = {nodes: [
+              {id: 'lonely', label: 'Entity', title: 'l', trust: 'extracted'},
+            ], edges: []};
+            const idx = CortexFilters.neighborIndex(p);
+            const n = idx['lonely'] || [];
+            assert.deepStrictEqual(n, []);
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+
 def _run_probe_logic(js_body):
     """Drive the exported webglSupported() probe under Node (no DOM). cortex.js exports it alongside
     CortexFilters; the probe takes an injectable canvas factory so it is testable headless (the same
@@ -1517,13 +1615,23 @@ class TestSlice3InspectPanelIsland(unittest.TestCase):
         self.assertIn("cortex-inspect-close", self.js)
         self.assertIn("hidePanel", self.js)
 
-    def test_connects_to_pill_seam_is_present_but_not_wired(self):
-        # The panel shell has an OBVIOUS place for the Slice-4 CONNECTS-TO pills to mount later (the
-        # `connects` region in the macro), but Slice 3 does NOT wire them from the island — no neighbor
-        # index, no pill rendering, the island never touches the connects region. A clean seam, not a
-        # half-build. (The seam's presence in the shipped DOM is pinned in the shell test.)
-        self.assertNotIn('panelRegion("connects")', self.js)  # the island leaves the seam untouched
-        self.assertNotIn("neighborIndex", self.js)  # Slice 4 builds this
+    def test_connects_to_pills_are_wired_into_the_panel(self):
+        # Slice 4 / M9 — the island now FILLS the `connects` region with neighbor pills, built from the
+        # prebuilt neighborIndex. The pills are DOM-API buttons (.connects-pill) with .textContent
+        # labels (the breakout defense, never innerHTML), and a pill-click routes through selectNode
+        # (the ONE selection sink — flies the camera, re-renders the panel, writes ?node=).
+        self.assertIn('panelRegion("connects")', self.js)       # the island fills the seam now
+        self.assertIn("CortexFilters.neighborIndex(payload)", self.js)  # the index is built once
+        self.assertIn('"connects-pill"', self.js)               # the shared pill vocabulary
+        self.assertIn("pill.textContent", self.js)              # label as TEXT (no innerHTML from payload)
+        self.assertIn("selectNode(nid)", self.js)               # a pill-click reuses the selection sink
+
+    def test_connects_pills_skip_filtered_out_neighbors(self):
+        # codex Slice-4 round-1 [medium] — a pill must never navigate to a filtered-out neighbor (the
+        # no-resurrection rule). The island intersects neighbors with the live visible set before
+        # rendering pills, and selectNode guards the sink too (defense in depth).
+        self.assertIn("CortexFilters.visible(payload, controlState())", self.js)
+        self.assertIn("panelVisible.has(nid)", self.js)  # a hidden neighbor gets no pill
 
 
 if __name__ == "__main__":

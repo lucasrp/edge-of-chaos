@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "components/ui.html" import steer, metric, inspect_panel with context %}
+{% from "components/ui.html" import steer, metric, inspect_panel, connects_to_pill with context %}
 {% block title %}edge — ux-catalog{% endblock %}
 {% block body_class %}ux-catalog{% endblock %}
 {% block content %}
@@ -106,6 +106,17 @@ componente, cheque aqui — pode já existir. Ao adicionar uma variante, registr
   compositor de correção do nó Earmarked, e o fechar. O island preenche as regiões por DOM API +
   <code>esc()</code> (a defesa de breakout). Mostrado aqui como a casca vazia (não dispensada).</p>
   <div class="catalog-inspect-demo">{{ inspect_panel() }}</div>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">cortex connects-to pills — <code>.connects-pill</code> (<code>connects_to_pill</code>)</h2>
+  <p class="meta">os vizinhos clicáveis (CONNECTS TO, Slice 4) na região <code>connects</code> do painel:
+  clicar voa a câmera até o nó, re-renderiza o painel e escreve <code>?node=</code>. O island constrói
+  cada pill por DOM API + <code>.textContent</code> (a defesa de breakout — o label deriva do conteúdo
+  do grafo). Mostrados aqui como instâncias de referência da vocabulário compartilhado.</p>
+  <nav class="cortex-inspect-connects catalog-connects-demo">
+    {{ connects_to_pill('alpha') }}{{ connects_to_pill('beta') }}{{ connects_to_pill('gamma') }}
+  </nav>
 </section>
 
 <section class="catalog-section">

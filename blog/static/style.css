@@ -330,8 +330,26 @@ a:hover { color: #a8c2ff; }
 }
 .cortex-inspect .wild-source { margin: 0; font-size: .82rem; }
 .cortex-inspect .wild-source a { font-family: var(--font-mono); color: var(--accent); }
-/* the clean Slice-4 seam — the CONNECTS-TO pills mount here later (empty + collapsed in Slice 3) */
+/* M9 (Slice 4) — the CONNECTS-TO neighbor pills: clickable hops to a node's neighbors. Reuses the
+   shared pill vocabulary (the --font-mono / --bg / --border / --pill / --accent tokens, same as the
+   controls/traversal buttons), never a one-off style. The region collapses when there are none. */
 .cortex-inspect-connects:empty { display: none; }
+.cortex-inspect-connects {
+  border-top: 1px solid var(--border); padding-top: 12px;
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+/* the pill style is UN-scoped (codex Slice-4 round-1 [medium]) so the /ux-catalog reference instance
+   shows the REAL shared dark mono pill, not a default button — the catalog proves the vocabulary. */
+.connects-pill {
+  font-family: var(--font-mono); font-size: .74rem; letter-spacing: .02em; color: var(--text-muted);
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--pill);
+  padding: 4px 12px; cursor: pointer; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: border-color .15s ease, color .15s ease;
+}
+.connects-pill:hover { color: var(--accent); border-color: var(--accent); }
+/* the catalog demo container reuses the same flex pill layout as the panel region */
+.catalog-connects-demo { display: flex; flex-wrap: wrap; gap: 6px; }
 /* the node→source drill-down (legacy .source class, retained) */
 .cortex-inspect .source { margin: 10px 0 0; font-size: .82rem; }
 .cortex-inspect .source a { font-family: var(--font-mono); color: var(--accent); }

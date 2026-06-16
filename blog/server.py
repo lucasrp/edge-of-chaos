@@ -1013,7 +1013,8 @@ def _design_tokens():
 
 # The macro names registered in components/ui.html — listed on the catalog so a builder can find a
 # reusable component before authoring a one-off. (The names mirror the `{% macro %}` defs there.)
-_UI_MACROS = ("badge", "nav_pill", "action_button", "steer", "metric", "inspect_panel")
+_UI_MACROS = ("badge", "nav_pill", "action_button", "steer", "metric", "inspect_panel",
+              "connects_to_pill")
 
 
 @app.get("/ux-catalog")

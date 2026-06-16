@@ -210,6 +210,34 @@
       });
       return sorted.map(function (n) { return n.id; });
     },
+
+    // neighborIndex(payload) → a nodeId → [neighbor-id, …] map built ONCE from edges[] (Slice 4 / M9,
+    // G1). The CONNECTS-TO pills hop node→node (graph-as-hypertext) — a NEW client helper, but NO
+    // server change: the edges are already in the payload. Adjacency is UNDIRECTED (a CONNECTS-TO hop
+    // works either way), DE-DUPLICATED (parallel/reverse edges → one pill), SELF-LOOP-free (a node is
+    // not its own neighbor), and DEFENSIVE over a scoped fold (an edge whose endpoint is not in nodes[]
+    // is dropped — no phantom neighbor, no key for the absent node). The neighbor-id order follows
+    // first-seen edge order (deterministic over the payload). Pure → testable headless under Node.
+    neighborIndex: function (payload) {
+      var nodes = (payload && payload.nodes) || [];
+      var edges = (payload && payload.edges) || [];
+      var present = new Set();
+      for (var i = 0; i < nodes.length; i++) present.add(nodes[i].id);
+      var index = {};
+      var seen = {};   // nodeId → Set of already-added neighbor ids (dedupe parallel edges)
+      function link(a, b) {
+        if (a === b) return;                       // no self-loop
+        if (!present.has(a) || !present.has(b)) return;  // both endpoints must be in the scoped fold
+        if (!index[a]) { index[a] = []; seen[a] = new Set(); }
+        if (!seen[a].has(b)) { seen[a].add(b); index[a].push(b); }
+      }
+      for (var e = 0; e < edges.length; e++) {
+        var s = edges[e].source, t = edges[e].target;
+        link(s, t);
+        link(t, s);   // undirected — record the hop both ways
+      }
+      return index;
+    },
   };
 
   // traversalTierRank(trust) → the trust-tier ORDER for the stable traversal sort (space-0 core first,
@@ -391,6 +419,11 @@
   var nodeById = {};
   payload.nodes.forEach(function (n) { nodeById[n.id] = n; });
 
+  // Slice 4 / M9 — the CONNECTS-TO neighbor index, built ONCE from edges[] (G1, client-only — the
+  // edges are already in the payload, no server change). showPanel renders the selected node's
+  // neighbors as clickable pills from this map.
+  var neighborsByNode = CortexFilters.neighborIndex(payload);
+
   // The drill-down into the node's source surface — built with DOM APIs (createElement + assign
   // a.href / a.textContent), NEVER by interpolating the graph-derived href into an `href="..."`
   // attribute STRING (codex round-1 [high]): esc() does not escape quotes, so a poisoned value
@@ -475,6 +508,37 @@
     return panel ? panel.querySelector('[data-panel-region="' + name + '"]') : null;
   }
 
+  // fillConnects(node) — render node's CONNECTS-TO neighbor pills into the `connects` region (M9). Each
+  // pill is BUILT by DOM API with its label set via .textContent (NOT innerHTML) — a neighbor's
+  // label/title derives from graph content, so it stays inert TEXT (the same breakout defense as the
+  // M6 labels / the panel fields, R5/M17). Only neighbors in the CURRENT visible set get a pill (codex
+  // Slice-4 round-1 [medium]): a pill for a filtered-out neighbor would let a click resurrect a node
+  // the surface says is gone (re-opening its panel + an Earmarked node's correction composer) — the
+  // same stale-selection class the integration fix closed; selectNode also guards this (defense in
+  // depth). A pill-click routes through selectNode → flies the camera, opens the panel for the
+  // neighbor, and writes ?node=<stable-ref> (M11) — the ONE selection sink, not a duplicate path. The
+  // region collapses (CSS :empty) when there are no visible neighbors.
+  function fillConnects(node) {
+    var connectsEl = panelRegion("connects");
+    if (!connectsEl || !node) return;
+    connectsEl.textContent = "";
+    var panelVisible = CortexFilters.visible(payload, controlState());
+    var neighbors = neighborsByNode[node.id] || [];
+    neighbors.forEach(function (nid) {
+      var nb = nodeById[nid];
+      if (!nb || !panelVisible.has(nid)) return;   // skip a hidden neighbor — no pill for it
+      var pill = document.createElement("button");
+      pill.type = "button";
+      pill.className = "connects-pill";
+      // the pill label is the neighbor's TITLE (its one-line definition), the term to hop to.
+      pill.textContent = nb.title == null || String(nb.title) === ""
+        ? String(nb.label == null ? nid : nb.label)
+        : String(nb.title);
+      pill.addEventListener("click", function () { selectNode(nid); });
+      connectsEl.appendChild(pill);
+    });
+  }
+
   function showPanel(node) {
     if (!node) return;
     // M15 (Slice 5) — showPanel is the ONE sink every selection flows through (3D click, Cytoscape
@@ -526,6 +590,13 @@
       else wildEl.textContent = "";  // M10b: omit the block entirely when there is no provenance href
     }
 
+    // M9 (Slice 4) — CONNECTS-TO neighbor pills. Factored into fillConnects so render() can refresh
+    // JUST the pills when a filter changes (a filter can hide a neighbor) WITHOUT rebuilding the whole
+    // panel — rebuilding would reset the M12 correction composer's stable-then-advance nonce on every
+    // search keystroke (render() fires on input too). So the pills track the live filter; the composer
+    // is untouched until the selection itself changes.
+    fillConnects(node);
+
     // M12 — the Earmarked correction composer, preserved VERBATIM in the composer slot: only a harm
     // node gets it, targeted by its STABLE ref (not the volatile render id), same DOM-safe form.action
     // + encodeURIComponent + stable-then-advance nonce + same-origin POST through the Slice-1 gate.
@@ -548,6 +619,10 @@
     // slot removes that affordance entirely. The next showPanel() rebuilds it for the new selection.
     var composerEl = panelRegion("composer");
     if (composerEl) composerEl.textContent = "";
+    // likewise clear the CONNECTS-TO pills (Slice 4) — they target the dismissed node's neighbors; the
+    // next showPanel() rebuilds them for the new selection.
+    var connectsEl = panelRegion("connects");
+    if (connectsEl) connectsEl.textContent = "";
   }
   var selectedPanelId = null;   // the id the OPEN panel + composer act on (null = panel dismissed)
   // M13 — the close affordance dismisses the panel back to the free-flight cloud (the existing
@@ -618,7 +693,15 @@
     // type/recency/collapse filter just removed the selected node from r.visibleIds, the panel +
     // correction composer must NOT stay open + actionable for a node the surface says is gone (else a
     // correction could be submitted for a filtered-out node). hidePanel() clears selectedPanelId.
-    if (selectedPanelId != null && !r.visibleIds.has(selectedPanelId)) hidePanel();
+    if (selectedPanelId != null) {
+      if (!r.visibleIds.has(selectedPanelId)) hidePanel();
+      // the selected node SURVIVES the filter, but its CONNECTS-TO pills may not — a filter could have
+      // hidden a neighbor (codex Slice-4 round-1 [medium]). Re-fill JUST the pills (not the whole
+      // panel) so a pill for a now-hidden neighbor is dropped, keeping the panel's pills consistent
+      // with the surface (no resurrection via a stale pill). Re-filling only the pills (not showPanel)
+      // leaves the M12 correction composer's stable-then-advance nonce intact across search keystrokes.
+      else fillConnects(nodeById[selectedPanelId]);
+    }
     adapter.applyVisible(r.visibleIds, r.searchHit);
     var q = (search ? search.value : "").trim();
     if (searchStatus) {
@@ -671,6 +754,12 @@
   function selectNode(id) {
     var node = nodeById[id];
     if (!node) return;
+    // Refuse a selection of a node the active filter has HIDDEN (codex Slice-4 round-1 [medium],
+    // defense in depth): the pills already skip hidden neighbors, but guard the sink too so NO caller
+    // (a stale pill, a future selection path) can open the panel + write ?node= for a node the surface
+    // says is gone — the same no-resurrection rule the render() reconciliation enforces. PREV/NEXT is
+    // unaffected: it only ever steps the visible traversalOrder, so its ids are always visible.
+    if (!CortexFilters.visible(payload, controlState()).has(id)) return;
     traversalCursor = id;
     if (currentAdapter && currentAdapter.flyTo) currentAdapter.flyTo(id);
     showPanel(node);

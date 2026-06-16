@@ -603,6 +603,105 @@ class CortexBrowserGate(unittest.TestCase):
                         "(a correction could be submitted for a node the surface says is gone)")
         page.close()
 
+    # ── Slice 4 — CONNECTS-TO neighbor pills (M9) render in the panel + a pill-click navigates (M11) ──
+    # Driven on the deterministic list rung. Select n5 (deep-link), assert its panel carries neighbor
+    # pills derived from edges[], click the first pill, and assert the panel re-renders for that
+    # neighbor AND ?node= updates to the neighbor's stable ref (the round-trip). ─────────────────────
+    def test_slice4_connects_pills_render_and_a_pill_click_navigates(self):
+        page = self._page(
+            "window.__cortexForceWebgl = false; window.__cortexForceCytoscapeFail = true;",
+            url="/cortex?node=n5")
+        page.wait_for_function(
+            "() => document.documentElement.getAttribute('data-cortex-renderer') === 'list'",
+            timeout=4000)
+        page.wait_for_timeout(300)
+        # the CONNECTS-TO region carries pills (n5 has neighbors in the fixture's MENTIONS chain) — and
+        # they are .connects-pill buttons (the shared vocabulary), with text labels (not raw markup)
+        pills = page.evaluate(
+            "() => Array.from(document.querySelectorAll("
+            "'[data-panel-region=\"connects\"] button.connects-pill'))"
+            ".map(b => ({txt: b.textContent, tag: b.tagName}))")
+        self.assertGreater(len(pills), 0, "no CONNECTS-TO pills rendered for a node with neighbors (M9)")
+        self.assertTrue(all(p["tag"] == "BUTTON" for p in pills), "a pill is not a button")
+        self.assertTrue(all(p["txt"].strip() for p in pills), "a pill has no text label")
+        # the neighbor the first pill targets, derived from the exported neighborIndex (the pill order
+        # follows the index order)
+        expected_neighbor = page.evaluate(
+            "() => { const p = JSON.parse(document.getElementById('cortex-data').textContent);"
+            " const idx = CortexFilters.neighborIndex(p); return (idx['n5'] || [])[0]; }")
+        self.assertTrue(expected_neighbor, "the fixture node n5 has no neighbor to navigate to")
+        expected_ref = page.evaluate(
+            "(id) => { const p = JSON.parse(document.getElementById('cortex-data').textContent);"
+            " const n = p.nodes.find(x => x.id === id); return n.ref || n.id; }", expected_neighbor)
+        expected_def = page.evaluate(
+            "(id) => { const p = JSON.parse(document.getElementById('cortex-data').textContent);"
+            " const n = p.nodes.find(x => x.id === id); return n.title; }", expected_neighbor)
+        # click the first pill → the camera flies (list rung marks+scrolls), the panel re-renders for
+        # the neighbor, and ?node= updates to the neighbor's STABLE ref (M11 round-trip)
+        page.evaluate(
+            "() => document.querySelector('[data-panel-region=\"connects\"] button.connects-pill').click()")
+        page.wait_for_timeout(250)
+        # the panel re-rendered for the neighbor (its one-line definition now fills the panel)
+        definition = page.evaluate(
+            "() => document.querySelector('[data-panel-region=\"definition\"]').textContent")
+        self.assertEqual(definition, expected_def,
+                         "the pill-click did not re-render the panel for the neighbor (M9)")
+        # ?node= now carries the neighbor's stable ref (M11 outbound write)
+        node_param = page.evaluate("() => new URLSearchParams(location.search).get('node')")
+        self.assertEqual(node_param, expected_ref,
+                         "the pill-click did not write ?node=<neighbor stable ref> (M11)")
+        page.close()
+
+    # ── Slice 4 (codex round-1 [medium]) — a CONNECTS-TO pill must NEVER navigate to a filtered-out
+    # neighbor: with a type filter hiding a neighbor's label, that neighbor's pill is not rendered, so a
+    # click cannot resurrect a node the surface says is gone (the same no-resurrection rule as the
+    # integration fix). Driven on the list rung. ────────────────────────────────────────────────────
+    def test_slice4_pill_for_a_filtered_out_neighbor_is_not_offered(self):
+        page = self._page(
+            "window.__cortexForceWebgl = false; window.__cortexForceCytoscapeFail = true;",
+            url="/cortex?node=n5")
+        page.wait_for_function(
+            "() => document.documentElement.getAttribute('data-cortex-renderer') === 'list'",
+            timeout=4000)
+        page.wait_for_timeout(300)
+        # pick a neighbor of n5 whose LABEL is NOT n5's own label (so unchecking it does not hide n5).
+        target = page.evaluate("""() => {
+            const p = JSON.parse(document.getElementById('cortex-data').textContent);
+            const byId = {}; p.nodes.forEach(n => byId[n.id] = n);
+            const self = byId['n5'];
+            const idx = CortexFilters.neighborIndex(p);
+            const nb = (idx['n5'] || []).map(id => byId[id])
+                .find(n => n && n.label && n.label !== self.label);
+            return nb ? {id: nb.id, label: nb.label, title: nb.title} : null;
+        }""")
+        self.assertIsNotNone(target, "n5 has no neighbor of a distinct type to filter out")
+        # the pill for that neighbor IS present before filtering
+        present_before = page.evaluate(
+            "(t) => Array.from(document.querySelectorAll("
+            "'[data-panel-region=\"connects\"] button.connects-pill'))"
+            ".some(b => b.textContent === t)", target["title"])
+        self.assertTrue(present_before, "the neighbor's pill was not offered before filtering")
+        # uncheck that neighbor's type → it leaves the rendered set; n5 (a different type) stays selected
+        page.evaluate("""(label) => {
+            const b = Array.from(document.querySelectorAll('input[name=\"cortex-type\"]'))
+                .find(x => x.value === label);
+            if (b) { b.checked = false; b.dispatchEvent(new Event('change', {bubbles:true})); }
+        }""", target["label"])
+        page.wait_for_timeout(250)
+        # the panel must still be open for n5 (it survives the filter) but the hidden neighbor's pill is
+        # gone — no pill targets a filtered-out node
+        panel_open = page.evaluate(
+            "() => { const p = document.getElementById('cortex-inspect');"
+            " return !!p && !p.classList.contains('hidden'); }")
+        self.assertTrue(panel_open, "n5's panel was wrongly dismissed by filtering a NEIGHBOR's type")
+        pill_gone = page.evaluate(
+            "(t) => !Array.from(document.querySelectorAll("
+            "'[data-panel-region=\"connects\"] button.connects-pill'))"
+            ".some(b => b.textContent === t)", target["title"])
+        self.assertTrue(pill_gone,
+                        "a pill for a filtered-out neighbor is still offered (it could resurrect it)")
+        page.close()
+
     # ── (d) list forced to fail → the honest message ───────────────────────────────────────────────
     def test_d_list_failure_falls_to_message(self):
         page = self._page(

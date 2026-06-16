@@ -26,6 +26,16 @@
 <span class="{{ 'metric bad' if bad else 'metric' }}"><span class="m-label">{{ label | e }}</span><span class="m-val" data-metric="{{ key | e }}">{{ value | e }}</span></span>
 {%- endmacro -%}
 
+{#- The Cortex CONNECTS-TO neighbor pill (Slice 4, M9) — a clickable neighbor in the inspect panel's
+    `connects` region: clicking it flies the camera to that node, re-renders the panel, and writes
+    ?node=. The island BUILDS each live pill by DOM API + .textContent (the breakout defense — a
+    neighbor label derives from graph content, so it is never interpolated as markup); this macro is
+    the catalog reference + the shared .connects-pill vocabulary the island reuses (never a one-off
+    style). A button, not an <a>: the hop is a client camera move, not a document navigation. -#}
+{%- macro connects_to_pill(label) -%}
+<button type="button" class="connects-pill">{{ label | e }}</button>
+{%- endmacro -%}
+
 {#- The Cortex inspect panel (Slice 3, M7) — the enriched slide-in side panel that opens on
     node-select. Rendered as an EMPTY shell: the cortex.js island FILLS each data-panel-region by DOM
     API + esc() on select (the breakout defense is a security feature — the macro never interpolates
