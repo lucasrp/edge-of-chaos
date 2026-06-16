@@ -98,6 +98,31 @@ class TheDeltaWorldSubjectIsDenied(unittest.TestCase):
         self.assertRegex(text, r"disallowed-tools:\s*mcp__cortex__\*",
                          "the scaffold must instruct the explorer/world-reader deny (N5/R6)")
 
+    def test_every_world_reading_dispatch_path_carries_the_cortex_deny(self):
+        # codex final-round [high]: scan EVERY skill that fans a world/source-reading explorer/lead
+        # subagent — each such dispatch path must carry the cortex deny (disallowed-tools:
+        # mcp__cortex__*), so no granted self-cognition leaks the self door into a world-reading fan.
+        # A skill that FANS world-readers is detected by the dispatch idiom; the shared scaffold's
+        # instruction covers the producers that funnel through it, grill carries its own.
+        import re
+        skills_dir = REPO / "skills"
+        # an AFFIRMATIVE world-reading dispatch (not a prohibition like wake's "do NOT fan explorers").
+        DISPATCH = re.compile(r"firing one explorer subagent|lead[- ]subagent (?:chases|per lead)|"
+                              r"explorers go out and bring back|fan explorers out", re.I)
+        NEGATED = re.compile(r"do\s+\*?\*?not\*?\*?\s+fan explorers", re.I)
+        DENY = re.compile(r"disallowed-tools:\s*mcp__cortex__\*")
+        offenders = []
+        for sk in skills_dir.glob("*/SKILL.md"):
+            text = sk.read_text()
+            if NEGATED.search(text):
+                continue                       # a skill that explicitly does NOT fan world-readers
+            if DISPATCH.search(text) and not DENY.search(text):
+                # the producers funnel through the scaffold's deny — accept a scaffold pointer too.
+                if "scaffold" not in text.lower():
+                    offenders.append(sk.parent.name)
+        self.assertEqual(offenders, [],
+                         f"these world-reading dispatch skills lack the cortex deny (N5/R6): {offenders}")
+
     def test_the_delta_skill_frontmatter_declares_the_deny_with_the_skill_key(self):
         # the genotype artifact the harness reads: skills/delta/SKILL.md is a SKILL, so the deny rides
         # the SKILL frontmatter key `disallowed-tools` (kebab-case) — NOT the subagent camelCase
