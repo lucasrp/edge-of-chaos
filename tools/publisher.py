@@ -286,7 +286,7 @@ def project_backbone(log=eventlog.LOG):
 
 
 def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites=None,
-                     spec=None, log=eventlog.LOG):
+                     spec=None, lineage=None, log=eventlog.LOG):
     """Project a just-published Artefato into the edge's graph — the deterministic spine write
     that was prose in `skills/_shared/memory.md` (the "Project — AFTER you publish" block) and so
     got SKIPPED by the producer. Ported here as a GUARANTEED side-effect of every publish so the
@@ -525,7 +525,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     if project_fn is not None:
         try:
             project_fn(slug, intent, skill=skill, distills=distills, proposes=proposes,
-                       cites=cites, spec=spec, log=log)
+                       cites=cites, spec=spec, lineage=lineage, log=log)
         except Exception as ex:  # noqa: BLE001 — projection is best-effort, never fatal
             print(f"project skipped for {slug!r} (best-effort, reproject next beat):", ex)
     return out

@@ -477,18 +477,21 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             cites = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True, "snippet": "snip"}]
             proposes = [{"body": "name it", "kind": "constraint"}]
             distills = ["cluster:recall"]
+            lineage = [{"type": "supersedes", "target": "thread-7"}]
             seen = {}
 
-            def project_fn(s, i, *, skill, distills, proposes, cites, spec=None, log=None):
+            def project_fn(s, i, *, skill, distills, proposes, cites, spec=None,
+                           lineage=None, log=None):
                 seen.update(slug=s, intent=i, skill=skill, distills=distills,
-                            proposes=proposes, cites=cites, spec=spec, log=log)
+                            proposes=proposes, cites=cites, spec=spec,
+                            lineage=lineage, log=log)
 
             publisher.publish(
                 slug, _spec(), intent=intent, skill="report", cites=cites,
-                proposes=proposes, distills=distills, date="2026-06-08",
+                proposes=proposes, distills=distills, lineage=lineage, date="2026-06-08",
                 log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=project_fn,
                 verdict=_passing_proof(slug, _spec(), intent, cites=cites,
-                                       proposes=proposes, distills=distills),
+                                       proposes=proposes, distills=distills, lineage=lineage),
             )
             self.assertEqual(seen["slug"], slug)
             self.assertEqual(seen["intent"], intent)
@@ -497,6 +500,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             self.assertEqual(seen["proposes"], proposes)
             self.assertEqual(seen["cites"], cites)
             self.assertEqual(seen["spec"], _spec())   # the spec is passed for the content embed
+            self.assertEqual(seen["lineage"], lineage)  # the authored lineage rides to projection (L3)
             self.assertEqual(seen["log"], log)         # the projection reads the SAME log (Codex P2)
 
     def test_failed_projection_does_not_break_the_publish(self):
