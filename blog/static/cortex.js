@@ -483,6 +483,12 @@
     // cursor. Set BEFORE the panel guard so the cursor anchors even when the panel DOM is absent
     // (degraded rungs). `traversalCursor` is hoisted (declared below); by call time it is live.
     traversalCursor = node.id;
+    // The shared SELECTED-panel id (the integration fix): the ONE id render() reconciles against the
+    // authoritative visible set. Distinct from `traversalCursor` (which a search hit reseeds even when
+    // it lands nothing in the panel) — this tracks exactly WHICH node the open panel + composer act
+    // on, so a type/recency/collapse filter that removes it can dismiss the panel (below). Set on the
+    // ONE sink so EVERY selection path (3D/Cytoscape/list/search/deep-link/PREV/NEXT) is covered.
+    selectedPanelId = node.id;
     if (!panel) return;  // the panel-fill below needs the server-rendered macro shell
     var full = nodeById[node.id] || node;  // the full payload node carries the untruncated `content`
     // M8 — term + one-line definition: label + title, set as TEXT (.textContent), never markup.
@@ -532,10 +538,18 @@
     panel.setAttribute("aria-hidden", "false");
   }
   function hidePanel() {
+    selectedPanelId = null;   // clear the shared selection sink — nothing is inspected once dismissed
     if (!panel) return;
     panel.classList.add("hidden");
     panel.setAttribute("aria-hidden", "true");
+    // Tear DOWN the correction composer on dismiss — not just hide it. Leaving the form (with its
+    // bound submit handler + the live target node-ref in form.action) in the DOM keeps the correction
+    // POST actionable for a node the surface no longer shows (the integration finding); clearing the
+    // slot removes that affordance entirely. The next showPanel() rebuilds it for the new selection.
+    var composerEl = panelRegion("composer");
+    if (composerEl) composerEl.textContent = "";
   }
+  var selectedPanelId = null;   // the id the OPEN panel + composer act on (null = panel dismissed)
   // M13 — the close affordance dismisses the panel back to the free-flight cloud (the existing
   // tap-background dismiss is wired per-renderer; this is the explicit close control on the shell).
   if (panel) {
@@ -600,6 +614,11 @@
     var adapter = currentAdapter;
     if (!adapter) return;                 // no active renderer (e.g. the message floor) → controls no-op
     var r = CortexFilters.render(payload, controlState());
+    // Integration fix — reconcile the OPEN inspect panel against the authoritative visible set: if a
+    // type/recency/collapse filter just removed the selected node from r.visibleIds, the panel +
+    // correction composer must NOT stay open + actionable for a node the surface says is gone (else a
+    // correction could be submitted for a filtered-out node). hidePanel() clears selectedPanelId.
+    if (selectedPanelId != null && !r.visibleIds.has(selectedPanelId)) hidePanel();
     adapter.applyVisible(r.visibleIds, r.searchHit);
     var q = (search ? search.value : "").trim();
     if (searchStatus) {

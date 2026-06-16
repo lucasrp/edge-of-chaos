@@ -565,6 +565,44 @@ class CortexBrowserGate(unittest.TestCase):
                          "NEXT did not step from the clicked node along traversalOrder")
         page.close()
 
+    # ── INTEGRATION FIX — the open panel + composer must NOT survive a filter that removes the
+    # selected node from the rendered set (codex needs-attention [medium]). Select an Earmarked node
+    # (panel + correction composer open), apply a TYPE filter that removes it from r.visibleIds, and
+    # assert the panel is dismissed — so one can never submit a correction for a node the surface says
+    # is gone. Driven on the deterministic list rung; n97 is Earmarked (i%97==0) with label Direction
+    # (trust asserted = TIERS[97%5]). ───────────────────────────────────────────────────────────────
+    def test_filter_removing_selected_node_dismisses_panel_and_composer(self):
+        page = self._page(
+            "window.__cortexForceWebgl = false; window.__cortexForceCytoscapeFail = true;",
+            url="/cortex?node=n97")
+        page.wait_for_function(
+            "() => document.documentElement.getAttribute('data-cortex-renderer') === 'list'",
+            timeout=4000)
+        page.wait_for_timeout(300)
+        # the panel is OPEN with the Earmarked correction composer present
+        open_with_composer = page.evaluate(
+            "() => { const p = document.getElementById('cortex-inspect');"
+            " return !!p && !p.classList.contains('hidden') &&"
+            " !!p.querySelector('[data-panel-region=\"composer\"] form.correction'); }")
+        self.assertTrue(open_with_composer,
+                        "the Earmarked node's panel + composer did not open for the fixture")
+        # uncheck the Direction type filter → n97 (label Direction) leaves the rendered set
+        page.evaluate("""() => {
+            const b = Array.from(document.querySelectorAll('input[name=\"cortex-type\"]'))
+                .find(x => x.value === 'Direction');
+            if (b) { b.checked = false; b.dispatchEvent(new Event('change', {bubbles:true})); }
+        }""")
+        page.wait_for_timeout(200)
+        # the panel (and its composer) must be dismissed — the selected node is no longer rendered
+        dismissed = page.evaluate(
+            "() => { const p = document.getElementById('cortex-inspect');"
+            " return !!p && p.classList.contains('hidden') &&"
+            " !p.querySelector('[data-panel-region=\"composer\"] form.correction'); }")
+        self.assertTrue(dismissed,
+                        "the panel/composer survived a filter that removed the selected node "
+                        "(a correction could be submitted for a node the surface says is gone)")
+        page.close()
+
     # ── (d) list forced to fail → the honest message ───────────────────────────────────────────────
     def test_d_list_failure_falls_to_message(self):
         page = self._page(
