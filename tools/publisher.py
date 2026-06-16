@@ -64,6 +64,13 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # the gate that rejects it BEFORE anything is written, and _page escapes it as defense in depth.
 PRODUCER_ROSTER = ("report", "research", "map", "plan", "discovery", "grill")
 
+# Cortex-v1 (brick-1, L4): the AUTHORED typed lineage relations and their graph-edge labels — a
+# FIXED Python allowlist. The producer-supplied `item["type"]` is mapped through THIS dict; an
+# out-of-allowlist type is dropped (never linked), and the label NEVER comes from caller data — so
+# no caller string is ever interpolated into Cypher. The edge is directed this -> prior.
+LINEAGE_LABELS = {"builds_on": "BUILDS_ON", "supersedes": "SUPERSEDES",
+                  "contradicts": "CONTRADICTS"}
+
 
 def _safe_target(slug, blog_dir):
     """Resolve the page path for `slug` and ASSERT it stays under blog_dir (#4). A slug that
@@ -312,6 +319,7 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
         uri, user, pw = _identity.neo4j_conn()
         g = _identity.require_group()
         distills, proposes, cites = distills or [], proposes or [], cites or []
+        lineage = lineage or []
         drv = GraphDatabase.driver(uri, auth=(user, pw))
     except Exception as ex:  # noqa: BLE001 — best-effort; the log already holds the truth
         print("project skipped (best-effort, graph unreachable):", ex)
@@ -381,7 +389,10 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # NLI/entailment → grounded typer) governs. RELATES_TO is OUT of v1's publisher entirely
             # (research spec: cosine-nominates-the-author-disposes); these MERGEs emit directly by
             # design and require no NLI gating.
-            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug})-[r:DISTILLS|PROPOSES|CITES]->() "
+            # L4: the three AUTHORED lineage labels JOIN this destructive rebuild set so a corrected
+            # republish (lineage now points elsewhere, or is removed) strands no stale lineage edge.
+            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug})"
+                  "-[r:DISTILLS|PROPOSES|CITES|BUILDS_ON|SUPERSEDES|CONTRADICTS]->() "
                   "DELETE r", g=g, slug=slug)
             # resolve distills against ACTIVE clusters only (Codex P2): mirror graph_clusters —
             # archived/merged entities are hidden, so a retired cluster is never linked or pushed.
@@ -416,14 +427,39 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                 s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
                       "MERGE (src:Source {group_id:$g, key:$key}) MERGE (a)-[:CITES]->(src)",
                       g=g, slug=slug, key=ref)
+            # (2b) L4 — AUTHORED typed lineage as DIRECTED edges this -> prior. The producer's
+            # `item["type"]` is mapped through the FIXED LINEAGE_LABELS allowlist (an out-of-allowlist
+            # type is dropped); the label is a literal from that dict, never interpolated caller data,
+            # so the Cypher is fixed per label. The prior is named by `target` (the prior Artefato
+            # slug). If the prior :Artefato is not in the graph yet (out-of-order publish), the MERGE
+            # matches nothing — treat as UNRESOLVED (mirror unresolved_distills): leave the projection
+            # incomplete so the next sweep re-projects once the prior lands.
+            unresolved_lineage = False
+            for item in lineage:
+                if not isinstance(item, dict):
+                    continue
+                label = LINEAGE_LABELS.get(item.get("type"))
+                prior = item.get("target") or item.get("slug")
+                if not (label and prior):
+                    continue
+                row = s.run(
+                    "MATCH (a:Artefato {group_id:$g, slug:$slug}),"
+                    "(p:Artefato {group_id:$g, slug:$prior}) "
+                    "MERGE (a)-[:%s]->(p) RETURN count(p) AS n" % label,
+                    g=g, slug=slug, prior=prior).single()
+                if not row or row["n"] == 0:
+                    unresolved_lineage = True   # prior not in the graph yet — revisit next sweep
             # (3) COMPLETION MARKER — set LAST, complete ONLY when (a) every edge write succeeded,
             # (b) the embedding is current (a FAILED embed leaves it false → retried on recovery,
-            # Codex P2), AND (c) every distill ref RESOLVED. `_graph_present_slugs` reads THIS: a node
-            # left half-projected (embed/edge outage) OR with an unresolved distill (cluster not in
-            # the graph yet) is NOT present and is re-projected — so a transient embed outage and the
-            # "grill attaches the cluster later" path both self-heal on the next sweep.
+            # Codex P2), (c) every distill ref RESOLVED, AND (d) every lineage prior RESOLVED (L4).
+            # `_graph_present_slugs` reads THIS: a node left half-projected (embed/edge outage), with
+            # an unresolved distill (cluster not in the graph yet), OR an unresolved lineage prior
+            # (out-of-order publish) is NOT present and is re-projected — so a transient embed outage,
+            # the "grill attaches the cluster later" path, and the "prior lands later" path all
+            # self-heal on the next sweep.
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.projection_complete=$done",
-                  g=g, slug=slug, done=(embed_current and not unresolved_distills))
+                  g=g, slug=slug,
+                  done=(embed_current and not unresolved_distills and not unresolved_lineage))
     except Exception as ex:  # noqa: BLE001 — a failed projection is reported, never fatal
         print("project failed (best-effort, reproject next beat):", ex)
     finally:

@@ -25,6 +25,25 @@ _REAL_PROJECT = publisher.project_artefato
 _REAL_PUBLISH = publisher.publish
 
 
+def _neo4j_reachable():
+    """True iff the install's Neo4j is reachable — gates the live lineage-edge test (which writes
+    real :Artefato nodes + lineage edges). Offline/CI degrades to skip, never fails."""
+    try:
+        import _identity
+        from neo4j import GraphDatabase
+        uri, user, pw = _identity.neo4j_conn()
+        _identity.require_group()
+        drv = GraphDatabase.driver(uri, auth=(user, pw))
+        drv.verify_connectivity()
+        drv.close()
+        return True
+    except Exception:  # noqa: BLE001 — no graph → skip the live test
+        return False
+
+
+_NEO4J = _neo4j_reachable()
+
+
 def setUpModule():
     """Keep the whole module OFFLINE: the default project_fn now connects to the LIVE graph, so a
     publish in a test with a temp log would project a test Artefato into the install graph (Codex
@@ -693,6 +712,46 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         self.assertIn("coalesce(e.archived,false)=false", src)
         self.assertIn("e.merged_into IS NULL", src)
 
+    def test_lineage_edges_are_a_fixed_allowlist_directed_this_to_prior(self):
+        # Cortex-v1 (brick-1, L4): project_artefato materializes the AUTHORED typed lineage as
+        # DIRECTED graph edges this -> prior, mapping item type through a FIXED Python allowlist
+        # (never interpolating caller data into Cypher), and rebuilds them destructively like the
+        # other authored edges so a corrected republish strands no stale edge.
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        # the fixed allowlist maps the three authored relation types to their labels — keyed on the
+        # producer-supplied type, never interpolating caller data (the LABEL is a fixed dict value)
+        self.assertEqual(publisher.LINEAGE_LABELS,
+                         {"builds_on": "BUILDS_ON", "supersedes": "SUPERSEDES",
+                          "contradicts": "CONTRADICTS"},
+                         "the lineage allowlist must map the three authored types to fixed labels")
+        # the projection maps the producer type through THAT allowlist (no caller string in Cypher)
+        self.assertIn("LINEAGE_LABELS", src,
+                      "project_artefato must map item type through the fixed LINEAGE_LABELS allowlist")
+        # the three labels JOIN the destructive edge-rebuild DELETE set (so a corrected republish
+        # does not strand a stale lineage edge — mirrors the DISTILLS/PROPOSES/CITES rebuild)
+        delete_idx = src.find("DELETE r")
+        self.assertNotEqual(delete_idx, -1)
+        delete_clause = src[src.rfind("MATCH", 0, delete_idx):delete_idx]
+        for label in ("BUILDS_ON", "SUPERSEDES", "CONTRADICTS"):
+            self.assertIn(label, delete_clause,
+                          f"{label} must be in the destructive edge-rebuild DELETE set")
+        # the edge is DIRECTED this -> prior (MERGE (a)-[:LABEL]->(p)), never the reverse
+        self.assertIn("MERGE (a)-[:", src,
+                      "the lineage edge must be directed this(a) -> prior(p)")
+
+    def test_unresolved_lineage_prior_leaves_projection_incomplete(self):
+        # Cortex-v1 (brick-1, L4): a lineage ref whose prior :Artefato is not in the graph yet
+        # (out-of-order publish) must leave the projection INCOMPLETE so recovery revisits once the
+        # prior lands — mirroring the unresolved-distills self-heal, not silently dropping the edge.
+        import inspect
+        src = inspect.getsource(_REAL_PROJECT)
+        self.assertIn("unresolved_lineage", src,
+                      "project_artefato must track an unresolved lineage prior")
+        # the completion marker is gated on the resolved lineage too
+        self.assertIn("not unresolved_lineage", src,
+                      "the completion marker must be gated on the resolved lineage prior")
+
     def test_embedding_refreshed_on_content_change_skipped_when_unchanged(self):
         # Codex P2: re-embed only when the embed input CHANGED — a republish with changed intent/spec
         # refreshes the stale embedding; a pure edge-link revisit (same content) skips the re-embed.
@@ -1164,6 +1223,71 @@ class PublishIsRecoverableAfterTheCommit(unittest.TestCase):
             self.assertEqual((blog / f"{slug}.html").read_bytes(), before)
             # the signal count did not double (already-landed signals are not re-emitted)
             self.assertEqual(eventlog.source_yield_at(log=log)["arXiv:1"]["count"], 1)
+
+
+@unittest.skipUnless(_NEO4J, "neo4j not reachable (live lineage-edge projection test)")
+class LineageEdgesAreDirectedInTheLiveGraph(unittest.TestCase):
+    """Cortex-v1 (brick-1, L4) — LIVE: project_artefato materializes the authored typed lineage
+    as DIRECTED graph edges this -> prior. Gated on a reachable Neo4j (~/edge-experiments/.venv);
+    uses dedicated `cv1l-*` test slugs and DETACH-DELETEs them on teardown so it leaves the
+    install graph clean. Asserts: (1) supersedes lands the directed edge this -> prior; (2) the
+    REVERSE edge does NOT exist; (3) a corrected republish REMOVES the stale edge."""
+
+    THIS = "cv1l-this"
+    PRIOR = "cv1l-prior"
+    OTHER = "cv1l-other"
+
+    def _session(self):
+        import _identity
+        from neo4j import GraphDatabase
+        uri, user, pw = _identity.neo4j_conn()
+        self._g = _identity.require_group()
+        self._drv = GraphDatabase.driver(uri, auth=(user, pw))
+        return self._drv.session()
+
+    def _cleanup(self, s):
+        s.run("MATCH (a:Artefato {group_id:$g}) WHERE a.slug IN $slugs DETACH DELETE a",
+              g=self._g, slugs=[self.THIS, self.PRIOR, self.OTHER])
+
+    def setUp(self):
+        self.s = self._session()
+        self._cleanup(self.s)
+        # pre-create the prior :Artefato nodes the lineage points at (the "prior already landed"
+        # path) — bare MERGE, no objective/embed dependency, so the edge MERGE can match.
+        for slug in (self.PRIOR, self.OTHER):
+            self.s.run("MERGE (a:Artefato {group_id:$g, slug:$slug})", g=self._g, slug=slug)
+
+    def tearDown(self):
+        try:
+            self._cleanup(self.s)
+        finally:
+            self.s.close()
+            self._drv.close()
+
+    def _edge(self, frm, label, to):
+        return self.s.run(
+            "MATCH (a:Artefato {group_id:$g, slug:$frm})-[r:%s]->"
+            "(b:Artefato {group_id:$g, slug:$to}) RETURN count(r) AS n" % label,
+            g=self._g, frm=frm, to=to).single()["n"]
+
+    def test_supersedes_lands_directed_and_corrected_republish_removes_stale(self):
+        # (1) project with supersedes -> prior: the directed edge this -> prior exists...
+        _REAL_PROJECT(self.THIS, "open: x; bet: y", skill="report",
+                      lineage=[{"type": "supersedes", "target": self.PRIOR}],
+                      log="/tmp/cv1l-noncanonical.jsonl")  # non-canonical: ADD-only, no backbone
+        self.assertEqual(self._edge(self.THIS, "SUPERSEDES", self.PRIOR), 1,
+                         "supersedes must land the directed edge this -> prior")
+        # (2) ...and the REVERSE edge does NOT exist (direction is unrecoverable, must be exact)
+        self.assertEqual(self._edge(self.PRIOR, "SUPERSEDES", self.THIS), 0,
+                         "the reverse lineage edge must NOT exist (direction is load-bearing)")
+        # (3) a corrected republish (now supersedes OTHER, not PRIOR) removes the stale edge.
+        _REAL_PROJECT(self.THIS, "open: x; bet: y", skill="report",
+                      lineage=[{"type": "supersedes", "target": self.OTHER}],
+                      log="/tmp/cv1l-noncanonical.jsonl")
+        self.assertEqual(self._edge(self.THIS, "SUPERSEDES", self.PRIOR), 0,
+                         "the corrected republish must remove the stale supersedes edge")
+        self.assertEqual(self._edge(self.THIS, "SUPERSEDES", self.OTHER), 1,
+                         "the corrected republish must land the new supersedes edge")
 
 
 if __name__ == "__main__":
