@@ -375,6 +375,12 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # republish/replay with corrected provenance does not leave stale clusters/directions/
             # sources behind — recall stays a faithful projection of the log's latest payload. SERVES
             # is to the single hub (idempotent) and is left intact.
+            # C2 CARVE-OUT: DISTILLS/PROPOSES/CITES are AUTHORED edges — the producer declared the
+            # distill/proposal/citation and they are proof-bound into the close digest. They are NOT
+            # the cosine-nominated RELATES_TO path, which is the ONLY edge C2 (mutual-kNN candidate →
+            # NLI/entailment → grounded typer) governs. RELATES_TO is OUT of v1's publisher entirely
+            # (research spec: cosine-nominates-the-author-disposes); these MERGEs emit directly by
+            # design and require no NLI gating.
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug})-[r:DISTILLS|PROPOSES|CITES]->() "
                   "DELETE r", g=g, slug=slug)
             # resolve distills against ACTIVE clusters only (Codex P2): mirror graph_clusters —
@@ -646,6 +652,7 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
             # event with no skill folds to None, which coalesce preserves (never clobbers).
             project_fn(item["slug"], item.get("intent") or "", skill=item.get("skill"),
                        distills=item.get("distills"), proposes=item.get("proposes"),
-                       cites=item.get("cites"), spec=item.get("spec"), log=log)
+                       cites=item.get("cites"), spec=item.get("spec"),
+                       lineage=item.get("lineage"), log=log)
         except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
             print(f"graph reproject skipped for {item.get('slug')!r} (best-effort):", ex)

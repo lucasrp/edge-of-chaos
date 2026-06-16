@@ -500,7 +500,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             self.assertEqual(seen["proposes"], proposes)
             self.assertEqual(seen["cites"], cites)
             self.assertEqual(seen["spec"], _spec())   # the spec is passed for the content embed
-            self.assertEqual(seen["lineage"], lineage)  # the authored lineage rides to projection (L3)
+            self.assertIs(seen["lineage"], lineage)  # the EXACT bound list rides to projection (L3), not a copy
             self.assertEqual(seen["log"], log)         # the projection reads the SAME log (Codex P2)
 
     def test_failed_projection_does_not_break_the_publish(self):
@@ -559,6 +559,29 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                                       present_slugs=lambda: {},  # hermetic: none present
                                       backbone_fn=None)
             self.assertEqual(sorted(projected), ["recov-a", "recov-b"])
+
+    def test_reproject_graph_replays_the_authored_lineage(self):
+        # Cortex-v1 (brick-1, L3): the REPLAY path must mirror the forward path — reproject_graph
+        # must pass the committed `lineage` to project_fn, or a transient-outage recovery silently
+        # drops the authored typed lineage and the directed edges never re-derive (Codex SUBSTANTIVE).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "recov-lineage"
+            lineage = [{"type": "supersedes", "target": "thread-7"}]
+            publisher.publish(
+                slug, _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None, lineage=lineage,
+                verdict=_passing_proof(slug, _spec(), "open: x; bet: y", lineage=lineage))
+            seen = {}
+
+            def fake_project(s, intent, *, skill=None, distills=None, proposes=None,
+                             cites=None, spec=None, lineage=None, log=None):
+                seen["lineage"] = lineage
+
+            publisher.reproject_graph(log=log, project_fn=fake_project,
+                                      present_slugs=lambda: {},  # hermetic: none present
+                                      backbone_fn=None)
+            self.assertEqual(seen["lineage"], lineage)  # the logged lineage rides the replay
 
     def test_reproject_graph_replays_only_missing_slugs(self):
         # Codex P2: steady-state must NOT re-embed the whole corpus each sweep — reproject_graph
