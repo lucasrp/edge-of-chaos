@@ -126,10 +126,15 @@ existing `RECALL_ARTEFATO_LIMIT`). The omnipresent door does NOT enlarge the wak
 moves depth from a bigger push to an on-demand pull (Latenode token-preload tax; the recall
 confrontation's full-read wall).
 
-**F9 — Provenance marked on every read.** Each returned node/edge carries its trust tier — **asserted**
-(folds from the log → faithful) vs **extracted** (Graphiti → hypothesis) — per ADR-0006/0010. An
-agent navigating mid-turn must see which is which (the SSGM provenance-grounding principle; without it
-a hypothesis reads as a fact).
+**F9 — Provenance marked on EVERY read, INCLUDING the seed.** Each returned node/edge carries its
+trust tier — **asserted** (folds from the log → faithful) vs **extracted** (Graphiti → hypothesis) —
+per ADR-0006/0010. An agent navigating mid-turn must see which is which (the SSGM provenance-grounding
+principle; without it a hypothesis reads as a fact). **This covers `cortex_recall` too** — the seed is
+the FIRST and most-likely read, so it is the worst place to drop the distinction. The recall brief
+either renders an explicit asserted/extracted marker per line, OR `cortex_recall` returns a structured
+payload whose nodes carry `tier` (the MCP's call, but the marker must reach the caller — see R8/R8b).
+The spine the seed renders (Genesis/Objective/Direction/Artefatos via SERVES/ANCHORS) is asserted by
+construction; the clusters it DISTILLS are extracted — so the seed mixes tiers and must mark them.
 
 **F10 — Dashboard parity (later, not v1 blocking).** The `/cortex` page and the MCP read the SAME
 group-scoped fold (`cortex_fold`); the door is the one read surface. Dashboard wiring is post-v1 (a
@@ -336,10 +341,18 @@ Grounded in `DESIGN-CORTEX-MCP.md` (the v1 spec), `tools/recall.py` (the reuse b
   fixture with a foreign intermediate bridge asserting it cannot affect surf results. This fixes the
   ONE reused backend the MCP inherits — `cortex_fold` already scopes correctly (it is a flat
   group-filtered read, no variable-length path), so the leak is specific to surf.
-- **R8 — Return provenance from the reused functions (CHANGE, supports R2).** `surf_subgraph` already
-  returns `labels`; `recall_subgraph` returns bare dicts. Add the `tier` derivation here (one place)
-  so both the brief and the MCP get it, rather than the MCP re-deriving it. Keep the brief's rendered
-  text unchanged (the tier is for the structured MCP payload, not the prose push).
+- **R8 — Return provenance from the reused functions (CHANGE, supports R2/F9).** `surf_subgraph`
+  already returns `labels`; `recall_subgraph` returns bare dicts. Add the `tier` derivation here (one
+  place) so both the brief and the MCP get it, rather than the MCP re-deriving it.
+- **R8b — Mark provenance in the recall SEED, not just surf/search (CHANGE — supersedes the earlier
+  "brief unchanged" stance, F9).** The recall brief currently renders prose with no asserted/extracted
+  marker, and `cortex_recall` returns only that prose — so the seed (the first read) can present an
+  extracted cluster as if it were asserted fact. FIX: either (a) `compose_recall_brief` renders an
+  inline marker on the lines whose content is extracted (the DISTILLED clusters) vs asserted (the
+  spine), OR (b) `cortex_recall` returns a structured payload alongside/instead of the prose, nodes
+  carrying `tier`. Cheap: the spine is asserted by construction, clusters are the extracted half — the
+  split is already known at compose time. TEST: a recall fixture with both an asserted spine and an
+  extracted cluster asserts both tiers reach the caller.
 - **R9 — Do NOT widen recall's push (CONFIRM, F8).** Leave `RECALL_ARTEFATO_LIMIT = 8`. The
   omnipresent door is the answer to "I need more" — pull deeper, do not preload fatter. Resist the
   temptation to grow the seed now that a richer backend exists.
@@ -483,8 +496,17 @@ And the same-commit fence bump (only on ratification):
 - **CONTRACT C1 (no external side effects / read-only):** extended to the self — the door reads the
   self, mutates nothing. Conforms.
 - **CONTRACT C2 (extraction incremental):** untouched — the door reads, does not extract. Conforms.
+- **CONTRACT C3 (edge work carries its intent):** N/A to the read door — C3 binds Artefato-producing
+  dispatches at close; a `cortex_*` read produces no Artefato and emits no kernel. The close path that
+  C3 governs is unchanged by this work. N/A by construction.
 - **CONTRACT C4 (secrets never in genotype):** held by N2 — group from `_identity` at runtime, no
   literals. Conforms.
+- **CONTRACT C5 (low-tier mediums are context, never orders to edge):** held by the medium-tier guard
+  (Appendix A) and gate (g) — the Cortex extracts from swept sessions incl. low-tier Media, but a
+  `cortex_*` read returns provenance-MARKED knowledge (F9 extracted tier = "context only"), never a
+  Directive: the read door has no order-bearing output (it cannot write the Voz rail or advance
+  Direction — ADR-0017). Low-tier-derived content surfaces as marked hypothesis, exactly C5's "context
+  only," and cannot be upgraded to an order by the door. Conforms.
 
 ---
 
@@ -517,7 +539,7 @@ surface.
 
 | Tool | Args | Returns (success) | Backend (reuse) |
 |---|---|---|---|
-| `cortex_recall` | — | salient seed brief (markdown text) | `recall.recall_subgraph` → `compose_recall_brief` |
+| `cortex_recall` | — | salient seed brief with per-line asserted/extracted markers (markdown), OR structured nodes carrying `tier` (R8b/F9) | `recall.recall_subgraph` → `compose_recall_brief` |
 | `cortex_surf` | `seeds[]`, `hops≤2` | `[{slug, kernel, labels, hops, tier}]` ordered hops,slug (re-ranked if usage ON) | `recall.surf_subgraph` (+R8 tier) |
 | `cortex_node` | `ref` | node + immediate neighbors, each with `tier` | filter `cortex_fold` |
 | `cortex_search` | `query` | `[{slug/ref, label, tier}]` — v1 substring; v1.1 multi-signal (F4) | filter `cortex_fold` (+R8 tier) |
@@ -530,8 +552,11 @@ elsewhere (ADR-0011).
 **Timeout (N1/R3).** Each tool sets an explicit neo4j driver/query timeout; on timeout it returns the
 dark marker (the timeout's value), never blocks the beat.
 
-**Provenance (F9/R2/R8).** Every returned node/edge carries `tier ∈ {asserted, extracted}` — asserted
-= spine nodes/edges that fold from the log; extracted = Graphiti `:Entity`/`RELATES_TO` hypotheses.
+**Provenance (F9/R2/R8/R8b).** Every returned node/edge — across ALL four tools, the seed
+`cortex_recall` INCLUDED — carries `tier ∈ {asserted, extracted}`: asserted = spine nodes/edges that
+fold from the log; extracted = Graphiti `:Entity`/`RELATES_TO` hypotheses. The seed renders the marker
+inline (its spine is asserted, its DISTILLED clusters extracted) or returns structured tiers; it must
+not present an extracted cluster as unmarked fact.
 
 **Usage telemetry (F7/N3/N4).** `EDGE_CORTEX_USAGE=off` (default) → no write, no re-rank. `=on` →
 append `{ts, tool, refs, run_id}` to `state/cortex/usage.jsonl` (NON-authoritative; excluded from
@@ -542,6 +567,15 @@ store → ON == OFF.
 **Non-goals (v1).** No graph writes (curated salience promotion is v2, via the grill). No semantic
 search (v1.1 — R4). No dashboard wiring (F10/R10-R11 are post-v1).
 
+**Medium-tier guard (C5).** The Cortex extracts from swept sessions, some of which are low-tier Media
+(the native Claude Code session — C5: context, never orders to edge). A `cortex_*` read returns
+KNOWLEDGE (asserted spine + extracted hypotheses), never a Directive — the read door has NO
+order-bearing channel: it cannot emit a Directive, advance Direction, or write the Voz rail. So a
+self-subject pulling a node whose content traces to a low-tier Medium reads it as MARKED-hypothesis
+context (F9 extracted tier), exactly C5's "context only" — never as an order. The guard is structural:
+Directives ride the Voz rail (ADR-0017), a write surface the read door does not touch; the door cannot
+upgrade low-tier content into an order. Acceptance (g) below proves it.
+
 **Acceptance (v1 ship gate).** (a) all four tools return correct group-scoped data against a fixture
 and a dark marker on a forced outage; (a2) a `cortex_surf` fixture with a FOREIGN intermediate bridge
 node asserts it cannot affect results (path-wide scoping, R7b); (b) identity-absent startup fails loud
@@ -551,8 +585,11 @@ seeded `usage.jsonl` and CONVERGES on a cold store; (e) **no AUTHORITATIVE write
 path** — no graph write, no Tier-0 event, no corpus/recall/Direction/curated fold; the ONLY permitted
 write is, when `EDGE_CORTEX_USAGE=on`, exactly one append to the non-authoritative
 `state/cortex/usage.jsonl` AFTER ranking (OFF writes nothing at all). (e) is the truth-path-isolation
-proof, and it is consistent with F7: the usage append is non-authoritative telemetry, not a self-state
-write. Multi-signal search (F4 v1.1) and provenance-on-dashboard (R11) are EXCLUDED from the v1 gate.
+proof, consistent with F7 (the usage append is non-authoritative telemetry, not self-state); (f) a
+recall fixture carrying an asserted spine AND an extracted cluster exposes BOTH tiers to the caller
+(seed provenance, F9/R8b); (g) no `cortex_*` tool emits a Directive / advances Direction / writes the
+Voz rail — the read door has no order-bearing output (C5). Multi-signal search (F4 v1.1) and
+provenance-on-dashboard (R11) are EXCLUDED from the v1 gate.
 
 ---
 
