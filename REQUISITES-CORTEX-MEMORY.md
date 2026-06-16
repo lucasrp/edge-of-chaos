@@ -144,15 +144,17 @@ read, the worst place to drop either marker. The recall brief renders both marke
 are extracted — so the seed already mixes trust tiers and must mark them, and likewise mark any
 context_only content.
 
-**F9-dep — the medium-authority signal must be CARRIED onto the node (REFACTOR dependency).** Today
-extracted nodes come from Graphiti episodes ingested by the sweep (`tools/sweep.py`) WITHOUT a
-medium-authority attribute — the graph does not yet know which extracted content came from a low-tier
-Medium. So F9's `context_only` axis requires the sweep/extraction to STAMP the source Medium's tier
-onto the episode/node (an `order_bearing`/`context_only` property), and the read door to surface it. If
-that stamp is not yet available at v1, the door must **default `context_only=true` for ALL extracted
-nodes** (fail-safe: treat hypothesis-from-unknown-medium as context, never order) and mark `asserted`
-spine nodes by their known origin. This is the C5-correct default and is flagged as a build
-dependency, not a hand-wave (see R8c).
+**F9-dep — the medium-authority signal must be CARRIED onto the node, with a conservative merge
+(REFACTOR dependency).** Today extracted nodes come from Graphiti episodes ingested by the sweep
+(`tools/sweep.py`) WITHOUT a medium-authority attribute — the graph does not yet know which extracted
+content came from a low-tier Medium. So F9's `context_only` axis requires the sweep/extraction to STAMP
+the source Medium's tier onto the episode/node and the read door to surface it. Because Graphiti MERGES
+an entity/relation from MULTIPLE episodes, the per-node value follows a conservative lattice (R8c):
+`context_only=true` if ANY contributing source is low-tier or unknown; `false` only if ALL are known
+order-bearing — so an order-bearing source can never mask a merged-in low-tier directive. If the stamp
+is not yet available at v1, the door **defaults `context_only=true` for ALL extracted nodes**
+(fail-safe — and consistent with the merge rule, since unknown ⇒ true) and marks `asserted` spine
+nodes by their known origin. Flagged as a build dependency, not a hand-wave (see R8c).
 
 **F10 — Dashboard parity (later, not v1 blocking).** The `/cortex` page and the MCP read the SAME
 group-scoped fold (`cortex_fold`); the door is the one read surface. Dashboard wiring is post-v1 (a
@@ -371,16 +373,26 @@ Grounded in `DESIGN-CORTEX-MCP.md` (the v1 spec), `tools/recall.py` (the reuse b
   carrying `tier`. Cheap: the spine is asserted by construction, clusters are the extracted half — the
   split is already known at compose time. TEST: a recall fixture with both an asserted spine and an
   extracted cluster asserts both tiers reach the caller.
-- **R8c — Carry the MEDIUM-AUTHORITY axis onto nodes + surface it (NEW — C5 dependency, F9/F9-dep).**
-  The `context_only`/`order_bearing` axis (F9) is orthogonal to `tier` and is NOT in the graph today:
-  `tools/sweep.py` ingests session deltas as Graphiti episodes with no medium-tier stamp. Two-part
-  fix: (1) the sweep STAMPS the source Medium's tier onto the episode (low-tier native session →
-  `context_only`; Voz rail → `order_bearing`); (2) the read door surfaces it on every returned node,
-  defaulting `context_only=true` for any extracted node whose Medium is unknown (fail-safe per C5 —
-  never upgrade unknown-origin content to an order). Part (1) is a sweep refactor that may land
-  after v1; until it does, the read door ships the fail-safe default (all extracted = context_only).
-  TEST: directive-SHAPED text from a low-tier session, surfaced by all four tools, carries
-  `context_only=true` and is never marked order-bearing (gate g).
+- **R8c — Carry the MEDIUM-AUTHORITY axis onto nodes + surface it, with a CONSERVATIVE merge rule
+  (NEW — C5 dependency, F9/F9-dep).** The `context_only`/`order_bearing` axis (F9) is orthogonal to
+  `tier` and is NOT in the graph today: `tools/sweep.py` ingests session deltas as Graphiti episodes
+  with no medium-tier stamp. Three-part fix:
+  (1) the sweep STAMPS the source Medium's tier onto each episode (low-tier native session →
+  `context_only`; Voz rail → `order_bearing`);
+  (2) **the merge rule (the iter5 fix): a Graphiti node/edge consolidated from MULTIPLE episodes is
+  `context_only=true` if ANY contributing source is low-tier OR unknown; `context_only=false` ONLY
+  when EVERY supporting source is known order-bearing.** This conservative lattice (low-tier
+  dominates) means an order-bearing source can never MASK a merged-in low-tier directive — the
+  high-risk case. Preserve per-episode source-Medium evidence through the fold so the aggregation is
+  computable at read time (do not discard provenance on merge).
+  (3) the read door surfaces the aggregated value on every returned node, defaulting
+  `context_only=true` for any extracted node whose Medium is unknown (fail-safe per C5).
+  Part (1)+(2) is a sweep/fold refactor that may land after v1; until it does, the read door ships the
+  fail-safe default (all extracted = context_only — which already satisfies the merge rule, since
+  unknown ⇒ true).
+  TESTS: (a) directive-SHAPED low-tier text, surfaced by all four tools, returns `context_only=true`,
+  never order-bearing; (b) a MIXED-source node (a low-tier directive merged with an order-bearing
+  entity) returns `context_only=true` across all four tools (the merge rule, gate g).
 - **R9 — Do NOT widen recall's push (CONFIRM, F8).** Leave `RECALL_ARTEFATO_LIMIT = 8`. The
   omnipresent door is the answer to "I need more" — pull deeper, do not preload fatter. Resist the
   temptation to grow the seed now that a richer backend exists.
@@ -533,11 +545,13 @@ And the same-commit fence bump (only on ratification):
   R8c / Appendix-A guard / gate g), on an axis SEPARATE from trust: (1) a per-node `context_only`
   marker — orthogonal to `tier`, fail-safe-default true for unknown-Medium extracted nodes — so
   low-tier-derived content is marked "context, not order" whether asserted or extracted (the iter4
-  fix: `extracted` ≠ C5 context-only); (2) the read door has no order-bearing output (cannot write the
-  Voz rail or advance Direction — ADR-0017), so directive-shaped low-tier text cannot become an order
-  through the door; the deterministic escape stays the Voz rail. Note F9-dep/R8c: the medium stamp on
-  extracted nodes is a sweep refactor that may land post-v1; until then the fail-safe default holds the
-  invariant. Conforms.
+  fix: `extracted` ≠ C5 context-only), with a CONSERVATIVE merge for multi-source Graphiti nodes
+  (context_only=true if ANY source is low-tier/unknown — an order-bearing source cannot mask a
+  merged-in low-tier directive; iter5 fix); (2) the read door has no order-bearing output (cannot
+  write the Voz rail or advance Direction — ADR-0017), so directive-shaped low-tier text cannot become
+  an order through the door; the deterministic escape stays the Voz rail. Note F9-dep/R8c: the medium
+  stamp + merge on extracted nodes is a sweep refactor that may land post-v1; until then the fail-safe
+  default (unknown ⇒ context_only) holds the invariant. Conforms.
 
 ---
 
@@ -610,11 +624,13 @@ search (v1.1 — R4). No dashboard wiring (F10/R10-R11 are post-v1).
 **Medium-tier guard (C5) — authority is a SEPARATE axis from trust.** The Cortex extracts from swept
 sessions, some low-tier Media (the native Claude Code session — C5: context, never orders to edge).
 C5 is enforced by TWO mechanisms, neither of which is the `tier` (trust) axis:
-1. **Per-node `context_only` marking** (F9/R8c): low-tier-derived content is stamped `context_only`
-   (fail-safe default for unknown-Medium extracted nodes), so the caller sees "context, not order"
-   REGARDLESS of whether the node is asserted or extracted — because authority is orthogonal to trust
-   (a log-faithful node can still be context-only). This is the fix for the iter4 finding: do NOT
-   equate `extracted` with C5 context-only.
+1. **Per-node `context_only` marking with a conservative merge** (F9/R8c): low-tier-derived content
+   is stamped `context_only` (fail-safe default for unknown-Medium extracted nodes), so the caller
+   sees "context, not order" REGARDLESS of whether the node is asserted or extracted — authority is
+   orthogonal to trust (a log-faithful node can still be context-only; iter4 fix: `extracted` ≠ C5
+   context-only). For a Graphiti node merged from MULTIPLE episodes the value follows the conservative
+   lattice (iter5 fix): `context_only=true` if ANY source is low-tier/unknown, `false` only if ALL are
+   order-bearing — an order-bearing source cannot mask a merged-in low-tier directive.
 2. **Structural no-order-channel:** the read door cannot emit a Directive, advance Direction, or write
    the Voz rail (ADR-0017) — Directives ride the Voz rail, a write surface the door never touches. So
    even directive-SHAPED low-tier text returns as marked `context_only` knowledge and has no path to
@@ -635,9 +651,11 @@ proof, consistent with F7 (the usage append is non-authoritative telemetry, not 
 recall fixture carrying an asserted spine AND an extracted cluster exposes BOTH tiers to the caller
 (seed provenance, F9/R8b); (g) directive-SHAPED text from a low-tier Medium, surfaced by ALL four
 tools, is returned `context_only=true` (the fail-safe default for unknown-Medium extracted nodes) and
-never order-bearing — AND no `cortex_*` tool emits a Directive / advances Direction / writes the Voz
-rail (C5, both mechanisms; authority is marked separately from `tier`). Multi-signal search (F4 v1.1)
-and provenance-on-dashboard (R11) are EXCLUDED from the v1 gate.
+never order-bearing — AND a MIXED-source node (a low-tier directive merged with an order-bearing
+entity) also returns `context_only=true` across all four tools (the conservative merge rule, R8c) —
+AND no `cortex_*` tool emits a Directive / advances Direction / writes the Voz rail (C5, both
+mechanisms; authority is marked separately from `tier`). Multi-signal search (F4 v1.1) and
+provenance-on-dashboard (R11) are EXCLUDED from the v1 gate.
 
 ---
 
