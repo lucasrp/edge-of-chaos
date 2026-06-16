@@ -377,6 +377,30 @@ class CorpusFoldsPublishedArtefatosWithTheirWhy(unittest.TestCase):
             self.assertEqual(now[0]["intent"], "why first")
 
 
+class LineageRidesTheAtomicEventIntoTheCorpus(unittest.TestCase):
+    """Cortex-v1 (brick-1, slice L2): the authored typed `lineage` (builds_on/supersedes/contradicts)
+    rides the atomic `artefato.published` event and folds back onto the corpus item, so a later slice
+    (reproject_graph) can replay it as DIRECTED edges. An Artefato with no lineage folds to []."""
+
+    def test_lineage_rides_the_atomic_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            lineage = [{"type": "supersedes", "slug": "x"}]
+            eventlog.publish_artefato_atomic(
+                "with-lineage", "open: x; bet: y", lineage=lineage, log=log)
+            corpus = eventlog.corpus_at(log=log)
+            self.assertEqual([c["slug"] for c in corpus], ["with-lineage"])
+            self.assertEqual(corpus[0]["lineage"], lineage)
+
+    def test_no_lineage_folds_to_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.publish_artefato_atomic("no-lineage", "open: x; bet: y", log=log)
+            corpus = eventlog.corpus_at(log=log)
+            self.assertEqual([c["slug"] for c in corpus], ["no-lineage"])
+            self.assertEqual(corpus[0]["lineage"], [])
+
+
 class ProjectCorpusInscribesEachStepsWhy(unittest.TestCase):
     """ADR-0009: state/corpus.md is the corpus projection — part of Memento's tattoo, the zero-memory
     agent reads it to know what it already did and *why*. A fold OUTPUT (banner-marked, never hand-
