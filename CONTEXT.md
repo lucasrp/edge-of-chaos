@@ -103,7 +103,7 @@ projects into it: intake → episodes/clusters (extracted), plus the **asserted*
 traverse to the reference node, fetch the blob). **Navigate the Cortex, replay the log**: the **log** is
 the record / source of truth (replayed for time & versioning, un-navigable by design); the Cortex is the
 navigable projection (ADR-0006/0010). The **briefing** seeds entry points; the edge *navigates* it on
-demand — the read that **scales past full-read** (no token-budget wall). Trust is legible per edge:
+demand — the read that **scales past full-read** (no token-budget wall). The on-demand navigation is exposed as the standing **`cortex` read door** (read-only; the self query, never intake — ADR-0014's boundary now held by subject-scope isolation (the delta/world subject is denied the door) + the write-free read + the tool-name, replacing phase separation). Trust is legible per edge:
 **asserted** (folds from the log) faithful, **extracted** (Graphiti) hypothesis. A **declared** capability
 (agent.yaml / Source roadmap), used like github/exa — for recall of its own knowledge, **never
 re-ingested** (recall, not a source — the self-reference guard). The **llm-wiki** pages are renders of it. A harm-bearing subset — **the Earmarked** — is what the grill reconciles.
@@ -116,9 +116,17 @@ exactly as Delta is the yield of updating): the salient subgraph of the **Cortex
 assemble and delta (ADR-0014) — never fused with delta (the subject boundary: delta reads the
 world, recall reads the self; one shared context is where the self-reference guard fails). The
 third view (self-curated · world-new · memory-salient). **The push seeds; navigation deepens**:
-on-demand Cortex navigation stays the loop's own judgment, not the recall agent's.
+on-demand Cortex navigation stays the loop's own judgment, not the recall agent's. The push remains the pre-dispatch seed; deep navigation is now a **mid-turn pull** through the standing `cortex` read door (the loop's judgment, mechanized as a tool — available to the lead beat and the self-reading subjects it fans, DENIED to the delta/world subject), not only the recall agent's one-shot brief.
 *Avoid*: retrieval, fetch, memory query, delta-over-the-wiki, recall-push-inside-assemble
 (superseded — ADR-0014)
+
+**Usage signal**:
+The **implicit, non-authoritative** record of which Cortex nodes the edge READ while working —
+appended to `state/cortex/usage.jsonl` (behind `EDGE_CORTEX_USAGE`), EXCLUDED from log replay and
+every fold. It drives an **ephemeral read-time re-rank only** (recency+frequency), never a graph write:
+it is NOT self-state (the log stays truth — ADR-0006). Distinct from **value feedback** (`cites`/
+`distills` at close) and **correction** (node-targeted Voz / Earmarked), both curated and authoritative.
+*Avoid*: salience, reinforcement, memory store
 
 **Space-0**:
 The Cortex's **immutable root** — the edge's identity (method + personality) committed as graph

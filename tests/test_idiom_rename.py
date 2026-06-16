@@ -33,7 +33,9 @@ GLOSSARY_HEADER = re.compile(r"^\*\*[^*]+\*\*:\s*$", re.MULTILINE)
 # Recall share the grill; Dispatch header count net unchanged) → 40.
 # 2026-06-15 dashboard comms-model (#38, Voz-ratified): +3 glossary entities from
 # the mentee↔edge communication model (Medium / Voz-tier / Directive / Vote) → 43.
-EXPECTED_GLOSSARY_COUNT = 43
+# 2026-06-16 cortex omnipresent memory (Voz-ratified): +1 Usage signal (the implicit,
+# off-truth-path read telemetry — distinct from value/correction feedback) → 44.
+EXPECTED_GLOSSARY_COUNT = 44
 
 
 def _glossary_header_count(text):
