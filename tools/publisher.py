@@ -17,8 +17,8 @@ spec re-renders the exact page and the logged cites re-emit the missing signals 
 Three gates at this seam: #2/#3 — the publisher REFUSES unless handed the UNFORGEABLE, BOUND
 proof `close.run_close` mints: `close.verify_proof` requires the run_close-only token, a sha256
 digest that BINDS to this exact publish payload (slug + spec + intent + cites + proposes +
-distills + skill — EVERY persisted publish arg, so distills/skill cannot be altered post-mint to
-poison provenance), both blind reviewers passed, AND the verdicts carry both CANONICAL reviewer
+distills + skill + lineage — EVERY persisted publish arg, so distills/skill/lineage cannot be
+altered post-mint to poison provenance), both blind reviewers passed, AND the verdicts carry both CANONICAL reviewer
 identities — so a forged dict, a stale/cross-artefato proof (digest mismatch), a single-reviewer
 proof, or a proof built from fake/injected reviewers cannot back-door the gate. C3 — there is no path that publishes
 without the *why* (raises with no intent; the kernel rides the same atomic call so
@@ -433,16 +433,16 @@ _DEFAULT_PROJECT = object()  # sentinel: "use module project_artefato" (resolved
 
 
 def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=None,
-            cites=None, date=None, log=eventlog.LOG, blog_dir=BLOG_DIR, embed_fn=None,
-            project_fn=_DEFAULT_PROJECT) -> Path:
+            cites=None, lineage=None, date=None, log=eventlog.LOG, blog_dir=BLOG_DIR,
+            embed_fn=None, project_fn=_DEFAULT_PROJECT) -> Path:
     """Publish an Artefato: render → self-contained neutral HTML → atomic state record.
 
     #2/#3 at the seam: RAISES ValueError unless `verdict` is the UNFORGEABLE, BOUND proof
     `close.run_close` mints — `close.verify_proof` requires the run_close-only token, a digest
     that BINDS to THIS exact payload (slug + spec + intent + cites + proposes + distills +
-    skill), both blind reviewers passed, and both CANONICAL reviewer identities are present. A
-    hand-built dict, a proof minted for a different artefato (digest mismatch), an altered
-    distills/skill, a single-reviewer proof, or a proof from fake reviewers raises here, before
+    skill + lineage), both blind reviewers passed, and both CANONICAL reviewer identities are
+    present. A hand-built dict, a proof minted for a different artefato (digest mismatch), an
+    altered distills/skill/lineage, a single-reviewer proof, or a proof from fake reviewers raises here, before
     any HTML or state lands — the publisher is never a back door around the gate. C3 at the seam: RAISES when `intent` is
     missing/empty — you cannot publish without the kernel (and defensively when the genus
     contract is violated). #4 at the seam: the slug is validated + contained under blog_dir,
@@ -465,7 +465,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
             "entry; one wake per publish)")
     verify_proof(verdict, slug=slug, spec=spec, intent=intent,
                  cites=cites or [], proposes=proposes or [],
-                 distills=distills, skill=skill)
+                 distills=distills, skill=skill, lineage=lineage)
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
     if skill not in PRODUCER_ROSTER:

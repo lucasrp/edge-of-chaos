@@ -341,6 +341,43 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             )
             self.assertTrue(Path(path).exists())
 
+    def test_altered_lineage_at_the_seam_raises_and_writes_nothing(self):
+        # Cortex-v1 (brick-1): the proof binds `lineage` end-to-end. A proof-holder who alters the
+        # authored typed lineage at publish time (poisoning provenance) is rejected at the REAL
+        # publish seam — the digest no longer matches. Mirrors test_altered_distills_at_the_seam.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "bound-lineage-seam"
+            reviewed_lineage = [{"type": "supersedes", "target": "thread-7"}]
+            proof = _passing_proof(slug, _spec(), "open: x; bet: y",
+                                   lineage=reviewed_lineage)
+            with self.assertRaises(ValueError):
+                publisher.publish(
+                    slug, _spec(), intent="open: x; bet: y", skill="report",
+                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                    lineage=[{"type": "contradicts", "target": "POISONED at publish"}],
+                    verdict=proof,
+                )
+            self.assertEqual(eventlog.corpus_at(log=log), [])
+            self.assertFalse((Path(tmp) / f"{slug}.html").exists())
+
+    def test_bound_lineage_publishes_when_unchanged(self):
+        # The matching lineage publishes cleanly through the real seam (the bind does not
+        # over-reject) — closing the integration gap so a non-empty lineage artefato is
+        # publishable end-to-end, not just verifiable at the close layer.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "matching-lineage"
+            reviewed_lineage = [{"type": "builds_on", "target": "thread-3"}]
+            proof = _passing_proof(slug, _spec(), "open: x; bet: y",
+                                   lineage=reviewed_lineage)
+            path = publisher.publish(
+                slug, _spec(), intent="open: x; bet: y", skill="report",
+                date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                lineage=reviewed_lineage, verdict=proof,
+            )
+            self.assertTrue(Path(path).exists())
+
     def test_lineage_binds_in_the_proof_digest(self):
         # Cortex-v1 (brick-1): the proof binds the AUTHORED typed `lineage` exactly as it binds
         # distills/skill — without it the field is forgeable at publish time. Mirrors
