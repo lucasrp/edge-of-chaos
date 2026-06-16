@@ -461,10 +461,12 @@ def fill_node(node: dict, seed: dict, objective: str, complete_fn, *, outline=No
 # Block chrome — heading/label/type fields that are NOT delivered prose; excluded (at the BLOCK
 # level) from the contract gate's text so a claim placed only in a `title`/`header` cannot spoof
 # discharge (Codex P2). Nested payload (a metric item's label, a table cell, a bullet) still counts.
-# Styling/structural fields that are NEVER visible content — excluded at EVERY nesting level so a
-# claim hidden in a CSS class / variant / id cannot spoof contract discharge (Codex P2, review r7).
-_NONCONTENT_FIELDS = frozenset({"type", "classes", "class", "style", "badge", "badge_class",
-                                "badge_variant", "variant", "id"})
+# Styling fields that are NEVER visible content — excluded at EVERY nesting level so a claim hidden
+# in a CSS class/variant cannot spoof contract discharge (Codex P2, review r7). NOTE: `id` and
+# `badge` are NOT here — they render as visible content (gap-marker/gap-table ids, diagram node-label
+# fallback, badge labels), so excluding them would falsely fail valid discharge (review r8).
+_NONCONTENT_FIELDS = frozenset({"type", "classes", "class", "style", "badge_class",
+                                "badge_variant", "variant"})
 # Block-level heading fields — excluded only at the BLOCK top level (a metric item's `label` and a
 # table cell ARE data, so these are NOT excluded at deeper levels).
 _BLOCK_HEADING_FIELDS = frozenset({"title", "label", "header", "headers"})
