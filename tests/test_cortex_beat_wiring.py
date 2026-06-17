@@ -46,8 +46,10 @@ class EnsureCortexConfigGeneratesTheLeadConfig(unittest.TestCase):
             cfg = json.loads(Path(path).read_text())
             self.assertIn("cortex", cfg["mcpServers"])
             srv = cfg["mcpServers"]["cortex"]
-            self.assertEqual(srv["args"], ["tools/cortex_mcp.py"])
-            self.assertEqual(srv["env"]["EDGE_GROUP"], "edge-test")
+            # the script arg is ABSOLUTE from home (cwd-independent, codex final [P2])
+            self.assertTrue(srv["args"][0].endswith("/tools/cortex_mcp.py"))
+            self.assertTrue(srv["args"][0].startswith("/"), "the server script must be an absolute path")
+            self.assertEqual(srv["env"]["EDGE_GROUP"], "edge-test")   # explicit group is baked
             # the lead is the granted subject — the server env bakes it for the server-side guard
             self.assertEqual(srv["env"]["EDGE_CORTEX_SUBJECT"], "lead")
 

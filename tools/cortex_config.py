@@ -71,6 +71,15 @@ def _edge_python(home):
     return str(Path(os.path.expanduser(home)) / "tools" / "edge-python") if home else "tools/edge-python"
 
 
+def _server_script(home):
+    """The cortex MCP server script as an ABSOLUTE path from `home` (codex final [P2]): a relative
+    `tools/cortex_mcp.py` is cwd-dependent and fails to start when --mcp-config is consumed from any
+    other directory. Absolute-from-home is cwd-independent."""
+    if home:
+        return str(Path(os.path.expanduser(home)) / "tools" / "cortex_mcp.py")
+    return "tools/cortex_mcp.py"
+
+
 def mcp_config(group=None, home=None, subject=None):
     """The {"mcpServers": {"cortex": {...}}} doc registering the stdio cortex server. The group resolves
     from _identity at runtime (no literal); the server env carries EDGE_GROUP so the server resolves the
@@ -80,9 +89,13 @@ def mcp_config(group=None, home=None, subject=None):
     cortex server at all — the strongest deny (nothing to inherit). For a granted subject, the server
     env bakes EDGE_CORTEX_SUBJECT so the SERVER itself enforces the deny even if the client glob is
     bypassed (defense in depth, not glob-only)."""
-    if group is None:
-        import _identity
-        group = _identity.group()
+    # Group resolution is fail-safe against cross-install misroute (codex final [P2]). The KEY rule:
+    # only an EXPLICIT `group` is baked into the target config's EDGE_GROUP. When no explicit override
+    # is supplied, EDGE_GROUP is OMITTED entirely — the target server resolves its OWN identity from its
+    # OWN home/agent.yaml at startup (the _identity seam) — so an `edge-heartbeat --home <other-install>`
+    # can never leak the launcher checkout's group (which would otherwise win, since EDGE_GROUP precedes
+    # agent.yaml in the server). `explicit_group` tracks whether the caller named a group.
+    explicit_group = group is not None
     if home is None:
         try:
             import _identity
@@ -95,14 +108,16 @@ def mcp_config(group=None, home=None, subject=None):
         # granted; the door is never registered for anyone else by default.
         return {"mcpServers": {}}
     env = {}
-    if group:
+    if explicit_group and group:
+        # ONLY an explicit override is baked; otherwise the target server resolves its own identity
+        # from its own home/agent.yaml at startup (no launcher-group leak across installs).
         env["EDGE_GROUP"] = group
     env["EDGE_CORTEX_SUBJECT"] = subject    # the server-side deny reads this — fail-closed seam
     return {
         "mcpServers": {
             SERVER_NAME: {
                 "command": _edge_python(home),
-                "args": ["tools/cortex_mcp.py"],
+                "args": [_server_script(home)],
                 "env": env,
                 "timeout": _timeout_ms(),
             }

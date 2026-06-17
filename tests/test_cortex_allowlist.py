@@ -32,11 +32,33 @@ class TheMcpConfigRegistersTheCortexServer(unittest.TestCase):
         self.assertIn("cortex", cfg["mcpServers"])
         srv = cfg["mcpServers"]["cortex"]
         self.assertTrue(srv["command"].endswith("edge-python"))
-        self.assertEqual(srv["args"], ["tools/cortex_mcp.py"])
-        # group resolves from identity into the server's env (genotype: no literal, runtime from agent.yaml)
+        self.assertEqual(srv["args"], ["/home/x/edge/tools/cortex_mcp.py"])   # absolute from home
+        # an EXPLICIT group is baked into the server's env (a genotype install passes its own group)
         self.assertEqual(srv["env"]["EDGE_GROUP"], "edge-test")
         # N1 — a per-server tool timeout (ms) so a slow tool can't hang the harness
         self.assertIn("timeout", srv)
+
+    def test_the_server_script_arg_is_absolute_from_home(self):
+        # codex final [P2]: the script path must be ABSOLUTE from home, not the cwd-dependent relative
+        # "tools/cortex_mcp.py" — else --mcp-config from any other directory fails to start the server.
+        cfg = cortex_config.mcp_config(group="g", home="/home/x/edge", subject="lead")
+        args = cfg["mcpServers"]["cortex"]["args"]
+        self.assertEqual(args, ["/home/x/edge/tools/cortex_mcp.py"],
+                         "the server script must be an absolute path rooted at home (cwd-independent)")
+
+    def test_no_explicit_group_omits_edge_group_so_the_target_resolves_its_own(self):
+        # codex final [P2]: with no explicit --group, EDGE_GROUP is OMITTED from the target config —
+        # the target server resolves its OWN identity from its own home/agent.yaml at startup, so the
+        # launcher checkout's group can NEVER leak across installs (EDGE_GROUP would otherwise win).
+        import tempfile
+        with tempfile.TemporaryDirectory() as home:
+            cfg = cortex_config.mcp_config(home=home, subject="lead")   # no explicit group
+            self.assertNotIn("EDGE_GROUP", cfg["mcpServers"]["cortex"]["env"],
+                             "no explicit group ⇒ omit EDGE_GROUP; the target resolves its own identity")
+
+    def test_an_explicit_group_is_baked_into_edge_group(self):
+        cfg = cortex_config.mcp_config(group="given-group", home="/h", subject="lead")
+        self.assertEqual(cfg["mcpServers"]["cortex"]["env"]["EDGE_GROUP"], "given-group")
 
     def test_the_tool_names_are_namespaced_under_the_server(self):
         # MCP namespaces a server's tools as mcp__<server>__<tool>; the allowlist patterns key on it.
