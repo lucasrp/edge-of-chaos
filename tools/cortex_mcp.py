@@ -137,14 +137,15 @@ class CortexServer:
                 "(set EDGE_GROUP or agent.yaml name/codename; ADR-0015: never silently darken "
                 "an unidentified install — that hides empty/foreign state)")
         self.group = group
-        # R6/N5 — the subject scope, ALLOWLIST + fail-closed (codex Slice-4 [high]). A subject that is
-        # an explicit self-cognition (GRANTED_SUBJECTS) gets the door; an explicitly-UNKNOWN subject is
-        # denied. A bare None/empty subject is the LEAD's own default server (the live main() path) —
-        # granted, since the lead/self config never sets a foreign subject. EDGE_CORTEX_SUBJECT carries
-        # the dispatched subject when the harness routes the door through one server.
+        # R6/N5 — the subject scope, ALLOWLIST + FAIL-CLOSED (codex final [high]). The door is granted
+        # ONLY to an explicit self-cognition in GRANTED_SUBJECTS; ANY other subject — unknown OR
+        # MISSING/empty — is DENIED. A missing EDGE_CORTEX_SUBJECT must not default open (that would
+        # weaken the defense-in-depth boundary). The generated lead config ALWAYS bakes
+        # EDGE_CORTEX_SUBJECT=lead, so the real lead path is granted explicitly; a server with no
+        # subject signal at all is treated as untrusted and serves nothing.
         self.subject = subject or os.environ.get("EDGE_CORTEX_SUBJECT")
         s = (self.subject or "").lower()
-        self._denied = bool(s) and s not in GRANTED_SUBJECTS
+        self._denied = s not in GRANTED_SUBJECTS
         self.run_id = run_id or os.environ.get("EDGE_RUN_ID")
         self._recall_fn = recall_fn or self._live_recall
         self._surf_fn = surf_fn or self._live_surf
@@ -448,7 +449,12 @@ def main():
     # Identity resolves ONCE, LOUD, before any call (ADR-0015). An unidentified install exits non-zero
     # at startup — it never serves a single cortex_* call.
     group = _resolve_group_loud()
-    serve_stdio(CortexServer(group))
+    # The subject comes from EDGE_CORTEX_SUBJECT (the generated lead config bakes it). A DIRECT launch
+    # with no env is the LEAD's own standing server (the door is registered on the lead beat), so
+    # default to "lead" — a granted self-cognition — rather than fail-closed-empty, which would dark the
+    # operator's own door. A delta/world dispatch never reaches this main() (its config omits the server).
+    subject = os.environ.get("EDGE_CORTEX_SUBJECT") or "lead"
+    serve_stdio(CortexServer(group, subject=subject))
 
 
 if __name__ == "__main__":

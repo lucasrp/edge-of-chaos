@@ -47,9 +47,12 @@ RECALL_SUBGRAPH = {
 
 
 def _server(**kw):
-    """A server with all four backends injected + a resolved group, so no live neo4j is touched."""
+    """A server with all four backends injected + a resolved group, so no live neo4j is touched. The
+    subject defaults to 'lead' (a granted self-cognition) — the realistic lead path; the server is now
+    fail-closed for a MISSING subject (codex final [high]), so the granted case is named explicitly."""
     defaults = dict(
         group="edge-test",
+        subject="lead",
         recall_fn=lambda group=None: dict(RECALL_SUBGRAPH),
         surf_fn=lambda seeds, group=None: [
             {"slug": "passive-topk", "kernel": "the baseline", "labels": ["Artefato"], "hops": 1},
@@ -302,12 +305,29 @@ class SubjectScopeDenyAtTheServer(unittest.TestCase):
         resp = _call(srv, "tools/call", {"name": "cortex_recall", "arguments": {}})
         self.assertIn("error", resp)
 
-    def test_the_lead_subject_sees_all_four_tools(self):
-        for subj in (None, "lead", "recall", "report"):
+    def test_a_granted_self_cognition_sees_all_four_tools(self):
+        for subj in ("lead", "recall", "report", "map", "plan"):
             with self.subTest(subject=subj):
                 srv = _server(subject=subj)
                 names = {t["name"] for t in _call(srv, "tools/list")["result"]["tools"]}
                 self.assertEqual(names, {"cortex_recall", "cortex_surf", "cortex_node", "cortex_search"})
+
+    def test_a_missing_subject_is_fail_closed(self):
+        # codex final [high]: a server with NO subject signal (no arg, no EDGE_CORTEX_SUBJECT) must
+        # FAIL CLOSED — serve no tools — never default open. The generated lead config always bakes
+        # EDGE_CORTEX_SUBJECT=lead, so the real lead path is granted explicitly.
+        saved = os.environ.pop("EDGE_CORTEX_SUBJECT", None)
+        try:
+            srv = cortex_mcp.CortexServer(
+                group="g", subject=None,
+                recall_fn=lambda group=None: {}, surf_fn=lambda s, group=None: [],
+                fold_fn=lambda: {"nodes": [], "edges": []})
+            self.assertEqual(_call(srv, "tools/list")["result"]["tools"], [],
+                             "a missing subject must serve NO tools (fail-closed, not default-open)")
+            self.assertIn("error", _call(srv, "tools/call", {"name": "cortex_recall", "arguments": {}}))
+        finally:
+            if saved is not None:
+                os.environ["EDGE_CORTEX_SUBJECT"] = saved
 
 
 class FailLoudIdentityFailDarkRuntime(unittest.TestCase):
@@ -356,7 +376,7 @@ class FixtureSeam(unittest.TestCase):
         os.environ["EDGE_CORTEX_FIXTURE"] = tmp.name
         try:
             # only the fold backend is live; recall/surf stay injected (their live path needs neo4j)
-            srv = cortex_mcp.CortexServer(group="edge-test",
+            srv = cortex_mcp.CortexServer(group="edge-test", subject="lead",
                                           recall_fn=lambda group=None: dict(RECALL_SUBGRAPH),
                                           surf_fn=lambda seeds, group=None: [])
             out = _tool(srv, "cortex_node", {"ref": "a1"})
@@ -411,7 +431,7 @@ class BoundedLatencyFailDark(unittest.TestCase):
         import time
         import recall
         srv = cortex_mcp.CortexServer(
-            group="edge-test",
+            group="edge-test", subject="lead",
             recall_fn=lambda group=None: recall.recall_subgraph(group, uri="bolt://10.255.255.1:7687"),
             surf_fn=lambda seeds, group=None: [],
             fold_fn=lambda: {"nodes": [], "edges": []})
