@@ -1212,6 +1212,11 @@ def _map_node(id_, label, props):
         # the elementId as an in-session fallback. The correction validates + persists THIS, so a
         # correction stays attributable to the harm node across rebuilds (the id is render-only).
         "ref": _node_ref(id_, props),
+        # The navigation ALIAS (codex final [P2]): the slug/key surf+recall emit and pass into
+        # cortex_node — distinct from the rebuild-unstable `ref` (uuid/elementId). An Artefato's `slug`,
+        # a Source's `key`. Carried so the MCP's slug→node drill-down resolves on a healthy graph
+        # (surf returns a slug; cortex_node must open it). None when the node has no such alias.
+        "slug": props.get("slug") or props.get("key"),
         "label": label,
         "title": _node_title(label, props),
         # the CLAIM content (no label fallback) — the corrective snapshot's context source, None when

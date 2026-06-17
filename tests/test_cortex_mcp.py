@@ -200,6 +200,15 @@ class TheFourReadTools(unittest.TestCase):
         out = _tool(srv, "cortex_node", {"ref": "uuid-abc"})   # the canonical ref still works
         self.assertIsNotNone(out["node"])
 
+    def test_cortex_node_resolves_a_surfed_source_slug(self):
+        # codex final [P2]: a Source peer surf returns by slug — the fold's _map_node now carries the
+        # slug alias (props.slug or props.key), so surf → node resolves for Sources too, not just Artefatos.
+        fold = {"nodes": [{"id": "4:x:9", "ref": "uuid-src", "label": "Source",
+                           "slug": "arxiv-2606", "title": "MRAgent paper"}], "edges": []}
+        srv = _server(fold_fn=lambda: dict(fold))
+        out = _tool(srv, "cortex_node", {"ref": "arxiv-2606"})   # the Source slug surf returned
+        self.assertIsNotNone(out["node"], "surf → node must resolve a Source slug too (P2)")
+
     def test_cortex_node_unknown_ref_returns_empty_not_dark(self):
         # a ref absent from a HEALTHY fold is "no such node", not a dark graph
         out = _tool(_server(), "cortex_node", {"ref": "nope"})
@@ -586,6 +595,30 @@ class UsageSignalWiring(unittest.TestCase):
         rec = __import__("json").loads(self.store.read_text().strip().splitlines()[0])
         self.assertIn("active-recall", rec["refs"], "node usage must key on the slug, not the ref (P2)")
         self.assertNotIn("uuid-abc", rec["refs"])
+
+    def test_search_rerank_is_consistent_with_surf_recall_usage_keys(self):
+        # codex final [P2]: prior usage of a node (recorded by surf/recall under its slug) must promote
+        # that node's SEARCH hit too — the re-rank keys must be the same (slug) across tools, not split
+        # ref-vs-slug. Seed prior usage of an Artefato slug, then assert search promotes it.
+        import json as _json
+        import time as _time
+        fold = {
+            "nodes": [
+                {"id": "4:a", "ref": "uuid-a", "label": "Artefato", "slug": "alpha", "title": "alpha memory"},
+                {"id": "4:b", "ref": "uuid-b", "label": "Artefato", "slug": "beta", "title": "beta memory"},
+            ], "edges": [],
+        }
+        with self.store.open("w") as f:
+            for _ in range(5):
+                f.write(_json.dumps({"ts": _time.time(), "tool": "cortex_surf",
+                                     "refs": ["beta"], "run_id": "prior"}) + "\n")
+        os.environ["EDGE_CORTEX_USAGE"] = "on"
+        srv = _server(fold_fn=lambda: dict(fold))
+        out = _tool(srv, "cortex_search", {"query": "memory"})
+        self.assertEqual(out["results"][0]["slug"], "beta",
+                         "prior slug-keyed usage must promote the search hit (cross-tool consistency)")
+        # the internal ranking field never leaks into the payload
+        self.assertNotIn("_usage_key", out["results"][0])
 
     def test_a_dark_read_records_nothing(self):
         # a dark leg surfaced no refs — it reinforces nothing (no usage line for an outage).

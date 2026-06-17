@@ -346,10 +346,16 @@ class CortexServer:
                 results.append(n)
         # F9 — mark BOTH axes on every search hit.
         results = [cortex_provenance.mark_node(n) for n in results]
-        # F7/N3 — re-rank over PRIOR telemetry, THEN record (rank before write). Record by the SAME
-        # durable key the other tools use (slug-preferred) so usage is consistent cross-tool.
-        results = cortex_usage.rerank(results, key="ref")
-        self._record("cortex_search", [_usage_key(n) for n in results])
+        # F7/N3 — re-rank AND record by the SAME derived usage key (codex final [P2]): stamp each row
+        # with `_usage_key` (slug-preferred, the key surf/recall use), rerank over PRIOR telemetry by
+        # that key, THEN record by it. So prior usage of a node (however surfaced) promotes its search
+        # hit too — the A/B re-rank is consistent across all tools, not split by ref-vs-slug.
+        for n in results:
+            n["_usage_key"] = _usage_key(n)
+        results = cortex_usage.rerank(results, key="_usage_key")
+        self._record("cortex_search", [n.get("_usage_key") for n in results])
+        for n in results:
+            n.pop("_usage_key", None)   # an internal ranking field, never part of the returned payload
         return {"results": results}
 
     # --- fold helpers -----------------------------------------------------------------------------
@@ -417,7 +423,9 @@ def process_line(server, line):
         return None
     try:
         msg = json.loads(line)
-    except json.JSONDecodeError:
+    except Exception:  # noqa: BLE001 — not only JSONDecodeError: a deeply-nested frame can raise
+        # RecursionError, etc. ANY parse failure is a -32700, never a process-killing raise (codex
+        # final [P3]) — the standing server's malformed-input availability contract.
         return {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
     try:
         return server.handle(msg)
