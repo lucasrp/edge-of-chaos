@@ -90,6 +90,34 @@ def render_skill(content: str, *, name: str, prefix: str) -> str:
     return "---\n" + "".join(out_fm) + "---\n" + body
 
 
+def render_agent(content: str, *, name: str, prefix: str) -> str:
+    """Render one .claude/agents/{name}.md into its ~/.claude/agents form. Mirrors render_skill but for
+    a SUBAGENT: it prefixes `name`, substitutes {prefix}, and PRESERVES `disallowedTools` verbatim (the
+    N5/R6 wall — the harness reads this camelCase subagent key to strip mcp__cortex__* from a
+    world-reading fan). No `user-invocable` (a subagent is dispatched by type, never slash-invoked)."""
+    lines = content.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        raise ValueError(f"agent {name!r}: missing frontmatter opening '---'")
+    close = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            close = i
+            break
+    if close is None:
+        raise ValueError(f"agent {name!r}: missing frontmatter closing '---'")
+    fm = lines[1:close]
+    body = "".join(lines[close + 1:])
+    prefixed = f"{prefix}-{name}"
+    out_fm = []
+    for ln in fm:
+        if re.match(r"^name:\s", ln):
+            ln = f"name: {prefixed}\n"
+        ln = ln.replace("{prefix}", prefix)
+        out_fm.append(ln)
+    body = body.replace("{prefix}", prefix)
+    return "---\n" + "".join(out_fm) + "---\n" + body
+
+
 def _write_if_changed(path: Path, content: str) -> None:
     """Write only when content differs — keeps mtime stable and runs idempotent."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -128,6 +156,20 @@ def provision_claude(cfg: dict, repo: Path, claude_home: Path) -> list:
             _write_if_changed(dst, rendered)
             installed += 1
     rows.append(f"{installed} skills → ~/.claude/skills/{prefix}-*")
+
+    # 2b. .claude/agents/{name}.md → ~/.claude/agents/{prefix}-{name}.md (the mechanical subagent
+    # artifacts — e.g. the world-reading `explorer` whose frontmatter `disallowedTools: mcp__cortex__*`
+    # is the N5/R6 wall: the harness strips the self door from a world-reading fan BY CONSTRUCTION,
+    # not by prose). Prefixed like skills so the dispatch references a real, deployed artifact.
+    agents_src = repo / ".claude" / "agents"
+    agents_installed = 0
+    if agents_src.exists():
+        for agent_file in sorted(agents_src.glob("*.md")):
+            rendered = render_agent(agent_file.read_text(), name=agent_file.stem, prefix=prefix)
+            dst = claude_home / "agents" / f"{prefix}-{agent_file.stem}.md"
+            _write_if_changed(dst, rendered)
+            agents_installed += 1
+    rows.append(f"{agents_installed} agents → ~/.claude/agents/{prefix}-*")
 
     # 3. seed memory project dir (only if absent)
     mem_dir = claude_home / "projects" / memory_project_dir(cfg) / "memory"

@@ -43,12 +43,14 @@ never what a particular report-form *is*:
   **The explorer is a WORLD-reading subject — DENY it the `cortex` self door (N5/R6, ADR-0014).** An
   explorer reads the *world* (a paper, a repo, a source key); the **self** (the edge's own memory) is
   the producer's own job, reached **directly at rung 1** (the recall pass below), never by an explorer.
-  So when you fan an explorer subagent, withhold the self door from it — dispatch it with
-  `disallowed-tools: mcp__cortex__*` (the same deny the `delta` skill carries). A read-only door does
-  NOT make this safe: ADR-0014's failure is one CONTEXT holding world-new evidence beside recalled-self,
-  where one is read as the other — the contamination forms before any write, so the **scope deny** is
-  the wall, not read-only-ness. The producer holds the door and recalls for itself; its world-reading
-  fan does not. (A graph-reading recall is rung-1 producer work, not an explorer — `memory.md`.)
+  Fan it through the **committed `{prefix}-explorer` subagent** (`.claude/agents/explorer.md`, deployed
+  to `~/.claude/agents/`) — that artifact's frontmatter declares `disallowedTools: mcp__cortex__*`, so
+  the harness **mechanically strips** the self door from the explorer BY CONSTRUCTION (not by prose you
+  must remember). A read-only door does NOT make this safe: ADR-0014's failure is one CONTEXT holding
+  world-new evidence beside recalled-self, where one is read as the other — the contamination forms
+  before any write, so the **scope deny** is the wall, not read-only-ness. The producer holds the door
+  and recalls for itself; its world-reading fan does not. (A graph-reading recall is rung-1 producer
+  work, not an explorer — `memory.md`.)
 - **`converge`** — loop2's critic role: decide whether the artefato is **developed to plenitude**
   and ready to ship — the arc whole, the depth present and derived, tailored to the mentee, carrying
   what they did not already know. Converge means *judge the development is complete*, **never** *cut

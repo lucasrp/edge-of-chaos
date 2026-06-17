@@ -166,13 +166,16 @@ class TheDeltaWorldSubjectIsDenied(unittest.TestCase):
                 self.assertEqual(cortex_config.allowed_tools(subject=subj), [])
                 self.assertIn("mcp__cortex__*", cortex_config.disallowed_tools(subject=subj))
 
-    def test_the_scaffold_instructs_the_explorer_deny(self):
-        # the genotype mechanism: the ONE shared dispatch-shape (the scaffold) instructs that a
-        # world-reading explorer subagent is fanned WITHOUT the self door (disallowed-tools), so the
-        # boundary is mechanical across EVERY producer, not only the standalone delta skill.
+    def test_the_scaffold_routes_explorers_through_the_deny_artifact(self):
+        # the genotype mechanism: the ONE shared dispatch-shape (the scaffold) routes a world-reading
+        # explorer through the COMMITTED `{prefix}-explorer` subagent (.claude/agents/explorer.md),
+        # whose disallowedTools the harness MECHANICALLY strips — so the boundary is an artifact, not
+        # prose the producer must remember, across EVERY producer.
         text = (REPO / "skills" / "_shared" / "scaffold.md").read_text()
-        self.assertRegex(text, r"disallowed-tools:\s*mcp__cortex__\*",
-                         "the scaffold must instruct the explorer/world-reader deny (N5/R6)")
+        self.assertIn("explorer", text)
+        self.assertIn(".claude/agents/explorer.md", text,
+                      "the scaffold must route explorers through the committed deny artifact (N5/R6)")
+        self.assertIn("mcp__cortex__*", text, "and name the cortex deny it carries")
 
     def test_every_world_reading_dispatch_path_carries_the_cortex_deny(self):
         # codex final-round [high]: scan EVERY skill that fans a world/source-reading explorer/lead
@@ -186,15 +189,16 @@ class TheDeltaWorldSubjectIsDenied(unittest.TestCase):
         DISPATCH = re.compile(r"firing one explorer subagent|lead[- ]subagent (?:chases|per lead)|"
                               r"explorers go out and bring back|fan explorers out", re.I)
         NEGATED = re.compile(r"do\s+\*?\*?not\*?\*?\s+fan explorers", re.I)
-        DENY = re.compile(r"disallowed-tools:\s*mcp__cortex__\*")
+        # A world-reading dispatch is DENIED iff it routes through the committed explorer artifact
+        # (the mechanical wall) carrying the cortex deny, OR (a producer) funnels through the scaffold.
+        DENY = re.compile(r"explorer.*mcp__cortex__\*|mcp__cortex__\*.*explorer", re.S)
         offenders = []
         for sk in skills_dir.glob("*/SKILL.md"):
             text = sk.read_text()
             if NEGATED.search(text):
                 continue                       # a skill that explicitly does NOT fan world-readers
             if DISPATCH.search(text) and not DENY.search(text):
-                # the producers funnel through the scaffold's deny — accept a scaffold pointer too.
-                if "scaffold" not in text.lower():
+                if "scaffold" not in text.lower():   # producers funnel through the scaffold's artifact
                     offenders.append(sk.parent.name)
         self.assertEqual(offenders, [],
                          f"these world-reading dispatch skills lack the cortex deny (N5/R6): {offenders}")
@@ -208,6 +212,34 @@ class TheDeltaWorldSubjectIsDenied(unittest.TestCase):
                          "the delta skill frontmatter must deny the cortex door via disallowed-tools (R6/N5)")
         self.assertNotRegex(text, r"disallowedTools:",
                             "a skill must not use the subagent camelCase key (it would be ignored)")
+
+
+class TheExplorerSubagentArtifactMechanicallyDenies(unittest.TestCase):
+    """codex final adversarial [high] — the world-reader deny is a COMMITTED ARTIFACT, not prose: the
+    `.claude/agents/explorer.md` subagent declares `disallowedTools: mcp__cortex__*`, so the harness
+    strips the self door from EVERY producer/grill-fanned explorer BY CONSTRUCTION."""
+
+    def test_the_explorer_agent_artifact_exists_and_denies_cortex(self):
+        art = REPO / ".claude" / "agents" / "explorer.md"
+        self.assertTrue(art.is_file(), "the explorer subagent artifact must be committed (mechanical deny)")
+        text = art.read_text()
+        # the SUBAGENT frontmatter key is camelCase `disallowedTools` (NOT the skill kebab-case),
+        # with the server-wide glob — the harness reads this to strip mcp__cortex__* from the fan.
+        self.assertRegex(text, r"disallowedTools:\s*mcp__cortex__\*",
+                         "the explorer subagent must mechanically deny the cortex door (N5/R6)")
+
+    def test_provisioning_preserves_the_explorer_deny(self):
+        # the deny must survive provisioning into ~/.claude/agents (prefixed) — the deployed artifact,
+        # not only the repo source, carries the wall.
+        import sys as _sys
+        _sys.path.insert(0, str(REPO / "tools"))
+        import _claude_provision
+        rendered = _claude_provision.render_agent(
+            (REPO / ".claude" / "agents" / "explorer.md").read_text(), name="explorer", prefix="ed")
+        self.assertRegexpMatches(rendered, r"name:\s*ed-explorer") if hasattr(self, "assertRegexpMatches") \
+            else self.assertRegex(rendered, r"name:\s*ed-explorer")
+        self.assertRegex(rendered, r"disallowedTools:\s*mcp__cortex__\*",
+                         "the deployed explorer artifact must keep the cortex deny (the wall, deployed)")
 
 
 class FailClosedForUnknownSubject(unittest.TestCase):
