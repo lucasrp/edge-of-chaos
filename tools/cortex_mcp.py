@@ -105,6 +105,14 @@ GRANTED_SUBJECTS = {
 }
 
 
+def _usage_key(node):
+    """The ONE durable usage/re-rank key for a node (codex final [P2]): the SLUG when present (the key
+    surf/recall record and rerank by — stable across graph rebuilds), else the ref/id. So a node's
+    drill-down usage (cortex_node) lands under the SAME key its surf/search usage does, and a later
+    surf rerank/heat for that node sees the accumulated signal — no key fragmentation across tools."""
+    return node.get("slug") or node.get("ref") or node.get("id")
+
+
 def _dark(reason):
     """The honest dark marker — the SAME shape the recall brief's dark leg uses (Appendix A). A
     structured value the caller orients away from; NEVER an exception (C1, ADR-0011)."""
@@ -267,10 +275,16 @@ class CortexServer:
         return sub
 
     def _t_cortex_surf(self, args):
-        seeds = args.get("seeds") or []
+        # Validate the schema HERE (codex final [P2]): an omitted/non-list seeds would silently dark,
+        # and a STRING seed would be treated as a char-iterable by surf_subgraph — both return no
+        # navigation on a HEALTHY graph. A non-empty list of strings is required; bad input is a param
+        # error (the caller sees the mistake), not a silent dark.
+        seeds = args.get("seeds")
+        if not isinstance(seeds, list) or not seeds or not all(isinstance(s, str) and s for s in seeds):
+            raise _ToolError("invalid seeds: expected a non-empty list of slug strings")
         hops = args.get("hops", MAX_HOPS)
         try:
-            hops = min(int(hops), MAX_HOPS)
+            hops = min(max(int(hops), 1), MAX_HOPS)   # clamp to 1..2 (F3 structural bound)
         except (TypeError, ValueError):
             hops = MAX_HOPS
         try:
@@ -310,10 +324,11 @@ class CortexServer:
         # F9 — mark BOTH axes on the node AND every neighbor (the fold node carries `label`/props).
         node = cortex_provenance.mark_node(node)
         neighbors = [cortex_provenance.mark_node(nb) for nb in neighbors]
-        # F7 (codex final [P3]) — a cortex_node read SURFACES the node AND its neighbors, so the usage
-        # signal records ALL of them: a node repeatedly seen as a drill-down neighbor must accumulate
-        # usage too, or the heat overlay + surf/search re-rank undercount the common drill-down path.
-        self._record("cortex_node", [ref] + [nb.get("ref") or nb.get("id") for nb in neighbors])
+        # F7 — a cortex_node read SURFACES the node AND its neighbors, so the usage signal records ALL
+        # of them (codex final [P3]). Record by the SAME durable key surf/recall use — the SLUG when a
+        # node has one, else the ref (codex final [P2]): an Artefato's drill-down usage must land under
+        # its slug so a later surf rerank/heat for the SAME node sees it (surf/recall rerank by slug).
+        self._record("cortex_node", [_usage_key(node)] + [_usage_key(nb) for nb in neighbors])
         return {"node": node, "neighbors": neighbors}
 
     def _t_cortex_search(self, args):
@@ -331,9 +346,10 @@ class CortexServer:
                 results.append(n)
         # F9 — mark BOTH axes on every search hit.
         results = [cortex_provenance.mark_node(n) for n in results]
-        # F7/N3 — re-rank over PRIOR telemetry by node ref, THEN record (rank before write).
+        # F7/N3 — re-rank over PRIOR telemetry, THEN record (rank before write). Record by the SAME
+        # durable key the other tools use (slug-preferred) so usage is consistent cross-tool.
         results = cortex_usage.rerank(results, key="ref")
-        self._record("cortex_search", [n.get("ref") or n.get("id") for n in results])
+        self._record("cortex_search", [_usage_key(n) for n in results])
         return {"results": results}
 
     # --- fold helpers -----------------------------------------------------------------------------

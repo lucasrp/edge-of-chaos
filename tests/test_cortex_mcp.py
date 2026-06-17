@@ -150,6 +150,15 @@ class TheFourReadTools(unittest.TestCase):
         slugs = {n["slug"] for n in out["nodes"]}
         self.assertEqual(slugs, {"passive-topk", "arxiv-2606"})
 
+    def test_cortex_surf_rejects_invalid_seeds(self):
+        # codex final [P2]: an omitted/non-list/string seeds is a param error, not a silent dark on a
+        # healthy graph (a string seed would be a char-iterable to surf_subgraph).
+        srv = _server()
+        for bad in ({}, {"seeds": "active-recall"}, {"seeds": []}, {"seeds": [1, 2]}, {"seeds": [""]}):
+            with self.subTest(args=bad):
+                resp = _call(srv, "tools/call", {"name": "cortex_surf", "arguments": bad})
+                self.assertIn("error", resp, "invalid seeds must be a param error, not a silent dark")
+
     def test_cortex_surf_caps_hops_at_two(self):
         # F3: hops <= 2 is the structural bound; a caller asking for more is clamped, never honored.
         captured = {}
@@ -565,6 +574,18 @@ class UsageSignalWiring(unittest.TestCase):
         recs = [__import__("json").loads(l) for l in self.store.read_text().strip().splitlines()]
         refs = set(recs[0]["refs"])
         self.assertEqual(refs, {"a1", "o1", "e1"}, "the node AND its neighbor refs must be recorded")
+
+    def test_cortex_node_records_an_artefato_by_its_slug_for_cross_tool_consistency(self):
+        # codex final [P2]: an Artefato's drill-down usage must land under its SLUG (the key surf/recall
+        # rerank by), not its uuid/elementId ref — so a later surf rerank/heat for the same node sees it.
+        os.environ["EDGE_CORTEX_USAGE"] = "on"
+        fold = {"nodes": [{"id": "4:x:1", "ref": "uuid-abc", "label": "Artefato",
+                           "slug": "active-recall"}], "edges": []}
+        srv = _server(fold_fn=lambda: dict(fold))
+        _tool(srv, "cortex_node", {"ref": "active-recall"})
+        rec = __import__("json").loads(self.store.read_text().strip().splitlines()[0])
+        self.assertIn("active-recall", rec["refs"], "node usage must key on the slug, not the ref (P2)")
+        self.assertNotIn("uuid-abc", rec["refs"])
 
     def test_a_dark_read_records_nothing(self):
         # a dark leg surfaced no refs — it reinforces nothing (no usage line for an outage).
