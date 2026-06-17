@@ -507,6 +507,16 @@ class UsageSignalWiring(unittest.TestCase):
         self.assertEqual(out["nodes"][0]["slug"], "arxiv-2606",
                          "ON must promote a ref with prior usage ahead of the base hops/slug order")
 
+    def test_cortex_node_records_the_node_and_its_neighbors(self):
+        # codex final [P3]: a cortex_node read surfaces the node AND its neighbors — usage records ALL,
+        # so a node repeatedly read as a neighbor accumulates signal (the drill-down path is not lost).
+        os.environ["EDGE_CORTEX_USAGE"] = "on"
+        srv = _server()
+        _tool(srv, "cortex_node", {"ref": "a1"})   # a1 neighbors: o1, e1
+        recs = [__import__("json").loads(l) for l in self.store.read_text().strip().splitlines()]
+        refs = set(recs[0]["refs"])
+        self.assertEqual(refs, {"a1", "o1", "e1"}, "the node AND its neighbor refs must be recorded")
+
     def test_a_dark_read_records_nothing(self):
         # a dark leg surfaced no refs — it reinforces nothing (no usage line for an outage).
         os.environ["EDGE_CORTEX_USAGE"] = "on"

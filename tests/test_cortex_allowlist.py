@@ -75,6 +75,20 @@ class TheMcpConfigRegistersTheCortexServer(unittest.TestCase):
         cfg = cortex_config.mcp_config(group="given-group", home="/h", subject="lead")
         self.assertEqual(cfg["mcpServers"]["cortex"]["env"]["EDGE_GROUP"], "given-group")
 
+    def test_unresolved_target_identity_scrubs_inherited_edge_group(self):
+        # codex final [P1]: when the target home has NO resolvable identity and no explicit group, the
+        # config must SCRUB the inherited EDGE_GROUP (set it empty) — never leave a stale launcher group
+        # to win in the subprocess. An empty EDGE_GROUP is falsy in _identity.group(), so the target
+        # server falls through to its own agent.yaml and FAILS LOUD on truly-missing identity (ADR-0015),
+        # never registers the door against the wrong tenant.
+        import tempfile
+        with tempfile.TemporaryDirectory() as home:   # no agent.yaml in this home
+            cfg = cortex_config.mcp_config(home=home, subject="lead")
+            env = cfg["mcpServers"]["cortex"]["env"]
+            self.assertIn("EDGE_GROUP", env, "EDGE_GROUP must be explicitly present to scrub the inherited one")
+            self.assertEqual(env["EDGE_GROUP"], "",
+                             "an unresolved target identity scrubs the inherited group (empty), never leaks it")
+
     def test_the_tool_names_are_namespaced_under_the_server(self):
         # MCP namespaces a server's tools as mcp__<server>__<tool>; the allowlist patterns key on it.
         self.assertEqual(cortex_config.tool_name("cortex_recall"), "mcp__cortex__cortex_recall")

@@ -116,10 +116,13 @@ def mcp_config(group=None, home=None, subject=None):
         # granted; the door is never registered for anyone else by default.
         return {"mcpServers": {}}
     env = {}
-    if group:
-        # bake the RESOLVED group (explicit OR target-home-resolved) so it OVERRIDES any stale
-        # EDGE_GROUP the MCP subprocess would inherit from the launcher env (cross-install isolation).
-        env["EDGE_GROUP"] = group
+    # ALWAYS set EDGE_GROUP explicitly (codex final [P1]): bake the RESOLVED group (explicit OR
+    # target-home-resolved) to OVERRIDE any stale inherited value; when the target identity is
+    # UNRESOLVED, set it EMPTY to SCRUB the inherited launcher group (empty is falsy in
+    # _identity.group(), so the target server falls through to its own agent.yaml and FAILS LOUD on
+    # truly-missing identity — never registers the door against the wrong tenant, ADR-0015). Either
+    # way the MCP subprocess can never inherit a foreign group across installs.
+    env["EDGE_GROUP"] = group or ""
     env["EDGE_CORTEX_SUBJECT"] = subject    # the server-side deny reads this — fail-closed seam
     return {
         "mcpServers": {

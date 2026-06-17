@@ -296,7 +296,10 @@ class CortexServer:
         # F9 — mark BOTH axes on the node AND every neighbor (the fold node carries `label`/props).
         node = cortex_provenance.mark_node(node)
         neighbors = [cortex_provenance.mark_node(nb) for nb in neighbors]
-        self._record("cortex_node", [ref])
+        # F7 (codex final [P3]) — a cortex_node read SURFACES the node AND its neighbors, so the usage
+        # signal records ALL of them: a node repeatedly seen as a drill-down neighbor must accumulate
+        # usage too, or the heat overlay + surf/search re-rank undercount the common drill-down path.
+        self._record("cortex_node", [ref] + [nb.get("ref") or nb.get("id") for nb in neighbors])
         return {"node": node, "neighbors": neighbors}
 
     def _t_cortex_search(self, args):
