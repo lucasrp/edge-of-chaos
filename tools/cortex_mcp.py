@@ -296,10 +296,15 @@ class CortexServer:
         if fold is None:
             return _dark("graph offline (node)")
         nodes = {n.get("ref") or n.get("id"): n for n in fold.get("nodes", [])}
-        node = nodes.get(ref)
+        # Resolve the lookup by ref/id OR the SLUG/key surf+recall actually return (codex final [P1]):
+        # _map_node sets `ref` to uuid/elementId, but cortex_recall/cortex_surf emit Artefato SLUGS, so
+        # slug-based drill-down (the advertised navigation flow) must resolve here or it dead-ends on a
+        # healthy graph. Build an alias index (ref/id/slug/key) over the fold; the canonical ref wins.
+        node = nodes.get(ref) or self._resolve_alias(ref, fold)
         if node is None:
             # a ref absent from a HEALTHY fold is "no such node", not a dark graph.
             return {"node": None, "neighbors": []}
+        ref = node.get("ref") or node.get("id")   # normalize to the canonical ref for neighbor lookup
         neighbor_refs = self._neighbor_refs(ref, fold)
         neighbors = [nodes[r] for r in neighbor_refs if r in nodes]
         # F9 — mark BOTH axes on the node AND every neighbor (the fold node carries `label`/props).
@@ -338,6 +343,17 @@ class CortexServer:
             return self._fold_fn()
         except Exception:  # noqa: BLE001
             return None
+
+    @staticmethod
+    def _resolve_alias(ref, fold):
+        """Resolve a node by a SLUG/key/title alias (codex final [P1]) — the refs surf/recall emit are
+        Artefato slugs, not the uuid/elementId `ref`. First exact match on slug/key wins; falls back to
+        a title match. Returns the node or None. Exact-only (no substring) so one slug → one node."""
+        for field in ("slug", "key", "title"):
+            for n in fold.get("nodes", []):
+                if n.get(field) == ref:
+                    return n
+        return None
 
     @staticmethod
     def _neighbor_refs(ref, fold):

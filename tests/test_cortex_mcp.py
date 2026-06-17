@@ -169,6 +169,28 @@ class TheFourReadTools(unittest.TestCase):
         # a1 neighbors: o1 (SERVES), e1 (DISTILLS) — directly adjacent in the fold
         self.assertEqual(neighbor_refs, {"o1", "e1"})
 
+    def test_cortex_node_resolves_a_slug_returned_by_surf(self):
+        # codex final [P1] — the navigation flow: surf/recall return Artefato SLUGS, and cortex_node
+        # must resolve a slug (not only the uuid/elementId ref), or slug-based drill-down dead-ends on a
+        # healthy graph. The FOLD fixture's a1 has ref "a1"; a real fold node also carries `slug` in
+        # props/title — cortex_node must accept the slug alias.
+        fold = {
+            "nodes": [{"id": "4:x:1", "ref": "uuid-abc", "label": "Artefato",
+                       "slug": "active-recall", "title": "active-recall"}],
+            "edges": [],
+        }
+        srv = _server(fold_fn=lambda: dict(fold))
+        out = _tool(srv, "cortex_node", {"ref": "active-recall"})   # the SLUG surf/recall returned
+        self.assertIsNotNone(out["node"], "cortex_node must resolve a slug returned by surf/recall (P1)")
+        self.assertEqual(out["node"]["slug"], "active-recall")
+
+    def test_cortex_node_still_resolves_the_canonical_ref(self):
+        fold = {"nodes": [{"id": "4:x:1", "ref": "uuid-abc", "label": "Artefato",
+                           "slug": "active-recall"}], "edges": []}
+        srv = _server(fold_fn=lambda: dict(fold))
+        out = _tool(srv, "cortex_node", {"ref": "uuid-abc"})   # the canonical ref still works
+        self.assertIsNotNone(out["node"])
+
     def test_cortex_node_unknown_ref_returns_empty_not_dark(self):
         # a ref absent from a HEALTHY fold is "no such node", not a dark graph
         out = _tool(_server(), "cortex_node", {"ref": "nope"})
