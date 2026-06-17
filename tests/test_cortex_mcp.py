@@ -312,6 +312,40 @@ class SubjectScopeDenyAtTheServer(unittest.TestCase):
                 names = {t["name"] for t in _call(srv, "tools/list")["result"]["tools"]}
                 self.assertEqual(names, {"cortex_recall", "cortex_surf", "cortex_node", "cortex_search"})
 
+    def test_the_live_entrypoint_does_not_grant_a_missing_subject(self):
+        # codex final [high]: main() must NOT default a missing EDGE_CORTEX_SUBJECT to "lead" — it
+        # passes the env through unchanged, so a direct launch / miswired config that omits the subject
+        # fails CLOSED. Drive the exact entrypoint construction (group resolved, subject from env).
+        saved = os.environ.pop("EDGE_CORTEX_SUBJECT", None)
+        try:
+            # the construction main() performs: group resolved, subject = env.get (None here)
+            srv = cortex_mcp.CortexServer(
+                group="g", subject=os.environ.get("EDGE_CORTEX_SUBJECT"),
+                recall_fn=lambda group=None: {}, surf_fn=lambda s, group=None: [],
+                fold_fn=lambda: {"nodes": [], "edges": []})
+            self.assertEqual(_call(srv, "tools/list")["result"]["tools"], [],
+                             "the live entrypoint must serve NO tools without an explicit subject")
+        finally:
+            if saved is not None:
+                os.environ["EDGE_CORTEX_SUBJECT"] = saved
+
+    def test_the_live_entrypoint_grants_when_subject_is_baked(self):
+        # the generated lead config bakes EDGE_CORTEX_SUBJECT=lead — that path IS granted.
+        saved = os.environ.get("EDGE_CORTEX_SUBJECT")
+        os.environ["EDGE_CORTEX_SUBJECT"] = "lead"
+        try:
+            srv = cortex_mcp.CortexServer(
+                group="g", subject=os.environ.get("EDGE_CORTEX_SUBJECT"),
+                recall_fn=lambda group=None: {}, surf_fn=lambda s, group=None: [],
+                fold_fn=lambda: {"nodes": [], "edges": []})
+            names = {t["name"] for t in _call(srv, "tools/list")["result"]["tools"]}
+            self.assertEqual(len(names), 4, "the baked lead subject grants all four tools")
+        finally:
+            if saved is None:
+                os.environ.pop("EDGE_CORTEX_SUBJECT", None)
+            else:
+                os.environ["EDGE_CORTEX_SUBJECT"] = saved
+
     def test_a_missing_subject_is_fail_closed(self):
         # codex final [high]: a server with NO subject signal (no arg, no EDGE_CORTEX_SUBJECT) must
         # FAIL CLOSED — serve no tools — never default open. The generated lead config always bakes

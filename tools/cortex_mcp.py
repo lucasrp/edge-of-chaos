@@ -449,12 +449,12 @@ def main():
     # Identity resolves ONCE, LOUD, before any call (ADR-0015). An unidentified install exits non-zero
     # at startup — it never serves a single cortex_* call.
     group = _resolve_group_loud()
-    # The subject comes from EDGE_CORTEX_SUBJECT (the generated lead config bakes it). A DIRECT launch
-    # with no env is the LEAD's own standing server (the door is registered on the lead beat), so
-    # default to "lead" — a granted self-cognition — rather than fail-closed-empty, which would dark the
-    # operator's own door. A delta/world dispatch never reaches this main() (its config omits the server).
-    subject = os.environ.get("EDGE_CORTEX_SUBJECT") or "lead"
-    serve_stdio(CortexServer(group, subject=subject))
+    # The subject comes from EDGE_CORTEX_SUBJECT, passed through UNCHANGED — NO "lead" fallback (codex
+    # final [high]): the live entrypoint must not grant the door without an EXPLICIT subject, or a
+    # miswired config (or a direct launch) that omits EDGE_CORTEX_SUBJECT would default OPEN. The
+    # generated lead config ALWAYS bakes EDGE_CORTEX_SUBJECT=lead, so the real lead path is granted
+    # explicitly; an absent subject fails CLOSED at the server (serves no tools) — the correct posture.
+    serve_stdio(CortexServer(group, subject=os.environ.get("EDGE_CORTEX_SUBJECT")))
 
 
 if __name__ == "__main__":
