@@ -62,9 +62,14 @@ CLUSTERS_QUERY = (
 SURF_QUERY = (
     "MATCH (seed:Artefato {group_id:$g}) WHERE seed.slug IN $seeds "
     "MATCH p=(seed)-[:BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES*1..2]-(n) "
-    "WHERE (n:Artefato OR n:Source) AND n.group_id=$g AND NOT n.slug IN $seeds "
+    # A peer is keyed by its slug (Artefato) OR its key (Source — Sources carry `key`, not `slug`,
+    # codex final [P2]): use coalesce(n.slug, n.key) for BOTH the self-exclusion and the returned ref,
+    # so a cited Source surfaces with a non-null slug and the surf → cortex_node drill-down resolves it
+    # — without coalesce, `NOT n.slug IN $seeds` is null for a Source and the node returns a null slug.
+    "WHERE (n:Artefato OR n:Source) AND n.group_id=$g "
+    "AND NOT coalesce(n.slug, n.key) IN $seeds "
     "AND all(x IN nodes(p) WHERE x.group_id=$g) "
-    "RETURN DISTINCT n.slug AS slug, n.kernel AS kernel, labels(n) AS labels, "
+    "RETURN DISTINCT coalesce(n.slug, n.key) AS slug, n.kernel AS kernel, labels(n) AS labels, "
     "min(length(p)) AS hops "
     "ORDER BY hops, slug")
 

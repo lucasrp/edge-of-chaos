@@ -79,6 +79,16 @@ class SurfQueryIsAssociativeOnly(unittest.TestCase):
                       "surf_subgraph must execute SURF_QUERY (timeout-wrapped, N1/R3), "
                       "not an inline copy")
 
+    def test_surf_returns_a_coalesced_ref_so_keyed_sources_surface(self):
+        # codex final [P2] — a Source is keyed by `key`, not `slug`. The surf must return + exclude by
+        # coalesce(n.slug, n.key), or a cited Source returns a null slug (and surf → cortex_node
+        # dead-ends). Pinned on the query the runtime executes.
+        q = recall.SURF_QUERY
+        self.assertIn("coalesce(n.slug, n.key) AS slug", q,
+                      "the surf must return coalesce(slug, key) so keyed Sources carry a non-null ref")
+        self.assertIn("NOT coalesce(n.slug, n.key) IN $seeds", q,
+                      "the self-exclusion must coalesce too, or a null-slug Source slips the filter")
+
     def test_surf_query_scopes_the_path_wide_not_just_endpoints(self):
         # R7b / GitHub #41 — the variable-length *1..2 walk must constrain EVERY node on the path
         # to the group, not only `seed` and the terminal `n`. On the SHARED neo4j a foreign
