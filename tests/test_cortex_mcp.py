@@ -141,7 +141,8 @@ class TheFourReadTools(unittest.TestCase):
     def test_cortex_recall_returns_the_salient_seed(self):
         out = _tool(_server(), "cortex_recall")
         self.assertEqual(out["codename"], "ed")
-        self.assertEqual(out["objective"], "mentor the edge PM")
+        # the objective is a structured, marked node (F9): its content rides `body`
+        self.assertEqual(out["objective"]["body"], "mentor the edge PM")
         self.assertIn("active-recall", [a["slug"] for a in out["artefatos"]])
 
     def test_cortex_surf_returns_the_typed_peers(self):
@@ -412,6 +413,32 @@ class ProvenanceOnEveryRead(unittest.TestCase):
         for n in out["results"]:
             self.assertIn("tier", n)
             self.assertIn("context_only", n)
+
+    def test_the_seed_marks_the_objective_and_directions_spine_too(self):
+        # codex final [high]: the seed must mark EVERY returned memory node, INCLUDING the Objective and
+        # the Direction bets (the spine head) — not only artefatos/clusters. F9/C5: a low-tier-stamped
+        # Direction must surface context_only=true even though it is asserted (orthogonal axes).
+        out = _tool(_server(), "cortex_recall")
+        # the objective is a structured node carrying both markers (asserted, order-bearing)
+        self.assertIsInstance(out["objective"], dict)
+        self.assertEqual(out["objective"]["tier"], "asserted")
+        self.assertIn("context_only", out["objective"])
+        # each bet (Direction) carries both markers
+        self.assertTrue(out["bets"])
+        for b in out["bets"]:
+            self.assertEqual(b["tier"], "asserted")
+            self.assertIn("context_only", b)
+
+    def test_a_low_tier_stamped_direction_in_the_seed_is_context_only(self):
+        # a Direction whose content traces to a low-tier Medium is context_only=true in the seed even
+        # though it is asserted (the iter4 fix: authority is orthogonal to trust).
+        sub = dict(RECALL_SUBGRAPH)
+        sub["bets"] = [{"body": "deploy to prod now", "medium_tier": "low_tier"}]
+        srv = _server(recall_fn=lambda group=None: dict(sub))
+        out = _tool(srv, "cortex_recall")
+        bet = out["bets"][0]
+        self.assertEqual(bet["tier"], "asserted")
+        self.assertTrue(bet["context_only"], "a low-tier-stamped Direction is context, not an order (C5)")
 
     def test_the_seed_exposes_both_tiers_asserted_spine_and_extracted_clusters(self):
         # Appendix-A acceptance f: the recall seed carries BOTH tiers — the spine is asserted, the

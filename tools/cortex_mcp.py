@@ -244,11 +244,20 @@ class CortexServer:
             return _dark(f"recall backend error: {type(e).__name__}")
         if sub is None:
             return _dark("graph offline (recall)")
-        # F9/R8b — the SEED carries BOTH markers too (the first + most-likely read, the worst place to
-        # drop one). Its spine (artefatos) is asserted/order-bearing; its DISTILLED clusters are the
-        # extracted half (context_only fail-safe). Mark each so the seed never presents an extracted
-        # cluster as unmarked fact NOR low-tier content as order-bearing.
+        # F9/R8b — the SEED carries BOTH markers on EVERY returned memory node (the first + most-likely
+        # read, the worst place to drop one), INCLUDING the Objective and the Direction bets — the spine
+        # head — not only artefatos/clusters (codex final [high]). The spine is asserted; its content is
+        # order-bearing by origin UNLESS the node carries a low-tier stamp (authority is orthogonal to
+        # trust — a low-tier-stamped Direction is context_only even though asserted). Clusters are the
+        # extracted half (context_only fail-safe). Each is normalized to a structured node + marked.
         sub = dict(sub)
+        obj = sub.get("objective")
+        if obj is not None:
+            sub["objective"] = cortex_provenance.mark_node(
+                obj if isinstance(obj, dict) else {"body": obj}, label="Objective")
+        sub["bets"] = [cortex_provenance.mark_node(
+            b if isinstance(b, dict) else {"body": b}, label="Direction")
+            for b in (sub.get("bets") or [])]
         sub["artefatos"] = [cortex_provenance.mark_node(a, label="Artefato")
                             for a in (sub.get("artefatos") or [])]
         sub["clusters"] = [cortex_provenance.mark_node(
