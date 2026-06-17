@@ -128,8 +128,13 @@ def ensure_cortex_config(home, group=None):
     granted self-cognition), so the door deploys to the fleet without an identity literal. The config
     is a RUNTIME artifact under state/cortex/ (gitignored, never committed) — it derives per install."""
     import cortex_config
-    path = Path(os.path.expanduser(str(home))) / "state" / "cortex" / "lead.mcp.json"
-    cortex_config.write_config(path, subject="lead", group=group, home=str(home))
+    # Resolve home to an ABSOLUTE path first (codex final [P2]): the heartbeat runs claude with
+    # cwd=home, so a RELATIVE --mcp-config path (and the relative command/script paths inside it) would
+    # be re-resolved UNDER home again (home/home/state/...) and the server could not be found. Absolute
+    # home makes the config path and its contents cwd-independent.
+    home = str(Path(os.path.expanduser(str(home))).resolve())
+    path = Path(home) / "state" / "cortex" / "lead.mcp.json"
+    cortex_config.write_config(path, subject="lead", group=group, home=home)
     return path
 
 

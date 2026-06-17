@@ -73,6 +73,27 @@ class TestProvenanceParity(unittest.TestCase):
         node = self.server._map_node("4:x:2", "Entity", {"name": "memory"})
         self.assertEqual(node["trust"], "extracted")
 
+    def test_episodic_is_context_only_even_on_the_import_fallback(self):
+        # codex final [P3]: when cortex_provenance is unavailable, the fallback must treat ANYTHING
+        # outside the asserted spine as context_only — an Episodic node (trust="episodic", not
+        # "extracted") must NOT be mis-marked order-bearing. Force the fallback by breaking the import.
+        import builtins
+        real_import = builtins.__import__
+
+        def _no_prov(name, *a, **k):
+            if name == "cortex_provenance":
+                raise ImportError("forced for the fallback path")
+            return real_import(name, *a, **k)
+
+        builtins.__import__ = _no_prov
+        try:
+            ep = self.server._context_only("Episodic", {"name": "session-x"})
+            self.assertTrue(ep, "Episodic must be context_only on the fallback path (extracted tier)")
+            art = self.server._context_only("Artefato", {"slug": "a"})
+            self.assertFalse(art, "an asserted spine node stays order-bearing on the fallback")
+        finally:
+            builtins.__import__ = real_import
+
 
 class TestUsageHeatOverlayR11(unittest.TestCase):
     """R11 — the read-only usage heat overlay, gated by EDGE_CORTEX_USAGE, a render of usage.jsonl with

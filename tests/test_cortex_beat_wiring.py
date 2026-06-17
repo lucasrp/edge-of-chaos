@@ -59,6 +59,19 @@ class EnsureCortexConfigGeneratesTheLeadConfig(unittest.TestCase):
             p2 = _beat.ensure_cortex_config(home, group="g")
             self.assertEqual(p1, p2)
 
+    def test_relative_home_is_resolved_to_absolute(self):
+        # codex final [P2]: heartbeat runs claude with cwd=home, so a relative --mcp-config path (and
+        # the relative paths inside it) would be re-resolved under home again. ensure_cortex_config
+        # must resolve home to absolute first — the returned path and the config contents are absolute.
+        import os
+        with tempfile.TemporaryDirectory() as home:
+            rel = os.path.relpath(home)            # a relative spelling of the same dir
+            path = _beat.ensure_cortex_config(rel, group="g")
+            self.assertTrue(Path(path).is_absolute(), "the config path must be absolute (cwd-independent)")
+            cfg = json.loads(Path(path).read_text())
+            self.assertTrue(cfg["mcpServers"]["cortex"]["args"][0].startswith("/"),
+                            "the server script path inside the config must be absolute too")
+
     def test_config_path_is_under_the_install_state_not_committed(self):
         # the generated config is a runtime artifact under state/ (gitignored alongside usage), never
         # a tracked genotype file — it derives from identity at run, per install.

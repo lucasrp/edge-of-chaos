@@ -1189,8 +1189,11 @@ def _context_only(label, props):
         sys.path.insert(0, str(BASE.parent / "tools"))
         import cortex_provenance
         return cortex_provenance.context_only_for(label, props)
-    except Exception:  # noqa: BLE001 — fail-safe: an extracted node is context_only, a spine node is not
-        return _TRUST_BY_LABEL.get(label, "extracted") == "extracted"
+    except Exception:  # noqa: BLE001 — fail-safe: anything OUTSIDE the asserted spine is context_only.
+        # Key on the asserted-spine set, NOT _TRUST_BY_LABEL (where Episodic="episodic" != "extracted"
+        # would mis-mark a low-tier Episodic as order-bearing, codex final [P3]). Asserted spine →
+        # order-bearing; everything else (extracted, episodic, unknown) → context_only (fail-safe).
+        return label not in ("Genesis", "Objective", "Direction", "Artefato")
 
 
 def _map_node(id_, label, props):
