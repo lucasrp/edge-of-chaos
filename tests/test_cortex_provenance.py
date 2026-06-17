@@ -110,6 +110,24 @@ class MarkNodeStampsBothAxes(unittest.TestCase):
         self.assertEqual(out["tier"], "extracted")
         self.assertTrue(out["context_only"])
 
+    def test_mark_node_preserves_an_already_computed_authority_marker(self):
+        # codex final [P2]: cortex_fold ALREADY computes context_only from a node's medium_tier(s);
+        # the trimmed fold node carries the computed value but NOT the original medium props. Re-running
+        # mark_node must PRESERVE the already-computed marker, not recompute from label defaults — else
+        # a stamped node diverges between the MCP and the dashboard (R10). A stamped order-bearing
+        # extracted node stays context_only=false; a stamped low-tier asserted node stays true.
+        ob_extracted = prov.mark_node({"name": "e", "label": "Entity", "context_only": False})
+        self.assertFalse(ob_extracted["context_only"],
+                         "an already-computed order-bearing marker must survive re-marking (R10)")
+        lt_asserted = prov.mark_node({"body": "d", "label": "Direction", "context_only": True})
+        self.assertTrue(lt_asserted["context_only"],
+                        "an already-computed low-tier marker must survive re-marking (R10)")
+
+    def test_mark_node_still_computes_when_no_marker_present(self):
+        # the fresh case (surf rows, raw recall) — no precomputed marker → derive from label/props.
+        out = prov.mark_node({"name": "e", "label": "Entity"})
+        self.assertTrue(out["context_only"])   # extracted, unknown Medium → fail-safe true
+
 
 if __name__ == "__main__":
     unittest.main()

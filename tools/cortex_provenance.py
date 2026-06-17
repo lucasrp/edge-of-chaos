@@ -88,6 +88,12 @@ def mark_node(node, label=None):
     worst place to drop either marker — this covers it."""
     out = dict(node)
     L = _label_of(node, label)
-    out["tier"] = tier_for(L, node)
-    out["context_only"] = context_only_for(L, node)
+    # PRESERVE an already-computed marker (codex final [P2]): cortex_fold computes context_only from a
+    # node's medium_tier(s), but the trimmed fold node carries the COMPUTED value, not the source props.
+    # Re-deriving from label-only here would OVERWRITE a stamped value (a low-tier asserted node forced
+    # back to false, an order-bearing extracted node forced to true) — diverging the MCP from the
+    # dashboard (R10). So keep the node's own `tier`/`context_only` when present; only derive the absent.
+    out["tier"] = node["tier"] if isinstance(node.get("tier"), str) else tier_for(L, node)
+    out["context_only"] = node["context_only"] if isinstance(node.get("context_only"), bool) \
+        else context_only_for(L, node)
     return out
