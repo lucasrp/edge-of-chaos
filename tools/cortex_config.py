@@ -89,28 +89,36 @@ def mcp_config(group=None, home=None, subject=None):
     cortex server at all — the strongest deny (nothing to inherit). For a granted subject, the server
     env bakes EDGE_CORTEX_SUBJECT so the SERVER itself enforces the deny even if the client glob is
     bypassed (defense in depth, not glob-only)."""
-    # Group resolution is fail-safe against cross-install misroute (codex final [P2]). The KEY rule:
-    # only an EXPLICIT `group` is baked into the target config's EDGE_GROUP. When no explicit override
-    # is supplied, EDGE_GROUP is OMITTED entirely — the target server resolves its OWN identity from its
-    # OWN home/agent.yaml at startup (the _identity seam) — so an `edge-heartbeat --home <other-install>`
-    # can never leak the launcher checkout's group (which would otherwise win, since EDGE_GROUP precedes
-    # agent.yaml in the server). `explicit_group` tracks whether the caller named a group.
-    explicit_group = group is not None
+    # Group resolution is cross-install-safe (codex final [P2] x2). The MCP subprocess INHERITS the
+    # launcher's env, and `_identity.group()` prioritizes EDGE_GROUP over agent.yaml — so merely
+    # OMITTING EDGE_GROUP does not scrub a STALE inherited one (an `edge-heartbeat --home <other>` would
+    # then read the launcher's group). The fix: resolve the group from the TARGET home's agent.yaml and
+    # bake it EXPLICITLY, which OVERRIDES any inherited stale EDGE_GROUP. An explicit `group` arg still
+    # wins (a genotype install naming its own group).
     if home is None:
         try:
             import _identity
             home = str(_identity.edge_home())
         except Exception:  # noqa: BLE001 — fall back to the repo-relative launcher
             home = None
+    if group is None:
+        import _identity
+        target_yaml = (Path(os.path.expanduser(home)) / "agent.yaml") if home else None
+        # resolve from the TARGET home's agent.yaml directly (NOT the env, NOT the launcher) so the
+        # baked value is the target's own identity and overrides any stale inherited EDGE_GROUP.
+        if target_yaml and Path(target_yaml).exists():
+            group = _identity._cfg(target_yaml).get("graph_group") \
+                or _identity._cfg(target_yaml).get("name") \
+                or _identity._cfg(target_yaml).get("codename")
     if not _granted(subject):
         # FAIL-CLOSED (N5): a delta/world OR omitted/unknown subject gets a config with NO cortex
         # server at all — the strongest deny (nothing to inherit). Only an explicit self-cognition is
         # granted; the door is never registered for anyone else by default.
         return {"mcpServers": {}}
     env = {}
-    if explicit_group and group:
-        # ONLY an explicit override is baked; otherwise the target server resolves its own identity
-        # from its own home/agent.yaml at startup (no launcher-group leak across installs).
+    if group:
+        # bake the RESOLVED group (explicit OR target-home-resolved) so it OVERRIDES any stale
+        # EDGE_GROUP the MCP subprocess would inherit from the launcher env (cross-install isolation).
         env["EDGE_GROUP"] = group
     env["EDGE_CORTEX_SUBJECT"] = subject    # the server-side deny reads this — fail-closed seam
     return {

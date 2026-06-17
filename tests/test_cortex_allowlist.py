@@ -46,15 +46,30 @@ class TheMcpConfigRegistersTheCortexServer(unittest.TestCase):
         self.assertEqual(args, ["/home/x/edge/tools/cortex_mcp.py"],
                          "the server script must be an absolute path rooted at home (cwd-independent)")
 
-    def test_no_explicit_group_omits_edge_group_so_the_target_resolves_its_own(self):
-        # codex final [P2]: with no explicit --group, EDGE_GROUP is OMITTED from the target config —
-        # the target server resolves its OWN identity from its own home/agent.yaml at startup, so the
-        # launcher checkout's group can NEVER leak across installs (EDGE_GROUP would otherwise win).
+    def test_group_resolves_from_target_home_and_overrides_stale_inherited_env(self):
+        # codex final [P2 x2]: with no explicit --group, the group is resolved from the TARGET home's
+        # agent.yaml and BAKED into EDGE_GROUP — overriding any stale EDGE_GROUP the MCP subprocess
+        # would inherit from the launcher env (the cross-install misroute). The baked value is the
+        # target's own identity, NOT the launcher's, even with a foreign EDGE_GROUP set in the env.
+        import os
         import tempfile
+        import textwrap
         with tempfile.TemporaryDirectory() as home:
-            cfg = cortex_config.mcp_config(home=home, subject="lead")   # no explicit group
-            self.assertNotIn("EDGE_GROUP", cfg["mcpServers"]["cortex"]["env"],
-                             "no explicit group ⇒ omit EDGE_GROUP; the target resolves its own identity")
+            (Path(home) / "agent.yaml").write_text(textwrap.dedent("""
+                name: target-install
+                graph_group: target-group
+            """))
+            saved = os.environ.get("EDGE_GROUP")
+            os.environ["EDGE_GROUP"] = "launcher-group"   # a stale inherited value
+            try:
+                cfg = cortex_config.mcp_config(home=home, subject="lead")   # no explicit group
+            finally:
+                if saved is None:
+                    os.environ.pop("EDGE_GROUP", None)
+                else:
+                    os.environ["EDGE_GROUP"] = saved
+            self.assertEqual(cfg["mcpServers"]["cortex"]["env"]["EDGE_GROUP"], "target-group",
+                             "the baked group must be the TARGET home's, overriding stale inherited env")
 
     def test_an_explicit_group_is_baked_into_edge_group(self):
         cfg = cortex_config.mcp_config(group="given-group", home="/h", subject="lead")
