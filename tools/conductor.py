@@ -37,11 +37,14 @@ zero model spend).
 """
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
+from collections import Counter
 
 import close
+import render
 import blocks as block_validation
 
 # The three-part arc — the structural acceptance test (#36). NEVER rendered as labeled sections;
@@ -127,6 +130,7 @@ def author_outline(seed: dict, objective: str) -> list[dict]:
                        f"forward — the next bet for: {objective}"))
 
     _assign_places(nodes)
+    _assign_target_forms(nodes, seed)   # Slice 3: per-finding form contract + sibling de-collision
     return nodes
 
 
@@ -155,6 +159,353 @@ def _assign_places(nodes: list[dict]) -> None:
         else:
             upstream = ""
         node["place"] = {"position": f"{k + 1} of {total}", "established_upstream": upstream}
+
+
+# ---------------------------------------------------------------------------
+# Slice 3 — plan-then-write: kill structural monotony (D-A) at the SOURCE. Each block-bearing node
+# gets a per-finding FORM CONTRACT (`target_form`) so different findings own different shapes; a
+# post-fill form gate ENFORCES it; a deterministic reconcile dedups gaps (D-B); a structural
+# diversity report measures the result. The diversity-collapse root cause (ed-research, G5): one
+# uniform type→format instruction makes the format the attractor — so we vary the instruction.
+# ---------------------------------------------------------------------------
+
+# The content forms a node may own. PROSE is always allowed. NONE of these is a DRAWN visual.
+_PROSE = ("paragraph", "callout", "list")
+_FORM_VOCAB = ("metrics-grid", "comparison-table", "diff-block", "derivation", "gap-table", "table")
+# The GLOBAL VISUAL INVARIANT (ed-research, sharpened): a node may NOT emit a chart/diagram or an
+# arbitrary-HTML/SVG escape hatch — those can fabricate an UNGROUNDED visual and are Slice-4-only
+# (the grounded post-pass). This is a PRECISE subset of close.VISUAL_BLOCK_TYPES — it deliberately
+# EXCLUDES metrics-grid/comparison-table/etc., which are grounded structured-data blocks and ARE
+# legitimate node forms (they merely also satisfy the visual-coverage gate).
+_DRAWN_VISUALS = frozenset({"chart", "diagram", "ascii-diagram", "raw-html", "svg", "html", "custom-html"})
+# The gap family is ALWAYS allowed through the form gate (reconcile consolidates it afterward), so a
+# writer's open tensions survive enforce_form to be deduped — not stripped before reconcile sees them.
+_GAP_TYPES = ("gap-table", "gap-marker", "gap-resolution")
+
+_COMPARE_RE = re.compile(r"\b(vs\.?|versus|compared|than|whereas|unlike|instead of|rather than)\b",
+                         re.IGNORECASE)
+_BEFORE_AFTER_RE = re.compile(r"\bbefore\b.*\bafter\b|\bwas\b.*\bnow\b", re.IGNORECASE)
+
+
+def _numeric_magnitudes(text: str) -> int:
+    """Count DISTINCT numeric magnitudes in `text`, reusing close's magnitude machinery (DRY with
+    D5: the router and the prose gate agree on 'what is a number') — years/versions/dates excluded."""
+    t = close._DATE_RE.sub(" ", text or "")
+    t = close._VERSION_RE.sub(" ", t)
+    t = close._YEAR_RE.sub(" ", t)
+    return len({m.group(0).strip().lower() for m in close._MAGNITUDE_RE.finditer(t) if m.group(0).strip()})
+
+
+def _route_form(finding: dict) -> str:
+    """The PRIMARY non-prose form a single finding owes, from its {claim, probe}. Deterministic and
+    total — "" means prose-only. The probe (excavate's closed enum: relevance/contradiction/surprise/
+    lineage) is the strongest signal; the claim text is the fallback. NEVER routes to a drawn visual."""
+    claim = finding.get("claim") or ""
+    probe = (finding.get("probe") or "").strip().lower()
+    if probe in ("contradiction", "surprise"):
+        return "comparison-table"      # two states held against each other
+    if probe == "lineage":
+        return "derivation"            # a reasoning / where-it-came-from chain
+    # relevance (or any unknown probe) → route on the claim text. Check before/after FIRST: a claim
+    # like "latency was 200ms before and 80ms after" is numeric-dense too, but its SHAPE is a
+    # before/after comparison (diff-block), not a flat metrics grid.
+    if _BEFORE_AFTER_RE.search(claim):
+        return "diff-block"            # explicit before/after → the finer comparison shape
+    if _numeric_magnitudes(claim) >= 2:
+        return "metrics-grid"          # numeric-dense claim (NOT chart — visual invariant)
+    if _COMPARE_RE.search(claim):
+        return "comparison-table"
+    return ""                          # prose-only
+
+
+# Each primary form's RANKED candidates — the de-collision pass walks this so a forced demotion still
+# lands on a structurally-compatible shape (a comparison never becomes a derivation by accident),
+# ending in "" (prose). No entry is ever a drawn visual.
+_FORM_ALTERNATES = {
+    "comparison-table": ["comparison-table", "diff-block", "table", "derivation", ""],
+    "diff-block":       ["diff-block", "comparison-table", "table", ""],
+    "metrics-grid":     ["metrics-grid", "table", "derivation", ""],
+    "derivation":       ["derivation", ""],
+    "gap-table":        ["gap-table", ""],
+    "table":            ["table", "comparison-table", ""],
+    "":                 [""],
+}
+
+
+def _assign_target_forms(nodes: list[dict], seed: dict) -> None:
+    """Stamp each node's `target_form`, in place (call AFTER _assign_places — de-collision needs the
+    full ordered list). Deliver nodes route from their finding WITH sibling de-collision: when a
+    node's primary form is already taken by an earlier sibling this round, it demotes along its ranked
+    candidates — so siblings get DISTINCT shapes (the D-A crux). motivate / change-the-course are
+    prose-only. GUARANTEE: no two deliver siblings share a non-prose form until the vocabulary is
+    exhausted (then it falls to prose, never a repeat)."""
+    taken: Counter = Counter()
+    for n in nodes:
+        if n["role"] != "deliver":
+            n["target_form"] = list(_PROSE)
+            continue
+        fids = n["contract"]["finding_ids"]
+        finding = _finding_by_id(seed, fids[0]) if fids else None
+        ranked = _FORM_ALTERNATES[_route_form(finding or {})]
+        chosen = ""
+        for cand in ranked:
+            if cand == "" or taken[cand] == 0:   # a free non-prose form, or fall to prose
+                chosen = cand
+                break
+        if chosen:
+            taken[chosen] += 1
+        n["target_form"] = list(_PROSE) + ([chosen] if chosen else [])
+
+
+# The REQUIRED field contract per form (mirrors _TYPE_FORMAT_RULE) — the writer must see it, else a
+# correctly-TYPED block missing a required field is silently dropped by normalize_blocks (Codex P2).
+_FORM_SHAPE = {
+    "metrics-grid": "items each {value, label} — value carries a number/magnitude (42%, 3x, 30ms)",
+    "comparison-table": "REQUIRED headers:[col,...] AND rows each {cells:[...]}",
+    "diff-block": "lines each {type: insert|delete, text}",
+    "derivation": "text + bullets (the reasoning steps)",
+    "table": "REQUIRED headers:[col,...] AND rows each [cell, cell, ...]",
+    "gap-table": "gaps each {description, need, status}",
+}
+
+
+def _form_guidance(target_form) -> str:
+    """The per-node form directive injected into the writer prompt — NOT the uniform full-palette
+    rule (the diversity-collapse attractor, G5). It names ONLY this node's one owed structured form
+    AND its required field shape (so the writer's block survives normalization), or asks for prose.
+    It never mentions chart/diagram (the visual invariant)."""
+    non_prose = [f for f in (target_form or []) if f not in _PROSE]
+    if not non_prose:
+        return ("Write this node as developed PROSE. Do NOT force a table/grid/diagram — the content "
+                "here is narrative; a forced structure would be hollow.")
+    forms = ", ".join(f"a {f} ({_FORM_SHAPE[f]})" if f in _FORM_SHAPE else f"a {f}"
+                      for f in non_prose)
+    return (f"Beyond the prose, THIS finding's shape owes ONE structured block: {forms}. Lead with "
+            f"the prose, then emit that block with EVERY field shown above — and NO other block type "
+            f"(no chart, no diagram, no unrelated grid).")
+
+
+def enforce_form(node: dict) -> dict:
+    """Post-fill form gate: drop every block whose CANONICAL type is a DRAWN visual (always — the
+    visual invariant), or is non-prose/non-gap AND outside this node's `target_form`. Prose and the
+    gap family are always kept (reconcile consolidates gaps afterward). Pure — returns a new node.
+    If dropping empties the node, leave it empty so contract_gate flags it HONESTLY (a writer that
+    emitted only disallowed structure has failed — we never mint filler to launder that)."""
+    allowed = set(node.get("target_form") or _PROSE) | set(_PROSE) | set(_GAP_TYPES)
+    kept = []
+    for b in node.get("blocks") or []:
+        ctype, _canon = render.canonical_block(b)
+        if ctype is None or ctype in _DRAWN_VISUALS:
+            continue
+        if ctype in allowed:
+            kept.append(b)
+    out = dict(node)
+    out["blocks"] = kept
+    return out
+
+
+def _form_block_substantive(b: dict, ctype: str, canon: dict) -> bool:
+    """A block of an owed form delivers REAL payload, not hollow chrome: the substance predicate
+    (metrics-grid/comparison-table/diff-block) + required-field gate via blocks.normalize_block, PLUS
+    explicit payload checks for the predicate-less forms — a derivation needs bullets/text, a table
+    needs rows — so a `{type: derivation, title: ...}` shell can't satisfy the contract (Codex P2)."""
+    if block_validation.normalize_block(b) is None:
+        return False  # hollow per the substance predicate / missing a required field
+
+    def _has_cell(rows):
+        return any(isinstance(r, (list, tuple)) and any(str(c).strip() for c in r) for r in (rows or []))
+
+    if ctype == "derivation":  # at least one NON-BLANK bullet or non-blank text (not bullets:[""])
+        return (any(isinstance(x, str) and x.strip() for x in (canon.get("bullets") or []))
+                or bool((canon.get("text") or "").strip()))
+    if ctype == "table":  # at least one row with a non-blank cell (not rows:[[]])
+        return _has_cell(canon.get("rows"))
+    if ctype == "gap-table":
+        gaps = canon.get("gaps") or []
+        return (any(isinstance(g, dict) and any(str(v).strip() for v in g.values()) for g in gaps)
+                or _has_cell(canon.get("rows")))
+    return True
+
+
+def form_violations(node: dict) -> list[str]:
+    """Flag a node that OWED a structured form (its target_form names a non-prose form) but delivered
+    no SUBSTANTIVE block of that form — the writer ignored the per-node form contract OR emitted a
+    hollow shell, which would let a structurally monotone report ship (the form gate drops wrong
+    blocks but cannot conjure a real one). Surfaced like opener_flags; prose-only nodes never flag.
+    The gap family doesn't count as the owed form (it's a boundary, not content)."""
+    owed = set(f for f in (node.get("target_form") or []) if f not in _PROSE)
+    if not owed:
+        return []
+    for b in (node.get("blocks") or []):
+        ctype, canon = render.canonical_block(b)
+        if ctype in owed and _form_block_substantive(b, ctype, canon):
+            return []
+    return [f"node {node.get('id')!r} owed a structured form {sorted(owed)} but delivered no "
+            f"substantive one (form contract unmet)"]
+
+
+# --- Deterministic reconcile (D-B): one consolidated gap-table, no LLM ---
+_GAP_SIM_THRESHOLD = 0.82  # [UNCALIBRATED] on token-sorted normal forms; fails safe (under-merges)
+
+
+def _norm_gap(s: str) -> str:
+    s = (s or "").casefold()
+    s = re.sub(r"[^\w\s]", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _gap_key(s: str) -> str:
+    """Token-SORTED normal form: collapses paraphrase-by-reorder ('nothing forgets by default' vs
+    'by default nothing forgets') so the char-ratio similarity actually merges them."""
+    return " ".join(sorted(_norm_gap(s).split()))
+
+
+def _gap_similar(a: str, b: str) -> bool:
+    return difflib.SequenceMatcher(None, _gap_key(a), _gap_key(b)).ratio() >= _GAP_SIM_THRESHOLD
+
+
+def _consumable_gaps(canon: dict):
+    """The gaps list reconcile may fold in — ONLY the dict-list gap-table shape the renderer actually
+    uses. A `headers+rows` gap-table renders its ROWS and IGNORES `gaps` (render's no-hybrid stance),
+    so it is NOT consumable even when it also carries a `gaps` list. None = leave the block in place."""
+    if canon.get("headers") and canon.get("rows"):
+        return None
+    gaps = canon.get("gaps")
+    return gaps if isinstance(gaps, list) else None
+
+
+def _gap_table_fully_consumable(canon: dict) -> bool:
+    """True iff a dict-list gap-table EVERY row of which carries a non-blank string `description` —
+    only then can reconcile strip the whole block and rebuild it losslessly. A headers+rows table, an
+    empty gaps list, OR a MIXED table (some rows only need/status/id) is NOT consumable: it is left in
+    place so its description-less rows — which the renderer draws — are never stripped into the void."""
+    gaps = _consumable_gaps(canon)
+    if not gaps:
+        return False
+    return all(isinstance(g, dict) and isinstance(g.get("description"), str) and g["description"].strip()
+               for g in gaps)
+
+
+def _gap_objects(nodes: list[dict], seed: dict) -> list[dict]:
+    """Every CONSUMABLE gap across the nodes as FULL dicts (description + any need/status/id the writer
+    supplied — preserving the dict keeps the remediation/status metadata the renderer supports), plus
+    the seed residuals as bare {description}. Only FULLY-consumable gap-tables contribute (so consume
+    ⇔ every row extracted — no partial loss); marker/residual gaps always do."""
+    objs: list[dict] = []
+    for n in nodes:
+        for b in n.get("blocks") or []:
+            ctype, canon = render.canonical_block(b)
+            if ctype == "gap-table" and _gap_table_fully_consumable(canon):
+                objs += [dict(g) for g in _consumable_gaps(canon)]
+            elif ctype == "gap-marker" and isinstance(canon.get("text"), str) and canon["text"].strip():
+                obj = {"description": canon["text"]}
+                if canon.get("id") is not None:   # keep the id a gap-resolution.gap_id may reference
+                    obj["id"] = canon["id"]
+                objs.append(obj)
+    objs += [{"description": r} for r in (seed.get("residuals") or [])
+             if isinstance(r, str) and r.strip()]
+    return objs
+
+
+def _dedup_gap_objects(objs: list[dict]) -> list[dict]:
+    """Greedy single-pass dedup of gap DICTS by description similarity. The representative keeps the
+    first-seen description, but MERGES metadata (need/status/id) from later duplicates — so a bare
+    gap-marker/residual seen first does not drop the richer remediation info a later gap-table row
+    carries, regardless of node order (Codex P2). Greedy, not union-find: gap counts are tiny and
+    greedy avoids transitive over-merge (A~B~C, A≁C)."""
+    reps: list[dict] = []
+    for o in objs:
+        match = next((r for r in reps if _gap_similar(o["description"], r["description"])), None)
+        if match is None:
+            reps.append(dict(o))
+        else:
+            for k, v in o.items():
+                if k != "description" and k not in match and v not in (None, ""):
+                    match[k] = v
+    return reps
+
+
+def _is_consumed_gap(b: dict) -> bool:
+    """A gap block whose content `_gap_objects` actually folded into the consolidated table — the
+    dict-list gap-table and gap-marker (see `_consumable_gaps`). A `headers+rows` gap-table is NOT
+    consumed, so reconcile leaves it in place rather than strip its only-boundary content into the void."""
+    ctype, canon = render.canonical_block(b)
+    if ctype == "gap-marker":
+        return isinstance(canon.get("text"), str) and bool(canon["text"].strip())
+    return ctype == "gap-table" and _gap_table_fully_consumable(canon)
+
+
+def reconcile(nodes: list[dict], seed: dict):
+    """Deterministic post-fill reconciliation (no LLM). Returns (stripped_nodes, consolidated_gap):
+    every node with its CONSUMED gap blocks REMOVED, and ONE consolidated gap-table merging all node
+    gaps + seed residuals (deduped) — None iff no consumable gap exists. This is what kills D-B: the
+    per-node duplicates are stripped and the boundary becomes a single block (see conciliate wiring).
+    A `headers+rows` gap-table (un-consumable) is left in its node so its content is never lost."""
+    reps = _dedup_gap_objects(_gap_objects(nodes, seed))
+    stripped = []
+    for n in nodes:
+        out = dict(n)
+        out["blocks"] = [b for b in (n.get("blocks") or []) if not _is_consumed_gap(b)]
+        stripped.append(out)
+    consolidated = {"type": "gap-table", "gaps": reps} if reps else None
+    return stripped, consolidated
+
+
+# --- Structural diversity report (D-A measurement): ordered block-type signatures ---
+
+def _section_signature(section: dict) -> tuple:
+    """A section's ORDERED canonical block-type sequence — the rhythm whose repetition IS the D-A
+    symptom (order preserved; a set would lose it)."""
+    return tuple(render.canonical_block(b)[0] or "?" for b in (section.get("blocks") or []))
+
+
+def _distinct_signatures(signatures: list[tuple]) -> float:
+    """distinct section SIGNATURES / total sections. 1.0 = every section a different template; low =
+    the same template repeats (the D-A symptom). The unit is the WHOLE ordered signature — pooling
+    individual block types instead would be dominated by the ubiquitous `paragraph` and miss the
+    section-level monotony. The PRINCIPLED gate (interpretable endpoints, no smoothing)."""
+    return len(set(signatures)) / len(signatures) if signatures else 1.0
+
+
+def _ngram_counts(seq: tuple, n: int) -> Counter:
+    return Counter(seq[i:i + n] for i in range(len(seq) - n + 1)) if len(seq) >= n else Counter()
+
+
+def _self_bleu(sequences: list[tuple], n: int = 1) -> float:
+    """Mean unigram self-BLEU with add-1 smoothing (signatures are 3–5 long, so unsmoothed precision
+    degenerates). HIGH = sections look alike. REPORTED, not hard-gated (no calibrated cut-point)."""
+    if len(sequences) < 2:
+        return 0.0
+    scores = []
+    for i, s in enumerate(sequences):
+        refs = sequences[:i] + sequences[i + 1:]
+        hyp_c = _ngram_counts(s, n)
+        if not hyp_c:
+            scores.append(0.0)
+            continue
+        max_ref: Counter = Counter()
+        for r in refs:
+            for g, c in _ngram_counts(r, n).items():
+                max_ref[g] = max(max_ref[g], c)
+        overlap = sum(min(c, max_ref[g]) for g, c in hyp_c.items())
+        scores.append((overlap + 1) / (sum(hyp_c.values()) + 1))
+    return sum(scores) / len(scores)
+
+
+def diversity_report(spec: dict, *, min_distinct: float = 0.50) -> dict:
+    """Measure structural diversity over a spec's section signatures. The distinct-SIGNATURE ratio is
+    the HARD gate (principled, interpretable endpoints); unigram self-bleu is REPORTED only
+    (uncalibrated). Sections with no blocks are ignored; < 2 comparable sections → no violation.
+    Thresholds [UNCALIBRATED] — flagged for hand-judging against 2–3 real reports."""
+    sigs = [_section_signature(s) for s in (spec.get("sections") or []) if s.get("blocks")]
+    dsig = _distinct_signatures(sigs) if len(sigs) >= 2 else 1.0
+    sb1 = _self_bleu(sigs, 1) if len(sigs) >= 2 else 0.0
+    violations = []
+    if len(sigs) >= 2 and dsig < min_distinct:
+        violations.append(
+            f"diversity: distinct-signatures {dsig:.2f} < {min_distinct} (sections over-templated)")
+    return {"distinct_signatures": round(dsig, 3), "self_bleu_1": round(sb1, 3),
+            "violations": violations}
 
 
 # ---------------------------------------------------------------------------
@@ -221,12 +572,12 @@ def _writer_prompt(node: dict, outline: list[dict], seed: dict, objective: str) 
         "earned in your prose (do not drop the tail):\n"
         f"{claim_lines}\n\n"
         f"Open tensions you may surface: {residuals}\n\n"
-        f"{_TYPE_FORMAT_RULE}\n\n"
+        f"{_form_guidance(node.get('target_form'))}\n\n"
         "Write developed prose for this node, THEN emit ONE fenced ```json ENVELOPE — STRICT "
         "JSON — carrying the node's content as TYPED BLOCKS following the rule above:\n"
         '{"title": <a SHORT content-derived section title (NEVER the scaffold intent above)>, '
-        '"blocks": [<the typed blocks: a paragraph for the prose, PLUS the metrics-grid/'
-        'comparison-table/diff-block/derivation/gap-table/chart the content shape owes>], '
+        '"blocks": [<the typed blocks: a paragraph for the prose, PLUS the ONE structured block '
+        'named above if the shape owes it>], '
         '"digest": {"bullets": ["the node\'s key points"], "assumed_prior": "what you took as '
         'already-established upstream", "contribution": "one line: this node\'s contribution to '
         'the arc", "cross_refs": ["other nodes/findings you lean on"]}}. The conciliator works '
@@ -614,8 +965,37 @@ def _section_title(node: dict, seed: dict) -> str:
         claim = (_finding_by_id(seed, fid) or {}).get("claim", "")
         if claim.strip():
             return claim.strip()[:80]
-    return {"motivate": "Why this matters", "deliver": "The finding",
-            "change-the-course": "What this changes"}.get(node.get("role"), "Synthesis")
+    # No content title → NO label (sections are FREE, ADR-0012/0013; render emits no <h2>). We never
+    # fall back to a hardcoded-language label — "structure not strings" (Slice 1): the language lives in
+    # the cognition's own text, never in a code constant.
+    return ""
+
+
+# --- The closing rich-rite moves as BLOCKS (language-agnostic — the gate satisfies derivation by a
+# `derivation` block and what-i-dont-know by a `gap-table` block, by TYPE, never an English marker;
+# Slice 1 / ed-research "structure not strings"). No hardcoded-language section titles or block labels. ---
+
+def _findings_derivation(seed: dict, objective: str) -> dict:
+    """The derivation move as a `derivation` BLOCK built from the seed findings (in the content's
+    language). Connector is a neutral arrow, not an English word; no hardcoded title."""
+    bullets = [f"{f.get('claim', '')} → {f.get('bears_on', '')}".strip(" →")
+               for f in (seed.get("findings") or []) if (f.get("claim") or "").strip()]
+    return {"type": "derivation", "bullets": bullets or [objective]}
+
+
+def _residual_gaps(seed: dict):
+    """The knowledge-boundary move as a `gap-table` BLOCK (satisfies what-i-dont-know by TYPE — no
+    English marker text). Gaps are the seed residuals (in-language) — what genuinely remains unknown.
+    It does NOT fall back to a digest's `assumed_prior`: that field is what a node took as already
+    ESTABLISHED upstream, the OPPOSITE of an open gap — rendering it as a limitation would clear the
+    move with inverted meaning (Codex P2). Node-level gaps the writers emitted already live inside
+    their own sections, so re-appending them here would only duplicate (D-B). NEVER fabricates: with
+    no real residual it returns **None** (the caller omits the boundary, and the gate honestly flags a
+    developed synthesis that stated no limitation — a real signal, not gamed with invented content)."""
+    descs = [r.strip() for r in (seed.get("residuals") or []) if isinstance(r, str) and r.strip()]
+    if not descs:
+        return None
+    return {"type": "gap-table", "gaps": [{"description": d} for d in descs]}
 
 
 def assemble(nodes: list[dict], seed: dict, objective: str) -> dict:
@@ -633,35 +1013,12 @@ def assemble(nodes: list[dict], seed: dict, objective: str) -> dict:
             "blocks": node.get("blocks") or [],
         })
 
-    # The derivation block — the synthesis's own reasoning, satisfying the rich-rite derivation
-    # move with a substantive field. Built from the seed's findings (the mined deep structure).
-    deriv_bullets = [
-        f"{f.get('claim', '')} — because {f.get('bears_on', '')} ({f.get('citation', '')})"
-        for f in (seed.get("findings") or [])
-    ] or [f"derive the objective from first principles: {objective}"]
-    sections.append({
-        "title": "Why this holds",
-        "blocks": [{
-            "type": "derivation",
-            "title": "From the mined findings",
-            "bullets": deriv_bullets,
-            "text": ("It follows that the objective is reachable from the seed's findings, "
-                     "not asserted."),
-        }],
-    })
-
-    # The knowledge boundary — the seed's residuals rendered as an explicit what-i-dont-know,
-    # satisfying the rich-rite boundary move.
-    residuals = seed.get("residuals") or []
-    # lead with a rich-rite boundary MARKER ("uncertain") in the TEXT — the title is excluded from
-    # the marker scan, so a markerless text fails rich-rite:what-i-dont-know (dogfood regression).
-    boundary = ("What remains uncertain — " + "; ".join(residuals)) if residuals else (
-        "What remains uncertain — the open questions this synthesis did not resolve.")
-    sections.append({
-        "title": "Open questions",
-        "blocks": [{"type": "callout", "variant": "info", "title": "What I don't know",
-                    "text": boundary}],
-    })
+    # Closing moves as BLOCKS (language-agnostic, title-free — sections FREE): derivation block
+    # satisfies the derivation move BY TYPE; gap-table block satisfies what-i-dont-know BY TYPE.
+    sections.append({"title": "", "blocks": [_findings_derivation(seed, objective)]})
+    _gaps = _residual_gaps(seed)
+    if _gaps:
+        sections.append({"title": "", "blocks": [_gaps]})
 
     return {"title": objective[:120], "sections": sections}
 
@@ -700,8 +1057,8 @@ def _synthetic_prompt(nodes: list[dict], objective: str) -> str:
         f"{_TYPE_FORMAT_RULE}\n\n"
         "Emit ONE fenced ```json spec — STRICT JSON — carrying the synthesis as TYPED BLOCKS "
         'following the rule above: {"blocks": [<a paragraph for the through-line prose, PLUS the '
-        "metrics-grid/comparison-table/diff-block/derivation/gap-table/chart any quantitative or "
-        'multi-value material owes>]}.\n\n'
+        "metrics-grid/comparison-table/diff-block/derivation/gap-table any quantitative or "
+        'multi-value material owes (NO chart/diagram — those are added later, grounded)>]}.\n\n'
         f"OBJECTIVE: {objective}\n\n"
         f"THE NODE DIGESTS (your raw material — the deep work is already done):\n"
         f"{_digest_brief(nodes)}"
@@ -709,32 +1066,26 @@ def _synthetic_prompt(nodes: list[dict], objective: str) -> str:
 
 
 def _substantive(s) -> bool:
-    """A digest contribution is usable as a derivation bullet only if it is a real clause — not a
-    stray fragment ('D', 'Esta.') that a truncated or wrong-language model digest can leave behind.
-    Requires a non-trivial length and at least two words."""
-    return isinstance(s, str) and len(s.strip()) >= 15 and len(s.strip().split()) >= 2
+    """A digest contribution is usable as a derivation bullet only if it is a real clause — not a stray
+    fragment ('D', 'Esta.') a truncated/garbled digest leaves behind. LANGUAGE-AGNOSTIC: a non-trivial
+    length floor PLUS either >=2 whitespace tokens (space-delimited scripts) OR any CJK/non-Latin
+    character — so a CJK sentence (no inter-word spaces, one `split()` token) is NOT wrongly rejected."""
+    if not isinstance(s, str):
+        return False
+    t = s.strip()
+    return len(t) >= 15 and (len(t.split()) >= 2 or any(ord(c) > 0x2E80 for c in t))
 
 
-def _digest_derivation(nodes: list[dict], lead: str) -> dict:
-    """A `derivation` block built from the nodes' digest CONTRIBUTIONS — the rich-rite derivation
-    move, off the digests (not the essays). The bullets are each node's one-line arc contribution;
-    degenerate fragments are dropped so junk never reaches the page."""
+def _digest_derivation(nodes: list[dict]):
+    """The derivation move as a `derivation` BLOCK off the nodes' digest CONTRIBUTIONS (in the
+    content's language). Satisfies the move BY TYPE — no hardcoded-language title/lead (Slice 1).
+    Returns None when NO contribution is substantive (every digest truncated/garbled): emitting a
+    block of one-letter fragments or blanks would reintroduce the junk the filter suppresses, so we
+    omit the move and let the close gate flag it honestly (→ the improve loop re-produces)."""
     bullets = [c for n in nodes
                for c in [(n.get("digest") or _empty_digest())["contribution"]]
                if _substantive(c)]
-    return {"type": "derivation", "title": "The through-line",
-            "text": lead, "bullets": bullets or [lead]}
-
-
-def _boundary_block(nodes: list[dict]) -> dict:
-    """A `what-i-dont-know` callout — the rich-rite boundary move. Draws the open tensions from the
-    digests' `assumed_prior` where present, else a default boundary; always names the lineage."""
-    # the text MUST carry a rich-rite boundary MARKER ("uncertain"): the title is excluded from the
-    # marker scan and "open questions" (plural) misses the "open question" marker, so a markerless
-    # text fails rich-rite:what-i-dont-know (the dogfood-surfaced regression).
-    return {"type": "callout", "variant": "info", "title": "What I don't know",
-            "text": ("What remains uncertain — the open questions this synthesis did not "
-                     "resolve; it builds on the excavate seed and the prior nodes.")}
+    return {"type": "derivation", "bullets": bullets} if bullets else None
 
 
 # The synthetic shape floor — a sane char floor + a content-relative visual-density check
@@ -767,8 +1118,11 @@ def _synthetic_shape_violations(synth_blocks, full_spec, objective: str) -> list
     return _genus_violations(full_spec, objective)
 
 
+_UNSET = object()  # distinguishes "caller passed no consolidated gap (legacy)" from "reconcile found none"
+
+
 def conciliate(nodes: list[dict], outline: list[dict], objective: str, complete_fn,
-               *, seed=None) -> tuple:
+               *, seed=None, consolidated_gap=_UNSET) -> tuple:
     """Conciliate the filled, digested nodes into the TWO altitudes (#36), working off the
     DIGESTS (not the full essays). Returns `(deep_spec, synthetic_spec, synthetic_shape)`:
       - `deep_spec`  — the node bodies assembled with the redundant per-node intros removed (the
@@ -785,6 +1139,11 @@ def conciliate(nodes: list[dict], outline: list[dict], objective: str, complete_
     already carry each node's place. `seed` is keyword-only (default None) for the content-derived
     section titles (D4); the deep titles also fall back to the writer's own node `title`."""
     seed = seed or {}
+    # The knowledge-boundary block (D-B): when run_conductor ran `reconcile`, it passes the ONE
+    # consolidated gap-table (per-node duplicates already stripped, seed residuals folded in) — used
+    # for BOTH altitudes, so each carries exactly one gap-table. Legacy callers (no reconcile) keep
+    # the old per-spec `_residual_gaps(seed)` behavior via the _UNSET sentinel.
+    boundary = _residual_gaps(seed) if consolidated_gap is _UNSET else consolidated_gap
     # (a) DEEP — the smoothed full report: every node's typed blocks (already normalized in
     # fill_node — hollow/malformed dropped), with content-derived titles (D4, never the scaffold
     # intent), then the derivation + boundary moves attached so it clears the floor.
@@ -792,11 +1151,11 @@ def conciliate(nodes: list[dict], outline: list[dict], objective: str, complete_
         {"title": _section_title(n, seed), "blocks": n.get("blocks") or []}
         for n in nodes
     ]
-    deep_sections.append({"title": "Why this holds", "blocks": [
-        _digest_derivation(nodes,
-                           "It follows from the assembled findings that the objective is "
-                           "reachable — the synthesis derives it, not asserts it.")]})
-    deep_sections.append({"title": "Open questions", "blocks": [_boundary_block(nodes)]})
+    _deep_deriv = _digest_derivation(nodes)
+    if _deep_deriv:
+        deep_sections.append({"title": "", "blocks": [_deep_deriv]})
+    if boundary:
+        deep_sections.append({"title": "", "blocks": [boundary]})
     deep_spec = {"title": objective[:120], "sections": deep_sections}
 
     # (b) SYNTHETIC — the conciliator's 2-page through-line over the digests, now emitted as TYPED
@@ -810,14 +1169,22 @@ def conciliate(nodes: list[dict], outline: list[dict], objective: str, complete_
     prose_body = _prose_outside_fences(raw)
     synth_blocks = parsed["blocks"] or (
         [{"type": "paragraph", "text": prose_body}] if prose_body else [])
-    synthetic_spec = {"title": objective[:120], "sections": [
-        {"title": "Synthesis", "blocks": synth_blocks},
-        {"title": "Why this holds", "blocks": [
-            _digest_derivation(nodes,
-                               "It follows that the objective is reachable from the synthesis "
-                               "of the nodes — derived, not asserted.")]},
-        {"title": "Open questions", "blocks": [_boundary_block(nodes)]},
-    ]}
+    # Visual invariant: the synthetic owns NO drawn visual either (chart/diagram come only from the
+    # grounded Slice-4 post-pass) — strip any the conciliator slipped in.
+    synth_blocks = [b for b in synth_blocks if render.canonical_block(b)[0] not in _DRAWN_VISUALS]
+    # If stripping the visual emptied the parsed envelope but the conciliator wrote loose prose
+    # outside the fence, keep that prose (Codex P2 — don't treat a real synthesis as empty).
+    if not synth_blocks and prose_body:
+        synth_blocks = [{"type": "paragraph", "text": prose_body}]
+    synthetic_sections = [
+        {"title": "", "blocks": synth_blocks},
+    ]
+    _syn_deriv = _digest_derivation(nodes)
+    if _syn_deriv:
+        synthetic_sections.append({"title": "", "blocks": [_syn_deriv]})
+    if boundary:
+        synthetic_sections.append({"title": "", "blocks": [boundary]})
+    synthetic_spec = {"title": objective[:120], "sections": synthetic_sections}
     synthetic_shape = _synthetic_shape_violations(synth_blocks, synthetic_spec, objective)
     return deep_spec, synthetic_spec, synthetic_shape
 
@@ -910,7 +1277,7 @@ def opener_violations(nodes: list[dict]) -> list[dict]:
 
 
 def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
-                  conciliate_fn=None, discharge_fn=None) -> dict:
+                  conciliate_fn=None, discharge_fn=None, visual_dispatch_fn=None) -> dict:
     """Run the conductor pipeline. OFF (default) => passthrough, ZERO model spend (today's
     single-producer pipeline is unchanged). ON => author the place-aware outline from the seed,
     fill each node (the writer sees the whole-outline map and writes as a continuation), gate it
@@ -941,21 +1308,34 @@ def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
         return {"enabled": False, "passthrough": True, "content": None, "outline": [],
                 "deep_spec": None, "synthetic_spec": None,
                 "discharge": [], "genus": {"deep": [], "synthetic": []},
-                "synthetic_shape": [], "opener_flags": []}
+                "synthetic_shape": [], "opener_flags": [], "form_flags": [], "visual_flags": [],
+                "diversity": diversity_report({"sections": []})}  # stable shape: neutral when off
 
     nodes = author_outline(seed, objective)
-    final_nodes = []
+    filled_nodes = []
     for node in nodes:
         filled = fill_node(node, seed, objective, complete_fn, outline=nodes)  # empty->draft, +digest
+        filled = enforce_form(filled)   # Slice 3: drop out-of-form + drawn-visual blocks BEFORE gating
+        filled_nodes.append(filled)
+
+    # Slice 3: a node that owed a structured form but shipped only prose is flagged here (the writer
+    # ignored the form contract) — computed on the FORM-GATED nodes (gap-strip doesn't touch forms).
+    form_flags = [v for n in filled_nodes for v in form_violations(n)]
+
+    # Slice 3: deterministic reconcile — strip per-node CONSUMED gap blocks and build ONE consolidated
+    # gap-table (D-B), which conciliate then attaches once per altitude. Run BEFORE the gates so the
+    # contract/semantic gates judge the FINAL stripped content — a finding that survived only inside a
+    # consumed gap block must register as a DROP, not a clean gate computed before the strip (Codex P2).
+    final_nodes, consolidated_gap = reconcile(filled_nodes, seed)
+
+    for filled in final_nodes:
         filled["gate"] = contract_gate(filled, seed)
         # The SEMANTIC half of the contract review (#36) — enforced, not just defined: a node whose
         # assigned findings the judge ruled NOT delivered is flagged, so it can block the pipeline.
         # The judge is its own injected cognition (`discharge_fn`, a subagent under #40); defaults
         # to `complete_fn` so today's single-completer behavior is unchanged.
         filled["discharge"] = semantic_discharge(filled, seed, discharge_fn or complete_fn)
-        filled["status"] = advance(filled["status"])             # draft -> revised
-        filled["status"] = advance(filled["status"])             # revised -> final
-        final_nodes.append(filled)
+        filled["status"] = advance(advance(filled["status"]))    # draft -> revised -> final
 
     # The per-node discharge failures rolled up — which nodes dropped which assigned findings.
     discharge_failures = [
@@ -966,11 +1346,31 @@ def run_conductor(seed: dict, objective: str, complete_fn, *, is_enabled=None,
     ]
 
     deep_spec, synthetic_spec, synthetic_shape = conciliate(
-        final_nodes, nodes, objective, conciliate_fn or complete_fn, seed=seed)
+        final_nodes, nodes, objective, conciliate_fn or complete_fn,
+        seed=seed, consolidated_gap=consolidated_gap)
+
+    # Slice 4: the grounded visual post-pass, wired at the producer→close seam — it reads the whole
+    # deep report + the seed evidence and splices AT MOST 2 grounded visuals. The subagent dispatch is
+    # the injected #40 seam (the Python can't dispatch a subagent); `visual_dispatch_fn=None` (the
+    # default, and every offline test) is a SAFE NO-OP, so today's behavior is byte-for-byte unchanged.
+    # Lazy import breaks the visuals→conductor cycle. Runs BEFORE genus so a spliced visual is gated.
+    import visuals as _visuals
+    # Ground visuals ONLY on the established FINDINGS, never on `residuals` — residuals are OPEN
+    # QUESTIONS, not facts; grounding a chart on "is latency 50ms?" would launder an unknown into a
+    # visual that looks evidenced (Codex P2).
+    _evidence = {"text": "", "findings": seed.get("findings") or []}
+    deep_spec, visual_flags = _visuals.add_visuals(deep_spec, evidence=_evidence,
+                                                   dispatch_fn=visual_dispatch_fn)
     # Genus-validate BOTH specs before return — degraded content surfaces here, not silently ships.
     genus = {"deep": _genus_violations(deep_spec, objective),
              "synthetic": _genus_violations(synthetic_spec, objective)}
     return {"enabled": True, "passthrough": False, "content": deep_spec, "outline": final_nodes,
             "deep_spec": deep_spec, "synthetic_spec": synthetic_spec,
             "discharge": discharge_failures, "genus": genus,
-            "synthetic_shape": synthetic_shape, "opener_flags": opener_violations(final_nodes)}
+            "synthetic_shape": synthetic_shape, "opener_flags": opener_violations(final_nodes),
+            "form_flags": form_flags, "visual_flags": visual_flags,
+            # Diversity scores ONLY the AUTHORED NODE sections — never the appended derivation/gap
+            # closing scaffold, whose two unique signatures would otherwise mask monotone node bodies
+            # (Codex P2). This is exactly the D-A symptom: identical authored-section templates.
+            "diversity": diversity_report(
+                {"sections": [{"blocks": n.get("blocks") or []} for n in final_nodes]})}
