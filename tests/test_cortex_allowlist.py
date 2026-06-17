@@ -46,11 +46,30 @@ class TheMcpConfigRegistersTheCortexServer(unittest.TestCase):
         self.assertEqual(args, ["/home/x/edge/tools/cortex_mcp.py"],
                          "the server script must be an absolute path rooted at home (cwd-independent)")
 
-    def test_group_resolves_from_target_home_and_overrides_stale_inherited_env(self):
-        # codex final [P2 x2]: with no explicit --group, the group is resolved from the TARGET home's
-        # agent.yaml and BAKED into EDGE_GROUP — overriding any stale EDGE_GROUP the MCP subprocess
-        # would inherit from the launcher env (the cross-install misroute). The baked value is the
-        # target's own identity, NOT the launcher's, even with a foreign EDGE_GROUP set in the env.
+    def test_group_resolves_from_target_agent_yaml_when_no_env_override(self):
+        # codex final [P2]: with no explicit --group AND no EDGE_GROUP env, the group resolves from the
+        # TARGET home's agent.yaml (NOT the launcher checkout) and is baked — so the door reads the
+        # target's own identity, consistent with the rest of the beat, never the launcher's.
+        import os
+        import tempfile
+        import textwrap
+        with tempfile.TemporaryDirectory() as home:
+            (Path(home) / "agent.yaml").write_text(textwrap.dedent("""
+                name: target-install
+                graph_group: target-group
+            """))
+            saved = os.environ.pop("EDGE_GROUP", None)   # no env override
+            try:
+                cfg = cortex_config.mcp_config(home=home, subject="lead")   # no explicit group
+            finally:
+                if saved is not None:
+                    os.environ["EDGE_GROUP"] = saved
+            self.assertEqual(cfg["mcpServers"]["cortex"]["env"]["EDGE_GROUP"], "target-group",
+                             "the baked group must be the TARGET home's agent.yaml identity")
+
+    def test_an_intentional_edge_group_env_override_is_honored(self):
+        # codex final [P2]: the documented EDGE_GROUP override is HONORED (precedence matches
+        # _identity.group()), so the door reads the SAME group as the heartbeat + the rest of the beat.
         import os
         import tempfile
         import textwrap
@@ -60,16 +79,16 @@ class TheMcpConfigRegistersTheCortexServer(unittest.TestCase):
                 graph_group: target-group
             """))
             saved = os.environ.get("EDGE_GROUP")
-            os.environ["EDGE_GROUP"] = "launcher-group"   # a stale inherited value
+            os.environ["EDGE_GROUP"] = "operator-override"
             try:
-                cfg = cortex_config.mcp_config(home=home, subject="lead")   # no explicit group
+                cfg = cortex_config.mcp_config(home=home, subject="lead")   # no explicit --group arg
             finally:
                 if saved is None:
                     os.environ.pop("EDGE_GROUP", None)
                 else:
                     os.environ["EDGE_GROUP"] = saved
-            self.assertEqual(cfg["mcpServers"]["cortex"]["env"]["EDGE_GROUP"], "target-group",
-                             "the baked group must be the TARGET home's, overriding stale inherited env")
+            self.assertEqual(cfg["mcpServers"]["cortex"]["env"]["EDGE_GROUP"], "operator-override",
+                             "an intentional EDGE_GROUP env override is honored (beat consistency)")
 
     def test_an_explicit_group_is_baked_into_edge_group(self):
         cfg = cortex_config.mcp_config(group="given-group", home="/h", subject="lead")
@@ -81,13 +100,19 @@ class TheMcpConfigRegistersTheCortexServer(unittest.TestCase):
         # to win in the subprocess. An empty EDGE_GROUP is falsy in _identity.group(), so the target
         # server falls through to its own agent.yaml and FAILS LOUD on truly-missing identity (ADR-0015),
         # never registers the door against the wrong tenant.
+        import os
         import tempfile
         with tempfile.TemporaryDirectory() as home:   # no agent.yaml in this home
-            cfg = cortex_config.mcp_config(home=home, subject="lead")
+            saved = os.environ.pop("EDGE_GROUP", None)   # truly unresolved: no env, no yaml
+            try:
+                cfg = cortex_config.mcp_config(home=home, subject="lead")
+            finally:
+                if saved is not None:
+                    os.environ["EDGE_GROUP"] = saved
             env = cfg["mcpServers"]["cortex"]["env"]
             self.assertIn("EDGE_GROUP", env, "EDGE_GROUP must be explicitly present to scrub the inherited one")
             self.assertEqual(env["EDGE_GROUP"], "",
-                             "an unresolved target identity scrubs the inherited group (empty), never leaks it")
+                             "a truly-unresolved identity scrubs the inherited group (empty), never leaks it")
 
     def test_the_tool_names_are_namespaced_under_the_server(self):
         # MCP namespaces a server's tools as mcp__<server>__<tool>; the allowlist patterns key on it.

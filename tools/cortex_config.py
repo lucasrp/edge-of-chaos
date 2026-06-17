@@ -103,13 +103,17 @@ def mcp_config(group=None, home=None, subject=None):
             home = None
     if group is None:
         import _identity
-        target_yaml = (Path(os.path.expanduser(home)) / "agent.yaml") if home else None
-        # resolve from the TARGET home's agent.yaml directly (NOT the env, NOT the launcher) so the
-        # baked value is the target's own identity and overrides any stale inherited EDGE_GROUP.
-        if target_yaml and Path(target_yaml).exists():
-            group = _identity._cfg(target_yaml).get("graph_group") \
-                or _identity._cfg(target_yaml).get("name") \
-                or _identity._cfg(target_yaml).get("codename")
+        # Precedence matches _identity.group() so the door reads the SAME group as the rest of the beat
+        # (codex final [P2]): the intentional EDGE_GROUP env override FIRST, then the TARGET home's
+        # agent.yaml (graph_group → name → codename, read straight from the file, never the launcher
+        # checkout). The resolved value is BAKED, so it overrides any stale inherited env in the
+        # subprocess; an unresolved identity bakes empty (the scrub above) and the server fails loud.
+        group = os.environ.get("EDGE_GROUP")
+        if not group and home:
+            target_yaml = Path(os.path.expanduser(home)) / "agent.yaml"
+            if target_yaml.exists():
+                cfg = _identity._cfg(target_yaml)
+                group = cfg.get("graph_group") or cfg.get("name") or cfg.get("codename")
     if not _granted(subject):
         # FAIL-CLOSED (N5): a delta/world OR omitted/unknown subject gets a config with NO cortex
         # server at all — the strongest deny (nothing to inherit). Only an explicit self-cognition is
@@ -162,10 +166,18 @@ def write_config(path, subject, group=None, home=None):
     rendered config is for an explicit cognition, so a world/unknown subject yields an empty config
     rather than an accidentally-open one. Returns the path."""
     import json
+    import os as _os
     if not subject:
         raise ValueError("write_config requires an explicit subject (N5 fail-closed: no unscoped "
                          "cortex config — name the cognition the door is for)")
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(mcp_config(group=group, home=home, subject=subject), indent=2))
+    body = json.dumps(mcp_config(group=group, home=home, subject=subject), indent=2)
+    # ATOMIC write (codex final [P2]): two overlapping heartbeats for the same home write the SAME
+    # fixed path while another claude may be starting from it — a partial write would launch with a
+    # truncated/invalid config. Write to a per-pid temp then os.replace (atomic on POSIX), so a reader
+    # always sees either the old or the new whole file, never a half-written one.
+    tmp = p.with_name(f".{p.name}.{_os.getpid()}.tmp")
+    tmp.write_text(body)
+    _os.replace(tmp, p)
     return p
