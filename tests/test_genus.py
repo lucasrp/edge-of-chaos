@@ -461,6 +461,26 @@ class RichRiteFloorIsContentRelative(unittest.TestCase):
         self.assertTrue(any(v == "rich-rite:lineage" for v in violations),
                         f"a blank-slug lineage item must NOT clear the move, got {violations}")
 
+    def test_target_only_lineage_satisfies_the_lineage_move(self):
+        """Codex: the publisher's primary prior ref is `target` (slug optional) — a target-only authored
+        edge IS materialized as a graph edge, so (aligned with normalize_lineage) it must clear the move."""
+        art = _shallow_prose()
+        art["distills"] = []
+        art["lineage"] = [{"type": "supersedes", "target": "the-prior-thread"}]
+        violations = close.check_genus(art)
+        self.assertFalse(any(v == "rich-rite:lineage" for v in violations),
+                         f"a target-only authored edge must satisfy the lineage move, got {violations}")
+
+    def test_bad_type_lineage_does_not_clear_the_move(self):
+        """SINGLE SOURCE OF TRUTH with normalize_lineage: an out-of-allowlist type (or a no-type item) is
+        dropped — never materialized — so it must NOT clear the move even with a non-blank slug."""
+        art = _shallow_prose()
+        art["distills"] = []
+        art["lineage"] = [{"type": "relates_to", "slug": "x"}, {"slug": "no-type"}]
+        violations = close.check_genus(art)
+        self.assertTrue(any(v == "rich-rite:lineage" for v in violations),
+                        f"a bad-type lineage item must NOT clear the move, got {violations}")
+
     def test_executive_summary_counts_toward_prose_and_carries_moves(self):
         """Codex P2: render renders top-level `executive_summary`, so the floor must read it too —
         a report whose moves live in the exec summary must not be falsely flagged, and a

@@ -45,6 +45,7 @@ import render
 import close
 import producer_descriptor
 from close import check_genus, verify_proof
+from lineage import normalize_lineage  # canonical lineage through persist + projection (matches the proof bind)
 
 # R6 (S10) — adoption telemetry. Visual/labeled block types that, when a producer's DESCRIPTOR requires
 # them, mean the FORM owes a visual (the form half of the `owed` signal; the content half is
@@ -584,6 +585,10 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     verify_proof(verdict, slug=slug, spec=spec, intent=intent,
                  cites=cites or [], proposes=proposes or [],
                  distills=distills, skill=skill, lineage=lineage)
+    # Canonical lineage from here on (Codex): the proof binds the NORMALIZED lineage and the event persists
+    # it, so the live projection must see the SAME — else proof/event-invisible junk (e.g. a blank-slug item
+    # stripped by the digest) could still drive project_artefato and strand projection_complete=false.
+    lineage = normalize_lineage(lineage)
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
     if skill not in PRODUCER_ROSTER:
@@ -598,7 +603,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # run_close's check (Codex P2): the rich-rite floor reads `distills` (lineage) and content, so
     # a report whose lineage rides on its published `distills` would pass run_close but raise here.
     artefato = {"intent": intent, "proposes": proposes or [], "cites": cites,
-                "content": spec, "distills": distills or [], "skill": skill}
+                "content": spec, "distills": distills or [], "skill": skill, "lineage": lineage}
     violations = check_genus(artefato)
     if violations:
         raise ValueError(f"artefato {slug!r} violates the genus contract: {violations}")

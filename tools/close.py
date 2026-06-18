@@ -23,6 +23,7 @@ from html.parser import HTMLParser as _HTMLParser
 import _envconf  # loads the repo-root .env and provides typed EDGE_* reads
 import runstore  # internal-evidence (R8) verification: runstore.attest_value
 import visual_grounding  # S7/R2: per-visual unforgeable grounding attestation (verify is blind-safe)
+from lineage import normalize_lineage  # sanitize authored typed lineage before the proof digest binds it
 
 from render import BLOCK_SCHEMAS, _BLOCK_TYPE_ALIASES
 import render
@@ -1009,13 +1010,11 @@ def _check_rich_rite(artefato: dict) -> list[str]:
     )
     # Cortex-v1 (slice lineage-rich-rite): the AUTHORED typed lineage (the builds_on/supersedes/
     # contradicts edges the publisher materializes) ALSO clears the move — a developed synthesis
-    # that names its prior thread as a typed edge owes no distill. Mirrors real_distill/_nonblank:
-    # an item clears it only if its `slug` is a NON-BLANK string (a placeholder {} or {"slug":"  "}
-    # would not resolve in projection, so it must not clear the move either).
-    real_lineage = any(
-        isinstance(item, dict) and _nonblank(item.get("slug"))
-        for item in (artefato.get("lineage") or [])
-    )
+    # that names its prior thread as a typed edge owes no distill. SINGLE SOURCE OF TRUTH: it clears
+    # the move iff `normalize_lineage` keeps at least one edge — exactly the set the proof binds, the
+    # event persists, and the publisher projects (Codex). So a target-only edge counts (the publisher's
+    # primary prior ref), while a malformed item — bad type, blank/non-string slug AND target — does not.
+    real_lineage = bool(normalize_lineage(artefato.get("lineage")))
 
     has_derivation = has_filled_block(DERIVATION_BLOCK_TYPES) or marked(DERIVATION_MARKERS)
     has_boundary = has_filled_block(BOUNDARY_BLOCK_TYPES) or marked(BOUNDARY_MARKERS)
@@ -1718,7 +1717,9 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
         "proposes": proposes or [],
         "distills": distills or [],
         "skill": skill,
-        "lineage": lineage or [],
+        # normalize so the digest binds ONLY well-formed authored edges — a malformed lineage item can
+        # never be json.dumps(default=str)-coerced into the verification anchor (Cortex-v1 brick-1).
+        "lineage": normalize_lineage(lineage),
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()

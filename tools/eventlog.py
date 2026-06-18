@@ -12,6 +12,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from lineage import normalize_lineage  # persist ONLY well-formed authored lineage (matches the proof bind)
+
 REPO = Path(__file__).resolve().parent.parent
 LOG = REPO / "state" / "events" / "log.jsonl"
 DIRECTION = REPO / "state" / "direction.md"
@@ -388,7 +390,7 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
     events = [
         ("artefato.published", f"artefato:{slug}",
          {"slug": slug, "proposes": proposes or [], "distills": distills or [],
-          "cites": cites or [], "lineage": lineage or [], "spec": spec, "skill": skill}),
+          "cites": cites or [], "lineage": normalize_lineage(lineage), "spec": spec, "skill": skill}),
         ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
         ("artefato.adoption", f"artefato:{slug}", adoption),
     ]

@@ -258,6 +258,44 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             self.assertTrue((Path(tmp) / f"{slug}.html").exists())
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
 
+    def test_run_close_to_publish_lineage_only_richrite_no_split(self):
+        # Codex: a developed-prose artefato whose rich-rite:lineage move is satisfied ONLY by authored
+        # (target-only) lineage passes run_close, mints a proof, and PUBLISHES — the publish-seam genus
+        # recheck now includes the normalized lineage, so close and publish never SPLIT (before the fix the
+        # recheck saw no lineage and would have raised). The persisted event carries the normalized edge.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "lineage-only"
+            content = {"sections": [{"title": "B", "blocks": [
+                {"type": "paragraph",
+                 "text": "Because the evidence shows it, it follows that the gate must bite on substance."},
+                {"type": "paragraph",
+                 "text": "What i do not know: whether this holds under concurrent load at scale."},
+                {"type": "paragraph",
+                 "text": "A second developed paragraph carrying the argument forward in prose here."},
+            ]}]}
+            cites = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True, "snippet": "external frame snippet"}]
+            lineage = [{"type": "supersedes", "target": "thread-7"}]  # target-only: the deciding lineage move
+            art = {"slug": slug, "content": content, "cites": cites, "proposes": [],
+                   "intent": "open: x; bet: y", "skill": "report", "lineage": lineage}
+            published = []
+
+            def publish_fn(artefato, verdict):
+                published.append(publisher.publish(
+                    artefato["slug"], artefato["content"], intent=artefato["intent"],
+                    skill=artefato["skill"], cites=artefato["cites"], lineage=artefato["lineage"],
+                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed, verdict=verdict))
+
+            result = close.run_close(
+                art, produce_fn=lambda: art,
+                reviewers=(close.feynman_review, close.regular_review),
+                complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
+                publish_fn=publish_fn)
+            self.assertTrue(result["pass"])
+            self.assertEqual(len(published), 1)              # no close/publish split — published once
+            corpus = eventlog.corpus_at(log=log)
+            self.assertEqual(corpus[0]["lineage"], lineage)  # normalized target-only edge persisted
+
     def test_hand_built_proof_at_the_seam_raises_and_writes_nothing(self):
         # Codex re-review #2: a forged dict with pass:True + passing verdicts but NO
         # run_close token (and no bound digest) must raise at the seam — the publisher is
@@ -520,8 +558,38 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             self.assertEqual(seen["proposes"], proposes)
             self.assertEqual(seen["cites"], cites)
             self.assertEqual(seen["spec"], _spec())   # the spec is passed for the content embed
-            self.assertIs(seen["lineage"], lineage)  # the EXACT bound list rides to projection (L3), not a copy
+            self.assertEqual(seen["lineage"], lineage)  # projection gets the NORMALIZED lineage — the SAME
+            #   sanitized list the proof binds and the event persists (Codex: no proof/event-invisible junk
+            #   may reach projection), equal-by-value to this already-clean input.
             self.assertEqual(seen["log"], log)         # the projection reads the SAME log (Codex P2)
+
+    def test_clean_plus_junk_lineage_projects_only_normalized(self):
+        # Codex: a proof minted for CLEAN lineage, published with clean+junk — the junk normalizes away so
+        # verify still passes — must hand the projection ONLY the normalized edges (no proof/event-invisible
+        # item like a blank-slug builds_on can drive project_artefato and strand projection_complete=false).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "clean-proj"
+            intent = "open: x; bet: y"
+            cites = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True, "snippet": "snip"}]
+            proposes = [{"body": "name it", "kind": "constraint"}]
+            distills = ["cluster:recall"]
+            clean = [{"type": "supersedes", "target": "thread-7"}]
+            published = clean + [{"type": "builds_on", "slug": "   "}, "junk"]
+            seen = {}
+
+            def project_fn(s, i, *, skill, distills, proposes, cites, spec=None,
+                           lineage=None, log=None):
+                seen["lineage"] = lineage
+
+            publisher.publish(
+                slug, _spec(), intent=intent, skill="report", cites=cites,
+                proposes=proposes, distills=distills, lineage=published, date="2026-06-08",
+                log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=project_fn,
+                verdict=_passing_proof(slug, _spec(), intent, cites=cites,
+                                       proposes=proposes, distills=distills, lineage=clean),
+            )
+            self.assertEqual(seen["lineage"], clean)
 
     def test_failed_projection_does_not_break_the_publish(self):
         # ADR-0011: a projection write that fails is REPORTED, never fatal — the page + the

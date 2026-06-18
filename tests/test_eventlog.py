@@ -541,6 +541,19 @@ class LineageRidesTheAtomicEventIntoTheCorpus(unittest.TestCase):
             self.assertEqual([c["slug"] for c in corpus], ["no-lineage"])
             self.assertEqual(corpus[0]["lineage"], [])
 
+    def test_malformed_lineage_is_sanitized_at_the_publish_seam(self):
+        # Cortex-v1 brick-1: publish_artefato_atomic normalizes lineage, so a malformed item (non-dict,
+        # unknown type, no prior ref) can never ride into the durable event as junk — only well-formed
+        # authored edges persist (matching what close.proof_digest binds).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            dirty = [{"type": "builds_on", "slug": "real"}, "junk",
+                     {"type": "relates_to", "slug": "x"}, {"type": "builds_on"}]
+            eventlog.publish_artefato_atomic(
+                "dirty-lineage", "open: x; bet: y", lineage=dirty, log=log)
+            corpus = eventlog.corpus_at(log=log)
+            self.assertEqual(corpus[0]["lineage"], [{"type": "builds_on", "slug": "real"}])
+
 
 class ProjectCorpusInscribesEachStepsWhy(unittest.TestCase):
     """ADR-0009: state/corpus.md is the corpus projection — part of Memento's tattoo, the zero-memory
