@@ -120,8 +120,15 @@ def _make_fake_writer(seed: dict):
                  "— what i don't know: the open question of scale; this builds on prior work.")
         if fid:
             claim = conductor._finding_by_id(seed, fid).get("claim", "")
-            blocks = [{"type": "paragraph", "text": prose}]
             fb = _block_for_form(_form_in_prompt(prompt))   # follow the per-node form guidance
+            if fb:
+                # R0-for-values: any figure shown in the typed visual must also be stated in prose, so
+                # echo the block's numeric tokens into the paragraph (no number lives ONLY in the visual).
+                nums = sorted(set(re.findall(r"-?\d+(?:\.\d+)?", json.dumps(fb))))
+                if nums:
+                    # trailing word so no number ends on a period (_NUM_TOKEN rejects a digit followed by '.')
+                    prose = prose + " Figures discussed: " + " ".join(nums) + " as shown."
+            blocks = [{"type": "paragraph", "text": prose}]
             if fb:
                 blocks.append(fb)
             digest = _digest(fid)

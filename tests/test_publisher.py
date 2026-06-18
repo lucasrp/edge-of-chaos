@@ -20,6 +20,8 @@ sys.path.insert(0, str(REPO / "tools"))
 import close  # noqa: E402
 import eventlog  # noqa: E402
 import publisher  # noqa: E402
+import render  # noqa: E402
+import visual_grounding  # noqa: E402
 
 _REAL_PROJECT = publisher.project_artefato
 _REAL_PUBLISH = publisher.publish
@@ -114,15 +116,14 @@ def _spec():
 
 
 def _floored_spec():
-    # valid for EVERY roster skill's presentation floor at once (map: >=2 illustrations; plan:
-    # framed steps + an illustration; discovery: contextual framing). ascii-diagram/next-steps-grid/
-    # callout are zero-dep, so these publishes clear genus without vl-convert. report/research owe none.
-    # No executive_summary: with 1 paragraph + 1 callout the prose count is 2 (< the rich-rite
-    # threshold of 3), so a developed-prose synthesis is NOT triggered for report/research.
+    # valid for EVERY roster skill's presentation floor at once. S6/S7 (R1/R2): ascii-diagram is dropped
+    # and the renderable diagram/chart floor is CAPABILITY-CONDITIONAL — with vl-convert ABSENT (this
+    # offline test env) the map/plan visual floor degrades to NOT-OWED (ENV_UNSAT), so no drawn visual is
+    # needed; the plan `framed_steps` (next-steps-grid) and discovery `contextual_framing` (callout) are
+    # non-visual and still satisfied. report/research owe no floor. No executive_summary: 1 paragraph + 1
+    # callout = prose count 2 (< the rich-rite threshold of 3), so the prose-synthesis moves aren't owed.
     return {"sections": [{"title": "Body", "blocks": [
         {"type": "paragraph", "text": "atomic publish plus kernel in one act."},
-        {"type": "ascii-diagram", "content": "A --> B"},
-        {"type": "ascii-diagram", "content": "B --> C"},
         {"type": "next-steps-grid", "items": ["step one", "step two"]},
         {"type": "callout", "text": "framing context"},
     ]}]}
@@ -1299,6 +1300,207 @@ class LineageEdgesAreDirectedInTheLiveGraph(unittest.TestCase):
                          "the corrected republish must remove the stale supersedes edge")
         self.assertEqual(self._edge(self.THIS, "SUPERSEDES", self.OTHER), 1,
                          "the corrected republish must land the new supersedes edge")
+
+
+class AdoptionTelemetryEventAtPublish(unittest.TestCase):
+    """R6 (S10): publish emits a durable `artefato.adoption` event (producer / owed / satisfied /
+    degraded / shortfall / capability_state), so adoption is read off the EVENT STREAM at publish-time,
+    never reconstructed from a retrospective corpus scan."""
+
+    def _publish_and_read(self, slug, spec, *, skill="report", cites=None, visual_flags=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            intent = "next bet: measure adoption"
+            publisher.publish(
+                slug, spec, intent=intent, skill=skill, cites=cites or [], date="2026-06-18",
+                log=log, blog_dir=tmp, embed_fn=_fake_embed, visual_flags=visual_flags,
+                verdict=_passing_proof(slug, spec, intent, cites=cites or [], skill=skill))
+            events = eventlog.read(types=["artefato.adoption"], log=log)
+            self.assertTrue(events, "publish emitted no artefato.adoption event")
+            return events[-1]["payload"]
+
+    def test_prose_only_report_owes_no_visual(self):
+        p = self._publish_and_read("adopt-prose", _spec())
+        self.assertEqual(p["producer"], "report")
+        self.assertFalse(p["owed"])
+        self.assertFalse(p["satisfied"])
+
+    def test_quant_artefato_with_visual_is_owed_and_satisfied(self):
+        spec = {"sections": [{"title": "Data", "blocks": [
+            {"type": "paragraph", "text": "Win rate hit 42%, a 3x speedup, and 88 points — explained here."},
+            {"type": "metrics-grid", "items": [{"value": "42%", "label": "win"},
+                                               {"value": "3x", "label": "speedup"}]}]}]}
+        p = self._publish_and_read("adopt-quant", spec)
+        self.assertTrue(p["owed"])
+        self.assertTrue(p["satisfied"])
+
+    def test_producer_supplied_dict_flags_are_recorded(self):
+        p = self._publish_and_read("adopt-flags", _spec(),
+                                   visual_flags={"degraded": True, "shortfall": True})
+        self.assertTrue(p["degraded"])
+        self.assertTrue(p["shortfall"])
+
+    def test_add_visuals_list_flags_are_recorded(self):
+        # Codex S10: the REAL shape — visuals.add_visuals returns list[str], not a dict. The publisher must
+        # derive shortfall/degraded from it (else a real publish reports false-healthy adoption).
+        flags = ["shortfall: 2 spot(s) selected, 1 grounded",
+                 "dropped spot 1 (chart): chart datum not attributable to the evidence"]
+        p = self._publish_and_read("adopt-listflags", _spec(), visual_flags=flags)
+        self.assertTrue(p["shortfall"])
+        # a degradation marker in the list is reflected too
+        p2 = self._publish_and_read("adopt-degr", _spec(),
+                                    visual_flags=["degraded: ascii fallback (vl-convert absent)"])
+        self.assertTrue(p2["degraded"])
+
+    def test_capability_state_matches_render_backend(self):
+        p = self._publish_and_read("adopt-cap", _spec())
+        self.assertEqual(p["capability_state"], render.diagram_available())
+
+    def test_numeric_dense_executive_summary_is_owed(self):
+        # Codex S10: a numeric-dense executive_summary with no visual still OWES — render renders the
+        # summary as prose, so adoption must not be under-counted at the source.
+        spec = {"executive_summary": ["AUC 85.0, exact_match 0.167, and a 4% delta this run."],
+                "sections": [{"title": "B", "blocks": [
+                    {"type": "paragraph", "text": "Plain prose body with no numbers."}]}]}
+        p = self._publish_and_read("adopt-summary", spec)
+        self.assertTrue(p["owed"])
+        self.assertFalse(p["satisfied"])     # numbers owed a visual, none rendered → adoption shortfall
+
+    def test_metrics_only_artefato_is_owed_and_satisfied(self):
+        # Codex S10: a top-level metrics grid is BOTH the owed quantitative material AND the satisfying
+        # visual — owed and satisfied must agree (never satisfied-but-not-owed, which corrupts the ratio).
+        spec = {"metrics": [{"value": "42%", "label": "win rate"}, {"value": "3x", "label": "speedup"}],
+                "sections": [{"title": "B", "blocks": [
+                    {"type": "paragraph",
+                     "text": "Prose explaining the dashboard above: win rate hit 42% at a 3x speedup."}]}]}
+        p = self._publish_and_read("adopt-metrics-only", spec)
+        self.assertTrue(p["owed"])
+        self.assertTrue(p["satisfied"])
+
+    def test_section_metrics_grid_only_is_owed_and_satisfied(self):
+        # Codex S10: a SECTION-level metrics-grid block (no numeric prose, no descriptor-form) is a
+        # substantive visual → satisfied; it must therefore also be owed (satisfied ⟹ owed).
+        spec = {"sections": [{"title": "B", "blocks": [
+            {"type": "paragraph", "text": "Prose explaining the grid below: win rate 42% and a 3x speedup."},
+            {"type": "metrics-grid", "items": [{"value": "42%", "label": "win"},
+                                               {"value": "3x", "label": "speedup"}]}]}]}
+        p = self._publish_and_read("adopt-section-metrics", spec)
+        self.assertTrue(p["owed"])
+        self.assertTrue(p["satisfied"])
+
+    def test_telemetry_failure_still_emits_an_adoption_event(self):
+        # Codex S10: if the adoption computation fails (schema drift / capability-probe error), publish
+        # must STILL commit an adoption event (with an `error` marker) — never silently drop it, never
+        # block the page. Force render.diagram_available to raise during the publish.
+        orig = render.diagram_available
+        render.diagram_available = lambda: (_ for _ in ()).throw(RuntimeError("probe boom"))
+        try:
+            p = self._publish_and_read("adopt-boom", _spec())
+        finally:
+            render.diagram_available = orig
+        self.assertEqual(p["producer"], "report")
+        self.assertIsNotNone(p.get("error"))          # the failure is recorded, not swallowed
+        self.assertIn("probe boom", p["error"])
+        # Codex S10: an errored record exposes NULL on EVERY countable field — never a partially-computed
+        # or default-False boolean a dashboard would count.
+        for f in ("owed", "satisfied", "degraded", "shortfall", "capability_state"):
+            self.assertIsNone(p[f], f"{f} leaked a countable value on an errored telemetry record")
+
+    def test_eventlog_publish_boundary_always_emits_adoption(self):
+        # Codex S10: the eventlog publish boundary itself synthesizes an adoption event when none is
+        # supplied — no caller (legacy publish_artefato, a direct call) can commit a published artefato
+        # with zero adoption telemetry.
+        import eventlog as _el
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            _el.dispatch_open(log=log)
+            _el.publish_artefato("boundary-slug", "open: x; bet: y", log=log)
+            events = _el.read(types=["artefato.adoption"], log=log)
+            self.assertTrue(events, "the eventlog publish boundary committed no adoption event")
+            self.assertEqual(events[-1]["payload"]["error"], "no-adoption-supplied")
+
+    def test_eventlog_boundary_normalizes_a_malformed_adoption_payload(self):
+        # Codex S10: a partial/malformed adoption dict must NOT pass through as usable telemetry — the
+        # boundary replaces it with an error-marked record whose countable fields are all null.
+        import eventlog as _el
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            _el.dispatch_open(log=log)
+            _el.publish_artefato_atomic("malformed-slug", "open: x; bet: y", skill="report",
+                                        log=log, adoption={"owed": True})  # partial dict
+            p = _el.read(types=["artefato.adoption"], log=log)[-1]["payload"]
+            self.assertEqual(p["error"], "malformed-adoption")
+            for f in ("owed", "satisfied", "degraded", "shortfall", "capability_state"):
+                self.assertIsNone(p[f], f"{f} leaked from a malformed payload")
+
+    def test_eventlog_boundary_nulls_an_errored_countable_payload(self):
+        # Codex S10: a full-shaped payload that ALSO carries an `error` (or non-bool countable fields) must
+        # NOT be counted — the boundary nulls all countable fields while preserving the error message.
+        import eventlog as _el
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            _el.dispatch_open(log=log)
+            bad = {"owed": False, "satisfied": False, "degraded": False, "shortfall": False,
+                   "capability_state": True, "error": "probe boom"}
+            _el.publish_artefato_atomic("errored-slug", "open: x; bet: y", skill="report",
+                                        log=log, adoption=bad)
+            p = _el.read(types=["artefato.adoption"], log=log)[-1]["payload"]
+            self.assertEqual(p["error"], "probe boom")        # message preserved
+            for f in ("owed", "satisfied", "degraded", "shortfall", "capability_state"):
+                self.assertIsNone(p[f], f"{f} stayed countable on an errored record")
+
+    def test_non_bool_dict_flags_are_not_coerced_to_countable(self):
+        # Codex S10: bool("false") is True — a non-bool dict flag must NOT become countable telemetry; it
+        # is recorded as an all-null error instead.
+        p = self._publish_and_read("adopt-strflags", _spec(),
+                                   visual_flags={"degraded": "false", "shortfall": "false"})
+        self.assertIsNotNone(p.get("error"))
+        for f in ("owed", "satisfied", "degraded", "shortfall", "capability_state"):
+            self.assertIsNone(p[f], f"{f} was coerced from a non-bool flag")
+
+    def test_countable_record_requires_a_real_producer(self):
+        # Codex S10: a full-bool payload with NO valid producer (skill) must not be countable — it becomes
+        # an all-null malformed record (per-producer telemetry needs a real producer).
+        import eventlog as _el
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            _el.dispatch_open(log=log)
+            payload = {"owed": True, "satisfied": True, "degraded": False, "shortfall": False,
+                       "capability_state": True, "error": None}
+            _el.publish_artefato_atomic("noskill-slug", "open: x; bet: y", skill=None,
+                                        log=log, adoption=payload)
+            p = _el.read(types=["artefato.adoption"], log=log)[-1]["payload"]
+            self.assertEqual(p["error"], "malformed-adoption")
+            for f in ("owed", "satisfied", "degraded", "shortfall", "capability_state"):
+                self.assertIsNone(p[f])
+
+    def test_tuple_visual_flags_are_an_errored_record(self):
+        # Codex S10: the contract is dict/list/None — a tuple is not a list; it must yield an all-null
+        # errored record, not coerced countable flags.
+        p = self._publish_and_read("adopt-tupleflags", _spec(),
+                                   visual_flags=("shortfall: x", "dropped spot 1"))
+        self.assertIsNotNone(p.get("error"))
+        for f in ("degraded", "shortfall"):
+            self.assertIsNone(p[f])
+
+    def test_eventlog_boundary_overwrites_caller_producer(self):
+        # Codex S10: a caller cannot misattribute the producer — the boundary overwrites it from skill.
+        import eventlog as _el
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            _el.dispatch_open(log=log)
+            payload = {"slug": "x", "producer": "map", "owed": True, "satisfied": True,
+                       "degraded": False, "shortfall": False, "capability_state": True, "error": None}
+            _el.publish_artefato_atomic("attrib-slug", "open: x; bet: y", skill="report",
+                                        log=log, adoption=payload)
+            p = _el.read(types=["artefato.adoption"], log=log)[-1]["payload"]
+            self.assertEqual(p["producer"], "report")   # not the caller's "map"
+
+    def test_form_owed_for_a_visual_descriptor_skill(self):
+        # a `map` owes a visual by its DESCRIPTOR form even without quantitative content; _floored_spec
+        # carries the ascii-diagrams + a callout (so R0 prose owe is met) → owed True.
+        p = self._publish_and_read("adopt-map", _floored_spec(), skill="map")
+        self.assertTrue(p["owed"])
 
 
 if __name__ == "__main__":

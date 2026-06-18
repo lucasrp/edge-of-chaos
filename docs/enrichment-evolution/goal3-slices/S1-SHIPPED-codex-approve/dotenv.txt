@@ -1,0 +1,11 @@
+# edge tunables — loaded by tools/_envconf.py (repo-root .env). The process environment always wins,
+# so an explicit export / secrets/*.env / CI var overrides these. Values here are the in-code defaults.
+
+# --- Review loop (close.py, R7/R5 — slice S1) ---
+# Absolute bound on the improve loop: it runs while the refiner keeps changing the draft and stops on
+# convergence/plateau; a non-converged bound hit fails CLOSED. Operator-set (was roberto's 15-round bail).
+EDGE_IMPROVE_BACKSTOP=15
+# Reviewer strike → re-produce, at most this many times before the gating close hard-fails.
+EDGE_BOUNCE_MAX=1
+# Serendipity may reopen loop-1 (re-gather) at most this many times.
+EDGE_LOOP2_MAX_REOPENS=1

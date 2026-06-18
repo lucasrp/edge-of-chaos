@@ -23,9 +23,15 @@ import producer_descriptor as pd  # noqa: E402
 
 
 def _art(blocks, *, cites=None):
+    # prepend explanatory prose so a visual/labeled block (e.g. comparison-table) doesn't trip R0
+    # (visual-without-prose) — which, being dominant, would SUPPRESS the presentation floor these tests
+    # exercise. R0 must be clean for the R1 presentation violation to surface. The prose also states the
+    # comparison-table's latency figures (300ms vs <100ms) so R0-for-values is satisfied too.
     return {
         "skill": "critique",
-        "content": {"sections": [{"title": "s", "blocks": blocks}]},
+        "content": {"sections": [{"title": "s", "blocks": [
+            _para("The critique weighs the claim: measured latency is 300ms against the <100ms bar it owes.")
+        ] + blocks}]},
         "intent": "open: x; bet: y",
         "cites": cites if cites is not None else [
             {"ref": "r", "snippet": "s", "kind": "mundo", "relevant": True}],
@@ -68,7 +74,11 @@ class GenericEvaluatorEnforcesTheNovelFloor(unittest.TestCase):
                              f"{other} shares floor block types with critique")
 
     def test_satisfying_floor_passes_genus(self):
-        v = close.check_genus(_art([_comparison_table(), _gap_marker()]))
+        # R0 (S2): a visual/labeled structure owes accompanying prose — a real critique explains its
+        # comparison in prose, so the conformant fixture carries a paragraph alongside the table.
+        v = close.check_genus(_art([
+            _para("The latency claim is weighed against the bar it owes, and the open risk is named."),
+            _comparison_table(), _gap_marker()]))
         self.assertFalse(any(x.startswith("presentation") for x in v), v)
         self.assertEqual(v, [])  # nothing owed — clean close
 
