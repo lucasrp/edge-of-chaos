@@ -31,6 +31,12 @@ CURSORS = REPO / "state" / "cursors.json"
 # default sent roberto scanning a nonexistent dir — "nothing new" over a 294-session backlog).
 DISPATCH_MARKER = "Dispatch runtime context"   # strip the edge's own framing (exp-001)
 MIN_CHARS = 200                                 # a substantive delta, not a stray turn
+# Tier-1 ONLY: the body fed to ONE Graphiti episode. The extractor (gpt-4o-mini, 128k-token
+# context) also carries its system prompt + retrieved prior episodes + reserved output, so a whole
+# oversized session shipped as one episode overflowed and was dropped (#53). ~48k chars (~12k
+# tokens) leaves deep headroom and keeps the common case (deltas under budget) a single episode —
+# Tier-0 keeps the FULL body uncapped; only the add_episode boundary chunks.
+MAX_EPISODE_CHARS = 48_000
 
 
 # --- cursors (per-session raw-line watermark already digested) ---
@@ -138,6 +144,33 @@ def _parse_ts(ts):
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def chunk_episode_body(body, max_chars=MAX_EPISODE_CHARS):
+    """Split an episode body into <= max_chars chunks at TURN ('\\n') boundaries, so a large
+    session-delta lands as several sub-episodes that each fit the extractor's context window
+    instead of overflowing as one episode and being dropped whole (#53, ex edge-of-chaos #573).
+    Lossless: ''.join(chunks) == body. A body already under budget is returned as one chunk
+    (the common case — name/behaviour unchanged). A single turn longer than max_chars is
+    hard-split, so a giant paste still lands rather than blocking its session."""
+    if len(body) <= max_chars:
+        return [body]
+    chunks, cur = [], ""
+    for line in body.splitlines(keepends=True):          # keepends → ''.join reconstructs body
+        while len(line) > max_chars:                     # one turn bigger than a whole chunk
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            chunks.append(line[:max_chars])
+            line = line[max_chars:]
+        if cur and len(cur) + len(line) > max_chars:
+            chunks.append(cur)
+            cur = line
+        else:
+            cur += line
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
 def graphiti_ingest(items):
     """Incremental Graphiti extraction (C2): one episode per session-delta, into THIS install's
     own group (agent.yaml identity, #21). Robust: a per-episode failure is logged and skipped (the
@@ -159,16 +192,23 @@ def graphiti_ingest(items):
         g = Graphiti(*neo, llm_client=llm)
         await g.build_indices_and_constraints()
         for it in items:
-            try:
-                await g.add_episode(name=f"session-{it['id'][:8]}", episode_body=it["body"],
-                                    source=EpisodeType.message,
-                                    source_description="Claude work session (mentee<->edge)",
-                                    reference_time=_parse_ts(_first_ts(it["path"])),
-                                    group_id=group)
+            sid = it["id"][:8]
+            ref = _parse_ts(_first_ts(it["path"]))   # all sub-episodes share the session's ref-time
+            chunks = chunk_episode_body(it["body"])   # one big session → several context-fit episodes (#53)
+            failed = False
+            for k, chunk in enumerate(chunks):
+                name = f"session-{sid}" if len(chunks) == 1 else f"session-{sid}-p{k + 1}"
+                try:
+                    await g.add_episode(name=name, episode_body=chunk,
+                                        source=EpisodeType.message,
+                                        source_description="Claude work session (mentee<->edge)",
+                                        reference_time=ref, group_id=group)
+                    print(f"  + ingested {name} ({len(chunk)} chars)")
+                except Exception as e:
+                    failed = True
+                    print(f"  ! FAILED {name}: {type(e).__name__}: {e}")
+            if not failed:           # a session counts as ingested only if every sub-episode landed
                 ok.add(it["id"])
-                print(f"  + ingested session {it['id'][:8]} ({len(it['body'])} chars)")
-            except Exception as e:
-                print(f"  ! FAILED session {it['id'][:8]}: {type(e).__name__}: {e}")
         await g.close()
 
     asyncio.run(go())

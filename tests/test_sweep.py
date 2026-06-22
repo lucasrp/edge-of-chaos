@@ -357,6 +357,40 @@ class GraphIngestIsBestEffort(unittest.TestCase):
             self.assertIn("sessA", sweep.load_cursors(cp))           # cursor advanced
 
 
+class ChunkEpisodeBodyKeepsLargeSessionsUnderContext(unittest.TestCase):
+    """#53 (ex edge-of-chaos #573) — graphiti_ingest shipped each session's ENTIRE body as one
+    episode to gpt-4o-mini; an oversized session overflowed the context window, FAILED, and was
+    silently dropped from the graph while the cursor advanced (no replay) — silent knowledge loss.
+    The fix splits the body into context-sized sub-episodes at TURN ('\\n') boundaries. Tier-0 keeps
+    the full body (no cap — test_large_delta_digested_in_full_not_capped); only the Tier-1
+    add_episode boundary chunks. These pin the PURE splitter — no Neo4j/OpenAI."""
+
+    def test_body_under_budget_is_a_single_chunk_unchanged(self):
+        body = "human: hi\nassistant: hello"
+        self.assertEqual(sweep.chunk_episode_body(body, 1000), [body])
+
+    def test_large_body_splits_into_chunks_each_under_budget(self):
+        body = "\n".join(f"human: turn {i} " + "x" * 200 for i in range(50))
+        chunks = sweep.chunk_episode_body(body, 1000)
+        self.assertGreater(len(chunks), 1)
+        for c in chunks:
+            self.assertLessEqual(len(c), 1000)
+
+    def test_split_is_lossless_and_at_turn_boundaries(self):
+        body = "\n".join(f"human: turn {i} " + "x" * 200 for i in range(50))
+        chunks = sweep.chunk_episode_body(body, 1000)
+        self.assertEqual("".join(chunks), body, "no character may be lost across the split")
+        for c in chunks[:-1]:
+            self.assertTrue(c.endswith("\n"), "a chunk boundary must fall between turns, not mid-turn")
+
+    def test_a_single_oversized_turn_is_hard_split_never_over_budget(self):
+        body = "human: " + "y" * 5000   # one turn far larger than a whole chunk (a giant paste)
+        chunks = sweep.chunk_episode_body(body, 1000)
+        for c in chunks:
+            self.assertLessEqual(len(c), 1000)
+        self.assertEqual("".join(chunks), body, "every character of an oversized turn must still land")
+
+
 class EmbedAndSignalScoresSnippettedCites(unittest.TestCase):
     """ADR-0009 source-feedback (hypothesis tier), the impure boundary: for each cite carrying a
     snippet, emit one `source.signal` scoring cosine(embed(snippet), embed(body)). `embed_fn` is
