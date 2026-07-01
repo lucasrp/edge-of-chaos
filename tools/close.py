@@ -21,6 +21,7 @@ import unicodedata
 from html.parser import HTMLParser as _HTMLParser
 
 import _envconf  # loads the repo-root .env and provides typed EDGE_* reads
+import _llm      # issue #55: LLMTransportError — infra do completer, nunca veredito de conteúdo
 import runstore  # internal-evidence (R8) verification: runstore.attest_value
 import visual_grounding  # S7/R2: per-visual unforgeable grounding attestation (verify is blind-safe)
 from lineage import normalize_lineage  # sanitize authored typed lineage before the proof digest binds it
@@ -1619,6 +1620,18 @@ def _review(focus: str, artefato: dict, complete_fn) -> dict:
     return _parse_verdict(raw)
 
 
+def _log_infra_error(e):
+    """Registra a falha de TRANSPORTE do completer (quota/auth/rede/CLI ausente) como evento
+    `llm.infra_error` no log — de onde o dashboard a exibe — antes de o close subir o erro.
+    O log lê eventlog.LOG na CHAMADA (testável); um log quebrado nunca mascara a infra em si."""
+    try:
+        import eventlog
+        eventlog.append("llm.infra_error", "close",
+                        {"status": e.status, "detail": e.detail}, log=eventlog.LOG)
+    except Exception:  # noqa: BLE001 — o registro é best-effort; o raise da infra é o contrato
+        pass
+
+
 # The canonical reviewer IDENTITIES (Codex re-review #3). A passing proof must carry verdicts
 # from BOTH of these named reviewers; verify_proof requires both. run_close stamps the identity
 # onto each verdict from the canonical reviewer's `.identity` attribute — a fake/injected
@@ -1953,6 +1966,11 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
             for r in reviewers:
                 try:
                     v = r(artefato, complete_fn)
+                except _llm.LLMTransportError as e:
+                    # Infra ≠ feedback (issue #55): um completer com quota morta no estágio
+                    # improve também sobe — rodar o refine contra infra quebrada só queima rounds.
+                    _log_infra_error(e)
+                    raise
                 except Exception as e:  # noqa: BLE001 — feedback only; never crash the refine
                     v = {"pass": False, "scores": {}, "rationales": {},
                          "strikes": [f"reviewer raised: {type(e).__name__}: {e}"], "overall": 0.0}
@@ -2051,6 +2069,11 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
             # that itself raises, so schema drift can only ever cost a bounded failing verdict.
             try:
                 v = r(artefato, complete_fn)
+            except _llm.LLMTransportError as e:
+                # Infra (quota/auth/rede/CLI) NÃO é veredito (issue #55): loga o evento e SOBE —
+                # o produtor vê bilhetagem como bilhetagem, nunca diagnostica "defeito de conteúdo".
+                _log_infra_error(e)
+                raise
             except Exception as e:  # noqa: BLE001 — bound the failure, never crash the close
                 v = {"pass": False, "scores": {},
                      "strikes": [f"reviewer raised: {type(e).__name__}: {e}"], "overall": 0.0}

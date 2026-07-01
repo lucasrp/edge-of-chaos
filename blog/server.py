@@ -24,6 +24,7 @@ BASE = Path(__file__).resolve().parent
 # scan-for-max-seq-then-append (a race that forges duplicate seqs in the source of truth).
 sys.path.insert(0, str(BASE.parent / "tools"))
 import eventlog  # noqa: E402
+import llm_routes  # noqa: E402 — o registry por-rota que o painel /llm consome (issue #55)
 
 app = Flask(__name__)  # template_folder=blog/templates, static_folder=blog/static (the scaffold)
 
@@ -166,6 +167,7 @@ _NAV_LINKS = (
     ("/direction", "direction"),
     ("/docs", "docs"),
     ("/wiki", "wiki"),
+    ("/llm", "llm"),
     ("/ux-catalog", "ux-catalog"),
 )
 
@@ -2326,6 +2328,104 @@ def _migrate_voz_lifecycle():
             grill_drain.backfill_legacy_resolved(_log())
     except Exception:
         pass  # never block startup on the migration; the route also back-fills as a backstop
+
+
+# ── /llm — o painel de rotas LLM (issue #55) ────────────────────────────────────────────────────
+#
+# Um adapter FINO sobre llm_routes: cada rota do agent.yaml com provider/modelo/credencial, probe
+# real sob demanda e troca de provider sem editar YAML na mão — ambos atrás do authorize_write
+# (probe gasta chamada real; a troca muta o fenótipo). A rota embedding rende EM SEPARADO com o
+# aviso de que a assinatura não a cobre; os `llm.infra_error` recentes do log fecham o ciclo da
+# issue: quota morta aparece como INFRA aqui, não como reprovação de revisor no close.
+
+
+def _repo():
+    """A raiz do repo do host (agent.yaml + secrets/). Overridável por env para teste."""
+    return Path(os.environ.get("EDGE_REPO", BASE.parent))
+
+
+def _llm_route_row(r, probe_result=None):
+    cred_cls = "ok" if r["credential"] in ("ok", "assinatura") else "warn"
+    probe_html = ""
+    if probe_result is not None:
+        state = "ok" if probe_result.get("ok") else "warn"
+        probe_html = (f'<div class="meta probe-result {state}">probe: '
+                      f'{_esc(probe_result.get("detail"))}'
+                      + (f' (status {_esc(probe_result.get("status"))})'
+                         if probe_result.get("status") else "") + "</div>")
+    options = "".join(
+        f'<option value="{p}"{" selected" if p == r["provider"] else ""}>{p}</option>'
+        for p in llm_routes.KNOWN_PROVIDERS
+        if not (r["embedding_route"] and p in llm_routes._llm.SUBSCRIPTION_PROVIDERS))
+    return f"""<div class="llm-route" id="route-{_esc(r['route'])}">
+  <h3>{_esc(r['route'])}</h3>
+  <p class="meta">provider <strong>{_esc(r['provider'])}</strong> · modelo
+  <strong>{_esc(r['model'])}</strong> · credencial
+  <span class="{cred_cls}">{_esc(r['credential'])}</span>
+  {('· <span class="meta">' + _esc(r['secret_ref']) + '</span>') if r.get('secret_ref') and not r['subscription'] else ''}</p>
+  {probe_html}
+  <form method="post" action="/llm/probe" class="inline">
+    <input type="hidden" name="route" value="{_esc(r['route'])}">
+    <button type="submit">probe</button>
+  </form>
+  <form method="post" action="/llm/provider" class="inline">
+    <input type="hidden" name="route" value="{_esc(r['route'])}">
+    <select name="provider">{options}</select>
+    <button type="submit">trocar provider</button>
+  </form>
+</div>"""
+
+
+def _llm_infra_errors(limit=5):
+    """Os `llm.infra_error` mais recentes do log — o lado dashboard do contrato do close
+    (issue #55): transporte/bilhetagem visível como infra, nunca reprovação silenciosa."""
+    errs = [e for e in _read_events() if e.get("type") == "llm.infra_error"]
+    return errs[-limit:][::-1]
+
+
+def _llm_panel(probe_route=None, probe_result=None, error=None):
+    rows, embedding_rows = [], []
+    for r in llm_routes.routes(repo=_repo()):
+        pr = probe_result if r["route"] == probe_route else None
+        (embedding_rows if r["embedding_route"] else rows).append(_llm_route_row(r, pr))
+    infra = "".join(
+        f'<li class="warn">{_esc(e.get("ts", ""))} — status {_esc(e["payload"].get("status"))} — '
+        f'{_esc(e["payload"].get("detail"))}</li>'
+        for e in _llm_infra_errors())
+    return _page(
+        "pages/llm.html", current="/llm",
+        error_html=_safe(f'<p class="warn llm-error">{_esc(error)}</p>' if error else ""),
+        routes_html=_safe("".join(rows)),
+        embedding_html=_safe("".join(embedding_rows)),
+        infra_html=_safe(f"<ul>{infra}</ul>" if infra else '<p class="meta">nenhum</p>'))
+
+
+@app.get("/llm")
+def llm_panel():
+    return _llm_panel()
+
+
+@app.post("/llm/probe")
+def llm_probe():
+    if not authorize_write():   # um probe é uma chamada REAL (gasta cota/assinatura) → gated
+        abort(403)
+    route = (request.form.get("route") or "").strip()
+    return _llm_panel(probe_route=route,
+                      probe_result=llm_routes.probe_route(route, repo=_repo()))
+
+
+@app.post("/llm/provider")
+def llm_set_provider():
+    if not authorize_write():
+        abort(403)
+    route = (request.form.get("route") or "").strip()
+    provider = (request.form.get("provider") or "").strip()
+    model = (request.form.get("model") or "").strip() or None
+    try:
+        llm_routes.set_provider(route, provider, repo=_repo(), model=model)
+    except ValueError as e:
+        return _llm_panel(error=str(e)), 400
+    return app.redirect("/llm", code=303)
 
 
 # Migrate on import so the very first read surface (index / chat) already reflects the switch.
