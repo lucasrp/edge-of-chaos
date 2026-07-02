@@ -25,7 +25,7 @@ Before any reasoning, run the mechanical pre-dispatch floor and read its two bri
 
 It sweeps the transcript store to currency (fail-loud, ADR-0015), prints the **briefing** and the
 **recall brief**, and stamps `dispatch.open` in the log. **No wake, no publish**: the close's
-publisher refuses without a stamp newer than the last `artefato.published` — skipping this step
+publisher refuses without a `dispatch.open` that MINTED the artefato's `dispatch_id` and is not yet consumed (identity-held gate, E1) — skipping this step
 dead-ends at publish. (The delta is separate and agentic — fan `skills/delta` when you judge you
 need the world; it never gates.)
 
@@ -77,11 +77,11 @@ You do **not** inline an `eventlog` publish snippet, and you **never** call `pub
 that is the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
 passing-review proof only `close.run_close` mints (it raises without a valid `verdict=`). The proof is
 bound to a sha256 **digest** of the exact publish payload (slug + spec + intent + cites + proposes +
-**distills** + **skill** + **lineage** — EVERY persisted publish arg), carries **both** reviewer verdicts, and stamps a
+**distills** + **skill** + **lineage** + **dispatch_id** — EVERY persisted publish arg), carries **both** reviewer verdicts, and stamps a
 `run_close`-only secret token — so a hand-built dict, a stale proof, a proof minted for a different
 artefato (digest mismatch), or one with `distills`/`skill`/`lineage` altered post-mint cannot publish. Exit through
 the enforced close: build the artefato carrying **every proof-bound field** (`slug`, `intent`,
-`content`=spec, `cites`, `proposes`, **`distills`**, **`skill`**, **`lineage`**) so the minted digest equals the publish
+`content`=spec, `cites`, `proposes`, **`distills`**, **`skill`**, **`lineage`**, **`dispatch_id`** — E1b) so the minted digest equals the publish
 payload, then call `close.run_close(artefato, produce_fn, publish_fn=…)`, which runs the genus contract
 **first** (a genus violation bounces — it can never mint a pass proof) → **both blind reviewers** (bounded
 bounce, `BOUNCE_MAX` — a strike re-produces, then hard-fails) → and **only on pass** mints the bound proof
@@ -102,8 +102,13 @@ confirms the Direction** — pass its candidate steers and provenance through th
 - **`cites`** — each **source** with the snippet you actually used (the intrinsic, mechanical
   **Source-feedback** signal, never a self-rating); `kind` is `mundo` or `atividade`.
 
+The wake's entry-driver printed a machine-readable **`DISPATCH_ID=<id>`** line — carry that exact id
+into the artefato as **`dispatch_id`** (proof-bound like `slug`, E1b; the canonical publish refuses
+without it, E1c — never reconstruct it from the log).
+
       tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import close, publisher; \
         slug='<slug>'; intent='open: …; bet: …'; \
+        dispatch_id='<dispatch-id-from-DISPATCH_ID-line>'; \
         spec={'sections':[{'title':'…','blocks':[ \
           {'type':'derivation','steps':['from first principles: …','[GAP] …','closed by <cite>: …']}, \
           {'type':'paragraph','text':'…'}]}]}; \
@@ -114,11 +119,12 @@ confirms the Direction** — pass its candidate steers and provenance through th
         # the artefato MUST carry EVERY proof-bound field (skill + distills + lineage included): run_close \
         # mints the digest from THIS dict, so it must equal the exact publish payload. \
         artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
-          'cites':cites,'distills':distills,'skill':'research','lineage':lineage}; \
+          'cites':cites,'distills':distills,'skill':'research','lineage':lineage, \
+          'dispatch_id':dispatch_id}; \
         pub=publisher.publish; \
         publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
           skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
-          cites=art['cites'], lineage=art['lineage']); \
+          cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id']); \
         # WIRE REAL RE-PRODUCTION (#30): improve_fn(art, feedback) REVISES the draft from the \
         # reviewers' rationales+strikes — incl. a rich-rite floor strike (derivation / \
         # what-i-dont-know / external-frame / lineage). run_close loops it IMPROVE_ROUNDS=2 BEFORE \

@@ -1707,8 +1707,9 @@ _PROOF_TOKEN = secrets.token_hex(32)
 
 
 def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=None,
-                 lineage=None) -> str:
-    """The sha256 digest BINDING a proof to the EXACT publish payload. Canonical JSON
+                 lineage=None, dispatch_id=None) -> str:
+    """The sha256 digest BINDING a proof to the EXACT publish payload (incl. dispatch_id — E1b:
+    persisted field = digested field). Canonical JSON
     (sorted keys) so the same payload always digests identically and the publisher can
     recompute it from the args it is about to publish — any difference (different slug, spec,
     intent, cites, proposes, distills, skill, or lineage) yields a different digest and is
@@ -1721,7 +1722,12 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
 
     Cortex-v1 (brick-1): `lineage` (the AUTHORED typed builds_on/supersedes/contradicts edges
     the publisher materializes as DIRECTED edges) is bound for the same reason — without the
-    bind the authored lineage is forgeable at publish time."""
+    bind the authored lineage is forgeable at publish time.
+
+    S2 (E1b): `dispatch_id` is bound the same way — it affects the yield-join fold (S7), so it
+    is state-affecting; outside the digest a publish_fn could publish under ANOTHER dispatch_id
+    with no mismatch, corrupting the join without violating the proof. Same class as slug:
+    persisted field = digested field."""
     payload = {
         "slug": slug,
         "spec": spec,
@@ -1733,16 +1739,18 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
         # normalize so the digest binds ONLY well-formed authored edges — a malformed lineage item can
         # never be json.dumps(default=str)-coerced into the verification anchor (Cortex-v1 brick-1).
         "lineage": normalize_lineage(lineage),
+        "dispatch_id": dispatch_id,
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
-                distills=None, skill=None, lineage=None) -> dict:
+                distills=None, skill=None, lineage=None, dispatch_id=None) -> dict:
     """Mint the bound, token-stamped proof for a passing close. Carries BOTH reviewer
     verdicts (each stamped by run_close with its canonical reviewer identity), the digest of
-    the exact payload (now including distills + skill + lineage), and the run_close-only token.
+    the exact payload (now including distills + skill + lineage + dispatch_id, E1b), and the
+    run_close-only token.
 
     Codex re-review #3: this is module-PRIVATE — ONLY `run_close` (and the explicit test-only
     seam standing in for it) calls it. It is no longer a public function a producer could call
@@ -1752,7 +1760,8 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
         "verdicts": list(verdicts),
         "digest": proof_digest(slug=slug, spec=spec, intent=intent,
                                cites=cites, proposes=proposes,
-                               distills=distills, skill=skill, lineage=lineage),
+                               distills=distills, skill=skill, lineage=lineage,
+                               dispatch_id=dispatch_id),
         "token": _PROOF_TOKEN,
         # R5/S1 severity: NON-BLOCKING residual notes the reviewers chose to log rather than strike.
         # A residual can only ride a CLEAN verdict (no strikes); a BLOCKING finding is a strike or a
@@ -1866,11 +1875,12 @@ def _discharge_verdict(verdict, discharged: set):
 
 
 def verify_proof(proof, *, slug, spec, intent, cites, proposes,
-                 distills=None, skill=None, lineage=None, reviewer_count=2):
+                 distills=None, skill=None, lineage=None, dispatch_id=None, reviewer_count=2):
     """Verify a proof BINDS to the payload being published — raise ValueError otherwise,
     BEFORE any state/HTML is written. Refuses unless: the token is run_close's (not a
     fabricated one), the digest matches THIS payload — now including distills + skill +
-    lineage, so a proof-holder cannot alter the persisted distills/skill/lineage (#3) — all
+    lineage + dispatch_id (E1b: a proof-holder cannot alter the persisted
+    distills/skill/lineage nor publish under another dispatch identity, #3) — all
     `reviewer_count` reviewers passed (a single-reviewer proof is rejected), AND the verdicts
     carry BOTH canonical reviewer identities (a proof built from fake/injected reviewers is
     rejected on identity grounds, #3)."""
@@ -1882,7 +1892,8 @@ def verify_proof(proof, *, slug, spec, intent, cites, proposes,
             "publish only through close.run_close (#2)")
     expected = proof_digest(slug=slug, spec=spec, intent=intent,
                             cites=cites, proposes=proposes,
-                            distills=distills, skill=skill, lineage=lineage)
+                            distills=distills, skill=skill, lineage=lineage,
+                            dispatch_id=dispatch_id)
     if not secrets.compare_digest(str(proof.get("digest", "")), expected):
         raise ValueError(
             f"cannot publish artefato {slug!r}: proof digest does not bind to this "
@@ -2103,7 +2114,8 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
                 intent=artefato.get("intent"), cites=artefato.get("cites"),
                 proposes=artefato.get("proposes"),
                 distills=artefato.get("distills"), skill=artefato.get("skill"),
-                lineage=artefato.get("lineage"))
+                lineage=artefato.get("lineage"),
+                dispatch_id=artefato.get("dispatch_id"))
             if publish_fn is not None:
                 publish_fn(artefato, proof)
             return proof

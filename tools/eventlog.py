@@ -9,6 +9,7 @@ import fcntl
 import json
 import math
 import os
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -268,13 +269,19 @@ def report_at(seq=None, ts=None, log=LOG):
 
 
 def publish_artefato(slug, intent, proposes=None, distills=None, cites=None, log=LOG):
-    """Publish an Artefato — the producer-facing path. `intent` is REQUIRED (positional, no default):
-    every real producer passes it and the close seam in publisher.py always does. The call publishes
-    the `artefato.published` AND its `intent.kernel` in ONE indivisible write via
-    `publish_artefato_atomic` — so the producer path pairs the kernel and **cannot** ship C3 debt
-    (Codex re-review #2/round 2). An empty/missing intent raises before anything lands: there is NO
-    kernel-less producer path. The Artefato **declares** candidate steers in `proposes`; it does NOT
-    write Direction itself — the sweep consolidates them. Returns (published_event, kernel_event).
+    """MIGRATION/TEST-ONLY (S2, E1c): the legacy two-arg publish wrapper. It carries NO
+    `dispatch_id`, so on the CANONICAL log it now fails loud inside `publish_artefato_atomic`
+    — by design: production publishes go through publisher.publish → publish_artefato_atomic
+    with the proof-bound dispatch_id (E1b), and this wrapper's only remaining call-sites are
+    tests/migrations over custom logs (verified at the S2 slice: zero production callers).
+    Kept so the legacy shape stays exercisable, never grown the param (the call-sites say so).
+
+    `intent` is REQUIRED (positional, no default). The call publishes the `artefato.published`
+    AND its `intent.kernel` in ONE indivisible write via `publish_artefato_atomic` — so this
+    path pairs the kernel and **cannot** ship C3 debt (Codex re-review #2/round 2). An
+    empty/missing intent raises before anything lands: there is NO kernel-less path. The
+    Artefato **declares** candidate steers in `proposes`; it does NOT write Direction itself —
+    the sweep consolidates them. Returns (published_event, kernel_event).
 
     Manufacturing kernel-less C3 debt on purpose (for the migration over a legacy log or to exercise
     the `artefatos_without_kernel`/`require_kernels` detectors) is reserved to the explicitly-named,
@@ -348,9 +355,34 @@ def _normalized_adoption(slug, skill, adoption):
     return merged
 
 
+def _is_canonical_log(log):
+    """True iff `log` IS the install's canonical event log — compared by NORMALIZED PATH, the
+    same rule as publisher._is_canonical_log (path-equivalence, not object identity). The E1c
+    compatibility contract keys on this: `dispatch_id` is REQUIRED exactly where the yield join
+    (S7) will read it — the canonical log; a temp/custom log (tests, dry-runs) tolerates an
+    absent id and records null honestly. Reads the module-level LOG at CALL time (not a bound
+    default) so a test can point the canonical path at a fixture. A non-path log → not
+    canonical (never raises)."""
+    if log is LOG:
+        return True
+    try:
+        return Path(log).resolve() == Path(LOG).resolve()
+    except Exception:  # noqa: BLE001 — a non-path log → not canonical
+        return False
+
+
+def test_dispatch_id():
+    """TEST-ONLY (S2, E1c): mint a SYNTHETIC dispatch_id for tests/custom logs — VISIBLY
+    synthetic (`test-` prefix) so it can never be mistaken for a predispatch-minted identity
+    in a real join. Production dispatches get their id from predispatch.mint_dispatch_id() at
+    wake and carry it explicitly (E1); this helper exists so a test exercising the
+    canonical-path requirement injects an id instead of weakening the requirement."""
+    return f"test-{secrets.token_hex(8)}"
+
+
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
                             spec=None, log=LOG, *, lineage=None, skill=None, require_wake=False,
-                            adoption=None):
+                            adoption=None, dispatch_id=None):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
     publish seam): you cannot publish without the *why*. Both events land in a single
     `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
@@ -367,15 +399,38 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
     Cortex-v1 (brick-1, slice L2): the payload also carries the authored typed `lineage` (keyword-
     only; the legacy positional form stops at `log`) — builds_on/supersedes/contradicts, the same
     list the close proof binds — so it folds onto the corpus item (fold_corpus) and a later slice
-    replays it as DIRECTED edges. No lineage folds to []."""
+    replays it as DIRECTED edges. No lineage folds to [].
+
+    S2 (E1/E1b/E1c): the payload carries `dispatch_id` — the identity the yield join (S7) keys
+    on, minted at predispatch and carried EXPLICITLY to this seam (never reconstructed from
+    "the last dispatch.open before the publish", E1). REQUIRED on the CANONICAL log: an
+    absent/empty id fails loud with nothing written (opcional-em-produção reabriria o join sem
+    identidade, E1c). A temp/custom log (tests, dry-runs) tolerates an absent id — recorded as
+    null, never fabricated; tests wanting a real-shaped id inject `test_dispatch_id()`."""
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
+    if _is_canonical_log(log) and not (isinstance(dispatch_id, str) and dispatch_id.strip()):
+        raise ValueError(
+            f"cannot publish artefato {slug!r} to the canonical log without a dispatch_id "
+            "(E1c: the yield join's identity — minted by tools/predispatch.py at wake, read "
+            "from its DISPATCH_ID line and carried explicitly; tests/custom logs inject "
+            "eventlog.test_dispatch_id())")
 
     def _wake_gate():
         # ADR-0016, authoritative form (codex gate): evaluated UNDER append_batch's lock, so one
         # stamp admits exactly ONE publish — a concurrent caller that raced past an early
-        # fast-fail check still loses here, with nothing written.
-        if not wake_fresh(log=log):
+        # fast-fail check still loses here, with nothing written. S2 gate D1: an id-carrying
+        # publish gates on the IDENTITY-HELD check (E1: the id is consumed under THIS lock —
+        # concurrent dispatches never spend each other's stamps, and an id no wake minted never
+        # publishes); the legacy global check remains only for id-less callers.
+        if isinstance(dispatch_id, str) and dispatch_id.strip():
+            if not wake_fresh_for(dispatch_id, log=log):
+                raise RuntimeError(
+                    f"no-wake: cannot publish {slug!r} under dispatch_id {dispatch_id!r} — "
+                    "no unconsumed dispatch.open minted that id on this log (E1 identity-held "
+                    "gate; ADR-0016: run tools/predispatch.py and carry ITS id; one wake per "
+                    "publish)")
+        elif not wake_fresh(log=log):
             raise RuntimeError(
                 f"no-wake: cannot publish {slug!r} — no dispatch.open newer than the last "
                 "artefato.published on this log (ADR-0016: run tools/predispatch.py; "
@@ -390,7 +445,8 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
     events = [
         ("artefato.published", f"artefato:{slug}",
          {"slug": slug, "proposes": proposes or [], "distills": distills or [],
-          "cites": cites or [], "lineage": normalize_lineage(lineage), "spec": spec, "skill": skill}),
+          "cites": cites or [], "lineage": normalize_lineage(lineage), "spec": spec,
+          "skill": skill, "dispatch_id": dispatch_id}),
         ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
         ("artefato.adoption", f"artefato:{slug}", adoption),
     ]
@@ -418,11 +474,37 @@ def dispatch_open(payload=None, log=LOG):
 
 def wake_fresh(log=LOG):
     """True when a `dispatch.open` is newer than the last `artefato.published` (ADR-0016) — one
-    wake per publish; a stamp is consumed by the publish it precedes and cannot be reused."""
+    wake per publish; a stamp is consumed by the publish it precedes and cannot be reused.
+
+    LEGACY GLOBAL form (S2 gate D1): compares global maxima, so concurrent dispatches spend
+    each other's stamps (the race ADR-0016's Consequences accepted, now hardened). The canonical
+    id-carrying publish path gates on the IDENTITY-HELD `wake_fresh_for` instead; this stays for
+    id-less callers (the pre-S2 shape) only."""
     evs = read(types=["dispatch.open", "artefato.published"], log=log)
     last_open = max((e["seq"] for e in evs if e["type"] == "dispatch.open"), default=None)
     last_pub = max((e["seq"] for e in evs if e["type"] == "artefato.published"), default=None)
     return last_open is not None and (last_pub is None or last_open > last_pub)
+
+
+def wake_fresh_for(dispatch_id, log=LOG):
+    """The IDENTITY-HELD wake gate (S2 gate D1, refines ADR-0016 per E1: the id is consumed
+    under the same lock, never a global boolean): True iff a `dispatch.open` whose payload
+    MINTED this dispatch_id exists AND no `artefato.published` has consumed it yet. Two
+    concurrent dispatches each hold their own stamp — neither publish spends the other's — and
+    an id no wake ever minted can never publish (proof-bound ≠ provenance: the digest proves
+    what was reviewed; THIS proves the wake that named it ran). A hollow/non-string id is never
+    fresh (nothing to hold). Same payload tolerance as the other folds: a corrupt/non-dict
+    payload simply never matches."""
+    if not (isinstance(dispatch_id, str) and dispatch_id.strip()):
+        return False
+    evs = read(types=["dispatch.open", "artefato.published"], log=log)
+
+    def _did(e):
+        p = e.get("payload")
+        return p.get("dispatch_id") if isinstance(p, dict) else None
+    opened = any(e["type"] == "dispatch.open" and _did(e) == dispatch_id for e in evs)
+    consumed = any(e["type"] == "artefato.published" and _did(e) == dispatch_id for e in evs)
+    return opened and not consumed
 
 
 def source_signal(slug, ref, kind, similarity, log=LOG):

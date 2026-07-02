@@ -22,10 +22,14 @@ directly.
        tools/edge-python tools/predispatch.py
 
    It sweeps to currency (fail-loud store, ADR-0015), composes the briefing + the recall brief,
-   and stamps **`dispatch.open`** in the log. The stamp is the teeth: the publisher refuses to
-   publish without a `dispatch.open` newer than the last `artefato.published` — **no wake, no
-   publish**. Skipping this step dead-ends at the close. Delta stays agentic and is never
-   stamped nor gated (ADR-0001/0011).
+   stamps **`dispatch.open`** in the log and prints the machine-readable **`DISPATCH_ID=<id>`**
+   line first on stdout (S2, E1 — carry that id into the artefato). The stamp is the teeth,
+   and it is **identity-held**: the publisher refuses to publish unless the `dispatch.open`
+   that MINTED the artefato's `dispatch_id` exists and is still unconsumed by a prior
+   `artefato.published` — **no wake, no publish**, one wake per publish, and concurrent
+   dispatches never spend each other's stamps (a legacy id-less publish falls back to the
+   global newest-stamp check). Skipping this step dead-ends at the close. Delta stays agentic
+   and is never stamped nor gated (ADR-0001/0011).
 
 2. **producer-loop — the scaffold.** The producer fills the three role-defined slots of the
    shared scaffold (`skills/_shared/scaffold.md`): loop1 (`gather-grounding`: explorers →

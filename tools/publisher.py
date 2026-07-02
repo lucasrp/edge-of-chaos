@@ -552,11 +552,13 @@ _DEFAULT_PROJECT = object()  # sentinel: "use module project_artefato" (resolved
 
 
 def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=None,
-            cites=None, lineage=None, date=None, log=eventlog.LOG, blog_dir=BLOG_DIR,
-            embed_fn=None, project_fn=_DEFAULT_PROJECT, visual_flags=None) -> Path:
+            cites=None, lineage=None, dispatch_id=None, date=None, log=eventlog.LOG,
+            blog_dir=BLOG_DIR, embed_fn=None, project_fn=_DEFAULT_PROJECT,
+            visual_flags=None) -> Path:
     """Publish an Artefato: render → self-contained neutral HTML → atomic state record.
 
     #2/#3 at the seam: RAISES ValueError unless `verdict` is the UNFORGEABLE, BOUND proof
+    (binding covers slug+spec+intent+cites+proposes+distills+skill+lineage+dispatch_id — E1b)
     `close.run_close` mints — `close.verify_proof` requires the run_close-only token, a digest
     that BINDS to THIS exact payload (slug + spec + intent + cites + proposes + distills +
     skill + lineage), both blind reviewers passed, and both CANONICAL reviewer identities are
@@ -574,17 +576,35 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     cites re-emit the signals via `reproject_missing_pages`. Signal emission is non-fatal to the
     page (#4). Returns the written page Path. `date` is a param (defaults to today) so tests pin
     it; `embed_fn` is injectable so the source-signal step runs offline.
+
+    S2 (E1/E1b/E1c): `dispatch_id` is the dispatch's IDENTITY — the producer's publish_fn reads
+    it off the proof-bound artefato (`dispatch_id=art['dispatch_id']`), verify_proof binds it
+    into the digest (a publish under another dispatch identity is a digest mismatch, E1b), and
+    `publish_artefato_atomic` persists it on the event — REQUIRED there for the canonical log
+    (E1c), so a canonical publish without it fails loud before anything lands.
     """
     # ADR-0016 FIRST — no wake, no publish: the refusal names the real gap (`no-wake`), not a
-    # proof error. The stamp is checked on the SAME log this publish would commit to.
-    if not eventlog.wake_fresh(log=log):
+    # proof error. The stamp is checked on the SAME log this publish would commit to. S2 gate
+    # D1: an id-carrying publish fast-fails on the IDENTITY-HELD check (E1 — this dispatch's
+    # OWN stamp, unconsumed; the global newest-stamp check would let concurrent dispatches
+    # spend each other's wakes and let an unminted id ride a valid proof). The authoritative
+    # form of the same check runs under the eventlog lock at the commit below; id-less callers
+    # keep the legacy global check.
+    if isinstance(dispatch_id, str) and dispatch_id.strip():
+        if not eventlog.wake_fresh_for(dispatch_id, log=log):
+            raise RuntimeError(
+                f"no-wake: cannot publish {slug!r} under dispatch_id {dispatch_id!r} — no "
+                "unconsumed dispatch.open minted that id on this log (E1 identity-held gate; "
+                "ADR-0016: run tools/predispatch.py at dispatch entry and carry ITS id; one "
+                "wake per publish)")
+    elif not eventlog.wake_fresh(log=log):
         raise RuntimeError(
             f"no-wake: cannot publish {slug!r} — no dispatch.open newer than the last "
             "artefato.published on this log (ADR-0016: run tools/predispatch.py at dispatch "
             "entry; one wake per publish)")
     verify_proof(verdict, slug=slug, spec=spec, intent=intent,
                  cites=cites or [], proposes=proposes or [],
-                 distills=distills, skill=skill, lineage=lineage)
+                 distills=distills, skill=skill, lineage=lineage, dispatch_id=dispatch_id)
     # Canonical lineage from here on (Codex): the proof binds the NORMALIZED lineage and the event persists
     # it, so the live projection must see the SAME — else proof/event-invisible junk (e.g. a blank-slug item
     # stripped by the digest) could still drive project_artefato and strand projection_complete=false.
@@ -630,7 +650,8 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
 
     eventlog.publish_artefato_atomic(slug, intent, proposes=proposes, distills=distills,
                                      cites=cites, spec=spec, skill=skill, log=log,
-                                     lineage=lineage, require_wake=True, adoption=adoption)
+                                     lineage=lineage, require_wake=True, adoption=adoption,
+                                     dispatch_id=dispatch_id)
 
     # the page is a PROJECTION written after the commit — a failure here is recoverable.
     _write_page(out, page)
