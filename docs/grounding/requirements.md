@@ -122,7 +122,8 @@ rodadas e vira ruído.
 
 ## 8. Source roadmap + painel
 
-- **R8.1** Materializar `state/source-roadmap.md` (prometido no glossário, ausente no disco): seed
+- **R8.1** SUBSTITUIR `state/source-roadmap.md` (o arquivo no disco é STALE de outra era — aponta
+  edge-of-chaos e HOME de vboxuser; gate codex N9): seed
   renderizado do agent.yaml (piso never-blank), + idiomas/canários medidos (R2.5-R2.6), + priors de
   intent do operador (exploração→X, científico→arxiv, deep-research→exa), + heurísticas resgatadas
   das primitivas mortas. Calibragem escreve por cima; yield audita.
