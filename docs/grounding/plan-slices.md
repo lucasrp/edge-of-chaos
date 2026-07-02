@@ -15,7 +15,7 @@ re-trabalha o join depois (E1/E3 são fundações).
 ## S1 — eventlog: tipos + folds do grounding
 
 Novos tipos `grounding.manifest`, `grounding.finding`, `canary.result`, `grounding.floor_dark`,
-`grounding.unmanifested`. `fold_grounding` (dedup por `raw_ref` bruto E2b: (session_id, line_offset,
+`grounding.unmanifested`. `fold_grounding` (dedup por `raw_ref` bruto E2b: (session_id, transcript_line/offset,
 tool_use_id, occurrence_index); `supersedes` last-wins por (recognizer_rev, seq); seca-suspeita e
 attribution inferred/unknown contados em `excluded` por motivo) + `grounding_at(seq, ts)`.
 **Verify:** pytest — fixtures de eventos com duplicatas, supersedes, desempate, corrupt payload
@@ -23,14 +23,17 @@ attribution inferred/unknown contados em `excluded` por motivo) + `grounding_at(
 
 ## S2 — dispatch_id: identidade + cadeia proof-bound (E1/E1b/E1c)
 
-Predispatch cunha ULID e o retorna; `dispatch.open` payload ganha campos declarados opcionais
-(theme/intent/geometry — tier `declared`). `artefato` dict ganha `dispatch_id`; entra em
+Predispatch cunha ULID e o EXPÕE machine-readable (linha `DISPATCH_ID=<ulid>` no stdout do
+`predispatch.main()` — o caminho vivo é CLI→skill-snippet em processos separados; retorno in-process
+não atravessa); `dispatch.open` payload ganha o `dispatch_id`, a ÂNCORA DE SESSÃO (session_id +
+offset aproximado) e campos declarados opcionais (theme/intent/geometry — tier `declared`). `artefato` dict ganha `dispatch_id`; entra em
 `proof_digest`/`_mint_proof`/`verify_proof`/`publisher.publish`/`publish_artefato_atomic`
 (obrigatório no log canônico; helper test-only injeta sintético; `publish_artefato` legado =
 migration/test-only). Snippets das producer skills atualizados (`dispatch_id=art['dispatch_id']`).
 **Verify:** suite existente do close VERDE (byte-compat fora do novo campo) + testes novos: digest
 muda se dispatch_id muda; publish canônico sem id falha loud; concorrência (2 dispatches abertos,
-cada publish consome o seu).
+cada publish consome o seu); `tests/test_producers.py` com `dispatch_id` em
+PROOF_BOUND_ARTEFATO_FIELDS e o publish_fn lendo de `art['dispatch_id']` (nunca do log).
 
 ## S3 — agent.yaml schema: interfaces[] + acts (E3)
 
@@ -38,7 +41,11 @@ Migração das fontes atuais pro schema `{interface_id, via, idiom, canary, dry_
 (exa: search-deep + contents como 2 interfaces; x: v2-recent [+ xai como interface declarada-sem-
 chave]; arxiv; hn; github; gdrive: read em interfaces, upload movido pra seção `acts:` HITL).
 Loader com validação (fonte sem interfaces = warning no doctor, não crash; acts nunca viram
-recognizer). Dados medidos do R2.5/R2.6 entram AQUI (canary/idiom/dry_semantics por interface).
+recognizer). Dados medidos do R2.5/R2.6 entram AQUI (canary/idiom/dry_semantics por interface). E a parte
+MACHINE-READABLE do Source roadmap entra NESTE slice: `state/source-roadmap.md` é SUBSTITUÍDO já
+aqui pelo skeleton com o roster correto (Voz fora — E5) + linhas seed com proveniência, para que
+S5 (canário lê spec) e S7 (render never-blank) consumam o arquivo novo; S8 fica só com a prosa
+(guidance por fonte) e os demais textos.
 **Verify:** pytest do loader (schema válido/inválido/legado-sem-interfaces degrada declarado);
 `edge-render`/doctor dry-run verde.
 
@@ -50,10 +57,14 @@ pura; recognizers derivados de `interfaces[].via` (S3) + pseudo-sources websearc
 scripts conhecidos → `attribution: opaque-script`; raw_ref bruto com occurrence_index (uma tool call
 com N queries = N rows); atribuição mapped (meta.json→toolUseId→prompt) / declared (S2) / unknown;
 hits None≠0 sagrado; tool-results derramados seguidos por ponteiro; `unrecognized` tally.
+CADA row emitida carrega `dispatch_id`, mapeado por âncora de sessão + intervalo do dispatch (S2
+grava a âncora no dispatch.open); leitura fora de qualquer intervalo = `dispatch_id: null` +
+attribution orphan — NUNCA reconstruído por "último open" (E1).
 **Verify:** fixtures DOURADAS extraídas do store real desta sessão (curl exa/X/arxiv, WebSearch,
 gh, subagent com meta.json) — cada recognizer com caso feliz + malformado; idempotência (re-run
 sem novos raw_refs = 0 rows novas); teste de retro-harvest (cursor reset → mesmas rows, fold
-deduplica).
+deduplica); fixture com DOIS dispatches na mesma sessão e leituras intercaladas → cada row no
+dispatch certo, intercaladas-fora = orphan.
 
 ## S5 — predispatch: harvest + canário + ambient (R3, design-emissao)
 
@@ -68,14 +79,15 @@ verificada; wake NUNCA raise — fonte morta = perna escura anotada); smoke read
 
 `run_close(..., floor_fn=None)` — violações somadas às do genus (blocking-first herdado);
 `harvest.session_floor()` via recognize() no transcript vivo (locator por índice E7;
-`grounding.floor_dark` contado; knob `EDGE_GROUNDING_FLOOR=0/1/2` default 1=observe).
+`grounding.floor_dark` contado; knob `EDGE_GROUNDING_FLOOR=0/1/2` default **0=off** — observe é degrau de ROLLOUT pós-S9, não default de código, senão quebra o byte-compat que o próprio verify exige).
 Publish-with-residuals: branch na exaustão de bounce pós-review (genus limpo + só strikes reais —
 strikes sintéticos/transport re-raise desqualificam); seção "Crítica não endereçada" apensada a
 `additional_sections` ANTES do mint; re-roda genus pós-append (sujo → hard-fail); `unaddressed` no
 proof (nome distinto de `residual`) e campo de 1ª classe no evento; `verify_proof` branch
 `residual_publish` (token+digest+identidades mantidos); knobs opt-in default OFF;
 `EDGE_GENUS_BOUNCE_MAX` default = BOUNCE_MAX (E6).
-**Verify:** suite close inteira VERDE com knobs off (byte-compat); fixtures novas: residual-publish
+**Verify:** suite close inteira VERDE com knobs off (byte-compat — floor=0 não apenda NADA);
+teste separado com FLOOR=1: observa, não bloqueia, floor_dark contado; fixtures novas: residual-publish
 feliz; genus-sujo-pós-append hard-faila; transport error nunca vira residual; digest cobre a seção
 apensada; floor=2 bloqueia artefato sem leitura reconhecida (fixture com transcript sintético).
 
@@ -95,9 +107,8 @@ painel com fixture; painel mostra fonte-declarada-sem-chave como perna morta.
 
 CONTEXT.md verbete `Grounding` (R1.1-R1.3 + harvested-never-emitted, com linha *Avoid*); parágrafo
 no slot gather-grounding do scaffold (reads harvested; roadmap lido no gather; yield advisory;
-seca-suspeita não licencia negativa; scripts logam query no stdout); `state/source-roadmap.md`
-SUBSTITUÍDO (skeleton do design-skills §c, Voz REMOVIDA do roster — E5, linhas X/exa/arxiv dos
-dados medidos, seed exa-deep com proveniência); `skills/dig/SKILL.md` (fecho = evento
+seca-suspeita não licencia negativa; scripts logam query no stdout); prosa de guidance do
+`state/source-roadmap.md` (o skeleton machine-readable já foi substituído no S3); `skills/dig/SKILL.md` (fecho = evento
 `grounding.finding` + topic file como projeção — E4); `skills/calibrate/SKILL.md` (pack mecânico
 por subagente próprio ADR-0014; beat=propose, operador=Voz); emenda clerk nos producer skills
 (prosa+brief com ponteiros+pull-channel; devolve slug+custo+resíduos+rationales).
@@ -114,8 +125,9 @@ de knobs e o plano de rollout (#248: tudo nasce observe).
 
 ## Dependências
 
-S1 → S2 → {S3 → S4 → S5, S6} → S7 → S8 → S9 (S6 depende de S2+S4-parcial [session_floor];
-S8 depende de S4/S7 pros nomes finais; S3 pode andar em paralelo a S2).
+S1 → S2 → S3 → S4 → S5 → S6 → S7 → S8 → S9, com: S3 pode andar em paralelo a S2; S6 depende de
+S2 (dispatch_id) e de S4-parcial (recognize/session_floor) — logo, transitivamente, de S3; S7
+depende de S2+S4 (join) e de S3 (roadmap machine-readable p/ seed).
 
 ## Fora do plano (declarado)
 
