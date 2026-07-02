@@ -14,7 +14,7 @@ objeto citado: URL/commit) + `similarity` (eventlog.py:428). O que os conecta s�
 
 **Salto 1 — slug → dispatch.** O ADR-0016 já é a ligação: um publish consome o `dispatch.open`
 mais novo (`wake_fresh`, eventlog.py:419). Hoje o pareamento é só um invariante de seq; a decisão
-é **materializá-lo**: `publish_artefato_atomic` grava `dispatch_seq` no payload do
+é **materializá-lo**: `publish_artefato_atomic` grava `dispatch_seq [SUPERSEDIDO por E1/E1b: dispatch_id proof-bound]` no payload do
 `artefato.published` — no `_wake_gate`, o único lugar que JÁ computa `last_open` sob o lock (uma
 linha, zero disciplina nova). O fold tolera a ausência (eventos legados): fallback = reconstrução
 por intervalo de seq (o `dispatch.open` máximo < seq do publish). Um stamp aberto que nenhum
@@ -93,7 +93,7 @@ roster/curated/yield atuais, ≤6 linhas, tom de conselho:
 Piso never-blank (ADR-0011, mesmo idioma do roster): sem manifest ainda, o bloco rende as linhas
 seed (§5) — a seção nunca abre vazia nem fabrica contagem.
 
-**Painel `/sources`** (R8.2, irmão do `/llm` — server.py:2333, adapter fino sobre
+**Painel `/sources`** (R8.2, irmão do `/llm` — blog/server.py:2333, adapter fino sobre
 `grounding_yield_at` como `/llm` é sobre `llm_routes`): uma row por source×interface com colunas
 `tentativas · hits · citadas · mean sim · score · secas(por tier) · excluídas(por motivo) ·
 canário · unconsumed`; fonte-declarada-sem-manifest = perna morta visível; orphans/ambiguous no

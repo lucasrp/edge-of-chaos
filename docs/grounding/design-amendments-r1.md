@@ -13,7 +13,7 @@ predispatch (ULID), retornado ao chamador, carregado explicitamente até close/p
 inferência), gravado no payload de `artefato.published`, e consumido sob o mesmo lock do wake-gate.
 Proibido reconstruir por "último dispatch.open antes do publish".
 
-## E2 — dedup por chave estável; retro-harvest é re-FOLD, não re-append (supersede design-emissao §retro-harvest)
+## E2 [texto original SUPERSEDIDO por E2b abaixo] — dedup por chave estável; retro-harvest é re-FOLD, não re-append (supersede design-emissao §retro-harvest)
 
 Log é append-only sem dedupe (eventlog.append); reset de cursor ou crash entre append e cursor-save
 re-emitiria manifests, inflando tentativas/secas/yield (viola ADR-0006 e R2.2e). **Correção:** cada

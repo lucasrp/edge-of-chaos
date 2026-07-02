@@ -127,7 +127,7 @@ rodadas e vira ruído.
   renderizado do agent.yaml (piso never-blank), + idiomas/canários medidos (R2.5-R2.6), + priors de
   intent do operador (exploração→X, científico→arxiv, deep-research→exa), + heurísticas resgatadas
   das primitivas mortas. Calibragem escreve por cima; yield audita.
-- **R8.2** Painel `/sources` no blog server, irmão do `/llm` (#55, server.py:2333): utilização por
+- **R8.2** Painel `/sources` no blog server, irmão do `/llm` (#55, blog/server.py:2333): utilização por
   fonte (tentativas/hits/citações/custo), saúde de canário, secas por tier, fonte-declarada-sem-chave
   = perna morta VISÍVEL.
 
