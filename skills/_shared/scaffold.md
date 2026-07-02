@@ -35,7 +35,7 @@ never what a particular report-form *is*:
   delegation shape**. The slot says "gather grounding," not "fetch this URL." Whether an explorer
   reads a paper, a repo, or a graph thread is the **producer skill's** decision. *How* an explorer reaches a world source is
   the same for every producer and is **never a per-source primitive** (ADR-0001): read the source's
-  `via` spec in `agent.yaml` plus `state/source-roadmap.md` and call it **agentically** — the
+  `interfaces[].via` spec in `agent.yaml` plus `state/source-roadmap.md` and call it **agentically** — the
   install's keys are already loaded. There is no `libexec/` primitive and there never will be; an
   explorer that cannot ground reports *which key it could not work*, never "a primitive is missing"
   and never waits for one to be built.
