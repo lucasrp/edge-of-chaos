@@ -64,5 +64,34 @@ taxa de dark medida for ~0.
 
 ## Nits corrigidos
 
-N8: caminho é `blog/server.py:2333` (não `server.py`). N9: requirements R8.1 corrigido — o
-source-roadmap.md não está "ausente", está STALE (formato antigo); a ação é substituir.
+N8: caminho é `blog/server.py:2333` (não `server.py`) — vale onde design-yield/requirements ainda
+digam `server.py`. N9: requirements R8.1 corrigido — o source-roadmap.md não está "ausente", está
+STALE (formato antigo); a ação é substituir.
+
+---
+
+# Rodada 2 (mesmo thread codex)
+
+## E1b — dispatch_id é PROOF-BOUND (refina E1)
+
+Se o dispatch_id afeta o fold de yield, ele é state-affecting — fora do digest, um publish_fn
+poderia publicar com OUTRO dispatch_id sem mismatch, corrompendo o join sem violar o proof.
+**Correção:** `dispatch_id` entra no dict do artefato e em TODA a cadeia proof-bound —
+`_mint_proof`/`proof_digest`/`verify_proof`/`publisher.publish`/`publish_artefato_atomic` — e os
+snippets de publish das producer skills (report/research/map/...) passam
+`dispatch_id=art['dispatch_id']`. Mesma classe do slug: campo persistido = campo digerido.
+
+## E1c — contrato de compatibilidade do dispatch_id (refina E1)
+
+**Correção:** obrigatório para publish no LOG CANÔNICO; testes/custom logs injetam ID sintético via
+helper test-only; o wrapper legado `eventlog.publish_artefato` é declarado migration/test-only OU
+ganha o parâmetro. Opcional-em-produção é proibido (reabriria o join sem identidade).
+
+## E2b — raw_ref é ocorrência BRUTA; interpretação fica no payload (refina E2)
+
+`interface` é interpretação do recognizer — se entrar no raw_ref, um recognizer corrigido muda a
+chave e o supersedes não encontra o alvo; e uma tool call com N queries colapsaria em 1.
+**Correção:** `raw_ref = (session_id, transcript_line/offset, tool_use_id, occurrence_index)` —
+localização bruta estável, nada de interpretação. source/interface/lens/query vivem no payload
+interpretado; `supersedes` aponta pro MESMO raw_ref; desempate determinístico por
+`(recognizer_rev, seq)`. Ocorrência ≠ leitura-interpretada — duas camadas, como menção ≠ referência.
