@@ -26,7 +26,7 @@ attribution inferred/unknown contados em `excluded` por motivo) + `grounding_at(
 Predispatch cunha ULID e o EXPÕE machine-readable (linha `DISPATCH_ID=<ulid>` no stdout do
 `predispatch.main()` — o caminho vivo é CLI→skill-snippet em processos separados; retorno in-process
 não atravessa); `dispatch.open` payload ganha o `dispatch_id`, a ÂNCORA DE SESSÃO (session_id +
-offset aproximado) e campos declarados opcionais (theme/intent/geometry — tier `declared`). `artefato` dict ganha `dispatch_id`; entra em
+âncora monotônica: offset/cursor comparável) e campos declarados opcionais (theme/intent/geometry — tier `declared`). `artefato` dict ganha `dispatch_id`; entra em
 `proof_digest`/`_mint_proof`/`verify_proof`/`publisher.publish`/`publish_artefato_atomic`
 (obrigatório no log canônico; helper test-only injeta sintético; `publish_artefato` legado =
 migration/test-only). Snippets das producer skills atualizados (`dispatch_id=art['dispatch_id']`).
@@ -47,7 +47,8 @@ aqui pelo skeleton com o roster correto (Voz fora — E5) + linhas seed com prov
 S5 (canário lê spec) e S7 (render never-blank) consumam o arquivo novo; S8 fica só com a prosa
 (guidance por fonte) e os demais textos.
 **Verify:** pytest do loader (schema válido/inválido/legado-sem-interfaces degrada declarado);
-`edge-render`/doctor dry-run verde.
+parse do roadmap NOVO: roster sem Voz, seed rows com proveniência presentes, spec de canário legível
+por fonte; `edge-render`/doctor dry-run verde.
 
 ## S4 — harvest.py: o colhedor (espinha C + E2b)
 
