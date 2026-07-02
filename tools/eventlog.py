@@ -588,6 +588,274 @@ def source_feedback_at(seq=None, ts=None, log=LOG):
     return fold_source_feedback(read(types=SOURCE_FEEDBACK_TYPES, until_seq=seq, until_ts=ts, log=log))
 
 
+# S1 (grounding iteration) — the event family (R2.3: persisted in the house style, new Tier-0
+# types + pure folds). `grounding.manifest` = one recognized READ (the attempt row, E2b shape);
+# `grounding.finding` = the dig's durable achado (E4: the topic file is a projection of it);
+# `canary.result` = one instrument attestation per source×interface (R2.5); `grounding.floor_dark`
+# = the close's floor could not see a transcript (E7: counted, never silent); `grounding.unmanifested`
+# = the blind-leg tally for network-shaped calls no recognizer claimed (enxerto B2).
+GROUNDING_TYPES = ["grounding.manifest", "grounding.finding", "canary.result",
+                   "grounding.floor_dark", "grounding.unmanifested"]
+# fold_grounding consumes ONLY these two: manifests are the attempts, canary.result is what the
+# two-factor dry projection (B1) joins. finding/floor_dark/unmanifested have their own consumers
+# in later slices (S4-S7) — feeding them here would conflate attempts with tallies.
+GROUNDING_FOLD_TYPES = ["grounding.manifest", "canary.result"]
+
+# B1 two-factor TTL: a born-suspect dry read is projected `verificada` only by a canary pass for
+# the SAME source×interface landing AT-OR-AFTER the read and within this window. 6h = 2× the 3h
+# heartbeat: the canary runs at the very NEXT predispatch (design-emissao §2), so two beats of
+# slack tolerate one skipped wake; a pass later than that attests a DIFFERENT instrument state
+# (auth/quota/index drift on the hours scale — the measured failure modes of R2.5), so the read
+# stays suspect (R2.4: seca sem canário = suspeita; a too-late canário is no canário).
+GROUNDING_CANARY_TTL_S = 6 * 3600
+
+# the dry labels that make a row seca-suspeita — excluded from learning (R4.2), counted by reason
+_GROUNDING_SUSPECT_LABELS = ("suspect", "suspect:instrumento", "suspect:overspecified")
+# attribution tiers excluded from learning (design-emissao §3: only mapped/declared feed the
+# bandit — uncertain attribution is instrument bias exactly like seca-suspeita)
+_GROUNDING_EXCLUDED_ATTRIBUTION = ("inferred", "unknown")
+
+
+def _raw_ref_key(v):
+    """A usable raw_ref = EXACTLY the E2b 4-tuple — (session_id, transcript_line_offset,
+    tool_use_id, occurrence_index) — folded to a tuple so it can key the dedup. The raw_ref is
+    the BRUTE occurrence: location, never interpretation, so a corrected recognizer never moves
+    the key and `supersedes` always finds its target. Arity is part of the identity (codex S1
+    gate D4): a 3-field ref is a DIFFERENT, incompatible key — folding it as valid would let two
+    emitters of the same occurrence miss each other's dedup. The SHAPE is semantic, per field
+    (codex round-4): session_id and tool_use_id non-empty str, transcript_line_offset and
+    occurrence_index non-bool int — because True == 1 in Python, a bool in a numeric field would
+    silently COLLAPSE two occurrences into one dedup key (["s", True, "t", 0] == ["s", 1, "t", 0])
+    with corrupt never counted. Anything else is corrupt → None (fail-dark, the same tolerance
+    as fold_direction's _key)."""
+    def _iid(x):  # an identity int: non-bool int (True==1 must never key an occurrence)
+        return isinstance(x, int) and not isinstance(x, bool)
+    if (isinstance(v, (list, tuple)) and len(v) == 4
+            and isinstance(v[0], str) and v[0]
+            and _iid(v[1])
+            and isinstance(v[2], str) and v[2]
+            and _iid(v[3])):
+        return tuple(v)
+    return None
+
+
+def _grounding_ts(v):
+    """Parse an event ts for the canary-TTL join; a corrupt/missing ts → None (no join is ever
+    fabricated from an unreadable clock — the row just stays suspect, fail-dark)."""
+    try:
+        return datetime.fromisoformat(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _event_seq(event):
+    """A COMPARABLE seq for the MAX-direction orderings of the grounding fold — the supersede
+    rank and the final aggregation sort. A corrupt/missing/non-numeric seq ranks 0 (codex S1
+    round-3 B2: sorting on raw seqs TypeErrors the canonical fold when one row carries
+    `seq: "bad"` beside a numeric one — fail-dark, never a raise).
+
+    Direction rule, stated once (codex round-5): CORRUPT MUST LOSE UNDER BOTH DIRECTIONS. Rank-0
+    loses under max() but would WIN under min() — so this helper is only safe where the best
+    rank is the LARGEST. The canary join tie-breaks by min(delta_ts, seq); there a canary with a
+    non-numeric seq is rejected as non-attesting (counted corrupt) instead of normalized, so a
+    corrupt pass can never outrank a valid fail at equal timestamps and mint verificada."""
+    seq = event.get("seq")
+    if isinstance(seq, bool) or not isinstance(seq, (int, float)):
+        return 0
+    return seq
+
+
+def _supersede_rank(payload, event):
+    """The E2b deterministic rank for competing interpretations of one raw_ref — the ORIGINAL
+    row included (codex S1 gate D1): max (recognizer_rev, seq) wins, so a better recognizer
+    outranks a later emission of a worse one, equal revs fall back to last-wins by seq, and a
+    worse/corrupt reinterpretation NEVER defeats a healthier original (supersedes versions the
+    interpretation, it is not an unconditional overwrite). A missing/non-numeric rev ranks -1
+    (below any real one); seq comparability via _event_seq — deterministic fail-dark, never a raise."""
+    rev = payload.get("recognizer_rev")
+    if isinstance(rev, bool) or not isinstance(rev, (int, float)):
+        rev = -1
+    return (rev, _event_seq(event))
+
+
+def _canary_for(row_event, source, interface, canaries):
+    """The canary a born-suspect row joins (B1): same source×interface, landing at-or-after the
+    read within GROUNDING_CANARY_TTL_S (INCLUSIVE at the boundary). Among joinable attestations
+    the CLOSEST at-or-after wins — min (delta_ts, seq) — because the design's flow is dry-read →
+    NEXT-predispatch canary (codex S1 gate D2): a later pass must never retro-verify a read whose
+    NEAREST attestation failed (the recovery attests the instrument NOW, not what the read saw).
+    None when nothing joins: an earlier canary proves nothing about what the read saw (the
+    failure could have started in between), a later-than-TTL one attests a different instrument
+    state, and a ROW without a named source×interface can never join at all (codex round-3 B3 +
+    round-4: None dims must not meet a keyless canary's None dims and mint verificada for an
+    unknown source, and a WHITESPACE-only name is as keyless as a missing one — the join key is
+    the identity, absent identity = no join)."""
+    if not (isinstance(source, str) and source.strip()
+            and isinstance(interface, str) and interface.strip()):
+        return None
+    ts0 = _grounding_ts(row_event.get("ts"))
+    if ts0 is None:
+        return None
+    joinable = []
+    for c in canaries:
+        if c["source"] != source or c["interface"] != interface or c["ts"] is None:
+            continue
+        try:
+            delta = (c["ts"] - ts0).total_seconds()
+        except TypeError:
+            continue  # mixed aware/naive timestamps cannot be compared — no fabricated join
+        if 0 <= delta <= GROUNDING_CANARY_TTL_S:
+            joinable.append((delta, c["seq"], c))
+    return min(joinable, key=lambda t: (t[0], t[1]))[2] if joinable else None
+
+
+def _dry_label(row_event, payload, hits, source, interface, canaries):
+    """The dry taxonomy of ONE row (B1 + R2.4). A row is a dry read when it was born marked
+    `dry: suspect` OR measured 0 hits (hits None is UNKNOWN, never dry — instrument blindness
+    does not fabricate a seca). `seca-verificada` is NEVER read off the row (design-emissao §2:
+    it is a fold that joins suspect ↔ canary, keeping append-only intact): `verificada` needs
+    BOTH factors — canary pass AND idiom_conforme True on the row; canary fail →
+    `suspect:instrumento`; canary pass + idiom VIOLATED (`idiom_conforme is False`) →
+    `suspect:overspecified` (the measured X case: 200+empty on an over-specified query is not
+    health); an ABSENT/non-bool idiom flag attests NEITHER second-factor branch → stays bare
+    `suspect` (codex round-3 B1: not-attested is not a violation — the same anti-coercion rule
+    as the canary pass). `dry_semantics: never-dry` (Exa — the risk is confident filler, not
+    dryness) → `nao-aplicavel`. Not dry → None."""
+    if not (payload.get("dry") == "suspect" or hits == 0):
+        return None
+    if payload.get("dry_semantics") == "never-dry":
+        return "nao-aplicavel"
+    canary = _canary_for(row_event, source, interface, canaries)
+    if canary is None:
+        return "suspect"
+    if not canary["passed"]:
+        return "suspect:instrumento"
+    if payload.get("idiom_conforme") is True:
+        return "verificada"
+    if payload.get("idiom_conforme") is False:
+        return "suspect:overspecified"
+    return "suspect"
+
+
+def fold_grounding(events):
+    """Pure fold of `{grounding.manifest, canary.result}` events → the grounding attempts table
+    (R2.3/R4.1: the DENOMINATOR the yield join consumes; the instrument-health strip the panel
+    renders). No I/O, tolerant like fold_direction: a corrupt manifest is COUNTED (`corrupt`),
+    never raised and never silently dropped.
+
+    Identity (E2b): rows key by the BRUTE `raw_ref`; the FIRST emission wins per raw_ref (the log
+    is append-only with no write-side dedupe — a cursor reset / retro-harvest re-emits, and the
+    re-emission must be a no-op HERE, not prevented there). A row carrying `supersedes: <raw_ref>`
+    REINTERPRETS that occurrence — the winner among the ORIGINAL and its reinterpretations is
+    max (recognizer_rev, seq) (gate D1: a worse/corrupt recognizer never defeats a healthier
+    original), so the raw history is never rewritten, the interpretation is versioned.
+
+    Aggregation: one cell per (source, interface, lens, geometry, intent) — source×interface are
+    DISTINCT entries (R2.2d), intent stratifies when declared (enxerto A2), `geometry: ambient`
+    rides the same fold (R3.1/R3.2: wake health, never a gate). Per cell: `attempts`, `hits` (sum
+    of KNOWN counts, None when none known — a `hits: None` row folds as `hits_unknown`, NEVER
+    coerced to 0), and the `dry` taxonomy (B1, see _dry_label).
+
+    Excluded-from-learning (R4.2): seca-suspeita and attribution inferred/unknown are counted in
+    `excluded` BY REASON — excluded ≠ invisible; the rows still aggregate into their cells
+    (instrument health reads every attempt) and the yield join (S7) drops them from the learning
+    denominator, with this count keeping the estimator's bias magnitude inspectable."""
+    corrupt = 0
+    canaries = []   # interpreted canary.result attestations, in seq order
+    plain = {}      # raw_ref -> (event, payload) of its FIRST emission
+    supers = {}     # raw_ref -> [(event, payload)] reinterpretations targeting it
+    for e in events:
+        t = e.get("type")
+        payload = e.get("payload")
+        p = payload if isinstance(payload, dict) else None
+        if t == "canary.result":
+            ok = p.get("pass") if p is not None else None
+            src = p.get("source") if p is not None else None
+            iface = p.get("interface") if p is not None else None
+            seq = e.get("seq")
+            if ((ok is not True and ok is not False)
+                    or not (isinstance(src, str) and src.strip()
+                            and isinstance(iface, str) and iface.strip())
+                    or isinstance(seq, bool) or not isinstance(seq, (int, float))):
+                # codex S1 gate D3 + round-3 B3 + round-4 + round-5: only a REAL boolean from a
+                # NAMED source×interface with an ORDERABLE seq attests — bool("false") is True
+                # (a coerced pass could project verificada off a FAILED canary), a keyless or
+                # whitespace-keyed canary could match a keyless row's None dims, and a
+                # non-numeric seq cannot be ranked in the join's min() tie-break (normalizing it
+                # to 0 would make corrupt WIN under min() what it loses under max() — see
+                # _event_seq's direction rule). A non-attesting canary is counted corrupt
+                # (visible degradation) and the rows it would have joined just stay suspect.
+                corrupt += 1
+                continue
+            canaries.append({"source": src, "interface": iface, "passed": ok,
+                             "ts": _grounding_ts(e.get("ts")), "seq": seq})
+        elif t == "grounding.manifest":
+            if p is None:
+                corrupt += 1
+                continue
+            if "supersedes" in p:
+                target = _raw_ref_key(p.get("supersedes"))
+                if target is None:
+                    # an unusable target can neither reinterpret nor be trusted as a fresh
+                    # first emission (its raw_ref IS its target per E2b) — counted, not folded
+                    corrupt += 1
+                    continue
+                supers.setdefault(target, []).append((e, p))
+                continue
+            ref = _raw_ref_key(p.get("raw_ref"))
+            if ref is None:
+                corrupt += 1
+                continue
+            plain.setdefault(ref, (e, p))  # first emission wins; re-harvests are no-ops
+    rows = []
+    for ref in set(plain) | set(supers):
+        # the ORIGINAL row competes on the same (recognizer_rev, seq) rank as its
+        # reinterpretations (codex S1 gate D1): a supersede with a worse/corrupt rev must NOT
+        # defeat a healthier original — that would be the exact inversion E2b forbids
+        # (supersedes versions the interpretation, it is not an unconditional overwrite).
+        contenders = list(supers.get(ref, ()))
+        if ref in plain:
+            contenders.append(plain[ref])
+        rows.append(max(contenders, key=lambda ep: _supersede_rank(ep[1], ep[0])))
+    cells = {}
+    excluded = {"seca-suspeita": 0}
+    excluded.update({f"attribution:{a}": 0 for a in _GROUNDING_EXCLUDED_ATTRIBUTION})
+    # _event_seq, not raw seq (codex round-3 B2): a corrupt `seq: "bad"` beside a numeric one
+    # would TypeError this sort — the fold is fail-dark, never a raise
+    for e, p in sorted(rows, key=lambda ep: _event_seq(ep[0])):
+        def _dim(k):  # a non-str dimension is corrupt-typed → folds under None (fail-dark)
+            v = p.get(k)
+            return v if isinstance(v, str) else None
+        key = (_dim("source"), _dim("interface"), _dim("lens"), _dim("geometry"), _dim("intent"))
+        cell = cells.setdefault(key, {"source": key[0], "interface": key[1], "lens": key[2],
+                                      "geometry": key[3], "intent": key[4], "attempts": 0,
+                                      "hits": None, "hits_unknown": 0, "dry": {}})
+        cell["attempts"] += 1
+        hits = p.get("hits")
+        if isinstance(hits, bool) or not isinstance(hits, (int, float)):
+            cell["hits_unknown"] += 1  # None (or corrupt) = unknown — NEVER coerced to 0
+            hits = None
+        else:
+            cell["hits"] = (cell["hits"] or 0) + hits
+        label = _dry_label(e, p, hits, key[0], key[1], canaries)
+        if label is not None:
+            cell["dry"][label] = cell["dry"].get(label, 0) + 1
+            if label in _GROUNDING_SUSPECT_LABELS:
+                excluded["seca-suspeita"] += 1
+        if p.get("attribution") in _GROUNDING_EXCLUDED_ATTRIBUTION:
+            excluded[f"attribution:{p['attribution']}"] += 1
+    return {"cells": cells, "excluded": excluded, "corrupt": corrupt}
+
+
+def grounding_at(seq=None, ts=None, log=LOG):
+    """Fold `{grounding.manifest, canary.result}` events up to a cursor → the grounding attempts
+    table (R2.3). Pure: replaying to a past cursor reconstructs that past interpretation —
+    including the pre-supersede one (E2b: interpretation is versioned, the raw history is not) —
+    strategic versioning, as direction_at/corpus_at. An empty log folds to the empty shape (a
+    dict-returning fold, as source_yield_at)."""
+    return fold_grounding(read(types=GROUNDING_FOLD_TYPES, until_seq=seq, until_ts=ts, log=log))
+
+
 def _direction_ids(events):
     # shares fold_direction's payload/key tolerance (Slice 4 [high], round-4): a TRUTHY non-dict
     # payload (string/list) would AttributeError `.get`, and a non-string id is unhashable in this
