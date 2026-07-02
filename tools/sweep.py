@@ -37,6 +37,13 @@ MIN_CHARS = 200                                 # a substantive delta, not a str
 # tokens) leaves deep headroom and keeps the common case (deltas under budget) a single episode —
 # Tier-0 keeps the FULL body uncapped; only the add_episode boundary chunks.
 MAX_EPISODE_CHARS = 48_000
+# Tier-1 ONLY: the OTHER side of the same window. add_episode internally retrieves the last 10
+# previous episodes (RELEVANT_SCHEMA_LIMIT) as prompt context — 10 x 48k already flirts with the
+# 128k window, and legacy pre-#53 episodes (up to ~200k chars) made EVERY new ingest overflow
+# regardless of the new delta's size, wedging the group (nothing lands, so the window never rolls
+# past the giants). We pass previous_episode_uuids explicitly, greedy most-recent-first under this
+# deterministic char budget (~30k tokens), skipping any single episode over MAX_EPISODE_CHARS.
+PREV_CONTEXT_MAX_CHARS = 120_000
 
 
 # --- cursors (per-session raw-line watermark already digested) ---
@@ -187,6 +194,24 @@ def graphiti_ingest(items):
     group = _identity.require_group()   # resolved ONCE, before any episode (codex gate)
     ok = set()
 
+    async def bounded_previous_uuids(g, ref):
+        """The previous-episode context add_episode would retrieve, bounded: most-recent-first
+        under PREV_CONTEXT_MAX_CHARS, never an episode over MAX_EPISODE_CHARS (a legacy pre-#53
+        giant — one alone can blow the window). Deterministic seam: the tool disposes what the
+        extractor may see, instead of trusting the internal unbounded last-10 retrieval."""
+        eps = await g.retrieve_episodes(ref, last_n=10, group_ids=[group],
+                                        source=EpisodeType.message)
+        chosen, total = [], 0
+        for ep in reversed(eps):                     # chronological → most-recent-first
+            size = len(ep.content)
+            if size > MAX_EPISODE_CHARS:
+                continue
+            if total + size > PREV_CONTEXT_MAX_CHARS:
+                break
+            chosen.append(ep.uuid)
+            total += size
+        return chosen
+
     async def go():
         llm = OpenAIClient(config=LLMConfig(model="gpt-4o-mini", small_model="gpt-4o-mini"))
         g = Graphiti(*neo, llm_client=llm)
@@ -199,10 +224,12 @@ def graphiti_ingest(items):
             for k, chunk in enumerate(chunks):
                 name = f"session-{sid}" if len(chunks) == 1 else f"session-{sid}-p{k + 1}"
                 try:
+                    prev = await bounded_previous_uuids(g, ref)
                     await g.add_episode(name=name, episode_body=chunk,
                                         source=EpisodeType.message,
                                         source_description="Claude work session (mentee<->edge)",
-                                        reference_time=ref, group_id=group)
+                                        reference_time=ref, group_id=group,
+                                        previous_episode_uuids=prev)
                     print(f"  + ingested {name} ({len(chunk)} chars)")
                 except Exception as e:
                     failed = True
