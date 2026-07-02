@@ -41,6 +41,10 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, log=eventlog.LOG):
         recall_fn = _recall.compose_recall_brief
     swept = sweep_fn()                      # raises on a missing store (ADR-0015) — no stamp
     briefing_text = briefing_fn()           # raises on a lobotomized identity — no stamp
+    import voz as _voz
+    voz_section = _voz.brief(log=log)       # bounded (contagens + top-N); '' sem pendência
+    if voz_section:
+        briefing_text = f"{briefing_text}\n\n{voz_section}"
     try:
         recall_text = recall_fn()
     except Exception as e:  # noqa: BLE001 — a dark brief is honest; the wake still ran

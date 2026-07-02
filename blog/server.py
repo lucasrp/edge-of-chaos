@@ -901,7 +901,7 @@ def _posts():
     Folds `artefato.published` (slug + the artifacts it created) joined to its `intent.kernel`
     (the blurb). The log is append-order (oldest→newest); we reverse for newest-first.
     """
-    published, kernels = [], {}
+    published, kernels, teasers = [], {}, {}
     for e in _read_events():  # the shared iterator — skips blanks/garbage AND non-dict lines (round-4)
         t, p = e.get("type"), e.get("payload") or {}
         if not isinstance(p, dict):
@@ -920,44 +920,32 @@ def _posts():
             })
         elif t == "intent.kernel":
             kernels[_as_str(p.get("slug", ""))] = p.get("intent", "")
+        elif t == "artefato.teaser":
+            # a chamada de blog emitida junto com o artefato; last-write-wins re-teasers
+            teasers[_as_str(p.get("slug", ""))] = _as_str(p.get("text", ""))
     posts = [{
         **a,
         "title": a["slug"].replace("-", " "),
         "date": a["ts"][:10],
         "blurb": _blurb(kernels.get(a["slug"], "")),
+        "teaser": teasers.get(a["slug"], ""),
     } for a in published]
     posts.reverse()
     return posts
 
 
-def _distill_chip(d):
-    """One `distills` chip. A distilled Knowledge cluster carries the form `cluster:<id>` — render it
-    as a LIVE drill-down into the cluster thread (/wiki/<id>), so clusters are reachable from an
-    Artefato's distills (PLAN.md accept), not just the standalone /wiki route. Any other distill ref
-    renders as plain escaped text (no link)."""
-    s = str(d)
-    if s.startswith("cluster:") and len(s) > len("cluster:"):
-        cid = s[len("cluster:"):]
-        return (f'<li class="distill">distills · '
-                f'<a href="{_wiki_href(html.escape(cid))}">{html.escape(s)}</a></li>')
-    return f'<li class="distill">distills · {html.escape(s)}</li>'
-
-
-def _artifact_items(post):
-    items = []
-    for c in post["cites"]:
-        items.append(f'<li class="cite">cites · {html.escape(str(c))}</li>')
-    for d in post["distills"]:
-        items.append(_distill_chip(d))
-    for pr in post["proposes"]:
-        body = pr.get("body", "") if isinstance(pr, dict) else str(pr)
-        items.append(f'<li class="proposes">proposes · {_esc(body)}</li>')
-    return f'<ul class="artifacts">{"".join(items)}</ul>' if items else ""
-
-
 def _render_rail(slug):
     """The Voz rail under a post: vote control + the thread region (thread + fresh-nonce composer)."""
     return f'<div class="voz">{_render_votes(slug)}{_thread_region(slug)}</div>'
+
+
+def _teaser_html(post):
+    """A chamada como <p> por parágrafo (layout A); sem teaser, cai no blurb do kernel."""
+    if post.get("teaser"):
+        paras = [p.strip() for p in post["teaser"].split("\n\n") if p.strip()]
+        return '<div class="teaser">' + "".join(
+            f"<p>{html.escape(p)}</p>" for p in paras) + "</div>"
+    return f'<p class="blurb">{html.escape(post["blurb"])}</p>'
 
 
 def _render_post(post):
@@ -966,8 +954,8 @@ def _render_post(post):
         '<article class="post">'
         f'<h2><a href="/e/{slug}.html">{html.escape(post["title"])}</a></h2>'
         f'<time class="meta">{html.escape(post["date"])}</time>'
-        f'<p class="blurb">{html.escape(post["blurb"])}</p>'
-        f'{_artifact_items(post)}'
+        f'{_teaser_html(post)}'
+        f'<p class="readmore"><a href="/e/{slug}.html">ler o artefato &rarr;</a></p>'
         f'{_render_rail(post["slug"])}'
         '</article>'
     )

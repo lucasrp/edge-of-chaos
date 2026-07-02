@@ -26,6 +26,10 @@ directly.
    publish without a `dispatch.open` newer than the last `artefato.published` — **no wake, no
    publish**. Skipping this step dead-ends at the close. Delta stays agentic and is never
    stamped nor gated (ADR-0001/0011).
+   The briefing also carries the **Voz pendente** section (`tools/voz.py brief` — bounded:
+   counts + top-N one-liners): the mentee's undisposed votes/comments. The beat wakes HOLDING
+   the pending Voz as a strong guide (theme-material when it aligns) — but a Directive is
+   resolved by the GRILL, never by jumping the beat's rotation (ADR-0017/0018).
 
 2. **producer-loop — the scaffold.** The producer fills the three role-defined slots of the
    shared scaffold (`skills/_shared/scaffold.md`): loop1 (`gather-grounding`: explorers →
@@ -40,6 +44,18 @@ directly.
    **review→improve** passes (the two improve-gates, one after the other) that revise the draft
    from that feedback BEFORE the gating review seals the proof — so what publishes is exactly what
    the reviewers passed. Then it publishes atomically with its kernel.
+
+   Two sibling acts complete the close, right after the publish:
+   - **the chamada** — append an `artefato.teaser` event (`{slug, text}`, ~3 short paragraphs,
+     blog voice, same language as the artefato): the home's index renders it as the post's
+     body. It introduces and invites the click — name the tension the artefato resolves and
+     the payoff, never manufactured curiosity; the density stays behind the link.
+   - **the Voz cycle** — dispose everything pending: `voz.close_cycle(answered={seq: slug})`
+     (votes get their receipt; a comment this artefato answered closes with its ref; an
+     unanswered comment gets a one-time receipt and stays pending), then
+     `voz.assert_all_received()` — the fail-loud gate that no Voz was ignored without even
+     a receipt. (Enforcement inside `close.run_close` plugs in when the conductor work in
+     `tools/close.py` settles; until then this prose IS the contract.)
 
 ## The testable surfaces
 
