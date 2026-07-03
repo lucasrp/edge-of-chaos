@@ -124,6 +124,18 @@ completa. PR único da branch com o arco (requirements→designs→emendas→sli
 de knobs e o plano de rollout (#248: tudo nasce observe).
 **Verify:** suite verde + smoke com números reais no corpo do PR.
 
+## E8 — fonte é DADO do operador, nunca nome no código (Voz, 2026-07-02)
+
+Tudo deriva do agent.yaml. Critério de aceite transversal (o "teste Overleaf"): um usuário que
+declare uma fonte nunca-vista (ex.: `overleaf`, `interfaces[].via: GET https://api.overleaf.com/...`)
+no yaml DELE tem recognizer (S4), canário (S5) e painel/yield (S7) funcionando SEM mudança de
+código. Vinculante: (a) S4 — recognizers 100% derivados de `interfaces[].via`; única exceção
+sancionada = pseudo-sources nativas do harness (WebSearch/WebFetch), documentadas no docstring;
+teste de fonte-sintética-desconhecida + guard de no-hardcode (zero literais de fonte declarada no
+código); (b) S5 — bateria de canários itera as interfaces DECLARADAS, nenhuma por nome; (c) S7 —
+painel/tabela renderizam o roster do yaml/roadmap, nunca lista fixa. Os gates codex de S4-S7
+verificam E8 explicitamente.
+
 ## Dependências
 
 S1 → S2 → S3 → S4 → S5 → S6 → S7 → S8 → S9, com: S3 pode andar em paralelo a S2; S6 depende de

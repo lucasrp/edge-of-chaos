@@ -41,7 +41,7 @@ ROADMAP = REPO / "state" / "source-roadmap.md"
 # with the raw value kept visible — never silently normalized (the fold must see what was declared).
 DRY_SEMANTICS = ("real", "never-dry", "false-dry-prone")
 
-_IFACE_OPTIONAL = ("idiom", "canary", "dry_semantics", "secret_ref")
+_IFACE_OPTIONAL = ("idiom", "canary", "dry_semantics", "secret_ref", "hit_count")
 
 
 def _finding(level, where, msg):
