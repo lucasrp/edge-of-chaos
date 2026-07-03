@@ -58,7 +58,7 @@ class DispatchOpenCarriesIdentityAndSessionAnchor(unittest.TestCase):
 
     def _run(self, log, **kw):
         return predispatch.run(sweep_fn=lambda: 1, briefing_fn=lambda: "B",
-                               recall_fn=lambda: "R", log=log, **kw)
+                               recall_fn=lambda: "R", harvest_fn=lambda: 0, log=log, **kw)
 
     def test_stamp_carries_dispatch_id_session_and_declared_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
