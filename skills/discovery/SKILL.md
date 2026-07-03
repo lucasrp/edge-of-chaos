@@ -38,11 +38,14 @@ need the world; it never gates.)
 
 The scaffold names three role-defined slots; discovery maps each to its serendipity form:
 
-- **`gather-grounding`** (loop1) — **explore wide and sideways**, then **delegate freely** (`scaffold.md`):
-  fan subagents across **unexpected** sources — exa and the web, other fields, history (how analogous
-  problems were solved elsewhere), adjacent industries — each bringing back a candidate insight `{source,
-  ref}`. The search itself can be the discovery (a paper, a post, a pattern). Breadth here is the point;
-  the aim is not a known target but a *surprising* one.
+- **`gather-grounding`** (loop1) — **recall first, then explore wide and sideways with DIRECT reads by the
+  main agent** (`scaffold.md`, #61): **recall** what the edge already touched, then **you** read across
+  **unexpected** sources — exa and the web, other fields, history (how analogous problems were solved
+  elsewhere), adjacent industries — so the founding context of the surprising find **stays in you**. The
+  search itself can be the discovery (a paper, a post, a pattern). Breadth is the point here, so fanning
+  subagents across independent sources is the **natural optional fan-out** — but it is fan-out for
+  breadth, **not a rebate on reading the sources yourself**; the aim is not a known target but a
+  *surprising* one.
 - **`converge`** (loop2 critic) — judge whether the insight is **genuinely useful and non-obvious** AND
   **contextualized to plenitude**: its application to the mentee's live work spelled out concretely — what
   it changes, where it plugs in, what to try. Ship when the insight lands *and* its use is clear and
@@ -74,7 +77,18 @@ element-vocabulary in `tools/render.py` (paragraph, comparison, callout, derivat
 The publisher renders the spec and wraps it in the self-contained neutral page; you do not write the HTML
 shell or the CSS yourself.
 
-## Publish through the close — show your work (ADR-0007/#14, ADR-0009)
+## Publish through the close — hand the SETTLED artefato to the publisher (Facet B, #61)
+
+**You do not run `close.run_close` inline.** Once the artefato is **SETTLED** — every claim already made, the
+context still rich in your window — **write its fields to disk pointers and hand off to the
+`{prefix}-publisher` subagent** (via the Agent tool, `.claude/agents/publisher.md`) with the **publish-brief**:
+`{dispatch_id, main_session_id (your CLAUDE_CODE_SESSION_ID), skill, intent_kernel, slug, spec_path,
+cites_path, proposes_path, distills_path, lineage_path}` — **pointers, never a context dump**. The publisher
+runs the whole close below in a **clean process** (the heavy publish machine lives in the sub now) and returns
+a typed **pull-channel** `{status, slug, url, cost, residuals, rationales, bounce_reason}`. You **read that
+back**: `published`/`residual-published` → done; `bounced: needs author` → you hold the rich context, so
+re-produce from the named gap and re-hand the pointers under the **same `dispatch_id`** (no re-wake). Your
+window stays on the thinking. The close it runs is exactly:
 
 You do **not** inline an `eventlog` publish snippet, and you **never** call `publisher.publish` directly —
 that is the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
@@ -113,6 +127,7 @@ without it, E1c — never reconstruct it from the log).
       tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import close, publisher, harvest; \
         slug='<slug>'; intent='open: …; bet: …'; \
         dispatch_id='<dispatch-id-from-DISPATCH_ID-line>'; \
+        main_session_id='<main-session-id-from-the-publish-brief>'  # the MAIN's session — the S6 floor's teeth (#61) ; \
         spec={'sections':[{'title':'…','blocks':[ \
           {'type':'callout','variant':'info','text':'the bizu in one line'}, \
           {'type':'paragraph','text':'what it is, why it applies, how to use it — concretely'}]}]}; \
@@ -134,7 +149,7 @@ without it, E1c — never reconstruct it from the log).
         # Re-derive deeper from the named gaps; return the richer artefato (carrying every field). \
         improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
         close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
-          floor_fn=harvest.close_floor,  # S6 genus floor: THEMED dispatch + zero recognized reads → violation (knob EDGE_GROUNDING_FLOOR, default 0=off) \
+          floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session=''),  # S6 floor (#61): the PUBLISHER runs the close, so point session_id at the MAIN transcript (where the reads live) AND clear child_session='' (the publisher is a child) — else the floor darks out and loses its teeth; knob EDGE_GROUNDING_FLOOR, default 0=off \
           complete_fn=<review-completer>, publish_fn=publish_fn)"
 
 The Artefato is **transient** — it cools and is prunable; it also **bears the comment field**, the surface

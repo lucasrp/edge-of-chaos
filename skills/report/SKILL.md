@@ -32,14 +32,15 @@ need the world; it never gates.)
 
 The scaffold names three role-defined slots; report maps each to its prose-synthesis form:
 
-- **`gather-grounding`** (loop1) — **delegate freely** to reach plenitude (`scaffold.md`) — but
-  **recall first** (`skills/_shared/memory.md`): pull what you already wrote on this theme from the edge's
-  own graph before exploring, so you build on prior depth rather than restate it. Then explorers read
-  the pool the synthesis stands on (Claude sessions, GitHub, exa, the projects' CONTEXT.md), returning
-  **evidence** `{source, ref}`; and where the theme has facets, **fan a subagent per facet** to develop
-  each deeply, then integrate. Offload the grunt-work so your own context goes to the depth. Depth comes
-  from evidence **and reasoning**, not assertion. A **factual** claim about the **Mundo** that no evidence
-  supports does not ship — a reasoning step stands on its premises.
+- **`gather-grounding`** (loop1) — **recall first, then DIRECT reads by the main agent** (`scaffold.md`,
+  #61): **recall** (`skills/_shared/memory.md`) pulls what you already wrote on this theme from the edge's
+  own graph, so you build on prior depth rather than restate it; then **you** read the pool the synthesis
+  stands on (Claude sessions, GitHub, exa, the projects' CONTEXT.md) — the **rich context stays in you**,
+  which is what gives the synthesis its **real cases and depth** (a thin `{source, ref}` handed back loses
+  the founding context). Explorers are an **optional fan-out per facet for breadth** — when the theme has
+  independent facets worth parallelism — **not the default grounding path**. Depth comes from evidence
+  **and reasoning**, not assertion. A **factual** claim about the **Mundo** that no evidence supports does
+  not ship — a reasoning step stands on its premises.
 - **`converge`** (loop2 critic) — judge whether the synthesis is **developed to plenitude**: the arc
   whole, the load-bearing claims reasoned through and their implications drawn out, tailored to the
   mentee, carrying what they did not already know. Cut **process chatter**, never the **thinking** — ship
@@ -72,7 +73,18 @@ element-vocabulary in `tools/render.py` (paragraph, table, metrics-grid, callout
 registry). The publisher renders the spec and wraps it in the self-contained neutral page; you do not
 write the HTML shell or the CSS yourself.
 
-## Publish through the close — show your work (ADR-0007/#14, ADR-0009)
+## Publish through the close — hand the SETTLED spec to the publisher (Facet B, #61)
+
+**You do not run `close.run_close` inline.** Once the draft is **SETTLED** — every claim already made, the
+context still rich in your window — **write the artefato fields to disk pointers and hand off to the
+`{prefix}-publisher` subagent** (via the Agent tool, `.claude/agents/publisher.md`) with the **publish-brief**:
+`{dispatch_id, main_session_id (your CLAUDE_CODE_SESSION_ID), skill, intent_kernel, slug, spec_path,
+cites_path, proposes_path, distills_path, lineage_path}` — **pointers, never a context dump**. The publisher
+runs the whole close below in a **clean process** (the machine that stalled the producer >4min inline lives
+in the sub now) and returns a typed **pull-channel** `{status, slug, url, cost, residuals, rationales,
+bounce_reason}`. You **read that back**: `published`/`residual-published` → done; `bounced: needs author` →
+you hold the rich context, so re-produce from the named gap and re-hand the pointers under the **same
+`dispatch_id`** (no re-wake). Your window stays on the thinking. The close it runs is exactly:
 
 You do **not** inline an `eventlog` publish snippet, and you **never** call `publisher.publish` directly —
 that is now the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
@@ -111,6 +123,7 @@ without it, E1c — never reconstruct it from the log).
       tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import close, publisher, harvest; \
         slug='<slug>'; intent='open: …; bet: …'; \
         dispatch_id='<dispatch-id-from-DISPATCH_ID-line>'; \
+        main_session_id='<main-session-id-from-the-publish-brief>'  # the MAIN's session — the S6 floor's teeth (#61) ; \
         spec={'sections':[{'title':'…','blocks':[{'type':'paragraph','text':'…'}]}]}; \
         proposes=[{'body':'…','kind':'constraint'}]; \
         distills=['cluster:<label>']  # the existing threads it draws on — [] if none fits ; \
@@ -134,7 +147,7 @@ without it, E1c — never reconstruct it from the log).
         # Re-derive deeper from the named gaps; return the richer artefato (carrying every field). \
         improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
         close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
-          floor_fn=harvest.close_floor,  # S6 genus floor: THEMED dispatch + zero recognized reads → violation (knob EDGE_GROUNDING_FLOOR, default 0=off) \
+          floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session=''),  # S6 floor (#61): the PUBLISHER runs the close, so point session_id at the MAIN transcript (where the reads live) AND clear child_session='' (the publisher is a child) — else the floor darks out and loses its teeth; knob EDGE_GROUNDING_FLOOR, default 0=off \
           complete_fn=<review-completer>, publish_fn=publish_fn)"
 
 **Project-after-publish is now AUTOMATIC** (#30): `publisher.publish` runs the graph projection

@@ -38,14 +38,15 @@ need the world; it never gates.)
 
 The scaffold names three role-defined slots; map maps each to its connections-diagram form:
 
-- **`gather-grounding`** (loop1) — **delegate freely** to map in plenitude (`scaffold.md`) — but
-  **recall first** (`skills/_shared/memory.md`): pull the connections you already mapped on this theme
-  from the edge's own graph before exploring, so you extend the web rather than redraw it. Then explorers
-  cross **both** the internal context pool (Claude sessions, GitHub, the projects' CONTEXT.md, the
-  Knowledge clusters) **and the world** (exa, the field, adjacent industries) — internal edges AND the
-  **outward bridge**: the named concept/pattern/practice out there that each entity rhymes with. Where the
-  web is wide, **fan a subagent per candidate relation or per entity's world-connection** to trace each
-  deeply, then integrate. Each returns **evidence**: a connection `{from, to, type, ref}` — internal
+- **`gather-grounding`** (loop1) — **recall first, then DIRECT reads by the main agent** (`scaffold.md`,
+  #61): **recall** (`skills/_shared/memory.md`) pulls the connections you already mapped on this theme from
+  the edge's own graph, so you extend the web rather than redraw it; then **you** cross **both** the
+  internal context pool (Claude sessions, GitHub, the projects' CONTEXT.md, the Knowledge clusters) **and
+  the world** (exa, the field, adjacent industries) — internal edges AND the **outward bridge**: the named
+  concept/pattern/practice out there that each entity rhymes with — the **rich context stays in you** to
+  see the relations. Explorers are an **optional fan-out for breadth** — fan a subagent per candidate
+  relation or per entity's world-connection when the web is wide enough to warrant parallelism, **not the
+  default grounding path**. Each returns **evidence**: a connection `{from, to, type, ref}` — internal
   (application, synergy, dependency, inspiration, conflict) **or outward** (this entity ↔ that
   field-concept/practice) — grounded in the source that asserts it; an **outward** bridge carries a
   **verifiable cite** (no named authority without a source). A connection no evidence supports does not ship.
@@ -81,7 +82,18 @@ visuals are not a path — they cannot pass the grounding seam). The publisher r
 write the HTML shell or the CSS yourself. **Sections are FREE** — the close checks whether the *property*
 (honesty, clarity) is present anywhere, never whether a named section exists.
 
-## Publish through the close — show your work (ADR-0007/#14, ADR-0009)
+## Publish through the close — hand the SETTLED artefato to the publisher (Facet B, #61)
+
+**You do not run `close.run_close` inline.** Once the artefato is **SETTLED** — every claim already made, the
+context still rich in your window — **write its fields to disk pointers and hand off to the
+`{prefix}-publisher` subagent** (via the Agent tool, `.claude/agents/publisher.md`) with the **publish-brief**:
+`{dispatch_id, main_session_id (your CLAUDE_CODE_SESSION_ID), skill, intent_kernel, slug, spec_path,
+cites_path, proposes_path, distills_path, lineage_path}` — **pointers, never a context dump**. The publisher
+runs the whole close below in a **clean process** (the heavy publish machine lives in the sub now) and returns
+a typed **pull-channel** `{status, slug, url, cost, residuals, rationales, bounce_reason}`. You **read that
+back**: `published`/`residual-published` → done; `bounced: needs author` → you hold the rich context, so
+re-produce from the named gap and re-hand the pointers under the **same `dispatch_id`** (no re-wake). Your
+window stays on the thinking. The close it runs is exactly:
 
 You do **not** inline an `eventlog` publish snippet, and you **never** call `publisher.publish` directly —
 that is now the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
@@ -121,6 +133,7 @@ without it, E1c — never reconstruct it from the log).
       tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import close, publisher, harvest; \
         slug='<slug>'; intent='open: …; bet: …'; \
         dispatch_id='<dispatch-id-from-DISPATCH_ID-line>'; \
+        main_session_id='<main-session-id-from-the-publish-brief>'  # the MAIN's session — the S6 floor's teeth (#61) ; \
         spec={'sections':[{'title':'…','blocks':[ \
           {'type':'paragraph','text':'A applies to B because … — what each node is and why the edge matters.'}, \
           {'type':'diagram','layout':'dag','nodes':[{'id':'a','label':'A'},{'id':'b','label':'B'}],'edges':[{'source':'a','target':'b','label':'applies'}]}, \
@@ -138,7 +151,7 @@ without it, E1c — never reconstruct it from the log).
           cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id']); \
         improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
         close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
-          floor_fn=harvest.close_floor,  # S6 genus floor: THEMED dispatch + zero recognized reads → violation (knob EDGE_GROUNDING_FLOOR, default 0=off) \
+          floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session=''),  # S6 floor (#61): the PUBLISHER runs the close, so point session_id at the MAIN transcript (where the reads live) AND clear child_session='' (the publisher is a child) — else the floor darks out and loses its teeth; knob EDGE_GROUNDING_FLOOR, default 0=off \
           complete_fn=<review-completer>, publish_fn=publish_fn)"
 
 **Project-after-publish is now AUTOMATIC** (#30): `publisher.publish` runs the graph projection

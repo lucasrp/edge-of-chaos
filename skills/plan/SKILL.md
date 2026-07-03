@@ -31,10 +31,13 @@ need the world; it never gates.)
 
 The scaffold names three role-defined slots; plan maps each to its next-steps form:
 
-- **`gather-grounding`** (loop1) — explorers read what already exists and what is open: the projects'
-  CONTEXT.md, the live Direction, prior Artefatos on the theme, GitHub state, exa for how others did it.
-  Each returns **evidence** the plan stands on `{source, ref}` — the current state a step changes, the
-  prior art a step reuses. A step grounded in nothing does not ship.
+- **`gather-grounding`** (loop1) — **recall first, then DIRECT reads by the main agent** (`scaffold.md`,
+  #61): **recall** what the edge already knows on this theme, then **you** read what already exists and what
+  is open — the projects' CONTEXT.md, the live Direction, prior Artefatos on the theme, GitHub state, exa
+  for how others did it — the **rich context stays in you** to shape feasible steps. Explorers are an
+  **optional fan-out for breadth** — when independent facets warrant parallelism — **not the default
+  grounding path**. The evidence the plan stands on is `{source, ref}` — the current state a step changes,
+  the prior art a step reuses. A step grounded in nothing does not ship.
 - **`converge`** (loop2 critic) — tighten the scope: a small feasible cycle beats an ambitious impossible
   one. Cut steps that aren't load-bearing, name what is explicitly out of scope, and ship the moment the
   next move is concrete and ordered. A vague aspiration is not an Artefato.
@@ -64,7 +67,18 @@ a path — they cannot pass the grounding seam). The publisher renders the spec 
 neutral page; you do not write the HTML shell or the CSS yourself. **Sections are FREE** — the close
 checks whether the *property* (honesty, clarity) is present anywhere, never whether a named section exists.
 
-## Publish through the close — show your work (ADR-0007/#14, ADR-0009)
+## Publish through the close — hand the SETTLED artefato to the publisher (Facet B, #61)
+
+**You do not run `close.run_close` inline.** Once the artefato is **SETTLED** — every claim already made, the
+context still rich in your window — **write its fields to disk pointers and hand off to the
+`{prefix}-publisher` subagent** (via the Agent tool, `.claude/agents/publisher.md`) with the **publish-brief**:
+`{dispatch_id, main_session_id (your CLAUDE_CODE_SESSION_ID), skill, intent_kernel, slug, spec_path,
+cites_path, proposes_path, distills_path, lineage_path}` — **pointers, never a context dump**. The publisher
+runs the whole close below in a **clean process** (the heavy publish machine lives in the sub now) and returns
+a typed **pull-channel** `{status, slug, url, cost, residuals, rationales, bounce_reason}`. You **read that
+back**: `published`/`residual-published` → done; `bounced: needs author` → you hold the rich context, so
+re-produce from the named gap and re-hand the pointers under the **same `dispatch_id`** (no re-wake). Your
+window stays on the thinking. The close it runs is exactly:
 
 You do **not** inline an `eventlog` publish snippet, and you **never** call `publisher.publish` directly —
 that is now the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
@@ -104,6 +118,7 @@ without it, E1c — never reconstruct it from the log).
       tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import close, publisher, harvest; \
         slug='<slug>'; intent='open: …; bet: …'; \
         dispatch_id='<dispatch-id-from-DISPATCH_ID-line>'; \
+        main_session_id='<main-session-id-from-the-publish-brief>'  # the MAIN's session — the S6 floor's teeth (#61) ; \
         spec={'sections':[{'title':'…','blocks':[ \
           {'type':'paragraph','text':'Step 1 feeds Step 2 because …; what each step does and why the order holds.'}, \
           {'type':'diagram','layout':'dag','nodes':[{'id':'s1','label':'Step 1'},{'id':'s2','label':'Step 2'}],'edges':[{'source':'s1','target':'s2','label':'blocks'}]}, \
@@ -121,7 +136,7 @@ without it, E1c — never reconstruct it from the log).
           cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id']); \
         improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
         close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
-          floor_fn=harvest.close_floor,  # S6 genus floor: THEMED dispatch + zero recognized reads → violation (knob EDGE_GROUNDING_FLOOR, default 0=off) \
+          floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session=''),  # S6 floor (#61): the PUBLISHER runs the close, so point session_id at the MAIN transcript (where the reads live) AND clear child_session='' (the publisher is a child) — else the floor darks out and loses its teeth; knob EDGE_GROUNDING_FLOOR, default 0=off \
           complete_fn=<review-completer>, publish_fn=publish_fn)"
 
 The Artefato is **transient** — it cools and is prunable; it also **bears the comment field**, the surface
