@@ -118,7 +118,7 @@ The wake's entry-driver printed a machine-readable **`DISPATCH_ID=<id>`** line �
 into the artefato as **`dispatch_id`** (proof-bound like `slug`, E1b; the canonical publish refuses
 without it, E1c — never reconstruct it from the log).
 
-      tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import close, publisher; \
+      tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import close, publisher, harvest; \
         slug='<slug>'; intent='open: …; bet: …'; \
         dispatch_id='<dispatch-id-from-DISPATCH_ID-line>'; \
         spec={'sections':[{'title':'…','blocks':[ \
@@ -138,6 +138,7 @@ without it, E1c — never reconstruct it from the log).
           cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id']); \
         improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
         close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
+          floor_fn=harvest.close_floor,  # S6 genus floor: THEMED dispatch + zero recognized reads → violation (knob EDGE_GROUNDING_FLOOR, default 0=off) \
           complete_fn=<review-completer>, publish_fn=publish_fn)"
 
 **Project-after-publish is now AUTOMATIC** (#30): `publisher.publish` runs the graph projection

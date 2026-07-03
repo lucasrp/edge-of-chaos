@@ -114,3 +114,32 @@ them, one turn each. The **close-roles** — the two reviewers and the publisher
 this shared protocol and are **NOT round-robinable**: they are not skills in the rotation, they
 run at every producer's exit. Round-robin is for the producers; the close is the fixed gate they
 all funnel through.
+
+## The grounding floor at the close (S6)
+
+Every producer's `close.run_close(...)` call **wires `floor_fn=harvest.close_floor`** (see each
+producer SKILL.md's close snippet — the line rides beside `improve_fn`). The floor is a
+`() -> list[str]` the wiring injects at the call-site (`close.py` never imports `harvest` — the same
+injection idiom as `publish_fn`); a returned list is **genus-class** — summed into the gate's
+`violations`, blocking-first, before the reviewers. `harvest.close_floor` reads the knob
+**`EDGE_GROUNDING_FLOOR`** (default **`0=off` → `[]`**, byte-compat with today; `1=observe` counts
+the would-be `grounding.floor` / `grounding.floor_dark` but never blocks; `2=gate` returns the named
+violation on a **THEMED** dispatch that recognized **zero** source-reads). It is **fail-OPEN** (the
+inverse of genus): out-of-session, undeclared geometry, or a child-session transcript → `[]` + a
+counted `grounding.floor_dark`, never a close crash. Ambient geometry never gates (R3.2). Wiring the
+kwarg is what lets the observe→gate rollout ride the #248 ladder purely by the knob — the genotype
+carries the floor at 0 and nothing changes until the operator turns it up.
+
+## Optional: delegating publication mechanics to a clerk (tipógrafo)
+
+**This is an OPTIONAL delegation emenda — it does NOT change the producer's publish flow above.**
+Once the draft is **final** (the artefato content is settled — every claim already made), a producer
+MAY hand the *publication mechanics* (the render/spec chores, block-shape tidy, the exact publish
+call) to a **clerk** subagent — a **tipógrafo**, not an author. The clerk receives a **brief + disk
+POINTERS** (the slug, the settled spec's path, the cites file — never a context dump; the
+`conductor.py` node_briefs idiom) and reports back over a **typed pull-channel**, returning
+`{slug, cost, residuals, rationales}`. The wall: **the clerk edits FORM, never creates a claim** —
+it cannot add a cite, a proposal, or a sentence of substance; a claim born in the clerk is a defect.
+The proof, the kernel, and the atomic publish still belong to the enforced close (`run_close` →
+`publish_fn`); the clerk only carries the typographic legwork so the producer's context stays on the
+thinking. When in doubt, skip it — the producer publishing directly is always correct.
