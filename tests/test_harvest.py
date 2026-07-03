@@ -731,8 +731,9 @@ class ExpiredUnpairedToolUseDoesNotPinTheCursor(unittest.TestCase):
             rows = eventlog.read(types=["grounding.manifest"], log=log)
             self.assertEqual(rows[0]["payload"]["raw_ref"][2], "t_live")
             # the cursor advanced PAST the cancelled call — no eternal full re-scan
+            # (#62: the cursor value is now a stat triple {lines,size,mtime}, was a bare int)
             saved = json.loads(cursors.read_text())
-            self.assertEqual(saved[str(f)], 3)
+            self.assertEqual(saved[str(f)]["lines"], 3)
             self.assertEqual(harvest.harvest(log=log, cursors_path=cursors,
                                              store_root=store), 0)
 
@@ -747,7 +748,7 @@ class ExpiredUnpairedToolUseDoesNotPinTheCursor(unittest.TestCase):
             log, cursors = Path(tmp) / "log.jsonl", Path(tmp) / "c.json"
             self.assertEqual(harvest.harvest(log=log, cursors_path=cursors,
                                              store_root=store), 0)
-            self.assertEqual(json.loads(cursors.read_text())[str(f)], 0)
+            self.assertEqual(json.loads(cursors.read_text())[str(f)]["lines"], 0)
 
     def test_cancelled_then_plain_line_expires_without_any_later_result(self):
         # Codex S4 gate D7: "the writer moved on" = ANY complete JSON line after the
@@ -765,7 +766,7 @@ class ExpiredUnpairedToolUseDoesNotPinTheCursor(unittest.TestCase):
             log, cursors = Path(tmp) / "log.jsonl", Path(tmp) / "c.json"
             self.assertEqual(harvest.harvest(log=log, cursors_path=cursors,
                                              store_root=store), 0)
-            self.assertEqual(json.loads(cursors.read_text())[str(f)], 2,
+            self.assertEqual(json.loads(cursors.read_text())[str(f)]["lines"], 2,
                              "the cursor advances past the cancelled call")
 
 
@@ -1649,9 +1650,9 @@ class CorruptCursorValuesAreClampedNotCrashed(unittest.TestCase):
             n = harvest.harvest(log=log, cursors_path=cursors, store_root=store)
             self.assertEqual(n, 0, f"clamped re-scan with cursor value {value!r} must dedup to 0")
             self.assertEqual(len(eventlog.read(types=["grounding.manifest"], log=log)), 1)
-            saved = json.loads(cursors.read_text())[str(f)]
-            self.assertIsInstance(saved, int)   # a valid watermark was written back
-            self.assertGreaterEqual(saved, 0)
+            saved = json.loads(cursors.read_text())[str(f)]   # #62: the value is a stat triple now
+            self.assertIsInstance(saved["lines"], int)   # a valid watermark was written back
+            self.assertGreaterEqual(saved["lines"], 0)
 
     def test_string_value(self):
         self._rerun_with_cursor_value("bad")

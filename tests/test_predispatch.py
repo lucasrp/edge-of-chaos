@@ -187,7 +187,9 @@ class EntryDriverRealWiring(unittest.TestCase):
             self.assertEqual((b, r), ("B", "R"))
             evs = eventlog.read(types=["dispatch.open"], log=log)
             self.assertEqual(evs[0]["payload"].get("swept_sessions"), 3)
-            self.assertEqual(evs[0]["payload"].get("harvested"), 5,
+            # #62: harvested moved off the identity stamp to its own dispatch.grounding event
+            g = eventlog.read(types=["dispatch.grounding"], log=log)
+            self.assertEqual(g[0]["payload"].get("harvested"), 5,
                              "the harvest leg lazily resolves the real harvest.harvest default")
 
     def test_real_recall_dark_marker_flows_through(self):

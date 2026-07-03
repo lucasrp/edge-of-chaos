@@ -54,10 +54,12 @@ would leak interpretation into the brute key and break supersedes' targeting).
 import fcntl
 import ipaddress
 import json
+import math
 import os
 import re
 import shlex
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote_plus, urlsplit
@@ -1526,14 +1528,44 @@ _UNMANIFESTED_CHUNK = 200
 
 
 def _cursor_start(v):
-    """One cursor entry → (usable scan offset, was_valid) — gate R2-1: the cursor file is
-    mutable state and a VALID-JSON file can still carry a corrupt VALUE ("bad", null, true,
-    -5, 3.7). Only a non-bool int >= 0 is a scan offset; anything else clamps to 0 (full
-    re-scan of that file — the ranked/brute dedup absorbs it) with the degradation FLAGGED,
-    never an int() crash and never a scan from an invalid offset."""
+    """One cursor entry → ({"lines","size","mtime"}, was_valid). The cursor VALUE is a stat
+    TRIPLE now (S4 #62): the line watermark PLUS the (size, mtime) of the file that produced it,
+    so an unchanged file is stat-skipped whole (no read/parse) on the next walk. A legacy bare
+    int is read as {lines: v} with unknown size/mtime — which forces exactly one self-healing
+    re-read (its stat can't match an unknown), never a crash on the format change.
+
+    Gate R2-1 (preserved): a VALID-JSON file can still carry a corrupt VALUE ("bad", null, true,
+    -5, 3.7 — bare OR a dict whose `lines` is one of those). Only a non-bool int >= 0 lines is a
+    scan offset; anything else clamps to 0 (full re-scan of that file, the ranked/brute dedup
+    absorbs it) with was_valid=False so the caller FLAGS the degradation — never an int() crash
+    and never a scan from an invalid offset."""
+    if isinstance(v, dict):
+        lines = v.get("lines")
+        if isinstance(lines, int) and not isinstance(lines, bool) and lines >= 0:
+            size = v.get("size")
+            size = size if isinstance(size, int) and not isinstance(size, bool) and size >= 0 else None
+            mtime = v.get("mtime")
+            mtime = mtime if isinstance(mtime, (int, float)) and not isinstance(mtime, bool) else None
+            return {"lines": lines, "size": size, "mtime": mtime}, True
+        return {"lines": 0, "size": None, "mtime": None}, False
     if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
-        return v, True
-    return 0, False
+        return {"lines": v, "size": None, "mtime": None}, True
+    return {"lines": 0, "size": None, "mtime": None}, False
+
+
+# incremental durable cursor (S4 #62): the whole cursor dict is re-written atomically every
+# _CURSOR_FLUSH_EVERY advanced files (and once after the loop/break), so a budget cap or a crash
+# keeps every completed file's watermark — progress is never lost to a single end-of-walk flush
+# that never arrives (the #62 timeout-loses-everything bug).
+_CURSOR_FLUSH_EVERY = 25
+
+
+def _write_cursors_atomic(cursors_path, cursors):
+    """Re-write the whole cursor dict atomically (tmp + os.replace) — a reader (or a crash) never
+    sees a half-written cursor file (D2 durability, S4 #62)."""
+    tmp = cursors_path.with_name(cursors_path.name + ".tmp")
+    tmp.write_text(json.dumps(cursors, indent=2, sort_keys=True))
+    os.replace(tmp, cursors_path)
 
 
 def _unmanifested_events(new_unrec, rev):
@@ -1593,13 +1625,37 @@ def harvest(log=eventlog.LOG, cursors_path=CURSORS, project_dirs=None, store_roo
     current_rev = recognizers.get("rev", RECOGNIZER_REV)
     if isinstance(current_rev, bool) or not isinstance(current_rev, (int, float)):
         current_rev = RECOGNIZER_REV
+    # bounded walk (S4 #62): the budget is read INSIDE harvest() so the env var works per-call;
+    # a non-numeric budget FAILS LOUD (raise) — never a silent default that hides a bad env.
+    budget_raw = os.environ.get("EDGE_HARVEST_BUDGET_S", "20")
+    try:
+        budget = float(budget_raw)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"EDGE_HARVEST_BUDGET_S={budget_raw!r} is not a number — the harvest budget must be a "
+            "numeric seconds value (fail loud, never default silently)")
+    if not math.isfinite(budget) or budget < 0:
+        # nan/inf/negative would make `time.monotonic() > deadline` never trip → the walk goes
+        # unbounded again (the #62 hang) while holding the lock. Reject LOUD, never silently un-cap.
+        raise ValueError(
+            f"EDGE_HARVEST_BUDGET_S={budget_raw!r} is not a finite non-negative number — "
+            "nan/inf/negative would un-bound the harvest walk (#62); fail loud.")
     total = dark_total = expired_total = unrec_total = 0
     corrupt_cursor = False
+    capped = False
     cursors_path = Path(cursors_path)
     cursors_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = cursors_path.with_name(cursors_path.name + ".lock")
     with lock_path.open("w") as lk:
-        fcntl.flock(lk, fcntl.LOCK_EX)
+        # NON-BLOCKING (S4 #62): the harvest is a degrade-dark grounding leg, never a chokepoint.
+        # If another instance holds the cursor lock, this wake goes DARK and retries next time —
+        # it must NOT block the wake behind an O(store) walk it does not own.
+        try:
+            fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("harvest: outra instância segura o cursor lock — DARK este wake, retry no "
+                  "próximo", file=sys.stderr)
+            return 0
         try:
             # the dedup base + dispatch intervals load UNDER THE LOCK (gate 6): a concurrent
             # harvest must never read a stale known-set/intervals and re-emit a row the other
@@ -1613,14 +1669,32 @@ def harvest(log=eventlog.LOG, cursors_path=CURSORS, project_dirs=None, store_roo
             except (ValueError, OSError):
                 cursors = {}   # gate 5: corrupt cursor = visible degradation, not a crash
                 corrupt_cursor = True
+            deadline = time.monotonic() + budget
+            since_flush = 0
             for path in _store_files(dirs):
+                if time.monotonic() > deadline:
+                    capped = True   # budget spent — stop here, the persisted cursors resume us
+                    break
                 key = str(path)
-                start, cursor_ok = _cursor_start(cursors.get(key, 0))
+                entry, cursor_ok = _cursor_start(cursors.get(key, 0))
                 if not cursor_ok:
                     corrupt_cursor = True   # R2-1: corrupt VALUE clamped to 0, flagged visible
                 try:
+                    st = os.stat(path)
+                except OSError:
+                    dark_total += 1   # an unstattable transcript is a dark leg, not a crash
+                    continue
+                # stat-skip (S4 #62): an unchanged file (size AND mtime match the cursor's) is not
+                # read or parsed at all — its cursor entry is carried forward VERBATIM into the
+                # rewritten dict (else the next run re-reads it). Legacy/unknown size/mtime never
+                # matches, so it forces one self-healing read.
+                if entry["size"] == st.st_size and entry["mtime"] == st.st_mtime:
+                    cursors[key] = {"lines": entry["lines"], "size": entry["size"],
+                                    "mtime": entry["mtime"]}
+                    continue
+                try:
                     rows, unrec, dark, watermark, expired = _scan_file(
-                        path, start, recognizers)
+                        path, entry["lines"], recognizers)
                 except OSError:
                     dark_total += 1   # an unreadable transcript is a dark leg, not a crash
                     continue
@@ -1653,14 +1727,21 @@ def harvest(log=eventlog.LOG, cursors_path=CURSORS, project_dirs=None, store_roo
                     eventlog.append_batch(batch, log=log)
                     total += n_rows
                     unrec_total += len(new_unrec)
-                cursors[key] = watermark
-            cursors_path.write_text(json.dumps(cursors, indent=2, sort_keys=True))
+                # cursor advances AFTER the append (D2) — the stat triple that produced watermark
+                cursors[key] = {"lines": watermark, "size": st.st_size, "mtime": st.st_mtime}
+                since_flush += 1
+                if since_flush >= _CURSOR_FLUSH_EVERY:
+                    # incremental durable flush (S4 #62): a cap/crash after here keeps this batch
+                    _write_cursors_atomic(cursors_path, cursors)
+                    since_flush = 0
+            _write_cursors_atomic(cursors_path, cursors)
         finally:
             fcntl.flock(lk, fcntl.LOCK_UN)
     print(f"harvest: {total} row(s) emitted"
           + (f", {unrec_total} unrecognized network call(s) tallied" if unrec_total else "")
           + (f", {dark_total} dark row(s) (counted, skipped)" if dark_total else "")
           + (f", {expired_total} expired unpaired tool_use(s)" if expired_total else "")
+          + (f", CAPPED at {budget:g}s budget (progress saved, next wake resumes)" if capped else "")
           + (", corrupt cursor state reset (dedup absorbs the re-read)" if corrupt_cursor else ""))
     return total
 

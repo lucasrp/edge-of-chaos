@@ -1,12 +1,14 @@
 """predispatch — the mechanical entry-driver of every dispatch (ADR-0016). Genotype tool.
 
 The wake stops being a prose-only contract: this driver performs the mechanical pre-dispatch
-floor — digestion sweep to currency (fail-loud store, ADR-0015) → harvest the transcript store
-into grounding.manifest rows (S5, degrade-dark) → compose the briefing → render the recall brief
-→ run the canary battery over the pending dries (S5, degrade-dark) — and stamps `dispatch.open`
-in the Tier-0 log (with `harvested`/`ambient_rows`, S5). The publisher refuses to publish
-without a `dispatch.open` that MINTED the artefato's `dispatch_id` and is not yet consumed (identity-held gate, E1): **no wake, no publish**. The skill
-prose *describes* the wake; this driver *performs* it.
+floor. IDENTITY PRECEDES GROUNDING (#62): digestion sweep to currency (fail-loud store,
+ADR-0015) → compose the briefing → stamp `dispatch.open` (IDENTITY-ONLY) in the Tier-0 log and
+emit `DISPATCH_ID=` — and ONLY THEN the O(store) grounding legs (harvest the transcript store
+into grounding.manifest rows, render the recall brief, run the canary battery), all degrade-dark,
+whose read-side metrics land on a separate `dispatch.grounding` event. So a slow/blocking/dark
+harvest can never delay or swallow the id. The publisher refuses to publish without a
+`dispatch.open` that MINTED the artefato's `dispatch_id` and is not yet consumed (identity-held
+gate, E1): **no wake, no publish**. The skill prose *describes* the wake; this driver *performs* it.
 
 Delta is NOT here (ADR-0001/0011): the world-read is agentic judgment, fanned by the skill when
 it judges it needs the world — it never gates and is never stamped.
@@ -50,21 +52,29 @@ def mint_dispatch_id():
 
 
 def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_fn=None,
-        log=eventlog.LOG, dispatch_id=None, theme=None, intent=None, geometry=None):
-    """The mechanical floor, in order: sweep → harvest → briefing → recall brief → canary →
-    stamp. Returns (briefing_text, recall_text) for the dispatch to read. Injectable (house
-    style) so it runs offline in tests; real runs use the genotype tools.
+        log=eventlog.LOG, dispatch_id=None, theme=None, intent=None, geometry=None,
+        id_sink=None):
+    """The mechanical floor, in order: sweep → briefing → STAMP dispatch.open (+ emit the id to
+    `id_sink`) → grounding legs (harvest → recall brief → canary) → dispatch.grounding. Returns
+    (briefing_text, recall_text) for the dispatch to read. Injectable (house style) so it runs
+    offline in tests; real runs use the genotype tools.
 
-    S5 (grounding iteration) — the floor GAINS two degrade-dark legs that the wake must NEVER
-    raise from (R3.2: grounding annotates, it never gates). `harvest_fn` mines the transcript
-    store to currency into `grounding.manifest` rows (real default: harvest.harvest); the canary
-    step probes the DECLARED interfaces that carry a PENDING dry read (`probe_fn`, real default:
-    _default_probe) and appends `canary.result` attestations the two-factor fold (B1,
-    eventlog._dry_label) joins. A dead source is an annotated dark leg, not a crash: both legs
-    are caught so a raising harvest/probe still reaches the stamp. The stamp GAINS `harvested`
-    (rows this wake emitted) and `ambient_rows` (the ambient read volume in the log) — additive,
-    the payload only grows. Only a raising SWEEP or BRIEFING still aborts before the stamp
-    (unchanged): a dispatch that could not wake must not look woken.
+    IDENTITY PRECEDES GROUNDING (#62) — the identity is minted, stamped and emitted BEFORE any
+    O(store) grounding leg, so a slow/blocking/dark harvest can never delay or swallow the id.
+    `id_sink` (main() passes the real stdout captured before its floor-noise redirect) receives
+    `DISPATCH_ID=<id>\\n` the instant the stamp is durable. The stamp is IDENTITY-ONLY.
+
+    S5 (grounding iteration) — AFTER the stamp, the floor runs two degrade-dark legs that the
+    wake must NEVER raise from (R3.2: grounding annotates, it never gates). `harvest_fn` mines the
+    transcript store to currency into `grounding.manifest` rows (real default: harvest.harvest —
+    bounded/non-blocking/incremental, #62); the canary step probes the DECLARED interfaces that
+    carry a PENDING dry read (`probe_fn`, real default: _default_probe) and appends `canary.result`
+    attestations the two-factor fold (B1, eventlog._dry_label) joins. A dead source is an annotated
+    dark leg, not a crash. The read-side metrics `harvested` (rows this wake emitted) and
+    `ambient_rows` (the ambient read volume in the log) land on a SEPARATE `dispatch.grounding`
+    event — never on the identity stamp (they had zero downstream readers there and gated nothing).
+    Only a raising SWEEP or BRIEFING aborts before the stamp: a dispatch that could not wake must
+    not look woken.
 
     S2 (E1) — the stamp now carries the dispatch's IDENTITY + SESSION ANCHOR: `dispatch_id`
     (minted here when not handed in; main() mints and prints it machine-readable, because the
@@ -90,45 +100,74 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
         harvest_fn = lambda: _harvest.harvest(log=log)   # noqa: E731 — real default (S5)
     if probe_fn is None:
         probe_fn = _default_probe
+    # IDENTITY PRECEDES GROUNDING (#62): only a raising SWEEP or BRIEFING aborts before the stamp
+    # (a dispatch that could not wake must not look woken). Everything the identity needs runs
+    # FIRST; the O(store) grounding legs run AFTER the id is minted, stamped and emitted, so a
+    # slow/blocking/dark harvest can never delay or swallow the id.
     swept = sweep_fn()                      # raises on a missing store (ADR-0015) — no stamp
-    # harvest leg (S5) — degrade-dark: mine the transcript store into grounding.manifest rows.
-    # A dead harvest is an annotated dark leg, never a crash (the cursor is idempotent, the next
-    # wake retries); it NEVER aborts the wake (only a raising sweep/briefing does).
+    briefing_text = briefing_fn()           # raises on a lobotomized identity — no stamp
+    if dispatch_id is None:
+        dispatch_id = mint_dispatch_id()
+    if geometry is None:
+        geometry = "themed" if theme else "ambient"
+    # the stamp is IDENTITY-ONLY now (#62): harvested/ambient_rows move to the dispatch.grounding
+    # event below — they had zero downstream readers on the stamp and gated nothing.
+    eventlog.dispatch_open({"swept_sessions": swept, "dispatch_id": dispatch_id,
+                            "session_id": os.environ.get("CLAUDE_CODE_SESSION_ID"),
+                            "theme": theme, "intent": intent, "geometry": geometry}, log=log)
+    # the machine-readable id, the moment the identity is durable — written DIRECTLY to the real
+    # stream (bypassing any floor-noise capture), BEFORE the grounding legs print anything.
+    if id_sink is not None:
+        id_sink.write(f"DISPATCH_ID={dispatch_id}\n")
+        id_sink.flush()
+    # --- grounding legs (S5), side-effects only, ALL degrade-dark — never gate, never delay id ---
+    # voz is a read-model ANNOTATION of the briefing, NOT an identity gate (#62 codex): it runs
+    # AFTER the id is stamped+emitted, so neither a raise NOR a HANG in voz can delay or suppress
+    # the id. It still augments the RETURNED briefing_text (the stamp is identity-only, untouched).
+    try:
+        import voz as _voz
+        voz_section = _voz.brief(log=log)   # bounded (contagens + top-N); '' sem pendência
+        if voz_section:
+            briefing_text = f"{briefing_text}\n\n{voz_section}"
+    except Exception as e:  # noqa: BLE001 — voz annotates the briefing; it never gates the wake
+        print(f"predispatch: voz leg DARK ({type(e).__name__}: {e}) — briefing without voz; "
+              "stamp already landed.")
+    # harvest leg: mine the transcript store into grounding.manifest rows. A dead harvest is an
+    # annotated dark leg, never a crash (the cursor is idempotent, the next wake retries).
     try:
         harvested = harvest_fn()
-        harvested = harvested if isinstance(harvested, int) and not isinstance(harvested, bool) else 0
+        if not (isinstance(harvested, int) and not isinstance(harvested, bool)):
+            print(f"predispatch: harvest returned non-int {harvested!r} — counted as 0 "
+                  "(contract regression, surfaced not swallowed).")
+            harvested = 0
     except Exception as e:  # noqa: BLE001 — a dark harvest is honest; the wake still runs
         harvested = 0
         print(f"predispatch: harvest leg DARK ({type(e).__name__}: {e}) — grounding manifest not "
               f"advanced this wake; the next wake retries (cursor idempotent).")
-    briefing_text = briefing_fn()           # raises on a lobotomized identity — no stamp
-    import voz as _voz
-    voz_section = _voz.brief(log=log)       # bounded (contagens + top-N); '' sem pendência
-    if voz_section:
-        briefing_text = f"{briefing_text}\n\n{voz_section}"
     try:
         recall_text = recall_fn()
     except Exception as e:  # noqa: BLE001 — a dark brief is honest; the wake still ran
         recall_text = (f"# Recall — the memory-salient brief\n\n_Recall leg DARK "
                        f"({type(e).__name__}: {e}) — orient from the briefing; recall on demand "
                        f"(`skills/_shared/memory.md`) when the graph is reachable._\n")
-    # canary leg (S5) — degrade-dark: probe the DECLARED interfaces carrying a pending dry and
-    # append the canary.result attestations the two-factor fold joins. Also reads back the
-    # ambient read volume for the stamp. Wrapped as defense in depth so nothing here reaches the
-    # stamp gap as a raise (the inner step already catches per-probe failures).
+    # canary leg: probe the DECLARED interfaces carrying a pending dry, append the canary.result
+    # attestations the two-factor fold joins, and read back the ambient read volume. Wrapped as
+    # defense in depth so nothing here reaches a raise (the inner step already catches per-probe).
     try:
         ambient_rows, _canary_note = _run_canary(log, probe_fn)
     except Exception as e:  # noqa: BLE001 — the canary leg NEVER raises into the wake (R3.2)
         ambient_rows = 0
         print(f"predispatch: canary leg DARK ({type(e).__name__}: {e}) — stamp still lands.")
-    if dispatch_id is None:
-        dispatch_id = mint_dispatch_id()
-    if geometry is None:
-        geometry = "themed" if theme else "ambient"
-    eventlog.dispatch_open({"swept_sessions": swept, "harvested": harvested,
-                            "ambient_rows": ambient_rows, "dispatch_id": dispatch_id,
-                            "session_id": os.environ.get("CLAUDE_CODE_SESSION_ID"),
-                            "theme": theme, "intent": intent, "geometry": geometry}, log=log)
+    # the grounding annotation (#62): read-side metrics, AFTER the stamp, never on the identity.
+    # Degrade-dark like every grounding leg (#62 codex): a failed annotation must NOT gate a wake
+    # whose id already landed — the counts are best-effort telemetry, not part of the identity.
+    try:
+        eventlog.append("dispatch.grounding", "grounding",
+                        {"dispatch_id": dispatch_id, "harvested": harvested,
+                         "ambient_rows": ambient_rows}, log=log)
+    except Exception as e:  # noqa: BLE001 — the grounding summary never gates a stamped wake
+        print(f"predispatch: dispatch.grounding annotation DARK ({type(e).__name__}: {e}) — "
+              "id already stamped; counts not recorded this wake.")
     return briefing_text, recall_text
 
 
@@ -287,15 +326,16 @@ def main(argv=None):
     # preserved (never swallowed), just ordered. A floor that RAISES before the stamp prints
     # NO DISPATCH_ID (a dispatch that could not wake must not look woken) — the captured
     # output still surfaces for diagnosis before the raise propagates.
+    real_out = sys.stdout            # capture BEFORE the redirect — run() writes the id here
     floor_out = io.StringIO()
     try:
         with contextlib.redirect_stdout(floor_out):
-            briefing_text, recall_text = run(dispatch_id=dispatch_id, theme=args.theme,
-                                             intent=args.intent, geometry=args.geometry)
+            briefing_text, recall_text = run(dispatch_id=dispatch_id, id_sink=real_out,
+                                             theme=args.theme, intent=args.intent,
+                                             geometry=args.geometry)
     except BaseException:
         sys.stdout.write(floor_out.getvalue())
         raise
-    print(f"DISPATCH_ID={dispatch_id}")
     sys.stdout.write(floor_out.getvalue())
     print(briefing_text)
     print("\n\n---\n")
