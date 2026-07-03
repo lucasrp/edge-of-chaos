@@ -168,6 +168,7 @@ _NAV_LINKS = (
     ("/docs", "docs"),
     ("/wiki", "wiki"),
     ("/llm", "llm"),
+    ("/sources", "sources"),
     ("/ux-catalog", "ux-catalog"),
 )
 
@@ -2426,6 +2427,34 @@ def llm_set_provider():
     except ValueError as e:
         return _llm_panel(error=str(e)), 400
     return app.redirect("/llm", code=303)
+
+
+# ── /sources — o painel de yield do grounding (S7) ──────────────────────────────────────────────
+#
+# Um adapter FINO sobre grounding_yield (irmão do /llm sobre llm_routes): uma row por
+# source×interface com tentativas/hits/citadas/mean sim/score/secas(por tier)/canário, dead-legs
+# das fontes declaradas-sem-manifesto, e orphans/ambiguous/coarse/unconsumed no rodapé. É o degrau
+# OBSERVE (#248): a tabela ACONSELHA, nunca roteia — não há choose_source aqui nem no módulo.
+
+
+def _sources_panel_html():
+    """O fragmento HTML do painel de yield — fold + roster do agent.yaml (E8: a fonte é DADO) +
+    render, tudo em grounding_yield. Degrada num aviso, nunca 500 o painel."""
+    import grounding_yield
+    try:
+        sources, _ = grounding_yield.sources_mod.load_sources(_repo() / "agent.yaml")
+    except Exception:  # noqa: BLE001 — sem agent.yaml legível, o painel ainda abre
+        sources = None
+    return grounding_yield.sources_panel_html(log=_log(), sources=sources)
+
+
+@app.get("/sources")
+def sources_panel():
+    try:
+        panel = _sources_panel_html()
+    except Exception as e:  # noqa: BLE001 — o painel nunca derruba o servidor
+        panel = f'<p class="warn">painel de yield indisponível: {_esc(str(e))}</p>'
+    return _page("pages/sources.html", current="/sources", panel_html=_safe(panel))
 
 
 # Migrate on import so the very first read surface (index / chat) already reflects the switch.
