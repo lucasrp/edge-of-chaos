@@ -648,10 +648,14 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
                     "degraded": None, "shortfall": None, "capability_state": None,
                     "error": f"{type(e).__name__}: {e}"}
 
+    # S6 (design-close §5): the unaddressed criticism rides as a first-class event field, read OFF
+    # the proof (`proof['unaddressed']`) — NEVER a caller arg (a caller cannot inject residuals the
+    # gate did not mint; verify_proof already bound the appended spec). None on a normal publish.
+    residuals = verdict.get("unaddressed") if isinstance(verdict, dict) else None
     eventlog.publish_artefato_atomic(slug, intent, proposes=proposes, distills=distills,
                                      cites=cites, spec=spec, skill=skill, log=log,
                                      lineage=lineage, require_wake=True, adoption=adoption,
-                                     dispatch_id=dispatch_id)
+                                     dispatch_id=dispatch_id, residuals=residuals)
 
     # the page is a PROJECTION written after the commit — a failure here is recoverable.
     _write_page(out, page)

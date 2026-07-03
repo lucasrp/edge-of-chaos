@@ -54,6 +54,7 @@ would leak interpretation into the brute key and break supersedes' targeting).
 import fcntl
 import ipaddress
 import json
+import os
 import re
 import shlex
 import sys
@@ -65,6 +66,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import eventlog                     # noqa: E402
 import sources as sources_mod       # noqa: E402
+import _envconf                     # noqa: E402  # EDGE_GROUNDING_FLOOR knob (S6)
 
 # Bumped when a recognizer's INTERPRETATION changes (E2b): retro-mining with a better rev emits
 # `supersedes` rows and fold_grounding ranks max (recognizer_rev, seq) — the raw history is
@@ -1693,3 +1695,98 @@ def session_floor(session_id, recognizers=None, store_root=None):
     except Exception as e:   # noqa: BLE001 — the floor NEVER raises into the close
         return {"reads": 0, "recognized": [], "dark": True,
                 "reason": f"{type(e).__name__}: {e}"}
+
+
+# The exact violation string the gate surfaces (design-close §6). A NAMED gap so the genus bounce
+# message tells the live agent precisely what to cure (go read a source mid-session and re-close).
+FLOOR_VIOLATION = ("grounding-floor: dispatch themed sem nenhuma leitura de fonte "
+                   "reconhecida na sessão")
+
+
+def close_floor(*, log=None, store_root=None, session_id=None, child_session=None,
+                recognizers=None, knob=None):
+    """The floor_fn injected into `close.run_close` (S6, design-close §6). Consumes the
+    EDGE_GROUNDING_FLOOR knob — 0=off (→ []), 1=observe (count the would-be violation as
+    `grounding.floor` / darkness as `grounding.floor_dark`, but NEVER block → []), 2=gate (return the
+    named violation on a THEMED dispatch with ZERO recognized source-reads). Decides THEMED via the
+    LAST dispatch.open geometry for the session (S2/enxerto A2), then runs `session_floor`'s pure
+    recognize over the live transcript.
+
+    Fail-OPEN is DELIBERATE (inverse of genus — §6): env absent (close run outside a Claude session),
+    transcript absent, undeclared geometry, or CLAUDE_CODE_CHILD_SESSION set (reads may live in the
+    parent transcript, not identifiable today) → [] + a COUNTED `grounding.floor_dark` event, never a
+    block (a fail-closed floor would kill every close run out-of-session — tests, operator). Ambient
+    geometry NEVER gates (R3.2) — a deliberate non-gate, not an instrument failure, so it is NOT dark.
+    NEVER raises into the close. log/store_root/session_id/child_session/knob are injectable for tests;
+    live they default to eventlog.LOG / STORE_ROOT / the CLAUDE_CODE_* env."""
+    try:
+        if knob is None:
+            knob = _envconf.env_int("EDGE_GROUNDING_FLOOR", 0)
+        if knob <= 0:
+            return []
+        if log is None:
+            log = eventlog.LOG
+        if session_id is None:
+            session_id = os.environ.get("CLAUDE_CODE_SESSION_ID")
+        if child_session is None:
+            child_session = os.environ.get("CLAUDE_CODE_CHILD_SESSION")
+        if not session_id:
+            return _floor_dark("session-id absent (close run outside a Claude session)", log)
+        if child_session:
+            return _floor_dark("CLAUDE_CODE_CHILD_SESSION set — reads may live in the parent "
+                               "transcript, not identifiable today", log)
+        geometry = _last_geometry(session_id, log)
+        if geometry is None:
+            return _floor_dark("undeclared geometry (no dispatch.open declared a geometry for "
+                               "this session)", log)
+        if geometry != "themed":
+            return []   # ambient NEVER gates (R3.2) — a deliberate non-gate, not darkness
+        floor = session_floor(session_id, recognizers=recognizers, store_root=store_root)
+        if floor.get("dark"):
+            return _floor_dark(floor.get("reason") or "floor dark", log)
+        if floor.get("reads"):
+            return []   # themed WITH a recognized read — the floor is satisfied
+        # themed + ZERO recognized reads = the floor violation
+        if knob >= 2:
+            return [FLOOR_VIOLATION]
+        # observe (knob == 1): COUNT the would-be violation, never block
+        _emit_floor_event("grounding.floor",
+                          {"session_id": session_id,
+                           "reason": "themed dispatch, zero recognized reads"}, log)
+        return []
+    except Exception:  # noqa: BLE001 — the floor NEVER raises into the close (fail-open by design)
+        return []
+
+
+def _floor_dark(reason, log):
+    """Fail-OPEN dark: emit a COUNTED `grounding.floor_dark` event (never silent — enxerto B2) and
+    return [] so the close never blocks on an instrument it cannot see (§6)."""
+    _emit_floor_event("grounding.floor_dark", {"reason": reason}, log)
+    return []
+
+
+def _emit_floor_event(type_, payload, log):
+    """Best-effort event emit — darkness/observation must be counted, but a broken log never crashes
+    the close (the floor decision itself is the contract)."""
+    try:
+        eventlog.append(type_, "grounding", payload, log=log)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _last_geometry(session_id, log):
+    """The geometry declared by the LATEST (by seq) dispatch.open for this session, or None when no
+    dispatch.open names the session OR none declared a geometry → undeclared → dark (§6)."""
+    try:
+        evs = eventlog.read(types=["dispatch.open"], log=log)
+    except Exception:  # noqa: BLE001 — an unreadable log is undeclared → dark
+        return None
+    best_seq, geometry = None, None
+    for e in evs:
+        p = e.get("payload")
+        if not isinstance(p, dict) or p.get("session_id") != session_id:
+            continue
+        seq = eventlog._event_seq(e)
+        if best_seq is None or seq > best_seq:
+            best_seq, geometry = seq, p.get("geometry")
+    return geometry

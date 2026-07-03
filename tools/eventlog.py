@@ -382,7 +382,7 @@ def test_dispatch_id():
 
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
                             spec=None, log=LOG, *, lineage=None, skill=None, require_wake=False,
-                            adoption=None, dispatch_id=None):
+                            adoption=None, dispatch_id=None, residuals=None):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
     publish seam): you cannot publish without the *why*. Both events land in a single
     `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
@@ -446,7 +446,10 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
         ("artefato.published", f"artefato:{slug}",
          {"slug": slug, "proposes": proposes or [], "distills": distills or [],
           "cites": cites or [], "lineage": normalize_lineage(lineage), "spec": spec,
-          "skill": skill, "dispatch_id": dispatch_id}),
+          "skill": skill, "dispatch_id": dispatch_id,
+          # S6 (design-close §3/§5): the unaddressed criticism a publish-with-residuals carried, as a
+          # FIRST-CLASS event field (distinct name from the `residual` channel). None on a normal publish.
+          "residuals": residuals}),
         ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
         ("artefato.adoption", f"artefato:{slug}", adoption),
     ]
@@ -677,7 +680,7 @@ def source_feedback_at(seq=None, ts=None, log=LOG):
 # = the close's floor could not see a transcript (E7: counted, never silent); `grounding.unmanifested`
 # = the blind-leg tally for network-shaped calls no recognizer claimed (enxerto B2).
 GROUNDING_TYPES = ["grounding.manifest", "grounding.finding", "canary.result",
-                   "grounding.floor_dark", "grounding.unmanifested"]
+                   "grounding.floor_dark", "grounding.floor", "grounding.unmanifested"]
 # fold_grounding consumes ONLY these two: manifests are the attempts, canary.result is what the
 # two-factor dry projection (B1) joins. finding/floor_dark/unmanifested have their own consumers
 # in later slices (S4-S7) — feeding them here would conflate attempts with tallies.
