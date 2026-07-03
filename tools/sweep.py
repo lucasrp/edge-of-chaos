@@ -14,8 +14,10 @@ Run:  .venv/bin/python tools/sweep.py           (sweep + re-project)
       .venv/bin/python tools/sweep.py --plan    (dry run: what the delta would digest)
 """
 import json
+import math
 import os
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -112,10 +114,35 @@ def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
                         log=log)
         cursors[it["id"]] = it["watermark"]
     if qualifying and ingest_fn is not None:           # Tier-1: graph projection, best-effort
+        # BOUNDED + degrade-dark (#62): Tier-0 (episode + cursor) is ALREADY durable above, so the
+        # graph ingest must never gate the wake. It runs on a daemon thread with a hard deadline —
+        # a HANG (add_episode on a network call with no client timeout) degrades dark LOUD exactly
+        # like a raise; the graph re-projects from the log. Fail loud on a bad budget, never un-cap.
+        budget_raw = os.environ.get("EDGE_SWEEP_INGEST_BUDGET_S", "30")
         try:
-            ingest_fn(qualifying)
-        except Exception as e:
-            print(f"sweep: graph ingest skipped ({type(e).__name__}: {e}) — "
+            budget = float(budget_raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a number — fail loud (#62)")
+        if not math.isfinite(budget) or budget < 0:
+            raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a finite non-negative "
+                             "number — nan/inf/negative would un-bound the graph ingest (#62); fail loud")
+        err = []
+        done = threading.Event()
+
+        def _ingest():
+            try:
+                ingest_fn(qualifying)
+            except Exception as e:  # noqa: BLE001 — captured, surfaced on the caller thread
+                err.append(e)
+            finally:
+                done.set()
+
+        threading.Thread(target=_ingest, daemon=True).start()
+        if not done.wait(timeout=budget):
+            print(f"sweep: graph ingest EXCEEDED {budget:g}s budget — degraded DARK (Tier-0 log is "
+                  f"current; the graph is rebuildable from the log)")
+        elif err:
+            print(f"sweep: graph ingest skipped ({type(err[0]).__name__}: {err[0]}) — "
                   f"Tier-0 log is current; the graph is rebuildable from the log")
     return cursors, len(qualifying)
 
