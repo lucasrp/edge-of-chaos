@@ -102,6 +102,10 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
         print(f"predispatch: harvest leg DARK ({type(e).__name__}: {e}) — grounding manifest not "
               f"advanced this wake; the next wake retries (cursor idempotent).")
     briefing_text = briefing_fn()           # raises on a lobotomized identity — no stamp
+    import voz as _voz
+    voz_section = _voz.brief(log=log)       # bounded (contagens + top-N); '' sem pendência
+    if voz_section:
+        briefing_text = f"{briefing_text}\n\n{voz_section}"
     try:
         recall_text = recall_fn()
     except Exception as e:  # noqa: BLE001 — a dark brief is honest; the wake still ran

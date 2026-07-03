@@ -105,6 +105,12 @@ a:hover { color: #a8c2ff; }
 
 .post .blurb { color: var(--text-muted); margin-bottom: 16px; }
 
+/* layout A: a chamada de blog (parágrafos) + o link de leitura */
+.post .teaser p { color: #c3cbdc; line-height: 1.7; margin: 0 0 13px; }
+.post .teaser { margin-bottom: 4px; }
+.post .readmore { margin: 0 0 4px; }
+.post .readmore a { font-weight: 600; font-size: 0.92rem; }
+
 /* ---- artifact chips ---- */
 .artifacts { list-style: none; display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 4px; }
 .artifacts li {

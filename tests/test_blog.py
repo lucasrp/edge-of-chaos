@@ -40,6 +40,8 @@ class TestBlog(unittest.TestCase):
                 {"cites": [], "distills": [], "proposes": []}),
             _ev(4, "2026-06-12T15:30:01+00:00", "intent.kernel", "beta-post",
                 {"intent": "open: beta — resolved beta. next bet: the dashboard."}),
+            _ev(5, "2026-06-12T15:30:02+00:00", "artefato.teaser", "beta-post",
+                {"text": "First teaser paragraph.\n\nSecond teaser paragraph."}),
         ]) + "\n")
 
         os.environ["EDGE_BLOG_ENTRIES"] = str(entries)
@@ -65,12 +67,16 @@ class TestBlog(unittest.TestCase):
         self.assertIn('/e/alpha-post.html', body)
         # date is shown
         self.assertIn("2026-06-12", body)
-        # blurb from the intent kernel
-        self.assertIn("resolved beta", body)
-        # links to the artifacts the post created
-        self.assertIn("cluster:foo", body)
-        self.assertIn("do the X thing", body)
-        self.assertIn("source:arxiv:2606.06448", body)
+        # layout A: a post with a teaser shows its paragraphs as separate <p>
+        self.assertIn("<p>First teaser paragraph.</p>", body)
+        self.assertIn("<p>Second teaser paragraph.</p>", body)
+        # a post without a teaser falls back to the kernel blurb
+        self.assertIn("resolved alpha", body)
+        # layout A: the read-more link is present; the artifact chips are gone
+        self.assertIn("ler o artefato", body)
+        self.assertNotIn("cluster:foo", body)
+        self.assertNotIn("do the X thing", body)
+        self.assertNotIn("source:arxiv:2606.06448", body)
 
     def test_index_newest_first(self):
         body = self.client.get("/").data.decode()
