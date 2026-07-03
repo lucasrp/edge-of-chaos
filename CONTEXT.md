@@ -251,6 +251,25 @@ mentee's current mind) and **direct** (an **order-bearing** Medium; a **Directiv
 bound to address).
 *Avoid*: operator pressure, feedback, pressão
 
+**Grounding**:
+The **claim↔evidence relation, traceable** — one name unifying the instances the code already
+carries (visual grounding on charts, quote-grounding, the `gather-grounding` slot). A **Source is
+the channel** (unified at access — ADR-0001); **the read has a subject** (the lens: Mundo /
+Atividade — Voz is directive, never a read); the **self (recall) is grounding's floor but never a
+Source** (the self-reference guard stands untouched, ADR-0014). **Wake and grounding are twins**:
+the same three legs (recall→atividade→mundo), the same manifest (differing by a geometry tag:
+focused vs ambient), the same instrument health — with **opposite stop rules by design**: wake
+never blocks (ADR-0011 — a dark leg is named and passed), grounding stops only at
+**gap-closed-with-source or seca-declarada**. A dry read without a canary is *seca-suspeita* and
+**licenses no negative claim**; *seca-verificada* is a post-hoc **fold** (suspect ↔ canary-pass +
+idiom-conform), never an in-session label. The record is **harvested, never emitted**: skills
+carry no manifest duty — the substrate mines `grounding.manifest` from the transcript,
+byte-identical (PRISMA C36). Writes to the world (an upload) are **acts**, never sources — HITL,
+outside the manifest (R1.3).
+*Avoid*: retrieval (a mechanism, not the relation), citation (the rendered shadow), fact-check
+(trust is the orthogonal axis), coverage (the sweep, not the relation), emission (there is no
+emitting act — reads are harvested)
+
 **Directive**:
 The **direct tier of Voz** — a mentee comment on the **Voz rail** (a two-way, order-bearing Medium
 addressed to the edge — never the ambient Claude Code session), meant to be acted on. **A strong

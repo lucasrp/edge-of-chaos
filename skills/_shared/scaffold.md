@@ -35,10 +35,21 @@ never what a particular report-form *is*:
   delegation shape**. The slot says "gather grounding," not "fetch this URL." Whether an explorer
   reads a paper, a repo, or a graph thread is the **producer skill's** decision. *How* an explorer reaches a world source is
   the same for every producer and is **never a per-source primitive** (ADR-0001): read the source's
-  `via` spec in `agent.yaml` plus `state/source-roadmap.md` and call it **agentically** — the
+  `interfaces[].via` spec in `agent.yaml` plus `state/source-roadmap.md` and call it **agentically** — the
   install's keys are already loaded. There is no `libexec/` primitive and there never will be; an
   explorer that cannot ground reports *which key it could not work*, never "a primitive is missing"
   and never waits for one to be built.
+
+  Every world read in this slot is **harvested, never emitted**: the `grounding.manifest`
+  record is mined post-hoc from the transcript by the substrate (`tools/harvest.py`) —
+  literal queries byte-identical, PRISMA-grade — so neither the producer nor its explorers
+  carry ANY emission duty; there is no manifest act to forget. What the slot DOES owe is
+  reading `state/source-roadmap.md` **at gather time**: query each source in its **declared
+  idiom** (an off-idiom query that comes back empty is a false dry you manufactured), take
+  the briefing's **yield table** as advisory ordering (never a router), and treat any dry
+  read as **licensing no negative claim** until the fold rules it — the only in-session
+  move is running the source's **canary as advice**. One house rule guards the harvester's
+  blind spot: a script of yours that reads a source **logs the literal query to stdout**.
 
   **The explorer is a WORLD-reading subject — DENY it the `cortex` self door (N5/R6, ADR-0014).** An
   explorer reads the *world* (a paper, a repo, a source key); the **self** (the edge's own memory) is

@@ -35,7 +35,9 @@ GLOSSARY_HEADER = re.compile(r"^\*\*[^*]+\*\*:\s*$", re.MULTILINE)
 # the mentee↔edge communication model (Medium / Voz-tier / Directive / Vote) → 43.
 # 2026-06-16 cortex omnipresent memory (Voz-ratified): +1 Usage signal (the implicit,
 # off-truth-path read telemetry — distinct from value/correction feedback) → 44.
-EXPECTED_GLOSSARY_COUNT = 44
+# 2026-07-03 grounding iteration S8 (R1.1, Voz-ratified): +1 Grounding (the claim↔evidence
+# relation, traceable — the arc's naming deliverable in the Language section) → 45.
+EXPECTED_GLOSSARY_COUNT = 45
 
 
 def _glossary_header_count(text):
