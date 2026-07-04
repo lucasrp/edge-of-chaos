@@ -61,8 +61,9 @@ is the bar: a thin definition that left the thinking undone is a failure.
 
 Research's idiom is **prose-and-derivation**: reach for the `derivation` block to show the reasoning chain
 and the `gap-table` / `gap-marker` for what is open, from the canonical palette — as elements, never
-mandatory sections. When 3+ values warrant it, visualize (`table`, `metrics-grid`); the visualization dim
-is content-relative.
+mandatory sections. Visualize what deserves it: where the content is **3+ values, a comparison, or a
+before/after**, emit a `table` / `metrics-grid` **instead of narrating the numbers** — a block only where
+it replaces a paragraph, never where it decorates one (banca cega da forma 2026-07-04).
 
 ## Build the body from the canonical palette
 

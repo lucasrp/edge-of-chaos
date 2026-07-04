@@ -60,10 +60,13 @@ honest bite that left the thinking undone is a failure, not a success of concisi
 
 ## Visual idiom — charts + prose
 
-Report's idiom is **prose-and-charts**: when 3+ values warrant it, visualize (a `metrics-grid` or a
-`table` from the canonical palette) rather than narrate the numbers. The visualization dim is
-content-relative — visualize what the content deserved. The Feynman blocks (`derivation`, `gap-table`)
-are reachable here too, as palette elements, never mandatory sections.
+Report's idiom is **prose-and-charts** — visualize what deserves it: where the content is **3+ values,
+a comparison, or a before/after**, emit a `table` / `metrics-grid` (canonical palette) **instead of
+narrating the numbers** (banca cega da forma 2026-07-04, vencedor v2-plus-visual: the set's disease
+was UNDER-render — prose walls over comparative content). The razor cuts both ways: a structural
+block appears only where the content is comparative — a table that **replaces** a paragraph, never
+one that decorates it. The Feynman blocks (`derivation`, `gap-table`) are reachable here too, as
+palette elements, never mandatory sections.
 
 ## Build the body from the canonical palette
 
