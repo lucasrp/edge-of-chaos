@@ -822,6 +822,66 @@ def _dry_label(row_event, payload, hits, source, interface, canaries):
     return "suspect"
 
 
+def winning_manifest_rows(events):
+    """The ONE reader of the E2b dedup/supersede + canary parse — returns (rows, canaries, corrupt):
+    the WINNING (event, payload) grounding.manifest rows in _event_seq order (max (recognizer_rev,
+    seq) per raw_ref; a worse reinterpretation never defeats a healthier original), the interpreted
+    canary.result attestations, and the corrupt tally. `fold_grounding` AND `grounding_yield` both
+    call this so faceta 1's interpretation cannot drift (this was the 'must not drift' duplication)."""
+    corrupt = 0
+    canaries = []   # interpreted canary.result attestations, in seq order
+    plain = {}      # raw_ref -> (event, payload) of its FIRST emission
+    supers = {}     # raw_ref -> [(event, payload)] reinterpretations targeting it
+    for e in events:
+        t = e.get("type")
+        payload = e.get("payload")
+        p = payload if isinstance(payload, dict) else None
+        if t == "canary.result":
+            ok = p.get("pass") if p is not None else None
+            src = p.get("source") if p is not None else None
+            iface = p.get("interface") if p is not None else None
+            seq = e.get("seq")
+            if ((ok is not True and ok is not False)
+                    or not (isinstance(src, str) and src.strip()
+                            and isinstance(iface, str) and iface.strip())
+                    or isinstance(seq, bool) or not isinstance(seq, (int, float))):
+                # only a REAL boolean from a NAMED source×interface with an ORDERABLE seq attests
+                # (bool coercion, keyless match, and unrankable seq are the guarded failure modes) —
+                # a non-attesting canary is counted corrupt, and the rows it would join stay suspect.
+                corrupt += 1
+                continue
+            canaries.append({"source": src, "interface": iface, "passed": ok,
+                             "ts": _grounding_ts(e.get("ts")), "seq": seq})
+        elif t == "grounding.manifest":
+            if p is None:
+                corrupt += 1
+                continue
+            if "supersedes" in p:
+                target = _raw_ref_key(p.get("supersedes"))
+                if target is None:
+                    # an unusable target can neither reinterpret nor be a fresh first emission
+                    # (its raw_ref IS its target per E2b) — counted, not folded
+                    corrupt += 1
+                    continue
+                supers.setdefault(target, []).append((e, p))
+                continue
+            ref = _raw_ref_key(p.get("raw_ref"))
+            if ref is None:
+                corrupt += 1
+                continue
+            plain.setdefault(ref, (e, p))  # first emission wins; re-harvests are no-ops
+    rows = []
+    for ref in set(plain) | set(supers):
+        # the ORIGINAL row competes on the same (recognizer_rev, seq) rank as its reinterpretations
+        # (gate D1): a supersede with a worse/corrupt rev must NOT defeat a healthier original.
+        contenders = list(supers.get(ref, ()))
+        if ref in plain:
+            contenders.append(plain[ref])
+        rows.append(max(contenders, key=lambda ep: _supersede_rank(ep[1], ep[0])))
+    rows.sort(key=lambda ep: _event_seq(ep[0]))  # MAX-direction orderings need a comparable seq
+    return rows, canaries, corrupt
+
+
 def fold_grounding(events):
     """Pure fold of `{grounding.manifest, canary.result}` events → the grounding attempts table
     (R2.3/R4.1: the DENOMINATOR the yield join consumes; the instrument-health strip the panel
@@ -845,69 +905,11 @@ def fold_grounding(events):
     `excluded` BY REASON — excluded ≠ invisible; the rows still aggregate into their cells
     (instrument health reads every attempt) and the yield join (S7) drops them from the learning
     denominator, with this count keeping the estimator's bias magnitude inspectable."""
-    corrupt = 0
-    canaries = []   # interpreted canary.result attestations, in seq order
-    plain = {}      # raw_ref -> (event, payload) of its FIRST emission
-    supers = {}     # raw_ref -> [(event, payload)] reinterpretations targeting it
-    for e in events:
-        t = e.get("type")
-        payload = e.get("payload")
-        p = payload if isinstance(payload, dict) else None
-        if t == "canary.result":
-            ok = p.get("pass") if p is not None else None
-            src = p.get("source") if p is not None else None
-            iface = p.get("interface") if p is not None else None
-            seq = e.get("seq")
-            if ((ok is not True and ok is not False)
-                    or not (isinstance(src, str) and src.strip()
-                            and isinstance(iface, str) and iface.strip())
-                    or isinstance(seq, bool) or not isinstance(seq, (int, float))):
-                # codex S1 gate D3 + round-3 B3 + round-4 + round-5: only a REAL boolean from a
-                # NAMED source×interface with an ORDERABLE seq attests — bool("false") is True
-                # (a coerced pass could project verificada off a FAILED canary), a keyless or
-                # whitespace-keyed canary could match a keyless row's None dims, and a
-                # non-numeric seq cannot be ranked in the join's min() tie-break (normalizing it
-                # to 0 would make corrupt WIN under min() what it loses under max() — see
-                # _event_seq's direction rule). A non-attesting canary is counted corrupt
-                # (visible degradation) and the rows it would have joined just stay suspect.
-                corrupt += 1
-                continue
-            canaries.append({"source": src, "interface": iface, "passed": ok,
-                             "ts": _grounding_ts(e.get("ts")), "seq": seq})
-        elif t == "grounding.manifest":
-            if p is None:
-                corrupt += 1
-                continue
-            if "supersedes" in p:
-                target = _raw_ref_key(p.get("supersedes"))
-                if target is None:
-                    # an unusable target can neither reinterpret nor be trusted as a fresh
-                    # first emission (its raw_ref IS its target per E2b) — counted, not folded
-                    corrupt += 1
-                    continue
-                supers.setdefault(target, []).append((e, p))
-                continue
-            ref = _raw_ref_key(p.get("raw_ref"))
-            if ref is None:
-                corrupt += 1
-                continue
-            plain.setdefault(ref, (e, p))  # first emission wins; re-harvests are no-ops
-    rows = []
-    for ref in set(plain) | set(supers):
-        # the ORIGINAL row competes on the same (recognizer_rev, seq) rank as its
-        # reinterpretations (codex S1 gate D1): a supersede with a worse/corrupt rev must NOT
-        # defeat a healthier original — that would be the exact inversion E2b forbids
-        # (supersedes versions the interpretation, it is not an unconditional overwrite).
-        contenders = list(supers.get(ref, ()))
-        if ref in plain:
-            contenders.append(plain[ref])
-        rows.append(max(contenders, key=lambda ep: _supersede_rank(ep[1], ep[0])))
+    rows, canaries, corrupt = winning_manifest_rows(events)
     cells = {}
     excluded = {"seca-suspeita": 0}
     excluded.update({f"attribution:{a}": 0 for a in _GROUNDING_EXCLUDED_ATTRIBUTION})
-    # _event_seq, not raw seq (codex round-3 B2): a corrupt `seq: "bad"` beside a numeric one
-    # would TypeError this sort — the fold is fail-dark, never a raise
-    for e, p in sorted(rows, key=lambda ep: _event_seq(ep[0])):
+    for e, p in rows:  # winning_manifest_rows already sorted by _event_seq (fail-dark)
         def _dim(k):  # a non-str dimension is corrupt-typed → folds under None (fail-dark)
             v = p.get(k)
             return v if isinstance(v, str) else None

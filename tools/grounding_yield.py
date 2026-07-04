@@ -165,44 +165,10 @@ def _scorable(sim):
 
 
 def _winners_and_canaries(events):
-    """Mirror fold_grounding's dedup/supersede (E2b) + canary parse, returning the WINNING
-    (event, payload) manifest rows and the interpreted canary attestations. Reuses eventlog's
-    private helpers so the interpretation never drifts from faceta 1."""
-    canaries, plain, supers = [], {}, {}
-    for e in events:
-        t = e.get("type")
-        payload = e.get("payload")
-        p = payload if isinstance(payload, dict) else None
-        if t == "canary.result":
-            ok = p.get("pass") if p is not None else None
-            src = p.get("source") if p is not None else None
-            iface = p.get("interface") if p is not None else None
-            seq = e.get("seq")
-            if ((ok is not True and ok is not False)
-                    or not (isinstance(src, str) and src.strip()
-                            and isinstance(iface, str) and iface.strip())
-                    or isinstance(seq, bool) or not isinstance(seq, (int, float))):
-                continue
-            canaries.append({"source": src, "interface": iface, "passed": ok,
-                             "ts": eventlog._grounding_ts(e.get("ts")), "seq": seq})
-        elif t == "grounding.manifest":
-            if p is None:
-                continue
-            if "supersedes" in p:
-                target = eventlog._raw_ref_key(p.get("supersedes"))
-                if target is not None:
-                    supers.setdefault(target, []).append((e, p))
-                continue
-            ref = eventlog._raw_ref_key(p.get("raw_ref"))
-            if ref is not None:
-                plain.setdefault(ref, (e, p))
-    rows = []
-    for ref in set(plain) | set(supers):
-        contenders = list(supers.get(ref, ()))
-        if ref in plain:
-            contenders.append(plain[ref])
-        rows.append(max(contenders, key=lambda ep: eventlog._supersede_rank(ep[1], ep[0])))
-    return sorted(rows, key=lambda ep: eventlog._event_seq(ep[0])), canaries
+    """The WINNING (event, payload) manifest rows + interpreted canary attestations — delegates to
+    `eventlog.winning_manifest_rows` (the ONE reader), so faceta 1's interpretation cannot drift."""
+    rows, canaries, _ = eventlog.winning_manifest_rows(events)
+    return rows, canaries
 
 
 def _dispatch_context(events):
