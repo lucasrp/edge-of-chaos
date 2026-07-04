@@ -18,9 +18,17 @@ JULGAR   formar ~5 takes → ABATE DE CONTEÚDO (adversário cross-model, eviden
          por registro ("muda uma decisão?" na agência; "curiosidade genuína?" no lazer)
          → OBEDECER: só sobreviventes seguem; mortos vão pro eventlog (auditoria), nunca
          pro operador
-CHEGAR   vir desavisado com o sobrevivente como ordem-de-serviço (forma H): 1 P0 + cautelas
-         bounded, o porquê em uma linha. SILÊNCIO É OUTPUT VÁLIDO — zero sobreviventes =
-         não chega. (O beat produz sempre; a agência fala só quando algo sobrevive.)
+CHEGAR   vir desavisado com o sobrevivente — em REGISTRO DE COLEGA SÊNIOR, não de artefato
+         (operator 2026-07-04 sobre o DSPy: "pareceu um negócio bem humano... alguém mais
+         senior que eu me ajudando, dentro do meu contexto"). Segunda pessoa, o juízo + o
+         porquê + a sugestão concreta ("vi que você itera muito prompt — por que não DSPy?").
+         A restrição é o REGISTRO (humano), NÃO o comprimento (operator: "gosto da
+         profundidade; se for longo e parecer humano, melhor ainda") — a profundidade certa
+         é a PROFUNDIDADE DOS SOBREVIVENTES: mata primeiro, desenvolve fundo só o que
+         sobrou (o estrategia velho era longo e humano). Conteúdo de ordem-de-serviço
+         (P0, evidência, o que morreu no abate), gênero de conversa; forma H só se houver
+         payload comparativo. SILÊNCIO É OUTPUT VÁLIDO — zero sobreviventes = não chega.
+         (O beat produz sempre; a agência fala só quando algo sobrevive.)
 ```
 
 ## Interface (módulo profundo)
@@ -46,11 +54,45 @@ Beat round-robin, producer-skills, close/genus, publisher/blog pipeline. O nailt
   escalação por evidência).
 - Forma H — estrutura só onde o conteúdo é comparação (veredito da banca cega).
 
+## CHEGAR é SERIAL (operator 2026-07-04)
+
+"Não consigo lidar com dois grills de uma vez." SENTIR/JULGAR podem paralelizar; o CHEGAR não:
+**um grill vivo por vez** — o resto enfileira (FIFO, como o Voz rail) ou espera. Âncora doutrinária
+já existente: Depth — o recurso escasso é a atenção do mentee; ceiling, não floor — vale também
+para o lado da chegada.
+
+## Calibração do abate (operator 2026-07-04, o caso DSPy)
+
+- **Acionamento ≠ acerto.** O DSPy falhou no outcome e foi ouro ("acionei, não deu certo, foi
+  uma boa dica — ampliou minha fronteira"). O abate NÃO mata por incerteza: mata o oco e
+  **rebaixa o incerto-fronteiriço à sua força honesta** ("use X, funciona" → "teste X — é a
+  pesquisa que vale") — o precedente é o próprio edge velho, que cortou "ninguém provou
+  MIPROv2 pra negociação" e entregou o experimento, não a assertiva.
+- **A banda da fronteira adjacente.** O alvo do juízo: fora do que ele sabe, colado no que ele
+  faz ("sou profissional de IA e não conhecia"). Dentro da fronteira = imposto (re-ensino);
+  longe demais = exótico. O lazer é o órgão que colhe essa banda — curiosidade própria trazendo
+  o que nenhuma task pediu.
+
 ## Registros (ADR futuro; regra dura)
 
 Dois registros, duas réguas meta — a régua de um mata o outro:
-- **agência** → "muda uma decisão do operador?"
+- **agência** → "muda o que o operador FAZ?" (acionamento conta mesmo se o outcome falhar;
+  fronteira-adjacente conta como movimento)
 - **lazer** → "é curiosidade genuína do agente?" (payoff defasado, serendipidade; slice própria, depois do aceite)
+
+## REFLEXÃO — o órgão faltante (achado 2026-07-04, lendo os logs do nailton)
+
+O design acima abate OUTPUTS (juízos antes de entregar). O edge velho tinha um segundo abate,
+voltado ao SELF: a skill `/reflexao` — investigava o próprio erro até a causa-raiz ("Erro meu:
+afirmei 'dados não existem' quando era SLUG MISMATCH"), detectava PADRÕES RECORRENTES entre
+erros ("concluir ausência prematuramente" — 3 instâncias nomeadas), refutava as próprias
+métricas ("Sheridan 4 não tem base — nunca foi calibrado") e **OBEDECIA** (toda entrada termina
+em "Arquivos alterados:" — memória corrigida, regra nova escrita). É o que fez o juízo COMPOR
+ao longo do tempo. O organismo precisa desse órgão: o eventlog de mortes/silêncios (auditoria)
+vira INSUMO de uma reflexão periódica que corrige o próprio abate. Sem ele, o abate não aprende.
+Regra herdada do contraste estrategia-vs-reflexao: **skill é ouro quando o executor do output é
+o próprio agente; é show quando o executor é o operador e ela não vai atrás dele** — a reflexao
+fechava o próprio loop; a estrategia empilhava diagnóstico "aguardando operador".
 
 ## Aceite (dogfood — o gate do conserto)
 
