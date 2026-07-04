@@ -679,8 +679,12 @@ def source_feedback_at(seq=None, ts=None, log=LOG):
 # `canary.result` = one instrument attestation per source×interface (R2.5); `grounding.floor_dark`
 # = the close's floor could not see a transcript (E7: counted, never silent); `grounding.unmanifested`
 # = the blind-leg tally for network-shaped calls no recognizer claimed (enxerto B2).
+# `grounding.dark` = an operator/agent-DECLARED seca (a source swept, came back empty) — the honest
+# negative-evidence declaration (aquisicao.declare_dark); it IS lastro, so it rides the family
+# (readable), but it is NOT a manifest attempt, so it stays OUT of GROUNDING_FOLD_TYPES.
 GROUNDING_TYPES = ["grounding.manifest", "grounding.finding", "canary.result",
-                   "grounding.floor_dark", "grounding.floor", "grounding.unmanifested"]
+                   "grounding.floor_dark", "grounding.floor", "grounding.unmanifested",
+                   "grounding.dark"]
 # fold_grounding consumes ONLY these two: manifests are the attempts, canary.result is what the
 # two-factor dry projection (B1) joins. finding/floor_dark/unmanifested have their own consumers
 # in later slices (S4-S7) — feeding them here would conflate attempts with tallies.

@@ -25,6 +25,19 @@ class GroundingFloorIsTheOwnedGate(unittest.TestCase):
         # ADR-0021: auditor default off (knob 0) -> [] — the gate never blocks by default.
         self.assertEqual(aquisicao.grounding_floor(knob=0), [])
 
+    def test_default_knob_reads_env_and_is_off_when_unset(self):
+        # knob=None -> reads EDGE_GROUNDING_FLOOR; 0/unset = off -> [] (the env branch).
+        import os
+        old = os.environ.get("EDGE_GROUNDING_FLOOR")
+        os.environ["EDGE_GROUNDING_FLOOR"] = "0"
+        try:
+            self.assertEqual(aquisicao.grounding_floor(), [])
+        finally:
+            if old is None:
+                os.environ.pop("EDGE_GROUNDING_FLOOR", None)
+            else:
+                os.environ["EDGE_GROUNDING_FLOOR"] = old
+
 
 class DeclareDarkIsLastro(unittest.TestCase):
     def test_declares_a_seca_as_one_logged_event(self):
@@ -39,11 +52,10 @@ class DeclareDarkIsLastro(unittest.TestCase):
             self.assertIn("zero relevantes", evs[0]["payload"]["reason"])
 
     def test_unexplained_or_unnamed_dark_is_rejected(self):
-        # an unnamed source or an unexplained seca is not lastro — refuse it.
-        with self.assertRaises(ValueError):
-            aquisicao.declare_dark("", "reason")
-        with self.assertRaises(ValueError):
-            aquisicao.declare_dark("exa", "")
+        # an unnamed/whitespace source or an unexplained seca is not lastro — refuse it.
+        for bad in [("", "reason"), ("exa", ""), ("   ", "reason"), ("exa", "   ")]:
+            with self.assertRaises(ValueError):
+                aquisicao.declare_dark(*bad)
 
 
 if __name__ == "__main__":
