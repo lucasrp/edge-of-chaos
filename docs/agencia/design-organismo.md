@@ -12,7 +12,11 @@
 ```
 SENTIR   ler o operador cru — últimas sessões inteiras (o olhar-quente que nenhum brief
          tem hoje: assemble digere, delta lê o mundo, recall lê o Cortex; NINGUÉM minera
-         "os quentes das sessões" + deriva de propósito)
+         "os quentes das sessões" + deriva de propósito). DOIS TRILHOS DE EVIDÊNCIA
+         (E2/E3 wake-ótimo + erro T1 do retro-run, 2026-07-05): (a) palavras do operador
+         VERBATIM (intenção/voz) e (b) ÂNCORAS MECÂNICAS (git log, eventlog, /proc — o
+         lado executado); NUNCA prosa de assistente como fonte de fato. Janela por
+         ORDINAL de sessão substancial (K por-install), wall-clock só teto.
 JULGAR   formar ~5 takes → ABATE DE CONTEÚDO (adversário cross-model, evidence-grounded:
          vai ao repo/ADR checar, como o Grok achou os guards fail-closed) → ABATE META
          por registro ("muda uma decisão?" na agência; "curiosidade genuína?" no lazer)
