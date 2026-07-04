@@ -1284,12 +1284,20 @@ def _parse_verdict(raw: str) -> dict:
     rationales = result.get("rationales", {})
     if not isinstance(rationales, dict):
         rationales = {}
-    # Exact boolean identity — `bool("false")` is True, so coercion is forbidden here — AND a
-    # struck verdict can never pass (Codex round-9 [high]): a non-empty `strikes` list makes the
-    # verdict FAIL even when `pass` is True. The close protocol is that ANY reviewer strike must
-    # bounce/fail, so `{"pass":true,"strikes":["uncited claim"]}` is a FAILING verdict; only
-    # `pass is True AND no strikes` passes. The strikes are preserved below for the bounce.
-    passed = (result.get("pass") is True) and not strikes
+    # `pass` is DERIVED from strikes, not the model's own boolean (issue #65). The strikes are the
+    # documented blocking channel (the reviewer prompt: "Put any blocking, specific defect in
+    # `strikes`"); a non-empty `strikes` list FAILS the verdict even when `pass` is True. The inverse
+    # — a STRIKELESS `pass:false` — is an UNNAMED, unactionable veto: gpt-5.4 is conservative and
+    # essentially never emits `pass:true` on rich content, so honoring it made the gate unwinnable
+    # (22 rounds, 44 verdicts, no mint). A verdict passes iff it carries NO strikes; the VALUE of the
+    # model's boolean `pass` is advisory. BUT `pass` must still BE a real boolean to be a valid
+    # review: a `pass` that is missing, null, or non-bool (the string "true", a number) is schema
+    # drift — it strikes and fails closed, so a degraded reviewer shape can never mint. Only the value
+    # of a real-bool `pass` is ignored (derive from strikes) — that, and only that, is the #65 fix.
+    raw_pass = result.get("pass")
+    if not isinstance(raw_pass, bool):
+        strikes = strikes + [f"malformed or missing pass field (not a boolean): {raw_pass!r}"]
+    passed = not strikes
     # Score hardening: any non-numeric / malformed score (a string, an object, a bool) fails
     # closed — it does NOT pass and is NOT silently coerced. We strike it and recompute the
     # overall from only the numeric scores so the weighted overall never crashes.
@@ -1501,12 +1509,13 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
 
 
 def _verdict_clean(verdict) -> bool:
-    """A verdict mints/verifies a passing proof ONLY iff it is a dict, `pass is True`, AND it
-    carries NO strikes (Codex round-9 [high]). A struck verdict — even one whose `pass` slipped
-    through as True (an injected reviewer, an unforeseen shape) — can never mint or verify a
-    proof, enforcing the close protocol that ANY reviewer strike must bounce/fail. A non-list
-    `strikes` is treated as non-empty (fail-closed), so a degraded shape can never sneak a pass."""
-    if not isinstance(verdict, dict) or verdict.get("pass") is not True:
+    """A verdict mints/verifies a passing proof ONLY iff it is a dict carrying NO strikes. `pass` is
+    DERIVED from strikes, never the model's own boolean (issue #65): the strikes are the authoritative
+    blocking channel, so a struck verdict FAILS and a STRIKELESS verdict is clean regardless of a
+    conservative `pass:false` (which gpt-5.4 emits even on clean rich content, making the gate
+    unwinnable). Shape stays fail-closed: a non-dict, or a non-list `strikes` (treated as non-empty),
+    can never sneak a pass — so a degraded shape still fails even though `pass` is no longer consulted."""
+    if not isinstance(verdict, dict):
         return False
     strikes = verdict.get("strikes", [])
     return isinstance(strikes, list) and not strikes
@@ -1686,12 +1695,66 @@ def _log_close_event(type_, payload):
         pass
 
 
+# Issue #65 — the SEMANTIC cosmetic-vs-substantive meta-gate. The receding-target trap rewords a
+# STYLISTIC demand every round (hedge / label-as-inference / gloss jargon / tone), so R9's verbatim
+# discharge never matches and the loop runs to the cap. Whether a strike is COSMETIC (asks only for a
+# presentation change) or SUBSTANTIVE (names a fix to the CONTENT — fabricated/uncited fact, an
+# unsupported number, a contradiction) is a JUDGMENT, not a lexical pattern: no keyword list can tell
+# "atenue: soa mais forte" (cosmetic) from "a conclusão é mais forte que a evidência permite"
+# (substantive). So an LLM AGENT decides it — the SAME review completer (codex/gpt-5.5 post-#55):
+# codex gating codex's own strikes. Fail-closed: a malformed judge response is treated as SUBSTANTIVE
+# (blocks); an LLMTransportError propagates (infra ≠ veredito, issue #55).
+_COSMETIC_JUDGE_PROMPT = (
+    "You are a meta-reviewer. Blind reviewers raised the STRIKES below on a published Artefato. "
+    "Decide whether EVERY strike is COSMETIC, or at least one is SUBSTANTIVE.\n\n"
+    "SUBSTANTIVE = names a defect in the CONTENT that requires changing what the piece claims or "
+    "proves: a fabricated or uncited fact, an unsupported or wrong number, a claim that contradicts "
+    "its evidence, a logical or derivation error, a missing citation for a factual claim.\n"
+    "COSMETIC = asks only for a PRESENTATION change that does NOT alter the substance: hedging or "
+    "softening a claim, labeling an inference as an inference, glossing jargon, adjusting tone, "
+    "rephrasing, restructuring for style.\n\n"
+    "If a strike is ambiguous, treat it as SUBSTANTIVE. Respond with ONLY a JSON object: "
+    '{"all_cosmetic": bool, "rationale": str}.\n\nStrikes:\n'
+)
+
+
+def _strike_texts(verdicts) -> list:
+    """The flat list of strike strings across the verdicts, order preserved."""
+    return [str(s) for v in verdicts if isinstance(v, dict)
+            for s in (v.get("strikes") or [])]
+
+
+def _strikes_are_cosmetic(verdicts, complete_fn) -> bool:
+    """SEMANTIC meta-gate (issue #65): an LLM agent (the review completer — codex/gpt-5.5) decides
+    whether EVERY surviving strike is merely presentational. True ONLY iff the judge returns
+    `all_cosmetic: true`. Fail-closed: no completer, or no strikes → False; a malformed/unparseable
+    judge response → False (substantive, blocks). An LLMTransportError propagates (infra ≠ veredito)."""
+    if complete_fn is None:
+        return False
+    strikes = _strike_texts(verdicts)
+    if not strikes:
+        return False
+    prompt = _COSMETIC_JUDGE_PROMPT + "\n".join(f"{i}. {s}" for i, s in enumerate(strikes, 1))
+    raw = complete_fn(prompt)   # LLMTransportError propagates by design (#55)
+    text = str(raw).strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1] if "\n" in text else ""
+        if text.endswith("```"):
+            text = text[:-3].strip()
+    try:
+        result = json.loads(text)
+    except (ValueError, TypeError):
+        return False   # a judge that does not return clean JSON is not a pass — fail closed
+    return isinstance(result, dict) and result.get("all_cosmetic") is True
+
+
 def _residual_eligible(verdicts) -> bool:
     """ELIGIBILITY for publish-with-residuals (design-close §2.1/§4) — pure and cheap. True iff the
     knob is ON, there are EXACTLY 2 verdicts carrying BOTH canonical reviewer identities, and every
     strike is AUTHENTIC: each verdict has a NON-EMPTY scores dict AND no strike bears a synthetic
-    prefix (a reviewer crash / schema-drift wrap is a NON-review, not criticism — §4). Otherwise the
-    caller falls through to the existing hard-fail. Infra ≠ resíduo; a synthetic strike disqualifies."""
+    prefix (a reviewer crash / schema-drift wrap is a NON-review, not criticism — §4). The
+    cosmetic-vs-substantive judgment is NOT here — it is the semantic `_strikes_are_cosmetic` gate
+    (issue #65), applied on top of this pure floor. Infra ≠ resíduo; a synthetic strike disqualifies."""
     if _envconf.env_int("EDGE_PUBLISH_WITH_RESIDUALS", 0) != 1:
         return False
     if len(verdicts) != 2:
@@ -1759,20 +1822,29 @@ def _unaddressed(verdicts) -> list:
     return out
 
 
-def _try_residual_publish(artefato, verdicts, publish_fn):
-    """Publish-with-residuals at bounce exhaustion (design-close §1-5, R5.1/R5.2). At the reviewer
-    bounce-exhaustion point — genus-clean by construction (reviewers only run after check_genus==[]),
-    2 canonical verdicts with REAL strikes — publish the draft WITH the criticism appended instead
-    of hard-failing (the eLife/F1000 model of graded public review). Returns the minted residual
-    proof on success, or None to fall through to the existing hard-fail.
+def _try_residual_publish(artefato, verdicts, publish_fn, complete_fn=None):
+    """Publish-with-residuals at bounce exhaustion (design-close §1-5, R5.1/R5.2; issue #65). At the
+    reviewer bounce-exhaustion point — genus-clean by construction (reviewers only run after
+    check_genus==[]), 2 canonical verdicts with REAL strikes — publish the draft WITH the criticism
+    appended instead of hard-failing (the eLife/F1000 model of graded public review), BUT ONLY when
+    the surviving criticism is COSMETIC. Returns the minted residual proof on success, or None to fall
+    through to the existing hard-fail.
 
-    Sequence (§2): (1) ELIGIBILITY (pure) → (2) APPEND the deterministic section to a COPY of the
-    content BEFORE the mint → (3) RE-GATE genus on the appended content (dirty → None, fail-closed:
-    NEVER publish genus-dirty, even for a residual) → (4) MINT over the ALREADY-APPENDED content (the
-    digest binds the section by construction) → (5) PUBLISH. Failure in 3-5 NEVER regresses to
-    publish-without-residuals: either publish WITH the section, or return None (hard-fail)."""
-    # (1) ELIGIBILITY
+    Sequence (§2): (1) ELIGIBILITY (pure structural floor) → (1b) the SEMANTIC cosmetic meta-gate
+    (issue #65): an LLM agent must judge every strike cosmetic — a single SUBSTANTIVE strike falls
+    through to the hard-fail, so substance still gates → (2) APPEND the deterministic section to a COPY
+    of the content BEFORE the mint → (3) RE-GATE genus on the appended content (dirty → None,
+    fail-closed: NEVER publish genus-dirty, even for a residual) → (4) MINT over the ALREADY-APPENDED
+    content (the digest binds the section by construction) → (5) PUBLISH. Failure in 3-5 NEVER
+    regresses to publish-without-residuals: either publish WITH the section, or return None (hard-fail)."""
+    # (1) ELIGIBILITY — pure structural floor
     if not _residual_eligible(verdicts):
+        return None
+    # (1b) the SEMANTIC cosmetic meta-gate (issue #65): only cosmetic criticism converges to a
+    # graded publish; a substantive strike hard-gates. Judged by the codex/gpt-5.5 completer.
+    if not _strikes_are_cosmetic(verdicts, complete_fn):
+        _log_close_event("close.residual_substantive",
+                         {"slug": artefato.get("slug"), "strikes": _strike_texts(verdicts)})
         return None
     content = artefato.get("content")
     if not isinstance(content, dict):
@@ -2043,7 +2115,7 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
             # publish WITH the criticism appended instead of hard-failing (eLife/F1000 graded review);
             # else — knob off, or ineligible, or genus-dirty-post-append — fall through to the
             # existing hard-fail. NEVER regresses to publish-without-residuals.
-            proof = _try_residual_publish(artefato, verdicts, publish_fn)
+            proof = _try_residual_publish(artefato, verdicts, publish_fn, complete_fn)
             if proof is not None:
                 return proof
             return {"pass": False, "artefato": artefato, "verdicts": verdicts}

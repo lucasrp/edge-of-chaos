@@ -1196,25 +1196,29 @@ class ImproveGatesRefineBeforeTheGate(unittest.TestCase):
         self.assertFalse(result["pass"])      # reviewer residual promoted → fail-closed
         self.assertEqual(len(published), 0)
 
-    def test_failing_verdict_without_strikes_counts_as_an_issue(self):
-        # Codex S1 review #7: a pass:false verdict with no strikes is still a failing gate — the improve
-        # loop must NOT declare convergence (issue_count >= 1); it engages the refiner.
+    def test_strikeless_pass_false_converges_without_churning_the_refiner(self):
+        # Issue #65 SUPERSEDES Codex S1 #7: a pass:false verdict with NO strikes is an UNNAMED,
+        # unactionable veto (gpt-5.4 emits it even on clean rich content). `pass` is derived from
+        # strikes, so a strikeless verdict is CLEAN — the improve loop converges instead of churning
+        # the refiner on criticism that names nothing to fix. A reviewer that wants a revision must
+        # NAME a strike. (A NAMED strike still engages the refiner — covered by the sibling tests.)
         calls = {"count": 0}
 
-        def degraded(artefato, complete_fn=None):
-            return {"pass": False, "scores": {}, "strikes": [], "overall": 0.0}
+        def strikeless_false(artefato, complete_fn=None):
+            return {"pass": False, "scores": {"rigor": 4}, "strikes": [], "overall": 4.0}
 
         def noop_improve(art, feedback):
             calls["count"] += 1
-            return art   # unchanged → plateau after engaging once
+            return art
 
         art = _conformant_artefato()
-        close.run_close(
+        result = close.run_close(
             art, produce_fn=lambda: art,
-            reviewers=(degraded, _reviewer_always_passes()),
+            reviewers=(strikeless_false, _reviewer_always_passes()),
             complete_fn=lambda *a, **k: "", improve_fn=noop_improve,
         )
-        self.assertGreaterEqual(calls["count"], 1)   # engaged the refiner, did NOT converge-skip
+        self.assertEqual(calls["count"], 0)   # converged — no named issue → no refine churn
+        self.assertTrue(result.get("pass"))   # and the clean draft mints
 
     def test_blocking_residual_is_promoted_to_strike_and_fails_closed(self):
         # R5/S1 default-deny (Codex S1 review): a blocking finding MISCHANNELED into `residual` (even

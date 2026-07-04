@@ -256,9 +256,19 @@ class VerdictParsingFailsClosed(unittest.TestCase):
         verdict = close.feynman_review(art, complete_fn=fn)
         self.assertTrue(verdict["pass"])
 
-    def test_real_bool_false_pass_fails(self):
+    def test_real_bool_false_pass_with_no_strikes_now_passes(self):
+        # Issue #65 SUPERSEDES the Codex round-7 veto for THIS case: a real-bool `pass:false` with
+        # NO strikes is clean — `pass`'s VALUE is advisory (gpt-5.4 emits false even on clean rich
+        # content). A strikeless verdict passes; only a NAMED strike (or a missing/null/non-bool
+        # `pass`, still schema drift below) fails it.
         art = _artefato_with_hidden_context()
         fn = _capturing_completer('{"pass": false, "scores": {}, "strikes": []}')
+        verdict = close.feynman_review(art, complete_fn=fn)
+        self.assertTrue(verdict["pass"])
+
+    def test_real_bool_false_pass_with_a_strike_still_fails(self):
+        art = _artefato_with_hidden_context()
+        fn = _capturing_completer('{"pass": false, "scores": {}, "strikes": ["uncited claim"]}')
         verdict = close.feynman_review(art, complete_fn=fn)
         self.assertFalse(verdict["pass"])
 

@@ -81,6 +81,13 @@ def _both_striking(strike="a claim overstates the evidence"):
             _striking_reviewer(close.REGULAR_REVIEWER_ID, strike))
 
 
+def _cosmetic_judge(prompt, *a, **k):
+    """Stand-in for the issue-#65 semantic cosmetic meta-gate (codex/gpt-5.5): the injected
+    reviewers here strike a purely presentational nit ('overstates the evidence'), so the agent
+    judges it cosmetic and the residual (graded-publish) path proceeds."""
+    return '{"all_cosmetic": true, "rationale": "presentational nit"}'
+
+
 class _KnobEnv:
     """Context manager: set/clear EDGE_* env knobs and restore them (env-driven, read live)."""
     def __init__(self, **knobs):
@@ -416,7 +423,7 @@ class ResidualPublishHappyPath(unittest.TestCase):
 
             result = close.run_close(
                 _conformant_artefato(), produce_fn=_conformant_artefato,
-                reviewers=_both_striking(), complete_fn=lambda *a, **k: "",
+                reviewers=_both_striking(), complete_fn=_cosmetic_judge,
                 publish_fn=publish_fn)
             # returned the residual proof
             self.assertTrue(result.get("residual_publish"))
@@ -436,7 +443,7 @@ class ResidualPublishHappyPath(unittest.TestCase):
             captured = {}
             result = close.run_close(
                 _conformant_artefato(), produce_fn=_conformant_artefato,
-                reviewers=_both_striking(), complete_fn=lambda *a, **k: "",
+                reviewers=_both_striking(), complete_fn=_cosmetic_judge,
                 publish_fn=lambda a, p: captured.update(art=a, proof=p))
             art, proof = captured["art"], captured["proof"]
             # verify_proof BINDS to the APPENDED content (digest covers the section)
@@ -457,7 +464,7 @@ class ResidualPublishHappyPath(unittest.TestCase):
             captured = {}
             close.run_close(
                 _conformant_artefato(), produce_fn=_conformant_artefato,
-                reviewers=_both_striking(), complete_fn=lambda *a, **k: "",
+                reviewers=_both_striking(), complete_fn=_cosmetic_judge,
                 publish_fn=lambda a, p: captured.update(art=a, proof=p))
         art, proof = captured["art"], captured["proof"]
         # knob now OFF at verify time → a struck (residual) proof is refused immediately
@@ -477,7 +484,7 @@ class ResidualPublishRefusals(unittest.TestCase):
             published = []
             result = close.run_close(
                 _conformant_artefato(), produce_fn=_conformant_artefato,
-                reviewers=_both_striking(), complete_fn=lambda *a, **k: "",
+                reviewers=_both_striking(), complete_fn=_cosmetic_judge,
                 publish_fn=lambda a, p: published.append(a))
             self.assertFalse(result["pass"])
             self.assertNotIn("residual_publish", result)
@@ -501,7 +508,7 @@ class ResidualPublishRefusals(unittest.TestCase):
             published = []
             result = close.run_close(
                 _conformant_artefato(), produce_fn=_conformant_artefato,
-                reviewers=_both_striking(), complete_fn=lambda *a, **k: "",
+                reviewers=_both_striking(), complete_fn=_cosmetic_judge,
                 publish_fn=lambda a, p: published.append(a))
             self.assertFalse(result["pass"])
             self.assertNotIn("residual_publish", result)
