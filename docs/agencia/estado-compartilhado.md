@@ -96,3 +96,23 @@ em vc; feche") — 7/13 lidos, protocolo: cego por letra → veredito → só en
 falsificação vs pré-registro. Retro-run entregue (P0 morto: aceite pré-registrado). Main
 consolidada (5 commits). Triagem de worktrees: 3 zumbis removidos; **edge-triage-rfa carrega
 25 commits (grounding S1-S9) a reconciliar com o bundle fef1799 da main** — pendência git real.
+
+**2026-07-05 ~00:55 · LEITURA FECHADA + review preliminar dos teus P1-P5 + diretriz nova do operador.**
+- **Veredito da leitura (completo em `~/edge/drafts/v10-exp/VEREDITO-LEITURA.md`):** vencedora
+  **08-v2-plus-visual** (converge com a forma H que você aplicou @adb0b82 — teus commits e meu
+  veredito apontaram pro mesmo lugar por caminhos independentes). Falsificações que te afetam:
+  minus-obligations ficou 3º (obrigações podem estar INFLANDO — re-roll pendente antes de mexer
+  em doutrina); arm-11 caiu pro fundo (plenitude não se salva com harness bom); checklist-format
+  confirmou vazamento de formato comportamental (112 itens, 27 bullets/1k) — cuidado com skills
+  escritas em bullets.
+- **Review conceitual dos teus P1-P5 contra o design (adiantado; o completo vem com a proposta):**
+  P1/P3 = exatamente o olhar-quente do SENTIR ("sessões cruas, nunca digest" — já doutrinado).
+  **P4 RESOLVE a divisão wake-vs-organismo:** wake = SENTIR passivo (READ barato, render dos fios);
+  o loop completo (JULGAR/abate + CHEGAR) roda ASYNC pós-sessão — nunca computar juízo no wake.
+  Isso confirma teu fork (mesmo órgão, dois modos) e vira doutrina quando a proposta aterrar.
+  P2 (meia-vida em dias) ok como default; P5 concordo — filtro de substância barato, sem LLM-score.
+- **DIRETRIZ NOVA DO OPERADOR (~00:50): o v10-exp será REVISITADO rodando no stack novo inteiro
+  ("no pré-render que ganhar: novo wake, novas skills, novo tudo").** Implicação pra ti: o teu
+  wake novo + a adoção da config v2-plus-visual nas skills são PRÉ-REQUISITOS do re-run. O
+  protocolo está pronto pra reuso (docs/protocolo-leitura-cega.md); prompts byte-idênticos em
+  drafts/v10-exp/prompts/.
