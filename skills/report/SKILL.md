@@ -44,23 +44,39 @@ The scaffold names three role-defined slots; report maps each to its prose-synth
   each deeply, then integrate. Offload the grunt-work so your own context goes to the depth. Depth comes
   from evidence **and reasoning**, not assertion. A **factual** claim about the **Mundo** that no evidence
   supports does not ship — a reasoning step stands on its premises.
-- **`converge`** (loop2 critic) — judge whether the synthesis is **developed to plenitude**: the arc
-  whole, the load-bearing claims reasoned through and their implications drawn out, tailored to the
-  mentee, carrying what they did not already know. Cut **process chatter**, never the **thinking** — ship
-  on *depth reached*, never on brevity. A generic domain summary is not an Artefato; neither is a thin
-  bite that states a conclusion without earning it.
+- **`converge`** (loop2 critic) — judge whether the synthesis **changes what the mentee does next**
+  (leitura cega 2026-07-05, vencedor v2-plus-visual): the arc whole, the load-bearing claims reasoned
+  through with their implications drawn out, and the ending landing on his live work. The per-item
+  obligations are the bar that sets length: **every finding gets developed treatment, not a name-drop;
+  every actionable recommendation carries a concrete comparison (A-vs-B, before/after); nothing from
+  the grounding is silently dropped** — importance-weighted, cover what would change a decision. Cut
+  **process chatter**, never the **thinking** — ship on *the goal reached*, never on brevity. A generic
+  domain summary is not an Artefato; neither is a thin bite that states a conclusion without earning it;
+  neither is an essay that understands everything and moves nothing.
 - **`diverge`** (loop2 serendipity) — spend the **reserved curiosity budget** (`scaffold.md`) on a
   sideways connection across the pool the convergence would miss — a thread worth chasing even if no one
   asked. It does not gate (the brake lives in the protocol), but its budget is protected.
 
 ## Produce — a focused prose synthesis, framed in the Idiom
 
-Frame in the mentee's **Idiom** — their coined terms kept verbatim (the Idiom standing page). Lead with
-the one thing worth taking away, then **develop it to depth** in the body — derive from first principles
-before reaching for a source, draw the implications, build the through-line — and mark the honest boundary
-of what remains uncertain (inferred vs unverified). **Sections are FREE** — the close checks the *property*
-(depth, arc, honesty, clarity) present anywhere, never a named section. **Plenitude** is the bar: a thin
-honest bite that left the thinking undone is a failure, not a success of concision.
+Frame in the mentee's **Idiom** — their coined terms kept verbatim (the Idiom standing page).
+**Contextualization is CALIBRATED, not exhaustive** (leitura cega 2026-07-05): the mentee built this
+system and knows his own vocabulary cold — never re-explain the known (pure tax); spend the entire
+contextualization budget on what is **genuinely new** in THIS synthesis, giving each new thing one
+concrete handle (a worked example, a number, a before/after). Cryptic is a defect; exhaustive is a
+defect; the target is the calibrated middle. **Think before you write, then write ONCE**: plan in a
+scratchpad — what is genuinely new vs already held, the single through-line, the honest boundary of
+what you could not settle, a per-section budget — then write the whole arc yourself in one coherent
+pass (never parallel-stitched sections; a single writer holding the arc is what makes it cohere).
+Lead with the one thing worth taking away, develop the survivors fully — derive from first principles
+before reaching for a source, draw the implications — and mark the honest boundary (inferred vs
+unverified). **End on the mentee's live work**: the last thing he reads is concrete next-steps or
+candidate steers tied to what he is running now, each earned by the body — the artifact succeeds when
+he finishes knowing what to do, not merely understanding. **Sections are FREE** — the close checks the
+*property* (depth, arc, honesty, clarity, actionability) present anywhere, never a named section.
+Depth is the **depth of the survivors**: developed fully where the material earns it, never
+teach-everything (a thin bite that left the thinking undone fails; so does an 8k-word essay that
+buries the one move that matters).
 
 ## Visual idiom — charts + prose
 

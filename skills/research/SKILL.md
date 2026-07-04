@@ -11,10 +11,12 @@ target** — a tool, a concept, a problem, a friction point the mentee hit — a
 produce one deliverable, developed to its **depth target** (`scaffold.md`: Depth): the mentee comes away
 **understanding**, not skimming. One deliverable, whole at its target (transient, but whole while it lives).
 
-**Depth default: `deep`** — the deep-dive genus is inherently plenitude: develop every move fully, leave
-no facet folded. The operator can still dial it down per artefato (a `standard`/`brief` override in the
-invocation); `/{prefix}-research-deep` is the discoverable alias that names this default explicitly. The
-rich-rite floor (the four moves present) holds at every depth.
+**Depth default: `deep`** — the deep-dive genus develops fully, but depth is the **depth of the
+survivors** (leitura cega 2026-07-05): full development of what the derivation and evidence EARNED,
+never teach-everything (the plenitude-as-coverage doctrine produced the longest and least readable
+artifact of the blind set). The operator can still dial it down per artefato (a `standard`/`brief`
+override in the invocation); `/{prefix}-research-deep` is the discoverable alias that names this
+default explicitly. The rich-rite floor (the four moves present) holds at every depth.
 
 You are a **thin specialization** of the shared producer scaffold (ADR-0012): you do **not** write your
 own loop. You inherit the loop from `skills/_shared/scaffold.md`, supply the theme and the producing
@@ -44,23 +46,32 @@ The scaffold names three role-defined slots; research maps each to its directed-
   was missing — not a general survey. Each returns **evidence** `{source, ref}` that closes a specific
   gap. Depth comes from the derivation **plus** the gap-closing evidence; a factual claim with no source
   does not ship — a reasoning step stands on its premises.
-- **`converge`** (loop2 critic) — judge whether the target is **understood to plenitude**: the mechanism
-  explained from first principles, every gap either closed with evidence or marked unknown, taught as to
-  someone intelligent but unfamiliar. Ship on *understanding reached*, never on brevity. A linked survey
-  that never derived is not research; neither is a shallow definition.
+- **`converge`** (loop2 critic) — judge whether the target is **understood by THE MENTEE and lands on
+  his live work** (leitura cega 2026-07-05): the mechanism explained from first principles, every gap
+  either closed with evidence or marked unknown — **calibrated to the reader who built the system**
+  (assume what he knows cold; contextualize only the genuinely new, one concrete handle each — never
+  "taught as to someone unfamiliar", that is re-teaching tax), and the ending leaving him ready to
+  ACT on the target, not merely understanding it. A linked survey that never derived is not research;
+  neither is a shallow definition; neither is a beautiful explanation that ends on the understanding.
 - **`diverge`** (loop2 serendipity) — spend the **reserved curiosity budget** (`scaffold.md`) on the
   adjacent thing the target points to — the technique next door, the deeper question a gap exposed. It
   does not gate (the brake lives in the protocol), but its budget is protected.
 
 ## Produce — a self-contained explanation, framed in the Idiom
 
-The research Artefato is a **self-contained explanation**: a reader understands the target without the
-sources open. Show the **thinking** — the derivation before the conclusion (derive from first principles,
-then the cite). Mark the knowledge boundary explicitly: what you **derived**, what you **repeated** from a
-source, what stays **unknown**. Frame in the mentee's **Idiom**; lead with what the target *is and why it
-matters to their live work*, then develop the mechanism to depth. **Sections are FREE** — the close checks
-the *property* (depth, derivation, honesty, clarity) present anywhere, never a named section. **Plenitude**
-is the bar: a thin definition that left the thinking undone is a failure.
+The research Artefato is a **self-contained explanation for THIS reader**: the mentee understands the
+target without the sources open — without being re-taught what he already knows. Show the **thinking** —
+the derivation before the conclusion (derive from first principles, then the cite). Mark the knowledge
+boundary explicitly: what you **derived**, what you **repeated** from a source, what stays **unknown**.
+**Think before you write, then write ONCE** (plan: the genuinely-new, the through-line, the honest
+boundary, a per-section budget — then one coherent single-writer pass, never parallel-stitched).
+Frame in the mentee's **Idiom**; lead with what the target *is and why it matters to their live work*,
+develop the mechanism to the depth the material earned, and **end leaving him ready to implement** —
+ordered concrete steps on the live work, each traceable to the body (leitura cega 2026-07-05: the
+winning artifacts end in moves; the losing ones end in understanding). **Sections are FREE** — the
+close checks the *property* (depth, derivation, honesty, clarity, actionability) present anywhere,
+never a named section. A thin definition that left the thinking undone is a failure; so is the
+exhaustive essay that buries the move.
 
 ## Visual idiom — prose + the Feynman blocks
 
