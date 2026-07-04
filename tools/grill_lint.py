@@ -127,8 +127,8 @@ def detect(driver, group):
     # Direction `proposed` tier — the grill curates it (promote/drop/merge), ADR-0007/#14.
     try:
         sys.path.insert(0, str(REPO / "tools"))
-        import eventlog
-        for it in (eventlog.direction_at() or {}).get("proposed", []):
+        import cortex
+        for it in (cortex.direction_at() or {}).get("proposed", []):
             src = f" (from {it['from_artefato']})" if it.get("from_artefato") else ""
             agenda.append(("HIGH", "direction-proposed",
                            f"Proposed direction '{it.get('body', '')}'{src} is uncurated.",
@@ -139,8 +139,8 @@ def detect(driver, group):
     # agenda items, but curated sources are omitted unless the data contradicts them (→ contested).
     try:
         sys.path.insert(0, str(REPO / "tools"))
-        import eventlog
-        fb = eventlog.source_feedback_at()
+        import cortex
+        fb = cortex.source_feedback_at()
         agenda.extend(source_yield_agenda(fb["non_curated"], curated=fb["curated"]))
     except Exception:
         pass

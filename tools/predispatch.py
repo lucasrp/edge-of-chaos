@@ -34,6 +34,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
+import cortex            # noqa: E402
 import eventlog          # noqa: E402
 import sources as sources_mod   # noqa: E402  — the agent.yaml interfaces[] seam (S3): the canary
 #   battery iterates the DECLARED interfaces, NEVER a source named in code (E8, the Overleaf test)
@@ -139,7 +140,7 @@ def _pending_and_ambient(log):
     verify or condemn); a cell already projected verificada/instrumento/overspecified/nao-aplicavel
     is resolved and not re-probed. `ambient_rows` = the total ambient-geometry read volume (R3.1:
     wake health, never a gate). Pure over the log; the caller wraps it degrade-dark."""
-    g = eventlog.grounding_at(log=log)
+    g = cortex.grounding_at(log=log)
     pending, ambient_rows = set(), 0
     for cell in g.get("cells", {}).values():
         if cell.get("geometry") == "ambient":

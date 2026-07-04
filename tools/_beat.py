@@ -11,6 +11,7 @@ import shutil
 from contextlib import contextmanager
 from pathlib import Path
 
+import cortex
 import eventlog
 
 REPO = Path(__file__).resolve().parent.parent
@@ -53,10 +54,10 @@ def assert_beat_produced(log, before_count) -> list:
     A pure reader over the log (no append, no claude): edge-heartbeat captures before_count, runs the
     beat, then calls this; non-empty gaps → NONZERO exit."""
     gaps = []
-    after_count = len(eventlog.corpus_at(log=log))
+    after_count = len(cortex.corpus_at(log=log))
     if after_count - before_count < 1:
         gaps.append(f"no new Artefato: corpus stayed at {after_count} (was {before_count})")
-    debt = eventlog.artefatos_without_kernel(log=log)
+    debt = cortex.artefatos_without_kernel(log=log)
     if debt:
         gaps.append(f"C3 debt — Artefato(s) published without an intent kernel: {debt}")
     return gaps

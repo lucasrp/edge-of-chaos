@@ -40,6 +40,7 @@ from datetime import datetime as _dt
 from datetime import timezone as _tz
 from pathlib import Path
 
+import cortex
 import eventlog
 import render
 import close
@@ -204,7 +205,7 @@ def _signal_cites(slug, body, cites, embed_fn, log):
         if not (isinstance(c, dict) and c.get("snippet")):
             continue
         if embed_fn is not None:
-            sim = eventlog.cosine(embed_fn(c["snippet"]), embed_fn(body))
+            sim = cortex.cosine(embed_fn(c["snippet"]), embed_fn(body))
         else:
             sim = 0.0
         eventlog.source_signal(slug, c.get("ref"), c.get("kind"), sim, log=log)
@@ -321,7 +322,7 @@ def _project_backbone(s, g, log):
     s.run("MERGE (gen:Genesis {group_id:$g}) SET gen.space=0, gen.codename=$c, gen.voice=$v, "
           "gen.method='memory/method.md', gen.personality='memory/personality.md'",
           g=g, c=cfg.get("codename") or cfg.get("name"), v=cfg.get("voice"))
-    obj = eventlog.objective_at(log=log) or {}
+    obj = cortex.objective_at(log=log) or {}
     if obj.get("body"):
         s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj["body"])
         s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) "
@@ -334,7 +335,7 @@ def _project_backbone(s, g, log):
               "MERGE (a)-[:SERVES]->(o)", g=g)
     # ANCHORS = the CURRENTLY active steers — REBUILD each sync (DESTRUCTIVE) so a dropped/superseded
     # Direction stops being anchored (recall from space-0 must match the log).
-    dirs = eventlog.direction_at(log=log) or {}
+    dirs = cortex.direction_at(log=log) or {}
     s.run("MATCH (o:Objective {group_id:$g})-[r:ANCHORS]->(:Direction) DELETE r", g=g)
     for it in dirs.get("set", []) + dirs.get("proposed", []):
         s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
@@ -704,9 +705,9 @@ def reproject_missing_pages(log=eventlog.LOG, blog_dir=BLOG_DIR, date=None, embe
     not mislabelled 'report'. A legacy event with no skill falls back to the producer-neutral default;
     the body (the load-bearing content) re-renders exactly either way."""
     blog_dir = Path(blog_dir)
-    yields = eventlog.source_yield_at(log=log)  # refs that already have a signal
+    yields = cortex.source_yield_at(log=log)  # refs that already have a signal
     redone = []
-    for item in eventlog.corpus_at(log=log):
+    for item in cortex.corpus_at(log=log):
         spec = item.get("spec")
         if spec is None:
             continue  # legacy/migration published events with no spec are not regenerable
@@ -791,7 +792,7 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
     present = present_slugs() if present_slugs is not None else {}
     if present is None:
         return  # graph unreachable — nothing to recover into it; skip (no per-item embed storm)
-    for item in eventlog.corpus_at(log=log):
+    for item in cortex.corpus_at(log=log):
         pat = present.get(item["slug"])
         # skip ONLY if complete AND FRESH: the node's projected_at is at-or-after the log's LATEST
         # event ts for this slug. `latest_ts` advances to a kernel ADDED LATER (Codex P3), so a

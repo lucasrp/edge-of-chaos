@@ -64,6 +64,7 @@ from urllib.parse import unquote_plus, urlsplit
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
+import cortex                       # noqa: E402
 import eventlog                     # noqa: E402
 import sources as sources_mod       # noqa: E402
 import _envconf                     # noqa: E402  # EDGE_GROUNDING_FLOOR knob (S6)
@@ -1495,7 +1496,7 @@ def _scan_file(path, start, recognizers):
 def _known_refs(log):
     """The dedup base, RANKED (Codex S4 gate D1): {raw_ref: best (recognizer_rev, seq) rank
     already in the log} — a supersede event ranks onto its TARGET (the same identity the fold
-    competes on, eventlog._supersede_rank). Same-or-lower rev re-harvests are no-ops (E2:
+    competes on, cortex.supersede_rank). Same-or-lower rev re-harvests are no-ops (E2:
     retro-harvest is re-FOLD, never re-append); a HIGHER rev emits a `supersedes` row —
     the versioned interpretation E2b promises. Unmanifested tallies dedup by the same brute
     key (a plain set — a tally has no interpretation to version)."""
@@ -1513,7 +1514,7 @@ def _known_refs(log):
         target = (eventlog._raw_ref_key(p.get("supersedes"))
                   or eventlog._raw_ref_key(p.get("raw_ref")))
         if target:
-            rank = eventlog._supersede_rank(p, e)
+            rank = cortex.supersede_rank(p, e)
             if target not in refs or rank > refs[target]:
                 refs[target] = rank
     return refs, unrec

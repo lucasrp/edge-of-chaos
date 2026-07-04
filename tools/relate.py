@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _identity  # noqa: E402
-import eventlog  # noqa: E402  (reuse the one cosine; the math lives there, ADR-0009)
+import cortex  # noqa: E402  (reuse the one cosine via the Cortex door — ADR-0009/0019)
 
 # Sentinel so `nominate` can tell "caller passed None / 0.0" (a real value) from "use the default":
 # group=None must mean a degraded read (no group), and floor=0.0 is a legitimate gate, so neither
@@ -37,7 +37,7 @@ def relative_floor(vectors, *, pct=87):
     automatically. A tuned absolute tau is DEFERRED until ~100 labelled judgments exist (spec
     line 1018) — until then the relative floor is the instrument.
 
-    The distribution is computed EXACTLY over all C(N,2) pairs via `eventlog.cosine`. At small
+    The distribution is computed EXACTLY over all C(N,2) pairs via `cortex.cosine`. At small
     N this is cheap (N=16 → 120 pairs). When the corpus grows large enough that all-pairs is
     too costly, the spec's documented next step is a ~10k-pair RANDOM SAMPLE of the same
     distribution — that sampling is NOT built here; v1 ships exact all-pairs.
@@ -50,13 +50,13 @@ def relative_floor(vectors, *, pct=87):
         return None
     try:
         cosines = [
-            eventlog.cosine(vectors[i], vectors[j])
+            cortex.cosine(vectors[i], vectors[j])
             for i in range(len(vectors))
             for j in range(i + 1, len(vectors))
         ]
     except (TypeError, ValueError):
         # PRECONDITION: vectors are equal-length numeric embeddings (sweep emits these; not
-        # re-validated here). eventlog.cosine degrades a zero-norm vector to 0.0, but a
+        # re-validated here). cortex.cosine degrades a zero-norm vector to 0.0, but a
         # non-numeric / malformed element still raises — so to honour "never raises" a
         # malformed corpus degrades to no floor rather than propagating the error.
         return None
@@ -188,7 +188,7 @@ def nominate(embeddings=None, *, group=_AUTO, floor=_AUTO, pct=87,
         sim = {}
         for i in range(n):
             for j in range(i + 1, n):
-                sim[(i, j)] = eventlog.cosine(vectors[i], vectors[j])
+                sim[(i, j)] = cortex.cosine(vectors[i], vectors[j])
     except (TypeError, ValueError):
         # Malformed (non-numeric) embedding: honour "never raises" — degrade to no candidates.
         return set()

@@ -13,6 +13,7 @@ already persists to, so the gate holds even offline-from-graph.
 """
 import sys
 
+import cortex
 import eventlog
 
 # The three stage-(ii) REQUIRED briefing sections and the feeder that fills each (the audit table).
@@ -25,20 +26,20 @@ def grill_complete(log=eventlog.LOG):
     A piece is present when its feeder landed an event with a **stripped-non-empty body** (Codex gate
     finding [high]): an empty/whitespace body is no stage-(ii) content, so it does NOT count as landed
     even if a grill appended such an event directly (the write helpers also refuse it at the source):
-    - **objective** — `eventlog.objective_at()` body is non-empty (a `set_objective` ran);
-    - **direction** — `eventlog.direction_at()` has a `set` OR `proposed` item with a non-empty body;
-    - **direcionamento** — `eventlog.report_at()` latest report has a non-empty body.
+    - **objective** — `cortex.objective_at()` body is non-empty (a `set_objective` ran);
+    - **direction** — `cortex.direction_at()` has a `set` OR `proposed` item with a non-empty body;
+    - **direcionamento** — `cortex.report_at()` latest report has a non-empty body.
     """
     def _filled(s):
         return bool(s and s.strip())
 
     missing = []
-    if not _filled((eventlog.objective_at(log=log) or {}).get("body")):
+    if not _filled((cortex.objective_at(log=log) or {}).get("body")):
         missing.append("objective")
-    d = eventlog.direction_at(log=log) or {"set": [], "proposed": []}
+    d = cortex.direction_at(log=log) or {"set": [], "proposed": []}
     if not any(_filled(i.get("body")) for i in d.get("set", []) + d.get("proposed", [])):
         missing.append("direction")
-    if not _filled(((eventlog.report_at(log=log) or {}).get("latest") or {}).get("body")):
+    if not _filled(((cortex.report_at(log=log) or {}).get("latest") or {}).get("body")):
         missing.append("direcionamento")
     return missing
 

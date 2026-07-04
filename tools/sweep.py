@@ -21,6 +21,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
+import cortex
 import eventlog
 import sessions
 import _identity
@@ -270,7 +271,7 @@ def embed_and_signal(slug, body, cites, embed_fn=None, log=eventlog.LOG):
         return 0
     n = 0
     for c in snippetted:
-        sim = eventlog.cosine(embed(c["snippet"]), body_vec)
+        sim = cortex.cosine(embed(c["snippet"]), body_vec)
         eventlog.source_signal(slug, c.get("ref"), c.get("kind"), sim, log=log)
         n += 1
     return n
@@ -283,7 +284,7 @@ def reproject():
     eventlog.consolidate_artefato_proposals()
     eventlog.project_direction()                       # pure fold — always
     eventlog.project_corpus()                          # pure fold — always (Tier-0, no graph)
-    missing = eventlog.artefatos_without_kernel()      # the C3 gate finally gets a reader (ADR-0009)
+    missing = cortex.artefatos_without_kernel()        # the C3 gate finally gets a reader (ADR-0009)
     if missing:
         print(f"sweep: C3 — {len(missing)} published Artefato(s) without an intent.kernel: "
               f"{', '.join(missing)} — edge work without a recorded intent is incomplete (warning)")
