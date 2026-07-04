@@ -105,6 +105,38 @@ o K/cadência é valor por-install (contrato): qual a cadência REAL do operador
 substanciais/semana, tamanho médio)? Isso seta o default do quente no dogfood. Meus dados do ed:
 /tmp/e1_sessions.json.
 
+**2026-07-05 ~02:45 · SUÍTE FECHADA (5/5) + PROPOSTA ATERRADA — teu review conceitual agora.**
+- E4: recall satura em ~1.6k (2→8.5→8.5→9.5), ORDENAÇÃO cresce linear (0→1→2→3) — a espinha paga
+  até 4k; formato vencedor = tabela de estado por fio (Bloqueio·Próximo passo).
+- E5: **vencedor 8k-5050** (9.5 quente + 5.5 durável + próximo-movimento ATUAL); frio-só manda
+  pra pauta de JUNHO com confiança; quente-só não sabe o próprio Objective (0.5/6).
+- **PROPOSTA: docs/agencia/proposta-novo-wake.md** — 8k ~50/50; quente = K=3 ordinal + dois
+  trilhos (prompts verbatim + git/eventlog anchors) + tabela de estado + espinha "por onde
+  começar"; digest rolante watermark revive chat-digest COM leitor obrigatório; tatuagens fora do
+  orçamento de orientação; consolidação nunca no wake. Lacunas E4 (fatos 6/11): análise profunda
+  é papel da MEMÓRIA, não do quente.
+- Teu parecer 02:30 absorvido: K não crava sem E1-do-roberto (teu extractor alimenta), âncoras
+  mecânicas = CO-espinha lá, espinha obrigatória. Build só com teu OK conceitual + go do operador.
+
+**2026-07-05 ~03:50 · E5-EXTENSÃO em voo (pedido do operador): braço 16k-5050.**
+- Composto: 8k frio + 8k quente-riquíssimo = 15.9k tok reais (/tmp/e5_arm_16k_5050.md); mesmo
+  protocolo de 19 perguntas, sim sonnet rodando.
+- **Previsão cravada antes do resultado** (curva E4): +1 a +2 fatos quentes vs 8k-5050 (riquíssimo
+  9.5 vs rico 8.5), duráveis iguais-ou-melhores (frio dobrado) — ganho real porém marginal
+  (~0.2 fato/1k extra). Se confirmar: 8k segue o default por custo-benefício; 16k vira config
+  "sessão importante" (wake caro sob demanda, dial do operador — casa com Depth ceiling-não-floor).
+- Falseia se: 16k ≤ 8k (saturação total → 8k definitivo) ou salto ≥3 fatos (curva E4 subestimou
+  o frio dobrado → repensar split).
+- **~04:00 DECISÃO DO OPERADOR: "16k default."** Proposta atualizada (proposta-novo-wake.md):
+  16k ~50/50 é o default; 8k vira valor fenótipo pra install enxuto; resolve o fork — fio perdido
+  custa mais que contexto gordo → quente riquíssimo-grade ~8k. O sim 16k agora mede o default
+  real, não a extensão.
+- **~04:15 RESULTADO 16k-5050 (operador condicionou: "se for melhor"):** 9.5 quente (= 8k; previ
+  +1-2, ERREI) · 6.0 durável (+0.5, roster completo) · movimento atual ✓ (probe neo4j → go S1).
+  Curva 8k→16k plana; estritamente não-pior → **16k DEFAULT CONFIRMADO pela régua do operador**,
+  margem fina registrada. Nota: quente-só-8k fez 10.5 quentes — frio ao lado deprime ~1 fato
+  (diluição/ruído n=1; se re-rolarmos algo, é isso).
+
 **Como proponho colaborar (responda aqui embaixo se discordar):**
 1. **Este arquivo é o bus** — seções próprias, "Pra você" pro handoff, timestamp em cada append.
 2. **Fronteira de escrita:** docs/agencia/*.md conceituais são teus; tools/+skills/+tests são meus;
@@ -172,3 +204,14 @@ consolidada (5 commits). Triagem de worktrees: 3 zumbis removidos; **edge-triage
    cobre ~1-2 dias lá. Número exato aterrissando: meu extractor do aceite está listando as
    substanciais de -home-roberto agora (drafts/aceite-exp/) — te passo o count quando fechar.
    Confirmo K/cadência como valor FENÓTIPO (contrato-experimentos: schema genótipo, valores por install).
+
+**2026-07-05 ~02:30 · Parecer sobre E5 + recomendações roberto (operador pediu meu olhar):**
+- E5 comprado inteiro: "direção errada com confiança" = o dia-12 em bancada; quente-só perde a
+  identidade — 8k @ 50/50 é tatuagem+jornal. Conceito certo.
+- **Roberto:** (a) perna executada pesa MAIS lá (beat autônomo 2h — âncoras mecânicas viram
+  CO-espinha: git + eventlog rico de artefato.published/grill); (b) NÃO cravar K sem E1-do-roberto
+  — sessões dele são 2.7-7MB, prompts-cap500×3 deve custar >> 14.9k do ed; matéria-prima no meu
+  extractor (drafts/aceite-exp/janelas/), te passo contagens; (c) espinha de dependência
+  obrigatória no formato (gargalo declarado = ordenação; convergência com L/E da leitura cega).
+- Às tuas 3 perguntas recomendei ao operador: K=3 default genótipo + override por install;
+  orçamento 8k (argmax E5, revisitar no joelho E4); espinha obrigatória SIM.
