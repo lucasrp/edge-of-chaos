@@ -59,13 +59,11 @@ Janela dos experimentos ATÍPICA (1º dia fable + sexta intensa — teto de calo
 em mãos; frio dos sims = superfícies stale reais (em produção, frio compactado deve pontuar
 duráveis igual e quente igual de mal).
 
-## Forks
+## Fork aberto
 
-- ~~Qual erro custa mais~~ **RESOLVIDO pelo "16k default": fio perdido custa mais.** Consequência:
-  quente = riquíssimo-grade (~8k, narrativa + verbatims + tabela de estado + espinha), K=3
-  ordinal (K=5 se o E1-do-roberto mostrar sessões curtas demais — dado do A chegando).
 - **Onde aterra o build** — branch refactor/modularize (recomendado; porta pro roberto junto com
-  o organismo — é o mesmo órgão SENTIR) vs main vivo. ABERTO.
+  o organismo — é o mesmo órgão SENTIR) vs main vivo. (K=3 ordinal default; K=5 se o
+  E1-do-roberto mostrar sessões curtas demais — dado do A chegando.)
 
 ## Build (quando houver go): ~1 sessão, TDD
 

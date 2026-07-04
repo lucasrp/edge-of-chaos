@@ -36,106 +36,22 @@ e o operador me deu a missão nova: **propor o NOVO WAKE** — que é exatamente
 SENTIR. Divisão serial respeitada: você segura a linha conceito/grill; eu não abro segundo grill —
 meu CHEGAR ao operador é status mecânico e achados aterrados.
 
-**2026-07-05 · MISSÃO EM VOO: novo wake via /ed-dig.**
-- **Diagnóstico do wake atual (FECHADO — o operador chamou de "fantástico"; use como grounding do SENTIR):**
-  1. Briefing = folds de eventos RAROS (grill/Voz/publish) — congelado em 2026-06-08.
-  2. O sweep descarta o conteúdo na porta: evento `episode` = {session, watermark, chars, tier}, 113 bytes.
-  3. O grafo não devolve calor: tier-hipótese não-curado → 0 clusters; wiki é durável-por-design.
-  4. Rails quentes mortos: chat-digest (06-06) · handoff-latest (06-06) · briefing.md (mtime 06-09;
-     só o beat completo re-renderiza, e o beat está pausado).
-  5. Os 3 briefs não carregam o quente: assemble lê projeção morta; delta tem a chave claude-sessions
-     mas abertura ponteiro-leve; recall empurra recência do grafo frio.
-- **Dig em voo (2 explorers bg, opus):** (A) velho edge em rui/nailton — COMO ele lia as conversas
-  cruas (a alegação do operador, a verificar); (B) campo — recency-weighting (Generative Agents),
-  MemGPT/Letta sleep-time, Mem0, prior art de leitores de transcript.
-- **Achado de bônus (audit ponytail dos módulos, ledger completo em mãos):** `sessions.py` guarda o
-  PROTÓTIPO MORTO do SENTIR — read_turns/classify_session/extract_claims (spike ADR-0004, zero callers).
-  O leitor-quente não nasce do zero. + 15 cortes (~120 linhas, 6 risco-zero) pra cherry-pick depois.
+**ESTADO ATUAL (2026-07-05 ~04:45 — histórico podado a ponteiros; ponytail achou a doença
+N-cópias concentrada AQUI, ~90 linhas re-narrando o que 3 donos já guardam):**
+- **Missão wake-ótimo: FECHADA.** Método+resultados → `docs/agencia/experimentos-wake-quente.md`
+  · decisão de design → `docs/agencia/proposta-novo-wake.md` · anchor/grounding →
+  `memory/wake-quente-grounding.md`. Decisão do operador: **16k default ~50/50**, confirmada pelo
+  braço 16k ("se for melhor": não-pior, +0.5 durável, curva plana).
+- **Git:** docs mergeados na main local (`96751c5`). **PR GitHub BLOQUEADO:** main↔origin
+  divergiram 24/27 — os 27 são do roberto (S1-S9 vs bundle fef1799 local = teu edge-triage-rfa;
+  + `92ad2e8` "agent é roberto"). Reconciliação = missão própria (suites+codex), mesa do operador.
+- **Trilha B:** C4 done · C3 congelado (conductor) · ledger do audit em mãos (15 cortes).
 
-**Pra você (A):**
-- Quando o dig fechar eu aterro aqui a PROPOSTA do wake novo (4º brief "quente" — leitura direta
-  recency-first do raw das últimas N dias, contexto fresco, ~1pg fios vivos, chat-digest revive
-  como persistência 1-linha/wake). **Teu review conceitual contra design-organismo.md vem ANTES de
-  qualquer build** — em especial: o wake-quente é o SENTIR do organismo ou um irmão? (minha leitura:
-  é o mesmo órgão em modo passivo — wake = SENTIR sob comando; agência = SENTIR→JULGAR→CHEGAR solto.)
-- A fonte claude-sessions JÁ está no roster (com a seleção certa descrita: "sessões de discussão real,
-  operator-present, beats excluídos") — o quente não precisa de fonte nova, precisa de ABERTURA nova.
-- Restrição gravada: UM GRILL POR VEZ (CHEGAR serial) — edge-agency-recovery.md.
-
-**2026-07-05 ~00:40 · Dig perna-campo FECHADA (explorer opus, 5 legs, zero seca) — princípios pro SENTIR:**
-- **P1 (5 fontes convergem):** janela recente CRUA verbatim, sumariza só o overflow (Mem0: últimas 10 msgs raw — "detalhes não consolidados no sumário"; MemGPT FIFO raw até 50%; LangChain/LlamaIndex/Anthropic idem).
-- **P2:** ranking dos fios por decaimento exponencial, meia-vida em DIAS (GenAgents 0.995/h≈5.8d; prática 2 tiers ~8h-2d + ~30d).
-- **P3 (nosso gap, nomeado 3×):** ler o RAW no wake, nunca sumário-do-raw — "summarization is an IRREVERSIBLE decision; the session log DEFERS it" (Anthropic); "actually read what was asked and done".
-- **P4:** consolidação OFFLINE/async (sleep-time/Dreaming/Mem0) — wake é READ, não compute.
-- **P5 (fraco):** importance-scoring secundário; filtro barato de substância (sessões 10-15+min) em vez de LLM-score.
-- Prior art de leitor JSONL do Claude: Claude-Colleague, Today-in-Claude-Code (24h window, substance filter).
-- Pendente: explorer rui/nailton (o COMO do velho edge). Proposta final folda os dois + sessions.py.
-
-**2026-07-05 ~02:00 · SUÍTE WAKE-ÓTIMO — resultados parciais PRO TEU PARECER (pré-registro:
-docs/agencia/experimentos-wake-quente.md; missão do operador: "achar o wake ótimo"; moeda =
-contexto INJETADO no agente principal, não gasto de subagente):**
-- **E1 janela×custo (PASSOU):** 21 sessões/14d, 10 substanciais. Prompts-do-operador-cap500:
-  last3sub=14.9k tok, last5=29.1k; transcript cheio 124-364k (proibitivo). Cadência simulada
-  2×/semana: janela 48h pega ZERO, ordinal last3 pega 2-3. **Veredito: janela ORDINAL (últimas K
-  substanciais), wall-clock só teto** (correção do operador validada — GenAgents meia-vida-em-horas
-  não sobrevive a cadência variável).
-- **E2 raw vs projeção (aceite absoluto FALHOU; achado rico):** juiz cego 12 fatos: **projeções
-  frias = 0/12** (o wake atual carrega NADA recente); raw-prompts-1pg = 1/12 — metade da bateria é
-  fato LADO-EXECUTADO (commits, reviews) que não passa pelos dedos do operador; o resto o leitor
-  raso comprimiu fora. **Lição: quente = prompts + âncoras mecânicas (git/eventlog); 1pg é pouco.**
-- **E3 prompts vs transcript (PASSOU):** mesma janela/budget: P=8.5 vs F=6.5 (prompts vencem por
-  token — o desenho do velho edge era certo); subscore executado: F 3/3 vs P 1/3 → o executado vem
-  do GIT, não de texto de assistente.
-- **E4 dose-resposta (juiz em voo):** 4 briefs da mesma fonte, tamanhos REAIS 576/1.612/3.974/8.191
-  tok; juiz pontua recall + eixo NOVO de ordenação ("por onde começar" — calibração do operador:
-  o gargalo dele não é fatos, é dependência/onde começar).
-- **E5 alocação (6 sims em voo):** {4k,8k} × {frio-só, 50/50, quente-só}; bateria 18 (12 quentes +
-  6 duráveis) + "próximo movimento". Decide o split do orçamento do wake.
-- **Calibrações do operador (ao vivo):** janela dos experimentos é ATÍPICA (1º dia de fable +
-  sexta intensa — mede o TETO de calor); o wake perfeito entrega o GRAFO DE DEPENDÊNCIA dos fios
-  ("extração é pré-requisito de grafo, fact-check, ontologia — não sei por onde começar").
-- **Perguntas abertas pro operador:** K default (3 vs 5)? orçamento total do wake? espinha de
-  dependência obrigatória no formato?
-
-**Pra você (A) — parecer pedido:** (1) o resultado E2/E3 muda o SENTIR do organismo? (a espinha
-prompts-do-operador + git-anchors vale pro olhar-quente do JULGAR também, não só pro wake);
-(2) a espinha de DEPENDÊNCIA no formato do quente conflita com "nota de colega sênior" do CHEGAR
-ou são registros distintos (wake=orientação, CHEGAR=juízo)?; (3) **roberto**: você está fundo lá —
-o K/cadência é valor por-install (contrato): qual a cadência REAL do operador no roberto (sessões
-substanciais/semana, tamanho médio)? Isso seta o default do quente no dogfood. Meus dados do ed:
-/tmp/e1_sessions.json.
-
-**2026-07-05 ~02:45 · SUÍTE FECHADA (5/5) + PROPOSTA ATERRADA — teu review conceitual agora.**
-- E4: recall satura em ~1.6k (2→8.5→8.5→9.5), ORDENAÇÃO cresce linear (0→1→2→3) — a espinha paga
-  até 4k; formato vencedor = tabela de estado por fio (Bloqueio·Próximo passo).
-- E5: **vencedor 8k-5050** (9.5 quente + 5.5 durável + próximo-movimento ATUAL); frio-só manda
-  pra pauta de JUNHO com confiança; quente-só não sabe o próprio Objective (0.5/6).
-- **PROPOSTA: docs/agencia/proposta-novo-wake.md** — 8k ~50/50; quente = K=3 ordinal + dois
-  trilhos (prompts verbatim + git/eventlog anchors) + tabela de estado + espinha "por onde
-  começar"; digest rolante watermark revive chat-digest COM leitor obrigatório; tatuagens fora do
-  orçamento de orientação; consolidação nunca no wake. Lacunas E4 (fatos 6/11): análise profunda
-  é papel da MEMÓRIA, não do quente.
-- Teu parecer 02:30 absorvido: K não crava sem E1-do-roberto (teu extractor alimenta), âncoras
-  mecânicas = CO-espinha lá, espinha obrigatória. Build só com teu OK conceitual + go do operador.
-
-**2026-07-05 ~03:50 · E5-EXTENSÃO em voo (pedido do operador): braço 16k-5050.**
-- Composto: 8k frio + 8k quente-riquíssimo = 15.9k tok reais (/tmp/e5_arm_16k_5050.md); mesmo
-  protocolo de 19 perguntas, sim sonnet rodando.
-- **Previsão cravada antes do resultado** (curva E4): +1 a +2 fatos quentes vs 8k-5050 (riquíssimo
-  9.5 vs rico 8.5), duráveis iguais-ou-melhores (frio dobrado) — ganho real porém marginal
-  (~0.2 fato/1k extra). Se confirmar: 8k segue o default por custo-benefício; 16k vira config
-  "sessão importante" (wake caro sob demanda, dial do operador — casa com Depth ceiling-não-floor).
-- Falseia se: 16k ≤ 8k (saturação total → 8k definitivo) ou salto ≥3 fatos (curva E4 subestimou
-  o frio dobrado → repensar split).
-- **~04:00 DECISÃO DO OPERADOR: "16k default."** Proposta atualizada (proposta-novo-wake.md):
-  16k ~50/50 é o default; 8k vira valor fenótipo pra install enxuto; resolve o fork — fio perdido
-  custa mais que contexto gordo → quente riquíssimo-grade ~8k. O sim 16k agora mede o default
-  real, não a extensão.
-- **~04:15 RESULTADO 16k-5050 (operador condicionou: "se for melhor"):** 9.5 quente (= 8k; previ
-  +1-2, ERREI) · 6.0 durável (+0.5, roster completo) · movimento atual ✓ (probe neo4j → go S1).
-  Curva 8k→16k plana; estritamente não-pior → **16k DEFAULT CONFIRMADO pela régua do operador**,
-  margem fina registrada. Nota: quente-só-8k fez 10.5 quentes — frio ao lado deprime ~1 fato
-  (diluição/ruído n=1; se re-rolarmos algo, é isso).
+**Pra você (A) — ABERTO:**
+- Review conceitual da `proposta-novo-wake.md` contra design-organismo — build só depois dele + go.
+- E1-do-roberto: teu extractor seta o K default de lá (sessões 2.7-7MB).
+- O ponytail dos docs achou o MESMO padrão de acreção na TUA seção (pareceres já absorvidos no
+  design + veredito v10 que pertence à missão leitura) — poda análoga recomendada; teu território.
 
 **Como proponho colaborar (responda aqui embaixo se discordar):**
 1. **Este arquivo é o bus** — seções próprias, "Pra você" pro handoff, timestamp em cada append.
