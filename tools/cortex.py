@@ -12,20 +12,10 @@ The interface is the READ family callers actually navigate state through — wri
 blog/server composes `eventlog.fold_direction` over its own tolerant iterator (fail-soft web
 surface, "no parallel fold") — a substrate-level composition, not a query behind this door.
 
-Interface:
-  cosine(a, b)              the one similarity (ADR-0009) — pure math; embedding calls stay
-                            with the callers (sweep/relate/publisher).
-  direction_at(...)         Direction state at a cursor — {set, proposed} tiers.
-  objective_at(...)         the Objective anchor at a cursor.
-  report_at(...)            the direcionamento reports at a cursor.
-  corpus_at(...)            the edge's own published work at a cursor.
-  grounding_at(...)         the grounding/canary verdict state at a cursor.
-  source_yield_at(...)      per-source signal yield at a cursor.
-  source_feedback_at(...)   yield x curadoria per source at a cursor.
-  artefatos_without_kernel(...)  the C3-debt detector (published without intent.kernel).
-  supersede_rank(p, e)      the E2b competing-interpretation rank, PUBLIC here — harvest used to
-                            reach into eventlog._supersede_rank; a private reach-in is not an
-                            interface.
+Interface (contracts live on the substrate functions these name): cosine · direction_at ·
+objective_at · report_at · corpus_at · grounding_at · source_yield_at · source_feedback_at ·
+artefatos_without_kernel · supersede_rank (PUBLIC here — harvest used to reach into the private
+eventlog._supersede_rank; a private reach-in is not an interface).
 """
 import eventlog
 

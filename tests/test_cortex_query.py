@@ -27,38 +27,26 @@ class TestFrontDoor(unittest.TestCase):
                      "artefatos_without_kernel", "supersede_rank"):
             self.assertTrue(callable(getattr(cortex, name)), name)
 
-    def test_cosine_math_and_degrade(self):
-        self.assertAlmostEqual(cortex.cosine([1, 0], [0, 1]), 0.0)
-        self.assertAlmostEqual(cortex.cosine([1, 2, 3], [1, 2, 3]), 1.0)
-        self.assertEqual(cortex.cosine([0, 0], [1, 1]), 0.0)  # degrade, never divide-by-zero
-
-    def test_direction_at_reads_the_log(self):
+    def test_door_forwards_late(self):
+        """One forwarding proof (args/kwargs reach the substrate) + the late-binding contract:
+        a monkeypatch on the eventlog attribute is seen through the door — the seam the test
+        phenotype relies on (test_sweep._isolate), and the red that created these wrappers."""
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.propose("d1", "steer body", log=log)
             d = cortex.direction_at(log=log)
             self.assertIn("d1", [i["id"] for i in d["proposed"]])
+        original = eventlog.direction_at
+        try:
+            eventlog.direction_at = lambda *a, **k: {"set": [], "proposed": [{"id": "patched"}]}
+            self.assertEqual(cortex.direction_at()["proposed"][0]["id"], "patched")
+        finally:
+            eventlog.direction_at = original
 
-    def test_objective_at_reads_the_log(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            log = Path(tmp) / "log.jsonl"
-            eventlog.set_objective("ship the seam", log=log)
-            self.assertEqual(cortex.objective_at(log=log)["body"], "ship the seam")
-
-    def test_corpus_at_reads_the_log(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato("a1", "why: pin the seam", log=log)
-            self.assertEqual([c["slug"] for c in cortex.corpus_at(log=log)], ["a1"])
-
-    def test_supersede_rank_orders_by_rev_then_seq(self):
-        """The E2b contract at the public name: higher recognizer_rev wins over a later seq of a
-        lower rev; corrupt rev ranks below any real one."""
-        better = cortex.supersede_rank({"recognizer_rev": 2}, {"seq": 1})
-        later_worse = cortex.supersede_rank({"recognizer_rev": 1}, {"seq": 9})
-        corrupt = cortex.supersede_rank({"recognizer_rev": "bad"}, {"seq": 99})
-        self.assertGreater(better, later_worse)
-        self.assertGreater(later_worse, corrupt)
+    def test_supersede_rank_delegates(self):
+        """The one door-specific fact: the private eventlog._supersede_rank is public here."""
+        args = ({"recognizer_rev": 2}, {"seq": 1})
+        self.assertEqual(cortex.supersede_rank(*args), eventlog._supersede_rank(*args))
 
 
 if __name__ == "__main__":

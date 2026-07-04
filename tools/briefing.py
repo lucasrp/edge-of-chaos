@@ -14,8 +14,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from eventlog import (LOG, direction_at, corpus_at, artefatos_without_kernel,  # noqa: E402
-                      source_feedback_at, objective_at, report_at)
+from eventlog import LOG  # noqa: E402  (Plataforma constant; queries go through the door)
+from cortex import (direction_at, corpus_at, artefatos_without_kernel,  # noqa: E402
+                    source_feedback_at, objective_at, report_at)
 import _identity  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
