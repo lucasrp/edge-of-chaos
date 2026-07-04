@@ -472,6 +472,38 @@ shallow draft is deepened, not rejected. The worthwhile-test has this floor: qua
 judged below working plumbing + a rich rite.
 *Avoid*: word-count floor, template, section mandate, completeness checklist
 
+**Depth**:
+The **operator-set development target** of an Artefato — `brief`, `standard`, or `deep` — where the
+scarce resource is the **mentee's attention**, so the target is *theirs* to set, not the producer's to
+guess. An **attention/development target, never a block count** (a count rebuilds the shadow the target
+exists to avoid). The **default lives on the producing skill** (`Depth default:` in its SKILL — research
+`deep`, report `standard`, discovery `brief`); the operator overrides per artefato, and a `-deep` alias
+(`/{prefix}-report-deep`) names the deep target discoverably. Sits against the **Rich rite**: the rite is
+the **floor** (the four moves *present*, invariant at every depth); depth is the **ceiling** (how far
+*above* the floor the moves are *developed*). `deep` = **plenitude** — one point on the axis, no longer
+the universal mandate; `brief` = the standalone lead with deeper development folded (progressive
+disclosure).
+*Avoid*: block/word count, one-size-for-all plenitude, depth as the producer's guess
+
+**Conductor**:
+The **deep-dive genus's assembly machinery** (`tools/conductor.py`) — it delivers **plenitude as
+structure**, the **depth-of-assembly** half of the genus that the **Rich rite** completes from the
+**prose-shape** side. Instead of one context window producing the whole Artefato in a **single
+pass**, it assembles a **per-node living outline** (empty→draft→revised→final) with **split/merge
+adjudication**, makes the **motivate → deliver → change-the-course arc structural** (the
+worthwhile-test as shape, not exhortation), and gates each node through the **semantic discharge**
+check (#36) — assigned findings **verified delivered, not assumed** (the per-node discharge gate is
+**shipped & enforced**; `semantic_discharge` in `run_conductor`). Today **dark by default**
+(`EDGE_CONDUCTOR` unset → off; the *deploy-stays-dark* bet holds it back until the still-missing
+**cross-node coherence review** + **living-outline split/merge adjudication** slices land — #36 open).
+**#569** proposes flipping it
+**default-on for the deep-dive genus** (`research`, arguably `report`) — **opt-out, not opt-in** —
+and making node-by-node assembly a **genus obligation** the **Close** enforces, so a single-context
+deep-dive can't silently pass at depth. **Open**: does the fan-out earn its ~7× cost on *synthesis*,
+or is excavate-seed + deterministic re-injection + **one** single-pass writer the real sweet spot?
+*Avoid*: fan-out (the gather-grounding breadth phase — a different stage), conductor-as-settled-default
+(a live proposal, #569, not yet ratified), multi-writer (the dark experiment, not the concept)
+
 **Briefing**:
 The composite orientation the edge **presents to the agent every time it is loaded to act** (at
 dispatch start, and on `/load`). A **collection of information**, in four parts:

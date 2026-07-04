@@ -9,16 +9,35 @@ loop structure and the context-denial ladder are the same for every producer; on
 This scaffold is **non-procrusto** by design: it names roles, never report-specifics. A `map`
 producing a diagram and a `report` producing prose-and-charts run the **same** scaffold.
 
-## Plenitude — the producer works at full depth; the subagents serve it
+## Depth — the producer works to its depth TARGET; the subagents serve it
 
-The producer's job is **plenitude**: fed by its subagents, it develops the theme to its full
-depth — concrete, derived from first principles, tailored to the mentee, carrying what they did
-not already know. The multi-agent structure is **leverage for depth**, never a press that boils
-the work down: the subagents exist to **free the producer to go deep** (offload the grunt-work,
-develop facets in parallel, probe the gaps), not to compress the result into a single bite.
-Synthesis-to-a-bite is a **failure** of plenitude, not a success of concision — a thin honest
-summary that cut the thinking did not do the job. The producer is **free** to wield its subagents
-however it judges best toward that depth; the slots below name *roles*, not a fixed delegation shape.
+The producer develops the theme to a **depth target**, not to a fixed size. The scarce resource is
+the **mentee's attention**, and only they know how deep a theme is worth to them — so the target is
+the **operator's to set per artefato**. Absent an override, the target is the **producing skill's
+declared default** (`Depth default:` in its SKILL; a skill that declares none defaults to `standard`).
+Depth is an **attention/development target, NEVER a block count** — sizing to a block count rebuilds
+the shadow-metric this exists to avoid; the producer translates the target into whatever blocks realize
+it.
+
+Three targets:
+- **`brief`** — the lead that stands alone: the one takeaway, its single load-bearing claim, and the
+  honest boundary. Deeper development is *available* (progressive disclosure) but folded, not spent on
+  the reader up front.
+- **`standard`** — the arc whole and the load-bearing claims reasoned through, tailored to the mentee;
+  the derivation is shown but not every facet exhausted.
+- **`deep`** — **plenitude**: the theme developed to its full depth, every move developed, no facet left
+  folded. The multi-agent structure is leverage for this depth: the subagents exist to **free the
+  producer to go deep**, never to compress the result. This is the target the old universal doctrine
+  assumed for *every* artefato — now it is **one target among three, chosen by the operator**, not the
+  producer's default guess.
+
+The **rich-rite floor is INVARIANT across depth**: the four cognitive moves (derivation, a marked
+boundary, an outside frame, the lineage) must be **present** at every target — that is the genus gate,
+unchanged. Depth sets how far *above* the floor the producer develops: the floor is the moves'
+**presence**, the target is their **development**. A `brief` still carries all four moves — tightly.
+Synthesis-to-a-bite is a **failure** only against a `standard`/`deep` target; at `brief` a tight honest
+lead **is** the job. The producer is **free** to wield its subagents however it judges best toward the
+target; the slots below name *roles*, not a fixed delegation shape.
 
 ## The three slots are role-defined, NOT report-defined
 
@@ -62,10 +81,12 @@ never what a particular report-form *is*:
   before any write, so the **scope deny** is the wall, not read-only-ness. The producer holds the door
   and recalls for itself; its world-reading fan does not. (A graph-reading recall is rung-1 producer
   work, not an explorer — `memory.md`.)
-- **`converge`** — loop2's critic role: decide whether the artefato is **developed to plenitude**
-  and ready to ship — the arc whole, the depth present and derived, tailored to the mentee, carrying
-  what they did not already know. Converge means *judge the development is complete*, **never** *cut
-  to a single point*. The slot says "converge," not "compress."
+- **`converge`** — loop2's critic role: decide whether the artefato is **developed to its depth
+  target** and ready to ship — the arc whole, the moves present, tailored to the mentee, carrying what
+  they did not already know, developed *as far as the target asks* (a `deep` target ships only at
+  plenitude; a `brief` ships when the standalone lead is whole — no further). Converge means *judge the
+  development matches the target*, **never** *cut below it*. The slot says "converge," not "compress"
+  — but the target, not the producer's appetite, sets how far.
 - **`diverge`** — loop2's serendipity role: look sideways for the connection the convergence
   would miss. It carries a **reserved curiosity budget** (the *budget for curiosity*): a fixed slice
   of the dispatch's spend that **must** go to a sideways thread, so serendipity is never starved by
