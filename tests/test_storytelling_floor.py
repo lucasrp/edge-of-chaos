@@ -12,6 +12,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import close  # noqa: E402
+import visible  # noqa: E402
 
 _CHART = {"type": "chart", "chart": "bar", "data": [
     {"label": "a", "value": 1}, {"label": "b", "value": 2}, {"label": "c", "value": 3}]}
@@ -201,7 +202,7 @@ class StorytellingFloor(unittest.TestCase):
         # defense-in-depth: were a signed zero ever to reach the parser (e.g. a future safe_style change),
         # both -0 and +0 are recognized as hidden.
         for decl in ("opacity:-0", "opacity:+0", "scale:-0", "scale:1 +0", "font-size:+0px"):
-            self.assertTrue(close._style_hides_text(decl), decl)
+            self.assertTrue(visible._style_hides_text(decl), decl)
 
     def test_nonpainting_display_values_fail_closed(self):
         # Codex S2 #3: display is a POSITIVE visible-value allowlist — display:none AND non-painting modes
