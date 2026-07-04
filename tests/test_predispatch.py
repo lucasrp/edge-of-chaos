@@ -77,6 +77,7 @@ class EntryDriver(unittest.TestCase):
                 sweep_fn=lambda: 7,
                 briefing_fn=lambda: "BRIEFING",
                 recall_fn=lambda: "RECALL",
+                harvest_fn=lambda: 0,
                 log=log)
             self.assertEqual((briefing_text, recall_text), ("BRIEFING", "RECALL"))
             evs = eventlog.read(types=["dispatch.open"], log=log)
@@ -95,7 +96,8 @@ class EntryDriver(unittest.TestCase):
                 raise RuntimeError("graph down")
 
             briefing_text, recall_text = predispatch.run(
-                sweep_fn=lambda: 0, briefing_fn=lambda: "B", recall_fn=dark_recall, log=log)
+                sweep_fn=lambda: 0, briefing_fn=lambda: "B", recall_fn=dark_recall,
+                harvest_fn=lambda: 0, log=log)
             self.assertIn("DARK", recall_text)
             self.assertTrue(eventlog.wake_fresh(log=log))
 
@@ -108,7 +110,7 @@ class EntryDriver(unittest.TestCase):
 
             with self.assertRaises(RuntimeError):
                 predispatch.run(sweep_fn=loud_sweep, briefing_fn=lambda: "B",
-                                recall_fn=lambda: "R", log=log)
+                                recall_fn=lambda: "R", harvest_fn=lambda: 0, log=log)
             self.assertFalse(eventlog.wake_fresh(log=log),
                              "a dispatch that could not wake must not look woken")
 
@@ -174,15 +176,19 @@ class EntryDriverRealWiring(unittest.TestCase):
         import sweep as _sweep
         import briefing as _briefing
         import recall as _recall
+        import harvest as _harvest
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             with mock.patch.object(_sweep, "run", return_value=3), \
                  mock.patch.object(_briefing, "compose_briefing", return_value="B"), \
-                 mock.patch.object(_recall, "compose_recall_brief", return_value="R"):
+                 mock.patch.object(_recall, "compose_recall_brief", return_value="R"), \
+                 mock.patch.object(_harvest, "harvest", return_value=5):
                 b, r = predispatch.run(log=log)
             self.assertEqual((b, r), ("B", "R"))
             evs = eventlog.read(types=["dispatch.open"], log=log)
             self.assertEqual(evs[0]["payload"].get("swept_sessions"), 3)
+            self.assertEqual(evs[0]["payload"].get("harvested"), 5,
+                             "the harvest leg lazily resolves the real harvest.harvest default")
 
     def test_real_recall_dark_marker_flows_through(self):
         import recall as _recall
@@ -190,7 +196,7 @@ class EntryDriverRealWiring(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             _, r = predispatch.run(sweep_fn=lambda: 0, briefing_fn=lambda: "B",
                                    recall_fn=lambda: _recall.compose_recall_brief(subgraph=None),
-                                   log=log)
+                                   harvest_fn=lambda: 0, log=log)
             self.assertIn("DARK", r)
             self.assertTrue(eventlog.wake_fresh(log=log))
 
@@ -203,7 +209,7 @@ class EntryDriverRealWiring(unittest.TestCase):
 
             with self.assertRaises(RuntimeError):
                 predispatch.run(sweep_fn=lambda: 0, briefing_fn=lobotomy,
-                                recall_fn=lambda: "R", log=log)
+                                recall_fn=lambda: "R", harvest_fn=lambda: 0, log=log)
             self.assertFalse(eventlog.wake_fresh(log=log),
                              "a lobotomized install must not look woken")
 

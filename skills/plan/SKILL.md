@@ -23,7 +23,7 @@ Before any reasoning, run the mechanical pre-dispatch floor and read its two bri
 
 It sweeps the transcript store to currency (fail-loud, ADR-0015), prints the **briefing** and the
 **recall brief**, and stamps `dispatch.open` in the log. **No wake, no publish**: the close's
-publisher refuses without a stamp newer than the last `artefato.published` — skipping this step
+publisher refuses without a `dispatch.open` that MINTED the artefato's `dispatch_id` and is not yet consumed (identity-held gate, E1) — skipping this step
 dead-ends at publish. (The delta is separate and agentic — fan `skills/delta` when you judge you
 need the world; it never gates.)
 
@@ -70,11 +70,11 @@ You do **not** inline an `eventlog` publish snippet, and you **never** call `pub
 that is now the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
 passing-review proof only `close.run_close` mints (it raises without a valid `verdict=`). The proof is
 bound to a sha256 **digest** of the exact publish payload (slug + spec + intent + cites + proposes +
-**distills** + **skill** + **lineage** — EVERY persisted publish arg), carries **both** reviewer verdicts, and stamps a
+**distills** + **skill** + **lineage** + **dispatch_id** — EVERY persisted publish arg), carries **both** reviewer verdicts, and stamps a
 `run_close`-only secret token — so a hand-built dict, a stale proof, a proof minted for a different
 artefato (digest mismatch), or one with `distills`/`skill`/`lineage` altered post-mint cannot publish. Exit through
 the enforced close: build the artefato carrying **every proof-bound field** (`slug`, `intent`,
-`content`=spec, `cites`, `proposes`, **`distills`**, **`skill`**, **`lineage`**) so the minted digest equals the publish
+`content`=spec, `cites`, `proposes`, **`distills`**, **`skill`**, **`lineage`**, **`dispatch_id`** — E1b) so the minted digest equals the publish
 payload, then
 call `close.run_close(artefato, produce_fn, publish_fn=…)`, which runs the genus contract **first**
 (a genus violation bounces — it can never mint a pass proof) → **both blind reviewers** (bounded bounce,
@@ -97,8 +97,13 @@ through the publish_fn:
 - **`cites`** — each **source** the plan stands on, with the snippet you actually used (the intrinsic,
   mechanical **Source-feedback** signal, never a self-rating); `kind` is `mundo` or `atividade`.
 
-      tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import close, publisher; \
+The wake's entry-driver printed a machine-readable **`DISPATCH_ID=<id>`** line — carry that exact id
+into the artefato as **`dispatch_id`** (proof-bound like `slug`, E1b; the canonical publish refuses
+without it, E1c — never reconstruct it from the log).
+
+      tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import close, publisher, harvest; \
         slug='<slug>'; intent='open: …; bet: …'; \
+        dispatch_id='<dispatch-id-from-DISPATCH_ID-line>'; \
         spec={'sections':[{'title':'…','blocks':[ \
           {'type':'paragraph','text':'Step 1 feeds Step 2 because …; what each step does and why the order holds.'}, \
           {'type':'diagram','layout':'dag','nodes':[{'id':'s1','label':'Step 1'},{'id':'s2','label':'Step 2'}],'edges':[{'source':'s1','target':'s2','label':'blocks'}]}, \
@@ -108,13 +113,15 @@ through the publish_fn:
         cites=[{'ref':'<source-key>','kind':'atividade','relevant':True,'snippet':'<the text you used>'}]; \
         lineage=[{'type':'builds_on','slug':'<prior-slug>'}]; \
         artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
-          'cites':cites,'distills':distills,'skill':'plan','lineage':lineage}; \
+          'cites':cites,'distills':distills,'skill':'plan','lineage':lineage, \
+          'dispatch_id':dispatch_id}; \
         pub=publisher.publish; \
         publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
           skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
-          cites=art['cites'], lineage=art['lineage']); \
+          cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id']); \
         improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
         close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
+          floor_fn=harvest.close_floor,  # S6 genus floor: THEMED dispatch + zero recognized reads → violation (knob EDGE_GROUNDING_FLOOR, default 0=off) \
           complete_fn=<review-completer>, publish_fn=publish_fn)"
 
 The Artefato is **transient** — it cools and is prunable; it also **bears the comment field**, the surface
