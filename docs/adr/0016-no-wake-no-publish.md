@@ -58,7 +58,12 @@ after project-in-publisher and recall-push).
   real publish crosses, so the gate cannot be reached around. *(Amended 2026-06-10 review:
   originally drafted as a `close.py` strike through the bounce machinery; the publish-seam
   refusal is strictly stronger — a strike can be re-produced past, a seam refusal cannot — and
-  the tests pin it.)*
+  the tests pin it.)* *(Amended 2026-07-02, grounding S2 / E1 gate D1: the gate is now
+  **identity-held** on the canonical path — an id-carrying publish requires an unconsumed
+  `dispatch.open` whose payload MINTED its `dispatch_id` (`eventlog.wake_fresh_for`), checked
+  both at the publisher fast-fail and authoritatively under the eventlog lock; the global
+  newer-than form remains only for legacy id-less callers. The entry-driver prints the id
+  machine-readable (`DISPATCH_ID=<id>`, first stdout line) for the snippet to carry.)*
 - **Delta is not stamped and not gated** — it remains the agentic, discretionary world-read
   (ADR-0001/0011). The mechanical floor is exactly the scaffolding: sweep + briefing + recall.
 - The **operator wake** (`skills/wake`) runs the same entry-driver (it IS pre-dispatch) but needs
@@ -81,6 +86,9 @@ after project-in-publisher and recall-push).
   so **whoever publishes second loses**, regardless of stamp order (A's publish can spend B's
   newer stamp). Accepted: the refusal is loud and names the remedy, and re-running the driver
   recovers (idempotent). Per-dispatch stamp identity is the known hardening if the race bites in
-  practice.
+  practice. *(Hardening SHIPPED 2026-07-02, grounding S2 / E1: `wake_fresh_for(dispatch_id)` is
+  the identity-held gate on the id-carrying path — each dispatch holds and consumes only its own
+  stamp, an unminted id never publishes; the global race persists only for legacy id-less
+  publishes.)*
 - The skills now lag this ADR (build follows): `predispatch.py` + the `close.py` check + entry
   snippets in the producer SKILL.md set + provision re-render.

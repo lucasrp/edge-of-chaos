@@ -154,8 +154,12 @@ class ProducersFillSlotsAndExitThroughClose(unittest.TestCase):
 # `distills` — or the minted digest is over None/None while the publisher verifies the real
 # values → mismatch → publish raises. And the publish_fn must publish FROM its `art` argument
 # (read the fields off `art`), not from separately-captured locals, so the published payload
-# is provably the one the proof was minted over.
-PROOF_BOUND_ARTEFATO_FIELDS = ("skill", "distills", "slug", "intent", "cites", "proposes")
+# is provably the one the proof was minted over. S2 (E1b): `dispatch_id` joined the bound set —
+# same class as slug (persisted field = digested field), read from the wake's DISPATCH_ID line.
+# `lineage` has been digest-bound since Cortex-v1 brick-1 but was missing from this helper set
+# (pre-existing test gap, closed at the S2 codex gate).
+PROOF_BOUND_ARTEFATO_FIELDS = ("skill", "distills", "slug", "intent", "cites", "proposes",
+                               "dispatch_id", "lineage")
 
 
 class ProducerCloseSnippetMintsOverPublishPayload(unittest.TestCase):
@@ -190,7 +194,8 @@ class ProducerCloseSnippetMintsOverPublishPayload(unittest.TestCase):
         # verified digest. `content` is the artefato dict's name for the digest's `spec`.
         for p in PRODUCERS:
             lit = self._artefato_literal(self.texts[p])
-            for field in ("skill", "distills", "slug", "intent", "content", "cites", "proposes"):
+            for field in ("skill", "distills", "slug", "intent", "content", "cites", "proposes",
+                          "dispatch_id", "lineage"):
                 self.assertIn(f"'{field}'", lit,
                               f"{p}'s run_close artefato omits proof-bound field {field!r} "
                               f"(minted digest would not bind to the publish payload)")

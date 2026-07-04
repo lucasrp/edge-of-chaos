@@ -1571,5 +1571,46 @@ class AdoptionTelemetryEventAtPublish(unittest.TestCase):
         self.assertTrue(p["owed"])
 
 
+class PublishCarriesResidualsFromTheProof(unittest.TestCase):
+    """S6 (design-close §5): a publish-with-residuals proof carries `unaddressed`, and
+    `publisher.publish` reads it OFF the proof (never a caller arg) → a first-class `residuals`
+    field on the `artefato.published` event. A normal publish records residuals=None."""
+
+    def test_residual_publish_records_unaddressed_on_the_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["EDGE_PUBLISH_WITH_RESIDUALS"] = "1"
+            try:
+                log = Path(tmp) / "log.jsonl"
+                slug, spec, intent = "residual-page", _spec(), "open: x; bet: y"
+                unaddressed = [{"reviewer": close.FEYNMAN_REVIEWER_ID,
+                                "strikes": ["overstates the claim"],
+                                "rationales": {"rigor": "why"}, "overall": 3.0}]
+                verdicts = [
+                    {"pass": False, "scores": {"rigor": 3}, "strikes": ["overstates the claim"],
+                     "overall": 3.0, "reviewer": close.FEYNMAN_REVIEWER_ID},
+                    {"pass": False, "scores": {"rigor": 3}, "strikes": ["overstates the claim"],
+                     "overall": 3.0, "reviewer": close.REGULAR_REVIEWER_ID},
+                ]
+                proof = close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
+                                          cites=[], proposes=[], skill="report",
+                                          residual_publish=True, unaddressed=unaddressed)
+                publisher.publish(slug, spec, intent=intent, skill="report", date="2026-06-08",
+                                  log=log, blog_dir=tmp, embed_fn=_fake_embed, verdict=proof)
+                ev = eventlog.read(types=["artefato.published"], log=log)[-1]
+                self.assertEqual(ev["payload"]["residuals"], unaddressed)
+            finally:
+                os.environ.pop("EDGE_PUBLISH_WITH_RESIDUALS", None)
+
+    def test_normal_publish_records_residuals_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug, intent = "no-residual-page", "open: x; bet: y"
+            publisher.publish(slug, _spec(), intent=intent, skill="report", date="2026-06-08",
+                              log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                              verdict=_passing_proof(slug, _spec(), intent))
+            ev = eventlog.read(types=["artefato.published"], log=log)[-1]
+            self.assertIsNone(ev["payload"]["residuals"])
+
+
 if __name__ == "__main__":
     unittest.main()

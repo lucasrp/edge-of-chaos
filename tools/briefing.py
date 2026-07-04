@@ -235,6 +235,14 @@ def _section_sources(log, seq, ts, roster):
         lines = [f"- **{r['ref']}** ({r['kind']}) · {r['count']}× · mean sim {r['mean_similarity']:.2f}"
                  for r in rows]
         parts += ["**Source feedback — non-curated (how each source actually yielded):**", "\n".join(lines)]
+    # S7 — the yield advisory block (grounding_yield §4): ≤6 lines, never-blank via the roadmap
+    # seed rows. Degrade-dark (like the graph leg): a yield-fold failure must never crash the
+    # briefing — the log-fold legs above still compose.
+    try:
+        import grounding_yield
+        parts.append(grounding_yield.briefing_yield_block(log=log, seq=seq, ts=ts))
+    except Exception:  # noqa: BLE001 — advisory only; the briefing never crashes on it
+        pass
     return "\n\n".join(parts)
 
 

@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -1170,6 +1171,626 @@ class CosineIsPureSimilarity(unittest.TestCase):
         self.assertAlmostEqual(eventlog.cosine([1, 0], [0, 1]), 0.0)
         self.assertAlmostEqual(eventlog.cosine([1, 2, 3], [1, 2, 3]), 1.0)
         self.assertEqual(eventlog.cosine([0, 0], [1, 1]), 0.0)
+
+
+def _grounding_row(**kw):
+    """A well-formed `grounding.manifest` payload in the E2b shape: `raw_ref` is the BRUTE
+    occurrence (session_id, transcript_line_offset, tool_use_id, occurrence_index) — location,
+    never interpretation; source/interface/lens/geometry/query/hits live in the interpreted
+    payload. Overridable per test."""
+    p = {"raw_ref": ["sess-a", 10, "toolu_1", 0], "source": "x", "interface": "v2-recent",
+         "lens": "mundo", "geometry": "gather", "attribution": "mapped", "hits": 5,
+         "query": "ai agents lang:en"}
+    p.update(kw)
+    return p
+
+
+def _grounding_line(seq, ts, payload, type="grounding.manifest"):
+    """A raw log line with a CONTROLLED ts — the TTL tests need deterministic timestamps, which
+    append() (stamping now()) cannot give. Same direct-write idiom the corrupt-payload fixtures use."""
+    return json.dumps({"seq": seq, "ts": ts, "type": type, "subject": "grounding",
+                       "payload": payload}) + "\n"
+
+
+_CELL = ("x", "v2-recent", "mundo", "gather", None)  # the default _grounding_row's cell key
+
+
+class GroundingManifestDedupsByRawRef(unittest.TestCase):
+    """E2b: the log is append-only with NO write-side dedupe, so a cursor reset / crash between
+    append and cursor-save re-emits manifests. `fold_grounding` dedups by the BRUTE `raw_ref` —
+    the FIRST emission wins per raw_ref; re-harvests are no-ops in the fold (retro-harvest is
+    re-FOLD, never re-append). Distinct occurrence_index = distinct attempts (one tool call with
+    N queries is N occurrences)."""
+
+    def test_duplicate_raw_ref_second_emission_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding", _grounding_row(hits=5), log=log)
+            eventlog.append("grounding.manifest", "grounding", _grounding_row(hits=7), log=log)
+            g = eventlog.grounding_at(log=log)
+            self.assertEqual(g["cells"][_CELL]["attempts"], 1)
+            self.assertEqual(g["cells"][_CELL]["hits"], 5)  # the FIRST emission's interpretation
+
+    def test_distinct_occurrence_index_is_a_distinct_attempt(self):
+        # one tool call with N queries = N raw_refs (occurrence_index) — they must NOT collapse
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(raw_ref=["sess-a", 10, "toolu_1", 0]), log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(raw_ref=["sess-a", 10, "toolu_1", 1]), log=log)
+            g = eventlog.grounding_at(log=log)
+            self.assertEqual(g["cells"][_CELL]["attempts"], 2)
+
+
+class SupersedesReinterpretsLastWinsByRevThenSeq(unittest.TestCase):
+    """E2b: a row with `supersedes: <raw_ref>` REINTERPRETS that occurrence — the raw history is
+    never rewritten, the interpretation is versioned. The winner among the ORIGINAL row and its
+    reinterpretations is deterministic: max (recognizer_rev, seq) — a better recognizer outranks
+    a later emission of a worse one; equal revs fall back to last-wins by seq; and a worse/corrupt
+    reinterpretation NEVER defeats a healthier original (codex S1 gate D1: supersedes versions the
+    interpretation, it is not an unconditional overwrite)."""
+
+    def test_supersedes_replaces_the_first_interpretation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(recognizer_rev=1), log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(supersedes=["sess-a", 10, "toolu_1", 0],
+                                           interface="xai", recognizer_rev=2), log=log)
+            g = eventlog.grounding_at(log=log)
+            reinterpreted = ("x", "xai", "mundo", "gather", None)
+            self.assertEqual(g["cells"][reinterpreted]["attempts"], 1)
+            self.assertNotIn(_CELL, g["cells"])  # ONE occurrence, one interpretation — never both
+
+    def test_higher_recognizer_rev_wins_over_later_seq(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding", _grounding_row(), log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(supersedes=["sess-a", 10, "toolu_1", 0],
+                                           interface="rev3-read", recognizer_rev=3), log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(supersedes=["sess-a", 10, "toolu_1", 0],
+                                           interface="rev2-read", recognizer_rev=2), log=log)
+            g = eventlog.grounding_at(log=log)
+            self.assertIn(("x", "rev3-read", "mundo", "gather", None), g["cells"])
+            self.assertNotIn(("x", "rev2-read", "mundo", "gather", None), g["cells"])
+
+    def test_equal_rev_last_seq_wins(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding", _grounding_row(), log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(supersedes=["sess-a", 10, "toolu_1", 0],
+                                           interface="first-rerun", recognizer_rev=2), log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(supersedes=["sess-a", 10, "toolu_1", 0],
+                                           interface="second-rerun", recognizer_rev=2), log=log)
+            g = eventlog.grounding_at(log=log)
+            self.assertIn(("x", "second-rerun", "mundo", "gather", None), g["cells"])
+            self.assertNotIn(("x", "first-rerun", "mundo", "gather", None), g["cells"])
+
+    def test_corrupt_supersede_rev_does_not_beat_a_healthy_original(self):
+        # codex S1 gate D1: the rank ranks the ORIGINAL too — a reinterpretation with a corrupt
+        # recognizer_rev (rank -1) must not defeat an original recognized at rev=5. Anything else
+        # is the exact inversion E2b forbids: the WORSE interpretation winning by mere arrival.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(recognizer_rev=5), log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(supersedes=["sess-a", 10, "toolu_1", 0],
+                                           interface="corrupt-rev",
+                                           recognizer_rev="not-a-rev"), log=log)
+            g = eventlog.grounding_at(log=log)
+            self.assertIn(_CELL, g["cells"])
+            self.assertNotIn(("x", "corrupt-rev", "mundo", "gather", None), g["cells"])
+
+    def test_lower_rev_supersede_does_not_beat_a_higher_rev_original(self):
+        # same rank, valid-but-worse recognizer: an original at rev=5 stands against a rev=2
+        # reinterpretation — retro-mining with an OLDER recognizer must not regress the history
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(recognizer_rev=5), log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(supersedes=["sess-a", 10, "toolu_1", 0],
+                                           interface="old-recognizer", recognizer_rev=2), log=log)
+            g = eventlog.grounding_at(log=log)
+            self.assertIn(_CELL, g["cells"])
+            self.assertNotIn(("x", "old-recognizer", "mundo", "gather", None), g["cells"])
+
+
+class DrySuspectProjectsByTwoFactorCanaryJoin(unittest.TestCase):
+    """B1 (design-emissao) + R2.4: `seca-verificada` is NEVER written on the row — it is a FOLD
+    that joins a born-suspect row to a `canary.result` for the same source×interface. Two factors:
+    `verificada` = canary-pass AND idiom_conforme; `suspect:instrumento` = canary failed;
+    `suspect:overspecified` = canary passed but idiom violated (the measured X case: 200+empty on
+    a 13-word query is over-specification, not health); `nao-aplicavel` = never-dry source (Exa:
+    the risk is confident filler, not dryness). No canary → stays `suspect` (R2.4: a dry read
+    without a canary never licenses a negative claim)."""
+
+    def _dry(self, log):
+        return eventlog.grounding_at(log=log)["cells"][_CELL]["dry"]
+
+    def test_canary_pass_and_idiom_ok_projects_verificada(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(hits=0, dry="suspect", idiom_conforme=True), log=log)
+            eventlog.append("canary.result", "grounding",
+                            {"source": "x", "interface": "v2-recent", "pass": True}, log=log)
+            self.assertEqual(self._dry(log), {"verificada": 1})
+            self.assertEqual(eventlog.grounding_at(log=log)["excluded"]["seca-suspeita"], 0)
+
+    def test_canary_pass_but_idiom_violated_is_overspecified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(hits=0, dry="suspect", idiom_conforme=False), log=log)
+            eventlog.append("canary.result", "grounding",
+                            {"source": "x", "interface": "v2-recent", "pass": True}, log=log)
+            self.assertEqual(self._dry(log), {"suspect:overspecified": 1})
+
+    def test_canary_fail_is_instrumento(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(hits=0, dry="suspect", idiom_conforme=True), log=log)
+            eventlog.append("canary.result", "grounding",
+                            {"source": "x", "interface": "v2-recent", "pass": False}, log=log)
+            self.assertEqual(self._dry(log), {"suspect:instrumento": 1})
+
+    def test_never_dry_source_is_nao_aplicavel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(source="exa", interface="search-deep", hits=0,
+                                           dry="suspect", dry_semantics="never-dry"), log=log)
+            g = eventlog.grounding_at(log=log)
+            cell = g["cells"][("exa", "search-deep", "mundo", "gather", None)]
+            self.assertEqual(cell["dry"], {"nao-aplicavel": 1})
+            self.assertEqual(g["excluded"]["seca-suspeita"], 0)  # not a suspect — not excluded
+
+    def test_no_canary_stays_suspect(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(hits=0, dry="suspect", idiom_conforme=True), log=log)
+            self.assertEqual(self._dry(log), {"suspect": 1})
+
+    def test_canary_for_another_interface_does_not_join(self):
+        # fonte × interface are DISTINCT entries (R2.2d) — a pass on exa attests nothing about X
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(hits=0, dry="suspect", idiom_conforme=True), log=log)
+            eventlog.append("canary.result", "grounding",
+                            {"source": "x", "interface": "xai", "pass": True}, log=log)
+            self.assertEqual(self._dry(log), {"suspect": 1})
+
+    def test_row_written_verificada_cannot_self_verify(self):
+        # design-emissao §2: "seca-verificada nunca é escrita na row" — a row that ARRIVES
+        # pre-labeled verificada with 0 hits and no canary still folds as suspect (append-only
+        # intact: only the fold, joining a real canary, can project verificada).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(hits=0, dry="verificada", idiom_conforme=True), log=log)
+            self.assertEqual(self._dry(log), {"suspect": 1})
+
+    def test_non_boolean_pass_attests_nothing(self):
+        # codex S1 gate D3: bool("false") is True — a coerced string `pass` would project
+        # verificada off a FAILED canary (anti-fail-dark). Only a real boolean attests; anything
+        # else is counted corrupt and the read stays suspect.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(hits=0, dry="suspect", idiom_conforme=True), log=log)
+            eventlog.append("canary.result", "grounding",
+                            {"source": "x", "interface": "v2-recent", "pass": "false"}, log=log)
+            g = eventlog.grounding_at(log=log)
+            self.assertEqual(g["cells"][_CELL]["dry"], {"suspect": 1})
+            self.assertEqual(g["corrupt"], 1)
+
+    def test_absent_idiom_flag_stays_bare_suspect(self):
+        # codex round-3 B1: the second factor must be ATTESTED either way — an ABSENT flag is
+        # neither a violation (overspecified) nor conformity (verificada); the read stays bare
+        # suspect (canary-pass alone is one factor, never two).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(hits=0, dry="suspect"), log=log)
+            eventlog.append("canary.result", "grounding",
+                            {"source": "x", "interface": "v2-recent", "pass": True}, log=log)
+            self.assertEqual(self._dry(log), {"suspect": 1})
+
+    def test_non_bool_idiom_flag_stays_bare_suspect(self):
+        # a corrupt idiom flag ("yes") attests neither second-factor branch — never coerced
+        # truthy (the same anti-coercion rule as the canary `pass`, gate D3)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(hits=0, dry="suspect", idiom_conforme="yes"), log=log)
+            eventlog.append("canary.result", "grounding",
+                            {"source": "x", "interface": "v2-recent", "pass": True}, log=log)
+            self.assertEqual(self._dry(log), {"suspect": 1})
+
+    def test_keyless_canary_attests_nothing(self):
+        # codex round-3 B3: a passing canary with NO source/interface could match a row whose
+        # dimensions also folded to None — projecting verificada for an UNKNOWN source. A
+        # canary without a named source×interface is corrupt and attests nothing.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(hits=0, dry="suspect", idiom_conforme=True), log=log)
+            eventlog.append("canary.result", "grounding", {"pass": True}, log=log)
+            g = eventlog.grounding_at(log=log)
+            self.assertEqual(g["cells"][_CELL]["dry"], {"suspect": 1})
+            self.assertEqual(g["corrupt"], 1)
+
+    def test_keyless_dry_row_stays_suspect_even_with_keyless_passing_canary(self):
+        # both sides keyless: None dims must never join each other — the row-side guard in
+        # _canary_for AND the canary-side corrupt count each block the None==None match
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            {"raw_ref": ["s", 1, "t1", 0], "hits": 0, "dry": "suspect",
+                             "idiom_conforme": True}, log=log)
+            eventlog.append("canary.result", "grounding", {"pass": True}, log=log)
+            g = eventlog.grounding_at(log=log)
+            cell = g["cells"][(None, None, None, None, None)]
+            self.assertEqual(cell["dry"], {"suspect": 1})
+
+    def test_whitespace_source_canary_attests_nothing(self):
+        # codex round-4: `isinstance(src, str) and src` accepts " " — a whitespace-keyed canary
+        # is as keyless as a missing one (it names NO instrument); it must count corrupt, and a
+        # whitespace-source row must equally never join it (both sides strip).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(source=" ", hits=0, dry="suspect",
+                                           idiom_conforme=True), log=log)
+            eventlog.append("canary.result", "grounding",
+                            {"source": " ", "interface": "v2-recent", "pass": True}, log=log)
+            g = eventlog.grounding_at(log=log)
+            cell = g["cells"][(" ", "v2-recent", "mundo", "gather", None)]
+            self.assertEqual(cell["dry"], {"suspect": 1})
+            self.assertEqual(g["corrupt"], 1)
+
+    def test_whitespace_source_row_never_joins_a_real_canary(self):
+        # row side of the same rule: a "  "-sourced dry read names no instrument identity — it
+        # can never be projected verificada, whatever valid canaries exist
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(source="  ", hits=0, dry="suspect",
+                                           idiom_conforme=True), log=log)
+            eventlog.append("canary.result", "grounding",
+                            {"source": "x", "interface": "v2-recent", "pass": True}, log=log)
+            g = eventlog.grounding_at(log=log)
+            cell = g["cells"][("  ", "v2-recent", "mundo", "gather", None)]
+            self.assertEqual(cell["dry"], {"suspect": 1})
+
+
+class CanaryJoinRespectsTtl(unittest.TestCase):
+    """B1 TTL: the canary attests the instrument state the dry read plausibly saw — it runs at
+    the NEXT predispatch (design-emissao §2), so the join only accepts a pass AT-OR-AFTER the
+    read within GROUNDING_CANARY_TTL_S. A too-late (or earlier) canary attests a DIFFERENT
+    instrument state: the read stays suspect (R2.4: too-late canário = sem canário)."""
+
+    def _fold_with_canary_at(self, canary_ts):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(_grounding_line(1, "2026-07-01T00:00:00+00:00",
+                                         _grounding_row(hits=0, dry="suspect",
+                                                        idiom_conforme=True)))
+                fh.write(_grounding_line(2, canary_ts,
+                                         {"source": "x", "interface": "v2-recent", "pass": True},
+                                         type="canary.result"))
+            return eventlog.grounding_at(log=log)["cells"][_CELL]["dry"]
+
+    def test_canary_within_ttl_projects_verificada(self):
+        self.assertEqual(self._fold_with_canary_at("2026-07-01T01:00:00+00:00"),
+                         {"verificada": 1})
+
+    def test_canary_after_ttl_stays_suspect(self):
+        # 12h later > 6h TTL — the pass attests a different instrument state
+        self.assertEqual(self._fold_with_canary_at("2026-07-01T12:00:00+00:00"),
+                         {"suspect": 1})
+
+    def test_canary_before_the_read_does_not_join(self):
+        # the design's flow is dry-read → NEXT-predispatch canary; an earlier pass proves nothing
+        # about what the read saw (the failure could have started in between)
+        self.assertEqual(self._fold_with_canary_at("2026-06-30T23:00:00+00:00"),
+                         {"suspect": 1})
+
+    def test_ttl_boundary_is_inclusive(self):
+        # NIT-2 pin: delta == GROUNDING_CANARY_TTL_S exactly still joins ("within" is inclusive)
+        # — computed from the constant so the test and the code can never drift apart
+        boundary = (datetime(2026, 7, 1, tzinfo=timezone.utc)
+                    + timedelta(seconds=eventlog.GROUNDING_CANARY_TTL_S)).isoformat()
+        self.assertEqual(self._fold_with_canary_at(boundary), {"verificada": 1})
+
+    def test_fail_then_pass_keeps_the_read_instrumento(self):
+        # codex S1 gate D2: the join takes the CLOSEST at-or-after attestation, never the latest
+        # in window — the flow is dry-read → NEXT-predispatch canary (B1); a pass half an hour
+        # after a FAIL must not retro-verify what the read saw broken.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(_grounding_line(1, "2026-07-01T00:00:00+00:00",
+                                         _grounding_row(hits=0, dry="suspect",
+                                                        idiom_conforme=True)))
+                fh.write(_grounding_line(2, "2026-07-01T00:30:00+00:00",
+                                         {"source": "x", "interface": "v2-recent", "pass": False},
+                                         type="canary.result"))
+                fh.write(_grounding_line(3, "2026-07-01T01:00:00+00:00",
+                                         {"source": "x", "interface": "v2-recent", "pass": True},
+                                         type="canary.result"))
+            dry = eventlog.grounding_at(log=log)["cells"][_CELL]["dry"]
+            self.assertEqual(dry, {"suspect:instrumento": 1})
+
+    def test_corrupt_seq_canary_never_wins_the_tie_break(self):
+        # codex round-5: _event_seq's corrupt→0 is safe under max() (corrupt LOSES the supersede
+        # rank) but wrong under the join's min() tie-break — at EQUAL ts, a pass with seq "bad"
+        # (→0) would beat a fail with a valid seq and mint verificada. The rule, stated once:
+        # corrupt must lose under BOTH directions — so a canary whose seq cannot be ordered is
+        # non-attesting (counted corrupt), and the fail with the valid seq decides.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(_grounding_line(1, "2026-07-01T00:00:00+00:00",
+                                         _grounding_row(hits=0, dry="suspect",
+                                                        idiom_conforme=True)))
+                fh.write(json.dumps({"seq": "bad", "ts": "2026-07-01T01:00:00+00:00",
+                                     "type": "canary.result", "subject": "grounding",
+                                     "payload": {"source": "x", "interface": "v2-recent",
+                                                 "pass": True}}) + "\n")
+                fh.write(_grounding_line(3, "2026-07-01T01:00:00+00:00",
+                                         {"source": "x", "interface": "v2-recent", "pass": False},
+                                         type="canary.result"))
+            g = eventlog.grounding_at(log=log)  # must not raise
+            self.assertEqual(g["cells"][_CELL]["dry"], {"suspect:instrumento": 1})
+            self.assertEqual(g["corrupt"], 1)
+
+
+class ExcludedIsCountedByReasonNeverInvisible(unittest.TestCase):
+    """R4.2 + design-emissao §3: seca-suspeita and attribution inferred/unknown are EXCLUDED from
+    learning (the bandit would fossilize instrument bias — the X arm would yield 0 forever) but
+    NEVER invisible: `excluded` counts them BY REASON so the estimator's bias magnitude stays
+    inspectable (design-yield §2). The rows still aggregate into cells — instrument health (R3.2)
+    reads every attempt; the yield join (S7) is what drops them from the denominator."""
+
+    def test_excluded_counts_by_reason_and_cells_keep_the_attempts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(raw_ref=["s", 1, "t1", 0], hits=0, dry="suspect"),
+                            log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(raw_ref=["s", 2, "t2", 0], attribution="inferred"),
+                            log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(raw_ref=["s", 3, "t3", 0], attribution="unknown"),
+                            log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(raw_ref=["s", 4, "t4", 0]), log=log)  # clean, mapped
+            g = eventlog.grounding_at(log=log)
+            self.assertEqual(g["excluded"], {"seca-suspeita": 1, "attribution:inferred": 1,
+                                             "attribution:unknown": 1})
+            self.assertEqual(g["cells"][_CELL]["attempts"], 4)  # excluded ≠ invisible
+
+    def test_a_row_can_count_under_two_reasons(self):
+        # a suspect dry read with inferred attribution is excluded for BOTH reasons — the counts
+        # are per-reason magnitudes, not a partition of rows
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(hits=0, dry="suspect", attribution="inferred"), log=log)
+            g = eventlog.grounding_at(log=log)
+            self.assertEqual(g["excluded"]["seca-suspeita"], 1)
+            self.assertEqual(g["excluded"]["attribution:inferred"], 1)
+
+
+class HitsNoneIsPreservedAsUnknownNeverZero(unittest.TestCase):
+    """R2.2c wants hits per source — but a recognizer that could not count them must say so:
+    `hits: None` folds as UNKNOWN (`hits_unknown`), never coerced to 0. Zero is a MEASURED dry
+    read (it enters the dry taxonomy); None is instrument blindness (it does not)."""
+
+    def test_hits_none_is_unknown_not_a_dry_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding", _grounding_row(hits=None), log=log)
+            cell = eventlog.grounding_at(log=log)["cells"][_CELL]
+            self.assertIsNone(cell["hits"])          # no known count — NOT 0
+            self.assertEqual(cell["hits_unknown"], 1)
+            self.assertEqual(cell["dry"], {})        # unknown ≠ dry: no suspect fabricated
+
+    def test_zero_hits_without_dry_field_folds_suspect(self):
+        # R2.4: a measured 0-hit read with no canary is seca-suspeita by default — the fold never
+        # needs the harvester to have marked it (seca sem canário = suspeita)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding", _grounding_row(hits=0), log=log)
+            cell = eventlog.grounding_at(log=log)["cells"][_CELL]
+            self.assertEqual(cell["dry"], {"suspect": 1})
+
+    def test_known_hits_sum_beside_an_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(raw_ref=["s", 1, "t1", 0], hits=3), log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(raw_ref=["s", 2, "t2", 0], hits=None), log=log)
+            cell = eventlog.grounding_at(log=log)["cells"][_CELL]
+            self.assertEqual(cell["hits"], 3)
+            self.assertEqual(cell["hits_unknown"], 1)
+
+
+class CorruptGroundingPayloadsAreCountedNotRaised(unittest.TestCase):
+    """The house tolerance (fold_direction's): a corrupt manifest must never crash the canonical
+    fold — it is COUNTED (`corrupt`), fail-dark, and the valid rows still fold. A corrupt line is
+    a visible degradation, never a silent one and never a poison pill."""
+
+    def test_corrupt_payloads_counted_valid_rows_still_fold(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(_grounding_line(1, "t", _grounding_row()))
+                fh.write(_grounding_line(2, "t", "a string payload"))          # non-dict payload
+                fh.write(_grounding_line(3, "t", {"source": "x", "hits": 1}))  # no raw_ref
+                fh.write(_grounding_line(4, "t", _grounding_row(raw_ref={"not": "a-list"})))
+            g = eventlog.grounding_at(log=log)  # must not raise
+            self.assertEqual(g["corrupt"], 3)
+            self.assertEqual(g["cells"][_CELL]["attempts"], 1)
+
+    def test_corrupt_supersedes_is_counted_not_a_new_emission(self):
+        # a superseding row whose target is unusable can neither reinterpret nor be trusted as a
+        # fresh first emission — counted corrupt, the original interpretation stands
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(_grounding_line(1, "t", _grounding_row()))
+                fh.write(_grounding_line(2, "t", _grounding_row(
+                    supersedes={"not": "a-raw-ref"}, interface="bogus", recognizer_rev=9)))
+            g = eventlog.grounding_at(log=log)  # must not raise
+            self.assertEqual(g["corrupt"], 1)
+            self.assertIn(_CELL, g["cells"])
+            self.assertNotIn(("x", "bogus", "mundo", "gather", None), g["cells"])
+
+    def test_non_dict_log_line_is_tolerated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(_grounding_line(1, "t", _grounding_row()))
+                fh.write("[]\n")
+            g = eventlog.grounding_at(log=log)  # must not raise
+            self.assertEqual(g["cells"][_CELL]["attempts"], 1)
+
+    def test_wrong_arity_raw_ref_is_corrupt(self):
+        # codex S1 gate D4: E2b fixes the raw_ref arity at 4 — a 3-field ref is an INCOMPATIBLE
+        # identity (two emitters of the same occurrence would miss each other's dedup); counted
+        # corrupt, never folded as a valid attempt.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(_grounding_line(1, "t", _grounding_row()))
+                fh.write(_grounding_line(2, "t",
+                                         _grounding_row(raw_ref=["sess-a", 10, "toolu_2"])))
+            g = eventlog.grounding_at(log=log)  # must not raise
+            self.assertEqual(g["corrupt"], 1)
+            self.assertEqual(g["cells"][_CELL]["attempts"], 1)
+
+    def test_bool_occurrence_index_is_corrupt(self):
+        # occurrence_index is what splits one tool call with N queries into N attempts — a bool
+        # is not an index (and True == 1 would silently collide with a real occurrence 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(_grounding_line(1, "t",
+                                         _grounding_row(raw_ref=["sess-a", 10, "toolu_1", True])))
+            g = eventlog.grounding_at(log=log)  # must not raise
+            self.assertEqual(g["corrupt"], 1)
+            self.assertEqual(g["cells"], {})
+
+    def test_mixed_corrupt_and_numeric_seq_folds_without_raising(self):
+        # codex round-3 B2: the aggregation sort compared RAW seqs — one `seq: "bad"` beside a
+        # numeric one TypeErrors the canonical fold before any row lands. _event_seq ranks a
+        # corrupt seq 0 in BOTH the sort and the supersede rank (fail-dark, never a raise).
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(json.dumps({"seq": "bad", "ts": "t", "type": "grounding.manifest",
+                                     "subject": "grounding",
+                                     "payload": _grounding_row(raw_ref=["s", 1, "t1", 0])}) + "\n")
+                fh.write(_grounding_line(2, "t", _grounding_row(raw_ref=["s", 2, "t2", 0])))
+            g = eventlog.grounding_at(log=log)  # must not raise
+            self.assertEqual(g["cells"][_CELL]["attempts"], 2)
+
+    def test_bool_offset_does_not_collide_with_int_offset(self):
+        # codex round-4: True == 1 in Python, so ["s", True, "t1", 0] would silently DEDUP
+        # against ["s", 1, "t1", 0] — two occurrences collapsing into one attempt with corrupt
+        # 0. Full semantic shape (E2b): session_id/tool_use_id non-empty str, offset and
+        # occurrence_index non-bool int; the bool-offset ref is corrupt, never a dedup key.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with open(log, "w") as fh:
+                fh.write(_grounding_line(1, "t", _grounding_row(raw_ref=["s", 1, "t1", 0])))
+                fh.write(_grounding_line(2, "t", _grounding_row(raw_ref=["s", True, "t1", 0])))
+            g = eventlog.grounding_at(log=log)  # must not raise
+            self.assertEqual(g["corrupt"], 1)                    # counted, not collapsed
+            self.assertEqual(g["cells"][_CELL]["attempts"], 1)   # only the REAL occurrence
+
+    def test_non_string_session_or_tool_use_id_is_corrupt(self):
+        # the other two identity fields of the E2b shape: session_id and tool_use_id must be
+        # non-empty strings — an empty/typed-wrong id names no occurrence
+        for bad_ref in ([12, 10, "t1", 0], ["s", 10, "", 0], ["", 10, "t1", 0]):
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                with open(log, "w") as fh:
+                    fh.write(_grounding_line(1, "t", _grounding_row(raw_ref=bad_ref)))
+                g = eventlog.grounding_at(log=log)  # must not raise
+                self.assertEqual(g["corrupt"], 1, bad_ref)
+                self.assertEqual(g["cells"], {}, bad_ref)
+
+
+class GroundingAtIsCursorAware(unittest.TestCase):
+    """`grounding_at(seq, ts)` replays to a cursor like direction_at/corpus_at — a past cursor
+    reconstructs that past interpretation (strategic versioning), including the pre-supersede one.
+    The empty log folds to the empty shape (a dict-returning fold, as source_yield_at)."""
+
+    def test_past_cursor_reconstructs_the_pre_supersede_interpretation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            first = eventlog.append("grounding.manifest", "grounding",
+                                    _grounding_row(recognizer_rev=1), log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(supersedes=["sess-a", 10, "toolu_1", 0],
+                                           interface="xai", recognizer_rev=2), log=log)
+            past = eventlog.grounding_at(seq=first["seq"], log=log)
+            self.assertIn(_CELL, past["cells"])
+            now = eventlog.grounding_at(log=log)
+            self.assertIn(("x", "xai", "mundo", "gather", None), now["cells"])
+            self.assertNotIn(_CELL, now["cells"])
+
+    def test_empty_log_folds_to_the_empty_shape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            g = eventlog.grounding_at(log=Path(tmp) / "log.jsonl")
+            self.assertEqual(g, {"cells": {}, "corrupt": 0,
+                                 "excluded": {"seca-suspeita": 0, "attribution:inferred": 0,
+                                              "attribution:unknown": 0}})
+
+    def test_other_grounding_family_events_do_not_perturb_the_fold(self):
+        # S1 registers the whole family; the fold consumes ONLY manifest + canary.result —
+        # finding/floor_dark/unmanifested belong to later slices' consumers (S4-S7)
+        for t in ("grounding.finding", "grounding.floor_dark", "grounding.unmanifested"):
+            self.assertIn(t, eventlog.GROUNDING_TYPES, t)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding", _grounding_row(), log=log)
+            eventlog.append("grounding.finding", "grounding", {"gap": "closed"}, log=log)
+            eventlog.append("grounding.floor_dark", "grounding", {"reason": "no-transcript"}, log=log)
+            eventlog.append("grounding.unmanifested", "grounding", {"tally": 1}, log=log)
+            g = eventlog.grounding_at(log=log)
+            self.assertEqual(g["cells"][_CELL]["attempts"], 1)
+            self.assertEqual(g["corrupt"], 0)
+
+    def test_intent_when_present_is_its_own_cell(self):
+        # aggregation is per (source, interface, lens, geometry) + intent WHEN PRESENT — a
+        # declared intent (tier declared, enxerto A2) stratifies; absence folds under intent=None
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(raw_ref=["s", 1, "t1", 0], intent="research"), log=log)
+            eventlog.append("grounding.manifest", "grounding",
+                            _grounding_row(raw_ref=["s", 2, "t2", 0]), log=log)
+            g = eventlog.grounding_at(log=log)
+            self.assertEqual(g["cells"][("x", "v2-recent", "mundo", "gather", "research")]["attempts"], 1)
+            self.assertEqual(g["cells"][_CELL]["attempts"], 1)
 
 
 if __name__ == "__main__":

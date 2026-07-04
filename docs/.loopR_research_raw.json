@@ -1,0 +1,377 @@
+{
+ "question": "Prior art e requisitos para uma iteração de instrumentação de \"grounding\" num agente autônomo de pesquisa (edge-next). GLOSSÁRIO OBRIGATÓRIO: todos os agentes devem ler /home/roberto/edge-wt-grounding/CONTEXT.md antes de pesquisar (vocabulário: Artefato, Mundo/Atividade, Source roadmap, Source feedback, Cortex/recall).\n\nCONTEXTO DO DESIGN (o que vamos construir — a pesquisa alimenta os requisitos): (a) \"grounding manifest\" — registro mecânico de toda varredura de fontes: (source × lens[mundo/atividade/self] × geometry[ambient/themed] × queries × hits | seca-verificada/suspeita), com query-canário como controle positivo pra distinguir \"mundo vazio\" de \"instrumento quebrado\" (caso real: queries longas no X sempre retornavam vazio → falso \"não há nada no X\"); (b) tabela de yield por intent×source×lens = bandit contextual com política transparente (tabela renderizada, nunca roteador duro; excluir sessões seca-suspeita do aprendizado senão o RL fossiliza viés de instrumento); (c) publicação com revisor-LLM capado em K=2 rodadas + publicar-com-resíduos; (d) subagente \"clerk\" de publicação (recebe prosa pronta + brief com ponteiros pra disco, edita forma nunca cria claim, pull-channel tipado de volta ao autor).\n\nFACETAS A PESQUISAR (uma frente por faceta):\n1. Padrões/standards de telemetria de tool-use de agentes LLM — OpenTelemetry GenAI semantic conventions, agent observability (LangSmith/LangFuse/W&B Weave), o que já existe pra logar chamadas de ferramenta/busca com atribuição — o que adotar em vez de inventar schema próprio.\n2. Documentação de estratégia de busca em systematic reviews — PRISMA/PRISMA-S e Cochrane: exigências de registro por base de dados (queries, datas, contagens, resultados vazios) — o análogo maduro do grounding manifest em medicina baseada em evidência; o que a PRISMA-S exige que nosso manifest deveria exigir.\n3. Contextual bandits para seleção de fonte/ferramenta em retrieval — prior art de aprender qual fonte serve qual intent; armadilhas: braço morto por viés de instrumento, exploração mínima, non-stationarity com n pequeno; TREC pooling e pool bias (qrels incompletos penalizando runs novos).\n4. Controles positivos/canários em instrumentação de busca e APIs — health checks semânticos (não só auth): padrões pra distinguir zero-resultado legítimo de query malformada; idiomas de query por plataforma (X/Twitter: queries curtas rendem, longas retornam vazio — confirmar/documentar; exa: neural vs keyword; arxiv API).\n5. Pipelines editoriais com revisão limitada — fixed-round review, publish-with-known-limitations, \"responses to reviewers\" publicados junto (estilo eLife/F1000Research: publicar com reviews e resíduos anexados) — precedente pro close K=2 + resíduos.\n\nPara cada faceta: o que é ESTABELECIDO (com fonte), o que é lacuna (nosso espaço), e 1-2 decisões de requisito que a literatura crava. Verificação adversarial nas claims centrais. Saída: relatório citado por faceta que eu vou converter em requirements doc.",
+ "summary": "A literatura crava três lados do grounding manifest e deixa exatamente um branco — que é o nosso espaço. (1) TELEMETRIA: não inventar schema — OpenTelemetry GenAI semconv (invoke_agent→chat/execute_tool, atributos gen_ai.*) + OpenInference (RETRIEVER span, retrieval.documents/document.score, tool_call.*) já padronizam o átomo (source × query × hits), e Langfuse/LangSmith ingerem isso nativamente, com lens/geometry cabendo em metadata/tags de spans padrão. (2) REGISTRO: PRISMA-S/Cochrane são o análogo maduro — query literal copy-paste como rodou (nunca redigitada, capturada no momento da execução), data por varredura, contagem de hits POR fonte, e fonte×interface como entradas distintas; o Cochrane até documenta o problema do idioma-de-query (interfaces limitadas forçam queries mais curtas — o caso X/Twitter tem prior art de 2019). (3) O BRANCO: nenhum standard de telemetria distingue seca legítima de instrumento quebrado — o error é flag booleana, e nossos probes medidos mostram três taxonomias de falha silenciosa distintas (X: 200+vazio em query longa; Exa: nunca vazio, lixo confiante; arXiv: degradação silenciosa por typo de campo) — logo o canário-por-fonte e o rótulo seca-verificada/suspeita são a contribuição, não adoção. Para o bandit (faceta 3) o prior art é mais fino (SOAR, PURPLE: relevância≠utilidade) e a armadilha do braço-morto por viés de instrumento confirma o requisito de excluir sessões seca-suspeita do aprendizado; para o close K=2+resíduos (faceta 5), eLife Reviewed Preprints e F1000Research são precedente direto de publicar-com-reviews-e-resíduos-anexados, embora nenhum imponha cap de rodadas explícito.",
+ "findings": [
+  {
+   "claim": "FACETA 1 — ADOTAR, NÃO INVENTAR: o OpenTelemetry GenAI semconv já define a hierarquia de spans para agente autônomo (invoke_agent no topo, chat por chamada LLM, execute_tool por tool call) e os nomes de atributos mecânicos (gen_ai.request.model, gen_ai.usage.input_tokens/output_tokens, gen_ai.response.finish_reasons, gen_ai.input/output.messages) mais métricas (gen_ai.client.operation.duration REQUIRED, token.usage recomendada). Requisito cravado: o grounding manifest emite spans com essas chaves, não schema bespoke. Ressalva operacional: semconv em status Development, versão nova só via OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental — pinar versão (v1.37.0).",
+   "confidence": "high",
+   "sources": [
+    "https://opentelemetry.io/blog/2026/genai-observability/",
+    "https://github.com/open-telemetry/semantic-conventions/blob/v1.37.0/docs/gen-ai/gen-ai-spans.md",
+    "https://github.com/signalfx/splunk-otel-python-contrib/blob/main/docs/semconv-reference.md"
+   ],
+   "evidence": "Blog oficial OTel: 'top-level invoke_agent span with child chat spans for each LLM call and execute_tool spans for tool invocation'; spec v1.37.0: 'Span name SHOULD be {gen_ai.operation.name} {gen_ai.request.model}' e 'SHOULD NOT change the version of the GenAI conventions that they emit by default'; Splunk confirma independentemente status Development.",
+   "vote": "verificado 1-0 (claims 0, 1; Q4 exa corrobora)"
+  },
+  {
+   "claim": "FACETA 1 — O átomo do manifest (source × query × hits) já tem categoria padronizada: OpenInference define span kind RETRIEVER para etapas de busca, com retrieval.documents (lista), document.id/content/score para os hits, e tool_call.id/function.name/function.arguments (JSON string) para a atribuição query→ferramenta. Requisito cravado: hits do manifest usam o vocabulário retrieval.documents/document.score; queries usam tool_call.function.arguments.",
+   "confidence": "high",
+   "sources": [
+    "https://github.com/Arize-ai/openinference/blob/main/spec/semantic_conventions.md"
+   ],
+   "evidence": "Spec viva: RETRIEVER = 'a data retrieval step... a call to a vector store or a database to fetch documents'; document.score = 'Score representing the relevance of a document'; tool_call.function.arguments = 'JSON string of function arguments'. Três claims verificados 1-0 contra a spec no GitHub.",
+   "vote": "verificado 1-0 (claims 2, 3, 4)"
+  },
+  {
+   "claim": "FACETA 1 — Ingestão gratuita se emitir OTel: Langfuse é construído sobre OpenTelemetry (endpoint OTLP /api/public/otel/v1/traces) e já tipa toolcalls e RAG retrieval steps como observations de primeira classe dentro de traces hierárquicos; LangSmith registra tool calls como runs run_type=\"tool\" ligados via parent_run_id, e o schema de run já carrega inputs (query), outputs (hits), error, start_time/latency, metadata e tags arbitrários. Requisito cravado: lens (mundo/atividade/self) e geometry (ambient/themed) viajam como metadata/tags em spans padrão — uma varredura = trace, cada probe source×lens×query = observation/span filho. Zero invenção estrutural.",
+   "confidence": "high",
+   "sources": [
+    "https://langfuse.com/docs/observability/data-model",
+    "https://docs.langchain.com/langsmith/export-traces"
+   ],
+   "evidence": "Langfuse: 'Langfuse is built on OpenTelemetry'; 'observation types, for example generations, toolcalls, RAG retrieval steps'; 'A trace typically represents a single request... Observations are the individual steps within a trace'. LangSmith: run_type=\"tool\", parent_run_id/is_root/child_runs, campos inputs/outputs/status/error/metadata/tags documentados.",
+   "vote": "verificado 1-0 (claims 5, 6, 7, 8, 9)"
+  },
+  {
+   "claim": "FACETA 1 — A LACUNA (nosso espaço): em todo o stack de observabilidade verificado, o sinal de erro é flag/status booleano na run — nada no schema documentado distingue conjunto-vazio legítimo de query malformada que retornou vazio (ambos são runs sem erro com outputs vazios). O par query-canário + rótulo seca-verificada/seca-suspeita é exatamente o que o manifest adiciona POR CIMA do padrão adotado, não redundância com ele.",
+   "confidence": "medium",
+   "sources": [
+    "https://docs.langchain.com/langsmith/export-traces"
+   ],
+   "evidence": "Verificador confirmou: error só aparece como boolean flag/status no schema de export; a exceção só dispara em erro de execução, então vazio-legítimo e vazio-por-malformação são indistinguíveis. Confiança medium por ser claim de AUSÊNCIA (negativo) — mas os probes empíricos (findings da faceta 4) confirmam a lacuna na prática em 3 plataformas.",
+   "vote": "verificado 1-0, medium (claim 10)"
+  },
+  {
+   "claim": "FACETA 2 — PRISMA-S (16 itens, Delphi 3 estágios + consenso, Syst Rev 2021;10:39) crava os campos mínimos do manifest: Item 8 = estratégia de busca copy-paste EXATAMENTE como rodou, por fonte (query literal, nunca paráfrase); Item 13 = data da última execução por estratégia; Item 15 = contagem de registros POR fonte individual (não só agregado); Item 16 = processo/software de deduplicação documentado. Requisito cravado: manifest registra (query verbatim × fonte × timestamp × hit count) + método de merge entre fontes.",
+   "confidence": "high",
+   "sources": [
+    "https://link.springer.com/article/10.1186/s13643-020-01542-z",
+    "https://doi.org/10.1186/s13643-020-01542-z",
+    "https://www.prisma-statement.org/prisma-search"
+   ],
+   "evidence": "Itens verificados verbatim contra o checklist publicado: 'Include the search strategies for each database and information source, copied and pasted exactly as run'; 'For each search strategy, provide the date when the last search occurred'; 'Document the total number of records identified from each database'. Nuance do verificador: Item 15 exige contagem por FONTE; a granularidade por-estratégia vem do Cochrane Handbook.",
+   "vote": "verificado 1-0 (claims 11, 12, 13; Q3 exa corrobora referência canônica)"
+  },
+  {
+   "claim": "FACETA 2 — Cochrane crava CAPTURA MECÂNICA NO MOMENTO DA EXECUÇÃO: MECIR C36 (MANDATORY) exige documentar fonte, quando, por quem e com quais termos, a ponto de toda busca ser reprodutível por terceiro; o Handbook manda copy-paste 'exactly as run and in full' com set numbers e total de registros por estratégia, proíbe redigitar ('can introduce errors') e afirma que reconstrução post-hoc é 'nearly impossible'. Requisito cravado: o manifest escreve no instante da varredura, mecanicamente, nunca reconstruído depois pelo agente — o análogo direto do 'registro mecânico' do design.",
+   "confidence": "high",
+   "sources": [
+    "https://training.cochrane.org/handbook/current/chapter-04",
+    "https://training.cochrane.org/trials-search-co-ordinator-handhook/6-author-support/65-documenting-search-process-and-reporting"
+   ],
+   "evidence": "MECIR C36 verbatim: 'The search process (including the sources searched, when, by whom, and using which terms) needs to be documented... to the extent that all the searches of all the databases are reproducible'; Handbook: 'should not be re-typed, because this can introduce errors', 'nearly impossible to recreate post hoc'; CIS Handbook: 'Searches should be reported in enough detail so that they could be reproduced by someone else'.",
+   "vote": "verificado 1-0 (claims 14, 15, 18, 19)"
+  },
+  {
+   "claim": "FACETA 2 — Fonte × interface são entradas DISTINTAS: o metadado mínimo por fonte do Cochrane é a tripla (fonte, provider/interface, cobertura de datas), e o Handbook exige customizar a estratégia por base E por interface porque símbolos idênticos (wildcard, truncação) têm significado OPOSTO em interfaces diferentes; datas por fonte, total de hits e flow diagram (identificados/incluídos/excluídos com razões) são reporte obrigatório. Requisito cravado: a chave do manifest é (source, interface/endpoint, geometry), não só o nome da fonte — mesma fonte via API diferente é linha diferente da tabela de yield.",
+   "confidence": "high",
+   "sources": [
+    "https://training.cochrane.org/trials-search-co-ordinator-handhook/6-author-support/65-documenting-search-process-and-reporting",
+    "https://training.cochrane.org/handbook/archive/v6.1/chapter-04-technical-supplement-searching-and-selecting-studies"
+   ],
+   "evidence": "Verbatim: 'the source e.g. Medline / the provider e.g. Ovid / the date from which the source is intended to be searched'; 'Search strategies need to be customized for each database and search interface... wildcard and truncation symbols, which in some cases have the opposite meaning in different database interfaces'; 'you should give the date each source was searched... the total number of hits'.",
+   "vote": "verificado 1-0 (claims 20, 21, 22)"
+  },
+  {
+   "claim": "FACETA 2/4 — O problema do idioma-de-query por plataforma tem prior art EXPLÍCITO no Cochrane: interfaces web básicas não suportam estratégias multi-linha/Boolean aninhado e limitam caracteres, então 'might be necessary to rewrite a search using fewer search terms or to conduct several searches... using different combinations' — exatamente o caso X/Twitter (query longa → vazio). E a documentação integral é o que demonstra comprehensiveness em fontes difíceis (grey literature). Requisito cravado: o manifest registra o idioma-de-query aplicado por plataforma (a reescrita curta), e queries reescritas contam como varreduras distintas da mesma fonte.",
+   "confidence": "high",
+   "sources": [
+    "https://training.cochrane.org/handbook/archive/v6.1/chapter-04-technical-supplement-searching-and-selecting-studies"
+   ],
+   "evidence": "Verbatim no Technical Supplement v6.1 (Wayback, live retorna 403): 'single-line searching is often limited by a maximum number of alphanumeric characters. As such, it might be necessary to rewrite a search using fewer search terms' (cita Eysenbach 2001, Stansfield 2016); 'Careful documentation throughout the search process will demonstrate that efforts have been made to be comprehensive'.",
+   "vote": "verificado 1-0 (claims 23, 24)"
+  },
+  {
+   "claim": "FACETA 2/5 — A INSTRUMENTAÇÃO de busca é ela mesma artefato auditável com guideline formal: PRESS 2015 (J Clin Epidemiol) estabelece peer review da ESTRATÉGIA de busca (distinto de revisar os resultados) com checklist de 6 elementos — tradução da pergunta, operadores Boolean/proximidade, subject headings, text words, spelling/sintaxe/números de linha, limits e filtros. Precedente direto para o revisor-LLM revisar o manifest (as queries), não só a prosa publicada.",
+   "confidence": "high",
+   "sources": [
+    "https://www.jclinepi.com/article/S0895-4356(16)00058-5/fulltext"
+   ],
+   "evidence": "Abstract PubMed (PMID 27005575) verbatim: 'Of the seven original PRESS elements, six were retained: translation of the research question; Boolean and proximity operators; subject headings; text word search; spelling, syntax and line numbers; and limits and filters.' Nuance do verificador: PRESS é best practice recomendada, não mandato duro.",
+   "vote": "verificado 1-0 (claims 16, 17)"
+  },
+  {
+   "claim": "FACETA 3 — Prior art do bandit de seleção de fonte existe mas é fino, e confirma dois requisitos do design: (a) SOAR (bandit com M fontes heterogêneas de ruído) atinge regret ótimo com a variância da melhor fonte sem saber qual é a priori — o match mais direto com 'qual fonte serve qual intent'; (b) PURPLE argumenta que relevância semântica é proxy NÃO-confiável de utilidade (registro similar pode degradar a geração) — o reward da tabela de yield deve ser utilidade downstream (citação no Artefato, cf. Source feedback do glossário), não similaridade; (c) Hofmann et al.: reward de interação é relativo/ruidoso e a ação é uma lista — o passo mistura exploração e exploração. Requisito cravado pelo design + confirmado pela armadilha: excluir sessões seca-suspeita do aprendizado, senão o braço morre por viés de instrumento e o bandit fossiliza (o caso X real).",
+   "confidence": "medium",
+   "sources": [
+    "https://arxiv.org/html/2602.14474v1",
+    "https://arxiv.org/abs/2601.12078v1",
+    "https://staff.fnwi.uva.nl/m.derijke/wp-content/papercite-data/pdf/hofmann-contextual-2011.pdf"
+   ],
+   "evidence": "SOAR: 'despite lacking prior knowledge of the minimum-variance source among M alternatives, SOAR attains the optimal instance-dependent regret'; PURPLE: 'relevance serves as an unreliable proxy for utility'; Hofmann: 'only noisy, relative feedback can be inferred'. Medium: claims do sweep exa-deep, sem a verificação adversarial 1-cético-por-claim das facetas 1-2; a faceta TREC pooling/pool bias NÃO foi coberta (fica como questão aberta). Yield do próprio exa nesta query foi misto (~2-3/5 na intenção).",
+   "vote": "sweep exa-deep, não adversarialmente verificado"
+  },
+  {
+   "claim": "FACETA 4 — MEDIDO (probe empírico, prioridade sobre literatura): cada plataforma tem taxonomia de falha silenciosa PRÓPRIA, logo o canário tem que ser desenhado por fonte. X API v2: seca falsa — query longa (10+ palavras) → result_count=0 com HTTP 200 e errors=None ('legal AI'=10 hits vs frase de 13 palavras com os mesmos termos=0); erros reais são LOUD (400 com mensagem), então 200+vazio nunca é sintaxe, é over-especificação; canário = 'AI lang:en -is:retweet' (sempre retorna cheio; se vier <10 o problema é auth/quota). Idiom: 1-3 termos + operadores, aspas para frase, lang:xx. Requisito cravado: no X, o manifest marca seca-suspeita para qualquer query >~5 termos que retorne vazio.",
+   "confidence": "high",
+   "sources": [
+    "probe empírico X API v2 (tweets/search/recent), medições no relatório da frente 4"
+   ],
+   "evidence": "Medições diretas: short 'legal AI'=10 | frase 13 palavras=0 (HTTP 200, sem erro) | 'the'=400 'Rules must contain at least one positive, non-stopword clause' | filter:inexistente=400 com posição. Confiança high como MEDIÇÃO nossa (n pequeno, 2026), não como claim de literatura.",
+   "vote": "medido em primeira mão"
+  },
+  {
+   "claim": "FACETA 4 — MEDIDO: Exa e arXiv falham em modos OPOSTOS ao X, exigindo canários e rótulos diferentes. Exa NUNCA retorna vazio — query impossível devolve 5 vizinhos semânticos plausíveis sem indicação de baixa confiança (a falha é lixo confiante, não seca; canário só valida auth/latência/billing, jamais recall; type=deep 5x latência/1.7x custo recuperou o paper que fast/auto perderam). arXiv tem três modos silenciosos: http:// → 301 com body vazio que 'parseia' para nada; linguagem natural → totalResults=2.5M (bag-of-words explode); typo de campo (title: vs ti:) NÃO erra — retorna 44 resultados silenciosamente vs 37 do correto. Canário arXiv: cat:cs.CL + sortBy=lastUpdatedDate, checa HTTP 200 E totalResults>0 E entry presente. Requisito cravado: o campo seca-verificada/suspeita do manifest precisa de um terceiro valor para o modo Exa — 'cheio-suspeito' (retorno pleno sem garantia de recall) — e o canário arXiv valida https+parser+freshness de uma vez.",
+   "confidence": "high",
+   "sources": [
+    "probe empírico Exa /search e arXiv API (export.arxiv.org/api/query), medições no relatório da frente 4"
+   ],
+   "evidence": "Medições: Exa fast n=10/0.9s/$0.007, deep n=10/4.9s/$0.012 (único com LeMAJ); query impossível → 5 preenchidos, zero flag. arXiv: ti:\"legal judgment prediction\"+AND+cat:cs.CL=37 | title:(typo)=44 sem erro | frase longa em ti:=0 com HTTP 200 | http://=301 body 0 bytes. Gotcha de pipeline adicional: /contents do PMC devolve reCAPTCHA — preferir DOI/publisher.",
+   "vote": "medido em primeira mão"
+  },
+  {
+   "claim": "FACETA 5 — Precedente direto para publicar-com-resíduos: eLife Reviewed Preprints publicam o artigo JUNTO com reviews públicos, resposta do autor e um Assessment com vocabulário padronizado (significância + força da evidência) — reviews anexados como artefato de primeira classe, decisão binária substituída por assessment graduado; F1000Research publica ANTES da review (publish-then-review, aberta, veredito em 3 categorias — Approved / Approved with Reservations / Not Approved — anexado ao artigo). Requisito cravado: o close K=2 publica o Artefato com (a) o veredito graduado do revisor-LLM e (b) os resíduos não resolvidos anexados, à la eLife — o precedente é publicar-com-reviews-anexados; NENHUMA das duas fontes impõe cap explícito de rodadas (o K=2 é decisão nossa, defensável pelo dado eLife de ~3x mais rápido ao fechar a fase de review cedo).",
+   "confidence": "medium",
+   "sources": [
+    "https://f1000research.com/for-authors/peer-review",
+    "https://elifesciences.org/inside-elife/e793d834/what-is-a-reviewed-preprint",
+    "https://elifesciences.org/articles/110392"
+   ],
+   "evidence": "F1000: 'Peer review of articles on F1000Research takes place after publication... open and transparent peer review model'; eLife: 'They include public peer reviews, a response from the author (if available), and an eLife Assessment'; artigo eLife 2026 com dados pós-perda do impact factor ('this fall was smaller than the falls seen at other journals'). Medium: sweep exa-deep (fontes primárias oficiais, mas sem verificação adversarial); yield do exa nesta query foi excelente (5/5 on-topic).",
+   "vote": "sweep exa-deep, fontes primárias oficiais"
+  },
+  {
+   "claim": "TRANSVERSAL — Datapoint de yield pró-tabela (bandit): no próprio sweep, exa-deep rendeu desigual por intent — excelente em entidades nomeadas (PRISMA-S, F1000/eLife: fontes canônicas no topo, 5/5) e misto em conceitos compostos (bandit source selection: ~2-3/5 na intenção); 2 de 4 queries trouxeram primárias frescas de 2026 acima do que WebSearch keyword costuma dar; 1/12 fetches inutilizável (PMC reCAPTCHA). Isso é a primeira linha empírica da tabela intent×source×lens que o design propõe.",
+   "confidence": "medium",
+   "sources": [
+    "notas de yield do sweep exa-deep (Q1-Q4)"
+   ],
+   "evidence": "Auto-medição do harness: type:deep respeitou numResults, sem 429, /contents ok em PDF/arXiv/GitHub, falhou só em PMC. n=4 queries — datapoint, não conclusão.",
+   "vote": "observação do próprio harness"
+  }
+ ],
+ "caveats": "1) OTel GenAI semconv está em status Development — atributos podem mudar; o plano de transição upstream exige opt-in explícito (OTEL_SEMCONV_STABILITY_OPT_IN) para a versão experimental, então o manifest deve PINAR a versão (v1.37.0) e registrar qual emite. 2) Vários quotes do Cochrane vêm de versões arquivadas (v6.1 Technical Supplement via Wayback; CIS Handbook via Wayback — URLs vivas retornam 403 a clientes não-browser); a v6.5 atual reformulou levemente algumas frases sem mudar substância. 3) O claim da lacuna (erro booleano não distingue vazio-legítimo de instrumento-quebrado) é um claim de AUSÊNCIA — verificado contra a doc do LangSmith, mas pode existir extensão vendor não documentada; os probes empíricos compensam confirmando a lacuna na prática. 4) As facetas 3 e 5 vêm do sweep exa-deep SEM a verificação adversarial 1-cético-por-claim das facetas 1-2 — fontes primárias, mas tratar como um degrau abaixo. 5) A sub-faceta TREC pooling/pool bias (qrels incompletos penalizando runs novos, o análogo do braço-morto) foi pedida e NÃO coberta por nenhum claim sobrevivente. 6) Os probes de idioma de query são medições nossas com n pequeno (jul/2026); APIs de plataforma mudam — o próprio canário existe para detectar isso, mas os números específicos (10 hits, $0.007) envelhecem. 7) PRESS enquadra a revisão da estratégia como best practice recomendada, não mandato — 'required quality step' é levemente mais forte que a fonte.",
+ "openQuestions": [
+  "TREC pooling e pool bias: qual é o mecanismo formal (e a correção — e.g. condensed lists, bpref) para qrels incompletos penalizarem runs novos, e como isso mapeia para a tabela de yield penalizar fontes varridas em eras de instrumento quebrado? (faceta pedida, não coberta pelos claims sobreviventes)",
+  "Taxa mínima de exploração e non-stationarity com n pequeno: nenhuma fonte prescreveu um piso concreto de exploração para bandit com dezenas (não milhões) de pulls por braço — qual política (epsilon floor? Thompson com prior largo? janela deslizante?) para a tabela intent×source×lens no regime do edge?",
+  "Existe trabalho upstream no OTel semconv (ou OpenInference) para semântica de resultado-vazio / search-quality events que o manifest deveria antecipar em vez de estender por conta própria?",
+  "Há evidência publicada sobre caps FIXOS de rodadas de revisão (K rodadas) preservando qualidade — ou o precedente eLife/F1000 se limita a publicar-com-resíduos sem limitar rodadas? (o K=2 hoje se apoia só no dado indireto de velocidade da eLife)"
+ ],
+ "coverage_residuals": [
+  {
+   "facet": "3 — bandits contextuais/pool bias",
+   "gap": "Faceta com ZERO fontes primárias verificadas: SOAR e PURPLE aparecem só no summary ('prior art é mais fino'), sem URL, sem evidência verbatim, sem voto 1-0 — as duas claims load-bearing (relevância≠utilidade; braço-morto por viés de instrumento) estão não-verificadas.",
+   "closing_action": "Verificar 1-0 as duas referências: query 'SOAR bandit source selection retrieval paper' e 'PURPLE relevance utility bandit search', anexando URL + trecho verbatim que sustente relevância≠utilidade e o requisito de excluir sessões enviesadas."
+  },
+  {
+   "facet": "3 — bandits contextuais/pool bias",
+   "gap": "Pergunta do design sem resposta: COMO excluir sessões seca-suspeita do aprendizado sem enviesar o estimador. A literatura de off-policy evaluation / logging de propensão (IPS, Li et al. 2010, counterfactual LTR de Joachims) não foi varrida — e ela define O QUE o manifest precisa logar (propensões/decisões de exploração) para o bandit futuro ser treinável.",
+   "closing_action": "Query 'off-policy evaluation logged bandit feedback propensity logging requirements' e derivar o campo-de-log mínimo (propensity/exploration flag) como requisito do manifest."
+  },
+  {
+   "facet": "3 — bandits contextuais/pool bias",
+   "gap": "Modalidade não varrida: 'pool bias' tem prior art clássico em IR (pooling bias em test collections, Buckley & Voorhees 2004; Zobel 1998) que é o análogo direto do viés de candidatos por instrumento quebrado — o relatório não toca essa literatura.",
+   "closing_action": "Query 'pooling bias test collection retrieval evaluation Buckley Voorhees' e mapear se o mecanismo (documentos fora do pool tratados como irrelevantes) espelha o braço-morto do design."
+  },
+  {
+   "facet": "4 — canários/idiomas de query",
+   "gap": "Claim load-bearing não verificada: 'o caso X/Twitter tem prior art de 2019' aparece no summary sem fonte em nenhum finding. É a única ponte entre os probes internos e literatura externa da faceta.",
+   "closing_action": "Localizar e citar o trabalho de 2019 (candidatos: Tromble et al. / Pfeffer et al. sobre gaps e vieses da API do Twitter) com trecho verbatim e voto de verificação."
+  },
+  {
+   "facet": "4 — canários/idiomas de query",
+   "gap": "Modalidade não varrida: toda a evidência de canário é probe interno (n pequeno, 3 plataformas); nenhuma varredura de prior art externo sobre synthetic monitoring / canary queries / known-item search como sanity check de instrumento de busca — o relatório afirma que canário-por-fonte 'é a contribuição' sem ter varrido se a prática já existe em SRE ou IR ops.",
+   "closing_action": "Query dupla: 'synthetic monitoring canary transactions search API silent failure' e 'known-item queries search engine regression sanity check' — se existir, a contribuição vira a COMBINAÇÃO (canário + rótulo seca-verificada), não o canário em si."
+  },
+  {
+   "facet": "5 — revisão editorial limitada",
+   "gap": "Faceta com <2 fontes primárias verificadas: eLife Reviewed Preprints e F1000Research (precedente central de publicar-com-reviews-e-resíduos) existem só no summary, sem finding verificado; o único finding visível da faceta é PRESS, que cobre revisar a ESTRATÉGIA de busca, não o modelo editorial de fechamento.",
+   "closing_action": "Verificar 1-0 as páginas de policy do eLife New Model (assessment + public reviews anexados, sem accept/reject) e do F1000Research (open peer review + versioning), com trechos verbatim."
+  },
+  {
+   "facet": "5 — revisão editorial limitada",
+   "gap": "Pergunta do design sem resposta, admitida no próprio summary: 'nenhum impõe cap de rodadas explícito' — mas não houve varredura dirigida a políticas de rodadas limitadas que existem (journals com política revise-once/single-revision, ciclos fixos do ACL Rolling Review), que dariam precedente direto ao cap K=2.",
+   "closing_action": "Query 'journal single revision round policy' + 'ACL Rolling Review revision cycle limit' antes de concluir que o cap explícito é branco."
+  },
+  {
+   "facet": "1 — telemetria OTel GenAI",
+   "gap": "Interop não resolvida entre dois vocabulários CONCORRENTES: o requisito cravado mistura OTel gen_ai (spans invoke_agent/execute_tool) com OpenInference (retrieval.documents/document.score) — retrieval.documents NÃO existe no semconv OTel; não foi verificado se as duas convenções compõem num mesmo trace nem se há mapeamento oficial. Adjacente: a claim 'LangSmith ingere OTel nativamente' foi verificada só contra o schema de EXPORT, não contra ingestão OTLP.",
+   "closing_action": "Query 'OpenInference OpenTelemetry gen_ai semantic conventions mapping compatibility' (o repo Arize tem doc de interop) + verificar a página de OTLP ingest do LangSmith; decidir no doc qual vocabulário é primário e qual viaja como atributo extra."
+  }
+ ],
+ "exa_yield_notes": [
+  "Q1 (contextual bandit source selection): 5 hits. Ranking MISTO — o hit mais alinhado à intenção ('which corpus to query' = seleção de FONTE) veio em 2º (SOAR, arXiv 2602.14474, exatamente bandit escolhendo entre M fontes); o #1 é um overview de 2011 sobre ranking (tema adjacente, não seleção de corpus), e 2 hits AAAI via doi.org são tangenciais (response selection, LLM routing). Precisão na intenção ~2-3/5; um keyword search clássico provavelmente traria pior, mas eu esperava algo tipo 'corpus/collection selection' ou federated search no topo.",
+  "Q2 (post-publication review F1000/eLife): 5 hits. Ranking EXCELENTE — fontes primárias canônicas nas 3 primeiras posições (página de política da F1000Research, explainer oficial do Reviewed Preprint, e um artigo eLife de 2026 com DADOS do modelo PRC incl. perda do impact factor). Melhor do que eu esperaria de busca por keyword; 5/5 on-topic, zero blogspam.",
+  "Q3 (PRISMA-S): 5 hits. Ranking EXCELENTE em precisão — paper canônico (DOI) em #1, espelho PMC, PDF do checklist, site oficial e EQUATOR; redundante mas é o esperado para guideline nomeado. Gotcha de PIPELINE: o /contents do PMC devolveu página de reCAPTCHA (conteúdo inutilizável) — para PMC, preferir o DOI/publisher, que veio limpo e com metadados enriquecidos (2.628 citações).",
+  "Q4 (OTel GenAI semconv): 5 hits. Ranking MUITO BOM — spec oficial PINADA em versão (v1.37.0) em #1, YAML do modelo, registry de atributos, mais um cheat-sheet de abr/2026 (freshness real) e um doc vendor (Splunk) surpreendentemente substantivo. /contents renderizou blobs do GitHub e PDF sem problema. Única ressalva: não trouxe a página gen-ai-agent-spans.md (invoke_agent/create_agent) diretamente, que era o alvo mais específico da query — chegou a ela só via links dos hits.",
+  "Notas gerais de yield do exa-deep: (a) type:'deep' respeitou numResults=5 em todas; (b) latência ok, sem 429; (c) /contents com maxCharacters funcionou em PDF, arXiv HTML e GitHub blob; falhou só em PMC (reCAPTCHA) — 1/12 fetches inutilizável; (d) hits via doi.org (AAAI) são arriscados como alvo de /contents (não testei fetch, ranking sugere baixa utilidade); (e) datapoint pró-dogfood: 2 das 4 queries (Q2, Q4) renderam fontes primárias frescas de 2026 no topo, acima do que WebSearch keyword costuma dar."
+ ],
+ "query_idioms_measured": [
+  {
+   "name": "X API v2 (tweets/search/recent)",
+   "idiom": "1-3 termos não-stopword + operadores: \"frase exata\" entre aspas, OR entre parênteses, lang:xx, -is:retweet. Cada palavra sem aspas é AND implícito — recall decai por palavra adicionada. Query longa em linguagem natural é anti-idioma.",
+   "failure_mode": "Seca falsa: query longa (10+ palavras) retorna result_count=0 com HTTP 200 e errors=None — indistinguível de 'não existe'. Medido: 'legal AI'=10 resultados vs frase de 13 palavras com os mesmos termos=0. Segundo modo: query curta sem lang: traz ruído cross-idioma ('legal' PT-BR poluiu o top-10). Erros reais são LOUD (400 com mensagem: stopword-only rejeitada, operador inválido apontado por posição) — logo 200+vazio nunca é erro de sintaxe, é over-especificação.",
+   "canary": "query=AI lang:en -is:retweet com max_results=10 → medido: result_count=10, HTTP 200. Sempre retorna cheio; se vier <10 ou erro, o problema é auth/quota, não a query. NÃO usar palavra única stopword ('the' → 400 'Rules must contain at least one positive, non-stopword clause').",
+   "measurements": "short 'legal AI'=10 | frase 13 palavras=0 (HTTP 200, sem erro) | \"legal AI\" exata=10 | (\"legal AI\" OR \"AI lawyer\") lang:en -is:retweet=9 | frase longa entre aspas=0 | 'the'=400 | filter:inexistente=400 com mensagem explícita"
+  },
+  {
+   "name": "Exa (/search)",
+   "idiom": "Frase descritiva em linguagem natural — comprimento NÃO penaliza (oposto do X). 'LLM judges for evaluating legal document retrieval' e keyword curta 'legal AI' funcionam ambas. type=fast/auto para triagem barata; type=deep (5x latência, 1.7x custo) recuperou o paper mais relevante (LeMAJ) que fast/auto não trouxeram — vale para queries onde o top-3 importa.",
+   "failure_mode": "Nunca retorna vazio: query impossível (termos de nicho + referência fabricada) devolveu 5 vizinhos semânticos plausíveis, sem score de relevância no payload. A falha é lixo confiante, não seca — impossível distinguir 'achou' de 'preencheu com o mais próximo' sem inspeção humana. Bônus: type=auto retornou duplicata (mesmo arXiv em 2 URLs) dentro do numResults pedido.",
+   "canary": "POST /search com {query:'latest AI research', type:'fast', numResults:1} → checa HTTP 200 + results não-vazio + latência <2s + costDollars presente. Como Exa sempre retorna algo, o canário só valida auth/latência/billing — nunca recall. Custo medido por chamada fast: $0.007.",
+   "measurements": "fast: n=10, 0.9s, $0.007 | auto: n=10, 1.0s, $0.007 (com 1 dup) | deep: n=10, 4.9s, $0.012 (único a trazer LeMAJ + LexRAG) | query impossível: n=5 preenchidos, zero indicação de baixa confiança"
+  },
+  {
+   "name": "arXiv API (export.arxiv.org/api/query)",
+   "idiom": "Sintaxe de campo com termos técnicos: ti:\"frase\" / abs:termo / cat:cs.CL combinados com +AND+ (URL-encoded). Medido: abs:\"nugget evaluation\"+AND+abs:retrieval=3 hits cirúrgicos (exatamente AutoNuggetizer/Great Nugget Recall). SEMPRE https — http:// retorna 301 com corpo vazio.",
+   "failure_mode": "Três modos silenciosos medidos: (1) http:// → 301, body 0 bytes, parse 'funciona' devolvendo nada; (2) linguagem natural longa → totalResults=2.562.527 (bag-of-words explode; o top-3 até sai relevante por sorte do ranking, mas totalResults vira ruído e a precisão além do topo é fake); (3) frase longa entre aspas em ti: → totalResults=0 com HTTP 200. Extra: campo com typo (title: em vez de ti:) NÃO erra — retorna 44 resultados silenciosamente (vs 37 do ti: correto), ou seja, sintaxe inválida degrada sem aviso.",
+   "canary": "GET https://export.arxiv.org/api/query?search_query=cat:cs.CL&sortBy=lastUpdatedDate&sortOrder=descending&max_results=1 → medido: totalResults=113.525, 1 entry. Barato, sempre-retorna, e valida três coisas de uma vez: https ok, parser de campo ok, feed atualizado (entry recente). Checar HTTP==200 E totalResults>0 E 1 <title> presente.",
+   "measurements": "ti:\"legal judgment prediction\"+AND+cat:cs.CL=37 | abs:\"nugget evaluation\"+AND+abs:retrieval=3 | NL 15 palavras (all:)=2.562.527 | title: (typo)=44 sem erro | frase longa em ti:=0 (HTTP 200) | http://=301 body vazio | cat:cs.CL=113.525"
+  }
+ ],
+ "refuted": [],
+ "unverified": [],
+ "sources": [
+  {
+   "url": "https://opentelemetry.io/blog/2026/genai-observability/",
+   "quality": "primary",
+   "angle": "Telemetria padrão de tool-use em agentes LLM (adotar, não inventar)",
+   "claimCount": 5
+  },
+  {
+   "url": "https://github.com/Arize-ai/openinference/blob/main/spec/semantic_conventions.md",
+   "quality": "primary",
+   "angle": "Telemetria padrão de tool-use em agentes LLM (adotar, não inventar)",
+   "claimCount": 5
+  },
+  {
+   "url": "https://langfuse.com/docs/observability/data-model",
+   "quality": "primary",
+   "angle": "Telemetria padrão de tool-use em agentes LLM (adotar, não inventar)",
+   "claimCount": 5
+  },
+  {
+   "url": "https://greptime.com/blogs/2026-05-09-opentelemetry-genai-semantic-conventions",
+   "quality": "blog",
+   "angle": "Telemetria padrão de tool-use em agentes LLM (adotar, não inventar)",
+   "claimCount": 5
+  },
+  {
+   "url": "https://zylos.ai/research/2026-02-28-opentelemetry-ai-agent-observability",
+   "quality": "blog",
+   "angle": "Telemetria padrão de tool-use em agentes LLM (adotar, não inventar)",
+   "claimCount": 5
+  },
+  {
+   "url": "https://docs.langchain.com/langsmith/export-traces",
+   "quality": "primary",
+   "angle": "Telemetria padrão de tool-use em agentes LLM (adotar, não inventar)",
+   "claimCount": 5
+  },
+  {
+   "url": "https://link.springer.com/article/10.1186/s13643-020-01542-z",
+   "quality": "primary",
+   "angle": "PRISMA-S/Cochrane como análogo maduro do grounding manifest",
+   "claimCount": 5
+  },
+  {
+   "url": "https://training.cochrane.org/handbook/current/chapter-04",
+   "quality": "primary",
+   "angle": "PRISMA-S/Cochrane como análogo maduro do grounding manifest",
+   "claimCount": 5
+  },
+  {
+   "url": "https://www.jclinepi.com/article/S0895-4356(16)00058-5/fulltext",
+   "quality": "primary",
+   "angle": "PRISMA-S/Cochrane como análogo maduro do grounding manifest",
+   "claimCount": 5
+  },
+  {
+   "url": "https://training.cochrane.org/trials-search-co-ordinator-handhook/6-author-support/65-documenting-search-process-and-reporting",
+   "quality": "primary",
+   "angle": "PRISMA-S/Cochrane como análogo maduro do grounding manifest",
+   "claimCount": 5
+  },
+  {
+   "url": "https://training.cochrane.org/handbook/archive/v6.1/chapter-04-technical-supplement-searching-and-selecting-studies",
+   "quality": "primary",
+   "angle": "PRISMA-S/Cochrane como análogo maduro do grounding manifest",
+   "claimCount": 5
+  },
+  {
+   "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7839230/",
+   "quality": "primary",
+   "angle": "PRISMA-S/Cochrane como análogo maduro do grounding manifest",
+   "claimCount": 5
+  },
+  {
+   "url": "https://arxiv.org/pdf/2506.17670",
+   "quality": "primary",
+   "angle": "Bandits contextuais para seleção de fonte e vieses de avaliação incompleta",
+   "claimCount": 5
+  },
+  {
+   "url": "http://stefan.buettcher.org/papers/buettcher_2007_reliable_evaluation.pdf",
+   "quality": "primary",
+   "angle": "Bandits contextuais para seleção de fonte e vieses de avaliação incompleta",
+   "claimCount": 5
+  },
+  {
+   "url": "https://www.codalism.com/research/papers/wp09_sigir_pp.pdf",
+   "quality": "primary",
+   "angle": "Bandits contextuais para seleção de fonte e vieses de avaliação incompleta",
+   "claimCount": 5
+  },
+  {
+   "url": "https://www.aies-conference.com/2019/wp-content/papers/main/AIES-19_paper_187.pdf",
+   "quality": "primary",
+   "angle": "Bandits contextuais para seleção de fonte e vieses de avaliação incompleta",
+   "claimCount": 5
+  },
+  {
+   "url": "https://info.arxiv.org/help/api/user-manual.html",
+   "quality": "primary",
+   "angle": "Canários semânticos: distinguir zero-resultado legítimo de instrumento quebrado",
+   "claimCount": 5
+  },
+  {
+   "url": "https://github.com/lukasschwab/arxiv.py/issues/43",
+   "quality": "primary",
+   "angle": "Canários semânticos: distinguir zero-resultado legítimo de instrumento quebrado",
+   "claimCount": 5
+  },
+  {
+   "url": "https://developer.twitter.com/en/docs/twitter-api/v1/rules-and-filtering/build-standard-queries",
+   "quality": "primary",
+   "angle": "Canários semânticos: distinguir zero-resultado legítimo de instrumento quebrado",
+   "claimCount": 5
+  },
+  {
+   "url": "https://docs.exa.ai/reference/search",
+   "quality": "primary",
+   "angle": "Canários semânticos: distinguir zero-resultado legítimo de instrumento quebrado",
+   "claimCount": 4
+  },
+  {
+   "url": "https://elifesciences.org/inside-elife/14e77604/elife-s-new-model-what-is-a-reviewed-preprint",
+   "quality": "primary",
+   "angle": "Precedente editorial: revisão em rodadas fixas e publicar-com-resíduos",
+   "claimCount": 5
+  },
+  {
+   "url": "https://elifesciences.org/about/peer-review",
+   "quality": "primary",
+   "angle": "Precedente editorial: revisão em rodadas fixas e publicar-com-resíduos",
+   "claimCount": 5
+  },
+  {
+   "url": "https://think.f1000research.com/open-peer-review/",
+   "quality": "primary",
+   "angle": "Precedente editorial: revisão em rodadas fixas e publicar-com-resíduos",
+   "claimCount": 5
+  }
+ ],
+ "stats": {
+  "angles": 5,
+  "sourcesFetched": 23,
+  "claimsExtracted": 114,
+  "claimsVerified": 25,
+  "confirmed": 25,
+  "killed": 0,
+  "unverified": 0,
+  "afterSynthesis": 14,
+  "urlDupes": 0,
+  "budgetDropped": 7,
+  "agentCalls": 105
+ }
+}

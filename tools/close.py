@@ -1677,6 +1677,20 @@ IMPROVE_BACKSTOP = _envconf.env_int("EDGE_IMPROVE_BACKSTOP", 15)   # R7 ABSOLUTE
 #                          changing loop is NEVER cut off mid-progress within the bound; a non-converged
 #                          bound hit FAILS CLOSED, never a false pass.
 
+# S6 (E6, BINDING amendment) — the genus bounce gets its OWN budget, SEPARATE from the reviewers'
+# BOUNCE_MAX (today they share the single `bounces` counter). DEFAULT = BOUNCE_MAX so knobs-off is
+# byte-a-byte: design-close §7 proposed 15, but E6 supersedes it (a genus budget of 15 by default
+# would change cost/behavior with everything off, breaking the byte-compat the verify demands). The
+# split only manifests when an operator raises this above BOUNCE_MAX — declared, never silent.
+GENUS_BOUNCE_MAX = _envconf.env_int("EDGE_GENUS_BOUNCE_MAX", BOUNCE_MAX)
+
+# S6 (design-close §4) — a strike carrying one of these SYNTHETIC prefixes is a NON-REVIEW (a
+# reviewer crash, a schema-drift wrap, an infra fallback), never authentic criticism. A verdict with
+# one is DISQUALIFIED from publish-with-residuals (it falls through to the hard-fail): infra ≠ resíduo.
+_SYNTHETIC_STRIKE_PREFIXES = ("reviewer raised:", "malformed strikes:",
+                              "malformed score(s):", "malformed scores:", "non-dict verdict:")
+_RESIDUAL_SECTION_TITLE = "Crítica não endereçada"
+
 
 # ---------------------------------------------------------------------------
 # The proof contract — UNFORGEABLE and BOUND (Codex re-review #2).
@@ -1707,8 +1721,9 @@ _PROOF_TOKEN = secrets.token_hex(32)
 
 
 def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=None,
-                 lineage=None) -> str:
-    """The sha256 digest BINDING a proof to the EXACT publish payload. Canonical JSON
+                 lineage=None, dispatch_id=None) -> str:
+    """The sha256 digest BINDING a proof to the EXACT publish payload (incl. dispatch_id — E1b:
+    persisted field = digested field). Canonical JSON
     (sorted keys) so the same payload always digests identically and the publisher can
     recompute it from the args it is about to publish — any difference (different slug, spec,
     intent, cites, proposes, distills, skill, or lineage) yields a different digest and is
@@ -1721,7 +1736,12 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
 
     Cortex-v1 (brick-1): `lineage` (the AUTHORED typed builds_on/supersedes/contradicts edges
     the publisher materializes as DIRECTED edges) is bound for the same reason — without the
-    bind the authored lineage is forgeable at publish time."""
+    bind the authored lineage is forgeable at publish time.
+
+    S2 (E1b): `dispatch_id` is bound the same way — it affects the yield-join fold (S7), so it
+    is state-affecting; outside the digest a publish_fn could publish under ANOTHER dispatch_id
+    with no mismatch, corrupting the join without violating the proof. Same class as slug:
+    persisted field = digested field."""
     payload = {
         "slug": slug,
         "spec": spec,
@@ -1733,26 +1753,36 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
         # normalize so the digest binds ONLY well-formed authored edges — a malformed lineage item can
         # never be json.dumps(default=str)-coerced into the verification anchor (Cortex-v1 brick-1).
         "lineage": normalize_lineage(lineage),
+        "dispatch_id": dispatch_id,
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
-                distills=None, skill=None, lineage=None) -> dict:
+                distills=None, skill=None, lineage=None, dispatch_id=None,
+                residual_publish=False, unaddressed=None) -> dict:
     """Mint the bound, token-stamped proof for a passing close. Carries BOTH reviewer
     verdicts (each stamped by run_close with its canonical reviewer identity), the digest of
-    the exact payload (now including distills + skill + lineage), and the run_close-only token.
+    the exact payload (now including distills + skill + lineage + dispatch_id, E1b), and the
+    run_close-only token.
 
     Codex re-review #3: this is module-PRIVATE — ONLY `run_close` (and the explicit test-only
     seam standing in for it) calls it. It is no longer a public function a producer could call
-    to stamp the valid token onto a verdict list of its own choosing."""
-    return {
+    to stamp the valid token onto a verdict list of its own choosing.
+
+    S6 (design-close §2/§3): `residual_publish=True` mints a PUBLISH-WITH-RESIDUALS proof — the
+    verdicts carry STRIKES (bounce-exhausted, genus-clean), the `spec` is the ALREADY-APPENDED
+    content (so the digest binds the 'Crítica não endereçada' section), and the proof gains a
+    first-class `unaddressed` projection of the final-round criticism. `verify_proof`'s residual
+    branch requires the knob ON at verify time and SKIPS the clean-verdict check for this proof."""
+    proof = {
         "pass": True,
         "verdicts": list(verdicts),
         "digest": proof_digest(slug=slug, spec=spec, intent=intent,
                                cites=cites, proposes=proposes,
-                               distills=distills, skill=skill, lineage=lineage),
+                               distills=distills, skill=skill, lineage=lineage,
+                               dispatch_id=dispatch_id),
         "token": _PROOF_TOKEN,
         # R5/S1 severity: NON-BLOCKING residual notes the reviewers chose to log rather than strike.
         # A residual can only ride a CLEAN verdict (no strikes); a BLOCKING finding is a strike or a
@@ -1760,6 +1790,10 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
         # residual by construction. This just surfaces the acknowledged nits on the shipped proof.
         "residual": [r for v in verdicts for r in (v.get("residual") or [])],
     }
+    if residual_publish:
+        proof["residual_publish"] = True
+        proof["unaddressed"] = list(unaddressed or [])
+    return proof
 
 
 def _verdict_clean(verdict) -> bool:
@@ -1866,11 +1900,12 @@ def _discharge_verdict(verdict, discharged: set):
 
 
 def verify_proof(proof, *, slug, spec, intent, cites, proposes,
-                 distills=None, skill=None, lineage=None, reviewer_count=2):
+                 distills=None, skill=None, lineage=None, dispatch_id=None, reviewer_count=2):
     """Verify a proof BINDS to the payload being published — raise ValueError otherwise,
     BEFORE any state/HTML is written. Refuses unless: the token is run_close's (not a
     fabricated one), the digest matches THIS payload — now including distills + skill +
-    lineage, so a proof-holder cannot alter the persisted distills/skill/lineage (#3) — all
+    lineage + dispatch_id (E1b: a proof-holder cannot alter the persisted
+    distills/skill/lineage nor publish under another dispatch identity, #3) — all
     `reviewer_count` reviewers passed (a single-reviewer proof is rejected), AND the verdicts
     carry BOTH canonical reviewer identities (a proof built from fake/injected reviewers is
     rejected on identity grounds, #3)."""
@@ -1882,13 +1917,29 @@ def verify_proof(proof, *, slug, spec, intent, cites, proposes,
             "publish only through close.run_close (#2)")
     expected = proof_digest(slug=slug, spec=spec, intent=intent,
                             cites=cites, proposes=proposes,
-                            distills=distills, skill=skill, lineage=lineage)
+                            distills=distills, skill=skill, lineage=lineage,
+                            dispatch_id=dispatch_id)
     if not secrets.compare_digest(str(proof.get("digest", "")), expected):
         raise ValueError(
             f"cannot publish artefato {slug!r}: proof digest does not bind to this "
             "payload (minted for a different artefato, or distills/skill/lineage altered) (#3)")
     verdicts = proof.get("verdicts") or []
-    if len(verdicts) != reviewer_count or not all(_verdict_clean(v) for v in verdicts):
+    residual = proof.get("residual_publish") is True
+    if len(verdicts) != reviewer_count:
+        raise ValueError(
+            f"cannot publish artefato {slug!r}: proof lacks {reviewer_count} reviewer "
+            "verdicts (#2/#9)")
+    if residual:
+        # S6 (design-close §5): a publish-with-residuals proof keeps token + digest +
+        # reviewer_count + BOTH canonical identities (checked below) but SKIPS `_verdict_clean`
+        # (its verdicts carry the unaddressed strikes by design) — AND requires the knob ON at
+        # verify time. Disabling EDGE_PUBLISH_WITH_RESIDUALS re-refuses struck proofs on the spot,
+        # so a struck proof can never orphan as publishable once the operator turns the branch off.
+        if _envconf.env_int("EDGE_PUBLISH_WITH_RESIDUALS", 0) != 1:
+            raise ValueError(
+                f"cannot publish artefato {slug!r}: residual-publish proof but "
+                "EDGE_PUBLISH_WITH_RESIDUALS is not enabled at verify time (S6)")
+    elif not all(_verdict_clean(v) for v in verdicts):
         raise ValueError(
             f"cannot publish artefato {slug!r}: proof lacks {reviewer_count} passing "
             "reviewer verdicts with no strikes (#2/#9)")
@@ -1899,8 +1950,160 @@ def verify_proof(proof, *, slug, spec, intent, cites, proposes,
             "identities — built from fake/injected reviewers (#3)")
 
 
+# ---------------------------------------------------------------------------
+# S6 — the genus floor (enxerto A1) and publish-with-residuals (design-close §1-6)
+# ---------------------------------------------------------------------------
+
+def _floor(floor_fn) -> list[str]:
+    """Evaluate the injected SESSION floor safely (design-close §6). The floor is a `() -> list[str]`
+    the wiring injects at the call-site (close.py NEVER imports harvest — same idiom as
+    complete_fn/publish_fn). A raising floor_fn is DARK → [] (the floor measures an out-of-band
+    artefact; darkness is fail-OPEN, never a close crash, inverse of genus). A non-list return is
+    treated as [] (fail-open). A returned list of violation strings is genus-class: it is summed
+    into the gate's `violations` and inherits ALL the blocking-first mechanics (before reviewers,
+    bounces via the genus path, hard-fails on exhaustion, NEVER publish-with-residuals)."""
+    if floor_fn is None:
+        return []
+    try:
+        v = floor_fn()
+    except Exception:  # noqa: BLE001 — a floor that cannot run is dark, never a close crash (§6)
+        return []
+    return list(v) if isinstance(v, list) else []
+
+
+def _log_close_event(type_, payload):
+    """Best-effort event log from the close (mirrors `_log_infra_error`'s belt-and-suspenders): a
+    broken log never masks the close decision itself. Used to record a residual-publish re-gate
+    refusal (design-close §2.3: fail-closed, loga o motivo)."""
+    try:
+        import eventlog
+        eventlog.append(type_, "close", payload, log=eventlog.LOG)
+    except Exception:  # noqa: BLE001 — the record is best-effort; the decision is the contract
+        pass
+
+
+def _residual_eligible(verdicts) -> bool:
+    """ELIGIBILITY for publish-with-residuals (design-close §2.1/§4) — pure and cheap. True iff the
+    knob is ON, there are EXACTLY 2 verdicts carrying BOTH canonical reviewer identities, and every
+    strike is AUTHENTIC: each verdict has a NON-EMPTY scores dict AND no strike bears a synthetic
+    prefix (a reviewer crash / schema-drift wrap is a NON-review, not criticism — §4). Otherwise the
+    caller falls through to the existing hard-fail. Infra ≠ resíduo; a synthetic strike disqualifies."""
+    if _envconf.env_int("EDGE_PUBLISH_WITH_RESIDUALS", 0) != 1:
+        return False
+    if len(verdicts) != 2:
+        return False
+    identities = {v.get("reviewer") for v in verdicts if isinstance(v, dict)}
+    if not {FEYNMAN_REVIEWER_ID, REGULAR_REVIEWER_ID} <= identities:
+        return False
+    for v in verdicts:
+        if not isinstance(v, dict):
+            return False
+        scores = v.get("scores")
+        if not isinstance(scores, dict) or not scores:
+            return False   # §4: an empty/absent scores dict is a non-review (crash/drift)
+        strikes = v.get("strikes")
+        if not isinstance(strikes, list):
+            return False
+        for s in strikes:
+            if any(str(s).startswith(p) for p in _SYNTHETIC_STRIKE_PREFIXES):
+                return False   # §4: a synthetic strike is a non-review, never a residual
+    return True
+
+
+def _residuals_section(verdicts) -> dict:
+    """The deterministic 'Crítica não endereçada' section (design-close §2.2/§3) — a PURE templater,
+    NO LLM. One protocol paragraph (what the section means, the eLife/F1000 precedent) + one callout
+    per reviewer carrying its strikes VERBATIM (never paraphrased — PRISMA C36 captures how-it-ran).
+    PROSE_BLOCK_TYPES only (paragraph/callout), so it owes no visual and cannot itself trip the visual
+    floor; the re-gate (§2.3) catches any content×template interaction that would."""
+    blocks = [{
+        "type": "paragraph",
+        "text": ("Esta seção registra a crítica que sobreviveu ao orçamento de revisão (bounce "
+                 "esgotado) e não foi endereçada no texto. Segue o precedente de revisão pública "
+                 "graduada (eLife Reviewed Preprints, F1000Research): a peça é publicada com a "
+                 "avaliação anexada em vez de ser barrada silenciosamente."),
+    }]
+    for v in verdicts:
+        if not isinstance(v, dict):
+            continue
+        strikes = [s for s in (v.get("strikes") or [])]
+        if not strikes:
+            continue
+        reviewer = v.get("reviewer") or "reviewer"
+        blocks.append({
+            "type": "callout", "variant": "warning",
+            "title": f"Revisor: {reviewer}",
+            "text": " · ".join(str(s) for s in strikes),   # strikes VERBATIM
+        })
+    return {"title": _RESIDUAL_SECTION_TITLE, "blocks": blocks}
+
+
+def _unaddressed(verdicts) -> list:
+    """The proof/event projection of the FINAL-round criticism (design-close §3): per reviewer,
+    `{reviewer, strikes verbatim, rationales, overall}`. Rounds before the last never enter — the
+    proof binds the review OF the published draft, nothing more."""
+    out = []
+    for v in verdicts:
+        if not isinstance(v, dict):
+            continue
+        out.append({
+            "reviewer": v.get("reviewer"),
+            "strikes": list(v.get("strikes") or []),
+            "rationales": v.get("rationales") or {},
+            "overall": v.get("overall"),
+        })
+    return out
+
+
+def _try_residual_publish(artefato, verdicts, publish_fn):
+    """Publish-with-residuals at bounce exhaustion (design-close §1-5, R5.1/R5.2). At the reviewer
+    bounce-exhaustion point — genus-clean by construction (reviewers only run after check_genus==[]),
+    2 canonical verdicts with REAL strikes — publish the draft WITH the criticism appended instead
+    of hard-failing (the eLife/F1000 model of graded public review). Returns the minted residual
+    proof on success, or None to fall through to the existing hard-fail.
+
+    Sequence (§2): (1) ELIGIBILITY (pure) → (2) APPEND the deterministic section to a COPY of the
+    content BEFORE the mint → (3) RE-GATE genus on the appended content (dirty → None, fail-closed:
+    NEVER publish genus-dirty, even for a residual) → (4) MINT over the ALREADY-APPENDED content (the
+    digest binds the section by construction) → (5) PUBLISH. Failure in 3-5 NEVER regresses to
+    publish-without-residuals: either publish WITH the section, or return None (hard-fail)."""
+    # (1) ELIGIBILITY
+    if not _residual_eligible(verdicts):
+        return None
+    content = artefato.get("content")
+    if not isinstance(content, dict):
+        return None
+    # (2) APPEND — a COPY (a None fall-through must never mutate the caller's draft)
+    section = _residuals_section(verdicts)
+    new_content = {**content,
+                   "additional_sections": list(content.get("additional_sections") or []) + [section]}
+    appended = {**artefato, "content": new_content}
+    # (3) RE-GATE genus on the appended content (the SAME ground_visuals + check_genus the publisher
+    # re-runs at its seam) — dirty → None, fail-closed.
+    ground_visuals(appended)
+    dirty = check_genus(appended)
+    if dirty:
+        _log_close_event("grounding.residual_dirty",
+                         {"slug": appended.get("slug"), "violations": dirty})
+        return None
+    # (4) MINT over the appended content — the digest binds the section (§2)
+    proof = _mint_proof(
+        verdicts,
+        slug=appended.get("slug"), spec=appended.get("content"),
+        intent=appended.get("intent"), cites=appended.get("cites"),
+        proposes=appended.get("proposes"),
+        distills=appended.get("distills"), skill=appended.get("skill"),
+        lineage=appended.get("lineage"), dispatch_id=appended.get("dispatch_id"),
+        residual_publish=True, unaddressed=_unaddressed(verdicts))
+    # (5) PUBLISH the appended artefato (section inside) under the residual proof
+    if publish_fn is not None:
+        publish_fn(appended, proof)
+    return proof
+
+
 def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
-              complete_fn=None, publish_fn=None, improve_fn=None, improve_rounds=None):
+              complete_fn=None, publish_fn=None, improve_fn=None, improve_rounds=None,
+              floor_fn=None):
     """The ONE enforced close path (#2): run the genus gate, then BOTH blind review gates,
     bounded; ONLY on pass mint the bound proof and call `publish_fn(artefato, proof)` to
     publish. This is the only way to publish — `publisher.publish` refuses without the bound
@@ -2031,17 +2234,39 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
     # verification review at the gate with NO re-produce bounce: a draft the FINAL improve happened to fix
     # can still converge and mint (Codex S1 #13), while a still-broken draft fails closed and cannot be
     # milked via a bounce (Codex S1 #9). A converged or skipped stage keeps the normal bound (BOUNCE_MAX).
-    bounce_budget = 0 if (improve_attempted and not improve_converged) else BOUNCE_MAX
+    _exhausted = improve_attempted and not improve_converged
+    bounce_budget = 0 if _exhausted else BOUNCE_MAX
+    # S6 (E6, byte-compat FIX): genus gets its OWN budget ONLY when the operator RAISES the knob above
+    # BOUNCE_MAX. At the unset default (GENUS_BOUNCE_MAX == BOUNCE_MAX) genus and reviewers SHARE the
+    # single `bounces` pool exactly as pre-S6 — a genus bounce DEBITS the reviewer budget, total cap
+    # BOUNCE_MAX, byte-identical to HEAD. Splitting into disjoint pools at the default would hand the
+    # producer an EXTRA reviewer bounce (genus no longer debits the shared pool) and weaken the gate
+    # with knobs off. The split manifests ONLY when GENUS_BOUNCE_MAX != BOUNCE_MAX (declared opt-in).
+    _split = GENUS_BOUNCE_MAX != BOUNCE_MAX
+    # An exhausted improve stage still gets NO genus bounce (the "one verification review, no
+    # re-produce" rule applies to genus too); otherwise genus bounces up to GENUS_BOUNCE_MAX. The floor
+    # (a SESSION contract, injected) is summed into the genus violations — it inherits every
+    # blocking-first mechanic and NEVER publishes-with-residuals.
+    genus_budget = 0 if _exhausted else GENUS_BOUNCE_MAX
 
     bounces = 0
+    genus_bounces = 0
     while True:
         ground_visuals(artefato)   # S7 (R2): sign cite-grounded visuals before the gating genus check
-        violations = check_genus(artefato)
+        violations = check_genus(artefato) + _floor(floor_fn)
         if violations:
-            if bounces >= bounce_budget:
-                return {"pass": False, "artefato": artefato, "verdicts": [],
-                        "genus_violations": violations}
-            bounces += 1
+            # SHARED pool at the default (byte-compat): the genus bounce debits `bounces`, capped by
+            # bounce_budget — identical to pre-S6. SPLIT only when the operator raised the genus knob.
+            if _split:
+                if genus_bounces >= genus_budget:
+                    return {"pass": False, "artefato": artefato, "verdicts": [],
+                            "genus_violations": violations}
+                genus_bounces += 1
+            else:
+                if bounces >= bounce_budget:
+                    return {"pass": False, "artefato": artefato, "verdicts": [],
+                            "genus_violations": violations}
+                bounces += 1
             # re-produce from the NAMED gap: when improve_fn is wired, hand it the genus
             # violations so the draft is enriched (the floor forces depth); else the unchanged
             # static produce_fn bounce (Codex P2, #30).
@@ -2103,11 +2328,20 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
                 intent=artefato.get("intent"), cites=artefato.get("cites"),
                 proposes=artefato.get("proposes"),
                 distills=artefato.get("distills"), skill=artefato.get("skill"),
-                lineage=artefato.get("lineage"))
+                lineage=artefato.get("lineage"),
+                dispatch_id=artefato.get("dispatch_id"))
             if publish_fn is not None:
                 publish_fn(artefato, proof)
             return proof
         if bounces >= bounce_budget:
+            # S6 (design-close §1): bounce EXHAUSTED with genus-clean + reviewer strikes. When the
+            # knob is on and the strikes are AUTHENTIC (2 canonical verdicts, no synthetic strike),
+            # publish WITH the criticism appended instead of hard-failing (eLife/F1000 graded review);
+            # else — knob off, or ineligible, or genus-dirty-post-append — fall through to the
+            # existing hard-fail. NEVER regresses to publish-without-residuals.
+            proof = _try_residual_publish(artefato, verdicts, publish_fn)
+            if proof is not None:
+                return proof
             return {"pass": False, "artefato": artefato, "verdicts": verdicts}
         bounces += 1
         artefato = produce_fn()
