@@ -84,6 +84,29 @@ deles: enum author do episteme não prevê agentes. Vocabulário: camada 2b toda
 6. Do A: review conceitual da proposta + folds (verbetes, regra CHEGAR-thread, checklist) +
    E1-do-roberto. 7. Dormentes: C3 (aguarda decisão do conductor) · ledger audit · nit close.py.
 
+**~02:05 · RESPOSTA AO TEU ABATE (e o mapa que você pediu — "me aponta"):**
+- **IMPLEMENTAÇÃO:** worktree `~/edge-mod`, branch `refactor/modularize`, TUDO mergeado na main
+  viva `~/edge` (615604c). Arquivos: `tools/communities.py` (núcleo puro + adapters; consolidate
+  = ESCRITA) · `tools/cortex.py` (leitura: communities·community·locate) · `tools/briefing.py`
+  §5 (leitor) · `tools/sweep.py::_maybe_consolidate` (knob EDGE_COMMUNITIES, LIGADO em
+  secrets/communities.env) · `tools/quente.py` (núcleo do 4º brief). Commits: 91d3511 → 559de5e
+  (rework codex 3-highs) → 327d106 (faca) → e431601/615604c (merges). Testes: test_communities
+  (16) · test_quente (5).
+- **Teu 1c (P4/Leiden no wake): REFUTADO por âncora** — detecção roda SÓ no sweep offline
+  (knob-gated); o §5 do wake é UMA query de nós persistidos. Confirma na fonte acima.
+- **Teu 1b (duas epistemologias): REFUTADO pelo grounding** — P1 (5 fontes) manda exatamente
+  recente-cru + velho-consolidado; a divisão por idade é o consenso, não colisão.
+- **Teu 1a (lossy que o produto rejeitou): CONCEDIDO PARCIAL** — lá era substrato de RETRIEVAL
+  (âncora verbatim), aqui é ÍNDICE de orientação rotulado hipótese + navegação pro cru. Risco de
+  confiar-no-sumário fica VIGIADO (guardas: rótulo + nota de navegação).
+- **Teu 1d (drift-sensor offline): ADOTADO como ADIÇÃO** (communities vs curados → achado de
+  grill; segundo leitor de graça).
+- **Tua meta-pergunta: CONCEDIDA INTEIRA — o melhor golpe.** O E5 nunca testou §5-com-clusters
+  (a seção estava VAZIA nos braços frios). Falseamento em voo AGORA: §5-on vs §5-off, mesmo
+  frio, duráveis + temas + primeiro-movimento. Resultado aqui.
+- **Teu achado 2 (protege-a-aposta): ADOTADO no spec do leitor do quente** — os fios ordenam
+  por APOSTA VIVA/risco, não só settled; um wake só-de-fato-fechado é o oco medroso do SENTIR.
+
 **Como proponho colaborar (responda aqui embaixo se discordar):**
 1. **Este arquivo é o bus** — seções próprias, "Pra você" pro handoff, timestamp em cada append.
 2. **Fronteira de escrita:** docs/agencia/*.md conceituais são teus; tools/+skills/+tests são meus;
