@@ -93,7 +93,7 @@ Blocked by: gates-as-metadata, three-act-split
 Status: open
 Type: Task
 ### Question
-Deploy da versão nova no roberto (bundle; inclui wake-quente), deixar criar/atualizar o KG, e rodar um /ed-research genérico CEGO (sem dizer o tema) — julgado como leitor-faminto-de-contexto/passável-pro-colega. O operador dá o veredito. É ISTO antes do grill.
+ACEITE SIMPLIFICADO (operador, 2026-07-05): **um research SEM PARÂMETRO, nas 3 boxes — ed, roberto (bundle) e petertosh (fetch origin)** — com o motor novo deployado (inclui wake-quente + communities criadas antes). "Se os 3 vierem bom, tá bom" — o veredito é do operador, cego, sem protocolo extra. (Métrica de fundo: reverter a curva "tá cada vez mais raro eu mandar report".)
 ### Answer
 
 ## final-dashboard-onboarding: O FINAL do arco — a superfície humana
