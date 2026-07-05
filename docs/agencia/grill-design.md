@@ -23,3 +23,6 @@ O grill é o Feynman-interlocutor em tempo real: deriva à la Feynman, ataca a p
 
 ## Quando construir
 Depois do grafo (B+D+A+reflexão). Aí o grill vira o próximo effort — e provavelmente o próprio grill, rodado sobre o grafo, vai descobrir por onde ele mesmo deve crescer (a auto-referência que a noite inteira apontou).
+
+## A régua do CONHECER (extraído do operador, grill vivo 2026-07-05)
+"Não é que eu me sinta mal lido — mas toda vez que o contexto reseta eu tenho que reconstruir um fio longo com você. Por sorte esse fio tá cada vez menor." **A unidade de sucesso do conhecer = o CUSTO DE RECONSTRUÇÃO do fio → 0.** O grill conhece pelo que persiste, em 3 camadas que encurtam o fio: o quente (por trás: os últimos dias), a persona (por cima: quem ele é, estável — alimentada MAIS pelas correções do que pelos pedidos), as inscrições (pela frente: as apostas abertas, nominais, que o próximo grill cobra). Cada sessão que exige re-explicar algo já dito é um defeito de persistência, mensurável.
