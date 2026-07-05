@@ -139,6 +139,10 @@ tools/edge-python -c "import eventlog; eventlog.declare_hypothesis(
     slug='display-slug', author='grill')"
 ```
 
+Before inscribing, read the LIVE hypotheses first — `eventlog.hypotheses_at()` — and author
+`bears_on` when this session's evidence touches one (supports/refutes/qualifies; empty honestly
+when none — never fabricate): the curadoria autoral in the hot context.
+
 The falsifier is validated LOUD (`{metric, threshold, direction}` — prose-only is refused,
 HIP-1). Its valence resolves later; a falsificador-aconteceu is a future grill's opening
 evidence.
