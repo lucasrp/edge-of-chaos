@@ -64,15 +64,18 @@ def cluster(node_ids, edges, min_size=3):
 
 def merge_pass(groups, edges, min_cross=2):
     """Twin fix (user-feedback #3): two groups joined by >= min_cross cross-edges are one theme
-    split by propagation — merge them. Iterates to fixpoint; deterministic order."""
+    split by propagation — merge them. Edges are canonicalized (min,max) BEFORE counting: an
+    undirected Cypher MATCH returns each edge twice, and one real edge must never trip
+    min_cross=2 (codex [high]). Iterates to fixpoint; deterministic order."""
     groups = [sorted(g) for g in groups]
+    canon = {(min(a, b), max(a, b)) for a, b in edges}
     merged = True
     while merged:
         merged = False
         for i in range(len(groups)):
             for j in range(i + 1, len(groups)):
                 gi, gj = set(groups[i]), set(groups[j])
-                cross = sum(1 for a, b in edges
+                cross = sum(1 for a, b in canon
                             if (a in gi and b in gj) or (a in gj and b in gi))
                 if cross >= min_cross:
                     groups[i] = sorted(gi | gj)
@@ -123,9 +126,10 @@ def communities(group=None, **kw):
         with drv.session() as s:
             rows = s.run(
                 "MATCH (c:Community {group_id:$g}) "
-                "OPTIONAL MATCH (c)-[:HAS_MEMBER]->(e) "
-                "OPTIONAL MATCH (ep:Episodic)-[:MENTIONS]->(e) "
-                "WITH c, count(DISTINCT e) AS size, max(ep.valid_at) AS lt "
+                "OPTIONAL MATCH (c)-[:HAS_MEMBER]->(e {group_id:$g}) "
+                "OPTIONAL MATCH (ep:Episodic {group_id:$g})-[:MENTIONS]->(e) "
+                "WITH c, count(DISTINCT e) AS size, "
+                "max(coalesce(ep.valid_at, ep.created_at)) AS lt "
                 "RETURN c.uuid AS uuid, c.name AS name, c.summary AS summary, size, "
                 "toString(lt) AS last_touched ORDER BY lt DESC", g=group).data()
         return rows
@@ -151,19 +155,23 @@ def community(ref, group=None, **kw):
             if not head:
                 return None
             members = s.run(
-                "MATCH (c:Community {uuid:$u})-[:HAS_MEMBER]->(e) "
-                "OPTIONAL MATCH (ep:Episodic)-[:MENTIONS]->(e) "
-                "WITH e, max(ep.valid_at) AS lm "
+                "MATCH (c:Community {uuid:$u})-[:HAS_MEMBER]->(e {group_id:$g}) "
+                "OPTIONAL MATCH (ep:Episodic {group_id:$g})-[:MENTIONS]->(e) "
+                "WITH e, max(coalesce(ep.valid_at, ep.created_at)) AS lm "
                 "RETURN e.name AS name, coalesce(e.summary,'') AS summary, "
-                "toString(lm) AS last_mentioned ORDER BY lm DESC", u=head["uuid"]).data()
+                "toString(lm) AS last_mentioned ORDER BY lm DESC",
+                u=head["uuid"], g=group).data()
             sessions = s.run(
-                "MATCH (c:Community {uuid:$u})-[:HAS_MEMBER]->(e)<-[:MENTIONS]-(ep:Episodic) "
-                "RETURN DISTINCT ep.name AS id, toString(max(ep.valid_at)) AS at "
-                "ORDER BY at DESC LIMIT 12", u=head["uuid"]).data()
+                "MATCH (c:Community {uuid:$u})-[:HAS_MEMBER]->(e {group_id:$g})"
+                "<-[:MENTIONS]-(ep:Episodic {group_id:$g}) "
+                "RETURN DISTINCT ep.name AS id, "
+                "toString(max(coalesce(ep.valid_at, ep.created_at))) AS at "
+                "ORDER BY at DESC LIMIT 12", u=head["uuid"], g=group).data()
             artefatos = [r["slug"] for r in s.run(
-                "MATCH (c:Community {uuid:$u})-[:HAS_MEMBER]->(e)<-[:DISTILLS]-(a:Artefato) "
-                "RETURN DISTINCT coalesce(a.slug, a.name) AS slug", u=head["uuid"]).data()
-                if r["slug"]]
+                "MATCH (c:Community {uuid:$u})-[:HAS_MEMBER]->(e {group_id:$g})"
+                "<-[:DISTILLS]-(a:Artefato) "
+                "RETURN DISTINCT coalesce(a.slug, a.name) AS slug",
+                u=head["uuid"], g=group).data() if r["slug"]]
         return dict(head) | {"members": members, "sessions": sessions, "artefatos": artefatos}
     except Exception:
         return None
@@ -185,14 +193,15 @@ def locate(names, group=None, **kw):
         with drv.session() as s:
             for n in names:
                 row = s.run(
-                    "MATCH (e:Entity {group_id:$g, name:$n})<-[:HAS_MEMBER]-(c:Community) "
+                    "MATCH (e:Entity {group_id:$g, name:$n})<-[:HAS_MEMBER]-"
+                    "(c:Community {group_id:$g}) "
                     "RETURN c.name AS c LIMIT 1", g=group, n=n).single()
                 if row:
                     out[n] = {"community": row["c"], "relation": "member"}
                     continue
                 row = s.run(
-                    "MATCH (e:Entity {group_id:$g, name:$n})-[:RELATES_TO]-(x)"
-                    "<-[:HAS_MEMBER]-(c:Community) RETURN c.name AS c LIMIT 1",
+                    "MATCH (e:Entity {group_id:$g, name:$n})-[:RELATES_TO]-(x {group_id:$g})"
+                    "<-[:HAS_MEMBER]-(c:Community {group_id:$g}) RETURN c.name AS c LIMIT 1",
                     g=group, n=n).single()
                 out[n] = ({"community": row["c"], "relation": "neighbor"} if row
                           else {"community": None, "relation": "none"})
@@ -233,9 +242,17 @@ def consolidate(group=None, summarize_fn=None, min_size=3, min_cross=2, **kw):
     summarize_fn = summarize_fn or _default_summarize
     try:
         with drv.session() as s:
-            ents = s.run("MATCH (n:Entity {group_id:$g}) RETURN n.uuid AS u, n.name AS name, "
+            # codex [low]: uniqueness by convention → constraint + group index (idempotentes)
+            s.run("CREATE CONSTRAINT community_uuid IF NOT EXISTS "
+                  "FOR (c:Community) REQUIRE c.uuid IS UNIQUE")
+            s.run("CREATE INDEX community_group IF NOT EXISTS "
+                  "FOR (c:Community) ON (c.group_id)")
+            # codex [medium]: uuid é load-bearing — nulos ficam fora do clustering
+            ents = s.run("MATCH (n:Entity {group_id:$g}) WHERE n.uuid IS NOT NULL "
+                         "RETURN n.uuid AS u, n.name AS name, "
                          "coalesce(n.summary,'') AS summ", g=group).data()
-            rels = s.run("MATCH (a:Entity {group_id:$g})-[:RELATES_TO]-(b:Entity) "
+            rels = s.run("MATCH (a:Entity {group_id:$g})-[:RELATES_TO]-(b:Entity {group_id:$g}) "
+                         "WHERE a.uuid IS NOT NULL AND b.uuid IS NOT NULL "
                          "RETURN a.uuid AS a, b.uuid AS b", g=group).data()
         ids = [e["u"] for e in ents]
         by_id = {e["u"]: e for e in ents}
@@ -245,25 +262,35 @@ def consolidate(group=None, summarize_fn=None, min_size=3, min_cross=2, **kw):
               f"(+{len(ids) - sum(len(g) for g in groups)} poeira fora)")
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ")
         written = []
-        with drv.session() as s:
-            s.run("MATCH (c:Community {group_id:$g}) DETACH DELETE c", g=group)
-            for g in groups:
-                members = "\n".join(f"- {by_id[u]['name']}: {by_id[u]['summ'][:150]}"
-                                    for u in g[:25])
-                try:
-                    out = summarize_fn(members)
-                except Exception as e:
-                    print(f"communities: summarize degraded ({type(e).__name__}) — cluster sem sumário")
-                    out = f"NOME: cluster de {len(g)} entidades | SUMÁRIO: (sumário indisponível)"
-                name = out.split("|")[0].replace("NOME:", "").strip()[:80]
-                summ = out.split("SUMÁRIO:")[-1].strip() if "SUMÁRIO:" in out else out
-                cu = str(uuidlib.uuid4())
-                s.run("CREATE (c:Community {uuid:$u, name:$n, summary:$s, group_id:$g, "
-                      "created_at:$t})", u=cu, n=name, s=summ, g=group, t=now)
+        # sumários FORA da transação (LLM é lento; tx segura só as escritas)
+        payloads = []
+        for g in groups:
+            members = "\n".join(f"- {by_id[u]['name']}: {by_id[u]['summ'][:150]}"
+                                for u in g[:25])
+            try:
+                out = summarize_fn(members)
+            except Exception as e:
+                print(f"communities: summarize degraded ({type(e).__name__}) — cluster sem sumário")
+                out = f"NOME: cluster de {len(g)} entidades | SUMÁRIO: (sumário indisponível)"
+            name = out.split("|")[0].replace("NOME:", "").strip()[:80]
+            summ = out.split("SUMÁRIO:")[-1].strip() if "SUMÁRIO:" in out else out
+            payloads.append((str(uuidlib.uuid4()), name, summ, g))
+
+        def _rebuild(tx):
+            # codex [high]: wipe+rebuild numa transação só — falha no meio = rollback, o
+            # conjunto velho sobrevive. ponytail: single-writer (heartbeat); se surgir
+            # escritor concorrente, o degrau seguinte é run-id swap.
+            tx.run("MATCH (c:Community {group_id:$g}) DETACH DELETE c", g=group)
+            for cu, name, summ, g in payloads:
+                tx.run("CREATE (c:Community {uuid:$u, name:$n, summary:$s, group_id:$gr, "
+                       "created_at:$t})", u=cu, n=name, s=summ, gr=group, t=now)
                 for u in g:
-                    s.run("MATCH (c:Community {uuid:$cu}),(n:Entity {uuid:$eu}) "
-                          "CREATE (c)-[:HAS_MEMBER]->(n)", cu=cu, eu=u)
-                written.append({"name": name, "size": len(g)})
-        return written
+                    tx.run("MATCH (c:Community {uuid:$cu}),"
+                           "(n:Entity {uuid:$eu, group_id:$gr}) "
+                           "CREATE (c)-[:HAS_MEMBER]->(n)", cu=cu, eu=u, gr=group)
+
+        with drv.session() as s:
+            s.execute_write(_rebuild)
+        return [{"name": n, "size": len(g)} for _, n, _, g in payloads]
     except Exception:
         return None

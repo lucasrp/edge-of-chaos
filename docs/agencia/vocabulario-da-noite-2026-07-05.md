@@ -54,6 +54,22 @@
 8. **Hierarquia de verdade** — docs commitados > topic-files de memória > grafo. A regra
    anti-clobber que faltou hoje de manhã (sync sobrescreveu memória sem merge, 2×).
 
+## Camada 2b — os sem-nome da esticada final (pós-faca)
+
+9. **Minuto-zero** — o conteúdo que o agente efetivamente segura quando começa a agir; a moeda
+   do wake ("benefício por contexto gasto no start"). Todo o wake-ótimo é engenharia do
+   minuto-zero; medimos 0/12 nele sem ter o substantivo.
+10. **Teste do primeiro movimento** — o instrumento: acordar um agente SÓ com a injeção e
+    perguntar "qual teu próximo movimento?". Aponta pro passado = a memória falhou, não importa
+    o recall. Vira o aceite-padrão de trabalho de memória/contexto (recall mede o que se sabe;
+    o primeiro movimento mede pra onde se vai).
+11. **Fiação antes de adoção** — o padrão 4× da noite (build_communities dormante ·
+    classify_session sem caller · edge-feedback-digest nunca ligado · §5 olhando o rail errado):
+    antes de adotar tech nova, pergunte o que já existe DESLIGADO no substrato.
+12. **Inscrição** — o degrau acima do CHEGAR: o juízo vira claim FALSIFICÁVEL dentro do sistema
+    do mentee (H-007 no episteme, com falsifier + evidência datada). CHEGAR entrega uma nota;
+    inscrição deixa lastro testável no mundo do mentee. Candidato a ato supremo da agência.
+
 ## Nota de fold
 Camada 1 + redefinição do Knowledge cluster → CONTEXT.md (fold conceitual: agente A).
 Camada 2: os nomes são PROPOSTAS — o operador bate o martelo; os que pegarem entram no

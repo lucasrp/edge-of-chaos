@@ -48,6 +48,14 @@ class TestMergePass(unittest.TestCase):
         merged = communities.merge_pass(groups, TRI_A + TRI_B, min_cross=2)
         self.assertEqual(len(merged), 2)
 
+    def test_undirected_rows_do_not_double_count(self):
+        """[codex high] MATCH -[:RELATES_TO]- devolve cada aresta 2x (uma por direção): UMA
+        aresta real entre grupos não pode disparar min_cross=2 — canonicaliza antes de contar."""
+        groups = [["a", "b", "c"], ["d", "e", "f"]]
+        edges = TRI_A + TRI_B + [("c", "d"), ("d", "c")]  # 1 aresta real, 2 linhas
+        merged = communities.merge_pass(groups, edges, min_cross=2)
+        self.assertEqual(len(merged), 2)  # NÃO funde
+
 
 class TestRecencyFold(unittest.TestCase):
     def test_last_touched_is_max_member_date(self):
