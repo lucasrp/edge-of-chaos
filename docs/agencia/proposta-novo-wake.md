@@ -33,10 +33,10 @@
    do operador: o gargalo é a ordem, não os fatos — "extração é pré-requisito de grafo...").
 4. **Execução: subagente fresco no wake** (wake é READ, não compute — P4; o leitor queima o
    próprio contexto: ~15-20k in / 4k out por wake, sonnet).
-5. **Persistência: digest rolante com watermark** (o desenho do velho edge) — o quente escreve
-   1 entrada/wake e lê a anterior; **revive `state/chat-digest.md` com dono claro** (morreu órfão
-   de leitor; agora o leitor é o caminho obrigatório — a lei: nunca um escritor sem leitor num
-   caminho obrigatório).
+5. ~~Persistência: digest rolante com watermark~~ **CORTADO (faca de redundância, 2026-07-05):**
+   com communities (sumário temático automático) + eventlog (verdade cronológica) + quente
+   gerado-fresco-sempre, o digest rolante seria um TERCEIRO sumarizador sem função própria —
+   a doença da mini-wiki paralela renascendo. `chat-digest.md` aposenta de vez.
 
 ## Os frios — compactação
 

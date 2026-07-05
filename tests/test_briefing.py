@@ -329,23 +329,23 @@ class BriefingIsBannered(unittest.TestCase):
 
 
 class FactsLegNavigatesTheCortex(unittest.TestCase):
-    """Section 5 (ADR-0011) — the Facts leg navigates the graph for grill-curated Knowledge
-    clusters. graph_clusters degrades to None (never crashes) without a group, without the neo4j
-    driver, or when the graph is unreachable; [] is the honest 'graph up, none yet' state distinct
-    from the outage note. Hermetic: no group / a dead port → never touches real state (CONTRACT C1)."""
+    """Section 5 — the Facts leg now reads the AUTO-consolidated communities through the Módulo-2
+    door (cortex.communities; the grill-curated curated_cluster rail is RETIRED — it never carried
+    a cluster). Same degrade contract: None sem grupo / porta morta; [] = honest empty. Hermetic."""
 
     def test_no_group_degrades_to_none(self):
-        self.assertIsNone(briefing.graph_clusters(None))
-        self.assertIsNone(briefing.graph_clusters(""))
+        import communities
+        self.assertIsNone(communities.communities(None))
+        self.assertIsNone(communities.communities(""))
 
     def test_unreachable_graph_degrades_to_none_without_crashing(self):
-        # dead port → connection error inside the leg → None, never an exception
-        self.assertIsNone(briefing.graph_clusters("any-group", uri="bolt://127.0.0.1:1"))
+        import communities
+        self.assertIsNone(communities.communities("any-group", uri="bolt://127.0.0.1:1"))
 
     def test_empty_clusters_is_a_distinct_state_from_outage(self):
         with tempfile.TemporaryDirectory() as tmp:
             text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=[])
-            self.assertIn("no curated clusters yet", text.lower())
+            self.assertIn("no clusters yet", text.lower())
             self.assertNotIn("clusters unavailable", text.lower())
 
     def test_auto_fetch_with_no_group_renders_the_degrade_note(self):
@@ -361,17 +361,17 @@ class FactsLegNavigatesTheCortex(unittest.TestCase):
             self.assertIn("Beat lifecycle (8)", text)
             self.assertIn("Dev practice (6)", text)
 
-    def test_full_clusters_render_inline_with_entities_and_facts(self):
-        # No Cortex recall interface yet → the briefing carries the whole cluster in full.
-        full = [{"label": "Beat lifecycle",
-                 "entities": [{"name": "ADR-0003", "facts": ["minimize claude -p", "beat dispatch"]},
-                              {"name": "Direction", "facts": []}]}]
+    def test_communities_render_with_summary_and_recency(self):
+        # §5 = as communities auto-consolidadas: nome + tamanho + last_touched (navegação pelo
+        # tempo) + sumário; rótulo tier-HIPÓTESE presente. (O shape velho label/entities morreu
+        # com o rail curated_cluster — trilho órfão aposentado.)
+        rows = [{"name": "Beat lifecycle", "summary": "o pulso e seus atos", "size": 8,
+                 "last_touched": "2026-07-01T00:00:00Z"}]
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=full)
-            self.assertIn("### Beat lifecycle (2)", text)          # cluster header + size
-            self.assertIn("**ADR-0003** — minimize claude -p; beat dispatch", text)  # entity + facts inline
-            self.assertIn("**Direction**", text)                   # fact-less entity still listed
-            self.assertIn("Full read", text)                       # the stopgap banner
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=rows)
+            self.assertIn("**Beat lifecycle** (8 · tocado 2026-07-01", text)
+            self.assertIn("o pulso e seus atos", text)
+            self.assertIn("HIPÓTESE", text)
 
 
 class ImmutableTattoosAreTheBriefingHead(unittest.TestCase):

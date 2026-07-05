@@ -277,6 +277,20 @@ def embed_and_signal(slug, body, cites, embed_fn=None, log=eventlog.LOG):
     return n
 
 
+def _maybe_consolidate():
+    """Communities consolidation behind EDGE_COMMUNITIES=1 (dark by default, padrão EDGE_CONDUCTOR).
+    Vazão×confiança: a vazão é automática atrás do knob; a confiança fica no harm-bearing. Best-effort
+    como o graph-ingest — NUNCA derruba um sweep (grafo/LLM fora → skip logado)."""
+    if os.environ.get("EDGE_COMMUNITIES") != "1":
+        return
+    try:
+        import communities
+        written = communities.consolidate()
+        print(f"sweep: communities consolidadas — {len(written or [])} clusters")
+    except Exception as e:
+        print(f"sweep: communities skipped ({type(e).__name__}: {e}) — graph/LLM leg dark")
+
+
 def reproject():
     """Re-project the folds. The Direction page + artefato candidates fold from the **log** (pure,
     always). The **wiki** projects from the graph and is **best-effort** — skipped (logged) on a
@@ -284,6 +298,7 @@ def reproject():
     eventlog.consolidate_artefato_proposals()
     eventlog.project_direction()                       # pure fold — always
     eventlog.project_corpus()                          # pure fold — always (Tier-0, no graph)
+    _maybe_consolidate()                               # communities: vazão automática, knob-gated
     missing = cortex.artefatos_without_kernel()        # the C3 gate finally gets a reader (ADR-0009)
     if missing:
         print(f"sweep: C3 — {len(missing)} published Artefato(s) without an intent.kernel: "

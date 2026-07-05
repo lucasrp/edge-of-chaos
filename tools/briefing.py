@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from eventlog import LOG  # noqa: E402  (Plataforma constant; queries go through the door)
+import cortex  # noqa: E402  (porta Módulo-2 — §5 lê as communities consolidadas)
 from cortex import (direction_at, corpus_at, artefatos_without_kernel,  # noqa: E402
                     source_feedback_at, objective_at, report_at)
 import _identity  # noqa: E402
@@ -81,66 +82,6 @@ def source_roster(agent_yaml=AGENT_YAML):
         roster.append({"name": name.strip(), "kind": kind.strip(), "label": desc.strip()})
     return roster
 
-
-def graph_clusters(group=None, uri=None, user=None, password=None):
-    """The Facts leg (ADR-0011): read this group's grill-curated **Knowledge clusters** from the
-    Cortex — the same projection wiki_render reads — and return them **in full** for the briefing.
-
-    There is **no Cortex recall/navigation interface yet** (ADR-0010 is proposed, unbuilt), so the
-    briefing carries the whole curated knowledge inline rather than letting the agent retrieve it:
-    a list of ``{"label", "entities": [{"name", "facts": [...]}]}`` (clusters alpha-ordered, entities
-    alpha-ordered, current-valid facts deduped, contested flagged). **[]** when the graph is reachable
-    but holds no curated cluster yet; **None** on a genuine degrade — no group declared (EDGE_GROUP —
-    the genotype carries no identity default), the neo4j driver absent (Tier-0 minimal host), or the
-    graph unreachable. Never raises — a transient outage darkens only this leg (ADR-0011)."""
-    if not group:
-        return None
-    uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
-    user = user or os.environ.get("EDGE_NEO4J_USER", "neo4j")
-    password = password or os.environ.get("EDGE_NEO4J_PASSWORD") or _identity.neo4j_password()  # env → install secret (#21/C4)
-    try:
-        from neo4j import GraphDatabase
-    except Exception:
-        return None
-    try:
-        drv = GraphDatabase.driver(uri, auth=(user, password))
-    except Exception:
-        return None
-    try:
-        with drv.session() as s:
-            labels = [r["l"] for r in s.run(
-                "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
-                "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
-                "RETURN DISTINCT e.curated_cluster AS l ORDER BY l", g=group)]
-            out = []
-            for label in labels:
-                ents = s.run(
-                    "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster=$l "
-                    "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
-                    "RETURN coalesce(e.curated_name,e.name) AS d, e.name AS n ORDER BY d",
-                    g=group, l=label).data()
-                entities = []
-                for e in ents:
-                    facts = []
-                    for r in s.run(
-                        "MATCH (x:Entity {name:$n})-[rel:RELATES_TO]-() WHERE rel.invalid_at IS NULL "
-                        "RETURN rel.fact AS f, coalesce(rel.contested,false) AS c", n=e["n"]).data():
-                        f = r.get("f")
-                        if not f:
-                            continue
-                        f = ("⚠ contested — " + f) if r.get("c") else f
-                        if f not in facts:
-                            facts.append(f)
-                    entities.append({"name": e["d"], "facts": facts})
-                out.append({"label": label, "entities": entities})
-    except Exception:
-        return None
-    finally:
-        try:
-            drv.close()
-        except Exception:
-            pass
-    return out
 
 
 def _render_direction_items(items):
@@ -247,13 +188,13 @@ def _section_sources(log, seq, ts, roster):
     return "\n\n".join(parts)
 
 
-def _section_clusters(clusters):
-    """Knowledge clusters (← graph, the Facts leg of ADR-0011). Four states:
-    None → degrade note (graph offline OR no EDGE_GROUP — the leg darkens, knowledge = log + Direction);
-    [] → graph reachable but no curated cluster yet (distinct from an outage);
-    [{label, entities:[{name, facts}]}] → the **full** clusters inline (no Cortex recall interface yet,
-    so the briefing carries the whole curated knowledge — entities + current-valid facts);
-    [str, ...] → bare labels as bullets (explicit/pure-composer callers). Never crash on the graph."""
+def _section_clusters(clusters, hot_cutoff=None):
+    """Knowledge clusters (← graph): as communities AUTO-consolidadas (Módulo 2), o tier emergente
+    do frio. Estados: None → nota de degrade (graph DARK ≠ vazio); [] → alcançável, nada
+    consolidado ainda; [{name, summary, size, last_touched}] → o índice recency-first.
+    `hot_cutoff` (ISO ts) = TEMPO-DIVIDE-DONOS: cluster tocado dentro da janela do quente NÃO
+    expande aqui (vira ponteiro '→ coberto no quente') — o wake nunca conta a mesma história 2×.
+    [str, ...] → labels crus (pure-composer callers). Never crash on the graph."""
     if clusters is None:
         return ("## 5. Knowledge clusters\n\n"
                 "_Tier-0: clusters unavailable — the graph leg is DARK, which is NOT the same as "
@@ -264,20 +205,18 @@ def _section_clusters(clusters):
                 "reachability. If both hold, the graph is reachable and this is a load gap, not an "
                 "outage — do not report 'offline'. Knowledge this beat = the swept log + Direction._")
     if not clusters:
-        return "## 5. Knowledge clusters\n\n_graph reachable — no curated clusters yet._"
+        return "## 5. Knowledge clusters\n\n_graph reachable — no clusters yet (consolidação ainda não rodou)._"
     if isinstance(clusters[0], dict):
-        # Full-read: the whole cluster inline (stopgap until a Cortex recall interface exists).
         parts = ["## 5. Knowledge clusters",
-                 "_Full read — no Cortex recall interface yet; the whole curated graph is inline._"]
+                 "_Communities consolidadas automaticamente (tier-HIPÓTESE — sumário de extração, "
+                 "nunca assertado). Navegue: cortex.community(nome) → membros, sessões-fonte, artefatos._"]
         for c in clusters:
-            ents = c.get("entities") or []
-            lines = [f"### {c.get('label')} ({len(ents)})"]
-            for e in ents:
-                facts = e.get("facts") or []
-                lines.append(f"- **{e.get('name')}** — " + "; ".join(facts) if facts
-                             else f"- **{e.get('name')}**")
-            parts.append("\n".join(lines))
-        return "\n\n".join(parts)
+            name, lt, size = c.get("name"), c.get("last_touched") or "?", c.get("size", "?")
+            if hot_cutoff and c.get("last_touched") and c["last_touched"] >= hot_cutoff:
+                parts.append(f"- **{name}** ({size} · tocado {lt}) → coberto no quente")
+            else:
+                parts.append(f"- **{name}** ({size} · tocado {lt})\n  {c.get('summary', '')}")
+        return "\n".join(parts)
     return "## 5. Knowledge clusters\n\n" + "\n".join(f"- {c}" for c in clusters)
 
 
@@ -416,7 +355,9 @@ def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None,
     BriefingIdentityError (briefing-lifecycle gate) — never a silent blank. `roster` defaults to
     source_roster() (reads agent.yaml); pass it explicitly (e.g. []) to keep compose_briefing a
     pure composer (tests, Tier-0). `clusters` is the Facts leg: left unset, it navigates the Cortex
-    for `group` (defaults to EDGE_GROUP) via graph_clusters() and degrades to None on outage.
+    for `group` (defaults to EDGE_GROUP) via cortex.communities() — as communities consolidadas
+    automaticamente (o rail curated_cluster foi APOSENTADO: nunca carregou um cluster; trilho
+    órfão) — degradando a None em outage.
     The memory-salient view is NOT a section here: recall is a third independent brief, peer to
     this one (ADR-0014, `tools/recall.py:compose_recall_brief`) — the briefing's four parts only."""
     if roster is None:
@@ -427,7 +368,7 @@ def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None,
     def _group():
         return group if group is not None else _identity.group()
     if clusters is _AUTO:
-        clusters = graph_clusters(_group())
+        clusters = cortex.communities(_group())
     corpus = corpus_at(seq=seq, ts=ts, log=log)
     parts = [
         BANNER + "\n# Briefing — orient entirely from here",

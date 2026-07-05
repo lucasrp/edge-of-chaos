@@ -74,5 +74,68 @@ class TestCortexDoor(unittest.TestCase):
             communities.communities = original
 
 
+class TestBriefingSection(unittest.TestCase):
+    """§5 re-apontado: renderiza o shape das communities (nome·size·last_touched·summary),
+    contrato None/[] preservado, e a regra TEMPO-DIVIDE-DONOS (cluster tocado dentro da janela
+    do quente não expande — vira ponteiro)."""
+
+    ROWS = [
+        {"name": "Tema Velho", "summary": "resumo velho", "size": 5,
+         "last_touched": "2026-06-10T00:00:00Z"},
+        {"name": "Tema Quente", "summary": "resumo novo", "size": 3,
+         "last_touched": "2026-07-05T01:00:00Z"},
+    ]
+
+    def test_renders_communities_shape(self):
+        import briefing
+        out = briefing._section_clusters(self.ROWS)
+        self.assertIn("Tema Velho", out)
+        self.assertIn("2026-06-10", out)  # a navegação pelo tempo aparece
+        self.assertIn("resumo velho", out)
+
+    def test_tempo_divide_donos(self):
+        import briefing
+        out = briefing._section_clusters(self.ROWS, hot_cutoff="2026-07-04T00:00:00Z")
+        self.assertIn("coberto no quente", out)      # o quente é o dono do recente
+        self.assertNotIn("resumo novo", out)          # não expande
+        self.assertIn("resumo velho", out)            # o velho expande normal
+
+    def test_dark_and_empty_contracts_hold(self):
+        import briefing
+        self.assertIn("DARK", briefing._section_clusters(None))
+        self.assertIn("no clusters yet", briefing._section_clusters([]))
+
+
+class TestSweepKnob(unittest.TestCase):
+    """Consolidação no sweep atrás de EDGE_COMMUNITIES (dark por default, padrão EDGE_CONDUCTOR)."""
+
+    def test_off_by_default(self):
+        import os, sweep
+        os.environ.pop("EDGE_COMMUNITIES", None)
+        called = []
+        original = communities.consolidate
+        try:
+            communities.consolidate = lambda **k: called.append(1)
+            sweep._maybe_consolidate()
+        finally:
+            communities.consolidate = original
+        self.assertEqual(called, [])
+
+    def test_on_calls_and_never_raises(self):
+        import os, sweep
+        os.environ["EDGE_COMMUNITIES"] = "1"
+        original = communities.consolidate
+        try:
+            communities.consolidate = lambda **k: (_ for _ in ()).throw(RuntimeError("boom"))
+            sweep._maybe_consolidate()  # engole e loga — nunca derruba o sweep
+            called = []
+            communities.consolidate = lambda **k: called.append(1) or [{"name": "x", "size": 3}]
+            sweep._maybe_consolidate()
+            self.assertEqual(called, [1])
+        finally:
+            communities.consolidate = original
+            os.environ.pop("EDGE_COMMUNITIES", None)
+
+
 if __name__ == "__main__":
     unittest.main()
