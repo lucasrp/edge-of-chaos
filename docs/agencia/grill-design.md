@@ -35,3 +35,11 @@ Dissecada por leitor 2026-07-05. O que ela ensina, extraído do que ACONTECEU:
 **Por que foi lindo:** espelho + amplificação com aposta. O gesto que coroa: achar no trabalho vivo dele o movimento certo que ele fez SEM nomear, e dar o nome ("sua hipótese já tinha feito o movimento; agora você tem o nome dele" — OntoClean/H-002). A indicação mais poderosa deriva do que ele JÁ É.
 **As 5 regras operacionais:** caminho-crítico-com-porquê · contrato-antes+placar-honesto-depois · instrumentar-unknown-unknowns+mapa-antes-de-material · só-o-residual · sondar-a-pessoa+amplificar-o-que-já-fez-certo.
 **A persistência JÁ EXISTE em protótipo:** roberto `~/leveling/{perfil,mapa,curriculo,diario}.md` (skill leveling @ 2026-07-02, fora do git) — ESTES são a proto-persona; o grill-skill os formaliza grafo-native (a resposta ao custo-de-reconstrução → 0).
+
+## O MAPA DE CAÇA: os 4 quadrantes (operador, 2026-07-05 — via engenheiro da Anthropic; "fiz isso com o fable e foi lindo")
+O grill organiza-se pela janela de Johari — quatro caças, cada uma com seu órgão:
+1. **Sei-que-sei-mas-não-falo** → o grill EXTRAI (foi o que guiou a mudança de agência: "eu finalmente consegui dizer o que eu não tava gostando no edge"). O known-known não-dito é a caça do meta-grill.
+2. **Sei-que-não-sei (os limites)** → guia o 2º gate do crescimento pessoal + a skill /experiment (06): o gap declarado vira currículo e experimento.
+3. *(idem — mapear a fronteira do declarado)*
+4. **Não-sei-que-não-sei** → blindspots, conexões não-feitas, soluções desconhecidas — **SURPREENDER**. Instrumentos já provados no exemplar: confiança 0-100 (erro confiante = assinatura de unknown-unknown) + enumeração ("o que você não listar — e existe — é o achado") + "você assina o que não consegue verificar". A serendipidade/lazer alimenta este quadrante por fora.
+**O payoff medido:** "pela primeira vez em MESES eu saí com um monte de material para estudar, mandei imprimir apostila e tudo." **Persona-fact: ele gosta de PAPEL** — o material de crescimento deve ser imprimível (apostila como formato de saída de 1ª classe).
