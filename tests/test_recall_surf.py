@@ -64,8 +64,10 @@ class SurfQueryIsAssociativeOnly(unittest.TestCase):
         self.assertIsNotNone(m, "the surf must walk a bounded typed-relation alternation [:..*1..2]")
         rels = set(m.group(1).split("|"))
         self.assertEqual(
-            rels, {"BUILDS_ON", "SUPERSEDES", "CONTRADICTS", "RELATES_TO", "CITES"},
-            "the surf allowlist must be EXACTLY the five associative types — no more, no fewer")
+            rels, {"BUILDS_ON", "SUPERSEDES", "CONTRADICTS", "RELATES_TO", "CITES",
+                   "SUPPORTS", "REFUTES"},
+            "the surf allowlist must be EXACTLY the seven associative types — no more, no "
+            "fewer (ticket A §2c: SUPPORTS|REFUTES join; QUALIFIES/INCONCLUSIVE stay out)")
         # bounded hops *1..2 (a multi-hop reach, not the whole graph)
         self.assertIn("*1..2", q, "the surf must bound the walk to *1..2 hops")
         # the hub is excluded STRUCTURALLY, by omission — SERVES is never a pass-through hop
@@ -292,11 +294,13 @@ class SurfBridgesViaEntityCommunity(unittest.TestCase):
         self.assertIn("all(x IN nodes(p) WHERE x.group_id=$g)", recall.SURF_BRIDGE_QUERY)
 
     def test_surf_query_allowlist_is_untouched(self):
-        # additive: the pinned five-type alternation survives the bridge (the existing
-        # set-equality test stays green; this pins the intent from the bridge's side too).
+        # additive: the pinned alternation survives the bridge (the existing set-equality test
+        # stays green; this pins the intent from the bridge's side too). Ticket A §2c added
+        # SUPPORTS|REFUTES to the associative walk — the pin moves WITH the spec.
         m = re.search(r"\[:([A-Z_|]+)\*1\.\.2\]", recall.SURF_QUERY)
         self.assertEqual(set(m.group(1).split("|")),
-                         {"BUILDS_ON", "SUPERSEDES", "CONTRADICTS", "RELATES_TO", "CITES"})
+                         {"BUILDS_ON", "SUPERSEDES", "CONTRADICTS", "RELATES_TO", "CITES",
+                          "SUPPORTS", "REFUTES"})
 
     def test_surf_subgraph_runs_both_queries(self):
         src = inspect.getsource(recall.surf_subgraph)

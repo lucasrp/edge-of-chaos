@@ -55,3 +55,52 @@ def normalize_lineage(lineage) -> list:
         seen.add(key)
         out.append(edge)
     return out
+
+
+# Ticket A (episteme nativo, ontologia-cortex-v2 §2b) — the valenced bears_on declarations, same
+# layer and same posture as normalize_lineage: sanitized HERE, once, before the proof digest binds
+# them and before the durable publish event persists them. The valence enum mirrors episteme's
+# canonical bearing valences (SUPPORTS≙apoia, REFUTES≙refuta, QUALIFIES, INCONCLUSIVE).
+_VALENCES = frozenset({"supports", "refutes", "qualifies", "inconclusive"})
+
+
+def normalize_bears_on(bears_on) -> list:
+    """Return the well-formed bears_on declarations — order-preserving, deduped on
+    (hypothesis, valence). An item survives ONLY if it is a dict with a NON-BLANK string
+    `hypothesis` (ulid or slug of a declared :Hypothesis) and `valence` in the episteme enum;
+    an optional non-blank string `rationale` is carried, everything else is DROPPED (never
+    coerced) — junk cannot ride into the digest. Multivalence is native (one artefato → N
+    entries, O-6). None / non-list -> []."""
+    if not isinstance(bears_on, list):
+        return []
+    out, seen = [], set()
+    for item in bears_on:
+        if not isinstance(item, dict):
+            continue
+        hyp, valence = item.get("hypothesis"), item.get("valence")
+        if not (isinstance(hyp, str) and hyp.strip() and valence in _VALENCES):
+            continue
+        key = (hyp.strip(), valence)
+        if key in seen:
+            continue
+        seen.add(key)
+        edge = {"hypothesis": hyp.strip(), "valence": valence}
+        rationale = item.get("rationale")
+        if isinstance(rationale, str) and rationale.strip():
+            edge["rationale"] = rationale.strip()
+        out.append(edge)
+    return out
+
+
+def normalize_para(para) -> list:
+    """Return the well-formed `para` targets (ontologia §6: artefato-PARA->parceiro, the document
+    MADE for the person) — non-blank strings, stripped, deduped, order-preserving. None /
+    non-list (including a bare string — a single name still arrives as a list) -> []."""
+    if not isinstance(para, list):
+        return []
+    out, seen = [], set()
+    for name in para:
+        if isinstance(name, str) and name.strip() and name.strip() not in seen:
+            seen.add(name.strip())
+            out.append(name.strip())
+    return out

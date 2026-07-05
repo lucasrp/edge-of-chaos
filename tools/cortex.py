@@ -62,6 +62,14 @@ def artefatos_without_kernel(*args, **kwargs):
     return eventlog.artefatos_without_kernel(*args, **kwargs)
 
 
+def hypotheses_at(*args, **kwargs):
+    return eventlog.hypotheses_at(*args, **kwargs)
+
+
+def parceiros_at(*args, **kwargs):
+    return eventlog.parceiros_at(*args, **kwargs)
+
+
 def supersede_rank(payload, event):
     return eventlog._supersede_rank(payload, event)
 

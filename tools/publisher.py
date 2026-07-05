@@ -48,7 +48,8 @@ import render
 import close
 import producer_descriptor
 from close import check_genus, verify_proof
-from lineage import normalize_lineage  # canonical lineage through persist + projection (matches the proof bind)
+# canonical authored declarations through persist + projection (each matches its proof bind)
+from lineage import normalize_bears_on, normalize_lineage, normalize_para
 
 # R6 (S10) — adoption telemetry. Visual/labeled block types that, when a producer's DESCRIPTOR requires
 # them, mean the FORM owes a visual (the form half of the `owed` signal; the content half is
@@ -382,6 +383,95 @@ def _iter_spec_blocks(spec):
                     yield block
 
 
+# Ticket A (ontologia §2b) — the FIXED valence→label allowlist: the edge label is a literal from
+# this dict, never interpolated caller data (same discipline as LINEAGE_LABELS). Aliases to
+# episteme's canonical bearing valences live in cortex/schema/ontologia.yaml.
+_VALENCE_LABELS = {"supports": "SUPPORTS", "refutes": "REFUTES",
+                   "qualifies": "QUALIFIES", "inconclusive": "INCONCLUSIVE"}
+
+
+def _project_bears_on(s, g, slug, bears_on):
+    """Project the artefato's valenced declarations as (a)-[:SUPPORTS|REFUTES|QUALIFIES|
+    INCONCLUSIVE]->(h:Hypothesis) edges (ontologia §2b). Every edge carries the plane it lives
+    on: provenance_class='asserted' (author-declared — NEVER computed; CX-1 keeps it out of any
+    verdict rollup), rigor='lead' (the HARD ceiling — cravado is structurally unreachable here),
+    validity='inferred_default' (O-12: flips only via a review.approved event), scope='cortex'.
+    The hypothesis is matched by ulid OR display slug; an UNRESOLVED target (not declared/
+    projected yet) returns True so the caller leaves projection_complete=false and the next
+    sweep self-heals (the unresolved_lineage pattern). Verdict is NEVER stored anywhere."""
+    unresolved = False
+    for b in normalize_bears_on(bears_on):
+        label = _VALENCE_LABELS[b["valence"]]
+        row = s.run(
+            "MATCH (a:Artefato {group_id:$g, slug:$slug}) "
+            "MATCH (h:Hypothesis {group_id:$g}) WHERE h.ulid=$ref OR h.slug=$ref "
+            "MERGE (a)-[r:%s]->(h) "
+            "SET r.provenance_class='asserted', r.rigor='lead', "
+            "r.validity='inferred_default', r.scope='cortex', r.rationale=$rat "
+            "RETURN count(h) AS n" % label,
+            g=g, slug=slug, ref=b["hypothesis"], rat=b.get("rationale")).single()
+        if not row or row["n"] == 0:
+            unresolved = True   # hypothesis not in the graph yet — revisit next sweep
+    return unresolved
+
+
+def _project_para(s, g, slug, para):
+    """Project artefato-[:PARA]->parceiro (§6: the document MADE for the person). The endpoint
+    is the PROMOTED Entity only (e.parceiro=true) — promotion, never minting: a name that no
+    parceiro.promoted marked yet resolves nothing and returns True (projection_complete=false,
+    self-heals once the promotion lands). The edge is author-asserted."""
+    unresolved = False
+    for name in normalize_para(para):
+        row = s.run(
+            "MATCH (a:Artefato {group_id:$g, slug:$slug}) "
+            "MATCH (e:Entity {group_id:$g, parceiro:true}) WHERE e.name=$name "
+            "MERGE (a)-[r:PARA]->(e) SET r.provenance_class='asserted' "
+            "RETURN count(e) AS n", g=g, slug=slug, name=name).single()
+        if not row or row["n"] == 0:
+            unresolved = True   # parceiro not promoted/extracted yet — revisit next sweep
+    return unresolved
+
+
+def _project_hypotheses(s, g, log):
+    """Project the :Hypothesis spine from the fold (ontologia §1: hipotese, verbatim — the node
+    is a projection of hypothesis.declared, exactly as :Artefato is of artefato.published).
+    Idempotent MERGE keyed by ulid (O-2); the display slug is a prop, never a key. A superseded
+    pair projects (new)-[:SUPERSEDES]->(old) — the existing lineage label, a new endpoint pair,
+    no new edge type (O-4). NO stored verdict/status — standing is derived at read."""
+    for h in cortex.hypotheses_at(log=log).values():
+        f = h.get("falsifier") or {}
+        s.run("MERGE (h:Hypothesis {group_id:$g, ulid:$ulid}) "
+              "SET h.statement=$statement, h.slug=$slug, h.content_hash=$ch, h.author=$author, "
+              "h.created_at=$created, h.falsifier_metric=$fm, h.falsifier_threshold=$ft, "
+              "h.falsifier_direction=$fd",
+              g=g, ulid=h["ulid"], statement=h.get("statement"), slug=h.get("slug"),
+              ch=h.get("content_hash"), author=h.get("author"), created=h.get("created_at"),
+              fm=f.get("metric"), ft=f.get("threshold"), fd=f.get("direction"))
+        if h.get("superseded_by"):
+            # destructive rebuild per TARGET (the ANCHORS pattern; codex adversarial #4): the
+            # fold is last-wins (a re-supersede corrects the successor), so drop every
+            # SUPERSEDES pointing at this old FIRST — replay stays byte-faithful to the fold.
+            s.run("MATCH (:Hypothesis)-[r:SUPERSEDES]->(old:Hypothesis {group_id:$g, ulid:$old}) "
+                  "DELETE r", g=g, old=h["ulid"])
+            s.run("MATCH (new:Hypothesis {group_id:$g, ulid:$new}),"
+                  "(old:Hypothesis {group_id:$g, ulid:$old}) "
+                  "MERGE (new)-[:SUPERSEDES]->(old)",
+                  g=g, new=h["superseded_by"], old=h["ulid"])
+
+
+def _project_parceiros(s, g, log):
+    """Project the §6 parceiro PROMOTION onto the graph: MATCH the existing extracted :Entity
+    by name and SET the mark (parceiro=true + kind/domain/by) — promotion, NOT minting (the
+    node graphiti extracted keeps its edges/communities; an Entity that was never extracted
+    stays unmarked until it is). provenance of the mark = asserted (declared HITL)."""
+    for p in cortex.parceiros_at(log=log).values():
+        s.run("MATCH (e:Entity {group_id:$g}) WHERE e.name=$name "
+              "SET e.parceiro=true, e.parceiro_kind=$kind, e.parceiro_domain=$domain, "
+              "e.parceiro_by=$by, e.parceiro_provenance='asserted'",
+              g=g, name=p["name"], kind=p.get("kind"), domain=p.get("domain"),
+              by=p.get("by"))
+
+
 def _project_backbone(s, g, log):
     """Project the canonical SPINE BACKBONE on an open session `s`: :Genesis (space-0) -GROUNDS->
     :Objective + the ANCHORS rebuild (the active steers, DESTRUCTIVE DELETE-then-readd from the
@@ -414,6 +504,10 @@ def _project_backbone(s, g, log):
         s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
         s.run("MATCH (o:Objective {group_id:$g}),(d:Direction {group_id:$g, body:$b}) "
               "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"])
+    # Ticket A — the episteme spine rides the same canonical sync: :Hypothesis nodes fold from
+    # hypothesis.declared/superseded; the §6 parceiro mark folds from parceiro.promoted.
+    _project_hypotheses(s, g, log)
+    _project_parceiros(s, g, log)
 
 
 def project_backbone(log=eventlog.LOG):
@@ -527,7 +621,8 @@ def _gate_props(gate):
 
 
 def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites=None,
-                     spec=None, lineage=None, log=eventlog.LOG, gate=None, origin=None):
+                     spec=None, lineage=None, log=eventlog.LOG, gate=None, origin=None,
+                     bears_on=None, para=None):
     """Project a just-published Artefato into the edge's graph — the deterministic spine write
     that was prose in `skills/_shared/memory.md` (the "Project — AFTER you publish" block) and so
     got SKIPPED by the producer. Ported here as a GUARANTEED side-effect of every publish so the
@@ -637,8 +732,11 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # design and require no NLI gating.
             # L4: the three AUTHORED lineage labels JOIN this destructive rebuild set so a corrected
             # republish (lineage now points elsewhere, or is removed) strands no stale lineage edge.
+            # Ticket A: the valenced bears_on labels + PARA join the destructive rebuild — a
+            # republish with corrected declarations strands no stale valence/target edge.
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug})"
-                  "-[r:DISTILLS|PROPOSES|CITES|BUILDS_ON|SUPERSEDES|CONTRADICTS]->() "
+                  "-[r:DISTILLS|PROPOSES|CITES|BUILDS_ON|SUPERSEDES|CONTRADICTS"
+                  "|SUPPORTS|REFUTES|QUALIFIES|INCONCLUSIVE|PARA]->() "
                   "DELETE r", g=g, slug=slug)
             # resolve distills against ACTIVE clusters only (Codex P2): mirror graph_clusters —
             # archived/merged entities are hidden, so a retired cluster is never linked or pushed.
@@ -695,6 +793,11 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                     g=g, slug=slug, prior=prior).single()
                 if not row or row["n"] == 0:
                     unresolved_lineage = True   # prior not in the graph yet — revisit next sweep
+            # (2b2) Ticket A — the valenced bears_on edges (→:Hypothesis) + PARA (→promoted
+            # parceiro Entity). Both use the unresolved pattern: a target not in the graph yet
+            # leaves the projection incomplete, so the next sweep re-links once it lands.
+            unresolved_bears = _project_bears_on(s, g, slug, bears_on)
+            unresolved_para = _project_para(s, g, slug, para)
             # (2c) MENTIONS — ticket D: the entities the published CONTENT (intent+spec) DE FATO
             # names (curadoria inline no publish — the offline curator was cut). NOT emb_input: the
             # slug is metadata, and its hyphens count as word boundaries — a compound slug would
@@ -715,7 +818,7 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.projection_complete=$done",
                   g=g, slug=slug,
                   done=(embed_current and not unresolved_distills and not unresolved_lineage
-                        and mentions_ok))
+                        and mentions_ok and not unresolved_bears and not unresolved_para))
     except Exception as ex:  # noqa: BLE001 — a failed projection is reported, never fatal
         print("project failed (best-effort, reproject next beat):", ex)
     finally:
@@ -733,7 +836,7 @@ _DEFAULT_PROJECT = object()  # sentinel: "use module project_artefato" (resolved
 def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=None,
             cites=None, lineage=None, dispatch_id=None, date=None, log=eventlog.LOG,
             blog_dir=BLOG_DIR, embed_fn=None, project_fn=_DEFAULT_PROJECT,
-            visual_flags=None) -> Path:
+            visual_flags=None, bears_on=None, para=None) -> Path:
     """Publish an Artefato: render → self-contained neutral HTML → atomic state record.
 
     #2/#3 at the seam: RAISES ValueError unless `verdict` is the UNFORGEABLE, BOUND proof
@@ -783,11 +886,15 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
             "entry; one wake per publish)")
     verify_proof(verdict, slug=slug, spec=spec, intent=intent,
                  cites=cites or [], proposes=proposes or [],
-                 distills=distills, skill=skill, lineage=lineage, dispatch_id=dispatch_id)
+                 distills=distills, skill=skill, lineage=lineage, dispatch_id=dispatch_id,
+                 bears_on=bears_on, para=para)
     # Canonical lineage from here on (Codex): the proof binds the NORMALIZED lineage and the event persists
     # it, so the live projection must see the SAME — else proof/event-invisible junk (e.g. a blank-slug item
     # stripped by the digest) could still drive project_artefato and strand projection_complete=false.
     lineage = normalize_lineage(lineage)
+    # Ticket A: same rule for the valenced/PARA declarations — the digest bound the NORMALIZED
+    # form; the event and the live projection must see the SAME.
+    bears_on, para = normalize_bears_on(bears_on), normalize_para(para)
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
     if skill not in PRODUCER_ROSTER:
@@ -844,7 +951,8 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     eventlog.publish_artefato_atomic(slug, intent, proposes=proposes, distills=distills,
                                      cites=cites, spec=spec, skill=skill, log=log,
                                      lineage=lineage, require_wake=True, adoption=adoption,
-                                     dispatch_id=dispatch_id, residuals=residuals, gate=gate)
+                                     dispatch_id=dispatch_id, residuals=residuals, gate=gate,
+                                     bears_on=bears_on, para=para)
 
     # the page is a PROJECTION written after the commit — a failure here is recoverable.
     _write_page(out, page)
@@ -875,7 +983,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
         try:
             project_fn(slug, intent, skill=skill, distills=distills, proposes=proposes,
                        cites=cites, spec=spec, lineage=lineage, log=log, gate=gate,
-                       origin=origin)
+                       origin=origin, bears_on=bears_on, para=para)
         except Exception as ex:  # noqa: BLE001 — projection is best-effort, never fatal
             print(f"project skipped for {slug!r} (best-effort, reproject next beat):", ex)
     return out
@@ -1042,7 +1150,8 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
                        distills=item.get("distills"), proposes=item.get("proposes"),
                        cites=item.get("cites"), spec=item.get("spec"),
                        lineage=item.get("lineage"), log=log, gate=item.get("gate"),
-                       origin=item.get("origin"))
+                       origin=item.get("origin"),
+                       bears_on=item.get("bears_on"), para=item.get("para"))
         except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
             print(f"graph reproject skipped for {item.get('slug')!r} (best-effort):", ex)
     # B.3 (Codex adversarial) — replay das INTEGRAÇÕES também: uma promoção cuja marca best-effort

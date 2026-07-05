@@ -6,14 +6,17 @@ folds that replay deterministically, so a past cursor reconstructs that past sta
 (strategic versioning). No event-store framework: append-only JSONL + pure-function folds.
 """
 import fcntl
+import hashlib
 import json
 import math
 import os
 import secrets
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from lineage import normalize_lineage  # persist ONLY well-formed authored lineage (matches the proof bind)
+# persist ONLY well-formed authored declarations (each matches its proof bind)
+from lineage import normalize_bears_on, normalize_lineage, normalize_para
 
 REPO = Path(__file__).resolve().parent.parent
 LOG = REPO / "state" / "events" / "log.jsonl"
@@ -382,7 +385,8 @@ def test_dispatch_id():
 
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
                             spec=None, log=LOG, *, lineage=None, skill=None, require_wake=False,
-                            adoption=None, dispatch_id=None, residuals=None, gate=None):
+                            adoption=None, dispatch_id=None, residuals=None, gate=None,
+                            bears_on=None, para=None):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
     publish seam): you cannot publish without the *why*. Both events land in a single
     `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
@@ -457,7 +461,11 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
           "residuals": residuals,
           # B.1 (ticket B): o verdict do gate como campo do MESMO batch atômico — sem novo tipo de
           # evento, replayável (o grafo já computava e jogava fora). None num publish legado/sem gate.
-          "gate": gate}),
+          "gate": gate,
+          # Ticket A (ontologia §2b/§6): bears_on = as declarações valenciadas artefato→hipótese
+          # (multivalência nativa, O-6) e para = os parceiros-alvo (artefato-PARA->parceiro) —
+          # NORMALIZADOS aqui (o mesmo sanitizer que o proof digest usa), digest-bound como lineage.
+          "bears_on": normalize_bears_on(bears_on), "para": normalize_para(para)}),
         ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
         ("artefato.adoption", f"artefato:{slug}", adoption),
     ]
@@ -598,6 +606,9 @@ def fold_corpus(events):
                            # B.1: o gate persistido acompanha o item — um reproject restaura as
                            # flat props; evento legado sem gate folda None (forward-only).
                            "gate": p.get("gate"),
+                           # Ticket A: bears_on/para acompanham o item para o replay das arestas
+                           # valenciadas/PARA; evento legado folda [] (forward-only, sem backfill).
+                           "bears_on": p.get("bears_on") or [], "para": p.get("para") or [],
                            "ts": e.get("ts"), "latest_ts": e.get("ts")}
         elif t == "intent.kernel" and slug in items:
             # content rule: only a non-empty stripped intent becomes the why; a blank kernel renders
@@ -710,6 +721,163 @@ def integrated_sources_at(seq=None, ts=None, log=LOG):
     """O pool de artefatos-integrados-como-source até um cursor (replay puro, como corpus_at)."""
     return fold_integrated_sources(
         read(types=["artefato.integrated"], until_seq=seq, until_ts=ts, log=log))
+
+
+# ---------------------------------------------------------------------------
+# Ticket A — episteme nativo (ontologia-cortex-v2 §1-§3): a caneta da hipótese.
+# thread=hipótese=artefato é CORRESPONDÊNCIA (3 nós, 2-hop), nunca identidade — a hipótese é
+# o claim falsificável de 1ª classe; o :Artefato é o render que a suporta/refuta via bears_on.
+# ---------------------------------------------------------------------------
+
+HYPOTHESIS_TYPES = ["hypothesis.declared", "hypothesis.superseded"]
+_FALSIFIER_DIRECTIONS = ("maior", "menor")
+_CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+
+def _ulid():
+    """A minimal ULID (O-2: the primary key): 48-bit ms timestamp + 80 random bits, Crockford
+    base32, 26 chars, lexically time-sortable. Stdlib-only — no dependency for 6 lines."""
+    n = (int(time.time() * 1000) << 80) | secrets.randbits(80)
+    chars = []
+    for _ in range(26):
+        chars.append(_CROCKFORD[n & 31])
+        n >>= 5
+    return "".join(reversed(chars))
+
+
+def _validated_falsifier(falsifier):
+    """HIP-1 LOUD: the falsifier must be STRUCTURED and machine-comparable — a dict with a
+    non-blank `metric`, a FINITE numeric `threshold` (bool is not a number), and `direction`
+    ∈ {maior, menor}. Prose-only / missing / malformed RAISES; returns ONLY the three canonical
+    keys (junk — e.g. a smuggled `verdict` — never persists; verdicts are never stored)."""
+    if not isinstance(falsifier, dict):
+        raise ValueError(
+            "hypothesis falsifier must be STRUCTURED {metric, threshold, direction} — "
+            "a prose-only falsifier is refused (HIP-1 LOUD)")
+    metric, threshold, direction = (falsifier.get("metric"), falsifier.get("threshold"),
+                                    falsifier.get("direction"))
+    if not (isinstance(metric, str) and metric.strip()):
+        raise ValueError("hypothesis falsifier needs a non-blank string `metric` (HIP-1)")
+    if (isinstance(threshold, bool) or not isinstance(threshold, (int, float))
+            or not math.isfinite(threshold)):
+        raise ValueError("hypothesis falsifier needs a FINITE numeric `threshold` (HIP-1)")
+    if direction not in _FALSIFIER_DIRECTIONS:
+        raise ValueError(
+            f"hypothesis falsifier `direction` must be one of {_FALSIFIER_DIRECTIONS} (HIP-1)")
+    return {"metric": metric.strip(), "threshold": threshold, "direction": direction}
+
+
+def declare_hypothesis(statement, falsifier, slug=None, author=None, log=LOG):
+    """The hypothesis pen (HIP-1): append `hypothesis.declared` — the falsifiable claim as a
+    first-class, IMMUTABLE, versioned entity (O-4: changing it = declare a NEW one +
+    supersede_hypothesis, never an edit). ULID primary key (O-2); `content_hash` of the
+    canonical JSON of statement+falsifier secondary (O-3 dedup). The structured falsifier is
+    validated LOUD — prose-only never lands. `slug` is display-only, never a key."""
+    if not (isinstance(statement, str) and statement.strip()):
+        raise ValueError("cannot declare a hypothesis with an empty/non-string statement")
+    statement = statement.strip()
+    f = _validated_falsifier(falsifier)
+    blob = json.dumps({"statement": statement, "falsifier": f},
+                      sort_keys=True, ensure_ascii=False)
+    ulid = _ulid()
+    return append("hypothesis.declared", f"hypothesis:{ulid}",
+                  {"ulid": ulid, "slug": slug, "statement": statement, "falsifier": f,
+                   "content_hash": hashlib.sha256(blob.encode("utf-8")).hexdigest(),
+                   "author": author}, log=log)
+
+
+def supersede_hypothesis(old, new, log=LOG):
+    """Version a hypothesis (O-4): append `hypothesis.superseded` linking old→new. Both ulids
+    must have been DECLARED on this log (a link to a hypothesis that never existed is refused),
+    and old ≠ new. The graph projects it as (new)-[:SUPERSEDES]->(old) — same label as the
+    artefato lineage, new endpoint pair, no new edge type."""
+    if old == new:
+        raise ValueError(f"cannot supersede hypothesis {old!r} with itself")
+    declared = {e["payload"].get("ulid")
+                for e in read(types=["hypothesis.declared"], log=log)
+                if isinstance(e.get("payload"), dict)}
+    for u in (old, new):
+        if u not in declared:
+            raise ValueError(
+                f"cannot supersede: no hypothesis.declared with ulid {u!r} on this log")
+    return append("hypothesis.superseded", f"hypothesis:{old}",
+                  {"old": old, "new": new}, log=log)
+
+
+def fold_hypotheses(events):
+    """Pure fold of `hypothesis.declared/superseded` → {ulid: hypothesis}. Each carries the
+    declared fields + `superseded_by` (None while live). NO stored verdict/status anywhere —
+    a hypothesis's standing is derived at read (with only lead bearings it can only ever be
+    open/saturated_leads; ontologia §2b). Malformed payloads are skipped, never crash."""
+    hyps = {}
+    for e in events:
+        t, p = e.get("type"), e.get("payload")
+        if not isinstance(p, dict):
+            continue
+        if t == "hypothesis.declared":
+            ulid = p.get("ulid")
+            if isinstance(ulid, str) and ulid:
+                hyps[ulid] = {"ulid": ulid, "slug": p.get("slug"),
+                              "statement": p.get("statement"),
+                              "falsifier": p.get("falsifier"),
+                              "content_hash": p.get("content_hash"),
+                              "author": p.get("author"), "created_at": e.get("ts"),
+                              "superseded_by": None}
+        elif t == "hypothesis.superseded" and p.get("old") in hyps:
+            hyps[p["old"]]["superseded_by"] = p.get("new")
+    return hyps
+
+
+def hypotheses_at(seq=None, ts=None, log=LOG):
+    """The declared hypotheses up to a cursor (pure replay, as corpus_at). {} when none."""
+    return fold_hypotheses(read(types=HYPOTHESIS_TYPES, until_seq=seq, until_ts=ts, log=log))
+
+
+# --- §6 parceiro: a constelação social — PROMOTION, never minting. The extracted :Entity
+# (graphiti already found "Julio") GAINS the parceiro mark; the graph node is never created here.
+
+PARCEIRO_KINDS = ("empresa", "pesquisador", "equipe", "git-user")
+
+
+def promote_parceiro(name, kind, *, by, domain=None, contact_ref=None, log=LOG):
+    """§6 pen — promote an extracted Entity-person to `parceiro` (asserted, HITL: the promoting
+    authority is NAMED, mirror of integrate_artefato_source). Refuses a blank name, an
+    out-of-enum kind, or a missing authority. The projection MATCHes the existing :Entity and
+    marks it — promotion, not minting: an Entity graphiti never extracted stays unmarked."""
+    if not (isinstance(name, str) and name.strip()):
+        raise ValueError("cannot promote a parceiro without a non-blank name")
+    if kind not in PARCEIRO_KINDS:
+        raise ValueError(f"parceiro kind must be one of {PARCEIRO_KINDS}, got {kind!r}")
+    if not (isinstance(by, str) and by.strip()):
+        raise ValueError(
+            "cannot promote a parceiro without a NAMED promoting authority (§6: HITL — "
+            "asserted-by-someone, nunca automático)")
+    return append("parceiro.promoted", f"parceiro:{name.strip()}",
+                  {"name": name.strip(), "kind": kind, "by": by.strip(), "domain": domain,
+                   "contact_ref": contact_ref, "provenance_class": "asserted"}, log=log)
+
+
+def fold_parceiros(events):
+    """Pure fold of `parceiro.promoted` → {name: {kind, by, domain, contact_ref, ts}}. Last
+    promotion wins (re-promotion updates the kind/domain). Malformed payloads are skipped."""
+    out = {}
+    for e in events:
+        if e.get("type") != "parceiro.promoted":
+            continue
+        p = e.get("payload")
+        if not isinstance(p, dict):
+            continue
+        name = p.get("name")
+        if isinstance(name, str) and name.strip():
+            out[name] = {"name": name, "kind": p.get("kind"), "by": p.get("by"),
+                         "domain": p.get("domain"), "contact_ref": p.get("contact_ref"),
+                         "ts": e.get("ts")}
+    return out
+
+
+def parceiros_at(seq=None, ts=None, log=LOG):
+    """The promoted parceiros up to a cursor (pure replay, as corpus_at). {} when none."""
+    return fold_parceiros(read(types=["parceiro.promoted"], until_seq=seq, until_ts=ts, log=log))
 
 
 def source_curated(source, opinion, kind=None, log=LOG):

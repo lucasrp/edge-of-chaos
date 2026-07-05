@@ -159,7 +159,8 @@ without it, E1c — never reconstruct it from the log).
         pub=publisher.publish; \
         publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
           skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
-          cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id']); \
+          cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id'], \
+          bears_on=art.get('bears_on'), para=art.get('para'));  # ticket A: digest-bound like lineage \
         # WIRE REAL RE-PRODUCTION (#30): improve_fn(art, feedback) REVISES the draft from the \
         # reviewers' rationales+strikes — incl. a rich-rite floor strike (derivation / \
         # what-i-dont-know / external-frame / lineage). run_close loops it IMPROVE_ROUNDS=2 BEFORE \
