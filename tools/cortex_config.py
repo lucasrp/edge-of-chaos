@@ -40,6 +40,9 @@ GRANTED_SUBJECTS = {
     "report", "map", "plan", "research", "critique", "discovery", "grill",
     # ticket 05: lazer is a first-class producer (recall/consolidação like every producer).
     "lazer",
+    # 04-C follow-up: prototype was the one roster genus missing here (pre-existing gap noted
+    # by ticket 05) — same first-class recall/consolidação as every producer.
+    "prototype",
 }
 
 # Kept for the world-typed config helpers / docs: the explicitly world-reading subjects. The allowlist

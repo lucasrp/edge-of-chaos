@@ -37,6 +37,9 @@ import json
 import math
 import os
 import re
+import subprocess
+import sys
+import tempfile
 from datetime import date as _date
 from datetime import datetime as _dt
 from datetime import timezone as _tz
@@ -229,13 +232,99 @@ _PROTO_EXTERNAL_DEP_RE = re.compile(
     r"<(?:script|link|img|iframe|source|video|audio|embed|object|track)\b[^>]*?"
     r"(?:src|href|data)\s*=\s*[\"']?(?:https?:)?//", re.I)
 
+# 04-C follow-up (rubrica: single-file lint MECÂNICO) — the attribute regex misses the RUNTIME
+# and CSS loaders: fetch(), JS module import from a CDN (the modern vector: esm.run/jsdelivr),
+# dynamic import(), side-effect import / re-export, CSS @import and url(). Same authoring-lint
+# caveat as above (best-effort, not a proof: an URL built at runtime, or one quoted inside a
+# <pre> code sample, is beyond a grep — adversarial lint #6/#7, accepted ceiling); external-only
+# — a data: URI, an inline blob and a same-page relative fetch stay legal. A relative <script src>
+# is NOT the lint's job: on the headless file:// run it 404s into a console error, so the
+# roda-sem-erro gate vetoes it mechanically (adversarial lint #1).
+_PROTO_EXTERNAL_LOADER_RE = re.compile(
+    # quoted-URL loaders (quote REQUIRED so `fetch(\n  // comment` can't false-positive)
+    r"(?:(?:\bfetch\s*\(\s*|\bimport\s*\(\s*|\bimport\s+|\bimport\b[^;()]{0,120}?\bfrom\s+|"
+    r"\bexport\b[^;{}]{0,120}?\bfrom\s+)[\"']"
+    # CSS loaders, where an unquoted url is legal syntax
+    r"|(?:@import\s+|\burl\(\s*)[\"']?"
+    r")(?:https?:)?//", re.I)
 
-def publish_prototype_page(slug, page_html, *, skill, blog_dir=BLOG_DIR) -> Path:
+# An inline import map whose mappings point at the network is the CDN dependency in its newest
+# clothes (adversarial lint #2, SINAL) — the JSON body carries no src= and no import statement,
+# so neither regex above sees it. Mappings to data: URIs stay legal.
+_PROTO_IMPORTMAP_EXTERNAL_RE = re.compile(
+    r"<script\b[^>]*\btype\s*=\s*[\"']importmap[\"'][^>]*>[^<]*?(?:https?:)?//", re.I)
+
+
+# --- roda-sem-erro (04-C rubrica: MECÂNICO, veto) ---------------------------------------------
+# The live adapter runs the page in headless chromium via the playwright venv (the same harness
+# the render→ver rite uses, ~/cortex-3d-ref/pw-venv) in a SUBPROCESS, so publisher's own
+# environment never needs playwright. Contract: list = the page RAN (entries are console.error /
+# pageerror strings; empty = clean), None = harness unavailable — the caller OBSERVES, never
+# vetoes, on None (degrade honesto: a missing venv/browser must not block a publish on a box
+# that cannot run pages, only a page that PROVABLY errors is vetoed).
+_PW_PYTHON = Path.home() / "cortex-3d-ref" / "pw-venv" / "bin" / "python"
+
+# The runner exits 0 whenever the page was EXERCISED (errors, load failure included — those are
+# page verdicts, veto material) and non-zero only when the harness itself is broken (playwright
+# import/launch failure) — the exit code IS the ran-vs-unavailable distinction.
+_PW_RUNNER = r"""
+import json, pathlib, sys
+errors = []
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    browser = p.chromium.launch()
+    page = browser.new_page()
+    page.on("console", lambda m: m.type == "error" and errors.append("console.error: " + m.text))
+    page.on("pageerror", lambda e: errors.append("pageerror: " + str(e)))
+    try:
+        # as_uri(), never string concat — a TMPDIR with space/# must not truncate the URL
+        # into a false load failure (adversarial slice-3 #6, SINAL).
+        page.goto(pathlib.Path(sys.argv[1]).resolve().as_uri(), timeout=15000)
+        # ponytail: a fixed settle window is a CEILING — an error later than ~1s still passes
+        # (adversarial slice-3 #1); catches the honest setTimeout/rAF-init bug, not the long tail.
+        # Upgrade path: interact/scroll the page or wait for quiescence if the tail ever bites.
+        page.wait_for_timeout(1000)
+    except Exception as e:  # a page that cannot even load is a page verdict, not a harness one
+        errors.append("load failed: " + str(e))
+    browser.close()
+print(json.dumps(errors))
+"""
+
+
+def headless_page_errors(page_html, pw_python=_PW_PYTHON):
+    """Open `page_html` in headless chromium and return its console.error/pageerror list
+    ([] = ran clean), or None when the harness is unavailable (no pw-venv, browser missing,
+    hung run) — the honest-degrade signal: observe, don't veto."""
+    if not Path(pw_python).exists():
+        return None
+    tmp = tempfile.NamedTemporaryFile(
+        "w", suffix=".html", delete=False, encoding="utf-8")
+    try:
+        tmp.write(page_html)
+        tmp.close()
+        proc = subprocess.run([str(pw_python), "-c", _PW_RUNNER, tmp.name],
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    finally:
+        os.unlink(tmp.name)
+    if proc.returncode != 0:  # harness failure (import/launch), not a page verdict
+        return None
+    try:
+        errors = json.loads(proc.stdout.strip() or "[]")
+    except ValueError:
+        return None
+    return errors if isinstance(errors, list) else None
+
+
+def publish_prototype_page(slug, page_html, *, skill, blog_dir=BLOG_DIR,
+                           run_errors_fn=headless_page_errors) -> Path:
     """Write an intact, content-addressed single-file page for ANY roster genus (ticket 05
     generalizes the prototype-only seam: JS/imagem liberados; single file é a única regra dura).
     Returns the written Path (served at /e/<name>). Raises ValueError on an out-of-roster skill,
-    a bad slug, a non-document fragment, or an external resource dependency — before anything
-    lands.
+    a bad slug, a non-document fragment, an external resource dependency, or a page that errors
+    in a headless run (roda-sem-erro, 04-C rubrica: veto) — before anything lands. When the
+    headless harness is unavailable (`run_errors_fn` → None) the run is OBSERVED, never vetoed.
     # ponytail: the page is NOT eventlogged — the companion entry (published through the close)
     # is the committed record and carries the link; log the page bytes if replay ever needs them."""
     if skill not in PRODUCER_ROSTER:
@@ -248,11 +337,27 @@ def publish_prototype_page(slug, page_html, *, skill, blog_dir=BLOG_DIR) -> Path
         raise ValueError(
             f"prototype page for {slug!r} is not a full HTML document (single-file bar: "
             "one self-contained page, not a fragment)")
-    dep = _PROTO_EXTERNAL_DEP_RE.search(page_html)
+    dep = (_PROTO_EXTERNAL_DEP_RE.search(page_html)
+           or _PROTO_EXTERNAL_LOADER_RE.search(page_html)
+           or _PROTO_IMPORTMAP_EXTERNAL_RE.search(page_html))
     if dep:
         raise ValueError(
             f"prototype page for {slug!r} is not self-contained: external resource load "
             f"{dep.group(0)!r} (zero-dep bar — inline everything; an <a href> link is fine)")
+    # roda-sem-erro LAST of the refusals (the one expensive check runs only on a page that
+    # already passed every cheap mechanical bar).
+    try:  # a BROKEN harness must behave like a MISSING one (adversarial slice-3 #3, SINAL):
+        # observe and publish — only a page that PROVABLY errors is vetoed.
+        run_errors = run_errors_fn(page_html) if run_errors_fn is not None else None
+    except Exception:
+        run_errors = None
+    if run_errors:
+        raise ValueError(
+            f"prototype page for {slug!r} does not run clean (roda-sem-erro veto): "
+            + "; ".join(run_errors[:5]))
+    if run_errors is None:
+        print(f"[publisher] headless harness unavailable — roda-sem-erro for {slug!r} "
+              "OBSERVED, not vetoed (degrade honesto)", file=sys.stderr)
     blog_dir = Path(blog_dir).resolve()
     digest = hashlib.sha256(page_html.encode("utf-8")).hexdigest()[:12]
     out = (blog_dir / f"{slug}.proto.{digest}.html").resolve()
