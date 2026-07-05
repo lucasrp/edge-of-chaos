@@ -1,0 +1,23 @@
+# ontologia.yaml — the DECLARATIVE schema drop (ontologia-cortex-v2 §3).
+# The instrument that MEASURES the H-001 diff: what the superset adds lives HERE, versioned.
+# No code reads this yet (the door, not the room) — the runtime axis lives in
+# tools/cortex_provenance.py (provenance_class_for / assert_rollup_computed = CX-1).
+
+provenance_class:
+  # The plane per edge/annotation. Decides ONE thing: rollup eligibility (CX-1).
+  enum: [computed, asserted, llm_judged, extracted]
+  fail_safe: extracted        # unknown is a hypothesis — NEVER computed-by-default
+  rollup_eligible: [computed] # CX-1: the scoreboard/verdict consumes ONLY these
+
+gate_templates: {}
+  # Registry of gate identities (name@v → {model, prompt@v}), PARALLEL to rule_templates.
+  # Curated by HUMAN only (GLO-1) — "agente propõe, humano promove" (§4).
+  # A gate ∉ this registry → quarantine LOUD.
+
+controlled_paths:
+  # Write-paths the pen must check (§5 verificar, aditivo LOUD).
+  - edge: assesses
+    provenance_class: llm_judged
+    rigor_max: lead           # structural ceiling — an LLM verdict can never claim cravado
+    authority: agent          # a gate never emits review_approved; a human promotes (O-15)
+    require: gate in gate_templates

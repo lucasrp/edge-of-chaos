@@ -101,5 +101,5 @@ Blocked by: reflection-skill
 Status: open
 Type: Task
 ### Question
-Dashboard = console compartilhado user↔edge, EMERGE dos artefatos JS (#69/#70), não build à parte. Onboarding = persona-bootstrap (novo mentee → template persona → meta-grill "por que você está aqui?"). O onboarding É o primeiro grill. Multi-persona: gauss=aulas/overleaf, roberto=jurídico, bobmarley=campanhas, petertosh=CRM, rui=marketing.
+Dashboard = console compartilhado user↔edge, EMERGE dos artefatos JS (#69/#70), não build à parte. Onboarding = persona-bootstrap (novo mentee → template persona → meta-grill "por que você está aqui?"). O onboarding É o primeiro grill. Multi-persona DENTRO DO ROSTER só (FLEET.md): roberto=jurídico, petertosh=CRM. gauss/bobmarley/rui = usos do edge-of-chaos FORA da fleet — contexto conceitual, NUNCA alvo de deploy/mexida (operador 2026-07-05).
 ### Answer

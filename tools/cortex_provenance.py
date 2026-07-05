@@ -19,6 +19,10 @@ known order-bearing — an order-bearing source can NEVER mask a merged-in low-t
 v1 FAIL-SAFE (F9-dep / R8c part 3): the sweep does not yet stamp the source Medium, so an extracted
 node of UNKNOWN Medium defaults context_only=true (unknown ⇒ true, consistent with the merge rule).
 The asserted spine is order-bearing by origin (it folds from the Voz rail / the log).
+
+AXIS 3 — `provenance_class` ∈ {computed, asserted, llm_judged, extracted} — the PLANE an edge/
+annotation lives on (ontologia-cortex-v2 §0), sibling axis for EDGES. CX-1: a verdict rollup may
+consume ONLY `computed` items — `assert_rollup_computed` is the one gate. Fail-safe `extracted`.
 """
 
 # The TRUST tier per label. Mirrors blog/server._TRUST_BY_LABEL's split, collapsed to the two-value
@@ -62,6 +66,81 @@ def context_only_for(label, props=None):
         return not all(t == "order_bearing" for t in tiers)
     # unstamped: spine is order-bearing by origin; extracted-of-unknown-Medium is fail-safe context_only.
     return tier_for(label, props) == "extracted"
+
+
+# AXIS 3 — `provenance_class` ∈ {computed, asserted, llm_judged, extracted} — the PLANE an edge/
+# annotation lives on (ontologia-cortex-v2 §0), sibling to tier. It decides ONE thing: whether the
+# item may enter the computed-verdict rollup (CX-1). Only the Evidence plane (`computed`) may.
+PROVENANCE_CLASSES = ("computed", "asserted", "llm_judged", "extracted")
+
+# The plane per edge type/label (§0). Graph edge types are UPPERCASE — derivation normalizes.
+_CLASS_BY_TYPE = {
+    # Evidence plane — the ONLY rollup-eligible class: bearing + the source-yield observation.
+    "bearing": "computed", "observation": "computed",
+    # Structural plane — author-asserted lineage.
+    "mentions": "asserted", "distills": "asserted", "cites": "asserted",
+    "supersede": "asserted", "supersedes": "asserted",  # §0 names singular; the graph edge is plural
+    "via": "asserted", "deriva_de": "asserted",
+    "tem": "asserted", "spine": "asserted",
+    # Judgment plane — reified gate verdicts; rigor teto lead, NEVER computed.
+    "assesses": "llm_judged",
+    # Semantic plane — RAG hypotheses.
+    "relates_to": "extracted", "in_community": "extracted",
+}
+
+
+def provenance_class_for(edge_type_or_label, props=None):
+    """The provenance plane for an edge type/label. Pure type-derivation (props accepted for
+    signature parity with tier_for; a stamp can NEVER promote a type toward computed — the rigor
+    teto is structural). Unknown → fail-safe `extracted` — a hypothesis, never computed-by-default,
+    mirroring tier_for's never-asserted-by-default."""
+    key = edge_type_or_label.lower() if isinstance(edge_type_or_label, str) else None
+    return _CLASS_BY_TYPE.get(key, "extracted")
+
+
+_TYPE_KEYS = ("edge_type", "type", "label")
+
+
+def _rollup_class_of(item):
+    """Resolve an item's plane for the CX-1 gate. Derivation from type WINS when present (a stamp
+    can DEMOTE, never promote — an `assesses` stamped "computed" stays llm_judged, but a `bearing`
+    stamped non-computed is honored down). Fail-safe `extracted` on ANY malformation: a non-dict
+    item, a type key present-but-blank, a stamp present-but-invalid (never silently dropped)."""
+    if not isinstance(item, dict):
+        return "extracted"
+    stamped = item.get("provenance_class")
+    if "provenance_class" in item and stamped not in PROVENANCE_CLASSES:
+        return "extracted"  # a malformed stamp is suspicious, never treated as absent
+    typed_keys = [k for k in _TYPE_KEYS if k in item]
+    t = next((item[k] for k in typed_keys if isinstance(item[k], str) and item[k]), None)
+    if typed_keys and t is None:
+        return "extracted"  # a type key present but blank/non-str = unknown type, not stampable
+    if t is not None:
+        derived = provenance_class_for(t)
+        if derived == "computed" and stamped and stamped != "computed":
+            return stamped  # the stamp demotes
+        return derived  # the type is the ceiling — a stamp never promotes
+    return stamped or "extracted"  # a bare annotation may pass by a valid computed stamp
+
+
+def assert_rollup_computed(items):
+    """CX-1 (invariante mestra, ontologia-cortex-v2 §0): the scoreboard/verdict consumes ONLY
+    `computed` bearings. The ONE gate any rollup passes its inputs through — raises LOUD, naming
+    EVERY offender, if any item resolves non-computed; returns the items unchanged so a caller
+    can inline it in the pipeline."""
+    offenders = []
+    for i, item in enumerate(items):
+        cls = _rollup_class_of(item)
+        if cls != "computed":
+            get = item.get if isinstance(item, dict) else (lambda _k: None)
+            ident = get("id") or get("name") or get("uuid") or f"item[{i}]"
+            t = get("edge_type") or get("type") or get("label") or "?"
+            offenders.append(f"{ident} (type={t}, provenance_class={cls})")
+    if offenders:
+        raise ValueError(
+            "CX-1 violation: non-computed provenance in a verdict rollup — the scoreboard "
+            "consumes ONLY computed bearings. Offenders: " + "; ".join(offenders))
+    return items
 
 
 def _label_of(node, label):
