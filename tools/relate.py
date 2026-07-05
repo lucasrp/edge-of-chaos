@@ -400,10 +400,11 @@ def sync(group=_AUTO, *, corpus=None, session=None, nli_fn=None,
                       for r in session.run(_CORPUS_QUERY, g=g).data()]
         kernels = {slug: kernel or "" for slug, kernel, _ in corpus}
         pairs = nominate(embeddings=[(slug, emb) for slug, _, emb in corpus])
-        # wipe FIRST, unconditionally: a shrunken/empty nomination set still clears stale edges.
-        session.run(_WIPE_QUERY, g=g)
-        pc = cortex_provenance.provenance_class_for("relates_to")
-        minted, offers = [], []
+        # ROUTE FIRST, WRITE LAST (codex adversarial #1): the NLI leg is the slow/flaky one, so
+        # every route call completes BEFORE the wipe opens the write window — a raising route
+        # leaves the graph untouched, and the wipe→mint window holds no LLM call. A partial
+        # write failure still self-heals: sync re-derives the whole layer next canonical sweep.
+        survivors, offers = [], []
         for pair in sorted(pairs, key=sorted):
             a, b = sorted(pair)
             off, passed = route([(kernels[a], kernels[b])], nli_fn=nli_fn)
@@ -411,6 +412,12 @@ def sync(group=_AUTO, *, corpus=None, session=None, nli_fn=None,
                 offers.append({"type": "contradicts", "origin": "machine-found",
                                "pair": (a, b), "nli": off[0]["nli"]})
                 continue  # an offer is returned for the author — NEVER minted (C2c)
+            survivors.append((a, b))
+        # wipe unconditionally: a shrunken/empty nomination set still clears stale edges.
+        session.run(_WIPE_QUERY, g=g)
+        pc = cortex_provenance.provenance_class_for("relates_to")
+        minted = []
+        for a, b in survivors:
             session.run(_MINT_QUERY, g=g, a=a, b=b, pc=pc)
             minted.append((a, b))
         return {"minted": minted, "offers": offers}
@@ -459,7 +466,10 @@ def project_mentions(session, group, slug, text):
     FATO menciona (spec 02-D); the plane is derived, never a literal fork.
 
     Runs inside the publisher's ALREADY-OPEN session (no second driver). NEVER raises into the
-    publish (prints, returns 0) — the same best-effort contract as the embed leg."""
+    publish (prints) — but a swallowed failure returns **None**, not a count (codex adversarial
+    #3): the wipe may have landed before the failure, so the caller must leave the projection
+    INCOMPLETE and let the next sweep replay the slug (the embed-retry precedent — self-heal,
+    never a silent strand). Success returns the mention count (0 is a success)."""
     try:
         rows = session.run("MATCH (e:Entity {group_id:$g}) WHERE e.name IS NOT NULL "
                            "RETURN DISTINCT e.name AS name", g=group).data()
@@ -474,5 +484,5 @@ def project_mentions(session, group, slug, text):
                         g=group, slug=slug, n=name, pc=pc)
         return len(found)
     except Exception as ex:  # noqa: BLE001 — best-effort; the publish must never feel this
-        print("mentions skipped (best-effort):", ex)
-        return 0
+        print("mentions skipped (best-effort, will retry on recovery):", ex)
+        return None

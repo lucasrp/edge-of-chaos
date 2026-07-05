@@ -527,12 +527,15 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                     g=g, slug=slug, prior=prior).single()
                 if not row or row["n"] == 0:
                     unresolved_lineage = True   # prior not in the graph yet — revisit next sweep
-            # (2c) MENTIONS — ticket D: the entities the published text DE FATO names, extracted
-            # from the SAME emb_input the embedding reads (curadoria inline no publish — the offline
-            # curator was cut). relate.project_mentions rides THIS session, never raises
-            # (best-effort) and never gates the completion marker.
+            # (2c) MENTIONS — ticket D: the entities the published CONTENT (intent+spec) DE FATO
+            # names (curadoria inline no publish — the offline curator was cut). NOT emb_input: the
+            # slug is metadata, and its hyphens count as word boundaries — a compound slug would
+            # fabricate an asserted mention the body never makes (codex #4). project_mentions rides
+            # THIS session and never raises; None (a swallowed mid-rebuild failure — the wipe may
+            # have landed) leaves the projection INCOMPLETE so the next sweep replays it (codex #3).
             import relate
-            relate.project_mentions(s, g, slug, emb_input)
+            mentions_ok = relate.project_mentions(
+                s, g, slug, f"{intent}\n{_spec_text(spec)}") is not None
             # (3) COMPLETION MARKER — set LAST, complete ONLY when (a) every edge write succeeded,
             # (b) the embedding is current (a FAILED embed leaves it false → retried on recovery,
             # Codex P2), (c) every distill ref RESOLVED, AND (d) every lineage prior RESOLVED (L4).
@@ -543,7 +546,8 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # self-heal on the next sweep.
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.projection_complete=$done",
                   g=g, slug=slug,
-                  done=(embed_current and not unresolved_distills and not unresolved_lineage))
+                  done=(embed_current and not unresolved_distills and not unresolved_lineage
+                        and mentions_ok))
     except Exception as ex:  # noqa: BLE001 — a failed projection is reported, never fatal
         print("project failed (best-effort, reproject next beat):", ex)
     finally:

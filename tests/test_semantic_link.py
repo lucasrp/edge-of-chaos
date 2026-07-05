@@ -153,6 +153,28 @@ class SyncMintsRelatesToAsExtractedHypotheses(unittest.TestCase):
         self.assertEqual(out["offers"][0]["pair"], ("art-a", "art-b"))
         self.assertFalse([q for q, _ in s.calls if "MERGE" in q and "RELATES_TO" in q])
 
+    def test_route_runs_before_any_write(self):
+        # codex adversarial #1: the NLI routing (the slow/flaky leg) must complete BEFORE the
+        # wipe opens the write window — a raising route leaves the graph untouched, and the
+        # wipe->mint window holds no LLM call. Pinned on the interleaving.
+        timeline = []
+
+        class S(FakeSession):
+            def run(self, q, **p):
+                timeline.append("write" if ("DELETE" in q or "MERGE" in q) else "read")
+                return super().run(q, **p)
+
+        def nli(a, b):
+            timeline.append("nli")
+            return {"label": "neutral", "score": 0.0}
+
+        relate.sync(group="g1", corpus=self.CORPUS, session=S(), nli_fn=nli)
+        self.assertIn("nli", timeline)
+        last_nli = len(timeline) - 1 - timeline[::-1].index("nli")
+        first_write = timeline.index("write")
+        self.assertLess(last_nli, first_write,
+                        "every NLI call must precede the first graph write (wipe)")
+
     def test_sync_degrades_dark(self):
         # CONTRACT C1: no group / raising session → None, never a raise.
         self.assertIsNone(relate.sync(group=None, corpus=self.CORPUS, session=FakeSession()))
@@ -206,11 +228,22 @@ class ProjectMentionsWritesAssertedEdges(unittest.TestCase):
         self.assertFalse([q for q, _ in s.calls if "MERGE" in q])
         self.assertTrue([q for q, _ in s.calls if "DELETE" in q])
 
-    def test_never_raises_into_the_publish(self):
+    def test_never_raises_but_signals_failure_as_none(self):
+        # codex adversarial #3: a swallowed mid-rebuild failure (wipe ok, merge down) must NOT
+        # look like success — None tells the publisher to leave the projection INCOMPLETE so the
+        # next sweep replays the slug and the wiped mentions are re-minted (self-heal, embed
+        # precedent). Success (even with 0 matches) returns the count.
         class Boom:
             def run(self, *a, **k):
                 raise RuntimeError("graph down")
-        self.assertEqual(relate.project_mentions(Boom(), "g1", "s", "text"), 0)
+        self.assertIsNone(relate.project_mentions(Boom(), "g1", "s", "text"))
+
+    def test_publisher_gates_completion_on_mentions(self):
+        import publisher
+        src = inspect.getsource(publisher.project_artefato)
+        self.assertIn("mentions_ok", src,
+                      "a failed mentions rebuild must leave projection_complete false "
+                      "(codex #3 — the wipe would otherwise strand until a republish)")
 
 
 class PublishAndSweepAreTheCallers(unittest.TestCase):
@@ -223,8 +256,15 @@ class PublishAndSweepAreTheCallers(unittest.TestCase):
         src = inspect.getsource(publisher.project_artefato)
         self.assertIn("project_mentions", src,
                       "project_artefato must extract MENTIONS at publish (ticket D)")
-        self.assertIn("emb_input", src[src.find("project_mentions"):][:200],
-                      "mentions read the SAME published text the embedding reads")
+        call = src[src.find("relate.project_mentions("):]
+        call = call[:call.index(") is not None") + 1]
+        # codex adversarial #4 (SINAL): the slug is METADATA — hyphens count as word boundaries,
+        # so a compound slug would fabricate an asserted MENTIONS the body never makes. The
+        # mention text is intent+spec (the published content), never emb_input (slug-prefixed).
+        self.assertIn("_spec_text", call,
+                      "mentions read the published content (intent+spec)")
+        self.assertNotIn("emb_input", call,
+                         "mentions must NOT read emb_input (it embeds the slug — metadata)")
 
     def test_sweep_renominated_on_canonical_log_only(self):
         import sweep
