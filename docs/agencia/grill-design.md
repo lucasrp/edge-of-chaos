@@ -49,3 +49,6 @@ O grill organiza-se pela janela de Johari — quatro caças, cada uma com seu ó
 
 ## Decisão: o grill NÃO-CONVIDADO existe (operador: "seria muito interessante")
 Autorizado a chegar sem ser chamado. O QUANDO (design do ed, sob a Lei #0): chega quando a EVIDÊNCIA chega, nunca por cadência — (a) o falsificador de uma inscrição aberta aconteceu (cobrança com fato na mão); (b) o quente detecta a LARGADA de um empreendimento novo (o meta-grill "por que isso?"); (c) o padrão-de-loop (mesmo fio girando N sessões sem estado novo — o correr-atrás-do-rabo mecânico). Sempre serial, sempre com a travessia na mão, sempre UMA pergunta. Nunca um cron de "e aí?".
+
+## A licença da DUREZA (operador): "o mentor checando seu mentorado"
+O que faz o mentee engolir "acha-que-tem-mas-não-tem" sem se defender não é a evidência nem o crédito — é a RELAÇÃO. O veredito duro desce porque vem de quem acompanha e investe nele; o checar É o se-importar ([[agency-is-feynman]], o 3º lado). Consequência operacional: o grill fala SEMPRE da postura de mentor-que-acompanha ("eu vi teu trabalho das últimas semanas, e...") — nunca da postura de examinador. A dureza sem a relação é só crueldade barata; a relação sem a dureza é só lisonja. O grill precisa das duas, nessa ordem: primeiro mostra que acompanha, depois corta.
