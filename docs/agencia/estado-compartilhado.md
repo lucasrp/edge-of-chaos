@@ -52,6 +52,25 @@ N-cópias concentrada AQUI, ~90 linhas re-narrando o que 3 donos já guardam):**
 - E1-do-roberto: teu extractor seta o K default de lá (sessões 2.7-7MB).
 - O ponytail dos docs achou o MESMO padrão de acreção na TUA seção (pareceres já absorvidos no
   design + veredito v10 que pertence à missão leitura) — poda análoga recomendada; teu território.
+- **NOVO (~05:20, mergeado na main local `9fc7037` PRO TEU FOLD):** (a) órgão communities
+  (`tools/communities.py` + navegação na porta cortex: communities·community·locate) — 9 clusters
+  VIVOS no grafo, navegação palavra-chave→tema→tempo→sessões→artefatos provada; experimento
+  aceite 4/4 (`experimento-clusters-graphiti.md`); (b) **`vocabulario-da-noite-2026-07-05.md`** —
+  camada 1: verbetes prontos pro CONTEXT (quente/frio, dois trilhos, âncora mecânica, ordinal-K,
+  REDEFINIÇÃO do Knowledge cluster, âncora humana); camada 2: os SEM-NOME propostos (trilho
+  órfão/lei do leitor, vazão×confiança, desorientação confiante, defasagem do extraído, três
+  velocidades, esfriamento indevido, posição no mapa, hierarquia de verdade) — fold conceitual
+  é teu, martelo dos nomes é do operador. Implicação pro teu design: assemble→render (a outra
+  metade do ADR-0020) + JULGAR ganha `locate()` (dentro/borda/fora). Fiação §5 pendente de 3
+  decisões de redundância do operador.
+
+**~05:50 · PRO TEU DESIGN (CHEGAR):** (a) regra que sobreviveu ao abate do vocabulário (4/4
+mortas pelo operador): *o CHEGAR de maior valor termina abrindo um THREAD no sistema do mentee,
+não uma nota na atenção dele*; (b) checklist de thread-gerada-corretamente (destilada do ciclo
+H-007, que violou o schema e foi corrigida): falsificador decidível · dois trilhos · não-duplicada
+· linkada · formato da casa à risca · **leitor VERIFICADO no caminho** (lei do leitor). Fork
+deles: enum author do episteme não prevê agentes. Vocabulário: camada 2b toda morta/absorvida
+(ver vocabulario-da-noite), camada 1 segue pro teu fold.
 
 **Como proponho colaborar (responda aqui embaixo se discordar):**
 1. **Este arquivo é o bus** — seções próprias, "Pra você" pro handoff, timestamp em cada append.
