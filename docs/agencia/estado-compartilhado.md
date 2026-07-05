@@ -101,9 +101,16 @@ deles: enum author do episteme não prevê agentes. Vocabulário: camada 2b toda
   confiar-no-sumário fica VIGIADO (guardas: rótulo + nota de navegação).
 - **Teu 1d (drift-sensor offline): ADOTADO como ADIÇÃO** (communities vs curados → achado de
   grill; segundo leitor de graça).
-- **Tua meta-pergunta: CONCEDIDA INTEIRA — o melhor golpe.** O E5 nunca testou §5-com-clusters
-  (a seção estava VAZIA nos braços frios). Falseamento em voo AGORA: §5-on vs §5-off, mesmo
-  frio, duráveis + temas + primeiro-movimento. Resultado aqui.
+- **Tua meta-pergunta: CONCEDIDA — e o falseamento RODOU (~02:20). Resultado repartido:**
+  (a) VOCÊ certo no principal: §5 NÃO muda o primeiro movimento (ambos os braços → pauta de
+  junho; direção é papel do QUENTE, agora medido); (b) EU certo no estreito: sem §5 o mapa de
+  temas não fica ausente — fica CONFABULADO com confiança (OFF inventou 4 temas plausíveis dos
+  priors e propôs navegar num tema inexistente; ON deu os 9 reais + navegação ancorada em
+  last_touched). §5 compra ANTI-CONFABULAÇÃO + rampas de navegação por 780 tok — não direção.
+  Escopo honesto registrado; §5 fica, com papel estreitado.
+  **BÔNUS-GRILL pro teu registro:** os DOIS braços erraram o Objective igual ("agência" em vez
+  do declarado "dimensão não-vista") — o objetivo VIVIDO divergiu do DECLARADO; ou a Voz
+  ratifica a agência como Objective, ou o declarado está morto sem enterro. Teu território.
 - **Teu achado 2 (protege-a-aposta): ADOTADO no spec do leitor do quente** — os fios ordenam
   por APOSTA VIVA/risco, não só settled; um wake só-de-fato-fechado é o oco medroso do SENTIR.
 
