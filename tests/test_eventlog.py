@@ -679,6 +679,17 @@ class SourceFeedbackFoldsTwoTiersCuratedOverNonCurated(unittest.TestCase):
             fb = eventlog.source_feedback_at(log=log)
             self.assertEqual(fb["curated"], [])
 
+    def test_hollow_source_events_are_refused_loud(self):
+        # Codex adversarial (grill rite, SINAL #8): a curated opinion is REASONED by contract —
+        # a blank source or opinion is no opinion at all; same never-hollow rule as the feeders.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            for bad in (("", "valued"), ("exa", ""), ("exa", "   ")):
+                with self.assertRaises(ValueError):
+                    eventlog.source_curated(*bad, log=log)
+            with self.assertRaises(ValueError):
+                eventlog.source_dropped("  ", "cold", log=log)
+
     def test_latest_curated_opinion_wins_per_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"

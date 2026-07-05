@@ -884,7 +884,10 @@ def source_curated(source, opinion, kind=None, log=LOG):
     """Append a `source.curated` event (ADR-0011, source-feedback curated tier) — the grill-distilled
     mentee opinion about a source ("values X because Y"). A **separate** event the non-curated signal
     *prompts*, never a promotion (a measurement cannot become an opinion). Curated **outranks** the
-    yield, is exempt from passive aging, retirable only by Voz (source_dropped). Latest wins per source."""
+    yield, is exempt from passive aging, retirable only by Voz (source_dropped). Latest wins per source.
+    A blank source/opinion is refused LOUD — the opinion is reasoned by contract, never hollow."""
+    _require_body(source, "source.curated (source)")
+    _require_body(opinion, "source.curated (opinion)")
     return append("source.curated", f"source:{source}",
                   {"source": source, "opinion": opinion, "kind": kind}, log=log)
 
@@ -892,6 +895,7 @@ def source_curated(source, opinion, kind=None, log=LOG):
 def source_dropped(source, reason="", log=LOG):
     """Append a `source.dropped` event — retire a curated source opinion (Voz only). The only way a
     curated source entry leaves (persist-until-dropped, mirroring direction.dropped)."""
+    _require_body(source, "source.dropped (source)")
     return append("source.dropped", f"source:{source}", {"source": source, "reason": reason}, log=log)
 
 

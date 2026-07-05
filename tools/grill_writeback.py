@@ -9,9 +9,12 @@ One source of truth: render / Lint / Aging all read the node.
 Env: EDGE_NEO4J_URI/USER/PASSWORD
 """
 from datetime import datetime, timezone
+from pathlib import Path
 
 import eventlog
 import _identity
+
+REPO = Path(__file__).resolve().parent.parent
 
 NEO4J = _identity.neo4j_conn()
 
@@ -48,6 +51,38 @@ def cluster(drv, group, names, label):
 def archive(drv, group, names):
     """Archive orphans out of the read layer (non-lossy — the node stays)."""
     return _set(drv, group, names, {"archived": True, "outcome": "archived"})
+
+
+# The persona files the grill writes back (grill-design.md; roberto ~/leveling prototype).
+# perfil/mapa/curriculo are CURRENT-STATE (overwrite: who he is, the map, the curriculum);
+# diario is APPEND-ONLY (the ordinal record — entries accrete, never wall-clock-windowed).
+LEVELING_KINDS = ("perfil", "mapa", "curriculo", "diario")
+
+
+def leveling(kind, content, root=None, log=eventlog.LOG):
+    """Persona writeback (custo-de-reconstrução→0): append a `grill.leveling` event to the Tier-0
+    log (ADR-0006 — the durable, replayable truth, locked+fsynced by eventlog), then render
+    memory/leveling/{kind}.md (the readable projection the next grill opens with). Unknown kind or
+    blank content is refused LOUD — a hollow persona file is worse than none (the same never-hollow
+    rule the gate feeders follow). Returns the path written."""
+    if kind not in LEVELING_KINDS:
+        raise ValueError(f"leveling kind must be one of {LEVELING_KINDS}, got {kind!r}")
+    if not (isinstance(content, str) and content.strip()):
+        raise ValueError(f"refusing a blank leveling {kind} — a hollow persona file is worse than none")
+    eventlog.append("grill.leveling", f"leveling:{kind}",
+                    {"kind": kind, "content": content.strip()}, log=log)
+    root = Path(root) if root else REPO / "memory" / "leveling"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{kind}.md"
+    content = content.strip() + "\n"
+    if kind == "diario":
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        entry = f"\n---\n\n## {stamp}\n\n{content}" if path.exists() else f"## {stamp}\n\n{content}"
+        with path.open("a") as f:
+            f.write(entry)
+    else:
+        path.write_text(content)
+    return path
 
 
 def append_event(type, subject, payload, log=eventlog.LOG):
