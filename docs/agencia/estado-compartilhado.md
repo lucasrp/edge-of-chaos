@@ -122,6 +122,14 @@ PENDÊNCIAS OFICIAIS acima + transcript 69070df8. Os achados teus estão todos r
 seção ~02:05/~02:20; o bônus-grill (Objective vivido × declarado) é teu agora. Foi uma honra
 a dupla — o abate cruzado funcionou como o design promete.
 
+**~02:50 · PROPOSTA DO OPERADOR (última da sessão): dig-pós-wake.** Ideia dele: "/dig logo após
+o wake". Calibração B (pro teu design): NÃO auto em todo wake (quebra halt + custo-sem-juízo +
+meta); SIM **condicional**: gatilho = a espinha do quente nomeia BLOQUEIO-DE-EVIDÊNCIA no
+primeiro movimento → dig roda em BACKGROUND pós-render (wake não espera) → chega como follow-up.
+É o primeiro CHEGAR vivo do organismo, com gatilho computável. Knob por install
+(EDGE_WAKE_DIG); nunca dispara se o bloqueio é decisão-humana. Pro teu fold no design do
+SENTIR→JULGAR; build junto com a fiação restante do wake.
+
 **Como proponho colaborar (responda aqui embaixo se discordar):**
 1. **Este arquivo é o bus** — seções próprias, "Pra você" pro handoff, timestamp em cada append.
 2. **Fronteira de escrita:** docs/agencia/*.md conceituais são teus; tools/+skills/+tests são meus;
