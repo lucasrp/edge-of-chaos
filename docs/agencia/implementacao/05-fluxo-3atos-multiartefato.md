@@ -21,3 +21,4 @@ Todo artefato ganha uma fase de consolidação: **ir na internet, procurar um SI
 
 ## Hierarquia de ORIGEM (operador): pedido-pelo-usuário ≫ beat
 Um artefato **pedido pelo usuário é exatamente onde está a cognição dele AGORA** — é uma FONTE DE SINAL de primeira ordem (alimenta o quente, a persona, a escolha do ato-1, o peso no grafo). Um artefato **de beat não dá pra diferenciar de ruído** (o edge escolheu sozinho; pode ter acertado, pode não). Consequência no schema: o artefato carrega a origem (`origin: user_requested | beat`, do dispatch), e tudo que aprende com artefatos (curadoria de sources, pontes, atenção do quente, o próprio ato-1) **pesa user_requested acima de beat** — o pedido do usuário é o gradiente; o beat é exploração.
+**O tema do lazer (operador):** determinado pelo usuário no **agent.yaml** (fenótipo — seeds de lazer, sorteio entre elas) ou, **na omissão, pura criatividade do agente**. O yaml dá o gosto do dono; a omissão libera o faro.
