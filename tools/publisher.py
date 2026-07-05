@@ -635,6 +635,30 @@ def _project_para(s, g, slug, para):
     return unresolved
 
 
+def _project_para_default(s, g, slug, name):
+    """Curadoria autoral (§6, regra do operador): with NO authored `para`, the artefato is still
+    FOR someone — the operador/mentee. The mark is a PROP on the :Artefato (`a.para_default`,
+    the para-o-mentee mark) plus a PARA edge ONLY when the mentee's Entity is ALREADY promoted
+    (`parceiro:true` — §6: the PARA endpoint is the promoted Entity only; the default never mints
+    nor promotes, promotion stays HITL). FAIL-SAFE, unlike _project_para: an unpromoted/absent
+    mentee Entity NEVER flags unresolved — the default must not strand projection_complete=false
+    on every artefato of an install whose mentee was not promoted yet. A falsy `name` (an authored
+    `para` now rides, or the mentee is unresolvable) CLEARS a stale mark — the same corrected-
+    republish discipline as the destructive edge rebuild."""
+    if not name:
+        s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) REMOVE a.para_default",
+              g=g, slug=slug)
+        return
+    s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.para_default=$name",
+          g=g, slug=slug, name=name)
+    # best-effort edge: only onto the PROMOTED mentee Entity; r.default distinguishes the
+    # mechanical default from an authored PARA (both asserted — the rule is author-level).
+    s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
+          "MATCH (e:Entity {group_id:$g, parceiro:true}) WHERE e.name=$name "
+          "MERGE (a)-[r:PARA]->(e) SET r.provenance_class='asserted', r.default=true",
+          g=g, slug=slug, name=name)
+
+
 def _project_hypotheses(s, g, log):
     """Project the :Hypothesis spine from the fold (ontologia §1: hipotese, verbatim — the node
     is a projection of hypothesis.declared, exactly as :Artefato is of artefato.published).
@@ -673,6 +697,15 @@ def _project_parceiros(s, g, log):
               "e.parceiro_by=$by, e.parceiro_provenance='asserted'",
               g=g, name=p["name"], kind=p.get("kind"), domain=p.get("domain"),
               by=p.get("by"))
+        # curadoria autoral (codex adversarial #1): publish-before-promotion SELF-HEALS here —
+        # the para-o-mentee default is fail-safe (never blocks completion, so the per-slug
+        # recovery won't revisit it); the backbone, run every canonical publish + sweep,
+        # backfills the pending a.para_default -> PARA edges once the promotion lands. The
+        # same pattern as the SERVES backfill for artefatos published before the Objective.
+        s.run("MATCH (a:Artefato {group_id:$g}) WHERE a.para_default=$name "
+              "MATCH (e:Entity {group_id:$g, parceiro:true}) WHERE e.name=$name "
+              "MERGE (a)-[r:PARA]->(e) SET r.provenance_class='asserted', r.default=true",
+              g=g, name=p["name"])
 
 
 def _project_backbone(s, g, log):
@@ -825,7 +858,7 @@ def _gate_props(gate):
 
 def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites=None,
                      spec=None, lineage=None, log=eventlog.LOG, gate=None, origin=None,
-                     bears_on=None, para=None):
+                     bears_on=None, para=None, para_default=None):
     """Project a just-published Artefato into the edge's graph — the deterministic spine write
     that was prose in `skills/_shared/memory.md` (the "Project — AFTER you publish" block) and so
     got SKIPPED by the producer. Ported here as a GUARANTEED side-effect of every publish so the
@@ -1001,6 +1034,9 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # leaves the projection incomplete, so the next sweep re-links once it lands.
             unresolved_bears = _project_bears_on(s, g, slug, bears_on)
             unresolved_para = _project_para(s, g, slug, para)
+            # (2b3) curadoria autoral — the para-o-mentee DEFAULT mark (prop + promoted-only
+            # edge). Fail-safe by design: NEVER joins the unresolved set / completion marker.
+            _project_para_default(s, g, slug, para_default)
             # (2c) MENTIONS — ticket D: the entities the published CONTENT (intent+spec) DE FATO
             # names (curadoria inline no publish — the offline curator was cut). NOT emb_input: the
             # slug is metadata, and its hyphens count as word boundaries — a compound slug would
@@ -1151,11 +1187,16 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # its own copy for the event — codex meta-gate #5). Id-less/legacy → beat. Resolved here
     # only for the graph projection below.
     origin = eventlog.dispatch_origin(dispatch_id, log=log)
-    eventlog.publish_artefato_atomic(slug, intent, proposes=proposes, distills=distills,
-                                     cites=cites, spec=spec, skill=skill, log=log,
-                                     lineage=lineage, require_wake=True, adoption=adoption,
-                                     dispatch_id=dispatch_id, residuals=residuals, gate=gate,
-                                     bears_on=bears_on, para=para)
+    published_ev, _ = eventlog.publish_artefato_atomic(
+        slug, intent, proposes=proposes, distills=distills,
+        cites=cites, spec=spec, skill=skill, log=log,
+        lineage=lineage, require_wake=True, adoption=adoption,
+        dispatch_id=dispatch_id, residuals=residuals, gate=gate,
+        bears_on=bears_on, para=para)
+    # curadoria autoral: the para-o-mentee default is derived ONCE, at the event seam (origin
+    # pattern — never a caller arg, never in the digest); the projection reads it OFF the
+    # committed event so event and graph can never disagree.
+    para_default = published_ev["payload"].get("para_default")
 
     # the page is a PROJECTION written after the commit — a failure here is recoverable.
     _write_page(out, page)
@@ -1186,7 +1227,8 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
         try:
             project_fn(slug, intent, skill=skill, distills=distills, proposes=proposes,
                        cites=cites, spec=spec, lineage=lineage, log=log, gate=gate,
-                       origin=origin, bears_on=bears_on, para=para)
+                       origin=origin, bears_on=bears_on, para=para,
+                       para_default=para_default)
         except Exception as ex:  # noqa: BLE001 — projection is best-effort, never fatal
             print(f"project skipped for {slug!r} (best-effort, reproject next beat):", ex)
     return out
@@ -1354,7 +1396,8 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
                        cites=item.get("cites"), spec=item.get("spec"),
                        lineage=item.get("lineage"), log=log, gate=item.get("gate"),
                        origin=item.get("origin"),
-                       bears_on=item.get("bears_on"), para=item.get("para"))
+                       bears_on=item.get("bears_on"), para=item.get("para"),
+                       para_default=item.get("para_default"))
         except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
             print(f"graph reproject skipped for {item.get('slug')!r} (best-effort):", ex)
     # B.3 (Codex adversarial) — replay das INTEGRAÇÕES também: uma promoção cuja marca best-effort
