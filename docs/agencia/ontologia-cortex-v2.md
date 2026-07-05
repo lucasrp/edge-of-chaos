@@ -44,3 +44,7 @@ Plano-compute do episteme inalterado byte-a-byte. Tudo adicionado vive em planos
 **LOAD-BEARING (implementar PRIMEIRO):** o eixo `provenance_class` + CX-1 no `verificar`. O resto é aditivo e incremental — bota essa invariante e a integridade da valência-computada fica garantida enquanto os planos navegáveis crescem.
 
 **Calls defaulted (ponytail):** community/topic = 1 nó parametrizado (2 só se topic precisar de campos próprios); mentions/distills/cites = nomes de domínio pra legibilidade (colapsáveis em via/deriva_de/tem pra diff menor).
+
+## §6 — Nó `parceiro` (operador, 2026-07-05): a constelação social
+Mais uma entidade de 1ª classe: **parceiro de trabalho** — empresa, pesquisador, membro da equipe, usuário de git. O roberto sabe de cor o pessoal do trabalho do operador; o grafo também deve saber. Props: `{name, kind: empresa|pesquisador|equipe|git-user, domain?, contact_ref?}`; arestas: artefato-`PARA`->parceiro (o documento FEITO pra pessoa), parceiro-`MENTIONS`-tópicos/entities. `provenance_class`: asserted quando declarado, extracted quando minerado.
+**Por quê (duplo):** (1) **documentos PARA pessoas** — a persona-alvo construída-de-dados (grill-knows-the-mentee) ganha substrato: o report calibra ao parceiro real; (2) **o report compartilhado é o nosso VIRAL** — cada documento passável entregue a um parceiro difunde o edge-of-chaos. O crescimento do produto anda pelo grafo social.
