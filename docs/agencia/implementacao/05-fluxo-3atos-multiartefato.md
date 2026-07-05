@@ -14,3 +14,6 @@ Operador 2026-07-05: a divisão do fluxo é **grounding inicial COM PROPOSTA** +
 
 ## Por que assim (o tune)
 Feedback de vários eixos disjuntos ao mesmo tempo = tune ruim (operador). Loop localizado por artefato = cada agente recebe feedback de UM eixo. E o fan-out-gather + single-writer por artefato é o SOTA validado ([[sota-for-the-artefato-problem]] — o multi-writer do conductor é o anti-pattern).
+
+## A fase de CONSOLIDAÇÃO do grafo (operador: possivelmente a função MAIS IMPORTANTE do artefato)
+Todo artefato ganha uma fase de consolidação: **ir na internet, procurar um SIGNIFICADO, e FAZER esse significado no grafo** — materializar o que aprendeu como nós/arestas/tipos (a curadoria inline do 02-D elevada a FASE de 1ª classe). O artefato não é só a página: é o órgão que transforma significado-do-mundo em estrutura-do-grafo. O texto é a projeção; o significado consolidado no grafo é o que ACUMULA (é ele que o recall, as communities, as pontes e o episteme navegam depois). provenance: asserted-by-agent, ancorado nos cites do próprio artefato.
