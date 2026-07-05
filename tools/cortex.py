@@ -18,6 +18,7 @@ artefatos_without_kernel · supersede_rank (PUBLIC here — harvest used to reac
 eventlog._supersede_rank; a private reach-in is not an interface).
 """
 import eventlog
+import communities as _communities
 
 
 # Each door delegates LATE (resolved at call time on the eventlog module), never an import-time
@@ -63,3 +64,18 @@ def artefatos_without_kernel(*args, **kwargs):
 
 def supersede_rank(payload, event):
     return eventlog._supersede_rank(payload, event)
+
+
+# --- community navigation (Módulo 2 read door over tools/communities.py; same late-binding
+# rule; graph leg degrades DARK (None) — never raises into a bare-python caller) ---
+
+def communities(*args, **kwargs):
+    return _communities.communities(*args, **kwargs)
+
+
+def community(*args, **kwargs):
+    return _communities.community(*args, **kwargs)
+
+
+def locate(*args, **kwargs):
+    return _communities.locate(*args, **kwargs)
