@@ -46,3 +46,6 @@ O grill organiza-se pela janela de Johari — quatro caças, cada uma com seu ó
 
 ## LEI #0 (operador, grill vivo 2026-07-05 — "a primeira coisa que o grill tem que saber")
 **O grill IGNORA o que o mentee diz que é solução. Ele entende o PROBLEMA. O que o mentee apresenta como solução é RUÍDO para o grill** — sinal apenas de que ali existe um problema que doeu o bastante pra ele desenhar algo. (O problema-XY como lei fundadora: a solução declarada aponta pro problema, nunca o resolve por atestado.) Toda pergunta do grill mira o problema por trás do pedido; a solução do mentee entra, no máximo, como evidência do quanto ele já pensou — nunca como spec.
+
+## Decisão: o grill NÃO-CONVIDADO existe (operador: "seria muito interessante")
+Autorizado a chegar sem ser chamado. O QUANDO (design do ed, sob a Lei #0): chega quando a EVIDÊNCIA chega, nunca por cadência — (a) o falsificador de uma inscrição aberta aconteceu (cobrança com fato na mão); (b) o quente detecta a LARGADA de um empreendimento novo (o meta-grill "por que isso?"); (c) o padrão-de-loop (mesmo fio girando N sessões sem estado novo — o correr-atrás-do-rabo mecânico). Sempre serial, sempre com a travessia na mão, sempre UMA pergunta. Nunca um cron de "e aí?".
