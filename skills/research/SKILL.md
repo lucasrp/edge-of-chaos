@@ -50,8 +50,10 @@ The scaffold names three role-defined slots; research maps each to its directed-
   the gap-closing evidence; a factual claim with no source does not ship — a reasoning step stands on its
   premises.
 - **`converge`** (loop2 critic) — judge whether the target is **understood to plenitude**: the mechanism
-  explained from first principles, every gap either closed with evidence or marked unknown, taught as to
-  someone intelligent but unfamiliar — and the ending leaving him **ready to act on the target** (leitura
+  explained from first principles, every gap either closed with evidence or marked unknown, taught
+  **Feynman-calibrado ao leitor real** — assume what he already masters, contextualize only the new;
+  never exhaustive (exhaustive = enfadonho), never cryptic (a referent without a name is not depth)
+  — and the ending leaving him **ready to act on the target** (leitura
   cega 2026-07-05: ordered concrete steps on the live work, each traceable to the body). Ship on
   *understanding reached*, never on brevity. A linked survey that never derived is not research; neither
   is a shallow definition; neither is a beautiful explanation that ends on the understanding.
