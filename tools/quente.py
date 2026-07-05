@@ -44,6 +44,67 @@ def operator_prompts(turns, cap=500):
     return out
 
 
+# --- adapters (IO fino; o pure core acima é o testado) ---
+
+def _session_meta_and_turns(path):
+    """Um passe no jsonl: meta (op_turns/op_chars/last) + turnos (role, texto) já sem tool-noise."""
+    import json
+    turns, op_turns, op_chars, last = [], 0, 0, ""
+    for line in open(path):
+        try:
+            d = json.loads(line)
+        except Exception:
+            continue
+        t = d.get("type")
+        if t not in ("user", "assistant"):
+            continue
+        ts = d.get("timestamp") or ""
+        last = max(last, ts)
+        c = d.get("message", {}).get("content")
+        txt = c if isinstance(c, str) else "".join(
+            b.get("text", "") for b in (c or []) if isinstance(b, dict) and b.get("type") == "text")
+        txt = (txt or "").strip()
+        if not txt:
+            continue
+        turns.append((("user" if t == "user" else "assistant"), txt))
+        if t == "user" and not any(m in txt[:200] for m in SCAFFOLDING):
+            op_turns += 1
+            op_chars += len(txt)
+    return {"op_turns": op_turns, "op_chars": op_chars, "last": last}, turns
+
+
+def build_bundle(store_dir, repos=(), k=3, max_age_days=7, exclude=()):
+    """O insumo completo do quente, do disco: seleciona as K substanciais do store (ordinal,
+    teto wall-clock), extrai o trilho-voz, monta as âncoras (git log dos repos + tail de tipos
+    do eventlog se disponível) e devolve (bundle_text, window_start_ts). `exclude` = sessões a
+    pular (ex.: a própria sessão em curso)."""
+    import subprocess
+    from pathlib import Path
+    from datetime import datetime, timezone
+    store = Path(store_dir)
+    metas = []
+    for p in store.glob("*.jsonl"):
+        if p.stem in exclude:
+            continue
+        meta, _ = _session_meta_and_turns(p)
+        meta["id"] = p.stem
+        meta["path"] = p
+        metas.append(meta)
+    now = datetime.now(timezone.utc).isoformat()
+    sel = select_sessions(metas, k=k, max_age_days=max_age_days, now=now)
+    sessions = []
+    for m in sel:
+        _, turns = _session_meta_and_turns(m["path"])
+        sessions.append({"id": m["id"][:8], "prompts": operator_prompts(turns)})
+    anchors = ""
+    for repo in repos:
+        out = subprocess.run(["git", "-C", str(repo), "log", "--oneline", "--since=72 hours ago"],
+                             capture_output=True, text=True).stdout
+        anchors += f"## git log {repo} (72h)\n{out or '(sem commits)'}\n"
+    window_start = min((m.get("last", "") for m in sel), default="")
+    return build_input(sessions, anchors), window_start
+
+
 def build_input(sessions, anchors):
     """Monta o pacote de dois trilhos que o leitor recebe. `sessions` = [{id, prompts}] já
     selecionadas/extraídas (mais recente primeiro); `anchors` = o texto das âncoras mecânicas
