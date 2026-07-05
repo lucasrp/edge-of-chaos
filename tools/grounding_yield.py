@@ -197,6 +197,7 @@ def _dispatch_context(events):
     pub_dispatch = {}     # slug -> resolved dispatch_id
     consumed_ids = set()
     skill_of = {}         # dispatch_id -> the consuming artefato's skill
+    gate_of = {}          # dispatch_id -> o verdict do gate persistido (B.2 — o reward que faltava)
     for e in events:
         if e.get("type") != "artefato.published":
             continue
@@ -218,11 +219,16 @@ def _dispatch_context(events):
             sk = p.get("skill")
             if isinstance(sk, str) and sk.strip():
                 skill_of[did] = sk.strip()
+            # B.2 — o gate do publish deste dispatch (payload `gate`, B.1). Legado sem gate
+            # (ou malformado) fica de fora — o join é forward-only, nunca fabricado.
+            gp = p.get("gate")
+            if isinstance(gp, dict):
+                gate_of[did] = gp
     unconsumed = len(open_ids - consumed_ids)
 
     def intent_of(did):
         return declared_intent.get(did) or skill_of.get(did)
-    return pub_dispatch, intent_of, unconsumed
+    return pub_dispatch, intent_of, unconsumed, gate_of
 
 
 def _empty_cell(key):
@@ -231,7 +237,9 @@ def _empty_cell(key):
             "geometry": geometry, "attempts": 0, "hits": None, "hits_unknown": 0, "dry": {},
             "excluded": 0, "cited": 0, "rewards": [], "mean_sim": None, "score": None,
             "cite_rate": None, "_scoring_attempts": 0, "_scored": [], "_noembed": 0,
-            "canary": None}
+            "canary": None,
+            # B.2 — o resultado do gate, coluna PRÓPRIA (llm_judged; NUNCA no `score` computed, CX-1)
+            "gate_n": 0, "gate_pass_n": 0, "gate_pass_rate": None}
 
 
 def fold_grounding_yield(events, hsmap=None, policy=None):
@@ -252,7 +260,7 @@ def fold_grounding_yield(events, hsmap=None, policy=None):
     a_prior, b_prior = policy["cite_prior"]
 
     winners, canaries = _winners_and_canaries(events)
-    pub_dispatch, intent_of, unconsumed = _dispatch_context(events)
+    pub_dispatch, intent_of, unconsumed, gate_of = _dispatch_context(events)
 
     cells = {}
     excluded = {"seca-suspeita": 0}
@@ -296,6 +304,20 @@ def fold_grounding_yield(events, hsmap=None, policy=None):
                 in_dispatch.setdefault(did, {}).setdefault(source, set()).add(key)
         if cell["canary"] is None:
             cell["canary"] = _canary_state(source, interface, canaries)
+
+    # B.2 — o JOIN do gate por dispatch_id (a chave já existia): o RESULTADO do gate credita cada
+    # scoring-cell que atendeu o dispatch. Coluna própria (gate_n/gate_pass_rate) — o gate é
+    # llm_judged e NUNCA entra no `score` de cosine (computed; CX-1). Um `pass` não-booleano é
+    # descartado (nunca fabricado).
+    for did, gate in gate_of.items():
+        gpass = gate.get("pass")
+        if not isinstance(gpass, bool):
+            continue
+        for keys in in_dispatch.get(did, {}).values():
+            for key in keys:
+                cell = cells[key]
+                cell["gate_n"] += 1
+                cell["gate_pass_n"] += 1 if gpass else 0
 
     # per-source marginal accumulators for coarse/ambiguous cites (cell cites feed the marginal too)
     marginal_extra = {}   # source -> {"scored": [...], "noembed": n, "coarse": n, "ambiguous": n}
@@ -350,6 +372,8 @@ def fold_grounding_yield(events, hsmap=None, policy=None):
     global_mean = fmean(all_rewards) if all_rewards else 0.0
 
     for cell in cells.values():
+        # B.2 — a taxa de pass do gate (fração simples; sem prior — n baixo se lê pelo gate_n)
+        cell["gate_pass_rate"] = (cell["gate_pass_n"] / cell["gate_n"]) if cell["gate_n"] else None
         if cell["geometry"] == "ambient":
             continue
         # citation-rate posterior — Beta(a,b) prior (mildly pessimistic)
@@ -399,19 +423,25 @@ def _build_marginals(cells, marginal_extra, global_mean, policy):
             continue
         m = by_source.setdefault(src, {"source": src, "attempts": 0, "cited": 0,
                                        "rewards": [], "coarse": 0, "ambiguous": 0,
-                                       "mean_sim": None, "score": None, "cite_rate": None})
+                                       "mean_sim": None, "score": None, "cite_rate": None,
+                                       "gate_n": 0, "gate_pass_n": 0, "gate_pass_rate": None})
         m["attempts"] += cell["attempts"]
         m["cited"] += cell["cited"]
         m["rewards"].extend(cell["rewards"])
+        # B.2 — o gate agrega no marginal do source (mesma coluna própria, nunca no score)
+        m["gate_n"] += cell["gate_n"]
+        m["gate_pass_n"] += cell["gate_pass_n"]
     for src, extra in marginal_extra.items():
         m = by_source.setdefault(src, {"source": src, "attempts": 0, "cited": 0,
                                        "rewards": [], "coarse": 0, "ambiguous": 0,
-                                       "mean_sim": None, "score": None, "cite_rate": None})
+                                       "mean_sim": None, "score": None, "cite_rate": None,
+                                       "gate_n": 0, "gate_pass_n": 0, "gate_pass_rate": None})
         m["rewards"].extend(extra["scored"])
         m["cited"] += extra["coarse"] + extra["ambiguous"]
         m["coarse"] += extra["coarse"]
         m["ambiguous"] += extra["ambiguous"]
     for m in by_source.values():
+        m["gate_pass_rate"] = (m["gate_pass_n"] / m["gate_n"]) if m["gate_n"] else None
         m["mean_sim"] = fmean(m["rewards"]) if m["rewards"] else None
         n = len(m["rewards"])
         mean = m["mean_sim"] if m["mean_sim"] is not None else 0.0
@@ -523,8 +553,12 @@ def _panel_rows(cells, declared):
         r = agg.setdefault(sk, {"source": c["source"], "interface": c["interface"],
                                 "attempts": 0, "hits": None, "hits_unknown": 0, "cited": 0,
                                 "dry": {}, "rewards": [], "score": None, "canary": None,
-                                "dead_leg": False})
+                                "dead_leg": False, "gate_n": 0, "gate_pass_n": 0})
         r["attempts"] += c["attempts"]
+        # B.2 — as colunas do gate sobem pro grão do painel (senão a feature fica invisível
+        # no seu consumidor principal, o /sources — achado do Codex adversarial).
+        r["gate_n"] += c.get("gate_n", 0)
+        r["gate_pass_n"] += c.get("gate_pass_n", 0)
         if c["hits"] is not None:
             r["hits"] = (r["hits"] or 0) + c["hits"]
         r["hits_unknown"] += c["hits_unknown"]
@@ -541,7 +575,8 @@ def _panel_rows(cells, declared):
         if sk not in agg:
             agg[sk] = {"source": src, "interface": iface, "attempts": 0, "hits": None,
                        "hits_unknown": 0, "cited": 0, "dry": {}, "rewards": [], "score": None,
-                       "canary": None, "dead_leg": True, "installed": installed}
+                       "canary": None, "dead_leg": True, "installed": installed,
+                       "gate_n": 0, "gate_pass_n": 0}
         else:
             agg[sk]["installed"] = installed
     for r in agg.values():
@@ -577,6 +612,8 @@ def render_sources_panel(yield_result, declared):
         if r["hits_unknown"]:
             hits += f" (+{r['hits_unknown']}?)"
         score = "EXPLORE" if (r["score"] is None and not r["dead_leg"]) else _fmt(r["score"])
+        # B.2 — a coluna do gate (pass/n), o RESULTADO do gate visível na curadoria; "—" sem join
+        gate = f'{r["gate_pass_n"]}/{r["gate_n"]}' if r.get("gate_n") else "—"
         canary = r["canary"] or "—"
         leg = ' class="dead-leg"' if r["dead_leg"] else ""
         note = " — DEAD LEG (declared, no manifest yet)" if r["dead_leg"] else ""
@@ -586,7 +623,7 @@ def render_sources_panel(yield_result, declared):
             f'<tr{leg}><td>{_html.escape(str(r["source"]))}</td>'
             f'<td>{_html.escape(str(r["interface"]))}{note}</td>'
             f'<td>{r["attempts"]}</td><td>{hits}</td><td>{r["cited"]}</td>'
-            f'<td>{_fmt(r["mean_sim"])}</td><td>{score}</td>'
+            f'<td>{_fmt(r["mean_sim"])}</td><td>{score}</td><td>{gate}</td>'
             f'<td>{_html.escape(dry)}</td><td>{_html.escape(canary)}</td></tr>')
     excl = ", ".join(f"{_html.escape(k)}:{v}" for k, v in sorted(yield_result["excluded"].items()))
     amb = sum(m.get("ambiguous", 0) for m in yield_result["marginals"].values())
@@ -597,7 +634,7 @@ def render_sources_panel(yield_result, declared):
     table = (
         '<table class="sources-yield"><thead><tr>'
         '<th>source</th><th>interface</th><th>tentativas</th><th>hits</th><th>citadas</th>'
-        '<th>mean sim</th><th>score</th><th>secas (por tier)</th><th>canário</th>'
+        '<th>mean sim</th><th>score</th><th>gate</th><th>secas (por tier)</th><th>canário</th>'
         '</tr></thead><tbody>' + "".join(body) + '</tbody></table>')
     return table + footer
 

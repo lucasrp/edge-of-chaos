@@ -539,10 +539,10 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             seen = {}
 
             def project_fn(s, i, *, skill, distills, proposes, cites, spec=None,
-                           lineage=None, log=None):
+                           lineage=None, log=None, gate=None):
                 seen.update(slug=s, intent=i, skill=skill, distills=distills,
                             proposes=proposes, cites=cites, spec=spec,
-                            lineage=lineage, log=log)
+                            lineage=lineage, log=log, gate=gate)
 
             publisher.publish(
                 slug, _spec(), intent=intent, skill="report", cites=cites,
@@ -562,6 +562,12 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             #   sanitized list the proof binds and the event persists (Codex: no proof/event-invisible junk
             #   may reach projection), equal-by-value to this already-clean input.
             self.assertEqual(seen["log"], log)         # the projection reads the SAME log (Codex P2)
+            # B.1 (ticket B): a projeção recebe o MESMO gate que o evento persistiu — lido do
+            # proof (nunca de um arg do caller), então o nó e o log nunca divergem.
+            self.assertEqual(seen["gate"],
+                             publisher._gate_payload(_passing_proof(
+                                 slug, _spec(), intent, cites=cites, proposes=proposes,
+                                 distills=distills, lineage=lineage)))
 
     def test_clean_plus_junk_lineage_projects_only_normalized(self):
         # Codex: a proof minted for CLEAN lineage, published with clean+junk — the junk normalizes away so
@@ -579,7 +585,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             seen = {}
 
             def project_fn(s, i, *, skill, distills, proposes, cites, spec=None,
-                           lineage=None, log=None):
+                           lineage=None, log=None, gate=None):
                 seen["lineage"] = lineage
 
             publisher.publish(
@@ -663,7 +669,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             seen = {}
 
             def fake_project(s, intent, *, skill=None, distills=None, proposes=None,
-                             cites=None, spec=None, lineage=None, log=None):
+                             cites=None, spec=None, lineage=None, log=None, gate=None):
                 seen["lineage"] = lineage
 
             publisher.reproject_graph(log=log, project_fn=fake_project,

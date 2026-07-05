@@ -382,7 +382,7 @@ def test_dispatch_id():
 
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
                             spec=None, log=LOG, *, lineage=None, skill=None, require_wake=False,
-                            adoption=None, dispatch_id=None, residuals=None):
+                            adoption=None, dispatch_id=None, residuals=None, gate=None):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
     publish seam): you cannot publish without the *why*. Both events land in a single
     `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
@@ -449,7 +449,10 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
           "skill": skill, "dispatch_id": dispatch_id,
           # S6 (design-close §3/§5): the unaddressed criticism a publish-with-residuals carried, as a
           # FIRST-CLASS event field (distinct name from the `residual` channel). None on a normal publish.
-          "residuals": residuals}),
+          "residuals": residuals,
+          # B.1 (ticket B): o verdict do gate como campo do MESMO batch atômico — sem novo tipo de
+          # evento, replayável (o grafo já computava e jogava fora). None num publish legado/sem gate.
+          "gate": gate}),
         ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
         ("artefato.adoption", f"artefato:{slug}", adoption),
     ]
@@ -565,6 +568,9 @@ def fold_corpus(events):
                            "distills": p.get("distills", []), "cites": p.get("cites", []),
                            "lineage": p.get("lineage", []),
                            "spec": p.get("spec"), "skill": p.get("skill"),
+                           # B.1: o gate persistido acompanha o item — um reproject restaura as
+                           # flat props; evento legado sem gate folda None (forward-only).
+                           "gate": p.get("gate"),
                            "ts": e.get("ts"), "latest_ts": e.get("ts")}
         elif t == "intent.kernel" and slug in items:
             # content rule: only a non-empty stripped intent becomes the why; a blank kernel renders
@@ -629,6 +635,54 @@ def source_yield_at(seq=None, ts=None, log=LOG):
 
 SOURCE_CURATED_TYPES = ["source.curated", "source.dropped"]
 SOURCE_FEEDBACK_TYPES = SOURCE_TYPES + SOURCE_CURATED_TYPES
+
+
+def integrate_artefato_source(slug, reviewer, note="", log=LOG):
+    """B.3 (ticket B) — o ATO: um artefato publicado, quando INTEGRADO, vira uma source (o edge
+    se aterra na própria obra). Writes são ACTS: este é um evento de integração HITL/autoridade
+    (`review_approved`, authority=reviewer — reviewer≠asserter), NUNCA automático: exige o
+    reviewer NOMEADO e recusa um slug que nunca publicou neste log. Zero tipo novo de nó — o
+    fold (`integrated_sources_at`) só marca o slug como integrado; o pool/curadoria lê dali."""
+    if not (isinstance(reviewer, str) and reviewer.strip()):
+        raise ValueError(
+            f"cannot integrate artefato {slug!r} as a source without a NAMED reviewer "
+            "authority (B.3: HITL — review_approved{authority:reviewer}, nunca automático)")
+    published = {e["payload"].get("slug")
+                 for e in read(types=["artefato.published"], log=log)
+                 if isinstance(e.get("payload"), dict)}
+    if slug not in published:
+        raise ValueError(
+            f"cannot integrate {slug!r}: no artefato.published with that slug on this log "
+            "(só a obra publicada vira source)")
+    return append("artefato.integrated", f"artefato:{slug}",
+                  {"slug": slug, "review_approved": True, "authority": "reviewer",
+                   "reviewer": reviewer.strip(), "note": note}, log=log)
+
+
+def fold_integrated_sources(events):
+    """Pure fold de `artefato.integrated` → {slug: {reviewer, note, ts}} (o pool de obra-integrada
+    que a curadoria/gather lê). Tolerante à casa: payload não-dict, slug vazio ou um evento sem
+    review_approved=True é pulado, nunca crasha. Última integração ganha (re-integração é rara e
+    idempotente no efeito)."""
+    out = {}
+    for e in events:
+        if e.get("type") != "artefato.integrated":
+            continue
+        p = e.get("payload")
+        if not isinstance(p, dict):
+            continue
+        slug = p.get("slug")
+        if (isinstance(slug, str) and slug.strip()
+                and p.get("review_approved") is True):
+            out[slug] = {"reviewer": p.get("reviewer"), "note": p.get("note"),
+                         "ts": e.get("ts")}
+    return out
+
+
+def integrated_sources_at(seq=None, ts=None, log=LOG):
+    """O pool de artefatos-integrados-como-source até um cursor (replay puro, como corpus_at)."""
+    return fold_integrated_sources(
+        read(types=["artefato.integrated"], until_seq=seq, until_ts=ts, log=log))
 
 
 def source_curated(source, opinion, kind=None, log=LOG):

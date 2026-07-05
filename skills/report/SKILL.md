@@ -171,7 +171,7 @@ without it, E1c — never reconstruct it from the log).
         # Re-derive deeper from the named gaps; return the richer artefato (carrying every field). \
         improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
         close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
-          floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session=''),  # S6 floor (#61): the PUBLISHER runs the close, so point session_id at the MAIN transcript (where the reads live) AND clear child_session='' (the publisher is a child) — else the floor darks out and loses its teeth; knob EDGE_GROUNDING_FLOOR, default 0=off \
+          floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session=''),  # S6 floor (#61): the PUBLISHER runs the close, so point session_id at the MAIN transcript (where the reads live) AND clear child_session='' (the publisher is a child) — else the floor darks out and loses its teeth; knob EDGE_GROUNDING_FLOOR, default 1=observe (ticket B) \
           complete_fn=<review-completer>, publish_fn=publish_fn)"
 
 **Project-after-publish is now AUTOMATIC** (#30): `publisher.publish` runs the graph projection

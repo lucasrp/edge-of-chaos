@@ -142,7 +142,7 @@ from the brief points the floor at the MAIN's transcript and the cleared `child_
 `() -> list[str]` the wiring injects at the call-site (`close.py` never imports `harvest` — the same
 injection idiom as `publish_fn`); a returned list is **genus-class** — summed into the gate's
 `violations`, blocking-first, before the reviewers. `harvest.close_floor` reads the knob
-**`EDGE_GROUNDING_FLOOR`** (default **`0=off` → `[]`**, byte-compat with today; `1=observe` counts
+**`EDGE_GROUNDING_FLOOR`** (default **`1=observe`** since ticket B — B.4's first honest rung; `0=off` → `[]` stays a declared opt-out; `1=observe` counts
 the would-be `grounding.floor` / `grounding.floor_dark` but never blocks; `2=gate` returns the named
 violation on a **THEMED** dispatch that recognized **zero** source-reads). It is **fail-OPEN** (the
 inverse of genus): out-of-session, undeclared geometry, or a child-session transcript → `[]` + a
