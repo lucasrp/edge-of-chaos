@@ -45,7 +45,7 @@ def _yaml_with_ground_truth(p, documents):
     return p
 
 
-def _genotype(memory, idiom=True, personality=True, method=True):
+def _genotype(memory, idiom=True, personality=True, method=True, canone=True):
     """A throwaway genotype tree: memory/ docs + a state/idiom.md, fail-closed inputs the
     composer requires. Toggle a doc off to drive the fail-closed assertions."""
     memory.mkdir(parents=True, exist_ok=True)
@@ -53,6 +53,8 @@ def _genotype(memory, idiom=True, personality=True, method=True):
         (memory / "personality.md").write_text("# Personality — ed\n\nAnalytical and skeptical.")
     if method:
         (memory / "method.md").write_text("# Feynman Method\n\nDerive before researching.")
+    if canone:
+        (memory / "canone.md").write_text("# O cânone\n\nO report do DSPy — visto e amplificado.")
     state = memory.parent / "state"
     state.mkdir(parents=True, exist_ok=True)
     if idiom:
@@ -412,6 +414,7 @@ class ImmutableTattoosAreTheBriefingHead(unittest.TestCase):
         self.assertIn("Initial tattoos", out)
         self.assertIn("### Personality", out)
         self.assertIn("### Method", out)
+        self.assertIn("### Cânone", out)                                        # o gosto (ticket 05)
         self.assertIn("Feynman Method", out)                                   # the method doctrine
         self.assertIn("distrust the rationality, not the person", out)         # the curated principle
         self.assertIn("## Idiom", out)                                         # the mentee's terms, required
@@ -460,6 +463,15 @@ class GenotypeIdentityIsFailClosed(unittest.TestCase):
             with self.assertRaises(briefing.BriefingIdentityError):
                 briefing._section_tattoos(memory=mem, agent_yaml=ay)
 
+    def test_missing_canone_doc_fails_closed(self):
+        # ticket 05: canone.md carrega junto de personality/method, fail-closed igual — as boas
+        # lembranças (o gosto) não morrem no reset, e a ausência é lobotomia, nunca blank.
+        with tempfile.TemporaryDirectory() as tmp:
+            mem = _genotype(Path(tmp) / "memory", canone=False)
+            ay = _complete_yaml(Path(tmp) / "agent.yaml")
+            with self.assertRaises(briefing.BriefingIdentityError):
+                briefing._section_tattoos(memory=mem, agent_yaml=ay)
+
     def test_complete_genotype_renders_personality_and_method_nonempty(self):
         with tempfile.TemporaryDirectory() as tmp:
             mem = _genotype(Path(tmp) / "memory")
@@ -467,8 +479,10 @@ class GenotypeIdentityIsFailClosed(unittest.TestCase):
             out = briefing._section_tattoos(memory=mem, agent_yaml=ay)
             self.assertIn("### Personality", out)
             self.assertIn("### Method", out)
+            self.assertIn("### Cânone", out)
             self.assertIn("Analytical and skeptical", out)
             self.assertIn("Derive before researching", out)
+            self.assertIn("visto e amplificado", out)
 
 
 class GlossaryFloorIsGroundTruthDocuments(unittest.TestCase):

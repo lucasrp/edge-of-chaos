@@ -50,6 +50,7 @@ def _genotype_memory(home):
     mem.mkdir(parents=True, exist_ok=True)
     (mem / "personality.md").write_text("# Personality — ed\n\nAnalytical and skeptical.")
     (mem / "method.md").write_text("# Feynman Method\n\nDerive before researching.")
+    (mem / "canone.md").write_text("# O cânone\n\nO report do DSPy — visto e amplificado.")
     (home / "state").mkdir(parents=True, exist_ok=True)
     return mem
 

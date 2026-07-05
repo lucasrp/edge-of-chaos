@@ -2293,7 +2293,19 @@ def entry(name):
     p = entries / name
     if not p.is_file() or p.suffix != ".html":
         abort(404)
-    return send_from_directory(entries, name)
+    resp = send_from_directory(entries, name)
+    if ".proto." in name:
+        # Ticket 05 (codex meta-gate SINAL #3): the standalone single-file pages run authored
+        # inline JS by design and are now roster-wide — this per-file CSP is the seam's documented
+        # upgrade path ("restrictive per-file CSP"). Inline script/style/data-images are the
+        # genus; everything NETWORKED is denied (connect/form/frame), so a page cannot reach the
+        # blog's same-origin write APIs (/e/<slug>/comment, /vote) nor exfiltrate. Single file,
+        # enforced at serve time, not only at authoring lint.
+        resp.headers["Content-Security-Policy"] = (
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+            "img-src data:; media-src data:; font-src data:; "
+            "connect-src 'none'; form-action 'none'; frame-ancestors 'self'; base-uri 'none'")
+    return resp
 
 
 @app.get("/static/<path:fname>")

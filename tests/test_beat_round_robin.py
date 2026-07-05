@@ -1,12 +1,15 @@
-"""Story S12 — the beat is a PURE round-robin scheduler (ADR-0012).
+"""Story S12 — the rotation cursor (`tools/_beat.next_producer`), post-ticket-05.
 
-Judgment is evacuated to the skill (amends ADR-0004): the beat carries ONLY rotation state.
-`tools/_beat.next_producer(roster, state_path)` advances a persisted cursor strictly — no
-queue-jump, no judgment. Given the roster ["report","map","plan"] and a fresh cursor, successive
-calls return report -> map -> plan -> report (wrap). The cursor file path is injectable for tests.
+ADR-0012 made the beat a PURE round-robin scheduler; ticket 05 (the 3-act flow — see the
+ADR-0012 Amendment) supersedes the pure-scheduler role: the beat is now the ato-1 trunk
+(grounding inicial → PROPOSTA), and the cursor survives as a **breadth prior / tie-breaker**
+inside the proposal, no longer the sole selector. The MECHANICS pinned here are unchanged:
+`next_producer(roster, state_path)` advances a persisted cursor strictly — report -> map ->
+plan -> report (wrap), injectable state path, lock-serialized under concurrency.
 
-The SKILL.md companion test pins the prose: theme-judgment ("choose one Worthwhile theme") is
-evacuated from the beat, and the close is delegated to the shared pipeline at the skill's exit.
+The SKILL.md companion test pins the prose: the old single-theme monolith ("choose one
+Worthwhile theme") stays gone, and the close is delegated to the shared pipeline at the
+skill's exit (tests/test_three_act.py pins the 3-act trunk tokens).
 """
 import sys
 import tempfile

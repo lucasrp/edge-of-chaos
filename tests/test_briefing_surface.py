@@ -47,6 +47,7 @@ class _BriefingBase(unittest.TestCase):
         memory.mkdir()
         (memory / "personality.md").write_text("# Personality\n\nAnalytical and skeptical.")
         (memory / "method.md").write_text("# Method\n\nDerive before researching.")
+        (memory / "canone.md").write_text("# O cânone\n\nO report do DSPy.")
         (root / "state").mkdir()
         (root / "state" / "idiom.md").write_text("# Idiom\n\n**beat** — the work cycle.")
         agent_yaml = root / "agent.yaml"

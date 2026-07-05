@@ -142,7 +142,8 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # producer-skills). `skill` is proof-bound but the proof binds whatever the producer supplies,
 # so an out-of-roster value (e.g. `report</p><script>…`) would verify cleanly; this roster is
 # the gate that rejects it BEFORE anything is written, and _page escapes it as defense in depth.
-PRODUCER_ROSTER = ("report", "research", "map", "plan", "discovery", "grill", "prototype")
+PRODUCER_ROSTER = ("report", "research", "map", "plan", "discovery", "grill", "prototype",
+                   "lazer")
 
 # Cortex-v1 (brick-1, L4): the AUTHORED typed lineage relations and their graph-edge labels — a
 # FIXED Python allowlist. The producer-supplied `item["type"]` is mapped through THIS dict; an
@@ -199,16 +200,20 @@ def _page(slug, body_html, *, skill, date, css, js=""):
     )
 
 
-# --- Ticket C: the `prototype` genus' STANDALONE publish path -------------------------------
-# The close path sanitizes raw-html (render.sanitize_raw_html strips <script>) — right for every
-# prose genus, fatal for an interactive page. The prototype genus therefore publishes its
-# single-file HTML+JS page through THIS separate seam: the page lands INTACT (script and all) at
-# a CONTENT-ADDRESSED name — `<slug>.proto.<sha256[:12]>.html` — inside the SAME blog dir, so the
+# --- The STANDALONE single-file publish path (ticket C, generalized by ticket 05) ------------
+# The close path sanitizes raw-html (render.sanitize_raw_html strips <script>) — right for a
+# block riding inside a rendered page, fatal for an authored interactive page. This separate
+# seam publishes the single-file HTML page INTACT (script, inline image and all) at a
+# CONTENT-ADDRESSED name — `<slug>.proto.<sha256[:12]>.html` — inside the SAME blog dir, so the
 # existing /e/ route serves it with zero server change. The ".proto." infix keeps the namespace
 # disjoint from close-published entries (SLUG_RE forbids dots, so `<slug>.html` can never collide).
 # Content addressing makes the page immutable: identical bytes are idempotent, changed bytes are a
 # NEW address — nothing is ever overwritten in place, and the companion entry's link stays true to
-# what its reviewers saw. Restricted to skill="prototype": no other genus rides raw script here.
+# what its reviewers saw.
+# Ticket 05 (operador): JS/imagem LIBERADOS em qualquer artefato — o 04-C vira a regra geral,
+# não a exceção. The seam is ROSTER-WIDE now; the ONE hard rule that stays is SINGLE FILE:
+# a full document that opens whole by itself (links point outward, the artefato carries
+# everything it loads). Out-of-roster skills are still refused.
 #
 # Single-file/zero-dep is the genus bar (the relicário régua): a network resource load (script src,
 # stylesheet link, img/iframe/media src to http(s) or protocol-relative //) is refused — a plain
@@ -225,15 +230,17 @@ _PROTO_EXTERNAL_DEP_RE = re.compile(
 
 
 def publish_prototype_page(slug, page_html, *, skill, blog_dir=BLOG_DIR) -> Path:
-    """Write the prototype genus' interactive single-file page, intact and content-addressed.
-    Returns the written Path (served at /e/<name>). Raises ValueError on any other genus, a bad
-    slug, a non-document fragment, or an external resource dependency — before anything lands.
+    """Write an intact, content-addressed single-file page for ANY roster genus (ticket 05
+    generalizes the prototype-only seam: JS/imagem liberados; single file é a única regra dura).
+    Returns the written Path (served at /e/<name>). Raises ValueError on an out-of-roster skill,
+    a bad slug, a non-document fragment, or an external resource dependency — before anything
+    lands.
     # ponytail: the page is NOT eventlogged — the companion entry (published through the close)
     # is the committed record and carries the link; log the page bytes if replay ever needs them."""
-    if skill != "prototype":
+    if skill not in PRODUCER_ROSTER:
         raise ValueError(
-            f"publish_prototype_page is the prototype genus' seam — skill {skill!r} refused "
-            "(no other genus publishes unsanitized script; use publisher.publish)")
+            f"publish_prototype_page is the roster's single-file seam — skill {skill!r} refused "
+            f"(not in {PRODUCER_ROSTER}; an out-of-roster genus never rides raw script)")
     if not (isinstance(slug, str) and SLUG_RE.match(slug)):
         raise ValueError(f"invalid slug {slug!r}: must match {SLUG_RE.pattern} (#4)")
     if not (isinstance(page_html, str) and "<html" in page_html.lower()):
@@ -520,7 +527,7 @@ def _gate_props(gate):
 
 
 def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites=None,
-                     spec=None, lineage=None, log=eventlog.LOG, gate=None):
+                     spec=None, lineage=None, log=eventlog.LOG, gate=None, origin=None):
     """Project a just-published Artefato into the edge's graph — the deterministic spine write
     that was prose in `skills/_shared/memory.md` (the "Project — AFTER you publish" block) and so
     got SKIPPED by the producer. Ported here as a GUARANTEED side-effect of every publish so the
@@ -571,10 +578,14 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # `skill` is COALESCED (Codex P2): the published event now carries skill, so a replay
             # restores the REAL producer identity; a legacy event with no skill folds to None, which
             # coalesce PRESERVES (never clobbers an already-projected skill to NULL).
+            # ticket 05: `origin` (user_requested|beat) coalesced like skill — the graph read
+            # models weigh user_requested ≫ beat; a legacy call with no origin never clobbers.
             s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) "
                   "SET a.kernel=$k, a.skill=coalesce($skill, a.skill), a.page=$page, "
+                  "a.origin=coalesce($origin, a.origin), "
                   "a.projected_at=$pat, a.projection_complete=false",
                   g=g, slug=slug, k=intent, skill=skill, page=f"blog/entries/{slug}.html",
+                  origin=origin,
                   pat=_dt.now(_tz.utc).isoformat())
             # B.1 — o verdict do gate como FLAT props no nó (badge, MIR-2/3). `SET a +=` com o
             # dict sanitizado (_gate_props: só primitivos), nunca interpolação de chave no Cypher.
@@ -824,6 +835,12 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # atômico (verify_proof já validou o proof acima; a projeção é lida DELE, nunca de um arg
     # do caller). None quando o proof não projeta (nunca bloqueia o publish).
     gate = _gate_payload(verdict)
+    # ticket 05 (hierarquia de ORIGEM): the artefato carries its origin — resolved from the
+    # dispatch.open that MINTED this dispatch_id (user_requested ≫ beat), never a caller arg
+    # (a producer cannot claim user_requested the wake did not declare; the atomic seam derives
+    # its own copy for the event — codex meta-gate #5). Id-less/legacy → beat. Resolved here
+    # only for the graph projection below.
+    origin = eventlog.dispatch_origin(dispatch_id, log=log)
     eventlog.publish_artefato_atomic(slug, intent, proposes=proposes, distills=distills,
                                      cites=cites, spec=spec, skill=skill, log=log,
                                      lineage=lineage, require_wake=True, adoption=adoption,
@@ -857,7 +874,8 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     if project_fn is not None:
         try:
             project_fn(slug, intent, skill=skill, distills=distills, proposes=proposes,
-                       cites=cites, spec=spec, lineage=lineage, log=log, gate=gate)
+                       cites=cites, spec=spec, lineage=lineage, log=log, gate=gate,
+                       origin=origin)
         except Exception as ex:  # noqa: BLE001 — projection is best-effort, never fatal
             print(f"project skipped for {slug!r} (best-effort, reproject next beat):", ex)
     return out
@@ -1023,7 +1041,8 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
             project_fn(item["slug"], item.get("intent") or "", skill=item.get("skill"),
                        distills=item.get("distills"), proposes=item.get("proposes"),
                        cites=item.get("cites"), spec=item.get("spec"),
-                       lineage=item.get("lineage"), log=log, gate=item.get("gate"))
+                       lineage=item.get("lineage"), log=log, gate=item.get("gate"),
+                       origin=item.get("origin"))
         except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
             print(f"graph reproject skipped for {item.get('slug')!r} (best-effort):", ex)
     # B.3 (Codex adversarial) — replay das INTEGRAÇÕES também: uma promoção cuja marca best-effort

@@ -38,6 +38,8 @@ SERVER_TOOL_GLOB = f"mcp__{SERVER_NAME}__*"
 GRANTED_SUBJECTS = {
     "lead", "recall", "assemble", "wake", "beat", "consolidate",
     "report", "map", "plan", "research", "critique", "discovery", "grill",
+    # ticket 05: lazer is a first-class producer (recall/consolidação like every producer).
+    "lazer",
 }
 
 # Kept for the world-typed config helpers / docs: the explicitly world-reading subjects. The allowlist

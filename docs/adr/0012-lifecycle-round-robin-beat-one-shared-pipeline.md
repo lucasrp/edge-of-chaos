@@ -112,3 +112,17 @@ proposed (2026-06-08; Close-architecture rewrite, Story S4)
   **Consistent with ADR-0003** (the protocol's bounded bounce is a gate, not the retry-envelope),
   **ADR-0006** (the publisher writes the log; pages are projections), and **ADR-0013** (the close's
   review gate is the blind, property-not-section verification).
+
+## Amendment — ticket 05 (2026-07-05): the 3-act flow supersedes the PURE-scheduler beat
+
+The operator's three-act split (`docs/agencia/implementacao/05-fluxo-3atos-multiartefato.md`)
+kills the monolith this ADR still assumed (one grounding → one close). The beat is now the
+**trunk of ato-1**: grounding inicial → an explicit **PROPOSTA** (WHICH artefatos, 1..N, why —
+the plan-side gates —, each with its angle), then **one branch agent per artefato**, each doing
+its **own grounding rounds** and exiting through this ADR's **unchanged shared pipeline** at its
+own exit. What survives intact: the ONE shared pipeline, the close-at-the-skill's-exit
+(ADR-0008), C3, the bounded bounce, and `_beat.next_producer` — the rotation cursor demoted to a
+**breadth prior / tie-breaker** inside the proposal, no longer the sole selector. What is
+superseded: "the beat makes no semantic judgment" — ato-1's proposal IS judgment, now grounded
+and gated (VoI/é-real/é-pra-ele) instead of a taste-driven loop (the 0004 failure this ADR cut;
+the cure is the gated proposal, not the blind rotation). See `skills/beat/SKILL.md`.
