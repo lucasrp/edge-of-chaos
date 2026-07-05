@@ -128,6 +128,26 @@ If the close bounces the entry and the page changes with it, re-run `publish_pro
 the new bytes get a new address; update the entry's link (the old address stays immutable, so
 what any reviewer saw stays true).
 
+## The apostila subproduct — the printable sibling (PAR B+C, default ON for this genus)
+
+The operator loves paper (grill-design persona-fact); the winning pair is the single-file
+interactive page **plus a printable APOSTILA built from the SAME data** — a build subproduct
+by script, never a third authoring (régua: `drafts/grounding-exp/formC-apostila.html`). For
+this genus it is ON by default (`publisher.apostila_wanted('prototype')`); any roster genus
+may opt in. The apostila is static A4 print matter: `@page{size:A4;…}` CSS,
+`break-inside:avoid` on repeatable units, the page's interaction PRECOMPUTED into static
+tables (the slider's sweep becomes the table), verbatim numbers with the source in the
+footer. Nothing live or networked — the seam refuses `<script>`, `on*=` handlers,
+`javascript:` URLs, CSS `@import`/`url(http…)`.
+
+    tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import publisher; \
+      print(publisher.publish_apostila_page('<slug>', open('<apostila.html>').read(), \
+        skill='prototype'))"
+
+It returns `blog/entries/<slug>.apostila.<sha12>.html` (content-addressed, immutable, served
+at `/e/<that-name>`). Link it from the companion entry as the "versão pra imprimir" —
+`publisher.apostila_link_block('<that-name>')` gives the canonical callout block for the spec.
+
 ## Security & review model — what the standalone page IS and ISN'T (known bounds)
 
 The interactive page runs arbitrary author-written JS by design (that is the genus — like the
