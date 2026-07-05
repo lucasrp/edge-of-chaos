@@ -12,3 +12,14 @@ Ticket C do wayfinder (paralelo a A). **A régua é o relicário** (operador, 20
 - O publisher vivo **sanitiza `<script>`** (blocks.py→sanitize_raw_html) — o genus interativo precisa de um caminho de publicação PRÓPRIO (página standalone content-addressed, não bloco sanitizado no template). A capacidade regrediu desde abril; C a restaura como genus de 1ª classe no roster.
 - JS-artefato = ferramenta NATIVA (duas faces: UI-humana + lógica-headless) → é a rampa do /artefato (#69) e do /app (#70).
 - Netlify key: `drafts/relicario/ed-20260417/secrets/netlify.env`.
+
+## A rubrica de gates do JS (fechada 2026-07-05; parte shipped no C, parte follow-up do PAR)
+| gate | tipo | estado |
+|---|---|---|
+| **ensina?** (a interação carrega o insight) | semântico, converge | ✅ shipped (C) |
+| **never-forced** (conteúdo não pede → não põe) | semântico | ✅ shipped (C) |
+| **render→ver→revisar** (o produtor VÊ antes de shipar) | rito | ✅ shipped (C, degrada honesto) |
+| substância + passabilidade AND | close (B.4) | ✅ herda do close |
+| **roda-sem-erro** (headless abre, console limpo) | MECÂNICO, veto | ⬜ follow-up (hoje é rito, não veto) |
+| **single-file/zero-dep lint** (sem CDN, sem fetch externo de lib) | mecânico | ⬜ follow-up |
+| **dado REAL** (ancorado no dado do artefato-par, não inventado) | semântico | ⬜ follow-up (nasce com o PAR) |
