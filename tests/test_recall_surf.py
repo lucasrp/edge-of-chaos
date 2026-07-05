@@ -304,6 +304,34 @@ class SurfBridgesViaEntityCommunity(unittest.TestCase):
         self.assertIn("s.run(_q(SURF_BRIDGE_QUERY)", src,
                       "surf_subgraph must walk the Entity/Community bridge too (ticket D)")
 
+    def test_a_failing_bridge_never_darkens_the_direct_surf(self):
+        # codex adversarial #6: the bridge is ADDITIVE — a bridge-only failure (e.g. a query
+        # timeout on a Community-less old graph) must degrade to "no siblings", never discard
+        # the direct associative rows the primary SURF_QUERY already returned.
+        from contextlib import contextmanager
+
+        class S:
+            def run(self, q, **params):
+                if "HAS_MEMBER" in str(q):
+                    raise RuntimeError("bridge leg down")
+                class R:
+                    def data(self):
+                        return [{"slug": "X", "kernel": "kx", "labels": ["Artefato"], "hops": 1}]
+                return R()
+
+        @contextmanager
+        def fake_session(group, uri=None, user=None, password=None):
+            yield S()
+
+        orig = recall._session
+        recall._session = fake_session
+        try:
+            rows = recall.surf_subgraph(["seed"], group="g1")
+        finally:
+            recall._session = orig
+        self.assertEqual([r["slug"] for r in rows], ["X"],
+                         "direct peers must survive a dark bridge leg")
+
     def test_merge_dedupes_by_slug_keeping_min_hops(self):
         # hermetic: fake the session; peer X reachable BOTH ways keeps the direct (min) hops;
         # sibling Y only via the bridge arrives with its honest hop count, after X.

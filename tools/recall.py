@@ -256,10 +256,15 @@ def surf_subgraph(seeds, group=None, uri=None, user=None, password=None):
                 return None
             rows = s.run(_q(SURF_QUERY), g=group, seeds=list(seeds)).data()
             # the Entity/Community bridge (ticket D) — same session, additive; a graph with no
-            # :Community yet simply matches nothing. Dedupe by slug keeping the MIN hops: a peer
-            # reachable both ways keeps its direct associative rank; a bridge-only sibling joins
-            # with its honest hop count (4) and the community it crossed (`via`).
-            bridge = s.run(_q(SURF_BRIDGE_QUERY), g=group, seeds=list(seeds)).data()
+            # :Community yet simply matches nothing. ADDITIVE means a bridge-only failure (a
+            # timeout, an old graph) darkens to "no siblings" — never discarding the direct rows
+            # already in hand (codex #6). Dedupe by slug keeping the MIN hops: a peer reachable
+            # both ways keeps its direct associative rank; a bridge-only sibling joins with its
+            # honest hop count (4) and the community it crossed (`via`).
+            try:
+                bridge = s.run(_q(SURF_BRIDGE_QUERY), g=group, seeds=list(seeds)).data()
+            except Exception:
+                bridge = []
             out = {}
             for r in rows + bridge:
                 peer = {"slug": r["slug"], "kernel": r.get("kernel"),
