@@ -23,3 +23,6 @@ Ticket C do wayfinder (paralelo a A). **A régua é o relicário** (operador, 20
 | **roda-sem-erro** (headless abre, console limpo) | MECÂNICO, veto | ⬜ follow-up (hoje é rito, não veto) |
 | **single-file/zero-dep lint** (sem CDN, sem fetch externo de lib) | mecânico | ⬜ follow-up |
 | **dado REAL** (ancorado no dado do artefato-par, não inventado) | semântico | ⬜ follow-up (nasce com o PAR) |
+
+## Plano de TESTE da skill (operador: "teste algumas versões")
+Quando o dig do craft voltar (memory/js-artefato-craft.md): montar 2-3 VERSÕES da skill prototype (ex.: a atual do C · a atual+regras-de-craft · craft+alma-do-relicário "show instead of explain") → cada uma gera o MESMO artefato JS (mesma pauta, dado real) → render→ver + gates (roda/ensina/passabilidade) → escolher a vencedora às cegas (arms, como manda a casa). A vencedora vira a skills/prototype/SKILL.md canônica.
