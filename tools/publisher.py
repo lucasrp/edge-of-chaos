@@ -527,6 +527,12 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                     g=g, slug=slug, prior=prior).single()
                 if not row or row["n"] == 0:
                     unresolved_lineage = True   # prior not in the graph yet — revisit next sweep
+            # (2c) MENTIONS — ticket D: the entities the published text DE FATO names, extracted
+            # from the SAME emb_input the embedding reads (curadoria inline no publish — the offline
+            # curator was cut). relate.project_mentions rides THIS session, never raises
+            # (best-effort) and never gates the completion marker.
+            import relate
+            relate.project_mentions(s, g, slug, emb_input)
             # (3) COMPLETION MARKER — set LAST, complete ONLY when (a) every edge write succeeded,
             # (b) the embedding is current (a FAILED embed leaves it false → retried on recovery,
             # Codex P2), (c) every distill ref RESOLVED, AND (d) every lineage prior RESOLVED (L4).

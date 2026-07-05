@@ -73,6 +73,25 @@ SURF_QUERY = (
     "min(length(p)) AS hops "
     "ORDER BY hops, slug")
 
+# The Entity/Community BRIDGE (ticket D, 02-D — "pra tudo se misturar"): sibling artefatos of the
+# same knowledge cluster, reached seed-MENTIONS->Entity<-HAS_MEMBER-Community-HAS_MEMBER->Entity
+# <-MENTIONS-sibling. A SISTER query to SURF_QUERY, deliberately NOT a widened allowlist: the
+# associative walk stays EXACTLY the five typed relations (the set-equality test pins it), and the
+# bridge is an EXPLICIT fixed shape — never a *1..4 walk that would blow past the hub discipline.
+# hops is the REAL path length (4), so direct associative peers always outrank bridge siblings in
+# the merged ORDER BY; `via` names the crossed community/ies (the navigability the mistura buys).
+# Path-wide group scoping verbatim from SURF_QUERY (R7b/#41): a foreign Entity/Community can
+# neither surface nor route.
+SURF_BRIDGE_QUERY = (
+    "MATCH (seed:Artefato {group_id:$g}) WHERE seed.slug IN $seeds "
+    "MATCH p=(seed)-[:MENTIONS]->(:Entity)<-[:HAS_MEMBER]-(c:Community)"
+    "-[:HAS_MEMBER]->(:Entity)<-[:MENTIONS]-(n:Artefato) "
+    "WHERE n.group_id=$g AND NOT n.slug IN $seeds "
+    "AND all(x IN nodes(p) WHERE x.group_id=$g) "
+    "RETURN n.slug AS slug, n.kernel AS kernel, labels(n) AS labels, "
+    "min(length(p)) AS hops, collect(DISTINCT c.name) AS via "
+    "ORDER BY hops, slug")
+
 _AUTO = object()
 
 # N1/R3 — the bounded-latency budget (seconds). Every cortex_* read rides a driver opened with these
@@ -236,8 +255,23 @@ def surf_subgraph(seeds, group=None, uri=None, user=None, password=None):
             if s is None:
                 return None
             rows = s.run(_q(SURF_QUERY), g=group, seeds=list(seeds)).data()
-            return [{"slug": r["slug"], "kernel": r.get("kernel"),
-                     "labels": r.get("labels"), "hops": r["hops"]} for r in rows]
+            # the Entity/Community bridge (ticket D) — same session, additive; a graph with no
+            # :Community yet simply matches nothing. Dedupe by slug keeping the MIN hops: a peer
+            # reachable both ways keeps its direct associative rank; a bridge-only sibling joins
+            # with its honest hop count (4) and the community it crossed (`via`).
+            bridge = s.run(_q(SURF_BRIDGE_QUERY), g=group, seeds=list(seeds)).data()
+            out = {}
+            for r in rows + bridge:
+                peer = {"slug": r["slug"], "kernel": r.get("kernel"),
+                        "labels": r.get("labels"), "hops": r["hops"]}
+                if r.get("via"):
+                    peer["via"] = r["via"]
+                prev = out.get(r["slug"])
+                if prev is None or peer["hops"] < prev["hops"]:
+                    out[r["slug"]] = {**(prev or {}), **peer}
+                elif prev is not None and "via" in peer and "via" not in prev:
+                    prev["via"] = peer["via"]   # keep the direct rank, still name the cluster
+            return sorted(out.values(), key=lambda r: (r["hops"], r["slug"]))
     except Exception:
         return None
 

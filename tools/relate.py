@@ -14,12 +14,14 @@ which tracks the model's anisotropy automatically (spec lines 42-44).
 """
 import math
 import os
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _identity  # noqa: E402
 import cortex  # noqa: E402  (reuse the one cosine via the Cortex door — ADR-0009/0019)
+import cortex_provenance  # noqa: E402  (the ONE provenance derivation — never fork the plane)
 
 # Sentinel so `nominate` can tell "caller passed None / 0.0" (a real value) from "use the default":
 # group=None must mean a degraded read (no group), and floor=0.0 is a legitimate gate, so neither
@@ -324,3 +326,153 @@ def route(pairs, *, nli_fn=None, type_fn=None):
         if type_fn is not None:
             type_fn(a_text, b_text)
     return offers, passed
+
+
+# ---------------------------------------------------------------------------
+# Ticket D (docs/agencia/implementacao/02-D) — the caller relate never had, + the MENTIONS leg.
+#
+# `sync` wakes the semantic via: nominate → route → the missing MERGE RELATES_TO, edges stamped
+# provenance_class='extracted' (a navigable HYPOTHESIS on the semantic plane — CX-1 keeps it out
+# of every verdict rollup by construction). `extract_mentions`/`project_mentions` are the
+# thematic via: the artefato's OWN published text names entities → MENTIONS ('asserted': o
+# artefato DE FATO menciona) → Entity → HAS_MEMBER → Community → sibling artefatos. Curadoria é
+# SÓ inline no publish (operador cortou o curador offline): what publish didn't curate stays raw
+# until the next artefato touches the theme — forward-only honesto.
+# ---------------------------------------------------------------------------
+
+# The corpus reader behind `sync` — `_read_artefato_embeddings` widened with the kernel (route
+# needs the TEXTS, spec line 45: never the cosine score). Same degrade contract: [] on any dark leg.
+_CORPUS_QUERY = ("MATCH (a:Artefato {group_id:$g}) "
+                 "WHERE a.projection_complete = true AND a.embedding IS NOT NULL "
+                 "RETURN a.slug AS slug, coalesce(a.kernel,'') AS kernel, a.embedding AS embedding")
+
+# The wipe is scoped to OUR edges only: cosine-nominated, Artefato↔Artefato. Graphiti's
+# Entity↔Entity RELATES_TO and any author-confirmed edge carry no such origin — untouched.
+_WIPE_QUERY = ("MATCH (a:Artefato {group_id:$g})-[r:RELATES_TO {origin:'cosine-nominated'}]-"
+               "(b:Artefato {group_id:$g}) DELETE r")
+
+_MINT_QUERY = ("MATCH (x:Artefato {group_id:$g, slug:$a}),(y:Artefato {group_id:$g, slug:$b}) "
+               "MERGE (x)-[r:RELATES_TO {origin:'cosine-nominated'}]->(y) "
+               "SET r.provenance_class=$pc")
+
+
+def sync(group=_AUTO, *, corpus=None, session=None, nli_fn=None,
+         uri=None, user=None, password=None):
+    """Wake the semantic via (ticket D): nominate → route → WIPE-REBUILD the cosine-nominated
+    RELATES_TO edges between Artefatos. The recompute is GLOBAL and periodic by design — the
+    relative floor and the mutual-kNN shift with every new node, so a per-publish incremental
+    mint would freeze yesterday's floor; the sweep calls this on every canonical run.
+
+    Method: read the corpus of ``(slug, kernel, embedding)`` → Stage-1 `nominate` (mutual-kNN
+    above the relative floor) → per pair, Stage-2a `route` over the KERNEL TEXTS (NLI-first; a
+    calibrated contradiction becomes an OFFER in the return — C2c: the machine NEVER persists a
+    directed claim) → survivors are minted ``(min_slug)-[:RELATES_TO {origin:'cosine-nominated',
+    provenance_class:'extracted'}]->(max_slug)`` — direction deterministic, reads stay
+    direction-agnostic; the plane comes from `cortex_provenance.provenance_class_for` (never a
+    forked literal) so the edge is a navigable hypothesis CX-1 structurally excludes from rollups.
+
+    The wipe runs FIRST and is scoped to `origin='cosine-nominated'` between :Artefato ends only:
+    graphiti's Entity↔Entity RELATES_TO and author-confirmed edges are never touched; a corpus
+    that shrank still clears its stale nominations honestly.
+
+    Seams: ``corpus`` injects ``[(slug, kernel, embedding)]``; ``session`` injects the write
+    session (tests: fakes; production resolves both). Degrade-safe (CONTRACT C1): no group / dark
+    graph / a raising session → **None**, never a raise. Returns
+    ``{"minted": [(a, b), ...], "offers": [...]}`` on success."""
+    drv = None
+    try:
+        g = _identity.group() if group is _AUTO else group
+        if not g:
+            return None
+        if session is None:
+            try:
+                from neo4j import GraphDatabase
+                uri = uri or os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687")
+                user = user or os.environ.get("EDGE_NEO4J_USER", "neo4j")
+                password = (password or os.environ.get("EDGE_NEO4J_PASSWORD")
+                            or _identity.neo4j_password())
+                drv = GraphDatabase.driver(uri, auth=(user, password))
+                session = drv.session()   # closed with the driver in `finally`
+            except Exception:
+                return None
+        if corpus is None:
+            corpus = [(r["slug"], r["kernel"], r["embedding"])
+                      for r in session.run(_CORPUS_QUERY, g=g).data()]
+        kernels = {slug: kernel or "" for slug, kernel, _ in corpus}
+        pairs = nominate(embeddings=[(slug, emb) for slug, _, emb in corpus])
+        # wipe FIRST, unconditionally: a shrunken/empty nomination set still clears stale edges.
+        session.run(_WIPE_QUERY, g=g)
+        pc = cortex_provenance.provenance_class_for("relates_to")
+        minted, offers = [], []
+        for pair in sorted(pairs, key=sorted):
+            a, b = sorted(pair)
+            off, passed = route([(kernels[a], kernels[b])], nli_fn=nli_fn)
+            if off:
+                offers.append({"type": "contradicts", "origin": "machine-found",
+                               "pair": (a, b), "nli": off[0]["nli"]})
+                continue  # an offer is returned for the author — NEVER minted (C2c)
+            session.run(_MINT_QUERY, g=g, a=a, b=b, pc=pc)
+            minted.append((a, b))
+        return {"minted": minted, "offers": offers}
+    except Exception:
+        return None
+    finally:
+        if drv is not None:
+            try:
+                drv.close()
+            except Exception:
+                pass
+
+
+# ponytail: 3-char floor — 1-2 char entity names ("ed", "AI") false-positive all over prose;
+# lower it only if a real short-named Entity ever matters enough to pay the noise.
+_MIN_MENTION_LEN = 3
+
+
+def extract_mentions(text, names):
+    """The entities `text` DE FATO names, matched CONSERVATIVELY against the graph's existing
+    entity `names` (spec 02-D guard-rail: nome exato, word-boundary, case-insensitive; sem
+    fuzzy-inventivo — a mention is never fabricated, so no stemming, no plural, no substring).
+    Lookaround boundaries (not ``\\b``) so names ending in non-word chars ("node.js") still
+    anchor. Returns graph-cased names, deduped case-insensitively, in input order. Pure."""
+    if not text or not names:
+        return []
+    out, seen = [], set()
+    for name in names:
+        if not isinstance(name, str):
+            continue
+        n = name.strip()
+        if len(n) < _MIN_MENTION_LEN or n.lower() in seen:
+            continue
+        if re.search(r"(?<!\w)" + re.escape(n) + r"(?!\w)", text, re.IGNORECASE):
+            seen.add(n.lower())
+            out.append(n)
+    return out
+
+
+def project_mentions(session, group, slug, text):
+    """The thematic via, written INLINE at publish (the operator cut the offline curator — the
+    producer, hot with the theme's context, is the only curator): wipe THIS artefato's outgoing
+    MENTIONS (a republish whose text dropped a mention strands no stale edge; Episodic MENTIONS
+    are graphiti's, untouched) → MERGE (a)-[:MENTIONS {provenance_class:'asserted'}]->(e) for
+    every existing :Entity the published `text` exactly names. 'asserted' because o artefato DE
+    FATO menciona (spec 02-D); the plane is derived, never a literal fork.
+
+    Runs inside the publisher's ALREADY-OPEN session (no second driver). NEVER raises into the
+    publish (prints, returns 0) — the same best-effort contract as the embed leg."""
+    try:
+        rows = session.run("MATCH (e:Entity {group_id:$g}) WHERE e.name IS NOT NULL "
+                           "RETURN DISTINCT e.name AS name", g=group).data()
+        found = extract_mentions(text, [r["name"] for r in rows])
+        session.run("MATCH (a:Artefato {group_id:$g, slug:$slug})-[r:MENTIONS]->() DELETE r",
+                    g=group, slug=slug)
+        pc = cortex_provenance.provenance_class_for("mentions")
+        for name in found:
+            session.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),"
+                        "(e:Entity {group_id:$g, name:$n}) "
+                        "MERGE (a)-[r:MENTIONS]->(e) SET r.provenance_class=$pc",
+                        g=group, slug=slug, n=name, pc=pc)
+        return len(found)
+    except Exception as ex:  # noqa: BLE001 — best-effort; the publish must never feel this
+        print("mentions skipped (best-effort):", ex)
+        return 0
