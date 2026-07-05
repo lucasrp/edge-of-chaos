@@ -43,3 +43,6 @@ O grill organiza-se pela janela de Johari — quatro caças, cada uma com seu ó
 3. *(idem — mapear a fronteira do declarado)*
 4. **Não-sei-que-não-sei** → blindspots, conexões não-feitas, soluções desconhecidas — **SURPREENDER**. Instrumentos já provados no exemplar: confiança 0-100 (erro confiante = assinatura de unknown-unknown) + enumeração ("o que você não listar — e existe — é o achado") + "você assina o que não consegue verificar". A serendipidade/lazer alimenta este quadrante por fora.
 **O payoff medido:** "pela primeira vez em MESES eu saí com um monte de material para estudar, mandei imprimir apostila e tudo." **Persona-fact: ele gosta de PAPEL** — o material de crescimento deve ser imprimível (apostila como formato de saída de 1ª classe).
+
+## LEI #0 (operador, grill vivo 2026-07-05 — "a primeira coisa que o grill tem que saber")
+**O grill IGNORA o que o mentee diz que é solução. Ele entende o PROBLEMA. O que o mentee apresenta como solução é RUÍDO para o grill** — sinal apenas de que ali existe um problema que doeu o bastante pra ele desenhar algo. (O problema-XY como lei fundadora: a solução declarada aponta pro problema, nunca o resolve por atestado.) Toda pergunta do grill mira o problema por trás do pedido; a solução do mentee entra, no máximo, como evidência do quanto ele já pensou — nunca como spec.
