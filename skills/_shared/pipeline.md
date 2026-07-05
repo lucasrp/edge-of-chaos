@@ -61,6 +61,19 @@ directly.
      serendipity enters**: any producer, consolidating, materializes its off-thread finds as
      long-range nodes/edges — the small-world shortcuts the on-topic pass would never create.
      Gênese, não enfeite.
+     **Curadoria autoral — the producer AUTHORS the artefato's judgement, here, in the hot
+     context** (regra do operador, 2026-07-05: who just derived the theme is the best
+     discriminator — the pen, not a sweep). Two authored declarations ride the publish payload
+     (digest-bound like lineage, ticket A — author them IN the artefato dict, never after the
+     mint): **`bears_on`** — when the artefato genuinely supports/refutes/qualifies a LIVE
+     hypothesis, declare it (`[{hypothesis: <ulid>, valence:
+     supports|refutes|qualifies|inconclusive, rationale}]`, multivalence native);
+     `cortex.hypotheses_at()` lists the live ones. No live hypothesis touched → an honest
+     `[]` — NEVER fabricate a bearing to look epistemic. **`para`** — every artefato is FOR
+     someone: author it only when the intended reader is someone OTHER than the operator (a
+     promoted parceiro — a colleague, a client); left empty, the publish seam resolves it
+     MECHANICALLY to the operador-mentee default (`_identity.mentee()` — never blank in the
+     graph, never a minted parceiro: promotion stays HITL).
    - **the chamada** — append an `artefato.teaser` event (`{slug, text}`, ~3 short paragraphs,
      blog voice, same language as the artefato): the home's index renders it as the post's
      body. It introduces and invites the click — name the tension the artefato resolves and
@@ -222,5 +235,6 @@ Without `child_session=""` the floor re-darkens under the split (pinned in
 The proof, the kernel, and the atomic publish still belong to the enforced close (`run_close` →
 `publish_fn`); the publisher just runs that close where the context is clean. Minting the proof in the
 publisher is **sound**: the digest covers only content + identity fields (`{slug, spec, intent, cites,
-proposes, distills, skill, lineage, dispatch_id}`), **no session/process field** — so it binds the spec
+proposes, distills, skill, lineage, dispatch_id, bears_on, para}` — ticket A added the authored
+judgement pair), **no session/process field** — so it binds the spec
 plus the `dispatch_id` that rode in the brief, wherever the close runs.

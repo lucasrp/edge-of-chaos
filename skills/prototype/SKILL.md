@@ -111,9 +111,13 @@ the close it runs is:
         distills=['cluster:<label>']  # [] if none fits ; \
         cites=[{'ref':'<source-key>','kind':'mundo','relevant':True,'snippet':'<the text you used>'}]; \
         lineage=[{'type':'builds_on','slug':'<prior-slug>'}]  # [] if none ; \
+        # curadoria autoral: YOU just derived the theme — author the judgement while the context is hot \
+        # (pipeline.md, consolidação): bears_on SÓ sobre hipótese VIVA — vazio honesto, NUNCA fabricado. \
+        bears_on=[]  # [{'hypothesis':'<ulid>','valence':'supports|refutes|qualifies|inconclusive','rationale':'…'}] — cortex.hypotheses_at() lists the live ones; none genuinely touched → [] ; \
+        para=[]  # the EXPLICIT target reader (promoted parceiro — a colleague/client); [] resolves MECHANICALLY to the operador-mentee default (every artefato is PARA someone) ; \
         artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
           'cites':cites,'distills':distills,'skill':'prototype','lineage':lineage, \
-          'dispatch_id':dispatch_id}; \
+          'dispatch_id':dispatch_id,'bears_on':bears_on,'para':para}; \
         pub=publisher.publish; \
         publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
           skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \

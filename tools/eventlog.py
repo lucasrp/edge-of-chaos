@@ -410,7 +410,12 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
     "the last dispatch.open before the publish", E1). REQUIRED on the CANONICAL log: an
     absent/empty id fails loud with nothing written (opcional-em-produção reabriria o join sem
     identidade, E1c). A temp/custom log (tests, dry-runs) tolerates an absent id — recorded as
-    null, never fabricated; tests wanting a real-shaped id inject `test_dispatch_id()`."""
+    null, never fabricated; tests wanting a real-shaped id inject `test_dispatch_id()`.
+
+    Curadoria autoral: the payload also carries `para_default` — the operador-mentee name
+    (`_identity.mentee()`) derived HERE when the authored `para` is empty (todo artefato é PARA
+    alguém), the `origin` pattern: derived at the seam, never a caller arg, never in the digest
+    (install identity, not forgeable producer data). An explicit `para` keeps it None."""
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
     if _is_canonical_log(log) and not (isinstance(dispatch_id, str) and dispatch_id.strip()):
@@ -440,6 +445,17 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
                 "artefato.published on this log (ADR-0016: run tools/predispatch.py; "
                 "one wake per publish)")
 
+    # Curadoria autoral (§6, regra do operador 2026-07-05): todo artefato é PARA alguém — com
+    # `para` autorado vazio, o alvo default é o operador/mentee. DERIVADO aqui na costura (o
+    # padrão `origin`, codex meta-gate #5: nunca um arg de caller) e FORA do digest (identidade
+    # do install, não dado forjável de produtor); `para` no evento fica HONESTO (só o autorado,
+    # digest-bound). Runtime degrade: mentee irresolvível → None, nunca um literal nem um crash.
+    para = normalize_para(para)
+    try:
+        import _identity
+        para_default = None if para else _identity.mentee()
+    except Exception:  # noqa: BLE001 — identity must never block a publish (degrade, não crash)
+        para_default = None
     # R6 (S10): EVERY published artefato carries a WELL-SHAPED adoption event in the SAME indivisible batch
     # — durable, no crash window, and no caller of this boundary (publisher, the legacy publish_artefato
     # wrapper, a direct call) can commit a published artefato with NO or MALFORMED adoption telemetry
@@ -465,7 +481,10 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
           # Ticket A (ontologia §2b/§6): bears_on = as declarações valenciadas artefato→hipótese
           # (multivalência nativa, O-6) e para = os parceiros-alvo (artefato-PARA->parceiro) —
           # NORMALIZADOS aqui (o mesmo sanitizer que o proof digest usa), digest-bound como lineage.
-          "bears_on": normalize_bears_on(bears_on), "para": normalize_para(para)}),
+          "bears_on": normalize_bears_on(bears_on), "para": para,
+          # curadoria autoral: o alvo default (mentee) quando o autorado é vazio — derivado
+          # acima, campo próprio (o `para` autorado nunca se mistura com o derivado).
+          "para_default": para_default}),
         ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
         ("artefato.adoption", f"artefato:{slug}", adoption),
     ]
@@ -609,6 +628,9 @@ def fold_corpus(events):
                            # Ticket A: bears_on/para acompanham o item para o replay das arestas
                            # valenciadas/PARA; evento legado folda [] (forward-only, sem backfill).
                            "bears_on": p.get("bears_on") or [], "para": p.get("para") or [],
+                           # curadoria autoral: o alvo default acompanha o replay; evento
+                           # pré-adoção folda None (forward-only, sem backfill).
+                           "para_default": p.get("para_default"),
                            "ts": e.get("ts"), "latest_ts": e.get("ts")}
         elif t == "intent.kernel" and slug in items:
             # content rule: only a non-empty stripped intent becomes the why; a blank kernel renders

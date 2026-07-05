@@ -155,11 +155,15 @@ without it, E1c — never reconstruct it from the log).
         distills=['cluster:<label>']  # the existing threads it draws on — [] if none fits ; \
         cites=[{'ref':'<source-key>','kind':'mundo','relevant':True,'snippet':'<the text you used>'}]; \
         lineage=[{'type':'builds_on','slug':'<prior-slug>'}]  # [] if none — the prior R1's surf OFFERS ; \
+        # curadoria autoral: YOU just derived the theme — author the judgement while the context is hot \
+        # (pipeline.md, consolidação): bears_on SÓ sobre hipótese VIVA — vazio honesto, NUNCA fabricado. \
+        bears_on=[]  # [{'hypothesis':'<ulid>','valence':'supports|refutes|qualifies|inconclusive','rationale':'…'}] — cortex.hypotheses_at() lists the live ones; none genuinely touched → [] ; \
+        para=[]  # the EXPLICIT target reader (promoted parceiro — a colleague/client); [] resolves MECHANICALLY to the operador-mentee default (every artefato is PARA someone) ; \
         # the artefato MUST carry EVERY proof-bound field (skill + distills + lineage included): run_close \
         # mints the digest from THIS dict, so it must equal the exact publish payload. \
         artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
           'cites':cites,'distills':distills,'skill':'report','lineage':lineage, \
-          'dispatch_id':dispatch_id}; \
+          'dispatch_id':dispatch_id,'bears_on':bears_on,'para':para}; \
         # the publisher-backed publish_fn reads the payload OFF `art` (the minted artefato), so \
         # what publishes is provably what the proof was minted over; proof rides as verdict=. \
         pub=publisher.publish; \

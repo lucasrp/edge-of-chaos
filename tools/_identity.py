@@ -38,6 +38,21 @@ def group(agent_yaml=AGENT_YAML):
     return cfg.get("graph_group") or cfg.get("name") or cfg.get("codename") or None
 
 
+def mentee(agent_yaml=AGENT_YAML):
+    """The operator/mentee THIS install serves — the `para` default's target (curadoria autoral:
+    every artefato is FOR someone; absent an explicit target, the target is the mentee).
+    EDGE_MENTEE env (host override) → agent.yaml `mentee` → `repo_owner` (the mentee's git
+    identity — the operator name agent.yaml already carries). Returns None when nothing
+    resolves — the runtime degrade posture (no default applied), never a baked-in name (#21).
+    Normalized like the authored `para` (codex adversarial #2): a blank/non-string value is
+    SKIPPED, never persisted — the mechanical default can't put junk in the event/graph."""
+    cfg = _cfg(agent_yaml)
+    for v in (os.environ.get("EDGE_MENTEE"), cfg.get("mentee"), cfg.get("repo_owner")):
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
 def require_group(agent_yaml=AGENT_YAML):
     """Install posture: the group MUST resolve, or fail loud (no silent cross-tenant write)."""
     g = group(agent_yaml)
