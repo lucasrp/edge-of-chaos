@@ -27,8 +27,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 
-# the six producer skills whose publish snippet authors a lineage edge
-PRODUCERS = ("report", "research", "map", "plan", "discovery", "grill")
+# the producer skills whose publish snippet authors a lineage edge
+PRODUCERS = ("report", "research", "map", "plan", "discovery", "grill", "prototype")
 
 
 def _skill_text(name):

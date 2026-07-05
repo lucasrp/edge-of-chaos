@@ -140,7 +140,7 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # producer-skills). `skill` is proof-bound but the proof binds whatever the producer supplies,
 # so an out-of-roster value (e.g. `report</p><script>…`) would verify cleanly; this roster is
 # the gate that rejects it BEFORE anything is written, and _page escapes it as defense in depth.
-PRODUCER_ROSTER = ("report", "research", "map", "plan", "discovery", "grill")
+PRODUCER_ROSTER = ("report", "research", "map", "plan", "discovery", "grill", "prototype")
 
 # Cortex-v1 (brick-1, L4): the AUTHORED typed lineage relations and their graph-edge labels — a
 # FIXED Python allowlist. The producer-supplied `item["type"]` is mapped through THIS dict; an
@@ -195,6 +195,70 @@ def _page(slug, body_html, *, skill, date, css, js=""):
         f"{body_html}\n"
         f"</article>{script}</body></html>\n"
     )
+
+
+# --- Ticket C: the `prototype` genus' STANDALONE publish path -------------------------------
+# The close path sanitizes raw-html (render.sanitize_raw_html strips <script>) — right for every
+# prose genus, fatal for an interactive page. The prototype genus therefore publishes its
+# single-file HTML+JS page through THIS separate seam: the page lands INTACT (script and all) at
+# a CONTENT-ADDRESSED name — `<slug>.proto.<sha256[:12]>.html` — inside the SAME blog dir, so the
+# existing /e/ route serves it with zero server change. The ".proto." infix keeps the namespace
+# disjoint from close-published entries (SLUG_RE forbids dots, so `<slug>.html` can never collide).
+# Content addressing makes the page immutable: identical bytes are idempotent, changed bytes are a
+# NEW address — nothing is ever overwritten in place, and the companion entry's link stays true to
+# what its reviewers saw. Restricted to skill="prototype": no other genus rides raw script here.
+#
+# Single-file/zero-dep is the genus bar (the relicário régua): a network resource load (script src,
+# stylesheet link, img/iframe/media src to http(s) or protocol-relative //) is refused — a plain
+# <a href> outbound LINK is legal, a link is not a dependency. The semantic gate ("a interatividade
+# ensina?") lives in the skill's converge.
+# ponytail: this regex is a best-effort AUTHORING LINT, not a security boundary and not a complete
+# zero-dep proof — arbitrary inline JS is the whole point of the genus, so it can fetch()/@import an
+# external resource anyway (adversarial finding 3, SINAL). It catches the OBVIOUS mistake (a pasted
+# CDN <script src>), nothing more. The real boundary is the ORIGIN the page is served on — see the
+# SKILL's security model; the upgrade path is a restrictive per-file CSP / off-origin serve.
+_PROTO_EXTERNAL_DEP_RE = re.compile(
+    r"<(?:script|link|img|iframe|source|video|audio|embed|object|track)\b[^>]*?"
+    r"(?:src|href|data)\s*=\s*[\"']?(?:https?:)?//", re.I)
+
+
+def publish_prototype_page(slug, page_html, *, skill, blog_dir=BLOG_DIR) -> Path:
+    """Write the prototype genus' interactive single-file page, intact and content-addressed.
+    Returns the written Path (served at /e/<name>). Raises ValueError on any other genus, a bad
+    slug, a non-document fragment, or an external resource dependency — before anything lands.
+    # ponytail: the page is NOT eventlogged — the companion entry (published through the close)
+    # is the committed record and carries the link; log the page bytes if replay ever needs them."""
+    if skill != "prototype":
+        raise ValueError(
+            f"publish_prototype_page is the prototype genus' seam — skill {skill!r} refused "
+            "(no other genus publishes unsanitized script; use publisher.publish)")
+    if not (isinstance(slug, str) and SLUG_RE.match(slug)):
+        raise ValueError(f"invalid slug {slug!r}: must match {SLUG_RE.pattern} (#4)")
+    if not (isinstance(page_html, str) and "<html" in page_html.lower()):
+        raise ValueError(
+            f"prototype page for {slug!r} is not a full HTML document (single-file bar: "
+            "one self-contained page, not a fragment)")
+    dep = _PROTO_EXTERNAL_DEP_RE.search(page_html)
+    if dep:
+        raise ValueError(
+            f"prototype page for {slug!r} is not self-contained: external resource load "
+            f"{dep.group(0)!r} (zero-dep bar — inline everything; an <a href> link is fine)")
+    blog_dir = Path(blog_dir).resolve()
+    digest = hashlib.sha256(page_html.encode("utf-8")).hexdigest()[:12]
+    out = (blog_dir / f"{slug}.proto.{digest}.html").resolve()
+    if out.parent != blog_dir:  # unreachable given SLUG_RE — defense in depth like _safe_target
+        raise ValueError(f"slug {slug!r} escapes the blog dir (#4)")
+    if out.exists():  # content-addressed: identical bytes should already live at this address
+        # verify, never trust: a differing file at the same 48-bit address is a sha12 collision or a
+        # tampered page — refuse rather than silently serve wrong bytes (adversarial finding 4, SINAL:
+        # keeps the "link points to the reviewed bytes" claim honest).
+        if out.read_text() != page_html:
+            raise ValueError(
+                f"content-address collision at {out.name!r}: existing bytes differ from {slug!r}'s "
+                "page — refusing to serve unreviewed content")
+    else:
+        _write_page(out, page_html)
+    return out
 
 
 def _signal_cites(slug, body, cites, embed_fn, log):

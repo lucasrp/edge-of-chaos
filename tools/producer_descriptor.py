@@ -52,6 +52,11 @@ DESCRIPTORS = {
         {"pred": "min_blocks_of", "types": ["comparison-table", "comparison"], "n": 1},
         {"pred": "min_blocks_of", "types": ["gap-table", "gap-marker"], "n": 1},
     ]},
+    # prototype (ticket C) — the interactive single-file HTML+JS genus. Its companion ENTRY
+    # declares no presentation floor: the standalone page (publisher.publish_prototype_page)
+    # carries the form, and the bar there is structural (single-file/zero-dep, enforced at that
+    # seam) + semantic ("a interatividade ensina?", the skill's converge — never a keyword check).
+    "prototype": {"require": []},
 }
 
 _STRUCTURE_BLOCKS = {"framed_steps": {"next-steps-grid", "numbered-card"}}
