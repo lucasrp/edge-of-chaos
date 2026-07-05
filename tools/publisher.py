@@ -271,6 +271,104 @@ def publish_prototype_page(slug, page_html, *, skill, blog_dir=BLOG_DIR) -> Path
     return out
 
 
+# --- The APOSTILA sibling (PAR B+C, doc 05 §REVISÃO DO PAR) -----------------------------------
+# The winning pair is single-file interactive + printable APOSTILA as a build SUBPRODUCT of the
+# SAME data (the operator loves paper — grill-design.md persona-fact). The apostila is print
+# matter: A4 @page CSS, break-inside:avoid, the page's interaction PRECOMPUTED into static
+# tables by the producer's build script (régua: drafts/grounding-exp/formC-apostila.html —
+# "subproduto por script, não 3ª autoria"). It lands content-addressed as the sibling
+# `<slug>.apostila.<sha256[:12]>.html` in the same blog dir (the /e/ route serves it, zero
+# server change; SLUG_RE forbids dots so it can never collide with a close entry) and the
+# artefato links it ("versão pra imprimir"). Optional for any roster genus, default ON for
+# prototype (apostila_wanted); the flow wiring is the lead's — these are the seam primitives.
+# ponytail: an authoring LINT like _PROTO_EXTERNAL_DEP_RE, not a security boundary — but print
+# matter is STATIC, so anything live (script, on* handlers, javascript: URLs) or CSS-networked
+# (@import, url(http…)) is refused outright (codex adversarial #1/#2; the .proto. CSP does not
+# cover .apostila., so the lint carries more weight here — upgrade path: per-file CSP at serve).
+_APOSTILA_LIVE_RE = re.compile(
+    r"<script\b|\bon[a-z]+\s*=|javascript\s*:|@import\b|url\(\s*['\"]?(?:https?:)?//", re.I)
+
+# The sibling's canonical name — what publish_apostila_page mints and what the link block
+# accepts: <slug>.apostila.<sha256[:12]>.html, nothing else (codex adversarial #5).
+_APOSTILA_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.apostila\.[0-9a-f]{12}\.html$")
+
+
+def apostila_wanted(skill, param=None):
+    """The apostila policy in one place: generated when the producer asks (`param`),
+    default ON for the prototype genus, OFF elsewhere."""
+    return skill == "prototype" if param is None else bool(param)
+
+
+def apostila_link_block(page_name):
+    """The canonical 'versão pra imprimir' block for the companion entry's spec — a palette
+    callout whose text is a markdown link (codex adversarial: render_text only linkifies
+    [text](url); a bare /e/... string would render as dead text, not an anchor). Accepts the
+    Path publish_apostila_page returns or a bare name; anything not shaped
+    <slug>.apostila.<sha12>.html is refused (no markdown/structure injection, no pointing at
+    .proto./close entries)."""
+    name = Path(page_name).name if page_name else ""
+    if not _APOSTILA_NAME_RE.match(name):
+        raise ValueError(
+            f"apostila link for {page_name!r}: not a <slug>.apostila.<sha12>.html sibling "
+            "(pass publish_apostila_page's return)")
+    return {"type": "callout", "variant": "info",
+            "text": f"[Versão pra imprimir (apostila A4)](/e/{name})"}
+
+
+def publish_apostila_page(slug, page_html, *, skill, blog_dir=BLOG_DIR) -> Path:
+    """Write the intact, content-addressed printable APOSTILA sibling for a roster genus.
+    Returns the written Path (served at /e/<name>). Shares the proto seam's bars (roster,
+    slug, full document, zero external deps) plus two print-matter bars: NO <script> — the
+    interaction must already be precomputed static tables from the same DATA — and an @page
+    print-CSS rule present (the A4 marker the régua carries). Raises ValueError before
+    anything lands.
+    # ponytail: validation intentionally mirrors publish_prototype_page instead of sharing a
+    # helper — that function is being touched by parallel branches (curadoria-autoral,
+    # js-gates) and this ticket forbids editing it; fold the common bars into one _seam_check
+    # after the branches merge."""
+    if skill not in PRODUCER_ROSTER:
+        raise ValueError(
+            f"publish_apostila_page is a roster seam — skill {skill!r} refused "
+            f"(not in {PRODUCER_ROSTER})")
+    # fullmatch, not match (codex adversarial #7): SLUG_RE ends in $, and re.match+$ accepts
+    # a trailing newline — strict means strict before the slug lands in a served filename.
+    if not (isinstance(slug, str) and SLUG_RE.fullmatch(slug)):
+        raise ValueError(f"invalid slug {slug!r}: must match {SLUG_RE.pattern} (#4)")
+    if not (isinstance(page_html, str) and "<html" in page_html.lower()):
+        raise ValueError(
+            f"apostila for {slug!r} is not a full HTML document (one self-contained "
+            "printable page, not a fragment)")
+    dep = _PROTO_EXTERNAL_DEP_RE.search(page_html)
+    if dep:
+        raise ValueError(
+            f"apostila for {slug!r} is not self-contained: external resource load "
+            f"{dep.group(0)!r} (print matter must open whole by itself)")
+    live = _APOSTILA_LIVE_RE.search(page_html)
+    if live:
+        raise ValueError(
+            f"apostila for {slug!r} carries live/networked markup {live.group(0)!r} — print "
+            "matter is STATIC: precompute the interaction into tables from the same DATA "
+            "(régua: formC-apostila.html)")
+    if "@page" not in page_html.lower():
+        raise ValueError(
+            f"apostila for {slug!r} has no @page print CSS — the A4 rule "
+            "(e.g. @page{size:A4;margin:18mm 16mm}) is the print-matter bar")
+    blog_dir = Path(blog_dir).resolve()
+    digest = hashlib.sha256(page_html.encode("utf-8")).hexdigest()[:12]
+    out = (blog_dir / f"{slug}.apostila.{digest}.html").resolve()
+    if out.parent != blog_dir:  # unreachable given SLUG_RE — defense in depth
+        raise ValueError(f"slug {slug!r} escapes the blog dir (#4)")
+    if out.exists():
+        # content-addressed: verify, never trust — differing bytes at the address are refused
+        if out.read_text() != page_html:
+            raise ValueError(
+                f"content-address collision at {out.name!r}: existing bytes differ from "
+                f"{slug!r}'s apostila — refusing to serve unreviewed content")
+    else:
+        _write_page(out, page_html)
+    return out
+
+
 def _signal_cites(slug, body, cites, embed_fn, log):
     """Emit one `source.signal` per cited snippet (ADR-0009). With an injected embed_fn the
     signal is the cosine(embed(snippet), embed(body)) score (offline-testable); without one
