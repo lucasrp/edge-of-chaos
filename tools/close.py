@@ -15,6 +15,7 @@ The visual palette below is pinned to the block types in tools/render.py.
 """
 import hashlib
 import json
+import math
 import re
 import secrets
 
@@ -1188,6 +1189,26 @@ _REGULAR_FOCUS = (
 )
 
 
+# B.1 (ticket B, GLO-13) — a rubrica do gate, versionada por CONTEÚDO: o sha pina o canonical-JSON
+# de DIMENSIONS + DIMENSION_WEIGHTS + os 2 focus prompts. Editar a rubrica = sha novo = versão nova
+# no label; verdicts velhos ficam pinados à sua. Carimbados no proof (_mint_proof) e dali no payload
+# do `artefato.published` (publisher._gate_payload) — o verdict persiste com a régua que o mediu.
+GATE_RUBRIC_VERSION = "gate_rubric@1"
+GATE_RUBRIC_SHA = hashlib.sha256(json.dumps(
+    {"dimensions": DIMENSIONS, "weights": DIMENSION_WEIGHTS,
+     "feynman_focus": _FEYNMAN_FOCUS, "regular_focus": _REGULAR_FOCUS},
+    sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+# B.4 — o veto de PASSABILIDADE, restaurado LIMITADO. A sobre-correção do #65 (pass derivado só de
+# strikes) fez a nota de clareza virar conselho → shipou "referente sem nome". Uma nota PRESENTE e
+# numérica ABAIXO do piso volta a vetar, como strike NOMEADO (carrega dim + rationale — endereçável
+# pelo improve loop), bounded pelo BOUNCE_MAX de sempre (o loop termina POR FORA, nunca o loop
+# infinito que o #65 matou). Dim AUSENTE/malformada NUNCA veta (o guard anti-gate-inganhável: a
+# omissão do reviewer não é nota baixa).
+PASSABILITY_VETO_DIMS = ("didactic_clarity", "contextualization")
+PASSABILITY_VETO_FLOOR = 3   # uma nota real < 3 (de 0-5) veta; >= 3 passa
+
+
 def _published_view(artefato: dict) -> dict:
     """The blind view a reviewer is allowed: the final content + cites ONLY. Strips every
     non-published field (evidence, session, briefing) so the reviewer cannot see them — the
@@ -1305,11 +1326,30 @@ def _parse_verdict(raw: str) -> dict:
     overall = 0.0
     for dim, w in DIMENSION_WEIGHTS.items():
         score = scores.get(dim, 0)
-        if isinstance(score, bool) or not isinstance(score, (int, float)):
+        # non-finite is malformed too (Codex adversarial, ticket B): json.loads accepts
+        # NaN/Infinity, and `nan < floor` is False — a NaN passability score would skip the
+        # B.4 veto AND poison `overall`. Fail it closed like any other malformed score.
+        if (isinstance(score, bool) or not isinstance(score, (int, float))
+                or not math.isfinite(score)):
             passed = False
             strikes.append(f"malformed score for {dim!r}: {score!r}")
             continue
         overall += score * w
+    # B.4 — o veto de passabilidade (limitado): uma nota PRESENTE, numérica e abaixo do piso
+    # nas dims de clareza/contextualização veta como strike NOMEADO + endereçável (dim + o
+    # rationale do próprio reviewer). Ausente/malformada não veta (anti-#65: omissão ≠ nota
+    # baixa); o bound é o BOUNCE_MAX de sempre — o loop termina por fora.
+    for dim in PASSABILITY_VETO_DIMS:
+        score = scores.get(dim)
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            continue
+        if score < PASSABILITY_VETO_FLOOR:
+            passed = False
+            why = rationales.get(dim) if isinstance(rationales.get(dim), str) else None
+            strikes.append(
+                f"passabilidade-veto: {dim} scored {score:g} (< {PASSABILITY_VETO_FLOOR}) — "
+                + (why or "sem rationale; torne cada referente nomeado e o contexto montado "
+                          "pro leitor-faminto-de-contexto"))
     return {
         "pass": passed,
         "scores": scores,
@@ -1501,6 +1541,10 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
         # genus violation, which never mints (fail-closed) — so a blocking finding can never become a
         # residual by construction. This just surfaces the acknowledged nits on the shipped proof.
         "residual": [r for v in verdicts for r in (v.get("residual") or [])],
+        # B.1 — a régua que mediu ESTE verdict, pinada por conteúdo (GLO-13): o publisher a
+        # persiste no payload do evento, então um verdict velho nunca é lido contra rubrica nova.
+        "gate_rubric": GATE_RUBRIC_VERSION,
+        "gate_rubric_sha": GATE_RUBRIC_SHA,
     }
     if residual_publish:
         proof["residual_publish"] = True

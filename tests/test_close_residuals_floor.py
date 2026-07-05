@@ -11,9 +11,11 @@ TWO deliverables, both OPT-IN (default OFF → byte-compat):
      digest binds it) instead of hard-failing. Infra (transport re-raise) and synthetic strikes
      never residual-publish; genus-dirty-post-append never publishes.
 
-SECURITY: with all three knobs at default (EDGE_PUBLISH_WITH_RESIDUALS=0, EDGE_GROUNDING_FLOOR=0,
-EDGE_GENUS_BOUNCE_MAX=BOUNCE_MAX) run_close is byte-identical to today — the existing close suite
-(test_close_loop / test_close_infra) is the byte-compat oracle.
+SECURITY: with the knobs at default (EDGE_PUBLISH_WITH_RESIDUALS=0, EDGE_GENUS_BOUNCE_MAX=
+BOUNCE_MAX) run_close is byte-identical to today — the existing close suite (test_close_loop /
+test_close_infra) is the byte-compat oracle. Ticket B (B.4) raised EDGE_GROUNDING_FLOOR's
+default 0→1=OBSERVE: env-unset now COUNTS (grounding.floor/floor_dark) but still NEVER blocks;
+explicit 0 stays fully off (see tests/test_gate_metadata.py for the env-unset contract).
 """
 import json
 import os
@@ -313,7 +315,9 @@ class CloseFloorWrapperKnobLogic(unittest.TestCase):
         return log
 
     def test_knob_off_returns_empty_and_logs_nothing(self):
-        with tempfile.TemporaryDirectory() as tmp, _KnobEnv(EDGE_GROUNDING_FLOOR=None):
+        # explicit 0 = fully OFF (B.4 moved the env-unset default to 1=observe, so "off" is
+        # now a DECLARED choice — the env-unset observe contract lives in test_gate_metadata).
+        with tempfile.TemporaryDirectory() as tmp, _KnobEnv(EDGE_GROUNDING_FLOOR=0):
             log = self._log_with_open(tmp, "sX", "themed")
             store = self._store_with_transcript(tmp, "sX", recognized=False)
             out = harvest.close_floor(log=log, store_root=store, session_id="sX",

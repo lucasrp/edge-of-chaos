@@ -1803,7 +1803,9 @@ def close_floor(*, log=None, store_root=None, session_id=None, child_session=Non
     live they default to eventlog.LOG / STORE_ROOT / the CLAUDE_CODE_* env."""
     try:
         if knob is None:
-            knob = _envconf.env_int("EDGE_GROUNDING_FLOOR", 0)
+            # B.4 (ticket B): default 0=off → 1=OBSERVE — o primeiro degrau honesto: o
+            # instrumento liga (conta violação/darkness), o veto (2=gate) continua opt-in.
+            knob = _envconf.env_int("EDGE_GROUNDING_FLOOR", 1)
         if knob <= 0:
             return []
         if log is None:
