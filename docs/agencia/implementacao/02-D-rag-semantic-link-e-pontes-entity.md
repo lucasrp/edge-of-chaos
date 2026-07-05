@@ -18,3 +18,6 @@ O gap-map achou D como fiação (relate.py built-sem-caller; embeddings 16/16 do
 
 ## Arquivos
 `relate.py` (ganha caller no sweep/publish), `publisher.py`/`harvest.py` (extração MENTIONS no publish), `recall.py` (surf pelas novas arestas), `communities.py` (intacto — já provê Entity/Community/HAS_MEMBER).
+
+## O leitor-curador (operador, 2026-07-05): a passada geral cru→contexto→identidade
+O padrão do parceiro (nó nasce cru → community dá contexto → promoção dá identidade) vale pra TUDO: **alguém tem que LER os nós — começando pelos MAIORES (grau/tamanho desc, maior retorno primeiro) — e ir atribuindo tipo e relacionamento.** Uma cognição de curadoria periódica (offline, nunca no wake): anda o grafo por importância, lê a Entity crua + vizinhança + episódios, e dispõe — tipo (parceiro/tema/material), arestas que a extração perdeu, promoção extracted→asserted. É o "cosine nominates, author disposes" generalizado; o irmão de leitura da reflexão (a reflexão tuna instrumentos; o curador tuna o GRAFO). provenance: o que o curador atribui = asserted-by-agent, HITL onde a marca carrega autoridade.
