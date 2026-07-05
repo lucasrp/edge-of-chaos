@@ -1108,10 +1108,21 @@ DIMENSIONS = {
         "The artefato agrees with itself: summary matches body, numbers are consistent "
         "throughout, the title matches the actual scope, cited prior work is real not generic."
     ),
+    # Gate visual-rico do ato-3 — o critério ENDURECIDO salvo da linha parkada feat/conductor
+    # (c0eb810 type→format + quant-prose trigger; ccfc73b banca-cega). Só o CRITÉRIO entra (o
+    # multi-writer foi rejeitado); e entra SEMÂNTICO — o reviewer LLM julga contra este texto,
+    # nunca um regex de magnitude no harness (no-keyword-classifiers).
     "visualization": (
-        "Content-relative: did the artefato visualize what the content deserved? Quantitative "
-        "or multi-value material (3+ compared values, relationships, flows) earns a chart, "
-        "diagram, or grid. Genuinely non-visual prose owes no visual and is never failed for it."
+        "Form where the information ASKS for form — match the content shape, reach for the "
+        "visual (never a mandatory section, only what the content IS): 3+ compared values or "
+        "metrics owe a metrics-grid; a comparison owes a comparison-table; a before/after owes "
+        "a diff; a reasoning chain owes a derivation; an open boundary (gap, unknown) owes a "
+        "gap-table; quantitative data owes a chart; a relation/dependency/flow owes a diagram. "
+        "The block CARRIES the data the paragraph would otherwise narrate — the prose explains, "
+        "the visual holds the values (consistent with R0: the visual accompanies explaining "
+        "prose, never replaces it) — and is never mere decoration restating what the prose "
+        "already fully carries. Genuinely non-visual prose owes no visual and is never failed "
+        "for it."
     ),
     "writing_quality": (
         "Prose flows where prose is used: transitions between ideas, a reflective (not robotic) "
@@ -1186,7 +1197,13 @@ _REGULAR_FOCUS = (
     "exercise that never CONTEXTUALIZES to the mentee's live work — an internal data-model / schema "
     "dump, a topology described for its own sake, or a generic survey that describes a system "
     "without insight the mentee could act on. A genuinely internal form (a connections map) that "
-    "still reveals a non-obvious structure AND ties it to the mentee's work is NOT struck."
+    "still reveals a non-obvious structure AND ties it to the mentee's work is NOT struck. "
+    # O VETO do gate visual-rico (a banca-cega, salva de feat/conductor): números narrados em
+    # prosa = o strike; anos/versões/datas nunca contam (o quant-prose trigger, agora semântico).
+    "AND STRIKE quantitative material buried in prose — 3+ distinct numeric magnitudes narrated "
+    "as running text where the content owed a visual block (metrics-grid, comparison-table, "
+    "chart); years, version numbers, and dates do not count as magnitudes. Name the values and "
+    "the block they owe."
 )
 
 
@@ -1194,7 +1211,7 @@ _REGULAR_FOCUS = (
 # de DIMENSIONS + DIMENSION_WEIGHTS + os 2 focus prompts. Editar a rubrica = sha novo = versão nova
 # no label; verdicts velhos ficam pinados à sua. Carimbados no proof (_mint_proof) e dali no payload
 # do `artefato.published` (publisher._gate_payload) — o verdict persiste com a régua que o mediu.
-GATE_RUBRIC_VERSION = "gate_rubric@1"
+GATE_RUBRIC_VERSION = "gate_rubric@2"  # @2: gate visual-rico (type→format + veto quant-prose)
 GATE_RUBRIC_SHA = hashlib.sha256(json.dumps(
     {"dimensions": DIMENSIONS, "weights": DIMENSION_WEIGHTS,
      "feynman_focus": _FEYNMAN_FOCUS, "regular_focus": _REGULAR_FOCUS},

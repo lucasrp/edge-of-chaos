@@ -15,7 +15,9 @@ organismo roda async pós-sessão — P4: o wake é READ).
 O chamador te entrega UM arquivo com:
 - **TRILHO VOZ** — os prompts do operador VERBATIM (cap 500c/turno, scaffolding filtrado),
   das últimas K sessões substanciais (ordinal-K; K é fenótipo), mais-recente-primeiro.
-- **TRILHO EXECUTADO** — âncoras mecânicas: git log dos repos vivos + tail do eventlog.
+- **TRILHO EXECUTADO** — âncoras mecânicas: git log dos repos vivos + tail do eventlog +
+  os artefatos `user_requested` recentes (follow-up 05: o pedido do usuário = onde está a
+  cognição dele AGORA; pesa ≫ que qualquer escolha do beat — fio quente de primeira ordem).
   **Fato executado vem SÓ daqui.** Voz sem âncora = "não confirmado". Prosa de assistente
   não existe como fonte (E2/E3: o executado não passa pelos dedos do operador).
 

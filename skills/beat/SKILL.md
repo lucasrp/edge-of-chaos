@@ -29,7 +29,10 @@ declared at the wake — `predispatch.py --origin user_requested`) is exactly wh
 cognition is NOW, first-order signal that outweighs anything the beat would pick alone; a beat
 artefato (`origin: beat`, the default) is exploration. The dispatch stamps the origin and the
 publisher carries it onto the published artefato — everything that learns from artefatos weighs
-user_requested above beat.
+user_requested above beat. **Read it, don't just weigh it in the abstract**: at the grounding
+inicial, READ the latest `user_requested` artefatos — the quente's anchors carry them (the
+`artefatos user_requested` anchor) — as first-order sinal de pauta: what the mentee ASKED for
+recently is the gradient the proposta follows; the beat's own picks are exploration around it.
 
 ## Ato 2 — the branches: um agente por artefato, rounds próprios
 
