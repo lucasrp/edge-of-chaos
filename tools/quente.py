@@ -8,7 +8,7 @@ ORDINAL-K (E1: últimas K sessões substanciais; wall-clock só como TETO — ca
 install). Pure core aqui; a leitura de disco/git fica em adapters finos no chamador.
 Proposta: docs/agencia/proposta-novo-wake.md · grounding: memory/wake-quente-grounding.md.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 SCAFFOLDING = ("<system-reminder>", "<task-notification>", "<command-name>",
                "heartbeat keep-warm", "<local-command")
@@ -129,6 +129,41 @@ def _eventlog_tail(path=None, n=20):
     return "\n".join(out) or "(eventlog vazio)"
 
 
+def _user_requested_anchor(path=None, n=5, since=None):
+    """Âncora dos artefatos `origin: user_requested` (follow-up 05: consumidores da origem) —
+    o pedido do usuário é exatamente onde está a cognição dele AGORA, sinal de pauta de
+    primeira ordem; artefatos de beat são exploração e NÃO entram (pesar ≫ = só o gradiente
+    ancora). Cada linha carrega o intent.kernel do slug (a pauta legível — slug sozinho não
+    diz o pedido; codex #3). `since` = teto wall-clock ISO (o quente envelhece em horas — um
+    pedido velho não é AGORA; codex #2). Mais recente primeiro, cap n. Degrade-honesto."""
+    import json
+    from pathlib import Path
+    if path is None:
+        from eventlog import LOG as path
+    try:
+        lines = Path(path).read_text().splitlines()
+    except OSError:
+        return "(eventlog indisponível)"
+    pubs, intents = [], {}
+    for ln in lines:
+        try:
+            d = json.loads(ln)
+        except Exception:
+            continue
+        p = d.get("payload")
+        if not isinstance(p, dict):
+            continue
+        if d.get("type") == "intent.kernel" and p.get("slug"):
+            intents[p["slug"]] = p.get("intent", "")
+        if d.get("type") == "artefato.published" and p.get("origin") == "user_requested":
+            if since is not None and d.get("ts", "") < since:
+                continue
+            pubs.append((d.get("ts", "?"), p.get("slug", "?")))
+    out = [f"{ts} {slug}" + (f" — {intents[slug]}" if intents.get(slug) else "")
+           for ts, slug in pubs]
+    return "\n".join(reversed(out[-n:])) or "(nenhum artefato user_requested na janela)"
+
+
 def build_bundle(store_dir=None, repos=(), k=3, max_age_days=7, exclude=None, eventlog_path=None):
     """O insumo completo do quente, do disco: seleciona via select_window (a MESMA seleção do
     hot_cutoff), extrai o trilho-voz, monta as âncoras (git log dos repos + eventlog-tail) e
@@ -153,6 +188,11 @@ def build_bundle(store_dir=None, repos=(), k=3, max_age_days=7, exclude=None, ev
             body = "(git indisponível — sem binário; âncora dark, não afirme execução)"
         anchors += f"## git log {repo} (72h)\n{body}\n"
     anchors += f"## eventlog (tail)\n{_eventlog_tail(eventlog_path)}\n"
+    # o MESMO teto wall-clock da janela (codex #2: pedido velho não é "cognição AGORA")
+    since = ((datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
+             if max_age_days else None)
+    anchors += ("## artefatos user_requested (o pedido do usuário = onde está a cognição dele)\n"
+                f"{_user_requested_anchor(eventlog_path, since=since)}\n")
     return build_input(sessions, anchors), window_start
 
 
