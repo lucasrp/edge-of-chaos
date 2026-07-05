@@ -84,6 +84,12 @@ _CLASS_BY_TYPE = {
     "tem": "asserted", "spine": "asserted",
     # Judgment plane — reified gate verdicts; rigor teto lead, NEVER computed.
     "assesses": "llm_judged",
+    # Valenced bearing declarations (ticket A, §2b) — AUTHOR-declared (asserted), rigor teto
+    # lead; a stamp can demote them to extracted (an NLI-derived one), never promote to computed.
+    "supports": "asserted", "refutes": "asserted",
+    "qualifies": "asserted", "inconclusive": "asserted",
+    # §6 — the artefato-PARA->parceiro edge is author-asserted.
+    "para": "asserted",
     # Semantic plane — RAG hypotheses.
     "relates_to": "extracted", "in_community": "extracted",
 }

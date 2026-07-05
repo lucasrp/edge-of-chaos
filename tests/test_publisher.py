@@ -539,7 +539,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             seen = {}
 
             def project_fn(s, i, *, skill, distills, proposes, cites, spec=None,
-                           lineage=None, log=None, gate=None):
+                           lineage=None, log=None, gate=None, **kw):  # ticket A: +bears_on/para
                 seen.update(slug=s, intent=i, skill=skill, distills=distills,
                             proposes=proposes, cites=cites, spec=spec,
                             lineage=lineage, log=log, gate=gate)
@@ -585,7 +585,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             seen = {}
 
             def project_fn(s, i, *, skill, distills, proposes, cites, spec=None,
-                           lineage=None, log=None, gate=None):
+                           lineage=None, log=None, gate=None, **kw):  # ticket A: +bears_on/para
                 seen["lineage"] = lineage
 
             publisher.publish(
@@ -669,7 +669,8 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             seen = {}
 
             def fake_project(s, intent, *, skill=None, distills=None, proposes=None,
-                             cites=None, spec=None, lineage=None, log=None, gate=None):
+                             cites=None, spec=None, lineage=None, log=None, gate=None,
+                             **kw):  # ticket A: +bears_on/para ride the replay
                 seen["lineage"] = lineage
 
             publisher.reproject_graph(log=log, project_fn=fake_project,

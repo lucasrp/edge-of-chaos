@@ -1,13 +1,86 @@
 # ontologia.yaml — the DECLARATIVE schema drop (ontologia-cortex-v2 §3).
-# The instrument that MEASURES the H-001 diff: what the superset adds lives HERE, versioned.
+# The instrument that MEASURES the H-001 diff: what the superset adds lives HERE, versioned
+# (git anchors versions; the H-001 ontology-diff is computed against episteme's ontologia.yaml).
 # No code reads this yet (the door, not the room) — the runtime axis lives in
 # tools/cortex_provenance.py (provenance_class_for / assert_rollup_computed = CX-1).
+
+version: cortex-v2@1
 
 provenance_class:
   # The plane per edge/annotation. Decides ONE thing: rollup eligibility (CX-1).
   enum: [computed, asserted, llm_judged, extracted]
   fail_safe: extracted        # unknown is a hypothesis — NEVER computed-by-default
   rollup_eligible: [computed] # CX-1: the scoreboard/verdict consumes ONLY these
+
+# --- Ticket A (episteme nativo, §1-§3/§6) -------------------------------------------------------
+
+nodes:
+  # substrate (unchanged, event-sourced — every node is a fold of an event, O-1)
+  genesis: {space: 0}
+  objective: {truth: objective.set}
+  direction:
+    truth: direction.*
+    # kind=thread ≙ episteme `pergunta` (the IBIS Issue) — the correspondence's first node.
+    kinds: [phase, priority, constraint, thread]
+  artefato:
+    truth: artefato.published
+    # the CONCLUSION RENDER — episteme's own informal render term ("evidência"). NOT a
+    # hypothesis: thread=hipótese=artefato is a CORRESPONDENCE (3 nodes, 2-hop
+    # (thread)<-PROPOSES-(hyp)<-SUPPORTS-(artefato)), never an identity (collapsing falsifies H-001).
+    episteme: evidencia (render)
+  hypothesis:
+    truth: hypothesis.declared / hypothesis.superseded
+    episteme: hipotese          # verbatim reuse — the falsifiable claim, first-class
+    key: ulid                   # O-2 primary; slug is display-only, never a key
+    falsifier: {metric: str, threshold: number, direction: [maior, menor]}  # HIP-1 structured
+  entity: {truth: graphiti-extraction}
+  community: {truth: sweep/communities}
+  source: {truth: source.signal}
+  episodic: {truth: sweep}
+  parceiro:
+    # §6 — PROMOTION, not minting: the extracted :Entity-person GAINS the parceiro mark
+    # (parceiro.promoted, asserted/HITL); same node, keeping the edges/communities it already has.
+    truth: parceiro.promoted
+    promotion_of: entity
+    kinds: [empresa, pesquisador, equipe, git-user]
+
+# RESERVED, not shipped (the H-001 condition): minting these now would force fake mandatory
+# metric{dist,point,ci,noise_floor,n,mde} payloads (ONT-3) no cortex process can honestly fill —
+# an unfillable mandatory field is a standing invitation to fabricate. They land verbatim from
+# episteme the day a REAL pre-registered experiment runs in the cortex.
+reserved_nodes: [observation, experiment, arm]
+
+edges:
+  structural:   # provenance_class=asserted (authored/proof-bound IS their provenance)
+    [GROUNDS, ANCHORS, SERVES, DISTILLS, PROPOSES, CITES, HAS_MEMBER, MENTIONS,
+     BUILDS_ON, SUPERSEDES, CONTRADICTS, PARA]
+  valenced:     # (a:Artefato)->(h:Hypothesis); asserted-at-emission, rigor teto lead —
+                # NEVER rollup-eligible (CX-1); truth = `bears_on` on artefato.published
+    [SUPPORTS, REFUTES, QUALIFIES, INCONCLUSIVE]
+  semantic:     # provenance_class=extracted (RAG hypotheses; cosine nominates, author disposes)
+    [RELATES_TO, IN_COMMUNITY]
+  # the episteme alias map — H-001's ontology-diff counts these as RENAMES, not new types.
+  aliases:
+    SUPPORTS: apoia
+    REFUTES: refuta            # episteme's own render alias: refuta/challenges
+    QUALIFIES: qualifies
+    INCONCLUSIVE: inconclusivo
+    SUPERSEDES: supersede
+    BUILDS_ON: deriva_de/afia
+    CONTRADICTS: rebuttal      # the Toulmin rebuttal role (CTR-13)
+
+enums:
+  rigor: [lead, cravado]      # cravado is UNREACHABLE from any cortex writer (the fail-closed
+                              # checklist needs artifacts no writer can mint) — integrity by
+                              # unreachability, stronger than review.
+  validity: [valid, inferred_default, quarantine_invalid]   # derived/assigned, never free-typed
+  valencia: [supports, refutes, qualifies, inconclusive]    # a bearing never carries no_bearing (O-8)
+
+rule_templates:
+  # the ONLY door to the `computed` plane over gate scores: a REGISTERED frozen ruler with the
+  # stream's noise floor (the n=1 lesson from V10). Until it runs, computed stays EMPTY —
+  # by integrity/unreachability, not by review.
+  gate_score_delta@1: {status: registered, over: gate_scores, requires: [noise_floor, n]}
 
 gate_templates: {}
   # Registry of gate identities (name@v → {model, prompt@v}), PARALLEL to rule_templates.
@@ -21,3 +94,7 @@ controlled_paths:
     rigor_max: lead           # structural ceiling — an LLM verdict can never claim cravado
     authority: agent          # a gate never emits review_approved; a human promotes (O-15)
     require: gate in gate_templates
+  - edge: bears_on            # the valenced declarations (SUPPORTS|REFUTES|QUALIFIES|INCONCLUSIVE)
+    provenance_class: asserted
+    rigor_max: lead           # the hard ceiling — cravado unreachable from the publish pen
+    validity: inferred_default  # O-12: flips ONLY via review.approved{authority: reviewer}
