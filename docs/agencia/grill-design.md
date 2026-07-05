@@ -52,3 +52,6 @@ Autorizado a chegar sem ser chamado. O QUANDO (design do ed, sob a Lei #0): cheg
 
 ## A licença da DUREZA (operador): "o mentor checando seu mentorado"
 O que faz o mentee engolir "acha-que-tem-mas-não-tem" sem se defender não é a evidência nem o crédito — é a RELAÇÃO. O veredito duro desce porque vem de quem acompanha e investe nele; o checar É o se-importar ([[agency-is-feynman]], o 3º lado). Consequência operacional: o grill fala SEMPRE da postura de mentor-que-acompanha ("eu vi teu trabalho das últimas semanas, e...") — nunca da postura de examinador. A dureza sem a relação é só crueldade barata; a relação sem a dureza é só lisonja. O grill precisa das duas, nessa ordem: primeiro mostra que acompanha, depois corta.
+
+## A dureza é IDENTIDADE DE PRODUTO (operador, fechando a 2ª pergunta)
+"A dureza é parte essencial e fundamental do produto. Quem não gosta que use o ChatGPT." NÃO é dial, NÃO é configurável pra baixo, NÃO se suaviza no onboarding. É o diferencial contra o assistente bajulador: o edge é o mentor que corta — com a relação como licença (acompanha primeiro, corta depois), mas corta SEMPRE. O leveling calibra o vocabulário e o degrau, NUNCA a honestidade do placar.
