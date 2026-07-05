@@ -447,6 +447,11 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
          {"slug": slug, "proposes": proposes or [], "distills": distills or [],
           "cites": cites or [], "lineage": normalize_lineage(lineage), "spec": spec,
           "skill": skill, "dispatch_id": dispatch_id,
+          # ticket 05 (hierarquia de ORIGEM): the artefato CARRIES where it came from — DERIVED
+          # here from the minting dispatch.open (codex meta-gate #5: no caller arg, so a producer
+          # can never fabricate user_requested the wake did not declare). Default beat: an
+          # artefato of unknown origin weighs as exploração, never as o gradiente.
+          "origin": dispatch_origin(dispatch_id, log=log),
           # S6 (design-close §3/§5): the unaddressed criticism a publish-with-residuals carried, as a
           # FIRST-CLASS event field (distinct name from the `residual` channel). None on a normal publish.
           "residuals": residuals,
@@ -513,6 +518,25 @@ def wake_fresh_for(dispatch_id, log=LOG):
     return opened and not consumed
 
 
+ORIGINS = ("user_requested", "beat")
+
+
+def dispatch_origin(dispatch_id, log=LOG):
+    """Ticket 05 (hierarquia de ORIGEM): the origin the dispatch declared — `user_requested`
+    (o pedido do usuário é o gradiente: exatamente onde está a cognição dele AGORA) or `beat`
+    (exploração — indistinguível de ruído). Folds from the `dispatch.open` that minted this
+    dispatch_id. DEFAULT `beat`: a legacy stamp (no origin key), an unknown/hollow id, or a
+    junk value all fold to `beat` — a user_requested origin is never fabricated."""
+    if not (isinstance(dispatch_id, str) and dispatch_id.strip()):
+        return "beat"
+    for e in read(types=["dispatch.open"], log=log):
+        p = e.get("payload")
+        if isinstance(p, dict) and p.get("dispatch_id") == dispatch_id:
+            origin = p.get("origin")
+            return origin if origin in ORIGINS else "beat"
+    return "beat"
+
+
 def source_signal(slug, ref, kind, similarity, log=LOG):
     """Append a `source.signal` event (ADR-0009, source-feedback hypothesis tier). The **score**
     lands in the log — the cosine of a cited snippet vs the Artefato body — keyed to the cited
@@ -568,6 +592,9 @@ def fold_corpus(events):
                            "distills": p.get("distills", []), "cites": p.get("cites", []),
                            "lineage": p.get("lineage", []),
                            "spec": p.get("spec"), "skill": p.get("skill"),
+                           # ticket 05: origin rides the fold so read models can weigh
+                           # user_requested ≫ beat; a legacy event folds to beat (honest default).
+                           "origin": p.get("origin") if p.get("origin") in ORIGINS else "beat",
                            # B.1: o gate persistido acompanha o item — um reproject restaura as
                            # flat props; evento legado sem gate folda None (forward-only).
                            "gate": p.get("gate"),

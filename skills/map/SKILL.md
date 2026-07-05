@@ -28,6 +28,8 @@ Before any reasoning, run the mechanical pre-dispatch floor and read its two bri
 
     tools/edge-python tools/predispatch.py
 
+Invoked directly by the mentee (a pedido)? Wake with `tools/edge-python tools/predispatch.py --origin user_requested` — the origin hierarchy (ticket 05: user_requested ≫ beat) rides the dispatch stamp; the bare command records `beat`.
+
 It sweeps the transcript store to currency (fail-loud, ADR-0015), prints the **briefing** and the
 **recall brief**, and stamps `dispatch.open` in the log. **No wake, no publish**: the close's
 publisher refuses without a `dispatch.open` that MINTED the artefato's `dispatch_id` and is not yet consumed (identity-held gate, E1) — skipping this step

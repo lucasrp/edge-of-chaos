@@ -9,6 +9,15 @@ loop structure and the context-denial ladder are the same for every producer; on
 This scaffold is **non-procrusto** by design: it names roles, never report-specifics. A `map`
 producing a diagram and a `report` producing prose-and-charts run the **same** scaffold.
 
+## The writer's identity — seja Feynman nesse sentido
+
+Whoever writes the artefato: **seja Feynman nesse sentido** — the NAME is the pointer (it fires
+the trained attractor better than pages of rule), scoped fine: the mind that does not fool
+itself, that explains simple-and-complete, that names what it does not know. The taste to point
+at lives in the cânone tattoo (`memory/canone.md` — carried in every briefing): when in doubt,
+be like those; the anti-cânone names the smell of the hollow. The persona stays in the WRITER
+only — the production gates remain impersonal (concepts, never the persona; reviewer≠asserter).
+
 ## Depth — the producer works to its depth TARGET; the subagents serve it
 
 The producer develops the theme to a **depth target**, not to a fixed size. The scarce resource is

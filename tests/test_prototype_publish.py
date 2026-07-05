@@ -83,10 +83,14 @@ class StandalonePageLandsIntactAndContentAddressed(unittest.TestCase):
             self.assertFalse(publisher.SLUG_RE.match(out.stem))
 
 
-class TheSeamIsPrototypeOnly(unittest.TestCase):
-    def test_any_other_genus_is_refused_before_anything_is_written(self):
+class TheSeamIsRosterWide(unittest.TestCase):
+    """Ticket 05 supersedes the prototype-only restriction: JS/image are liberated in ANY
+    genus (single-file is the one hard rule left), so every roster genus rides this seam;
+    only an out-of-roster skill is refused (tests/test_three_act.py pins the roster leg)."""
+
+    def test_out_of_roster_is_refused_before_anything_is_written(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for skill in ("report", "research", "map", "plan", "discovery", "grill", ""):
+            for skill in ("", "not-a-genus", None):
                 with self.assertRaises(ValueError):
                     publisher.publish_prototype_page(
                         "kuramoto-demo", PAGE, skill=skill, blog_dir=tmp)

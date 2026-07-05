@@ -1,50 +1,65 @@
 ---
 name: beat
-description: The beat propriamente dito — a PURE round-robin scheduler over the producer-skills.
-  Carries only rotation state (whose turn); theme-choice and production belong to the skill, the
-  close to the shared pipeline.
+description: The beat — the 3-act production flow (ticket 05). Trunk: grounding inicial → an
+  explicit PROPOSTA of which artefatos (1..N) and why; branches: one agent per artefato, each
+  with its own grounding rounds, funneling through the shared close at its exit.
 ---
-You are the **beat loop** — the scheduler of the dispatch. You carry **only rotation state**: whose
-turn it is. You do **no** judgment (ADR-0012 *evacuates* judgment from the beat — amends ADR-0004,
-whose loop chose-the-theme-and-produced; now the skill does both). Theme-choice and production belong
-to the **producer-skill**, not the beat. The close belongs to the **shared pipeline**
-(`skills/_shared/pipeline.md`) at the skill's **exit**, not to the beat. This is the v0 spine: rotate
-→ hand off to the skill. No new `claude -p` — the producer-skill runs inside this one dispatch
-(ADR-0003).
+You are the **beat** — the dispatch's trunk. Ticket 05 (docs/agencia/implementacao/05) kills the
+monolith (one grounding → one close): production is **3 acts** — escolher, produzir, fechar —
+with **loops localizados**. The trunk chooses; the branches produce; every branch exits through
+the shared close (`skills/_shared/pipeline.md`).
 
-## 1. Rotate — strict round-robin
+## Ato 1 — the trunk: grounding inicial → PROPOSTA
 
-The producer roster is `["report", "research", "map", "plan", "discovery"]`. Advance the persisted cursor
-**strictly** and serve whose turn it is — successive beats yield `report`, `research`, `map`, `plan`,
-`discovery`, `report`, … (it wraps). The
-moment **does not jump the queue**: there is no judgment here, only the cursor. (`agent.yaml` already
-declares `heartbeat.skill_selection: round-robin`; this roster is what that selection rotates.)
+1. **Grounding INICIAL** — the hot look: run the mechanical entry-driver
+   (`tools/edge-python tools/predispatch.py`) and read its briefs (briefing + quente + delta +
+   recall), then a LIGHT sweep of the world — enough to see what moved, not a deep dive (depth
+   belongs to the branches, each doing its own rounds).
+2. **PROPOSTA** — the trunk's output is an **explicit proposal**: WHICH artefatos (1..N), why
+   each one is worth it, each with its own angle and form. The "why" is the plan-side gates the
+   close already carries (B.4): **VoI > custo** (vale surfar?), **é real** (grounded, not
+   manufactured), **é pra ele** (serves the mentee's live work — except `lazer`, which owes only
+   taste). The editorial-compass is the living prototype of this gate. A report + a map + a
+   JS-interativo of the same pauta is a legal proposal; so is a single brief. The rotation
+   cursor (`tools/_beat.py`) survives only as a **breadth prior** — a tie-breaker when the
+   proposal has no stronger reason, never a judgment.
 
-    tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import _beat; \
-      print(_beat.next_producer(['report','research','map','plan','discovery'], 'state/beat/cursor.json'))"
+The proposal weighs **origem**: an artefato **pedido pelo usuário** (`origin: user_requested`,
+declared at the wake — `predispatch.py --origin user_requested`) is exactly where the mentee's
+cognition is NOW, first-order signal that outweighs anything the beat would pick alone; a beat
+artefato (`origin: beat`, the default) is exploration. The dispatch stamps the origin and the
+publisher carries it onto the published artefato — everything that learns from artefatos weighs
+user_requested above beat.
 
-Breadth comes from the rotation; **aim comes from Direction** — but the aim is exercised *inside* the
-skill (step 2), never here.
+## Ato 2 — the branches: um agente por artefato, rounds próprios
 
-## 2. Hand off to the producer-skill — it judges, it produces
+For each artefato in the proposal, dispatch **one artefato-agent** (parallel, background — the
+subagent idiom; never block the trunk):
 
-Invoke the skill whose turn it is (`skills/<producer>`). **Pointing happens inside the skill**: when
-its turn comes it picks the most Worthwhile theme against **Direction + the delta**, splits it into
-leads, gathers evidence, and produces **one Artefato** in its form. The beat does not pick the theme
-and does not produce — it only said whose turn it is. (A small theme reads documents directly; real
-depth fans explorers per lead — but that is the skill's call, not the beat's.)
+- Each branch-agent runs its producer-skill (`skills/<producer>`) on the shared scaffold
+  (`skills/_shared/scaffold.md`) and produces **one Artefato** in its form.
+- **Grounding is NOT a single trunk phase**: each branch does its **own rounds** of grounding —
+  it goes back to the world as many times as ITS artefato asks (rounds localizados; the harvest
+  mines the manifests per dispatch_id — no emission duty).
+- Each branch carries its **own gates** at its own close (fim: substância + passabilidade in
+  AND, B.4 — already in `tools/close.py`) and a **loop LOCALIZADO** that ends **por fora** (the
+  protocol's bounce/reopen caps — never "até o juiz gostar"). Feedback de vários eixos disjuntos
+  ao mesmo tempo é tune ruim: one branch, one axis.
+- A **JS-interativo é OUTRO artefato** (04-C), concomitant with the prose one — never a phase of
+  it. Fan-out-gather + single-writer per artefato is the validated SOTA; a multi-writer inside
+  one artefato is the anti-pattern.
 
-## 3. Close — delegated to the shared pipeline at the skill's exit
+## Ato 3 — the close: delegated, per branch, at the skill's exit
 
-The close is **not the beat's job**. Every producer-skill funnels through the **one shared pipeline**
-(`skills/_shared/pipeline.md`): pre-dispatch (assemble + delta + recall, ADR-0014) → producer-loop (the scaffold) →
-**close** (the two blind review gates + the atomic publisher, which emits the mandatory
-`intent.kernel` so CONTRACT C3 holds). The close runs at the skill's **exit** — so a standalone
-`/ed-report` observes the same gates (honors ADR-0008). The bounce-bound lives in the protocol, never
-in the producer's discretion. Do not run a close here; do not archive or fan by hand (digestion is
-the pull-at-open **sweep** every dispatch runs at entry).
+The close is **not the beat's job**. Every branch funnels through the **one shared pipeline**
+(`skills/_shared/pipeline.md`) at its own exit: the genus contract, the two blind reviewers, the
+improve loop, the atomic publish with its `intent.kernel`, the **consolidação do grafo**, the
+chamada and the Voz cycle. A standalone `/ed-report` observes the same gates (ADR-0008). The
+bounce-bound lives in the protocol, never in the producer's discretion. Do not run a close in
+the trunk; do not archive or fan by hand (digestion is the pull-at-open sweep every dispatch
+runs at entry).
 
 ## Read-only (CONTRACT C1)
 
-The mentee's world is read-only. The edge writes only its own Artefato and state (the rotation
+The mentee's world is read-only. The edge writes only its own Artefatos and state (the rotation
 cursor included). Acting in the world is never an autonomous beat decision.

@@ -34,6 +34,8 @@ Before any reasoning, run the mechanical pre-dispatch floor and read its two bri
 
     tools/edge-python tools/predispatch.py
 
+Invoked directly by the mentee (a pedido)? Wake with `tools/edge-python tools/predispatch.py --origin user_requested` — the origin hierarchy (ticket 05: user_requested ≫ beat) rides the dispatch stamp; the bare command records `beat`.
+
 It sweeps the transcript store to currency (fail-loud, ADR-0015), prints the **briefing** and the
 **recall brief**, and stamps `dispatch.open` in the log. **No wake, no publish**: the close's
 publisher refuses without a `dispatch.open` that MINTED the artefato's `dispatch_id` and is not yet consumed (identity-held gate, E1) — skipping this step
@@ -47,7 +49,9 @@ The scaffold names three role-defined slots; discovery maps each to its serendip
 - **`gather-grounding`** (loop1) — **recall first, then explore wide and sideways with DIRECT reads by the
   main agent** (`scaffold.md`, #61): **recall** what the edge already touched, then **you** read across
   **unexpected** sources — exa and the web, other fields, history (how analogous problems were solved
-  elsewhere), adjacent industries — so the founding context of the surprising find **stays in you**. The
+  elsewhere), adjacent industries, **or the mentee's own field** (ticket 05, operador: serendipidade
+  dirigida PODE ser do mesmo ramo — the canonical DSPy report was in-field; ZERO obrigatoriedade de
+  outro campo) — so the founding context of the surprising find **stays in you**. The
   search itself can be the discovery (a paper, a post, a pattern). Breadth is the point here, so fanning
   subagents across independent sources is the **natural optional fan-out** — but it is fan-out for
   breadth, **not a rebate on reading the sources yourself**; the aim is not a known target but a

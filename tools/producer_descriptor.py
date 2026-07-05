@@ -57,6 +57,10 @@ DESCRIPTORS = {
     # carries the form, and the bar there is structural (single-file/zero-dep, enforced at that
     # seam) + semantic ("a interatividade ensina?", the skill's converge — never a keyword check).
     "prototype": {"require": []},
+    # lazer (ticket 05) — puro lazer, exploração livre (distinct from discovery's directed
+    # serendipity). No presentation floor by design: the form is free (the exemplar is the
+    # single-file interactive edge-of-chaos netlify blog); the genus rich rite still applies.
+    "lazer": {"require": []},
 }
 
 _STRUCTURE_BLOCKS = {"framed_steps": {"next-steps-grid", "numbered-card"}}

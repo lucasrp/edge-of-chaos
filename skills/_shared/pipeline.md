@@ -49,7 +49,18 @@ directly.
    from that feedback BEFORE the gating review seals the proof — so what publishes is exactly what
    the reviewers passed. Then it publishes atomically with its kernel.
 
-   Two sibling acts complete the close, right after the publish:
+   Three sibling acts complete the close, right after the publish:
+   - **the consolidação do grafo** (ticket 05; operador: possivelmente a função MAIS IMPORTANTE
+     do artefato) — every artefato ends by **making the meaning it found in the world into
+     graph structure**: materialize what it learned as nodes/edges/types (the inline curation
+     of 02-D elevated to a first-class phase; the discipline and cypher live in
+     `skills/_shared/memory.md`). The page is the projection; the meaning consolidated in the
+     graph is what ACCUMULATES (it is what recall, the communities, the pontes and the episteme
+     navigate later). Provenance: `provenance_class: asserted` (asserted-by-agent), anchored in
+     the artefato's own cites — never a `computed` rollup (CX-1). **And this is where
+     serendipity enters**: any producer, consolidating, materializes its off-thread finds as
+     long-range nodes/edges — the small-world shortcuts the on-topic pass would never create.
+     Gênese, não enfeite.
    - **the chamada** — append an `artefato.teaser` event (`{slug, text}`, ~3 short paragraphs,
      blog voice, same language as the artefato): the home's index renders it as the post's
      body. It introduces and invites the click — name the tension the artefato resolves and
@@ -122,6 +133,31 @@ their analysis, when `agent.yaml`'s `subagents.codex_assist.<role>` is true (all
 Use it to challenge a claim, derive cross-model, or hunt the outside benchmark a frame-closed
 draft is missing — the score is noise; a cross-model second opinion sharpens the *feedback*, which
 is the signal.
+
+## Single file is the ONE hard rule — links, JS and imagem liberados (ticket 05)
+
+The self-contained rule softens (operador): artefatos **MAY carry links** — in the body and in
+an optional **"saiba mais"** further-reading section for whoever wants to go beyond.
+Self-contained now means self-contained **na LEITURA** (the reader understands without opening
+anything), not na referência. Link quality inherits the leveling exemplar: **VERIFICADO** (what
+does not open stays out), **escolhido** (gap × trabalho vivo × perfil, nunca catálogo), with the
+why in meia linha. **JavaScript is liberated in any artefato** (not only the prototype genus)
+and **inline imagem too** (base64/data-URI or inline SVG) — the standalone single-file seam
+(`publisher.publish_prototype_page`) is roster-wide. The ONE hard rule that stays: **SINGLE
+FILE** — one file that loads everything (JS, CSS, imagem, dado); links point outward, but the
+artefato opens whole by itself. The gate is unchanged: interaction that TEACHES, never forced.
+
+## Origem: user_requested ≫ beat (ticket 05)
+
+Every artefato carries its **origin** (`user_requested | beat`), resolved from the dispatch that
+woke it (`predispatch.py --origin`; the publisher persists it on `artefato.published`, the corpus
+fold and the graph projection carry it). **A standalone producer the mentee invoked directly
+(`/ed-report`, a pedido) wakes with `--origin user_requested`** — the default is `beat`, so an
+undeclared wake never claims the mentee's voice. A
+user-requested artefato is exactly where the mentee's cognition is NOW — first-order signal;
+a beat artefato is exploration, indistinguishable from noise. Everything that learns from
+artefatos (source curation, pontes, the quente's attention, the trunk's ato-1) weighs
+user_requested above beat: o pedido do usuário é o gradiente; o beat é exploração.
 
 ## Producers round-robin; close-roles do NOT
 

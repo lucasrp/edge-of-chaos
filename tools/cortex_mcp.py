@@ -102,6 +102,8 @@ MAX_HOPS = 2
 GRANTED_SUBJECTS = {
     "lead", "recall", "assemble", "wake", "beat", "consolidate",
     "report", "map", "plan", "research", "critique", "discovery", "grill",
+    # ticket 05: lazer is a first-class producer (recall/consolidação like every producer).
+    "lazer",
 }
 
 

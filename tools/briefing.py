@@ -265,15 +265,19 @@ def _read_doc(name, memory=MEMORY, agent_yaml=AGENT_YAML):
 
 
 def _section_tattoos(memory=MEMORY, agent_yaml=AGENT_YAML):
-    """The **immutable** head of the briefing — the *initial tattoos*: who the edge is (**personality**)
-    and how it thinks (**method**), the Feynman doctrine. Loaded ONLY here, at the edge's wake (via the
-    briefing) — never the global `CLAUDE.md` system prompt (that would change Claude, not the edge). Read
-    from `memory/` as the **current** doctrine (not cursor-versioned — the tattoos are foundational, not
-    historical). FAIL-CLOSED (gate root-cause #1): BOTH personality and method must render non-empty,
-    or it raises BriefingIdentityError — an absent/blank tattoo is a lobotomy, never a silent marker."""
+    """The **immutable** head of the briefing — the *initial tattoos*: who the edge is (**personality**),
+    how it thinks (**method**, the Feynman doctrine) and what it holds as taste (**cânone**, ticket 05:
+    as boas lembranças que não morrem no reset — o exemplar a apontar, o academicismo a evitar). Loaded
+    ONLY here, at the edge's wake (via the briefing) — never the global `CLAUDE.md` system prompt (that
+    would change Claude, not the edge). Read from `memory/` as the **current** doctrine (not
+    cursor-versioned — the tattoos are foundational, not historical). FAIL-CLOSED (gate root-cause #1):
+    personality, method AND canone must ALL render non-empty, or it raises BriefingIdentityError — an
+    absent/blank tattoo is a lobotomy, never a silent marker."""
     personality = _read_doc("personality", memory=memory, agent_yaml=agent_yaml)
     method = _read_doc("method", memory=memory, agent_yaml=agent_yaml)
-    missing = [n for n, v in (("personality", personality), ("method", method)) if not v]
+    canone = _read_doc("canone", memory=memory, agent_yaml=agent_yaml)
+    missing = [n for n, v in (("personality", personality), ("method", method),
+                              ("canone", canone)) if not v]
     if missing:
         raise BriefingIdentityError(
             f"doctrine absent/blank — {', '.join(missing)} not inscribed in {memory}; "
@@ -284,6 +288,7 @@ def _section_tattoos(memory=MEMORY, agent_yaml=AGENT_YAML):
         "before reading the state below._",
         "### Personality\n\n" + personality,
         "### Method\n\n" + method,
+        "### Cânone\n\n" + canone,
     ])
 
 

@@ -521,6 +521,7 @@ class TestBriefingDrillsDownToDirection(_DirectionBase):
         memory.mkdir(exist_ok=True)
         (memory / "personality.md").write_text("# Personality\n\nSkeptical.")
         (memory / "method.md").write_text("# Method\n\nDerive first.")
+        (memory / "canone.md").write_text("# O cânone\n\nO report do DSPy.")
         (root / "state").mkdir(exist_ok=True)
         (root / "state" / "idiom.md").write_text("# Idiom\n\n**beat** — the cycle.")
         agent_yaml = root / "agent.yaml"

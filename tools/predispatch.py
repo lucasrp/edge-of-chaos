@@ -69,7 +69,7 @@ def mint_dispatch_id():
 
 def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_fn=None,
         log=eventlog.LOG, dispatch_id=None, theme=None, intent=None, geometry=None,
-        id_sink=None):
+        id_sink=None, origin=None):
     """The mechanical floor, in order: sweep → briefing → STAMP dispatch.open (+ emit the id to
     `id_sink`) → grounding legs (harvest → recall brief → canary) → dispatch.grounding. Returns
     (briefing_text, recall_text) for the dispatch to read. Injectable (house style) so it runs
@@ -130,9 +130,14 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
         geometry = "themed" if theme else "ambient"
     # the stamp is IDENTITY-ONLY now (#62): harvested/ambient_rows move to the dispatch.grounding
     # event below — they had zero downstream readers on the stamp and gated nothing.
+    # ticket 05 (hierarquia de ORIGEM): the dispatch DECLARES where it came from —
+    # user_requested (first-order signal, o gradiente) or beat (exploração). Default beat:
+    # an undeclared origin is never promoted. The artefato reads it back at publish
+    # (eventlog.dispatch_origin) and carries it on artefato.published.
     eventlog.dispatch_open({"swept_sessions": swept, "dispatch_id": dispatch_id,
                             "session_id": os.environ.get("CLAUDE_CODE_SESSION_ID"),
-                            "theme": theme, "intent": intent, "geometry": geometry}, log=log)
+                            "theme": theme, "intent": intent, "geometry": geometry,
+                            "origin": origin if origin in eventlog.ORIGINS else "beat"}, log=log)
     # the machine-readable id, the moment the identity is durable — written DIRECTLY to the real
     # stream (bypassing any floor-noise capture), BEFORE the grounding legs print anything.
     if id_sink is not None:
@@ -336,6 +341,10 @@ def main(argv=None):
     parser.add_argument("--geometry", default=None, choices=("ambient", "themed"),
                         help="explicit geometry (default: ambient, themed when --theme is "
                              "declared — predispatch cannot see its caller, so it is declared)")
+    parser.add_argument("--origin", default="beat", choices=eventlog.ORIGINS,
+                        help="who asked for this dispatch (ticket 05): user_requested = the "
+                             "mentee's live cognition (first-order signal, weighs above beat); "
+                             "beat = autonomous exploration (default)")
     args = parser.parse_args(argv)
     dispatch_id = mint_dispatch_id()
     # machine-readable FIRST (S2, E1 + gate D2): the skill-snippet reads this exact line off
@@ -350,7 +359,7 @@ def main(argv=None):
         with contextlib.redirect_stdout(floor_out):
             briefing_text, recall_text = run(dispatch_id=dispatch_id, id_sink=real_out,
                                              theme=args.theme, intent=args.intent,
-                                             geometry=args.geometry)
+                                             geometry=args.geometry, origin=args.origin)
     except BaseException:
         sys.stdout.write(floor_out.getvalue())
         raise

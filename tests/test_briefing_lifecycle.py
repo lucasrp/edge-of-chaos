@@ -47,6 +47,7 @@ def _genotype(tmp):
     memory.mkdir(parents=True, exist_ok=True)
     shutil.copy(REPO / "memory" / "personality.md.tpl", memory / "personality.md.tpl")
     shutil.copy(REPO / "memory" / "method.md", memory / "method.md")
+    shutil.copy(REPO / "memory" / "canone.md", memory / "canone.md")
     (tmp / "state").mkdir(parents=True, exist_ok=True)  # temp state_dir; intentionally no idiom.md
 
     glossary = tmp / "project-CONTEXT.md"

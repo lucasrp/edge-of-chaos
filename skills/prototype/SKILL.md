@@ -40,6 +40,8 @@ Before any reasoning, run the mechanical pre-dispatch floor and read its briefs:
 
     tools/edge-python tools/predispatch.py
 
+Invoked directly by the mentee (a pedido)? Wake with `tools/edge-python tools/predispatch.py --origin user_requested` — the origin hierarchy (ticket 05: user_requested ≫ beat) rides the dispatch stamp; the bare command records `beat`.
+
 It stamps `dispatch.open` and prints the machine-readable **`DISPATCH_ID=<id>`** line — carry that
 exact id into the artefato as `dispatch_id`. **No wake, no publish** (identity-held gate, E1).
 
@@ -75,17 +77,19 @@ The producer OPENS AND SEES the page before shipping — never ships blind:
 
 ## Publish — the standalone page + the companion entry through the close
 
-The page publishes through the genus' OWN seam in `tools/publisher.py` — the live close path
-sanitizes raw-html (`render.sanitize_raw_html` strips `<script>`), so the interactive page never
-rides as a block; it lands INTACT and CONTENT-ADDRESSED (immutable: same bytes idempotent, changed
-bytes a new address), restricted to this genus:
+The page publishes through the standalone single-file seam in `tools/publisher.py` — the live
+close path sanitizes raw-html (`render.sanitize_raw_html` strips `<script>`), so the interactive
+page never rides as a block; it lands INTACT and CONTENT-ADDRESSED (immutable: same bytes
+idempotent, changed bytes a new address). Ticket 05 generalized the seam roster-wide (JS/imagem
+liberados em qualquer artefato; single file é a única regra dura), so this genus shares it:
 
     tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import publisher; \
       print(publisher.publish_prototype_page('<slug>', open('<page.html>').read(), \
         skill='prototype'))"
 
 It returns `blog/entries/<slug>.proto.<sha12>.html`, served at `/e/<that-name>` — put that URL in
-the companion entry. The seam refuses any other genus, a fragment, or an external dependency.
+the companion entry. The seam refuses an out-of-roster skill, a fragment, or an external
+dependency.
 
 Then the **companion entry** — the framing the reviewers gate: what the demo shows, why it matters
 to the mentee's live work, how to read the interaction, the honest boundary (what the prototype
