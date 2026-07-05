@@ -33,14 +33,10 @@ stop early.
    curated/ground-truth AND carries its own original grounding** (a prior Artefato with
    cites); hypothesis-tier recall never closes — it seeds the sweep with what is already
    half-known. The self is the grounding **floor**, not a Source (ADR-0014).
-2. **Plan the sweep** from the roadmap: pick the sources the gap's intent points to. **X is the
-   recency-best channel for AGENTIC topics (source-roadmap X row, operator 2026-07-04) — and the
-   edge's domain is overwhelmingly agentic, so sweep X FIRST / weight it highest on essentially every
-   gap, NOT excluded by a `científico`/`deep-research` intent; exa+arXiv are the depth/citation leg
-   AFTER X sets the recency frontier.** (Older priors: `exploração`→x, `científico`→arxiv,
-   `deep-research`→exa — now subordinate to the X-first-for-agentic rule.) Order by the yield table.
-   Write each query **in that source's declared idiom** — an off-idiom query that returns empty is a
-   FALSE dry you manufactured.
+2. **Plan the sweep** from the roadmap: pick the sources the gap's intent points to (the
+   operator's intent priors: exploração→x, científico→arxiv, deep-research→exa), ordered
+   by the yield table. Write each query **in that source's declared idiom** — an off-idiom
+   query that returns empty is a FALSE dry you manufactured.
 3. **Sweep agentically** (ADR-0001 — the key + the `via` line, no primitive ever). Fan
    `{prefix}-explorer` subagents for parallel legs; explorers are world-readers, DENIED the
    cortex door. House rule (harvester blind spot): any script of yours that reads a source

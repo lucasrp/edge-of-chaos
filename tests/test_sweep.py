@@ -4,11 +4,16 @@ These pin the PURE half: cursor-guarded delta selection, idempotency, and the lo
 side effects of `execute` — with an injected fake `ingest_fn`, so no Neo4j or OpenAI is touched.
 The Graphiti ingest + re-projection are exercised live in the deploy/verify step, not here.
 """
+import contextlib
+import io
 import json
+import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
@@ -434,6 +439,58 @@ class EmbedAndSignalDegradesWithoutEmbedder(unittest.TestCase):
             self.assertEqual(n, 0)
             self.assertEqual(eventlog.read(types=["source.signal"], log=log), [])
             self.assertIn("source.signal skipped", buf.getvalue())
+
+
+class GraphIngestIsBoundedAndNeverGatesTheSweep(unittest.TestCase):
+    """#62 (second front): Tier-0 (episode + cursor) is durable BEFORE the best-effort graph ingest,
+    and the ingest is time-bounded on a daemon thread — a HANG (add_episode on a network call with
+    no client timeout, the real sweep hang) degrades dark LOUD, never blocks the wake."""
+
+    def test_a_hanging_ingest_degrades_dark_within_budget_tier0_intact(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
+            write_session(proj, "sessA")
+            log = Path(st) / "log.jsonl"
+
+            def hang(items):
+                time.sleep(30)            # a network call with no timeout — the real hang
+
+            buf = io.StringIO()
+            t0 = time.monotonic()
+            with mock.patch.dict(os.environ, {"EDGE_SWEEP_INGEST_BUDGET_S": "1"}), \
+                 contextlib.redirect_stdout(buf):
+                cur, n = sweep.execute(sweep.plan_sweep(proj, {}), hang, {}, log=log)
+            dt = time.monotonic() - t0
+            self.assertLess(dt, 6.0, "a hung graph ingest must not block the sweep past the budget")
+            self.assertIn("EXCEEDED", buf.getvalue(), "the timeout degrades DARK and LOUD")
+            self.assertEqual(n, 1)
+            self.assertIn("sessA", cur, "Tier-0 cursor advanced despite the hung ingest")
+            self.assertEqual(len(eventlog.read(types=["episode"], log=log)), 1,
+                             "the episode is logged (Tier-0 truth) before the best-effort ingest")
+
+    def test_a_raising_ingest_still_logs_and_advances(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
+            write_session(proj, "sessA")
+            log = Path(st) / "log.jsonl"
+
+            def boom(items):
+                raise RuntimeError("neo4j down")
+
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cur, n = sweep.execute(sweep.plan_sweep(proj, {}), boom, {}, log=log)
+            self.assertIn("skipped", buf.getvalue())
+            self.assertIn("sessA", cur)
+            self.assertEqual(len(eventlog.read(types=["episode"], log=log)), 1)
+
+    def test_nonfinite_or_bad_ingest_budget_fails_loud(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
+            write_session(proj, "sessA")
+            log = Path(st) / "log.jsonl"
+            for bad in ("nan", "inf", "-1", "soon"):
+                with self.subTest(budget=bad), \
+                     mock.patch.dict(os.environ, {"EDGE_SWEEP_INGEST_BUDGET_S": bad}):
+                    with self.assertRaises(ValueError):
+                        sweep.execute(sweep.plan_sweep(proj, {}), lambda items: None, {}, log=log)
 
 
 if __name__ == "__main__":

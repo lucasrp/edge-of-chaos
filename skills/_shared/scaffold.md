@@ -44,13 +44,17 @@ target; the slots below name *roles*, not a fixed delegation shape.
 The scaffold defines three slots by their **role** in the loop. It says what the role *does*,
 never what a particular report-form *is*:
 
-- **`gather-grounding`** — loop1's role: the producer **freely delegates to its subagent fleet**
-  to reach plenitude. **But recall before you research** (`skills/_shared/memory.md`): first pull the
-  subgraph your theme already touches from the edge's own memory, so explorers chase what is *missing*,
-  not what you already published. Gathering grounding is one use — explorers go out and bring back evidence;
-  **decomposing the theme into facets developed in parallel** is another, as is probing the gaps a
-  first pass exposes. The producer wields the subagents **as it judges best**, within the runtime's
-  concurrency cap — the scaffold offers the affordance and per-form *guidance*, **never a fixed
+- **`gather-grounding`** — loop1's role: the producer **grounds in its own context — recall (rung 1)
+  + DIRECT reads of the sources** — so the **rich context stays in the producer**, available for the
+  synthesis (#61). **Recall before you research** (`skills/_shared/memory.md`): first pull the subgraph
+  your theme already touches from the edge's own memory, so you chase what is *missing*, not what you
+  already published. Then **read the sources yourself**: direct reading brings back the **real cases and
+  the depth** — a real report's grounding was done in the main loop, and that is why it had concrete cases
+  and depth; the thin `{source, ref}` an explorer returns **loses the founding context** the synthesis
+  needs (the #61 evidence). Delegating to explorers is an **OPTIONAL fan-out for BREADTH** — reach for it
+  when the theme has **independent facets** worth parallelism, or to probe a gap a first pass exposes —
+  **not the default grounding path**. The producer wields the subagents **as it judges best**, within the
+  runtime's concurrency cap — the scaffold offers the affordance and per-form *guidance*, **never a fixed
   delegation shape**. The slot says "gather grounding," not "fetch this URL." Whether an explorer
   reads a paper, a repo, or a graph thread is the **producer skill's** decision. *How* an explorer reaches a world source is
   the same for every producer and is **never a per-source primitive** (ADR-0001): read the source's

@@ -123,6 +123,10 @@ class MainPrintsTheMachineReadableLine(unittest.TestCase):
 
         def fake_run(**kw):
             seen.update(kw)
+            # #62: the id is written by run() to the id_sink main() hands it, not by main()
+            if kw.get("id_sink") is not None:
+                kw["id_sink"].write(f"DISPATCH_ID={kw['dispatch_id']}\n")
+                kw["id_sink"].flush()
             return "BRIEFING", "RECALL"
 
         buf = io.StringIO()
@@ -154,6 +158,10 @@ class MainPrintsTheMachineReadableLine(unittest.TestCase):
         # codex S2 gate D2: the real sweep prints degraded warnings — a snippet grepping
         # "first line" must still find DISPATCH_ID= first; the noise is preserved AFTER it.
         def noisy_run(**kw):
+            # #62: run() writes the id to the id_sink FIRST, then the floor legs print their noise
+            if kw.get("id_sink") is not None:
+                kw["id_sink"].write(f"DISPATCH_ID={kw['dispatch_id']}\n")
+                kw["id_sink"].flush()
             print("sweep: transcript store degraded — continuing dark")
             print("recall: graph unreachable")
             return "BRIEFING", "RECALL"

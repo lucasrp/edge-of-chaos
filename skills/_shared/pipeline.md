@@ -134,7 +134,11 @@ all funnel through.
 ## The grounding floor at the close (S6)
 
 Every producer's `close.run_close(...)` call **wires `floor_fn=harvest.close_floor`** (see each
-producer SKILL.md's close snippet — the line rides beside `improve_fn`). The floor is a
+producer SKILL.md's close snippet — the line rides beside `improve_fn`). Under the #61 split the
+**publisher** runs that close, so it wires the floor as
+`floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session="")` — the `main_session_id`
+from the brief points the floor at the MAIN's transcript and the cleared `child_session` keeps its teeth
+(without it the child-session guard darks the floor out). The floor is a
 `() -> list[str]` the wiring injects at the call-site (`close.py` never imports `harvest` — the same
 injection idiom as `publish_fn`); a returned list is **genus-class** — summed into the gate's
 `violations`, blocking-first, before the reviewers. `harvest.close_floor` reads the knob
@@ -146,16 +150,41 @@ counted `grounding.floor_dark`, never a close crash. Ambient geometry never gate
 kwarg is what lets the observe→gate rollout ride the #248 ladder purely by the knob — the genotype
 carries the floor at 0 and nothing changes until the operator turns it up.
 
-## Optional: delegating publication mechanics to a clerk (tipógrafo)
+## The publisher subagent OWNS the close (Facet B, #61)
 
-**This is an OPTIONAL delegation emenda — it does NOT change the producer's publish flow above.**
-Once the draft is **final** (the artefato content is settled — every claim already made), a producer
-MAY hand the *publication mechanics* (the render/spec chores, block-shape tidy, the exact publish
-call) to a **clerk** subagent — a **tipógrafo**, not an author. The clerk receives a **brief + disk
-POINTERS** (the slug, the settled spec's path, the cites file — never a context dump; the
-`conductor.py` node_briefs idiom) and reports back over a **typed pull-channel**, returning
-`{slug, cost, residuals, rationales}`. The wall: **the clerk edits FORM, never creates a claim** —
-it cannot add a cite, a proposal, or a sentence of substance; a claim born in the clerk is a defect.
+**The default publish path is delegation to the `publisher` subagent** (`.claude/agents/publisher.md`) —
+this is not an optional form-only clerk anymore; the publisher owns the WHOLE `run_close`. Once the
+producer has **SETTLED** the artefato (every claim already made, the rich context still in the MAIN's
+window), it does **not** run `close.run_close` inline. It writes the settled spec + fields to **disk
+pointers** and hands off to the publisher (via the Agent tool) with a **brief + disk POINTERS** — the
+`conductor.py` node_briefs idiom, never a context dump: `{dispatch_id, main_session_id, skill,
+intent_kernel, slug, spec_path, cites_path, proposes_path, distills_path, lineage_path}`. The publisher
+runs the **whole close** in a clean process — the genus contract, the two blind reviewers, the
+**mechanical** improve loop, the mint, the render, the atomic publish — and returns a typed **pull-channel**
+`{status, slug, url, cost, residuals, rationales, bounce_reason}`. Moving the heavy publish machine off the
+MAIN is the point: it **stalled the producer >4min inline**, and it never needed the rich context (the
+close's rungs 4-5 are already context-denied).
+
+**The wall still stands — the publisher is a tipógrafo of MECHANICS, never an author.** It receives the
+spec ASSENTADO and never creates a claim, a cite, a proposal, or a sentence of substance — a claim born in
+the publisher is a defect. What it owns is the **close machinery**, not the synthesis. So the bounce splits
+by nature: a **FORM-only** leftover after the mechanical improve → **publish-with-residuals** (the S6 knob
+`EDGE_PUBLISH_WITH_RESIDUALS`, the "Crítica não endereçada" section, graded not gated); a **SUBSTANTIVE**
+strike — one that needs a re-derive, a missing factual anchor, a new claim, or a genus-floor violation —
+**bounces to the author** (`status: bounced, needs author`), because only the MAIN holds the context to
+re-found it. The MAIN re-produces and re-hands the pointers under the **same `dispatch_id`** (no re-wake —
+the stamp is unconsumed, so re-publish under the same id still passes the identity-held gate).
+
+**The floor keeps its teeth across the split.** The publisher runs as a child
+(`CLAUDE_CODE_CHILD_SESSION` set) with a read-less transcript, so a naive `close_floor()` would go
+always-dark — the very S6 grounding floor would lose its teeth. The brief's `main_session_id` cures it:
+the publisher wires `floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session="")` —
+pointing the floor at the MAIN's transcript (where the reads live) and **clearing** the child guard.
+Without `child_session=""` the floor re-darkens under the split (pinned in
+`tests/test_publisher_floor_split.py`).
+
 The proof, the kernel, and the atomic publish still belong to the enforced close (`run_close` →
-`publish_fn`); the clerk only carries the typographic legwork so the producer's context stays on the
-thinking. When in doubt, skip it — the producer publishing directly is always correct.
+`publish_fn`); the publisher just runs that close where the context is clean. Minting the proof in the
+publisher is **sound**: the digest covers only content + identity fields (`{slug, spec, intent, cites,
+proposes, distills, skill, lineage, dispatch_id}`), **no session/process field** — so it binds the spec
+plus the `dispatch_id` that rode in the brief, wherever the close runs.

@@ -827,11 +827,23 @@ def _dry_label(row_event, payload, hits, source, interface, canaries):
 
 
 def winning_manifest_rows(events):
-    """The ONE reader of the E2b dedup/supersede + canary parse — returns (rows, canaries, corrupt):
-    the WINNING (event, payload) grounding.manifest rows in _event_seq order (max (recognizer_rev,
-    seq) per raw_ref; a worse reinterpretation never defeats a healthier original), the interpreted
-    canary.result attestations, and the corrupt tally. `fold_grounding` AND `grounding_yield` both
-    call this so faceta 1's interpretation cannot drift (this was the 'must not drift' duplication)."""
+    """The ONE dedup/supersede + canary reader (E2b) — the shared front half of `fold_grounding`
+    and `grounding_yield` (the near-identical logic used to live in BOTH and must not drift).
+    Pure, no I/O. → (rows, canaries, corrupt):
+
+    `rows` = the WINNING (event, payload) manifest per BRUTE raw_ref, seq-sorted. FIRST emission
+    wins per raw_ref (the log is append-only with no write-side dedupe — a cursor reset /
+    retro-harvest re-emits, and the re-emission must be a no-op HERE, not prevented there). A row
+    carrying `supersedes: <raw_ref>` REINTERPRETS that occurrence — the winner among the ORIGINAL
+    and its reinterpretations is max (recognizer_rev, seq) (gate D1: a worse/corrupt recognizer
+    never defeats a healthier original), so the raw history is never rewritten, the
+    interpretation is versioned.
+
+    `canaries` = the interpreted `canary.result` attestations, in log order.
+
+    `corrupt` = the tally of rows that could not be interpreted — a corrupt manifest/canary is
+    COUNTED, never raised and never silently dropped (fold_grounding surfaces it; the yield fold
+    discards it — its excluded shape has no corrupt leg)."""
     corrupt = 0
     canaries = []   # interpreted canary.result attestations, in seq order
     plain = {}      # raw_ref -> (event, payload) of its FIRST emission
@@ -849,9 +861,14 @@ def winning_manifest_rows(events):
                     or not (isinstance(src, str) and src.strip()
                             and isinstance(iface, str) and iface.strip())
                     or isinstance(seq, bool) or not isinstance(seq, (int, float))):
-                # only a REAL boolean from a NAMED source×interface with an ORDERABLE seq attests
-                # (bool coercion, keyless match, and unrankable seq are the guarded failure modes) —
-                # a non-attesting canary is counted corrupt, and the rows it would join stay suspect.
+                # codex S1 gate D3 + round-3 B3 + round-4 + round-5: only a REAL boolean from a
+                # NAMED source×interface with an ORDERABLE seq attests — bool("false") is True
+                # (a coerced pass could project verificada off a FAILED canary), a keyless or
+                # whitespace-keyed canary could match a keyless row's None dims, and a
+                # non-numeric seq cannot be ranked in the join's min() tie-break (normalizing it
+                # to 0 would make corrupt WIN under min() what it loses under max() — see
+                # _event_seq's direction rule). A non-attesting canary is counted corrupt
+                # (visible degradation) and the rows it would have joined just stay suspect.
                 corrupt += 1
                 continue
             canaries.append({"source": src, "interface": iface, "passed": ok,
@@ -863,8 +880,8 @@ def winning_manifest_rows(events):
             if "supersedes" in p:
                 target = _raw_ref_key(p.get("supersedes"))
                 if target is None:
-                    # an unusable target can neither reinterpret nor be a fresh first emission
-                    # (its raw_ref IS its target per E2b) — counted, not folded
+                    # an unusable target can neither reinterpret nor be trusted as a fresh
+                    # first emission (its raw_ref IS its target per E2b) — counted, not folded
                     corrupt += 1
                     continue
                 supers.setdefault(target, []).append((e, p))
@@ -876,14 +893,17 @@ def winning_manifest_rows(events):
             plain.setdefault(ref, (e, p))  # first emission wins; re-harvests are no-ops
     rows = []
     for ref in set(plain) | set(supers):
-        # the ORIGINAL row competes on the same (recognizer_rev, seq) rank as its reinterpretations
-        # (gate D1): a supersede with a worse/corrupt rev must NOT defeat a healthier original.
+        # the ORIGINAL row competes on the same (recognizer_rev, seq) rank as its
+        # reinterpretations (codex S1 gate D1): a supersede with a worse/corrupt rev must NOT
+        # defeat a healthier original — that would be the exact inversion E2b forbids
+        # (supersedes versions the interpretation, it is not an unconditional overwrite).
         contenders = list(supers.get(ref, ()))
         if ref in plain:
             contenders.append(plain[ref])
         rows.append(max(contenders, key=lambda ep: _supersede_rank(ep[1], ep[0])))
-    rows.sort(key=lambda ep: _event_seq(ep[0]))  # MAX-direction orderings need a comparable seq
-    return rows, canaries, corrupt
+    # _event_seq, not raw seq (codex round-3 B2): a corrupt `seq: "bad"` beside a numeric one
+    # would TypeError this sort — the fold is fail-dark, never a raise
+    return sorted(rows, key=lambda ep: _event_seq(ep[0])), canaries, corrupt
 
 
 def fold_grounding(events):
@@ -892,12 +912,8 @@ def fold_grounding(events):
     renders). No I/O, tolerant like fold_direction: a corrupt manifest is COUNTED (`corrupt`),
     never raised and never silently dropped.
 
-    Identity (E2b): rows key by the BRUTE `raw_ref`; the FIRST emission wins per raw_ref (the log
-    is append-only with no write-side dedupe — a cursor reset / retro-harvest re-emits, and the
-    re-emission must be a no-op HERE, not prevented there). A row carrying `supersedes: <raw_ref>`
-    REINTERPRETS that occurrence — the winner among the ORIGINAL and its reinterpretations is
-    max (recognizer_rev, seq) (gate D1: a worse/corrupt recognizer never defeats a healthier
-    original), so the raw history is never rewritten, the interpretation is versioned.
+    Identity (E2b): dedup/supersede + canary interpretation live in `winning_manifest_rows` (the
+    ONE reader, shared with grounding_yield).
 
     Aggregation: one cell per (source, interface, lens, geometry, intent) — source×interface are
     DISTINCT entries (R2.2d), intent stratifies when declared (enxerto A2), `geometry: ambient`
@@ -913,7 +929,7 @@ def fold_grounding(events):
     cells = {}
     excluded = {"seca-suspeita": 0}
     excluded.update({f"attribution:{a}": 0 for a in _GROUNDING_EXCLUDED_ATTRIBUTION})
-    for e, p in rows:  # winning_manifest_rows already sorted by _event_seq (fail-dark)
+    for e, p in rows:  # already seq-sorted by winning_manifest_rows
         def _dim(k):  # a non-str dimension is corrupt-typed → folds under None (fail-dark)
             v = p.get(k)
             return v if isinstance(v, str) else None

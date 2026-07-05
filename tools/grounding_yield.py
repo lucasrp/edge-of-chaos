@@ -165,8 +165,10 @@ def _scorable(sim):
 
 
 def _winners_and_canaries(events):
-    """The WINNING (event, payload) manifest rows + interpreted canary attestations — delegates to
-    `eventlog.winning_manifest_rows` (the ONE reader), so faceta 1's interpretation cannot drift."""
+    """Fold_grounding's dedup/supersede (E2b) + canary parse, returning the WINNING (event,
+    payload) manifest rows and the interpreted canary attestations. Delegates to
+    `eventlog.winning_manifest_rows` (the ONE reader) so the interpretation never drifts from
+    faceta 1; the corrupt tally is dropped — the yield's excluded shape has no corrupt leg."""
     rows, canaries, _ = eventlog.winning_manifest_rows(events)
     return rows, canaries
 

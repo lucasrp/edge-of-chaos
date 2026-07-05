@@ -58,9 +58,10 @@ class HarvestLegStampsAndDegradesDark(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             _run(log, probe_fn=lambda s: True, harvest_fn=lambda: 4)
-            p = eventlog.read(types=["dispatch.open"], log=log)[0]["payload"]
+            # #62: harvested/ambient_rows moved off the identity stamp to dispatch.grounding
+            p = eventlog.read(types=["dispatch.grounding"], log=log)[0]["payload"]
             self.assertEqual(p["harvested"], 4)
-            self.assertIn("ambient_rows", p, "the stamp gains ambient_rows too")
+            self.assertIn("ambient_rows", p, "the grounding event gains ambient_rows too")
 
     def test_dead_harvest_degrades_dark_and_still_stamps(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -72,8 +73,8 @@ class HarvestLegStampsAndDegradesDark(unittest.TestCase):
             buf = io.StringIO()
             with redirect_stdout(buf):
                 _run(log, probe_fn=lambda s: True, harvest_fn=boom)
-            p = eventlog.read(types=["dispatch.open"], log=log)[0]["payload"]
-            self.assertEqual(p["harvested"], 0, "a dark harvest stamps 0, never raises")
+            p = eventlog.read(types=["dispatch.grounding"], log=log)[0]["payload"]
+            self.assertEqual(p["harvested"], 0, "a dark harvest records 0, never raises")
             self.assertTrue(eventlog.wake_fresh(log=log), "the stamp still lands")
             self.assertIn("harvest leg DARK", buf.getvalue())
 
@@ -171,8 +172,9 @@ class AmbientRowsAreStamped(unittest.TestCase):
                   _suspect_row("x", "v2-recent", idiom_conforme=True, geometry="ambient"),
                   _suspect_row("x", "v2-recent", idiom_conforme=True, geometry="ambient"))
             _run(log, probe_fn=lambda s: True)
-            p = eventlog.read(types=["dispatch.open"], log=log)[0]["payload"]
-            self.assertEqual(p["ambient_rows"], 2, "both ambient attempts count toward the stamp")
+            # #62: ambient_rows lives on dispatch.grounding now, not the identity stamp
+            p = eventlog.read(types=["dispatch.grounding"], log=log)[0]["payload"]
+            self.assertEqual(p["ambient_rows"], 2, "both ambient attempts count toward grounding")
 
 
 class E8CanaryIteratesDeclaredInterfacesNeverASourceByName(unittest.TestCase):
