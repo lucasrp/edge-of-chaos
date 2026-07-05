@@ -347,7 +347,7 @@ _AUTO = object()  # sentinel: "fetch clusters for me" vs an explicit None ("I ha
 
 
 def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None, ts=None, group=None,
-                     agent_yaml=AGENT_YAML, memory=MEMORY):
+                     agent_yaml=AGENT_YAML, memory=MEMORY, hot_cutoff=None):
     """Render the briefing (Memento's tattoo) as one markdown string, from the log. Deterministic:
     sections in tattoo priority (load-bearing first). Cursor-aware (seq/ts) like the folds it reads.
     The genotype-identity head (Personality, Method, Idiom, the declared Source roster) is
@@ -359,7 +359,10 @@ def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None,
     automaticamente (o rail curated_cluster foi APOSENTADO: nunca carregou um cluster; trilho
     órfão) — degradando a None em outage.
     The memory-salient view is NOT a section here: recall is a third independent brief, peer to
-    this one (ADR-0014, `tools/recall.py:compose_recall_brief`) — the briefing's four parts only."""
+    this one (ADR-0014, `tools/recall.py:compose_recall_brief`) — the briefing's four parts only.
+    `hot_cutoff` (ISO ts, tempo-divide-donos) = o window_start do quente: clusters tocados dentro
+    da janela deferem no §5 ('→ coberto no quente') em vez de expandir — o 4º brief é o dono da
+    história recente (predispatch o computa via quente.select_window; None = tudo expande)."""
     if roster is None:
         roster = source_roster(agent_yaml=agent_yaml)
     # resolve the group LAZILY — only when an auto-fetch actually needs it (Codex P3): a caller that
@@ -380,7 +383,7 @@ def compose_briefing(log=LOG, recap=None, clusters=_AUTO, roster=None, seq=None,
         _section_continuity(corpus),
         _section_corpus(corpus, artefatos_without_kernel(log=log)),
         _section_sources(log, seq, ts, roster),
-        _section_clusters(clusters),
+        _section_clusters(clusters, hot_cutoff=hot_cutoff),
         _section_recap(recap),
     ]
     return "\n\n".join(parts) + "\n"

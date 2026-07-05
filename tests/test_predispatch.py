@@ -115,6 +115,57 @@ class EntryDriver(unittest.TestCase):
                              "a dispatch that could not wake must not look woken")
 
 
+class HotCutoffLeg(unittest.TestCase):
+    """A perna quente do briefing default: o window_start do quente (select_window) vira o
+    hot_cutoff do compose_briefing (tempo-divide-donos). DEGRADE-DARK: qualquer falha no scan →
+    None (clusters expandem; a perna quente nunca derruba nem atrasa o wake)."""
+
+    def test_window_start_becomes_the_cutoff(self):
+        self.assertEqual(
+            predispatch._hot_cutoff(window_fn=lambda: ([{"id": "s"}], "2026-07-05T00:00:00Z")),
+            "2026-07-05T00:00:00Z")
+
+    def test_degrades_dark_to_none_on_a_failing_scan(self):
+        def boom():
+            raise RuntimeError("store gone")
+        self.assertIsNone(predispatch._hot_cutoff(window_fn=boom))
+
+    def test_empty_window_is_none_never_empty_string(self):
+        # janela vazia (nenhuma sessão substancial) = sem quente → tudo expande; '' truthy-falso
+        # no _section_clusters seria acidente, não contrato
+        self.assertIsNone(predispatch._hot_cutoff(window_fn=lambda: ([], "")))
+
+    def test_default_briefing_fn_threads_the_cutoff_into_compose(self):
+        """A fiação real: run() sem briefing_fn injeta hot_cutoff=window_start no
+        compose_briefing (stubs de módulo — o caminho default atravessado de ponta a ponta)."""
+        import types
+        seen = {}
+        stub_briefing = types.ModuleType("briefing")
+
+        def _compose(hot_cutoff=None):
+            seen["hot_cutoff"] = hot_cutoff
+            return "BRIEFING"
+        stub_briefing.compose_briefing = _compose
+        stub_quente = types.ModuleType("quente")
+        stub_quente.select_window = lambda: ([{"id": "s"}], "2026-07-01T00:00:00Z")
+        saved = {n: sys.modules.get(n) for n in ("briefing", "quente")}
+        sys.modules["briefing"], sys.modules["quente"] = stub_briefing, stub_quente
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                text, _ = predispatch.run(sweep_fn=lambda: 0, recall_fn=lambda: "R",
+                                          harvest_fn=lambda: 0, probe_fn=lambda spec: None,
+                                          log=log)
+        finally:
+            for n, m in saved.items():
+                if m is None:
+                    sys.modules.pop(n, None)
+                else:
+                    sys.modules[n] = m
+        self.assertEqual(seen.get("hot_cutoff"), "2026-07-01T00:00:00Z")
+        self.assertIn("BRIEFING", text)
+
+
 class WakeFreshnessRealPaths(unittest.TestCase):
     """Opus review — the consume semantic through the REAL atomic publish, and the
     two-stamps case (one wake per publish: extra stamps are spent by the next publish)."""

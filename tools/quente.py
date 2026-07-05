@@ -73,35 +73,86 @@ def _session_meta_and_turns(path):
     return {"op_turns": op_turns, "op_chars": op_chars, "last": last}, turns
 
 
-def build_bundle(store_dir, repos=(), k=3, max_age_days=7, exclude=()):
-    """O insumo completo do quente, do disco: seleciona as K substanciais do store (ordinal,
-    teto wall-clock), extrai o trilho-voz, monta as âncoras (git log dos repos + tail de tipos
-    do eventlog se disponível) e devolve (bundle_text, window_start_ts). `exclude` = sessões a
-    pular (ex.: a própria sessão em curso)."""
-    import subprocess
+def select_window(store_dir=None, k=3, max_age_days=7, exclude=None):
+    """O scan barato de metadata: seleciona as K substanciais do store (ordinal, teto wall-clock)
+    e devolve (metas selecionadas, window_start_ts). COMPARTILHADO por build_bundle e pelo
+    hot_cutoff do predispatch — uma seleção só, ou o §5 defere pra um quente que não cobre o
+    cluster. `store_dir=None` → `_identity.project_dir()` (host-agnóstico, ADR-0015: EDGE_PROJECT_DIR
+    → convenção `~/.claude/projects/<$HOME>`). `exclude=None` → CLAUDE_CODE_SESSION_ID (a sessão
+    em curso nunca entra na própria janela); passe `()` pra desligar."""
+    import os
     from pathlib import Path
     from datetime import datetime, timezone
-    store = Path(store_dir)
+    if store_dir is None:
+        import _identity
+        store_dir = _identity.project_dir()
+    if exclude is None:
+        cur = os.environ.get("CLAUDE_CODE_SESSION_ID")
+        exclude = (cur,) if cur else ()
+    now_dt = datetime.now(timezone.utc)
+    floor_mtime = (now_dt - timedelta(days=max_age_days)).timestamp() if max_age_days else None
     metas = []
-    for p in store.glob("*.jsonl"):
+    for p in Path(store_dir).glob("*.jsonl"):
         if p.stem in exclude:
+            continue
+        # mtime >= ts do último evento, então mtime além do teto ⇒ fora da janela de qualquer
+        # jeito — o pre-filtro poupa o parse dos arquivos velhos (store real: centenas de MB).
+        if floor_mtime is not None and p.stat().st_mtime < floor_mtime:
             continue
         meta, _ = _session_meta_and_turns(p)
         meta["id"] = p.stem
         meta["path"] = p
         metas.append(meta)
-    now = datetime.now(timezone.utc).isoformat()
-    sel = select_sessions(metas, k=k, max_age_days=max_age_days, now=now)
+    sel = select_sessions(metas, k=k, max_age_days=max_age_days, now=now_dt.isoformat())
+    return sel, min((m.get("last", "") for m in sel), default="")
+
+
+def _eventlog_tail(path=None, n=20):
+    """Tail do eventlog (ts · type) — a âncora executada que não passa pelo git. Degrade-honesto:
+    indisponível/vazio é DECLARADO, nunca silenciado (o leitor jura 'fato executado vem SÓ das
+    âncoras' — codex 7, gate=SINAL)."""
+    import json
+    from pathlib import Path
+    if path is None:
+        from eventlog import LOG as path
+    try:
+        lines = Path(path).read_text().splitlines()[-n:]
+    except OSError:
+        return "(eventlog indisponível)"
+    out = []
+    for ln in lines:
+        try:
+            d = json.loads(ln)
+            out.append(f"{d.get('ts', '?')} {d.get('type', '?')}")
+        except Exception:
+            continue
+    return "\n".join(out) or "(eventlog vazio)"
+
+
+def build_bundle(store_dir=None, repos=(), k=3, max_age_days=7, exclude=None, eventlog_path=None):
+    """O insumo completo do quente, do disco: seleciona via select_window (a MESMA seleção do
+    hot_cutoff), extrai o trilho-voz, monta as âncoras (git log dos repos + eventlog-tail) e
+    devolve (bundle_text, window_start_ts). Defaults host-agnósticos herdados de select_window;
+    `eventlog_path=None` → eventlog.LOG. Âncora que falha é marcada dark, nunca afirmada
+    ('git indisponível' ≠ '(sem commits)' — codex 8, gate=SINAL)."""
+    import subprocess
+    sel, window_start = select_window(store_dir=store_dir, k=k, max_age_days=max_age_days,
+                                      exclude=exclude)
     sessions = []
     for m in sel:
         _, turns = _session_meta_and_turns(m["path"])
         sessions.append({"id": m["id"][:8], "prompts": operator_prompts(turns)})
     anchors = ""
     for repo in repos:
-        out = subprocess.run(["git", "-C", str(repo), "log", "--oneline", "--since=72 hours ago"],
-                             capture_output=True, text=True).stdout
-        anchors += f"## git log {repo} (72h)\n{out or '(sem commits)'}\n"
-    window_start = min((m.get("last", "") for m in sel), default="")
+        try:
+            r = subprocess.run(["git", "-C", str(repo), "log", "--oneline",
+                                "--since=72 hours ago"], capture_output=True, text=True)
+            body = (r.stdout or "(sem commits)") if r.returncode == 0 else \
+                f"(git indisponível — rc {r.returncode}; âncora dark, não afirme execução)"
+        except OSError:
+            body = "(git indisponível — sem binário; âncora dark, não afirme execução)"
+        anchors += f"## git log {repo} (72h)\n{body}\n"
+    anchors += f"## eventlog (tail)\n{_eventlog_tail(eventlog_path)}\n"
     return build_input(sessions, anchors), window_start
 
 
@@ -117,3 +168,33 @@ def build_input(sessions, anchors):
     parts.append("\n## TRILHO EXECUTADO — ÂNCORAS MECÂNICAS (git/eventlog; fatos, não conversa)")
     parts.append(anchors or "_(âncoras indisponíveis — declare no brief)_")
     return "\n".join(parts)
+
+
+def main(argv=None):
+    """CLI fino pro wake: imprime o insumo no stdout (`tools/edge-python tools/quente.py >
+    insumo.md`). Defaults host-agnósticos: store = _identity.project_dir(), repos = edge_home
+    do agent.yaml, exclude = a sessão em curso (CLAUDE_CODE_SESSION_ID)."""
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="quente — monta o insumo de dois trilhos do 4º brief do wake")
+    parser.add_argument("--store-dir", default=None,
+                        help="store de sessões (default: _identity.project_dir(), host-agnóstico)")
+    parser.add_argument("--repos", nargs="*", default=None,
+                        help="repos vivos pras âncoras git (default: edge_home do agent.yaml)")
+    parser.add_argument("--k", type=int, default=3, help="janela ordinal-K (fenótipo; default 3)")
+    parser.add_argument("--max-age-days", type=int, default=7, help="teto wall-clock (default 7)")
+    parser.add_argument("--exclude", nargs="*", default=None,
+                        help="sessões a pular (default: CLAUDE_CODE_SESSION_ID)")
+    args = parser.parse_args(argv)
+    repos = args.repos
+    if repos is None:
+        import _identity
+        repos = [_identity.edge_home()]
+    bundle, _window_start = build_bundle(
+        store_dir=args.store_dir, repos=repos, k=args.k, max_age_days=args.max_age_days,
+        exclude=tuple(args.exclude) if args.exclude is not None else None)
+    print(bundle)
+
+
+if __name__ == "__main__":
+    main()

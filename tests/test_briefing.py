@@ -374,6 +374,31 @@ class FactsLegNavigatesTheCortex(unittest.TestCase):
             self.assertIn("HIPÓTESE", text)
 
 
+class HotCutoffTempoDivideDonos(unittest.TestCase):
+    """hot_cutoff no compose_briefing (o gancho dormente ganha o caller): cluster tocado DENTRO
+    da janela do quente DEFERE ('→ coberto no quente'); sem hot_cutoff, EXPANDE — o wake nunca
+    conta a mesma história 2×."""
+
+    ROWS = [{"name": "Agência", "summary": "o resumo frio do tema", "size": 4,
+             "last_touched": "2026-07-05T01:00:00Z"},
+            {"name": "Cortex", "summary": "consolidação antiga", "size": 6,
+             "last_touched": "2026-06-20T00:00:00Z"}]
+
+    def test_cluster_inside_hot_window_defers_to_quente(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=self.ROWS,
+                                             hot_cutoff="2026-07-04T00:00:00Z")
+            self.assertIn("coberto no quente", text)
+            self.assertNotIn("o resumo frio do tema", text)   # o quente é o dono da história
+            self.assertIn("consolidação antiga", text)        # fora da janela → expande normal
+
+    def test_without_hot_cutoff_everything_expands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=self.ROWS)
+            self.assertIn("o resumo frio do tema", text)
+            self.assertNotIn("coberto no quente", text)
+
+
 class ImmutableTattoosAreTheBriefingHead(unittest.TestCase):
     """Personality + Method — the *initial tattoos* — are inscribed as the IMMUTABLE head of the
     briefing: loaded only at the edge's wake (the briefing), never the global CLAUDE.md system prompt

@@ -6,8 +6,12 @@ scaffolding filtered — trilho voz), and the two-rail bundle assembly (voz + â
 injetadas). O leitor é um subagente (skills/quente); aqui só a máquina de preparar o insumo.
 Proposta: docs/agencia/proposta-novo-wake.md (16k default, K=3 ordinal, dois trilhos).
 """
+import json
+import os
 import sys
+import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -65,6 +69,102 @@ class TestBundle(unittest.TestCase):
         self.assertIn("faz Y", bundle)
         self.assertIn("ÂNCORAS MECÂNICAS", bundle)
         self.assertIn("abc123", bundle)
+
+
+def _ts(hours_ago):
+    return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+
+
+def _write_session(store, stem, n_user_turns, chars_per_turn, hours_ago):
+    """Uma sessão jsonl no formato do store Claude: N turnos-user de M chars, último ts relativo."""
+    lines = []
+    for i in range(n_user_turns):
+        lines.append(json.dumps({"type": "user", "timestamp": _ts(hours_ago + n_user_turns - i),
+                                 "message": {"content": f"turno {i} " + "x" * chars_per_turn}}))
+        lines.append(json.dumps({"type": "assistant", "timestamp": _ts(hours_ago + n_user_turns - i),
+                                 "message": {"content": [{"type": "text", "text": "feito"}]}}))
+    # o último evento define `last`
+    lines[-1] = json.dumps({"type": "assistant", "timestamp": _ts(hours_ago),
+                            "message": {"content": [{"type": "text", "text": "fim"}]}})
+    (Path(store) / f"{stem}.jsonl").write_text("\n".join(lines) + "\n")
+
+
+class TestSelectWindow(unittest.TestCase):
+    """select_window — o scan barato de metadata que predispatch e build_bundle COMPARTILHAM
+    (invariante de coerência: o hot_cutoff do briefing ≡ a janela que o leitor quente cobre)."""
+
+    def _store(self, tmp):
+        _write_session(tmp, "s-novo", n_user_turns=8, chars_per_turn=300, hours_ago=2)
+        _write_session(tmp, "s-medio", n_user_turns=6, chars_per_turn=300, hours_ago=30)
+        _write_session(tmp, "s-raso", n_user_turns=2, chars_per_turn=20, hours_ago=1)
+        _write_session(tmp, "s-velho", n_user_turns=9, chars_per_turn=300, hours_ago=24 * 30)
+
+    def test_window_start_is_the_oldest_selected_last(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._store(tmp)
+            sel, window_start = quente.select_window(store_dir=tmp, k=2, max_age_days=7,
+                                                     exclude=())
+            self.assertEqual([m["id"] for m in sel], ["s-novo", "s-medio"])
+            self.assertEqual(window_start, sel[-1]["last"])
+
+    def test_store_dir_none_resolves_host_agnostic_via_identity(self):
+        """store_dir omitido → _identity.project_dir() (EDGE_PROJECT_DIR → convenção do $HOME);
+        nunca um path do ed hard-coded."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._store(tmp)
+            old = os.environ.get("EDGE_PROJECT_DIR")
+            os.environ["EDGE_PROJECT_DIR"] = tmp
+            try:
+                sel, window_start = quente.select_window(k=1, exclude=())
+            finally:
+                if old is None:
+                    del os.environ["EDGE_PROJECT_DIR"]
+                else:
+                    os.environ["EDGE_PROJECT_DIR"] = old
+            self.assertEqual([m["id"] for m in sel], ["s-novo"])
+
+    def test_exclude_defaults_to_the_session_in_course(self):
+        """exclude=None → CLAUDE_CODE_SESSION_ID (a sessão em curso nunca entra na própria janela);
+        exclude=() explícito desliga."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._store(tmp)
+            old = os.environ.get("CLAUDE_CODE_SESSION_ID")
+            os.environ["CLAUDE_CODE_SESSION_ID"] = "s-novo"
+            try:
+                sel, _ = quente.select_window(store_dir=tmp, k=2)
+                self.assertNotIn("s-novo", [m["id"] for m in sel])
+                sel_all, _ = quente.select_window(store_dir=tmp, k=2, exclude=())
+                self.assertIn("s-novo", [m["id"] for m in sel_all])
+            finally:
+                if old is None:
+                    del os.environ["CLAUDE_CODE_SESSION_ID"]
+                else:
+                    os.environ["CLAUDE_CODE_SESSION_ID"] = old
+
+
+class TestAnchorsRail(unittest.TestCase):
+    """Trilho EXECUTADO honesto (codex-adversarial 7/8, gate=SINAL): o bundle entrega git log
+    E eventlog-tail (o contrato do leitor: 'fato executado vem SÓ daqui'); erro de git vira
+    marcador dark, nunca a afirmação falsa '(sem commits)'."""
+
+    def test_bundle_carries_the_eventlog_tail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _write_session(tmp, "s-novo", n_user_turns=8, chars_per_turn=300, hours_ago=2)
+            ev = Path(tmp) / "log.jsonl"
+            ev.write_text(json.dumps({"seq": 1, "ts": _ts(1), "type": "artefato.published",
+                                      "subject": "close", "payload": {}}) + "\n")
+            bundle, _ = quente.build_bundle(store_dir=tmp, repos=(), exclude=(),
+                                            eventlog_path=ev)
+            self.assertIn("eventlog", bundle)
+            self.assertIn("artefato.published", bundle)
+
+    def test_git_failure_is_dark_never_sem_commits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _write_session(tmp, "s-novo", n_user_turns=8, chars_per_turn=300, hours_ago=2)
+            bundle, _ = quente.build_bundle(store_dir=tmp, repos=(Path(tmp) / "nao-e-repo",),
+                                            exclude=(), eventlog_path=Path(tmp) / "nada.jsonl")
+            self.assertIn("git indisponível", bundle)
+            self.assertNotIn("(sem commits)", bundle)
 
 
 if __name__ == "__main__":

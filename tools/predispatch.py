@@ -41,6 +41,22 @@ import sources as sources_mod   # noqa: E402  — the agent.yaml interfaces[] se
 #   battery iterates the DECLARED interfaces, NEVER a source named in code (E8, the Overleaf test)
 
 
+def _hot_cutoff(window_fn=None):
+    """A perna quente do briefing (tempo-divide-donos): o window_start das K sessões substanciais
+    (quente.select_window — a MESMA seleção que alimenta o 4º brief, host-agnóstica via
+    _identity.project_dir) vira o hot_cutoff do compose_briefing, pra o §5 deferir os clusters
+    que o quente cobre. DEGRADE-DARK: qualquer falha ou janela vazia → None (tudo expande) —
+    a perna quente nunca derruba nem atrasa o wake (mesma forma das grounding legs)."""
+    try:
+        import quente as _quente
+        _sel, window_start = (window_fn or _quente.select_window)()
+        return window_start or None
+    except Exception as e:  # noqa: BLE001 — advisory; o briefing sem hot_cutoff é o briefing de ontem
+        print(f"predispatch: hot-cutoff leg DARK ({type(e).__name__}: {e}) — clusters expandem "
+              "normalmente este wake.")
+        return None
+
+
 def mint_dispatch_id():
     """Mint the dispatch's IDENTITY (S2, E1): a lexicographically-sortable unique id — a
     zero-padded ms timestamp prefix + 64 random bits. The repo has no ULID helper and the house
@@ -91,7 +107,9 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
         sweep_fn = _sweep.run
     if briefing_fn is None:
         import briefing as _briefing
-        briefing_fn = _briefing.compose_briefing
+        # o default carrega a perna quente (hot_cutoff = window_start do quente, degrade-dark);
+        # um briefing_fn injetado fica intacto — o seam dos testes não muda de shape
+        briefing_fn = lambda: _briefing.compose_briefing(hot_cutoff=_hot_cutoff())  # noqa: E731
     if recall_fn is None:
         import recall as _recall
         recall_fn = _recall.compose_recall_brief

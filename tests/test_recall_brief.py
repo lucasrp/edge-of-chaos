@@ -120,8 +120,9 @@ class BriefingNoLongerCarriesTheRecallLeg(unittest.TestCase):
 
 class TheThreeBriefFanIsPinnedInProse(unittest.TestCase):
     """The skills now match the ADR (its consequences section recorded the lag; this closes it):
-    a skills/recall subagent exists, the wake fans THREE briefs, the pipeline's pre-dispatch is
-    assemble + delta + recall, and assemble no longer claims the push."""
+    a skills/recall subagent exists, the wake fans FOUR briefs (quente joined as the 4th aperture,
+    wake-only — the beat's pipeline stays assemble + delta + recall), and assemble no longer
+    claims the push."""
 
     def test_recall_skill_exists_and_documents_the_push(self):
         skill = (REPO / "skills" / "recall" / "SKILL.md").read_text(encoding="utf-8").lower()
@@ -130,10 +131,11 @@ class TheThreeBriefFanIsPinnedInProse(unittest.TestCase):
             self.assertIn(token, skill, f"recall SKILL.md missing token: {token!r}")
         self.assertIn("never", skill)  # the delta-fusion ban is stated
 
-    def test_wake_fans_three_briefs(self):
+    def test_wake_fans_four_briefs(self):
         skill = (REPO / "skills" / "wake" / "SKILL.md").read_text(encoding="utf-8").lower()
-        self.assertIn("three briefs", skill)
+        self.assertIn("four briefs", skill)
         self.assertIn("recall", skill)
+        self.assertIn("quente", skill)
         self.assertIn("adr-0014", skill)
 
     def test_pipeline_predispatch_fans_assemble_delta_recall(self):
