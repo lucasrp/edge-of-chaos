@@ -19,6 +19,9 @@ O gap-map achou D como fiação (relate.py built-sem-caller; embeddings 16/16 do
 ## Arquivos
 `relate.py` (ganha caller no sweep/publish), `publisher.py`/`harvest.py` (extração MENTIONS no publish), `recall.py` (surf pelas novas arestas), `communities.py` (intacto — já provê Entity/Community/HAS_MEMBER).
 
-## O leitor-curador (operador, 2026-07-05): a passada geral cru→contexto→identidade
+## ~~O leitor-curador~~ — CORTADO (operador: "melhor nem ter curador")
+A curadoria é SÓ inline no publish (abaixo). Sem cognição offline separada — o produtor com contexto riquíssimo discrimina melhor do que qualquer varredor frio jamais faria; um curador-passada seria a mini-wiki paralela renascendo. O que o publish não curou fica cru até o próximo artefato tocar o tema (forward-only honesto).
+
+Contexto do corte — o desenho que foi descartado:
 O padrão do parceiro (nó nasce cru → community dá contexto → promoção dá identidade) vale pra TUDO: **alguém tem que LER os nós — começando pelos MAIORES (grau/tamanho desc, maior retorno primeiro) — e ir atribuindo tipo e relacionamento.** Uma cognição de curadoria periódica (offline, nunca no wake): anda o grafo por importância, lê a Entity crua + vizinhança + episódios, e dispõe — tipo (parceiro/tema/material), arestas que a extração perdeu, promoção extracted→asserted. É o "cosine nominates, author disposes" generalizado; o irmão de leitura da reflexão (a reflexão tuna instrumentos; o curador tuna o GRAFO). provenance: o que o curador atribui = asserted-by-agent, HITL onde a marca carrega autoridade.
 **E no SALVAR (operador):** o artefato também cura — no publish, o produtor está com o contexto QUENTE do tema (acabou de derivar/pesquisar): ao gravar MENTIONS, já dispõe tipo/aresta/promoção das entidades que tocou. Curadoria inline no write (barata, contexto pago) + a passada offline pro resto — dois braços do mesmo curador.
