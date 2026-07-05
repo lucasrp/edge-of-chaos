@@ -23,3 +23,6 @@ Depois de A (blocked-by: cortex-episteme-schema). Grilling de formato antes de b
 
 ## OBJETIVO da skill (operador): fazer o usuário CRESCER com ela
 O /experiment não é só manejo — **ela conversa e TESTA o nível do usuário para nivelar** (leveling ativo: sonda o que ele domina, calibra o vocabulário e a profundidade, sobe o degrau). O experimento é o veículo; o crescimento do usuário é o objetivo. (Registrado também na issue do grill/leveling.)
+
+## A escada é COMPLETA (operador): todos podem aprender
+Nem todos sabem o que É um experimento científico direito — o /experiment ensina do zero (hipótese, arm, controle, por que randomizar) sem envergonhar. E muitos que estão NA FRENTE podem aprender **evals diferentes** (novas formas de medir que não conheciam). Não há teto: o leveling calibra o degrau de ENTRADA, mas a escada serve do iniciante ao avançado — **todos podem aprender**.
