@@ -26,3 +26,4 @@ Ticket C do wayfinder (paralelo a A). **A régua é o relicário** (operador, 20
 
 ## Plano de TESTE da skill (operador: "teste algumas versões")
 Quando o dig do craft voltar (memory/js-artefato-craft.md): montar 2-3 VERSÕES da skill prototype (ex.: a atual do C · a atual+regras-de-craft · craft+alma-do-relicário "show instead of explain") → cada uma gera o MESMO artefato JS (mesma pauta, dado real) → render→ver + gates (roda/ensina/passabilidade) → escolher a vencedora às cegas (arms, como manda a casa). A vencedora vira a skills/prototype/SKILL.md canônica.
+**O benchmark é o RELICÁRIO, não o vencedor local (operador, 2026-07-05):** "os do edge no netlify dão de 10 nesse que ganhou aí." A formB venceu o páreo das 3 formas mas está 10× abaixo do teto. Critério final do teste de arms: o output para em pé AO LADO de um artefato do netlify (Lorenz-3D, kuramoto, editorial-compass) — não basta vencer os irmãos. A escolha cega do operador julga contra ESSA régua.
