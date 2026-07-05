@@ -1,0 +1,16 @@
+# Fluxo — 3 atos, estrutura livre, grounding em MÚLTIPLOS ROUNDS (ticket three-act-split)
+
+Operador 2026-07-05: a divisão do fluxo é **grounding inicial COM PROPOSTA** + **vários rounds de grounding por artefato**. Mata o monolito (1 grounding → close único).
+
+## O tronco (ato-1: escolher)
+1. **Grounding INICIAL** — o olhar quente (wake/quente + delta + recall) + sweep leve no mundo.
+2. **PROPOSTA** — o output do ato-1 é uma proposta explícita: QUAIS artefatos (1..N), por quê (VoI/é-real/é-pra-ele — gates de plano, B.4), cada um com seu ângulo. O editorial-compass é o protótipo vivo deste gate.
+
+## Os galhos (estrutura LIVRE, #67)
+- **Um agente por artefato**, paralelos, cada um perseguindo o SEU (report + map + JS-interativo da mesma pauta, por exemplo).
+- **Cada artefato-agent faz os PRÓPRIOS rounds de grounding** — o grounding não é fase única do tronco: o agente volta ao mundo quantas vezes o SEU artefato pedir (rounds localizados, manifests por dispatch_id).
+- Cada um com os próprios gates (fim: substância+passabilidade AND, B.4) e loop LOCALIZADO — termina POR FORA (critério do ticket), nunca "até o juiz gostar".
+- JS-artefato = outro artefato (04-C), concomitante ao HTML — não uma fase dele.
+
+## Por que assim (o tune)
+Feedback de vários eixos disjuntos ao mesmo tempo = tune ruim (operador). Loop localizado por artefato = cada agente recebe feedback de UM eixo. E o fan-out-gather + single-writer por artefato é o SOTA validado ([[sota-for-the-artefato-problem]] — o multi-writer do conductor é o anti-pattern).
