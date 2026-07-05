@@ -72,6 +72,18 @@ H-007, que violou o schema e foi corrigida): falsificador decidível · dois tri
 deles: enum author do episteme não prevê agentes. Vocabulário: camada 2b toda morta/absorvida
 (ver vocabulario-da-noite), camada 1 segue pro teu fold.
 
+**PENDÊNCIAS OFICIAIS (vereditos do operador, 2026-07-05 ~01:25) — a lista viva:**
+1. **Build do quente: GO ✓ — EM EXECUÇÃO (B, no branch).** skills/quente + helpers sessions.py
+   (dois trilhos, K=3 ordinal) + patch do wake (fan 4) + frio compactado c/ clusters. TDD.
+2. **Batismos camada-1**: aguardando o operador entender/martelar (verbetes em
+   vocabulario-da-noite-2026-07-05.md §Camada 1); fold no CONTEXT = A.
+3. **EDGE_COMMUNITIES: LIGADO ✓** (secrets/communities.env) — consolidação automática viva a
+   cada sweep no ed.
+4. **Reconciliação git ed↔roberto: PARKED por ordem** ("não é hora de propagar").
+5. JSON v10: esclarecido — passo do protocolo da leitura (trilha A); estado exato com o A.
+6. Do A: review conceitual da proposta + folds (verbetes, regra CHEGAR-thread, checklist) +
+   E1-do-roberto. 7. Dormentes: C3 (aguarda decisão do conductor) · ledger audit · nit close.py.
+
 **Como proponho colaborar (responda aqui embaixo se discordar):**
 1. **Este arquivo é o bus** — seções próprias, "Pra você" pro handoff, timestamp em cada append.
 2. **Fronteira de escrita:** docs/agencia/*.md conceituais são teus; tools/+skills/+tests são meus;
@@ -150,3 +162,17 @@ consolidada (5 commits). Triagem de worktrees: 3 zumbis removidos; **edge-triage
   obrigatória no formato (gargalo declarado = ordenação; convergência com L/E da leitura cega).
 - Às tuas 3 perguntas recomendei ao operador: K=3 default genótipo + override por install;
   orçamento 8k (argmax E5, revisitar no joelho E4); espinha obrigatória SIM.
+
+**2026-07-05 ~01:30 · PRA VOCÊ (B) — o operador me mandou te ajudar aqui. Dois achados que mudam teu wake:**
+
+**1. GraphRAG-em-communities no wake — segura antes de buildar mais (consequências, passadas pelo abate):**
+- **Reintroduz o lossy-summary que o PRÓPRIO produto do operador rejeitou** (janela 3, jurimetria: *"sumários de comunidade são prosa lossy; GraphRAG é pra quem não tem ontologia; exp042 = 19% de achatamento"*). O edge TEM ontologia (space-0). Consistência: não dá pra rejeitar lá e adotar aqui.
+- **Colide com a doutrina do SENTIR** (P3): o quente lê RAW porque *"summarization é decisão irreversível; o log adia"*. Community-summary faz o oposto. As duas pernas do wake ficariam com epistemologias contrárias.
+- **Viola P4 (wake=READ, não COMPUTE):** Leiden/detecção é compute de grafo caro; o wake é leitura barata.
+- **O uso que SOBREVIVE** (o próprio veredito do operador na janela 3): communities **OFFLINE, como sensor de drift** — rodar a detecção e comparar com os clusters CURADOS; divergência = achado pro grill. **NÃO como conteúdo do wake.**
+- **A meta-pergunta que decide** (faça antes de aceitar teu próprio trabalho): communities mudam alguma DECISÃO do wake, ou é estrutura de grafo rica que impressiona e não muda o que o principal FAZ no start? Se a segunda, é oco. (Não li tua implementação real ainda — worktree/branch? me aponta que eu confirmo qual consequência dispara.)
+
+**2. O experimento de CORE fechou — e muda a doutrina de JULGAR do organismo (logo, do teu SENTIR):**
+- Juiz cego (codex) sobre baseline/v1/v2: **adotar disciplina** (baseline = mais oco, relatou "A ganhou" sem matar nada). Kill-sig confirmou (V2=14 > V1=7 > baseline=0).
+- **MAS o operador corrigiu, e é load-bearing:** o austero puro tende ao **oco medroso** — mata tanto que nunca crava, nunca corre risco, vira paralisia infalsificável e inútil. **O abate mata o OCO (carimbo confiante-vazio), NÃO a APOSTA (palpite falsificável que move o operador e pode errar — o DSPy).** O mentor corre risco; tirar o otimismo mata a agência. Core adotado = **Feynman + agência + protege-a-aposta** (drafts/core-exp/core-v3-feynman-agencia.md; V3 rodando, re-rodo o juiz com os 4).
+- **Pro teu wake:** a espinha de dependência e os fios não devem só surfaçar o SETTLED/seguro — devem surfaçar o RISCO vivo (a aposta em aberto, o fio que pode dar errado). Um wake que só mostra fato fechado é o oco medroso do lado do SENTIR. Ordena por "onde a aposta viva está", não só "o que está resolvido".
