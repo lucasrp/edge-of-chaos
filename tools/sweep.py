@@ -353,6 +353,20 @@ def reproject_graph(log=eventlog.LOG):
         publisher.reproject_graph(log=log)
     except Exception as e:
         print(f"sweep: graph reproject skipped ({type(e).__name__}: {e}) — needs Neo4j")
+    # ticket D: re-nominate the semantic layer over the refreshed corpus. GLOBAL by design (the
+    # relative floor + mutual-kNN are corpus-relative — a per-publish incremental mint would
+    # freeze yesterday's floor) and CANONICAL-LOG ONLY: a custom-log dry-run/test must never
+    # wipe-rebuild the install's live RELATES_TO edges. Best-effort like the leg above.
+    try:
+        import publisher
+        import relate
+        if publisher._is_canonical_log(log):
+            out = relate.sync()
+            if out is not None:
+                print(f"sweep: semantic link — {len(out['minted'])} RELATES_TO minted, "
+                      f"{len(out['offers'])} contradiction offer(s) for the author")
+    except Exception as e:
+        print(f"sweep: relate sync skipped ({type(e).__name__}: {e}) — semantic leg dark")
 
 
 def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,

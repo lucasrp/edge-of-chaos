@@ -268,6 +268,78 @@ class SurfPathIsScopedAgainstAForeignBridge(unittest.TestCase):
         self.assertNotIn(self.BRIDGE, slugs, "the foreign bridge itself must never surface")
 
 
+class SurfBridgesViaEntityCommunity(unittest.TestCase):
+    """Ticket D (02-D) — a ponte temática: seed-MENTIONS->Entity<-HAS_MEMBER-Community-
+    HAS_MEMBER->Entity<-MENTIONS-irmão. A SISTER query to SURF_QUERY (the associative
+    allowlist stays EXACTLY the five types — the bridge is additive, never a smuggled sixth
+    hop), merged into surf_subgraph's return with the direct peers winning on hops."""
+
+    def test_bridge_query_walks_the_explicit_two_hop_shape(self):
+        q = recall.SURF_BRIDGE_QUERY
+        # the EXPLICIT shape — never a widened *1..4 walk (that would blow past the hub guard)
+        self.assertIn("MENTIONS", q)
+        self.assertIn("HAS_MEMBER", q)
+        self.assertIn(":Community", q)
+        self.assertNotIn("*1..", q, "the bridge is a FIXED shape, not a variable-length walk")
+        self.assertNotIn("SERVES", q, "the degree-44 hub stays excluded")
+        # sibling artefatos only — self-excluded, honest hop count, community named for navigation
+        self.assertIn("NOT n.slug IN $seeds", q)
+        self.assertIn("AS via", q, "the bridge names the community it crossed (navigability)")
+
+    def test_bridge_query_scopes_the_path_wide(self):
+        # R7b/#41 verbatim: every node on the bridge path pinned to the group — a foreign
+        # Entity/Community must neither surface nor route.
+        self.assertIn("all(x IN nodes(p) WHERE x.group_id=$g)", recall.SURF_BRIDGE_QUERY)
+
+    def test_surf_query_allowlist_is_untouched(self):
+        # additive: the pinned five-type alternation survives the bridge (the existing
+        # set-equality test stays green; this pins the intent from the bridge's side too).
+        m = re.search(r"\[:([A-Z_|]+)\*1\.\.2\]", recall.SURF_QUERY)
+        self.assertEqual(set(m.group(1).split("|")),
+                         {"BUILDS_ON", "SUPERSEDES", "CONTRADICTS", "RELATES_TO", "CITES"})
+
+    def test_surf_subgraph_runs_both_queries(self):
+        src = inspect.getsource(recall.surf_subgraph)
+        self.assertIn("s.run(_q(SURF_QUERY)", src)
+        self.assertIn("s.run(_q(SURF_BRIDGE_QUERY)", src,
+                      "surf_subgraph must walk the Entity/Community bridge too (ticket D)")
+
+    def test_merge_dedupes_by_slug_keeping_min_hops(self):
+        # hermetic: fake the session; peer X reachable BOTH ways keeps the direct (min) hops;
+        # sibling Y only via the bridge arrives with its honest hop count, after X.
+        from contextlib import contextmanager
+
+        class S:
+            def run(self, q, **params):
+                text = str(q)
+                class R:
+                    def __init__(self, rows):
+                        self._rows = rows
+                    def data(self):
+                        return self._rows
+                if "HAS_MEMBER" in text:
+                    return R([{"slug": "X", "kernel": "kx", "labels": ["Artefato"],
+                               "hops": 4, "via": ["cluster-1"]},
+                              {"slug": "Y", "kernel": "ky", "labels": ["Artefato"],
+                               "hops": 4, "via": ["cluster-1"]}])
+                return R([{"slug": "X", "kernel": "kx", "labels": ["Artefato"], "hops": 1}])
+
+        @contextmanager
+        def fake_session(group, uri=None, user=None, password=None):
+            yield S()
+
+        orig = recall._session
+        recall._session = fake_session
+        try:
+            rows = recall.surf_subgraph(["seed"], group="g1")
+        finally:
+            recall._session = orig
+        self.assertEqual([r["slug"] for r in rows], ["X", "Y"])
+        self.assertEqual(rows[0]["hops"], 1, "the direct associative reach wins the dedupe")
+        self.assertEqual(rows[1]["hops"], 4, "the bridge sibling keeps its honest hop count")
+        self.assertEqual(rows[1]["via"], ["cluster-1"])
+
+
 class SessionHelperGuardsTheConnection(unittest.TestCase):
     """R7 — the open/resolve/fail-dark/close boilerplate that recall_subgraph and surf_subgraph each
     re-implement (and the incoming MCP would copy a third time) is extracted into ONE guarded
