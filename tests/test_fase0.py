@@ -14,9 +14,15 @@ APPLY = REPO / "tools" / "edge-apply"
 YAML = REPO / "agent.yaml"
 
 
-def run_apply(home: Path):
+def run_apply(home: Path, claude_home: Path, codex_home: Path):
     return subprocess.run(
-        [sys.executable, str(APPLY), "--yaml", str(YAML), "--home", str(home)],
+        [
+            sys.executable, str(APPLY),
+            "--yaml", str(YAML),
+            "--home", str(home),
+            "--claude-home", str(claude_home),
+            "--codex-home", str(codex_home),
+        ],
         capture_output=True, text=True,
     )
 
@@ -24,8 +30,9 @@ def run_apply(home: Path):
 class Fase0(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self.home = Path(self._tmp.name)
-        self.res = run_apply(self.home)
+        root = Path(self._tmp.name)
+        self.home = root / "edge"
+        self.res = run_apply(self.home, root / ".claude", root / ".codex")
 
     def tearDown(self):
         self._tmp.cleanup()

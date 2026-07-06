@@ -1,21 +1,26 @@
 """Session reader + delta — the raw layer of the measure-first spike (ADR-0004 decision A).
 
-A Claude transcript is the non-lossy raw: one `.jsonl` = one session. This module discovers
-sessions and (later slices) parses them into ordered turns and deltas them since a watermark.
-It is locator/offset-based, carrying no semantics (ADR-0001).
+A transcript is the non-lossy raw: one `.jsonl` = one session. Claude Code remains the original
+store/format; Codex is an additional surface normalized into the same Turn(role, text) shape. This
+module discovers sessions and parses ordered dialogue deltas since a watermark. It is
+locator/offset-based, carrying no semantics (ADR-0001).
 """
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 ROLES = {"user": "human", "assistant": "edge"}
+CODEX_ROLES = {"user": "human", "assistant": "edge"}
+CODEX_SCAFFOLDING_PREFIXES = ("<environment_context>", "<turn_aborted>")
 
 
 @dataclass(frozen=True)
 class Session:
-    """One Claude transcript: a session id (the filename uuid) and its path."""
+    """One transcript: an id, its path, and the surface that wrote it."""
     id: str
     path: Path
+    surface: str = "claude"
 
 
 @dataclass(frozen=True)
@@ -30,39 +35,133 @@ def list_sessions(project_dir) -> list:
     return [Session(id=p.stem, path=p) for p in Path(project_dir).glob("*.jsonl")]
 
 
+def codex_sessions_dir():
+    """The Codex transcript root. EDGE_CODEX_SESSIONS_DIR wins; else CODEX_HOME/sessions; else
+    ~/.codex/sessions. Missing is a dark optional surface, not a sweep failure."""
+    raw = os.environ.get("EDGE_CODEX_SESSIONS_DIR")
+    if raw:
+        return Path(os.path.expanduser(raw))
+    codex_home = os.environ.get("CODEX_HOME")
+    if codex_home:
+        return Path(os.path.expanduser(codex_home)) / "sessions"
+    return Path.home() / ".codex" / "sessions"
+
+
+def codex_session_anchor(session_id: str) -> str:
+    return session_id if session_id.startswith("codex:") else f"codex:{session_id}"
+
+
+def split_session_anchor(session_id):
+    if isinstance(session_id, str) and session_id.startswith("codex:"):
+        raw = session_id[len("codex:"):]
+        return ("codex", raw) if raw else (None, None)
+    return ("claude", session_id) if isinstance(session_id, str) and session_id else (None, None)
+
+
+def current_session_anchor(env=None):
+    """Live session anchor: Claude first, then Codex, else None."""
+    env = os.environ if env is None else env
+    sid = env.get("CLAUDE_CODE_SESSION_ID")
+    if isinstance(sid, str) and sid.strip():
+        return sid.strip()
+    for key in ("CODEX_THREAD_ID", "CODEX_SESSION_ID"):
+        sid = env.get(key)
+        if isinstance(sid, str) and sid.strip():
+            return codex_session_anchor(sid.strip())
+    return None
+
+
+def _codex_session_id(path) -> str:
+    """Codex filenames include timestamps; the stable session id lives in session_meta when present."""
+    p = Path(path)
+    try:
+        for line in p.read_text(errors="replace").splitlines()[:20]:
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if obj.get("type") == "session_meta":
+                payload = obj.get("payload") or {}
+                if isinstance(payload.get("id"), str) and payload["id"].strip():
+                    return payload["id"].strip()
+    except OSError:
+        pass
+    return p.stem
+
+
+def list_codex_sessions(root=None) -> list:
+    """Discover Codex sessions recursively. [] means the optional Codex store is absent/dark."""
+    root = codex_sessions_dir() if root is None else Path(root)
+    if not root.is_dir():
+        return []
+    return [Session(id=_codex_session_id(p), path=p, surface="codex")
+            for p in sorted(root.rglob("*.jsonl"))]
+
+
+def find_codex_session(session_id, root=None):
+    """Locate one Codex session by raw id or codex:<id> anchor."""
+    _surface, raw = split_session_anchor(session_id)
+    if not raw:
+        return None
+    for session in list_codex_sessions(root):
+        if session.id == raw:
+            return session
+    return None
+
+
 def _text_of(content) -> str:
     """The human-readable text of a message: the joined text blocks (or a bare string)."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return "".join(b.get("text", "") for b in content
-                       if isinstance(b, dict) and b.get("type") == "text")
+        return "".join(b.get("text", "") for b in content if isinstance(b, dict)
+                       and b.get("type") in ("text", "input_text", "output_text"))
     return ""
 
 
-def _turns_from_lines(lines) -> list:
+def _claude_turn_from_obj(obj):
+    role = ROLES.get(obj.get("type"))
+    if not role:
+        return None
+    text = _text_of(obj.get("message", {}).get("content")).strip()
+    return Turn(role=role, text=text) if text else None
+
+
+def _codex_turn_from_obj(obj):
+    if obj.get("type") != "response_item":
+        return None
+    payload = obj.get("payload") or {}
+    if payload.get("type") != "message":
+        return None
+    role = CODEX_ROLES.get(payload.get("role"))
+    if not role:
+        return None
+    text = _text_of(payload.get("content")).strip()
+    if not text or any(text.startswith(p) for p in CODEX_SCAFFOLDING_PREFIXES):
+        return None
+    return Turn(role=role, text=text)
+
+
+def _turns_from_lines(lines, surface="claude") -> list:
     """Parse raw transcript lines into ordered human/edge dialogue turns, dropping noise.
     A corrupt/truncated line (a session written mid-sweep, a crashed writer) is dropped as
     noise — one bad line must never kill the whole sweep."""
     turns = []
+    turn_from_obj = _codex_turn_from_obj if surface == "codex" else _claude_turn_from_obj
     for line in lines:
         try:
             obj = json.loads(line)
         except ValueError:
             continue
-        role = ROLES.get(obj.get("type"))
-        if not role:
-            continue
-        text = _text_of(obj.get("message", {}).get("content")).strip()
-        if not text:
-            continue
-        turns.append(Turn(role=role, text=text))
+        turn = turn_from_obj(obj)
+        if turn is not None:
+            turns.append(turn)
     return turns
 
 
-def read_turns(path) -> list:
+def read_turns(path, surface="claude") -> list:
     """Parse a transcript into ordered human/edge dialogue turns."""
-    return _turns_from_lines(Path(path).read_text().splitlines())
+    return _turns_from_lines(Path(path).read_text(errors="replace").splitlines(), surface=surface)
 
 
 @dataclass(frozen=True)
@@ -145,14 +244,14 @@ def measure(classifications) -> dict:
     return {"counts": counts, "verdict": "time" if time > meaning else "meaning"}
 
 
-def delta(path, since_line: int):
+def delta(path, since_line: int, surface="claude"):
     """The turns after a raw-line watermark, with the new watermark (total line count).
 
     Transcripts are append-only, so the watermark is the count of raw lines already seen.
     A truncated FINAL line (a writer flushing mid-sweep) is NOT consumed by the watermark —
     when the writer completes it, the next sweep re-reads it (non-lossy raw). A corrupt
     interior line is a crashed writer: dropped and consumed (`_turns_from_lines`)."""
-    lines = Path(path).read_text().splitlines()
+    lines = Path(path).read_text(errors="replace").splitlines()
     watermark = len(lines)
     new = lines[since_line:]
     if new:
@@ -161,4 +260,4 @@ def delta(path, since_line: int):
         except ValueError:
             watermark -= 1          # leave the half-flushed tail for the next sweep
             new = new[:-1]
-    return _turns_from_lines(new), watermark
+    return _turns_from_lines(new, surface=surface), watermark

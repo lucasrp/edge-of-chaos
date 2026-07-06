@@ -89,6 +89,23 @@ def _write_session(store, stem, n_user_turns, chars_per_turn, hours_ago):
     (Path(store) / f"{stem}.jsonl").write_text("\n".join(lines) + "\n")
 
 
+def _write_codex_session(store, stem, n_user_turns, chars_per_turn, hours_ago):
+    lines = [json.dumps({"type": "session_meta", "timestamp": _ts(hours_ago + n_user_turns + 1),
+                         "payload": {"id": stem, "thread_source": "user"}})]
+    for i in range(n_user_turns):
+        lines.append(json.dumps({"type": "response_item", "timestamp": _ts(hours_ago + n_user_turns - i),
+                                 "payload": {"type": "message", "role": "user",
+                                             "content": [{"type": "input_text",
+                                                          "text": f"codex turno {i} " + "c" * chars_per_turn}]}}))
+        lines.append(json.dumps({"type": "response_item", "timestamp": _ts(hours_ago + n_user_turns - i),
+                                 "payload": {"type": "message", "role": "assistant",
+                                             "content": [{"type": "output_text", "text": "feito"}]}}))
+    lines[-1] = json.dumps({"type": "response_item", "timestamp": _ts(hours_ago),
+                            "payload": {"type": "message", "role": "assistant",
+                                        "content": [{"type": "output_text", "text": "fim"}]}})
+    (Path(store) / f"{stem}.jsonl").write_text("\n".join(lines) + "\n")
+
+
 class TestSelectWindow(unittest.TestCase):
     """select_window — o scan barato de metadata que predispatch e build_bundle COMPARTILHAM
     (invariante de coerência: o hot_cutoff do briefing ≡ a janela que o leitor quente cobre)."""
@@ -115,7 +132,7 @@ class TestSelectWindow(unittest.TestCase):
             old = os.environ.get("EDGE_PROJECT_DIR")
             os.environ["EDGE_PROJECT_DIR"] = tmp
             try:
-                sel, window_start = quente.select_window(k=1, exclude=())
+                sel, window_start = quente.select_window(k=1, exclude=(), codex_dir=False)
             finally:
                 if old is None:
                     del os.environ["EDGE_PROJECT_DIR"]
@@ -140,6 +157,24 @@ class TestSelectWindow(unittest.TestCase):
                     del os.environ["CLAUDE_CODE_SESSION_ID"]
                 else:
                     os.environ["CLAUDE_CODE_SESSION_ID"] = old
+
+    def test_codex_sessions_join_the_same_hot_window(self):
+        with tempfile.TemporaryDirectory() as claude, tempfile.TemporaryDirectory() as codex:
+            _write_session(claude, "s-claude", n_user_turns=8, chars_per_turn=300, hours_ago=3)
+            _write_codex_session(codex, "s-codex", n_user_turns=8, chars_per_turn=300, hours_ago=1)
+            sel, _ = quente.select_window(store_dir=claude, codex_dir=codex, k=2,
+                                          max_age_days=7, exclude=())
+            self.assertEqual([m["id"] for m in sel], ["codex:s-codex", "s-claude"])
+            self.assertEqual(sel[0]["surface"], "codex")
+
+    def test_build_bundle_carries_codex_operator_prompts(self):
+        with tempfile.TemporaryDirectory() as claude, tempfile.TemporaryDirectory() as codex:
+            _write_session(claude, "s-claude", n_user_turns=8, chars_per_turn=300, hours_ago=3)
+            _write_codex_session(codex, "s-codex", n_user_turns=8, chars_per_turn=300, hours_ago=1)
+            bundle, _ = quente.build_bundle(store_dir=claude, codex_dir=codex, repos=(),
+                                            exclude=(), eventlog_path=Path(claude) / "none.jsonl")
+            self.assertIn("Sessão codex:s", bundle)
+            self.assertIn("codex turno", bundle)
 
 
 class TestAnchorsRail(unittest.TestCase):

@@ -10,6 +10,8 @@ Proposta: docs/agencia/proposta-novo-wake.md · grounding: memory/wake-quente-gr
 """
 from datetime import datetime, timedelta, timezone
 
+import sessions
+
 SCAFFOLDING = ("<system-reminder>", "<task-notification>", "<command-name>",
                "heartbeat keep-warm", "<local-command")
 
@@ -50,45 +52,89 @@ def _session_meta_and_turns(path):
     """Um passe no jsonl: meta (op_turns/op_chars/last) + turnos (role, texto) já sem tool-noise."""
     import json
     turns, op_turns, op_chars, last = [], 0, 0, ""
-    for line in open(path):
-        try:
-            d = json.loads(line)
-        except Exception:
-            continue
-        t = d.get("type")
-        if t not in ("user", "assistant"):
-            continue
-        ts = d.get("timestamp") or ""
-        last = max(last, ts)
-        c = d.get("message", {}).get("content")
-        txt = c if isinstance(c, str) else "".join(
-            b.get("text", "") for b in (c or []) if isinstance(b, dict) and b.get("type") == "text")
-        txt = (txt or "").strip()
-        if not txt:
-            continue
-        turns.append((("user" if t == "user" else "assistant"), txt))
-        if t == "user" and not any(m in txt[:200] for m in SCAFFOLDING):
-            op_turns += 1
-            op_chars += len(txt)
+    with open(path) as fh:
+        for line in fh:
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            t = d.get("type")
+            if t not in ("user", "assistant"):
+                continue
+            ts = d.get("timestamp") or ""
+            last = max(last, ts)
+            c = d.get("message", {}).get("content")
+            txt = c if isinstance(c, str) else "".join(
+                b.get("text", "") for b in (c or []) if isinstance(b, dict) and b.get("type") == "text")
+            txt = (txt or "").strip()
+            if not txt:
+                continue
+            turns.append((("user" if t == "user" else "assistant"), txt))
+            if t == "user" and not any(m in txt[:200] for m in SCAFFOLDING):
+                op_turns += 1
+                op_chars += len(txt)
     return {"op_turns": op_turns, "op_chars": op_chars, "last": last}, turns
 
 
-def select_window(store_dir=None, k=3, max_age_days=7, exclude=None):
+def _codex_meta_and_turns(path):
+    """Codex JSONL → mesma forma do Claude para o quente: user/assistant textuais apenas."""
+    import json
+    turns = [("user" if t.role == "human" else "assistant", t.text)
+             for t in sessions.read_turns(path, surface="codex")]
+    op_turns, op_chars = 0, 0
+    for role, txt in turns:
+        if role == "user" and not any(m in txt[:200] for m in SCAFFOLDING):
+            op_turns += 1
+            op_chars += len(txt)
+    last = ""
+    with open(path, errors="replace") as fh:
+        for line in fh:
+            try:
+                ts = json.loads(line).get("timestamp") or ""
+            except Exception:
+                continue
+            last = max(last, ts)
+    return {"op_turns": op_turns, "op_chars": op_chars, "last": last}, turns
+
+
+def _meta_and_turns(path, surface="claude"):
+    return _codex_meta_and_turns(path) if surface == "codex" else _session_meta_and_turns(path)
+
+
+def _exclude_set(exclude):
+    import os
+    if exclude is None:
+        vals = []
+        for k in ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "CODEX_THREAD_ID"):
+            v = os.environ.get(k)
+            if v:
+                vals.append(v)
+                vals.append(f"codex:{v}")
+        extra = os.environ.get("EDGE_EXCLUDE_SESSION_IDS")
+        if extra:
+            vals.extend(x.strip() for x in extra.split(",") if x.strip())
+        return set(vals)
+    return set(exclude)
+
+
+def _include_codex(store_dir, codex_dir):
+    return codex_dir is not False and (codex_dir is not None or store_dir is None)
+
+
+def select_window(store_dir=None, k=3, max_age_days=7, exclude=None, codex_dir=None):
     """O scan barato de metadata: seleciona as K substanciais do store (ordinal, teto wall-clock)
     e devolve (metas selecionadas, window_start_ts). COMPARTILHADO por build_bundle e pelo
     hot_cutoff do predispatch — uma seleção só, ou o §5 defere pra um quente que não cobre o
     cluster. `store_dir=None` → `_identity.project_dir()` (host-agnóstico, ADR-0015: EDGE_PROJECT_DIR
     → convenção `~/.claude/projects/<$HOME>`). `exclude=None` → CLAUDE_CODE_SESSION_ID (a sessão
     em curso nunca entra na própria janela); passe `()` pra desligar."""
-    import os
     from pathlib import Path
     from datetime import datetime, timezone
+    include_codex = _include_codex(store_dir, codex_dir)
     if store_dir is None:
         import _identity
         store_dir = _identity.project_dir()
-    if exclude is None:
-        cur = os.environ.get("CLAUDE_CODE_SESSION_ID")
-        exclude = (cur,) if cur else ()
+    exclude = _exclude_set(exclude)
     now_dt = datetime.now(timezone.utc)
     floor_mtime = (now_dt - timedelta(days=max_age_days)).timestamp() if max_age_days else None
     metas = []
@@ -102,7 +148,21 @@ def select_window(store_dir=None, k=3, max_age_days=7, exclude=None):
         meta, _ = _session_meta_and_turns(p)
         meta["id"] = p.stem
         meta["path"] = p
+        meta["surface"] = "claude"
         metas.append(meta)
+    if include_codex:
+        for s in sessions.list_codex_sessions(codex_dir):
+            sid = f"codex:{s.id}"
+            if sid in exclude or s.id in exclude:
+                continue
+            if floor_mtime is not None and Path(s.path).stat().st_mtime < floor_mtime:
+                continue
+            meta, _ = _codex_meta_and_turns(s.path)
+            meta["id"] = sid
+            meta["raw_id"] = s.id
+            meta["path"] = s.path
+            meta["surface"] = "codex"
+            metas.append(meta)
     sel = select_sessions(metas, k=k, max_age_days=max_age_days, now=now_dt.isoformat())
     return sel, min((m.get("last", "") for m in sel), default="")
 
@@ -164,7 +224,8 @@ def _user_requested_anchor(path=None, n=5, since=None):
     return "\n".join(reversed(out[-n:])) or "(nenhum artefato user_requested na janela)"
 
 
-def build_bundle(store_dir=None, repos=(), k=3, max_age_days=7, exclude=None, eventlog_path=None):
+def build_bundle(store_dir=None, repos=(), k=3, max_age_days=7, exclude=None, eventlog_path=None,
+                 codex_dir=None):
     """O insumo completo do quente, do disco: seleciona via select_window (a MESMA seleção do
     hot_cutoff), extrai o trilho-voz, monta as âncoras (git log dos repos + eventlog-tail) e
     devolve (bundle_text, window_start_ts). Defaults host-agnósticos herdados de select_window;
@@ -172,10 +233,10 @@ def build_bundle(store_dir=None, repos=(), k=3, max_age_days=7, exclude=None, ev
     ('git indisponível' ≠ '(sem commits)' — codex 8, gate=SINAL)."""
     import subprocess
     sel, window_start = select_window(store_dir=store_dir, k=k, max_age_days=max_age_days,
-                                      exclude=exclude)
+                                      exclude=exclude, codex_dir=codex_dir)
     sessions = []
     for m in sel:
-        _, turns = _session_meta_and_turns(m["path"])
+        _, turns = _meta_and_turns(m["path"], m.get("surface", "claude"))
         sessions.append({"id": m["id"][:8], "prompts": operator_prompts(turns)})
     anchors = ""
     for repo in repos:
@@ -225,6 +286,8 @@ def main(argv=None):
     parser.add_argument("--max-age-days", type=int, default=7, help="teto wall-clock (default 7)")
     parser.add_argument("--exclude", nargs="*", default=None,
                         help="sessões a pular (default: CLAUDE_CODE_SESSION_ID)")
+    parser.add_argument("--codex-dir", default=None,
+                        help="store de sessões Codex (default: ~/.codex/sessions; use false para desligar)")
     args = parser.parse_args(argv)
     repos = args.repos
     if repos is None:
@@ -232,7 +295,8 @@ def main(argv=None):
         repos = [_identity.edge_home()]
     bundle, _window_start = build_bundle(
         store_dir=args.store_dir, repos=repos, k=args.k, max_age_days=args.max_age_days,
-        exclude=tuple(args.exclude) if args.exclude is not None else None)
+        exclude=tuple(args.exclude) if args.exclude is not None else None,
+        codex_dir=False if args.codex_dir == "false" else args.codex_dir)
     print(bundle)
 
 

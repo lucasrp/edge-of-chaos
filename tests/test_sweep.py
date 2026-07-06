@@ -33,6 +33,27 @@ def write_session(d, sid, n_human=3, text=BODY):
     return p
 
 
+def write_codex_session(d, sid, n_human=3, text=BODY, append=False):
+    lines = []
+    if not append:
+        lines.append(json.dumps({"type": "session_meta", "timestamp": "2026-07-05T00:00:00Z",
+                                 "payload": {"id": sid, "thread_source": "user"}}))
+    for i in range(n_human):
+        lines.append(json.dumps({"type": "response_item", "timestamp": "2026-07-05T00:00:01Z",
+                                 "payload": {"type": "message", "role": "user",
+                                             "content": [{"type": "input_text",
+                                                          "text": f"{text} ({i})"}]}}))
+        lines.append(json.dumps({"type": "response_item", "timestamp": "2026-07-05T00:00:02Z",
+                                 "payload": {"type": "message", "role": "assistant",
+                                             "content": [{"type": "output_text",
+                                                          "text": f"reply {i}: {text}"}]}}))
+    p = Path(d) / f"{sid}.jsonl"
+    mode = "a" if append else "w"
+    with p.open(mode) as fh:
+        fh.write("\n".join(lines) + "\n")
+    return p
+
+
 class PlanSweepSelectsDeltas(unittest.TestCase):
     """plan_sweep returns each session's new-since-cursor delta; a session already at its
     watermark plans nothing (idempotent); a thin delta is marked skip (left to grow)."""
@@ -60,6 +81,16 @@ class PlanSweepSelectsDeltas(unittest.TestCase):
             body = plan[0]["body"]
             self.assertGreater(len(body), 20000, "delta must not be truncated to a fixed cap")
             self.assertIn("reply 9", body, "the most-recent turn must survive (a head-cap would drop it)")
+
+    def test_codex_sessions_are_planned_when_codex_dir_is_explicit(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as codex:
+            write_session(proj, "claudeA")
+            write_codex_session(codex, "codexA")
+            plan = sweep.plan_sweep(proj, {}, codex_dir=codex)
+            self.assertEqual([p["id"] for p in plan], ["claudeA", "codex:codexA"])
+            self.assertEqual(plan[1]["surface"], "codex")
+            self.assertIn("human:", plan[1]["body"])
+            self.assertIn("edge:", plan[1]["body"])
 
 
 class MalformedTranscriptLinesAreSkipped(unittest.TestCase):
@@ -213,6 +244,20 @@ class ExecuteIngestsLogsAdvances(unittest.TestCase):
                                    lambda items: seen.extend(i["id"] for i in items), {}, log=log)
             self.assertEqual((n, seen, cur), (0, [], {}))
 
+    def test_codex_episode_carries_surface_metadata(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as codex, \
+             tempfile.TemporaryDirectory() as st:
+            write_codex_session(codex, "codexA")
+            log = Path(st) / "log.jsonl"
+            cur, n = sweep.execute(sweep.plan_sweep(proj, {}, codex_dir=codex),
+                                   lambda items: None, {}, log=log)
+            self.assertEqual(n, 1)
+            self.assertIn("codex:codexA", cur)
+            eps = eventlog.read(types=["episode"], log=log)
+            self.assertEqual(eps[0]["subject"], "session:codex:codexA")
+            self.assertEqual(eps[0]["payload"]["session"], "codex:codexA")
+            self.assertEqual(eps[0]["payload"]["surface"], "codex")
+
 
 class RunIsIdempotent(unittest.TestCase):
     """The whole-sweep guarantee: two back-to-back runs ingest the session once; the second is a
@@ -258,6 +303,45 @@ class RunIsIdempotent(unittest.TestCase):
                           graph_recover_fn=lambda lg: recovered.append(lg))
             self.assertEqual(n, 0)             # no delta ingested
             self.assertEqual(recovered, [log])  # graph recovery ran, with the run's log threaded
+
+    def test_communities_refresh_on_a_no_delta_default_sweep(self):
+        # The wake's automatic communities leg should refresh before the briefing even when there is
+        # no new transcript delta; otherwise /roberto-research can read yesterday's clusters.
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
+            cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
+            called = []
+            original = sweep._maybe_consolidate
+            try:
+                sweep._maybe_consolidate = lambda: called.append(True)
+                n = sweep.run(proj, ingest_fn=lambda items: None, cursors_path=cp,
+                              log=log, graph_recover_fn=False, group="test-group")
+            finally:
+                sweep._maybe_consolidate = original
+            self.assertEqual(n, 0)
+            self.assertEqual(called, [True])
+
+    def test_first_codex_run_baselines_existing_logs_without_ingesting(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as codex, \
+             tempfile.TemporaryDirectory() as st:
+            write_codex_session(codex, "codexA")
+            cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
+            seen = []
+            n1 = sweep.run(proj, ingest_fn=lambda items: seen.extend(i["id"] for i in items),
+                           cursors_path=cp, reproject_fn=False, log=log,
+                           graph_recover_fn=False, group="test-group", codex_dir=codex)
+            cursors = sweep.load_cursors(cp)
+            self.assertEqual(n1, 0)
+            self.assertEqual(seen, [])
+            self.assertTrue(cursors[sweep.CODEX_BASELINE_KEY])
+            self.assertGreater(cursors["codex:codexA"], 0)
+            self.assertEqual(eventlog.read(types=["episode"], log=log), [])
+
+            write_codex_session(codex, "codexA", append=True)
+            n2 = sweep.run(proj, ingest_fn=lambda items: seen.extend(i["id"] for i in items),
+                           cursors_path=cp, reproject_fn=False, log=log,
+                           graph_recover_fn=False, group="test-group", codex_dir=codex)
+            self.assertEqual(n2, 1)
+            self.assertEqual(seen, ["codex:codexA"])
 
 
 class ReprojectFoldsCorpusAndReadsTheC3Gate(unittest.TestCase):

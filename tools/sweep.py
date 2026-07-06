@@ -29,6 +29,7 @@ import sessions
 import _identity
 
 CURSORS = REPO / "state" / "cursors.json"
+CODEX_BASELINE_KEY = "_codex_baselined"
 # Identity (group + store) resolves LAZILY through _identity at call time (ADR-0015): no
 # import-time cache (stale-copy risk), no baked-in host path (the dev's -home-<user> store
 # default sent roberto scanning a nonexistent dir — "nothing new" over a 294-session backlog).
@@ -71,29 +72,84 @@ def _qualifies(turns, body):
     return bool(body.strip()) and any(t.role == "human" for t in turns) and len(body) >= MIN_CHARS
 
 
+def _cursor_id(session):
+    """Claude keeps its historical cursor key; Codex is namespaced to avoid collisions."""
+    return f"codex:{session.id}" if session.surface == "codex" else session.id
+
+
+def _source_description(item):
+    return ("Codex work session (mentee<->edge)"
+            if item.get("surface") == "codex"
+            else "Claude work session (mentee<->edge)")
+
+
+def _episode_name(item, chunk_index=None):
+    sid = item["id"].replace(":", "-")[:24]
+    base = f"session-{sid}"
+    return base if chunk_index is None else f"{base}-p{chunk_index + 1}"
+
+
+def _codex_enabled(project_dir, codex_dir):
+    """Default real sweeps include Codex. Hermetic tests that pass project_dir stay Claude-only
+    unless they explicitly pass codex_dir."""
+    return codex_dir is not False and (codex_dir is not None or project_dir is None)
+
+
+def _codex_baseline(cursors, codex_dir=None):
+    """First Codex-aware run starts from now: existing Codex logs are marked seen but not ingested.
+    New sessions/deltas after this baseline flow through normally."""
+    if cursors.get(CODEX_BASELINE_KEY):
+        return cursors
+    for s in sessions.list_codex_sessions(codex_dir):
+        _turns, watermark = sessions.delta(s.path, 0, surface=s.surface)
+        cursors[_cursor_id(s)] = watermark
+    cursors[CODEX_BASELINE_KEY] = True
+    return cursors
+
+
+def _load_install_env():
+    """Load this install's secrets for real runtime sweeps. Hermetic tests pass project_dir."""
+    try:
+        import _secrets
+        _secrets.load_env(_identity._env_dir(_identity.AGENT_YAML))
+    except Exception:
+        pass
+
+
 # --- pure plan: the digestible deltas (reads files, no graph/LLM) ---
-def plan_sweep(project_dir=None, cursors=None, recent=None):
+def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None):
     """For each session, the turns after its cursor + the new watermark, in **chronological order**
     (oldest first — bi-temporal ingest wants it). `skip` marks a delta too thin to ingest (left
     un-advanced to grow). Idempotent: a session at its watermark yields nothing new. `recent=N`
     bounds a run to the N most-recently-modified sessions (the rest backfill on later sweeps —
     the cursor makes the full sweep resumable)."""
+    include_codex = _codex_enabled(project_dir, codex_dir)
     if project_dir is None:
         project_dir = _identity.project_dir()   # fail-loud seam (ADR-0015), never a baked-in path
     cursors = cursors or {}
     found = []
     for s in sessions.list_sessions(project_dir):
-        seen = cursors.get(s.id, 0)
-        turns, watermark = sessions.delta(s.path, seen)
+        sid = _cursor_id(s)
+        seen = cursors.get(sid, 0)
+        turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
         if watermark <= seen or not turns:
             continue  # no new raw lines / no new dialogue
-        found.append((Path(s.path).stat().st_mtime, s, turns, watermark))
+        found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
+    if include_codex:
+        for s in sessions.list_codex_sessions(codex_dir):
+            sid = _cursor_id(s)
+            seen = cursors.get(sid, 0)
+            turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
+            if watermark <= seen or not turns:
+                continue  # no new raw lines / no new dialogue
+            found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
     found.sort(key=lambda x: x[0])           # chronological
     if recent:
         found = found[-recent:]              # the N newest, still chronological
-    return [{"id": s.id, "path": str(s.path), "turns": turns, "watermark": watermark,
+    return [{"id": sid, "raw_id": s.id, "surface": s.surface, "path": str(s.path),
+             "turns": turns, "watermark": watermark,
              "body": (body := clean_body(turns)), "skip": not _qualifies(turns, body)}
-            for _, s, turns, watermark in found]
+            for _, s, turns, watermark, sid in found]
 
 
 # --- effectful execute: log + ingest + advance cursor ---
@@ -109,10 +165,11 @@ def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
         # record carries medium_tier=low_tier. This is the provenance the read door's context_only axis
         # reads; propagating it onto MERGED Graphiti nodes (the conservative lattice) is the v1.1 build,
         # until which the read-door fail-safe (unknown ⇒ context_only) holds the C5 invariant.
-        eventlog.append("episode", f"session:{it['id']}",
-                        {"session": it["id"], "watermark": it["watermark"], "chars": len(it["body"]),
-                         "medium_tier": "low_tier"},
-                        log=log)
+        payload = {"session": it["id"], "watermark": it["watermark"], "chars": len(it["body"]),
+                   "medium_tier": "low_tier"}
+        if it.get("surface") == "codex":
+            payload["surface"] = "codex"
+        eventlog.append("episode", f"session:{it['id']}", payload, log=log)
         cursors[it["id"]] = it["watermark"]
     if qualifying and ingest_fn is not None:           # Tier-1: graph projection, best-effort
         # BOUNDED + degrade-dark (#62): Tier-0 (episode + cursor) is ALREADY durable above, so the
@@ -245,17 +302,16 @@ def graphiti_ingest(items):
         g = Graphiti(*neo, llm_client=llm)
         await g.build_indices_and_constraints()
         for it in items:
-            sid = it["id"][:8]
             ref = _parse_ts(_first_ts(it["path"]))   # all sub-episodes share the session's ref-time
             chunks = chunk_episode_body(it["body"])   # one big session → several context-fit episodes (#53)
             failed = False
             for k, chunk in enumerate(chunks):
-                name = f"session-{sid}" if len(chunks) == 1 else f"session-{sid}-p{k + 1}"
+                name = _episode_name(it) if len(chunks) == 1 else _episode_name(it, k)
                 try:
                     prev = await bounded_previous_uuids(g, ref)
                     await g.add_episode(name=name, episode_body=chunk,
                                         source=EpisodeType.message,
-                                        source_description="Claude work session (mentee<->edge)",
+                                        source_description=_source_description(it),
                                         reference_time=ref, group_id=group,
                                         previous_episode_uuids=prev)
                     print(f"  + ingested {name} ({len(chunk)} chars)")
@@ -370,7 +426,7 @@ def reproject_graph(log=eventlog.LOG):
 
 
 def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,
-        log=eventlog.LOG, recent=None, graph_recover_fn=None, group=None):
+        log=eventlog.LOG, recent=None, graph_recover_fn=None, group=None, codex_dir=None):
     """Full sweep: plan the deltas → ingest + log + advance cursors → re-project (if anything new) →
     graph-recover (ALWAYS). `recent=N` bounds this run to the N newest sessions (the rest backfill on
     later sweeps). Graph recovery runs EVERY sweep, independent of `n` (Codex P2), so a no-delta sweep
@@ -379,6 +435,8 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
     # write as anyone — Tier-0 episode appends and cursor advances ARE writes. Identity fails
     # loud HERE, before the delta is consumed, never mid-sweep (where a rerun would see the
     # delta as already eaten by a groupless ghost). Tests pass `group` explicitly (hermetic).
+    if project_dir is None:
+        _load_install_env()
     if group is None:
         group = _identity.require_group()
     # The whole load→plan→execute→save window is serialized by an exclusive flock on a sibling
@@ -393,13 +451,19 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
         fcntl.flock(lk, fcntl.LOCK_EX)
         try:
             cursors = load_cursors(cursors_path)
-            plan = plan_sweep(project_dir, cursors, recent=recent)
+            if _codex_enabled(project_dir, codex_dir):
+                cursors = _codex_baseline(cursors, codex_dir)
+            plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir)
             cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
             save_cursors(cursors, cursors_path)
         finally:
             fcntl.flock(lk, fcntl.LOCK_UN)
     if n and reproject_fn is not False:
         (reproject_fn or reproject)()
+    elif reproject_fn is None:
+        # Communities are the automatic consolidation leg of the wake. They must still refresh on a
+        # no-delta dispatch so the briefing can read the current graph before any skill reasoning.
+        _maybe_consolidate()
     # graph recovery runs ALWAYS (not under `if n`) — a no-delta sweep still self-heals the graph.
     # The run's `log` is threaded through (Codex P2): a custom-log dry-run never projects the real
     # corpus (publisher.reproject_graph default-skips a non-canonical log).
@@ -418,7 +482,10 @@ def _recent_arg(argv):
 def main(argv):
     recent = _recent_arg(argv)
     if "--plan" in argv:
-        plan = plan_sweep(None, load_cursors(), recent=recent)
+        cursors = load_cursors()
+        if _codex_enabled(None, None):
+            cursors = _codex_baseline(dict(cursors), None)
+        plan = plan_sweep(None, cursors, recent=recent)
         ingest = [p for p in plan if not p["skip"]]
         print(f"plan: {len(plan)} sessions with new lines; {len(ingest)} qualify to ingest"
               + (f" (recent={recent})" if recent else ""))
