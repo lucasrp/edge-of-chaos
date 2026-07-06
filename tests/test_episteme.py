@@ -17,8 +17,8 @@ A.3 — §6 parceiro: PROMOÇÃO, não mintagem — a :Entity extraída ganha a 
 → aresta artefato-PARA->parceiro (o documento FEITO pra pessoa).
 
 A.4 — o schema declarativo `cortex/schema/ontologia.yaml` ganha nós/arestas/enums travados +
-alias-map episteme (o instrumento que MEDE o diff do H-001); :Observation/:Experiment/:Arm são
-RESERVADOS, nunca fabricados (a condição do H-001).
+alias-map episteme (o instrumento que MEDE o diff do H-001); Experiment é nativo só por
+`experiment.curated`, e Observation não nasce vazia.
 """
 import json
 import hashlib
@@ -515,7 +515,7 @@ class ProducerSnippetsForwardBearsOnAndPara(unittest.TestCase):
 
 class OntologiaSchemaIsTheMeasurementInstrument(unittest.TestCase):
     """O schema declarativo que MEDE o diff do H-001: enums travados, alias-map episteme,
-    nós reservados (Observation/Experiment/Arm nunca fabricados — a condição do H-001)."""
+    e Experiment nativo quando existe caneta/curadoria real."""
 
     @classmethod
     def setUpClass(cls):
@@ -542,9 +542,13 @@ class OntologiaSchemaIsTheMeasurementInstrument(unittest.TestCase):
         self.assertEqual(aliases["SUPERSEDES"], "supersede")
         self.assertIn("deriva_de", aliases["BUILDS_ON"])
 
-    def test_observation_experiment_arm_are_reserved_never_shipped(self):
-        self.assertEqual(sorted(self.schema["reserved_nodes"]),
-                         ["arm", "experiment", "observation"])
+    def test_experiment_is_a_native_curated_node_not_reserved(self):
+        self.assertNotIn("reserved_nodes", self.schema)
+        self.assertEqual(self.schema["nodes"]["experiment"]["truth"], "experiment.curated")
+        self.assertEqual(self.schema["nodes"]["experiment"]["read_order"],
+                         ["canonical", "canonical_artifacts"])
+        self.assertIn("modelagem", self.schema["nodes"])
+        self.assertIn("observation", self.schema["nodes"])
 
     def test_hypothesis_and_parceiro_are_declared_nodes(self):
         self.assertIn("hypothesis", self.schema["nodes"])

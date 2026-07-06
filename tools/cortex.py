@@ -66,6 +66,14 @@ def hypotheses_at(*args, **kwargs):
     return eventlog.hypotheses_at(*args, **kwargs)
 
 
+def experiments_at(*args, **kwargs):
+    return eventlog.experiments_at(*args, **kwargs)
+
+
+def experiment_at(*args, **kwargs):
+    return eventlog.experiment_at(*args, **kwargs)
+
+
 def parceiros_at(*args, **kwargs):
     return eventlog.parceiros_at(*args, **kwargs)
 

@@ -855,6 +855,121 @@ def hypotheses_at(seq=None, ts=None, log=LOG):
     return fold_hypotheses(read(types=HYPOTHESIS_TYPES, until_seq=seq, until_ts=ts, log=log))
 
 
+# --- Native Experiments: curated-first scientific memory (#88) -------------------------------
+
+EXPERIMENT_TYPES = ["experiment.curated"]
+EXPERIMENT_TYPED_FIELDS = ("claim", "scope", "status", "caveat", "supports", "excludes", "next")
+
+
+def _validated_experiment_typed(typed):
+    if not isinstance(typed, dict):
+        raise ValueError("experiment canonical conclusion needs a typed dict")
+    missing = [k for k in EXPERIMENT_TYPED_FIELDS if k not in typed]
+    if missing:
+        raise ValueError(f"experiment typed conclusion missing fields: {', '.join(missing)}")
+    out = {}
+    for k in ("claim", "scope", "status", "caveat", "next"):
+        v = typed.get(k)
+        if not (isinstance(v, str) and v.strip()):
+            raise ValueError(f"experiment typed field {k!r} must be a non-blank string")
+        out[k] = v.strip()
+    for k in ("supports", "excludes"):
+        v = typed.get(k)
+        if not isinstance(v, list) or not all(isinstance(x, str) and x.strip() for x in v):
+            raise ValueError(f"experiment typed field {k!r} must be a list of non-blank strings")
+        out[k] = [x.strip() for x in v]
+    return out
+
+
+def _validated_canonical_artifacts(canonical_artifacts):
+    if not isinstance(canonical_artifacts, list) or not canonical_artifacts:
+        raise ValueError("experiment curation needs at least one canonical audit artifact")
+    out = []
+    for a in canonical_artifacts:
+        if not isinstance(a, dict):
+            raise ValueError("experiment canonical artifacts must be dicts")
+        ref, role = a.get("ref"), a.get("role")
+        if not (isinstance(ref, str) and ref.strip()):
+            raise ValueError("experiment canonical artifact needs a non-blank ref")
+        if not (isinstance(role, str) and role.strip()):
+            raise ValueError("experiment canonical artifact needs a non-blank role")
+        item = {"ref": ref.strip(), "role": role.strip()}
+        if isinstance(a.get("note"), str) and a["note"].strip():
+            item["note"] = a["note"].strip()
+        out.append(item)
+    return out
+
+
+def curate_experiment(experiment_id, *, prose, typed, canonical_artifacts, by, relates=None, log=LOG):
+    """Append an explicit `experiment.curated` event.
+
+    Native Experiments are self-memory, not external folders to dig: the read side returns a short
+    curated interpretation first, with typed fields in the same atomic event, and only a compact set
+    of canonical artifacts for audit. Automated sweep/recall may surface candidates, but promotion
+    into this event is explicit curation (`by` is mandatory).
+    """
+    _require_body(experiment_id, "experiment.curated (experiment_id)")
+    _require_body(prose, "experiment.curated (prose)")
+    _require_body(by, "experiment.curated (by)")
+    rel = relates or []
+    if not isinstance(rel, list) or not all(isinstance(x, dict) for x in rel):
+        raise ValueError("experiment curation relates must be a list of dicts")
+    payload = {
+        "experiment_id": experiment_id.strip(),
+        "canonical": {"prose": prose.strip(), "typed": _validated_experiment_typed(typed)},
+        "canonical_artifacts": _validated_canonical_artifacts(canonical_artifacts),
+        "by": by.strip(),
+        "relates": rel,
+    }
+    return append("experiment.curated", f"experiment:{experiment_id.strip()}", payload, log=log)
+
+
+def fold_experiments(events):
+    """Pure fold of `experiment.curated` → current canonical conclusion + append-only chain.
+
+    Latest curation is the current canonical conclusion for that experiment. Prior curations remain
+    in `curation_chain`; contradictions are preserved as events/relations instead of overwritten
+    inside one mutable summary.
+    """
+    experiments = {}
+    for e in events:
+        if e.get("type") != "experiment.curated":
+            continue
+        p = e.get("payload") if isinstance(e.get("payload"), dict) else {}
+        eid = p.get("experiment_id")
+        if not isinstance(eid, str) or not eid.strip():
+            continue
+        item = {
+            "seq": e.get("seq"),
+            "ts": e.get("ts"),
+            "by": p.get("by"),
+            "canonical": p.get("canonical") or {},
+            "canonical_artifacts": p.get("canonical_artifacts") or [],
+            "relates": p.get("relates") or [],
+        }
+        cur = experiments.setdefault(eid, {"experiment_id": eid, "curation_chain": []})
+        cur["curation_chain"].append(item)
+        cur["canonical"] = item["canonical"]
+        cur["canonical_artifacts"] = item["canonical_artifacts"]
+        cur["by"] = item["by"]
+        cur["ts"] = item["ts"]
+        cur["seq"] = item["seq"]
+        cur["relates"] = item["relates"]
+    return experiments
+
+
+def experiments_at(seq=None, ts=None, log=LOG):
+    """Fold native Experiment curations up to a cursor. Empty → {}."""
+    return fold_experiments(read(types=EXPERIMENT_TYPES, until_seq=seq, until_ts=ts, log=log))
+
+
+def experiment_at(experiment_id, seq=None, ts=None, log=LOG):
+    """Read one native Experiment by id/alias key from the curated-first fold. None when absent."""
+    if not isinstance(experiment_id, str):
+        return None
+    return experiments_at(seq=seq, ts=ts, log=log).get(experiment_id.strip())
+
+
 # --- §6 parceiro: a constelação social — PROMOTION, never minting. The extracted :Entity
 # (graphiti already found "Julio") GAINS the parceiro mark; the graph node is never created here.
 

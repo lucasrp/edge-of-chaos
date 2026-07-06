@@ -13,7 +13,7 @@ O roberto pegou o cortex pra construir o episteme (frameworkV9) — o domínio d
 4. 3 perguntas: faz sentido / melhorou / cumpriu.
 
 ## Guard-rails herdados
-- NÃO fabrica :Observation/:Experiment (só quando experimento real rodar — condição do H-001).
+- `Experiment` é nativo só quando existe `experiment.curated`: interpretação canônica primeiro, artefatos canônicos de auditoria depois, cadeia append-only. `Observation` não é fabricada vazia.
 - thread=hipótese=artefato = CORRESPONDÊNCIA (3 nós, 2-hop), não identidade.
 - gate-verdicts = flat props no :Artefato (B) + aresta `assesses` llm_judged/lead — NUNCA bearing.
 - Forward-only, sem backfill. As 3 camadas do domínio do roberto (pesquisa/material/meta) respeitadas — cf. [[communities-loop-roberto-2026-07-05]], #75.

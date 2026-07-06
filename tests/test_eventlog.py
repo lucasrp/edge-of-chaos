@@ -607,6 +607,101 @@ class CitesCarryOptionalSnippet(unittest.TestCase):
                              "switched the cursor to a per-session watermark")
 
 
+class ExperimentCurationFoldsCuratedFirst(unittest.TestCase):
+    """Issue #88: native Experiments are self-memory, not folders to dig.
+
+    A curation event exposes a short canonical interpretation first, carries typed fields in the
+    same event, and keeps the raw side to a compact set of canonical audit artifacts.
+    """
+
+    def test_exp40_curated_interpretation_and_canonical_artifacts_fold(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            prose = (
+                "exp40 is a legal retrieval experiment over process 76610395. It tested raw/raw, "
+                "raw->V9, Graph->V9, hybrid variants, and manual-context arms. The curated result "
+                "is that GraphV9D/GN was the best arm in that race, beating the best raw/raw "
+                "baseline on facet coverage, with lead-level rigor because it measured one process."
+            )
+            typed = {
+                "claim": "GraphV9D/GN beat the best raw/raw baseline on facet coverage.",
+                "scope": "process 76610395; legal retrieval; facet coverage.",
+                "status": "lead",
+                "caveat": "n=1 process.",
+                "supports": ["GraphV9D/GN"],
+                "excludes": ["general claim across processes"],
+                "next": "Run C5 to test whether the gain comes from typed ontology traverse.",
+            }
+            artifacts = [
+                {"ref": "results/*summary*.json", "role": "summary"},
+                {"ref": "reports/relatorio_copa_retrieval_r25.html", "role": "report"},
+            ]
+            eventlog.curate_experiment(
+                "exp40",
+                prose=prose,
+                typed=typed,
+                canonical_artifacts=artifacts,
+                by="grill",
+                log=log,
+            )
+
+            exp = eventlog.experiment_at("exp40", log=log)
+            self.assertEqual(exp["experiment_id"], "exp40")
+            self.assertEqual(exp["canonical"]["prose"], prose)
+            self.assertEqual(exp["canonical"]["typed"], typed)
+            self.assertEqual(exp["canonical_artifacts"], artifacts)
+            self.assertEqual(eventlog.experiment_at(" exp40 ", log=log), exp)
+            self.assertNotIn(typed["next"], exp["canonical"]["prose"])
+
+    def test_later_curation_updates_current_canonical_without_erasing_chain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            artifacts = [{"ref": "results/summary.json", "role": "summary"}]
+            base = {
+                "claim": "GN wins on one process.",
+                "scope": "process 76610395.",
+                "status": "lead",
+                "caveat": "n=1.",
+                "supports": ["GN"],
+                "excludes": [],
+                "next": "Run C5.",
+            }
+            eventlog.curate_experiment("exp40", prose="first conclusion", typed=base,
+                                       canonical_artifacts=artifacts, by="grill", log=log)
+            revised = {**base, "claim": "GN lead survives audit.", "status": "qualified"}
+            eventlog.curate_experiment(
+                "exp40", prose="qualified conclusion", typed=revised,
+                canonical_artifacts=artifacts, by="voz",
+                relates=[{"type": "qualifies", "experiment_id": "exp40"}], log=log)
+
+            exp = eventlog.experiment_at("exp40", log=log)
+            self.assertEqual(exp["canonical"]["prose"], "qualified conclusion")
+            self.assertEqual([c["canonical"]["prose"] for c in exp["curation_chain"]],
+                             ["first conclusion", "qualified conclusion"])
+            self.assertEqual(exp["relates"], [{"type": "qualifies", "experiment_id": "exp40"}])
+
+    def test_curated_experiment_requires_complete_canonical_material(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            typed = {
+                "claim": "GN wins on one process.",
+                "scope": "process 76610395.",
+                "status": "lead",
+                "caveat": "n=1.",
+                "supports": ["GN"],
+                "excludes": [],
+            }
+            with self.assertRaisesRegex(ValueError, "missing fields: next"):
+                eventlog.curate_experiment(
+                    "exp40", prose="short conclusion", typed=typed,
+                    canonical_artifacts=[{"ref": "results/summary.json", "role": "summary"}],
+                    by="grill", log=log)
+            with self.assertRaisesRegex(ValueError, "at least one canonical audit artifact"):
+                eventlog.curate_experiment(
+                    "exp40", prose="short conclusion", typed={**typed, "next": "Run C5."},
+                    canonical_artifacts=[], by="grill", log=log)
+
+
 class SourceSignalAppendsTheScore(unittest.TestCase):
     """ADR-0009: the hypothesis tier lands in the Tier-0 log as `source.signal` events — the
     *score* (similarity), never the vectors (no separate DB, no vector store). Payload pins the

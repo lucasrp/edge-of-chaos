@@ -33,6 +33,24 @@ nodes:
     episteme: hipotese          # verbatim reuse — the falsifiable claim, first-class
     key: ulid                   # O-2 primary; slug is display-only, never a key
     falsifier: {metric: str, threshold: number, direction: [maior, menor]}  # HIP-1 structured
+  pergunta:
+    truth: direction.*          # episteme Issue; runtime correspondence is direction.kind=thread
+    runtime_alias: direction.thread
+  modelagem:
+    truth: experiment.curated
+    runtime_alias: arm
+    role: experimental arm/design factor
+  experiment:
+    truth: experiment.curated
+    read_order: [canonical, canonical_artifacts]
+    canonical:
+      prose: curated short text
+      typed_fields: [claim, scope, status, caveat, supports, excludes, next]
+    curation: explicit-only
+    chain: append-only
+  observation:
+    truth: experiment.curated / computed observation events
+    role: measured result; never fabricated empty
   entity: {truth: graphiti-extraction}
   community: {truth: sweep/communities}
   source: {truth: source.signal}
@@ -43,12 +61,6 @@ nodes:
     truth: parceiro.promoted
     promotion_of: entity
     kinds: [empresa, pesquisador, equipe, git-user]
-
-# RESERVED, not shipped (the H-001 condition): minting these now would force fake mandatory
-# metric{dist,point,ci,noise_floor,n,mde} payloads (ONT-3) no cortex process can honestly fill —
-# an unfillable mandatory field is a standing invitation to fabricate. They land verbatim from
-# episteme the day a REAL pre-registered experiment runs in the cortex.
-reserved_nodes: [observation, experiment, arm]
 
 edges:
   structural:   # provenance_class=asserted (authored/proof-bound IS their provenance)

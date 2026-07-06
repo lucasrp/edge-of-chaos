@@ -24,7 +24,8 @@ class TestFrontDoor(unittest.TestCase):
         is not an interface)."""
         for name in ("cosine", "direction_at", "objective_at", "report_at", "corpus_at",
                      "grounding_at", "source_yield_at", "source_feedback_at",
-                     "artefatos_without_kernel", "supersede_rank"):
+                     "artefatos_without_kernel", "experiments_at", "experiment_at",
+                     "supersede_rank"):
             self.assertTrue(callable(getattr(cortex, name)), name)
 
     def test_door_forwards_late(self):
@@ -47,6 +48,28 @@ class TestFrontDoor(unittest.TestCase):
         """The one door-specific fact: the private eventlog._supersede_rank is public here."""
         args = ({"recognizer_rev": 2}, {"seq": 1})
         self.assertEqual(cortex.supersede_rank(*args), eventlog._supersede_rank(*args))
+
+    def test_experiment_at_reads_native_experiment_curations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.curate_experiment(
+                "exp40",
+                prose="exp40 is a legal retrieval experiment.",
+                typed={
+                    "claim": "GN wins on one process.",
+                    "scope": "process 76610395.",
+                    "status": "lead",
+                    "caveat": "n=1.",
+                    "supports": ["GN"],
+                    "excludes": ["general claim"],
+                    "next": "Run C5.",
+                },
+                canonical_artifacts=[{"ref": "results/summary.json", "role": "summary"}],
+                by="grill",
+                log=log,
+            )
+            self.assertEqual(cortex.experiment_at("exp40", log=log)["canonical"]["typed"]["status"],
+                             "lead")
 
 
 if __name__ == "__main__":
