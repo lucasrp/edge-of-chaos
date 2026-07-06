@@ -29,6 +29,13 @@ def _msg(role: str, text: str) -> dict:
     return {"type": role, "message": {"role": role, "content": [{"type": "text", "text": text}]}}
 
 
+def _codex_msg(role: str, text: str) -> dict:
+    typ = "input_text" if role == "user" else "output_text"
+    return {"type": "response_item",
+            "payload": {"type": "message", "role": role,
+                        "content": [{"type": typ, "text": text}]}}
+
+
 class ListSessionsDiscoversTranscripts(unittest.TestCase):
     """One `.jsonl` in the project dir = one session, identified by its filename uuid."""
 
@@ -72,6 +79,37 @@ class ReadTurnsDropsNoise(unittest.TestCase):
             turns = sessions.read_turns(p)
             self.assertEqual([(t.role, t.text) for t in turns],
                              [("human", "pergunta real"), ("edge", "resposta real")])
+
+
+class CodexReadTurnsExtractsVisibleDialogue(unittest.TestCase):
+    """Codex JSONL is a different envelope, but normalizes to the same human/edge turns."""
+
+    def test_codex_response_items_parse_and_drop_scaffolding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _write_session(Path(tmp), "rollout", [
+                {"type": "session_meta", "payload": {"id": "codex-session"}},
+                {"type": "event_msg", "payload": {"type": "user_message", "message": "duplicado"}},
+                _codex_msg("developer", "instrucoes internas"),
+                _codex_msg("user", "<environment_context>cwd</environment_context>"),
+                _codex_msg("user", "quero juntar as CLIs"),
+                {"type": "response_item", "payload": {"type": "function_call", "name": "exec_command"}},
+                _codex_msg("assistant", "vou implementar o parser"),
+            ])
+            turns = sessions.read_turns(p, surface="codex")
+            self.assertEqual([(t.role, t.text) for t in turns],
+                             [("human", "quero juntar as CLIs"),
+                              ("edge", "vou implementar o parser")])
+
+    def test_codex_session_id_comes_from_session_meta(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "sessions" / "2026" / "07" / "05"
+            root.mkdir(parents=True)
+            p = _write_session(root, "rollout-name", [
+                {"type": "session_meta", "payload": {"id": "stable-id"}},
+                _codex_msg("user", "oi"),
+            ])
+            found = sessions.list_codex_sessions(Path(tmp) / "sessions")
+            self.assertEqual([(s.id, s.path) for s in found], [("stable-id", p)])
 
 
 class ExtractClaimsParsesTheModelsAssertions(unittest.TestCase):
@@ -135,6 +173,16 @@ class DeltaReadsOnlyWhatIsNew(unittest.TestCase):
             turns3, mark3 = sessions.delta(p, mark2)
             self.assertEqual(turns3, [])
             self.assertEqual(mark3, mark2)
+
+    def test_codex_delta_uses_the_codex_parser(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _write_session(Path(tmp), "c", [_codex_msg("user", "primeira")])
+            turns, mark = sessions.delta(p, 0, surface="codex")
+            self.assertEqual([t.text for t in turns], ["primeira"])
+            with p.open("a") as fh:
+                fh.write(json.dumps(_codex_msg("assistant", "segunda")) + "\n")
+            turns2, _ = sessions.delta(p, mark, surface="codex")
+            self.assertEqual([(t.role, t.text) for t in turns2], [("edge", "segunda")])
 
 
 class MeasureYieldsTheG5Verdict(unittest.TestCase):
