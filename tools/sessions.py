@@ -47,6 +47,30 @@ def codex_sessions_dir():
     return Path.home() / ".codex" / "sessions"
 
 
+def codex_session_anchor(session_id: str) -> str:
+    return session_id if session_id.startswith("codex:") else f"codex:{session_id}"
+
+
+def split_session_anchor(session_id):
+    if isinstance(session_id, str) and session_id.startswith("codex:"):
+        raw = session_id[len("codex:"):]
+        return ("codex", raw) if raw else (None, None)
+    return ("claude", session_id) if isinstance(session_id, str) and session_id else (None, None)
+
+
+def current_session_anchor(env=None):
+    """Live session anchor: Claude first, then Codex, else None."""
+    env = os.environ if env is None else env
+    sid = env.get("CLAUDE_CODE_SESSION_ID")
+    if isinstance(sid, str) and sid.strip():
+        return sid.strip()
+    for key in ("CODEX_THREAD_ID", "CODEX_SESSION_ID"):
+        sid = env.get(key)
+        if isinstance(sid, str) and sid.strip():
+            return codex_session_anchor(sid.strip())
+    return None
+
+
 def _codex_session_id(path) -> str:
     """Codex filenames include timestamps; the stable session id lives in session_meta when present."""
     p = Path(path)
@@ -72,6 +96,17 @@ def list_codex_sessions(root=None) -> list:
         return []
     return [Session(id=_codex_session_id(p), path=p, surface="codex")
             for p in sorted(root.rglob("*.jsonl"))]
+
+
+def find_codex_session(session_id, root=None):
+    """Locate one Codex session by raw id or codex:<id> anchor."""
+    _surface, raw = split_session_anchor(session_id)
+    if not raw:
+        return None
+    for session in list_codex_sessions(root):
+        if session.id == raw:
+            return session
+    return None
 
 
 def _text_of(content) -> str:

@@ -26,8 +26,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
+sys.path.insert(0, str(REPO / "tests"))
 import harvest    # noqa: E402
 import eventlog   # noqa: E402
+import predispatch  # noqa: E402
 
 
 class _Env:
@@ -77,6 +79,39 @@ def _store_with_transcript(tmp, session_id, *, recognized):
     return store
 
 
+def _codex_line(ts, payload):
+    return json.dumps({"timestamp": ts, "type": "response_item", "payload": payload}) + "\n"
+
+
+def _write_codex_session(root, session_id, command):
+    path = Path(root) / "sessions" / "2026" / "07" / "06" / f"rollout-{session_id}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"timestamp": "2026-07-06T10:00:00.000Z", "type": "session_meta",
+                    "payload": {"id": session_id}}) + "\n"
+        + _codex_line("2026-07-06T10:05:00.000Z",
+                      {"type": "function_call", "name": "exec_command",
+                       "arguments": json.dumps({"cmd": command}),
+                       "call_id": "call_1"})
+        + _codex_line("2026-07-06T10:05:01.000Z",
+                      {"type": "function_call_output", "call_id": "call_1",
+                       "output": '{"meta":{"result_count":10}}'})
+    )
+    return path
+
+
+def _x_recognizers():
+    return harvest.build_recognizers(sources=[{
+        "name": "x",
+        "description": "X live builder signal. Lens: Mundo.",
+        "interfaces": [{
+            "interface_id": "v2-recent",
+            "via": "GET https://api.twitter.com/2/tweets/search/recent?query=...&max_results=... (Bearer)",
+            "hit_count": r'"result_count"\s*:\s*(\d+)',
+        }],
+    }])
+
+
 class FloorTeethSurviveTheProducerSplit(unittest.TestCase):
     MAIN = "mainS"           # the MAIN's session — its dispatch.open + its transcript
     PUB = "pubChildS"        # the publisher child's own session
@@ -118,6 +153,7 @@ class FloorTeethSurviveTheProducerSplit(unittest.TestCase):
             log = _log_with_open(tmp, self.MAIN, "themed")
             store = _store_with_transcript(tmp, self.MAIN, recognized=True)
             out = harvest.close_floor(log=log, store_root=store,
+                                      recognizers=_x_recognizers(),
                                       session_id=self.MAIN, child_session="")
             self.assertEqual(out, [])                              # satisfied — the read counted
 
@@ -133,6 +169,36 @@ class FloorTeethSurviveTheProducerSplit(unittest.TestCase):
             out = harvest.close_floor(log=log, store_root=store, session_id=self.MAIN)  # no child clear
             self.assertEqual(out, [])                              # re-darkened — teeth lost again
             self.assertEqual(len(eventlog.read(types=["grounding.floor_dark"], log=log)), 1)
+
+
+class CodexFloorParity(unittest.TestCase):
+    def test_predispatch_stamps_codex_thread_id_when_claude_session_is_absent(self):
+        with tempfile.TemporaryDirectory() as tmp, _Env(
+                CLAUDE_CODE_SESSION_ID=None,
+                CODEX_THREAD_ID="codex-main"):
+            log = Path(tmp) / "log.jsonl"
+            predispatch.run(sweep_fn=lambda: 0, briefing_fn=lambda: "B",
+                            recall_fn=lambda: "R", harvest_fn=lambda: 0,
+                            probe_fn=lambda spec: None, log=log, geometry="themed")
+            ev = eventlog.read(types=["dispatch.open"], log=log)[0]
+            self.assertEqual(ev["payload"]["session_id"], "codex:codex-main")
+
+    def test_close_floor_defaults_to_codex_thread_and_reads_codex_transcript(self):
+        from test_harvest import X_CMD
+        with tempfile.TemporaryDirectory() as tmp, _Env(
+                EDGE_GROUNDING_FLOOR=2,
+                CLAUDE_CODE_SESSION_ID=None,
+                CLAUDE_CODE_CHILD_SESSION=None,
+                CODEX_HOME=Path(tmp) / "codex-home",
+                CODEX_THREAD_ID="codex-main"):
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("dispatch.open", "dispatch",
+                            {"session_id": "codex:codex-main", "dispatch_id": "d1",
+                             "geometry": "themed"}, log=log)
+            _write_codex_session(Path(tmp) / "codex-home", "codex-main", X_CMD)
+            out = harvest.close_floor(log=log, recognizers=_x_recognizers())
+            self.assertEqual(out, [])
+            self.assertEqual(eventlog.read(types=["grounding.floor_dark"], log=log), [])
 
 
 if __name__ == "__main__":

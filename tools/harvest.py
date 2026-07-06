@@ -68,6 +68,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import cortex                       # noqa: E402
 import eventlog                     # noqa: E402
+import sessions as sessions_mod     # noqa: E402
 import sources as sources_mod       # noqa: E402
 import _envconf                     # noqa: E402  # EDGE_GROUNDING_FLOOR knob (S6)
 
@@ -1495,6 +1496,67 @@ def _scan_file(path, start, recognizers):
     return rows, unrec, dark, watermark, expired
 
 
+def _json_args(raw):
+    if not isinstance(raw, str):
+        return {}
+    try:
+        obj = json.loads(raw)
+    except ValueError:
+        return {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def _codex_tool_use(payload):
+    """Translate Codex function_call payloads into the recognize() tool-use shape."""
+    if not isinstance(payload, dict) or payload.get("type") != "function_call":
+        return None
+    call_id = payload.get("call_id")
+    name = payload.get("name")
+    if not (isinstance(call_id, str) and call_id and isinstance(name, str)):
+        return None
+    args = _json_args(payload.get("arguments"))
+    full_name = f"{payload.get('namespace')}.{name}" if payload.get("namespace") else name
+    if name == "exec_command" or full_name.endswith(".exec_command"):
+        cmd = args.get("cmd")
+        if isinstance(cmd, str):
+            return {"type": "tool_use", "id": call_id, "name": "Bash",
+                    "input": {"command": cmd}}
+    return None
+
+
+def _scan_codex_file(path, session_id, recognizers):
+    """Pure recognize() pass over one Codex JSONL transcript."""
+    lines = Path(path).read_text(errors="replace").splitlines()
+    uses, results = [], {}
+    for n, line in enumerate(lines):
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "response_item":
+            continue
+        payload = obj.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("type") == "function_call":
+            tool_use = _codex_tool_use(payload)
+            if tool_use is not None:
+                uses.append((n, obj, tool_use))
+        elif payload.get("type") == "function_call_output":
+            call_id = payload.get("call_id")
+            if isinstance(call_id, str):
+                results[call_id] = payload.get("output")
+    rows = []
+    for n, obj, tool_use in uses:
+        tuid = tool_use.get("id")
+        if tuid not in results:
+            continue
+        rows.extend(recognize(tool_use, results[tuid], recognizers,
+                              session_id=session_id, transcript_line=n,
+                              ts=obj.get("timestamp")))
+    return rows
+
+
 def _known_refs(log):
     """The dedup base, RANKED (Codex S4 gate D1): {raw_ref: best (recognizer_rev, seq) rank
     already in the log} — a supersede event ranks onto its TARGET (the same identity the fold
@@ -1756,6 +1818,17 @@ def session_floor(session_id, recognizers=None, store_root=None):
     read). Returns {"reads", "recognized", "dark", "reason"} and NEVER raises: a floor that
     cannot see is a counted `grounding.floor_dark` (S6), not a crash in the close."""
     try:
+        surface, _raw_id = sessions_mod.split_session_anchor(session_id)
+        if surface == "codex":
+            session = sessions_mod.find_codex_session(session_id)
+            if session is None:
+                return {"reads": 0, "recognized": [], "dark": True,
+                        "reason": f"Codex transcript not found for session {session_id!r}"}
+            if recognizers is None:
+                recognizers = build_recognizers()
+            recognized = _scan_codex_file(session.path, session_id, recognizers)
+            return {"reads": len(recognized), "recognized": recognized,
+                    "dark": False, "reason": None}
         root = Path(store_root) if store_root is not None else STORE_ROOT
         if not root.is_dir():
             return {"reads": 0, "recognized": [], "dark": True,
@@ -1794,13 +1867,13 @@ def close_floor(*, log=None, store_root=None, session_id=None, child_session=Non
     LAST dispatch.open geometry for the session (S2/enxerto A2), then runs `session_floor`'s pure
     recognize over the live transcript.
 
-    Fail-OPEN is DELIBERATE (inverse of genus — §6): env absent (close run outside a Claude session),
+    Fail-OPEN is DELIBERATE (inverse of genus — §6): env absent (close run outside a Claude/Codex session),
     transcript absent, undeclared geometry, or CLAUDE_CODE_CHILD_SESSION set (reads may live in the
     parent transcript, not identifiable today) → [] + a COUNTED `grounding.floor_dark` event, never a
     block (a fail-closed floor would kill every close run out-of-session — tests, operator). Ambient
     geometry NEVER gates (R3.2) — a deliberate non-gate, not an instrument failure, so it is NOT dark.
     NEVER raises into the close. log/store_root/session_id/child_session/knob are injectable for tests;
-    live they default to eventlog.LOG / STORE_ROOT / the CLAUDE_CODE_* env."""
+    live they default to eventlog.LOG / STORE_ROOT / the active Claude/Codex session env."""
     try:
         if knob is None:
             # B.4 (ticket B): default 0=off → 1=OBSERVE — o primeiro degrau honesto: o
@@ -1811,11 +1884,11 @@ def close_floor(*, log=None, store_root=None, session_id=None, child_session=Non
         if log is None:
             log = eventlog.LOG
         if session_id is None:
-            session_id = os.environ.get("CLAUDE_CODE_SESSION_ID")
+            session_id = sessions_mod.current_session_anchor()
         if child_session is None:
             child_session = os.environ.get("CLAUDE_CODE_CHILD_SESSION")
         if not session_id:
-            return _floor_dark("session-id absent (close run outside a Claude session)", log)
+            return _floor_dark("session-id absent (close run outside a Claude/Codex session)", log)
         if child_session:
             return _floor_dark("CLAUDE_CODE_CHILD_SESSION set — reads may live in the parent "
                                "transcript, not identifiable today", log)

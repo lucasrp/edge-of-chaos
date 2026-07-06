@@ -37,6 +37,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import eventlog          # noqa: E402
+import sessions as sessions_mod  # noqa: E402
 import sources as sources_mod   # noqa: E402  — the agent.yaml interfaces[] seam (S3): the canary
 #   battery iterates the DECLARED interfaces, NEVER a source named in code (E8, the Overleaf test)
 
@@ -95,7 +96,8 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
     S2 (E1) — the stamp now carries the dispatch's IDENTITY + SESSION ANCHOR: `dispatch_id`
     (minted here when not handed in; main() mints and prints it machine-readable, because the
     live path is CLI → skill-snippet across processes and an in-process return does not cross),
-    `session_id` (CLAUDE_CODE_SESSION_ID when present, else null — never fabricated), and the
+    `session_id` (Claude session id or `codex:<CODEX_THREAD_ID>` when present, else null —
+    never fabricated), and the
     optional DECLARED fields theme/intent/geometry (attribution tier `declared`). The MONOTONIC
     anchor is the dispatch.open event's own `seq` (stamped by append) — S4's harvest maps rows
     by (session anchor, dispatch interval), so no extra cursor is persisted here. Geometry:
@@ -135,7 +137,7 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
     # an undeclared origin is never promoted. The artefato reads it back at publish
     # (eventlog.dispatch_origin) and carries it on artefato.published.
     eventlog.dispatch_open({"swept_sessions": swept, "dispatch_id": dispatch_id,
-                            "session_id": os.environ.get("CLAUDE_CODE_SESSION_ID"),
+                            "session_id": sessions_mod.current_session_anchor(),
                             "theme": theme, "intent": intent, "geometry": geometry,
                             "origin": origin if origin in eventlog.ORIGINS else "beat"}, log=log)
     # the machine-readable id, the moment the identity is durable — written DIRECTLY to the real
