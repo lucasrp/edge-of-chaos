@@ -5,7 +5,7 @@ Sucesso: `edge-apply --yaml agent.yaml --home <tmp_edge> --claude-home <tmp_clau
   - escreve ~/.claude/CLAUDE.md e ~/.claude/skills/{prefix}-*/SKILL.md;
   - é idempotente (segunda rodada byte-idêntica no ~/.claude).
 
-SEGURANÇA: --claude-home aponta SEMPRE para um tmp. Nunca toca o ~/.claude real.
+SEGURANÇA: --claude-home/--codex-home apontam SEMPRE para tmp. Nunca toca homes reais.
 """
 import subprocess
 import sys
@@ -18,10 +18,11 @@ APPLY = REPO / "tools" / "edge-apply"
 YAML = REPO / "agent.yaml"
 
 
-def run_apply(edge_home: Path, claude_home: Path):
+def run_apply(edge_home: Path, claude_home: Path, codex_home: Path):
     return subprocess.run(
         [sys.executable, str(APPLY), "--yaml", str(YAML),
-         "--home", str(edge_home), "--claude-home", str(claude_home)],
+         "--home", str(edge_home), "--claude-home", str(claude_home),
+         "--codex-home", str(codex_home)],
         capture_output=True, text=True,
     )
 
@@ -39,7 +40,8 @@ class ApplyClaude(unittest.TestCase):
         self._t2 = tempfile.TemporaryDirectory()
         self.edge_home = Path(self._t1.name)
         self.claude_home = Path(self._t2.name) / ".claude"
-        self.res = run_apply(self.edge_home, self.claude_home)
+        self.codex_home = Path(self._t2.name) / ".codex"
+        self.res = run_apply(self.edge_home, self.claude_home, self.codex_home)
 
     def tearDown(self):
         self._t1.cleanup()
@@ -68,7 +70,7 @@ class ApplyClaude(unittest.TestCase):
 
     def test_idempotent(self):
         first = snapshot(self.claude_home)
-        run_apply(self.edge_home, self.claude_home)
+        run_apply(self.edge_home, self.claude_home, self.codex_home)
         second = snapshot(self.claude_home)
         self.assertEqual(first, second)
 
