@@ -64,7 +64,10 @@ class TestFrontDoor(unittest.TestCase):
                     "excludes": ["general claim"],
                     "next": "Run C5.",
                 },
-                canonical_artifacts=[{"ref": "results/summary.json", "role": "summary"}],
+                canonical_artifacts=[
+                    {"ref": "artefato:relatorio-exp40", "role": "report"},
+                    {"ref": "results/summary.json", "role": "summary"},
+                ],
                 by="grill",
                 log=log,
             )

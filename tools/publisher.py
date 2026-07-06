@@ -52,7 +52,8 @@ import close
 import producer_descriptor
 from close import check_genus, verify_proof
 # canonical authored declarations through persist + projection (each matches its proof bind)
-from lineage import normalize_bears_on, normalize_lineage, normalize_para
+from lineage import (normalize_bears_on, normalize_experiment_curation, normalize_lineage,
+                     normalize_para, normalize_reports_on)
 
 # R6 (S10) — adoption telemetry. Visual/labeled block types that, when a producer's DESCRIPTOR requires
 # them, mean the FORM owes a visual (the form half of the `owed` signal; the content half is
@@ -146,8 +147,8 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # producer-skills). `skill` is proof-bound but the proof binds whatever the producer supplies,
 # so an out-of-roster value (e.g. `report</p><script>…`) would verify cleanly; this roster is
 # the gate that rejects it BEFORE anything is written, and _page escapes it as defense in depth.
-PRODUCER_ROSTER = ("report", "research", "map", "plan", "discovery", "grill", "prototype",
-                   "lazer")
+PRODUCER_ROSTER = ("report", "research", "map", "plan", "discovery", "mentor", "grill",
+                   "prototype", "lazer")
 
 # Cortex-v1 (brick-1, L4): the AUTHORED typed lineage relations and their graph-edge labels — a
 # FIXED Python allowlist. The producer-supplied `item["type"]` is mapped through THIS dict; an
@@ -635,6 +636,25 @@ def _project_para(s, g, slug, para):
     return unresolved
 
 
+def _project_reports_on(s, g, slug, reports_on):
+    """Project report Artefato → Experiment.
+
+    The report is the human-readable Artefato that links into clusters/entities/sources through the
+    normal Edge graph. The Experiment is the scientific object. Unlike PARA/bears_on, the Experiment
+    endpoint is allowed to be minted by this authored report edge: the report is the curation act that
+    makes the experimental object navigable.
+    """
+    for experiment_id in normalize_reports_on(reports_on):
+        s.run(
+            "MATCH (a:Artefato {group_id:$g, slug:$slug}) "
+            "MERGE (x:Experiment {group_id:$g, id:$experiment_id}) "
+            "SET x.kind='experiment', x.provenance_class='asserted' "
+            "MERGE (a)-[r:REPORTS_ON]->(x) "
+            "SET r.provenance_class='asserted'",
+            g=g, slug=slug, experiment_id=experiment_id)
+    return False
+
+
 def _project_para_default(s, g, slug, name):
     """Curadoria autoral (§6, regra do operador): with NO authored `para`, the artefato is still
     FOR someone — the operador/mentee. The mark is a PROP on the :Artefato (`a.para_default`,
@@ -858,7 +878,7 @@ def _gate_props(gate):
 
 def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites=None,
                      spec=None, lineage=None, log=eventlog.LOG, gate=None, origin=None,
-                     bears_on=None, para=None, para_default=None):
+                     bears_on=None, para=None, para_default=None, reports_on=None):
     """Project a just-published Artefato into the edge's graph — the deterministic spine write
     that was prose in `skills/_shared/memory.md` (the "Project — AFTER you publish" block) and so
     got SKIPPED by the producer. Ported here as a GUARANTEED side-effect of every publish so the
@@ -968,11 +988,11 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # design and require no NLI gating.
             # L4: the three AUTHORED lineage labels JOIN this destructive rebuild set so a corrected
             # republish (lineage now points elsewhere, or is removed) strands no stale lineage edge.
-            # Ticket A: the valenced bears_on labels + PARA join the destructive rebuild — a
-            # republish with corrected declarations strands no stale valence/target edge.
+            # Ticket A: the valenced bears_on labels + PARA + REPORTS_ON join the destructive
+            # rebuild — a republish with corrected declarations strands no stale edge.
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug})"
                   "-[r:DISTILLS|PROPOSES|CITES|BUILDS_ON|SUPERSEDES|CONTRADICTS"
-                  "|SUPPORTS|REFUTES|QUALIFIES|INCONCLUSIVE|PARA]->() "
+                  "|SUPPORTS|REFUTES|QUALIFIES|INCONCLUSIVE|PARA|REPORTS_ON]->() "
                   "DELETE r", g=g, slug=slug)
             # resolve distills against ACTIVE clusters only (Codex P2): mirror graph_clusters —
             # archived/merged entities are hidden, so a retired cluster is never linked or pushed.
@@ -1034,6 +1054,7 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # leaves the projection incomplete, so the next sweep re-links once it lands.
             unresolved_bears = _project_bears_on(s, g, slug, bears_on)
             unresolved_para = _project_para(s, g, slug, para)
+            _project_reports_on(s, g, slug, reports_on)
             # (2b3) curadoria autoral — the para-o-mentee DEFAULT mark (prop + promoted-only
             # edge). Fail-safe by design: NEVER joins the unresolved set / completion marker.
             _project_para_default(s, g, slug, para_default)
@@ -1075,7 +1096,8 @@ _DEFAULT_PROJECT = object()  # sentinel: "use module project_artefato" (resolved
 def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=None,
             cites=None, lineage=None, dispatch_id=None, date=None, log=eventlog.LOG,
             blog_dir=BLOG_DIR, embed_fn=None, project_fn=_DEFAULT_PROJECT,
-            visual_flags=None, bears_on=None, para=None) -> Path:
+            visual_flags=None, bears_on=None, para=None, reports_on=None,
+            experiment_curation=None) -> Path:
     """Publish an Artefato: render → self-contained neutral HTML → atomic state record.
 
     #2/#3 at the seam: RAISES ValueError unless `verdict` is the UNFORGEABLE, BOUND proof
@@ -1126,14 +1148,20 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     verify_proof(verdict, slug=slug, spec=spec, intent=intent,
                  cites=cites or [], proposes=proposes or [],
                  distills=distills, skill=skill, lineage=lineage, dispatch_id=dispatch_id,
-                 bears_on=bears_on, para=para)
+                 bears_on=bears_on, para=para, reports_on=reports_on,
+                 experiment_curation=experiment_curation)
     # Canonical lineage from here on (Codex): the proof binds the NORMALIZED lineage and the event persists
     # it, so the live projection must see the SAME — else proof/event-invisible junk (e.g. a blank-slug item
     # stripped by the digest) could still drive project_artefato and strand projection_complete=false.
     lineage = normalize_lineage(lineage)
     # Ticket A: same rule for the valenced/PARA declarations — the digest bound the NORMALIZED
     # form; the event and the live projection must see the SAME.
-    bears_on, para = normalize_bears_on(bears_on), normalize_para(para)
+    bears_on = normalize_bears_on(bears_on)
+    para = normalize_para(para)
+    reports_on = normalize_reports_on(reports_on)
+    # Validate early, before render/page work. The event seam repeats the same normalization and writes
+    # the resulting experiment.curated payloads in the atomic publish batch.
+    normalize_experiment_curation(reports_on, experiment_curation, report_slug=slug, by=skill)
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
     if skill not in PRODUCER_ROSTER:
@@ -1192,7 +1220,8 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
         cites=cites, spec=spec, skill=skill, log=log,
         lineage=lineage, require_wake=True, adoption=adoption,
         dispatch_id=dispatch_id, residuals=residuals, gate=gate,
-        bears_on=bears_on, para=para)
+        bears_on=bears_on, para=para, reports_on=reports_on,
+        experiment_curation=experiment_curation)
     # curadoria autoral: the para-o-mentee default is derived ONCE, at the event seam (origin
     # pattern — never a caller arg, never in the digest); the projection reads it OFF the
     # committed event so event and graph can never disagree.
@@ -1228,7 +1257,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
             project_fn(slug, intent, skill=skill, distills=distills, proposes=proposes,
                        cites=cites, spec=spec, lineage=lineage, log=log, gate=gate,
                        origin=origin, bears_on=bears_on, para=para,
-                       para_default=para_default)
+                       para_default=para_default, reports_on=reports_on)
         except Exception as ex:  # noqa: BLE001 — projection is best-effort, never fatal
             print(f"project skipped for {slug!r} (best-effort, reproject next beat):", ex)
     return out
@@ -1397,7 +1426,8 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
                        lineage=item.get("lineage"), log=log, gate=item.get("gate"),
                        origin=item.get("origin"),
                        bears_on=item.get("bears_on"), para=item.get("para"),
-                       para_default=item.get("para_default"))
+                       para_default=item.get("para_default"),
+                       reports_on=item.get("reports_on"))
         except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
             print(f"graph reproject skipped for {item.get('slug')!r} (best-effort):", ex)
     # B.3 (Codex adversarial) — replay das INTEGRAÇÕES também: uma promoção cuja marca best-effort

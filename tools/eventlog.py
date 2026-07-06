@@ -16,7 +16,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # persist ONLY well-formed authored declarations (each matches its proof bind)
-from lineage import normalize_bears_on, normalize_lineage, normalize_para
+from lineage import (
+    normalize_bears_on,
+    normalize_experiment_curation,
+    normalize_lineage,
+    normalize_para,
+    normalize_reports_on,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 LOG = REPO / "state" / "events" / "log.jsonl"
@@ -386,7 +392,8 @@ def test_dispatch_id():
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
                             spec=None, log=LOG, *, lineage=None, skill=None, require_wake=False,
                             adoption=None, dispatch_id=None, residuals=None, gate=None,
-                            bears_on=None, para=None):
+                            bears_on=None, para=None, reports_on=None,
+                            experiment_curation=None):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
     publish seam): you cannot publish without the *why*. Both events land in a single
     `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
@@ -462,6 +469,9 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
     # (Codex S10). A None / partial / non-dict payload is replaced with an error-marked record whose
     # countable fields are all null (uncountable), so dashboards never read false telemetry.
     adoption = _normalized_adoption(slug, skill, adoption)
+    reports_on = normalize_reports_on(reports_on)
+    experiment_curations = normalize_experiment_curation(
+        reports_on, experiment_curation, report_slug=slug, by=skill)
     events = [
         ("artefato.published", f"artefato:{slug}",
          {"slug": slug, "proposes": proposes or [], "distills": distills or [],
@@ -479,15 +489,21 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
           # evento, replayável (o grafo já computava e jogava fora). None num publish legado/sem gate.
           "gate": gate,
           # Ticket A (ontologia §2b/§6): bears_on = as declarações valenciadas artefato→hipótese
-          # (multivalência nativa, O-6) e para = os parceiros-alvo (artefato-PARA->parceiro) —
+          # (multivalência nativa, O-6), para = os parceiros-alvo (artefato-PARA->parceiro) e
+          # reports_on = o(s) Experiment(s) que este report-artefato torna navegáveis —
           # NORMALIZADOS aqui (o mesmo sanitizer que o proof digest usa), digest-bound como lineage.
           "bears_on": normalize_bears_on(bears_on), "para": para,
+          "reports_on": reports_on,
           # curadoria autoral: o alvo default (mentee) quando o autorado é vazio — derivado
           # acima, campo próprio (o `para` autorado nunca se mistura com o derivado).
           "para_default": para_default}),
         ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
         ("artefato.adoption", f"artefato:{slug}", adoption),
     ]
+    events.extend(
+        ("experiment.curated", f"experiment:{curation['experiment_id']}", curation)
+        for curation in experiment_curations
+    )
     written = append_batch(events, log=log, precondition=_wake_gate if require_wake else None)
     return written[0], written[1]
 
@@ -628,6 +644,7 @@ def fold_corpus(events):
                            # Ticket A: bears_on/para acompanham o item para o replay das arestas
                            # valenciadas/PARA; evento legado folda [] (forward-only, sem backfill).
                            "bears_on": p.get("bears_on") or [], "para": p.get("para") or [],
+                           "reports_on": p.get("reports_on") or [],
                            # curadoria autoral: o alvo default acompanha o replay; evento
                            # pré-adoção folda None (forward-only, sem backfill).
                            "para_default": p.get("para_default"),
@@ -909,18 +926,12 @@ def curate_experiment(experiment_id, *, prose, typed, canonical_artifacts, by, r
     into this event is explicit curation (`by` is mandatory).
     """
     _require_body(experiment_id, "experiment.curated (experiment_id)")
-    _require_body(prose, "experiment.curated (prose)")
     _require_body(by, "experiment.curated (by)")
-    rel = relates or []
-    if not isinstance(rel, list) or not all(isinstance(x, dict) for x in rel):
-        raise ValueError("experiment curation relates must be a list of dicts")
-    payload = {
-        "experiment_id": experiment_id.strip(),
-        "canonical": {"prose": prose.strip(), "typed": _validated_experiment_typed(typed)},
-        "canonical_artifacts": _validated_canonical_artifacts(canonical_artifacts),
-        "by": by.strip(),
-        "relates": rel,
-    }
+    payload = normalize_experiment_curation(
+        [experiment_id],
+        {"prose": prose, "typed": typed, "canonical_artifacts": canonical_artifacts,
+         "by": by, "relates": relates or []},
+        by=by)[0]
     return append("experiment.curated", f"experiment:{experiment_id.strip()}", payload, log=log)
 
 

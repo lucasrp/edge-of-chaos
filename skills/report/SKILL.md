@@ -159,18 +159,23 @@ without it, E1c — never reconstruct it from the log).
         # (pipeline.md, consolidação): bears_on SÓ sobre hipótese VIVA — vazio honesto, NUNCA fabricado. \
         bears_on=[]  # [{'hypothesis':'<ulid>','valence':'supports|refutes|qualifies|inconclusive','rationale':'…'}] — cortex.hypotheses_at() lists the live ones; none genuinely touched → [] ; \
         para=[]  # the EXPLICIT target reader (promoted parceiro — a colleague/client); [] resolves MECHANICALLY to the operador-mentee default (every artefato is PARA someone) ; \
+        reports_on=[]  # Experiment ids this report makes navigable, e.g. ['exp40']; [] if this is not an experiment report ; \
+        experiment_curation=None  # when reports_on closes an experiment: {'prose':curated_conclusion,'typed':{'claim':...,'scope':...,'status':...,'caveat':...,'supports':[...],'excludes':[...],'next':...},'canonical_artifacts':[...]} ; \
         # the artefato MUST carry EVERY proof-bound field (skill + distills + lineage included): run_close \
         # mints the digest from THIS dict, so it must equal the exact publish payload. \
         artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
           'cites':cites,'distills':distills,'skill':'report','lineage':lineage, \
-          'dispatch_id':dispatch_id,'bears_on':bears_on,'para':para}; \
+          'dispatch_id':dispatch_id,'bears_on':bears_on,'para':para,'reports_on':reports_on, \
+          'experiment_curation':experiment_curation}; \
         # the publisher-backed publish_fn reads the payload OFF `art` (the minted artefato), so \
         # what publishes is provably what the proof was minted over; proof rides as verdict=. \
         pub=publisher.publish; \
         publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
           skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
           cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id'], \
-          bears_on=art.get('bears_on'), para=art.get('para'));  # ticket A: digest-bound like lineage \
+          bears_on=art.get('bears_on'), para=art.get('para'), \
+          reports_on=art.get('reports_on'), \
+          experiment_curation=art.get('experiment_curation'));  # ticket A: digest-bound like lineage \
         # WIRE REAL RE-PRODUCTION (#30): improve_fn(art, feedback) REVISES the draft from the \
         # reviewers' rationales+strikes — incl. a rich-rite floor strike (derivation / \
         # what-i-dont-know / external-frame / lineage). run_close loops it IMPROVE_ROUNDS=2 BEFORE \

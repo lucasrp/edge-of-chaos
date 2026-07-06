@@ -1,6 +1,35 @@
-# Ontologia cortex-v2 (episteme + edge + gates) — superset estrito
+# Ontologia cortex-v2 (episteme + edge + gates) — ontologia unificada
 
-Fonte: subagente **opus** (ontologia unificada, 2026-07-05), lendo episteme vivo (roberto `frameworkV9/episteme/` + docs) + o grafo do edge (`tools/{eventlog,cortex_provenance,relate,close}.py`). **Fable POUSOU e é o DEFINITIVO** (converge com o opus no núcleo — provenance-planes, gate nunca agrega, cortex-já-é-espinha). Refina 3 coisas: **(1) `:Experiment` só nasce de `experiment.curated`** — interpretação canônica primeiro, inventário canônico depois, cadeia append-only de curadoria; `:Observation` continua proibido de nascer vazio ou fabricado por resumo. **(2) gate-score = MEDIÇÃO** — número guardado raw (O-9: guarda-se o número, proíbe-se a PALAVRA-verdict); nunca valência-typed; o plano `computed` fica **VAZIO por integridade/unreachability**, não por review; valência-sobre-scores só via `gate_score_delta@1` rule_template REGISTRADO, com noise-floor do stream (a lição n=1 do V10). **(3) thread=hipótese=artefato = CORRESPONDÊNCIA, não identidade** — 3 nós (pergunta/hipotese/render); navegação = 2-hop `(thread)<-PROPOSES-(hyp)<-SUPPORTS-(artefato)`; colapsar falsifica H-001. Gate-verdicts = **flat props no `:Artefato`** (não nó, não aresta — episteme dá badge de verdict no nó, MIR-2/3; Cypher-navegável). **Migração = ~180 linhas em 5 arquivos + 1 schema** (`cortex/schema/ontologia.yaml` = o instrumento que MEDE o diff do H-001), forward-only, sem backfill. H-001 = **apoia/lead** (este design é a 1ª observação dele). Resultado completo no task-output `a190225`. Achado de entrada: **o cortex do edge JÁ É a espinha do episteme** (`eventlog.py` = append-only "nada é verdade que não seja evento aqui"; `cortex_provenance.py` já separa `asserted`=folds vs `extracted`=hypothesis) → **re-instanciação BAIXA** (H-001).
+Fonte: subagente **opus** (ontologia unificada, 2026-07-05), lendo episteme vivo
+(roberto `frameworkV9/episteme/` + docs) + o grafo do edge
+(`tools/{eventlog,cortex_provenance,relate,close}.py`). Correção pós-merge do Roberto:
+o edge novo nasceu dessa ontologia, então a instalação `roberto` deve funcionar como
+**Cortex/Episteme uma coisa só desde cedo**, não como Cortex com labels de Episteme reservados
+para um futuro transporte.
+
+Refina 3 coisas: **(1) `pergunta`/`hipotese`/`modelagem`(`arm`)/`experimento`/`observation`/`bearing`
+são primitives do mesmo schema** — `cortex/schema/ontologia.yaml` declara esses nós agora. A guarda
+continua sendo O-1: nenhum Observation/Arm vazio ou inventado; eles nascem de `run_started` /
+`experiment_concluded` com payload real. `Report` continua sendo Artefato humano: quando ele fala
+de um experimento, publica `reports_on:['exp-id']` + `experiment_curation:{prose,typed,...}`. Esse
+publish grava no mesmo batch o `artefato.published` e o `experiment.curated`: o fechamento do
+experimento é a criação do report. A projeção liga `(:Artefato)-[:REPORTS_ON]->(:Experiment)`. O
+Experiment é o objeto científico navegável; o Artefato/report é o relatório legível que liga o
+experimento aos clusters, entidades e fontes. Quando existe curadoria explícita, `experiment.curated`
+dá a leitura canônica rápida do experimento: interpretação atual primeiro, artefatos canônicos depois,
+cadeia append-only.
+**(2) gate-score = MEDIÇÃO** — número guardado raw (O-9: guarda-se o número, proíbe-se a
+PALAVRA-verdict); nunca valência-typed; o plano `computed` só entra por régua congelada registrada
+(`delta_ci@1` para episteme; `gate_score_delta@1` para gate stream). **(3) thread=hipótese=artefato
+= CORRESPONDÊNCIA, não identidade** — 3 nós (pergunta/hipotese/render); navegação = 2-hop
+`(thread)<-PROPOSES-(hyp)<-SUPPORTS-(artefato)`; colapsar falsifica H-001. Gate-verdicts =
+props/arestas de julgamento no plano `llm_judged`, nunca bearing computado.
+
+**Migração = schema unificado + write-paths event-sourced**, forward-only, sem backfill.
+H-001 deixa de ser "transportar um dia" e vira o critério de instalação: o Roberto roda o edge
+como o lugar onde o Episteme já vive. Achado de entrada: **o cortex do edge JÁ É a espinha do
+episteme** (`eventlog.py` = append-only; `cortex_provenance.py` separa `computed/asserted/
+llm_judged/extracted`).
 
 ## §0 — O eixo que resolve tudo: `provenance_class`
 Toda aresta/anotação carrega `provenance_class`. Ele decide UMA coisa: se pode entrar no rollup do `verdict` computado.

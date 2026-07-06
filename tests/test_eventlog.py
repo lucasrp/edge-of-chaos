@@ -633,8 +633,8 @@ class ExperimentCurationFoldsCuratedFirst(unittest.TestCase):
                 "next": "Run C5 to test whether the gain comes from typed ontology traverse.",
             }
             artifacts = [
+                {"ref": "artefato:relatorio-exp40", "role": "report"},
                 {"ref": "results/*summary*.json", "role": "summary"},
-                {"ref": "reports/relatorio_copa_retrieval_r25.html", "role": "report"},
             ]
             eventlog.curate_experiment(
                 "exp40",
@@ -656,7 +656,10 @@ class ExperimentCurationFoldsCuratedFirst(unittest.TestCase):
     def test_later_curation_updates_current_canonical_without_erasing_chain(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            artifacts = [{"ref": "results/summary.json", "role": "summary"}]
+            artifacts = [
+                {"ref": "artefato:relatorio-exp40", "role": "report"},
+                {"ref": "results/summary.json", "role": "summary"},
+            ]
             base = {
                 "claim": "GN wins on one process.",
                 "scope": "process 76610395.",
@@ -694,12 +697,36 @@ class ExperimentCurationFoldsCuratedFirst(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing fields: next"):
                 eventlog.curate_experiment(
                     "exp40", prose="short conclusion", typed=typed,
-                    canonical_artifacts=[{"ref": "results/summary.json", "role": "summary"}],
+                    canonical_artifacts=[{"ref": "artefato:relatorio-exp40", "role": "report"}],
                     by="grill", log=log)
-            with self.assertRaisesRegex(ValueError, "at least one canonical audit artifact"):
+            with self.assertRaisesRegex(ValueError, "finalization report artifact"):
                 eventlog.curate_experiment(
                     "exp40", prose="short conclusion", typed={**typed, "next": "Run C5."},
-                    canonical_artifacts=[], by="grill", log=log)
+                    canonical_artifacts=[{"ref": "results/summary.json", "role": "summary"}],
+                    by="grill", log=log)
+
+    def test_publish_report_finalizes_experiment_in_the_same_batch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.publish_artefato_atomic(
+                "relatorio-exp40", "open: exp40; bet: report finalizes experiment",
+                skill="report", reports_on=[" exp40 "],
+                experiment_curation={
+                    "prose": "GN wins this retrieval race.",
+                    "typed": {"claim": "GN wins.", "scope": "process 76610395.",
+                              "status": "lead", "caveat": "n=1.", "supports": ["GN"],
+                              "excludes": [], "next": "Run C5."},
+                },
+                log=log)
+            events = eventlog.read(log=log)
+            self.assertEqual([e["type"] for e in events],
+                             ["artefato.published", "intent.kernel", "artefato.adoption",
+                              "experiment.curated"])
+            exp = eventlog.experiment_at("exp40", log=log)
+            self.assertEqual(exp["canonical"]["typed"]["claim"], "GN wins.")
+            self.assertEqual(exp["canonical_artifacts"][0],
+                             {"ref": "artefato:relatorio-exp40", "role": "report",
+                              "note": "finalization report"})
 
 
 class SourceSignalAppendsTheScore(unittest.TestCase):

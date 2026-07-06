@@ -1,10 +1,13 @@
-# ontologia.yaml — the DECLARATIVE schema drop (ontologia-cortex-v2 §3).
-# The instrument that MEASURES the H-001 diff: what the superset adds lives HERE, versioned
-# (git anchors versions; the H-001 ontology-diff is computed against episteme's ontologia.yaml).
+# ontologia.yaml — the DECLARATIVE schema for the unified Cortex/Episteme ontology.
+# H-001's target is not an adapter layer: Roberto's Episteme and the Edge Cortex should read as
+# one substrate. The episteme primitives are first-class here; cortex names carry explicit
+# episteme correspondences where the runtime spelling differs.
 # No code reads this yet (the door, not the room) — the runtime axis lives in
 # tools/cortex_provenance.py (provenance_class_for / assert_rollup_computed = CX-1).
 
 version: cortex-v2@1
+schema_version: 1
+content_hash: "167be3d989774b3437192b0fe7574a9cafe52fc573b2e2668ae98ff62a0d2296"
 
 provenance_class:
   # The plane per edge/annotation. Decides ONE thing: rollup eligibility (CX-1).
@@ -18,39 +21,65 @@ nodes:
   # substrate (unchanged, event-sourced — every node is a fold of an event, O-1)
   genesis: {space: 0}
   objective: {truth: objective.set}
+  pergunta:
+    runtime: direction
+    when: "kind=thread"
+    truth: direction.*
+    sentido: IBIS Issue; interrogativa
   direction:
     truth: direction.*
     # kind=thread ≙ episteme `pergunta` (the IBIS Issue) — the correspondence's first node.
     kinds: [phase, priority, constraint, thread]
+    episteme: pergunta when kind=thread
   artefato:
     truth: artefato.published
     # the CONCLUSION RENDER — episteme's own informal render term ("evidência"). NOT a
     # hypothesis: thread=hipótese=artefato is a CORRESPONDENCE (3 nodes, 2-hop
     # (thread)<-PROPOSES-(hyp)<-SUPPORTS-(artefato)), never an identity (collapsing falsifies H-001).
     episteme: evidencia (render)
+  hipotese:
+    runtime: hypothesis
+    truth: hypothesis.declared / hypothesis.superseded
+    sentido: claim falsificavel; no imutavel + versionado; alvo de valencia
+    payload_key: hypothesis
   hypothesis:
     truth: hypothesis.declared / hypothesis.superseded
     episteme: hipotese          # verbatim reuse — the falsifiable claim, first-class
     key: ulid                   # O-2 primary; slug is display-only, never a key
     falsifier: {metric: str, threshold: number, direction: [maior, menor]}  # HIP-1 structured
-  pergunta:
-    truth: direction.*          # episteme Issue; runtime correspondence is direction.kind=thread
-    runtime_alias: direction.thread
   modelagem:
-    truth: experiment.curated
-    runtime_alias: arm
-    role: experimental arm/design factor
+    runtime: arm
+    truth: experiment_declared / run_started / experiment_concluded
+    sentido: representacao comparada; primeira classe; escopo de todo status
+    payload_key: arm
+  arm:
+    truth: experiment_declared / run_started / experiment_concluded
+    episteme: modelagem
+    key: ulid
+    payload_key: arm
+  experimento:
+    runtime: experiment
+    truth: experiment_declared
+    sentido: investigacao pre-registrada; declara testa -> hipotese[]
+    payload_key: experiment
   experiment:
-    truth: experiment.curated
-    read_order: [canonical, canonical_artifacts]
-    canonical:
-      prose: curated short text
-      typed_fields: [claim, scope, status, caveat, supports, excludes, next]
-    curation: explicit-only
-    chain: append-only
+    truth: experiment_declared
+    episteme: experimento
+    key: ulid
+    commit_reveal: true
+    curated_read:
+      truth: experiment.curated
+      read_order: [canonical, canonical_artifacts]
+      canonical:
+        prose: curated short text
+        typed_fields: [claim, scope, status, caveat, supports, excludes, next]
+      curation: explicit-only
+      chain: append-only
   observation:
-    truth: experiment.curated / computed observation events
-    role: measured result; never fabricated empty
+    truth: experiment_concluded
+    episteme: observation
+    key: ulid
+    metric: {dist: str, point: number, ci: [number, number], noise_floor: number, n: number, mde: number}
   entity: {truth: graphiti-extraction}
   community: {truth: sweep/communities}
   source: {truth: source.signal}
@@ -65,7 +94,7 @@ nodes:
 edges:
   structural:   # provenance_class=asserted (authored/proof-bound IS their provenance)
     [GROUNDS, ANCHORS, SERVES, DISTILLS, PROPOSES, CITES, HAS_MEMBER, MENTIONS,
-     BUILDS_ON, SUPERSEDES, CONTRADICTS, PARA]
+     BUILDS_ON, SUPERSEDES, CONTRADICTS, PARA, REPORTS_ON]
   valenced:     # (a:Artefato)->(h:Hypothesis); asserted-at-emission, rigor teto lead —
                 # NEVER rollup-eligible (CX-1); truth = `bears_on` on artefato.published
     [SUPPORTS, REFUTES, QUALIFIES, INCONCLUSIVE]
@@ -85,10 +114,23 @@ enums:
   rigor: [lead, cravado]      # cravado is UNREACHABLE from any cortex writer (the fail-closed
                               # checklist needs artifacts no writer can mint) — integrity by
                               # unreachability, stronger than review.
+  certeza: [muito_baixa, baixa, moderada, alta]
+  lifecycle: [active, invalidated, superseded]
   validity: [valid, inferred_default, quarantine_invalid]   # derived/assigned, never free-typed
+  edge_state: [resolved, pending, orphaned]
   valencia: [supports, refutes, qualifies, inconclusive]    # a bearing never carries no_bearing (O-8)
+  verdict: [supported, refuted, mixed, arm_dependent, saturated_leads, open]
+  authority: [agent, reviewer]
 
 rule_templates:
+  delta_ci@1:
+    params: [metric, direction, threshold, piso_ref]
+    total: true
+    emits: [supports, challenges, inconclusive]
+    regra: >-
+      delta > max(threshold, noise_floor) e CI exclui 0 -> supports;
+      delta < -max(threshold, noise_floor) e CI exclui 0 -> challenges;
+      caso contrario -> inconclusive
   # the ONLY door to the `computed` plane over gate scores: a REGISTERED frozen ruler with the
   # stream's noise floor (the n=1 lesson from V10). Until it runs, computed stays EMPTY —
   # by integrity/unreachability, not by review.
@@ -101,12 +143,29 @@ gate_templates: {}
 
 controlled_paths:
   # Write-paths the pen must check (§5 verificar, aditivo LOUD).
-  - edge: assesses
-    provenance_class: llm_judged
-    rigor_max: lead           # structural ceiling — an LLM verdict can never claim cravado
-    authority: agent          # a gate never emits review_approved; a human promotes (O-15)
-    require: gate in gate_templates
-  - edge: bears_on            # the valenced declarations (SUPPORTS|REFUTES|QUALIFIES|INCONCLUSIVE)
-    provenance_class: asserted
-    rigor_max: lead           # the hard ceiling — cravado unreachable from the publish pen
-    validity: inferred_default  # O-12: flips ONLY via review.approved{authority: reviewer}
+  episteme:
+    run_started:
+      - {path: "payload.arm", term: arm}
+      - {path: "payload.condition", term: condition}
+    experiment_declared:
+      - {path: "payload.arms[]", term: arm}
+      - {path: "payload.baseline_arm", term: arm}
+    experiment_concluded:
+      - {path: "payload.bearings[].valence", term: valencia}
+      - {path: "payload.bearings[].rigor", term: rigor}
+    review_approved:
+      - {path: "payload.authority", term: authority}
+  cortex:
+    - edge: assesses
+      provenance_class: llm_judged
+      rigor_max: lead           # structural ceiling — an LLM verdict can never claim cravado
+      authority: agent          # a gate never emits review_approved; a human promotes (O-15)
+      require: gate in gate_templates
+    - edge: bears_on            # the valenced declarations (SUPPORTS|REFUTES|QUALIFIES|INCONCLUSIVE)
+      provenance_class: asserted
+      rigor_max: lead           # the hard ceiling — cravado unreachable from the publish pen
+      validity: inferred_default  # O-12: flips ONLY via review.approved{authority: reviewer}
+payload_aliases_banidos:
+  hypothesis: [hipotese, hyp]
+  run: [trial, trial_id]
+  program: [study]

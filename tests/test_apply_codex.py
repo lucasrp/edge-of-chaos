@@ -5,9 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 REPO = Path(__file__).resolve().parent.parent
 APPLY = REPO / "tools" / "edge-apply"
 YAML = REPO / "agent.yaml"
+sys.path.insert(0, str(REPO / "tools"))
+from _codex_provision import codex_prefixes  # noqa: E402
 
 
 def run_apply(edge_home: Path, claude_home: Path, codex_home: Path):
@@ -39,7 +43,9 @@ class ApplyCodex(unittest.TestCase):
         self.assertEqual(self.res.returncode, 0, self.res.stderr)
 
     def test_codex_skills_installed_with_tool_and_skill_prefixes(self):
-        for name in ("edge-wake", "ed-wake"):
+        cfg = yaml.safe_load(YAML.read_text()) or {}
+        for prefix in codex_prefixes(cfg):
+            name = f"{prefix}-wake"
             skill = self.codex_home / "skills" / name / "SKILL.md"
             self.assertTrue(skill.exists(), f"missing {skill}")
             text = skill.read_text()

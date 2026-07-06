@@ -122,7 +122,8 @@ the close it runs is:
         publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
           skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
           cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id'], \
-          bears_on=art.get('bears_on'), para=art.get('para'));  # ticket A: digest-bound like lineage \
+          bears_on=art.get('bears_on'), para=art.get('para'), \
+          reports_on=art.get('reports_on'));  # ticket A: digest-bound like lineage \
         improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
         close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
           floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session=''), \

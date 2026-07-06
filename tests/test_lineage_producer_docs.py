@@ -28,7 +28,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 
 # the producer skills whose publish snippet authors a lineage edge
-PRODUCERS = ("report", "research", "map", "plan", "discovery", "grill", "prototype")
+PRODUCERS = ("report", "research", "map", "plan", "discovery", "mentor", "prototype")
 
 
 def _skill_text(name):
@@ -70,7 +70,7 @@ class EveryProducerSnippetCarriesLineageInBothPlaces(unittest.TestCase):
     def _artefato_literal(self, name):
         """The bounded structure that enumerates the artefato fields the digest binds — NOT the whole
         file. Most producers hand close.run_close a `artefato={...}` dict literal (brace-matched across
-        the `\\`-continued lines). grill expresses the same fields inline as the paren-matched
+        the `\\`-continued lines). mentor expresses the same fields inline as the paren-matched
         `every proof-bound field (...)` list. Either way we assert on the enumerated-field structure,
         so `'lineage':lineage` must live AMONG the fields — not merely somewhere in prose."""
         lit = _balanced_span(self.texts[name], "artefato={", "{", "}")

@@ -37,7 +37,7 @@ SERVER_TOOL_GLOB = f"mcp__{SERVER_NAME}__*"
 # construction. Mirrored in cortex_mcp.GRANTED_SUBJECTS so a directly-launched server is fail-closed too.
 GRANTED_SUBJECTS = {
     "lead", "recall", "assemble", "wake", "beat", "consolidate",
-    "report", "map", "plan", "research", "critique", "discovery", "grill",
+    "report", "map", "plan", "research", "critique", "discovery", "mentor", "grill",
     # ticket 05: lazer is a first-class producer (recall/consolidação like every producer).
     "lazer",
     # 04-C follow-up: prototype was the one roster genus missing here (pre-existing gap noted

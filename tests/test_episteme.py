@@ -17,8 +17,9 @@ A.3 — §6 parceiro: PROMOÇÃO, não mintagem — a :Entity extraída ganha a 
 → aresta artefato-PARA->parceiro (o documento FEITO pra pessoa).
 
 A.4 — o schema declarativo `cortex/schema/ontologia.yaml` ganha nós/arestas/enums travados +
-alias-map episteme (o instrumento que MEDE o diff do H-001); Experiment é nativo só por
-`experiment.curated`, e Observation não nasce vazia.
+alias-map episteme (o instrumento que MEDE o diff do H-001); Experiment é nó próprio e report
+publicado liga Artefato->Experiment via REPORTS_ON, `experiment.curated` é leitura canônica
+explícita, e Observation não nasce vazia.
 """
 import json
 import hashlib
@@ -202,12 +203,55 @@ class NormalizeBearsOnIsTheSingleSanitizer(unittest.TestCase):
                          ["Julio", "Ana"])
         self.assertEqual(lineage.normalize_para("Julio"), [])
 
+    def test_reports_on_normalizer_keeps_experiment_ids_deduped(self):
+        self.assertEqual(lineage.normalize_reports_on([" exp40 ", "", 7, "exp40", "exp41"]),
+                         ["exp40", "exp41"])
+        self.assertEqual(lineage.normalize_reports_on("exp40"), [])
+
+    def test_experiment_curation_normalizer_adds_the_report_artifact(self):
+        curation = lineage.normalize_experiment_curation(
+            [" exp40 "],
+            {"prose": "GN wins this retrieval race.",
+             "typed": {
+                 "claim": "GN wins.",
+                 "scope": "process 76610395.",
+                 "status": "lead",
+                 "caveat": "n=1.",
+                 "supports": ["GN"],
+                 "excludes": [],
+                 "next": "Run C5.",
+             },
+             "canonical_artifacts": [{"ref": "results/summary.json", "role": "summary"}]},
+            report_slug="relatorio-exp40",
+            by="report")
+        self.assertEqual(curation[0]["experiment_id"], "exp40")
+        self.assertEqual(curation[0]["canonical_artifacts"][0],
+                         {"ref": "artefato:relatorio-exp40", "role": "report",
+                          "note": "finalization report"})
+
+    def test_experiment_curation_requires_a_report_artifact(self):
+        with self.assertRaisesRegex(ValueError, "finalization report artifact"):
+            lineage.normalize_experiment_curation(
+                ["exp40"],
+                {"prose": "GN wins this retrieval race.",
+                 "typed": {
+                     "claim": "GN wins.",
+                     "scope": "process 76610395.",
+                     "status": "lead",
+                     "caveat": "n=1.",
+                     "supports": ["GN"],
+                     "excludes": [],
+                     "next": "Run C5.",
+                 },
+                 "canonical_artifacts": [{"ref": "results/summary.json", "role": "summary"}]},
+                by="report")
+
 
 class BearsOnAndParaRideThePublishPayload(unittest.TestCase):
-    """O payload do `artefato.published` ganha bears_on + para (normalizados); o fold do corpus
-    os carrega para o replay (reproject restaura as arestas); evento legado folda []."""
+    """O payload do `artefato.published` ganha bears_on + para + reports_on (normalizados); o
+    fold do corpus os carrega para o replay (reproject restaura as arestas); evento legado folda []."""
 
-    def test_atomic_publish_persists_normalized_bears_on_and_para(self):
+    def test_atomic_publish_persists_normalized_bears_on_para_and_reports_on(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = _log(tmp)
             ulid = eventlog.declare_hypothesis("h", FALSIFIER, log=log)["payload"]["ulid"]
@@ -215,13 +259,15 @@ class BearsOnAndParaRideThePublishPayload(unittest.TestCase):
                 "a-slug", "intent", log=log,
                 bears_on=[{"hypothesis": ulid, "valence": "supports", "rationale": "r"},
                           "junk"],
-                para=["Julio", " "])
+                para=["Julio", " "], reports_on=[" exp40 ", "exp40", None])
             self.assertEqual(ev["payload"]["bears_on"],
                              [{"hypothesis": ulid, "valence": "supports", "rationale": "r"}])
             self.assertEqual(ev["payload"]["para"], ["Julio"])
+            self.assertEqual(ev["payload"]["reports_on"], ["exp40"])
             item = eventlog.corpus_at(log=log)[0]
             self.assertEqual(item["bears_on"][0]["hypothesis"], ulid)
             self.assertEqual(item["para"], ["Julio"])
+            self.assertEqual(item["reports_on"], ["exp40"])
 
     def test_legacy_event_folds_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -230,64 +276,104 @@ class BearsOnAndParaRideThePublishPayload(unittest.TestCase):
             item = eventlog.corpus_at(log=log)[0]
             self.assertEqual(item["bears_on"], [])
             self.assertEqual(item["para"], [])
+            self.assertEqual(item["reports_on"], [])
 
 
-class ProofDigestBindsBearsOnAndPara(unittest.TestCase):
+class ProofDigestBindsBearsOnParaReportsOnAndExperimentCuration(unittest.TestCase):
     """E1b, o mesmo padrão do lineage: um arg de publish que afeta estado FORA do digest é
-    forjável na hora do publish. bears_on/para entram no digest; verify_proof recusa alteração."""
+    forjável na hora do publish. bears_on/para/reports_on/experiment_curation entram no digest;
+    verify_proof recusa alteração."""
 
-    def test_digest_differs_when_bears_on_or_para_change(self):
+    def test_digest_differs_when_bears_on_para_reports_on_or_experiment_curation_change(self):
         base = dict(slug="s", spec={"sections": []}, intent="i", cites=[], proposes=[])
+        curation = {
+            "prose": "GN wins.",
+            "typed": {"claim": "GN wins.", "scope": "process 76610395.", "status": "lead",
+                      "caveat": "n=1.", "supports": ["GN"], "excludes": [],
+                      "next": "Run C5."},
+        }
         d0 = close.proof_digest(**base)
         d1 = close.proof_digest(**base, bears_on=[{"hypothesis": "01A", "valence": "supports"}])
         d2 = close.proof_digest(**base, para=["Julio"])
+        d3 = close.proof_digest(**base, reports_on=["exp40"])
+        d4 = close.proof_digest(**base, reports_on=["exp40"], skill="report",
+                                experiment_curation=curation)
         self.assertNotEqual(d0, d1)
         self.assertNotEqual(d0, d2)
+        self.assertNotEqual(d0, d3)
+        self.assertNotEqual(d0, d4)
         self.assertNotEqual(d1, d2)
 
-    def test_malformed_bears_on_digests_like_absent(self):
+    def test_malformed_bears_on_reports_on_digests_like_absent(self):
         base = dict(slug="s", spec={"sections": []}, intent="i", cites=[], proposes=[])
         self.assertEqual(close.proof_digest(**base),
-                         close.proof_digest(**base, bears_on=["junk"], para=[42]))
+                         close.proof_digest(**base, bears_on=["junk"], para=[42],
+                                            reports_on=[42, " "]))
 
     def test_verify_proof_refuses_altered_bears_on(self):
         art = {
             "slug": "bound", "intent": "open: x; bet: y",
             "content": {"sections": [{"title": "Body", "blocks": [
                 {"type": "paragraph", "text": "bound content."}]}]},
+            "skill": "report",
             "cites": [{"ref": "github:abc", "kind": "atividade", "relevant": True,
                        "snippet": "s"}],
             "proposes": [{"body": "b", "kind": "constraint"}],
             "bears_on": [{"hypothesis": "01A", "valence": "supports"}],
             "para": ["Julio"],
+            "reports_on": ["exp40"],
+            "experiment_curation": {
+                "prose": "GN wins.",
+                "typed": {"claim": "GN wins.", "scope": "process 76610395.", "status": "lead",
+                          "caveat": "n=1.", "supports": ["GN"], "excludes": [],
+                          "next": "Run C5."},
+            },
         }
         good = json.dumps({"pass": True, "scores": {d: 4 for d in close.DIMENSIONS},
                            "strikes": [], "rationales": {}, "overall": 4.0})
         proof = close.run_close(art, lambda: art, complete_fn=lambda *a, **k: good)
         self.assertTrue(proof["pass"])
         kw = dict(slug="bound", spec=art["content"], intent=art["intent"],
-                  cites=art["cites"], proposes=art["proposes"])
+                  cites=art["cites"], proposes=art["proposes"], skill=art["skill"])
         # binds: verify com o MESMO bears_on/para passa…
-        close.verify_proof(proof, **kw, bears_on=art["bears_on"], para=art["para"])
+        close.verify_proof(proof, **kw, bears_on=art["bears_on"], para=art["para"],
+                           reports_on=art["reports_on"],
+                           experiment_curation=art["experiment_curation"])
         # …e qualquer alteração é digest mismatch
         with self.assertRaises(ValueError):
             close.verify_proof(proof, **kw,
                                bears_on=[{"hypothesis": "01A", "valence": "refutes"}],
-                               para=art["para"])
+                               para=art["para"], reports_on=art["reports_on"],
+                               experiment_curation=art["experiment_curation"])
         with self.assertRaises(ValueError):
-            close.verify_proof(proof, **kw, bears_on=art["bears_on"], para=["Outro"])
+            close.verify_proof(proof, **kw, bears_on=art["bears_on"], para=["Outro"],
+                               reports_on=art["reports_on"],
+                               experiment_curation=art["experiment_curation"])
+        with self.assertRaises(ValueError):
+            close.verify_proof(proof, **kw, bears_on=art["bears_on"], para=art["para"],
+                               reports_on=["exp41"], experiment_curation=art["experiment_curation"])
+        altered = {**art["experiment_curation"], "prose": "GN wins after audit."}
+        with self.assertRaises(ValueError):
+            close.verify_proof(proof, **kw, bears_on=art["bears_on"], para=art["para"],
+                               reports_on=art["reports_on"], experiment_curation=altered)
 
 
 class PublishForwardsBearsOnToEventAndProjection(unittest.TestCase):
-    """publisher.publish → publish_artefato_atomic → project_fn: bears_on/para atravessam a
-    costura inteira (evento durável + projeção), digest-bound de ponta a ponta."""
+    """publisher.publish → publish_artefato_atomic → project_fn: bears_on/para/reports_on
+    atravessam a costura inteira (evento durável + projeção), digest-bound de ponta a ponta."""
 
-    def test_publish_forwards_bears_on_and_para(self):
+    def test_publish_forwards_bears_on_para_reports_on_and_finalizes_experiment(self):
         spec = {"sections": [{"title": "Body", "blocks": [
             {"type": "paragraph", "text": "atomic publish plus kernel in one act."}]}]}
         intent = "open: x; bet: y"
         cites = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True, "snippet": "s"}]
         bears = [{"hypothesis": "01A", "valence": "supports"}]
+        experiment_curation = {
+            "prose": "GN wins this retrieval race.",
+            "typed": {"claim": "GN wins.", "scope": "process 76610395.", "status": "lead",
+                      "caveat": "n=1.", "supports": ["GN"], "excludes": [],
+                      "next": "Run C5."},
+        }
         verdicts = [
             {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
              "reviewer": close.FEYNMAN_REVIEWER_ID},
@@ -296,21 +382,28 @@ class PublishForwardsBearsOnToEventAndProjection(unittest.TestCase):
         ]
         proof = close._mint_proof(verdicts, slug="fwd", spec=spec, intent=intent,
                                   cites=cites, proposes=[], skill="report",
-                                  bears_on=bears, para=["Julio"])
+                                  bears_on=bears, para=["Julio"], reports_on=["exp40"],
+                                  experiment_curation=experiment_curation)
         seen = {}
         with tempfile.TemporaryDirectory() as tmp:
             log = _log(tmp)
             eventlog.dispatch_open(log=log)
             publisher.publish(
                 "fwd", spec, intent, skill="report", cites=cites, verdict=proof,
-                bears_on=bears, para=["Julio"], log=log, blog_dir=tmp,
+                bears_on=bears, para=["Julio"], reports_on=[" exp40 "],
+                experiment_curation=experiment_curation, log=log, blog_dir=tmp,
                 embed_fn=lambda t: [1.0, 0.0],
                 project_fn=lambda *a, **k: seen.update(k))
             ev = eventlog.read(types=["artefato.published"], log=log)[-1]
             self.assertEqual(ev["payload"]["bears_on"], bears)
             self.assertEqual(ev["payload"]["para"], ["Julio"])
+            self.assertEqual(ev["payload"]["reports_on"], ["exp40"])
+            exp = eventlog.experiment_at("exp40", log=log)
+            self.assertEqual(exp["canonical"]["prose"], experiment_curation["prose"])
+            self.assertEqual(exp["canonical_artifacts"][0]["ref"], "artefato:fwd")
             self.assertEqual(seen.get("bears_on"), bears)
             self.assertEqual(seen.get("para"), ["Julio"])
+            self.assertEqual(seen.get("reports_on"), ["exp40"])
 
 
 class ValencedEdgesProjectWithTheLeadCeiling(unittest.TestCase):
@@ -364,7 +457,17 @@ class ValencedEdgesProjectWithTheLeadCeiling(unittest.TestCase):
         s = FakeSession(rows_by_marker={"parceiro": [{"n": 0}]})
         self.assertTrue(publisher._project_para(s, "g1", "slug-a", ["Ninguem"]))
 
-    def test_valenced_and_para_labels_join_the_destructive_rebuild(self):
+    def test_report_artifact_projects_a_reports_on_edge_to_experiment(self):
+        s = FakeSession()
+        unresolved = publisher._project_reports_on(s, "g1", "report-exp40", [" exp40 "])
+        self.assertFalse(unresolved)
+        q, params = next((q, p) for q, p in s.calls if "REPORTS_ON" in q)
+        self.assertIn("MERGE (x:Experiment {group_id:$g, id:$experiment_id})", q)
+        self.assertIn("MERGE (a)-[r:REPORTS_ON]->(x)", q)
+        self.assertIn("'asserted'", q)
+        self.assertEqual(params["experiment_id"], "exp40")
+
+    def test_valenced_para_and_reports_on_labels_join_the_destructive_rebuild(self):
         # a republish com bears_on corrigido não pode deixar aresta velha encalhada —
         # os labels entram no MESMO delete-then-readd por slug do project_artefato.
         import inspect
@@ -373,7 +476,8 @@ class ValencedEdgesProjectWithTheLeadCeiling(unittest.TestCase):
         self.assertIsNotNone(m)
         rebuilt = set(m.group(1).split("|"))
         self.assertLessEqual(
-            {"SUPPORTS", "REFUTES", "QUALIFIES", "INCONCLUSIVE", "PARA"}, rebuilt)
+            {"SUPPORTS", "REFUTES", "QUALIFIES", "INCONCLUSIVE", "PARA", "REPORTS_ON"},
+            rebuilt)
 
 
 class BackboneProjectsHypothesesAndParceiros(unittest.TestCase):
@@ -473,7 +577,7 @@ class ValencedEdgesLiveOnTheAssertedPlane(unittest.TestCase):
     scoreboard só consome computed, então um SUPPORTS num rollup grita LOUD."""
 
     def test_valences_and_para_derive_asserted(self):
-        for t in ("supports", "refutes", "qualifies", "inconclusive", "para"):
+        for t in ("supports", "refutes", "qualifies", "inconclusive", "para", "reports_on"):
             self.assertEqual(cortex_provenance.provenance_class_for(t), "asserted", t)
 
     def test_cx1_rejects_a_supports_edge_in_a_rollup(self):
@@ -490,32 +594,42 @@ class SurfAllowlistGainsTheValencedPair(unittest.TestCase):
         m = re.search(r"\[:([A-Z_|]+)\*1\.\.2\]", recall.SURF_QUERY)
         rels = set(m.group(1).split("|"))
         self.assertEqual(rels, {"BUILDS_ON", "SUPERSEDES", "CONTRADICTS", "RELATES_TO",
-                                "CITES", "SUPPORTS", "REFUTES"})
+                                "CITES", "SUPPORTS", "REFUTES", "REPORTS_ON"})
 
 
-class ProducerSnippetsForwardBearsOnAndPara(unittest.TestCase):
-    """Codex adversarial #2 (meta-gate: SINAL) — o mint agora lê artefato.get('bears_on'/'para');
+class ProducerSnippetsForwardBearsOnParaAndReportsOn(unittest.TestCase):
+    """Codex adversarial #2 (meta-gate: SINAL) — o mint agora lê
+    artefato.get('bears_on'/'para'/'reports_on');
     um producer que adote a chave com a lambda velha mintaria um proof que o publisher rejeita
     (digest mismatch). As lambdas de publish dos SKILL.md encaminham ambos — pin mecânico,
     espelho do pin de dispatch_id."""
 
-    PRODUCERS = ["report", "research", "discovery", "map", "plan", "prototype", "grill"]
+    PRODUCERS = ["report", "research", "discovery", "map", "plan", "prototype", "mentor"]
 
-    def test_every_publish_fn_forwards_bears_on_and_para(self):
+    def test_every_publish_fn_forwards_bears_on_para_and_reports_on(self):
         for p in self.PRODUCERS:
             doc = (REPO / "skills" / p / "SKILL.md").read_text()
             i = doc.find("publish_fn=lambda art, proof")
             self.assertNotEqual(i, -1, f"{p}: publish_fn lambda not found")
             region = doc[i:i + 600]
-            for arg in ("bears_on=art.get('bears_on')", "para=art.get('para')"):
+            for arg in ("bears_on=art.get('bears_on')",
+                        "para=art.get('para')",
+                        "reports_on=art.get('reports_on')"):
                 self.assertIn(arg, region,
                               f"{p}: publish_fn must forward {arg} (mint binds it — an "
                               "adopted key with the old lambda is a digest mismatch)")
 
+    def test_report_publish_fn_forwards_experiment_curation(self):
+        doc = (REPO / "skills" / "report" / "SKILL.md").read_text()
+        i = doc.find("publish_fn=lambda art, proof")
+        self.assertNotEqual(i, -1, "report: publish_fn lambda not found")
+        region = doc[i:i + 800]
+        self.assertIn("experiment_curation=art.get('experiment_curation')", region)
+
 
 class OntologiaSchemaIsTheMeasurementInstrument(unittest.TestCase):
     """O schema declarativo que MEDE o diff do H-001: enums travados, alias-map episteme,
-    e Experiment nativo quando existe caneta/curadoria real."""
+    os nós do Episteme do Roberto, e a leitura canônica explícita de Experiment."""
 
     @classmethod
     def setUpClass(cls):
@@ -524,9 +638,18 @@ class OntologiaSchemaIsTheMeasurementInstrument(unittest.TestCase):
             (REPO / "cortex" / "schema" / "ontologia.yaml").read_text())
 
     def test_provenance_class_enum_is_locked(self):
+        self.assertEqual(self.schema["schema_version"], 1)
+        self.assertIn("content_hash", self.schema)
         self.assertEqual(self.schema["provenance_class"]["enum"],
                          ["computed", "asserted", "llm_judged", "extracted"])
         self.assertEqual(self.schema["provenance_class"]["rollup_eligible"], ["computed"])
+
+    def test_schema_content_hash_matches_canonical_payload(self):
+        data = dict(self.schema)
+        got = data.pop("content_hash")
+        blob = json.dumps(data, sort_keys=True, ensure_ascii=False,
+                          separators=(",", ":")).encode("utf-8")
+        self.assertEqual(got, hashlib.sha256(blob).hexdigest())
 
     def test_rigor_ceiling_and_validity_enums(self):
         self.assertEqual(self.schema["enums"]["rigor"], ["lead", "cravado"])
@@ -541,21 +664,52 @@ class OntologiaSchemaIsTheMeasurementInstrument(unittest.TestCase):
         self.assertEqual(aliases["REFUTES"], "refuta")
         self.assertEqual(aliases["SUPERSEDES"], "supersede")
         self.assertIn("deriva_de", aliases["BUILDS_ON"])
+        self.assertIn("REPORTS_ON", self.schema["edges"]["structural"])
 
-    def test_experiment_is_a_native_curated_node_not_reserved(self):
+    def test_roberto_episteme_nodes_are_unified_not_reserved(self):
         self.assertNotIn("reserved_nodes", self.schema)
-        self.assertEqual(self.schema["nodes"]["experiment"]["truth"], "experiment.curated")
-        self.assertEqual(self.schema["nodes"]["experiment"]["read_order"],
+        nodes = self.schema["nodes"]
+        for node in ("pergunta", "hipotese", "modelagem", "experimento", "observation"):
+            self.assertIn(node, nodes)
+        self.assertEqual(nodes["hipotese"]["runtime"], "hypothesis")
+        self.assertEqual(nodes["modelagem"]["runtime"], "arm")
+        self.assertEqual(nodes["experimento"]["runtime"], "experiment")
+        for node, episteme_name in {
+            "observation": "observation",
+            "experiment": "experimento",
+            "arm": "modelagem",
+        }.items():
+            self.assertIn(node, nodes)
+            self.assertEqual(nodes[node]["episteme"], episteme_name)
+            self.assertEqual(nodes[node]["key"], "ulid")
+        curated = nodes["experiment"]["curated_read"]
+        self.assertEqual(curated["truth"], "experiment.curated")
+        self.assertEqual(curated["read_order"],
                          ["canonical", "canonical_artifacts"])
-        self.assertIn("modelagem", self.schema["nodes"])
-        self.assertIn("observation", self.schema["nodes"])
 
     def test_hypothesis_and_parceiro_are_declared_nodes(self):
         self.assertIn("hypothesis", self.schema["nodes"])
         self.assertIn("parceiro", self.schema["nodes"])
 
-    def test_rule_templates_register_the_gate_score_ruler(self):
+    def test_rule_templates_register_the_episteme_and_gate_rulers(self):
+        self.assertIn("delta_ci@1", self.schema["rule_templates"])
         self.assertIn("gate_score_delta@1", self.schema["rule_templates"])
+
+    def test_episteme_payload_alias_bans_survive_the_merge(self):
+        banned = self.schema["payload_aliases_banidos"]
+        self.assertEqual(banned["hypothesis"], ["hipotese", "hyp"])
+        self.assertIn("trial_id", banned["run"])
+
+    def test_episteme_controlled_paths_survive_the_merge(self):
+        paths = self.schema["controlled_paths"]["episteme"]
+        self.assertEqual(paths["run_started"][0],
+                         {"path": "payload.arm", "term": "arm"})
+        self.assertEqual(paths["experiment_declared"][0],
+                         {"path": "payload.arms[]", "term": "arm"})
+        self.assertEqual(paths["experiment_concluded"][0],
+                         {"path": "payload.bearings[].valence", "term": "valencia"})
+        self.assertEqual(paths["review_approved"][0],
+                         {"path": "payload.authority", "term": "authority"})
 
 
 if __name__ == "__main__":

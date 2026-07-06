@@ -13,7 +13,17 @@ O roberto pegou o cortex pra construir o episteme (frameworkV9) — o domínio d
 4. 3 perguntas: faz sentido / melhorou / cumpriu.
 
 ## Guard-rails herdados
-- `Experiment` é nativo só quando existe `experiment.curated`: interpretação canônica primeiro, artefatos canônicos de auditoria depois, cadeia append-only. `Observation` não é fabricada vazia.
+- `Observation`/`Experiment`/`Arm` são nós de 1ª classe no mesmo schema do Cortex/Episteme.
+  O que continua proibido é fabricar Observation/Arm vazios: eles nascem só dos eventos
+  correspondentes (`run_started`, `experiment_concluded`) e carregam payload real.
+- `Report` continua sendo Artefato humano. Quando o report é sobre um experimento, ele publica
+  `reports_on:['exp-id']` + `experiment_curation:{prose,typed,...}`; o publish grava no mesmo batch
+  o `artefato.published` e o `experiment.curated`. O fechamento do experimento é a criação do report.
+  A projeção liga `(:Artefato)-[:REPORTS_ON]->(:Experiment)`: o Experiment é o objeto científico
+  navegável; o Artefato é o relatório legível que liga o experimento ao cluster.
+- `experiment.curated` dá a leitura canônica explícita do Experiment: interpretação atual primeiro,
+  artefatos canônicos de auditoria depois, cadeia append-only. Isso é curadoria explícita, não resumo
+  automático nem substituto dos eventos completos.
 - thread=hipótese=artefato = CORRESPONDÊNCIA (3 nós, 2-hop), não identidade.
 - gate-verdicts = flat props no :Artefato (B) + aresta `assesses` llm_judged/lead — NUNCA bearing.
 - Forward-only, sem backfill. As 3 camadas do domínio do roberto (pesquisa/material/meta) respeitadas — cf. [[communities-loop-roberto-2026-07-05]], #75.

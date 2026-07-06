@@ -63,7 +63,7 @@ SURF_QUERY = (
     "MATCH (seed:Artefato {group_id:$g}) WHERE seed.slug IN $seeds "
     # Ticket A (ontologia §2c): SUPPORTS|REFUTES join the associative walk (an artefato bearing on
     # a hypothesis IS associative signal); QUALIFIES/INCONCLUSIVE stay out (annotation weight).
-    "MATCH p=(seed)-[:BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES|SUPPORTS|REFUTES*1..2]-(n) "
+    "MATCH p=(seed)-[:BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES|SUPPORTS|REFUTES|REPORTS_ON*1..2]-(n) "
     # A peer is keyed by its slug (Artefato) OR its key (Source — Sources carry `key`, not `slug`,
     # codex final [P2]): use coalesce(n.slug, n.key) for BOTH the self-exclusion and the returned ref,
     # so a cited Source surfaces with a non-null slug and the surf → cortex_node drill-down resolves it

@@ -71,5 +71,5 @@ the `intent.kernel` close — those are the beat's autonomous acts (ADR-0009), a
   bookkeeping, not a judgment write) and the throwaway `/tmp/quente-insumo.md`. Wake reads and
   renders — nothing else.
 - **Everything downstream is operator-directed.** The next move is the operator's word. When they
-  give it, run the skill it names under command — `/ed-grill`, `/ed-report`, the full beat, a direct
-  question — each within its own contract. Until then, **wait.**
+  give it, run the skill it names under command — `/ed-mentor` (legacy `/ed-grill`), `/ed-report`,
+  the full beat, a direct question — each within its own contract. Until then, **wait.**

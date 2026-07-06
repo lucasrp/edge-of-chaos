@@ -28,7 +28,7 @@ consume ONLY `computed` items — `assert_rollup_computed` is the one gate. Fail
 # The TRUST tier per label. Mirrors blog/server._TRUST_BY_LABEL's split, collapsed to the two-value
 # trust axis F9 names (space0/episodic are rendering shades of the same two trust classes here):
 #   spine (folds from the log) → asserted; Graphiti (hypothesis) → extracted.
-_ASSERTED_LABELS = {"Genesis", "Objective", "Direction", "Artefato"}
+_ASSERTED_LABELS = {"Genesis", "Objective", "Direction", "Artefato", "Experiment"}
 _EXTRACTED_LABELS = {"Entity", "Source", "Episodic"}
 
 
@@ -90,6 +90,8 @@ _CLASS_BY_TYPE = {
     "qualifies": "asserted", "inconclusive": "asserted",
     # §6 — the artefato-PARA->parceiro edge is author-asserted.
     "para": "asserted",
+    # Report Artefato -> Experiment — authored structural bridge.
+    "reports_on": "asserted",
     # Semantic plane — RAG hypotheses.
     "relates_to": "extracted", "in_community": "extracted",
 }

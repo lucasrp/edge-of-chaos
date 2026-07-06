@@ -163,7 +163,7 @@ class ApostilaIsStaticPrintMatter(unittest.TestCase):
 class DefaultOnForPrototype(unittest.TestCase):
     def test_default_is_on_for_prototype_off_elsewhere(self):
         self.assertTrue(publisher.apostila_wanted("prototype"))
-        for skill in ("report", "research", "map", "plan", "discovery", "grill", "lazer"):
+        for skill in ("report", "research", "map", "plan", "discovery", "mentor", "grill", "lazer"):
             self.assertFalse(publisher.apostila_wanted(skill), skill)
 
     def test_producer_param_overrides_the_default_both_ways(self):

@@ -9,3 +9,5 @@ state/cortex/
 .env
 state/harvest-cursors.json
 docs/.loopR_research_raw.json
+.agents/
+memory/*token*.md

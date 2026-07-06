@@ -24,7 +24,8 @@ import _llm      # issue #55: LLMTransportError — infra do completer, nunca ve
 import runstore  # internal-evidence (R8) verification: runstore.attest_value
 import visual_grounding  # S7/R2: per-visual unforgeable grounding attestation (verify is blind-safe)
 # sanitize authored declarations (lineage, bears_on, para) before the proof digest binds them
-from lineage import normalize_bears_on, normalize_lineage, normalize_para
+from lineage import (normalize_bears_on, normalize_experiment_curation, normalize_lineage,
+                     normalize_para, normalize_reports_on)
 
 from render import BLOCK_SCHEMAS, _BLOCK_TYPE_ALIASES
 import render
@@ -1491,7 +1492,8 @@ _PROOF_TOKEN = secrets.token_hex(32)
 
 
 def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=None,
-                 lineage=None, dispatch_id=None, bears_on=None, para=None) -> str:
+                 lineage=None, dispatch_id=None, bears_on=None, para=None, reports_on=None,
+                 experiment_curation=None) -> str:
     """The sha256 digest BINDING a proof to the EXACT publish payload (incl. dispatch_id — E1b:
     persisted field = digested field). Canonical JSON
     (sorted keys) so the same payload always digests identically and the publisher can
@@ -1525,9 +1527,14 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
         "lineage": normalize_lineage(lineage),
         "dispatch_id": dispatch_id,
         # Ticket A (ontologia §2b/§6): bears_on/para are state-affecting publish args (they ride the
-        # durable event and become valenced/PARA edges) — same threat class as lineage, same bind.
+        # durable event and become valenced/PARA edges). reports_on makes a report Artefato the
+        # navigable bridge to an Experiment. experiment_curation writes experiment.curated in the
+        # same publish batch. Same threat class as lineage, same bind.
         "bears_on": normalize_bears_on(bears_on),
         "para": normalize_para(para),
+        "reports_on": normalize_reports_on(reports_on),
+        "experiment_curation": normalize_experiment_curation(
+            reports_on, experiment_curation, report_slug=slug, by=skill),
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -1535,7 +1542,7 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
 
 def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
                 distills=None, skill=None, lineage=None, dispatch_id=None,
-                bears_on=None, para=None,
+                bears_on=None, para=None, reports_on=None, experiment_curation=None,
                 residual_publish=False, unaddressed=None) -> dict:
     """Mint the bound, token-stamped proof for a passing close. Carries BOTH reviewer
     verdicts (each stamped by run_close with its canonical reviewer identity), the digest of
@@ -1557,7 +1564,8 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
         "digest": proof_digest(slug=slug, spec=spec, intent=intent,
                                cites=cites, proposes=proposes,
                                distills=distills, skill=skill, lineage=lineage,
-                               dispatch_id=dispatch_id, bears_on=bears_on, para=para),
+                               dispatch_id=dispatch_id, bears_on=bears_on, para=para,
+                               reports_on=reports_on, experiment_curation=experiment_curation),
         "token": _PROOF_TOKEN,
         # R5/S1 severity: NON-BLOCKING residual notes the reviewers chose to log rather than strike.
         # A residual can only ride a CLEAN verdict (no strikes); a BLOCKING finding is a strike or a
@@ -1681,7 +1689,8 @@ def _discharge_verdict(verdict, discharged: set):
 
 def verify_proof(proof, *, slug, spec, intent, cites, proposes,
                  distills=None, skill=None, lineage=None, dispatch_id=None,
-                 bears_on=None, para=None, reviewer_count=2):
+                 bears_on=None, para=None, reports_on=None, experiment_curation=None,
+                 reviewer_count=2):
     """Verify a proof BINDS to the payload being published — raise ValueError otherwise,
     BEFORE any state/HTML is written. Refuses unless: the token is run_close's (not a
     fabricated one), the digest matches THIS payload — now including distills + skill +
@@ -1699,7 +1708,8 @@ def verify_proof(proof, *, slug, spec, intent, cites, proposes,
     expected = proof_digest(slug=slug, spec=spec, intent=intent,
                             cites=cites, proposes=proposes,
                             distills=distills, skill=skill, lineage=lineage,
-                            dispatch_id=dispatch_id, bears_on=bears_on, para=para)
+                            dispatch_id=dispatch_id, bears_on=bears_on, para=para,
+                            reports_on=reports_on, experiment_curation=experiment_curation)
     if not secrets.compare_digest(str(proof.get("digest", "")), expected):
         raise ValueError(
             f"cannot publish artefato {slug!r}: proof digest does not bind to this "
@@ -1939,6 +1949,8 @@ def _try_residual_publish(artefato, verdicts, publish_fn, complete_fn=None):
         distills=appended.get("distills"), skill=appended.get("skill"),
         lineage=appended.get("lineage"), dispatch_id=appended.get("dispatch_id"),
         bears_on=appended.get("bears_on"), para=appended.get("para"),
+        reports_on=appended.get("reports_on"),
+        experiment_curation=appended.get("experiment_curation"),
         residual_publish=True, unaddressed=_unaddressed(verdicts))
     # (5) PUBLISH the appended artefato (section inside) under the residual proof
     if publish_fn is not None:
@@ -2175,7 +2187,9 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
                 distills=artefato.get("distills"), skill=artefato.get("skill"),
                 lineage=artefato.get("lineage"),
                 dispatch_id=artefato.get("dispatch_id"),
-                bears_on=artefato.get("bears_on"), para=artefato.get("para"))
+                bears_on=artefato.get("bears_on"), para=artefato.get("para"),
+                reports_on=artefato.get("reports_on"),
+                experiment_curation=artefato.get("experiment_curation"))
             if publish_fn is not None:
                 publish_fn(artefato, proof)
             return proof

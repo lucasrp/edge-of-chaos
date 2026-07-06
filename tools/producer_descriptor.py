@@ -43,6 +43,11 @@ DESCRIPTORS = {
     "discovery": {"require": [
         {"pred": "contextual_framing"},
     ]},
+    # mentor is the renamed grill producer. It publishes insight Artefatos under the same rich rite,
+    # with no extra presentation floor. `grill` stays below as a legacy producer name so existing
+    # artefacts and old invocations can still replay.
+    "mentor": {"require": []},
+    "grill": {"require": []},
     # critique — a NEW producer added by declaration only (Phase 4). Its floor is novel: a critique
     # owes a side-by-side COMPARISON (the verdict surface) AND a marked UNCERTAINTY (what it could not
     # settle) — two independent min_blocks_of obligations over block types no other descriptor names

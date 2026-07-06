@@ -291,7 +291,7 @@ class SkillsInstructTheAuthoring(unittest.TestCase):
     consolidação (pin mecânico, espelho do pin de ticket A: chave sem instrução = costura
     turnkey sem adoção)."""
 
-    PRODUCERS = ["report", "research", "discovery", "map", "plan", "prototype", "grill"]
+    PRODUCERS = ["report", "research", "discovery", "map", "plan", "prototype", "mentor"]
 
     def test_every_producer_names_the_authored_judgement(self):
         for p in self.PRODUCERS:

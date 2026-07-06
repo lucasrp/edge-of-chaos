@@ -484,7 +484,7 @@ class ProducerSnippetsCarryTheDispatchId(unittest.TestCase):
     'dispatch_id' (read from the wake's DISPATCH_ID line) and the publish_fn passes
     dispatch_id=art['dispatch_id']. Covers the whole roster that publishes via a snippet."""
 
-    SNIPPET_PRODUCERS = ("report", "research", "map", "plan", "discovery", "grill")
+    SNIPPET_PRODUCERS = ("report", "research", "map", "plan", "discovery", "mentor")
 
     def test_every_snippet_binds_and_passes_the_dispatch_id(self):
         for p in self.SNIPPET_PRODUCERS:

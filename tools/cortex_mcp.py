@@ -101,7 +101,7 @@ MAX_HOPS = 2
 # server with NO subject signal is the LEAD's own default server (the live main() path) — granted.
 GRANTED_SUBJECTS = {
     "lead", "recall", "assemble", "wake", "beat", "consolidate",
-    "report", "map", "plan", "research", "critique", "discovery", "grill",
+    "report", "map", "plan", "research", "critique", "discovery", "mentor", "grill",
     # ticket 05: lazer is a first-class producer (recall/consolidação like every producer).
     "lazer",
     # 04-C follow-up: prototype was the one roster genus missing here (pre-existing gap noted
