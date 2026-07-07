@@ -16,6 +16,8 @@ class ExperimentSkillContract(unittest.TestCase):
         self.assertIn("cortex/schema/ontologia.yaml", text)
         self.assertIn("cortex.experiment_at", text)
         self.assertIn("cortex.experiments_at", text)
+        self.assertIn("eventlog.declare_experiment", text)
+        self.assertIn("canonical experiment ID", text)
         self.assertIn("experiment_declared", text)
         self.assertIn("run_started", text)
         self.assertIn("experiment_concluded", text)
@@ -27,7 +29,18 @@ class ExperimentSkillContract(unittest.TestCase):
         self.assertIn("reports_on", text)
         self.assertIn("experiment_curation", text)
         self.assertIn("human-readable HTML report", text)
+        self.assertIn("experiment-reporter", text)
+        self.assertIn("background subagent", text)
         self.assertIn("Do not call `publisher.publish` directly", text)
+
+    def test_experiment_reporter_subagent_is_configured(self):
+        text = (REPO / ".claude" / "agents" / "experiment-reporter.md").read_text()
+
+        self.assertIn("name: experiment-reporter", text)
+        self.assertIn("background authoring subagent", text)
+        self.assertIn("reports_on", text)
+        self.assertIn("experiment_curation", text)
+        self.assertIn("expNNN", text)
 
     def test_experiment_skill_handles_cold_start_with_a_compact_card(self):
         text = (REPO / "skills" / "experiment" / "SKILL.md").read_text()

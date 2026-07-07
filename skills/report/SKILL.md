@@ -112,6 +112,11 @@ bounce_reason}`. You **read that back**: `published`/`residual-published` → do
 you hold the rich context, so re-produce from the named gap and re-hand the pointers under the **same
 `dispatch_id`** (no re-wake). Your window stays on the thinking. The close it runs is exactly:
 
+When this report closes an Experiment, it must carry a canonical `reports_on` id (`exp` + digits,
+allocated by `eventlog.declare_experiment`) plus `experiment_curation`. For long-running experiment
+consolidation, the `experiment-reporter` background subagent authors those pointer files first and then
+hands the settled report to this publisher path, so the main mentor conversation does not block inline.
+
 You do **not** inline an `eventlog` publish snippet, and you **never** call `publisher.publish` directly —
 that is now the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
 passing-review proof only `close.run_close` mints (it raises without a valid `verdict=`). The proof is

@@ -256,6 +256,10 @@ _PROTO_IMPORTMAP_EXTERNAL_RE = re.compile(
     r"<script\b[^>]*\btype\s*=\s*[\"']importmap[\"'][^>]*>[^<]*?(?:https?:)?//", re.I)
 
 
+_ASSET_LOG_DEFAULT = object()
+_ASSET_PROJECT_DEFAULT = object()
+
+
 # --- roda-sem-erro (04-C rubrica: MECÂNICO, veto) ---------------------------------------------
 # The live adapter runs the page in headless chromium via the playwright venv (the same harness
 # the render→ver rite uses, ~/cortex-3d-ref/pw-venv) in a SUBPROCESS, so publisher's own
@@ -318,8 +322,109 @@ def headless_page_errors(page_html, pw_python=_PW_PYTHON):
     return errors if isinstance(errors, list) else None
 
 
+def _repo_relative(path):
+    try:
+        return str(Path(path).resolve().relative_to(REPO))
+    except ValueError:
+        return str(Path(path).resolve())
+
+
+def _asset_log_for(blog_dir, log):
+    if log is not _ASSET_LOG_DEFAULT:
+        return log
+    try:
+        return eventlog.LOG if Path(blog_dir).resolve() == BLOG_DIR.resolve() else None
+    except Exception:  # noqa: BLE001 — a funny blog_dir means "do not touch canonical state"
+        return None
+
+
+def _asset_project_for(asset_log, project_fn):
+    if project_fn is not _ASSET_PROJECT_DEFAULT:
+        return project_fn
+    return project_artefato_asset if asset_log is not None and _is_canonical_log(asset_log) else None
+
+
+def _record_artefato_asset(asset_slug, out, *, kind, sha256, skill, parent_slug=None,
+                           media_type=None, role=None, log=_ASSET_LOG_DEFAULT,
+                           project_fn=_ASSET_PROJECT_DEFAULT):
+    asset_log = _asset_log_for(Path(out).parent, log)
+    if asset_log is None:
+        return None
+    ev = eventlog.publish_artefato_asset(
+        asset_slug,
+        path=_repo_relative(out),
+        kind=kind,
+        sha256=sha256,
+        skill=skill,
+        parent_slug=parent_slug,
+        media_type=media_type,
+        role=role,
+        log=asset_log,
+    )
+    projector = _asset_project_for(asset_log, project_fn)
+    if projector is not None:
+        try:
+            projector(asset_slug, path=_repo_relative(out), kind=kind, sha256=sha256,
+                      skill=skill, parent_slug=parent_slug, media_type=media_type,
+                      role=role, log=asset_log)
+        except Exception as ex:  # noqa: BLE001 — asset projection is recoverable from the log
+            print(f"asset project skipped for {asset_slug!r} (best-effort):", ex)
+    return ev
+
+
+def publish_artifact_asset(slug, content, *, kind, skill, ext=None, parent_slug=None,
+                           blog_dir=BLOG_DIR, log=_ASSET_LOG_DEFAULT,
+                           project_fn=_ASSET_PROJECT_DEFAULT) -> Path:
+    """Write a content-addressed standalone Artefato asset, usually JS.
+
+    The normal close path publishes the human-readable entry; this seam records companion files
+    (for example an interactive report's JavaScript/data) as `artefato.asset`, so the Cortex can
+    navigate them instead of treating them as stray files.
+    """
+    if skill not in PRODUCER_ROSTER:
+        raise ValueError(f"skill {skill!r} is not in the producer roster {PRODUCER_ROSTER}")
+    if kind not in eventlog.ASSET_KINDS:
+        raise ValueError(f"asset kind must be one of {eventlog.ASSET_KINDS}, got {kind!r}")
+    if not (isinstance(slug, str) and SLUG_RE.fullmatch(slug)):
+        raise ValueError(f"invalid slug {slug!r}: must match {SLUG_RE.pattern} (#4)")
+    if parent_slug is not None and not (isinstance(parent_slug, str) and SLUG_RE.fullmatch(parent_slug)):
+        raise ValueError(f"invalid parent_slug {parent_slug!r}: must match {SLUG_RE.pattern} (#4)")
+    if isinstance(content, bytes):
+        data = content
+    elif isinstance(content, str):
+        data = content.encode("utf-8")
+    else:
+        raise ValueError("asset content must be str or bytes")
+    ext = ext or {"js": "js", "html": "html", "css": "css", "data": "json",
+                  "image": "bin"}.get(kind, kind)
+    if not re.fullmatch(r"[a-z0-9]+", ext):
+        raise ValueError(f"invalid asset extension {ext!r}")
+    digest = hashlib.sha256(data).hexdigest()
+    blog_dir = Path(blog_dir).resolve()
+    out = (blog_dir / f"{slug}.{kind}.{digest[:12]}.{ext}").resolve()
+    if out.parent != blog_dir:
+        raise ValueError(f"slug {slug!r} escapes the blog dir (#4)")
+    if out.exists():
+        if out.read_bytes() != data:
+            raise ValueError(
+                f"content-address collision at {out.name!r}: existing bytes differ")
+    else:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = out.with_name(out.name + ".tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, out)
+    media_type = {"js": "text/javascript", "html": "text/html", "css": "text/css",
+                  "data": "application/json"}.get(kind)
+    _record_artefato_asset(
+        f"{slug}-{kind}-{digest[:12]}", out, kind=kind, sha256=digest, skill=skill,
+        parent_slug=parent_slug, media_type=media_type, role=kind,
+        log=log, project_fn=project_fn)
+    return out
+
+
 def publish_prototype_page(slug, page_html, *, skill, blog_dir=BLOG_DIR,
-                           run_errors_fn=headless_page_errors) -> Path:
+                           run_errors_fn=headless_page_errors, log=_ASSET_LOG_DEFAULT,
+                           project_fn=_ASSET_PROJECT_DEFAULT) -> Path:
     """Write an intact, content-addressed single-file page for ANY roster genus (ticket 05
     generalizes the prototype-only seam: JS/imagem liberados; single file é a única regra dura).
     Returns the written Path (served at /e/<name>). Raises ValueError on an out-of-roster skill,
@@ -360,7 +465,8 @@ def publish_prototype_page(slug, page_html, *, skill, blog_dir=BLOG_DIR,
         print(f"[publisher] headless harness unavailable — roda-sem-erro for {slug!r} "
               "OBSERVED, not vetoed (degrade honesto)", file=sys.stderr)
     blog_dir = Path(blog_dir).resolve()
-    digest = hashlib.sha256(page_html.encode("utf-8")).hexdigest()[:12]
+    full_digest = hashlib.sha256(page_html.encode("utf-8")).hexdigest()
+    digest = full_digest[:12]
     out = (blog_dir / f"{slug}.proto.{digest}.html").resolve()
     if out.parent != blog_dir:  # unreachable given SLUG_RE — defense in depth like _safe_target
         raise ValueError(f"slug {slug!r} escapes the blog dir (#4)")
@@ -374,6 +480,10 @@ def publish_prototype_page(slug, page_html, *, skill, blog_dir=BLOG_DIR,
                 "page — refusing to serve unreviewed content")
     else:
         _write_page(out, page_html)
+    _record_artefato_asset(
+        f"{slug}-proto-{digest}", out, kind="html", sha256=full_digest, skill=skill,
+        parent_slug=slug, media_type="text/html", role="prototype",
+        log=log, project_fn=project_fn)
     return out
 
 
@@ -421,7 +531,9 @@ def apostila_link_block(page_name):
             "text": f"[Versão pra imprimir (apostila A4)](/e/{name})"}
 
 
-def publish_apostila_page(slug, page_html, *, skill, blog_dir=BLOG_DIR) -> Path:
+def publish_apostila_page(slug, page_html, *, skill, blog_dir=BLOG_DIR,
+                          log=_ASSET_LOG_DEFAULT,
+                          project_fn=_ASSET_PROJECT_DEFAULT) -> Path:
     """Write the intact, content-addressed printable APOSTILA sibling for a roster genus.
     Returns the written Path (served at /e/<name>). Shares the proto seam's bars (roster,
     slug, full document, zero external deps) plus two print-matter bars: NO <script> — the
@@ -460,7 +572,8 @@ def publish_apostila_page(slug, page_html, *, skill, blog_dir=BLOG_DIR) -> Path:
             f"apostila for {slug!r} has no @page print CSS — the A4 rule "
             "(e.g. @page{size:A4;margin:18mm 16mm}) is the print-matter bar")
     blog_dir = Path(blog_dir).resolve()
-    digest = hashlib.sha256(page_html.encode("utf-8")).hexdigest()[:12]
+    full_digest = hashlib.sha256(page_html.encode("utf-8")).hexdigest()
+    digest = full_digest[:12]
     out = (blog_dir / f"{slug}.apostila.{digest}.html").resolve()
     if out.parent != blog_dir:  # unreachable given SLUG_RE — defense in depth
         raise ValueError(f"slug {slug!r} escapes the blog dir (#4)")
@@ -472,6 +585,10 @@ def publish_apostila_page(slug, page_html, *, skill, blog_dir=BLOG_DIR) -> Path:
                 f"{slug!r}'s apostila — refusing to serve unreviewed content")
     else:
         _write_page(out, page_html)
+    _record_artefato_asset(
+        f"{slug}-apostila-{digest}", out, kind="html", sha256=full_digest, skill=skill,
+        parent_slug=slug, media_type="text/html", role="apostila",
+        log=log, project_fn=project_fn)
     return out
 
 
@@ -653,6 +770,74 @@ def _project_reports_on(s, g, slug, reports_on):
             "SET r.provenance_class='asserted'",
             g=g, slug=slug, experiment_id=experiment_id)
     return False
+
+
+def _project_artefato_asset(s, g, asset):
+    """Project one `artefato.asset` event as a navigable :Artefato node (#108).
+
+    Assets are not close-published entries and do not carry an intent kernel, but they are still
+    first-class generated Artefatos: HTML/JS files the reader can open, inspect, and traverse from
+    the parent report/prototype.
+    """
+    if not isinstance(asset, dict):
+        return
+    asset_slug = asset.get("asset_slug")
+    path = asset.get("path")
+    kind = asset.get("kind")
+    sha256 = asset.get("sha256")
+    if not (asset_slug and path and kind and sha256):
+        return
+    s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) "
+          "SET a.kind='asset', a.asset_kind=$kind, a.asset_role=$role, "
+          "a.page=$page, a.sha256=$sha, a.skill=coalesce($skill, a.skill), "
+          "a.media_type=$media_type, a.projected_at=$pat, a.projection_complete=true",
+          g=g, slug=asset_slug, kind=kind, role=asset.get("role"), page=path,
+          sha=sha256, skill=asset.get("skill"), media_type=asset.get("media_type"),
+          pat=_dt.now(_tz.utc).isoformat())
+    parent = asset.get("parent_slug")
+    if parent:
+        s.run("MERGE (p:Artefato {group_id:$g, slug:$parent}) "
+              "MERGE (a:Artefato {group_id:$g, slug:$slug}) "
+              "MERGE (p)-[r:HAS_ASSET]->(a) "
+              "SET r.provenance_class='asserted', r.role=$role",
+              g=g, parent=parent, slug=asset_slug, role=asset.get("role"))
+    s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),(o:Objective {group_id:$g}) "
+          "MERGE (a)-[:SERVES]->(o)", g=g, slug=asset_slug)
+
+
+def project_artefato_asset(asset_slug, *, path, kind, sha256, skill=None, parent_slug=None,
+                           media_type=None, role=None, log=eventlog.LOG):
+    """Best-effort projection for a generated Artefato asset."""
+    try:
+        import _identity
+        from neo4j import GraphDatabase
+        uri, user, pw = _identity.neo4j_conn()
+        g = _identity.require_group()
+        drv = GraphDatabase.driver(uri, auth=(user, pw))
+    except Exception as ex:  # noqa: BLE001 — best-effort; the log already holds the truth
+        print("asset project skipped (best-effort, graph unreachable):", ex)
+        return
+    try:
+        with drv.session() as s:
+            if _is_canonical_log(log):
+                _project_backbone(s, g, log)
+            _project_artefato_asset(s, g, {
+                "asset_slug": asset_slug,
+                "path": path,
+                "kind": kind,
+                "sha256": sha256,
+                "skill": skill,
+                "parent_slug": parent_slug,
+                "media_type": media_type,
+                "role": role,
+            })
+    except Exception as ex:  # noqa: BLE001 — recoverable on next reproject
+        print("asset project failed (best-effort, reproject next beat):", ex)
+    finally:
+        try:
+            drv.close()
+        except Exception:
+            pass
 
 
 def _project_para_default(s, g, slug, name):
@@ -1373,7 +1558,7 @@ def _graph_present_slugs():
 
 
 def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs=_graph_present_slugs,
-                    backbone_fn=project_backbone):
+                    backbone_fn=project_backbone, asset_project_fn=None):
     """Graph recovery (Codex P2, #30, ADR-0006: the graph is a re-derivable PROJECTION of the log).
     A transient Neo4j outage at publish time leaves the committed Artefato out of the graph (so
     `recall_subgraph` misses it) — this is the "reproject next beat" path the publish-time catch
@@ -1430,6 +1615,28 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
                        reports_on=item.get("reports_on"))
         except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
             print(f"graph reproject skipped for {item.get('slug')!r} (best-effort):", ex)
+    if asset_project_fn is None:
+        asset_project_fn = project_artefato_asset if _is_canonical_log(log) else None
+    if asset_project_fn is not None:
+        for asset in cortex.artefato_assets_at(log=log).values():
+            pat = present.get(asset["asset_slug"])
+            latest = asset.get("ts")
+            if pat is not None and latest is not None and str(pat) >= str(latest):
+                continue
+            try:
+                asset_project_fn(
+                    asset["asset_slug"],
+                    path=asset.get("path"),
+                    kind=asset.get("kind"),
+                    sha256=asset.get("sha256"),
+                    skill=asset.get("skill"),
+                    parent_slug=asset.get("parent_slug"),
+                    media_type=asset.get("media_type"),
+                    role=asset.get("role"),
+                    log=log,
+                )
+            except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
+                print(f"asset graph reproject skipped for {asset.get('asset_slug')!r}: {ex}")
     # B.3 (Codex adversarial) — replay das INTEGRAÇÕES também: uma promoção cuja marca best-effort
     # no grafo falhou se cura aqui (MERGE idempotente, ts do evento). Canônico-somente, como o
     # project acima: um log de teste/dry-run nunca escreve marcas no grafo do install.

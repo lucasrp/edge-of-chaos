@@ -7,7 +7,7 @@
 
 version: cortex-v2@1
 schema_version: 1
-content_hash: "167be3d989774b3437192b0fe7574a9cafe52fc573b2e2668ae98ff62a0d2296"
+content_hash: "74fd58acce23bf46e5cf358a0c5f8666259267a3eabd0636352b3b6d955f152a"
 
 provenance_class:
   # The plane per edge/annotation. Decides ONE thing: rollup eligibility (CX-1).
@@ -32,7 +32,7 @@ nodes:
     kinds: [phase, priority, constraint, thread]
     episteme: pergunta when kind=thread
   artefato:
-    truth: artefato.published
+    truth: artefato.published / artefato.asset
     # the CONCLUSION RENDER — episteme's own informal render term ("evidência"). NOT a
     # hypothesis: thread=hipótese=artefato is a CORRESPONDENCE (3 nodes, 2-hop
     # (thread)<-PROPOSES-(hyp)<-SUPPORTS-(artefato)), never an identity (collapsing falsifies H-001).
@@ -59,11 +59,11 @@ nodes:
     payload_key: arm
   experimento:
     runtime: experiment
-    truth: experiment_declared
+    truth: experiment.declared
     sentido: investigacao pre-registrada; declara testa -> hipotese[]
     payload_key: experiment
   experiment:
-    truth: experiment_declared
+    truth: experiment.declared / experiment.curated
     episteme: experimento
     key: ulid
     commit_reveal: true
@@ -94,7 +94,7 @@ nodes:
 edges:
   structural:   # provenance_class=asserted (authored/proof-bound IS their provenance)
     [GROUNDS, ANCHORS, SERVES, DISTILLS, PROPOSES, CITES, HAS_MEMBER, MENTIONS,
-     BUILDS_ON, SUPERSEDES, CONTRADICTS, PARA, REPORTS_ON]
+     BUILDS_ON, SUPERSEDES, CONTRADICTS, PARA, REPORTS_ON, HAS_ASSET]
   valenced:     # (a:Artefato)->(h:Hypothesis); asserted-at-emission, rigor teto lead —
                 # NEVER rollup-eligible (CX-1); truth = `bears_on` on artefato.published
     [SUPPORTS, REFUTES, QUALIFIES, INCONCLUSIVE]

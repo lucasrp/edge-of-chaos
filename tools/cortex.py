@@ -46,6 +46,10 @@ def corpus_at(*args, **kwargs):
     return eventlog.corpus_at(*args, **kwargs)
 
 
+def artefato_assets_at(*args, **kwargs):
+    return eventlog.artefato_assets_at(*args, **kwargs)
+
+
 def grounding_at(*args, **kwargs):
     return eventlog.grounding_at(*args, **kwargs)
 

@@ -23,6 +23,7 @@ class TestFrontDoor(unittest.TestCase):
         underscore at the door (harvest reached into eventlog._supersede_rank; a private reach-in
         is not an interface)."""
         for name in ("cosine", "direction_at", "objective_at", "report_at", "corpus_at",
+                     "artefato_assets_at",
                      "grounding_at", "source_yield_at", "source_feedback_at",
                      "artefatos_without_kernel", "experiments_at", "experiment_at",
                      "supersede_rank"):

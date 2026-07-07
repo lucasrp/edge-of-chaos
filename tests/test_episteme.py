@@ -207,6 +207,8 @@ class NormalizeBearsOnIsTheSingleSanitizer(unittest.TestCase):
         self.assertEqual(lineage.normalize_reports_on([" exp40 ", "", 7, "exp40", "exp41"]),
                          ["exp40", "exp41"])
         self.assertEqual(lineage.normalize_reports_on("exp40"), [])
+        self.assertEqual(lineage.normalize_reports_on(["session-memory", "2026-exp", "exp071"]),
+                         ["exp071"])
 
     def test_experiment_curation_normalizer_adds_the_report_artifact(self):
         curation = lineage.normalize_experiment_curation(
@@ -245,6 +247,78 @@ class NormalizeBearsOnIsTheSingleSanitizer(unittest.TestCase):
                  },
                  "canonical_artifacts": [{"ref": "results/summary.json", "role": "summary"}]},
                 by="report")
+
+    def test_experiment_curation_requires_a_canonical_experiment_id(self):
+        with self.assertRaisesRegex(ValueError, "requires reports_on"):
+            lineage.normalize_experiment_curation(
+                ["session-memory-navigator"],
+                {"prose": "The run is useful.",
+                 "typed": {
+                     "claim": "The run is useful.",
+                     "scope": "one local session.",
+                     "status": "lead",
+                     "caveat": "single run.",
+                     "supports": ["navigator"],
+                     "excludes": [],
+                     "next": "Repeat.",
+                 }},
+                report_slug="relatorio-exp")
+
+
+class ExperimentDeclarationAndNumbering(unittest.TestCase):
+    """Issue #107 — experiments have stable canonical ids before their report closes them."""
+
+    def test_next_experiment_id_allocates_zero_padded_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = _log(tmp)
+            self.assertEqual(eventlog.next_experiment_id(log=log), "exp001")
+            a = eventlog.declare_experiment("Compare two report structures", log=log)
+            b = eventlog.declare_experiment("Compare source gates", log=log)
+            self.assertEqual(a["payload"]["experiment_id"], "exp001")
+            self.assertEqual(b["payload"]["experiment_id"], "exp002")
+            self.assertEqual(eventlog.next_experiment_id(log=log), "exp003")
+
+    def test_historical_ids_participate_in_the_sequence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = _log(tmp)
+            eventlog.curate_experiment(
+                "exp40",
+                prose="exp40 is a legal retrieval experiment.",
+                typed={"claim": "GN wins.", "scope": "one process.", "status": "lead",
+                       "caveat": "n=1.", "supports": ["GN"], "excludes": [],
+                       "next": "Run C5."},
+                canonical_artifacts=[{"ref": "artefato:relatorio-exp40", "role": "report"}],
+                by="grill",
+                log=log)
+            self.assertEqual(eventlog.next_experiment_id(log=log), "exp041")
+
+    def test_declared_experiment_is_readable_before_curation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = _log(tmp)
+            eventlog.declare_experiment(
+                "Find the best report dispatch",
+                experiment_id="exp071",
+                hypothesis="a pre-draft gate improves the final report",
+                scope="Roberto research reports",
+                owner="mentor",
+                decision_rule="ship the arm with the best final judge plus human read",
+                arms=[{"id": "baseline"}, {"id": "pre-draft"}],
+                by="mentor",
+                log=log)
+            got = eventlog.experiment_at("exp071", log=log)
+            self.assertEqual(got["title"], "Find the best report dispatch")
+            self.assertEqual(got["status"], "declared")
+            self.assertEqual(got["canonical"], {})
+            self.assertEqual(got["canonical_artifacts"], [])
+
+    def test_duplicate_or_noncanonical_experiment_id_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = _log(tmp)
+            eventlog.declare_experiment("one", experiment_id="exp071", log=log)
+            with self.assertRaises(ValueError):
+                eventlog.declare_experiment("two", experiment_id="exp071", log=log)
+            with self.assertRaises(ValueError):
+                eventlog.declare_experiment("bad", experiment_id="weekend-report-test", log=log)
 
 
 class BearsOnAndParaRideThePublishPayload(unittest.TestCase):
@@ -466,6 +540,26 @@ class ValencedEdgesProjectWithTheLeadCeiling(unittest.TestCase):
         self.assertIn("MERGE (a)-[r:REPORTS_ON]->(x)", q)
         self.assertIn("'asserted'", q)
         self.assertEqual(params["experiment_id"], "exp40")
+
+    def test_standalone_asset_projects_as_navigable_artefato(self):
+        s = FakeSession()
+        publisher._project_artefato_asset(s, "g1", {
+            "asset_slug": "demo-proto-abc123def456",
+            "path": "blog/entries/demo.proto.abc123def456.html",
+            "kind": "html",
+            "sha256": "a" * 64,
+            "skill": "prototype",
+            "parent_slug": "demo",
+            "media_type": "text/html",
+            "role": "prototype",
+        })
+        text = " ".join(q for q, _ in s.calls)
+        self.assertIn("MERGE (a:Artefato {group_id:$g, slug:$slug})", text)
+        self.assertIn("a.kind='asset'", text)
+        self.assertIn("HAS_ASSET", text)
+        q, params = next((q, p) for q, p in s.calls if "HAS_ASSET" in q)
+        self.assertEqual(params["parent"], "demo")
+        self.assertEqual(params["slug"], "demo-proto-abc123def456")
 
     def test_valenced_para_and_reports_on_labels_join_the_destructive_rebuild(self):
         # a republish com bears_on corrigido não pode deixar aresta velha encalhada —

@@ -11,6 +11,7 @@ persists it, so a malformed item can never (a) be `str()`-coerced into the verif
 (b) ride into the log as junk. It DROPS bad items rather than coercing them — the same posture
 `close.real_lineage` and the publisher's edge loop already take downstream.
 """
+import re
 
 # the authored typed-lineage relations (mirror of close/publisher LINEAGE handling). Any other type
 # (e.g. the cosine-nominated RELATES_TO, which is NOT author-declared) is dropped.
@@ -106,13 +107,18 @@ def normalize_para(para) -> list:
     return out
 
 
+EXPERIMENT_ID_RE = re.compile(r"^exp[0-9]+$")
+
+
 def normalize_reports_on(reports_on) -> list:
     """Return the well-formed Experiment ids an Artefato reports on.
 
     `Report` is still the human-readable Artefato and semantic bridge; `Experiment` is the
     scientific object. This list authors the structural edge
-    (Artefato)-[:REPORTS_ON]->(Experiment), so it follows the same fail-closed posture as
-    `para`: non-blank strings only, stripped, deduped, order-preserving.
+    (Artefato)-[:REPORTS_ON]->(Experiment). Experiment ids are canonical handles (`exp` +
+    digits, e.g. `exp40`, `exp071`): loose folder/session names do not become experiment
+    identities. Non-canonical ids are dropped rather than coerced, preserving the same
+    fail-closed posture as `para`.
     """
     if not isinstance(reports_on, list):
         return []
@@ -120,7 +126,7 @@ def normalize_reports_on(reports_on) -> list:
     for experiment_id in reports_on:
         if isinstance(experiment_id, str) and experiment_id.strip():
             clean = experiment_id.strip()
-            if clean not in seen:
+            if EXPERIMENT_ID_RE.fullmatch(clean) and clean not in seen:
                 seen.add(clean)
                 out.append(clean)
     return out

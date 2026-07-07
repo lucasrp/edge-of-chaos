@@ -24,6 +24,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import producer_descriptor as pd  # noqa: E402
+import eventlog  # noqa: E402
 import publisher  # noqa: E402
 import cortex_config  # noqa: E402
 import cortex_mcp  # noqa: E402
@@ -84,6 +85,43 @@ class StandalonePageLandsIntactAndContentAddressed(unittest.TestCase):
                 "kuramoto-demo", PAGE, skill="prototype", blog_dir=tmp)
             self.assertIn(".proto.", out.name)
             self.assertFalse(publisher.SLUG_RE.match(out.stem))
+
+    def test_standalone_page_records_a_first_class_asset_when_log_is_explicit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            out = publisher.publish_prototype_page(
+                "kuramoto-demo", PAGE, skill="prototype", blog_dir=tmp, log=log)
+            assets = eventlog.artefato_assets_at(log=log)
+            asset_slug = f"kuramoto-demo-proto-{_digest(PAGE)}"
+            self.assertIn(asset_slug, assets)
+            asset = assets[asset_slug]
+            self.assertEqual(asset["kind"], "html")
+            self.assertEqual(asset["role"], "prototype")
+            self.assertEqual(asset["parent_slug"], "kuramoto-demo")
+            self.assertEqual(Path(asset["path"]).name, out.name)
+
+    def test_same_standalone_page_does_not_duplicate_the_asset_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            publisher.publish_prototype_page(
+                "kuramoto-demo", PAGE, skill="prototype", blog_dir=tmp, log=log)
+            publisher.publish_prototype_page(
+                "kuramoto-demo", PAGE, skill="prototype", blog_dir=tmp, log=log)
+            self.assertEqual(len(eventlog.read(types=["artefato.asset"], log=log)), 1)
+
+    def test_javascript_asset_is_content_addressed_and_eventlogged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            out = publisher.publish_artifact_asset(
+                "kuramoto-app", "console.log('ok');", kind="js", skill="prototype",
+                parent_slug="kuramoto-demo", blog_dir=tmp, log=log)
+            self.assertRegex(out.name, r"^kuramoto-app\.js\.[0-9a-f]{12}\.js$")
+            assets = eventlog.artefato_assets_at(log=log)
+            self.assertEqual(len(assets), 1)
+            asset = next(iter(assets.values()))
+            self.assertEqual(asset["kind"], "js")
+            self.assertEqual(asset["media_type"], "text/javascript")
+            self.assertEqual(asset["parent_slug"], "kuramoto-demo")
 
 
 class TheSeamIsRosterWide(unittest.TestCase):

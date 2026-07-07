@@ -680,6 +680,34 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                                       backbone_fn=None)
             self.assertEqual(seen["lineage"], lineage)  # the logged lineage rides the replay
 
+    def test_reproject_graph_replays_standalone_assets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.publish_artefato_asset(
+                "demo-proto-abc123def456",
+                path="blog/entries/demo.proto.abc123def456.html",
+                kind="html",
+                sha256="a" * 64,
+                skill="prototype",
+                parent_slug="demo",
+                media_type="text/html",
+                role="prototype",
+                log=log)
+            projected = []
+
+            def asset_project_fn(asset_slug, **kw):
+                projected.append((asset_slug, kw))
+
+            publisher.reproject_graph(
+                log=log,
+                project_fn=lambda *a, **k: None,
+                present_slugs=lambda: {},
+                backbone_fn=None,
+                asset_project_fn=asset_project_fn)
+            self.assertEqual(projected[0][0], "demo-proto-abc123def456")
+            self.assertEqual(projected[0][1]["parent_slug"], "demo")
+            self.assertEqual(projected[0][1]["kind"], "html")
+
     def test_reproject_graph_replays_only_missing_slugs(self):
         # Codex P2: steady-state must NOT re-embed the whole corpus each sweep — reproject_graph
         # replays only the slugs MISSING (or STALE) in the graph. `present_slugs` maps each present

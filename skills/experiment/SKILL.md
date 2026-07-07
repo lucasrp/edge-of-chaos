@@ -23,12 +23,27 @@ needs implementation-level detail:
 
 Current runtime, as of this skill:
 - Reading native experiments works through `cortex.experiment_at(...)` and
-  `cortex.experiments_at(...)`, folding `experiment.curated`.
+  `cortex.experiments_at(...)`, folding `experiment.declared` plus `experiment.curated`.
+- Declaring a native experiment works through `eventlog.declare_experiment(...)`. It assigns a stable
+  canonical experiment ID (`exp001`, `exp002`, …; historical ids such as `exp40` still read) before
+  the report exists.
 - Closing/finalizing an experiment works through `/report`: the report publishes `reports_on` plus
   `experiment_curation`, and the publisher writes `experiment.curated` in the same atomic batch.
-- The full pen for `experiment_declared`, `run_started`, and `experiment_concluded` is contract in
-  the ontology, not a callable writer yet. Do not invent or hand-write these events until the pen
-  exists. If the runtime lacks the pen, say so and use the report/curation path that actually runs.
+- The ontology name `experiment_declared` corresponds to runtime `experiment.declared`. The full pen
+  for `run_started` and `experiment_concluded` is still contract in the ontology, not a callable
+  writer yet. Do not invent or hand-write those events until the pen exists.
+
+## Canonical ID
+Every new Experiment needs a stable canonical ID before it can be closed. Use the pen, never a folder
+name or a prose title as identity:
+
+```bash
+tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import eventlog; \
+print(eventlog.declare_experiment('<title>', hypothesis='<testable uncertainty>')['payload']['experiment_id'])"
+```
+
+Use that id in all reports and artifacts: `reports_on=['expNNN']`. Non-canonical ids are rejected by
+the lineage normalizer instead of being silently turned into experiments.
 
 ## Read Order
 Use curated-first navigation. The user should not have to dig through native experiments manually.
@@ -104,7 +119,12 @@ Use this card only after the uncertainty is live. It is not a cold intake form.
 ## Closing Rule
 An experiment is not done until a report is published.
 
-The close path is `/report`, not a raw event append:
+The close path is `/report`, not a raw event append. If the experiment is done during an ongoing
+conversation, hand the consolidation to the **`experiment-reporter` background subagent** with disk
+pointers and the canonical `experiment_id`, so the main mentor thread can keep talking while the
+report closes.
+
+The report/subagent path:
 - The report must be a human-readable HTML report produced by `skills/report/SKILL.md`.
 - The report payload carries `reports_on=['<experiment-id>']`.
 - The report payload carries `experiment_curation={...}` with:

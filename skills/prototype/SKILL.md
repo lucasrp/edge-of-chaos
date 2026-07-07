@@ -171,10 +171,9 @@ relicário's netlify blog). Three honest bounds the producer must hold:
   refused). Put the sha-bearing URL in the proof-bound spec; the reviewer must actually OPEN and
   read the page (the render→ver→revisar rite is the human gate the proof cannot be).
 - **Publish the page, THEN close the entry** (the entry must carry the page's sha-URL, so the page
-  goes first). The page is written before the entry commits and is NOT eventlogged, so a failed
-  close can leave an orphan `.proto.<sha>.html` — harmless: it is unreferenced (no entry links it)
-  and its name is unguessable (a 48-bit content hash), never surfaced by the home index. Full
-  audit/replay of page bytes is deferred (out of MVP; the log is entry-only).
+  goes first). The page lands as a content-addressed file and records an `artefato.asset` event so
+  Cortex can project it as a navigable Artefato node. If the companion close fails, the asset can be
+  orphaned from a parent report, but it is still explicit in the log with its path and sha.
 
 ## Read-only on the world (CONTRACT C1)
 

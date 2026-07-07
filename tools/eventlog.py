@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import secrets
 import time
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from pathlib import Path
 
 # persist ONLY well-formed authored declarations (each matches its proof bind)
 from lineage import (
+    EXPERIMENT_ID_RE,
     normalize_bears_on,
     normalize_experiment_curation,
     normalize_lineage,
@@ -681,6 +683,85 @@ def corpus_at(seq=None, ts=None, log=LOG):
     return fold_corpus(read(types=CORPUS_TYPES, until_seq=seq, until_ts=ts, log=log))
 
 
+ASSET_TYPES = ["artefato.asset"]
+ASSET_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+ASSET_KINDS = ("html", "js", "css", "data", "image")
+
+
+def _validated_asset_slug(slug, field="asset_slug"):
+    if not (isinstance(slug, str) and ASSET_SLUG_RE.fullmatch(slug)):
+        raise ValueError(f"{field} must match {ASSET_SLUG_RE.pattern}, got {slug!r}")
+    return slug
+
+
+def publish_artefato_asset(asset_slug, *, path, kind, sha256, skill=None, parent_slug=None,
+                           media_type=None, role=None, log=LOG):
+    """Record a generated standalone artifact file as a first-class Artefato asset (#108).
+
+    Normal close-published pages already have `artefato.published`. This event is for companion
+    files such as content-addressed interactive HTML and JS assets that otherwise lived only as
+    filesystem blobs. The bytes stay on disk; the log records their address, hash and optional
+    parent Artefato so the graph can project a navigable node.
+    """
+    asset_slug = _validated_asset_slug(asset_slug)
+    if parent_slug is not None:
+        parent_slug = _validated_asset_slug(parent_slug, "parent_slug")
+    if kind not in ASSET_KINDS:
+        raise ValueError(f"artefato asset kind must be one of {ASSET_KINDS}, got {kind!r}")
+    if not (isinstance(path, str) and path.strip()):
+        raise ValueError("artefato asset path must be a non-blank string")
+    if not (isinstance(sha256, str) and re.fullmatch(r"[0-9a-f]{64}", sha256)):
+        raise ValueError("artefato asset sha256 must be a 64-character lowercase hex digest")
+    payload = {
+        "asset_slug": asset_slug,
+        "path": path.strip(),
+        "kind": kind,
+        "sha256": sha256,
+        "skill": skill,
+        "parent_slug": parent_slug,
+        "media_type": media_type,
+        "role": role,
+    }
+    for e in read(types=ASSET_TYPES, log=log):
+        p = e.get("payload") if isinstance(e.get("payload"), dict) else {}
+        if p.get("asset_slug") != asset_slug:
+            continue
+        if {k: p.get(k) for k in payload} == payload:
+            return e
+        raise ValueError(f"artefato asset {asset_slug!r} already exists with different metadata")
+    return append("artefato.asset", f"artefato:{asset_slug}", payload, log=log)
+
+
+def fold_artefato_assets(events):
+    """Pure fold of `artefato.asset` → {asset_slug: asset metadata}. Last valid event wins."""
+    out = {}
+    for e in events:
+        if e.get("type") != "artefato.asset":
+            continue
+        p = e.get("payload") if isinstance(e.get("payload"), dict) else {}
+        slug = p.get("asset_slug")
+        if not (isinstance(slug, str) and ASSET_SLUG_RE.fullmatch(slug)):
+            continue
+        out[slug] = {
+            "asset_slug": slug,
+            "path": p.get("path"),
+            "kind": p.get("kind"),
+            "sha256": p.get("sha256"),
+            "skill": p.get("skill"),
+            "parent_slug": p.get("parent_slug"),
+            "media_type": p.get("media_type"),
+            "role": p.get("role"),
+            "ts": e.get("ts"),
+            "seq": e.get("seq"),
+        }
+    return out
+
+
+def artefato_assets_at(seq=None, ts=None, log=LOG):
+    """Fold generated standalone Artefato assets up to a cursor. Empty → {}."""
+    return fold_artefato_assets(read(types=ASSET_TYPES, until_seq=seq, until_ts=ts, log=log))
+
+
 SOURCE_TYPES = ["source.signal"]
 
 
@@ -872,10 +953,11 @@ def hypotheses_at(seq=None, ts=None, log=LOG):
     return fold_hypotheses(read(types=HYPOTHESIS_TYPES, until_seq=seq, until_ts=ts, log=log))
 
 
-# --- Native Experiments: curated-first scientific memory (#88) -------------------------------
+# --- Native Experiments: curated-first scientific memory (#88/#107) --------------------------
 
-EXPERIMENT_TYPES = ["experiment.curated"]
+EXPERIMENT_TYPES = ["experiment.declared", "experiment.curated"]
 EXPERIMENT_TYPED_FIELDS = ("claim", "scope", "status", "caveat", "supports", "excludes", "next")
+_EXPERIMENT_NUMBER_RE = re.compile(r"^exp([0-9]+)$")
 
 
 def _validated_experiment_typed(typed):
@@ -917,6 +999,77 @@ def _validated_canonical_artifacts(canonical_artifacts):
     return out
 
 
+def _normalized_experiment_id(experiment_id):
+    if not (isinstance(experiment_id, str) and experiment_id.strip()):
+        raise ValueError("experiment_id must be a canonical non-blank id like exp001")
+    clean = experiment_id.strip()
+    if not EXPERIMENT_ID_RE.fullmatch(clean):
+        raise ValueError(
+            f"experiment_id {experiment_id!r} is not canonical; use exp + digits, e.g. exp001")
+    return clean
+
+
+def next_experiment_id(log=LOG):
+    """Return the next canonical experiment id (`expNNN`) visible in the log.
+
+    Backward-compatible with historical ids such as `exp40`: the numeric suffix participates in
+    the sequence, while newly allocated ids are zero-padded to at least three digits.
+    """
+    max_n = 0
+    for e in read(types=EXPERIMENT_TYPES, log=log):
+        p = e.get("payload") if isinstance(e.get("payload"), dict) else {}
+        eid = p.get("experiment_id")
+        if not isinstance(eid, str):
+            continue
+        m = _EXPERIMENT_NUMBER_RE.fullmatch(eid.strip())
+        if m:
+            max_n = max(max_n, int(m.group(1)))
+    return f"exp{max_n + 1:03d}"
+
+
+def declare_experiment(title, *, experiment_id=None, hypothesis=None, scope=None, owner=None,
+                       decision_rule=None, arms=None, status="declared", by=None,
+                       relates=None, log=LOG):
+    """Declare a first-class Experiment and assign its stable canonical id (#107).
+
+    This is the lightweight native pen: it creates the navigable Experiment object before the
+    report exists. Finalization still happens through a report carrying `reports_on` and
+    `experiment_curation`; declaration only names the object, records the decision-bearing
+    uncertainty, and reserves the id.
+    """
+    _require_body(title, "experiment.declared (title)")
+    eid = _normalized_experiment_id(experiment_id) if experiment_id is not None else next_experiment_id(log)
+    if arms is None:
+        arms = []
+    if not isinstance(arms, list):
+        raise ValueError("experiment.declared arms must be a list")
+    if relates is None:
+        relates = []
+    if not isinstance(relates, list) or not all(isinstance(x, dict) for x in relates):
+        raise ValueError("experiment.declared relates must be a list of dicts")
+    payload = {
+        "experiment_id": eid,
+        "title": title.strip(),
+        "hypothesis": hypothesis.strip() if isinstance(hypothesis, str) and hypothesis.strip() else None,
+        "scope": scope.strip() if isinstance(scope, str) and scope.strip() else None,
+        "owner": owner.strip() if isinstance(owner, str) and owner.strip() else None,
+        "decision_rule": (decision_rule.strip()
+                          if isinstance(decision_rule, str) and decision_rule.strip()
+                          else decision_rule if isinstance(decision_rule, dict) else None),
+        "arms": arms,
+        "status": status.strip() if isinstance(status, str) and status.strip() else "declared",
+        "by": by.strip() if isinstance(by, str) and by.strip() else None,
+        "relates": relates,
+    }
+
+    def _unique_id():
+        if eid in fold_experiments(read(types=EXPERIMENT_TYPES, log=log)):
+            raise ValueError(f"experiment_id {eid!r} already exists")
+
+    return append_batch([("experiment.declared", f"experiment:{eid}", payload)],
+                        log=log, precondition=_unique_id)[0]
+
+
 def curate_experiment(experiment_id, *, prose, typed, canonical_artifacts, by, relates=None, log=LOG):
     """Append an explicit `experiment.curated` event.
 
@@ -936,7 +1089,7 @@ def curate_experiment(experiment_id, *, prose, typed, canonical_artifacts, by, r
 
 
 def fold_experiments(events):
-    """Pure fold of `experiment.curated` → current canonical conclusion + append-only chain.
+    """Pure fold of Experiment declarations/curations → declared object + canonical conclusion.
 
     Latest curation is the current canonical conclusion for that experiment. Prior curations remain
     in `curation_chain`; contradictions are preserved as events/relations instead of overwritten
@@ -944,28 +1097,51 @@ def fold_experiments(events):
     """
     experiments = {}
     for e in events:
-        if e.get("type") != "experiment.curated":
-            continue
         p = e.get("payload") if isinstance(e.get("payload"), dict) else {}
         eid = p.get("experiment_id")
         if not isinstance(eid, str) or not eid.strip():
             continue
-        item = {
-            "seq": e.get("seq"),
-            "ts": e.get("ts"),
-            "by": p.get("by"),
-            "canonical": p.get("canonical") or {},
-            "canonical_artifacts": p.get("canonical_artifacts") or [],
-            "relates": p.get("relates") or [],
-        }
         cur = experiments.setdefault(eid, {"experiment_id": eid, "curation_chain": []})
-        cur["curation_chain"].append(item)
-        cur["canonical"] = item["canonical"]
-        cur["canonical_artifacts"] = item["canonical_artifacts"]
-        cur["by"] = item["by"]
-        cur["ts"] = item["ts"]
-        cur["seq"] = item["seq"]
-        cur["relates"] = item["relates"]
+        if e.get("type") == "experiment.declared":
+            cur.update({
+                "title": p.get("title"),
+                "hypothesis": p.get("hypothesis"),
+                "scope": p.get("scope"),
+                "owner": p.get("owner"),
+                "decision_rule": p.get("decision_rule"),
+                "arms": p.get("arms") or [],
+                "status": p.get("status") or "declared",
+                "declared_by": p.get("by"),
+                "declared_ts": e.get("ts"),
+                "declared_seq": e.get("seq"),
+                "relates": p.get("relates") or cur.get("relates") or [],
+            })
+            cur.setdefault("canonical", {})
+            cur.setdefault("canonical_artifacts", [])
+            cur["ts"] = e.get("ts")
+            cur["seq"] = e.get("seq")
+        elif e.get("type") == "experiment.curated":
+            item = {
+                "seq": e.get("seq"),
+                "ts": e.get("ts"),
+                "by": p.get("by"),
+                "canonical": p.get("canonical") or {},
+                "canonical_artifacts": p.get("canonical_artifacts") or [],
+                "relates": p.get("relates") or [],
+            }
+            cur["curation_chain"].append(item)
+            cur["canonical"] = item["canonical"]
+            cur["canonical_artifacts"] = item["canonical_artifacts"]
+            cur["by"] = item["by"]
+            cur["ts"] = item["ts"]
+            cur["seq"] = item["seq"]
+            cur["relates"] = item["relates"]
+            typed = (item["canonical"].get("typed")
+                     if isinstance(item.get("canonical"), dict) else None)
+            if isinstance(typed, dict) and typed.get("status"):
+                cur["status"] = typed["status"]
+            else:
+                cur["status"] = cur.get("status") or "curated"
     return experiments
 
 
