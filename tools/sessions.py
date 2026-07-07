@@ -7,12 +7,28 @@ locator/offset-based, carrying no semantics (ADR-0001).
 """
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 ROLES = {"user": "human", "assistant": "edge"}
 CODEX_ROLES = {"user": "human", "assistant": "edge"}
-CODEX_SCAFFOLDING_PREFIXES = ("<environment_context>", "<turn_aborted>")
+SCAFFOLDING_PREFIXES = (
+    "<environment_context>",
+    "<skill>",
+    "<subagent_notification>",
+    "<task-notification>",
+    "<command-message>",
+    "<local-command-caveat>",
+    "<local-command-stdout>",
+    "<local-command-stderr>",
+    "<request-interrupted>",
+    "<interrupted-user>",
+    "<turn_aborted>",
+    "<task>",
+    "Base directory for this skill:",
+    "This session is being continued from a previous conversation",
+)
 
 
 @dataclass(frozen=True)
@@ -109,6 +125,126 @@ def find_codex_session(session_id, root=None):
     return None
 
 
+def codex_session_meta(path) -> dict:
+    """Best-effort session_meta for a Codex transcript."""
+    try:
+        for line in Path(path).read_text(errors="replace").splitlines()[:40]:
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if obj.get("type") == "session_meta":
+                payload = obj.get("payload") or {}
+                return payload if isinstance(payload, dict) else {}
+    except OSError:
+        pass
+    return {}
+
+
+def claude_is_sidechain(path) -> bool:
+    """True for Claude subagent/sidechain transcripts."""
+    p = Path(path)
+    if "subagents" in p.parts:
+        return True
+    try:
+        for line in p.read_text(errors="replace").splitlines()[:40]:
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(obj, dict) and obj.get("isSidechain") is True:
+                return True
+    except OSError:
+        pass
+    return False
+
+
+_AGENT_LAUNCH_PATTERNS = tuple(re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
+    r"^you are the prototype producer for this run\.",
+    r"^you are (?:an|a|the) .{0,80}?(?:subagent|explorer|producer|worker|"
+    r"triage verification agent|world-reading explorer|ed-explorer)\b",
+    r"^you are drafting the new report skill\b",
+    r"^you are operating on `?ssh roberto\b",
+    r"^read-only exploration of\b",
+    r"^experiment arm \d+\b",
+    r"^produce a research artifact on\b",
+    r"^adversarial (?:design )?review\b",
+    r"^correctness review of\b",
+    r"^meta-gate\b",
+    r"^you are the meta-gate\b",
+    r"^you are (?:the|a|an) (?:adversarial|gate|reviewer|judge)\b",
+    r"^você é o meta-gate\b",
+    r"^você é o ed (?:construindo|executando|rodando|fechando|operando)\b",
+    r"^você é (?:o|a) (?:adversarial|gate|revisor|juiz)\b",
+    r"^você é um(?:a)? (?:produtor|subagente|agente)\b",
+    r"^gate final do motor integrado\b",
+))
+
+
+def looks_agent_launched_prompt(text) -> bool:
+    """Conservative prompt-shape detector for one agent spawning another as a worker.
+
+    This is not a classifier for content about agents. It only catches strong launch prompts that
+    assign a worker role/ticket. Casual operator prompts like "vc é o fable..." are intentionally
+    left alone.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return False
+    head = re.sub(r"\s+", " ", text).strip()[:1200]
+    return any(p.search(head) for p in _AGENT_LAUNCH_PATTERNS)
+
+
+def _first_human_text(path, surface="claude") -> str:
+    """First raw human/user message, before scaffolding filters."""
+    try:
+        lines = Path(path).read_text(errors="replace").splitlines()
+    except OSError:
+        return ""
+    for line in lines:
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if surface == "codex":
+            if obj.get("type") != "response_item":
+                continue
+            payload = obj.get("payload") or {}
+            if payload.get("type") == "message" and payload.get("role") == "user":
+                return _text_of(payload.get("content")).strip()
+        elif obj.get("type") == "user":
+            return _text_of(obj.get("message", {}).get("content")).strip()
+    return ""
+
+
+def user_session_exclusion_reason(session: Session) -> str | None:
+    """Return why this transcript is not a direct operator session, else None.
+
+    The edge's memory should index operator-facing conversations. Agent-to-agent worker sessions
+    remain useful execution trace, but they are not the default recall corpus.
+    """
+    if session.surface == "codex":
+        meta = codex_session_meta(session.path)
+        if meta.get("thread_source") and meta.get("thread_source") != "user":
+            return f"codex-thread-source:{meta.get('thread_source')}"
+        if meta.get("parent_thread_id"):
+            return "codex-parent-thread"
+        source = meta.get("source")
+        if isinstance(source, dict) and source.get("subagent"):
+            return "codex-subagent"
+    else:
+        if claude_is_sidechain(session.path):
+            return "claude-sidechain"
+
+    first = _first_human_text(session.path, surface=session.surface)
+    if looks_agent_launched_prompt(first):
+        return "agent-launch-prompt"
+    return None
+
+
+def is_user_session(session: Session) -> bool:
+    return user_session_exclusion_reason(session) is None
+
+
 def _text_of(content) -> str:
     """The human-readable text of a message: the joined text blocks (or a bare string)."""
     if isinstance(content, str):
@@ -124,7 +260,15 @@ def _claude_turn_from_obj(obj):
     if not role:
         return None
     text = _text_of(obj.get("message", {}).get("content")).strip()
+    if _is_scaffolding_turn(role, text):
+        return None
     return Turn(role=role, text=text) if text else None
+
+
+def _is_scaffolding_turn(role, text):
+    if role != "human":
+        return False
+    return any(text.startswith(p) for p in SCAFFOLDING_PREFIXES) or looks_agent_launched_prompt(text)
 
 
 def _codex_turn_from_obj(obj):
@@ -137,7 +281,7 @@ def _codex_turn_from_obj(obj):
     if not role:
         return None
     text = _text_of(payload.get("content")).strip()
-    if not text or any(text.startswith(p) for p in CODEX_SCAFFOLDING_PREFIXES):
+    if not text or _is_scaffolding_turn(role, text):
         return None
     return Turn(role=role, text=text)
 

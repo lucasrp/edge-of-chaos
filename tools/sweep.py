@@ -101,6 +101,8 @@ def _codex_baseline(cursors, codex_dir=None):
     if cursors.get(CODEX_BASELINE_KEY):
         return cursors
     for s in sessions.list_codex_sessions(codex_dir):
+        if not sessions.is_user_session(s):
+            continue
         _turns, watermark = sessions.delta(s.path, 0, surface=s.surface)
         cursors[_cursor_id(s)] = watermark
     cursors[CODEX_BASELINE_KEY] = True
@@ -129,6 +131,8 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None):
     cursors = cursors or {}
     found = []
     for s in sessions.list_sessions(project_dir):
+        if not sessions.is_user_session(s):
+            continue
         sid = _cursor_id(s)
         seen = cursors.get(sid, 0)
         turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
@@ -137,6 +141,8 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None):
         found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
     if include_codex:
         for s in sessions.list_codex_sessions(codex_dir):
+            if not sessions.is_user_session(s):
+                continue
             sid = _cursor_id(s)
             seen = cursors.get(sid, 0)
             turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
@@ -374,6 +380,43 @@ def _maybe_consolidate():
         print(f"sweep: communities skipped ({type(e).__name__}: {e}) — graph/LLM leg dark")
 
 
+def _topic_direction_window_days():
+    raw = os.environ.get("EDGE_TOPIC_DIRECTION_WINDOW_DAYS", "7")
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"EDGE_TOPIC_DIRECTION_WINDOW_DAYS={raw!r} is not an integer")
+    if val <= 0:
+        raise ValueError(f"EDGE_TOPIC_DIRECTION_WINDOW_DAYS={raw!r} must be positive")
+    return val
+
+
+def _maybe_propose_topic_directions(project_dir=None, codex_dir=None, log=eventlog.LOG):
+    """Recent Voz -> topic threads -> Direction.proposed.
+
+    This is the automatic non-curated tier the wake can safely run before assemble reads Direction.
+    It never promotes to `set`, and it never reopens a dropped/set steer.
+    """
+    if os.environ.get("EDGE_TOPIC_DIRECTION", "1").lower() in {"0", "false", "no", "off"}:
+        return 0
+    try:
+        import topic_threads
+        n = topic_threads.propose_recent_topic_directions(
+            window_days=_topic_direction_window_days(),
+            project_dir=project_dir,
+            codex_dir=codex_dir,
+            all_stores=(project_dir is None),
+            log=log,
+        )
+        if n:
+            print(f"sweep: topic threads proposed {n} Direction item(s)")
+        return n
+    except Exception as e:  # noqa: BLE001 — automatic inference must not gate the wake
+        print(f"sweep: topic-thread Direction skipped ({type(e).__name__}: {e}) — "
+              "wake continues; grill can still curate existing Direction")
+        return 0
+
+
 def reproject():
     """Re-project the folds. The Direction page + artefato candidates fold from the **log** (pure,
     always). The **wiki** projects from the graph and is **best-effort** — skipped (logged) on a
@@ -456,9 +499,11 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
             plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir)
             cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
             save_cursors(cursors, cursors_path)
+            proposed = _maybe_propose_topic_directions(project_dir=project_dir, codex_dir=codex_dir,
+                                                       log=log)
         finally:
             fcntl.flock(lk, fcntl.LOCK_UN)
-    if n and reproject_fn is not False:
+    if (n or proposed) and reproject_fn is not False:
         (reproject_fn or reproject)()
     elif reproject_fn is None:
         # Communities are the automatic consolidation leg of the wake. They must still refresh on a

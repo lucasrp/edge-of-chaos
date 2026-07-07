@@ -45,6 +45,16 @@ trabalho, e vi X"** — a data-loaded observation, never a form.
    (harm-ranked, a delta past the grilled mark). It is **ammunition the questions draw on, never
    the opening line** — funnel it; a low-relevance item, however high its harm tier, is backlog.
 
+**Direction proposed from wake/topic-thread is normal input, not ratification.** The wake sweep
+may now infer recent Voz topic threads over the last 7 days and land them as
+`direction.proposed` before assemble reads the briefing. Treat these as the mentor's live
+costura queue: useful because they show the path the system sees, dangerous if mistaken for Voz.
+Before asking, inspect each proposal's `relates_to` evidence in the event log (Voz fragments,
+sessions, turns); resolve anything the evidence already resolves. In the grill, do one of four
+things explicitly: promote to `direction.set` only when the mentee ratifies it, drop it when it is
+wrong or stale, split/merge it when the topic cluster conflates threads, or leave it proposed with
+a sharper falsifiable inscription. Never promote an inferred topic just because it recurs.
+
 **The evidence ladder of the stranger (onboarding):** (1) the **seed yaml** — sources, objetivos:
 an explosion of knowledge, you never start from 0; (2) empty yaml → there are **always the Claude
 sessions**; (3) the extreme case (fresh VPS, no source at all) → **ask for anything, honestly**:
