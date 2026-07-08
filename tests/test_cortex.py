@@ -127,6 +127,39 @@ class TestCortexFold(unittest.TestCase):
                                      {"slug": "alpha-post", "projected_at": "2026-06-10T12:00:00Z"})
         self.assertEqual(node["ts"], "2026-06-10T12:00:00Z")
 
+    def test_experiment_node_is_asserted_titled_and_linked_to_its_report(self):
+        node = self.server._map_node(
+            "4:x:exp",
+            "Experiment",
+            {"id": "exp040", "experiment_id": "exp040", "uuid": "experiment:exp040",
+             "title": "Report recovery arms",
+             "claim": "fan-out plus structural gate wins", "report_slug": "report-exp40",
+             "projected_at": "2026-07-08T10:00:00Z"},
+        )
+        self.assertEqual(node["trust"], "asserted")
+        self.assertFalse(node["context_only"])
+        self.assertEqual(node["ref"], "experiment:exp040")
+        self.assertEqual(node["title"], "Report recovery arms")
+        self.assertEqual(node["slug"], "exp040")
+        self.assertEqual(node["href"], "/e/report-exp40.html")
+        self.assertEqual(node["ts"], "2026-07-08T10:00:00Z")
+
+    def test_asset_artefato_uses_its_content_addressed_page_not_slug_route(self):
+        node = self.server._map_node(
+            "4:x:asset",
+            "Artefato",
+            {"slug": "demo-proto-abc123def456", "kind": "asset",
+             "page": "blog/entries/demo.proto.abc123def456.html"},
+        )
+        self.assertEqual(node["href"], "/e/demo.proto.abc123def456.html")
+        poison = self.server._map_node(
+            "4:x:asset-poison",
+            "Artefato",
+            {"slug": "demo-proto-abc123def456", "kind": "asset",
+             "page": "blog/entries/../secret.html"},
+        )
+        self.assertIsNone(poison["href"])
+
 
 class TestCortexRoute(unittest.TestCase):
     """GET /cortex renders the graph container + the Cytoscape island wired to the payload."""
@@ -448,6 +481,34 @@ class TestCortexRouteShipsHref(unittest.TestCase):
         # the unsafe pattern (a quoted href attribute built from the dynamic value) must be gone.
         self.assertNotIn("'<a href=\"' + ", js)
         self.assertNotIn("setAttribute(\"href\"", js)  # a string attr is the same breakout surface
+
+
+class TestEntryRouteServesArtifactAssets(unittest.TestCase):
+    """Generated assets are first-class Artefatos; their Cortex hrefs must target real /e routes."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        entries = Path(self.tmp.name)
+        (entries / "demo.js.abc123def456.js").write_text("console.log('ok');")
+        self.server = _load_server({"EDGE_BLOG_ENTRIES": str(entries)})
+        self.client = self.server.app.test_client()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        os.environ.pop("EDGE_BLOG_ENTRIES", None)
+
+    def test_e_route_serves_generated_javascript_assets_with_closed_policy(self):
+        resp = self.client.get("/e/demo.js.abc123def456.js")
+        try:
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn("console.log", resp.data.decode())
+            self.assertEqual(resp.headers.get("X-Content-Type-Options"), "nosniff")
+            self.assertIn("default-src 'none'", resp.headers.get("Content-Security-Policy", ""))
+        finally:
+            resp.close()
+
+    def test_e_route_rejects_paths_outside_entries(self):
+        self.assertEqual(self.client.get("/e/../secret.js").status_code, 404)
 
 
 class TestNodeHrefIsRouteShaped(unittest.TestCase):

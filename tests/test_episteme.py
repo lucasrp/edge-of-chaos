@@ -532,14 +532,103 @@ class ValencedEdgesProjectWithTheLeadCeiling(unittest.TestCase):
         self.assertTrue(publisher._project_para(s, "g1", "slug-a", ["Ninguem"]))
 
     def test_report_artifact_projects_a_reports_on_edge_to_experiment(self):
-        s = FakeSession()
-        unresolved = publisher._project_reports_on(s, "g1", "report-exp40", [" exp40 "])
-        self.assertFalse(unresolved)
-        q, params = next((q, p) for q, p in s.calls if "REPORTS_ON" in q)
-        self.assertIn("MERGE (x:Experiment {group_id:$g, id:$experiment_id})", q)
-        self.assertIn("MERGE (a)-[r:REPORTS_ON]->(x)", q)
-        self.assertIn("'asserted'", q)
-        self.assertEqual(params["experiment_id"], "exp40")
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            s = FakeSession()
+            unresolved = publisher._project_reports_on(
+                s, "g1", "report-exp40", [" exp40 "], log=log)
+            self.assertFalse(unresolved)
+            q, params = next((q, p) for q, p in s.calls if "MERGE (x:Experiment" in q)
+            edge_q, edge_params = next((q, p) for q, p in s.calls if "REPORTS_ON" in q)
+            self.assertIn("MERGE (x:Experiment {group_id:$g, id:$experiment_id})", q)
+            self.assertIn("x.uuid=$uuid", q)
+            self.assertIn("MERGE (a)-[r:REPORTS_ON]->(x)", edge_q)
+            self.assertIn("'asserted'", edge_q)
+            self.assertEqual(params["experiment_id"], "exp40")
+            self.assertEqual(params["uuid"], "experiment:exp40")
+            self.assertEqual(params["title"], "exp40")
+            self.assertEqual(params["report_slug"], "report-exp40")
+            self.assertEqual(params["status"], "reported")
+            self.assertEqual(edge_params["report_slug"], "report-exp40")
+
+    def test_report_artifact_projects_curated_experiment_metadata_for_the_ui(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.declare_experiment(
+                "Report recovery arms",
+                experiment_id="exp040",
+                hypothesis="structural gate improves report quality",
+                scope="research report pipeline",
+                status="declared",
+                log=log,
+            )
+            eventlog.curate_experiment(
+                "exp040",
+                prose="The richer structural gate improved the report without losing auditability.",
+                typed={
+                    "claim": "structural gate plus fan-out wins",
+                    "scope": "report generation",
+                    "status": "accepted",
+                    "caveat": "tested on one report family",
+                    "supports": ["arm C beat arm A"],
+                    "excludes": ["no-gate baseline"],
+                    "next": "ship as default",
+                },
+                canonical_artifacts=[{"ref": "artefato:report-exp40", "role": "report"}],
+                by="mentor",
+                log=log,
+            )
+            s = FakeSession()
+            unresolved = publisher._project_reports_on(
+                s, "g1", "report-exp40", ["exp040"], log=log)
+            self.assertFalse(unresolved)
+            _, params = next((q, p) for q, p in s.calls if "MERGE (x:Experiment" in q)
+            self.assertEqual(params["uuid"], "experiment:exp040")
+            self.assertEqual(params["title"], "Report recovery arms")
+            self.assertEqual(params["claim"], "structural gate plus fan-out wins")
+            self.assertEqual(params["scope"], "report generation")
+            self.assertEqual(params["status"], "accepted")
+            self.assertEqual(params["report_slug"], "report-exp40")
+            self.assertIsNotNone(params["declared_at"])
+            self.assertIsNotNone(params["curated_at"])
+
+    def test_native_legacy_experiment_projects_even_when_id_is_not_reports_on_canonical(self):
+        # Roberto has historical native Experiments whose ids predate the expNNN numbering rule.
+        # New `reports_on` stays strict, but the native event fold itself must still become a
+        # navigable Experiment node and link to its finalization report artifact.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append("experiment.curated", "experiment:2026-07-01-buscador-ablacao", {
+                "experiment_id": "2026-07-01-buscador-ablacao",
+                "canonical": {
+                    "prose": "A ablação do buscador encontrou o braço vencedor.",
+                    "typed": {
+                        "claim": "B3_fusao V9+raw venceu qualitativamente.",
+                        "scope": "24 irregularidades reais.",
+                        "status": "positive_lead_evidence",
+                        "caveat": "sem ground truth humano",
+                        "supports": ["B3 nota 3 em 22 de 24 casos"],
+                        "excludes": ["substituir raw por V9"],
+                        "next": "reproduzir com avaliacao humana",
+                    },
+                },
+                "canonical_artifacts": [
+                    {"ref": "artefato:buscador-ablacao-resultados-reais-v9-raw",
+                     "role": "report"},
+                ],
+                "by": "report",
+                "relates": [],
+            }, log=log)
+            s = FakeSession()
+            publisher._project_native_experiments(s, "g1", log)
+            _, params = next((q, p) for q, p in s.calls if "MERGE (x:Experiment" in q)
+            edge_q, edge_params = next((q, p) for q, p in s.calls if "REPORTS_ON" in q)
+            self.assertEqual(params["experiment_id"], "2026-07-01-buscador-ablacao")
+            self.assertEqual(params["uuid"], "experiment:2026-07-01-buscador-ablacao")
+            self.assertEqual(params["title"], "B3_fusao V9+raw venceu qualitativamente.")
+            self.assertEqual(params["report_slug"], "buscador-ablacao-resultados-reais-v9-raw")
+            self.assertIn("MERGE (a)-[r:REPORTS_ON]->(x)", edge_q)
+            self.assertEqual(edge_params["report_slug"], "buscador-ablacao-resultados-reais-v9-raw")
 
     def test_standalone_asset_projects_as_navigable_artefato(self):
         s = FakeSession()

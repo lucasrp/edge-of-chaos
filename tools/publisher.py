@@ -753,7 +753,77 @@ def _project_para(s, g, slug, para):
     return unresolved
 
 
-def _project_reports_on(s, g, slug, reports_on):
+def _experiment_report_slug(exp):
+    """The canonical finalization report slug carried by native Experiment audit artifacts."""
+    artifacts = exp.get("canonical_artifacts") if isinstance(exp, dict) else None
+    if not isinstance(artifacts, list):
+        return None
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        ref = artifact.get("ref")
+        if not (isinstance(ref, str) and ref.startswith("artefato:")):
+            continue
+        slug = ref.split(":", 1)[1].strip()
+        if SLUG_RE.fullmatch(slug):
+            return slug
+    return None
+
+
+def _experiment_graph_props_from(exp, experiment_id, *, report_slug=None):
+    canonical = exp.get("canonical") if isinstance(exp.get("canonical"), dict) else {}
+    typed = canonical.get("typed") if isinstance(canonical.get("typed"), dict) else {}
+    prose = canonical.get("prose") if isinstance(canonical.get("prose"), str) else None
+    claim = typed.get("claim") if isinstance(typed.get("claim"), str) else None
+    title = exp.get("title") if isinstance(exp.get("title"), str) else None
+    scope = typed.get("scope") if isinstance(typed.get("scope"), str) else exp.get("scope")
+    status = typed.get("status") if isinstance(typed.get("status"), str) else exp.get("status")
+    return {
+        "title": title or claim or experiment_id,
+        "claim": claim or prose,
+        "scope": scope if isinstance(scope, str) else None,
+        "status": status if isinstance(status, str) else "reported",
+        "report_slug": report_slug,
+        "declared_at": exp.get("declared_ts") if isinstance(exp.get("declared_ts"), str) else None,
+        "curated_at": exp.get("ts") if isinstance(exp.get("ts"), str) else None,
+    }
+
+
+def _experiment_graph_props(experiment_id, *, report_slug, log):
+    """Flat props for a navigable Experiment node.
+
+    The event log is the source of truth for native Experiments. Projection keeps only the fields the
+    Cortex UI needs to title, filter and drill down: id/title/current claim/status/scope and the
+    finalization report slug. If an old report only carries `reports_on`, the Experiment still gets a
+    useful asserted stub instead of an anonymous node.
+    """
+    exp = cortex.experiment_at(experiment_id, log=log) or {}
+    return _experiment_graph_props_from(exp, experiment_id, report_slug=report_slug)
+
+
+def _project_experiment_node(s, g, experiment_id, props):
+    s.run(
+        "MERGE (x:Experiment {group_id:$g, id:$experiment_id}) "
+        "SET x.kind='experiment', x.provenance_class='asserted', "
+        "x.experiment_id=$experiment_id, x.uuid=$uuid, "
+        "x.title=$title, x.claim=$claim, x.scope=$scope, x.status=$status, "
+        "x.report_slug=coalesce($report_slug, x.report_slug), "
+        "x.canonical_report=coalesce($report_slug, x.canonical_report), "
+        "x.declared_at=$declared_at, x.curated_at=$curated_at, "
+        "x.projected_at=$pat, x.projection_complete=true",
+        g=g, experiment_id=experiment_id, uuid=f"experiment:{experiment_id}",
+        pat=_dt.now(_tz.utc).isoformat(), **props)
+    report_slug = props.get("report_slug")
+    if report_slug:
+        s.run(
+            "MATCH (a:Artefato {group_id:$g, slug:$report_slug}) "
+            "MATCH (x:Experiment {group_id:$g, id:$experiment_id}) "
+            "MERGE (a)-[r:REPORTS_ON]->(x) "
+            "SET r.provenance_class='asserted'",
+            g=g, report_slug=report_slug, experiment_id=experiment_id)
+
+
+def _project_reports_on(s, g, slug, reports_on, *, log=eventlog.LOG):
     """Project report Artefato → Experiment.
 
     The report is the human-readable Artefato that links into clusters/entities/sources through the
@@ -762,14 +832,47 @@ def _project_reports_on(s, g, slug, reports_on):
     makes the experimental object navigable.
     """
     for experiment_id in normalize_reports_on(reports_on):
-        s.run(
-            "MATCH (a:Artefato {group_id:$g, slug:$slug}) "
-            "MERGE (x:Experiment {group_id:$g, id:$experiment_id}) "
-            "SET x.kind='experiment', x.provenance_class='asserted' "
-            "MERGE (a)-[r:REPORTS_ON]->(x) "
-            "SET r.provenance_class='asserted'",
-            g=g, slug=slug, experiment_id=experiment_id)
+        props = _experiment_graph_props(experiment_id, report_slug=slug, log=log)
+        _project_experiment_node(s, g, experiment_id, props)
     return False
+
+
+def _project_native_experiments(s, g, log):
+    """Project every native Experiment fold, including legacy ids that predate expNNN numbering."""
+    for experiment_id, exp in cortex.experiments_at(log=log).items():
+        if not (isinstance(experiment_id, str) and experiment_id.strip()):
+            continue
+        report_slug = _experiment_report_slug(exp)
+        props = _experiment_graph_props_from(exp, experiment_id, report_slug=report_slug)
+        _project_experiment_node(s, g, experiment_id.strip(), props)
+
+
+def project_native_experiments(log=eventlog.LOG):
+    """Best-effort projection of native Experiment memory independent of report replay.
+
+    `reports_on` remains strict for new authored report edges, but old Roberto experiments already
+    exist in the native event fold with legacy ids. This replay makes those scientific objects
+    navigable in Cortex instead of leaving anonymous Experiment stubs behind.
+    """
+    try:
+        import _identity
+        from neo4j import GraphDatabase
+        uri, user, pw = _identity.neo4j_conn()
+        g = _identity.require_group()
+        drv = GraphDatabase.driver(uri, auth=(user, pw))
+    except Exception as ex:  # noqa: BLE001 — best-effort; the log already holds the truth
+        print("experiment project skipped (best-effort, graph unreachable):", ex)
+        return
+    try:
+        with drv.session() as s:
+            _project_native_experiments(s, g, log)
+    except Exception as ex:  # noqa: BLE001 — recoverable on next reproject
+        print("experiment project failed (best-effort, reproject next beat):", ex)
+    finally:
+        try:
+            drv.close()
+        except Exception:
+            pass
 
 
 def _project_artefato_asset(s, g, asset):
@@ -1356,7 +1459,7 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # leaves the projection incomplete, so the next sweep re-links once it lands.
             unresolved_bears = _project_bears_on(s, g, slug, bears_on)
             unresolved_para = _project_para(s, g, slug, para)
-            _project_reports_on(s, g, slug, reports_on)
+            _project_reports_on(s, g, slug, reports_on, log=log)
             # (2b3) curadoria autoral — the para-o-mentee DEFAULT mark (prop + promoted-only
             # edge). Fail-safe by design: NEVER joins the unresolved set / completion marker.
             _project_para_default(s, g, slug, para_default)
@@ -1755,6 +1858,8 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
                 )
             except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
                 print(f"asset graph reproject skipped for {asset.get('asset_slug')!r}: {ex}")
+    if _is_canonical_log(log):
+        project_native_experiments(log=log)
     if session_topic_project_fn is None:
         session_topic_project_fn = project_session_topics if _is_canonical_log(log) else None
     if session_topic_project_fn is not None:

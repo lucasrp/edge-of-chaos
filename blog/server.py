@@ -1028,6 +1028,7 @@ def ux_catalog():
 _TRUST_BY_LABEL = {
     "Genesis": "space0",
     "Objective": "asserted", "Direction": "asserted", "Artefato": "asserted",
+    "Experiment": "asserted",
     "Entity": "extracted", "Source": "extracted", "Topic": "extracted",
     "Episodic": "episodic", "VozFragment": "episodic",
 }
@@ -1038,6 +1039,7 @@ _TITLE_FIELDS = {
     "Objective": ("body",),
     "Direction": ("body",),
     "Artefato": ("slug",),
+    "Experiment": ("title", "claim", "experiment_id", "id"),
     "Entity": ("name",),
     "Source": ("name", "source_description", "key"),
     "Topic": ("title", "name", "topic_id", "key"),
@@ -1101,6 +1103,42 @@ def _node_title(label, props):
 # trailing hyphen. A graph/log-derived slug that is NOT this shape is poisoned — never turned into a
 # live href (codex round-1 [high]: a slug carrying `" onclick=...` must not reach the URL).
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_ENTRY_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*\.(?:html|js|css|json|bin)$")
+
+
+def _entry_name_from_page(page):
+    """Return the route-safe filename under blog/entries for a graph-projected asset page.
+
+    `artefato.asset` records the repo-relative path (for example
+    `blog/entries/demo.proto.abc123.html`). Normal close-published Artefatos still link by slug;
+    assets need the exact content-addressed filename, which may contain dots and would be invalid as
+    a canonical slug. Only a flat file inside the configured entries dir becomes a URL.
+    """
+    if not isinstance(page, str) or not page.strip():
+        return None
+    clean = page.strip().replace("\\", "/")
+    prefix = "blog/entries/"
+    name = None
+    if clean.startswith(prefix):
+        name = clean[len(prefix):]
+    else:
+        try:
+            p = Path(clean)
+            if p.is_absolute():
+                resolved = p.resolve()
+                entries = _entries().resolve()
+                if resolved.parent == entries:
+                    name = resolved.name
+        except (OSError, ValueError):
+            return None
+    if not name or "/" in name or not _ENTRY_NAME_RE.fullmatch(name):
+        return None
+    return name
+
+
+def _entry_href_from_page(page):
+    name = _entry_name_from_page(page)
+    return f"/e/{name}" if name else None
 
 
 def _cluster_slug(label):
@@ -1116,6 +1154,8 @@ def _node_href(label, props):
     """The drill-down URL for a Cortex node → its source surface, so the graph stops being a
     disconnected island (AUDIT.md gap C, PLAN.md Slice 5b). Each maps to a REAL route:
       - Artefato (`slug`)            → /e/<slug>.html        (its blog entry)
+      - Artefato asset (`page`)      → /e/<content-address>  (its generated companion file)
+      - Experiment (`report_slug`)   → /e/<report>.html      (its finalization report)
       - Direction (`body`, no id)    → /direction            (the steer surface — the node has no
                                                               event id, so the robust target is the
                                                               scannable list, a real route)
@@ -1123,13 +1163,21 @@ def _node_href(label, props):
       - Entity with `curated_cluster`→ /wiki/<cluster-slug>  (clusters are not graph nodes in v1; an
                                                               Entity bearing a curated_cluster IS the
                                                               cluster's graph presence)
-    A node with no source surface (a bare Entity, Episodic, Genesis, Objective) → None (no dead
-    link). The values are graph-derived, so coerce + URL-shape defensively (no breakout)."""
+    A node with no source surface (a bare Entity, Episodic, Genesis, Objective, or unfinalized
+    Experiment) → None (no dead link). The values are graph-derived, so coerce + URL-shape
+    defensively (no breakout)."""
     if label == "Artefato":
+        if props.get("kind") == "asset":
+            return _entry_href_from_page(props.get("page"))
         slug = props.get("slug")
         # only a CANONICAL slug (publisher's shape) becomes a live href — a poisoned slug carrying a
         # quote / handler / path char is not route-shaped, so it drills nowhere (no breakout vector).
         return f"/e/{slug}.html" if isinstance(slug, str) and _SLUG_RE.match(slug) else None
+    if label == "Experiment":
+        report_slug = props.get("report_slug") or props.get("canonical_report")
+        if isinstance(report_slug, str) and _SLUG_RE.match(report_slug):
+            return f"/e/{report_slug}.html"
+        return None
     if label == "Direction":
         return "/direction" if props.get("body") else None
     if label == "Source":
@@ -1186,7 +1234,7 @@ def _context_only(label, props):
         # Key on the asserted-spine set, NOT _TRUST_BY_LABEL (where Episodic="episodic" != "extracted"
         # would mis-mark a low-tier Episodic as order-bearing, codex final [P3]). Asserted spine →
         # order-bearing; everything else (extracted, episodic, unknown) → context_only (fail-safe).
-        return label not in ("Genesis", "Objective", "Direction", "Artefato")
+        return label not in ("Genesis", "Objective", "Direction", "Artefato", "Experiment")
 
 
 def _map_node(id_, label, props):
@@ -1209,7 +1257,8 @@ def _map_node(id_, label, props):
         # cortex_node — distinct from the rebuild-unstable `ref` (uuid/elementId). An Artefato's `slug`,
         # a Source's `key`. Carried so the MCP's slug→node drill-down resolves on a healthy graph
         # (surf returns a slug; cortex_node must open it). None when the node has no such alias.
-        "slug": props.get("slug") or props.get("key"),
+        "slug": props.get("slug") or props.get("key") or (
+            (props.get("experiment_id") or props.get("id")) if label == "Experiment" else None),
         "label": label,
         "title": _node_title(label, props),
         # the CLAIM content (no label fallback) — the corrective snapshot's context source, None when
@@ -1380,8 +1429,8 @@ def _cortex_dark():
 
 # The node-type labels the filter exposes, in trust order (space-0 first). One checkbox per label;
 # the island maps a label → its node class and shows/hides deterministically over the loaded payload.
-_CORTEX_FILTER_LABELS = ("Genesis", "Objective", "Direction", "Artefato", "Entity", "Source",
-                         "Topic", "Episodic", "VozFragment")
+_CORTEX_FILTER_LABELS = ("Genesis", "Objective", "Direction", "Artefato", "Experiment",
+                         "Entity", "Source", "Topic", "Episodic", "VozFragment")
 
 
 def _cortex_controls():
@@ -2293,8 +2342,13 @@ def wiki_cluster_raw(cluster_id):
 @app.get("/e/<path:name>")
 def entry(name):
     entries = _entries()
-    p = entries / name
-    if not p.is_file() or p.suffix != ".html":
+    try:
+        p = (entries / name).resolve()
+        entries_root = entries.resolve()
+    except (OSError, ValueError):
+        abort(404)
+    allowed_suffixes = {".html", ".js", ".css", ".json", ".bin"}
+    if p.parent != entries_root or not p.is_file() or p.suffix not in allowed_suffixes:
         abort(404)
     resp = send_from_directory(entries, name)
     if ".proto." in name:
@@ -2308,6 +2362,10 @@ def entry(name):
             "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
             "img-src data:; media-src data:; font-src data:; "
             "connect-src 'none'; form-action 'none'; frame-ancestors 'self'; base-uri 'none'")
+    elif p.suffix != ".html":
+        resp.headers["Content-Security-Policy"] = (
+            "default-src 'none'; frame-ancestors 'self'; base-uri 'none'")
+        resp.headers["X-Content-Type-Options"] = "nosniff"
     return resp
 
 
