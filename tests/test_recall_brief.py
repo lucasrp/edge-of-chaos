@@ -40,6 +40,8 @@ class RecallSubgraphLivesInRecallModule(unittest.TestCase):
                       "recency order must be in the live query, not a comment")
         self.assertIn("a.projection_complete = true", recall.ARTEFATOS_QUERY,
                       "only complete projections are reliable memory")
+        self.assertIn("coalesce(a.kind,'published') <> 'asset'", recall.ARTEFATOS_QUERY,
+                      "generated HTML/JS/data assets must not pollute salient Artefatos as no-kernel rows")
         import inspect
         src = inspect.getsource(recall.recall_subgraph)
         self.assertIn("s.run(_q(ARTEFATOS_QUERY)", src,
@@ -55,6 +57,17 @@ class RecallSubgraphLivesInRecallModule(unittest.TestCase):
                       "recall_subgraph must execute the guarded constant (timeout-wrapped, N1/R3), "
                       "not an inline copy")
 
+    def test_experiment_query_orders_by_projected_sort_key_after_aggregation(self):
+        # Regression: ORDER BY x.curated_at after collect(DISTINCT a.slug) is invalid Cypher because
+        # x is no longer accessible after aggregation. The query must project the sort key first.
+        self.assertIn("AS sort_key", recall.EXPERIMENTS_QUERY)
+        self.assertIn("ORDER BY sort_key DESC, id", recall.EXPERIMENTS_QUERY)
+
+    def test_recall_assets_are_companions_not_orphan_asset_noise(self):
+        # The wake push should show assets as navigable companions of a parent Artefato. Full orphan/
+        # standalone inventory stays available through cortex_assets.
+        self.assertIn("MATCH (p:Artefato {group_id:$g})-[:HAS_ASSET]->(a)", recall.ASSETS_QUERY)
+
 
 class ComposeRecallBriefIsTheThirdBrief(unittest.TestCase):
     """`compose_recall_brief` renders the memory-salient brief — a standalone surface, peer to the
@@ -68,6 +81,11 @@ class ComposeRecallBriefIsTheThirdBrief(unittest.TestCase):
             "bets": ["rich-rite property gates", "recall-push"],
             "artefatos": [{"slug": "recall-report", "kernel": "open: budget unnamed"}],
             "clusters": ["Introspective memory"],
+            "experiments": [{"id": "exp040", "title": "Agentic navigation", "status": "closed",
+                             "report_slug": "experiment-final-report"}],
+            "assets": [{"slug": "experiment-final-report-html", "kind": "html",
+                        "parent_slug": "experiment-final-report",
+                        "page": "blog/entries/experiment-final-report.html"}],
         }
         text = recall.compose_recall_brief(subgraph=sub)
         low = text.lower()
@@ -77,6 +95,8 @@ class ComposeRecallBriefIsTheThirdBrief(unittest.TestCase):
         self.assertIn("rich-rite property gates", text)        # a bet
         self.assertIn("recall-report", text)                   # a salient artefato
         self.assertIn("introspective memory", low)             # a salient cluster
+        self.assertIn("exp040", text)                           # a native Experiment
+        self.assertIn("experiment-final-report-html", text)      # a generated asset companion
         self.assertIn("memory.md", low)                        # recall-MORE-on-demand affordance
 
     def test_dark_graph_renders_an_honest_marker_not_a_crash(self):

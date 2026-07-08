@@ -34,7 +34,10 @@ bounded, never a re-render of the whole graph). **The push seeds; navigation dee
 Cortex navigation beyond your brief belongs to the loop's own judgment — now **mechanized as the
 standing `cortex` read door** (`cortex_recall`/`cortex_surf`/`cortex_node`/`cortex_search`, registered
 on the lead beat via `--mcp-config`; `skills/_shared/memory.md` documents it) — point to it, do not
-pre-chew it. The door is the SELF door (denied to the delta/world subject, N5); you are recall, so you
+pre-chew it. When the task touches generated work, prefer the typed doors before shell-digging:
+`cortex_artifacts` for the canonical inventory, `cortex_artifact` when you already have a slug/ref,
+`cortex_assets` for HTML/JS/data companions, and `cortex_experiments`/`cortex_experiment` for native
+Experiments. The door is the SELF door (denied to the delta/world subject, N5); you are recall, so you
 hold it.
 
 ## Read-only (CONTRACT C1)

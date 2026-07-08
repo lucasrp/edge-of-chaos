@@ -7,11 +7,16 @@ omnipresent door is a standing MCP server. This is a minimal stdio JSON-RPC 2.0 
 tools/list / tools/call ONLY) — zero new runtime deps, no `mcp` SDK (N2), unit-testable with injectable
 backends and `EDGE_CORTEX_FIXTURE`.
 
-Four read tools, all group-scoped, all reusing the existing backends (never a forked read path, R10):
+Read tools, all group-scoped, all reusing the existing backends (never a forked read path, R10):
   - cortex_recall  → the salient seed subgraph         (recall.recall_subgraph)
   - cortex_surf    → the typed associative peer web     (recall.surf_subgraph, *1..2 hops)
   - cortex_node    → a node + immediate neighbors        (filter server.cortex_fold)
   - cortex_search  → nodes by label/title substring (v1) (filter server.cortex_fold)
+  - cortex_artifacts   → canonical published Artefatos + companion assets (eventlog fold)
+  - cortex_artifact    → one canonical published Artefato by exact slug/ref (eventlog fold)
+  - cortex_assets      → generated HTML/JS/data assets (eventlog fold)
+  - cortex_experiments → native Experiment index (eventlog fold)
+  - cortex_experiment  → one native Experiment in full (eventlog fold)
 
 Two failure classes, NEVER conflated (ADR-0015, F6/N6):
   - Unresolved identity (no group) FAILS LOUD at startup: the server REFUSES to construct/serve, so an
@@ -40,17 +45,18 @@ _TOOLS = [
     {
         "name": "cortex_recall",
         "description": ("The seed: the salient subgraph of your own memory rooted at space-0 "
-                        "(identity → objective → bets → salient Artefatos → distilled clusters). "
-                        "The same content pushed at wake, now pullable mid-turn. Capped small; "
-                        "pull deeper with cortex_surf/cortex_node."),
+                        "(identity → objective → bets → salient Artefatos → distilled clusters → "
+                        "native Experiments → generated assets). The same content pushed at wake, "
+                        "now pullable mid-turn. Capped small; pull deeper with typed tools, "
+                        "cortex_surf and cortex_node."),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "cortex_surf",
         "description": ("Walk the typed associative peer web from seed Artefato slugs "
-                        "(BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES, <=2 hops; SERVES "
-                        "excluded). Active, agent-controlled navigation: pick the next hop from "
-                        "evidence in hand."),
+                        "(BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES|SUPPORTS|REFUTES|"
+                        "REPORTS_ON, <=2 hops; SERVES excluded). Active, agent-controlled "
+                        "navigation: pick the next hop from evidence in hand."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -80,6 +86,68 @@ _TOOLS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "cortex_artifacts",
+        "description": ("List canonical published Artefatos from the eventlog, newest first, with "
+                        "their intent/kernel and generated companion assets. Use this before a raw "
+                        "graph search when you need the agentic inventory of what was produced."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Maximum rows, clamped to 50."},
+                "query": {"type": "string", "description": "Optional slug/intent/skill substring."},
+                "include_assets": {"type": "boolean", "description": "Attach child HTML/JS/data assets."},
+            },
+        },
+    },
+    {
+        "name": "cortex_artifact",
+        "description": ("Read one canonical published Artefato by exact slug, with generated companion "
+                        "assets. Accepts either a bare slug or an artefato:<slug> ref."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string", "description": "Artefato slug, or artefato:<slug> ref."},
+                "include_assets": {"type": "boolean", "description": "Attach child HTML/JS/data assets."},
+            },
+            "required": ["slug"],
+        },
+    },
+    {
+        "name": "cortex_assets",
+        "description": ("List generated artifact assets such as HTML, JavaScript, data files and "
+                        "images. Filter by parent_slug/kind when navigating a report or experiment."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "parent_slug": {"type": "string", "description": "Optional parent Artefato slug."},
+                "kind": {"type": "string", "description": "Optional asset kind: html/js/css/data/image."},
+                "limit": {"type": "integer", "description": "Maximum rows, clamped to 100."},
+            },
+        },
+    },
+    {
+        "name": "cortex_experiments",
+        "description": ("List native Experiments, curated-first and newest first. This is the "
+                        "agentic index: use it instead of digging folders for experiment memory."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "Optional status filter."},
+                "limit": {"type": "integer", "description": "Maximum rows, clamped to 50."},
+            },
+        },
+    },
+    {
+        "name": "cortex_experiment",
+        "description": ("Read one native Experiment by canonical id, including arms, decision rule, "
+                        "canonical conclusion, audit artifacts and curation chain."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string", "description": "Experiment id, e.g. exp040."}},
+            "required": ["id"],
+        },
+    },
 ]
 
 _TOOL_NAMES = {t["name"] for t in _TOOLS}
@@ -101,7 +169,7 @@ MAX_HOPS = 2
 # server with NO subject signal is the LEAD's own default server (the live main() path) — granted.
 GRANTED_SUBJECTS = {
     "lead", "recall", "assemble", "wake", "beat", "consolidate",
-    "report", "map", "plan", "research", "critique", "discovery", "mentor", "grill",
+    "report", "map", "plan", "research", "critique", "discovery", "mentor", "grill", "experiment",
     # ticket 05: lazer is a first-class producer (recall/consolidação like every producer).
     "lazer",
     # 04-C follow-up: prototype was the one roster genus missing here (pre-existing gap noted
@@ -116,6 +184,112 @@ def _usage_key(node):
     drill-down usage (cortex_node) lands under the SAME key its surf/search usage does, and a later
     surf rerank/heat for that node sees the accumulated signal — no key fragmentation across tools."""
     return node.get("slug") or node.get("ref") or node.get("id")
+
+
+def _clamped_limit(value, default, cap):
+    try:
+        return min(max(int(value), 1), cap)
+    except (TypeError, ValueError):
+        return default
+
+
+def _experiment_report_slug(exp):
+    for artifact in exp.get("canonical_artifacts") or []:
+        ref = artifact.get("ref") if isinstance(artifact, dict) else None
+        if isinstance(ref, str) and ref.startswith("artefato:"):
+            slug = ref.split(":", 1)[1].strip()
+            if slug:
+                return slug
+    return None
+
+
+def _experiment_row(experiment_id, exp, *, full=False):
+    canonical = exp.get("canonical") if isinstance(exp.get("canonical"), dict) else {}
+    typed = canonical.get("typed") if isinstance(canonical.get("typed"), dict) else {}
+    row = {
+        "id": experiment_id,
+        "experiment_id": experiment_id,
+        "title": exp.get("title") or typed.get("claim") or exp.get("hypothesis") or experiment_id,
+        "hypothesis": exp.get("hypothesis"),
+        "scope": typed.get("scope") or exp.get("scope"),
+        "status": typed.get("status") or exp.get("status"),
+        "claim": typed.get("claim") or canonical.get("prose"),
+        "caveat": typed.get("caveat"),
+        "supports": typed.get("supports") or [],
+        "excludes": typed.get("excludes") or [],
+        "next": typed.get("next"),
+        "report_slug": _experiment_report_slug(exp),
+        "canonical_artifacts": exp.get("canonical_artifacts") or [],
+        "declared_at": exp.get("declared_ts"),
+        "curated_at": exp.get("ts"),
+        "seq": exp.get("seq"),
+        "curation_count": len(exp.get("curation_chain") or []),
+    }
+    if full:
+        row.update({
+            "owner": exp.get("owner"),
+            "decision_rule": exp.get("decision_rule"),
+            "arms": exp.get("arms") or [],
+            "relates": exp.get("relates") or [],
+            "declared_by": exp.get("declared_by"),
+            "canonical": canonical,
+            "curation_chain": exp.get("curation_chain") or [],
+        })
+    return row
+
+
+def _asset_row(asset):
+    slug = asset.get("asset_slug")
+    return {
+        "slug": slug,
+        "asset_slug": slug,
+        "kind": "asset",
+        "asset_kind": asset.get("kind"),
+        "role": asset.get("role"),
+        "path": asset.get("path"),
+        "page": asset.get("path"),
+        "parent_slug": asset.get("parent_slug"),
+        "skill": asset.get("skill"),
+        "media_type": asset.get("media_type"),
+        "sha256": asset.get("sha256"),
+        "ts": asset.get("ts"),
+        "seq": asset.get("seq"),
+    }
+
+
+def _artifact_row(item, child_assets):
+    slug = item.get("slug")
+    return {
+        "slug": slug,
+        "kind": "published",
+        "intent": item.get("intent"),
+        "kernel": item.get("intent"),
+        "skill": item.get("skill"),
+        "origin": item.get("origin"),
+        "reports_on": item.get("reports_on") or [],
+        "bears_on": item.get("bears_on") or [],
+        "distills": item.get("distills") or [],
+        "cites": item.get("cites") or [],
+        "lineage": item.get("lineage") or [],
+        "ts": item.get("ts"),
+        "seq": item.get("seq"),
+        "page": f"blog/entries/{slug}.html" if slug else None,
+        "assets": child_assets,
+    }
+
+
+def _artifact_slug(ref):
+    if not isinstance(ref, str):
+        return None
+    slug = ref.strip()
+    if slug.startswith("artefato:"):
+        slug = slug.split(":", 1)[1].strip()
+    return slug or None
+
+
+def _recent_key(row):
+    seq = row.get("seq")
+    return (seq if isinstance(seq, int) else -1, str(row.get("ts") or row.get("curated_at") or ""))
 
 
 def _dark(reason):
@@ -133,7 +307,8 @@ class CortexServer:
     ADR-0015) — the server refuses to serve `cortex_*` at all. Only a RESOLVED group's runtime outage
     is allowed to fail dark, and that is decided per call (a backend returning None / raising)."""
 
-    def __init__(self, group, recall_fn=None, surf_fn=None, fold_fn=None, subject=None, run_id=None):
+    def __init__(self, group, recall_fn=None, surf_fn=None, fold_fn=None, artifacts_fn=None,
+                 assets_fn=None, experiments_fn=None, subject=None, run_id=None):
         if not group:
             # FAIL LOUD — the identity wall (ADR-0015). An unidentified install must not serve a single
             # cortex_* call; a silent dark here would hide empty/foreign state (multi-tenant leak).
@@ -155,6 +330,9 @@ class CortexServer:
         self._recall_fn = recall_fn or self._live_recall
         self._surf_fn = surf_fn or self._live_surf
         self._fold_fn = fold_fn or self._live_fold
+        self._artifacts_fn = artifacts_fn or self._live_artifacts
+        self._assets_fn = assets_fn or self._live_assets
+        self._experiments_fn = experiments_fn or self._live_experiments
 
     def _visible_tools(self):
         """The tools this subject may see — none for a denied (delta/world) subject (R6/N5)."""
@@ -173,6 +351,18 @@ class CortexServer:
         sys.path.insert(0, str(REPO / "blog"))
         import server
         return server.cortex_fold(self.group)
+
+    def _live_artifacts(self):
+        import cortex
+        return cortex.corpus_at()
+
+    def _live_assets(self):
+        import cortex
+        return cortex.artefato_assets_at()
+
+    def _live_experiments(self):
+        import cortex
+        return cortex.experiments_at()
 
     # --- JSON-RPC dispatch ------------------------------------------------------------------------
     def handle(self, msg):
@@ -241,7 +431,7 @@ class CortexServer:
     def _err(mid, code, message):
         return {"jsonrpc": "2.0", "id": mid, "error": {"code": code, "message": message}}
 
-    # --- the four read tools ----------------------------------------------------------------------
+    # --- read tools --------------------------------------------------------------------------------
     # Every tool wraps its backend so a runtime outage (None) OR a raising backend darkens THIS leg
     # only (C1) — never the server. The identity wall is already past (constructor); here it is pure
     # runtime fail-dark.
@@ -277,7 +467,14 @@ class CortexServer:
         sub["clusters"] = [cortex_provenance.mark_node(
             {"cluster": c} if not isinstance(c, dict) else c, label="Entity")
             for c in (sub.get("clusters") or [])]
-        self._record("cortex_recall", [a.get("slug") for a in sub["artefatos"]])
+        sub["experiments"] = [cortex_provenance.mark_node(e, label="Experiment")
+                              for e in (sub.get("experiments") or [])]
+        sub["assets"] = [cortex_provenance.mark_node(a, label="Artefato")
+                         for a in (sub.get("assets") or [])]
+        refs = [a.get("slug") for a in sub["artefatos"]]
+        refs.extend(e.get("id") or e.get("experiment_id") for e in sub["experiments"])
+        refs.extend(a.get("slug") for a in sub["assets"])
+        self._record("cortex_recall", refs)
         return sub
 
     def _t_cortex_surf(self, args):
@@ -364,11 +561,168 @@ class CortexServer:
             n.pop("_usage_key", None)   # an internal ranking field, never part of the returned payload
         return {"results": results}
 
+    def _t_cortex_artifacts(self, args):
+        limit = _clamped_limit(args.get("limit"), 12, 50)
+        query = args.get("query")
+        if query is not None and not isinstance(query, str):
+            raise _ToolError("invalid query: expected a string")
+        include_assets = args.get("include_assets", True)
+        if include_assets is not None and not isinstance(include_assets, bool):
+            raise _ToolError("invalid include_assets: expected a boolean")
+        artifacts = self._safe_artifacts()
+        if artifacts is None:
+            return _dark("eventlog unavailable (artifacts)")
+        assets_dark = False
+        assets_by_parent = {}
+        if include_assets:
+            assets = self._safe_assets()
+            if assets is None:
+                assets_dark = True
+            else:
+                for asset in assets.values():
+                    parent = asset.get("parent_slug")
+                    if parent:
+                        assets_by_parent.setdefault(parent, []).append(_asset_row(asset))
+        rows = []
+        q = query.lower() if query else None
+        for item in reversed(list(artifacts)):
+            hay = " ".join(str(item.get(f, "")) for f in ("slug", "intent", "skill")).lower()
+            if q and q not in hay:
+                continue
+            slug = item.get("slug")
+            child_assets = [cortex_provenance.mark_node(a, label="Artefato")
+                            for a in sorted(assets_by_parent.get(slug, []),
+                                            key=_recent_key, reverse=True)]
+            rows.append(_artifact_row(item, child_assets))
+            if len(rows) >= limit:
+                break
+        rows = [cortex_provenance.mark_node(r, label="Artefato") for r in rows]
+        refs = [r.get("slug") for r in rows]
+        for r in rows:
+            refs.extend(a.get("slug") for a in r.get("assets") or [])
+        self._record("cortex_artifacts", refs)
+        return {"artifacts": rows, "limit": limit, "assets_dark": assets_dark}
+
+    def _t_cortex_artifact(self, args):
+        slug = _artifact_slug(args.get("slug"))
+        if not slug:
+            raise _ToolError("invalid slug: expected a non-empty artifact slug")
+        include_assets = args.get("include_assets", True)
+        if include_assets is not None and not isinstance(include_assets, bool):
+            raise _ToolError("invalid include_assets: expected a boolean")
+        artifacts = self._safe_artifacts()
+        if artifacts is None:
+            return _dark("eventlog unavailable (artifact)")
+        item = None
+        for candidate in reversed(list(artifacts)):
+            if candidate.get("slug") == slug:
+                item = candidate
+                break
+        assets_dark = False
+        child_assets = []
+        if item and include_assets:
+            assets = self._safe_assets()
+            if assets is None:
+                assets_dark = True
+            else:
+                child_assets = [cortex_provenance.mark_node(_asset_row(asset), label="Artefato")
+                                for asset in sorted(assets.values(), key=_recent_key, reverse=True)
+                                if asset.get("parent_slug") == slug]
+        if item is None:
+            return {"artifact": None, "assets_dark": assets_dark}
+        row = cortex_provenance.mark_node(_artifact_row(item, child_assets), label="Artefato")
+        refs = [row.get("slug")]
+        refs.extend(a.get("slug") for a in row.get("assets") or [])
+        self._record("cortex_artifact", refs)
+        return {"artifact": row, "assets_dark": assets_dark}
+
+    def _t_cortex_assets(self, args):
+        parent = args.get("parent_slug")
+        kind = args.get("kind")
+        if parent is not None and not isinstance(parent, str):
+            raise _ToolError("invalid parent_slug: expected a string")
+        if kind is not None and not isinstance(kind, str):
+            raise _ToolError("invalid kind: expected a string")
+        limit = _clamped_limit(args.get("limit"), 24, 100)
+        assets = self._safe_assets()
+        if assets is None:
+            return _dark("eventlog unavailable (assets)")
+        rows = []
+        for asset in sorted(assets.values(), key=_recent_key, reverse=True):
+            if parent and asset.get("parent_slug") != parent:
+                continue
+            if kind and asset.get("kind") != kind:
+                continue
+            rows.append(_asset_row(asset))
+            if len(rows) >= limit:
+                break
+        rows = [cortex_provenance.mark_node(r, label="Artefato") for r in rows]
+        self._record("cortex_assets", [r.get("slug") for r in rows])
+        return {"assets": rows, "limit": limit}
+
+    def _t_cortex_experiments(self, args):
+        status = args.get("status")
+        if status is not None and not isinstance(status, str):
+            raise _ToolError("invalid status: expected a string")
+        limit = _clamped_limit(args.get("limit"), 12, 50)
+        experiments = self._safe_experiments()
+        if experiments is None:
+            return _dark("eventlog unavailable (experiments)")
+        rows = []
+        wanted = status.lower() if status else None
+        for eid, exp in sorted(experiments.items(),
+                               key=lambda kv: _recent_key(_experiment_row(kv[0], kv[1])),
+                               reverse=True):
+            row = _experiment_row(eid, exp)
+            if wanted and str(row.get("status") or "").lower() != wanted:
+                continue
+            rows.append(row)
+            if len(rows) >= limit:
+                break
+        rows = [cortex_provenance.mark_node(r, label="Experiment") for r in rows]
+        self._record("cortex_experiments", [r.get("id") for r in rows])
+        return {"experiments": rows, "limit": limit}
+
+    def _t_cortex_experiment(self, args):
+        experiment_id = args.get("id")
+        if not isinstance(experiment_id, str) or not experiment_id.strip():
+            raise _ToolError("invalid id: expected a non-empty experiment id")
+        experiments = self._safe_experiments()
+        if experiments is None:
+            return _dark("eventlog unavailable (experiment)")
+        exp = experiments.get(experiment_id.strip())
+        if exp is None:
+            return {"experiment": None}
+        row = cortex_provenance.mark_node(_experiment_row(experiment_id.strip(), exp, full=True),
+                                          label="Experiment")
+        refs = [row.get("id"), row.get("report_slug")]
+        refs.extend(a.get("ref") for a in row.get("canonical_artifacts") or [])
+        self._record("cortex_experiment", refs)
+        return {"experiment": row}
+
     # --- fold helpers -----------------------------------------------------------------------------
     def _safe_fold(self):
         """The fold backend, guarded: None (or a raise) → None so the caller darkens this leg."""
         try:
             return self._fold_fn()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _safe_artifacts(self):
+        try:
+            return self._artifacts_fn()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _safe_assets(self):
+        try:
+            return self._assets_fn()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _safe_experiments(self):
+        try:
+            return self._experiments_fn()
         except Exception:  # noqa: BLE001
             return None
 

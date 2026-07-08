@@ -286,6 +286,7 @@ class PolicyIsAllowlistNotDenylist(unittest.TestCase):
         # the explicit grant set: lead + the self-reading fan; delta/world are absent by construction.
         self.assertIn("lead", cortex_config.GRANTED_SUBJECTS)
         self.assertIn("recall", cortex_config.GRANTED_SUBJECTS)
+        self.assertIn("experiment", cortex_config.GRANTED_SUBJECTS)
         self.assertNotIn("delta", cortex_config.GRANTED_SUBJECTS)
         self.assertNotIn("world", cortex_config.GRANTED_SUBJECTS)
 

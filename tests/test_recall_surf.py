@@ -65,9 +65,10 @@ class SurfQueryIsAssociativeOnly(unittest.TestCase):
         rels = set(m.group(1).split("|"))
         self.assertEqual(
             rels, {"BUILDS_ON", "SUPERSEDES", "CONTRADICTS", "RELATES_TO", "CITES",
-                   "SUPPORTS", "REFUTES"},
-            "the surf allowlist must be EXACTLY the seven associative types — no more, no "
-            "fewer (ticket A §2c: SUPPORTS|REFUTES join; QUALIFIES/INCONCLUSIVE stay out)")
+                   "SUPPORTS", "REFUTES", "REPORTS_ON"},
+            "the surf allowlist must be EXACTLY the associative/reporting types — no more, no "
+            "fewer (SUPPORTS|REFUTES join; REPORTS_ON makes Experiment navigable; "
+            "QUALIFIES/INCONCLUSIVE stay out)")
         # bounded hops *1..2 (a multi-hop reach, not the whole graph)
         self.assertIn("*1..2", q, "the surf must bound the walk to *1..2 hops")
         # the hub is excluded STRUCTURALLY, by omission — SERVES is never a pass-through hop
@@ -86,10 +87,11 @@ class SurfQueryIsAssociativeOnly(unittest.TestCase):
         # coalesce(n.slug, n.key), or a cited Source returns a null slug (and surf → cortex_node
         # dead-ends). Pinned on the query the runtime executes.
         q = recall.SURF_QUERY
-        self.assertIn("coalesce(n.slug, n.key) AS slug", q,
-                      "the surf must return coalesce(slug, key) so keyed Sources carry a non-null ref")
-        self.assertIn("NOT coalesce(n.slug, n.key) IN $seeds", q,
-                      "the self-exclusion must coalesce too, or a null-slug Source slips the filter")
+        self.assertIn("coalesce(n.slug, n.key, n.experiment_id, n.id) AS slug", q,
+                      "the surf must return coalesce(slug, key, experiment id) so every terminal carries a ref")
+        self.assertIn("NOT coalesce(n.slug, n.key, n.experiment_id, n.id) IN $seeds", q,
+                      "the self-exclusion must coalesce too, or a null-slug terminal slips the filter")
+        self.assertIn("n:Experiment", q, "REPORTS_ON must surface the Experiment endpoint, not hide it")
 
     def test_surf_query_scopes_the_path_wide_not_just_endpoints(self):
         # R7b / GitHub #41 — the variable-length *1..2 walk must constrain EVERY node on the path
@@ -300,7 +302,7 @@ class SurfBridgesViaEntityCommunity(unittest.TestCase):
         m = re.search(r"\[:([A-Z_|]+)\*1\.\.2\]", recall.SURF_QUERY)
         self.assertEqual(set(m.group(1).split("|")),
                          {"BUILDS_ON", "SUPERSEDES", "CONTRADICTS", "RELATES_TO", "CITES",
-                          "SUPPORTS", "REFUTES"})
+                          "SUPPORTS", "REFUTES", "REPORTS_ON"})
 
     def test_surf_subgraph_runs_both_queries(self):
         src = inspect.getsource(recall.surf_subgraph)

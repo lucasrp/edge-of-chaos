@@ -1,6 +1,7 @@
 """cortex MCP server (Slice 2) — the standing read-only door (REQUISITES-CORTEX-MEMORY F1-F6, N1-N2,
 Appendix A). A minimal stdio JSON-RPC 2.0 server (initialize / tools/list / tools/call) exposing the
-four read tools — cortex_recall (seed), cortex_surf, cortex_node, cortex_search — over the REUSED
+read tools — cortex_recall (seed), cortex_surf, cortex_node, cortex_search plus typed
+artifact/experiment inventories — over the REUSED
 recall/fold backends. No `mcp` SDK dependency (N2). Unit-testable with injectable backends so no live
 neo4j is needed; the live path wires recall.recall_subgraph / recall.surf_subgraph / server.cortex_fold.
 
@@ -18,6 +19,10 @@ sys.path.insert(0, str(REPO / "tools"))
 
 import cortex_mcp  # noqa: E402
 
+TOOL_NAMES = {
+    "cortex_recall", "cortex_surf", "cortex_node", "cortex_search",
+    "cortex_artifacts", "cortex_artifact", "cortex_assets", "cortex_experiments", "cortex_experiment",
+}
 
 # A small whole-Cortex fold fixture (the cortex_fold shape: {nodes, edges}); injected as fold_fn so
 # cortex_node / cortex_search run with no live neo4j. Nodes carry the trust tier per label.
@@ -45,9 +50,51 @@ RECALL_SUBGRAPH = {
     "clusters": ["Introspective memory"],
 }
 
+ARTIFACTS = [
+    {"slug": "active-recall", "intent": "navigation beats top-k", "skill": "research",
+     "origin": "user_requested", "reports_on": [], "ts": "2026-01-01T00:00:00Z", "seq": 10},
+    {"slug": "experiment-final-report", "intent": "close exp040", "skill": "report",
+     "origin": "beat", "reports_on": ["exp040"], "ts": "2026-01-02T00:00:00Z", "seq": 20},
+]
+
+ASSETS = {
+    "experiment-final-report-html": {
+        "asset_slug": "experiment-final-report-html", "path": "blog/entries/experiment-final-report.html",
+        "kind": "html", "role": "reader", "parent_slug": "experiment-final-report",
+        "skill": "report", "media_type": "text/html", "sha256": "a" * 64,
+        "ts": "2026-01-02T00:01:00Z", "seq": 21,
+    },
+    "experiment-final-report-js": {
+        "asset_slug": "experiment-final-report-js", "path": "blog/entries/experiment-final-report.js",
+        "kind": "js", "role": "navigator", "parent_slug": "experiment-final-report",
+        "skill": "report", "media_type": "text/javascript", "sha256": "b" * 64,
+        "ts": "2026-01-02T00:02:00Z", "seq": 22,
+    },
+}
+
+EXPERIMENTS = {
+    "exp040": {
+        "experiment_id": "exp040",
+        "title": "Agentic artifact navigation",
+        "hypothesis": "typed doors beat graph search",
+        "scope": "MCP UX",
+        "status": "closed",
+        "decision_rule": "prefer the arm with fewer dead-ends",
+        "arms": [{"id": "A", "label": "generic graph"}, {"id": "B", "label": "typed tools"}],
+        "canonical": {"prose": "Typed tools won.",
+                      "typed": {"claim": "Typed inventories make navigation native",
+                                "scope": "agentic UX", "status": "closed",
+                                "caveat": "single fixture", "supports": ["fewer digs"],
+                                "excludes": ["write path"], "next": "ship it"}},
+        "canonical_artifacts": [{"ref": "artefato:experiment-final-report", "role": "report"}],
+        "curation_chain": [{"seq": 30, "ts": "2026-01-02T00:03:00Z"}],
+        "declared_ts": "2026-01-01T00:00:00Z", "ts": "2026-01-02T00:03:00Z", "seq": 30,
+    }
+}
+
 
 def _server(**kw):
-    """A server with all four backends injected + a resolved group, so no live neo4j is touched. The
+    """A server with all read backends injected + a resolved group, so no live neo4j is touched. The
     subject defaults to 'lead' (a granted self-cognition) — the realistic lead path; the server is now
     fail-closed for a MISSING subject (codex final [high]), so the granted case is named explicitly."""
     defaults = dict(
@@ -59,6 +106,9 @@ def _server(**kw):
             {"slug": "arxiv-2606", "kernel": "MRAgent", "labels": ["Source"], "hops": 2},
         ],
         fold_fn=lambda: dict(FOLD),
+        artifacts_fn=lambda: list(ARTIFACTS),
+        assets_fn=lambda: dict(ASSETS),
+        experiments_fn=lambda: dict(EXPERIMENTS),
     )
     defaults.update(kw)
     return cortex_mcp.CortexServer(**defaults)
@@ -86,10 +136,10 @@ class JsonRpcEnvelope(unittest.TestCase):
         self.assertIn("protocolVersion", resp["result"])
         self.assertEqual(resp["result"]["serverInfo"]["name"], "cortex")
 
-    def test_tools_list_advertises_the_four_read_tools(self):
+    def test_tools_list_advertises_the_read_tools(self):
         resp = _call(_server(), "tools/list")
         names = {t["name"] for t in resp["result"]["tools"]}
-        self.assertEqual(names, {"cortex_recall", "cortex_surf", "cortex_node", "cortex_search"})
+        self.assertEqual(names, TOOL_NAMES)
         # every tool carries an inputSchema (MCP requires it for tools/call validation)
         for t in resp["result"]["tools"]:
             self.assertIn("inputSchema", t)
@@ -137,8 +187,8 @@ class JsonRpcEnvelope(unittest.TestCase):
         self.assertIn("tools", resp["result"])
 
 
-class TheFourReadTools(unittest.TestCase):
-    """The four read tools return correct group-scoped data against the injected backends
+class TheReadTools(unittest.TestCase):
+    """The read tools return correct group-scoped data against the injected backends
     (Appendix A acceptance a)."""
 
     def test_cortex_recall_returns_the_salient_seed(self):
@@ -231,6 +281,54 @@ class TheFourReadTools(unittest.TestCase):
         refs = {n["ref"] for n in out["results"]}
         self.assertIn("s1", refs)
 
+    def test_cortex_artifacts_returns_published_artifacts_with_child_assets(self):
+        out = _tool(_server(), "cortex_artifacts", {"limit": 5})
+        rows = out["artifacts"]
+        self.assertEqual(rows[0]["slug"], "experiment-final-report")
+        self.assertEqual(rows[0]["reports_on"], ["exp040"])
+        self.assertEqual({a["asset_kind"] for a in rows[0]["assets"]}, {"html", "js"})
+        self.assertEqual(rows[0]["tier"], "asserted")
+
+    def test_cortex_artifact_returns_one_artifact_by_exact_slug(self):
+        out = _tool(_server(), "cortex_artifact", {"slug": "experiment-final-report"})
+        row = out["artifact"]
+        self.assertEqual(row["slug"], "experiment-final-report")
+        self.assertEqual(row["reports_on"], ["exp040"])
+        self.assertEqual({a["asset_kind"] for a in row["assets"]}, {"html", "js"})
+        self.assertEqual(row["tier"], "asserted")
+
+    def test_cortex_artifact_accepts_canonical_artefato_ref(self):
+        out = _tool(_server(), "cortex_artifact", {"slug": "artefato:experiment-final-report"})
+        self.assertEqual(out["artifact"]["slug"], "experiment-final-report")
+
+    def test_cortex_artifact_unknown_slug_returns_empty_not_dark(self):
+        out = _tool(_server(), "cortex_artifact", {"slug": "missing-report"})
+        self.assertIsNone(out["artifact"])
+        self.assertNotIn("dark", out)
+
+    def test_cortex_assets_filters_by_parent_and_kind(self):
+        out = _tool(_server(), "cortex_assets",
+                    {"parent_slug": "experiment-final-report", "kind": "html"})
+        self.assertEqual([a["slug"] for a in out["assets"]], ["experiment-final-report-html"])
+        self.assertEqual(out["assets"][0]["page"], "blog/entries/experiment-final-report.html")
+
+    def test_cortex_experiments_returns_the_native_index(self):
+        out = _tool(_server(), "cortex_experiments")
+        self.assertEqual([e["id"] for e in out["experiments"]], ["exp040"])
+        self.assertEqual(out["experiments"][0]["report_slug"], "experiment-final-report")
+        self.assertEqual(out["experiments"][0]["tier"], "asserted")
+
+    def test_cortex_experiment_returns_full_detail(self):
+        out = _tool(_server(), "cortex_experiment", {"id": "exp040"})
+        exp = out["experiment"]
+        self.assertEqual(exp["id"], "exp040")
+        self.assertEqual(exp["decision_rule"], "prefer the arm with fewer dead-ends")
+        self.assertEqual(exp["canonical"]["typed"]["claim"], "Typed inventories make navigation native")
+
+    def test_cortex_experiment_unknown_id_returns_empty_not_dark(self):
+        out = _tool(_server(), "cortex_experiment", {"id": "exp999"})
+        self.assertIsNone(out["experiment"])
+
 
 class MalformedRequestsNeverCrashTheServer(unittest.TestCase):
     """The standing server must survive malformed-but-valid JSON-RPC (model-generated bad args / a
@@ -291,7 +389,7 @@ class MalformedRequestsNeverCrashTheServer(unittest.TestCase):
 class SubjectScopeDenyAtTheServer(unittest.TestCase):
     """R6/N5 — the per-cognition deny is enforceable at the server, not only by config. A server
     constructed for a delta/world subject WITHHOLDS the door: tools/list is empty and tools/call is
-    refused. The lead/recall subject (default) sees all four. This is the server-side half of the
+    refused. The lead/recall subject (default) sees all read tools. This is the server-side half of the
     Appendix-A acceptance (c) negative tools/list; the config allowlist (Slice 6) is the harness half."""
 
     def test_a_delta_subject_gets_no_cortex_tools(self):
@@ -305,12 +403,12 @@ class SubjectScopeDenyAtTheServer(unittest.TestCase):
         resp = _call(srv, "tools/call", {"name": "cortex_recall", "arguments": {}})
         self.assertIn("error", resp)
 
-    def test_a_granted_self_cognition_sees_all_four_tools(self):
-        for subj in ("lead", "recall", "report", "map", "plan"):
+    def test_a_granted_self_cognition_sees_all_read_tools(self):
+        for subj in ("lead", "recall", "report", "map", "plan", "experiment"):
             with self.subTest(subject=subj):
                 srv = _server(subject=subj)
                 names = {t["name"] for t in _call(srv, "tools/list")["result"]["tools"]}
-                self.assertEqual(names, {"cortex_recall", "cortex_surf", "cortex_node", "cortex_search"})
+                self.assertEqual(names, TOOL_NAMES)
 
     def test_the_live_entrypoint_does_not_grant_a_missing_subject(self):
         # codex final [high]: main() must NOT default a missing EDGE_CORTEX_SUBJECT to "lead" — it
@@ -337,9 +435,10 @@ class SubjectScopeDenyAtTheServer(unittest.TestCase):
             srv = cortex_mcp.CortexServer(
                 group="g", subject=os.environ.get("EDGE_CORTEX_SUBJECT"),
                 recall_fn=lambda group=None: {}, surf_fn=lambda s, group=None: [],
-                fold_fn=lambda: {"nodes": [], "edges": []})
+                fold_fn=lambda: {"nodes": [], "edges": []},
+                artifacts_fn=lambda: [], assets_fn=lambda: {}, experiments_fn=lambda: {})
             names = {t["name"] for t in _call(srv, "tools/list")["result"]["tools"]}
-            self.assertEqual(len(names), 4, "the baked lead subject grants all four tools")
+            self.assertEqual(names, TOOL_NAMES, "the baked lead subject grants all read tools")
         finally:
             if saved is None:
                 os.environ.pop("EDGE_CORTEX_SUBJECT", None)
@@ -355,7 +454,8 @@ class SubjectScopeDenyAtTheServer(unittest.TestCase):
             srv = cortex_mcp.CortexServer(
                 group="g", subject=None,
                 recall_fn=lambda group=None: {}, surf_fn=lambda s, group=None: [],
-                fold_fn=lambda: {"nodes": [], "edges": []})
+                fold_fn=lambda: {"nodes": [], "edges": []},
+                artifacts_fn=lambda: [], assets_fn=lambda: {}, experiments_fn=lambda: {})
             self.assertEqual(_call(srv, "tools/list")["result"]["tools"], [],
                              "a missing subject must serve NO tools (fail-closed, not default-open)")
             self.assertIn("error", _call(srv, "tools/call", {"name": "cortex_recall", "arguments": {}}))
@@ -380,9 +480,14 @@ class FailLoudIdentityFailDarkRuntime(unittest.TestCase):
         # a RESOLVED group whose backend returns None (neo4j down/slow) -> a dark marker, never a raise
         srv = _server(recall_fn=lambda group=None: None,
                       surf_fn=lambda seeds, group=None: None,
-                      fold_fn=lambda: None)
+                      fold_fn=lambda: None,
+                      artifacts_fn=lambda: None, assets_fn=lambda: None,
+                      experiments_fn=lambda: None)
         for name, args in (("cortex_recall", {}), ("cortex_surf", {"seeds": ["x"]}),
-                           ("cortex_node", {"ref": "x"}), ("cortex_search", {"query": "x"})):
+                           ("cortex_node", {"ref": "x"}), ("cortex_search", {"query": "x"}),
+                           ("cortex_artifacts", {}), ("cortex_artifact", {"slug": "x"}),
+                           ("cortex_assets", {}),
+                           ("cortex_experiments", {}), ("cortex_experiment", {"id": "exp040"})):
             with self.subTest(tool=name):
                 out = _tool(srv, name, args)
                 self.assertTrue(out.get("dark"), f"{name} must fail DARK on a resolved-group outage")
@@ -477,7 +582,7 @@ class BoundedLatencyFailDark(unittest.TestCase):
 
 
 class ProvenanceOnEveryRead(unittest.TestCase):
-    """Slice 5 / F9 — every returned node across ALL four tools (the seed INCLUDED) carries BOTH
+    """Slice 5 / F9 — every returned node across the graph tools (the seed INCLUDED) carries BOTH
     orthogonal markers: tier (asserted/extracted) AND context_only (medium authority, C5).
     Appendix-A acceptance f (seed tiers) + g (directive-shaped low-tier content is context_only)."""
 
@@ -547,7 +652,7 @@ class ProvenanceOnEveryRead(unittest.TestCase):
             self.assertEqual(c["tier"], "extracted")
             self.assertTrue(c["context_only"])
 
-    def test_a_directive_shaped_low_tier_node_is_context_only_across_all_four_tools(self):
+    def test_a_directive_shaped_low_tier_node_is_context_only_across_the_graph_tools(self):
         # acceptance g: a directive-SHAPED extracted node from a low-tier Medium is returned
         # context_only=true (fail-safe), never order-bearing — by surf, node, AND search.
         fold = {
@@ -578,7 +683,7 @@ class ProvenanceOnEveryRead(unittest.TestCase):
 
 
 class UsageSignalWiring(unittest.TestCase):
-    """Slice 3 — the four tools record the Usage signal (off-truth-path, F7/N4) and surf/search apply
+    """Slice 3 — the read tools record the Usage signal (off-truth-path, F7/N4) and surf/search apply
     the read-time re-rank, all behind EDGE_CORTEX_USAGE. OFF: no write, no re-rank. The current write
     never affects its own ordering (rank before record, N3). Acceptance (d)+(e)."""
 
@@ -691,7 +796,7 @@ class ReadOnlyNoWritePath(unittest.TestCase):
         resp = _call(_server(), "tools/list")
         names = {t["name"] for t in resp["result"]["tools"]}
         for verb in ("write", "set", "delete", "create", "update", "merge", "fold", "promote"):
-            self.assertFalse(any(verb in n for n in names),
+            self.assertFalse(any(verb in n.split("_") for n in names),
                              f"no read-door tool may carry a write verb ({verb})")
 
 

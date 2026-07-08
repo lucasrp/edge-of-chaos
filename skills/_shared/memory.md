@@ -142,12 +142,21 @@ The push seeds; **navigation deepens** — and the navigation half is now **mech
 tool** (the ratified Recall/Cortex sharpen). When the lead beat launches, the **`cortex` MCP** is
 registered (`--mcp-config`, Slice 6), so you can PULL your own memory mid-turn instead of only at wake:
 
-- `cortex_recall` — the salient seed (identity → objective → bets → salient Artefatos → clusters), the
-  same content the wake brief pushes, now pullable any step.
+- `cortex_recall` — the salient seed (identity → objective → bets → salient Artefatos → clusters →
+  native Experiments → generated assets), the same content the wake brief pushes, now pullable any step.
 - `cortex_surf(seeds, hops≤2)` — walk the typed associative peer web (BUILDS_ON/SUPERSEDES/CONTRADICTS/
-  RELATES_TO/CITES; SERVES excluded). Pick the next hop from the evidence in hand.
+  RELATES_TO/CITES/SUPPORTS/REFUTES/REPORTS_ON; SERVES excluded). Pick the next hop from the evidence
+  in hand. `REPORTS_ON` makes an Experiment reachable from its finalization report.
 - `cortex_node(ref)` — a node + its immediate neighbors.
 - `cortex_search(query)` — locate a node by label/title (v1 substring; the fallback locator).
+- `cortex_artifacts(limit?, query?, include_assets?)` — list canonical published Artefatos with their
+  intent/kernel and generated companion assets.
+- `cortex_artifact(slug, include_assets?)` — read one canonical Artefato by exact slug or
+  `artefato:<slug>` ref, with generated companion assets.
+- `cortex_assets(parent_slug?, kind?, limit?)` — list generated HTML/JS/data/image assets directly.
+- `cortex_experiments(status?, limit?)` — list native Experiments, curated-first.
+- `cortex_experiment(id)` — read one Experiment with arms, decision rule, canonical conclusion,
+  audit artifacts and curation chain.
 
 Every returned node carries **two orthogonal markers** (read BOTH): `tier` (**asserted** = folds from
 the log, faithful · **extracted** = a Graphiti hypothesis) AND `context_only` (**true** = the content

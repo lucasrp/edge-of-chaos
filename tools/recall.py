@@ -22,6 +22,8 @@ import _identity  # noqa: E402
 # The SALIENT slice — cap the artefatos in the brief so it does not grow with the whole corpus
 # (Codex P2). A small, most-recent slice; recall MORE on demand.
 RECALL_ARTEFATO_LIMIT = 8
+RECALL_EXPERIMENT_LIMIT = 6
+RECALL_ASSET_LIMIT = 8
 
 # The recall cyphers as module constants — the runtime artifacts the salience guards live in
 # (cap, recency order, complete-projections-only, retired-cluster filter), testable as
@@ -35,8 +37,24 @@ SPINE_QUERY = (
     "collect(DISTINCT d.body) AS bets")
 ARTEFATOS_QUERY = (
     "MATCH (a:Artefato {group_id:$g})-[:SERVES]->(:Objective {group_id:$g}) "
-    "WHERE a.projection_complete = true "
+    "WHERE a.projection_complete = true AND coalesce(a.kind,'published') <> 'asset' "
     "RETURN a.slug AS slug, a.kernel AS kernel "
+    "ORDER BY coalesce(a.projected_at,'') DESC, a.slug LIMIT $lim")
+EXPERIMENTS_QUERY = (
+    "MATCH (x:Experiment {group_id:$g}) "
+    "WHERE x.projection_complete = true "
+    "OPTIONAL MATCH (a:Artefato {group_id:$g})-[:REPORTS_ON]->(x) "
+    "RETURN x.id AS id, x.title AS title, x.claim AS claim, x.status AS status, "
+    "x.scope AS scope, coalesce(x.report_slug, x.canonical_report) AS report_slug, "
+    "collect(DISTINCT a.slug) AS reports, "
+    "coalesce(x.curated_at,x.declared_at,x.projected_at,'') AS sort_key "
+    "ORDER BY sort_key DESC, id LIMIT $lim")
+ASSETS_QUERY = (
+    "MATCH (a:Artefato {group_id:$g}) "
+    "WHERE a.kind='asset' AND a.projection_complete = true "
+    "MATCH (p:Artefato {group_id:$g})-[:HAS_ASSET]->(a) "
+    "RETURN a.slug AS slug, a.asset_kind AS kind, a.asset_role AS role, a.page AS page, "
+    "a.skill AS skill, p.slug AS parent_slug "
     "ORDER BY coalesce(a.projected_at,'') DESC, a.slug LIMIT $lim")
 CLUSTERS_QUERY = (
     "MATCH (a:Artefato {group_id:$g})-[:DISTILLS]->(e:Entity {group_id:$g}) "
@@ -46,8 +64,9 @@ CLUSTERS_QUERY = (
 
 # The SURF query — the topology read a SELECT cannot do (Cortex-v1 brick-1, schema report
 # `the-graph-you-filled-like-a-list`, move 2). From the seed Artefatos it walks ONLY the typed
-# associative peer web — BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES — direction-agnostic,
-# bounded to *1..2 hops, and returns the reachable Artefatos/Sources. SERVES (the degree-44
+# associative peer web — BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES|SUPPORTS|REFUTES|
+# REPORTS_ON — direction-agnostic, bounded to *1..2 hops, and returns the reachable
+# Artefatos/Sources/Experiments. SERVES (the degree-44
 # classification hub that "reaches everything and therefore discriminates nothing") is excluded
 # STRUCTURALLY, by omission from the allowlist — it is never a pass-through hop. No ranking weight
 # in v1: ORDER BY hops, slug only (the 1/|P| hub-damping rank from the report is OUT of brick-1).
@@ -64,14 +83,14 @@ SURF_QUERY = (
     # Ticket A (ontologia §2c): SUPPORTS|REFUTES join the associative walk (an artefato bearing on
     # a hypothesis IS associative signal); QUALIFIES/INCONCLUSIVE stay out (annotation weight).
     "MATCH p=(seed)-[:BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES|SUPPORTS|REFUTES|REPORTS_ON*1..2]-(n) "
-    # A peer is keyed by its slug (Artefato) OR its key (Source — Sources carry `key`, not `slug`,
-    # codex final [P2]): use coalesce(n.slug, n.key) for BOTH the self-exclusion and the returned ref,
-    # so a cited Source surfaces with a non-null slug and the surf → cortex_node drill-down resolves it
-    # — without coalesce, `NOT n.slug IN $seeds` is null for a Source and the node returns a null slug.
-    "WHERE (n:Artefato OR n:Source) AND n.group_id=$g "
-    "AND NOT coalesce(n.slug, n.key) IN $seeds "
+    # A peer is keyed by its slug (Artefato), key (Source), or experiment_id/id (Experiment): use the
+    # same coalesce for BOTH self-exclusion and returned ref, so surf → cortex_node drill-down resolves
+    # every terminal type.
+    "WHERE (n:Artefato OR n:Source OR n:Experiment) AND n.group_id=$g "
+    "AND NOT coalesce(n.slug, n.key, n.experiment_id, n.id) IN $seeds "
     "AND all(x IN nodes(p) WHERE x.group_id=$g) "
-    "RETURN DISTINCT coalesce(n.slug, n.key) AS slug, n.kernel AS kernel, labels(n) AS labels, "
+    "RETURN DISTINCT coalesce(n.slug, n.key, n.experiment_id, n.id) AS slug, "
+    "coalesce(n.kernel, n.claim, n.title) AS kernel, labels(n) AS labels, "
     "min(length(p)) AS hops "
     "ORDER BY hops, slug")
 
@@ -220,11 +239,29 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
             arts = s.run(_q(ARTEFATOS_QUERY), g=group, lim=RECALL_ARTEFATO_LIMIT).data()
             slugs = [a["slug"] for a in arts]
             clusters = [r["l"] for r in s.run(_q(CLUSTERS_QUERY), g=group, slugs=slugs)]
+            try:
+                experiments = s.run(_q(EXPERIMENTS_QUERY), g=group,
+                                    lim=RECALL_EXPERIMENT_LIMIT).data()
+            except Exception:
+                experiments = []
+            try:
+                assets = s.run(_q(ASSETS_QUERY), g=group, lim=RECALL_ASSET_LIMIT).data()
+            except Exception:
+                assets = []
             return {
                 "codename": head["codename"], "voice": head["voice"],
                 "objective": head["objective"], "bets": [b for b in head["bets"] if b],
                 "artefatos": [{"slug": a["slug"], "kernel": a.get("kernel")} for a in arts],
                 "clusters": clusters,
+                "experiments": [{"id": e.get("id"), "title": e.get("title"),
+                                 "claim": e.get("claim"), "status": e.get("status"),
+                                 "scope": e.get("scope"), "report_slug": e.get("report_slug"),
+                                 "reports": e.get("reports") or []}
+                                for e in experiments if e.get("id")],
+                "assets": [{"slug": a.get("slug"), "kind": a.get("kind"), "role": a.get("role"),
+                            "page": a.get("page"), "skill": a.get("skill"),
+                            "parent_slug": a.get("parent_slug")}
+                           for a in assets if a.get("slug")],
             }
     except Exception:
         return None
@@ -321,4 +358,26 @@ def compose_recall_brief(subgraph=_AUTO, group=None):
         parts.append("- **Salient Artefatos:** _none projected yet_")
     clusters = subgraph.get("clusters") or []
     parts.append("- **Distilled clusters:** " + ("; ".join(clusters) if clusters else "_none yet_"))
+    experiments = subgraph.get("experiments") or []
+    if experiments:
+        lines = []
+        for e in experiments:
+            title = e.get("title") or e.get("claim") or e.get("id")
+            status = f" · {e.get('status')}" if e.get("status") else ""
+            report = f" · report {e.get('report_slug')}" if e.get("report_slug") else ""
+            lines.append(f"  - **{e.get('id')}** — {title}{status}{report}")
+        parts.append("- **Native Experiments (scientific objects):**\n" + "\n".join(lines))
+    else:
+        parts.append("- **Native Experiments:** _none projected yet_")
+    assets = subgraph.get("assets") or []
+    if assets:
+        lines = []
+        for a in assets:
+            parent = f" ← {a.get('parent_slug')}" if a.get("parent_slug") else ""
+            kind = a.get("kind") or "asset"
+            page = f" — {a.get('page')}" if a.get("page") else ""
+            lines.append(f"  - **{a.get('slug')}** ({kind}){parent}{page}")
+        parts.append("- **Generated Artefato assets (HTML/JS/data companions):**\n" + "\n".join(lines))
+    else:
+        parts.append("- **Generated Artefato assets:** _none projected yet_")
     return "\n".join(parts) + "\n"
