@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}edge — experiments{% endblock %}
+{% block content %}
+<main class="blog experiments-page"><h1>edge — experiments</h1>
+<p class="meta">Objetos cientificos nativos do Edge. A leitura abre pela interpretacao canonica curada; o inventario vem depois.</p>
+
+<section class="experiment-first-layer">
+  <a href="/direction">direction</a>
+  <a href="/cortex">cortex</a>
+  <a href="/wiki">wiki</a>
+</section>
+
+{% if selected %}
+<article class="post experiment-detail">
+  <h2>{{ selected.title }}</h2>
+  <time>{{ selected.ts or selected.declared_ts or "sem data" }}</time>
+  <ul class="artifacts">
+    <li>{{ selected.id }}</li>
+    <li>{{ selected.status }}</li>
+    {% if selected.report_href %}<li><a href="{{ selected.report_href }}">report</a></li>{% else %}<li>sem report final</li>{% endif %}
+  </ul>
+
+  <section class="experiment-canonical">
+    <h3>Interpretacao canonica</h3>
+    {% if selected.claim %}<p class="blurb">{{ selected.claim }}</p>{% endif %}
+    {% if selected.prose and selected.prose != selected.claim %}<p>{{ selected.prose }}</p>{% endif %}
+    <dl class="experiment-fields">
+      {% if selected.scope %}<dt>scope</dt><dd>{{ selected.scope }}</dd>{% endif %}
+      {% if selected.caveat %}<dt>caveat</dt><dd>{{ selected.caveat }}</dd>{% endif %}
+      {% if selected.next %}<dt>next</dt><dd>{{ selected.next }}</dd>{% endif %}
+    </dl>
+    {% if selected.supports %}
+    <h4>supports</h4>
+    <ul>{% for item in selected.supports %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if selected.excludes %}
+    <h4>excludes</h4>
+    <ul>{% for item in selected.excludes %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% endif %}
+  </section>
+
+  <section class="experiment-inventory">
+    <h3>Inventario bruto</h3>
+    {% if selected.hypothesis %}<p><strong>hypothesis:</strong> {{ selected.hypothesis }}</p>{% endif %}
+    {% if selected.decision_rule %}<p><strong>decision rule:</strong> <code>{{ selected.decision_rule | tojson }}</code></p>{% endif %}
+    {% if selected.arms %}
+    <h4>arms</h4>
+    <ul>{% for arm in selected.arms %}<li><code>{{ arm | tojson }}</code></li>{% endfor %}</ul>
+    {% endif %}
+    {% if selected.artifacts %}
+    <h4>canonical artifacts</h4>
+    <ul class="experiment-artifacts">
+      {% for artifact in selected.artifacts %}
+      <li>{% if artifact.href %}<a href="{{ artifact.href }}">{{ artifact.ref }}</a>{% else %}<code>{{ artifact.ref }}</code>{% endif %}
+        <span class="meta">{{ artifact.role }}{% if artifact.note %} · {{ artifact.note }}{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if selected.reports %}
+    <h4>reports_on</h4>
+    <ul class="experiment-artifacts">
+      {% for report in selected.reports %}
+      <li><a href="{{ report.href }}">{{ report.slug }}</a>{% if report.intent %}<span class="meta"> · {{ report.intent }}</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if selected.curation_chain %}
+    <h4>curation chain</h4>
+    <ol class="experiment-chain">
+      {% for item in selected.curation_chain %}
+      <li><span class="meta">{{ item.ts }} · {{ item.by }}</span>
+        {% if item.canonical and item.canonical.prose %}<p>{{ item.canonical.prose }}</p>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+  </section>
+</article>
+{% endif %}
+
+<section class="experiment-list">
+  <h2>todos</h2>
+  {% if experiments %}
+  {% for exp in experiments %}
+  <article class="post experiment-row">
+    <h2><a href="{{ exp.href }}">{{ exp.title }}</a></h2>
+    <time>{{ exp.ts or exp.declared_ts or "sem data" }}</time>
+    <p class="blurb">{{ exp.claim or exp.hypothesis or "experimento declarado sem conclusao canonica ainda" }}</p>
+    <ul class="artifacts">
+      <li>{{ exp.id }}</li>
+      <li>{{ exp.status }}</li>
+      {% if exp.report_href %}<li><a href="{{ exp.report_href }}">report</a></li>{% else %}<li>sem report final</li>{% endif %}
+    </ul>
+  </article>
+  {% endfor %}
+  {% else %}
+  <p class="meta">sem experimentos ainda</p>
+  {% endif %}
+</section>
+</main>
+{% endblock %}

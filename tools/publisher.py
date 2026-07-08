@@ -422,6 +422,84 @@ def publish_artifact_asset(slug, content, *, kind, skill, ext=None, parent_slug=
     return out
 
 
+_ENTRY_ASSET_SUFFIXES = {
+    ".html": ("html", "text/html"),
+    ".js": ("js", "text/javascript"),
+    ".css": ("css", "text/css"),
+    ".json": ("data", "application/json"),
+    ".bin": ("image", None),
+}
+_ENTRY_FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:html|js|css|json|bin)$")
+
+
+def _legacy_entry_asset_slug(path, digest):
+    stem = re.sub(r"[^a-z0-9]+", "-", Path(path).stem.lower()).strip("-") or "entry"
+    name_hash = hashlib.sha256(Path(path).name.encode("utf-8")).hexdigest()[:8]
+    return f"entry-{stem}-{name_hash}-{digest[:12]}"
+
+
+def _entry_parent_slug(name, published_slugs):
+    for slug in sorted(published_slugs, key=len, reverse=True):
+        if name.startswith(f"{slug}."):
+            return slug
+    return None
+
+
+def backfill_entry_assets(*, blog_dir=BLOG_DIR, log=_ASSET_LOG_DEFAULT,
+                          project_fn=_ASSET_PROJECT_DEFAULT):
+    """Record pre-existing files under blog/entries as first-class Artefato assets.
+
+    The old Cortex UX worked because generated HTML files were discoverable as artifacts even when
+    their producer did not log a companion `artefato.asset`. New producers now log assets at publish
+    time; this backfill closes the historical gap without duplicating normal close-published
+    `<slug>.html` pages.
+    """
+    asset_log = _asset_log_for(blog_dir, log)
+    if asset_log is None:
+        return []
+    root = Path(blog_dir).resolve()
+    if not root.is_dir():
+        return []
+    corpus = cortex.corpus_at(log=asset_log)
+    published_slugs = {item.get("slug") for item in corpus
+                       if isinstance(item.get("slug"), str) and SLUG_RE.fullmatch(item["slug"])}
+    assets = cortex.artefato_assets_at(log=asset_log)
+    logged_paths = {asset.get("path") for asset in assets.values() if asset.get("path")}
+    emitted = []
+    for path in sorted(root.iterdir(), key=lambda p: p.name):
+        if not path.is_file() or not _ENTRY_FILE_RE.fullmatch(path.name):
+            continue
+        suffix = path.suffix.lower()
+        if suffix not in _ENTRY_ASSET_SUFFIXES:
+            continue
+        if suffix == ".html" and path.stem in published_slugs:
+            continue
+        rel = _repo_relative(path)
+        if rel in logged_paths or str(path.resolve()) in logged_paths:
+            continue
+        data = path.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        kind, media_type = _ENTRY_ASSET_SUFFIXES[suffix]
+        asset_slug = _legacy_entry_asset_slug(path, digest)
+        parent_slug = _entry_parent_slug(path.name, published_slugs)
+        ev = _record_artefato_asset(
+            asset_slug,
+            path,
+            kind=kind,
+            sha256=digest,
+            skill=None,
+            parent_slug=parent_slug,
+            media_type=media_type,
+            role="entry-backfill",
+            log=asset_log,
+            project_fn=project_fn,
+        )
+        if ev is not None:
+            emitted.append(ev)
+            logged_paths.add(rel)
+    return emitted
+
+
 def publish_prototype_page(slug, page_html, *, skill, blog_dir=BLOG_DIR,
                            run_errors_fn=headless_page_errors, log=_ASSET_LOG_DEFAULT,
                            project_fn=_ASSET_PROJECT_DEFAULT) -> Path:
@@ -778,11 +856,19 @@ def _experiment_graph_props_from(exp, experiment_id, *, report_slug=None):
     title = exp.get("title") if isinstance(exp.get("title"), str) else None
     scope = typed.get("scope") if isinstance(typed.get("scope"), str) else exp.get("scope")
     status = typed.get("status") if isinstance(typed.get("status"), str) else exp.get("status")
+    caveat = typed.get("caveat") if isinstance(typed.get("caveat"), str) else None
+    supports = typed.get("supports") if isinstance(typed.get("supports"), list) else []
+    excludes = typed.get("excludes") if isinstance(typed.get("excludes"), list) else []
+    next_step = typed.get("next") if isinstance(typed.get("next"), str) else None
     return {
         "title": title or claim or experiment_id,
         "claim": claim or prose,
         "scope": scope if isinstance(scope, str) else None,
         "status": status if isinstance(status, str) else "reported",
+        "caveat": caveat,
+        "supports": [str(v) for v in supports if isinstance(v, str) and v.strip()],
+        "excludes": [str(v) for v in excludes if isinstance(v, str) and v.strip()],
+        "next": next_step,
         "report_slug": report_slug,
         "declared_at": exp.get("declared_ts") if isinstance(exp.get("declared_ts"), str) else None,
         "curated_at": exp.get("ts") if isinstance(exp.get("ts"), str) else None,
@@ -807,6 +893,7 @@ def _project_experiment_node(s, g, experiment_id, props):
         "SET x.kind='experiment', x.provenance_class='asserted', "
         "x.experiment_id=$experiment_id, x.uuid=$uuid, "
         "x.title=$title, x.claim=$claim, x.scope=$scope, x.status=$status, "
+        "x.caveat=$caveat, x.supports=$supports, x.excludes=$excludes, x.next=$next, "
         "x.report_slug=coalesce($report_slug, x.report_slug), "
         "x.canonical_report=coalesce($report_slug, x.canonical_report), "
         "x.declared_at=$declared_at, x.curated_at=$curated_at, "
@@ -1810,6 +1897,11 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
     # missing — independent of the skip-present optimization below. Cheap (no embeddings), idempotent.
     if backbone_fn is not None:
         backbone_fn(log)
+    if _is_canonical_log(log):
+        try:
+            backfill_entry_assets(log=log, project_fn=None)
+        except Exception as ex:  # noqa: BLE001 — page discovery must not block graph recovery
+            print(f"entry asset backfill skipped (best-effort): {ex}")
     present = present_slugs() if present_slugs is not None else {}
     if present is None:
         return  # graph unreachable — nothing to recover into it; skip (no per-item embed storm)

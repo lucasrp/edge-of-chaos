@@ -10,8 +10,8 @@ After ingest, the wiki and Direction **re-project** (sweep → extract → re-pr
 The pure planning (`plan_sweep`, cursors) carries no graph/LLM; `execute` takes an injected
 `ingest_fn`, so the cursor/idempotency logic is testable without Neo4j or OpenAI.
 
-Run:  .venv/bin/python tools/sweep.py           (sweep + re-project)
-      .venv/bin/python tools/sweep.py --plan    (dry run: what the delta would digest)
+Run:  tools/edge-python tools/sweep.py          (sweep + re-project)
+      python3 tools/sweep.py --plan             (re-execs into .venv when present)
 """
 import json
 import math
@@ -48,6 +48,25 @@ MAX_EPISODE_CHARS = 48_000
 # past the giants). We pass previous_episode_uuids explicitly, greedy most-recent-first under this
 # deterministic char budget (~30k tokens), skipping any single episode over MAX_EPISODE_CHARS.
 PREV_CONTEXT_MAX_CHARS = 120_000
+
+
+def _reexec_repo_venv():
+    """When called as `python3 tools/sweep.py`, switch to the install venv before real work.
+
+    The graph tier is mandatory and the system Python often lacks `neo4j`/`graphiti_core`. Imports
+    stay testable; the script entrypoint alone corrects the interpreter.
+    """
+    if os.environ.get("EDGE_SWEEP_NO_VENV_REEXEC"):
+        return
+    venv_py = REPO / ".venv" / "bin" / "python"
+    if not venv_py.exists():
+        return
+    try:
+        if Path(sys.executable).resolve() == venv_py.resolve():
+            return
+    except OSError:
+        pass
+    os.execv(str(venv_py), [str(venv_py), str(Path(__file__).resolve()), *sys.argv[1:]])
 
 
 # --- cursors (per-session raw-line watermark already digested) ---
@@ -544,4 +563,5 @@ def main(argv):
 
 
 if __name__ == "__main__":
+    _reexec_repo_venv()
     main(sys.argv[1:])

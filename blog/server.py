@@ -14,6 +14,7 @@ import re
 import sys
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from flask import Flask, abort, render_template, request, send_from_directory
 from markupsafe import Markup
@@ -165,6 +166,7 @@ _NAV_LINKS = (
     ("/chat", "chat"),
     ("/briefing", "briefing"),
     ("/direction", "direction"),
+    ("/experiments", "experiments"),
     ("/docs", "docs"),
     ("/wiki", "wiki"),
     ("/llm", "llm"),
@@ -1016,6 +1018,137 @@ def ux_catalog():
                  tokens=_design_tokens(), macros=_UI_MACROS)
 
 
+# ── Experiment surface — first-class scientific objects, not hidden report side-effects ─────────
+
+def _experiment_typed(exp):
+    canonical = exp.get("canonical") if isinstance(exp, dict) else {}
+    typed = canonical.get("typed") if isinstance(canonical, dict) else {}
+    return typed if isinstance(typed, dict) else {}
+
+
+def _experiment_prose(exp):
+    canonical = exp.get("canonical") if isinstance(exp, dict) else {}
+    prose = canonical.get("prose") if isinstance(canonical, dict) else None
+    return prose if isinstance(prose, str) and prose.strip() else None
+
+
+def _artifact_slug_from_ref(ref):
+    if not isinstance(ref, str) or not ref.startswith("artefato:"):
+        return None
+    slug = ref.split(":", 1)[1].strip()
+    return slug if _SLUG_RE.fullmatch(slug) else None
+
+
+def _artifact_href_from_ref(ref):
+    slug = _artifact_slug_from_ref(ref)
+    return f"/e/{slug}.html" if slug else None
+
+
+def _experiment_report_slug(exp):
+    for artifact in exp.get("canonical_artifacts") or []:
+        if not isinstance(artifact, dict):
+            continue
+        role = artifact.get("role")
+        if isinstance(role, str) and role.strip().lower() == "report":
+            slug = _artifact_slug_from_ref(artifact.get("ref"))
+            if slug:
+                return slug
+    return None
+
+
+def _experiment_reports_for(experiment_id, corpus):
+    reports = []
+    for item in corpus:
+        if experiment_id not in (item.get("reports_on") or []):
+            continue
+        slug = item.get("slug")
+        if not (isinstance(slug, str) and _SLUG_RE.fullmatch(slug)):
+            continue
+        reports.append({
+            "slug": slug,
+            "href": f"/e/{slug}.html",
+            "intent": item.get("intent"),
+            "ts": item.get("latest_ts") or item.get("ts"),
+        })
+    return reports
+
+
+def _experiment_artifacts(exp):
+    out = []
+    for artifact in exp.get("canonical_artifacts") or []:
+        if not isinstance(artifact, dict):
+            continue
+        ref = artifact.get("ref")
+        out.append({
+            "ref": ref,
+            "role": artifact.get("role"),
+            "note": artifact.get("note"),
+            "href": _artifact_href_from_ref(ref),
+        })
+    return out
+
+
+def _experiment_view(experiment_id, exp, corpus):
+    typed = _experiment_typed(exp)
+    title = exp.get("title") or typed.get("claim") or exp.get("hypothesis") or experiment_id
+    report_slug = _experiment_report_slug(exp)
+    return {
+        "id": experiment_id,
+        "href": f"/experiments/{quote(experiment_id, safe='')}",
+        "title": title,
+        "hypothesis": exp.get("hypothesis"),
+        "claim": typed.get("claim") or _experiment_prose(exp),
+        "prose": _experiment_prose(exp),
+        "scope": typed.get("scope") or exp.get("scope"),
+        "status": typed.get("status") or exp.get("status") or "declared",
+        "caveat": typed.get("caveat"),
+        "supports": typed.get("supports") or [],
+        "excludes": typed.get("excludes") or [],
+        "next": typed.get("next"),
+        "report_slug": report_slug,
+        "report_href": f"/e/{report_slug}.html" if report_slug else None,
+        "artifacts": _experiment_artifacts(exp),
+        "reports": _experiment_reports_for(experiment_id, corpus),
+        "arms": exp.get("arms") or [],
+        "decision_rule": exp.get("decision_rule"),
+        "curation_chain": list(reversed(exp.get("curation_chain") or [])),
+        "declared_ts": exp.get("declared_ts"),
+        "ts": exp.get("ts"),
+        "seq": exp.get("seq"),
+        "by": exp.get("by") or exp.get("declared_by"),
+    }
+
+
+def _experiments_views():
+    log = _log()
+    experiments = eventlog.experiments_at(log=log)
+    corpus = eventlog.corpus_at(log=log)
+    views = [_experiment_view(experiment_id, exp, corpus)
+             for experiment_id, exp in experiments.items()
+             if isinstance(experiment_id, str) and _EXPERIMENT_ROUTE_RE.fullmatch(experiment_id)]
+    return sorted(views, key=lambda x: (x.get("ts") or x.get("declared_ts") or "", x["id"]),
+                  reverse=True)
+
+
+@app.get("/experiments")
+def experiments():
+    items = _experiments_views()
+    return _page("pages/experiments.html", current="/experiments",
+                 experiments=items, selected=None)
+
+
+@app.get("/experiments/<experiment_id>")
+def experiment_detail(experiment_id):
+    if not _EXPERIMENT_ROUTE_RE.fullmatch(experiment_id):
+        abort(404)
+    items = _experiments_views()
+    selected = next((item for item in items if item["id"] == experiment_id), None)
+    if selected is None:
+        abort(404)
+    return _page("pages/experiments.html", current="/experiments",
+                 experiments=items, selected=selected)
+
+
 # ── Cortex graph — surf the agent's brain (SURFACE.md §"Cortex graph") ──────────────────────────
 #
 # A read-only fold of the WHOLE Cortex, group_id-scoped and fail-dark, shipped as one {nodes, edges}
@@ -1104,6 +1237,7 @@ def _node_title(label, props):
 # live href (codex round-1 [high]: a slug carrying `" onclick=...` must not reach the URL).
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _ENTRY_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*\.(?:html|js|css|json|bin)$")
+_EXPERIMENT_ROUTE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
 
 def _entry_name_from_page(page):
@@ -1141,6 +1275,13 @@ def _entry_href_from_page(page):
     return f"/e/{name}" if name else None
 
 
+def _experiment_href_from_props(props):
+    experiment_id = props.get("experiment_id") or props.get("id")
+    if isinstance(experiment_id, str) and _EXPERIMENT_ROUTE_RE.fullmatch(experiment_id):
+        return f"/experiments/{quote(experiment_id, safe='')}"
+    return None
+
+
 def _cluster_slug(label):
     """wiki_render's canonical cluster-slug rule (letters only — drops spaces, &, digits,
     punctuation), the ONE rule the wiki projection names its `cluster-<slug>.html` pages by. Mirrors
@@ -1155,7 +1296,7 @@ def _node_href(label, props):
     disconnected island (AUDIT.md gap C, PLAN.md Slice 5b). Each maps to a REAL route:
       - Artefato (`slug`)            → /e/<slug>.html        (its blog entry)
       - Artefato asset (`page`)      → /e/<content-address>  (its generated companion file)
-      - Experiment (`report_slug`)   → /e/<report>.html      (its finalization report)
+      - Experiment (`experiment_id`) → /experiments/<id>     (the scientific object; report is inside)
       - Direction (`body`, no id)    → /direction            (the steer surface — the node has no
                                                               event id, so the robust target is the
                                                               scannable list, a real route)
@@ -1163,9 +1304,8 @@ def _node_href(label, props):
       - Entity with `curated_cluster`→ /wiki/<cluster-slug>  (clusters are not graph nodes in v1; an
                                                               Entity bearing a curated_cluster IS the
                                                               cluster's graph presence)
-    A node with no source surface (a bare Entity, Episodic, Genesis, Objective, or unfinalized
-    Experiment) → None (no dead link). The values are graph-derived, so coerce + URL-shape
-    defensively (no breakout)."""
+    A node with no source surface (a bare Entity, Episodic, Genesis, or Objective) → None (no dead
+    link). The values are graph-derived, so coerce + URL-shape defensively (no breakout)."""
     if label == "Artefato":
         if props.get("kind") == "asset":
             return _entry_href_from_page(props.get("page"))
@@ -1174,10 +1314,7 @@ def _node_href(label, props):
         # quote / handler / path char is not route-shaped, so it drills nowhere (no breakout vector).
         return f"/e/{slug}.html" if isinstance(slug, str) and _SLUG_RE.match(slug) else None
     if label == "Experiment":
-        report_slug = props.get("report_slug") or props.get("canonical_report")
-        if isinstance(report_slug, str) and _SLUG_RE.match(report_slug):
-            return f"/e/{report_slug}.html"
-        return None
+        return _experiment_href_from_props(props)
     if label == "Direction":
         return "/direction" if props.get("body") else None
     if label == "Source":
@@ -1209,6 +1346,33 @@ def _node_ts(props):
         if val:
             return _as_str(val)
     return None
+
+
+def _clean_detail_value(value):
+    if isinstance(value, list):
+        out = [str(v).strip() for v in value if isinstance(v, (str, int, float)) and str(v).strip()]
+        return out or None
+    if isinstance(value, (str, int, float)) and str(value).strip():
+        return str(value).strip()
+    return None
+
+
+def _node_details(label, props):
+    """Structured node details for the inspect panel.
+
+    The title/content pair is intentionally short. Some asserted nodes, especially Experiment, need
+    the next ring of canonical fields in the same click target so the graph is not just a label cloud.
+    Keep this deterministic and graph-derived; no summaries are authored here.
+    """
+    if label != "Experiment":
+        return {}
+    details = {}
+    for field in ("status", "scope", "claim", "caveat", "supports", "excludes", "next",
+                  "report_slug", "canonical_report"):
+        value = _clean_detail_value(props.get(field))
+        if value:
+            details[field] = value
+    return details
 
 
 def _node_ref(id_, props):
@@ -1276,6 +1440,7 @@ def _map_node(id_, label, props):
         # beyond the Earmarked harm-settled subset. Only `is True` crosses; anything else → False.
         "earmarked": props.get("earmarked") is True,
         "href": _node_href(label, props),
+        "details": _node_details(label, props),
         "ts": _node_ts(props),
     }
 

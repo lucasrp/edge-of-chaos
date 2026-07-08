@@ -127,13 +127,16 @@ class TestCortexFold(unittest.TestCase):
                                      {"slug": "alpha-post", "projected_at": "2026-06-10T12:00:00Z"})
         self.assertEqual(node["ts"], "2026-06-10T12:00:00Z")
 
-    def test_experiment_node_is_asserted_titled_and_linked_to_its_report(self):
+    def test_experiment_node_is_asserted_titled_and_linked_to_its_detail_page(self):
         node = self.server._map_node(
             "4:x:exp",
             "Experiment",
             {"id": "exp040", "experiment_id": "exp040", "uuid": "experiment:exp040",
              "title": "Report recovery arms",
              "claim": "fan-out plus structural gate wins", "report_slug": "report-exp40",
+             "scope": "report pipeline", "status": "accepted", "caveat": "one report family",
+             "supports": ["arm C beat arm A"], "excludes": ["no-gate baseline"],
+             "next": "ship as default",
              "projected_at": "2026-07-08T10:00:00Z"},
         )
         self.assertEqual(node["trust"], "asserted")
@@ -141,7 +144,10 @@ class TestCortexFold(unittest.TestCase):
         self.assertEqual(node["ref"], "experiment:exp040")
         self.assertEqual(node["title"], "Report recovery arms")
         self.assertEqual(node["slug"], "exp040")
-        self.assertEqual(node["href"], "/e/report-exp40.html")
+        self.assertEqual(node["href"], "/experiments/exp040")
+        self.assertEqual(node["details"]["scope"], "report pipeline")
+        self.assertEqual(node["details"]["supports"], ["arm C beat arm A"])
+        self.assertEqual(node["details"]["report_slug"], "report-exp40")
         self.assertEqual(node["ts"], "2026-07-08T10:00:00Z")
 
     def test_asset_artefato_uses_its_content_addressed_page_not_slug_route(self):
@@ -212,7 +218,8 @@ class TestCortexRoute(unittest.TestCase):
         # the find-and-jump search box
         self.assertIn('id="cortex-search"', body)
         # a node-type filter for each trust-class label (deterministic over the loaded payload)
-        for label in ("Genesis", "Objective", "Direction", "Artefato", "Entity", "Source", "Episodic"):
+        for label in ("Genesis", "Objective", "Direction", "Artefato", "Experiment",
+                      "Entity", "Source", "Episodic"):
             self.assertIn(f'value="{label}"', body)
         # the Earmarked-only toggle (harm subset)
         self.assertIn('id="cortex-earmarked"', body)
@@ -422,6 +429,8 @@ class TestNodeSourceHref(unittest.TestCase):
                  "href": "/direction", "trust": "asserted"},
                 {"id": "s1", "label": "Source", "title": "t",
                  "href": "/docs/source-roadmap", "trust": "extracted"},
+                {"id": "x1", "label": "Experiment", "title": "t",
+                 "href": "/experiments/exp040", "trust": "asserted"},
             ],
             "edges": [],
         }
@@ -436,6 +445,7 @@ class TestNodeSourceHref(unittest.TestCase):
                 or (rule.startswith("/e/") and href.startswith("/e/"))
                 or (rule.startswith("/docs/") and href.startswith("/docs/"))
                 or (rule.startswith("/wiki/") and href.startswith("/wiki/"))
+                or (rule.startswith("/experiments/") and href.startswith("/experiments/"))
                 for rule in rules)
             self.assertTrue(matched, f"{href} targets no real route")
 
@@ -509,6 +519,76 @@ class TestEntryRouteServesArtifactAssets(unittest.TestCase):
 
     def test_e_route_rejects_paths_outside_entries(self):
         self.assertEqual(self.client.get("/e/../secret.js").status_code, 404)
+
+
+class TestExperimentsRoute(unittest.TestCase):
+    """Native Experiments have their own UX surface, independent of a final report existing."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.log = Path(self.tmp.name) / "log.jsonl"
+        self.server = _load_server({"EDGE_BLOG_LOG": str(self.log), "EDGE_CORTEX_FIXTURE": None})
+        self.server.eventlog.declare_experiment(
+            "Research sem parametro no Roberto",
+            experiment_id="exp071",
+            hypothesis="a skill produtora precisa fechar HTML/JS",
+            scope="research default",
+            status="declared",
+            log=self.log,
+        )
+        self.server.eventlog.declare_experiment(
+            "Report recovery arms",
+            experiment_id="exp072",
+            hypothesis="structural gate improves report quality",
+            scope="report pipeline",
+            status="declared",
+            log=self.log,
+        )
+        self.server.eventlog.curate_experiment(
+            "exp072",
+            prose="The richer structural gate improved the report without losing auditability.",
+            typed={
+                "claim": "structural gate plus fan-out wins",
+                "scope": "report generation",
+                "status": "accepted",
+                "caveat": "tested on one report family",
+                "supports": ["arm C beat arm A"],
+                "excludes": ["no-gate baseline"],
+                "next": "ship as default",
+            },
+            canonical_artifacts=[{"ref": "artefato:report-exp72", "role": "report"}],
+            by="mentor",
+            log=self.log,
+        )
+        self.client = self.server.app.test_client()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        os.environ.pop("EDGE_BLOG_LOG", None)
+        os.environ.pop("EDGE_CORTEX_FIXTURE", None)
+
+    def test_list_shows_declared_and_curated_experiments(self):
+        body = self.client.get("/experiments").data.decode()
+        self.assertIn("Research sem parametro no Roberto", body)
+        self.assertIn("Report recovery arms", body)
+        self.assertIn('href="/experiments/exp071"', body)
+        self.assertIn("sem report final", body)
+
+    def test_detail_starts_with_canonical_interpretation_then_inventory(self):
+        body = self.client.get("/experiments/exp072").data.decode()
+        self.assertIn("Interpretacao canonica", body)
+        self.assertIn("structural gate plus fan-out wins", body)
+        self.assertIn("Inventario bruto", body)
+        self.assertIn("arm C beat arm A", body)
+        self.assertIn('href="/e/report-exp72.html"', body)
+        self.assertLess(body.index("Interpretacao canonica"), body.index("Inventario bruto"))
+
+    def test_declared_experiment_without_report_still_has_a_detail_page(self):
+        resp = self.client.get("/experiments/exp071")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.data.decode()
+        self.assertIn("a skill produtora precisa fechar HTML/JS", body)
+        self.assertIn("sem report final", body)
 
 
 class TestNodeHrefIsRouteShaped(unittest.TestCase):
@@ -1645,6 +1725,14 @@ class TestSlice3InspectPanelIsland(unittest.TestCase):
         self.assertIn(".content", self.js)
         # READ MORE / abrir fonte → the existing href drill, via the unchanged appendLink guard (M10)
         self.assertIn("appendLink", self.js)
+
+    def test_structured_details_render_in_the_panel_as_text(self):
+        # Experiment nodes carry typed canonical fields beyond the one-line title. The island renders
+        # them as a definition list with textContent, not HTML interpolation.
+        self.assertIn("appendDetails", self.js)
+        self.assertIn(".details", self.js)
+        self.assertIn("dl.className = \"node-details\"", self.js)
+        self.assertIn("dd.textContent", self.js)
 
     def test_seen_in_the_wild_maps_to_the_real_href_and_omits_when_absent(self):
         # M10b — SEEN IN THE WILD is the node's REAL href provenance (no fabrication). When a node has

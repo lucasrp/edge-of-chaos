@@ -327,6 +327,17 @@ a:hover { color: #a8c2ff; }
 }
 .cortex-inspect .read-more { margin: 10px 0 0; font-size: .82rem; }
 .cortex-inspect .read-more a { font-family: var(--font-mono); color: var(--accent); }
+.cortex-inspect .node-details {
+  margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--border-soft);
+}
+.cortex-inspect .node-details dt {
+  font: 600 .64rem/1 var(--font-mono); text-transform: uppercase; color: var(--text-dim);
+  margin-top: 8px;
+}
+.cortex-inspect .node-details dd {
+  margin: 3px 0 0; font-size: .82rem; line-height: 1.45; color: var(--text-muted);
+  word-break: break-word;
+}
 /* M10b — SEEN IN THE WILD: the node's REAL href provenance (omitted when absent — no dead block) */
 .cortex-inspect-wild:empty { display: none; }
 .cortex-inspect-wild { border-top: 1px solid var(--border); padding-top: 12px; }
@@ -514,6 +525,35 @@ a:hover { color: #a8c2ff; }
 /* the Voz→Direction provenance link (steer ⇄ originating comment) — a quiet from-a-Directive marker */
 .steer .provenance { margin-top: 8px; font-size: .8rem; }
 .steer .provenance a { font-family: var(--font-mono); }
+
+/* ---- Experiment surface — scientific objects before reports/assets ---- */
+.experiment-first-layer {
+  display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 28px;
+}
+.experiment-first-layer a {
+  font: 600 .74rem/1 var(--font-mono); color: var(--accent);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--pill); padding: 7px 12px;
+}
+.experiment-detail h3, .experiment-detail h4, .experiment-list h2 {
+  font: 600 .72rem/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-dim); margin: 20px 0 8px;
+}
+.experiment-detail h4 { font-size: .66rem; margin-top: 16px; }
+.experiment-fields {
+  display: grid; grid-template-columns: minmax(90px, max-content) 1fr;
+  gap: 8px 14px; margin: 14px 0;
+}
+.experiment-fields dt {
+  font: 600 .68rem/1.4 var(--font-mono); color: var(--text-dim); text-transform: uppercase;
+}
+.experiment-fields dd { margin: 0; color: var(--text-muted); }
+.experiment-inventory {
+  border-top: 1px solid var(--border-soft); margin-top: 22px; padding-top: 4px;
+}
+.experiment-artifacts, .experiment-chain { margin-left: 20px; }
+.experiment-artifacts li, .experiment-chain li { margin: 7px 0; }
+.experiment-row .artifacts a, .experiment-detail .artifacts a { color: var(--accent); }
 
 /* ---- design-doc surfaces (Slice 5a) — extends the shared cards/meta vocabulary, no one-off ---- */
 .docs-page .doc-group { margin: 28px 0; }

@@ -539,6 +539,27 @@
     });
   }
 
+  function appendDetails(into, details) {
+    if (!into || !details || typeof details !== "object") return;
+    var keys = Object.keys(details).filter(function (key) {
+      var value = details[key];
+      return value != null && String(Array.isArray(value) ? value.join(" ") : value).trim() !== "";
+    });
+    if (!keys.length) return;
+    var dl = document.createElement("dl");
+    dl.className = "node-details";
+    keys.forEach(function (key) {
+      var value = details[key];
+      var dt = document.createElement("dt");
+      dt.textContent = key.replace(/_/g, " ");
+      var dd = document.createElement("dd");
+      dd.textContent = Array.isArray(value) ? value.join("; ") : String(value);
+      dl.appendChild(dt);
+      dl.appendChild(dd);
+    });
+    into.appendChild(dl);
+  }
+
   function showPanel(node) {
     if (!node) return;
     // M15 (Slice 5) — showPanel is the ONE sink every selection flows through (3D click, Cytoscape
@@ -573,6 +594,7 @@
         pp.textContent = String(prose);   // TEXT-only — no innerHTML from payload (R5/M17)
         fullEl.appendChild(pp);
       }
+      appendDetails(fullEl, full.details);
       appendLink(fullEl, node.href, "ler mais / abrir fonte →", "read-more");
     }
 

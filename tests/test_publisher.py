@@ -708,6 +708,70 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             self.assertEqual(projected[0][1]["parent_slug"], "demo")
             self.assertEqual(projected[0][1]["kind"], "html")
 
+    def test_backfill_entry_assets_records_legacy_files_idempotently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            entries = Path(tmp) / "entries"
+            entries.mkdir()
+            log = Path(tmp) / "log.jsonl"
+            (entries / "legacy-report.html").write_text("<html><body>legacy</body></html>")
+            (entries / "legacy-report.app.js").write_text("console.log('legacy');")
+            emitted = publisher.backfill_entry_assets(
+                blog_dir=entries,
+                log=log,
+                project_fn=None,
+            )
+            self.assertEqual(len(emitted), 2)
+            assets = eventlog.artefato_assets_at(log=log)
+            self.assertEqual({a["kind"] for a in assets.values()}, {"html", "js"})
+            self.assertTrue(all(a["role"] == "entry-backfill" for a in assets.values()))
+
+            again = publisher.backfill_entry_assets(blog_dir=entries, log=log, project_fn=None)
+            self.assertEqual(again, [])
+            self.assertEqual(len(eventlog.artefato_assets_at(log=log)), 2)
+
+    def test_backfill_entry_assets_skips_normal_published_slug_pages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            entries = Path(tmp) / "entries"
+            entries.mkdir()
+            log = Path(tmp) / "log.jsonl"
+            (entries / "published.html").write_text("<html><body>normal close page</body></html>")
+            (entries / "published.app.js").write_text("console.log('asset');")
+            eventlog.append_batch([
+                ("artefato.published", "artefato:published",
+                 {"slug": "published", "spec": {"type": "doc"}, "skill": "report"}),
+                ("intent.kernel", "artefato:published", {"slug": "published", "intent": "why"}),
+            ], log=log)
+
+            publisher.backfill_entry_assets(blog_dir=entries, log=log, project_fn=None)
+            assets = eventlog.artefato_assets_at(log=log)
+            self.assertEqual(len(assets), 1)
+            asset = next(iter(assets.values()))
+            self.assertEqual(asset["kind"], "js")
+            self.assertEqual(asset["parent_slug"], "published")
+
+    def test_reproject_graph_runs_entry_asset_backfill_on_the_canonical_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            original_log = publisher.eventlog.LOG
+            original_backfill = publisher.backfill_entry_assets
+            called = []
+            try:
+                publisher.eventlog.LOG = log
+                publisher.backfill_entry_assets = lambda **kw: called.append(kw) or []
+                publisher.reproject_graph(
+                    log=log,
+                    project_fn=lambda *a, **k: None,
+                    present_slugs=lambda: {},
+                    backbone_fn=None,
+                    asset_project_fn=lambda *a, **k: None,
+                    session_topic_project_fn=lambda **kw: None,
+                )
+            finally:
+                publisher.eventlog.LOG = original_log
+                publisher.backfill_entry_assets = original_backfill
+            self.assertEqual(called[0]["log"], log)
+            self.assertIsNone(called[0]["project_fn"])
+
     def test_project_session_topic_index_emits_session_topic_fragment_graph(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"

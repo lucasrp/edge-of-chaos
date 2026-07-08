@@ -21,6 +21,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 EDGE_PYTHON = REPO / "tools" / "edge-python"
+SWEEP = REPO / "tools" / "sweep.py"
 sys.path.insert(0, str(REPO / "tools"))
 import _provision  # noqa: E402
 
@@ -77,6 +78,15 @@ class EdgePythonFailsLoudWithoutVenv(unittest.TestCase):
                                  capture_output=True, text=True, env=env)
             self.assertEqual(res.returncode, 0, res.stderr)
             self.assertIn("VENV-PYTHON-RAN", res.stdout)
+
+
+class SweepEntrypointUsesRepoVenv(unittest.TestCase):
+    def test_sweep_reexecs_into_repo_venv_when_run_directly(self):
+        src = SWEEP.read_text()
+        self.assertIn("def _reexec_repo_venv", src)
+        self.assertIn(".venv", src)
+        self.assertIn("os.execv", src)
+        self.assertIn("_reexec_repo_venv()", src)
 
 
 class _Recorder:
