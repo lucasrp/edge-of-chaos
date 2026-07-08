@@ -78,11 +78,11 @@ class QuantProseVetoIsSemantic(unittest.TestCase):
 
 
 class RubricVersionBumped(unittest.TestCase):
-    """Editar a rubrica = sha novo = versão nova no label (B.1/GLO-13). O endurecimento do
-    visual é mudança semântica da régua → gate_rubric@2; verdicts velhos ficam pinados à @1."""
+    """Editar a rubrica = sha novo = versão nova no label (B.1/GLO-13). A rubrica atual
+    inclui o genus rite v4: reader growth, lineage ledger, mecanismo e grounding/fact-audit."""
 
-    def test_version_label_is_2(self):
-        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@2")
+    def test_version_label_is_4(self):
+        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@4")
 
 
 if __name__ == "__main__":
