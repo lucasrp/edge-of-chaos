@@ -75,6 +75,7 @@ ASSETS = {
 EXPERIMENTS = {
     "exp040": {
         "experiment_id": "exp040",
+        "kind": "meta",
         "title": "Agentic artifact navigation",
         "hypothesis": "typed doors beat graph search",
         "scope": "MCP UX",
@@ -315,6 +316,7 @@ class TheReadTools(unittest.TestCase):
     def test_cortex_experiments_returns_the_native_index(self):
         out = _tool(_server(), "cortex_experiments")
         self.assertEqual([e["id"] for e in out["experiments"]], ["exp040"])
+        self.assertEqual(out["experiments"][0]["kind"], "meta")
         self.assertEqual(out["experiments"][0]["report_slug"], "experiment-final-report")
         self.assertEqual(out["experiments"][0]["tier"], "asserted")
 
@@ -322,6 +324,7 @@ class TheReadTools(unittest.TestCase):
         out = _tool(_server(), "cortex_experiment", {"id": "exp040"})
         exp = out["experiment"]
         self.assertEqual(exp["id"], "exp040")
+        self.assertEqual(exp["kind"], "meta")
         self.assertEqual(exp["decision_rule"], "prefer the arm with fewer dead-ends")
         self.assertEqual(exp["canonical"]["typed"]["claim"], "Typed inventories make navigation native")
 

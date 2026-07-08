@@ -26,7 +26,8 @@ Current runtime, as of this skill:
   `cortex.experiments_at(...)`, folding `experiment.declared` plus `experiment.curated`.
 - Declaring a native experiment works through `eventlog.declare_experiment(...)`. It assigns a stable
   canonical experiment ID (`exp001`, `exp002`, …; historical ids such as `exp40` still read) before
-  the report exists.
+  the report exists. Decision-bearing **meta-experiments** also use this same global sequence with
+  `kind="meta"`.
 - Closing/finalizing an experiment works through `/report`: the report publishes `reports_on` plus
   `experiment_curation`, and the publisher writes `experiment.curated` in the same atomic batch.
 - The ontology name `experiment_declared` corresponds to runtime `experiment.declared`. The full pen
@@ -44,6 +45,18 @@ print(eventlog.declare_experiment('<title>', hypothesis='<testable uncertainty>'
 
 Use that id in all reports and artifacts: `reports_on=['expNNN']`. Non-canonical ids are rejected by
 the lineage normalizer instead of being silently turned into experiments.
+
+Numbering discipline:
+- `kind="domain"` is the default for experiments about the mentee's/business/domain object.
+- `kind="meta"` is for experiments about Edge itself, report quality, gates, tools, skills, or eval
+  process. It still receives a global `expNNN` if it answers a decision-bearing uncertainty.
+- Arms, runs, report iterations, feedback passes, and output files do **not** receive global
+  experiment numbers. Record them as `arms`, future run events, artifact slugs, or `relates` entries
+  under the parent Experiment.
+- If a meta-experiment studies another experiment, give the meta-experiment its own `expNNN` and link
+  the object with `relates=[{"type":"analyzes","experiment_id":"exp070",...}]`.
+- The concrete `old-edge-new-tools-exp/remote-feedback-v1` round is a `kind="meta"` Experiment over
+  report quality; it should receive its own global id instead of reusing the domain experiment `exp070`.
 
 ## Read Order
 Use curated-first navigation. The user should not have to dig through native experiments manually.

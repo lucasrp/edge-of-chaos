@@ -1142,6 +1142,7 @@ def hypotheses_at(seq=None, ts=None, log=LOG):
 
 EXPERIMENT_TYPES = ["experiment.declared", "experiment.curated"]
 EXPERIMENT_TYPED_FIELDS = ("claim", "scope", "status", "caveat", "supports", "excludes", "next")
+EXPERIMENT_KINDS = ("domain", "meta")
 _EXPERIMENT_NUMBER_RE = re.compile(r"^exp([0-9]+)$")
 
 
@@ -1212,7 +1213,7 @@ def next_experiment_id(log=LOG):
     return f"exp{max_n + 1:03d}"
 
 
-def declare_experiment(title, *, experiment_id=None, hypothesis=None, scope=None, owner=None,
+def declare_experiment(title, *, experiment_id=None, kind="domain", hypothesis=None, scope=None, owner=None,
                        decision_rule=None, arms=None, status="declared", by=None,
                        relates=None, log=LOG):
     """Declare a first-class Experiment and assign its stable canonical id (#107).
@@ -1221,9 +1222,16 @@ def declare_experiment(title, *, experiment_id=None, hypothesis=None, scope=None
     report exists. Finalization still happens through a report carrying `reports_on` and
     `experiment_curation`; declaration only names the object, records the decision-bearing
     uncertainty, and reserves the id.
+
+    Numbering rule (#109): every decision-bearing Experiment consumes the global `expNNN`
+    sequence, including meta-experiments about the Edge/reporting/eval process (`kind="meta"`).
+    Arms, runs, report iterations and feedback passes do not consume global experiment numbers;
+    record them under `arms`/future run events or as `relates` on the parent Experiment.
     """
     _require_body(title, "experiment.declared (title)")
     eid = _normalized_experiment_id(experiment_id) if experiment_id is not None else next_experiment_id(log)
+    if kind not in EXPERIMENT_KINDS:
+        raise ValueError(f"experiment.declared kind must be one of {EXPERIMENT_KINDS}")
     if arms is None:
         arms = []
     if not isinstance(arms, list):
@@ -1234,6 +1242,7 @@ def declare_experiment(title, *, experiment_id=None, hypothesis=None, scope=None
         raise ValueError("experiment.declared relates must be a list of dicts")
     payload = {
         "experiment_id": eid,
+        "kind": kind,
         "title": title.strip(),
         "hypothesis": hypothesis.strip() if isinstance(hypothesis, str) and hypothesis.strip() else None,
         "scope": scope.strip() if isinstance(scope, str) and scope.strip() else None,
@@ -1290,6 +1299,7 @@ def fold_experiments(events):
         if e.get("type") == "experiment.declared":
             cur.update({
                 "title": p.get("title"),
+                "kind": p.get("kind") if p.get("kind") in EXPERIMENT_KINDS else "domain",
                 "hypothesis": p.get("hypothesis"),
                 "scope": p.get("scope"),
                 "owner": p.get("owner"),

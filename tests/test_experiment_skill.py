@@ -52,6 +52,14 @@ class ExperimentSkillContract(unittest.TestCase):
         for term in ("Experiment:", "Arm:", "Run:", "Eval:", "Observation:", "Report:"):
             self.assertIn(term, text)
 
+    def test_experiment_skill_pins_numbering_discipline(self):
+        text = (REPO / "skills" / "experiment" / "SKILL.md").read_text()
+
+        self.assertIn('kind="meta"', text)
+        self.assertIn("global `expNNN`", text)
+        self.assertIn("do **not** receive global", text)
+        self.assertIn("old-edge-new-tools-exp/remote-feedback-v1", text)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -209,6 +209,7 @@ def _experiment_row(experiment_id, exp, *, full=False):
     row = {
         "id": experiment_id,
         "experiment_id": experiment_id,
+        "kind": exp.get("kind") or "domain",
         "title": exp.get("title") or typed.get("claim") or exp.get("hypothesis") or experiment_id,
         "hypothesis": exp.get("hypothesis"),
         "scope": typed.get("scope") or exp.get("scope"),

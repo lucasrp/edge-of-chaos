@@ -307,9 +307,52 @@ class ExperimentDeclarationAndNumbering(unittest.TestCase):
                 log=log)
             got = eventlog.experiment_at("exp071", log=log)
             self.assertEqual(got["title"], "Find the best report dispatch")
+            self.assertEqual(got["kind"], "domain")
             self.assertEqual(got["status"], "declared")
             self.assertEqual(got["canonical"], {})
             self.assertEqual(got["canonical_artifacts"], [])
+
+    def test_meta_experiments_consume_the_same_global_sequence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = _log(tmp)
+            eventlog.declare_experiment("JURIX V9 roundwise judge", experiment_id="exp070",
+                                        log=log)
+            eventlog.declare_experiment("Open report quality follow-up", experiment_id="exp072",
+                                        kind="meta", log=log)
+
+            ev = eventlog.declare_experiment(
+                "old-edge-new-tools feedback-v1 report-quality iteration",
+                kind="meta",
+                hypothesis="feedback-grounded report rites beat the old Edge tool port",
+                scope="drafts/old-edge-new-tools-exp/remote-feedback-v1",
+                relates=[{"type": "analyzes", "experiment_id": "exp070",
+                          "role": "object_under_test"}],
+                arms=[
+                    {"id": "arm-a", "label": "baseline report rite"},
+                    {"id": "arm-b", "label": "feedback-grounded report rite"},
+                ],
+                log=log)
+
+            self.assertEqual(ev["payload"]["experiment_id"], "exp073")
+            got = eventlog.experiment_at("exp073", log=log)
+            self.assertEqual(got["kind"], "meta")
+            self.assertEqual(got["relates"][0]["experiment_id"], "exp070")
+            self.assertEqual(eventlog.next_experiment_id(log=log), "exp074")
+
+    def test_arms_runs_and_report_iterations_do_not_get_global_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = _log(tmp)
+            eventlog.declare_experiment(
+                "Report quality comparison",
+                kind="meta",
+                arms=[{"id": "arm-a", "runs": [{"id": "run-001"}],
+                       "report_iterations": ["feedback-v1", "feedback-v2"]}],
+                log=log)
+
+            exps = eventlog.experiments_at(log=log)
+            self.assertEqual(list(exps), ["exp001"])
+            self.assertEqual(eventlog.next_experiment_id(log=log), "exp002")
+            self.assertEqual(exps["exp001"]["arms"][0]["runs"][0]["id"], "run-001")
 
     def test_duplicate_or_noncanonical_experiment_id_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -319,6 +362,8 @@ class ExperimentDeclarationAndNumbering(unittest.TestCase):
                 eventlog.declare_experiment("two", experiment_id="exp071", log=log)
             with self.assertRaises(ValueError):
                 eventlog.declare_experiment("bad", experiment_id="weekend-report-test", log=log)
+            with self.assertRaisesRegex(ValueError, "kind"):
+                eventlog.declare_experiment("bad kind", kind="report_iteration", log=log)
 
 
 class BearsOnAndParaRideThePublishPayload(unittest.TestCase):
