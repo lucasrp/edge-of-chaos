@@ -1028,8 +1028,8 @@ def ux_catalog():
 _TRUST_BY_LABEL = {
     "Genesis": "space0",
     "Objective": "asserted", "Direction": "asserted", "Artefato": "asserted",
-    "Entity": "extracted", "Source": "extracted",
-    "Episodic": "episodic",
+    "Entity": "extracted", "Source": "extracted", "Topic": "extracted",
+    "Episodic": "episodic", "VozFragment": "episodic",
 }
 
 # The human-readable title per label — what a clicked node shows (inspect node, v1).
@@ -1040,6 +1040,8 @@ _TITLE_FIELDS = {
     "Artefato": ("slug",),
     "Entity": ("name",),
     "Source": ("name", "source_description", "key"),
+    "Topic": ("title", "name", "topic_id", "key"),
+    "VozFragment": ("snippet", "text", "title", "key"),
     "Episodic": ("name", "summary"),
 }
 
@@ -1378,7 +1380,8 @@ def _cortex_dark():
 
 # The node-type labels the filter exposes, in trust order (space-0 first). One checkbox per label;
 # the island maps a label → its node class and shows/hides deterministically over the loaded payload.
-_CORTEX_FILTER_LABELS = ("Genesis", "Objective", "Direction", "Artefato", "Entity", "Source", "Episodic")
+_CORTEX_FILTER_LABELS = ("Genesis", "Objective", "Direction", "Artefato", "Entity", "Source",
+                         "Topic", "Episodic", "VozFragment")
 
 
 def _cortex_controls():

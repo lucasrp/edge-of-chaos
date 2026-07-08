@@ -50,6 +50,10 @@ def artefato_assets_at(*args, **kwargs):
     return eventlog.artefato_assets_at(*args, **kwargs)
 
 
+def session_topics_at(*args, **kwargs):
+    return eventlog.session_topics_at(*args, **kwargs)
+
+
 def grounding_at(*args, **kwargs):
     return eventlog.grounding_at(*args, **kwargs)
 

@@ -401,16 +401,17 @@ def _maybe_propose_topic_directions(project_dir=None, codex_dir=None, log=eventl
         return 0
     try:
         import topic_threads
-        n = topic_threads.propose_recent_topic_directions(
+        out = topic_threads.sync_recent_topic_memory(
             window_days=_topic_direction_window_days(),
             project_dir=project_dir,
             codex_dir=codex_dir,
             all_stores=(project_dir is None),
             log=log,
         )
-        if n:
-            print(f"sweep: topic threads proposed {n} Direction item(s)")
-        return n
+        if out.get("total"):
+            print(f"sweep: session topics indexed {out.get('topics', 0)}; "
+                  f"topic threads proposed {out.get('directions', 0)} Direction item(s)")
+        return out.get("total", 0)
     except Exception as e:  # noqa: BLE001 — automatic inference must not gate the wake
         print(f"sweep: topic-thread Direction skipped ({type(e).__name__}: {e}) — "
               "wake continues; grill can still curate existing Direction")

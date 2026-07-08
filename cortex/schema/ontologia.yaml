@@ -7,7 +7,7 @@
 
 version: cortex-v2@1
 schema_version: 1
-content_hash: "74fd58acce23bf46e5cf358a0c5f8666259267a3eabd0636352b3b6d955f152a"
+content_hash: "803609eaa9947a3d695c00e611c874ff1107b5315a51c94672a8e73dc60ea684"
 
 provenance_class:
   # The plane per edge/annotation. Decides ONE thing: rollup eligibility (CX-1).
@@ -84,6 +84,13 @@ nodes:
   community: {truth: sweep/communities}
   source: {truth: source.signal}
   episodic: {truth: sweep}
+  topic:
+    truth: session.topic
+    sentido: topico extraido automaticamente de Voz recente; hipotese de navegacao, nao curadoria
+  voz_fragment:
+    runtime: VozFragment
+    truth: session.topic
+    sentido: trecho bruto de Voz com ponte para sessao/turno; evidencia navegavel de baixa autoridade
   parceiro:
     # §6 — PROMOTION, not minting: the extracted :Entity-person GAINS the parceiro mark
     # (parceiro.promoted, asserted/HITL); same node, keeping the edges/communities it already has.
@@ -99,7 +106,7 @@ edges:
                 # NEVER rollup-eligible (CX-1); truth = `bears_on` on artefato.published
     [SUPPORTS, REFUTES, QUALIFIES, INCONCLUSIVE]
   semantic:     # provenance_class=extracted (RAG hypotheses; cosine nominates, author disposes)
-    [RELATES_TO, IN_COMMUNITY]
+    [RELATES_TO, IN_COMMUNITY, HAS_TOPIC, HAS_FRAGMENT, ABOUT]
   # the episteme alias map — H-001's ontology-diff counts these as RENAMES, not new types.
   aliases:
     SUPPORTS: apoia

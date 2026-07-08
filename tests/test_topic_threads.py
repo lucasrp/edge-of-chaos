@@ -25,6 +25,35 @@ def _write_claude_session(path, prompts):
 
 
 class TopicThreadsProjectDirection(unittest.TestCase):
+    def test_recent_voice_topics_are_indexed_by_session_topic_and_fragment(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
+            log = Path(st) / "log.jsonl"
+            _write_claude_session(Path(proj) / "s1.jsonl", [
+                "quero indexar sessoes por topics e navegar pelos fragmentos",
+                "recall deve achar fragments e topics preservando a sessao",
+            ])
+
+            out = topic_threads.sync_recent_topic_memory(
+                project_dir=proj, codex_dir=False, all_stores=False, log=log,
+            )
+
+            self.assertGreaterEqual(out["topics"], 1)
+            idx = eventlog.session_topics_at(log=log)
+            self.assertIn("s1", idx["sessions"])
+            self.assertIn("session-voice", idx["topics"])
+            self.assertIn("session-memory-navigation", idx["topics"])
+            topic = idx["topics"]["session-memory-navigation"]
+            self.assertEqual(topic["sessions"], ["s1"])
+            self.assertEqual(len(topic["fragments"]), 2)
+            first_fragment = idx["fragments"][topic["fragments"][0]]
+            self.assertEqual(first_fragment["session_id"], "s1")
+            self.assertIn("sess", first_fragment["snippet"].lower())
+
+            again = topic_threads.sync_recent_topic_memory(
+                project_dir=proj, codex_dir=False, all_stores=False, log=log,
+            )
+            self.assertEqual(again["topics"], 0, "same topic index must be idempotent")
+
     def test_recent_voice_topics_become_direction_proposed_with_evidence_refs(self):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             log = Path(st) / "log.jsonl"
@@ -108,4 +137,3 @@ class TopicThreadsProjectDirection(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

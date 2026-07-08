@@ -840,6 +840,123 @@ def project_artefato_asset(asset_slug, *, path, kind, sha256, skill=None, parent
             pass
 
 
+def _project_session_topic_index(s, g, index, log=eventlog.LOG):
+    """Project the automatic Voz/session topic index.
+
+    The log is the source of truth; these nodes are navigational hypotheses. Rebuild the owned
+    Session->Topic/Fragment edges for sessions present in the fold so a changed topic extraction does
+    not strand stale fragments.
+    """
+    if not isinstance(index, dict):
+        return
+    topics = index.get("topics") or {}
+    fragments = index.get("fragments") or {}
+    for session in (index.get("sessions") or {}).values():
+        sid = session.get("session_id")
+        if not sid:
+            continue
+        s.run(
+            "MERGE (se:Episodic {group_id:$g, session_id:$sid}) "
+            "SET se.name=$sid, se.key=$sid, se.uuid=$uuid, se.surface=$surface, se.path=$path, "
+            "se.summary=$summary, se.medium_tier='low', se.projected_at=$pat",
+            g=g, sid=sid, uuid=f"session:{sid}", surface=session.get("surface"),
+            path=session.get("path"),
+            summary=f"session topic index: {len(session.get('topics') or [])} topic(s)",
+            pat=session.get("latest_ts") or _dt.now(_tz.utc).isoformat())
+        s.run(
+            "MATCH (se:Episodic {group_id:$g, session_id:$sid})-[r:HAS_TOPIC]->(:Topic) DELETE r",
+            g=g, sid=sid)
+        s.run(
+            "MATCH (se:Episodic {group_id:$g, session_id:$sid})-[:HAS_FRAGMENT]->"
+            "(vf:VozFragment {group_id:$g}) DETACH DELETE vf",
+            g=g, sid=sid)
+        for topic_id in session.get("topics") or []:
+            topic = topics.get(topic_id) or {}
+            s.run(
+                "MERGE (t:Topic {group_id:$g, topic_id:$tid}) "
+                "SET t.key=$tid, t.uuid=$uuid, t.title=$title, t.name=$title, "
+                "t.score=$score, t.keywords=$keywords, t.projected_at=$pat",
+                g=g, tid=topic_id, uuid=f"topic:{topic_id}",
+                title=topic.get("title") or topic_id,
+                score=topic.get("score") or 0,
+                keywords=topic.get("keywords") or [],
+                pat=topic.get("latest_ts") or _dt.now(_tz.utc).isoformat())
+            s.run(
+                "MATCH (se:Episodic {group_id:$g, session_id:$sid}),"
+                "(t:Topic {group_id:$g, topic_id:$tid}) "
+                "MERGE (se)-[r:HAS_TOPIC]->(t) SET r.provenance_class='extracted'",
+                g=g, sid=sid, tid=topic_id)
+        for fid in session.get("fragments") or []:
+            frag = fragments.get(fid) or {}
+            topic_id = frag.get("topic_id")
+            s.run(
+                "MERGE (vf:VozFragment {group_id:$g, fragment_id:$fid}) "
+                "SET vf.key=$fid, vf.uuid=$uuid, vf.session_id=$sid, vf.surface=$surface, "
+                "vf.path=$path, vf.turn=$turn, vf.snippet=$snippet, vf.text=$snippet, "
+                "vf.title=$title, vf.medium_tier='low', vf.projected_at=$pat",
+                g=g, fid=fid, uuid=f"voz:{fid}", sid=sid, surface=frag.get("surface"),
+                path=frag.get("path"), turn=frag.get("turn"), snippet=frag.get("snippet"),
+                title=frag.get("snippet"), pat=frag.get("ts") or _dt.now(_tz.utc).isoformat())
+            s.run(
+                "MATCH (se:Episodic {group_id:$g, session_id:$sid}),"
+                "(vf:VozFragment {group_id:$g, fragment_id:$fid}) "
+                "MERGE (se)-[r:HAS_FRAGMENT]->(vf) SET r.provenance_class='extracted'",
+                g=g, sid=sid, fid=fid)
+            if topic_id:
+                s.run(
+                    "MATCH (vf:VozFragment {group_id:$g, fragment_id:$fid}),"
+                    "(t:Topic {group_id:$g, topic_id:$tid}) "
+                    "MERGE (vf)-[r:ABOUT]->(t) SET r.provenance_class='extracted'",
+                    g=g, fid=fid, tid=topic_id)
+
+    s.run("MATCH (t:Topic {group_id:$g})-[r:PROPOSES]->(:Direction) DELETE r", g=g)
+    dirs = cortex.direction_at(log=log) or {}
+    for item in dirs.get("set", []) + dirs.get("proposed", []):
+        iid = item.get("id")
+        body = item.get("body")
+        if not (isinstance(iid, str) and iid.startswith("topic-7d:")
+                and isinstance(body, str) and body.strip()):
+            continue
+        topic_id = iid.split(":", 1)[1]
+        if topic_id not in topics:
+            continue
+        s.run(
+            "MATCH (t:Topic {group_id:$g, topic_id:$tid}) "
+            "MERGE (d:Direction {group_id:$g, body:$body}) "
+            "SET d.id=$id, d.kind=$kind "
+            "MERGE (t)-[r:PROPOSES]->(d) SET r.provenance_class='extracted'",
+            g=g, tid=topic_id, body=body, id=iid, kind=item.get("kind") or "thread")
+    s.run(
+        "MATCH (t:Topic {group_id:$g}) "
+        "WHERE NOT (()-[:HAS_TOPIC]->(t)) AND NOT (()-[:ABOUT]->(t)) "
+        "DETACH DELETE t", g=g)
+
+
+def project_session_topics(log=eventlog.LOG):
+    """Best-effort projection for session.topic events."""
+    if not _is_canonical_log(log):
+        return
+    try:
+        import _identity
+        from neo4j import GraphDatabase
+        uri, user, pw = _identity.neo4j_conn()
+        g = _identity.require_group()
+        drv = GraphDatabase.driver(uri, auth=(user, pw))
+    except Exception as ex:  # noqa: BLE001 — best-effort; the log already holds the truth
+        print("session-topic project skipped (best-effort, graph unreachable):", ex)
+        return
+    try:
+        with drv.session() as s:
+            _project_session_topic_index(s, g, cortex.session_topics_at(log=log), log=log)
+    except Exception as ex:  # noqa: BLE001 — recoverable on next reproject
+        print("session-topic project failed (best-effort, reproject next beat):", ex)
+    finally:
+        try:
+            drv.close()
+        except Exception:
+            pass
+
+
 def _project_para_default(s, g, slug, name):
     """Curadoria autoral (§6, regra do operador): with NO authored `para`, the artefato is still
     FOR someone — the operador/mentee. The mark is a PROP on the :Artefato (`a.para_default`,
@@ -1558,7 +1675,8 @@ def _graph_present_slugs():
 
 
 def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs=_graph_present_slugs,
-                    backbone_fn=project_backbone, asset_project_fn=None):
+                    backbone_fn=project_backbone, asset_project_fn=None,
+                    session_topic_project_fn=None):
     """Graph recovery (Codex P2, #30, ADR-0006: the graph is a re-derivable PROJECTION of the log).
     A transient Neo4j outage at publish time leaves the committed Artefato out of the graph (so
     `recall_subgraph` misses it) — this is the "reproject next beat" path the publish-time catch
@@ -1637,6 +1755,13 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
                 )
             except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
                 print(f"asset graph reproject skipped for {asset.get('asset_slug')!r}: {ex}")
+    if session_topic_project_fn is None:
+        session_topic_project_fn = project_session_topics if _is_canonical_log(log) else None
+    if session_topic_project_fn is not None:
+        try:
+            session_topic_project_fn(log=log)
+        except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
+            print(f"session-topic graph reproject skipped (best-effort): {ex}")
     # B.3 (Codex adversarial) — replay das INTEGRAÇÕES também: uma promoção cuja marca best-effort
     # no grafo falhou se cura aqui (MERGE idempotente, ts do evento). Canônico-somente, como o
     # project acima: um log de teste/dry-run nunca escreve marcas no grafo do install.

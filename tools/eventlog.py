@@ -762,6 +762,191 @@ def artefato_assets_at(seq=None, ts=None, log=LOG):
     return fold_artefato_assets(read(types=ASSET_TYPES, until_seq=seq, until_ts=ts, log=log))
 
 
+SESSION_TOPIC_TYPES = ["session.topic"]
+SESSION_TOPIC_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+
+
+def _validated_session_topic_id(value, field):
+    if not (isinstance(value, str) and SESSION_TOPIC_ID_RE.fullmatch(value)):
+        raise ValueError(f"{field} must match {SESSION_TOPIC_ID_RE.pattern}, got {value!r}")
+    return value
+
+
+def _normalized_topic_fragment(fragment):
+    if not isinstance(fragment, dict):
+        raise ValueError("session.topic fragments must be dicts")
+    snippet = fragment.get("snippet")
+    text = fragment.get("text")
+    body = snippet if isinstance(snippet, str) and snippet.strip() else text
+    if not (isinstance(body, str) and body.strip()):
+        raise ValueError("session.topic fragment needs a non-blank snippet/text")
+    turn = fragment.get("turn")
+    if isinstance(turn, bool) or not isinstance(turn, int) or turn <= 0:
+        raise ValueError("session.topic fragment turn must be a positive integer")
+    out = {
+        "fragment_id": fragment.get("fragment_id"),
+        "session": fragment.get("session"),
+        "surface": fragment.get("surface"),
+        "path": fragment.get("path"),
+        "turn": turn,
+        "snippet": " ".join(body.split())[:500],
+    }
+    fid_seed = json.dumps({k: out.get(k) for k in ("session", "surface", "path", "turn", "snippet")},
+                          sort_keys=True, ensure_ascii=False)
+    if not (isinstance(out["fragment_id"], str)
+            and SESSION_TOPIC_ID_RE.fullmatch(out["fragment_id"])):
+        out["fragment_id"] = "vf:" + hashlib.sha256(fid_seed.encode("utf-8")).hexdigest()[:24]
+    return out
+
+
+def _session_topic_hash(payload):
+    canonical = {
+        "session_id": payload.get("session_id"),
+        "surface": payload.get("surface"),
+        "path": payload.get("path"),
+        "topic_id": payload.get("topic_id"),
+        "title": payload.get("title"),
+        "score": payload.get("score"),
+        "keywords": payload.get("keywords") or [],
+        "fragments": payload.get("fragments") or [],
+    }
+    return hashlib.sha256(json.dumps(canonical, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def record_session_topic(session_id, topic_id, *, title, surface, path=None, score=0,
+                         keywords=None, fragments=None, window_days=None, log=LOG):
+    """Append/update the automatic session-topic index.
+
+    This is the non-curated navigation layer: operator-authored session fragments are grouped into
+    topic hypotheses. The event records the raw anchors and snippets so Direction can point at them
+    without being their only durable home. Re-emitting identical content is idempotent; changed
+    evidence appends a newer version, preserving the contradiction/history in the log.
+    """
+    session_id = _validated_session_topic_id(session_id, "session_id")
+    topic_id = _validated_session_topic_id(topic_id, "topic_id")
+    if not (isinstance(title, str) and title.strip()):
+        raise ValueError("session.topic title must be non-blank")
+    if surface not in ("claude", "codex"):
+        raise ValueError("session.topic surface must be 'claude' or 'codex'")
+    if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
+        raise ValueError("session.topic score must be a finite number")
+    if fragments is None:
+        fragments = []
+    if not isinstance(fragments, list) or not fragments:
+        raise ValueError("session.topic needs at least one fragment")
+    clean_fragments = []
+    for f in fragments:
+        if not isinstance(f, dict):
+            raise ValueError("session.topic fragments must be dicts")
+        clean = _normalized_topic_fragment({**f, "session": f.get("session") or session_id,
+                                            "surface": f.get("surface") or surface})
+        clean_fragments.append(clean)
+    clean_keywords = [str(k).strip() for k in (keywords or []) if str(k).strip()]
+    payload = {
+        "session_id": session_id,
+        "surface": surface,
+        "path": str(path) if path else None,
+        "topic_id": topic_id,
+        "title": title.strip(),
+        "score": score,
+        "keywords": clean_keywords[:12],
+        "fragments": clean_fragments,
+        "window_days": window_days,
+    }
+    payload["content_hash"] = _session_topic_hash(payload)
+    for e in read(types=SESSION_TOPIC_TYPES, log=log):
+        p = e.get("payload") if isinstance(e.get("payload"), dict) else {}
+        if (p.get("session_id") == session_id and p.get("topic_id") == topic_id
+                and p.get("content_hash") == payload["content_hash"]):
+            return e
+    return append("session.topic", f"session:{session_id}", payload, log=log)
+
+
+def fold_session_topics(events):
+    """Pure fold of `session.topic` -> sessions/topics/fragments navigation index.
+
+    Latest content hash wins per (session, topic). The fold keeps all three doors because agents
+    enter memory from different questions: "what happened in this session?", "where is this topic
+    alive?", or "which exact utterance grounded this?".
+    """
+    latest = {}
+    for e in events:
+        if e.get("type") != "session.topic":
+            continue
+        p = e.get("payload") if isinstance(e.get("payload"), dict) else {}
+        sid, tid = p.get("session_id"), p.get("topic_id")
+        if not (isinstance(sid, str) and isinstance(tid, str)):
+            continue
+        latest[(sid, tid)] = (e, p)
+
+    sessions_out, topics_out, fragments_out = {}, {}, {}
+    for (sid, tid), (e, p) in latest.items():
+        sess = sessions_out.setdefault(sid, {
+            "session_id": sid,
+            "surface": p.get("surface"),
+            "path": p.get("path"),
+            "topics": [],
+            "fragments": [],
+            "latest_ts": None,
+        })
+        if tid not in sess["topics"]:
+            sess["topics"].append(tid)
+        if e.get("ts") and (sess["latest_ts"] is None or e["ts"] > sess["latest_ts"]):
+            sess["latest_ts"] = e["ts"]
+        topic = topics_out.setdefault(tid, {
+            "topic_id": tid,
+            "title": p.get("title") or tid,
+            "score": 0,
+            "keywords": [],
+            "sessions": [],
+            "fragments": [],
+            "latest_ts": None,
+        })
+        topic["score"] += p.get("score") if isinstance(p.get("score"), (int, float)) else 0
+        if sid not in topic["sessions"]:
+            topic["sessions"].append(sid)
+        for kw in p.get("keywords") or []:
+            if isinstance(kw, str) and kw and kw not in topic["keywords"]:
+                topic["keywords"].append(kw)
+        if e.get("ts") and (topic["latest_ts"] is None or e["ts"] > topic["latest_ts"]):
+            topic["latest_ts"] = e["ts"]
+        for f in p.get("fragments") or []:
+            if not isinstance(f, dict):
+                continue
+            fid = f.get("fragment_id")
+            if not isinstance(fid, str):
+                continue
+            frag = {
+                "fragment_id": fid,
+                "session_id": sid,
+                "surface": f.get("surface") or p.get("surface"),
+                "path": f.get("path") or p.get("path"),
+                "turn": f.get("turn"),
+                "snippet": f.get("snippet"),
+                "topic_id": tid,
+                "topic_title": topic["title"],
+                "ts": e.get("ts"),
+            }
+            fragments_out[fid] = frag
+            if fid not in sess["fragments"]:
+                sess["fragments"].append(fid)
+            if fid not in topic["fragments"]:
+                topic["fragments"].append(fid)
+    for sess in sessions_out.values():
+        sess["topics"].sort()
+        sess["fragments"].sort()
+    for topic in topics_out.values():
+        topic["sessions"].sort()
+        topic["fragments"].sort()
+        topic["keywords"] = topic["keywords"][:20]
+    return {"sessions": sessions_out, "topics": topics_out, "fragments": fragments_out}
+
+
+def session_topics_at(seq=None, ts=None, log=LOG):
+    """Fold the automatic Voz/session topic index up to a cursor. Empty -> three empty maps."""
+    return fold_session_topics(read(types=SESSION_TOPIC_TYPES, until_seq=seq, until_ts=ts, log=log))
+
+
 SOURCE_TYPES = ["source.signal"]
 
 

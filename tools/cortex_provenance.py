@@ -29,7 +29,7 @@ consume ONLY `computed` items — `assert_rollup_computed` is the one gate. Fail
 # trust axis F9 names (space0/episodic are rendering shades of the same two trust classes here):
 #   spine (folds from the log) → asserted; Graphiti (hypothesis) → extracted.
 _ASSERTED_LABELS = {"Genesis", "Objective", "Direction", "Artefato", "Experiment"}
-_EXTRACTED_LABELS = {"Entity", "Source", "Episodic"}
+_EXTRACTED_LABELS = {"Entity", "Source", "Episodic", "Topic", "VozFragment"}
 
 
 def tier_for(label, props=None):
@@ -94,6 +94,7 @@ _CLASS_BY_TYPE = {
     "reports_on": "asserted",
     # Semantic plane — RAG hypotheses.
     "relates_to": "extracted", "in_community": "extracted",
+    "has_topic": "extracted", "has_fragment": "extracted", "about": "extracted",
 }
 
 

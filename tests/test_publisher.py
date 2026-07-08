@@ -708,6 +708,64 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             self.assertEqual(projected[0][1]["parent_slug"], "demo")
             self.assertEqual(projected[0][1]["kind"], "html")
 
+    def test_project_session_topic_index_emits_session_topic_fragment_graph(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.record_session_topic(
+                "s1",
+                "session-memory-navigation",
+                title="Memoria de sessoes navegavel",
+                surface="claude",
+                path="/tmp/s1.jsonl",
+                score=3,
+                keywords=["recall", "topics"],
+                fragments=[{"turn": 1, "snippet": "indexar sessoes por topics"}],
+                log=log,
+            )
+            eventlog.propose(
+                "topic-7d:session-memory-navigation",
+                "Construir memoria navegavel por Voz -> Topic -> Thread.",
+                kind="thread",
+                log=log,
+            )
+            seen = []
+
+            class FakeSession:
+                def run(self, query, **params):
+                    seen.append((query, params))
+                    return []
+
+            publisher._project_session_topic_index(
+                FakeSession(), "g1", eventlog.session_topics_at(log=log), log=log)
+
+            joined = "\n".join(q for q, _ in seen)
+            self.assertIn("MERGE (se:Episodic", joined)
+            self.assertIn("MERGE (t:Topic", joined)
+            self.assertIn("MERGE (vf:VozFragment", joined)
+            self.assertIn("HAS_TOPIC", joined)
+            self.assertIn("HAS_FRAGMENT", joined)
+            self.assertIn("ABOUT", joined)
+            self.assertIn("PROPOSES", joined)
+
+    def test_reproject_graph_replays_session_topic_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.record_session_topic(
+                "s1", "topic-thread-direction", title="Topics -> Threads -> Direction",
+                surface="claude", fragments=[{"turn": 1, "snippet": "costurar topics"}],
+                log=log)
+            called = []
+
+            publisher.reproject_graph(
+                log=log,
+                project_fn=lambda *a, **k: None,
+                present_slugs=lambda: {},
+                backbone_fn=None,
+                asset_project_fn=lambda *a, **k: None,
+                session_topic_project_fn=lambda **kw: called.append(kw["log"]))
+
+            self.assertEqual(called, [log])
+
     def test_reproject_graph_replays_only_missing_slugs(self):
         # Codex P2: steady-state must NOT re-embed the whole corpus each sweep — reproject_graph
         # replays only the slugs MISSING (or STALE) in the graph. `present_slugs` maps each present

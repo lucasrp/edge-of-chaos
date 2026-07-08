@@ -23,6 +23,8 @@ WINDOW_DAYS = 7
 MAX_RELATES_TO = 8
 MIN_FRAGMENTS = 2
 MIN_SCORE = 2
+SESSION_VOICE_TOPIC_ID = "session-voice"
+SESSION_VOICE_TOPIC_TITLE = "Voz da sessao"
 
 STOPWORDS = {
     "a", "ai", "ainda", "algo", "ao", "aos", "as", "ate", "bem", "cada", "com", "como",
@@ -134,6 +136,18 @@ class TopicDirection:
     fragment_count: int
     session_count: int
     relates_to: list[dict[str, Any]]
+
+
+@dataclasses.dataclass(frozen=True)
+class SessionTopic:
+    session_id: str
+    surface: str
+    path: str
+    topic_id: str
+    title: str
+    score: int
+    keywords: list[str]
+    fragments: list[dict[str, Any]]
 
 
 def norm(text: str) -> str:
@@ -254,6 +268,105 @@ def _keywords(text: str, limit: int = 6) -> list[str]:
     return [k for k, _ in counts.most_common(limit)]
 
 
+def _fragment_ref(fragment: VoiceFragment) -> dict[str, Any]:
+    return {
+        "kind": "voz.fragment",
+        "session": fragment.session_id,
+        "surface": fragment.surface,
+        "path": fragment.path,
+        "turn": fragment.turn_index,
+        "snippet": re.sub(r"\s+", " ", fragment.text)[:240],
+    }
+
+
+def infer_session_topics(
+    fragments: list[VoiceFragment],
+    *,
+    min_score: int = 1,
+) -> list[SessionTopic]:
+    """Group recent Voz fragments into per-session Topic records.
+
+    This is indexing, not curation: one matched fragment may create a topic record so navigation can
+    land on the exact session/turn. Direction promotion keeps its stricter aggregate thresholds.
+    """
+    grouped: dict[tuple[str, str], dict[str, Any]] = defaultdict(lambda: {
+        "score": 0,
+        "fragments": [],
+        "keywords": Counter(),
+        "surface": None,
+        "path": None,
+    })
+    for fragment in fragments:
+        generic = grouped[(fragment.session_id, SESSION_VOICE_TOPIC_ID)]
+        generic["score"] += 1
+        generic["fragments"].append(fragment)
+        generic["keywords"].update(_keywords(fragment.text))
+        generic["surface"] = fragment.surface
+        generic["path"] = fragment.path
+        scores = _topic_scores(fragment.text)
+        for topic_id, score in scores.items():
+            row = grouped[(fragment.session_id, topic_id)]
+            row["score"] += score
+            row["fragments"].append(fragment)
+            row["keywords"].update(_keywords(fragment.text))
+            row["surface"] = fragment.surface
+            row["path"] = fragment.path
+
+    out: list[SessionTopic] = []
+    for (session_id, topic_id), row in grouped.items():
+        score = int(row["score"])
+        if score < min_score:
+            continue
+        spec = TOPIC_SPECS.get(topic_id, {"title": SESSION_VOICE_TOPIC_TITLE})
+        out.append(SessionTopic(
+            session_id=session_id,
+            surface=row["surface"] or "claude",
+            path=row["path"] or "",
+            topic_id=topic_id,
+            title=spec["title"],
+            score=score,
+            keywords=[k for k, _ in row["keywords"].most_common(12)],
+            fragments=[_fragment_ref(f) for f in row["fragments"][-MAX_RELATES_TO:]],
+        ))
+    out.sort(key=lambda t: (t.session_id, t.topic_id))
+    return out
+
+
+def index_session_topics(
+    fragments: list[VoiceFragment],
+    *,
+    window_days: int = WINDOW_DAYS,
+    min_score: int = 1,
+    log=eventlog.LOG,
+) -> int:
+    existing = {}
+    for e in eventlog.read(types=eventlog.SESSION_TOPIC_TYPES, log=log):
+        p = e.get("payload") if isinstance(e.get("payload"), dict) else {}
+        sid, tid, ch = p.get("session_id"), p.get("topic_id"), p.get("content_hash")
+        if isinstance(sid, str) and isinstance(tid, str) and isinstance(ch, str):
+            existing[(sid, tid)] = ch
+    written = 0
+    for topic in infer_session_topics(fragments, min_score=min_score):
+        ev = eventlog.record_session_topic(
+            topic.session_id,
+            topic.topic_id,
+            title=topic.title,
+            surface=topic.surface,
+            path=topic.path,
+            score=topic.score,
+            keywords=topic.keywords,
+            fragments=topic.fragments,
+            window_days=window_days,
+            log=log,
+        )
+        p = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
+        key, ch = (topic.session_id, topic.topic_id), p.get("content_hash")
+        if isinstance(ch, str) and existing.get(key) != ch:
+            written += 1
+            existing[key] = ch
+    return written
+
+
 def infer_topic_directions(
     fragments: list[VoiceFragment],
     *,
@@ -286,14 +399,7 @@ def infer_topic_directions(
             continue
         spec = TOPIC_SPECS[topic_id]
         evidence = fragments_for_topic[-MAX_RELATES_TO:]
-        relates_to = [{
-            "kind": "voz.fragment",
-            "session": f.session_id,
-            "surface": f.surface,
-            "path": f.path,
-            "turn": f.turn_index,
-            "snippet": re.sub(r"\s+", " ", f.text)[:240],
-        } for f in evidence]
+        relates_to = [_fragment_ref(f) for f in evidence]
         session_count = len(row["sessions"])
         fragment_count = len(fragments_for_topic)
         body = (
@@ -312,6 +418,23 @@ def infer_topic_directions(
         ))
     directions.sort(key=lambda d: (d.session_count, d.fragment_count, d.score), reverse=True)
     return directions[:limit]
+
+
+def index_recent_session_topics(
+    *,
+    window_days: int = WINDOW_DAYS,
+    project_dir: str | Path | None = None,
+    codex_dir: str | Path | bool | None = None,
+    claude_root: str | Path | None = None,
+    all_stores: bool | None = None,
+    log=eventlog.LOG,
+    now: datetime | None = None,
+    min_score: int = 1,
+) -> int:
+    fragments = collect_voice_fragments(window_days=window_days, project_dir=project_dir,
+                                        codex_dir=codex_dir, claude_root=claude_root,
+                                        all_stores=all_stores, now=now)
+    return index_session_topics(fragments, window_days=window_days, min_score=min_score, log=log)
 
 
 def _direction_status(log=eventlog.LOG) -> dict[str, tuple[str, str]]:
@@ -365,3 +488,45 @@ def propose_recent_topic_directions(
         status[direction.id] = ("proposed", direction.body)
         written += 1
     return written
+
+
+def sync_recent_topic_memory(
+    *,
+    window_days: int = WINDOW_DAYS,
+    project_dir: str | Path | None = None,
+    codex_dir: str | Path | bool | None = None,
+    claude_root: str | Path | None = None,
+    all_stores: bool | None = None,
+    log=eventlog.LOG,
+    now: datetime | None = None,
+    min_fragments: int = MIN_FRAGMENTS,
+    min_score: int = MIN_SCORE,
+    index_min_score: int = 1,
+) -> dict[str, int]:
+    """One wake-time pass for the automatic Voz memory layer.
+
+    The same recent fragments feed two read models:
+    - session.topic events, broad and navigable, preserving session/turn anchors;
+    - direction.proposed events, narrower and decision-bearing, for the mentor to curate.
+    """
+    fragments = collect_voice_fragments(window_days=window_days, project_dir=project_dir,
+                                        codex_dir=codex_dir, claude_root=claude_root,
+                                        all_stores=all_stores, now=now)
+    topics_written = index_session_topics(fragments, window_days=window_days,
+                                          min_score=index_min_score, log=log)
+    directions = infer_topic_directions(fragments, window_days=window_days,
+                                        min_fragments=min_fragments, min_score=min_score)
+    status = _direction_status(log)
+    directions_written = 0
+    for direction in directions:
+        state, body = status.get(direction.id, ("", ""))
+        if state in {"set", "dropped"}:
+            continue
+        if state == "proposed" and body == direction.body:
+            continue
+        eventlog.propose(direction.id, direction.body, kind="thread",
+                         relates_to=direction.relates_to, log=log)
+        status[direction.id] = ("proposed", direction.body)
+        directions_written += 1
+    return {"topics": topics_written, "directions": directions_written,
+            "total": topics_written + directions_written}
