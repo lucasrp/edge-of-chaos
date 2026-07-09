@@ -1,8 +1,8 @@
-"""Genus rite v4 is roster-wide, not report-specific.
+"""Genus rite v5 is roster-wide, not report-specific.
 
 The 2026-07-08 report-quality experiment promoted the winning rite to the
 shared Artefato genus: lineage, reader model, mechanism trace, Mundo fit/mismatch,
-post-gate grounding, and fact-audit.
+old-edge equivalent draft, post-gate grounding, visible rewrite delta, and fact-audit.
 """
 import sys
 import unittest
@@ -13,9 +13,10 @@ sys.path.insert(0, str(REPO / "tools"))
 import close  # noqa: E402
 
 
-class GenusRiteV4ReviewRubric(unittest.TestCase):
+class GenusRiteV5ReviewRubric(unittest.TestCase):
     def test_new_dimensions_are_in_the_shared_rubric(self):
-        for dim in ("lineage_and_reader_model", "mechanism_trace", "grounding_audit"):
+        for dim in ("lineage_and_reader_model", "mechanism_trace", "grounding_audit",
+                    "old_edge_grounded_rite"):
             self.assertIn(dim, close.DIMENSIONS)
             self.assertIn(dim, close.DIMENSION_WEIGHTS)
 
@@ -46,35 +47,59 @@ class GenusRiteV4ReviewRubric(unittest.TestCase):
         self.assertIn("magnitude", dim)
         self.assertIn("overextended external grounding is a strike", dim)
 
+    def test_old_edge_grounded_rite_is_the_promoted_default(self):
+        dim = close.DIMENSIONS["old_edge_grounded_rite"].lower()
+        self.assertIn("old-edge equivalent", dim)
+        self.assertIn("actionable grounding tasks", dim)
+        self.assertIn("directed post-gate", dim)
+        self.assertIn("grounding effect is visible", dim)
+        self.assertIn("what changed", dim)
+
     def test_prompt_carries_the_genus_rite_to_blind_reviewers(self):
         prompt = close._build_prompt(close._REGULAR_FOCUS,
                                      {"slug": "x", "content": {}, "cites": []})
-        self.assertIn("GENUS RITE V4", prompt)
+        self.assertIn("GENUS RITE V5", prompt)
         self.assertIn("concrete mechanism trace", prompt)
         self.assertIn("fit/mismatch", prompt)
         self.assertIn("numbered lineage", prompt)
         self.assertIn("maximize utility and growth", prompt)
-        self.assertIn("post-gate grounder", prompt)
+        self.assertIn("old-edge-with-grounding movement", prompt)
+        self.assertIn("visible rewrite delta", prompt)
 
-    def test_rubric_version_is_v4(self):
-        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@4")
+    def test_rubric_version_is_v5(self):
+        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@5")
 
 
 class SharedDocsCarryTheRite(unittest.TestCase):
     def test_scaffold_declares_the_rite_as_genus_not_report(self):
         text = (REPO / "skills/_shared/scaffold.md").read_text(encoding="utf-8")
-        self.assertIn("Genus default rite v4", text)
+        self.assertIn("Genus default rite v5", text)
         self.assertIn("not `report`", text)
+        self.assertIn("docs/genus-rite-v5-old-edge-grounded.md", text)
         for phrase in ("Lineage ledger", "Reader growth model",
                        "Post-gate grounder", "Mundo deepening",
+                       "Old-edge equivalent first draft", "Actionable gap gate",
+                       "Rewrite with visible grounding effect",
                        "numbered", "leveling", "interests"):
+            self.assertIn(phrase, text)
+
+    def test_canonical_rite_doc_preserves_the_experiment_content(self):
+        text = (REPO / "docs/genus-rite-v5-old-edge-grounded.md").read_text(encoding="utf-8")
+        for phrase in (
+            "old-edge draft -> actionable gap gate -> directed grounder",
+            "not an HTML template and not a report-only shape",
+            "Sources can position a local result",
+            "without validating its effect size",
+            "The vehicle is free; the movement is not",
+        ):
             self.assertIn(phrase, text)
 
     def test_pipeline_routes_substantive_gaps_back_to_author(self):
         text = (REPO / "skills/_shared/pipeline.md").read_text(encoding="utf-8")
-        self.assertIn("genus rite v4", text)
+        self.assertIn("genus rite v5", text)
         self.assertIn("skill-independent", text)
-        self.assertIn("post-gate grounder", text)
+        self.assertIn("old-edge-with-grounding rite", text)
+        self.assertIn("grounding delta is visible", text)
         self.assertIn("before the final gating review", text)
         self.assertIn("fact-audit", text)
 
