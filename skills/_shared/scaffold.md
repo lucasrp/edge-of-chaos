@@ -9,14 +9,36 @@ loop structure and the context-denial ladder are the same for every producer; on
 This scaffold is **non-procrusto** by design: it names roles, never report-specifics. A `map`
 producing a diagram and a `report` producing prose-and-charts run the **same** scaffold.
 
-## Genus default rite v4 — reader growth, lineage, mechanism, Mundo, audit
+## Genus default rite v5 — old-edge draft, gap gate, Mundo grounder, rewrite delta
 
 The rite approved on 2026-07-08 is **genus**, not `report`: every producer translates it into
 its own form. It is property-not-section. A map can carry it as edges and captions, a plan as
 dependency rationale, a prototype as interaction plus notes, a report as prose and tables. No
 skill opts out; a skill only changes the **vehicle**.
 
-Every Artefato owes these properties at its depth target:
+Canonical content: `docs/genus-rite-v5-old-edge-grounded.md`.
+
+The promoted rite is the old Edge manifestation with one extra grounding turn. It is a **sequence
+of cognition**, not a checklist of sections:
+
+1. **Old-edge equivalent first draft** — reason from the live problem before authority: derivation,
+   honest unknowns, outside-frame instinct, lineage, and a mentor arc. The first read should feel
+   like an intelligent operator discovering the claim, not a compliance template filling slots.
+2. **Actionable gap gate** — the gate is not only approval. It names the lacunas the draft exposed:
+   missing context, weak mechanism, missing predecessor, shallow Mundo, overclaim, or unclear next
+   validation. A vague "needs more sources" is not a gate; a task tied to a claim is.
+3. **Directed post-gate Mundo grounder** — grounding happens after the gap gate, aimed by the named
+   lacunas. It reopens the relevant prior artefacts/sessions, reader model, lineage, and world
+   sources. It must answer the draft's actual unknowns rather than decorate the text with citations.
+4. **Rewrite with visible grounding effect** — the final artefato shows what changed: which claim was
+   repositioned, which magnitude was narrowed, which analogy failed, which caveat strengthened, which
+   next validation changed. If Mundo did not validate the local result, say that; positioning is useful
+   even when it withholds comfort.
+5. **Fact-audited final close** — external sources may locate the work in a family of methods, but
+   they do not validate a local effect size, saturation band, ranking, or causal claim unless they
+   support that exact transfer.
+
+Every Artefato also owes these properties at its depth target:
 
 - **Reader growth model / contextualization**: the artefato is explicitly for the mentee or a named
   reader, and spends context only where that reader needs it. The default reader is the operator/mentee.
@@ -36,10 +58,11 @@ Every Artefato owes these properties at its depth target:
   improve the reader's model. The Mundo move is not a shallow analogy: it gives pointers for deeper
   study, names the field's vocabulary, and explains fit/mismatch. Each external term must change or
   sharpen a claim, caveat, example, decision, or next validation.
-- **Post-gate grounder**: when a gate, critic, or review exposes a real gap, run a targeted grounding
-  pass after that feedback and before the final gating review. The grounder revisits the relevant prior
+- **Post-gate grounder**: the targeted grounding pass is part of the default rite whenever the
+  artefato's own draft or gate exposes a real gap. The grounder revisits the relevant prior
   sessions/artefacts, reader model, lineage, and Mundo sources. It is not prose polish; the new read must
-  change something: claim, caveat, example, decision, or next validation.
+  change something: claim, caveat, example, decision, or next validation, and the final artefato must
+  make that delta visible in whatever form fits the vehicle.
 - **Fact-audit**: before publish, audit every external comparator and numeric transfer. Sources can
   position a local result without validating its magnitude. Do not import bands, rankings, causal claims,
   or generalization unless the source supports that exact transfer.
