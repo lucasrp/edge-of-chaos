@@ -49,24 +49,15 @@ directly.
    from that feedback BEFORE the gating review seals the proof — so what publishes is exactly what
    the reviewers passed. Then it publishes atomically with its kernel.
 
-   The close now carries the **genus rite v6**, roster-wide and
-   skill-independent: old-edge equivalent first draft, actionable gap gate, directed post-gate
-   Mundo grounder, rewrite with visible grounding effect, reader growth model, numbered lineage
-   ledger, concrete mechanism trace, fact-audit, and the canonical form grammar.
-   For developed syntheses, the authoring sequence must also be materialized as a proof-bound
-   `genus_rite` trace in the publish payload. This old-edge-with-grounding rite is not
-   reader-visible diary; it is the replayable process contract that prevents a report from merely
-   imitating the final surface.
-   The deterministic `rich-rite` floor is still the hard structural minimum; the blind reviewers
-   enforce the richer rite semantically. A strike for shallow Mundo, missing lineage, missing
-   mechanism, weak reader-growth calibration, external overclaim, or a different block/section shape
-   from the canonical genus is substantive: it bounces to the author, because only the author holds the
-   context to re-ground, re-shape, and narrow the claim. The canonical journey is part of that
-   gate. The final publish must show what the post-gate
-   grounder changed: claim, caveat, example, decision, or next validation. It must also use the
-   canonical reader journey and block palette unless the vehicle translates them explicitly. If no
-   extra grounding was warranted, the artefato says why from its own lacunas rather than treating
-   silence as proof.
+   The close now carries the **genus rite v4** approved on 2026-07-08, roster-wide and
+   skill-independent: reader growth model, numbered lineage ledger, concrete mechanism trace,
+   Mundo deepening with fit/mismatch, post-gate grounder, and fact-audit. The deterministic
+   `rich-rite` floor is still the hard structural minimum; the blind reviewers enforce the
+   richer rite semantically. A strike for shallow Mundo, missing lineage, missing mechanism, weak
+   reader-growth calibration, or external overclaim is substantive: it bounces to the author,
+   because only the author holds the context to re-ground and narrow the claim. The final publish
+   must show what the post-gate grounder changed or why no extra grounding was warranted before
+   the final gating review.
 
    Three sibling acts complete the close, right after the publish:
    - **the consolidação do grafo** (ticket 05; operador: possivelmente a função MAIS IMPORTANTE
@@ -158,7 +149,7 @@ wired, the `IMPROVE_ROUNDS` passes REVISE the draft from the named gaps BEFORE t
 shallow report is **re-produced richer** (the missing move added) rather than dead-ending. The floor
 is a depth-forcer because the re-production is wired; the gate alone would only reject.
 
-Under genus rite v6, `improve_fn` is also where the post-gate grounder happens. The grounding effect is visible: reviewer feedback
+Under genus rite v4, `improve_fn` is also where the post-gate grounder happens. Reviewer feedback
 that names an external-frame gap, a missing mechanism, weak reader-growth calibration, missing
 numbered lineage, or overclaimed Mundo is not solved by polishing prose. The author must re-open the
 relevant prior sessions/artefacts, reader model, lineage, and Mundo sources; then add or correct the

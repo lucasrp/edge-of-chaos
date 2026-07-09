@@ -88,7 +88,7 @@ def _fake_embed(text):
 
 
 def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
-                   distills=None, skill="report", lineage=None, genus_rite_trace=None):
+                   distills=None, skill="report", lineage=None):
     """A BOUND passing proof for the exact payload — minted via close's PRIVATE `_mint_proof`
     the same way `run_close` mints it (run_close-only token + sha256 digest of
     slug+spec+intent+cites+proposes+distills+skill+lineage + both passing reviewer verdicts
@@ -103,8 +103,7 @@ def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
     ]
     return close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
                              cites=cites or [], proposes=proposes or [],
-                             distills=distills, skill=skill, lineage=lineage,
-                             genus_rite_trace=genus_rite_trace)
+                             distills=distills, skill=skill, lineage=lineage)
 
 
 def _spec():
@@ -128,68 +127,6 @@ def _floored_spec():
         {"type": "next-steps-grid", "items": ["step one", "step two"]},
         {"type": "callout", "text": "framing context"},
     ]}]}
-
-
-def _developed_rite_spec():
-    return {"sections": [{"title": "Executable rite", "blocks": [
-        {"type": "paragraph", "text": "Because the approved arm came from a sequence, the sequence is the tested unit."},
-        {"type": "paragraph", "text": "The reader needs the mechanism, not another report that merely resembles the old one."},
-        {"type": "paragraph", "text": "The decision is to bind the rite before trusting another blind publish."},
-        {"type": "derivation", "text": "If a final report can be imitated, the process trace must be proof-bound."},
-        {"type": "gap-table", "gaps": [
-            {"description": "Whether post-gate grounding happened", "need": "proof-bound trace", "status": "open"}]},
-    ]}], "bibliography": [{"text": "genus rite doc", "url": "https://example.com"}]}
-
-
-def _rite_trace():
-    return {
-        "version": "old-edge-grounded@1",
-        "old_edge_draft": {"throughline": "reason first, then source", "unknowns": "deployment drift"},
-        "reader_model": {
-            "reader": "operator",
-            "leveling": "can recognize the approved arm",
-            "interests": "make the rite reproducible",
-            "growth_target": "better judgment, not a local rubric optimum",
-        },
-        "narrative_arc": {
-            "throughline": "from mismatch to executable rite",
-            "opening_stakes": "a report can look right and still be wrong",
-            "turning_point": "the process becomes payload",
-            "landing_decision": "refuse missing traces",
-        },
-        "gap_gate": [{"id": "g1", "gap": "process invisible", "grounding_task": "bind trace into proof"}],
-        "post_gate_grounding": [{
-            "gap_id": "g1",
-            "source_ref": "docs/genus-rite-v6-canonical-form.md",
-            "finding": "the movement includes post-gate grounding",
-            "changed": "publish now validates that movement",
-        }],
-        "rewrite_delta": [{
-            "gap_id": "g1",
-            "before": "prompt-only rite",
-            "after": "proof-bound rite",
-            "effect": "reproducible",
-            "final_anchor": "bind the rite",
-        }],
-        "canonical_journey": [
-            {"move": "thesis", "where": "Executable rite"},
-            {"move": "live_question", "where": "reader needs the mechanism"},
-            {"move": "setup", "where": "approved arm came from a sequence"},
-            {"move": "lineage", "where": "approved arm"},
-            {"move": "result", "where": "tested unit"},
-            {"move": "mechanism", "where": "process trace must be proof-bound"},
-            {"move": "interpretation", "where": "final report can be imitated"},
-            {"move": "mundo", "where": "genus rite doc"},
-            {"move": "grounding_effect", "where": "bind the rite"},
-            {"move": "limits", "where": "whether post-gate grounding happened"},
-            {"move": "decision", "where": "decision is to bind the rite"},
-            {"move": "references", "where": "genus rite doc"},
-        ],
-        "fact_audit": {
-            "external_claims_checked": "source positions the rite only",
-            "overclaim_guard": "no source proves deploy success",
-        },
-    }
 
 
 class PublishIsAtomicAndKerneled(unittest.TestCase):
@@ -329,27 +266,24 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             slug = "lineage-only"
-            content = {"sections": [{"title": "Executable rite", "blocks": [
+            content = {"sections": [{"title": "B", "blocks": [
                 {"type": "paragraph",
-                 "text": "Because the approved arm came from a sequence, the sequence is the tested unit."},
+                 "text": "Because the evidence shows it, it follows that the gate must bite on substance."},
                 {"type": "paragraph",
-                 "text": "The reader needs the mechanism. What i do not know: whether post-gate grounding happened under concurrent load at scale."},
+                 "text": "What i do not know: whether this holds under concurrent load at scale."},
                 {"type": "paragraph",
-                 "text": "The decision is to bind the rite before trusting the publish; a final report can be imitated, so the process trace must be proof-bound."},
-            ]}], "bibliography": [{"text": "genus rite doc", "url": "https://example.com"}]}
-            cites = [{"ref": "docs/genus-rite-v6-canonical-form.md", "kind": "mundo",
-                      "relevant": True, "snippet": "external frame snippet"}]
+                 "text": "A second developed paragraph carrying the argument forward in prose here."},
+            ]}]}
+            cites = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True, "snippet": "external frame snippet"}]
             lineage = [{"type": "supersedes", "target": "thread-7"}]  # target-only: the deciding lineage move
             art = {"slug": slug, "content": content, "cites": cites, "proposes": [],
-                   "intent": "open: x; bet: y", "skill": "report", "lineage": lineage,
-                   "genus_rite": _rite_trace()}
+                   "intent": "open: x; bet: y", "skill": "report", "lineage": lineage}
             published = []
 
             def publish_fn(artefato, verdict):
                 published.append(publisher.publish(
                     artefato["slug"], artefato["content"], intent=artefato["intent"],
                     skill=artefato["skill"], cites=artefato["cites"], lineage=artefato["lineage"],
-                    genus_rite_trace=artefato.get("genus_rite"),
                     date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed, verdict=verdict))
 
             result = close.run_close(
@@ -484,58 +418,6 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                 )
             self.assertEqual(eventlog.corpus_at(log=log), [])
             self.assertFalse((Path(tmp) / f"{slug}.html").exists())
-
-    def test_developed_synthesis_without_genus_rite_trace_is_refused(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            log = Path(tmp) / "log.jsonl"
-            slug = "missing-rite-trace"
-            spec = _developed_rite_spec()
-            intent = "open: reproduce rite; bet: bind the process"
-            cites = [{"ref": "docs/genus-rite-v6-canonical-form.md", "kind": "mundo",
-                      "relevant": True, "snippet": "old-edge draft -> actionable gap gate"}]
-            lineage = [{"type": "builds_on", "target": "approved-arm"}]
-            with self.assertRaises(ValueError) as ctx:
-                publisher.publish(
-                    slug, spec, intent=intent, skill="report", cites=cites, lineage=lineage,
-                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
-                    verdict=_passing_proof(slug, spec, intent, cites=cites, lineage=lineage),
-                )
-            self.assertIn("genus-rite:missing-trace", str(ctx.exception))
-            self.assertEqual(eventlog.corpus_at(log=log), [])
-
-    def test_genus_rite_trace_binds_digest_and_persists(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            log = Path(tmp) / "log.jsonl"
-            slug = "bound-rite-trace"
-            spec = _developed_rite_spec()
-            intent = "open: reproduce rite; bet: bind the process"
-            cites = [{"ref": "docs/genus-rite-v6-canonical-form.md", "kind": "mundo",
-                      "relevant": True, "snippet": "old-edge draft -> actionable gap gate"}]
-            lineage = [{"type": "builds_on", "target": "approved-arm"}]
-            trace = _rite_trace()
-            proof = _passing_proof(slug, spec, intent, cites=cites, lineage=lineage,
-                                   genus_rite_trace=trace)
-            poisoned = {**trace, "rewrite_delta": [
-                {"gap_id": "g1", "before": "proof-bound rite", "after": "poisoned",
-                 "effect": "wrong", "final_anchor": "bind the rite"}]}
-            with self.assertRaises(ValueError):
-                publisher.publish(
-                    slug, spec, intent=intent, skill="report", cites=cites, lineage=lineage,
-                    genus_rite_trace=poisoned, date="2026-06-08", log=log, blog_dir=tmp,
-                    embed_fn=_fake_embed, verdict=proof,
-                )
-
-            path = publisher.publish(
-                slug, spec, intent=intent, skill="report", cites=cites, lineage=lineage,
-                genus_rite_trace=trace, date="2026-06-08", log=log, blog_dir=tmp,
-                embed_fn=_fake_embed, verdict=proof,
-            )
-            self.assertTrue(Path(path).exists())
-            ev = eventlog.read(types=["artefato.published"], log=log)[0]
-            self.assertEqual(ev["payload"]["genus_rite"]["rewrite_delta"][0]["after"],
-                             "proof-bound rite")
-            self.assertEqual(eventlog.corpus_at(log=log)[0]["genus_rite"]["version"],
-                             "old-edge-grounded@1")
 
     def test_bound_lineage_publishes_when_unchanged(self):
         # The matching lineage publishes cleanly through the real seam (the bind does not
