@@ -3,6 +3,7 @@
 Provisions, idempotently:
   - ~/.claude/CLAUDE.md           (identity: name/codename/mission/voice + memory linkage)
   - ~/.claude/skills/{prefix}-{name}/SKILL.md  for each skills/{name}/SKILL.md
+  - ~/.claude/skills/_shared/*                 support docs copied verbatim
   - ~/.claude/projects/{memory_project_dir}/memory/  (seeded only if absent)
 
 The transform for a skill (derived from the live edge install output shape):
@@ -156,6 +157,18 @@ def provision_claude(cfg: dict, repo: Path, claude_home: Path) -> list:
             _write_if_changed(dst, rendered)
             installed += 1
     rows.append(f"{installed} skills → ~/.claude/skills/{prefix}-*")
+
+    # 2a. skills/_shared/* → ~/.claude/skills/_shared/*
+    # Shared files are support material read by prefixed skills; they are not slash-invocable.
+    shared_src = skills_src / "_shared"
+    shared_installed = 0
+    if shared_src.exists():
+        for src in sorted(p for p in shared_src.rglob("*") if p.is_file()):
+            rel = src.relative_to(shared_src)
+            _write_if_changed(claude_home / "skills" / "_shared" / rel,
+                              src.read_text(encoding="utf-8"))
+            shared_installed += 1
+    rows.append(f"{shared_installed} shared files → ~/.claude/skills/_shared")
 
     # 2b. .claude/agents/{name}.md → ~/.claude/agents/{prefix}-{name}.md (the mechanical subagent
     # artifacts — e.g. the world-reading `explorer` whose frontmatter `disallowedTools: mcp__cortex__*`
