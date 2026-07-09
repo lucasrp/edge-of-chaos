@@ -115,15 +115,29 @@ def _spec():
     }
 
 
+def _signed_bar_chart(title, rows):
+    return visual_grounding.sign({
+        "type": "chart",
+        "chart": "bar",
+        "title": title,
+        "data": rows,
+    })
+
+
 def _floored_spec():
-    # valid for EVERY roster skill's presentation floor at once. S6/S7 (R1/R2): ascii-diagram is dropped
-    # and the renderable diagram/chart floor is CAPABILITY-CONDITIONAL — with vl-convert ABSENT (this
-    # offline test env) the map/plan visual floor degrades to NOT-OWED (ENV_UNSAT), so no drawn visual is
-    # needed; the plan `framed_steps` (next-steps-grid) and discovery `contextual_framing` (callout) are
-    # non-visual and still satisfied. report/research owe no floor. No executive_summary: 1 paragraph + 1
-    # callout = prose count 2 (< the rich-rite threshold of 3), so the prose-synthesis moves aren't owed.
+    # Valid for EVERY roster skill's presentation floor at once. Map owes two renderable visuals;
+    # plan owes one renderable visual plus framed steps; discovery owes contextual framing.
+    # report/research owe no extra floor. No executive_summary: prose-synthesis moves aren't owed.
     return {"sections": [{"title": "Body", "blocks": [
         {"type": "paragraph", "text": "atomic publish plus kernel in one act."},
+        _signed_bar_chart(
+            "Two real visual blocks",
+            [{"label": "one", "value": 1}, {"label": "two", "value": 2}],
+        ),
+        _signed_bar_chart(
+            "Second visual block",
+            [{"label": "alpha", "value": 3}, {"label": "beta", "value": 4}],
+        ),
         {"type": "next-steps-grid", "items": ["step one", "step two"]},
         {"type": "callout", "text": "framing context"},
     ]}]}
