@@ -16,7 +16,6 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import genus_rite
 # persist ONLY well-formed authored declarations (each matches its proof bind)
 from lineage import (
     EXPERIMENT_ID_RE,
@@ -394,10 +393,9 @@ def test_dispatch_id():
 
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
                             spec=None, log=LOG, *, lineage=None, skill=None, require_wake=False,
-                            adoption=None, dispatch_id=None, residuals=None, accepted_risks=None,
-                            gate=None,
+                            adoption=None, dispatch_id=None, residuals=None, gate=None,
                             bears_on=None, para=None, reports_on=None,
-                            experiment_curation=None, genus_rite_trace=None):
+                            experiment_curation=None):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
     publish seam): you cannot publish without the *why*. Both events land in a single
     `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
@@ -489,15 +487,9 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
           # S6 (design-close §3/§5): the unaddressed criticism a publish-with-residuals carried, as a
           # FIRST-CLASS event field (distinct name from the `residual` channel). None on a normal publish.
           "residuals": residuals,
-          # Authorial risk tags: interpretive risks the author explicitly chose to keep after review,
-          # minted by close and read off the proof by publisher. None on a normal publish.
-          "accepted_risks": accepted_risks,
           # B.1 (ticket B): o verdict do gate como campo do MESMO batch atômico — sem novo tipo de
           # evento, replayável (o grafo já computava e jogava fora). None num publish legado/sem gate.
           "gate": gate,
-          # Executable genus rite trace: proof-bound process evidence, not reader-visible
-          # diary. Forward-only; legacy events fold to {}.
-          "genus_rite": genus_rite.normalize_genus_rite(genus_rite_trace),
           # Ticket A (ontologia §2b/§6): bears_on = as declarações valenciadas artefato→hipótese
           # (multivalência nativa, O-6), para = os parceiros-alvo (artefato-PARA->parceiro) e
           # reports_on = o(s) Experiment(s) que este report-artefato torna navegáveis —
@@ -651,9 +643,6 @@ def fold_corpus(events):
                            # B.1: o gate persistido acompanha o item — um reproject restaura as
                            # flat props; evento legado sem gate folda None (forward-only).
                            "gate": p.get("gate"),
-                           "genus_rite": genus_rite.normalize_genus_rite(p.get("genus_rite")),
-                           "accepted_risks": p.get("accepted_risks"),
-                           "dispatch_id": p.get("dispatch_id"),
                            # Ticket A: bears_on/para acompanham o item para o replay das arestas
                            # valenciadas/PARA; evento legado folda [] (forward-only, sem backfill).
                            "bears_on": p.get("bears_on") or [], "para": p.get("para") or [],

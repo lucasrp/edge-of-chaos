@@ -43,14 +43,10 @@ substance is not. A strike that needs re-deriving, re-grounding, or a new claim 
       proposes_path   : "<path>/proposes.json"
       distills_path   : "<path>/distills.json"  # ["cluster:<label>", …] or []
       lineage_path    : "<path>/lineage.json"   # [{type,slug}] or []
-      genus_rite_path : "<path>/genus_rite.json"
 
 Read the pointer files (Read, with offset for a large spec — never paste the whole spec into your prompt),
 rebuild the `artefato` dict carrying **EVERY proof-bound field** (`slug`, `intent`, `content`=spec,
-`cites`, `proposes`, `distills`, `skill`, `lineage`, `dispatch_id`, `genus_rite`), and run the close.
-For developed syntheses, the `genus_rite` trace must be linked for every gap: gap id -> grounding gap id
--> rewrite gap id, cited `source_ref`, visible `final_anchor`, and a full canonical journey whose `where`
-entries point to final artefato text.
+`cites`, `proposes`, `distills`, `skill`, `lineage`, `dispatch_id`), and run the close.
 
 ## The one wiring you MUST get right: the S6 floor's teeth under the split (§4, the sharpest risk)
 
@@ -83,17 +79,15 @@ the cleared `child_session` are what make it load-bearing (pinned in
       spec=json.load(open('<spec_path>')); cites=json.load(open('<cites_path>')); \
       proposes=json.load(open('<proposes_path>')); distills=json.load(open('<distills_path>')); \
       lineage=json.load(open('<lineage_path>')); \
-      genus_rite=json.load(open('<genus_rite_path>')); \
       # the artefato MUST carry EVERY proof-bound field — run_close mints the digest from THIS dict, \
       # so it must equal the exact publish payload (skill + distills + lineage + dispatch_id included). \
       artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
         'cites':cites,'distills':distills,'skill':'<skill-from-brief>','lineage':lineage, \
-        'dispatch_id':dispatch_id,'genus_rite':genus_rite}; \
+        'dispatch_id':dispatch_id}; \
       pub=publisher.publish; \
       publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
         skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
-        cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id'], \
-        genus_rite_trace=art.get('genus_rite')); \
+        cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id']); \
       # you OWN the mechanical improve loop: improve_fn(art, feedback) REVISES the draft from the \
       # reviewers' rationales+strikes — FORM/clarity/craft only; a substantive strike bounces (below). \
       improve_fn=lambda art, feedback: tidy_from_feedback(art, feedback); \
@@ -103,7 +97,7 @@ the cleared `child_session` are what make it load-bearing (pinned in
 
 `produce_fn=lambda: artefato` is static (you do not re-produce from the world — you have the settled spec).
 The proof is minted **in your context** from the spec you received — that is sound: the digest covers only
-`{slug, spec, intent, cites, proposes, distills, skill, lineage, dispatch_id, genus_rite}`, **no session/process field**
+`{slug, spec, intent, cites, proposes, distills, skill, lineage, dispatch_id}`, **no session/process field**
 (`close.py` `proof_digest`), so minting wherever the close runs binds the CONTENT + the `dispatch_id`, which
 travels in the brief. The identity-held gate passes because the MAIN stamped `dispatch.open` under this
 `dispatch_id` and nobody consumed it (`eventlog.wake_fresh_for` is id-scoped — `opened and not consumed`,

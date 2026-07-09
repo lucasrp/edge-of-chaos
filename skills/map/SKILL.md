@@ -90,7 +90,7 @@ write the HTML shell or the CSS yourself. **Sections are FREE** — the close ch
 context still rich in your window — **write its fields to disk pointers and hand off to the
 `{prefix}-publisher` subagent** (via the Agent tool, `.claude/agents/publisher.md`) with the **publish-brief**:
 `{dispatch_id, main_session_id (your CLAUDE_CODE_SESSION_ID), skill, intent_kernel, slug, spec_path,
-cites_path, proposes_path, distills_path, lineage_path, genus_rite_path}` — **pointers, never a context dump**. The publisher
+cites_path, proposes_path, distills_path, lineage_path}` — **pointers, never a context dump**. The publisher
 runs the whole close below in a **clean process** (the heavy publish machine lives in the sub now) and returns
 a typed **pull-channel** `{status, slug, url, cost, residuals, rationales, bounce_reason}`. You **read that
 back**: `published`/`residual-published` → done; `bounced: needs author` → you hold the rich context, so
@@ -148,18 +148,15 @@ without it, E1c — never reconstruct it from the log).
         # (pipeline.md, consolidação): bears_on SÓ sobre hipótese VIVA — vazio honesto, NUNCA fabricado. \
         bears_on=[]  # [{'hypothesis':'<ulid>','valence':'supports|refutes|qualifies|inconclusive','rationale':'…'}] — cortex.hypotheses_at() lists the live ones; none genuinely touched → [] ; \
         para=[]  # the EXPLICIT target reader (promoted parceiro — a colleague/client); [] resolves MECHANICALLY to the operador-mentee default (every artefato is PARA someone) ; \
-        stage_trace=[{'id':'old_edge_draft','path':'drafts/rite-runs/<slug>/01_old_edge_draft.md','sha256':'<sha256>','input_stage_ids':[],'summary':'derived thesis/live question/worked example/unknowns/landing'}, {'id':'gap_gate','path':'drafts/rite-runs/<slug>/02_gap_gate.md','sha256':'<sha256>','input_stage_ids':['old_edge_draft'],'summary':'actionable lacunas from the old-edge draft'}, {'id':'post_gate_grounding','path':'drafts/rite-runs/<slug>/03_post_gate_grounding.md','sha256':'<sha256>','input_stage_ids':['old_edge_draft','gap_gate'],'summary':'targeted grounding answers the gate'}, {'id':'final_rewrite','path':'drafts/rite-runs/<slug>/04_final_rewrite.md','sha256':'<sha256>','input_stage_ids':['old_edge_draft','post_gate_grounding'],'summary':'rewrite shows the grounding delta'}, {'id':'fact_audit','path':'drafts/rite-runs/<slug>/05_fact_audit.md','sha256':'<sha256>','input_stage_ids':['final_rewrite'],'summary':'fact audit narrows unsupported transfers'}]; \
-        genus_rite={'version':'old-edge-grounded@1','old_edge_draft':{'derived_thesis':'...','live_question':'...','worked_example':'...','unknowns':'...','actionable_landing':'...'},'stage_trace':stage_trace,'reader_model':{...},'narrative_arc':{...},'gap_gate':[{...}], 'post_gate_grounding':[{...}], 'rewrite_delta':[{...}], 'canonical_journey':[{...}], 'fact_audit':{...}}  # proof-bound authoring trace, not reader-visible diary ; \
         artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
           'cites':cites,'distills':distills,'skill':'map','lineage':lineage, \
-          'dispatch_id':dispatch_id,'bears_on':bears_on,'para':para,'genus_rite':genus_rite}; \
+          'dispatch_id':dispatch_id,'bears_on':bears_on,'para':para}; \
         pub=publisher.publish; \
         publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
           skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
           cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id'], \
           bears_on=art.get('bears_on'), para=art.get('para'), \
-          reports_on=art.get('reports_on'), \
-          genus_rite_trace=art.get('genus_rite'));  # digest-bound like lineage \
+          reports_on=art.get('reports_on'));  # ticket A: digest-bound like lineage \
         improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
         close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
           floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session=''),  # S6 floor (#61): the PUBLISHER runs the close, so point session_id at the MAIN transcript (where the reads live) AND clear child_session='' (the publisher is a child) — else the floor darks out and loses its teeth; knob EDGE_GROUNDING_FLOOR, default 1=observe (ticket B) \

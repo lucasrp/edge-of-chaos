@@ -13,7 +13,6 @@ import os
 import sys
 import tempfile
 import unittest
-import hashlib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -26,43 +25,6 @@ import visual_grounding  # noqa: E402
 
 _REAL_PROJECT = publisher.project_artefato
 _REAL_PUBLISH = publisher.publish
-FIXTURES = REPO / "tests/fixtures/genus_rite"
-
-
-def _hash(label):
-    return hashlib.sha256(label.encode("utf-8")).hexdigest()
-
-
-def _stage(stage_id, file_name, inputs, summary):
-    path = FIXTURES / file_name
-    stage = {
-        "id": stage_id,
-        "path": str(path.relative_to(REPO)),
-        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "input_stage_ids": list(inputs),
-        "allowed_inputs": ["dossier", *inputs],
-        "input_hashes": {"dossier": _hash(f"{stage_id}:dossier"),
-                         **{i: _hash(f"{stage_id}:{i}") for i in inputs}},
-        "summary": summary,
-    }
-    if inputs:
-        stage["parent_stage_id"] = inputs[-1]
-    return stage
-
-
-def _stage_trace():
-    return [
-        _stage("old_edge_draft", "old_edge_draft.md", [],
-               "old Edge subrite material before the gate"),
-        _stage("gap_gate", "gap_gate.md", ["old_edge_draft"],
-               "gate names actionable lacunas"),
-        _stage("post_gate_grounding", "post_gate_grounding.md", ["old_edge_draft", "gap_gate"],
-               "grounding answers the named lacuna"),
-        _stage("final_rewrite", "final_rewrite.md", ["old_edge_draft", "post_gate_grounding"],
-               "final rewrite shows the grounding delta"),
-        _stage("fact_audit", "fact_audit.md", ["final_rewrite"],
-               "fact audit narrows overclaim before close"),
-    ]
 
 
 def _neo4j_reachable():
@@ -126,11 +88,10 @@ def _fake_embed(text):
 
 
 def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
-                   distills=None, skill="report", lineage=None, genus_rite_trace=None,
-                   accepted_risks=None):
+                   distills=None, skill="report", lineage=None):
     """A BOUND passing proof for the exact payload — minted via close's PRIVATE `_mint_proof`
     the same way `run_close` mints it (run_close-only token + sha256 digest of
-    slug+spec+intent+cites+proposes+distills+skill+lineage+accepted_risks + both passing reviewer verdicts
+    slug+spec+intent+cites+proposes+distills+skill+lineage + both passing reviewer verdicts
     carrying the CANONICAL reviewer identities). This is the explicit TEST-ONLY seam standing
     in for run_close; it stamps the two canonical identities verify_proof requires. The
     publisher refuses anything not bound to the payload (and identities) it is publishing."""
@@ -142,9 +103,7 @@ def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
     ]
     return close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
                              cites=cites or [], proposes=proposes or [],
-                             distills=distills, skill=skill, lineage=lineage,
-                             genus_rite_trace=genus_rite_trace,
-                             accepted_risks=accepted_risks)
+                             distills=distills, skill=skill, lineage=lineage)
 
 
 def _spec():
@@ -156,124 +115,32 @@ def _spec():
     }
 
 
+def _signed_bar_chart(title, rows):
+    return visual_grounding.sign({
+        "type": "chart",
+        "chart": "bar",
+        "title": title,
+        "data": rows,
+    })
+
+
 def _floored_spec():
-    # valid for EVERY roster skill's presentation floor at once. S6/S7 (R1/R2): ascii-diagram is dropped,
-    # so include two renderable visual blocks; in an env without vl-convert they honestly degrade, and in
-    # an env with vl-convert they satisfy the map visual floor. The plan `framed_steps` and discovery
-    # `contextual_framing` floors are non-visual and still satisfied. No executive_summary: 1 paragraph +
-    # 1 callout = prose count 2 (< the rich-rite threshold of 3), so the prose-synthesis moves aren't owed.
+    # Valid for EVERY roster skill's presentation floor at once. Map owes two renderable visuals;
+    # plan owes one renderable visual plus framed steps; discovery owes contextual framing.
+    # report/research owe no extra floor. No executive_summary: prose-synthesis moves aren't owed.
     return {"sections": [{"title": "Body", "blocks": [
         {"type": "paragraph", "text": "atomic publish plus kernel in one act."},
+        _signed_bar_chart(
+            "Two real visual blocks",
+            [{"label": "one", "value": 1}, {"label": "two", "value": 2}],
+        ),
+        _signed_bar_chart(
+            "Second visual block",
+            [{"label": "alpha", "value": 3}, {"label": "beta", "value": 4}],
+        ),
         {"type": "next-steps-grid", "items": ["step one", "step two"]},
         {"type": "callout", "text": "framing context"},
-        visual_grounding.sign(
-            {"type": "chart", "chart": "bar", "data": [{"label": "alpha", "value": 1}]}),
-        visual_grounding.sign(
-            {"type": "diagram", "layout": "dag",
-             "nodes": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}],
-             "edges": [{"source": "a", "target": "b", "label": "causes"}]}),
     ]}]}
-
-
-def _developed_rite_spec():
-    return {"sections": [{"title": "Executable rite", "blocks": [
-        {"type": "paragraph", "text": "Because the approved arm came from a sequence, the sequence is the tested unit."},
-        {"type": "paragraph", "text": "The reader needs the mechanism, not another report that merely resembles the old one."},
-        {"type": "paragraph", "text": "The decision is to bind the rite before trusting another blind publish."},
-        {"type": "derivation", "text": "If a final report can be imitated, the process trace must be proof-bound."},
-        {"type": "gap-table", "gaps": [
-            {"description": "Whether post-gate grounding happened", "need": "proof-bound trace", "status": "open"}]},
-    ]}], "bibliography": [{"text": "genus rite doc", "url": "https://example.com"}]}
-
-
-def _rite_trace():
-    return {
-        "version": "old-edge-grounded@1",
-        "old_edge_draft": {
-            "derived_thesis": "the sequence, not the final page, is the reproduced unit",
-            "live_question": "whether the deploy reproduced the rite or only the final look",
-            "reader_context": "the operator is comparing blind reports against the approved arm",
-            "lineage_seed": "approved-old-edge-grounded-arm -> rejected lookalike -> publish seam",
-            "worked_example": "approved exp072 arm starts from product question and mechanism",
-            "lacunas": "trace proof, page shell, distributed Mundo, and next validation",
-            "outside_frame_candidates": "reproducibility, artifact review, trace propagation",
-            "mentor_arc": "name the mismatch, ground it, rewrite with a decision",
-            "unknowns": "deployment drift",
-            "actionable_landing": "gate this draft and ground the named gaps before rewriting",
-        },
-        "dossier": {
-            "reader_model": "operator familiar with approved and rejected reports",
-            "lineage": "approved old-edge arm and later smoke failures",
-            "object_identity": "publishable developed synthesis owing the old-edge-grounded rite",
-            "anchors": "stage fixture files and genus rite doc",
-            "mechanism_evidence": "stage trace files plus proof-bound payload",
-            "mundo_candidates": "reproducibility, traceability, artifact evaluation",
-            "unknowns": "blind autonomous report still has to validate transfer",
-        },
-        "stage_trace": _stage_trace(),
-        "reader_model": {
-            "reader": "operator",
-            "leveling": "can recognize the approved arm",
-            "interests": "make the rite reproducible",
-            "decision_context": "decide if the deploy can be trusted",
-            "growth_target": "better judgment, not a local rubric optimum",
-            "utility_target": "show what changed and the next verification",
-        },
-        "narrative_arc": {
-            "throughline": "from mismatch to executable rite",
-            "opening_stakes": "a report can look right and still be wrong",
-            "turning_point": "the process becomes payload",
-            "landing_decision": "refuse missing traces",
-        },
-        "gap_gate": [{"id": "g1", "gap": "process invisible",
-                      "grounding_task": "bind trace into proof",
-                      "disposition": "resolved"}],
-        "post_gate_grounding": [{
-            "gap_id": "g1",
-            "source_ref": "docs/genus-rite-v6-canonical-form.md",
-            "finding": "the movement includes post-gate grounding",
-            "changed": "publish now validates that movement",
-        }],
-        "rewrite_delta": [{
-            "gap_id": "g1",
-            "before": "prompt-only rite",
-            "after": "proof-bound rite",
-            "effect": "reproducible",
-            "final_anchor": "bind the rite",
-        }],
-        "canonical_journey": [
-            {"move": "thesis", "where": "Executable rite"},
-            {"move": "live_question", "where": "reader needs the mechanism"},
-            {"move": "setup", "where": "approved arm came from a sequence"},
-            {"move": "lineage", "where": "approved arm"},
-            {"move": "result", "where": "tested unit"},
-            {"move": "mechanism", "where": "process trace must be proof-bound"},
-            {"move": "interpretation", "where": "final report can be imitated"},
-            {"move": "mundo", "where": "genus rite doc"},
-            {"move": "grounding_effect", "where": "bind the rite"},
-            {"move": "limits", "where": "whether post-gate grounding happened"},
-            {"move": "decision", "where": "decision is to bind the rite"},
-            {"move": "references", "where": "genus rite doc"},
-        ],
-        "mundo_effects": [{
-            "source_ref": "docs/genus-rite-v6-canonical-form.md",
-            "fit": "reproducibility frames method reruns instead of output copying",
-            "mismatch": "the external frame does not prove this deploy worked",
-            "changes": "the final text must say the process trace is proof-bound",
-            "final_anchor": "process trace must be proof-bound",
-        }],
-        "reader_visible_agency": {
-            "decision_now": "bind the rite",
-            "do_not_overclaim": "do not claim success without a blind report",
-            "risk_status": "blind transfer remains open",
-            "next_validation": "run an autonomous report after publish",
-            "final_anchor": "decision is to bind the rite",
-        },
-        "fact_audit": {
-            "external_claims_checked": "source positions the rite only",
-            "overclaim_guard": "no source proves deploy success",
-        },
-    }
 
 
 class PublishIsAtomicAndKerneled(unittest.TestCase):
@@ -413,27 +280,24 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             slug = "lineage-only"
-            content = {"sections": [{"title": "Executable rite", "blocks": [
+            content = {"sections": [{"title": "B", "blocks": [
                 {"type": "paragraph",
-                 "text": "Because the approved arm came from a sequence, the sequence is the tested unit."},
+                 "text": "Because the evidence shows it, it follows that the gate must bite on substance."},
                 {"type": "paragraph",
-                 "text": "The reader needs the mechanism. What i do not know: whether post-gate grounding happened under concurrent load at scale."},
+                 "text": "What i do not know: whether this holds under concurrent load at scale."},
                 {"type": "paragraph",
-                 "text": "The decision is to bind the rite before trusting the publish; a final report can be imitated, so the process trace must be proof-bound."},
-            ]}], "bibliography": [{"text": "genus rite doc", "url": "https://example.com"}]}
-            cites = [{"ref": "docs/genus-rite-v6-canonical-form.md", "kind": "mundo",
-                      "relevant": True, "snippet": "external frame snippet"}]
+                 "text": "A second developed paragraph carrying the argument forward in prose here."},
+            ]}]}
+            cites = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True, "snippet": "external frame snippet"}]
             lineage = [{"type": "supersedes", "target": "thread-7"}]  # target-only: the deciding lineage move
             art = {"slug": slug, "content": content, "cites": cites, "proposes": [],
-                   "intent": "open: x; bet: y", "skill": "report", "lineage": lineage,
-                   "genus_rite": _rite_trace()}
+                   "intent": "open: x; bet: y", "skill": "report", "lineage": lineage}
             published = []
 
             def publish_fn(artefato, verdict):
                 published.append(publisher.publish(
                     artefato["slug"], artefato["content"], intent=artefato["intent"],
                     skill=artefato["skill"], cites=artefato["cites"], lineage=artefato["lineage"],
-                    genus_rite_trace=artefato.get("genus_rite"),
                     date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed, verdict=verdict))
 
             result = close.run_close(
@@ -568,66 +432,6 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                 )
             self.assertEqual(eventlog.corpus_at(log=log), [])
             self.assertFalse((Path(tmp) / f"{slug}.html").exists())
-
-    def test_developed_synthesis_without_genus_rite_trace_is_refused(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            log = Path(tmp) / "log.jsonl"
-            slug = "missing-rite-trace"
-            spec = _developed_rite_spec()
-            intent = "open: reproduce rite; bet: bind the process"
-            cites = [{"ref": "docs/genus-rite-v6-canonical-form.md", "kind": "mundo",
-                      "relevant": True, "snippet": "old-edge draft -> actionable gap gate"}]
-            lineage = [{"type": "builds_on", "target": "approved-arm"}]
-            with self.assertRaises(ValueError) as ctx:
-                publisher.publish(
-                    slug, spec, intent=intent, skill="report", cites=cites, lineage=lineage,
-                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
-                    verdict=_passing_proof(slug, spec, intent, cites=cites, lineage=lineage),
-                )
-            self.assertIn("genus-rite:missing-trace", str(ctx.exception))
-            self.assertEqual(eventlog.corpus_at(log=log), [])
-
-    def test_genus_rite_trace_binds_digest_and_persists(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            log = Path(tmp) / "log.jsonl"
-            slug = "bound-rite-trace"
-            spec = _developed_rite_spec()
-            intent = "open: reproduce rite; bet: bind the process"
-            cites = [{"ref": "docs/genus-rite-v6-canonical-form.md", "kind": "mundo",
-                      "relevant": True, "snippet": "old-edge draft -> actionable gap gate"}]
-            lineage = [{"type": "builds_on", "target": "approved-arm"}]
-            trace = _rite_trace()
-            proof = _passing_proof(slug, spec, intent, cites=cites, lineage=lineage,
-                                   genus_rite_trace=trace)
-            poisoned = {**trace, "rewrite_delta": [
-                {"gap_id": "g1", "before": "proof-bound rite", "after": "poisoned",
-                 "effect": "wrong", "final_anchor": "bind the rite"}]}
-            with self.assertRaises(ValueError):
-                publisher.publish(
-                    slug, spec, intent=intent, skill="report", cites=cites, lineage=lineage,
-                    genus_rite_trace=poisoned, date="2026-06-08", log=log, blog_dir=tmp,
-                    embed_fn=_fake_embed, verdict=proof,
-                )
-
-            path = publisher.publish(
-                slug, spec, intent=intent, skill="report", cites=cites, lineage=lineage,
-                genus_rite_trace=trace, date="2026-06-08", log=log, blog_dir=tmp,
-                embed_fn=_fake_embed, verdict=proof,
-            )
-            self.assertTrue(Path(path).exists())
-            html = Path(path).read_text()
-            self.assertIn('<main class="old-edge-grounded">', html)
-            self.assertNotIn('<body><article class="report">', html)
-            self.assertNotIn('<p class="meta">2026-06-08 · report</p>', html)
-            ev = eventlog.read(types=["artefato.published"], log=log)[0]
-            self.assertEqual(ev["payload"]["genus_rite"]["rewrite_delta"][0]["after"],
-                             "proof-bound rite")
-            self.assertEqual(ev["payload"]["genus_rite"]["stage_trace"][0]["id"],
-                             "old_edge_draft")
-            self.assertEqual(ev["payload"]["genus_rite"]["stage_trace"][0]["input_stage_ids"],
-                             [])
-            self.assertEqual(eventlog.corpus_at(log=log)[0]["genus_rite"]["version"],
-                             "old-edge-grounded@1")
 
     def test_bound_lineage_publishes_when_unchanged(self):
         # The matching lineage publishes cleanly through the real seam (the bind does not
@@ -1979,22 +1783,6 @@ class PublishCarriesResidualsFromTheProof(unittest.TestCase):
                               verdict=_passing_proof(slug, _spec(), intent))
             ev = eventlog.read(types=["artefato.published"], log=log)[-1]
             self.assertIsNone(ev["payload"]["residuals"])
-            self.assertIsNone(ev["payload"]["accepted_risks"])
-
-    def test_risk_tags_are_read_from_the_proof(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            log = Path(tmp) / "log.jsonl"
-            slug, spec, intent = "risk-tag-page", _spec(), "open: x; bet: y"
-            accepted_risks = [{
-                "tag": "potential_overclaim",
-                "claim": "the old Edge returned",
-                "rationale": "strong mentor interpretation, not a closed fact",
-            }]
-            proof = _passing_proof(slug, spec, intent, accepted_risks=accepted_risks)
-            publisher.publish(slug, spec, intent=intent, skill="report", date="2026-06-08",
-                              log=log, blog_dir=tmp, embed_fn=_fake_embed, verdict=proof)
-            ev = eventlog.read(types=["artefato.published"], log=log)[-1]
-            self.assertEqual(ev["payload"]["accepted_risks"], accepted_risks)
 
 
 if __name__ == "__main__":

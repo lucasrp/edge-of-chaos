@@ -105,7 +105,7 @@ write the HTML shell or the CSS yourself.
 context still rich in your window — **write the artefato fields to disk pointers and hand off to the
 `{prefix}-publisher` subagent** (via the Agent tool, `.claude/agents/publisher.md`) with the **publish-brief**:
 `{dispatch_id, main_session_id (your CLAUDE_CODE_SESSION_ID), skill, intent_kernel, slug, spec_path,
-cites_path, proposes_path, distills_path, lineage_path, genus_rite_path}` — **pointers, never a context dump**. The publisher
+cites_path, proposes_path, distills_path, lineage_path}` — **pointers, never a context dump**. The publisher
 runs the whole close below in a **clean process** (the machine that stalled the producer >4min inline lives
 in the sub now) and returns a typed **pull-channel** `{status, slug, url, cost, residuals, rationales,
 bounce_reason}`. You **read that back**: `published`/`residual-published` → done; `bounced: needs author` →
@@ -166,15 +166,12 @@ without it, E1c — never reconstruct it from the log).
         para=[]  # the EXPLICIT target reader (promoted parceiro — a colleague/client); [] resolves MECHANICALLY to the operador-mentee default (every artefato is PARA someone) ; \
         reports_on=[]  # Experiment ids this report makes navigable, e.g. ['exp40']; [] if this is not an experiment report ; \
         experiment_curation=None  # when reports_on closes an experiment: {'prose':curated_conclusion,'typed':{'claim':...,'scope':...,'status':...,'caveat':...,'supports':[...],'excludes':[...],'next':...},'canonical_artifacts':[...]} ; \
-        # write the five rite-stage files under drafts/rite-runs/<slug>/ and hash their bytes ; \
-        stage_trace=[{'id':'old_edge_draft','path':'drafts/rite-runs/<slug>/01_old_edge_draft.md','sha256':'<sha256>','input_stage_ids':[],'summary':'derived thesis/live question/worked example/unknowns/landing'}, {'id':'gap_gate','path':'drafts/rite-runs/<slug>/02_gap_gate.md','sha256':'<sha256>','input_stage_ids':['old_edge_draft'],'summary':'actionable lacunas from the old-edge draft'}, {'id':'post_gate_grounding','path':'drafts/rite-runs/<slug>/03_post_gate_grounding.md','sha256':'<sha256>','input_stage_ids':['old_edge_draft','gap_gate'],'summary':'targeted grounding answers the gate'}, {'id':'final_rewrite','path':'drafts/rite-runs/<slug>/04_final_rewrite.md','sha256':'<sha256>','input_stage_ids':['old_edge_draft','post_gate_grounding'],'summary':'rewrite shows the grounding delta'}, {'id':'fact_audit','path':'drafts/rite-runs/<slug>/05_fact_audit.md','sha256':'<sha256>','input_stage_ids':['final_rewrite'],'summary':'fact audit narrows unsupported transfers'}]; \
-        genus_rite={'version':'old-edge-grounded@1','old_edge_draft':{'derived_thesis':'...','live_question':'...','worked_example':'...','unknowns':'...','actionable_landing':'...'},'stage_trace':stage_trace,'reader_model':{...},'narrative_arc':{...},'gap_gate':[{...}], 'post_gate_grounding':[{...}], 'rewrite_delta':[{...}], 'canonical_journey':[{...}], 'fact_audit':{...}}  # proof-bound authoring trace, not reader-visible diary ; \
         # the artefato MUST carry EVERY proof-bound field (skill + distills + lineage included): run_close \
         # mints the digest from THIS dict, so it must equal the exact publish payload. \
         artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
           'cites':cites,'distills':distills,'skill':'report','lineage':lineage, \
           'dispatch_id':dispatch_id,'bears_on':bears_on,'para':para,'reports_on':reports_on, \
-          'experiment_curation':experiment_curation,'genus_rite':genus_rite}; \
+          'experiment_curation':experiment_curation}; \
         # the publisher-backed publish_fn reads the payload OFF `art` (the minted artefato), so \
         # what publishes is provably what the proof was minted over; proof rides as verdict=. \
         pub=publisher.publish; \
@@ -183,8 +180,7 @@ without it, E1c — never reconstruct it from the log).
           cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id'], \
           bears_on=art.get('bears_on'), para=art.get('para'), \
           reports_on=art.get('reports_on'), \
-          experiment_curation=art.get('experiment_curation'), \
-          genus_rite_trace=art.get('genus_rite'));  # digest-bound like lineage \
+          experiment_curation=art.get('experiment_curation'));  # ticket A: digest-bound like lineage \
         # WIRE REAL RE-PRODUCTION (#30): improve_fn(art, feedback) REVISES the draft from the \
         # reviewers' rationales+strikes — incl. a rich-rite floor strike (derivation / \
         # what-i-dont-know / external-frame / lineage). run_close loops it IMPROVE_ROUNDS=2 BEFORE \

@@ -32,7 +32,6 @@ import render
 import visible  # Modulo 5 (Publicacao) visible-text adapter — reader-visible HTML/CSS/glyph machinery
 import producer_descriptor
 import blocks as block_validation
-import genus_rite
 
 # ---------------------------------------------------------------------------
 # Genus contract constants — the pinned field shapes + the visual palette
@@ -75,11 +74,8 @@ _VERSION_RE = re.compile(r"\bv\d+(?:\.\d+)+\b|\b\d+\.\d+\.\d+\b", re.IGNORECASE)
 _DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}/\d{2,4}\b|\b\d{4}-\d{2}\b")
 
 # ---------------------------------------------------------------------------
-# The rich-rite floor (#30) — the deterministic structural core of the genus
-# rite. The full genus default is richer and is enforced semantically by the
-# blind reviewers below; this pre-review floor keeps the old hard minimum:
-# derive, mark a boundary, bring an outside frame, and show lineage.
-# MIRRORS _check_visual_coverage: a TRIGGER
+# The rich-rite floor (#30) — content-relative property gates on the cognitive
+# moves the rich old reports forced. MIRRORS _check_visual_coverage: a TRIGGER
 # (here: a DEVELOPED PROSE synthesis) owes the moves; a non-prose/terse form owes
 # none and is NEVER falsely failed. NEVER a named section, NEVER a word floor —
 # the trigger is a STRUCTURAL count of prose blocks (mirrors QUANTITATIVE_ROW_THRESHOLD),
@@ -154,7 +150,6 @@ def check_genus(artefato: dict, attest=None) -> list[str]:
     violations += _check_visual_coverage(artefato.get("content", {}))
     violations += _check_evidence_anchors(artefato.get("content", {}))
     violations += _check_rich_rite(artefato)
-    violations += _check_executable_genus_rite(artefato)
     r0_violations = _check_storytelling_floor(artefato.get("content", {}))  # R0 (S2): explain, don't label
     r0_violations += _check_structured_visual_values(artefato.get("content", {}))  # R0-for-values (S7): no
     #   number hides ONLY in a structured visual — same family as R0, so it likewise suppresses the floor.
@@ -815,26 +810,6 @@ def _block_text(block: dict) -> str:
     return " ".join(parts)
 
 
-def _developed_prose_synthesis(content: dict):
-    """Return `(triggered, blocks, summary_items)` for a developed prose synthesis.
-
-    This is the shared structural trigger for the old rich-rite floor and the executable
-    genus-rite trace. It is intentionally not a word count.
-    """
-    content = content or {}
-    blocks = list(_iter_blocks(content))
-    summary = content.get("executive_summary") or []
-    summary_items = [s for s in summary if isinstance(s, str) and s.strip()]
-    prose_count = len(summary_items)
-    prose_count += sum(
-        1 for b in blocks
-        if isinstance(b, dict)
-        and _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph"))
-        in PROSE_BLOCK_TYPES
-    )
-    return prose_count >= RICH_RITE_PROSE_THRESHOLD, blocks, summary_items
-
-
 def _check_rich_rite(artefato: dict) -> list[str]:
     """The rich-rite floor (#30). CONTENT-RELATIVE, mirroring `_check_visual_coverage`: only a
     DEVELOPED PROSE synthesis (the trigger — `>= RICH_RITE_PROSE_THRESHOLD` prose blocks, a
@@ -854,8 +829,19 @@ def _check_rich_rite(artefato: dict) -> list[str]:
 
     Returns `rich-rite:<move>` for each missing move ([] when none owed or all present)."""
     content = artefato.get("content", {}) or {}
-    triggered, blocks, summary_items = _developed_prose_synthesis(content)
-    if not triggered:
+    blocks = list(_iter_blocks(content))
+    # render renders top-level `executive_summary` as prose too (Codex P2), so it counts toward the
+    # trigger AND toward the marker text — a report whose moves live in the summary is not falsely
+    # flagged, and a summary-heavy report cannot evade the floor with < threshold section paragraphs.
+    summary = content.get("executive_summary") or []
+    summary_items = [s for s in summary if isinstance(s, str) and s.strip()]
+    prose_count = len(summary_items)
+    prose_count += sum(
+        1 for b in blocks
+        if _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph"))
+        in PROSE_BLOCK_TYPES
+    )
+    if prose_count < RICH_RITE_PROSE_THRESHOLD:
         return []  # not a developed prose synthesis — owes none of the prose moves
 
     text = (" ".join(_block_text(b) for b in blocks) + " " + " ".join(summary_items)).lower()
@@ -947,23 +933,6 @@ def _check_rich_rite(artefato: dict) -> list[str]:
     if not has_lineage:
         violations.append("rich-rite:lineage")
     return violations
-
-
-def _check_executable_genus_rite(artefato: dict) -> list[str]:
-    """A developed synthesis owes the proof-bound rite trace, not just final polish.
-
-    The reader should not see an agent diary. The event/proof payload must still show that the
-    old-edge draft, actionable gap gate, post-gate grounding, visible rewrite delta, reader model,
-    narrative arc, canonical journey mapping, and fact audit happened before final review.
-    """
-    triggered, _blocks, _summary_items = _developed_prose_synthesis(artefato.get("content", {}) or {})
-    if not triggered:
-        return []
-    return genus_rite.rite_violations(
-        artefato.get("genus_rite"),
-        content=artefato.get("content", {}) or {},
-        cites=artefato.get("cites") or [],
-    )
 
 
 def _iter_blocks(content: dict):
@@ -1088,26 +1057,6 @@ DIMENSIONS = {
         "that drops the claim, or a retained CONTRADICTORY claim, fails. Property-not-section, "
         "source-relative (the artefato is judged against its OWN material, never a fixed external set)."
     ),
-    "lineage_and_reader_model": (
-        "GENUS DEFAULT V4: the artefato is visibly FOR a reader and carries a visible, numbered "
-        "lineage ledger when more than one predecessor matters — not an orphaned answer. It calibrates "
-        "context to that reader/persona: enough grounding to read now, no tax explaining what they "
-        "already know. The default reader model is the operator/mentee, including leveling, live "
-        "interests, decision context, and what would maximize utility and growth for that reader now. "
-        "When prior artefacts, experiments, reports, tickets, commits, sessions, or decisions matter, "
-        "it enumerates them with specific ids/paths/names and says what it inherits, rejects, or "
-        "changes. A generic 'based on prior work' or hidden publish metadata is not lineage. If there "
-        "is genuinely no prior lineage, the artefato makes that boundary clear instead of faking "
-        "ancestry. Property-not-section: a map may encode lineage as numbered edges, a plan as "
-        "dependencies, a report as prose/table."
-    ),
-    "mechanism_trace": (
-        "GENUS DEFAULT: at least one load-bearing claim is made inspectable through a concrete "
-        "mechanism trace: a worked example, case row, artifact diff, before/after, pathway, failure "
-        "mode, or representative instance that shows HOW the result happened. A scoreboard, abstract "
-        "principle, topology, or recommendation without an example the reader can inspect is too thin. "
-        "The trace must be chosen because it explains the mechanism, not because it is decorative."
-    ),
     "content_depth": (
         "Substance, not placeholders: concrete details, data, numbers, real examples. "
         "No empty or stub content; tables carry real data."
@@ -1150,48 +1099,6 @@ DIMENSIONS = {
         "specific (not boilerplate), and present ANYWHERE in the artefato — NOT confined to "
         "any named section. Blind spots and untested assumptions are acknowledged in place. "
         "Absent OR boilerplate uncertainty blocks."
-    ),
-    "grounding_audit": (
-        "GENUS DEFAULT V6: Mundo/external grounding is used to position and improve the artefato, not "
-        "to decorate it or fake certainty. Imported concepts, studies, comparable experiments, "
-        "benchmarks, best practices, industry practices, or named terms say fit/mismatch and explicitly "
-        "state what they DO NOT validate. Where the topic deserves deeper Mundo, the artefato names the "
-        "field vocabulary and leaves useful pointers for further study instead of stopping at a shallow "
-        "analogy. Magnitudes, rankings, saturation bands, causality, or generalization are never "
-        "transferred from an external source unless that source actually supports that exact transfer. "
-        "If a gate/review or the draft's own lacunas exposed a gap, the final artefato shows the "
-        "post-gate grounder correction: claim narrowed, source added, caveat strengthened, example "
-        "changed, decision repositioned, or next validation changed. Overextended external grounding "
-        "is a strike."
-    ),
-    "old_edge_grounded_rite": (
-        "GENUS DEFAULT V6: the artefato manifests the promoted old-edge-with-grounding rite as a "
-        "cognitive sequence, not as a decorative checklist. The final artifact should let a blind "
-        "reader reconstruct the movement: an old-edge equivalent draft with its own subrite "
-        "(derived thesis, live question, worked example, honest unknowns, actionable landing); "
-        "a gate or self-critique "
-        "that turns lacunas into actionable grounding tasks; a directed post-gate Mundo/lineage/reader "
-        "grounding pass aimed by those tasks; and a rewrite whose grounding effect is visible. The "
-        "effect may be a named block, table, diff, paragraph, map edge, plan step, or prototype note, "
-        "but it must say what changed: claim, caveat, example, decision, or next validation. A final "
-        "artifact that merely contains the ingredients without showing the movement, or adds citations "
-        "without a delta, fails this rite. For developed syntheses, the publish payload must also "
-        "carry the proof-bound executable `genus_rite` trace plus material `stage_trace` hashes for "
-        "old_edge_draft -> gap_gate -> post_gate_grounding -> final_rewrite -> fact_audit. "
-        "A narrative field filled after the fact is not the reproduced rite."
-    ),
-    "canonical_form_grammar": (
-        "GENUS DEFAULT V6: the artefato uses the canonical house form, not merely the same criteria. "
-        "The default reader journey is: thesis title; live question and "
-        "reader context; identity/setup; configuration or lineage ledger; observed result/current read; "
-        "concrete mechanism trace; interpretation/teaching; Mundo/outside frame with fit/mismatch; "
-        "grounding effect; unknowns/limits; decision/next validation; references/pointers. The default "
-        "block palette is prose plus comparison-table/table for arms/configs/lineage/fit-mismatch, "
-        "metrics-grid/chart for quantitative results, derivation for first-principles reasoning, "
-        "gap-table for lacunas and unknowns, next-steps-grid for the closing validation path, and "
-        "bibliography when external sources appear. A skill may translate this grammar into its vehicle, "
-        "but if the final artefact feels like a compact ADR, topology dump, or different house style "
-        "against the canonical house form, it fails this dimension."
     ),
     "didactic_clarity": (
         "Every term, acronym, and tool name is comprehensible SOMEWHERE in the artefato — "
@@ -1237,16 +1144,11 @@ DIMENSIONS = {
 _LEGACY_KEPT_WEIGHTS = {
     "development_completeness": 0.18,
     "narrative_depth": 0.14,
-    "lineage_and_reader_model": 0.14,
-    "mechanism_trace": 0.14,
     "content_depth": 0.16,
     "feynman_method": 0.14,
     "frame_enrichment": 0.15,
     "contextualization": 0.14,
     "intellectual_honesty": 0.10,
-    "grounding_audit": 0.14,
-    "old_edge_grounded_rite": 0.16,
-    "canonical_form_grammar": 0.16,
     "didactic_clarity": 0.10,
     "internal_consistency": 0.06,
     "visualization": 0.06,
@@ -1264,14 +1166,10 @@ _BLIND_PREAMBLE = (
     "dimension 0-5 AND give a one-sentence `rationale` for each score — the rationale is the "
     "actionable FEEDBACK (what is missing and concretely how to improve it); the bare number is "
     "advisory and is not what gates. Put any blocking, specific defect in `strikes` — a strike "
-    "forces a revision, so be concrete about what is wrong and what would fix it. Put useful but "
-    "contestable interpretive risks in `risks`, not `strikes`: a risk is a strong thesis, analogy, "
-    "diagnosis, or architectural inference that may be too forceful but can create mentor value if "
-    "the author explicitly marks it. Hard facts — dates, numbers, quotes, attributions, commit facts, "
-    "source mismatches, contradictions, fabricated citations — remain `strikes`, never risks. "
-    "Respond with ONLY a JSON object: "
+    "forces a revision, so be concrete about what is wrong and what would fix it. Respond with "
+    "ONLY a JSON object: "
     '{"pass": bool, "scores": {dim: int}, "rationales": {dim: str}, "strikes": [str], '
-    '"risks": [{"tag": str, "claim": str, "rationale": str}], "overall": float}.'
+    '"overall": float}.'
 )
 
 _FEYNMAN_FOCUS = (
@@ -1282,10 +1180,7 @@ _FEYNMAN_FOCUS = (
     "struck for lacking a cite: judge it by its INTERNAL VALIDITY (do the stated premises support "
     "it?). Do not amputate thinking-out-loud — derivation-first reasoning is REWARDED by the depth "
     "dims, never penalized for being uncited. Check the derived/repeated/unknown knowledge-boundary "
-    "is explicit, specific, and present anywhere — not boilerplate. FACT-AUDIT the Mundo: strike "
-    "any external comparator that is used beyond what its cite can support, especially when it "
-    "normalizes a local magnitude, causal claim, benchmark result, or saturation/quality band without "
-    "direct evidence."
+    "is explicit, specific, and present anywhere — not boilerplate."
 )
 
 _REGULAR_FOCUS = (
@@ -1304,25 +1199,6 @@ _REGULAR_FOCUS = (
     "dump, a topology described for its own sake, or a generic survey that describes a system "
     "without insight the mentee could act on. A genuinely internal form (a connections map) that "
     "still reveals a non-obvious structure AND ties it to the mentee's work is NOT struck. "
-    "GENUS RITE V6: STRIKE if the artefato has no numbered lineage where multiple predecessors "
-    "matter; if it does not calibrate context to the target reader's leveling, interests, decision, "
-    "and what would maximize utility and growth; if it reports results without a concrete mechanism "
-    "trace; if Mundo is name-dropping rather than fit/mismatch grounding that changes a claim, caveat, "
-    "or next move; if it lacks the old-edge-with-grounding movement (old-edge equivalent draft stance, "
-    "actionable lacunas, directed post-gate grounding, and visible rewrite delta); if the old-edge "
-    "draft does not itself show derived thesis, live question, worked example, unknowns, and actionable "
-    "landing before the extra grounding turn; if the proof-bound trace lacks material stage hashes "
-    "for old_edge_draft -> gap_gate -> post_gate_grounding -> final_rewrite -> fact_audit; or if a "
-    "substantive "
-    "reviewer/self-critique gap was not routed through a post-gate grounder before the final review. "
-    "The process trace is not reader-visible diary, but a developed synthesis without the proof-bound "
-    "`genus_rite` trace is not the reproduced rite. "
-    "ALSO STRIKE a canonical-form miss: final artefact does not follow the canonical house journey "
-    "(thesis/live question/setup/config-or-lineage/result-or-current-read/mechanism/interpretation/"
-    "Mundo/grounding-effect/limits/decision+next/references) or does not use the expected block palette "
-    "(prose plus comparison-table/table, metrics-grid/chart, derivation, gap-table, next-steps-grid, "
-    "bibliography where the content calls for them). Treat a compact ADR, topology dump, or paragraph-only "
-    "piece that feels like a different house style as a substantive genus strike, not a form nit. "
     # O VETO do gate visual-rico (a banca-cega, salva de feat/conductor): números narrados em
     # prosa = o strike; anos/versões/datas nunca contam (o quant-prose trigger, agora semântico).
     "AND STRIKE quantitative material buried in prose — 3+ distinct numeric magnitudes narrated "
@@ -1336,7 +1212,7 @@ _REGULAR_FOCUS = (
 # de DIMENSIONS + DIMENSION_WEIGHTS + os 2 focus prompts. Editar a rubrica = sha novo = versão nova
 # no label; verdicts velhos ficam pinados à sua. Carimbados no proof (_mint_proof) e dali no payload
 # do `artefato.published` (publisher._gate_payload) — o verdict persiste com a régua que o mediu.
-GATE_RUBRIC_VERSION = "gate_rubric@9"  # @9: material stage trace + old-edge draft subrite required
+GATE_RUBRIC_VERSION = "gate_rubric@2"  # @2: gate visual-rico (type→format + veto quant-prose)
 GATE_RUBRIC_SHA = hashlib.sha256(json.dumps(
     {"dimensions": DIMENSIONS, "weights": DIMENSION_WEIGHTS,
      "feynman_focus": _FEYNMAN_FOCUS, "regular_focus": _REGULAR_FOCUS},
@@ -1493,24 +1369,11 @@ def _parse_verdict(raw: str) -> dict:
                 f"passabilidade-veto: {dim} scored {score:g} (< {PASSABILITY_VETO_FLOOR}) — "
                 + (why or "sem rationale; torne cada referente nomeado e o contexto montado "
                           "pro leitor-faminto-de-contexto"))
-    risks = result.get("risks", [])
-    if not isinstance(risks, list):
-        risks = []
-    clean_risks = []
-    for risk in risks:
-        if not isinstance(risk, dict):
-            continue
-        tag = str(risk.get("tag") or "interpretive_risk").strip() or "interpretive_risk"
-        claim = str(risk.get("claim") or "").strip()
-        rationale = str(risk.get("rationale") or "").strip()
-        if claim and rationale:
-            clean_risks.append({"tag": tag, "claim": claim, "rationale": rationale})
     return {
         "pass": passed,
         "scores": scores,
         "rationales": rationales,
         "strikes": strikes,
-        "risks": clean_risks,
         "overall": round(float(overall), 2),
         # R5/S1 (Codex S1 review [high]): PRESERVE the reviewer's `residual` through the parser so the
         # default-deny sanitizer in run_close can see it — else a blocking finding mischanneled into
@@ -1598,7 +1461,6 @@ GENUS_BOUNCE_MAX = _envconf.env_int("EDGE_GENUS_BOUNCE_MAX", BOUNCE_MAX)
 _SYNTHETIC_STRIKE_PREFIXES = ("reviewer raised:", "malformed strikes:",
                               "malformed score(s):", "malformed scores:", "non-dict verdict:")
 _RESIDUAL_SECTION_TITLE = "Crítica não endereçada"
-_RISK_TAG_SECTION_TITLE = "Riscos autorais marcados"
 
 
 # ---------------------------------------------------------------------------
@@ -1629,31 +1491,9 @@ _RISK_TAG_SECTION_TITLE = "Riscos autorais marcados"
 _PROOF_TOKEN = secrets.token_hex(32)
 
 
-def normalize_accepted_risks(risks) -> list:
-    """Canonical authorial risk tags: only reader-visible, explicit risk claims survive the proof/event
-    boundary. Hard fact defects never enter here; reviewers keep those in `strikes`."""
-    if not isinstance(risks, list):
-        return []
-    out = []
-    for item in risks:
-        if not isinstance(item, dict):
-            continue
-        tag = str(item.get("tag") or "interpretive_risk").strip() or "interpretive_risk"
-        claim = str(item.get("claim") or "").strip()
-        rationale = str(item.get("rationale") or "").strip()
-        source = str(item.get("source") or item.get("reviewer_strike") or "").strip()
-        if not (claim and rationale):
-            continue
-        row = {"tag": tag, "claim": claim, "rationale": rationale}
-        if source:
-            row["source"] = source
-        out.append(row)
-    return out
-
-
 def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=None,
                  lineage=None, dispatch_id=None, bears_on=None, para=None, reports_on=None,
-                 experiment_curation=None, genus_rite_trace=None, accepted_risks=None) -> str:
+                 experiment_curation=None) -> str:
     """The sha256 digest BINDING a proof to the EXACT publish payload (incl. dispatch_id — E1b:
     persisted field = digested field). Canonical JSON
     (sorted keys) so the same payload always digests identically and the publisher can
@@ -1695,10 +1535,6 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
         "reports_on": normalize_reports_on(reports_on),
         "experiment_curation": normalize_experiment_curation(
             reports_on, experiment_curation, report_slug=slug, by=skill),
-        "genus_rite": genus_rite.normalize_genus_rite(genus_rite_trace),
-        # Risk tags are reader/event-visible authorial claims. Bind them explicitly so a proof-holder
-        # cannot add, remove, or retitle a risk tag after the close has minted.
-        "accepted_risks": normalize_accepted_risks(accepted_risks),
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -1707,8 +1543,7 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
 def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
                 distills=None, skill=None, lineage=None, dispatch_id=None,
                 bears_on=None, para=None, reports_on=None, experiment_curation=None,
-                genus_rite_trace=None, residual_publish=False, unaddressed=None,
-                accepted_risks=None) -> dict:
+                residual_publish=False, unaddressed=None) -> dict:
     """Mint the bound, token-stamped proof for a passing close. Carries BOTH reviewer
     verdicts (each stamped by run_close with its canonical reviewer identity), the digest of
     the exact payload (now including distills + skill + lineage + dispatch_id, E1b), and the
@@ -1723,7 +1558,6 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
     content (so the digest binds the 'Crítica não endereçada' section), and the proof gains a
     first-class `unaddressed` projection of the final-round criticism. `verify_proof`'s residual
     branch requires the knob ON at verify time and SKIPS the clean-verdict check for this proof."""
-    accepted_risks = normalize_accepted_risks(accepted_risks)
     proof = {
         "pass": True,
         "verdicts": list(verdicts),
@@ -1731,9 +1565,7 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
                                cites=cites, proposes=proposes,
                                distills=distills, skill=skill, lineage=lineage,
                                dispatch_id=dispatch_id, bears_on=bears_on, para=para,
-                               reports_on=reports_on, experiment_curation=experiment_curation,
-                               genus_rite_trace=genus_rite_trace,
-                               accepted_risks=accepted_risks),
+                               reports_on=reports_on, experiment_curation=experiment_curation),
         "token": _PROOF_TOKEN,
         # R5/S1 severity: NON-BLOCKING residual notes the reviewers chose to log rather than strike.
         # A residual can only ride a CLEAN verdict (no strikes); a BLOCKING finding is a strike or a
@@ -1748,8 +1580,6 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
     if residual_publish:
         proof["residual_publish"] = True
         proof["unaddressed"] = list(unaddressed or [])
-    if accepted_risks:
-        proof["accepted_risks"] = list(accepted_risks or [])
     return proof
 
 
@@ -1860,7 +1690,6 @@ def _discharge_verdict(verdict, discharged: set):
 def verify_proof(proof, *, slug, spec, intent, cites, proposes,
                  distills=None, skill=None, lineage=None, dispatch_id=None,
                  bears_on=None, para=None, reports_on=None, experiment_curation=None,
-                 genus_rite_trace=None, accepted_risks=None,
                  reviewer_count=2):
     """Verify a proof BINDS to the payload being published — raise ValueError otherwise,
     BEFORE any state/HTML is written. Refuses unless: the token is run_close's (not a
@@ -1880,9 +1709,7 @@ def verify_proof(proof, *, slug, spec, intent, cites, proposes,
                             cites=cites, proposes=proposes,
                             distills=distills, skill=skill, lineage=lineage,
                             dispatch_id=dispatch_id, bears_on=bears_on, para=para,
-                            reports_on=reports_on, experiment_curation=experiment_curation,
-                            genus_rite_trace=genus_rite_trace,
-                            accepted_risks=accepted_risks)
+                            reports_on=reports_on, experiment_curation=experiment_curation)
     if not secrets.compare_digest(str(proof.get("digest", "")), expected):
         raise ValueError(
             f"cannot publish artefato {slug!r}: proof digest does not bind to this "
@@ -1968,6 +1795,7 @@ _COSMETIC_JUDGE_PROMPT = (
     '{"all_cosmetic": bool, "rationale": str}.\n\nStrikes:\n'
 )
 
+
 def _strike_texts(verdicts) -> list:
     """The flat list of strike strings across the verdicts, order preserved."""
     return [str(s) for v in verdicts if isinstance(v, dict)
@@ -1998,31 +1826,6 @@ def _strikes_are_cosmetic(verdicts, complete_fn) -> bool:
     return isinstance(result, dict) and result.get("all_cosmetic") is True
 
 
-def _authentic_struck_verdicts(verdicts) -> bool:
-    """True iff the final review is a real two-reviewer struck review, not infra/schema drift.
-    Shared by publish-with-residuals paths so they never accept synthetic reviewer failures."""
-    if len(verdicts) != 2:
-        return False
-    identities = {v.get("reviewer") for v in verdicts if isinstance(v, dict)}
-    if not {FEYNMAN_REVIEWER_ID, REGULAR_REVIEWER_ID} <= identities:
-        return False
-    saw_strike = False
-    for v in verdicts:
-        if not isinstance(v, dict):
-            return False
-        scores = v.get("scores")
-        if not isinstance(scores, dict) or not scores:
-            return False
-        strikes = v.get("strikes")
-        if not isinstance(strikes, list):
-            return False
-        saw_strike = saw_strike or bool(strikes)
-        for s in strikes:
-            if any(str(s).startswith(p) for p in _SYNTHETIC_STRIKE_PREFIXES):
-                return False
-    return saw_strike
-
-
 def _residual_eligible(verdicts) -> bool:
     """ELIGIBILITY for publish-with-residuals (design-close §2.1/§4) — pure and cheap. True iff the
     knob is ON, there are EXACTLY 2 verdicts carrying BOTH canonical reviewer identities, and every
@@ -2032,7 +1835,24 @@ def _residual_eligible(verdicts) -> bool:
     (issue #65), applied on top of this pure floor. Infra ≠ resíduo; a synthetic strike disqualifies."""
     if _envconf.env_int("EDGE_PUBLISH_WITH_RESIDUALS", 0) != 1:
         return False
-    return _authentic_struck_verdicts(verdicts)
+    if len(verdicts) != 2:
+        return False
+    identities = {v.get("reviewer") for v in verdicts if isinstance(v, dict)}
+    if not {FEYNMAN_REVIEWER_ID, REGULAR_REVIEWER_ID} <= identities:
+        return False
+    for v in verdicts:
+        if not isinstance(v, dict):
+            return False
+        scores = v.get("scores")
+        if not isinstance(scores, dict) or not scores:
+            return False   # §4: an empty/absent scores dict is a non-review (crash/drift)
+        strikes = v.get("strikes")
+        if not isinstance(strikes, list):
+            return False
+        for s in strikes:
+            if any(str(s).startswith(p) for p in _SYNTHETIC_STRIKE_PREFIXES):
+                return False   # §4: a synthetic strike is a non-review, never a residual
+    return True
 
 
 def _residuals_section(verdicts) -> dict:
@@ -2061,51 +1881,6 @@ def _residuals_section(verdicts) -> dict:
             "text": " · ".join(str(s) for s in strikes),   # strikes VERBATIM
         })
     return {"title": _RESIDUAL_SECTION_TITLE, "blocks": blocks}
-
-
-def _risk_tags_section(accepted_risks) -> dict:
-    """Visible authorial risk tags. This is not 'unaddressed criticism': the author chose to keep
-    a useful interpretive claim and mark it as risk. Pure templater, no LLM."""
-    blocks = [{
-        "type": "paragraph",
-        "text": ("Esta seção marca riscos autorais que sobreviveram à revisão. "
-                 "Eles não são vendidos como fato fechado: o autor decidiu preservar o insight "
-                 "com uma tag de risco, deixando a aposta legível para o leitor."),
-    }]
-    for item in accepted_risks or []:
-        if not isinstance(item, dict):
-            continue
-        tag = str(item.get("tag") or "interpretive_risk").strip() or "interpretive_risk"
-        claim = item.get("claim")
-        rationale = item.get("rationale")
-        source = item.get("source") or item.get("reviewer_strike") or "autor"
-        blocks.append({
-            "type": "callout",
-            "variant": "warning",
-            "title": tag,
-            "text": f"Claim: {claim}\nRisco aceito: {rationale}\nOrigem: {source}",
-        })
-    return {"title": _RISK_TAG_SECTION_TITLE, "blocks": blocks}
-
-
-def _accepted_risks_from_artefato(artefato) -> list:
-    risks = artefato.get("accepted_risks") if isinstance(artefato, dict) else None
-    return normalize_accepted_risks(risks)
-
-
-def _append_accepted_risk_tags(artefato):
-    """Return (artefato, accepted_risks). When the author explicitly accepts risks, append a visible
-    section before minting so the proof digest binds the tags the reader sees."""
-    accepted = _accepted_risks_from_artefato(artefato)
-    if not accepted:
-        return artefato, []
-    content = artefato.get("content")
-    if not isinstance(content, dict):
-        return artefato, accepted
-    section = _risk_tags_section(accepted)
-    new_content = {**content,
-                   "additional_sections": list(content.get("additional_sections") or []) + [section]}
-    return {**artefato, "content": new_content}, accepted
 
 
 def _unaddressed(verdicts) -> list:
@@ -2176,7 +1951,6 @@ def _try_residual_publish(artefato, verdicts, publish_fn, complete_fn=None):
         bears_on=appended.get("bears_on"), para=appended.get("para"),
         reports_on=appended.get("reports_on"),
         experiment_curation=appended.get("experiment_curation"),
-        genus_rite_trace=appended.get("genus_rite"),
         residual_publish=True, unaddressed=_unaddressed(verdicts))
     # (5) PUBLISH the appended artefato (section inside) under the residual proof
     if publish_fn is not None:
@@ -2198,13 +1972,10 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
     revision is unchanged = marginal gain 0), bounded by `improve_rounds` (default IMPROVE_BACKSTOP)
     as a generous backstop against divergence, NOT a fixed count. Each pass runs BOTH reviewers
     purely to PRODUCE FEEDBACK — the
-    per-dimension `rationales`, the non-blocking `risks`, and the blocking `strikes` (the LLM
-    0-5 score is too noisy to gate on, so the feedback is the signal) — and hands that feedback
-    to `improve_fn(artefato, feedback)`, which REVISES the artefato (it improves the existing
-    draft, it does not re-produce from scratch). A clean risk-only review gets one optional
-    authorial response pass: the author can ground/rewrite, add `accepted_risks`, or leave the
-    draft unchanged without failing close. These passes NEVER mint or publish; they only refine.
-    The gating close below then
+    per-dimension `rationales` and the `strikes` (the LLM 0-5 score is too noisy to gate on, so
+    the feedback is the signal) — and hands that feedback to `improve_fn(artefato, feedback)`,
+    which REVISES the artefato (it improves the existing draft, it does not re-produce from
+    scratch). These passes NEVER mint or publish; they only refine. The gating close below then
     runs on the REFINED artefato, so the minted proof binds to the final improved text — the
     reviewers' pass is always of exactly what publishes. With no `improve_fn` the stage is
     skipped and behaviour is unchanged.
@@ -2236,7 +2007,6 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
     improve_plateaued = False   # the refiner returned the draft UNCHANGED with issues outstanding
     discharged = set()          # R9: normalized strikes RESOLVED in a prior round (never re-litigated)
     prev_round_strikes = None   # R9: the raw strikes the reviewers raised LAST round (resolved-detection)
-    risk_feedback_attempted = False  # risk-only feedback is optional and must not become a retry trap
     if improve_fn is not None:
         # R7 (run-while-changing, bounded). Iterate while the refiner keeps CHANGING the draft toward
         # resolution; stop on CONVERGENCE (issue_count==0) or PLATEAU (draft returned unchanged). No
@@ -2287,31 +2057,8 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
                 (len(v.get("strikes") or []) or (0 if _verdict_clean(v) else 1))
                 for v in verdicts_fb)
             if issue_count == 0:
-                risk_count = sum(
-                    len(v.get("risks") or []) for v in verdicts_fb
-                    if isinstance(v.get("risks") or [], list))
-                if risk_count == 0 or risk_feedback_attempted:
-                    improve_converged = True
-                    break                  # converged — don't churn a clean draft (Codex S1 #6)
-                # Non-lossy risk response: reviewer risks are not blocking defects, but they are still
-                # useful authorial feedback. Give the author one chance to ground/rewrite the risky move
-                # or add `accepted_risks`; no-change/crash/malformed output falls through as an explicit
-                # choice to ship without turning risk into a strike.
-                risk_feedback_attempted = True
-                before = json.dumps(artefato, sort_keys=True, default=str)
-                try:
-                    revised = improve_fn(artefato, feedback)
-                except Exception:  # noqa: BLE001 — risk-only feedback cannot fail the close
-                    improve_converged = True
-                    break
-                if not isinstance(revised, dict):
-                    improve_converged = True
-                    break
-                if json.dumps(revised, sort_keys=True, default=str) == before:
-                    improve_converged = True
-                    break
-                artefato = revised
-                continue
+                improve_converged = True
+                break                      # converged — don't churn a clean draft (Codex S1 #6)
             # snapshot BEFORE the call (Codex S1 #14): an improve_fn that MUTATES the draft in place and
             # returns the same object would make `revised == artefato` vacuously true; comparing the
             # returned draft to the pre-call snapshot detects a real in-place change as progress.
@@ -2432,14 +2179,6 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
         # lives ONLY in the improve loop (anti-churn); this gate is the backstop that catches a finding the
         # loop discharged prematurely, so a genuinely-unresolved blocker can never mint.
         if all(_verdict_clean(v) for v in verdicts):
-            artefato_to_publish, accepted_risks = _append_accepted_risk_tags(artefato)
-            if accepted_risks:
-                ground_visuals(artefato_to_publish)
-                dirty = check_genus(artefato_to_publish)
-                if dirty:
-                    return {"pass": False, "artefato": artefato_to_publish,
-                            "verdicts": verdicts, "genus_violations": dirty}
-                artefato = artefato_to_publish
             proof = _mint_proof(
                 verdicts,
                 slug=artefato.get("slug"), spec=artefato.get("content"),
@@ -2450,9 +2189,7 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
                 dispatch_id=artefato.get("dispatch_id"),
                 bears_on=artefato.get("bears_on"), para=artefato.get("para"),
                 reports_on=artefato.get("reports_on"),
-                experiment_curation=artefato.get("experiment_curation"),
-                genus_rite_trace=artefato.get("genus_rite"),
-                accepted_risks=accepted_risks)
+                experiment_curation=artefato.get("experiment_curation"))
             if publish_fn is not None:
                 publish_fn(artefato, proof)
             return proof
