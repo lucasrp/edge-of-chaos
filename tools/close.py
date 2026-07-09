@@ -74,11 +74,8 @@ _VERSION_RE = re.compile(r"\bv\d+(?:\.\d+)+\b|\b\d+\.\d+\.\d+\b", re.IGNORECASE)
 _DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}/\d{2,4}\b|\b\d{4}-\d{2}\b")
 
 # ---------------------------------------------------------------------------
-# The rich-rite floor (#30) — the deterministic structural core of the genus
-# rite. The full genus default is richer and is enforced semantically by the
-# blind reviewers below; this pre-review floor keeps the old hard minimum:
-# derive, mark a boundary, bring an outside frame, and show lineage.
-# MIRRORS _check_visual_coverage: a TRIGGER
+# The rich-rite floor (#30) — content-relative property gates on the cognitive
+# moves the rich old reports forced. MIRRORS _check_visual_coverage: a TRIGGER
 # (here: a DEVELOPED PROSE synthesis) owes the moves; a non-prose/terse form owes
 # none and is NEVER falsely failed. NEVER a named section, NEVER a word floor —
 # the trigger is a STRUCTURAL count of prose blocks (mirrors QUANTITATIVE_ROW_THRESHOLD),
@@ -1060,26 +1057,6 @@ DIMENSIONS = {
         "that drops the claim, or a retained CONTRADICTORY claim, fails. Property-not-section, "
         "source-relative (the artefato is judged against its OWN material, never a fixed external set)."
     ),
-    "lineage_and_reader_model": (
-        "GENUS DEFAULT V4: the artefato is visibly FOR a reader and carries a visible, numbered "
-        "lineage ledger when more than one predecessor matters — not an orphaned answer. It calibrates "
-        "context to that reader/persona: enough grounding to read now, no tax explaining what they "
-        "already know. The default reader model is the operator/mentee, including leveling, live "
-        "interests, decision context, and what would maximize utility and growth for that reader now. "
-        "When prior artefacts, experiments, reports, tickets, commits, sessions, or decisions matter, "
-        "it enumerates them with specific ids/paths/names and says what it inherits, rejects, or "
-        "changes. A generic 'based on prior work' or hidden publish metadata is not lineage. If there "
-        "is genuinely no prior lineage, the artefato makes that boundary clear instead of faking "
-        "ancestry. Property-not-section: a map may encode lineage as numbered edges, a plan as "
-        "dependencies, a report as prose/table."
-    ),
-    "mechanism_trace": (
-        "GENUS DEFAULT: at least one load-bearing claim is made inspectable through a concrete "
-        "mechanism trace: a worked example, case row, artifact diff, before/after, pathway, failure "
-        "mode, or representative instance that shows HOW the result happened. A scoreboard, abstract "
-        "principle, topology, or recommendation without an example the reader can inspect is too thin. "
-        "The trace must be chosen because it explains the mechanism, not because it is decorative."
-    ),
     "content_depth": (
         "Substance, not placeholders: concrete details, data, numbers, real examples. "
         "No empty or stub content; tables carry real data."
@@ -1122,18 +1099,6 @@ DIMENSIONS = {
         "specific (not boilerplate), and present ANYWHERE in the artefato — NOT confined to "
         "any named section. Blind spots and untested assumptions are acknowledged in place. "
         "Absent OR boilerplate uncertainty blocks."
-    ),
-    "grounding_audit": (
-        "GENUS DEFAULT V4: Mundo/external grounding is used to position and improve the artefato, not "
-        "to decorate it or fake certainty. Imported concepts, studies, comparable experiments, "
-        "benchmarks, best practices, industry practices, or named terms say fit/mismatch and explicitly "
-        "state what they DO NOT validate. Where the topic deserves deeper Mundo, the artefato names the "
-        "field vocabulary and leaves useful pointers for further study instead of stopping at a shallow "
-        "analogy. Magnitudes, rankings, saturation bands, causality, or generalization are never "
-        "transferred from an external source unless that source actually supports that exact transfer. "
-        "If a gate/review exposed a gap, the final artefato should show the post-gate grounder "
-        "correction: claim narrowed, source added, caveat strengthened, example changed, or next "
-        "validation changed. Overextended external grounding is a strike."
     ),
     "didactic_clarity": (
         "Every term, acronym, and tool name is comprehensible SOMEWHERE in the artefato — "
@@ -1179,14 +1144,11 @@ DIMENSIONS = {
 _LEGACY_KEPT_WEIGHTS = {
     "development_completeness": 0.18,
     "narrative_depth": 0.14,
-    "lineage_and_reader_model": 0.14,
-    "mechanism_trace": 0.14,
     "content_depth": 0.16,
     "feynman_method": 0.14,
     "frame_enrichment": 0.15,
     "contextualization": 0.14,
     "intellectual_honesty": 0.10,
-    "grounding_audit": 0.14,
     "didactic_clarity": 0.10,
     "internal_consistency": 0.06,
     "visualization": 0.06,
@@ -1218,10 +1180,7 @@ _FEYNMAN_FOCUS = (
     "struck for lacking a cite: judge it by its INTERNAL VALIDITY (do the stated premises support "
     "it?). Do not amputate thinking-out-loud — derivation-first reasoning is REWARDED by the depth "
     "dims, never penalized for being uncited. Check the derived/repeated/unknown knowledge-boundary "
-    "is explicit, specific, and present anywhere — not boilerplate. FACT-AUDIT the Mundo: strike "
-    "any external comparator that is used beyond what its cite can support, especially when it "
-    "normalizes a local magnitude, causal claim, benchmark result, or saturation/quality band without "
-    "direct evidence."
+    "is explicit, specific, and present anywhere — not boilerplate."
 )
 
 _REGULAR_FOCUS = (
@@ -1240,12 +1199,6 @@ _REGULAR_FOCUS = (
     "dump, a topology described for its own sake, or a generic survey that describes a system "
     "without insight the mentee could act on. A genuinely internal form (a connections map) that "
     "still reveals a non-obvious structure AND ties it to the mentee's work is NOT struck. "
-    "GENUS RITE V4: STRIKE if the artefato has no numbered lineage where multiple predecessors "
-    "matter; if it does not calibrate context to the target reader's leveling, interests, decision, "
-    "and what would maximize utility and growth; if it reports results without a concrete mechanism "
-    "trace; if Mundo is name-dropping rather than fit/mismatch grounding that changes a claim, caveat, "
-    "or next move; or if a substantive reviewer gap was not routed through a post-gate grounder before "
-    "the final review. "
     # O VETO do gate visual-rico (a banca-cega, salva de feat/conductor): números narrados em
     # prosa = o strike; anos/versões/datas nunca contam (o quant-prose trigger, agora semântico).
     "AND STRIKE quantitative material buried in prose — 3+ distinct numeric magnitudes narrated "
@@ -1259,7 +1212,7 @@ _REGULAR_FOCUS = (
 # de DIMENSIONS + DIMENSION_WEIGHTS + os 2 focus prompts. Editar a rubrica = sha novo = versão nova
 # no label; verdicts velhos ficam pinados à sua. Carimbados no proof (_mint_proof) e dali no payload
 # do `artefato.published` (publisher._gate_payload) — o verdict persiste com a régua que o mediu.
-GATE_RUBRIC_VERSION = "gate_rubric@4"  # @4: genus rite v4 (reader growth + lineage ledger + grounder)
+GATE_RUBRIC_VERSION = "gate_rubric@2"  # @2: gate visual-rico (type→format + veto quant-prose)
 GATE_RUBRIC_SHA = hashlib.sha256(json.dumps(
     {"dimensions": DIMENSIONS, "weights": DIMENSION_WEIGHTS,
      "feynman_focus": _FEYNMAN_FOCUS, "regular_focus": _REGULAR_FOCUS},

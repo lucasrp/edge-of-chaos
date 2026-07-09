@@ -9,45 +9,6 @@ loop structure and the context-denial ladder are the same for every producer; on
 This scaffold is **non-procrusto** by design: it names roles, never report-specifics. A `map`
 producing a diagram and a `report` producing prose-and-charts run the **same** scaffold.
 
-## Genus default rite v4 — reader growth, lineage, mechanism, Mundo, audit
-
-The rite approved on 2026-07-08 is **genus**, not `report`: every producer translates it into
-its own form. It is property-not-section. A map can carry it as edges and captions, a plan as
-dependency rationale, a prototype as interaction plus notes, a report as prose and tables. No
-skill opts out; a skill only changes the **vehicle**.
-
-Every Artefato owes these properties at its depth target:
-
-- **Reader growth model / contextualization**: the artefato is explicitly for the mentee or a named
-  reader, and spends context only where that reader needs it. The default reader is the operator/mentee.
-  The producer models that reader's **leveling**, live **interests**, decision context, and what would
-  maximize utility and growth for them now. Cryptic is a defect; re-teaching what the reader already
-  holds is also a defect.
-- **Lineage ledger**: prior artefacts, sessions, experiments, commits, reports, tickets, or decisions
-  that matter are named with stable ids/paths when available. Use a **numbered** lineage ledger when
-  more than one predecessor matters. For each predecessor, say what this artefato inherits, rejects, or
-  changes. Hidden publish metadata is not enough. If there is no meaningful lineage, mark that honestly.
-- **Derivation and boundary**: derive the load-bearing claim before leaning on authority, and mark
-  what remains unknown, inferred, untested, or outside scope.
-- **Concrete mechanism trace**: include at least one worked example, case row, diff, path, failure mode,
-  or representative instance that shows how the claim works. Results without mechanism do not teach.
-- **Mundo deepening / outside frame**: use external concepts, field names, studies, comparable
-  experiments, benchmarks, and **best practices** where the topic deserves that depth and where they
-  improve the reader's model. The Mundo move is not a shallow analogy: it gives pointers for deeper
-  study, names the field's vocabulary, and explains fit/mismatch. Each external term must change or
-  sharpen a claim, caveat, example, decision, or next validation.
-- **Post-gate grounder**: when a gate, critic, or review exposes a real gap, run a targeted grounding
-  pass after that feedback and before the final gating review. The grounder revisits the relevant prior
-  sessions/artefacts, reader model, lineage, and Mundo sources. It is not prose polish; the new read must
-  change something: claim, caveat, example, decision, or next validation.
-- **Fact-audit**: before publish, audit every external comparator and numeric transfer. Sources can
-  position a local result without validating its magnitude. Do not import bands, rankings, causal claims,
-  or generalization unless the source supports that exact transfer.
-
-The old rich-rite floor (derivation, unknown boundary, outside frame, lineage) is the **hard minimum**.
-The approved rite above is the richer genus default that the blind reviewers judge semantically.
-Depth controls how much each property is developed; it never deletes the property.
-
 ## The writer's identity — seja Feynman nesse sentido
 
 Whoever writes the artefato: **seja Feynman nesse sentido** — the NAME is the pointer (it fires
