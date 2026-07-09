@@ -12,10 +12,15 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 APPLY = REPO / "tools" / "edge-apply"
 YAML = REPO / "agent.yaml"
+
+
+def load_cfg() -> dict:
+    return yaml.safe_load(YAML.read_text(encoding="utf-8"))
 
 
 def run_apply(edge_home: Path, claude_home: Path, codex_home: Path):
@@ -41,6 +46,7 @@ class ApplyClaude(unittest.TestCase):
         self.edge_home = Path(self._t1.name)
         self.claude_home = Path(self._t2.name) / ".claude"
         self.codex_home = Path(self._t2.name) / ".codex"
+        self.cfg = load_cfg()
         self.res = run_apply(self.edge_home, self.claude_home, self.codex_home)
 
     def tearDown(self):
@@ -60,12 +66,14 @@ class ApplyClaude(unittest.TestCase):
         claude_md = self.claude_home / "CLAUDE.md"
         self.assertTrue(claude_md.exists(), self.res.stdout + self.res.stderr)
         # mission from the real agent.yaml is rendered into CLAUDE.md
-        self.assertIn("Mentor to the edge-of-chaos PM", claude_md.read_text())
+        mission = str(self.cfg.get("mission", "")).strip().splitlines()[0]
+        self.assertIn(mission, claude_md.read_text())
 
     def test_skills_rendered_prefixed(self):
-        beat = self.claude_home / "skills" / "ed-beat" / "SKILL.md"
+        prefix = str(self.cfg.get("skill_prefix", self.cfg.get("codename", "")))
+        beat = self.claude_home / "skills" / f"{prefix}-beat" / "SKILL.md"
         self.assertTrue(beat.exists())
-        self.assertIn("name: ed-beat", beat.read_text())
+        self.assertIn(f"name: {prefix}-beat", beat.read_text())
         self.assertIn("user-invocable: true", beat.read_text())
 
     def test_idempotent(self):
