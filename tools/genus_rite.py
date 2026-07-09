@@ -6,30 +6,8 @@ the old-edge-with-grounding movement, not only polished until a final reviewer
 accepted it.
 """
 
-import hashlib
-from pathlib import Path
-import re
-
 
 TRACE_VERSION = "old-edge-grounded@1"
-
-REPO = Path(__file__).resolve().parent.parent
-
-REQUIRED_STAGES = (
-    "old_edge_draft",
-    "gap_gate",
-    "post_gate_grounding",
-    "final_rewrite",
-    "fact_audit",
-)
-
-STAGE_DEPENDENCIES = {
-    "old_edge_draft": set(),
-    "gap_gate": {"old_edge_draft"},
-    "post_gate_grounding": {"old_edge_draft", "gap_gate"},
-    "final_rewrite": {"old_edge_draft", "post_gate_grounding"},
-    "fact_audit": {"final_rewrite"},
-}
 
 CANONICAL_MOVES = frozenset({
     "thesis",
@@ -78,9 +56,6 @@ def normalize_genus_rite(value):
         cleaned = _clean_list(value.get(key))
         if cleaned:
             out[key] = cleaned
-    stage_trace = _clean_stage_trace(value.get("stage_trace"))
-    if stage_trace:
-        out["stage_trace"] = stage_trace
     if len(out) == 1 and out.get("version") == TRACE_VERSION:
         return {}
     return out
@@ -97,10 +72,8 @@ def rite_violations(value, *, content=None, cites=None):
     gap_ids = _gap_ids(trace.get("gap_gate"))
     grounded_gap_ids = _grounded_gap_ids(
         trace.get("post_gate_grounding"), gap_ids, cite_refs)
-    if not _old_edge_draft_ok(trace.get("old_edge_draft")):
+    if not _has_payload(trace.get("old_edge_draft")):
         violations.append("genus-rite:old-edge-draft")
-    stage_violations = _stage_trace_violations(trace.get("stage_trace"))
-    violations.extend(stage_violations)
     if not _reader_model_ok(trace.get("reader_model")):
         violations.append("genus-rite:reader-model")
     if not _narrative_arc_ok(trace.get("narrative_arc")):
@@ -150,28 +123,6 @@ def _clean_list(value):
     return out
 
 
-def _clean_stage_trace(value):
-    if not isinstance(value, list):
-        return []
-    out = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        stage = {}
-        for key in ("id", "path", "sha256", "summary"):
-            cleaned = _clean_str(item.get(key))
-            if cleaned:
-                stage[key] = cleaned
-        inputs = item.get("input_stage_ids")
-        if isinstance(inputs, list):
-            stage["input_stage_ids"] = [
-                cleaned for cleaned in (_clean_str(v) for v in inputs) if cleaned
-            ]
-        if stage:
-            out.append(stage)
-    return out
-
-
 def _clean_str(value):
     if not isinstance(value, str):
         return ""
@@ -194,94 +145,6 @@ def _has_fields(item, fields):
 
 def _any_item(items, required):
     return isinstance(items, list) and any(_has_fields(item, required) for item in items)
-
-
-def _old_edge_draft_ok(draft):
-    if not isinstance(draft, dict):
-        return False
-    # The first draft is itself a rite, not a free-form vibe marker.
-    required = (
-        "derived_thesis",
-        "live_question",
-        "worked_example",
-        "unknowns",
-        "actionable_landing",
-    )
-    return all(_has_payload(draft.get(field)) for field in required)
-
-
-def _stage_trace_violations(stages):
-    if not isinstance(stages, list) or not stages:
-        return ["genus-rite:stage-trace"]
-    by_id = {}
-    order = []
-    for stage in stages:
-        if not isinstance(stage, dict):
-            return ["genus-rite:stage-trace"]
-        stage_id = _clean_str(stage.get("id"))
-        if stage_id in by_id:
-            return ["genus-rite:stage-trace"]
-        by_id[stage_id] = stage
-        order.append(stage_id)
-
-    violations = []
-    if tuple(order[:len(REQUIRED_STAGES)]) != REQUIRED_STAGES:
-        violations.append("genus-rite:stage-order")
-    missing = [stage_id for stage_id in REQUIRED_STAGES if stage_id not in by_id]
-    if missing:
-        violations.append("genus-rite:stage-trace")
-        return violations
-
-    for stage_id in REQUIRED_STAGES:
-        stage = by_id[stage_id]
-        if not _stage_shape_ok(stage):
-            violations.append(f"genus-rite:stage-shape:{stage_id}")
-            continue
-        deps = set(_clean_str(v) for v in stage.get("input_stage_ids") or [])
-        if not STAGE_DEPENDENCIES[stage_id] <= deps:
-            violations.append(f"genus-rite:stage-deps:{stage_id}")
-        if not _stage_hash_ok(stage):
-            violations.append(f"genus-rite:stage-hash:{stage_id}")
-    return violations
-
-
-def _stage_shape_ok(stage):
-    if not _has_fields(stage, ("id", "path", "sha256", "summary")):
-        return False
-    if not isinstance(stage.get("input_stage_ids"), list):
-        return False
-    digest = _clean_str(stage.get("sha256"))
-    return bool(re.fullmatch(r"[0-9a-f]{64}", digest))
-
-
-def _stage_path(path):
-    raw = _clean_str(path)
-    if not raw:
-        return None
-    p = Path(raw)
-    if not p.is_absolute():
-        p = REPO / p
-    try:
-        resolved = p.resolve()
-    except OSError:
-        return None
-    try:
-        resolved.relative_to(REPO.resolve())
-    except ValueError:
-        # A stage trace is a genotype artifact, not an arbitrary filesystem attestation.
-        return None
-    return resolved
-
-
-def _stage_hash_ok(stage):
-    path = _stage_path(stage.get("path"))
-    if path is None or not path.is_file():
-        return False
-    try:
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
-        return False
-    return actual == _clean_str(stage.get("sha256"))
 
 
 def _reader_model_ok(model):

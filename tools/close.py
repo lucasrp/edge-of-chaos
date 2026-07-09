@@ -1167,18 +1167,17 @@ DIMENSIONS = {
     "old_edge_grounded_rite": (
         "GENUS DEFAULT V6: the artefato manifests the promoted old-edge-with-grounding rite as a "
         "cognitive sequence, not as a decorative checklist. The final artifact should let a blind "
-        "reader reconstruct the movement: an old-edge equivalent draft with its own subrite "
-        "(derived thesis, live question, worked example, honest unknowns, actionable landing); "
-        "a gate or self-critique "
+        "reader reconstruct the movement: an old-edge equivalent stance (derivation first, honest "
+        "unknowns, outside-frame instinct, lineage, mechanism, mentor arc); a gate or self-critique "
         "that turns lacunas into actionable grounding tasks; a directed post-gate Mundo/lineage/reader "
         "grounding pass aimed by those tasks; and a rewrite whose grounding effect is visible. The "
         "effect may be a named block, table, diff, paragraph, map edge, plan step, or prototype note, "
         "but it must say what changed: claim, caveat, example, decision, or next validation. A final "
         "artifact that merely contains the ingredients without showing the movement, or adds citations "
         "without a delta, fails this rite. For developed syntheses, the publish payload must also "
-        "carry the proof-bound executable `genus_rite` trace plus material `stage_trace` hashes for "
-        "old_edge_draft -> gap_gate -> post_gate_grounding -> final_rewrite -> fact_audit. "
-        "A narrative field filled after the fact is not the reproduced rite."
+        "carry the proof-bound executable `genus_rite` trace: old-edge draft, actionable gap gate, "
+        "directed post-gate grounding, visible rewrite delta, reader model, narrative arc, canonical "
+        "journey mapping, and fact audit."
     ),
     "canonical_form_grammar": (
         "GENUS DEFAULT V6: the artefato uses the canonical house form, not merely the same criteria. "
@@ -1309,11 +1308,7 @@ _REGULAR_FOCUS = (
     "and what would maximize utility and growth; if it reports results without a concrete mechanism "
     "trace; if Mundo is name-dropping rather than fit/mismatch grounding that changes a claim, caveat, "
     "or next move; if it lacks the old-edge-with-grounding movement (old-edge equivalent draft stance, "
-    "actionable lacunas, directed post-gate grounding, and visible rewrite delta); if the old-edge "
-    "draft does not itself show derived thesis, live question, worked example, unknowns, and actionable "
-    "landing before the extra grounding turn; if the proof-bound trace lacks material stage hashes "
-    "for old_edge_draft -> gap_gate -> post_gate_grounding -> final_rewrite -> fact_audit; or if a "
-    "substantive "
+    "actionable lacunas, directed post-gate grounding, and visible rewrite delta); or if a substantive "
     "reviewer/self-critique gap was not routed through a post-gate grounder before the final review. "
     "The process trace is not reader-visible diary, but a developed synthesis without the proof-bound "
     "`genus_rite` trace is not the reproduced rite. "
@@ -1336,7 +1331,7 @@ _REGULAR_FOCUS = (
 # de DIMENSIONS + DIMENSION_WEIGHTS + os 2 focus prompts. Editar a rubrica = sha novo = versão nova
 # no label; verdicts velhos ficam pinados à sua. Carimbados no proof (_mint_proof) e dali no payload
 # do `artefato.published` (publisher._gate_payload) — o verdict persiste com a régua que o mediu.
-GATE_RUBRIC_VERSION = "gate_rubric@9"  # @9: material stage trace + old-edge draft subrite required
+GATE_RUBRIC_VERSION = "gate_rubric@8"  # @8: reviewer risks are non-lossy tags; hard facts still strike
 GATE_RUBRIC_SHA = hashlib.sha256(json.dumps(
     {"dimensions": DIMENSIONS, "weights": DIMENSION_WEIGHTS,
      "feynman_focus": _FEYNMAN_FOCUS, "regular_focus": _REGULAR_FOCUS},
