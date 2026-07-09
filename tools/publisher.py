@@ -1639,13 +1639,11 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
             f"no-wake: cannot publish {slug!r} — no dispatch.open newer than the last "
             "artefato.published on this log (ADR-0016: run tools/predispatch.py at dispatch "
             "entry; one wake per publish)")
-    accepted_risks = verdict.get("accepted_risks") if isinstance(verdict, dict) else None
     verify_proof(verdict, slug=slug, spec=spec, intent=intent,
                  cites=cites or [], proposes=proposes or [],
                  distills=distills, skill=skill, lineage=lineage, dispatch_id=dispatch_id,
                  bears_on=bears_on, para=para, reports_on=reports_on,
-                 experiment_curation=experiment_curation, genus_rite_trace=genus_rite_trace,
-                 accepted_risks=accepted_risks)
+                 experiment_curation=experiment_curation, genus_rite_trace=genus_rite_trace)
     # Canonical lineage from here on (Codex): the proof binds the NORMALIZED lineage and the event persists
     # it, so the live projection must see the SAME — else proof/event-invisible junk (e.g. a blank-slug item
     # stripped by the digest) could still drive project_artefato and strand projection_complete=false.
@@ -1717,7 +1715,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
         slug, intent, proposes=proposes, distills=distills,
         cites=cites, spec=spec, skill=skill, log=log,
         lineage=lineage, require_wake=True, adoption=adoption,
-        dispatch_id=dispatch_id, residuals=residuals, accepted_risks=accepted_risks, gate=gate,
+        dispatch_id=dispatch_id, residuals=residuals, gate=gate,
         bears_on=bears_on, para=para, reports_on=reports_on,
         experiment_curation=experiment_curation, genus_rite_trace=genus_rite_trace)
     # curadoria autoral: the para-o-mentee default is derived ONCE, at the event seam (origin

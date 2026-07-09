@@ -1263,14 +1263,10 @@ _BLIND_PREAMBLE = (
     "dimension 0-5 AND give a one-sentence `rationale` for each score — the rationale is the "
     "actionable FEEDBACK (what is missing and concretely how to improve it); the bare number is "
     "advisory and is not what gates. Put any blocking, specific defect in `strikes` — a strike "
-    "forces a revision, so be concrete about what is wrong and what would fix it. Put useful but "
-    "contestable interpretive risks in `risks`, not `strikes`: a risk is a strong thesis, analogy, "
-    "diagnosis, or architectural inference that may be too forceful but can create mentor value if "
-    "the author explicitly marks it. Hard facts — dates, numbers, quotes, attributions, commit facts, "
-    "source mismatches, contradictions, fabricated citations — remain `strikes`, never risks. "
-    "Respond with ONLY a JSON object: "
+    "forces a revision, so be concrete about what is wrong and what would fix it. Respond with "
+    "ONLY a JSON object: "
     '{"pass": bool, "scores": {dim: int}, "rationales": {dim: str}, "strikes": [str], '
-    '"risks": [{"tag": str, "claim": str, "rationale": str}], "overall": float}.'
+    '"overall": float}.'
 )
 
 _FEYNMAN_FOCUS = (
@@ -1331,7 +1327,7 @@ _REGULAR_FOCUS = (
 # de DIMENSIONS + DIMENSION_WEIGHTS + os 2 focus prompts. Editar a rubrica = sha novo = versão nova
 # no label; verdicts velhos ficam pinados à sua. Carimbados no proof (_mint_proof) e dali no payload
 # do `artefato.published` (publisher._gate_payload) — o verdict persiste com a régua que o mediu.
-GATE_RUBRIC_VERSION = "gate_rubric@8"  # @8: reviewer risks are non-lossy tags; hard facts still strike
+GATE_RUBRIC_VERSION = "gate_rubric@7"  # @7: executable old-edge-with-grounding rite trace, proof-bound
 GATE_RUBRIC_SHA = hashlib.sha256(json.dumps(
     {"dimensions": DIMENSIONS, "weights": DIMENSION_WEIGHTS,
      "feynman_focus": _FEYNMAN_FOCUS, "regular_focus": _REGULAR_FOCUS},
@@ -1488,24 +1484,11 @@ def _parse_verdict(raw: str) -> dict:
                 f"passabilidade-veto: {dim} scored {score:g} (< {PASSABILITY_VETO_FLOOR}) — "
                 + (why or "sem rationale; torne cada referente nomeado e o contexto montado "
                           "pro leitor-faminto-de-contexto"))
-    risks = result.get("risks", [])
-    if not isinstance(risks, list):
-        risks = []
-    clean_risks = []
-    for risk in risks:
-        if not isinstance(risk, dict):
-            continue
-        tag = str(risk.get("tag") or "interpretive_risk").strip() or "interpretive_risk"
-        claim = str(risk.get("claim") or "").strip()
-        rationale = str(risk.get("rationale") or "").strip()
-        if claim and rationale:
-            clean_risks.append({"tag": tag, "claim": claim, "rationale": rationale})
     return {
         "pass": passed,
         "scores": scores,
         "rationales": rationales,
         "strikes": strikes,
-        "risks": clean_risks,
         "overall": round(float(overall), 2),
         # R5/S1 (Codex S1 review [high]): PRESERVE the reviewer's `residual` through the parser so the
         # default-deny sanitizer in run_close can see it — else a blocking finding mischanneled into
@@ -1593,7 +1576,6 @@ GENUS_BOUNCE_MAX = _envconf.env_int("EDGE_GENUS_BOUNCE_MAX", BOUNCE_MAX)
 _SYNTHETIC_STRIKE_PREFIXES = ("reviewer raised:", "malformed strikes:",
                               "malformed score(s):", "malformed scores:", "non-dict verdict:")
 _RESIDUAL_SECTION_TITLE = "Crítica não endereçada"
-_RISK_TAG_SECTION_TITLE = "Riscos autorais marcados"
 
 
 # ---------------------------------------------------------------------------
@@ -1624,31 +1606,9 @@ _RISK_TAG_SECTION_TITLE = "Riscos autorais marcados"
 _PROOF_TOKEN = secrets.token_hex(32)
 
 
-def normalize_accepted_risks(risks) -> list:
-    """Canonical authorial risk tags: only reader-visible, explicit risk claims survive the proof/event
-    boundary. Hard fact defects never enter here; reviewers keep those in `strikes`."""
-    if not isinstance(risks, list):
-        return []
-    out = []
-    for item in risks:
-        if not isinstance(item, dict):
-            continue
-        tag = str(item.get("tag") or "interpretive_risk").strip() or "interpretive_risk"
-        claim = str(item.get("claim") or "").strip()
-        rationale = str(item.get("rationale") or "").strip()
-        source = str(item.get("source") or item.get("reviewer_strike") or "").strip()
-        if not (claim and rationale):
-            continue
-        row = {"tag": tag, "claim": claim, "rationale": rationale}
-        if source:
-            row["source"] = source
-        out.append(row)
-    return out
-
-
 def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=None,
                  lineage=None, dispatch_id=None, bears_on=None, para=None, reports_on=None,
-                 experiment_curation=None, genus_rite_trace=None, accepted_risks=None) -> str:
+                 experiment_curation=None, genus_rite_trace=None) -> str:
     """The sha256 digest BINDING a proof to the EXACT publish payload (incl. dispatch_id — E1b:
     persisted field = digested field). Canonical JSON
     (sorted keys) so the same payload always digests identically and the publisher can
@@ -1691,9 +1651,6 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
         "experiment_curation": normalize_experiment_curation(
             reports_on, experiment_curation, report_slug=slug, by=skill),
         "genus_rite": genus_rite.normalize_genus_rite(genus_rite_trace),
-        # Risk tags are reader/event-visible authorial claims. Bind them explicitly so a proof-holder
-        # cannot add, remove, or retitle a risk tag after the close has minted.
-        "accepted_risks": normalize_accepted_risks(accepted_risks),
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -1702,8 +1659,7 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
 def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
                 distills=None, skill=None, lineage=None, dispatch_id=None,
                 bears_on=None, para=None, reports_on=None, experiment_curation=None,
-                genus_rite_trace=None, residual_publish=False, unaddressed=None,
-                accepted_risks=None) -> dict:
+                genus_rite_trace=None, residual_publish=False, unaddressed=None) -> dict:
     """Mint the bound, token-stamped proof for a passing close. Carries BOTH reviewer
     verdicts (each stamped by run_close with its canonical reviewer identity), the digest of
     the exact payload (now including distills + skill + lineage + dispatch_id, E1b), and the
@@ -1718,7 +1674,6 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
     content (so the digest binds the 'Crítica não endereçada' section), and the proof gains a
     first-class `unaddressed` projection of the final-round criticism. `verify_proof`'s residual
     branch requires the knob ON at verify time and SKIPS the clean-verdict check for this proof."""
-    accepted_risks = normalize_accepted_risks(accepted_risks)
     proof = {
         "pass": True,
         "verdicts": list(verdicts),
@@ -1727,8 +1682,7 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
                                distills=distills, skill=skill, lineage=lineage,
                                dispatch_id=dispatch_id, bears_on=bears_on, para=para,
                                reports_on=reports_on, experiment_curation=experiment_curation,
-                               genus_rite_trace=genus_rite_trace,
-                               accepted_risks=accepted_risks),
+                               genus_rite_trace=genus_rite_trace),
         "token": _PROOF_TOKEN,
         # R5/S1 severity: NON-BLOCKING residual notes the reviewers chose to log rather than strike.
         # A residual can only ride a CLEAN verdict (no strikes); a BLOCKING finding is a strike or a
@@ -1743,8 +1697,6 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
     if residual_publish:
         proof["residual_publish"] = True
         proof["unaddressed"] = list(unaddressed or [])
-    if accepted_risks:
-        proof["accepted_risks"] = list(accepted_risks or [])
     return proof
 
 
@@ -1855,7 +1807,7 @@ def _discharge_verdict(verdict, discharged: set):
 def verify_proof(proof, *, slug, spec, intent, cites, proposes,
                  distills=None, skill=None, lineage=None, dispatch_id=None,
                  bears_on=None, para=None, reports_on=None, experiment_curation=None,
-                 genus_rite_trace=None, accepted_risks=None,
+                 genus_rite_trace=None,
                  reviewer_count=2):
     """Verify a proof BINDS to the payload being published — raise ValueError otherwise,
     BEFORE any state/HTML is written. Refuses unless: the token is run_close's (not a
@@ -1876,8 +1828,7 @@ def verify_proof(proof, *, slug, spec, intent, cites, proposes,
                             distills=distills, skill=skill, lineage=lineage,
                             dispatch_id=dispatch_id, bears_on=bears_on, para=para,
                             reports_on=reports_on, experiment_curation=experiment_curation,
-                            genus_rite_trace=genus_rite_trace,
-                            accepted_risks=accepted_risks)
+                            genus_rite_trace=genus_rite_trace)
     if not secrets.compare_digest(str(proof.get("digest", "")), expected):
         raise ValueError(
             f"cannot publish artefato {slug!r}: proof digest does not bind to this "
@@ -1963,6 +1914,7 @@ _COSMETIC_JUDGE_PROMPT = (
     '{"all_cosmetic": bool, "rationale": str}.\n\nStrikes:\n'
 )
 
+
 def _strike_texts(verdicts) -> list:
     """The flat list of strike strings across the verdicts, order preserved."""
     return [str(s) for v in verdicts if isinstance(v, dict)
@@ -1993,31 +1945,6 @@ def _strikes_are_cosmetic(verdicts, complete_fn) -> bool:
     return isinstance(result, dict) and result.get("all_cosmetic") is True
 
 
-def _authentic_struck_verdicts(verdicts) -> bool:
-    """True iff the final review is a real two-reviewer struck review, not infra/schema drift.
-    Shared by publish-with-residuals paths so they never accept synthetic reviewer failures."""
-    if len(verdicts) != 2:
-        return False
-    identities = {v.get("reviewer") for v in verdicts if isinstance(v, dict)}
-    if not {FEYNMAN_REVIEWER_ID, REGULAR_REVIEWER_ID} <= identities:
-        return False
-    saw_strike = False
-    for v in verdicts:
-        if not isinstance(v, dict):
-            return False
-        scores = v.get("scores")
-        if not isinstance(scores, dict) or not scores:
-            return False
-        strikes = v.get("strikes")
-        if not isinstance(strikes, list):
-            return False
-        saw_strike = saw_strike or bool(strikes)
-        for s in strikes:
-            if any(str(s).startswith(p) for p in _SYNTHETIC_STRIKE_PREFIXES):
-                return False
-    return saw_strike
-
-
 def _residual_eligible(verdicts) -> bool:
     """ELIGIBILITY for publish-with-residuals (design-close §2.1/§4) — pure and cheap. True iff the
     knob is ON, there are EXACTLY 2 verdicts carrying BOTH canonical reviewer identities, and every
@@ -2027,7 +1954,24 @@ def _residual_eligible(verdicts) -> bool:
     (issue #65), applied on top of this pure floor. Infra ≠ resíduo; a synthetic strike disqualifies."""
     if _envconf.env_int("EDGE_PUBLISH_WITH_RESIDUALS", 0) != 1:
         return False
-    return _authentic_struck_verdicts(verdicts)
+    if len(verdicts) != 2:
+        return False
+    identities = {v.get("reviewer") for v in verdicts if isinstance(v, dict)}
+    if not {FEYNMAN_REVIEWER_ID, REGULAR_REVIEWER_ID} <= identities:
+        return False
+    for v in verdicts:
+        if not isinstance(v, dict):
+            return False
+        scores = v.get("scores")
+        if not isinstance(scores, dict) or not scores:
+            return False   # §4: an empty/absent scores dict is a non-review (crash/drift)
+        strikes = v.get("strikes")
+        if not isinstance(strikes, list):
+            return False
+        for s in strikes:
+            if any(str(s).startswith(p) for p in _SYNTHETIC_STRIKE_PREFIXES):
+                return False   # §4: a synthetic strike is a non-review, never a residual
+    return True
 
 
 def _residuals_section(verdicts) -> dict:
@@ -2056,51 +2000,6 @@ def _residuals_section(verdicts) -> dict:
             "text": " · ".join(str(s) for s in strikes),   # strikes VERBATIM
         })
     return {"title": _RESIDUAL_SECTION_TITLE, "blocks": blocks}
-
-
-def _risk_tags_section(accepted_risks) -> dict:
-    """Visible authorial risk tags. This is not 'unaddressed criticism': the author chose to keep
-    a useful interpretive claim and mark it as risk. Pure templater, no LLM."""
-    blocks = [{
-        "type": "paragraph",
-        "text": ("Esta seção marca riscos autorais que sobreviveram à revisão. "
-                 "Eles não são vendidos como fato fechado: o autor decidiu preservar o insight "
-                 "com uma tag de risco, deixando a aposta legível para o leitor."),
-    }]
-    for item in accepted_risks or []:
-        if not isinstance(item, dict):
-            continue
-        tag = str(item.get("tag") or "interpretive_risk").strip() or "interpretive_risk"
-        claim = item.get("claim")
-        rationale = item.get("rationale")
-        source = item.get("source") or item.get("reviewer_strike") or "autor"
-        blocks.append({
-            "type": "callout",
-            "variant": "warning",
-            "title": tag,
-            "text": f"Claim: {claim}\nRisco aceito: {rationale}\nOrigem: {source}",
-        })
-    return {"title": _RISK_TAG_SECTION_TITLE, "blocks": blocks}
-
-
-def _accepted_risks_from_artefato(artefato) -> list:
-    risks = artefato.get("accepted_risks") if isinstance(artefato, dict) else None
-    return normalize_accepted_risks(risks)
-
-
-def _append_accepted_risk_tags(artefato):
-    """Return (artefato, accepted_risks). When the author explicitly accepts risks, append a visible
-    section before minting so the proof digest binds the tags the reader sees."""
-    accepted = _accepted_risks_from_artefato(artefato)
-    if not accepted:
-        return artefato, []
-    content = artefato.get("content")
-    if not isinstance(content, dict):
-        return artefato, accepted
-    section = _risk_tags_section(accepted)
-    new_content = {**content,
-                   "additional_sections": list(content.get("additional_sections") or []) + [section]}
-    return {**artefato, "content": new_content}, accepted
 
 
 def _unaddressed(verdicts) -> list:
@@ -2400,14 +2299,6 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
         # lives ONLY in the improve loop (anti-churn); this gate is the backstop that catches a finding the
         # loop discharged prematurely, so a genuinely-unresolved blocker can never mint.
         if all(_verdict_clean(v) for v in verdicts):
-            artefato_to_publish, accepted_risks = _append_accepted_risk_tags(artefato)
-            if accepted_risks:
-                ground_visuals(artefato_to_publish)
-                dirty = check_genus(artefato_to_publish)
-                if dirty:
-                    return {"pass": False, "artefato": artefato_to_publish,
-                            "verdicts": verdicts, "genus_violations": dirty}
-                artefato = artefato_to_publish
             proof = _mint_proof(
                 verdicts,
                 slug=artefato.get("slug"), spec=artefato.get("content"),
@@ -2419,8 +2310,7 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
                 bears_on=artefato.get("bears_on"), para=artefato.get("para"),
                 reports_on=artefato.get("reports_on"),
                 experiment_curation=artefato.get("experiment_curation"),
-                genus_rite_trace=artefato.get("genus_rite"),
-                accepted_risks=accepted_risks)
+                genus_rite_trace=artefato.get("genus_rite"))
             if publish_fn is not None:
                 publish_fn(artefato, proof)
             return proof

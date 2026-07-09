@@ -228,14 +228,6 @@ class BlindReviewDimsAndCanonicalForm(unittest.TestCase):
         self.assertTrue(verdict["pass"])
         self.assertEqual(verdict["rationales"], {})
 
-    def test_risks_are_preserved_but_do_not_block(self):
-        verdict = close._parse_verdict(
-            '{"pass": true, "scores": {}, "strikes": [], '
-            '"risks": [{"tag": "potential_overclaim", "claim": "the old Edge returned", '
-            '"rationale": "strong but useful interpretation"}]}')
-        self.assertTrue(verdict["pass"])
-        self.assertEqual(verdict["risks"][0]["tag"], "potential_overclaim")
-
     def test_preamble_requests_a_rationale_per_dimension(self):
         art = _artefato_with_hidden_context()
         fn = _capturing_completer(_PASS_VERDICT)

@@ -45,7 +45,7 @@ class GateRubricIsVersionedAndStamped(unittest.TestCase):
     = versão nova; verdicts velhos ficam pinados à sua. O proof que run_close minta carrega ambos."""
 
     def test_version_label_and_sha_shape(self):
-        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@8")
+        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@7")
         self.assertRegex(close.GATE_RUBRIC_SHA, r"^[0-9a-f]{64}$")
 
     def test_sha_is_the_canonical_json_of_dims_weights_and_focus(self):

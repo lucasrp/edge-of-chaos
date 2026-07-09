@@ -102,18 +102,3 @@ External sources can position a local result in a family of methods. They do not
 effect size, saturation band, ranking, causality, or generalization unless they support that
 exact transfer. If Mundo did not validate the local result, the artefact says so and still uses
 the outside frame to sharpen the next validation.
-
-## Risk Tags
-
-Fact-audit is not meant to amputate the mentor move. A reviewer separates **hard defects** from
-**risks**:
-
-- **strikes** block publish: false or unsupported dates, numbers, quotes, attributions, commit facts,
-  source mismatches, contradictions, fabricated citations, or missing evidence for factual claims;
-- **risks** do not block: strong theses, analogies, diagnoses, architectural inferences, and abductive
-  claims that may be too forceful but carry mentor value when marked.
-
-The author then chooses. A risk can be resolved by new grounding and rewrite, or kept as
-`accepted_risks` with a visible risk tag (for example `potential_overclaim`). The point is
-zero-loss review: reviewers expose risk, the author owns it, and the reader sees the risk instead
-of receiving a flattened artefact.

@@ -291,10 +291,8 @@ read of the text is fresh, not because it lacks links.
 
 The reviewers are blind by evidence-and-session (the blindfold): a **factual claim** must be
 re-sourceable from its cite or it is struck — but a **reasoning step** (a derivation, an inference
-from premises already on the page) is judged by its **internal validity**, not by a cite. If that
-reasoning is useful but contestable, the reviewer marks a non-blocking `risk`; the producer can do
-fresh grounding and rewrite it, or keep it as `accepted_risks` with a visible tag. The producer's
-thinking-out-loud is never amputated (the depth dims reward it; ADR-0013 — freshness is
+from premises already on the page) is judged by its **internal validity**, not by a cite, so the
+producer's thinking-out-loud is never amputated (the depth dims reward it; ADR-0013 — freshness is
 evidence-vs-reasoning, not cites-vs-no-cites). The publisher writes the final Artefato atomically with its kernel — it
 needs nothing but the finished thing. The close that runs the reviewers and the publisher lives
 at the skill's exit, defined in `skills/_shared/pipeline.md`.
