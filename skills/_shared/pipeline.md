@@ -58,7 +58,11 @@ directly.
    For developed syntheses, the authoring sequence must also be materialized as a proof-bound
    `genus_rite` trace in the publish payload. This old-edge-with-grounding rite is not
    reader-visible diary; it is the replayable process contract that prevents a report from merely
-   imitating the final surface.
+   imitating the final surface. The trace must bind the executed stages by file hash:
+   `old_edge_draft -> gap_gate -> post_gate_grounding -> final_rewrite -> fact_audit`. The
+   old-edge draft itself carries the subrite fields `derived_thesis`, `live_question`,
+   `worked_example`, `unknowns`, and `actionable_landing`; a vibe label or after-the-fact
+   narrative is not enough.
    The deterministic `rich-rite` floor is still the hard structural minimum; the blind reviewers
    enforce the richer rite semantically. A strike for shallow Mundo, missing lineage, missing
    mechanism, weak reader-growth calibration, unsupported factual Mundo transfer, or a different

@@ -22,9 +22,10 @@ Canonical content: `docs/genus-rite-v6-canonical-form.md`.
 The promoted rite is the old Edge manifestation with one extra grounding turn and a default form.
 It is a **sequence of cognition plus a canonical reader journey**, not a reviewer checklist:
 
-1. **Old-edge equivalent first draft** — reason from the live problem before authority: derivation,
-   honest unknowns, outside-frame instinct, lineage, and a mentor arc. The first read should feel
-   like an intelligent operator discovering the claim, not a compliance template filling slots.
+1. **Old-edge equivalent first draft** — reason from the live problem before authority. This
+   draft is already a subrite, with five material moves: `derived_thesis`, `live_question`,
+   `worked_example`, `unknowns`, and `actionable_landing`. The first read should feel like an
+   intelligent operator discovering the claim, not a compliance template filling slots.
 2. **Actionable gap gate** — the gate is not only approval. It names the lacunas the draft exposed:
    missing context, weak mechanism, missing predecessor, shallow Mundo, overclaim, or unclear next
    validation. A vague "needs more sources" is not a gate; a task tied to a claim is.
@@ -41,7 +42,10 @@ It is a **sequence of cognition plus a canonical reader journey**, not a reviewe
 
 For developed syntheses, this sequence also rides as a proof-bound `genus_rite` trace in the publish
 payload. It is not reader-visible process diary; it is the mechanical evidence that the final voice and
-shape came from the approved rite rather than from end-stage imitation.
+shape came from the approved rite rather than from end-stage imitation. The trace is material, not
+retrospective narration: write the stage files under the repo and include `stage_trace[]` entries with
+`id`, `path`, `sha256`, `input_stage_ids`, and `summary` for this exact order:
+`old_edge_draft -> gap_gate -> post_gate_grounding -> final_rewrite -> fact_audit`.
 Trace entries are linked: `gap_gate[].id` -> `post_gate_grounding[].gap_id` ->
 `rewrite_delta[].gap_id`; each `post_gate_grounding[].source_ref` must exist in `cites[].ref`, each
 `gap_gate` entry must be grounded and rewritten, each `rewrite_delta[].final_anchor` must appear in the

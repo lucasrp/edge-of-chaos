@@ -13,6 +13,7 @@ import os
 import sys
 import tempfile
 import unittest
+import hashlib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -25,6 +26,33 @@ import visual_grounding  # noqa: E402
 
 _REAL_PROJECT = publisher.project_artefato
 _REAL_PUBLISH = publisher.publish
+FIXTURES = REPO / "tests/fixtures/genus_rite"
+
+
+def _stage(stage_id, file_name, inputs, summary):
+    path = FIXTURES / file_name
+    return {
+        "id": stage_id,
+        "path": str(path.relative_to(REPO)),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "input_stage_ids": list(inputs),
+        "summary": summary,
+    }
+
+
+def _stage_trace():
+    return [
+        _stage("old_edge_draft", "old_edge_draft.md", [],
+               "old Edge subrite material before the gate"),
+        _stage("gap_gate", "gap_gate.md", ["old_edge_draft"],
+               "gate names actionable lacunas"),
+        _stage("post_gate_grounding", "post_gate_grounding.md", ["old_edge_draft", "gap_gate"],
+               "grounding answers the named lacuna"),
+        _stage("final_rewrite", "final_rewrite.md", ["old_edge_draft", "post_gate_grounding"],
+               "final rewrite shows the grounding delta"),
+        _stage("fact_audit", "fact_audit.md", ["final_rewrite"],
+               "fact audit narrows overclaim before close"),
+    ]
 
 
 def _neo4j_reachable():
@@ -146,7 +174,14 @@ def _developed_rite_spec():
 def _rite_trace():
     return {
         "version": "old-edge-grounded@1",
-        "old_edge_draft": {"throughline": "reason first, then source", "unknowns": "deployment drift"},
+        "old_edge_draft": {
+            "derived_thesis": "the sequence, not the final page, is the reproduced unit",
+            "live_question": "whether the deploy reproduced the rite or only the final look",
+            "worked_example": "approved exp072 arm starts from product question and mechanism",
+            "unknowns": "deployment drift",
+            "actionable_landing": "gate this draft and ground the named gaps before rewriting",
+        },
+        "stage_trace": _stage_trace(),
         "reader_model": {
             "reader": "operator",
             "leveling": "can recognize the approved arm",
@@ -536,6 +571,10 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             ev = eventlog.read(types=["artefato.published"], log=log)[0]
             self.assertEqual(ev["payload"]["genus_rite"]["rewrite_delta"][0]["after"],
                              "proof-bound rite")
+            self.assertEqual(ev["payload"]["genus_rite"]["stage_trace"][0]["id"],
+                             "old_edge_draft")
+            self.assertEqual(ev["payload"]["genus_rite"]["stage_trace"][0]["input_stage_ids"],
+                             [])
             self.assertEqual(eventlog.corpus_at(log=log)[0]["genus_rite"]["version"],
                              "old-edge-grounded@1")
 

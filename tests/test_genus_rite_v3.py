@@ -6,12 +6,42 @@ fact-audit, and canonical form grammar.
 """
 import sys
 import unittest
+import hashlib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import close  # noqa: E402
 import genus_rite  # noqa: E402
+
+
+FIXTURES = REPO / "tests/fixtures/genus_rite"
+
+
+def _stage(stage_id, file_name, inputs, summary):
+    path = FIXTURES / file_name
+    return {
+        "id": stage_id,
+        "path": str(path.relative_to(REPO)),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "input_stage_ids": list(inputs),
+        "summary": summary,
+    }
+
+
+def _stage_trace():
+    return [
+        _stage("old_edge_draft", "old_edge_draft.md", [],
+               "old Edge subrite material: derived thesis, live question, worked example, unknowns, landing"),
+        _stage("gap_gate", "gap_gate.md", ["old_edge_draft"],
+               "gate names actionable lacunas from the old-edge draft"),
+        _stage("post_gate_grounding", "post_gate_grounding.md", ["old_edge_draft", "gap_gate"],
+               "directed grounding answers the named gate lacuna"),
+        _stage("final_rewrite", "final_rewrite.md", ["old_edge_draft", "post_gate_grounding"],
+               "rewrite preserves the thesis while showing grounding delta"),
+        _stage("fact_audit", "fact_audit.md", ["final_rewrite"],
+               "fact audit narrows overclaim before close"),
+    ]
 
 
 def _developed_spec():
@@ -29,9 +59,13 @@ def _rite_trace():
     return {
         "version": "old-edge-grounded@1",
         "old_edge_draft": {
-            "throughline": "the old-edge answer reasons first and only then reaches for authority",
+            "derived_thesis": "the sequence, not the final page, is the reproduced unit",
+            "live_question": "whether the deploy reproduced the rite or only the final look",
+            "worked_example": "approved exp072 arm starts from product question, setup, arms, result, and mechanism",
             "unknowns": "whether the deploy reproduced the rite or only the final look",
+            "actionable_landing": "run a gate over this draft and ground the named gaps before rewriting",
         },
+        "stage_trace": _stage_trace(),
         "reader_model": {
             "reader": "operator",
             "leveling": "knows the experiment and can detect house-style drift",
@@ -131,8 +165,8 @@ class GenusRiteV6ReviewRubric(unittest.TestCase):
         self.assertIn("canonical house journey", prompt)
         self.assertIn("next-steps-grid", prompt)
 
-    def test_rubric_version_is_v8(self):
-        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@8")
+    def test_rubric_version_is_v9(self):
+        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@9")
 
     def test_developed_synthesis_owes_executable_rite_trace(self):
         art = {
@@ -182,6 +216,49 @@ class GenusRiteV6ReviewRubric(unittest.TestCase):
             cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
         )
         self.assertIn("genus-rite:canonical-journey", violations)
+
+    def test_rite_trace_rejects_missing_material_stage_trace(self):
+        trace = _rite_trace()
+        del trace["stage_trace"]
+        violations = genus_rite.rite_violations(
+            trace,
+            content=_developed_spec(),
+            cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
+        )
+        self.assertIn("genus-rite:stage-trace", violations)
+
+    def test_rite_trace_rejects_old_edge_draft_without_subrite(self):
+        trace = _rite_trace()
+        trace["old_edge_draft"] = {
+            "throughline": "reason first, then source",
+            "unknowns": "deployment drift",
+        }
+        violations = genus_rite.rite_violations(
+            trace,
+            content=_developed_spec(),
+            cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
+        )
+        self.assertIn("genus-rite:old-edge-draft", violations)
+
+    def test_rite_trace_rejects_wrong_stage_hash(self):
+        trace = _rite_trace()
+        trace["stage_trace"][0]["sha256"] = "0" * 64
+        violations = genus_rite.rite_violations(
+            trace,
+            content=_developed_spec(),
+            cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
+        )
+        self.assertIn("genus-rite:stage-hash:old_edge_draft", violations)
+
+    def test_rite_trace_rejects_stage_dependency_skip(self):
+        trace = _rite_trace()
+        trace["stage_trace"][2]["input_stage_ids"] = ["old_edge_draft"]
+        violations = genus_rite.rite_violations(
+            trace,
+            content=_developed_spec(),
+            cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
+        )
+        self.assertIn("genus-rite:stage-deps:post_gate_grounding", violations)
 
     def test_rite_trace_rejects_unlinked_grounding_gap(self):
         trace = _rite_trace()

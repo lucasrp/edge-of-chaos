@@ -13,9 +13,16 @@ Every substantial artefact runs this movement before close:
 `old-edge draft -> actionable gap gate -> directed grounder -> rewrite with visible delta -> fact-audited close`
 
 The movement is authorial, not just a reviewer checklist. The first draft must already
-carry a mentor arc; the gate names lacunas; the grounder answers those lacunas; the
-rewrite shows what changed. A final artefact that merely satisfies review dimensions after
-incremental correction has not manifested the rite.
+carry a mentor arc and its own subrite: `derived_thesis`, `live_question`,
+`worked_example`, `unknowns`, and `actionable_landing`. The gate names lacunas; the
+grounder answers those lacunas; the rewrite shows what changed. A final artefact that merely
+satisfies review dimensions after incremental correction has not manifested the rite.
+
+For developed syntheses, the movement must be materialized in the proof-bound `genus_rite`
+payload. `stage_trace[]` points at the actual repo files for
+`old_edge_draft -> gap_gate -> post_gate_grounding -> final_rewrite -> fact_audit`, with
+`id`, `path`, `sha256`, `input_stage_ids`, and `summary`. This makes the rite objectively
+checkable: the close rejects a final artefact that only reconstructs the story after the fact.
 
 ## The Canonical Form Grammar
 
@@ -74,6 +81,7 @@ A conforming artefact combines:
 - numbered lineage;
 - Mundo that repositioned the claim instead of decorating it;
 - a visible "grounding effect";
+- a material `stage_trace` of the executed rite;
 - honest caveats about small-N, judge dependence, and transfer limits;
 - a next experiment.
 
