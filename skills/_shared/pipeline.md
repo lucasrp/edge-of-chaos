@@ -47,9 +47,7 @@ directly.
    interpretive risk tags), and **strikes** (the qualitative hard gate). When an `improve_fn` is wired, the close runs `IMPROVE_ROUNDS` unconditional
    **review→improve** passes (the two improve-gates, one after the other) that revise the draft
    from that feedback BEFORE the gating review seals the proof — so what publishes is exactly what
-   the reviewers passed. A clean risk-only review gets one optional author response pass: the author
-   may ground/rewrite the risky move, keep it as `accepted_risks`, or leave it untouched; that choice
-   cannot become a strike by itself. Then it publishes atomically with its kernel.
+   the reviewers passed. Then it publishes atomically with its kernel.
 
    The close now carries the **genus rite v6**, roster-wide and
    skill-independent: old-edge equivalent first draft, actionable gap gate, directed post-gate
@@ -65,8 +63,7 @@ directly.
    block/section shape from the canonical genus is substantive: it bounces to the author, because only the author holds the
    context to re-ground, re-shape, and narrow the claim. A strong but contestable interpretation,
    analogy, diagnosis, or architectural inference belongs in `risks`; the author can ground and rewrite
-   it, keep it as `accepted_risks` with a visible tag, or deliberately leave it untagged when no tag
-   would help the reader. The canonical journey is part of that
+   it or keep it as `accepted_risks` with a visible tag. The canonical journey is part of that
    gate. The final publish must show what the post-gate
    grounder changed: claim, caveat, example, decision, or next validation. It must also use the
    canonical reader journey and block palette unless the vehicle translates them explicitly. If no

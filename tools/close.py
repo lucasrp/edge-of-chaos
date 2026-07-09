@@ -2193,13 +2193,10 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
     revision is unchanged = marginal gain 0), bounded by `improve_rounds` (default IMPROVE_BACKSTOP)
     as a generous backstop against divergence, NOT a fixed count. Each pass runs BOTH reviewers
     purely to PRODUCE FEEDBACK — the
-    per-dimension `rationales`, the non-blocking `risks`, and the blocking `strikes` (the LLM
-    0-5 score is too noisy to gate on, so the feedback is the signal) — and hands that feedback
-    to `improve_fn(artefato, feedback)`, which REVISES the artefato (it improves the existing
-    draft, it does not re-produce from scratch). A clean risk-only review gets one optional
-    authorial response pass: the author can ground/rewrite, add `accepted_risks`, or leave the
-    draft unchanged without failing close. These passes NEVER mint or publish; they only refine.
-    The gating close below then
+    per-dimension `rationales` and the `strikes` (the LLM 0-5 score is too noisy to gate on, so
+    the feedback is the signal) — and hands that feedback to `improve_fn(artefato, feedback)`,
+    which REVISES the artefato (it improves the existing draft, it does not re-produce from
+    scratch). These passes NEVER mint or publish; they only refine. The gating close below then
     runs on the REFINED artefato, so the minted proof binds to the final improved text — the
     reviewers' pass is always of exactly what publishes. With no `improve_fn` the stage is
     skipped and behaviour is unchanged.
@@ -2231,7 +2228,6 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
     improve_plateaued = False   # the refiner returned the draft UNCHANGED with issues outstanding
     discharged = set()          # R9: normalized strikes RESOLVED in a prior round (never re-litigated)
     prev_round_strikes = None   # R9: the raw strikes the reviewers raised LAST round (resolved-detection)
-    risk_feedback_attempted = False  # risk-only feedback is optional and must not become a retry trap
     if improve_fn is not None:
         # R7 (run-while-changing, bounded). Iterate while the refiner keeps CHANGING the draft toward
         # resolution; stop on CONVERGENCE (issue_count==0) or PLATEAU (draft returned unchanged). No
@@ -2282,31 +2278,8 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
                 (len(v.get("strikes") or []) or (0 if _verdict_clean(v) else 1))
                 for v in verdicts_fb)
             if issue_count == 0:
-                risk_count = sum(
-                    len(v.get("risks") or []) for v in verdicts_fb
-                    if isinstance(v.get("risks") or [], list))
-                if risk_count == 0 or risk_feedback_attempted:
-                    improve_converged = True
-                    break                  # converged — don't churn a clean draft (Codex S1 #6)
-                # Non-lossy risk response: reviewer risks are not blocking defects, but they are still
-                # useful authorial feedback. Give the author one chance to ground/rewrite the risky move
-                # or add `accepted_risks`; no-change/crash/malformed output falls through as an explicit
-                # choice to ship without turning risk into a strike.
-                risk_feedback_attempted = True
-                before = json.dumps(artefato, sort_keys=True, default=str)
-                try:
-                    revised = improve_fn(artefato, feedback)
-                except Exception:  # noqa: BLE001 — risk-only feedback cannot fail the close
-                    improve_converged = True
-                    break
-                if not isinstance(revised, dict):
-                    improve_converged = True
-                    break
-                if json.dumps(revised, sort_keys=True, default=str) == before:
-                    improve_converged = True
-                    break
-                artefato = revised
-                continue
+                improve_converged = True
+                break                      # converged — don't churn a clean draft (Codex S1 #6)
             # snapshot BEFORE the call (Codex S1 #14): an improve_fn that MUTATES the draft in place and
             # returns the same object would make `revised == artefato` vacuously true; comparing the
             # returned draft to the pre-call snapshot detects a real in-place change as progress.

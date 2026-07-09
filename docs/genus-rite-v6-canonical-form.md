@@ -113,8 +113,7 @@ Fact-audit is not meant to amputate the mentor move. A reviewer separates **hard
 - **risks** do not block: strong theses, analogies, diagnoses, architectural inferences, and abductive
   claims that may be too forceful but carry mentor value when marked.
 
-The author then chooses. A clean risk-only review gives the author one optional response pass: a
-risk can be resolved by new grounding and rewrite, kept as `accepted_risks` with a visible risk tag
-(for example `potential_overclaim`), or left untagged when no reader-facing tag would add utility.
-The point is zero-loss review: reviewers expose risk, the author owns it, and the reader sees any
-assumed risk instead of receiving a flattened artefact.
+The author then chooses. A risk can be resolved by new grounding and rewrite, or kept as
+`accepted_risks` with a visible risk tag (for example `potential_overclaim`). The point is
+zero-loss review: reviewers expose risk, the author owns it, and the reader sees the risk instead
+of receiving a flattened artefact.
