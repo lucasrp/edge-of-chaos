@@ -18,15 +18,25 @@ import genus_rite  # noqa: E402
 FIXTURES = REPO / "tests/fixtures/genus_rite"
 
 
+def _hash(label):
+    return hashlib.sha256(label.encode("utf-8")).hexdigest()
+
+
 def _stage(stage_id, file_name, inputs, summary):
     path = FIXTURES / file_name
-    return {
+    stage = {
         "id": stage_id,
         "path": str(path.relative_to(REPO)),
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "input_stage_ids": list(inputs),
+        "allowed_inputs": ["dossier", *inputs],
+        "input_hashes": {"dossier": _hash(f"{stage_id}:dossier"),
+                         **{i: _hash(f"{stage_id}:{i}") for i in inputs}},
         "summary": summary,
     }
+    if inputs:
+        stage["parent_stage_id"] = inputs[-1]
+    return stage
 
 
 def _stage_trace():
@@ -61,16 +71,32 @@ def _rite_trace():
         "old_edge_draft": {
             "derived_thesis": "the sequence, not the final page, is the reproduced unit",
             "live_question": "whether the deploy reproduced the rite or only the final look",
+            "reader_context": "the operator has already rejected lookalike reports and is checking rite fidelity",
+            "lineage_seed": "approved-old-edge-grounded-arm -> failed petertosh smoke -> current fix",
             "worked_example": "approved exp072 arm starts from product question, setup, arms, result, and mechanism",
+            "lacunas": "publisher shell, post-gate grounding proof, and reader-visible next move",
+            "outside_frame_candidates": "reproducibility, artifact review, trace context propagation",
+            "mentor_arc": "show the failed deploy, name the mechanism, land the next validation",
             "unknowns": "whether the deploy reproduced the rite or only the final look",
             "actionable_landing": "run a gate over this draft and ground the named gaps before rewriting",
+        },
+        "dossier": {
+            "reader_model": "operator familiar with exp072 and house-style drift",
+            "lineage": "A/B/D experiments, approved old-edge plus post-gate grounding arm, rejected smoke report",
+            "object_identity": "genus rite reproduction, not report copy",
+            "anchors": "exp072 approved final, negative petertosh-style lookalike, stage fixtures",
+            "mechanism_evidence": "old_edge_draft, gap_gate, post_gate_grounding, final_rewrite, fact_audit files",
+            "mundo_candidates": "reproducibility/replicability, review traceability, artifact evaluation",
+            "unknowns": "blind topic behavior still requires a fresh run",
         },
         "stage_trace": _stage_trace(),
         "reader_model": {
             "reader": "operator",
             "leveling": "knows the experiment and can detect house-style drift",
             "interests": "make the approved artifact genus reproducible",
+            "decision_context": "decide whether the deployed default can be trusted for the next report",
             "growth_target": "ship a default that improves judgment instead of passing a local rubric",
+            "utility_target": "explain what changed and what to test next",
         },
         "narrative_arc": {
             "throughline": "from visible mismatch to executable rite",
@@ -81,7 +107,8 @@ def _rite_trace():
         "gap_gate": [
             {"id": "g1",
              "gap": "the publisher cannot tell whether post-gate grounding happened",
-             "grounding_task": "bind the rite trace into close proof and event payload"},
+             "grounding_task": "bind the rite trace into close proof and event payload",
+             "disposition": "resolved"},
         ],
         "post_gate_grounding": [
             {"gap_id": "g1",
@@ -110,6 +137,20 @@ def _rite_trace():
             {"move": "decision", "where": "decision now"},
             {"move": "references", "where": "outside frame"},
         ],
+        "mundo_effects": [
+            {"source_ref": "docs/genus-rite-v6-canonical-form.md",
+             "fit": "reproducibility names the difference between copying an artifact and rerunning a method",
+             "mismatch": "external reproducibility terms do not prove a local deploy worked",
+             "changes": "the report must say the unit under test is the sequence, not just the HTML",
+             "final_anchor": "sequence must become the unit under test"},
+        ],
+        "reader_visible_agency": {
+            "decision_now": "make the rite executable",
+            "do_not_overclaim": "do not claim the deploy worked without a blind run",
+            "risk_status": "remaining risk is blind-topic transfer",
+            "next_validation": "run one autonomous report after deploy",
+            "final_anchor": "decision now",
+        },
         "fact_audit": {
             "external_claims_checked": "outside references position the rite; they do not validate local lift",
             "overclaim_guard": "no source is allowed to prove the deployment worked without a blind run",
@@ -276,6 +317,7 @@ class GenusRiteV6ReviewRubric(unittest.TestCase):
             "id": "g2",
             "gap": "the canonical journey can still be label-only",
             "grounding_task": "bind each journey move to visible content",
+            "disposition": "resolved",
         })
         violations = genus_rite.rite_violations(
             trace,
@@ -290,6 +332,7 @@ class GenusRiteV6ReviewRubric(unittest.TestCase):
             "id": "g2",
             "gap": "the canonical journey can still be label-only",
             "grounding_task": "bind each journey move to visible content",
+            "disposition": "resolved",
         })
         trace["post_gate_grounding"].append({
             "gap_id": "g2",
@@ -313,6 +356,91 @@ class GenusRiteV6ReviewRubric(unittest.TestCase):
             cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
         )
         self.assertIn("genus-rite:canonical-journey", violations)
+
+    def test_rite_trace_rejects_partial_reader_model(self):
+        trace = _rite_trace()
+        del trace["reader_model"]["decision_context"]
+        violations = genus_rite.rite_violations(
+            trace,
+            content=_developed_spec(),
+            cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
+        )
+        self.assertIn("genus-rite:reader-model", violations)
+
+    def test_rite_trace_rejects_missing_stage_provenance(self):
+        trace = _rite_trace()
+        del trace["stage_trace"][1]["input_hashes"]
+        violations = genus_rite.rite_violations(
+            trace,
+            content=_developed_spec(),
+            cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
+        )
+        self.assertIn("genus-rite:stage-provenance:gap_gate", violations)
+
+    def test_rite_trace_rejects_gap_without_disposition(self):
+        trace = _rite_trace()
+        del trace["gap_gate"][0]["disposition"]
+        violations = genus_rite.rite_violations(
+            trace,
+            content=_developed_spec(),
+            cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
+        )
+        self.assertIn("genus-rite:actionable-gap-gate", violations)
+
+    def test_rite_trace_allows_visible_accepted_risk_without_forced_rewrite(self):
+        trace = _rite_trace()
+        trace["gap_gate"].append({
+            "id": "risk-1",
+            "gap": "the author keeps a mentor interpretation that may overclaim",
+            "grounding_task": "either ground the overclaim or tag it as assumed risk",
+            "disposition": "accepted_risk",
+            "risk_tag": "potential_overclaim",
+            "final_anchor": "whether the final draft reran",
+        })
+        violations = genus_rite.rite_violations(
+            trace,
+            content=_developed_spec(),
+            cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
+        )
+        self.assertNotIn("genus-rite:post-gate-grounding", violations)
+        self.assertNotIn("genus-rite:visible-rewrite-delta", violations)
+
+    def test_rite_trace_rejects_invisible_accepted_risk(self):
+        trace = _rite_trace()
+        trace["gap_gate"].append({
+            "id": "risk-1",
+            "gap": "the author keeps a mentor interpretation that may overclaim",
+            "grounding_task": "either ground the overclaim or tag it as assumed risk",
+            "disposition": "accepted_risk",
+            "risk_tag": "potential_overclaim",
+            "final_anchor": "not in the final artefato",
+        })
+        violations = genus_rite.rite_violations(
+            trace,
+            content=_developed_spec(),
+            cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
+        )
+        self.assertIn("genus-rite:gap-disposition", violations)
+
+    def test_rite_trace_rejects_isolated_mundo_section(self):
+        trace = _rite_trace()
+        trace["mundo_effects"][0]["final_anchor"] = "not in the final artefato"
+        violations = genus_rite.rite_violations(
+            trace,
+            content=_developed_spec(),
+            cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
+        )
+        self.assertIn("genus-rite:distributed-mundo", violations)
+
+    def test_rite_trace_rejects_missing_reader_visible_agency(self):
+        trace = _rite_trace()
+        del trace["reader_visible_agency"]
+        violations = genus_rite.rite_violations(
+            trace,
+            content=_developed_spec(),
+            cites=[{"ref": "docs/genus-rite-v6-canonical-form.md"}],
+        )
+        self.assertIn("genus-rite:reader-visible-agency", violations)
 
 
 class SharedDocsCarryTheRite(unittest.TestCase):

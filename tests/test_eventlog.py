@@ -1102,6 +1102,23 @@ class PublishRequiresKernel(unittest.TestCase):
             corpus = eventlog.corpus_at(log=log)
             self.assertEqual(corpus[0]["skill"], "map")
 
+    def test_risk_tags_and_dispatch_id_fold_into_the_corpus(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            accepted_risks = [{
+                "tag": "potential_overclaim",
+                "claim": "the old Edge returned",
+                "rationale": "mentor interpretation kept visible",
+            }]
+            dispatch_id = eventlog.test_dispatch_id()
+            eventlog.publish_artefato_atomic(
+                "risked", intent="open: x; bet: y", spec={"sections": []},
+                skill="report", dispatch_id=dispatch_id,
+                accepted_risks=accepted_risks, log=log)
+            item = eventlog.corpus_at(log=log)[0]
+            self.assertEqual(item["dispatch_id"], dispatch_id)
+            self.assertEqual(item["accepted_risks"], accepted_risks)
+
     def test_latest_ts_advances_to_a_kernel_added_later(self):
         # Codex P3: fold_corpus tracks `latest_ts` advancing to a kernel appended AFTER publish, so a
         # legacy C3-debt repair makes the slug stale vs the graph and the graph-recovery freshness

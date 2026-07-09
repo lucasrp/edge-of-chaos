@@ -29,15 +29,25 @@ _REAL_PUBLISH = publisher.publish
 FIXTURES = REPO / "tests/fixtures/genus_rite"
 
 
+def _hash(label):
+    return hashlib.sha256(label.encode("utf-8")).hexdigest()
+
+
 def _stage(stage_id, file_name, inputs, summary):
     path = FIXTURES / file_name
-    return {
+    stage = {
         "id": stage_id,
         "path": str(path.relative_to(REPO)),
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "input_stage_ids": list(inputs),
+        "allowed_inputs": ["dossier", *inputs],
+        "input_hashes": {"dossier": _hash(f"{stage_id}:dossier"),
+                         **{i: _hash(f"{stage_id}:{i}") for i in inputs}},
         "summary": summary,
     }
+    if inputs:
+        stage["parent_stage_id"] = inputs[-1]
+    return stage
 
 
 def _stage_trace():
@@ -147,16 +157,21 @@ def _spec():
 
 
 def _floored_spec():
-    # valid for EVERY roster skill's presentation floor at once. S6/S7 (R1/R2): ascii-diagram is dropped
-    # and the renderable diagram/chart floor is CAPABILITY-CONDITIONAL — with vl-convert ABSENT (this
-    # offline test env) the map/plan visual floor degrades to NOT-OWED (ENV_UNSAT), so no drawn visual is
-    # needed; the plan `framed_steps` (next-steps-grid) and discovery `contextual_framing` (callout) are
-    # non-visual and still satisfied. report/research owe no floor. No executive_summary: 1 paragraph + 1
-    # callout = prose count 2 (< the rich-rite threshold of 3), so the prose-synthesis moves aren't owed.
+    # valid for EVERY roster skill's presentation floor at once. S6/S7 (R1/R2): ascii-diagram is dropped,
+    # so include two renderable visual blocks; in an env without vl-convert they honestly degrade, and in
+    # an env with vl-convert they satisfy the map visual floor. The plan `framed_steps` and discovery
+    # `contextual_framing` floors are non-visual and still satisfied. No executive_summary: 1 paragraph +
+    # 1 callout = prose count 2 (< the rich-rite threshold of 3), so the prose-synthesis moves aren't owed.
     return {"sections": [{"title": "Body", "blocks": [
         {"type": "paragraph", "text": "atomic publish plus kernel in one act."},
         {"type": "next-steps-grid", "items": ["step one", "step two"]},
         {"type": "callout", "text": "framing context"},
+        visual_grounding.sign(
+            {"type": "chart", "chart": "bar", "data": [{"label": "alpha", "value": 1}]}),
+        visual_grounding.sign(
+            {"type": "diagram", "layout": "dag",
+             "nodes": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}],
+             "edges": [{"source": "a", "target": "b", "label": "causes"}]}),
     ]}]}
 
 
@@ -177,16 +192,32 @@ def _rite_trace():
         "old_edge_draft": {
             "derived_thesis": "the sequence, not the final page, is the reproduced unit",
             "live_question": "whether the deploy reproduced the rite or only the final look",
+            "reader_context": "the operator is comparing blind reports against the approved arm",
+            "lineage_seed": "approved-old-edge-grounded-arm -> rejected lookalike -> publish seam",
             "worked_example": "approved exp072 arm starts from product question and mechanism",
+            "lacunas": "trace proof, page shell, distributed Mundo, and next validation",
+            "outside_frame_candidates": "reproducibility, artifact review, trace propagation",
+            "mentor_arc": "name the mismatch, ground it, rewrite with a decision",
             "unknowns": "deployment drift",
             "actionable_landing": "gate this draft and ground the named gaps before rewriting",
+        },
+        "dossier": {
+            "reader_model": "operator familiar with approved and rejected reports",
+            "lineage": "approved old-edge arm and later smoke failures",
+            "object_identity": "publishable developed synthesis owing the old-edge-grounded rite",
+            "anchors": "stage fixture files and genus rite doc",
+            "mechanism_evidence": "stage trace files plus proof-bound payload",
+            "mundo_candidates": "reproducibility, traceability, artifact evaluation",
+            "unknowns": "blind autonomous report still has to validate transfer",
         },
         "stage_trace": _stage_trace(),
         "reader_model": {
             "reader": "operator",
             "leveling": "can recognize the approved arm",
             "interests": "make the rite reproducible",
+            "decision_context": "decide if the deploy can be trusted",
             "growth_target": "better judgment, not a local rubric optimum",
+            "utility_target": "show what changed and the next verification",
         },
         "narrative_arc": {
             "throughline": "from mismatch to executable rite",
@@ -194,7 +225,9 @@ def _rite_trace():
             "turning_point": "the process becomes payload",
             "landing_decision": "refuse missing traces",
         },
-        "gap_gate": [{"id": "g1", "gap": "process invisible", "grounding_task": "bind trace into proof"}],
+        "gap_gate": [{"id": "g1", "gap": "process invisible",
+                      "grounding_task": "bind trace into proof",
+                      "disposition": "resolved"}],
         "post_gate_grounding": [{
             "gap_id": "g1",
             "source_ref": "docs/genus-rite-v6-canonical-form.md",
@@ -222,6 +255,20 @@ def _rite_trace():
             {"move": "decision", "where": "decision is to bind the rite"},
             {"move": "references", "where": "genus rite doc"},
         ],
+        "mundo_effects": [{
+            "source_ref": "docs/genus-rite-v6-canonical-form.md",
+            "fit": "reproducibility frames method reruns instead of output copying",
+            "mismatch": "the external frame does not prove this deploy worked",
+            "changes": "the final text must say the process trace is proof-bound",
+            "final_anchor": "process trace must be proof-bound",
+        }],
+        "reader_visible_agency": {
+            "decision_now": "bind the rite",
+            "do_not_overclaim": "do not claim success without a blind report",
+            "risk_status": "blind transfer remains open",
+            "next_validation": "run an autonomous report after publish",
+            "final_anchor": "decision is to bind the rite",
+        },
         "fact_audit": {
             "external_claims_checked": "source positions the rite only",
             "overclaim_guard": "no source proves deploy success",
@@ -568,6 +615,10 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                 embed_fn=_fake_embed, verdict=proof,
             )
             self.assertTrue(Path(path).exists())
+            html = Path(path).read_text()
+            self.assertIn('<main class="old-edge-grounded">', html)
+            self.assertNotIn('<body><article class="report">', html)
+            self.assertNotIn('<p class="meta">2026-06-08 · report</p>', html)
             ev = eventlog.read(types=["artefato.published"], log=log)[0]
             self.assertEqual(ev["payload"]["genus_rite"]["rewrite_delta"][0]["after"],
                              "proof-bound rite")

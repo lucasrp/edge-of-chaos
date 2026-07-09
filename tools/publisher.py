@@ -172,7 +172,7 @@ def _safe_target(slug, blog_dir):
     return target
 
 
-def _page(slug, body_html, *, skill, date, css, js=""):
+def _page(slug, body_html, *, skill, date, css, js="", old_edge_grounded=False):
     """Wrap the rendered body in a self-contained neutral HTML page (no tricolor stripe —
     the neutralized base.css has no .header-stripe). Matches the existing entry shape:
     `<article class="report">` with `<p class="meta">{date} · {skill}</p>`.
@@ -193,6 +193,16 @@ def _page(slug, body_html, *, skill, date, css, js=""):
     if js:
         safe_js = js.replace("</script>", "<\\/script>")
         script = f"<script>\n{safe_js}\n</script>"
+    if old_edge_grounded:
+        return (
+            f'<!DOCTYPE html><html lang="{PAGE_LANG}"><head><meta charset="utf-8">\n'
+            f"<title>{title}</title>\n"
+            f"<style>\n{css}\n</style></head>\n"
+            '<body><main class="old-edge-grounded">\n'
+            f"<h1>{title}</h1>\n\n"
+            f"{body_html}\n"
+            f"</main>{script}</body></html>\n"
+        )
     return (
         f'<!DOCTYPE html><html lang="{PAGE_LANG}"><head><meta charset="utf-8">\n'
         f"<title>{title}</title>\n"
@@ -685,15 +695,19 @@ def _signal_cites(slug, body, cites, embed_fn, log):
         eventlog.source_signal(slug, c.get("ref"), c.get("kind"), sim, log=log)
 
 
-def _render_page(slug, spec, *, skill, date):
+def _render_page(slug, spec, *, skill, date, genus_rite_trace=None):
     """Render the self-contained neutral HTML page for `slug` from its spec — the SINGLE
     place the page bytes are produced, so a normal publish and a reprojection (recovery from
     the logged spec) emit byte-identical pages. Returns (body_html, page_text)."""
     body_html = render.spec_to_html(spec)
     css = BASE_CSS.read_text()
     js = BASE_JS.read_text()
+    old_edge_grounded = (
+        isinstance(genus_rite_trace, dict)
+        and genus_rite_trace.get("version") == genus_rite.TRACE_VERSION
+    )
     page = _page(slug, body_html, skill=skill, date=date or _date.today().isoformat(),
-                 css=css, js=js)
+                 css=css, js=js, old_edge_grounded=old_edge_grounded)
     return body_html, page
 
 
@@ -1679,7 +1693,8 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     if violations:
         raise ValueError(f"artefato {slug!r} violates the genus contract: {violations}")
 
-    body_html, page = _render_page(slug, spec, skill=skill, date=date)
+    body_html, page = _render_page(
+        slug, spec, skill=skill, date=date, genus_rite_trace=genus_rite_trace)
 
     # COMMIT POINT (#2, ADR-0006: the log is truth). The atomic event carries the proof-bound
     # spec, so the page is fully regenerable from the log alone. EVERYTHING after this is a
@@ -1830,7 +1845,9 @@ def reproject_missing_pages(log=eventlog.LOG, blog_dir=BLOG_DIR, date=None, embe
             out = _safe_target(slug, blog_dir)
         except ValueError:
             continue
-        body_html, page = _render_page(slug, spec, skill=item.get("skill") or "report", date=date)
+        body_html, page = _render_page(
+            slug, spec, skill=item.get("skill") or "report", date=date,
+            genus_rite_trace=item.get("genus_rite"))
         if not out.exists():
             _write_page(out, page)
             redone.append(out)

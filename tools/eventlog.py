@@ -652,6 +652,8 @@ def fold_corpus(events):
                            # flat props; evento legado sem gate folda None (forward-only).
                            "gate": p.get("gate"),
                            "genus_rite": genus_rite.normalize_genus_rite(p.get("genus_rite")),
+                           "accepted_risks": p.get("accepted_risks"),
+                           "dispatch_id": p.get("dispatch_id"),
                            # Ticket A: bears_on/para acompanham o item para o replay das arestas
                            # valenciadas/PARA; evento legado folda [] (forward-only, sem backfill).
                            "bears_on": p.get("bears_on") or [], "para": p.get("para") or [],
