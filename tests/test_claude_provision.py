@@ -87,6 +87,20 @@ class TestProvisionClaudeHome(unittest.TestCase):
             self.assertIn("user-invocable: true", rendered)
             self.assertNotIn("{prefix}", rendered)
 
+    def test_provisions_shared_skill_support_files_unprefixed(self):
+        cp.provision_claude(CFG, REPO, self.claude_home)
+        shared = self.claude_home / "skills" / "_shared"
+        self.assertTrue(shared.is_dir())
+        self.assertEqual(
+            (REPO / "skills" / "_shared" / "scaffold.md").read_text(encoding="utf-8"),
+            (shared / "scaffold.md").read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            (REPO / "skills" / "_shared" / "pipeline.md").read_text(encoding="utf-8"),
+            (shared / "pipeline.md").read_text(encoding="utf-8"),
+        )
+        self.assertFalse((self.claude_home / "skills" / "ed-_shared").exists())
+
     def test_idempotent_byte_identical(self):
         cp.provision_claude(CFG, REPO, self.claude_home)
         first = _snapshot(self.claude_home)
