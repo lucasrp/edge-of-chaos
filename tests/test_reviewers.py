@@ -5,8 +5,8 @@ reviewers judge the FINAL Artefato text — `feynman_review` (rigor + honesty) a
 `regular_review` (clarity + craft). Each sees ONLY the artefato content + cites; it is
 denied evidence, session, and briefing (the context-denial ladder's last rung). The dim
 rubric carries the restored depth dims plus the genus dimensions for lineage, mechanism, grounding,
-and the old-edge-with-grounding rite, all reworded PROPERTY-NOT-SECTION: "property X present
-anywhere, genuine + specific", never "section X present" (SECTIONS stay FREE).
+the old-edge-with-grounding rite, and canonical form grammar. Section labels may translate by
+vehicle, but the canonical reader journey and block grammar stay part of the genus.
 
 The LLM call is injectable (`complete_fn`) so these tests run offline; real runs pass a
 make_client-backed completer on the review router (Grok) — model-blindness atop context-
@@ -77,7 +77,7 @@ _PASS_VERDICT = (
     '"lineage_and_reader_model": 4, "mechanism_trace": 4, "content_depth": 4, '
     '"feynman_method": 4, "frame_enrichment": 4, "contextualization": 4, '
     '"intellectual_honesty": 4, "grounding_audit": 4, "old_edge_grounded_rite": 4, '
-    '"didactic_clarity": 4, "internal_consistency": 4, "visualization": 4, '
+    '"canonical_form_grammar": 4, "didactic_clarity": 4, "internal_consistency": 4, "visualization": 4, '
     '"writing_quality": 4}, '
     '"rationales": {"frame_enrichment": "names the pattern in the field and brings a benchmark"}, '
     '"strikes": [], "overall": 4.0}'
@@ -87,7 +87,7 @@ _STRIKE_VERDICT = (
     '"lineage_and_reader_model": 2, "mechanism_trace": 2, "content_depth": 3, '
     '"feynman_method": 2, "frame_enrichment": 2, "contextualization": 2, '
     '"intellectual_honesty": 2, "grounding_audit": 2, "old_edge_grounded_rite": 2, '
-    '"didactic_clarity": 3, "internal_consistency": 3, "visualization": 3, '
+    '"canonical_form_grammar": 2, "didactic_clarity": 3, "internal_consistency": 3, "visualization": 3, '
     '"writing_quality": 3}, '
     '"strikes": ["factual claim not re-sourceable from its cite"], "overall": 2.4}'
 )
@@ -95,15 +95,15 @@ _STRIKE_VERDICT = (
 _KEPT = {"development_completeness", "narrative_depth", "lineage_and_reader_model",
          "mechanism_trace", "content_depth", "feynman_method", "frame_enrichment",
          "contextualization", "intellectual_honesty", "grounding_audit",
-         "old_edge_grounded_rite", "didactic_clarity", "internal_consistency",
+         "old_edge_grounded_rite", "canonical_form_grammar", "didactic_clarity", "internal_consistency",
          "visualization", "writing_quality"}
 
 
-class ThirteenDimsBlindAndPropertyNotSection(unittest.TestCase):
+class BlindReviewDimsAndCanonicalForm(unittest.TestCase):
     """The S7 contract: exactly the current dims (depth RESTORED — development_completeness +
     narrative_depth — plus the outward-vector dim frame_enrichment and its inward complement
-    contextualization, plus grounding/fact-audit and the promoted old-edge-with-grounding rite —
-    without re-introducing the old section-order mandate); weights are a {dim:weight} dict summing
+    contextualization, plus grounding/fact-audit, old-edge-with-grounding rite, and canonical form
+    grammar); weights are a {dim:weight} dict summing
     to 1.0; the reviewers run blind (cites' content reaches the LLM, the secret evidence/session/
     briefing never does); the honesty/feynman dim text is property-not-section (says 'anywhere',
     not 'O que Não Sei'); a FACTUAL claim not re-sourceable from its cite yields a strike."""
@@ -121,6 +121,16 @@ class ThirteenDimsBlindAndPropertyNotSection(unittest.TestCase):
         self.assertIn("mechanism_trace", close.DIMENSIONS)
         self.assertIn("grounding_audit", close.DIMENSIONS)
         self.assertIn("old_edge_grounded_rite", close.DIMENSIONS)
+        self.assertIn("canonical_form_grammar", close.DIMENSIONS)
+
+    def test_canonical_form_grammar_is_a_house_form_property(self):
+        form = close.DIMENSIONS["canonical_form_grammar"].lower()
+        self.assertIn("canonical house form", form)
+        self.assertIn("reader journey", form)
+        self.assertIn("comparison-table", form)
+        self.assertIn("gap-table", form)
+        self.assertIn("next-steps-grid", form)
+        self.assertIn("bibliography", form)
 
     def test_frame_enrichment_is_the_outward_vector_property(self):
         # frame_enrichment is content-relative (vehicle-agnostic) but about ENRICHING the

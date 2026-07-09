@@ -49,16 +49,19 @@ directly.
    from that feedback BEFORE the gating review seals the proof — so what publishes is exactly what
    the reviewers passed. Then it publishes atomically with its kernel.
 
-   The close now carries the **genus rite v5** approved on 2026-07-08, roster-wide and
+   The close now carries the **genus rite v6**, roster-wide and
    skill-independent: old-edge equivalent first draft, actionable gap gate, directed post-gate
    Mundo grounder, rewrite with visible grounding effect, reader growth model, numbered lineage
-   ledger, concrete mechanism trace, and fact-audit. The deterministic `rich-rite` floor is still
-   the hard structural minimum; the blind reviewers enforce the richer rite semantically. A strike
-   for shallow Mundo, missing lineage, missing mechanism, weak reader-growth calibration, or external
-   overclaim is substantive: it bounces to the author, because only the author holds the context to
-   re-ground and narrow the claim. The final publish must show what the post-gate grounder changed:
-   claim, caveat, example, decision, or next validation. If no extra grounding was warranted, the
-   artefato says why from its own lacunas rather than treating silence as proof.
+   ledger, concrete mechanism trace, fact-audit, and the canonical form grammar.
+   The deterministic `rich-rite` floor is still the hard structural minimum; the blind reviewers
+   enforce the richer rite semantically. A strike for shallow Mundo, missing lineage, missing
+   mechanism, weak reader-growth calibration, external overclaim, or a different block/section shape
+   from the canonical genus is substantive: it bounces to the author, because only the author holds the
+   context to re-ground, re-shape, and narrow the claim. The final publish must show what the post-gate
+   grounder changed: claim, caveat, example, decision, or next validation. It must also use the
+   canonical reader journey and block palette unless the vehicle translates them explicitly. If no
+   extra grounding was warranted, the artefato says why from its own lacunas rather than treating
+   silence as proof.
 
    Three sibling acts complete the close, right after the publish:
    - **the consolidação do grafo** (ticket 05; operador: possivelmente a função MAIS IMPORTANTE
@@ -150,15 +153,18 @@ wired, the `IMPROVE_ROUNDS` passes REVISE the draft from the named gaps BEFORE t
 shallow report is **re-produced richer** (the missing move added) rather than dead-ending. The floor
 is a depth-forcer because the re-production is wired; the gate alone would only reject.
 
-Under genus rite v5, `improve_fn` is where the old-edge-with-grounding rite becomes executable.
+Under genus rite v6, `improve_fn` is where the old-edge-with-grounding rite and canonical form
+become executable.
 The first draft should carry the old Edge stance: derivation, honest unknowns, outside-frame
 instinct, lineage, mechanism, and mentor arc. The improve gate then turns feedback into actionable
 lacunas. Reviewer feedback that names an external-frame gap, a missing mechanism, weak reader-growth
 calibration, missing numbered lineage, or overclaimed Mundo is not solved by polishing prose. The
 author must re-open the relevant prior sessions/artefacts, reader model, lineage, and Mundo sources;
-then rewrite the artefato so the grounding delta is visible before the final gating review. A citation
-that only decorates the claim is still a failure; a citation that narrows or deepens the claim is the
-expected move.
+then rewrite the artefato so the grounding delta is visible before the final gating review. Reviewer
+feedback that says the artefact feels like a compact ADR, schema dump, or different house style is also
+substantive: reshape the artefact into the canonical journey and block palette, not just into a passing
+rubric. A citation that only decorates the claim is still a failure; a citation that narrows or deepens
+the claim is the expected move.
 
 The review and improve subagents — the **adversarial** blind pass, the **feynman** rigor
 reviewer, the **enrichment** (frame / outward-vector) reviewer, and the **improve** reviser — MAY

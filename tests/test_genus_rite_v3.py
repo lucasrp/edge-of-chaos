@@ -1,8 +1,8 @@
-"""Genus rite v5 is roster-wide, not report-specific.
+"""Genus rite v6 is roster-wide, not report-specific.
 
-The 2026-07-08 report-quality experiment promoted the winning rite to the
-shared Artefato genus: lineage, reader model, mechanism trace, Mundo fit/mismatch,
-old-edge equivalent draft, post-gate grounding, visible rewrite delta, and fact-audit.
+The shared Artefato genus carries lineage, reader model, mechanism trace, Mundo
+fit/mismatch, old-edge equivalent draft, post-gate grounding, visible rewrite delta,
+fact-audit, and canonical form grammar.
 """
 import sys
 import unittest
@@ -13,10 +13,10 @@ sys.path.insert(0, str(REPO / "tools"))
 import close  # noqa: E402
 
 
-class GenusRiteV5ReviewRubric(unittest.TestCase):
+class GenusRiteV6ReviewRubric(unittest.TestCase):
     def test_new_dimensions_are_in_the_shared_rubric(self):
         for dim in ("lineage_and_reader_model", "mechanism_trace", "grounding_audit",
-                    "old_edge_grounded_rite"):
+                    "old_edge_grounded_rite", "canonical_form_grammar"):
             self.assertIn(dim, close.DIMENSIONS)
             self.assertIn(dim, close.DIMENSION_WEIGHTS)
 
@@ -55,51 +55,68 @@ class GenusRiteV5ReviewRubric(unittest.TestCase):
         self.assertIn("grounding effect is visible", dim)
         self.assertIn("what changed", dim)
 
+    def test_canonical_form_grammar_is_part_of_the_genus(self):
+        dim = close.DIMENSIONS["canonical_form_grammar"].lower()
+        self.assertIn("canonical house form", dim)
+        self.assertIn("live question", dim)
+        self.assertIn("lineage ledger", dim)
+        self.assertIn("concrete mechanism trace", dim)
+        self.assertIn("comparison-table", dim)
+        self.assertIn("gap-table", dim)
+        self.assertIn("next-steps-grid", dim)
+
     def test_prompt_carries_the_genus_rite_to_blind_reviewers(self):
         prompt = close._build_prompt(close._REGULAR_FOCUS,
                                      {"slug": "x", "content": {}, "cites": []})
-        self.assertIn("GENUS RITE V5", prompt)
+        self.assertIn("GENUS RITE V6", prompt)
         self.assertIn("concrete mechanism trace", prompt)
         self.assertIn("fit/mismatch", prompt)
         self.assertIn("numbered lineage", prompt)
         self.assertIn("maximize utility and growth", prompt)
         self.assertIn("old-edge-with-grounding movement", prompt)
         self.assertIn("visible rewrite delta", prompt)
+        self.assertIn("canonical-form miss", prompt)
+        self.assertIn("canonical house journey", prompt)
+        self.assertIn("next-steps-grid", prompt)
 
-    def test_rubric_version_is_v5(self):
-        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@5")
+    def test_rubric_version_is_v6(self):
+        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@6")
 
 
 class SharedDocsCarryTheRite(unittest.TestCase):
     def test_scaffold_declares_the_rite_as_genus_not_report(self):
         text = (REPO / "skills/_shared/scaffold.md").read_text(encoding="utf-8")
-        self.assertIn("Genus default rite v5", text)
+        self.assertIn("Genus default rite v6", text)
         self.assertIn("not `report`", text)
-        self.assertIn("docs/genus-rite-v5-old-edge-grounded.md", text)
+        self.assertIn("docs/genus-rite-v6-canonical-form.md", text)
         for phrase in ("Lineage ledger", "Reader growth model",
                        "Post-gate grounder", "Mundo deepening",
                        "Old-edge equivalent first draft", "Actionable gap gate",
                        "Rewrite with visible grounding effect",
+                       "canonical form grammar", "canonical block palette",
                        "numbered", "leveling", "interests"):
             self.assertIn(phrase, text)
 
     def test_canonical_rite_doc_preserves_the_experiment_content(self):
-        text = (REPO / "docs/genus-rite-v5-old-edge-grounded.md").read_text(encoding="utf-8")
+        text = (REPO / "docs/genus-rite-v6-canonical-form.md").read_text(encoding="utf-8")
         for phrase in (
             "old-edge draft -> actionable gap gate -> directed grounder",
-            "not an HTML template and not a report-only shape",
-            "Sources can position a local result",
-            "without validating its effect size",
-            "The vehicle is free; the movement is not",
+            "The Canonical Form Grammar",
+            "The Canonical Block Palette",
+            "Skill Translation Rule",
+            "External sources can position a local result",
+            "They do not validate local",
         ):
             self.assertIn(phrase, text)
 
     def test_pipeline_routes_substantive_gaps_back_to_author(self):
         text = (REPO / "skills/_shared/pipeline.md").read_text(encoding="utf-8")
-        self.assertIn("genus rite v5", text)
+        self.assertIn("genus rite v6", text)
         self.assertIn("skill-independent", text)
         self.assertIn("old-edge-with-grounding rite", text)
         self.assertIn("grounding delta is visible", text)
+        self.assertIn("canonical form", text)
+        self.assertIn("canonical journey", text)
         self.assertIn("before the final gating review", text)
         self.assertIn("fact-audit", text)
 

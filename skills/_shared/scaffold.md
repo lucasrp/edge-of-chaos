@@ -9,17 +9,18 @@ loop structure and the context-denial ladder are the same for every producer; on
 This scaffold is **non-procrusto** by design: it names roles, never report-specifics. A `map`
 producing a diagram and a `report` producing prose-and-charts run the **same** scaffold.
 
-## Genus default rite v5 — old-edge draft, gap gate, Mundo grounder, rewrite delta
+## Genus default rite v6 — old-edge grounded, canonical form
 
-The rite approved on 2026-07-08 is **genus**, not `report`: every producer translates it into
-its own form. It is property-not-section. A map can carry it as edges and captions, a plan as
-dependency rationale, a prototype as interaction plus notes, a report as prose and tables. No
-skill opts out; a skill only changes the **vehicle**.
+This rite is **genus**, not `report`: every producer translates it into its own form. It is not
+a loose property checklist. The canonical reader journey and block grammar are default for the
+roster. A map can carry them as edges and captions, a plan as dependency rationale, a prototype
+as interaction plus notes, a report as prose and tables. No skill opts out; a skill only changes
+the **vehicle**, not the house style.
 
-Canonical content: `docs/genus-rite-v5-old-edge-grounded.md`.
+Canonical content: `docs/genus-rite-v6-canonical-form.md`.
 
-The promoted rite is the old Edge manifestation with one extra grounding turn. It is a **sequence
-of cognition**, not a checklist of sections:
+The promoted rite is the old Edge manifestation with one extra grounding turn and a default form.
+It is a **sequence of cognition plus a canonical reader journey**, not a reviewer checklist:
 
 1. **Old-edge equivalent first draft** — reason from the live problem before authority: derivation,
    honest unknowns, outside-frame instinct, lineage, and a mentor arc. The first read should feel
@@ -37,6 +38,21 @@ of cognition**, not a checklist of sections:
 5. **Fact-audited final close** — external sources may locate the work in a family of methods, but
    they do not validate a local effect size, saturation band, ranking, or causal claim unless they
    support that exact transfer.
+
+The canonical form grammar is also genus default. The reader should experience this sequence unless
+the artefact explicitly earns a translation: thesis title; live question / reader context; identity
+and setup; configuration or lineage ledger; observed result/current read; concrete mechanism trace;
+interpretation/teaching; Mundo/outside frame; visible grounding effect; unknowns/limits; decision
+and next validation; references/pointers. Section names may vary, but an artefact that jumps from
+thesis to implementation, or emits a compact internal ADR where the canonical form calls for a
+contextualized mentor artefact, has changed the genus rather than translated it.
+
+The canonical block palette is default too: prose for the arc, `comparison-table`/`table` for arms,
+configs, lineage, and fit/mismatch, `metrics-grid`/`chart` for quantitative results, `derivation` for
+first-principles reasoning, `gap-table` for lacunas and unknowns, `next-steps-grid` for the closing
+decision path, and `bibliography` when Mundo appears. Structural blocks carry information shape; they
+are not decoration, and paragraph-only output is a failure when the content has comparisons, results,
+gaps, and next steps.
 
 Every Artefato also owes these properties at its depth target:
 
@@ -68,7 +84,7 @@ Every Artefato also owes these properties at its depth target:
   or generalization unless the source supports that exact transfer.
 
 The old rich-rite floor (derivation, unknown boundary, outside frame, lineage) is the **hard minimum**.
-The approved rite above is the richer genus default that the blind reviewers judge semantically.
+The rite above is the richer genus default that the blind reviewers judge semantically.
 Depth controls how much each property is developed; it never deletes the property.
 
 ## The writer's identity — seja Feynman nesse sentido

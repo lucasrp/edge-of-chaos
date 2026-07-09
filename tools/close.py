@@ -1028,28 +1028,27 @@ def _check_storytelling_floor(content) -> list[str]:
 # above and from the S8 bounce that will follow.
 # ---------------------------------------------------------------------------
 
-# The review dimensions — the legacy 9-dim DIMENSIONS (review-gate.py), depth dims RESTORED.
-# The rewrite had dropped the two report-welded dims (structural_completeness, storytelling) for
-# "SECTIONS FREE" — and with them went the gate's only reward for depth, so honest cited bites
-# passed. They are back as `development_completeness` and `narrative_depth`, but reworded
-# PROPERTY-NOT-SECTION: the gate checks the depth/arc is present ANYWHERE, genuine and specific,
-# never whether a named section exists or in what order. Plenitude is the bar (scaffold.md): a
-# thin honest bite that left the thinking undone FAILS.
+# The review dimensions judge both substance and house form. Section labels can translate by
+# vehicle, but the canonical reader journey and block grammar are part of the genus.
 DIMENSIONS = {
     "development_completeness": (
         "The theme is DEVELOPED TO PLENITUDE for the form at hand — a report's claims reasoned "
         "through and their implications drawn out, a map's connections richly traced, a plan's "
         "dependencies worked out — not merely gestured at. Depth is the bar; an artefato that leaves "
-        "the thinking undone fails even when honest and cited. A property of the whole, never section "
-        "count or order."
+        "the thinking undone fails even when honest and cited. For standard/deep targets, the canonical "
+        "genus normally needs enough room to reconstruct context, setup, mechanism, Mundo, limits, and "
+        "decision; a compact technical note that skips those moves is underdeveloped."
     ),
     "narrative_depth": (
         "CONTENT-RELATIVE (like visualization): where the form carries a developed LINE — a report's "
-        "or research's argument — the artefato has an ARC, not a list: a through-line the reader can "
-        "follow (tension/question → derivation → synthesis → the open next-bet), present ANYWHERE, "
-        "never a mandated section order. A genuinely non-narrative form (a map's diagram, a terse "
-        "plan) owes no prose arc and is NEVER failed for lacking one. A report that dumps flat "
-        "findings, or a bite that states a conclusion without earning it, fails. "
+        "or research's argument — the artefato has an ARC, not a list: the canonical default journey is "
+        "thesis/title → live question and reader context → setup/configuration/lineage → observed result "
+        "or current read → concrete mechanism trace → interpretation → Mundo/outside frame → grounding "
+        "effect → limits → decision/next validation. Labels can translate by vehicle, but a blind reader "
+        "should feel the same house style. A genuinely non-narrative form may translate the journey into "
+        "edges/captions/steps, but it cannot jump straight from thesis to implementation and call that "
+        "the same genus. A report that dumps flat findings, or a bite that states a conclusion without "
+        "earning it, fails. "
         "EXPLAIN, NEVER MERELY LABEL (R0, DOMINANT): every term, acronym, phase-id, or label a visual "
         "or heading introduces is EXPANDED in prose at first use — what it is, what it does, why it "
         "matters — in proximity, never left as a bare sigla. A phase diagram that names the phases but "
@@ -1057,11 +1056,11 @@ DIMENSIONS = {
         "prose, FAILS: the visual ACCOMPANIES the prose that explains it, it never substitutes it. And "
         "enriching must not LOSE content: every claim the artefato's OWN declared source/baseline carried "
         "is still SUPPORTED in non-visual prose (paraphrase / split / merge are fine) — a surface mention "
-        "that drops the claim, or a retained CONTRADICTORY claim, fails. Property-not-section, "
-        "source-relative (the artefato is judged against its OWN material, never a fixed external set)."
+        "that drops the claim, or a retained CONTRADICTORY claim, fails. Source-relative: the artefato "
+        "is judged against its OWN material and the canonical genus form, not a fixed external template."
     ),
     "lineage_and_reader_model": (
-        "GENUS DEFAULT V5: the artefato is visibly FOR a reader and carries a visible, numbered "
+        "GENUS DEFAULT V6: the artefato is visibly FOR a reader and carries a visible, numbered "
         "lineage ledger when more than one predecessor matters — not an orphaned answer. It calibrates "
         "context to that reader/persona: enough grounding to read now, no tax explaining what they "
         "already know. The default reader model is the operator/mentee, including leveling, live "
@@ -1070,8 +1069,9 @@ DIMENSIONS = {
         "it enumerates them with specific ids/paths/names and says what it inherits, rejects, or "
         "changes. A generic 'based on prior work' or hidden publish metadata is not lineage. If there "
         "is genuinely no prior lineage, the artefato makes that boundary clear instead of faking "
-        "ancestry. Property-not-section: a map may encode lineage as numbered edges, a plan as "
-        "dependencies, a report as prose/table."
+        "ancestry. The default form is visible, not hidden: lineage normally appears as a numbered "
+        "ledger/table/list in the artefact body; a map may encode it as numbered edges and captions, a "
+        "plan as dependencies, but the reader must be able to reconstruct the same ledger."
     ),
     "mechanism_trace": (
         "GENUS DEFAULT: at least one load-bearing claim is made inspectable through a concrete "
@@ -1124,7 +1124,7 @@ DIMENSIONS = {
         "Absent OR boilerplate uncertainty blocks."
     ),
     "grounding_audit": (
-        "GENUS DEFAULT V5: Mundo/external grounding is used to position and improve the artefato, not "
+        "GENUS DEFAULT V6: Mundo/external grounding is used to position and improve the artefato, not "
         "to decorate it or fake certainty. Imported concepts, studies, comparable experiments, "
         "benchmarks, best practices, industry practices, or named terms say fit/mismatch and explicitly "
         "state what they DO NOT validate. Where the topic deserves deeper Mundo, the artefato names the "
@@ -1137,7 +1137,7 @@ DIMENSIONS = {
         "is a strike."
     ),
     "old_edge_grounded_rite": (
-        "GENUS DEFAULT V5: the artefato manifests the promoted old-edge-with-grounding rite as a "
+        "GENUS DEFAULT V6: the artefato manifests the promoted old-edge-with-grounding rite as a "
         "cognitive sequence, not as a decorative checklist. The final artifact should let a blind "
         "reader reconstruct the movement: an old-edge equivalent stance (derivation first, honest "
         "unknowns, outside-frame instinct, lineage, mechanism, mentor arc); a gate or self-critique "
@@ -1147,6 +1147,19 @@ DIMENSIONS = {
         "but it must say what changed: claim, caveat, example, decision, or next validation. A final "
         "artifact that merely contains the ingredients without showing the movement, or adds citations "
         "without a delta, fails this rite."
+    ),
+    "canonical_form_grammar": (
+        "GENUS DEFAULT V6: the artefato uses the canonical house form, not merely the same criteria. "
+        "The default reader journey is: thesis title; live question and "
+        "reader context; identity/setup; configuration or lineage ledger; observed result/current read; "
+        "concrete mechanism trace; interpretation/teaching; Mundo/outside frame with fit/mismatch; "
+        "grounding effect; unknowns/limits; decision/next validation; references/pointers. The default "
+        "block palette is prose plus comparison-table/table for arms/configs/lineage/fit-mismatch, "
+        "metrics-grid/chart for quantitative results, derivation for first-principles reasoning, "
+        "gap-table for lacunas and unknowns, next-steps-grid for the closing validation path, and "
+        "bibliography when external sources appear. A skill may translate this grammar into its vehicle, "
+        "but if the final artefact feels like a compact ADR, topology dump, or different house style "
+        "against the canonical house form, it fails this dimension."
     ),
     "didactic_clarity": (
         "Every term, acronym, and tool name is comprehensible SOMEWHERE in the artefato — "
@@ -1201,12 +1214,13 @@ _LEGACY_KEPT_WEIGHTS = {
     "intellectual_honesty": 0.10,
     "grounding_audit": 0.14,
     "old_edge_grounded_rite": 0.16,
+    "canonical_form_grammar": 0.16,
     "didactic_clarity": 0.10,
     "internal_consistency": 0.06,
     "visualization": 0.06,
     "writing_quality": 0.06,
 }
-_KEPT_SUM = sum(_LEGACY_KEPT_WEIGHTS.values())  # 1.0
+_KEPT_SUM = sum(_LEGACY_KEPT_WEIGHTS.values())  # raw weights are normalized below
 DIMENSION_WEIGHTS = {dim: w / _KEPT_SUM for dim, w in _LEGACY_KEPT_WEIGHTS.items()}
 
 # The shared blind-reviewer instruction. Each reviewer prepends its own focus. The reviewer
@@ -1254,13 +1268,19 @@ _REGULAR_FOCUS = (
     "dump, a topology described for its own sake, or a generic survey that describes a system "
     "without insight the mentee could act on. A genuinely internal form (a connections map) that "
     "still reveals a non-obvious structure AND ties it to the mentee's work is NOT struck. "
-    "GENUS RITE V5: STRIKE if the artefato has no numbered lineage where multiple predecessors "
+    "GENUS RITE V6: STRIKE if the artefato has no numbered lineage where multiple predecessors "
     "matter; if it does not calibrate context to the target reader's leveling, interests, decision, "
     "and what would maximize utility and growth; if it reports results without a concrete mechanism "
     "trace; if Mundo is name-dropping rather than fit/mismatch grounding that changes a claim, caveat, "
     "or next move; if it lacks the old-edge-with-grounding movement (old-edge equivalent draft stance, "
     "actionable lacunas, directed post-gate grounding, and visible rewrite delta); or if a substantive "
     "reviewer/self-critique gap was not routed through a post-gate grounder before the final review. "
+    "ALSO STRIKE a canonical-form miss: final artefact does not follow the canonical house journey "
+    "(thesis/live question/setup/config-or-lineage/result-or-current-read/mechanism/interpretation/"
+    "Mundo/grounding-effect/limits/decision+next/references) or does not use the expected block palette "
+    "(prose plus comparison-table/table, metrics-grid/chart, derivation, gap-table, next-steps-grid, "
+    "bibliography where the content calls for them). Treat a compact ADR, topology dump, or paragraph-only "
+    "piece that feels like a different house style as a substantive genus strike, not a form nit. "
     # O VETO do gate visual-rico (a banca-cega, salva de feat/conductor): números narrados em
     # prosa = o strike; anos/versões/datas nunca contam (o quant-prose trigger, agora semântico).
     "AND STRIKE quantitative material buried in prose — 3+ distinct numeric magnitudes narrated "
@@ -1274,7 +1294,7 @@ _REGULAR_FOCUS = (
 # de DIMENSIONS + DIMENSION_WEIGHTS + os 2 focus prompts. Editar a rubrica = sha novo = versão nova
 # no label; verdicts velhos ficam pinados à sua. Carimbados no proof (_mint_proof) e dali no payload
 # do `artefato.published` (publisher._gate_payload) — o verdict persiste com a régua que o mediu.
-GATE_RUBRIC_VERSION = "gate_rubric@5"  # @5: old-edge-with-grounding genus rite, roster-wide
+GATE_RUBRIC_VERSION = "gate_rubric@6"  # @6: canonical form grammar + old-edge grounding, roster-wide
 GATE_RUBRIC_SHA = hashlib.sha256(json.dumps(
     {"dimensions": DIMENSIONS, "weights": DIMENSION_WEIGHTS,
      "feynman_focus": _FEYNMAN_FOCUS, "regular_focus": _REGULAR_FOCUS},
