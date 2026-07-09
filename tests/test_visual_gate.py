@@ -82,8 +82,8 @@ class RubricVersionBumped(unittest.TestCase):
     inclui o genus rite v6: old-edge grounded trace, reader growth, lineage ledger, mecanismo,
     canonical form e grounding/fact-audit."""
 
-    def test_version_label_is_7(self):
-        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@7")
+    def test_version_label_is_8(self):
+        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@8")
 
 
 if __name__ == "__main__":

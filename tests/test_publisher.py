@@ -88,10 +88,11 @@ def _fake_embed(text):
 
 
 def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
-                   distills=None, skill="report", lineage=None, genus_rite_trace=None):
+                   distills=None, skill="report", lineage=None, genus_rite_trace=None,
+                   accepted_risks=None):
     """A BOUND passing proof for the exact payload — minted via close's PRIVATE `_mint_proof`
     the same way `run_close` mints it (run_close-only token + sha256 digest of
-    slug+spec+intent+cites+proposes+distills+skill+lineage + both passing reviewer verdicts
+    slug+spec+intent+cites+proposes+distills+skill+lineage+accepted_risks + both passing reviewer verdicts
     carrying the CANONICAL reviewer identities). This is the explicit TEST-ONLY seam standing
     in for run_close; it stamps the two canonical identities verify_proof requires. The
     publisher refuses anything not bound to the payload (and identities) it is publishing."""
@@ -104,7 +105,8 @@ def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
     return close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
                              cites=cites or [], proposes=proposes or [],
                              distills=distills, skill=skill, lineage=lineage,
-                             genus_rite_trace=genus_rite_trace)
+                             genus_rite_trace=genus_rite_trace,
+                             accepted_risks=accepted_risks)
 
 
 def _spec():
@@ -1887,6 +1889,22 @@ class PublishCarriesResidualsFromTheProof(unittest.TestCase):
                               verdict=_passing_proof(slug, _spec(), intent))
             ev = eventlog.read(types=["artefato.published"], log=log)[-1]
             self.assertIsNone(ev["payload"]["residuals"])
+            self.assertIsNone(ev["payload"]["accepted_risks"])
+
+    def test_risk_tags_are_read_from_the_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug, spec, intent = "risk-tag-page", _spec(), "open: x; bet: y"
+            accepted_risks = [{
+                "tag": "potential_overclaim",
+                "claim": "the old Edge returned",
+                "rationale": "strong mentor interpretation, not a closed fact",
+            }]
+            proof = _passing_proof(slug, spec, intent, accepted_risks=accepted_risks)
+            publisher.publish(slug, spec, intent=intent, skill="report", date="2026-06-08",
+                              log=log, blog_dir=tmp, embed_fn=_fake_embed, verdict=proof)
+            ev = eventlog.read(types=["artefato.published"], log=log)[-1]
+            self.assertEqual(ev["payload"]["accepted_risks"], accepted_risks)
 
 
 if __name__ == "__main__":

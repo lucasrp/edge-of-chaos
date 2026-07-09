@@ -394,7 +394,8 @@ def test_dispatch_id():
 
 def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=None,
                             spec=None, log=LOG, *, lineage=None, skill=None, require_wake=False,
-                            adoption=None, dispatch_id=None, residuals=None, gate=None,
+                            adoption=None, dispatch_id=None, residuals=None, accepted_risks=None,
+                            gate=None,
                             bears_on=None, para=None, reports_on=None,
                             experiment_curation=None, genus_rite_trace=None):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
@@ -488,6 +489,9 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
           # S6 (design-close §3/§5): the unaddressed criticism a publish-with-residuals carried, as a
           # FIRST-CLASS event field (distinct name from the `residual` channel). None on a normal publish.
           "residuals": residuals,
+          # Authorial risk tags: interpretive risks the author explicitly chose to keep after review,
+          # minted by close and read off the proof by publisher. None on a normal publish.
+          "accepted_risks": accepted_risks,
           # B.1 (ticket B): o verdict do gate como campo do MESMO batch atômico — sem novo tipo de
           # evento, replayável (o grafo já computava e jogava fora). None num publish legado/sem gate.
           "gate": gate,

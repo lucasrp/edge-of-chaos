@@ -131,8 +131,8 @@ class GenusRiteV6ReviewRubric(unittest.TestCase):
         self.assertIn("canonical house journey", prompt)
         self.assertIn("next-steps-grid", prompt)
 
-    def test_rubric_version_is_v7(self):
-        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@7")
+    def test_rubric_version_is_v8(self):
+        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@8")
 
     def test_developed_synthesis_owes_executable_rite_trace(self):
         art = {

@@ -43,8 +43,8 @@ directly.
 
 3. **close — review → improve → publish.** The produced artefato passes the genus conformance
    contract, then the two blind reviewers — which return **per-dimension rationales** (the
-   actionable FEEDBACK; the 0-5 score is advisory and never gates) and **strikes** (the
-   qualitative gate). When an `improve_fn` is wired, the close runs `IMPROVE_ROUNDS` unconditional
+   actionable FEEDBACK; the 0-5 score is advisory and never gates), **risks** (non-blocking
+   interpretive risk tags), and **strikes** (the qualitative hard gate). When an `improve_fn` is wired, the close runs `IMPROVE_ROUNDS` unconditional
    **review→improve** passes (the two improve-gates, one after the other) that revise the draft
    from that feedback BEFORE the gating review seals the proof — so what publishes is exactly what
    the reviewers passed. Then it publishes atomically with its kernel.
@@ -59,9 +59,11 @@ directly.
    imitating the final surface.
    The deterministic `rich-rite` floor is still the hard structural minimum; the blind reviewers
    enforce the richer rite semantically. A strike for shallow Mundo, missing lineage, missing
-   mechanism, weak reader-growth calibration, external overclaim, or a different block/section shape
-   from the canonical genus is substantive: it bounces to the author, because only the author holds the
-   context to re-ground, re-shape, and narrow the claim. The canonical journey is part of that
+   mechanism, weak reader-growth calibration, unsupported factual Mundo transfer, or a different
+   block/section shape from the canonical genus is substantive: it bounces to the author, because only the author holds the
+   context to re-ground, re-shape, and narrow the claim. A strong but contestable interpretation,
+   analogy, diagnosis, or architectural inference belongs in `risks`; the author can ground and rewrite
+   it or keep it as `accepted_risks` with a visible tag. The canonical journey is part of that
    gate. The final publish must show what the post-gate
    grounder changed: claim, caveat, example, decision, or next validation. It must also use the
    canonical reader journey and block palette unless the vehicle translates them explicitly. If no
@@ -160,10 +162,12 @@ is a depth-forcer because the re-production is wired; the gate alone would only 
 
 Under genus rite v6, `improve_fn` is also where the post-gate grounder happens. The grounding effect is visible: reviewer feedback
 that names an external-frame gap, a missing mechanism, weak reader-growth calibration, missing
-numbered lineage, or overclaimed Mundo is not solved by polishing prose. The author must re-open the
+numbered lineage, or factual Mundo overclaim is not solved by polishing prose. The author must re-open the
 relevant prior sessions/artefacts, reader model, lineage, and Mundo sources; then add or correct the
 lineage ledger, mechanism trace, Mundo fit/mismatch, caveat, or next validation before the final gating review. A citation that only decorates the claim is still a failure; a citation that narrows
-or deepens the claim is the expected move.
+or deepens the claim is the expected move. If the remaining issue is interpretive risk rather than a
+fact defect, the author may leave the mentor move intact and publish it under `accepted_risks`; the tag
+preserves the insight while making the uncertainty explicit.
 
 The review and improve subagents — the **adversarial** blind pass, the **feynman** rigor
 reviewer, the **enrichment** (frame / outward-vector) reviewer, and the **improve** reviser — MAY
