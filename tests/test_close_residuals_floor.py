@@ -556,6 +556,58 @@ class AcceptedRiskTags(unittest.TestCase):
         self.assertNotIn("accepted_risks", result)
         self.assertNotIn("additional_sections", captured["art"]["content"])
 
+    def test_risk_only_feedback_gets_one_author_response_pass(self):
+        captured = {}
+        seen_feedback = []
+        art = _conformant_artefato()
+
+        def improve_fn(artefato, feedback):
+            seen_feedback.append(feedback)
+            risks = [risk for verdict in feedback for risk in verdict.get("risks", [])]
+            return {
+                **artefato,
+                "accepted_risks": [{
+                    **risks[0],
+                    "source": close.FEYNMAN_REVIEWER_ID,
+                }],
+            }
+
+        with mock.patch.object(close, "check_genus", lambda *a, **k: []):
+            result = close.run_close(
+                art, produce_fn=lambda: art,
+                reviewers=(self._risk_reviewer(close.FEYNMAN_REVIEWER_ID),
+                           self._risk_reviewer(close.REGULAR_REVIEWER_ID)),
+                complete_fn=lambda *a, **k: "",
+                improve_fn=improve_fn,
+                improve_rounds=3,
+                publish_fn=lambda a, p: captured.update(art=a, proof=p))
+
+        self.assertTrue(result["pass"])
+        self.assertEqual(len(seen_feedback), 1)
+        self.assertTrue(seen_feedback[0][0]["risks"])
+        self.assertEqual(result["accepted_risks"][0]["tag"], "speculative_architecture")
+        rendered = json.dumps(captured["art"]["content"], ensure_ascii=False)
+        self.assertIn("Riscos autorais marcados", rendered)
+        self.assertIn("speculative_architecture", rendered)
+
+    def test_risk_only_nochange_improver_still_publishes(self):
+        calls = []
+        art = _conformant_artefato()
+
+        with mock.patch.object(close, "check_genus", lambda *a, **k: []):
+            result = close.run_close(
+                art, produce_fn=lambda: art,
+                reviewers=(self._risk_reviewer(close.FEYNMAN_REVIEWER_ID),
+                           self._risk_reviewer(close.REGULAR_REVIEWER_ID)),
+                complete_fn=lambda *a, **k: "",
+                improve_fn=lambda a, feedback: calls.append(feedback) or a,
+                improve_rounds=3,
+                publish_fn=lambda a, p: None)
+
+        self.assertTrue(result["pass"])
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("accepted_risks", result)
+
     def test_hard_strikes_still_block_even_when_author_accepts_risk(self):
         published = []
         art = {
