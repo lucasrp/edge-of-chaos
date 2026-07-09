@@ -54,10 +54,7 @@ ARTIFACTS = [
     {"slug": "active-recall", "intent": "navigation beats top-k", "skill": "research",
      "origin": "user_requested", "reports_on": [], "ts": "2026-01-01T00:00:00Z", "seq": 10},
     {"slug": "experiment-final-report", "intent": "close exp040", "skill": "report",
-     "origin": "beat", "reports_on": ["exp040"], "dispatch_id": "d-exp040",
-     "accepted_risks": [{"tag": "potential_overclaim", "claim": "mentor read"}],
-     "genus_rite": {"version": "old-edge-grounded@1"},
-     "ts": "2026-01-02T00:00:00Z", "seq": 20},
+     "origin": "beat", "reports_on": ["exp040"], "ts": "2026-01-02T00:00:00Z", "seq": 20},
 ]
 
 ASSETS = {
@@ -290,9 +287,6 @@ class TheReadTools(unittest.TestCase):
         rows = out["artifacts"]
         self.assertEqual(rows[0]["slug"], "experiment-final-report")
         self.assertEqual(rows[0]["reports_on"], ["exp040"])
-        self.assertEqual(rows[0]["dispatch_id"], "d-exp040")
-        self.assertEqual(rows[0]["accepted_risks"][0]["tag"], "potential_overclaim")
-        self.assertEqual(rows[0]["genus_rite"]["version"], "old-edge-grounded@1")
         self.assertEqual({a["asset_kind"] for a in rows[0]["assets"]}, {"html", "js"})
         self.assertEqual(rows[0]["tier"], "asserted")
 
