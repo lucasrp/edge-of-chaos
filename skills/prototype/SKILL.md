@@ -97,8 +97,8 @@ does NOT show / simplified), and the link to the standalone page (a `callout` or
 block carrying the `/e/...` URL). Build it from the canonical palette (`tools/render.py`) and exit
 through the enforced close exactly like every producer: build the artefato carrying
 **every proof-bound field** (`slug`, `intent`, `content`=spec, `cites`, `proposes`, `distills`, `skill`,
-`lineage`, `dispatch_id` — E1b) so the minted digest equals the publish payload (slug + spec +
-intent + cites + proposes + distills + skill + lineage + dispatch_id — EVERY persisted publish arg),
+`lineage`, `dispatch_id`, `genus_rite` — E1b) so the minted digest equals the publish payload (slug + spec +
+intent + cites + proposes + distills + skill + lineage + dispatch_id + genus_rite — EVERY persisted publish arg),
 then hand off to the `{prefix}-publisher` subagent (Facet B, #61 — pointers, never a context dump);
 the close it runs is:
 
@@ -115,15 +115,17 @@ the close it runs is:
         # (pipeline.md, consolidação): bears_on SÓ sobre hipótese VIVA — vazio honesto, NUNCA fabricado. \
         bears_on=[]  # [{'hypothesis':'<ulid>','valence':'supports|refutes|qualifies|inconclusive','rationale':'…'}] — cortex.hypotheses_at() lists the live ones; none genuinely touched → [] ; \
         para=[]  # the EXPLICIT target reader (promoted parceiro — a colleague/client); [] resolves MECHANICALLY to the operador-mentee default (every artefato is PARA someone) ; \
+        genus_rite={'version':'old-edge-grounded@1','old_edge_draft':{...},'reader_model':{...},'narrative_arc':{...},'gap_gate':[{...}], 'post_gate_grounding':[{...}], 'rewrite_delta':[{...}], 'canonical_journey':[{...}], 'fact_audit':{...}}  # proof-bound authoring trace, not reader-visible diary ; \
         artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
           'cites':cites,'distills':distills,'skill':'prototype','lineage':lineage, \
-          'dispatch_id':dispatch_id,'bears_on':bears_on,'para':para}; \
+          'dispatch_id':dispatch_id,'bears_on':bears_on,'para':para,'genus_rite':genus_rite}; \
         pub=publisher.publish; \
         publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
           skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
           cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id'], \
           bears_on=art.get('bears_on'), para=art.get('para'), \
-          reports_on=art.get('reports_on'));  # ticket A: digest-bound like lineage \
+          reports_on=art.get('reports_on'), \
+          genus_rite_trace=art.get('genus_rite'));  # digest-bound like lineage \
         improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
         close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
           floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session=''), \

@@ -32,6 +32,7 @@ import render
 import visible  # Modulo 5 (Publicacao) visible-text adapter — reader-visible HTML/CSS/glyph machinery
 import producer_descriptor
 import blocks as block_validation
+import genus_rite
 
 # ---------------------------------------------------------------------------
 # Genus contract constants — the pinned field shapes + the visual palette
@@ -153,6 +154,7 @@ def check_genus(artefato: dict, attest=None) -> list[str]:
     violations += _check_visual_coverage(artefato.get("content", {}))
     violations += _check_evidence_anchors(artefato.get("content", {}))
     violations += _check_rich_rite(artefato)
+    violations += _check_executable_genus_rite(artefato)
     r0_violations = _check_storytelling_floor(artefato.get("content", {}))  # R0 (S2): explain, don't label
     r0_violations += _check_structured_visual_values(artefato.get("content", {}))  # R0-for-values (S7): no
     #   number hides ONLY in a structured visual — same family as R0, so it likewise suppresses the floor.
@@ -813,6 +815,26 @@ def _block_text(block: dict) -> str:
     return " ".join(parts)
 
 
+def _developed_prose_synthesis(content: dict):
+    """Return `(triggered, blocks, summary_items)` for a developed prose synthesis.
+
+    This is the shared structural trigger for the old rich-rite floor and the executable
+    genus-rite trace. It is intentionally not a word count.
+    """
+    content = content or {}
+    blocks = list(_iter_blocks(content))
+    summary = content.get("executive_summary") or []
+    summary_items = [s for s in summary if isinstance(s, str) and s.strip()]
+    prose_count = len(summary_items)
+    prose_count += sum(
+        1 for b in blocks
+        if isinstance(b, dict)
+        and _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph"))
+        in PROSE_BLOCK_TYPES
+    )
+    return prose_count >= RICH_RITE_PROSE_THRESHOLD, blocks, summary_items
+
+
 def _check_rich_rite(artefato: dict) -> list[str]:
     """The rich-rite floor (#30). CONTENT-RELATIVE, mirroring `_check_visual_coverage`: only a
     DEVELOPED PROSE synthesis (the trigger — `>= RICH_RITE_PROSE_THRESHOLD` prose blocks, a
@@ -832,19 +854,8 @@ def _check_rich_rite(artefato: dict) -> list[str]:
 
     Returns `rich-rite:<move>` for each missing move ([] when none owed or all present)."""
     content = artefato.get("content", {}) or {}
-    blocks = list(_iter_blocks(content))
-    # render renders top-level `executive_summary` as prose too (Codex P2), so it counts toward the
-    # trigger AND toward the marker text — a report whose moves live in the summary is not falsely
-    # flagged, and a summary-heavy report cannot evade the floor with < threshold section paragraphs.
-    summary = content.get("executive_summary") or []
-    summary_items = [s for s in summary if isinstance(s, str) and s.strip()]
-    prose_count = len(summary_items)
-    prose_count += sum(
-        1 for b in blocks
-        if _BLOCK_TYPE_ALIASES.get(b.get("type", "paragraph"), b.get("type", "paragraph"))
-        in PROSE_BLOCK_TYPES
-    )
-    if prose_count < RICH_RITE_PROSE_THRESHOLD:
+    triggered, blocks, summary_items = _developed_prose_synthesis(content)
+    if not triggered:
         return []  # not a developed prose synthesis — owes none of the prose moves
 
     text = (" ".join(_block_text(b) for b in blocks) + " " + " ".join(summary_items)).lower()
@@ -936,6 +947,23 @@ def _check_rich_rite(artefato: dict) -> list[str]:
     if not has_lineage:
         violations.append("rich-rite:lineage")
     return violations
+
+
+def _check_executable_genus_rite(artefato: dict) -> list[str]:
+    """A developed synthesis owes the proof-bound rite trace, not just final polish.
+
+    The reader should not see an agent diary. The event/proof payload must still show that the
+    old-edge draft, actionable gap gate, post-gate grounding, visible rewrite delta, reader model,
+    narrative arc, canonical journey mapping, and fact audit happened before final review.
+    """
+    triggered, _blocks, _summary_items = _developed_prose_synthesis(artefato.get("content", {}) or {})
+    if not triggered:
+        return []
+    return genus_rite.rite_violations(
+        artefato.get("genus_rite"),
+        content=artefato.get("content", {}) or {},
+        cites=artefato.get("cites") or [],
+    )
 
 
 def _iter_blocks(content: dict):
@@ -1124,16 +1152,45 @@ DIMENSIONS = {
         "Absent OR boilerplate uncertainty blocks."
     ),
     "grounding_audit": (
-        "GENUS DEFAULT V4: Mundo/external grounding is used to position and improve the artefato, not "
+        "GENUS DEFAULT V6: Mundo/external grounding is used to position and improve the artefato, not "
         "to decorate it or fake certainty. Imported concepts, studies, comparable experiments, "
         "benchmarks, best practices, industry practices, or named terms say fit/mismatch and explicitly "
         "state what they DO NOT validate. Where the topic deserves deeper Mundo, the artefato names the "
         "field vocabulary and leaves useful pointers for further study instead of stopping at a shallow "
         "analogy. Magnitudes, rankings, saturation bands, causality, or generalization are never "
         "transferred from an external source unless that source actually supports that exact transfer. "
-        "If a gate/review exposed a gap, the final artefato should show the post-gate grounder "
-        "correction: claim narrowed, source added, caveat strengthened, example changed, or next "
-        "validation changed. Overextended external grounding is a strike."
+        "If a gate/review or the draft's own lacunas exposed a gap, the final artefato shows the "
+        "post-gate grounder correction: claim narrowed, source added, caveat strengthened, example "
+        "changed, decision repositioned, or next validation changed. Overextended external grounding "
+        "is a strike."
+    ),
+    "old_edge_grounded_rite": (
+        "GENUS DEFAULT V6: the artefato manifests the promoted old-edge-with-grounding rite as a "
+        "cognitive sequence, not as a decorative checklist. The final artifact should let a blind "
+        "reader reconstruct the movement: an old-edge equivalent stance (derivation first, honest "
+        "unknowns, outside-frame instinct, lineage, mechanism, mentor arc); a gate or self-critique "
+        "that turns lacunas into actionable grounding tasks; a directed post-gate Mundo/lineage/reader "
+        "grounding pass aimed by those tasks; and a rewrite whose grounding effect is visible. The "
+        "effect may be a named block, table, diff, paragraph, map edge, plan step, or prototype note, "
+        "but it must say what changed: claim, caveat, example, decision, or next validation. A final "
+        "artifact that merely contains the ingredients without showing the movement, or adds citations "
+        "without a delta, fails this rite. For developed syntheses, the publish payload must also "
+        "carry the proof-bound executable `genus_rite` trace: old-edge draft, actionable gap gate, "
+        "directed post-gate grounding, visible rewrite delta, reader model, narrative arc, canonical "
+        "journey mapping, and fact audit."
+    ),
+    "canonical_form_grammar": (
+        "GENUS DEFAULT V6: the artefato uses the canonical house form, not merely the same criteria. "
+        "The default reader journey is: thesis title; live question and "
+        "reader context; identity/setup; configuration or lineage ledger; observed result/current read; "
+        "concrete mechanism trace; interpretation/teaching; Mundo/outside frame with fit/mismatch; "
+        "grounding effect; unknowns/limits; decision/next validation; references/pointers. The default "
+        "block palette is prose plus comparison-table/table for arms/configs/lineage/fit-mismatch, "
+        "metrics-grid/chart for quantitative results, derivation for first-principles reasoning, "
+        "gap-table for lacunas and unknowns, next-steps-grid for the closing validation path, and "
+        "bibliography when external sources appear. A skill may translate this grammar into its vehicle, "
+        "but if the final artefact feels like a compact ADR, topology dump, or different house style "
+        "against the canonical house form, it fails this dimension."
     ),
     "didactic_clarity": (
         "Every term, acronym, and tool name is comprehensible SOMEWHERE in the artefato — "
@@ -1187,6 +1244,8 @@ _LEGACY_KEPT_WEIGHTS = {
     "contextualization": 0.14,
     "intellectual_honesty": 0.10,
     "grounding_audit": 0.14,
+    "old_edge_grounded_rite": 0.16,
+    "canonical_form_grammar": 0.16,
     "didactic_clarity": 0.10,
     "internal_consistency": 0.06,
     "visualization": 0.06,
@@ -1240,12 +1299,21 @@ _REGULAR_FOCUS = (
     "dump, a topology described for its own sake, or a generic survey that describes a system "
     "without insight the mentee could act on. A genuinely internal form (a connections map) that "
     "still reveals a non-obvious structure AND ties it to the mentee's work is NOT struck. "
-    "GENUS RITE V4: STRIKE if the artefato has no numbered lineage where multiple predecessors "
+    "GENUS RITE V6: STRIKE if the artefato has no numbered lineage where multiple predecessors "
     "matter; if it does not calibrate context to the target reader's leveling, interests, decision, "
     "and what would maximize utility and growth; if it reports results without a concrete mechanism "
     "trace; if Mundo is name-dropping rather than fit/mismatch grounding that changes a claim, caveat, "
-    "or next move; or if a substantive reviewer gap was not routed through a post-gate grounder before "
-    "the final review. "
+    "or next move; if it lacks the old-edge-with-grounding movement (old-edge equivalent draft stance, "
+    "actionable lacunas, directed post-gate grounding, and visible rewrite delta); or if a substantive "
+    "reviewer/self-critique gap was not routed through a post-gate grounder before the final review. "
+    "The process trace is not reader-visible diary, but a developed synthesis without the proof-bound "
+    "`genus_rite` trace is not the reproduced rite. "
+    "ALSO STRIKE a canonical-form miss: final artefact does not follow the canonical house journey "
+    "(thesis/live question/setup/config-or-lineage/result-or-current-read/mechanism/interpretation/"
+    "Mundo/grounding-effect/limits/decision+next/references) or does not use the expected block palette "
+    "(prose plus comparison-table/table, metrics-grid/chart, derivation, gap-table, next-steps-grid, "
+    "bibliography where the content calls for them). Treat a compact ADR, topology dump, or paragraph-only "
+    "piece that feels like a different house style as a substantive genus strike, not a form nit. "
     # O VETO do gate visual-rico (a banca-cega, salva de feat/conductor): números narrados em
     # prosa = o strike; anos/versões/datas nunca contam (o quant-prose trigger, agora semântico).
     "AND STRIKE quantitative material buried in prose — 3+ distinct numeric magnitudes narrated "
@@ -1259,7 +1327,7 @@ _REGULAR_FOCUS = (
 # de DIMENSIONS + DIMENSION_WEIGHTS + os 2 focus prompts. Editar a rubrica = sha novo = versão nova
 # no label; verdicts velhos ficam pinados à sua. Carimbados no proof (_mint_proof) e dali no payload
 # do `artefato.published` (publisher._gate_payload) — o verdict persiste com a régua que o mediu.
-GATE_RUBRIC_VERSION = "gate_rubric@4"  # @4: genus rite v4 (reader growth + lineage ledger + grounder)
+GATE_RUBRIC_VERSION = "gate_rubric@7"  # @7: executable old-edge-with-grounding rite trace, proof-bound
 GATE_RUBRIC_SHA = hashlib.sha256(json.dumps(
     {"dimensions": DIMENSIONS, "weights": DIMENSION_WEIGHTS,
      "feynman_focus": _FEYNMAN_FOCUS, "regular_focus": _REGULAR_FOCUS},
@@ -1540,7 +1608,7 @@ _PROOF_TOKEN = secrets.token_hex(32)
 
 def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=None,
                  lineage=None, dispatch_id=None, bears_on=None, para=None, reports_on=None,
-                 experiment_curation=None) -> str:
+                 experiment_curation=None, genus_rite_trace=None) -> str:
     """The sha256 digest BINDING a proof to the EXACT publish payload (incl. dispatch_id — E1b:
     persisted field = digested field). Canonical JSON
     (sorted keys) so the same payload always digests identically and the publisher can
@@ -1582,6 +1650,7 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
         "reports_on": normalize_reports_on(reports_on),
         "experiment_curation": normalize_experiment_curation(
             reports_on, experiment_curation, report_slug=slug, by=skill),
+        "genus_rite": genus_rite.normalize_genus_rite(genus_rite_trace),
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -1590,7 +1659,7 @@ def proof_digest(*, slug, spec, intent, cites, proposes, distills=None, skill=No
 def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
                 distills=None, skill=None, lineage=None, dispatch_id=None,
                 bears_on=None, para=None, reports_on=None, experiment_curation=None,
-                residual_publish=False, unaddressed=None) -> dict:
+                genus_rite_trace=None, residual_publish=False, unaddressed=None) -> dict:
     """Mint the bound, token-stamped proof for a passing close. Carries BOTH reviewer
     verdicts (each stamped by run_close with its canonical reviewer identity), the digest of
     the exact payload (now including distills + skill + lineage + dispatch_id, E1b), and the
@@ -1612,7 +1681,8 @@ def _mint_proof(verdicts, *, slug, spec, intent, cites, proposes,
                                cites=cites, proposes=proposes,
                                distills=distills, skill=skill, lineage=lineage,
                                dispatch_id=dispatch_id, bears_on=bears_on, para=para,
-                               reports_on=reports_on, experiment_curation=experiment_curation),
+                               reports_on=reports_on, experiment_curation=experiment_curation,
+                               genus_rite_trace=genus_rite_trace),
         "token": _PROOF_TOKEN,
         # R5/S1 severity: NON-BLOCKING residual notes the reviewers chose to log rather than strike.
         # A residual can only ride a CLEAN verdict (no strikes); a BLOCKING finding is a strike or a
@@ -1737,6 +1807,7 @@ def _discharge_verdict(verdict, discharged: set):
 def verify_proof(proof, *, slug, spec, intent, cites, proposes,
                  distills=None, skill=None, lineage=None, dispatch_id=None,
                  bears_on=None, para=None, reports_on=None, experiment_curation=None,
+                 genus_rite_trace=None,
                  reviewer_count=2):
     """Verify a proof BINDS to the payload being published — raise ValueError otherwise,
     BEFORE any state/HTML is written. Refuses unless: the token is run_close's (not a
@@ -1756,7 +1827,8 @@ def verify_proof(proof, *, slug, spec, intent, cites, proposes,
                             cites=cites, proposes=proposes,
                             distills=distills, skill=skill, lineage=lineage,
                             dispatch_id=dispatch_id, bears_on=bears_on, para=para,
-                            reports_on=reports_on, experiment_curation=experiment_curation)
+                            reports_on=reports_on, experiment_curation=experiment_curation,
+                            genus_rite_trace=genus_rite_trace)
     if not secrets.compare_digest(str(proof.get("digest", "")), expected):
         raise ValueError(
             f"cannot publish artefato {slug!r}: proof digest does not bind to this "
@@ -1998,6 +2070,7 @@ def _try_residual_publish(artefato, verdicts, publish_fn, complete_fn=None):
         bears_on=appended.get("bears_on"), para=appended.get("para"),
         reports_on=appended.get("reports_on"),
         experiment_curation=appended.get("experiment_curation"),
+        genus_rite_trace=appended.get("genus_rite"),
         residual_publish=True, unaddressed=_unaddressed(verdicts))
     # (5) PUBLISH the appended artefato (section inside) under the residual proof
     if publish_fn is not None:
@@ -2236,7 +2309,8 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
                 dispatch_id=artefato.get("dispatch_id"),
                 bears_on=artefato.get("bears_on"), para=artefato.get("para"),
                 reports_on=artefato.get("reports_on"),
-                experiment_curation=artefato.get("experiment_curation"))
+                experiment_curation=artefato.get("experiment_curation"),
+                genus_rite_trace=artefato.get("genus_rite"))
             if publish_fn is not None:
                 publish_fn(artefato, proof)
             return proof

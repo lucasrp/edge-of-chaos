@@ -50,6 +50,7 @@ import eventlog
 import render
 import close
 import producer_descriptor
+import genus_rite
 from close import check_genus, verify_proof
 # canonical authored declarations through persist + projection (each matches its proof bind)
 from lineage import (normalize_bears_on, normalize_experiment_curation, normalize_lineage,
@@ -1370,7 +1371,8 @@ def _gate_props(gate):
 
 def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites=None,
                      spec=None, lineage=None, log=eventlog.LOG, gate=None, origin=None,
-                     bears_on=None, para=None, para_default=None, reports_on=None):
+                     bears_on=None, para=None, para_default=None, reports_on=None,
+                     genus_rite=None):
     """Project a just-published Artefato into the edge's graph — the deterministic spine write
     that was prose in `skills/_shared/memory.md` (the "Project — AFTER you publish" block) and so
     got SKIPPED by the producer. Ported here as a GUARANTEED side-effect of every publish so the
@@ -1589,7 +1591,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
             cites=None, lineage=None, dispatch_id=None, date=None, log=eventlog.LOG,
             blog_dir=BLOG_DIR, embed_fn=None, project_fn=_DEFAULT_PROJECT,
             visual_flags=None, bears_on=None, para=None, reports_on=None,
-            experiment_curation=None) -> Path:
+            experiment_curation=None, genus_rite_trace=None) -> Path:
     """Publish an Artefato: render → self-contained neutral HTML → atomic state record.
 
     #2/#3 at the seam: RAISES ValueError unless `verdict` is the UNFORGEABLE, BOUND proof
@@ -1641,7 +1643,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
                  cites=cites or [], proposes=proposes or [],
                  distills=distills, skill=skill, lineage=lineage, dispatch_id=dispatch_id,
                  bears_on=bears_on, para=para, reports_on=reports_on,
-                 experiment_curation=experiment_curation)
+                 experiment_curation=experiment_curation, genus_rite_trace=genus_rite_trace)
     # Canonical lineage from here on (Codex): the proof binds the NORMALIZED lineage and the event persists
     # it, so the live projection must see the SAME — else proof/event-invisible junk (e.g. a blank-slug item
     # stripped by the digest) could still drive project_artefato and strand projection_complete=false.
@@ -1654,6 +1656,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # Validate early, before render/page work. The event seam repeats the same normalization and writes
     # the resulting experiment.curated payloads in the atomic publish batch.
     normalize_experiment_curation(reports_on, experiment_curation, report_slug=slug, by=skill)
+    genus_rite_trace = genus_rite.normalize_genus_rite(genus_rite_trace)
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
     if skill not in PRODUCER_ROSTER:
@@ -1668,7 +1671,8 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # run_close's check (Codex P2): the rich-rite floor reads `distills` (lineage) and content, so
     # a report whose lineage rides on its published `distills` would pass run_close but raise here.
     artefato = {"intent": intent, "proposes": proposes or [], "cites": cites,
-                "content": spec, "distills": distills or [], "skill": skill, "lineage": lineage}
+                "content": spec, "distills": distills or [], "skill": skill, "lineage": lineage,
+                "genus_rite": genus_rite_trace}
     violations = check_genus(artefato)
     if violations:
         raise ValueError(f"artefato {slug!r} violates the genus contract: {violations}")
@@ -1713,7 +1717,7 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
         lineage=lineage, require_wake=True, adoption=adoption,
         dispatch_id=dispatch_id, residuals=residuals, gate=gate,
         bears_on=bears_on, para=para, reports_on=reports_on,
-        experiment_curation=experiment_curation)
+        experiment_curation=experiment_curation, genus_rite_trace=genus_rite_trace)
     # curadoria autoral: the para-o-mentee default is derived ONCE, at the event seam (origin
     # pattern — never a caller arg, never in the digest); the projection reads it OFF the
     # committed event so event and graph can never disagree.
@@ -1749,7 +1753,8 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
             project_fn(slug, intent, skill=skill, distills=distills, proposes=proposes,
                        cites=cites, spec=spec, lineage=lineage, log=log, gate=gate,
                        origin=origin, bears_on=bears_on, para=para,
-                       para_default=para_default, reports_on=reports_on)
+                       para_default=para_default, reports_on=reports_on,
+                       genus_rite=genus_rite_trace)
         except Exception as ex:  # noqa: BLE001 — projection is best-effort, never fatal
             print(f"project skipped for {slug!r} (best-effort, reproject next beat):", ex)
     return out
@@ -1925,7 +1930,8 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
                        origin=item.get("origin"),
                        bears_on=item.get("bears_on"), para=item.get("para"),
                        para_default=item.get("para_default"),
-                       reports_on=item.get("reports_on"))
+                       reports_on=item.get("reports_on"),
+                       genus_rite=item.get("genus_rite"))
         except Exception as ex:  # noqa: BLE001 — replay is best-effort, never fatal
             print(f"graph reproject skipped for {item.get('slug')!r} (best-effort):", ex)
     if asset_project_fn is None:
