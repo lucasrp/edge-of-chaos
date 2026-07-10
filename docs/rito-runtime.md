@@ -132,7 +132,18 @@ the cognitive inputs vary; the stages, detector, and publication seam are identi
 The `-deep` aliases and `experiment` are NOT wired individually: they delegate to a base
 producer that is already on the rite, so wiring the base covers them.
 
-## Interactive producers — the renderer conflict (OPEN decision, operator's to resolve)
+## Interactive producers — the renderer conflict (RESOLVED: option (a), leave legacy)
+
+**Operator decision, 2026-07-10, verbatim "deixa legado":** `prototype`/`lazer` stay on the legacy
+close path (option (a) below). Rationale (ed): the rite was won by an experiment about dense GROUNDED
+PROSE; forcing an interactive single-file artefato through the pinned Markdown renderer before an
+experiment proves the rite improves a JS artefato would be changing the rite by conformance, not by
+evidence — the exact move rejected twice. Interactive craft has its own canon; when there is appetite,
+"does the 10-stage rite improve a single-file interactive?" becomes its own numbered experiment, and
+its result decides between options (b) and (c). Until then, the two-path split is a DECLARED exception,
+honest, not a drift. The analysis below is kept as the decision's grounding.
+
+
 
 `prototype` (and `lazer`) produce an **interactive single-file HTML+JS page** whose artefato IS
 the running page — the interaction carries the insight. These do **not** fit the rite as pinned,
