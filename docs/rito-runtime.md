@@ -113,3 +113,65 @@ The report skill is the exemplar: build `grounding1_fn` + `prompts` from the ski
 call `rito.run_rito(slug, run_dir=state/rito/<slug>, …, intent=…, dispatch_id=…)`. Other
 producers adopt by supplying their own cognitive inputs — same runtime, same stages, same
 detector ("o edge deve soar o mesmo across artefatos").
+
+**Rolled out (genus-wide, 2026-07-10).** Every TEXT producer now exits through the rite. Only
+the cognitive inputs vary; the stages, detector, and publication seam are identical:
+
+| Producer | Artefato | Status | Cognitive inputs (what varies) |
+|---|---|---|---|
+| `report` | prose synthesis | rito (exemplar) | synthesis draft, calibrated contextualization |
+| `research` | directed deep-dive | rito | derive-first Feynman dossier; derivation/gap-table carriers |
+| `map` | connections diagram | rito | connections dossier; fenced mermaid/ASCII diagram + connection table (Markdown-native) |
+| `plan` | next-steps flow | rito | situation/constraints dossier; fenced flow + ordered list/risk table |
+| `discovery` | serendipity find | rito | the find + anchoring evidence; before/after + callout |
+| `mentor` | insight artefato leg | rito | insight explanation; **only** the artefato-publication leg — the three-steers `grill_gate` close is untouched |
+| `report-deep` / `research-deep` / `discovery-deep` | (alias) | rito (inherited) | delegate verbatim to their base skill — no separate exit |
+| `experiment` | (closes via `/report`) | rito (inherited) | an experiment finalizes by publishing a report, so it rides report's rite |
+| `critique` | appraisal | inherits shared close | short skill; references "the close" only, carries no explicit exit snippet — moves when it grows one |
+
+The `-deep` aliases and `experiment` are NOT wired individually: they delegate to a base
+producer that is already on the rite, so wiring the base covers them.
+
+## Interactive producers — the renderer conflict (OPEN decision, operator's to resolve)
+
+`prototype` (and `lazer`) produce an **interactive single-file HTML+JS page** whose artefato IS
+the running page — the interaction carries the insight. These do **not** fit the rite as pinned,
+and are deliberately left on the legacy close path. The conflict is precise:
+
+1. **Stage 9 (`final_html`) is pinned to the neutral-MARKDOWN renderer.** `render.RENDERER_ID`
+   (`exp072-neutral-markdown/v1`) renders a Markdown body into a self-contained neutral page;
+   `publish_rito` byte-hash-enforces exactly that renderer's output. An interactive page is
+   author-written JS+CSS in one file — there is no Markdown body to render, and forcing the JS
+   *through* the markdown renderer would either strip the `<script>` (the exact `sanitize_raw_html`
+   behavior the legacy prototype seam works AROUND with content-addressed publication) or produce
+   bytes the pinned renderer never emits — a guaranteed hash mismatch at `publish_rito`.
+2. **The rite's deterministic gates assume prose.** The treatment-scan regexes (the leak scan
+   feeding `treatment_cleanup`) and the `ACCEPTANCE:` header contract are written against
+   Markdown prose; run against JS source they either false-fire on code tokens or scan meaningless
+   text — neither gates the thing that actually matters for an interactive page (does it RUN, does
+   the interaction TEACH — a human render→ver→revisar gate, not a text scan).
+3. **The publication seam differs.** Interactive pages publish content-addressed
+   (`blog/entries/<slug>.proto.<sha12>.html`, immutable, `artefato.asset` event) via
+   `publisher.publish_prototype_page`; the rite publishes a single canonical
+   `blog/entries/<slug>.html` bound to `artefato.published`. These are different addressing and
+   event contracts.
+
+**Honest options for a future decision (NOT resolved here):**
+
+- **(a) Leave them legacy** (current state). Two production paths coexist: the rite for prose
+  artefatos, the content-addressed single-file seam for interactive ones. Cost: the genus does
+  NOT sound the same for interactive artefatos; "prove the rite ran" does not apply to them.
+- **(b) A second pinned form in the rite** — a `render.RENDERER_ID`-analog for single-file JS
+  (identity-pin the bytes as-authored rather than render Markdown), with a stage-9 branch and a
+  gate set fit for interactive content (the render→ver→revisar human gate as a sealed receipt
+  instead of the prose leak-scan). This is a real redefinition of the rite for a second artefato
+  family — deliberately NOT done here (the mission's law: do not invent a second renderer, do not
+  redefine the rite unilaterally).
+- **(c) Split the artefato** — publish the interactive page content-addressed (as today) and wrap
+  it in a rito-published Markdown COMPANION entry that links it. The prototype skill already
+  authors such a companion entry; routing only the companion through the rite would put the framing
+  on the genus path while the page stays on its own seam. Cost: the page itself is still off-rite;
+  the "artefato" the rite proves is the prose wrapper, not the interactive object.
+
+Until the operator decides, `prototype`/`lazer` stay in `LEGACY_PRODUCERS` and keep the enforced
+`close.run_close` exit (pinned by the legacy-snippet structure tests).
