@@ -1,0 +1,76 @@
+# The rito runtime — the experiment's rite as the genotype's production path
+
+**Contract (operator):** the rite is the WHOLE causal execution, grounding-1 through
+publication of the rendered page. We never score the output's appearance as a gate; we prove
+EXECUTION. The approved renderer and its output hash are PINNED AS A STAGE of the rite —
+pinning the pipeline, not scoring the artifact.
+
+## Module map
+
+| Module | Responsibility (deep, one seam each) |
+|---|---|
+| `tools/rito.py` | The rite runtime promoted from `drafts/old-edge-double-grounding-repro/run.py`: sequences stages 1–11, writes the sealed manifest (begin/finish/fail receipts with sha256), runs the deterministic gates (treatment scan, acceptance header, draft immutability), renders via the pinned renderer, terminates in publication. Also owns the DETECTOR `verify_rito` and its CLI. |
+| `tools/render.py` | Gains `render_markdown_page(md, title)` + `RENDERER_ID = "exp072-neutral-markdown/v1"` — the approved renderer promoted verbatim from `generate_post_gate_grounding_arm.render_markdown`. |
+| `tools/publisher.py` | Gains `publish_rito(slug, run_dir, *, intent, …)` — the rite's way out: recomputes the pinned render from the sealed markdown, REFUSES a hash mismatch, commits the atomic `artefato.published` event (spec format `edge-markdown/v1`, log is truth), writes the EXACT recomputed bytes temp+rename. `_render_page` gains the `edge-markdown/v1` branch so reprojection re-derives byte-identical pages. |
+
+## The stages (canonical order, promoted from run.py)
+
+1. `grounding1_dossier` (producer callable) → 2. `first_authorial_draft` (chat) →
+3. `gap_critique` (review) → 4. `grounding2_targeted` (review) → 5. `provisional_rewrite`
+(chat) → 6. `fact_audit` (review) → 7. `author_correction` (chat) → 8. `treatment_cleanup`
+(chat, or deterministic copy when the scan is clean) → 9. `final_html` (runtime render, pinned)
+→ 10. `final_review` (review, fail-closed ACCEPTANCE header) → 11. `publication` (publisher
+seam). A run that didn't publish didn't finish the rite. Stage 11 of the experiment
+(`blind_reading_package`) is experiment apparatus, NOT a production stage — but the runtime
+keeps `02_FIRST_AUTHORIAL_DRAFT.md` sealed and addressable in the run dir so a later blind
+read is always possible.
+
+## Seams (what is injected, what is owned)
+
+- **Cognition is prose-owned.** The producer skill hands `grounding1_fn()` and per-stage
+  `prompts[stage](outputs) -> str`. `rito.py` contains NO prompt content — only the
+  deterministic gates (leak-scan regexes, acceptance header contract), which are gates,
+  not cognition.
+- **Transport is injected.** `complete_fn(route, prompt, max_tokens) -> str`; production
+  wires the llm_routes completer, tests fake it. Routes per stage are FIXED in the stage
+  table (chat=author, review=independent), promoted from the experiment.
+- **Publication is inside the rite.** `publish_fn(markdown, manifest) -> receipt` defaults
+  to `publisher.publish_rito`. The receipt (event id + page sha + manifest core hash) is
+  sealed as stage 11.
+
+## Binding
+
+`manifest_core_hash` = canonical sha256 over {schema, rito_version, run_id, slug, stage
+receipts 1–10}. The published event carries it plus `page_sha256` and `renderer_id`; the
+publication receipt in the manifest carries the event id. So manifest ⇄ event ⇄ page bytes
+are mutually bound and `verify_rito` can prove the triangle from disk + log alone.
+
+## The detector
+
+`verify_rito(run_dir, log=…, blog_dir=…)` → `{"pass": bool, "failures": [named codes]}`.
+Proves: all 11 stages completed in causal order (timestamps monotonic, render BEFORE final
+review), sealed receipts match disk bytes, LLM stages carry sealed prompts, recomputed
+`render_markdown_page(sealed_08_markdown)` hash == sealed 09 receipt == published page bytes,
+publication event present and bound, first draft addressable, acceptance PASS. It never
+reads artifact QUALITY — execution only; the form check is a pipeline-identity hash, not a
+score. CLI: `tools/edge-python tools/rito.py verify <run_dir> [--log …] [--blog-dir …]`.
+
+## What stays prose / open decisions
+
+- Prompt bodies (the experiment's exact wording) live in the producer skills; `run.py`
+  remains the archived reference.
+- Author-thread continuity + environment sealing (codex CODEX_HOME/resume, route drift)
+  were experiment reproducibility apparatus; the runtime records route + prompt/output
+  receipts per stage and leaves continuity to the producer's `complete_fn` wiring.
+  OPEN: promote continuity enforcement into the runtime?
+- OPEN: does `close.run_close`'s double-blind reviewer gate remain wrapped AROUND the rite
+  (an extra stochastic gate the experiment did not have), or does the rite's own
+  `final_review` fully replace it? `publish_rito` currently does not require a run_close
+  proof; wake (ADR-0016) and intent-kernel (C3) gates are preserved.
+
+## Producer adoption (the pattern)
+
+The report skill is the exemplar: build `grounding1_fn` + `prompts` from the skill's prose,
+call `rito.run_rito(slug, run_dir=state/rito/<slug>, …, intent=…, dispatch_id=…)`. Other
+producers adopt by supplying their own cognitive inputs — same runtime, same stages, same
+detector ("o edge deve soar o mesmo across artefatos").
