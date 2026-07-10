@@ -535,6 +535,31 @@ class PublishRitoSideEffectsTest(unittest.TestCase):
             self.assertTrue((blog / f"{SLUG}.html").is_file())
             self.assertEqual([c["slug"] for c in eventlog.corpus_at(log=log)], [SLUG])
 
+    def test_resume_does_not_re_emit_side_effects(self):
+        """Codex adversarial [SEV-HIGH]: the idempotent-resume branch reuses an already-committed
+        event — re-running the side-effects would DOUBLE-COUNT source signals (source_signal is a
+        bare append, no dedup) and re-project from the retry's args. Side-effects run ONLY on the
+        FRESH commit; a resume is a pure page re-derivation. reproject_missing_pages heals a crash
+        that dropped them."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir, log, blog = self._sealed_run(tmp)
+            cites = [{"ref": "arXiv:9", "kind": "mundo", "relevant": True, "snippet": "x"}]
+            # first (fresh) publish emits exactly one signal per cite
+            publisher.publish_rito(SLUG, run_dir, intent=INTENT, skill="report",
+                                   log=log, blog_dir=blog, cites=cites,
+                                   embed_fn=self._fake_embed, project_fn=None)
+            self.assertEqual(eventlog.source_yield_at(log=log)["arXiv:9"]["count"], 1)
+            (blog / f"{SLUG}.html").unlink()  # simulate the crash window, force resume
+            projected = []
+            publisher.publish_rito(SLUG, run_dir, intent=INTENT, skill="report",
+                                   log=log, blog_dir=blog, cites=cites,
+                                   embed_fn=self._fake_embed,
+                                   project_fn=lambda *a, **k: projected.append(1))
+            # resume re-derived the page but did NOT re-emit the signal or re-project
+            self.assertTrue((blog / f"{SLUG}.html").is_file())
+            self.assertEqual(eventlog.source_yield_at(log=log)["arXiv:9"]["count"], 1)
+            self.assertEqual(projected, [])
+
 
 class DetectorCliTest(unittest.TestCase):
     def test_cli_verify_exit_codes(self):

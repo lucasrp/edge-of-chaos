@@ -1853,7 +1853,8 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
          if (ev.get("payload") or {}).get("slug") == slug
          and (ev.get("payload") or {}).get("spec") == spec),
         None)
-    if published_ev is None:
+    fresh_commit = published_ev is None
+    if fresh_commit:
         published_ev, _ = eventlog.publish_artefato_atomic(
             slug, intent, spec=spec, skill=skill, log=log,
             dispatch_id=dispatch_id, require_wake=True,
@@ -1872,13 +1873,21 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
     # first-class citizen of the graph/corpus. Best-effort, after the commit. `origin` is derived
     # from the dispatch that minted this id (legacy pattern); `para_default` is read OFF the
     # committed event (never a caller arg). No verdict here → no gate to project.
-    origin = eventlog.dispatch_origin(dispatch_id, log=log)
-    para_default = (published_ev.get("payload") or {}).get("para_default")
-    _post_publish_sideeffects(
-        slug, intent, spec=spec, skill=skill, body=markdown, cites=cites, embed_fn=embed_fn,
-        log=log, project_fn=project_fn, distills=distills, proposes=proposes, lineage=lineage,
-        origin=origin, bears_on=bears_on, para=para, para_default=para_default,
-        reports_on=reports_on)
+    # ONLY on a FRESH commit (codex adversarial): the resume branch reuses an already-committed
+    # event whose side-effects the original publish ALREADY emitted — re-emitting here would
+    # double-count source signals (source_signal is a bare append, no dedup) and re-derive
+    # origin/para from the RETRY's args instead of the committed event, diverging graph from log.
+    # A resume that crashed BEFORE its side-effects landed is healed by reproject_missing_pages /
+    # the next beat sweep (re-emits only MISSING signals, reprojects) — the same recovery the
+    # legacy path relies on. So the resume path stays a pure page re-derivation, like the commit.
+    if fresh_commit:
+        origin = eventlog.dispatch_origin(dispatch_id, log=log)
+        para_default = (published_ev.get("payload") or {}).get("para_default")
+        _post_publish_sideeffects(
+            slug, intent, spec=spec, skill=skill, body=markdown, cites=cites, embed_fn=embed_fn,
+            log=log, project_fn=project_fn, distills=distills, proposes=proposes, lineage=lineage,
+            origin=origin, bears_on=bears_on, para=para, para_default=para_default,
+            reports_on=reports_on)
     return {"event_seq": published_ev["seq"], "event_ts": published_ev["ts"],
             "page_path": str(out), "page_sha256": page_sha,
             "rito_manifest_sha256": core, "renderer_id": render.RENDERER_ID}
