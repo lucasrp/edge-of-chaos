@@ -687,7 +687,14 @@ def _signal_cites(slug, body, cites, embed_fn, log):
 def _render_page(slug, spec, *, skill, date):
     """Render the self-contained neutral HTML page for `slug` from its spec — the SINGLE
     place the page bytes are produced, so a normal publish and a reprojection (recovery from
-    the logged spec) emit byte-identical pages. Returns (body_html, page_text)."""
+    the logged spec) emit byte-identical pages. Returns (body_html, page_text).
+
+    `edge-markdown/v1` (the rito's publish spec, docs/rito-runtime.md): the page IS the
+    pinned renderer's output — no legacy `_page` shell, no base.css — so a reprojection from
+    the logged spec re-derives the EXACT bytes `publish_rito` wrote and sealed."""
+    if isinstance(spec, dict) and spec.get("format") == "edge-markdown/v1":
+        page = render.markdown_spec_to_page(spec)
+        return page, page
     body_html = render.spec_to_html(spec)
     css = BASE_CSS.read_text()
     js = BASE_JS.read_text()
@@ -1753,6 +1760,74 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
         except Exception as ex:  # noqa: BLE001 — projection is best-effort, never fatal
             print(f"project skipped for {slug!r} (best-effort, reproject next beat):", ex)
     return out
+
+
+def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
+                 log=eventlog.LOG, blog_dir=BLOG_DIR):
+    """The rito's publication seam (docs/rito-runtime.md) — the terminal stage of the rite.
+
+    Proves EXECUTION, never scores the artifact: refuses unless the run dir's sealed manifest
+    shows every cognitive stage COMPLETED and the fail-closed final review allowed the
+    package. THE FORM IS PINNED AS A PIPELINE STAGE: recomputes the approved renderer's
+    output (render.markdown_page_bytes) from the sealed markdown and REFUSES a hash mismatch
+    against the sealed final_html receipt — so the exact reviewed bytes, and only they, ship.
+
+    Order (ADR-0006, same as `publish`): atomic `artefato.published` event first (spec format
+    `edge-markdown/v1` carrying the markdown + renderer id + manifest binding, so the page is
+    fully re-derivable from the log via `_render_page`'s markdown branch) → THEN the exact
+    page bytes via temp+rename. C3 (intent kernel) and the ADR-0016 wake gate ride the same
+    atomic call. Returns the publication receipt the rite seals as its terminal stage."""
+    import rito  # lazy: rito ↔ publisher may not import each other at module scope
+    run_dir = Path(run_dir)
+    manifest_path = run_dir / rito.MANIFEST_NAME
+    if not manifest_path.is_file():
+        raise ValueError(f"no rite manifest at {manifest_path} — the rite did not run")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("slug") != slug:
+        raise ValueError(f"manifest slug {manifest.get('slug')!r} != publish slug {slug!r}")
+    stages = {s.get("name"): s for s in manifest.get("stages") or []}
+    incomplete = [name for name in rito.COGNITIVE_STAGES
+                  if (stages.get(name) or {}).get("status") != "completed"]
+    if incomplete:
+        raise ValueError(f"rite incomplete — stages not completed: {incomplete} (a run that "
+                         "didn't traverse the whole rite does not publish)")
+    acceptance = (stages.get("final_review") or {}).get("acceptance") or {}
+    if not acceptance.get("package_allowed"):
+        raise ValueError(f"final review did not allow publication: {acceptance}")
+
+    md_path = run_dir / stages["treatment_cleanup"]["output_file"]
+    data = md_path.read_bytes() if md_path.is_file() else b""
+    if hashlib.sha256(data).hexdigest() != stages["treatment_cleanup"]["output"]["sha256"]:
+        raise ValueError(f"sealed markdown drifted on disk: {md_path} — refusing to publish")
+    markdown = data.decode("utf-8")
+
+    # THE PIN: recompute the approved renderer's bytes; refuse any mismatch with the sealed
+    # final_html receipt (pinning the pipeline, not scoring the artifact).
+    page_bytes = render.markdown_page_bytes(markdown)
+    page_sha = hashlib.sha256(page_bytes).hexdigest()
+    sealed_html_sha = (stages.get("final_html") or {}).get("output", {}).get("sha256")
+    if page_sha != sealed_html_sha:
+        raise ValueError(
+            f"pinned renderer mismatch: recomputed page sha {page_sha} != sealed final_html "
+            f"receipt {sealed_html_sha} ({render.RENDERER_ID}) — refusing to publish")
+
+    out = _safe_target(slug, blog_dir)
+    core = rito.manifest_core_hash(manifest)
+    spec = {"format": "edge-markdown/v1", "markdown": markdown,
+            "renderer_id": render.RENDERER_ID, "rito_manifest_sha256": core,
+            "page_sha256": page_sha}
+    published_ev, _ = eventlog.publish_artefato_atomic(
+        slug, intent, spec=spec, skill=skill, log=log,
+        dispatch_id=dispatch_id, require_wake=True)
+
+    # the EXACT reviewed bytes, temp+rename (a failure here is recoverable from the log)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".html.tmp")
+    tmp.write_bytes(page_bytes)
+    os.replace(tmp, out)
+    return {"event_seq": published_ev["seq"], "event_ts": published_ev["ts"],
+            "page_path": str(out), "page_sha256": page_sha,
+            "rito_manifest_sha256": core, "renderer_id": render.RENDERER_ID}
 
 
 def promote_artefato_to_source(slug, reviewer, note="", log=eventlog.LOG):

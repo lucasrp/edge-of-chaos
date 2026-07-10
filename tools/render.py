@@ -1409,3 +1409,132 @@ def spec_to_html(spec: dict) -> str:
         parts.append(render_section(bib_section))
 
     return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# The rito's pinned markdown renderer — promoted VERBATIM from the approved
+# exp072 post-gate-grounding arm (drafts/exp072-report-quality/
+# post-gate-grounding-arm/generate_post_gate_grounding_arm.py, render_markdown /
+# inline_md). This is the experiment's FORM, pinned as a stage of the rite
+# (docs/rito-runtime.md): the publisher recomputes markdown_page_bytes and
+# refuses a hash mismatch. Do not "improve" it — a byte change is a renderer
+# version change and must bump RENDERER_ID.
+# ---------------------------------------------------------------------------
+
+RENDERER_ID = "exp072-neutral-markdown/v1"
+
+
+def markdown_title(md: str, fallback: str = "artefato") -> str:
+    """The ONE title rule for a markdown page: the leading H1, else the fallback."""
+    lines = md.splitlines()
+    if lines and lines[0].startswith("#"):
+        return re.sub(r"^#\s*", "", lines[0]).strip() or fallback
+    return fallback
+
+
+def render_markdown_page(md: str, title: str) -> str:
+    """Neutral markdown → self-contained HTML page (the approved renderer, verbatim)."""
+    body: list[str] = []
+    in_ul = False
+    in_table = False
+    for raw in md.splitlines():
+        line = raw.rstrip()
+        if not line:
+            if in_ul:
+                body.append("</ul>")
+                in_ul = False
+            if in_table:
+                body.append("</tbody></table>")
+                in_table = False
+            continue
+        if line.startswith("|") and line.endswith("|"):
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if all(re.fullmatch(r":?-{3,}:?", c or "") for c in cells):
+                continue
+            if not in_table:
+                if in_ul:
+                    body.append("</ul>")
+                    in_ul = False
+                body.append("<table><tbody>")
+                in_table = True
+            tag = "th" if body and "<td>" not in body[-1] and "<th>" not in body[-1] else "td"
+            if len(body) >= 1 and body[-1] == "<table><tbody>":
+                tag = "th"
+            body.append("<tr>" + "".join(f"<{tag}>{html.escape(c)}</{tag}>" for c in cells) + "</tr>")
+            continue
+        if in_table:
+            body.append("</tbody></table>")
+            in_table = False
+        if line.startswith("- "):
+            if not in_ul:
+                body.append("<ul>")
+                in_ul = True
+            body.append(f"<li>{_inline_markdown(line[2:])}</li>")
+            continue
+        if in_ul:
+            body.append("</ul>")
+            in_ul = False
+        if line.startswith("# "):
+            body.append(f"<h1>{html.escape(line[2:].strip())}</h1>")
+        elif line.startswith("## "):
+            body.append(f"<h2>{html.escape(line[3:].strip())}</h2>")
+        elif line.startswith("### "):
+            body.append(f"<h3>{html.escape(line[4:].strip())}</h3>")
+        elif line.startswith("> "):
+            body.append(f"<blockquote>{_inline_markdown(line[2:].strip())}</blockquote>")
+        else:
+            body.append(f"<p>{_inline_markdown(line)}</p>")
+    if in_ul:
+        body.append("</ul>")
+    if in_table:
+        body.append("</tbody></table>")
+
+    return f"""<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>
+<style>
+body{{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.58;color:#17202a;background:#fbfbf8;margin:0}}
+main{{max-width:960px;margin:0 auto;padding:48px 24px 72px}}
+h1{{font-size:2rem;line-height:1.15;margin:0 0 24px;color:#111827}}
+h2{{font-size:1.35rem;margin:36px 0 12px;color:#111827}}
+h3{{font-size:1.05rem;margin:24px 0 8px;color:#263238}}
+p,li{{font-size:1rem}}
+blockquote{{border-left:4px solid #52796f;margin:18px 0;padding:8px 16px;background:#eef4f1}}
+code{{background:#edf2f7;padding:1px 4px;border-radius:4px}}
+a{{color:#1f5f8b}}
+table{{border-collapse:collapse;width:100%;margin:18px 0;background:#fff}}
+th,td{{border:1px solid #d5d9df;padding:8px;vertical-align:top;text-align:left}}
+th{{background:#eef1f5}}
+</style>
+</head>
+<body><main>
+{chr(10).join(body)}
+</main></body></html>
+"""
+
+
+def _inline_markdown(text: str) -> str:
+    """inline_md from the approved generator, verbatim (renamed: render.py has other seams)."""
+    escaped = html.escape(text)
+    escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
+    escaped = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r'<a href="\2">\1</a>', escaped)
+    return escaped
+
+
+def markdown_page_bytes(md: str) -> bytes:
+    """The SINGLE byte seam the rite pins: markdown in, the exact on-disk page bytes out
+    (write-normalized: rstrip + one trailing newline). The rito's final_html stage, the
+    publisher's recompute-and-refuse check, and the detector all hash THESE bytes."""
+    page = render_markdown_page(md, markdown_title(md))
+    return (page.rstrip() + "\n").encode("utf-8")
+
+
+def markdown_spec_to_page(spec: dict) -> str:
+    """Render an `edge-markdown/v1` publish spec to its page text (reprojection seam:
+    ADR-0006, the logged spec re-derives the exact page)."""
+    md = spec["markdown"]
+    return render_markdown_page(md, markdown_title(md))
