@@ -225,7 +225,40 @@ reason)` — a measurement never becomes an opinion.
 3. **Write the direcionamento report** — `eventlog.report_direction(body, distills=[…],
    cites=[…])`: the full prose steer (objective + steer + live insight), traceable, not
    pronounced (`distills` = existing thread refs, `[]` if none; `cites` = the sources).
-4. **Publish an insight Artefato — only when the insight is real, and ONLY through the enforced close.** Insight is **provoked, never forced**: when the evidence genuinely yields a Worthwhile insight, publish it the **same way every producer does** — through the enforced close, **never** a bare `eventlog.publish_artefato` / direct `publisher.publish` (that back door is now refused: `publisher.publish` raises without the **unforgeable, bound** passing-review proof only `close.run_close` mints — bound to a sha256 **digest** of the exact payload (slug + spec + intent + cites + proposes + **distills** + **skill** + **lineage** + **dispatch_id** — EVERY persisted publish arg), carrying **both** reviewer verdicts and a `run_close`-only secret token, so a hand-built/stale/cross-artefato proof — or one with `distills`/`skill`/`lineage`/`dispatch_id` altered post-mint — cannot publish). Build the artefato carrying **every proof-bound field** (`slug`, `intent`, `content`=spec, `cites`, `proposes`, **`distills`**, **`skill`='mentor'**, **`'lineage':lineage`** — `lineage=[{'type':'builds_on','slug':'<prior-slug>'}]  # [] if none` — the prior R1's surf OFFERS) plus **`'dispatch_id'`** — the exact id the wake's entry-driver printed on its machine-readable `DISPATCH_ID=<id>` line (tools/predispatch.py stdout; proof-bound like `slug`, E1b — the canonical publish refuses without it, E1c) — `run_close` mints the digest from THIS dict, so it must equal the exact publish payload or the publisher rejects it on digest mismatch — then call `close.run_close(artefato, produce_fn, publish_fn=…)` — it runs the genus contract **first** (a genus violation bounces — it can never mint a pass proof) → **both blind reviewers** (bounded bounce) → and **only on pass** mints the bound proof and publishes via the `publish_fn` that reads the payload OFF its `art` argument (the minted artefato) and wires the minted `proof` in — `pub=publisher.publish; publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id'], bears_on=art.get('bears_on'), para=art.get('para'), reports_on=art.get('reports_on'))` — so what publishes is provably what the proof was minted over (the publisher re-derives + verifies the digest, then records the `artefato.published` event AND its `intent.kernel` atomically → corpus → Recap). Populate provenance the same way — `distills` links **only existing** threads (two-way: thread →hangs→ Artefatos via `eventlog.artefatos_for_thread`; if none fits, no link — thread maintenance attaches/spawns later), `cites` the sources. When the evidence yields **no** real insight, the report carries forward unchanged — do **not** manufacture insight or bloat the corpus.
+4. **Publish an insight Artefato — only when the insight is real, and ONLY through the rito runtime.** Insight is **provoked, never forced**: when the evidence genuinely yields a Worthwhile insight, publish it the **same way every producer does now** — through the rite runtime (`tools/rito.py`, docs/rito-runtime.md), **never** a bare `eventlog.publish_artefato` / direct `publisher.publish` (that back door stays refused). The mentor's insight artefato is a **prose Artefato** — a self-contained explanation of the insight the mentor reached — so it rides the same rite as `report` ("o edge deve soar o mesmo across artefatos"): authored in **Markdown** (H1 first), sequenced through the sealed stages, rendered by the pinned `render.RENDERER_ID`, published inside the rite (with `` `skill`='mentor' `` passed to `run_rito` so the artefato is stamped to the canonical mentor skill), form-pinned and hash-refused. You do **not** build a spec dict, you do **not** call `close.run_close`, you do **not** call `publisher.publish`. The wake's `DISPATCH_ID=<id>` line rides into the run (the canonical publish refuses without it, E1c). The product spine still ships via `publish_meta` — `proposes`, `distills` (existing threads only — two-way via `eventlog.artefatos_for_thread`; empty over fabricated), `cites` (the sources), `lineage` (`builds_on` the prior — `[]` if none), `bears_on`, `para`, `reports_on`:
+
+    ```
+    tools/edge-python <<'EOF'
+    import sys; sys.path.insert(0, 'tools')
+    import rito, llm_routes
+
+    slug = '<slug>'
+    dispatch_id = '<dispatch-id-from-DISPATCH_ID-line>'
+
+    def complete_fn(route, prompt, max_tokens):
+        return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
+
+    prompts = {
+        'first_authorial_draft': lambda o: f"<explain the insight the mentor reached, contextualized to the mentee's live work; end on what it changes>\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'gap_critique':          lambda o: f"<is the insight real and useful; what is asserted not shown>\n\n{o['first_authorial_draft']}",
+        'grounding2_targeted':   lambda o: f"<targeted grounding closing the named gaps>\n\n{o['gap_critique']}",
+        'provisional_rewrite':   lambda o: f"<same-author rewrite folding critique+grounding2>\n\n{o['grounding2_targeted']}",
+        'fact_audit':            lambda o: f"<independent fact audit vs grounding1>\n\n{o['provisional_rewrite']}",
+        'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
+        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
+        'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",
+    }
+
+    rito.run_rito(slug, run_dir=f'state/rito/{slug}',
+                  grounding1_fn=lambda: '<the evidence the insight rests on>',
+                  prompts=prompts, complete_fn=complete_fn,
+                  intent='open: …; bet: …', skill='mentor', dispatch_id=dispatch_id,
+                  publish_meta={'proposes': [], 'distills': [], 'cites': [],
+                                'lineage': [], 'bears_on': [], 'para': [], 'reports_on': []})
+    EOF
+    ```
+
+The first authorial draft stays sealed and blind-readable in the run dir; prove the rite ran with `tools/edge-python tools/rito.py verify state/rito/<slug>`. When the evidence yields **no** real insight, the report carries forward unchanged — do **not** manufacture insight or bloat the corpus. This is the ONLY leg of the mentor that changed: the **three-steers close** below (the `grill_gate` on Objective / Direction / Direcionamento) is untouched — it is not the artefato-publication path and it stays exactly as specified.
 
 ## The close gate — a mentor is not 'done' until the three landed (MANDATORY, stage-(ii))
 The outward half above is conditional in its *wording* — set the objective "only when sharpened", propose Direction "additively", publish an Artefato "only when the insight is real". That wording is the trap the audit catches (`docs/briefing-lifecycle-audit.md`, Codex gate [high]): a mentor could read "only when…" as licence to land **nothing**, leaving the briefing's **Objective / Direction / Direcionamento** empty — and an **empty-post-mentor is a stage-(ii) failure, not acceptable** (empty-on-fresh is correct; empty-after-a-mentor is the bug, issue #26). The three feeders are not optional once a mentor runs; "only when sharpened" means *refine the standing one*, never *skip it*.

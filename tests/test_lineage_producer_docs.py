@@ -27,11 +27,19 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 
-# the producer skills whose LEGACY close snippet authors a lineage edge. `report` moved to
-# the rito runtime (docs/rito-runtime.md): its lineage rides `publish_meta` into
-# `publisher.publish_rito` — pinned by ReportLineageRidesTheRito below, not by the
-# run_close-snippet structure checks.
-PRODUCERS = ("research", "map", "plan", "discovery", "mentor", "prototype")
+# the producer skills whose LEGACY close snippet authors a lineage edge. The genus-wide rito
+# rollout (docs/rito-runtime.md §Producer adoption) moved every TEXT producer to the rite: its
+# lineage rides `publish_meta` into `publisher.publish_rito` — pinned by RitoLineageRidesTheRito
+# below, not by the run_close-snippet structure checks. What stays LEGACY here: `mentor` (its
+# three-steers `grill_gate` close is untouched; only the insight-artefato leg moved — pinned by
+# MentorInsightLegRidesTheRito below: run_rito present, NO legacy close.run_close( back door,
+# publish_meta lineage reachable) and `prototype` (interactive single-file JS — its artefato does
+# not fit the rite's pinned markdown renderer; the open decision lives in docs/rito-runtime.md
+# §Interactive producers).
+PRODUCERS = ("prototype",)
+
+# the TEXT producers now exiting through the rito — lineage must still be REACHABLE via publish_meta.
+RITO_PRODUCERS = ("report", "map", "plan", "research", "discovery")
 
 
 def _skill_text(name):
@@ -152,21 +160,51 @@ class ProofPayloadProseNamesLineage(unittest.TestCase):
                           f"snippet carries it in the artefato dict (doc/code drift)")
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
-class ReportLineageRidesTheRito(unittest.TestCase):
-    """report exits through rito.run_rito; the authored lineage must still be REACHABLE —
-    it rides the `publish_meta` dict the runtime forwards to publisher.publish_rito, which
-    passes it to the same atomic publish seam the legacy path used."""
+class RitoLineageRidesTheRito(unittest.TestCase):
+    """Every rito producer exits through rito.run_rito; the authored lineage must still be
+    REACHABLE — it rides the `publish_meta` dict the runtime forwards to publisher.publish_rito,
+    which passes it to the same atomic publish seam the legacy path used."""
 
     def setUp(self):
-        self.text = _skill_text("report")
+        self.texts = {p: _skill_text(p) for p in RITO_PRODUCERS}
 
     def test_publish_meta_carries_lineage(self):
+        for name, text in self.texts.items():
+            meta = _balanced_span(text, "publish_meta={", "{", "}")
+            self.assertIsNotNone(meta, f"{name}/SKILL.md: no publish_meta={{...}} literal")
+            self.assertIn("'lineage'", meta,
+                          f"{name}/SKILL.md: publish_meta omits 'lineage' — the authored edge "
+                          "would be unreachable from the rito publish path")
+
+
+class MentorInsightLegRidesTheRito(unittest.TestCase):
+    """mentor is NOT a pure producer (it is absent from the test_producers roster and keeps its
+    own three-steers `grill_gate` close), so the generalized rito pins never inspect it. But the
+    codex adversarial pass found the gap: its insight-artefato PUBLICATION leg moved to the rite,
+    and nothing forbade a stray legacy `close.run_close(` publication back door alongside the rito
+    call, nor pinned the leg's publish_meta lineage. This closes both."""
+
+    def setUp(self):
+        self.text = _skill_text("mentor")
+
+    def test_insight_leg_routes_through_run_rito(self):
+        self.assertIn("rito.run_rito", self.text.replace(" ", ""),
+                      "mentor's insight leg does not exit through rito.run_rito")
+
+    def test_no_legacy_close_run_close_publication_call(self):
+        # the three-steers close is grill_gate.py (a CLI), not close.run_close — so a
+        # close.run_close( CALL in mentor could ONLY be a stray legacy publication back door.
+        self.assertNotIn("close.run_close(", self.text.replace(" ", ""),
+                         "mentor shows a close.run_close( call — a legacy publication back door "
+                         "the insight leg was supposed to replace with the rite")
+
+    def test_insight_leg_publish_meta_carries_lineage(self):
         meta = _balanced_span(self.text, "publish_meta={", "{", "}")
-        self.assertIsNotNone(meta, "report/SKILL.md: no publish_meta={...} literal")
+        self.assertIsNotNone(meta, "mentor/SKILL.md: no publish_meta={...} literal on the insight leg")
         self.assertIn("'lineage'", meta,
-                      "report/SKILL.md: publish_meta omits 'lineage' — the authored edge "
-                      "would be unreachable from the rito publish path")
+                      "mentor/SKILL.md: the insight leg's publish_meta omits 'lineage' — the "
+                      "authored edge would be unreachable from the rito publish path")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

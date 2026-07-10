@@ -487,8 +487,8 @@ class ProducerSnippetsCarryTheDispatchId(unittest.TestCase):
     dispatch_id=dispatch_id straight into rito.run_rito (which forwards it to the canonical
     publish seam) — no artefato dict, no publish_fn lambda."""
 
-    SNIPPET_PRODUCERS = ("research", "map", "plan", "discovery", "mentor")
-    RITO_SNIPPET_PRODUCERS = ("report",)
+    SNIPPET_PRODUCERS = ()
+    RITO_SNIPPET_PRODUCERS = ("report", "map", "plan", "research", "discovery", "mentor")
 
     def test_every_snippet_binds_and_passes_the_dispatch_id(self):
         for p in self.SNIPPET_PRODUCERS:

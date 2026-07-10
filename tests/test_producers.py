@@ -29,14 +29,19 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SKILLS = REPO / "skills"
 
-# The open producer roster the beat round-robins (agreed with S12).
-PRODUCERS = ("report", "map", "plan")
+# The open producer roster the beat round-robins (agreed with S12). Expanded to the full
+# TEXT roster for the genus-wide rito rollout (docs/rito-runtime.md §Producer adoption):
+# every prose Artefato exits through the same rite. `prototype` (interactive single-file JS)
+# is NOT here — its artefato does not fit the rite's pinned markdown renderer (see the
+# "Interactive producers" open decision in docs/rito-runtime.md) and stays on the legacy close.
+PRODUCERS = ("report", "map", "plan", "research", "discovery")
 
-# The rito split (docs/rito-runtime.md): `report` is the EXEMPLAR wired through the rito
-# runtime (tools/rito.py — the experiment's rite as the production path; publication inside
-# the rite, form pinned to the approved renderer). The other producers stay pinned to the
-# legacy close exit until they adopt the same runtime.
-RITO_PRODUCERS = ("report",)
+# The rito split (docs/rito-runtime.md): the report exemplar led; the genus-wide rollout wired
+# every TEXT producer through the rito runtime (tools/rito.py — the experiment's rite as the
+# production path; publication inside the rite, form pinned to the approved markdown renderer).
+# "o edge deve soar o mesmo across artefatos". Legacy is now empty for the text roster — the
+# interactive producers (prototype, lazer) stay legacy but are pinned elsewhere.
+RITO_PRODUCERS = ("report", "map", "plan", "research", "discovery")
 LEGACY_PRODUCERS = tuple(p for p in PRODUCERS if p not in RITO_PRODUCERS)
 
 # The shared contracts every producer conforms to.
@@ -269,36 +274,46 @@ class ProducersWireRealReProduction(unittest.TestCase):
 
 class ReportExitsThroughTheRito(unittest.TestCase):
     """The rito exemplar (docs/rito-runtime.md): report's way out is the rite runtime — the
-    whole causal execution as code, publication inside it, form pinned. Pins the load-bearing
-    tokens so the exemplar cannot silently drift back to the legacy exit (cycle-1/2 guard)."""
+    whole causal execution as code, publication inside it, form pinned. Generalized to EVERY
+    rito producer (genus-wide rollout): each carries the same load-bearing tokens so none can
+    silently drift back to the legacy exit (cycle-1/2 guard) — "o edge deve soar o mesmo"."""
 
     def setUp(self):
-        self.text = _path("report").read_text(encoding="utf-8")
+        self.texts = {p: _path(p).read_text(encoding="utf-8") for p in RITO_PRODUCERS}
 
     def test_report_routes_through_run_rito(self):
-        self.assertIn("rito.run_rito", self.text.replace(" ", ""))
+        for p, text in self.texts.items():
+            self.assertIn("rito.run_rito", text.replace(" ", ""),
+                          f"{p} does not route through rito.run_rito")
 
     def test_report_names_the_detector_command(self):
-        self.assertIn("tools/rito.py verify", self.text)
+        for p, text in self.texts.items():
+            self.assertIn("tools/rito.py verify", text,
+                          f"{p} does not name the detector command")
 
     def test_report_carries_the_product_spine_via_publish_meta(self):
-        t = self.text
-        self.assertIn("publish_meta", t)
-        for field in ("proposes", "distills", "cites", "lineage", "bears_on", "para",
-                      "reports_on"):
-            self.assertIn(f"'{field}'", t,
-                          f"report's publish_meta omits {field!r} — the rite replaces the "
-                          "path, not the ontology")
+        for p, t in self.texts.items():
+            self.assertIn("publish_meta", t, f"{p} omits publish_meta")
+            for field in ("proposes", "distills", "cites", "lineage", "bears_on", "para",
+                          "reports_on"):
+                self.assertIn(f"'{field}'", t,
+                              f"{p}'s publish_meta omits {field!r} — the rite replaces the "
+                              "path, not the ontology")
 
     def test_report_shows_no_legacy_close_snippet(self):
-        t = self.text.replace(" ", "")
-        self.assertNotIn("close.run_close(", t)
-        self.assertNotIn("artefato={", t)
-        self.assertNotIn("publish_fn=lambdaart,proof", t)
+        for p, text in self.texts.items():
+            t = text.replace(" ", "")
+            self.assertNotIn("close.run_close(", t,
+                             f"{p} still shows a close.run_close( call")
+            self.assertNotIn("artefato={", t, f"{p} still builds a legacy artefato dict")
+            self.assertNotIn("publish_fn=lambdaart,proof", t,
+                             f"{p} still shows the legacy publish_fn lambda")
 
     def test_report_preserves_the_blind_readable_first_draft(self):
-        self.assertIn("blind", self.text.lower())
-        self.assertIn("first authorial draft", self.text.lower())
+        for p, text in self.texts.items():
+            self.assertIn("blind", text.lower(), f"{p} loses the blind-readable draft note")
+            self.assertIn("first authorial draft", text.lower(),
+                          f"{p} does not name the sealed first authorial draft")
 
 
 class PipelineDocumentsTheReProductionWiring(unittest.TestCase):
