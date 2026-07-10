@@ -89,11 +89,12 @@ def _claude_exec(prompt: str, model, max_tokens: int) -> str:
     `--tools ""` desliga TODAS as tools internas (allowlist vazia do conjunto built-in;
     verificado: nada executa) + `--strict-mcp-config` (sem --mcp-config → ignora todo MCP,
     fechando a fuga por tool de MCP). `--setting-sources ""` não carrega settings do host
-    (sem poluição de CLAUDE.md/hooks); auth OAuth/keychain fica intacta (ao contrário de
+    (sem poluição de CLAUDE.md/hooks); `--no-session-persistence` não deixa a completion
+    headless suja o session store do host. auth OAuth/keychain fica intacta (ao contrário de
     --bare, que exige ANTHROPIC_API_KEY). Prompt por stdin (robusto p/ prompts de vários KB,
     como o gêmeo codex). max_tokens não é exposto pelo CLI — fica a cargo do modelo.
     Qualquer falha (binário ausente, não-logado, exit != 0) é TRANSPORTE."""
-    cmd = ["claude", "-p", "--tools", "", "--strict-mcp-config",
+    cmd = ["claude", "-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence",
            "--setting-sources", "", "--append-system-prompt", _CLAUDE_COMPLETER_SYSPROMPT]
     if model:
         cmd += ["--model", str(model)]

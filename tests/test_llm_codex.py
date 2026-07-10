@@ -148,6 +148,7 @@ class ClaudeExecCommand(unittest.TestCase):
         i = cmd.index("--tools")
         self.assertEqual(cmd[i + 1], "")
         self.assertIn("--strict-mcp-config", cmd)        # no MCP tool escape
+        self.assertIn("--no-session-persistence", cmd)   # no session-store pollution
         self.assertEqual(seen["input"], "hi there")      # prompt via stdin
 
     def test_nonzero_exit_is_transport_error(self):
