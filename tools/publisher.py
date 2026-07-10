@@ -1763,7 +1763,9 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
 
 
 def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
-                 log=eventlog.LOG, blog_dir=BLOG_DIR):
+                 log=eventlog.LOG, blog_dir=BLOG_DIR, proposes=None, distills=None,
+                 cites=None, lineage=None, bears_on=None, para=None, reports_on=None,
+                 experiment_curation=None):
     """The rito's publication seam (docs/rito-runtime.md) — the terminal stage of the rite.
 
     Proves EXECUTION, never scores the artifact: refuses unless the run dir's sealed manifest
@@ -1818,7 +1820,10 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
             "page_sha256": page_sha}
     published_ev, _ = eventlog.publish_artefato_atomic(
         slug, intent, spec=spec, skill=skill, log=log,
-        dispatch_id=dispatch_id, require_wake=True)
+        dispatch_id=dispatch_id, require_wake=True,
+        proposes=proposes, distills=distills, cites=cites, lineage=lineage,
+        bears_on=bears_on, para=para, reports_on=reports_on,
+        experiment_curation=experiment_curation)
 
     # the EXACT reviewed bytes, temp+rename (a failure here is recoverable from the log)
     out.parent.mkdir(parents=True, exist_ok=True)

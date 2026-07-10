@@ -27,8 +27,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 
-# the producer skills whose publish snippet authors a lineage edge
-PRODUCERS = ("report", "research", "map", "plan", "discovery", "mentor", "prototype")
+# the producer skills whose LEGACY close snippet authors a lineage edge. `report` moved to
+# the rito runtime (docs/rito-runtime.md): its lineage rides `publish_meta` into
+# `publisher.publish_rito` — pinned by ReportLineageRidesTheRito below, not by the
+# run_close-snippet structure checks.
+PRODUCERS = ("research", "map", "plan", "discovery", "mentor", "prototype")
 
 
 def _skill_text(name):
@@ -151,3 +154,19 @@ class ProofPayloadProseNamesLineage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class ReportLineageRidesTheRito(unittest.TestCase):
+    """report exits through rito.run_rito; the authored lineage must still be REACHABLE —
+    it rides the `publish_meta` dict the runtime forwards to publisher.publish_rito, which
+    passes it to the same atomic publish seam the legacy path used."""
+
+    def setUp(self):
+        self.text = _skill_text("report")
+
+    def test_publish_meta_carries_lineage(self):
+        meta = _balanced_span(self.text, "publish_meta={", "{", "}")
+        self.assertIsNotNone(meta, "report/SKILL.md: no publish_meta={...} literal")
+        self.assertIn("'lineage'", meta,
+                      "report/SKILL.md: publish_meta omits 'lineage' — the authored edge "
+                      "would be unreachable from the rito publish path")

@@ -32,6 +32,13 @@ SKILLS = REPO / "skills"
 # The open producer roster the beat round-robins (agreed with S12).
 PRODUCERS = ("report", "map", "plan")
 
+# The rito split (docs/rito-runtime.md): `report` is the EXEMPLAR wired through the rito
+# runtime (tools/rito.py — the experiment's rite as the production path; publication inside
+# the rite, form pinned to the approved renderer). The other producers stay pinned to the
+# legacy close exit until they adopt the same runtime.
+RITO_PRODUCERS = ("report",)
+LEGACY_PRODUCERS = tuple(p for p in PRODUCERS if p not in RITO_PRODUCERS)
+
 # The shared contracts every producer conforms to.
 SCAFFOLD_REF = "scaffold"      # skills/_shared/scaffold.md (loop1/loop2 role-slots)
 PIPELINE_REF = "pipeline"      # skills/_shared/pipeline.md (the close at exit)
@@ -83,9 +90,12 @@ class ProducersFillSlotsAndExitThroughClose(unittest.TestCase):
             self.assertIn(PIPELINE_REF, t, f"{p} does not reference the shared pipeline")
 
     def test_each_producer_publishes_through_the_publisher(self):
-        for p in PRODUCERS:
+        for p in LEGACY_PRODUCERS:
             self.assertIn(PUBLISHER_REF, self.texts[p],
                           f"{p} does not publish via {PUBLISHER_REF}")
+        for p in RITO_PRODUCERS:
+            self.assertIn("tools/rito.py", self.texts[p],
+                          f"{p} does not exit through the rito runtime (tools/rito.py)")
 
     def test_each_producer_does_not_inline_publish_artefato(self):
         # publish through the close, NOT an inline eventlog.publish_artefato snippet.
@@ -94,11 +104,18 @@ class ProducersFillSlotsAndExitThroughClose(unittest.TestCase):
                              f"{p} inlines an eventlog.publish_artefato snippet")
 
     def test_each_producer_routes_through_the_enforced_close(self):
-        # the close is ENFORCED: publish happens ONLY via close.run_close (it mints the
-        # passing-review proof publisher.publish now requires).
-        for p in PRODUCERS:
+        # LEGACY producers: publish happens ONLY via close.run_close (it mints the
+        # passing-review proof publisher.publish requires). RITO producers route through
+        # rito.run_rito — the rite IS the enforced path (publication inside it).
+        for p in LEGACY_PRODUCERS:
             self.assertIn(ENFORCED_CLOSE_REF, self.texts[p].replace(" ", ""),
                           f"{p} does not route through the enforced close ({ENFORCED_CLOSE_REF})")
+        for p in RITO_PRODUCERS:
+            self.assertIn("rito.run_rito", self.texts[p].replace(" ", ""),
+                          f"{p} does not route through the rito runtime (rito.run_rito)")
+            self.assertNotIn("close.run_close(", self.texts[p].replace(" ", ""),
+                             f"{p} still shows a close.run_close(...) call — the rito replaced "
+                             "that exit (cycle-2 regression guard)")
 
     def test_no_producer_shows_a_bare_publisher_publish_call(self):
         # a direct publisher.publish(...) now RAISES (no passing-review proof) — the skill
@@ -116,10 +133,16 @@ class ProducersFillSlotsAndExitThroughClose(unittest.TestCase):
                             f"{p} names none of the role slots {SLOT_TOKENS}")
 
     def test_each_producer_draws_from_the_canonical_palette(self):
-        # blocks come from the one palette (tools/render.py), not freeform HTML.
-        for p in PRODUCERS:
+        # LEGACY: blocks come from the one palette (tools/render.py), not freeform HTML.
+        # RITO: the authoring format is Markdown, rendered by the PINNED approved renderer.
+        for p in LEGACY_PRODUCERS:
             self.assertIn("tools/render.py", self.texts[p],
                           f"{p} does not draw blocks from the canonical palette")
+        for p in RITO_PRODUCERS:
+            self.assertIn("renderer_id", self.texts[p],
+                          f"{p} does not name the pinned renderer (render.RENDERER_ID)")
+            self.assertIn("markdown", self.texts[p],
+                          f"{p} does not declare Markdown as the rite's authoring format")
 
     def test_report_no_longer_mandates_a_fixed_section_order(self):
         # sections are FREE — the welded section-order mandate is gone.
@@ -169,7 +192,8 @@ class ProducerCloseSnippetMintsOverPublishPayload(unittest.TestCase):
 
     def setUp(self):
         # raw (case-preserving) text — we assert on the literal snippet code, not prose.
-        self.texts = {p: _path(p).read_text(encoding="utf-8") for p in PRODUCERS}
+        # RITO producers carry no run_close snippet (publication rides inside the rite).
+        self.texts = {p: _path(p).read_text(encoding="utf-8") for p in LEGACY_PRODUCERS}
 
     def _artefato_literal(self, text):
         """Return the `artefato={...}` dict literal passed to run_close (the snippet builds it
@@ -192,7 +216,7 @@ class ProducerCloseSnippetMintsOverPublishPayload(unittest.TestCase):
         # run_close mints from artefato.get(field); the dict must carry all proof-bound fields
         # (skill, distills, slug, intent, content, cites, proposes) so the mint digest == the
         # verified digest. `content` is the artefato dict's name for the digest's `spec`.
-        for p in PRODUCERS:
+        for p in LEGACY_PRODUCERS:
             lit = self._artefato_literal(self.texts[p])
             for field in ("skill", "distills", "slug", "intent", "content", "cites", "proposes",
                           "dispatch_id", "lineage"):
@@ -204,7 +228,7 @@ class ProducerCloseSnippetMintsOverPublishPayload(unittest.TestCase):
         # the publish_fn must publish FROM `art` (its received artefato), reading the
         # proof-bound fields off it — not from separately-captured locals — so the published
         # payload is provably the one the proof was minted over.
-        for p in PRODUCERS:
+        for p in LEGACY_PRODUCERS:
             t = self.texts[p]
             for field in PROOF_BOUND_ARTEFATO_FIELDS:
                 self.assertIn(f"art['{field}']", t,
@@ -223,10 +247,11 @@ class ProducersWireRealReProduction(unittest.TestCase):
     artefato is no longer enough on its own."""
 
     def setUp(self):
-        self.texts = {p: _path(p).read_text(encoding="utf-8") for p in PRODUCERS}
+        # RITO producers have no run_close improve loop — the rite's own stages revise.
+        self.texts = {p: _path(p).read_text(encoding="utf-8") for p in LEGACY_PRODUCERS}
 
     def test_each_producer_wires_improve_fn(self):
-        for p in PRODUCERS:
+        for p in LEGACY_PRODUCERS:
             self.assertIn("improve_fn", self.texts[p].replace(" ", ""),
                           f"{p} does not wire improve_fn into run_close (a strike would only "
                           "hard-fail, never re-produce richer — #30)")
@@ -234,12 +259,46 @@ class ProducersWireRealReProduction(unittest.TestCase):
     def test_each_producer_improve_fn_takes_feedback(self):
         # improve_fn(artefato, feedback) — run_close hands it the reviewers' rationales+strikes,
         # which it uses to REVISE the draft. The signature must accept the feedback.
-        for p in PRODUCERS:
+        for p in LEGACY_PRODUCERS:
             t = self.texts[p].replace(" ", "")
             self.assertTrue("improve_fn=lambda" in t or "defimprove_fn" in t,
                             f"{p}'s improve_fn is not defined to receive the feedback")
             self.assertIn("feedback", self.texts[p].lower(),
                           f"{p} does not mention the feedback the improve_fn revises from")
+
+
+class ReportExitsThroughTheRito(unittest.TestCase):
+    """The rito exemplar (docs/rito-runtime.md): report's way out is the rite runtime — the
+    whole causal execution as code, publication inside it, form pinned. Pins the load-bearing
+    tokens so the exemplar cannot silently drift back to the legacy exit (cycle-1/2 guard)."""
+
+    def setUp(self):
+        self.text = _path("report").read_text(encoding="utf-8")
+
+    def test_report_routes_through_run_rito(self):
+        self.assertIn("rito.run_rito", self.text.replace(" ", ""))
+
+    def test_report_names_the_detector_command(self):
+        self.assertIn("tools/rito.py verify", self.text)
+
+    def test_report_carries_the_product_spine_via_publish_meta(self):
+        t = self.text
+        self.assertIn("publish_meta", t)
+        for field in ("proposes", "distills", "cites", "lineage", "bears_on", "para",
+                      "reports_on"):
+            self.assertIn(f"'{field}'", t,
+                          f"report's publish_meta omits {field!r} — the rite replaces the "
+                          "path, not the ontology")
+
+    def test_report_shows_no_legacy_close_snippet(self):
+        t = self.text.replace(" ", "")
+        self.assertNotIn("close.run_close(", t)
+        self.assertNotIn("artefato={", t)
+        self.assertNotIn("publish_fn=lambdaart,proof", t)
+
+    def test_report_preserves_the_blind_readable_first_draft(self):
+        self.assertIn("blind", self.text.lower())
+        self.assertIn("first authorial draft", self.text.lower())
 
 
 class PipelineDocumentsTheReProductionWiring(unittest.TestCase):

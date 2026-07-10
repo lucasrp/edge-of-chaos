@@ -302,7 +302,7 @@ def _llm_stage(run, manifest, name, prompt, complete_fn, outputs) -> str:
 
 def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skill="report",
              dispatch_id=None, log=eventlog.LOG, blog_dir=None,
-             publish_fn=DEFAULT_PUBLISH, resume=False) -> dict[str, Any]:
+             publish_fn=DEFAULT_PUBLISH, publish_meta=None, resume=False) -> dict[str, Any]:
     """Execute the WHOLE rite for one artefato: stages 1–10 then publication. Returns the
     completed manifest; raises StageFailure (manifest sealed as failed) on any break.
 
@@ -452,7 +452,8 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
                     import publisher  # lazy: the detector must not need publisher's deps
                     receipt = publisher.publish_rito(
                         slug, run.dir, intent=intent, skill=skill,
-                        dispatch_id=dispatch_id, log=log, blog_dir=blog_dir)
+                        dispatch_id=dispatch_id, log=log, blog_dir=blog_dir,
+                        **(publish_meta or {}))
                 else:
                     receipt = publish_fn(blind_safe, manifest)
                 write_text(run.output_for("publication"),

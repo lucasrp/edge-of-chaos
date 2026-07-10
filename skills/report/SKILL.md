@@ -85,118 +85,78 @@ buries the one move that matters).
 ## Visual idiom — charts + prose
 
 Report's idiom is **prose-and-charts** — visualize what deserves it: where the content is **3+ values,
-a comparison, or a before/after**, emit a `table` / `metrics-grid` (canonical palette) **instead of
-narrating the numbers** (banca cega da forma 2026-07-04, vencedor v2-plus-visual: the set's disease
-was UNDER-render — prose walls over comparative content). The razor cuts both ways: a structural
-block appears only where the content is comparative — a table that **replaces** a paragraph, never
-one that decorates it. The Feynman blocks (`derivation`, `gap-table`) are reachable here too, as
-palette elements, never mandatory sections.
+a comparison, or a before/after**, emit a **Markdown table** **instead of narrating the numbers**
+(banca cega da forma 2026-07-04, vencedor v2-plus-visual: the set's disease was UNDER-render — prose
+walls over comparative content). The razor cuts both ways: a table appears only where the content is
+comparative — a table that **replaces** a paragraph, never one that decorates it.
 
-## Build the body from the canonical palette
+## The rite is the path — exit through `tools/rito.py` (docs/rito-runtime.md)
 
-Emit a **structured spec** (blocks), not freeform HTML — the body is rendered from the one canonical
-element-vocabulary in `tools/render.py` (paragraph, table, metrics-grid, callout, derivation, … — one
-registry). The publisher renders the spec and wraps it in the self-contained neutral page; you do not
-write the HTML shell or the CSS yourself.
+**The report producer traverses the experiment's rite as executable code.** You do not build a
+structured spec, you do not call `close.run_close`, and you **never** call `publisher.publish` —
+the rite runtime sequences the whole causal execution (grounding-1 through publication of the
+rendered page) and seals a receipt for every stage. Your job is the COGNITION: the per-stage
+prompts. The runtime owns sequencing, sealing, rendering (the pinned neutral-markdown renderer,
+`render.RENDERER_ID`) and publication. A run that didn't publish didn't finish the rite.
 
-## Publish through the close — hand the SETTLED spec to the publisher (Facet B, #61)
+The stages you feed (authoring format is **Markdown**, H1 first; tables/lists/blockquotes carry
+the visual idiom): `grounding1_dossier` (your gathered factual dossier — the gather-grounding
+slot above) → `first_authorial_draft` → `gap_critique` → `grounding2_targeted` →
+`provisional_rewrite` → `fact_audit` → `author_correction` → `treatment_cleanup` (deterministic
+copy when the leak scan is clean) → `final_html` (pinned render, runtime-owned) →
+`final_review` (fail-closed `ACCEPTANCE:` header) → `publication`. The canonical prompt bodies
+are archived in `drafts/old-edge-double-grounding-repro/run.py`; adapt their content to THIS
+theme — the produce guidance above is what the first-draft prompt must carry.
 
-**You do not run `close.run_close` inline.** Once the draft is **SETTLED** — every claim already made, the
-context still rich in your window — **write the artefato fields to disk pointers and hand off to the
-`{prefix}-publisher` subagent** (via the Agent tool, `.claude/agents/publisher.md`) with the **publish-brief**:
-`{dispatch_id, main_session_id (your CLAUDE_CODE_SESSION_ID), skill, intent_kernel, slug, spec_path,
-cites_path, proposes_path, distills_path, lineage_path}` — **pointers, never a context dump**. The publisher
-runs the whole close below in a **clean process** (the machine that stalled the producer >4min inline lives
-in the sub now) and returns a typed **pull-channel** `{status, slug, url, cost, residuals, rationales,
-bounce_reason}`. You **read that back**: `published`/`residual-published` → done; `bounced: needs author` →
-you hold the rich context, so re-produce from the named gap and re-hand the pointers under the **same
-`dispatch_id`** (no re-wake). Your window stays on the thinking. The close it runs is exactly:
+The wake's `DISPATCH_ID=<id>` line rides into the run (the canonical publish refuses without
+it, E1c). The product spine still ships: pass `publish_meta` with `proposes` (candidate
+steers), `distills` (existing cluster threads only — empty over fabricated), `cites` (source +
+the snippet you actually used), `lineage` (`builds_on` the prior the surf offers), `bears_on`
+(curadoria autoral no contexto quente: SÓ sobre hipótese VIVA — `cortex.hypotheses_at()` lists
+them; empty over fabricated), `para` (explicit target reader; empty resolves to the mentee)
+and `reports_on` (Experiment ids this report makes navigable).
 
-When this report closes an Experiment, it must carry a canonical `reports_on` id (`exp` + digits,
-allocated by `eventlog.declare_experiment`) plus `experiment_curation`. For long-running experiment
-consolidation, the `experiment-reporter` background subagent authors those pointer files first and then
-hands the settled report to this publisher path, so the main mentor conversation does not block inline.
+    tools/edge-python <<'EOF'
+    import sys; sys.path.insert(0, 'tools')
+    import rito, llm_routes
 
-You do **not** inline an `eventlog` publish snippet, and you **never** call `publisher.publish` directly —
-that is now the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
-passing-review proof only `close.run_close` mints (it raises without a valid `verdict=`). The proof is
-bound to a sha256 **digest** of the exact publish payload (slug + spec + intent + cites + proposes +
-**distills** + **skill** + **lineage** + **dispatch_id** — EVERY persisted publish arg), carries **both** reviewer verdicts, and stamps a
-`run_close`-only secret token — so a hand-built dict, a stale proof, a proof minted for a different
-artefato (digest mismatch), or one with `distills`/`skill`/`lineage` altered post-mint cannot publish. Exit through
-the enforced close: build the artefato carrying **every proof-bound field** (`slug`, `intent`,
-`content`=spec, `cites`, `proposes`, **`distills`**, **`skill`**, **`lineage`**, **`dispatch_id`** — E1b) so the minted digest equals the publish
-payload, then
-call `close.run_close(artefato, produce_fn, publish_fn=…)`, which runs the genus contract **first**
-(a genus violation bounces — it can never mint a pass proof) → **both blind reviewers** (bounded bounce,
-`BOUNCE_MAX` — a strike re-produces, then hard-fails) → and **only on pass** mints the bound proof and
-publishes via the `publish_fn` — a `tools/publisher.py`-backed publish_fn that receives the minted `proof`
-and hands it to the publisher as `verdict=proof` (the same payload it was bound to). The publisher
-re-derives the digest from what it is about to publish, verifies token + digest + both verdicts, then
-atomically renders the spec → self-contained
-neutral HTML at `blog/entries/<slug>.html`, records the `artefato.published` event AND its **mandatory
-`intent.kernel`** in one act (C3 enforced at the seam — you cannot publish without the *why*: ~3 lines,
-what is open, the next bet), and emits a `source.signal` per cited snippet. A report exists to **move or
-confirm the Direction** — pass its candidate steers and provenance through the publish_fn:
+    slug = '<slug>'
+    dispatch_id = '<dispatch-id-from-DISPATCH_ID-line>'
 
-- **`proposes`** — the candidate steers (you **declare**; you never write Direction yourself; the sweep
-  fans them into the non-curated `proposed` tier; the grill curates).
-- **`distills`** — the existing **threads** the synthesis draws on, as cluster refs (`cluster:<label>`).
-  Link **only threads that already exist** (read the Knowledge clusters in the briefing). If none fits,
-  leave it **empty** — never fabricate a link; thread maintenance attaches/spawns one later.
-- **`cites`** — each **source** with the snippet you actually used (the intrinsic, mechanical
-  **Source-feedback** signal, never a self-rating); `kind` is `mundo` or `atividade`.
+    def complete_fn(route, prompt, max_tokens):
+        return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
 
-The wake's entry-driver printed a machine-readable **`DISPATCH_ID=<id>`** line — carry that exact id
-into the artefato as **`dispatch_id`** (proof-bound like `slug`, E1b; the canonical publish refuses
-without it, E1c — never reconstruct it from the log).
+    prompts = {
+        'first_authorial_draft': lambda o: f"<the produce guidance, this theme>\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'gap_critique':          lambda o: f"<gap critique of the draft against the dossier>\n\n{o['first_authorial_draft']}",
+        'grounding2_targeted':   lambda o: f"<targeted grounding answering the named gaps>\n\n{o['gap_critique']}",
+        'provisional_rewrite':   lambda o: f"<same-author rewrite folding critique+grounding2>\n\n{o['grounding2_targeted']}",
+        'fact_audit':            lambda o: f"<independent fact audit vs grounding1>\n\n{o['provisional_rewrite']}",
+        'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
+        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
+        'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",
+    }
 
-      tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import close, publisher, harvest; \
-        slug='<slug>'; intent='open: …; bet: …'; \
-        dispatch_id='<dispatch-id-from-DISPATCH_ID-line>'; \
-        main_session_id='<main-session-id-from-the-publish-brief>'  # the MAIN's session — the S6 floor's teeth (#61) ; \
-        spec={'sections':[{'title':'…','blocks':[{'type':'paragraph','text':'…'}]}]}; \
-        proposes=[{'body':'…','kind':'constraint'}]; \
-        distills=['cluster:<label>']  # the existing threads it draws on — [] if none fits ; \
-        cites=[{'ref':'<source-key>','kind':'mundo','relevant':True,'snippet':'<the text you used>'}]; \
-        lineage=[{'type':'builds_on','slug':'<prior-slug>'}]  # [] if none — the prior R1's surf OFFERS ; \
-        # curadoria autoral: YOU just derived the theme — author the judgement while the context is hot \
-        # (pipeline.md, consolidação): bears_on SÓ sobre hipótese VIVA — vazio honesto, NUNCA fabricado. \
-        bears_on=[]  # [{'hypothesis':'<ulid>','valence':'supports|refutes|qualifies|inconclusive','rationale':'…'}] — cortex.hypotheses_at() lists the live ones; none genuinely touched → [] ; \
-        para=[]  # the EXPLICIT target reader (promoted parceiro — a colleague/client); [] resolves MECHANICALLY to the operador-mentee default (every artefato is PARA someone) ; \
-        reports_on=[]  # Experiment ids this report makes navigable, e.g. ['exp40']; [] if this is not an experiment report ; \
-        experiment_curation=None  # when reports_on closes an experiment: {'prose':curated_conclusion,'typed':{'claim':...,'scope':...,'status':...,'caveat':...,'supports':[...],'excludes':[...],'next':...},'canonical_artifacts':[...]} ; \
-        # the artefato MUST carry EVERY proof-bound field (skill + distills + lineage included): run_close \
-        # mints the digest from THIS dict, so it must equal the exact publish payload. \
-        artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
-          'cites':cites,'distills':distills,'skill':'report','lineage':lineage, \
-          'dispatch_id':dispatch_id,'bears_on':bears_on,'para':para,'reports_on':reports_on, \
-          'experiment_curation':experiment_curation}; \
-        # the publisher-backed publish_fn reads the payload OFF `art` (the minted artefato), so \
-        # what publishes is provably what the proof was minted over; proof rides as verdict=. \
-        pub=publisher.publish; \
-        publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
-          skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
-          cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id'], \
-          bears_on=art.get('bears_on'), para=art.get('para'), \
-          reports_on=art.get('reports_on'), \
-          experiment_curation=art.get('experiment_curation'));  # ticket A: digest-bound like lineage \
-        # WIRE REAL RE-PRODUCTION (#30): improve_fn(art, feedback) REVISES the draft from the \
-        # reviewers' rationales+strikes — incl. a rich-rite floor strike (derivation / \
-        # what-i-dont-know / external-frame / lineage). run_close loops it IMPROVE_ROUNDS=2 BEFORE \
-        # the gating close, so a missing move ENRICHES the draft rather than only hard-failing. \
-        # Re-derive deeper from the named gaps; return the richer artefato (carrying every field). \
-        improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
-        close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
-          floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session=''),  # S6 floor (#61): the PUBLISHER runs the close, so point session_id at the MAIN transcript (where the reads live) AND clear child_session='' (the publisher is a child) — else the floor darks out and loses its teeth; knob EDGE_GROUNDING_FLOOR, default 1=observe (ticket B) \
-          complete_fn=<review-completer>, publish_fn=publish_fn)"
+    rito.run_rito(slug, run_dir=f'state/rito/{slug}',
+                  grounding1_fn=lambda: '<the factual dossier you gathered>',
+                  prompts=prompts, complete_fn=complete_fn,
+                  intent='open: …; bet: …', skill='report', dispatch_id=dispatch_id,
+                  publish_meta={'proposes': [], 'distills': [], 'cites': [],
+                                'lineage': [], 'bears_on': [], 'para': [], 'reports_on': []})
+    EOF
 
-**Project-after-publish is now AUTOMATIC** (#30): `publisher.publish` runs the graph projection
-(`MERGE (:Artefato …)` + `SERVES` the objective + `DISTILLS / CITES / PROPOSES` + the content
-embedding + the space-0 backbone, `skills/_shared/memory.md`) as a GUARANTEED, best-effort
-side-effect right after the atomic commit — so the synthesis is recallable next beat **without
-the producer remembering to project**. A failed projection is reported, never fatal (the log is
-canonical; reproject next beat). You do not run the projection snippet by hand anymore.
+The publisher's rito seam recomputes the pinned render from the sealed markdown and **refuses a
+hash mismatch** — the exact reviewed bytes, and only they, land at `blog/entries/<slug>.html`,
+bound to the `artefato.published` event + mandatory `intent.kernel` in one atomic act (C3). The
+first authorial draft stays sealed and addressable in the run dir for later blind reading.
+Anyone can prove the rite ran:
+
+    tools/edge-python tools/rito.py verify state/rito/<slug>
+
+**Adoption pattern for the other producers** (do not fork the runtime): supply your own
+`grounding1_fn` + `prompts` from YOUR skill's cognitive content and exit through the same
+`rito.run_rito` — same stages, same sealing, same pinned form, same detector
+("o edge deve soar o mesmo across artefatos"). See docs/rito-runtime.md.
 
 The Artefato is **transient** — it cools and is prunable; it also **bears the comment field**, the surface
 the mentee's later comment consolidates from. The durable knowledge it distills lives in the **cluster**,

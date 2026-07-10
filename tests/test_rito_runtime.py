@@ -88,7 +88,8 @@ def _stamp_wake(log):
     return did
 
 
-def _green_run(tmp, canned=None, order=None, publish_fn=rito.DEFAULT_PUBLISH):
+def _green_run(tmp, canned=None, order=None, publish_fn=rito.DEFAULT_PUBLISH,
+               publish_meta=None):
     """Run the full rite offline into tmp; returns (manifest, run_dir, log, blog_dir)."""
     tmp = Path(tmp)
     log, blog, run_dir = tmp / "log.jsonl", tmp / "blog", tmp / "run"
@@ -105,6 +106,7 @@ def _green_run(tmp, canned=None, order=None, publish_fn=rito.DEFAULT_PUBLISH):
         log=log,
         blog_dir=blog,
         publish_fn=publish_fn,
+        publish_meta=publish_meta,
     )
     return manifest, run_dir, log, blog
 
@@ -215,6 +217,19 @@ class FullRiteTest(unittest.TestCase):
             self.assertEqual(spec["rito_manifest_sha256"], rito.manifest_core_hash(manifest))
             page_sha = hashlib.sha256((blog / f"{SLUG}.html").read_bytes()).hexdigest()
             self.assertEqual(spec["page_sha256"], page_sha)
+
+    def test_publish_meta_rides_the_published_event(self):
+        """The product spine (proposes/cites/distills/lineage) passes through the rito
+        publication untouched — the rite replaces the path, not the ontology."""
+        meta = {"proposes": [{"body": "medir a rodada 4", "kind": "constraint"}],
+                "cites": [{"ref": "exp072", "kind": "atividade", "relevant": True,
+                           "snippet": "29-8-3"}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, log, _ = _green_run(tmp, publish_meta=meta)
+            ev = next(e for e in eventlog.read(log=log)
+                      if e["type"] == "artefato.published")
+            self.assertEqual(ev["payload"]["proposes"], meta["proposes"])
+            self.assertEqual(ev["payload"]["cites"], meta["cites"])
 
     def test_first_authorial_draft_stays_addressable_for_blind_reading(self):
         with tempfile.TemporaryDirectory() as tmp:
