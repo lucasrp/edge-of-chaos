@@ -421,11 +421,13 @@ class PublisherCarriesTheProofBoundDispatchId(unittest.TestCase):
             {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
              "reviewer": close.REGULAR_REVIEWER_ID},
         ]
+        # legacy-publish vehicle: `report` moved to the rite and is refused by publisher.publish
+        # now, so this dispatch-id test drives a still-legacy producer (prototype).
         proof = close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
-                                  cites=cites, proposes=[], skill="report",
+                                  cites=cites, proposes=[], skill="prototype",
                                   dispatch_id=proof_dispatch_id)
         eventlog.dispatch_open({"dispatch_id": dispatch_id}, log=log)
-        publisher.publish(slug, spec, intent, skill="report", verdict=proof,
+        publisher.publish(slug, spec, intent, skill="prototype", verdict=proof,
                           cites=cites, date="2026-07-01", log=log,
                           blog_dir=Path(tmp) / "blog", dispatch_id=dispatch_id)
         return log

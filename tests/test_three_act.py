@@ -121,11 +121,13 @@ class PublishPersistsTheOrigin(unittest.TestCase):
         eventlog.dispatch_open(open_payload, log=log)
         slug, intent = "origin-rides", "open: x; bet: y"
         did = open_payload.get("dispatch_id")
+        # legacy-publish vehicle: `report` moved to the rite and is refused by publisher.publish;
+        # origin persistence is skill-agnostic, so drive a still-legacy producer here.
         publisher.publish(
-            slug, _spec(), intent, skill="report", date="2026-07-05",
+            slug, _spec(), intent, skill="prototype", date="2026-07-05",
             log=log, blog_dir=tmp, embed_fn=lambda t: [1.0, 0.0], project_fn=None,
             dispatch_id=did,
-            verdict=_passing_proof(slug, _spec(), intent, dispatch_id=did))
+            verdict=_passing_proof(slug, _spec(), intent, dispatch_id=did, skill="prototype"))
         evs = eventlog.read(types=["artefato.published"], log=log)
         return evs[-1]["payload"]
 

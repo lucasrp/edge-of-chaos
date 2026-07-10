@@ -175,14 +175,16 @@ class PublishForwardsParaDefaultToProjection(unittest.TestCase):
             {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
              "reviewer": close.REGULAR_REVIEWER_ID},
         ]
+        # legacy-publish vehicle: `report` moved to the rite and is refused by publisher.publish;
+        # the para-default seam is skill-agnostic, so drive a still-legacy producer here.
         proof = close._mint_proof(verdicts, slug="pd", spec=spec, intent=intent,
-                                  cites=[], proposes=[], skill="report")
+                                  cites=[], proposes=[], skill="prototype")
         seen = {}
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.dict(os.environ, {"EDGE_MENTEE": "op"}):
             log = _log(tmp)
             eventlog.dispatch_open(log=log)
-            publisher.publish("pd", spec, intent, skill="report", verdict=proof,
+            publisher.publish("pd", spec, intent, skill="prototype", verdict=proof,
                               log=log, blog_dir=tmp, embed_fn=lambda t: [1.0],
                               project_fn=lambda *a, **k: seen.update(k))
             ev = eventlog.read(types=["artefato.published"], log=log)[-1]
@@ -200,14 +202,15 @@ class PublishForwardsParaDefaultToProjection(unittest.TestCase):
             {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
              "reviewer": close.REGULAR_REVIEWER_ID},
         ]
+        # legacy-publish vehicle (see test_publish_with_no_para_projects_the_default).
         proof = close._mint_proof(verdicts, slug="pe", spec=spec, intent=intent,
-                                  cites=[], proposes=[], skill="report", para=["Julio"])
+                                  cites=[], proposes=[], skill="prototype", para=["Julio"])
         seen = {}
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.dict(os.environ, {"EDGE_MENTEE": "op"}):
             log = _log(tmp)
             eventlog.dispatch_open(log=log)
-            publisher.publish("pe", spec, intent, skill="report", verdict=proof,
+            publisher.publish("pe", spec, intent, skill="prototype", verdict=proof,
                               para=["Julio"], log=log, blog_dir=tmp,
                               embed_fn=lambda t: [1.0],
                               project_fn=lambda *a, **k: seen.update(k))

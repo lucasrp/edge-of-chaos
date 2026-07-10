@@ -395,7 +395,7 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
                             spec=None, log=LOG, *, lineage=None, skill=None, require_wake=False,
                             adoption=None, dispatch_id=None, residuals=None, gate=None,
                             bears_on=None, para=None, reports_on=None,
-                            experiment_curation=None):
+                            experiment_curation=None, _rite_authorized=False):
     """Publish an Artefato AND its `intent.kernel` in ONE indivisible write (CONTRACT C3 at the
     publish seam): you cannot publish without the *why*. Both events land in a single
     `append_batch` — there is no crash window in which `published` exists without its kernel (#3).
@@ -427,6 +427,18 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
     (install identity, not forgeable producer data). An explicit `para` keeps it None."""
     if not (intent and intent.strip()):
         raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
+    # The legacy prose publish road is CLOSED for the rito-migrated producers at the COMMIT
+    # primitive itself (codex adversarial gate), not just at publisher.publish: a migrated
+    # producer's ONLY road to a published event is the rite (rito.run_rito → publisher.publish_rito,
+    # which passes _rite_authorized=True here). A direct atomic commit for a migrated skill is
+    # refused — so no back door (a hand-rolled eventlog.publish_artefato_atomic snippet, or a
+    # close.run_close publish_fn pointed here) can land a legacy artefato. prototype/lazer excepted.
+    import producer_descriptor  # lazy: keep the storage layer import-light
+    if not _rite_authorized and skill in producer_descriptor.RITO_PRODUCERS:
+        raise ValueError(
+            f"{skill}: legacy publish is closed for rito producers — commit through the rite "
+            "(rito.run_rito → publisher.publish_rito), not a direct atomic commit "
+            "(docs/rito-runtime.md). prototype/lazer excepted.")
     if _is_canonical_log(log) and not (isinstance(dispatch_id, str) and dispatch_id.strip()):
         raise ValueError(
             f"cannot publish artefato {slug!r} to the canonical log without a dispatch_id "

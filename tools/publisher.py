@@ -1672,6 +1672,14 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
         raise ValueError(
             f"skill {skill!r} is not in the producer roster {PRODUCER_ROSTER} — "
             "an out-of-roster skill is refused before anything is written (Codex round-4)")
+    # The legacy publish road is CLOSED for the rito-migrated producers (docs/rito-runtime.md):
+    # their ONLY road is the rite (rito.run_rito → publish_rito, which does NOT route through
+    # here). This refusal makes the legacy close (close.run_close → publish) impossible for them,
+    # so the rite is forced rather than opt-in-by-cognition. prototype/lazer stay legacy (excepted).
+    if skill in producer_descriptor.RITO_PRODUCERS:
+        raise ValueError(
+            f"{skill}: legacy publish is closed for rito producers — produce through "
+            "rito.run_rito (docs/rito-runtime.md). prototype/lazer excepted.")
 
     out = _safe_target(slug, blog_dir)
 
@@ -1860,7 +1868,7 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
             dispatch_id=dispatch_id, require_wake=True,
             proposes=proposes, distills=distills, cites=cites, lineage=lineage,
             bears_on=bears_on, para=para, reports_on=reports_on,
-            experiment_curation=experiment_curation)
+            experiment_curation=experiment_curation, _rite_authorized=True)
 
     # the EXACT reviewed bytes, temp+rename (a failure here is recoverable from the log)
     out.parent.mkdir(parents=True, exist_ok=True)

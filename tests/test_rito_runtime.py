@@ -122,8 +122,12 @@ def _legacy_outputs(tmp):
     spec = {"sections": [{"title": "Resultado", "blocks": [
         {"type": "paragraph", "text": "O indice venceu por 29 a 8."}]}]}
     did = _stamp_wake(log)
+    # fabricate the legacy-shaped event (report via the direct atomic commit) the detector must
+    # still REJECT — the migrated-producer guard on the primitive is bypassed here with the
+    # rite-authorized flag purely to RE-CREATE the pre-rite shape for the detector to catch.
     eventlog.publish_artefato_atomic(
-        SLUG, INTENT, spec=spec, skill="report", log=log, dispatch_id=did)
+        SLUG, INTENT, spec=spec, skill="report", _rite_authorized=True, log=log,
+        dispatch_id=did)
     page = publisher._page(
         SLUG, "<p>O indice venceu por 29 a 8.</p>", skill="report",
         date="2026-07-10", css=publisher.BASE_CSS.read_text())
