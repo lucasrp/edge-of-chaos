@@ -21,7 +21,7 @@ PROVIDER_BASE_URLS = {
 }
 
 # Providers cobrados por ASSINATURA (CLI local, sem secret_ref) — fora do registry de base_url.
-SUBSCRIPTION_PROVIDERS = ("codex",)
+SUBSCRIPTION_PROVIDERS = ("codex", "claude")
 
 # Status HTTP que são sempre transporte/bilhetagem/auth — nunca um juízo sobre o conteúdo.
 _TRANSPORT_STATUSES = (401, 403, 429)
@@ -74,14 +74,63 @@ def _codex_exec(prompt: str, model, max_tokens: int) -> str:
         Path(out_path).unlink(missing_ok=True)
 
 
-class CodexClient:
-    """Cliente do provider `codex`: completions pela assinatura via CLI, sem chave.
+# Instrução de sistema que mantém o -p como completer PURO: o modelo não tem tools
+# (--tools ""), mas sem isto ele emite sintaxe de tool-use como TEXTO ao tentar usá-las.
+_CLAUDE_COMPLETER_SYSPROMPT = (
+    "You are a text-completion endpoint. Return only the completion for the user "
+    "content. Never call, describe, or emit tool-use syntax; you have no tools."
+)
 
-    `exec_fn(prompt, model, max_tokens) -> str` é o seam injetável (testes offline);
-    o real é `_codex_exec`. Não expõe endpoint de embedding (limitação da assinatura)."""
+
+def _claude_exec(prompt: str, model, max_tokens: int) -> str:
+    """Uma completion via `claude -p` (print mode, não-interativo) — o host que roda o
+    Claude Code se usa a si mesmo como writer, pela assinatura, sem chave de API.
+
+    `--tools ""` desliga TODAS as tools internas (allowlist vazia do conjunto built-in;
+    verificado: nada executa) + `--strict-mcp-config` (sem --mcp-config → ignora todo MCP,
+    fechando a fuga por tool de MCP). `--setting-sources ""` não carrega settings do host
+    (sem poluição de CLAUDE.md/hooks); auth OAuth/keychain fica intacta (ao contrário de
+    --bare, que exige ANTHROPIC_API_KEY). Prompt por stdin (robusto p/ prompts de vários KB,
+    como o gêmeo codex). max_tokens não é exposto pelo CLI — fica a cargo do modelo.
+    Qualquer falha (binário ausente, não-logado, exit != 0) é TRANSPORTE."""
+    cmd = ["claude", "-p", "--tools", "", "--strict-mcp-config",
+           "--setting-sources", "", "--append-system-prompt", _CLAUDE_COMPLETER_SYSPROMPT]
+    if model:
+        cmd += ["--model", str(model)]
+    try:
+        r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=600)
+    except FileNotFoundError:
+        raise LLMTransportError("claude CLI ausente no host (provider claude requer o binário)")
+    except subprocess.TimeoutExpired:
+        raise LLMTransportError("claude -p timeout (600s)")
+    if r.returncode != 0:
+        raise LLMTransportError(
+            f"claude -p exit {r.returncode}: {(r.stderr or r.stdout)[-300:]}")
+    return r.stdout.strip()
+
+
+class SubscriptionClient:
+    """Cliente de provider por ASSINATURA (CLI local, sem chave): completions via
+    `exec_fn(prompt, model, max_tokens) -> str`, o seam injetável (testes offline).
+    Não expõe endpoint de embedding (limitação da assinatura). `name` rotula o probe."""
+
+    name = "assinatura"
+    _default_exec = None
 
     def __init__(self, exec_fn=None):
-        self.exec_fn = exec_fn or _codex_exec
+        self.exec_fn = exec_fn or type(self)._default_exec
+
+
+class CodexClient(SubscriptionClient):
+    """Provider `codex`: completions pela assinatura via `codex exec`, sem chave."""
+    name = "codex"
+    _default_exec = staticmethod(_codex_exec)
+
+
+class ClaudeClient(SubscriptionClient):
+    """Provider `claude`: completions pela assinatura via `claude -p`, sem chave."""
+    name = "claude"
+    _default_exec = staticmethod(_claude_exec)
 
 
 def resolve_base_url(router: dict):
@@ -89,9 +138,13 @@ def resolve_base_url(router: dict):
     return router.get("base_url") or PROVIDER_BASE_URLS.get(router.get("provider"))
 
 
+_SUBSCRIPTION_CLIENTS = {"codex": CodexClient, "claude": ClaudeClient}
+
+
 def make_client(router: dict, api_key: str):
-    if router.get("provider") in SUBSCRIPTION_PROVIDERS:
-        return CodexClient()
+    provider = router.get("provider")
+    if provider in SUBSCRIPTION_PROVIDERS:
+        return _SUBSCRIPTION_CLIENTS[provider]()
     from openai import OpenAI
     base = resolve_base_url(router)
     if not base:
@@ -103,7 +156,7 @@ def complete(client, model: str, prompt: str, max_tokens: int = 800) -> str:
     """Texto de uma chamada chat. Trata max_completion_tokens (gpt-5) vs max_tokens.
 
     Falha de infra (auth/quota/CLI) sobe como LLMTransportError; o resto sobe intacto."""
-    if isinstance(client, CodexClient):
+    if isinstance(client, SubscriptionClient):
         return client.exec_fn(prompt, model, max_tokens)
     last = None
     for tok_param in ("max_completion_tokens", "max_tokens"):
@@ -136,13 +189,13 @@ def probe(client, model: str, kind: str = "chat") -> dict:
     max_completion_tokens (gpt-5/o1/o3) e trocando para max_tokens se rejeitado.
     Erros reais (401/403/429) são reportados direto. No provider codex, chat proba via
     exec mínimo; embedding é sempre não-suportado (assinatura não expõe o endpoint)."""
-    if isinstance(client, CodexClient):
+    if isinstance(client, SubscriptionClient):
         if kind == "embedding":
             return {"ok": False, "status": None,
-                    "detail": "codex não expõe endpoint de embedding — rota precisa de chave de API"}
+                    "detail": f"{client.name} não expõe endpoint de embedding — rota precisa de chave de API"}
         try:
             client.exec_fn("Responda exatamente: ok", model, 16)
-            return {"ok": True, "status": 200, "detail": "OK (codex exec)"}
+            return {"ok": True, "status": 200, "detail": f"OK ({client.name} exec)"}
         except LLMTransportError as e:
             return {"ok": False, "status": e.status, "detail": e.detail[:140]}
     if kind == "embedding":

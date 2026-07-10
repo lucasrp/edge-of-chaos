@@ -60,7 +60,7 @@ def routes(repo=REPO):
         provider = r.get("provider")
         subscription = provider in _llm.SUBSCRIPTION_PROVIDERS
         if subscription:
-            credential = "assinatura" if shutil.which("codex") else "codex CLI ausente"
+            credential = "assinatura" if shutil.which(provider) else f"{provider} CLI ausente"
         else:
             credential = "ok" if _secret_value(repo, r.get("secret_ref")) else "ausente"
         out.append({
@@ -135,7 +135,7 @@ def completer_for(route, repo=REPO, max_tokens=4000, exec_fn=None):
         raise ValueError(f"rota desconhecida: {route!r}")
     r = routers[route]
     if r.get("provider") in _llm.SUBSCRIPTION_PROVIDERS:
-        client = _llm.CodexClient(exec_fn=exec_fn)
+        client = _llm._SUBSCRIPTION_CLIENTS[r["provider"]](exec_fn=exec_fn)
     else:
         key = _secret_value(repo, r.get("secret_ref"))
         if not key:
