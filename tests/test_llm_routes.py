@@ -78,6 +78,14 @@ class Routes(unittest.TestCase):
         self.assertIn(rs["review"]["credential"], ("assinatura", "codex CLI ausente"))
 
 
+    def test_claude_route_reports_subscription_not_secret(self):
+        repo = temp_repo()
+        llm_routes.set_provider("chat", "claude", repo=repo, model="opus")
+        rs = {r["route"]: r for r in llm_routes.routes(repo=repo)}
+        self.assertTrue(rs["chat"]["subscription"])
+        self.assertIn(rs["chat"]["credential"], ("assinatura", "claude CLI ausente"))
+
+
 class SetProvider(unittest.TestCase):
     def test_switch_review_to_codex_rewrites_only_that_line(self):
         repo = temp_repo()
@@ -123,6 +131,19 @@ class CompleterFor(unittest.TestCase):
         fn = llm_routes.completer_for("review", repo=repo, exec_fn=fake_exec)
         self.assertEqual(fn("judge"), '{"pass": true}')
         self.assertEqual(seen["prompt"], "judge")
+
+    def test_claude_route_yields_claude_backed_completer(self):
+        repo = temp_repo(openai_key=None)   # SEM chave de API nenhuma
+        llm_routes.set_provider("chat", "claude", repo=repo, model="opus")
+        seen = {}
+
+        def fake_exec(prompt, model, max_tokens):
+            seen.update(prompt=prompt, model=model)
+            return "the completion"
+
+        fn = llm_routes.completer_for("chat", repo=repo, exec_fn=fake_exec)
+        self.assertEqual(fn("write"), "the completion")
+        self.assertEqual(seen["prompt"], "write")
 
     def test_api_route_without_key_raises_transport_error(self):
         repo = temp_repo(openai_key=None)

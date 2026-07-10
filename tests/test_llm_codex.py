@@ -92,6 +92,109 @@ class TransportClassification(unittest.TestCase):
             _llm.complete(client, "gpt-5.4", "p")
 
 
+class MakeClientClaude(unittest.TestCase):
+    def test_claude_needs_no_api_key(self):
+        client = _llm.make_client({"provider": "claude"}, api_key=None)
+        self.assertIsInstance(client, _llm.ClaudeClient)
+
+
+class CompleteViaClaude(unittest.TestCase):
+    def test_complete_routes_through_claude_exec(self):
+        calls = {}
+
+        def fake_exec(prompt, model, max_tokens):
+            calls.update(prompt=prompt, model=model, max_tokens=max_tokens)
+            return "completion text"
+
+        client = _llm.ClaudeClient(exec_fn=fake_exec)
+        out = _llm.complete(client, "opus", "write this", max_tokens=123)
+        self.assertEqual(out, "completion text")
+        self.assertEqual(calls["prompt"], "write this")
+        self.assertEqual(calls["model"], "opus")
+        self.assertEqual(calls["max_tokens"], 123)
+
+    def test_claude_failure_is_transport_error(self):
+        def broken_exec(prompt, model, max_tokens):
+            raise _llm.LLMTransportError("claude -p exit 1: Not logged in")
+
+        client = _llm.ClaudeClient(exec_fn=broken_exec)
+        with self.assertRaises(_llm.LLMTransportError):
+            _llm.complete(client, "opus", "p")
+
+
+class ClaudeExecCommand(unittest.TestCase):
+    """The real _claude_exec builds a print-mode, no-tools command and treats any
+    non-zero exit / missing binary / timeout as TRANSPORT — never returns text."""
+
+    def _run(self, fake_run):
+        from unittest import mock
+        with mock.patch("_llm.subprocess.run", fake_run):
+            return _llm._claude_exec("hi there", "opus", 800)
+
+    def test_command_is_print_mode_and_disables_all_tools(self):
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["cmd"] = cmd
+            seen["input"] = kw.get("input")
+            return _Result(0, "pong", "")
+
+        self.assertEqual(self._run(fake_run), "pong")
+        cmd = seen["cmd"]
+        self.assertEqual(cmd[0], "claude")
+        self.assertIn("-p", cmd)
+        self.assertIn("opus", cmd)                       # model passed through
+        # no-tools flag: --tools "" disables all built-in tools
+        i = cmd.index("--tools")
+        self.assertEqual(cmd[i + 1], "")
+        self.assertIn("--strict-mcp-config", cmd)        # no MCP tool escape
+        self.assertEqual(seen["input"], "hi there")      # prompt via stdin
+
+    def test_nonzero_exit_is_transport_error(self):
+        def fake_run(cmd, **kw):
+            return _Result(1, "", "Not logged in")
+
+        from unittest import mock
+        with mock.patch("_llm.subprocess.run", fake_run):
+            with self.assertRaises(_llm.LLMTransportError):
+                _llm._claude_exec("p", "opus", 800)
+
+    def test_missing_binary_is_transport_error(self):
+        def fake_run(cmd, **kw):
+            raise FileNotFoundError("claude")
+
+        from unittest import mock
+        with mock.patch("_llm.subprocess.run", fake_run):
+            with self.assertRaises(_llm.LLMTransportError):
+                _llm._claude_exec("p", "opus", 800)
+
+
+class _Result:
+    def __init__(self, returncode, stdout, stderr):
+        self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+
+class ProbeClaude(unittest.TestCase):
+    def test_probe_chat_ok(self):
+        client = _llm.ClaudeClient(exec_fn=lambda p, m, t: "ok")
+        r = _llm.probe(client, "opus")
+        self.assertTrue(r["ok"])
+
+    def test_probe_chat_failure_reports_not_raises(self):
+        def broken(p, m, t):
+            raise _llm.LLMTransportError("claude CLI ausente", status=None)
+
+        r = _llm.probe(_llm.ClaudeClient(exec_fn=broken), "opus")
+        self.assertFalse(r["ok"])
+        self.assertIn("claude", r["detail"])
+
+    def test_probe_embedding_on_claude_is_unsupported(self):
+        r = _llm.probe(_llm.ClaudeClient(exec_fn=lambda p, m, t: "ok"),
+                       "text-embedding-3-small", kind="embedding")
+        self.assertFalse(r["ok"])
+        self.assertIn("embedding", r["detail"])
+
+
 class ProbeCodex(unittest.TestCase):
     def test_probe_chat_ok(self):
         client = _llm.CodexClient(exec_fn=lambda p, m, t: "ok")
