@@ -19,6 +19,7 @@ Under test:
 """
 import hashlib
 import importlib.util
+import inspect
 import json
 import sys
 import tempfile
@@ -463,6 +464,27 @@ class PublishRitoSeamTest(unittest.TestCase):
             _, page = publisher._render_page(SLUG, spec, skill="report", date="2026-07-10")
             self.assertEqual((page.rstrip() + "\n").encode("utf-8"),
                              (blog / f"{SLUG}.html").read_bytes())
+
+
+class RitoFinalReviewReplacesDoubleBlind(unittest.TestCase):
+    """Operator decision, 2026-07-10, verbatim "basta" (docs/rito-runtime.md): the rite's own
+    `final_review` (stage 10) REPLACES `close.run_close`'s double-blind reviewer gate on the
+    rito path. The blind-winning B was produced with only the rite's internal review — an extra
+    stochastic gate is not the experiment. Anti-forgery is the rito's seal (per-stage receipts
+    + hash-refuse), not reviewer proofs. Changing this is re-opening the operator's decision,
+    not fixing a bug."""
+
+    def test_publish_rito_takes_no_run_close_proof(self):
+        params = inspect.signature(publisher.publish_rito).parameters
+        self.assertNotIn("verdict", params)
+        self.assertNotIn("proof", params)
+
+    def test_full_rite_publishes_with_no_run_close_verdict_anywhere(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, run_dir, log, blog = _green_run(tmp)
+            ev = next(e for e in eventlog.read(types=["artefato.published"], log=log))
+            self.assertNotIn("verdict", ev["payload"])
+            self.assertTrue(rito.verify_rito(run_dir, log=log, blog_dir=blog)["pass"])
 
 
 class PublishRitoSideEffectsTest(unittest.TestCase):

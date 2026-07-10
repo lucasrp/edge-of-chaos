@@ -96,10 +96,16 @@ agnostic. `gate` is None for the rito path (no run_close verdict yet — see the
   were experiment reproducibility apparatus; the runtime records route + prompt/output
   receipts per stage and leaves continuity to the producer's `complete_fn` wiring.
   OPEN: promote continuity enforcement into the runtime?
-- OPEN: does `close.run_close`'s double-blind reviewer gate remain wrapped AROUND the rite
-  (an extra stochastic gate the experiment did not have), or does the rite's own
-  `final_review` fully replace it? `publish_rito` currently does not require a run_close
-  proof; wake (ADR-0016) and intent-kernel (C3) gates are preserved.
+- RESOLVED (operator, 2026-07-10, verbatim "basta"): the rite's own `final_review` (stage 10)
+  REPLACES `close.run_close`'s double-blind reviewer gate on the rito path. Rationale: the
+  blind-winning B was produced with only the rite's internal review; an extra stochastic gate
+  is not the experiment ("o rito é tudo"). Anti-forgery is covered by the rito's own seal
+  (per-stage sha256 receipts + `publish_rito`'s hash-refuse), not by reviewer proofs.
+  Consequences: `publish_rito` takes NO run_close proof by design (pinned by
+  `RitoFinalReviewReplacesDoubleBlind` in tests/test_rito_runtime.py); the projected `gate`
+  stays None for rito artefatos — the gate badge is a legacy-close concept. Wake (ADR-0016)
+  and intent-kernel (C3) gates are preserved. Legacy producers keep run_close until they
+  migrate to the rito.
 
 ## Producer adoption (the pattern)
 
