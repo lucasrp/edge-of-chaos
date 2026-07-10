@@ -61,7 +61,18 @@ The scaffold names three role-defined slots; report maps each to its prose-synth
   sideways connection across the pool the convergence would miss — a thread worth chasing even if no one
   asked. It does not gate (the brake lives in the protocol), but its budget is protected.
 
-## Produce — a focused prose synthesis, framed in the Idiom
+## Produce — a focused prose synthesis, framed in the Idiom, in the PEDAGOGUE's Feynman voice
+
+**Write as if it were the Feynman Lectures on Physics** (exp-feynman-pedagogico 2026-07-10, operator
+"ficou excelente o feynman"). This is the PEDAGOGUE's Feynman, not the researcher's: **build from the
+concrete and intuitive** before any formalism; **motivate WHY before the mechanism** (the reader should
+want the answer before you give it); **one vivid handle per hard idea** (a mental picture, an analogy, a
+worked number that makes it land); **address the reader** and **anticipate the confusion** — say the
+thing that would otherwise trip them; keep a **narrative flow** where each move rests on the last; and
+**explain, don't label** — never drop a term-plus-referent and move on; teach the idea the term points at.
+**Prose carries the argument.** The report expands only in that contextualizing prose, and its **length
+is EMERGENT** — it grows because a hard idea got a handle, never toward a number. Do not set or chase a
+length target or cap.
 
 Frame in the mentee's **Idiom** — their coined terms kept verbatim (the Idiom standing page).
 **Contextualization is CALIBRATED, not exhaustive** (leitura cega 2026-07-05): the mentee built this
@@ -82,13 +93,16 @@ Depth is the **depth of the survivors**: developed fully where the material earn
 teach-everything (a thin bite that left the thinking undone fails; so does an 8k-word essay that
 buries the one move that matters).
 
-## Visual idiom — charts + prose
+## Visual idiom — prose first; a table ONLY for a genuine A-vs-B comparison
 
-Report's idiom is **prose-and-charts** — visualize what deserves it: where the content is **3+ values,
-a comparison, or a before/after**, emit a **Markdown table** **instead of narrating the numbers**
-(banca cega da forma 2026-07-04, vencedor v2-plus-visual: the set's disease was UNDER-render — prose
-walls over comparative content). The razor cuts both ways: a table appears only where the content is
-comparative — a table that **replaces** a paragraph, never one that decorates it.
+Report's idiom is **prose** — the argument is carried in prose, not in a table-wall. **Kill the
+table-wall default** (exp-feynman-pedagogico 2026-07-10: the losing arm was 45 table-rows; the winner
+was 5 — a single honest A-vs-B table, the rest prose that teaches). A **Markdown table** appears **only
+where the content is a genuine A-vs-B comparison** — two things weighed side by side on the same axes,
+where the grid is the clearest carrier — and it **replaces** that comparison's prose, never decorates a
+paragraph. Numbers that belong to the narrative get **taught in prose** (a worked handle), not parked in
+a grid. Facts scattered across rows because they were easier to list than to explain are the table-wall;
+prose that motivates and lands each one is the fix.
 
 ## The rite is the path — exit through `tools/rito.py` (docs/rito-runtime.md)
 
@@ -106,7 +120,19 @@ slot above) → `first_authorial_draft` → `gap_critique` → `grounding2_targe
 copy when the leak scan is clean) → `final_html` (pinned render, runtime-owned) →
 `final_review` (fail-closed `ACCEPTANCE:` header) → `publication`. The canonical prompt bodies
 are archived in `drafts/old-edge-double-grounding-repro/run.py`; adapt their content to THIS
-theme — the produce guidance above is what the first-draft prompt must carry.
+theme — the produce guidance above (the PEDAGOGUE's Feynman voice, prose carries the argument, a
+table only for a genuine A-vs-B comparison, length EMERGENT) is what the authoring prompts must
+carry. Three stages carry the exp-feynman-pedagogico intent: the authoring drafts
+(`first_authorial_draft`/`provisional_rewrite`/`author_correction`) write in that voice;
+`gap_critique` is a **pedagogical critique** — where does this fail to TEACH? where is it cryptic,
+where is the contextualization thin? name the gaps a reader cannot cross; and `grounding2_targeted`
+REACHES for **NEW grounding** — world/domain material beyond grounding-1 — to fill the pedagogical
+gaps the critique named (the win expands HERE). **Fidelity guard: the new grounding must be FETCHED
+and cited, NEVER invented** — grounding-1 plus the logged fetched sources are the only factual
+anchor; a pedagogical handle is a way of explaining a grounded fact, never a license to fabricate one.
+The `fact_audit` stage audits against grounding-1 **and** the grounding-2 fetched sources, so a
+fabricated grounding-2 citation is caught (both are passed to its prompt). Structurally enforcing the
+fetch-and-log — provenance receipts per fetched source — is a SEPARATE paused thread, not bundled here.
 
 The wake's `DISPATCH_ID=<id>` line rides into the run (the canonical publish refuses without
 it, E1c). The product spine still ships: pass `publish_meta` with `proposes` (candidate
@@ -127,11 +153,11 @@ and `reports_on` (Experiment ids this report makes navigable).
         return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
 
     prompts = {
-        'first_authorial_draft': lambda o: f"<the produce guidance, this theme>\n\nDOSSIER:\n{o['grounding1_dossier']}",
-        'gap_critique':          lambda o: f"<gap critique of the draft against the dossier>\n\n{o['first_authorial_draft']}",
-        'grounding2_targeted':   lambda o: f"<targeted grounding answering the named gaps>\n\n{o['gap_critique']}",
-        'provisional_rewrite':   lambda o: f"<same-author rewrite folding critique+grounding2>\n\n{o['grounding2_targeted']}",
-        'fact_audit':            lambda o: f"<independent fact audit vs grounding1>\n\n{o['provisional_rewrite']}",
+        'first_authorial_draft': lambda o: f"<the produce guidance, this theme; PEDAGOGUE's Feynman voice: build from the concrete, motivate WHY before formalism, one vivid handle per hard idea, address the reader, explain-don't-label; CALIBRATE: contextualize the genuinely-new, ASSUME the operator's known (edge + his domain — re-explaining the known is enfadonho); prose carries the argument, a table only for a genuine A-vs-B comparison; length EMERGENT, no length target>\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'gap_critique':          lambda o: f"<PEDAGOGICAL critique: where does this fail to TEACH the genuinely-new? where is it cryptic / contextualization thin? name ONLY the gaps a reader can't cross — not every possible elaboration (the known needs no handle)>\n\n{o['first_authorial_draft']}",
+        'grounding2_targeted':   lambda o: f"<REACH for NEW grounding (world/domain beyond grounding-1) to fill the pedagogical gaps the critique named; FETCH + cite each source with its snippet, NEVER invent a fact or a citation. If the critique names no uncrossable gap, return no new grounding>\n\nGROUNDING-1 (the anchor — do not duplicate what it already covers):\n{o['grounding1_dossier']}\n\nCRITIQUE:\n{o['gap_critique']}",
+        'provisional_rewrite':   lambda o: f"<same-author rewrite in the Feynman voice, keeping the calibration (assume the known), folding critique+the new grounding2 into contextualizing prose>\n\n{o['grounding2_targeted']}",
+        'fact_audit':            lambda o: f"<independent fact audit: every factual claim traces to grounding-1 OR a grounding-2 source with its cited snippet; flag any fact or citation with no source (fabrication guard — treat grounding-2 as candidate evidence, don't trust a citation at face value)>\n\nGROUNDING-1:\n{o['grounding1_dossier']}\n\nGROUNDING-2 (candidate evidence):\n{o['grounding2_targeted']}\n\n{o['provisional_rewrite']}",
         'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
         'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
         'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",

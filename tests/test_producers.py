@@ -335,5 +335,69 @@ class PipelineDocumentsTheReProductionWiring(unittest.TestCase):
                         "pipeline must contrast re-production against a bare hard-fail")
 
 
+class PedagogicalRewriteIntegration(unittest.TestCase):
+    """exp-feynman-pedagogico (operator-ratified: "pode integrar no genotipo"): the winning arm
+    was a rewrite in the PEDAGOGUE's Feynman-Lectures voice, ONE review round that reaches for
+    NEW grounding, length EMERGENT (no target), and the table-wall killed (prose carries the
+    argument; a table only for a genuine A-vs-B comparison). This pins the genotype change on the
+    two exemplar producers (report + research), across BOTH prompt-carriers: the authoring prose
+    sections AND the rito prompts-dict placeholder strings."""
+
+    EXEMPLARS = ("report", "research")
+
+    def setUp(self):
+        self.texts = {p: _path(p).read_text(encoding="utf-8").lower() for p in self.EXEMPLARS}
+
+    def test_authoring_carries_the_feynman_lectures_pedagogical_voice(self):
+        # the PEDAGOGUE's Feynman (build from the concrete, motivate WHY before formalism, one
+        # vivid handle, address the reader, anticipate confusion, explain-don't-label).
+        for p in self.EXEMPLARS:
+            t = self.texts[p]
+            self.assertIn("feynman lectures", t,
+                          f"{p} does not name the Feynman-Lectures pedagogical voice")
+            self.assertTrue("motivate why" in t or "why before" in t,
+                            f"{p} does not carry motivate-WHY-before-formalism")
+            self.assertIn("vivid handle", t, f"{p} does not carry the one-vivid-handle move")
+            self.assertTrue("explain" in t and "label" in t,
+                            f"{p} does not carry explain-don't-label")
+
+    def test_length_is_emergent_no_word_target(self):
+        # length EMERGENT — it grows because contextualization was added, never a word target.
+        for p in self.EXEMPLARS:
+            t = self.texts[p]
+            self.assertIn("emergent", t, f"{p} does not declare length EMERGENT")
+            self.assertNotIn("word count", t, f"{p} still names a word count target")
+            self.assertNotIn("word target", t, f"{p} still names a word target")
+
+    def test_table_wall_killed_prose_carries_the_argument(self):
+        # kill the table-wall default: prose carries the argument; a table ONLY for a genuine
+        # A-vs-B comparison (the winner went from 45 table-rows to 5).
+        for p in self.EXEMPLARS:
+            t = self.texts[p]
+            self.assertTrue("prose carries the argument" in t or "prose carries" in t,
+                            f"{p} does not say prose carries the argument")
+            self.assertTrue("table-wall" in t or "table wall" in t,
+                            f"{p} does not name the table-wall it must kill")
+
+    def test_gap_critique_is_pedagogical(self):
+        # gap_critique asks: where does this fail to TEACH? where is it cryptic / thin?
+        for p in self.EXEMPLARS:
+            t = self.texts[p]
+            self.assertTrue("fail to teach" in t or "fails to teach" in t or "does not teach" in t,
+                            f"{p}'s gap_critique is not a teaches-check")
+
+    def test_grounding2_carries_new_grounding_reach_with_fidelity_guard(self):
+        # grounding2 fetches NEW grounding (world/domain beyond G1) to fill the pedagogical gaps
+        # — with the fidelity guard: FETCHED + cited, NEVER invented.
+        for p in self.EXEMPLARS:
+            t = self.texts[p]
+            self.assertIn("new grounding", t,
+                          f"{p}'s grounding2 does not carry the new-grounding reach")
+            self.assertTrue("fetched" in t and ("cited" in t or "cite" in t),
+                            f"{p}'s new-grounding reach lacks the fetched+cited fidelity guard")
+            self.assertTrue("never invent" in t or "not invent" in t or "not fabricat" in t,
+                            f"{p}'s new-grounding reach does not forbid inventing")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
