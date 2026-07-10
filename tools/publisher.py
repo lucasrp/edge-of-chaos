@@ -757,6 +757,11 @@ def _spec_text(spec):
     request. Returns '' for a None/empty spec (the embed then falls back to slug+kernel)."""
     if not isinstance(spec, dict):
         return ""
+    # `edge-markdown/v1` (the rito's publish spec) carries the whole body as one markdown string,
+    # not the legacy sections/executive_summary tree — flatten THAT, or the content embedding and
+    # MENTIONS see an empty node and the artefato is unrecallable (a first-class-citizen gap).
+    if spec.get("format") == "edge-markdown/v1":
+        return (spec.get("markdown") or "")[:8000]
     parts = []
     # top-level rendered fields render.spec_to_html emits as content: executive_summary, the
     # metrics grid, and the bibliography (Codex P2) — plus every section/additional_section block.
@@ -1729,11 +1734,30 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     # the page is a PROJECTION written after the commit — a failure here is recoverable.
     _write_page(out, page)
 
-    # source-signal emission is NON-FATAL to the page (#4): a signal-store failure must not
-    # corrupt the published page; the cites are durably logged, so the signals are recoverable
-    # (reproject_missing_pages re-emits any missing ones).
+    _post_publish_sideeffects(
+        slug, intent, spec=spec, skill=skill, body=body_html, cites=cites, embed_fn=embed_fn,
+        log=log, project_fn=project_fn, distills=distills, proposes=proposes, lineage=lineage,
+        gate=gate, origin=origin, bears_on=bears_on, para=para, para_default=para_default,
+        reports_on=reports_on)
+    return out
+
+
+def _post_publish_sideeffects(slug, intent, *, spec, skill, body, cites, embed_fn, log,
+                              project_fn=_DEFAULT_PROJECT, distills=None, proposes=None,
+                              lineage=None, gate=None, origin=None, bears_on=None, para=None,
+                              para_default=None, reports_on=None):
+    """The post-commit side-effect sequence SHARED by both publish paths (`publish` and
+    `publish_rito`), so a rito-published artefato is a first-class citizen of the graph/corpus
+    (docs/rito-runtime.md §Post-publish side-effects). Runs AFTER the commit + page write;
+    every step is BEST-EFFORT — a failure is reported/swallowed, NEVER aborts the publish (the
+    log is canonical; the next beat reprojects/re-emits). `body` is the text the cite snippets
+    are scored against (legacy: body_html; rito: the markdown body via _spec_text).
+
+    source-signal emission is NON-FATAL to the page (#4): a signal-store failure must not
+    corrupt the published page; the cites are durably logged, so the signals are recoverable
+    (reproject_missing_pages re-emits any missing ones)."""
     try:
-        _signal_cites(slug, body_html, cites, embed_fn, log)
+        _signal_cites(slug, body, cites or [], embed_fn, log)
     except Exception:
         pass
 
@@ -1759,13 +1783,12 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
                        para_default=para_default, reports_on=reports_on)
         except Exception as ex:  # noqa: BLE001 — projection is best-effort, never fatal
             print(f"project skipped for {slug!r} (best-effort, reproject next beat):", ex)
-    return out
 
 
 def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
                  log=eventlog.LOG, blog_dir=BLOG_DIR, proposes=None, distills=None,
                  cites=None, lineage=None, bears_on=None, para=None, reports_on=None,
-                 experiment_curation=None):
+                 experiment_curation=None, embed_fn=None, project_fn=_DEFAULT_PROJECT):
     """The rito's publication seam (docs/rito-runtime.md) — the terminal stage of the rite.
 
     Proves EXECUTION, never scores the artifact: refuses unless the run dir's sealed manifest
@@ -1843,6 +1866,19 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
     tmp = out.with_suffix(".html.tmp")
     tmp.write_bytes(page_bytes)
     os.replace(tmp, out)
+
+    # SAME post-publish side-effects as the legacy path (docs/rito-runtime.md §Post-publish
+    # side-effects) — source-signal + graph projection — so a rito-published artefato is a
+    # first-class citizen of the graph/corpus. Best-effort, after the commit. `origin` is derived
+    # from the dispatch that minted this id (legacy pattern); `para_default` is read OFF the
+    # committed event (never a caller arg). No verdict here → no gate to project.
+    origin = eventlog.dispatch_origin(dispatch_id, log=log)
+    para_default = (published_ev.get("payload") or {}).get("para_default")
+    _post_publish_sideeffects(
+        slug, intent, spec=spec, skill=skill, body=markdown, cites=cites, embed_fn=embed_fn,
+        log=log, project_fn=project_fn, distills=distills, proposes=proposes, lineage=lineage,
+        origin=origin, bears_on=bears_on, para=para, para_default=para_default,
+        reports_on=reports_on)
     return {"event_seq": published_ev["seq"], "event_ts": published_ev["ts"],
             "page_path": str(out), "page_sha256": page_sha,
             "rito_manifest_sha256": core, "renderer_id": render.RENDERER_ID}

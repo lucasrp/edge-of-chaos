@@ -60,6 +60,34 @@ dir + event log — it proves the recorded execution is coherent and form-pinned
 attacker who can write both could not fabricate it. File receipts are not tamper-proof
 provenance; authority comes from running a REAL canary, never a fabricated fixture.
 
+## Post-publish side-effects
+
+A rito-published artefato must be a **first-class citizen of the graph/corpus** — the same as a
+legacy-published one — so genus-wide adoption doesn't strand rito artefatos out of recall and the
+graph. Both `publish` and `publish_rito` run the SAME post-commit sequence, extracted into one
+shared private seam `publisher._post_publish_sideeffects` (called after the commit + page write):
+
+1. **source-signal emission** (`_signal_cites`, ADR-0009) — one `source.signal` per cited snippet,
+   scored `cosine(embed(snippet), embed(body))` when an `embed_fn` is injected (else 0.0). `body`
+   is the text snippets are scored against: the rendered HTML for legacy, the **markdown body** for
+   rito. Wrapped in a bare `try/except: pass`.
+2. **graph projection** (`project_artefato`, #30) — the spine write (Artefato node + content
+   embedding + SERVES/DISTILLS/PROPOSES/CITES/lineage edges). Default-resolved at call time; an
+   explicit `project_fn=None` skips it; **default-skips a non-canonical log** (a test/dry-run must
+   never write the install graph). Wrapped best-effort (`print` on failure).
+
+**Failure semantics (identical to legacy):** the commit is the truth point (ADR-0006/0011); every
+side-effect is BEST-EFFORT and NEVER aborts the publish — the page + atomic event already landed,
+and the next beat re-emits/reprojects from the log. Neo4j unreachable in tests degrades inside
+`project_artefato` (prints, never raises).
+
+**Seam / coupling fixed:** `project_artefato` reads spec content only through `_spec_text(spec)`
+(the embed + MENTIONS input). `_spec_text` was coupled to the legacy `sections`/`executive_summary`
+tree and returned `''` for `edge-markdown/v1` — an **empty graph node**, unrecallable. Fixed by
+adding a markdown branch to `_spec_text` (one place, feeds both embed and mentions) rather than
+wrapping the markdown in a fake sections tree. Everything else in `project_artefato` is spec-shape
+agnostic. `gate` is None for the rito path (no run_close verdict yet — see the OPEN decision below).
+
 ## What stays prose / open decisions
 
 - Prompt bodies (the experiment's exact wording) live in the producer skills; `run.py`
