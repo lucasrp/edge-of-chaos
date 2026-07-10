@@ -465,6 +465,77 @@ class PublishRitoSeamTest(unittest.TestCase):
                              (blog / f"{SLUG}.html").read_bytes())
 
 
+class PublishRitoSideEffectsTest(unittest.TestCase):
+    """A rito-published artefato must be a first-class citizen of the graph/corpus: the rito
+    publish path must emit the SAME post-publish side-effects as the legacy `publish` path —
+    source-signal emission (ADR-0009) and graph projection (#30) — for `edge-markdown/v1`.
+    Failure semantics mirror the legacy path: both side-effects run AFTER the commit + page
+    write and are BEST-EFFORT (never abort the publish)."""
+
+    def _fake_embed(self, text):
+        return [float(len(text)), 1.0]
+
+    def _sealed_run(self, tmp):
+        """A sealed run dir whose real publish_rito hasn't run yet (capturing publish_fn), so the
+        seam is exercised directly with injected fakes — mirrors _run_without_publication."""
+        def fake_publish(markdown, manifest):
+            return {"event_seq": -1, "page_sha256": "fake", "page_path": "fake",
+                    "rito_manifest_sha256": rito.manifest_core_hash(manifest)}
+        manifest, run_dir, log, blog = _green_run(tmp, publish_fn=fake_publish)
+        _stamp_wake(log)  # a fresh wake for the real publish_rito below
+        return run_dir, log, blog
+
+    def test_publish_rito_projects_edge_markdown_with_real_content(self):
+        """(a) publish_rito triggers graph projection for edge-markdown/v1 with the artefato's
+        REAL content reachable by the projection (not an empty node): the spec handed to the
+        projection flattens to the markdown body, so the content embedding/mentions see it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir, log, blog = self._sealed_run(tmp)
+            seen = {}
+
+            def project_fn(s, i, *, skill, distills, proposes, cites, spec=None,
+                           lineage=None, log=None, gate=None, origin=None, **kw):
+                seen.update(slug=s, intent=i, skill=skill, spec=spec)
+
+            publisher.publish_rito(SLUG, run_dir, intent=INTENT, skill="report",
+                                   log=log, blog_dir=blog, project_fn=project_fn)
+            self.assertEqual(seen["slug"], SLUG)
+            self.assertEqual(seen["intent"], INTENT)
+            self.assertEqual(seen["skill"], "report")
+            # the REAL content is reachable: _spec_text of the projected spec is non-empty and
+            # carries the markdown body (the "empty node" the mission warns about would flatten
+            # to '' because edge-markdown/v1 has no sections/executive_summary keys).
+            flattened = publisher._spec_text(seen["spec"])
+            self.assertIn("rodada 3", flattened)
+
+    def test_publish_rito_emits_source_signals_for_its_cites(self):
+        """(b) source-signal emission fires with the cites, exactly like the legacy path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir, log, blog = self._sealed_run(tmp)
+            cites = [{"ref": "arXiv:2507.02778", "kind": "mundo",
+                      "relevant": True, "snippet": "o indice vence"}]
+            publisher.publish_rito(SLUG, run_dir, intent=INTENT, skill="report",
+                                   log=log, blog_dir=blog, cites=cites,
+                                   embed_fn=self._fake_embed, project_fn=None)
+            yields = eventlog.source_yield_at(log=log)
+            self.assertIn("arXiv:2507.02778", yields)
+            self.assertEqual(yields["arXiv:2507.02778"]["count"], 1)
+
+    def test_side_effect_failure_is_best_effort_like_legacy(self):
+        """(c) a side-effect failure (projection blows up) is REPORTED, never fatal — the page +
+        atomic commit still land; identical contract to the legacy path's project_fn wrapper."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir, log, blog = self._sealed_run(tmp)
+
+            def boom_project(*a, **k):
+                raise RuntimeError("neo4j unreachable")
+
+            receipt = publisher.publish_rito(SLUG, run_dir, intent=INTENT, skill="report",
+                                             log=log, blog_dir=blog, project_fn=boom_project)
+            self.assertTrue((blog / f"{SLUG}.html").is_file())
+            self.assertEqual([c["slug"] for c in eventlog.corpus_at(log=log)], [SLUG])
+
+
 class DetectorCliTest(unittest.TestCase):
     def test_cli_verify_exit_codes(self):
         with tempfile.TemporaryDirectory() as tmp:
