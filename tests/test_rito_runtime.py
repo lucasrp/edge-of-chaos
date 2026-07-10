@@ -318,6 +318,87 @@ class NegativePathsTest(unittest.TestCase):
             self.assertFalse(verdict["pass"])
             self.assertIn("publication-event-missing", verdict["failures"])
 
+    def test_forged_event_does_not_satisfy_the_sealed_receipt(self):
+        """Codex [high]: the detector must bind to the SEALED publication receipt, not to
+        'any matching event for the slug' — a receipt pointing at a different event fails."""
+        with tempfile.TemporaryDirectory() as tmp:
+            _, run_dir, log, blog = _green_run(tmp)
+            receipt_path = run_dir / "11_PUBLICATION.json"
+            receipt = json.loads(receipt_path.read_text())
+            receipt["event_seq"] = receipt["event_seq"] + 999
+            receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))
+            # re-seal the manifest receipt for the tampered file so ONLY the binding fails
+            manifest_path = run_dir / "00_MANIFEST.json"
+            manifest = json.loads(manifest_path.read_text())
+            pub = next(s for s in manifest["stages"] if s["name"] == "publication")
+            pub["output"]["sha256"] = hashlib.sha256(
+                receipt_path.read_bytes()).hexdigest()
+            pub["output"]["bytes"] = len(receipt_path.read_bytes())
+            manifest_path.write_text(json.dumps(manifest))
+            verdict = rito.verify_rito(run_dir, log=log, blog_dir=blog)
+            self.assertFalse(verdict["pass"])
+            self.assertIn("publication-receipt-unbound", verdict["failures"])
+
+    def test_event_markdown_must_equal_the_sealed_markdown(self):
+        """Codex [high]: the logged spec's markdown must BE the sealed 08 markdown — a
+        swapped source that still page-hash-matches is refused."""
+        with tempfile.TemporaryDirectory() as tmp:
+            _, run_dir, log, blog = _green_run(tmp)
+            lines = log.read_text().splitlines()
+            out = []
+            for line in lines:
+                ev = json.loads(line)
+                if ev["type"] == "artefato.published":
+                    ev["payload"]["spec"]["markdown"] = "# Outro texto\n\ntrocado.\n"
+                out.append(json.dumps(ev))
+            log.write_text("\n".join(out) + "\n")
+            verdict = rito.verify_rito(run_dir, log=log, blog_dir=blog)
+            self.assertFalse(verdict["pass"])
+            self.assertIn("publication-event-unbound", verdict["failures"])
+
+    def test_publish_rito_is_idempotent_after_the_event_committed(self):
+        """Codex [high]: a crash between the event commit and the page write must not
+        double-publish on resume — publish_rito finds the bound event, rewrites the page,
+        and returns the same receipt."""
+        with tempfile.TemporaryDirectory() as tmp:
+            _, run_dir, log, blog = _green_run(tmp)
+            before = [e for e in eventlog.read(log=log)
+                      if e["type"] == "artefato.published"]
+            (blog / f"{SLUG}.html").unlink()  # simulate the crash window
+            receipt = publisher.publish_rito(SLUG, run_dir, intent=INTENT,
+                                             skill="report", log=log, blog_dir=blog)
+            after = [e for e in eventlog.read(log=log)
+                     if e["type"] == "artefato.published"]
+            self.assertEqual(len(after), len(before))  # no duplicate event
+            self.assertEqual(receipt["event_seq"], before[0]["seq"])
+            self.assertTrue((blog / f"{SLUG}.html").is_file())
+            self.assertTrue(rito.verify_rito(run_dir, log=log, blog_dir=blog)["pass"])
+
+    def test_manifest_status_must_be_completed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, run_dir, log, blog = _green_run(tmp)
+            manifest_path = run_dir / "00_MANIFEST.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["status"] = "failed"
+            manifest_path.write_text(json.dumps(manifest))
+            verdict = rito.verify_rito(run_dir, log=log, blog_dir=blog)
+            self.assertFalse(verdict["pass"])
+            self.assertIn("manifest-not-completed", verdict["failures"])
+
+    def test_stage_contract_drift_fails_the_detector(self):
+        """Codex [med]: a manifest that keeps the names but rewires a stage's route/output
+        contract is not the experiment's rite."""
+        with tempfile.TemporaryDirectory() as tmp:
+            _, run_dir, log, blog = _green_run(tmp)
+            manifest_path = run_dir / "00_MANIFEST.json"
+            manifest = json.loads(manifest_path.read_text())
+            stage = next(s for s in manifest["stages"] if s["name"] == "fact_audit")
+            stage["route"] = "chat"  # the audit must be the independent reviewer route
+            manifest_path.write_text(json.dumps(manifest))
+            verdict = rito.verify_rito(run_dir, log=log, blog_dir=blog)
+            self.assertFalse(verdict["pass"])
+            self.assertIn("stage-contract-drift:fact_audit", verdict["failures"])
+
     def test_acceptance_fail_closes_the_rite_before_publication(self):
         canned = dict(CANNED)
         canned["final_review"] = ("ACCEPTANCE: FAIL\nUNSUPPORTED_CLAIMS: 2\n"

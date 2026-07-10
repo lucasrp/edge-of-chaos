@@ -493,12 +493,31 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
 
     if manifest.get("schema") != SCHEMA or manifest.get("rito_version") != RITO_VERSION:
         failures.append("schema-mismatch")
+    if manifest.get("status") != "completed" or manifest.get("failed_stage") is not None:
+        failures.append("manifest-not-completed")
+    if manifest.get("renderer_id") != render.RENDERER_ID:
+        failures.append("renderer-id-mismatch")
     slug = manifest.get("slug")
+    if not (isinstance(slug, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug)):
+        # same slug discipline as the publisher's _safe_target (#4): a funny slug must not
+        # steer the detector's page read outside blog_dir
+        failures.append("slug-invalid")
+        slug = None
     stages = manifest.get("stages") or []
     expected_names = [name for _, name, _, _, _ in STAGES]
     if [s.get("name") for s in stages] != expected_names:
         failures.append("stage-order")
     by_name = {s.get("name"): s for s in stages}
+
+    # the immutable per-stage contract (ordinal / output file / route / token budget) must BE
+    # the experiment's — same names with rewired routes is not the rite (codex [med])
+    for n, name, filename, route, tokens in STAGES:
+        stage = by_name.get(name)
+        if stage is None:
+            continue
+        if (stage.get("ordinal") != n or stage.get("output_file") != filename
+                or stage.get("route") != route or stage.get("max_tokens") != tokens):
+            failures.append(f"stage-contract-drift:{name}")
 
     # every stage completed, receipts match disk, LLM stages carry sealed prompts
     for _, name, _, route, _ in STAGES:
@@ -526,7 +545,10 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
                 continue
             prompt = stage.get("prompt") or {}
             prompt_path = Path(prompt.get("path", "")) if prompt.get("path") else None
+            ordinal = next(n for n, s, _, _, _ in STAGES if s == name)
             if not (prompt_path and prompt_path.is_file()
+                    and prompt_path.resolve().parent == run.prompts_dir.resolve()
+                    and prompt_path.name == f"{ordinal:02d}_{name}.md"
                     and prompt.get("sha256") == sha_bytes(prompt_path.read_bytes())):
                 failures.append(f"prompt-receipt-missing:{name}")
 
@@ -554,8 +576,13 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
     md_path = run.output_for("treatment_cleanup")
     page_path = Path(blog_dir) / f"{slug}.html" if slug else None
     expected_page = None
+    sealed_md = None
+    stage_renderer = (by_name.get("final_html") or {}).get("renderer_id")
+    if stage_renderer != render.RENDERER_ID and "renderer-id-mismatch" not in failures:
+        failures.append("renderer-id-mismatch")
     if md_path.is_file():
-        expected_page = render.markdown_page_bytes(md_path.read_text(encoding="utf-8"))
+        sealed_md = md_path.read_text(encoding="utf-8")
+        expected_page = render.markdown_page_bytes(sealed_md)
         sealed = (by_name.get("final_html") or {}).get("output") or {}
         if sealed.get("sha256") != sha_bytes(expected_page):
             failures.append("form-renderer-mismatch")
@@ -565,7 +592,9 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
     else:
         failures.append("sealed-markdown-missing")
 
-    # publication binding: the artefato.published event must exist and bind manifest + page
+    # publication binding: the artefato.published event must exist, bind manifest + page,
+    # and CARRY the sealed markdown itself (codex [high]: a swapped source that still
+    # page-hash-matches must not pass)
     core = manifest_core_hash(manifest)
     try:
         events = [e for e in eventlog.read(log=log)
@@ -581,12 +610,28 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
                 and spec.get("renderer_id") == render.RENDERER_ID
                 and spec.get("rito_manifest_sha256") == core
                 and expected_page is not None
-                and spec.get("page_sha256") == sha_bytes(expected_page)):
+                and spec.get("page_sha256") == sha_bytes(expected_page)
+                and spec.get("markdown") == sealed_md):
             bound.append(ev)
     if not events:
         failures.append("publication-event-missing")
     elif not bound:
         failures.append("publication-event-unbound")
+
+    # the SEALED terminal receipt must name one of the bound events (codex [high]: 'any
+    # matching event for the slug' is forgeable; the receipt is what the rite sealed)
+    receipt_path = run.output_for("publication")
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        receipt = None
+    if not (isinstance(receipt, dict)
+            and any(ev.get("seq") == receipt.get("event_seq") for ev in bound)
+            and receipt.get("rito_manifest_sha256") == core
+            and receipt.get("renderer_id") == render.RENDERER_ID
+            and expected_page is not None
+            and receipt.get("page_sha256") == sha_bytes(expected_page)):
+        failures.append("publication-receipt-unbound")
 
     return {"pass": not failures, "failures": failures, "run_dir": str(run.dir),
             "slug": slug, "run_id": manifest.get("run_id")}

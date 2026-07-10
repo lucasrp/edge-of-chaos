@@ -55,6 +55,11 @@ publication event present and bound, first draft addressable, acceptance PASS. I
 reads artifact QUALITY — execution only; the form check is a pipeline-identity hash, not a
 score. CLI: `tools/edge-python tools/rito.py verify <run_dir> [--log …] [--blog-dir …]`.
 
+Scope (codex gate 2): `verify_rito` is a CONSISTENCY verifier over the operator's own run
+dir + event log — it proves the recorded execution is coherent and form-pinned, not that an
+attacker who can write both could not fabricate it. File receipts are not tamper-proof
+provenance; authority comes from running a REAL canary, never a fabricated fixture.
+
 ## What stays prose / open decisions
 
 - Prompt bodies (the experiment's exact wording) live in the producer skills; `run.py`

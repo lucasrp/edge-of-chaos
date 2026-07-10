@@ -1818,12 +1818,25 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
     spec = {"format": "edge-markdown/v1", "markdown": markdown,
             "renderer_id": render.RENDERER_ID, "rito_manifest_sha256": core,
             "page_sha256": page_sha}
-    published_ev, _ = eventlog.publish_artefato_atomic(
-        slug, intent, spec=spec, skill=skill, log=log,
-        dispatch_id=dispatch_id, require_wake=True,
-        proposes=proposes, distills=distills, cites=cites, lineage=lineage,
-        bears_on=bears_on, para=para, reports_on=reports_on,
-        experiment_curation=experiment_curation)
+
+    # IDEMPOTENT RESUME (codex [high]): the event is the commit point (ADR-0006), the page a
+    # projection — a crash between them must not double-publish. If THIS run's bound event
+    # already landed (same slug + manifest core + page hash), skip the commit and just
+    # re-derive the projection; the receipt names the original event.
+    # the reuse predicate is the FULL spec the verifier binds to (codex gate 2): a prior
+    # event that verify_rito would reject must never be reused.
+    published_ev = next(
+        (ev for ev in eventlog.read(types=["artefato.published"], log=log)
+         if (ev.get("payload") or {}).get("slug") == slug
+         and (ev.get("payload") or {}).get("spec") == spec),
+        None)
+    if published_ev is None:
+        published_ev, _ = eventlog.publish_artefato_atomic(
+            slug, intent, spec=spec, skill=skill, log=log,
+            dispatch_id=dispatch_id, require_wake=True,
+            proposes=proposes, distills=distills, cites=cites, lineage=lineage,
+            bears_on=bears_on, para=para, reports_on=reports_on,
+            experiment_curation=experiment_curation)
 
     # the EXACT reviewed bytes, temp+rename (a failure here is recoverable from the log)
     out.parent.mkdir(parents=True, exist_ok=True)
