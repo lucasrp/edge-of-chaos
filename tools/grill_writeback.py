@@ -85,6 +85,29 @@ def leveling(kind, content, root=None, log=eventlog.LOG):
     return path
 
 
+def elect_canon(kind, ref, thread=None, log=eventlog.LOG):
+    """Elege um objeto durável a CANÔNICO (issue #130 pontos 11/17) — açúcar sobre append_event. O
+    rail é GERAL: kind ∈ {md, artefato, experimento}. Eleger = promover a índice da thread em que o
+    objeto já está pendurado; a superfície é a curadoria de thread que o grill já faz (NENHUM comando
+    'canon' novo pro operador). NUNCA emitido pelo inject — só pelo grill.
+
+    Sem TTL: canônico ATÉ retire_canon; a longevidade emerge só de atos do grill (ponto 10). Kind
+    desconhecido recusa loud (mesma regra never-hollow do resto do writeback)."""
+    if kind not in eventlog.CANON_KINDS:
+        raise ValueError(f"canon kind deve ser um de {eventlog.CANON_KINDS}, recebeu {kind!r}")
+    return append_event("canon.elected", f"canon:{kind}:{ref}",
+                        {"kind": kind, "ref": ref, "thread": thread}, log=log)
+
+
+def retire_canon(kind, ref, reason=None, log=eventlog.LOG):
+    """Des-elege um canônico (issue #130 ponto 9) — volta ao ordinal comum, SEM apagar (o log
+    preserva; decay por escassez segue valendo). Açúcar sobre append_event."""
+    if kind not in eventlog.CANON_KINDS:
+        raise ValueError(f"canon kind deve ser um de {eventlog.CANON_KINDS}, recebeu {kind!r}")
+    return append_event("canon.retired", f"canon:{kind}:{ref}",
+                        {"kind": kind, "ref": ref, "reason": reason}, log=log)
+
+
 def append_event(type, subject, payload, log=eventlog.LOG):
     """Persist a grill decision to the Tier-0 log (ADR-0006) — the durable truth, no graph needed.
     A grill that can't reach Neo4j still lands its `direction.set` / `grill.curated` event here;
