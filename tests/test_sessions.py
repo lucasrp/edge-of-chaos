@@ -36,6 +36,18 @@ def _codex_msg(role: str, text: str) -> dict:
                         "content": [{"type": typ, "text": text}]}}
 
 
+def _grok_user(text: str, *, wrap_query: bool = True, synthetic_reason=None) -> dict:
+    body = f"<user_query>\n{text}\n</user_query>" if wrap_query else text
+    obj = {"type": "user", "content": [{"type": "text", "text": body}]}
+    if synthetic_reason is not None:
+        obj["synthetic_reason"] = synthetic_reason
+    return obj
+
+
+def _grok_assistant(text: str) -> dict:
+    return {"type": "assistant", "content": [{"type": "text", "text": text}]}
+
+
 class ListSessionsDiscoversTranscripts(unittest.TestCase):
     """One `.jsonl` in the project dir = one session, identified by its filename uuid."""
 
@@ -184,6 +196,57 @@ class DeltaReadsOnlyWhatIsNew(unittest.TestCase):
             turns2, _ = sessions.delta(p, mark, surface="codex")
             self.assertEqual([(t.role, t.text) for t in turns2], [("edge", "segunda")])
 
+    def test_grok_delta_uses_the_grok_parser(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _write_session(Path(tmp), "g", [_grok_user("primeira")])
+            turns, mark = sessions.delta(p, 0, surface="grok")
+            self.assertEqual([t.text for t in turns], ["primeira"])
+            with p.open("a") as fh:
+                fh.write(json.dumps(_grok_assistant("segunda")) + "\n")
+            turns2, _ = sessions.delta(p, mark, surface="grok")
+            self.assertEqual([(t.role, t.text) for t in turns2], [("edge", "segunda")])
+
+
+class GrokReadTurnsExtractsVisibleDialogue(unittest.TestCase):
+    """Grok chat_history.jsonl is a third envelope; normalizes to the same human/edge turns."""
+
+    def test_grok_user_query_and_assistant_parse_and_drop_synthetic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _write_session(Path(tmp), "chat_history", [
+                {"type": "system", "content": "You are Grok"},
+                _grok_user("oi", wrap_query=True),
+                {"type": "user",
+                 "content": [{"type": "text", "text": "<system-reminder>\nskills\n</system-reminder>"}],
+                 "synthetic_reason": "system_reminder"},
+                {"type": "reasoning", "content": "thinking"},
+                {"type": "backend_tool_call", "name": "bash"},
+                {"type": "tool_result", "content": "ok"},
+                _grok_assistant("Ed here — what do you want to work on?"),
+            ])
+            turns = sessions.read_turns(p, surface="grok")
+            self.assertEqual([(t.role, t.text) for t in turns],
+                             [("human", "oi"),
+                              ("edge", "Ed here — what do you want to work on?")])
+
+    def test_list_grok_sessions_finds_chat_history_under_cwd_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "sessions" / "%2Fhome%2Fop" / "019f-abc"
+            root.mkdir(parents=True)
+            p = root / "chat_history.jsonl"
+            p.write_text(json.dumps(_grok_user("oi", wrap_query=True)) + "\n")
+            (root / "events.jsonl").write_text("{}\n")
+            found = sessions.list_grok_sessions(Path(tmp) / "sessions")
+            self.assertEqual([(s.id, s.surface, s.path) for s in found],
+                             [("019f-abc", "grok", p)])
+
+    def test_grok_session_anchor_and_live_env(self):
+        self.assertEqual(sessions.grok_session_anchor("019f-x"), "grok:019f-x")
+        self.assertEqual(sessions.split_session_anchor("grok:019f-x"), ("grok", "019f-x"))
+        self.assertEqual(
+            sessions.current_session_anchor({"GROK_SESSION_ID": "019f-live"}),
+            "grok:019f-live",
+        )
+
 
 class MeasureYieldsTheG5Verdict(unittest.TestCase):
     """The spike's number: counts per kind + whether the bottleneck is time (replacement/
@@ -225,6 +288,92 @@ class RunSpikeAccumulatesStateAcrossSessions(unittest.TestCase):
         # session A saw an empty state; session B saw A's claim already folded in.
         self.assertEqual(seen_states, [[], ["a"]])
         self.assertEqual(m["counts"]["novel"], 2)
+
+
+class GrokLiveSessionAnchor(unittest.TestCase):
+    """Live Grok identity is in active_sessions.json (CLI does not export GROK_SESSION_ID)."""
+
+    def test_current_session_anchor_from_active_sessions_pid(self):
+        import os
+        with tempfile.TemporaryDirectory() as tmp:
+            active = Path(tmp) / "active_sessions.json"
+            active.write_text(json.dumps([{
+                "session_id": "019f-live-pid",
+                "pid": os.getpid(),
+                "cwd": "/tmp",
+                "opened_at": "2026-07-11T00:00:00Z",
+            }]))
+            env = {
+                "EDGE_GROK_ACTIVE_SESSIONS": str(active),
+                # no CLAUDE/CODEX/GROK session env keys
+            }
+            self.assertEqual(
+                sessions.current_session_anchor(env),
+                "grok:019f-live-pid",
+            )
+
+    def test_grok_session_id_env_wins_over_active_file(self):
+        import os
+        with tempfile.TemporaryDirectory() as tmp:
+            active = Path(tmp) / "active_sessions.json"
+            active.write_text(json.dumps([{
+                "session_id": "019f-from-file",
+                "pid": os.getpid(),
+                "cwd": "/tmp",
+                "opened_at": "2026-07-11T00:00:00Z",
+            }]))
+            env = {
+                "GROK_SESSION_ID": "019f-from-env",
+                "EDGE_GROK_ACTIVE_SESSIONS": str(active),
+            }
+            self.assertEqual(
+                sessions.current_session_anchor(env),
+                "grok:019f-from-env",
+            )
+
+    def test_single_active_entry_fallback_without_pid_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            active = Path(tmp) / "active_sessions.json"
+            active.write_text(json.dumps([{
+                "session_id": "019f-only",
+                "pid": 1,  # not us
+                "cwd": "/tmp",
+                "opened_at": "2026-07-11T00:00:00Z",
+            }]))
+            env = {"EDGE_GROK_ACTIVE_SESSIONS": str(active)}
+            self.assertEqual(
+                sessions.current_session_anchor(env),
+                "grok:019f-only",
+            )
+
+    def test_multi_active_without_pid_match_is_ambiguous(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            active = Path(tmp) / "active_sessions.json"
+            active.write_text(json.dumps([
+                {"session_id": "a", "pid": 1, "cwd": "/a", "opened_at": "2026-07-11T00:00:00Z"},
+                {"session_id": "b", "pid": 2, "cwd": "/b", "opened_at": "2026-07-11T00:00:01Z"},
+            ]))
+            env = {"EDGE_GROK_ACTIVE_SESSIONS": str(active)}
+            self.assertIsNone(sessions.current_session_anchor(env))
+
+    def test_resolve_via_grok_home_active_sessions(self):
+        import os
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / ".grok"
+            home.mkdir()
+            (home / "active_sessions.json").write_text(json.dumps([{
+                "session_id": "019f-home",
+                "pid": os.getpid(),
+                "cwd": "/tmp",
+                "opened_at": "2026-07-11T00:00:00Z",
+            }]))
+            env = {"GROK_HOME": str(home)}
+            self.assertEqual(
+                sessions.current_session_anchor(env),
+                "grok:019f-home",
+            )
+
+
 
 
 if __name__ == "__main__":

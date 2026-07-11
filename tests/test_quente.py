@@ -106,6 +106,32 @@ def _write_codex_session(store, stem, n_user_turns, chars_per_turn, hours_ago):
     (Path(store) / f"{stem}.jsonl").write_text("\n".join(lines) + "\n")
 
 
+def _write_grok_session(store, stem, n_user_turns, chars_per_turn, hours_ago,
+                       session_kind=None):
+    root = Path(store) / "%2Ftmp" / stem
+    root.mkdir(parents=True, exist_ok=True)
+    lines = []
+    for i in range(n_user_turns):
+        text = f"grok turno {i} " + "c" * chars_per_turn
+        lines.append(json.dumps({
+            "type": "user",
+            "content": [{"type": "text", "text": f"<user_query>\n{text}\n</user_query>"}],
+        }))
+        lines.append(json.dumps({
+            "type": "assistant",
+            "content": [{"type": "text", "text": "feito"}],
+        }))
+    (root / "chat_history.jsonl").write_text("\n".join(lines) + "\n")
+    summary = {
+        "info": {"id": stem},
+        "last_active_at": _ts(hours_ago),
+        "updated_at": _ts(hours_ago),
+    }
+    if session_kind is not None:
+        summary["session_kind"] = session_kind
+    (root / "summary.json").write_text(json.dumps(summary))
+
+
 class TestSelectWindow(unittest.TestCase):
     """select_window — o scan barato de metadata que predispatch e build_bundle COMPARTILHAM
     (invariante de coerência: o hot_cutoff do briefing ≡ a janela que o leitor quente cobre)."""
@@ -175,6 +201,75 @@ class TestSelectWindow(unittest.TestCase):
                                             exclude=(), eventlog_path=Path(claude) / "none.jsonl")
             self.assertIn("Sessão codex:s", bundle)
             self.assertIn("codex turno", bundle)
+
+    def test_grok_sessions_join_the_same_hot_window(self):
+        with tempfile.TemporaryDirectory() as claude, tempfile.TemporaryDirectory() as grok:
+            _write_session(claude, "s-claude", n_user_turns=8, chars_per_turn=300, hours_ago=3)
+            _write_grok_session(grok, "s-grok", n_user_turns=8, chars_per_turn=300, hours_ago=1)
+            sel, _ = quente.select_window(store_dir=claude, grok_dir=grok, codex_dir=False, k=2,
+                                          max_age_days=7, exclude=())
+            self.assertEqual([m["id"] for m in sel], ["grok:s-grok", "s-claude"])
+            self.assertEqual(sel[0]["surface"], "grok")
+
+    def test_build_bundle_carries_grok_operator_prompts(self):
+        with tempfile.TemporaryDirectory() as claude, tempfile.TemporaryDirectory() as grok:
+            _write_session(claude, "s-claude", n_user_turns=8, chars_per_turn=300, hours_ago=3)
+            _write_grok_session(grok, "s-grok", n_user_turns=8, chars_per_turn=300, hours_ago=1)
+            bundle, _ = quente.build_bundle(store_dir=claude, grok_dir=grok, codex_dir=False,
+                                            repos=(), exclude=(),
+                                            eventlog_path=Path(claude) / "none.jsonl")
+            self.assertIn("Sessão grok:s", bundle)
+            self.assertIn("grok turno", bundle)
+
+
+    def test_grok_subagent_sessions_are_filtered_from_window(self):
+        """Optional surfaces use is_user_session — Grok workers must not pollute hot window."""
+        with tempfile.TemporaryDirectory() as claude, tempfile.TemporaryDirectory() as grok:
+            _write_session(claude, "s-claude", n_user_turns=8, chars_per_turn=300, hours_ago=3)
+            _write_grok_session(grok, "s-worker", n_user_turns=8, chars_per_turn=300, hours_ago=1,
+                                session_kind="subagent")
+            _write_grok_session(grok, "s-op", n_user_turns=8, chars_per_turn=300, hours_ago=2)
+            sel, _ = quente.select_window(store_dir=claude, grok_dir=grok, codex_dir=False, k=3,
+                                          max_age_days=7, exclude=())
+            ids = [m["id"] for m in sel]
+            self.assertIn("grok:s-op", ids)
+            self.assertNotIn("grok:s-worker", ids)
+
+    def test_exclude_defaults_to_active_grok_session_when_env_unset(self):
+        """GROK_SESSION_ID is not exported by real CLI; live id comes from active_sessions.json."""
+        import sessions
+        with tempfile.TemporaryDirectory() as claude, tempfile.TemporaryDirectory() as grok, \
+                tempfile.TemporaryDirectory() as act:
+            _write_session(claude, "s-claude", n_user_turns=8, chars_per_turn=300, hours_ago=3)
+            _write_grok_session(grok, "s-live", n_user_turns=8, chars_per_turn=300, hours_ago=1)
+            _write_grok_session(grok, "s-other", n_user_turns=8, chars_per_turn=300, hours_ago=2)
+            active = Path(act) / "active_sessions.json"
+            active.write_text(json.dumps([{
+                "session_id": "s-live",
+                "pid": os.getpid(),
+                "cwd": "/tmp",
+                "opened_at": "2026-07-11T00:00:00Z",
+            }]))
+            keys = ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "CODEX_THREAD_ID",
+                    "GROK_SESSION_ID", "EDGE_GROK_ACTIVE_SESSIONS", "GROK_HOME")
+            old = {k: os.environ.get(k) for k in keys}
+            for k in keys:
+                os.environ.pop(k, None)
+            os.environ["EDGE_GROK_ACTIVE_SESSIONS"] = str(active)
+            try:
+                self.assertEqual(sessions.current_session_anchor(), "grok:s-live")
+                sel, _ = quente.select_window(store_dir=claude, grok_dir=grok, codex_dir=False,
+                                              k=3, max_age_days=7)
+                ids = [m["id"] for m in sel]
+                self.assertNotIn("grok:s-live", ids)
+                self.assertNotIn("s-live", ids)
+                self.assertIn("grok:s-other", ids)
+            finally:
+                for k, v in old.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
 
 
 class TestAnchorsRail(unittest.TestCase):

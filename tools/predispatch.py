@@ -99,7 +99,7 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
     S2 (E1) — the stamp now carries the dispatch's IDENTITY + SESSION ANCHOR: `dispatch_id`
     (minted here when not handed in; main() mints and prints it machine-readable, because the
     live path is CLI → skill-snippet across processes and an in-process return does not cross),
-    `session_id` (Claude session id or `codex:<CODEX_THREAD_ID>` when present, else null —
+    `session_id` (Claude session id, `codex:<id>`, or `grok:<GROK_SESSION_ID>` when present, else null —
     never fabricated), and the
     optional DECLARED fields theme/intent/geometry (attribution tier `declared`). The MONOTONIC
     anchor is the dispatch.open event's own `seq` (stamped by append) — S4's harvest maps rows

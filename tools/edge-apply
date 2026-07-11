@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/ para importar
 import _llm
 import _claude_provision
 import _codex_provision
+import _grok_provision
 import _provision
 import _validate
 
@@ -125,6 +126,9 @@ def main() -> None:
     ap.add_argument("--codex-home",
                     help="target Codex home dir (default: CODEX_HOME or real ~/.codex). "
                          "Tests/smoke-runs MUST point this at a tmp dir.")
+    ap.add_argument("--grok-home",
+                    help="target Grok home dir (default: GROK_HOME or real ~/.grok). "
+                         "Tests/smoke-runs MUST point this at a tmp dir.")
     ap.add_argument("--provision-runtime", action="store_true",
                     help="provision the mandatory graph runtime: venv (#20), per-host Neo4j via "
                          "Docker (#18), and the systemd heartbeat timer (#19). Fails loud on a "
@@ -137,10 +141,17 @@ def main() -> None:
     cfg = yaml.safe_load(Path(args.yaml).read_text()) or {}
     home = Path(os.path.expanduser(args.home or cfg.get("edge_home") or "~/edge/"))
     env_dir = resolve_env_dir(home, cfg)               # agent.yaml env_dir → <home>/secrets/ (C4)
+    import surfaces_cfg
     claude_home = Path(os.path.expanduser(args.claude_home)) if args.claude_home \
         else Path.home() / ".claude"
-    codex_home = Path(os.path.expanduser(args.codex_home)) if args.codex_home \
-        else Path(os.path.expanduser(os.environ.get("CODEX_HOME", "~/.codex")))
+    if args.codex_home:
+        codex_home = Path(os.path.expanduser(args.codex_home))
+    else:
+        codex_home = surfaces_cfg.surface_home("codex", cfg=cfg) or Path.home() / ".codex"
+    if args.grok_home:
+        grok_home = Path(os.path.expanduser(args.grok_home))
+    else:
+        grok_home = surfaces_cfg.surface_home("grok", cfg=cfg) or Path.home() / ".grok"
 
     if args.validate:
         report, healthy = _validate.format_report(_validate.validate_install(
@@ -167,9 +178,18 @@ def main() -> None:
     print(f"apply: provisionando ~/.claude em {claude_home}")
     for row in _claude_provision.provision_claude(cfg, REPO, claude_home):
         print(f"  - {row}")
-    print(f"apply: provisionando Codex skills em {codex_home}")
-    for row in _codex_provision.provision_codex(cfg, REPO, home, codex_home):
-        print(f"  - {row}")
+    if surfaces_cfg.provision_surface("codex", cfg=cfg):
+        print(f"apply: provisionando Codex skills em {codex_home}")
+        for row in _codex_provision.provision_codex(cfg, REPO, home, codex_home):
+            print(f"  - {row}")
+    else:
+        print("apply: Codex surface disabled in agent.yaml surfaces.codex — skip provision")
+    if surfaces_cfg.provision_surface("grok", cfg=cfg):
+        print(f"apply: provisionando Grok skills em {grok_home}")
+        for row in _grok_provision.provision_grok(cfg, REPO, home, grok_home):
+            print(f"  - {row}")
+    else:
+        print("apply: Grok surface disabled in agent.yaml surfaces.grok — skip provision")
 
     if args.provision_runtime:
         print("apply: provisionando o runtime (graph obrigatório — ADR-0011)")

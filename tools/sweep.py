@@ -31,6 +31,7 @@ import _identity
 
 CURSORS = REPO / "state" / "cursors.json"
 CODEX_BASELINE_KEY = "_codex_baselined"
+GROK_BASELINE_KEY = "_grok_baselined"
 # Identity (group + store) resolves LAZILY through _identity at call time (ADR-0015): no
 # import-time cache (stale-copy risk), no baked-in host path (the dev's -home-<user> store
 # default sent roberto scanning a nonexistent dir — "nothing new" over a 294-session backlog).
@@ -96,14 +97,21 @@ def _qualifies(turns, body):
 
 
 def _cursor_id(session):
-    """Claude keeps its historical cursor key; Codex is namespaced to avoid collisions."""
-    return f"codex:{session.id}" if session.surface == "codex" else session.id
+    """Claude keeps its historical cursor key; Codex/Grok are namespaced to avoid collisions."""
+    if session.surface == "codex":
+        return f"codex:{session.id}"
+    if session.surface == "grok":
+        return f"grok:{session.id}"
+    return session.id
 
 
 def _source_description(item):
-    return ("Codex work session (mentee<->edge)"
-            if item.get("surface") == "codex"
-            else "Claude work session (mentee<->edge)")
+    surface = item.get("surface")
+    if surface == "codex":
+        return "Codex work session (mentee<->edge)"
+    if surface == "grok":
+        return "Grok work session (mentee<->edge)"
+    return "Claude work session (mentee<->edge)"
 
 
 def _episode_name(item, chunk_index=None):
@@ -113,9 +121,15 @@ def _episode_name(item, chunk_index=None):
 
 
 def _codex_enabled(project_dir, codex_dir):
-    """Default real sweeps include Codex. Hermetic tests that pass project_dir stay Claude-only
-    unless they explicitly pass codex_dir."""
-    return codex_dir is not False and (codex_dir is not None or project_dir is None)
+    """Optional Codex surface: explicit dir / False override, else agent.yaml surfaces.codex."""
+    import surfaces_cfg
+    return surfaces_cfg.include_optional_surface("codex", project_dir, codex_dir)
+
+
+def _grok_enabled(project_dir, grok_dir):
+    """Optional Grok surface: explicit dir / False override, else agent.yaml surfaces.grok."""
+    import surfaces_cfg
+    return surfaces_cfg.include_optional_surface("grok", project_dir, grok_dir)
 
 
 def _codex_baseline(cursors, codex_dir=None):
@@ -132,6 +146,20 @@ def _codex_baseline(cursors, codex_dir=None):
     return cursors
 
 
+def _grok_baseline(cursors, grok_dir=None):
+    """First Grok-aware run starts from now: existing Grok logs are marked seen but not ingested.
+    New sessions/deltas after this baseline flow through normally."""
+    if cursors.get(GROK_BASELINE_KEY):
+        return cursors
+    for s in sessions.list_grok_sessions(grok_dir):
+        if not sessions.is_user_session(s):
+            continue
+        _turns, watermark = sessions.delta(s.path, 0, surface=s.surface)
+        cursors[_cursor_id(s)] = watermark
+    cursors[GROK_BASELINE_KEY] = True
+    return cursors
+
+
 def _load_install_env():
     """Load this install's secrets for real runtime sweeps. Hermetic tests pass project_dir."""
     try:
@@ -142,13 +170,14 @@ def _load_install_env():
 
 
 # --- pure plan: the digestible deltas (reads files, no graph/LLM) ---
-def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None):
+def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok_dir=None):
     """For each session, the turns after its cursor + the new watermark, in **chronological order**
     (oldest first — bi-temporal ingest wants it). `skip` marks a delta too thin to ingest (left
     un-advanced to grow). Idempotent: a session at its watermark yields nothing new. `recent=N`
     bounds a run to the N most-recently-modified sessions (the rest backfill on later sweeps —
     the cursor makes the full sweep resumable)."""
     include_codex = _codex_enabled(project_dir, codex_dir)
+    include_grok = _grok_enabled(project_dir, grok_dir)
     if project_dir is None:
         project_dir = _identity.project_dir()   # fail-loud seam (ADR-0015), never a baked-in path
     cursors = cursors or {}
@@ -164,6 +193,16 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None):
         found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
     if include_codex:
         for s in sessions.list_codex_sessions(codex_dir):
+            if not sessions.is_user_session(s):
+                continue
+            sid = _cursor_id(s)
+            seen = cursors.get(sid, 0)
+            turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
+            if watermark <= seen or not turns:
+                continue  # no new raw lines / no new dialogue
+            found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
+    if include_grok:
+        for s in sessions.list_grok_sessions(grok_dir):
             if not sessions.is_user_session(s):
                 continue
             sid = _cursor_id(s)
@@ -245,7 +284,7 @@ def rationalization_identity(session_id, turns, *, surface="claude", watermark=N
     }
 
 
-def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
+def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None, grok_dir=None,
                           backfill_days=None, now=None,
                           racionalizador_version="racionalizador-v1"):
     """Return current substantial inputs lacking a log checkpoint, oldest first.
@@ -260,6 +299,7 @@ def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
     if not isinstance(racionalizador_version, str) or not racionalizador_version.strip():
         raise ValueError("racionalizador_version must be a non-blank string")
     include_codex = _codex_enabled(project_dir, codex_dir)
+    include_grok = _grok_enabled(project_dir, grok_dir)
     if project_dir is None:
         project_dir = _identity.project_dir()
     now = datetime.now(timezone.utc) if now is None else now
@@ -283,6 +323,8 @@ def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
     discovered = list(sessions.list_sessions(project_dir))
     if include_codex:
         discovered.extend(sessions.list_codex_sessions(codex_dir))
+    if include_grok:
+        discovered.extend(sessions.list_grok_sessions(grok_dir))
     pending = []
     for session in discovered:
         if not sessions.is_user_session(session):
@@ -480,8 +522,8 @@ def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
         # until which the read-door fail-safe (unknown ⇒ context_only) holds the C5 invariant.
         payload = {"session": it["id"], "watermark": it["watermark"], "chars": len(it["body"]),
                    "medium_tier": "low_tier"}
-        if it.get("surface") == "codex":
-            payload["surface"] = "codex"
+        if it.get("surface") in ("codex", "grok"):
+            payload["surface"] = it["surface"]
         eventlog.append("episode", f"session:{it['id']}", payload, log=log)
         cursors[it["id"]] = it["watermark"]
     if qualifying and ingest_fn is not None:           # Tier-1: graph projection, best-effort
@@ -698,7 +740,8 @@ def _topic_direction_window_days():
     return val
 
 
-def _maybe_propose_topic_directions(project_dir=None, codex_dir=None, log=eventlog.LOG):
+def _maybe_propose_topic_directions(project_dir=None, codex_dir=None, grok_dir=None,
+                                    log=eventlog.LOG):
     """Recent Voz -> topic threads -> Direction.proposed.
 
     This is the automatic non-curated tier the wake can safely run before assemble reads Direction.
@@ -708,13 +751,15 @@ def _maybe_propose_topic_directions(project_dir=None, codex_dir=None, log=eventl
         return 0
     try:
         import topic_threads
-        out = topic_threads.sync_recent_topic_memory(
+        kwargs = dict(
             window_days=_topic_direction_window_days(),
             project_dir=project_dir,
             codex_dir=codex_dir,
+            grok_dir=grok_dir,
             all_stores=(project_dir is None),
             log=log,
         )
+        out = topic_threads.sync_recent_topic_memory(**kwargs)
         if out.get("total"):
             print(f"sweep: session topics indexed {out.get('topics', 0)}; "
                   f"topic threads proposed {out.get('directions', 0)} Direction item(s)")
@@ -777,7 +822,8 @@ def reproject_graph(log=eventlog.LOG):
 
 
 def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,
-        log=eventlog.LOG, recent=None, graph_recover_fn=None, group=None, codex_dir=None):
+        log=eventlog.LOG, recent=None, graph_recover_fn=None, group=None, codex_dir=None,
+        grok_dir=None):
     """Full sweep: plan the deltas → ingest + log + advance cursors → re-project (if anything new) →
     graph-recover (ALWAYS). `recent=N` bounds this run to the N newest sessions (the rest backfill on
     later sweeps). Graph recovery runs EVERY sweep, independent of `n` (Codex P2), so a no-delta sweep
@@ -804,11 +850,14 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
             cursors = load_cursors(cursors_path)
             if _codex_enabled(project_dir, codex_dir):
                 cursors = _codex_baseline(cursors, codex_dir)
-            plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir)
+            if _grok_enabled(project_dir, grok_dir):
+                cursors = _grok_baseline(cursors, grok_dir)
+            plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir,
+                              grok_dir=grok_dir)
             cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
             save_cursors(cursors, cursors_path)
             proposed = _maybe_propose_topic_directions(project_dir=project_dir, codex_dir=codex_dir,
-                                                       log=log)
+                                                       grok_dir=grok_dir, log=log)
         finally:
             fcntl.flock(lk, fcntl.LOCK_UN)
 
@@ -973,6 +1022,8 @@ def main(argv):
         cursors = load_cursors()
         if _codex_enabled(None, None):
             cursors = _codex_baseline(dict(cursors), None)
+        if _grok_enabled(None, None):
+            cursors = _grok_baseline(dict(cursors), None)
         plan = plan_sweep(None, cursors, recent=recent)
         ingest = [p for p in plan if not p["skip"]]
         print(f"plan: {len(plan)} sessions with new lines; {len(ingest)} qualify to ingest"
