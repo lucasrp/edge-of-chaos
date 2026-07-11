@@ -23,6 +23,52 @@ sys.path.insert(0, str(REPO / "tools"))
 import cortex_provenance as prov  # noqa: E402
 
 
+LENS_LABELS = ("Atividade", "Run", "Fato", "Arco", "Map", "Ticket", "Move", "Claim")
+LENS_EDGE_TYPES = ("blocked_by", "part_of", "touches", "inscribes", "marco_of", "bears_on")
+
+
+class LensRegistryA40(unittest.TestCase):
+    """A40 — structured lens nodes fold from the log on both node axes."""
+
+    def test_each_lens_label_is_asserted_and_order_bearing_by_log_origin(self):
+        for label in LENS_LABELS:
+            with self.subTest(label=label):
+                self.assertEqual(prov.tier_for(label), "asserted")
+                self.assertFalse(prov.context_only_for(label))
+
+    def test_each_lens_label_can_still_be_context_only_when_medium_is_low_tier(self):
+        for label in LENS_LABELS:
+            with self.subTest(label=label):
+                self.assertEqual(prov.tier_for(label), "asserted")
+                self.assertTrue(prov.context_only_for(label, {"medium_tier": "low_tier"}))
+
+    def test_each_lens_edge_has_asserted_ceiling_and_unknown_stays_extracted(self):
+        for edge_type in LENS_EDGE_TYPES:
+            with self.subTest(edge_type=edge_type):
+                self.assertEqual(prov.provenance_class_for(edge_type), "asserted")
+                self.assertEqual(prov.provenance_class_for(edge_type.upper()), "asserted")
+        self.assertEqual(prov.provenance_class_for("unregistered_lens_edge"), "extracted")
+
+    def test_lens_edge_stamp_demotes_but_never_promotes_its_asserted_ceiling(self):
+        for edge_type in LENS_EDGE_TYPES:
+            with self.subTest(edge_type=edge_type, stamp="llm_judged"):
+                with self.assertRaises(ValueError) as demoted:
+                    prov.assert_rollup_computed([{
+                        "edge_type": edge_type,
+                        "provenance_class": "llm_judged",
+                        "id": edge_type,
+                    }])
+                self.assertIn("provenance_class=llm_judged", str(demoted.exception))
+            with self.subTest(edge_type=edge_type, stamp="computed"):
+                with self.assertRaises(ValueError) as not_promoted:
+                    prov.assert_rollup_computed([{
+                        "edge_type": edge_type,
+                        "provenance_class": "computed",
+                        "id": edge_type,
+                    }])
+                self.assertIn("provenance_class=asserted", str(not_promoted.exception))
+
+
 class TierIsTheTrustAxis(unittest.TestCase):
     """tier = asserted (spine, folds from the log) vs extracted (Graphiti hypothesis). R2/R8."""
 
