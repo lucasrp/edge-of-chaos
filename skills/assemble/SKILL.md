@@ -69,3 +69,8 @@ Same primitive, operator-triggered: render the briefing to the human and widen t
 from "what's active" to the full active state. On the first observed early/manual beat that reads
 partial state (the consolidate→assemble race), surface a completion warning; stay silent when
 scheduled. The lock itself is deferred (ADR-0004 / ADR-0003).
+
+Even under `/load`, assemble returns only its shared map-blind briefing. The separately fanned
+recall brief is the sole owner of the role-scoped portfolio tail during wake; do not append or
+re-render that tail here. This keeps one portfolio story per wake and prevents
+lazer/delta/diverge from inheriting portfolio state by ambient context.

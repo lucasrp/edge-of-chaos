@@ -381,3 +381,143 @@ def compose_recall_brief(subgraph=_AUTO, group=None):
     else:
         parts.append("- **Generated Artefato assets:** _none projected yet_")
     return "\n".join(parts) + "\n"
+
+
+def _portfolio_text(item, key, lane):
+    value = item.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"portfolio snapshot `{lane}` item `{key}` must be a non-blank string")
+    return value
+
+
+def _validate_portfolio_snapshot(snapshot):
+    if not isinstance(snapshot, dict):
+        raise ValueError("portfolio snapshot must be a dict")
+    required_lanes = (
+        "mapas_ativos", "atividades_perdidas", "contested", "agenda", "admissibilidade",
+    )
+    for lane in required_lanes:
+        if lane not in snapshot:
+            raise ValueError(f"portfolio snapshot missing `{lane}`")
+        if not isinstance(snapshot[lane], list):
+            raise ValueError(f"portfolio snapshot `{lane}` must be a list")
+        if any(not isinstance(item, dict) for item in snapshot[lane]):
+            raise ValueError(f"portfolio snapshot `{lane}` items must be dicts")
+
+    for item in snapshot["mapas_ativos"]:
+        _portfolio_text(item, "ref", "mapas_ativos")
+        _portfolio_text(item, "titulo", "mapas_ativos")
+        frontier = item.get("frontier")
+        if (not isinstance(frontier, list)
+                or any(not isinstance(layer, list) for layer in frontier)
+                or any(not isinstance(ref, str) or not ref.strip()
+                       for layer in frontier for ref in layer)):
+            raise ValueError(
+                "portfolio snapshot `mapas_ativos` item `frontier` must be a list of ref lists"
+            )
+
+    for item in snapshot["atividades_perdidas"]:
+        _portfolio_text(item, "ref", "atividades_perdidas")
+        _portfolio_text(item, "finalidade", "atividades_perdidas")
+        count = item.get("sessoes_sem_toque")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            raise ValueError(
+                "portfolio snapshot `atividades_perdidas` item `sessoes_sem_toque` "
+                "must be a positive integer"
+            )
+
+    for item in snapshot["contested"]:
+        _portfolio_text(item, "alvo", "contested")
+        _portfolio_text(item, "detalhe", "contested")
+        evidence = item.get("evidencia")
+        if evidence is not None and (not isinstance(evidence, str) or not evidence.strip()):
+            raise ValueError(
+                "portfolio snapshot `contested` item `evidencia` must be a non-blank string"
+            )
+        seq = item.get("seq")
+        if seq is not None and (not isinstance(seq, int) or isinstance(seq, bool) or seq < 1):
+            raise ValueError("portfolio snapshot `contested` item `seq` must be a positive integer")
+
+    for item in snapshot["agenda"]:
+        kind = item.get("tipo")
+        if kind not in {"move", "pergunta"}:
+            raise ValueError("portfolio snapshot `agenda` item `tipo` must be move or pergunta")
+        _portfolio_text(item, "ref", "agenda")
+        if kind == "move":
+            _portfolio_text(item, "rationale", "agenda")
+        else:
+            text = item.get("texto")
+            evaluation = item.get("eval")
+            if ((not isinstance(text, str) or not text.strip())
+                    and (not isinstance(evaluation, dict) or not evaluation)):
+                raise ValueError(
+                    "portfolio snapshot `agenda` pergunta needs non-blank `texto` or `eval`"
+                )
+
+    for item in snapshot["admissibilidade"]:
+        kind = _portfolio_text(item, "tipo", "admissibilidade")
+        if kind not in {"run", "fato"}:
+            raise ValueError("portfolio snapshot `admissibilidade` item `tipo` must be run or fato")
+        _portfolio_text(item, "ref", "admissibilidade")
+        _portfolio_text(item, "leva", "admissibilidade")
+        if item.get("admissibilidade") != "suspeita":
+            raise ValueError(
+                "portfolio snapshot `admissibilidade` item `admissibilidade` must be suspeita"
+            )
+        instrument = item.get("instrumento")
+        if instrument is not None and (not isinstance(instrument, str) or not instrument.strip()):
+            raise ValueError(
+                "portfolio snapshot `admissibilidade` item `instrumento` "
+                "must be a non-blank string"
+            )
+
+
+def compose_portfolio_recall_brief(subgraph=_AUTO, group=None, portfolio_fn=None,
+                                   log=None, seq=None, ts=None):
+    """Opt-in recall surface for the roles allowed to see the mentee's portfolio.
+
+    ``compose_recall_brief`` remains the shared, map-blind default. Wake/mentor/recall callers
+    cross this separate seam explicitly. ``group`` scopes only the Cortex leg; ``log``, ``seq``,
+    and ``ts`` select the eventlog snapshot handed explicitly to ``portfolio_fn``.
+    """
+    if portfolio_fn is None:
+        import portfolio
+        portfolio_fn = portfolio.portfolio_at
+    if log is None:
+        import eventlog
+        log = eventlog.LOG
+    snapshot = portfolio_fn(log=log, seq=seq, ts=ts)
+    _validate_portfolio_snapshot(snapshot)
+    lines = ["# Portfolio — role-scoped orientation", "", "## Mapas ativos"]
+    for active_map in snapshot.get("mapas_ativos", []):
+        lines.append(f"- **{active_map.get('ref')}** — {active_map.get('titulo', '')}")
+        for layer, tickets in enumerate(active_map.get("frontier", [])):
+            lines.append(f"  - Layer {layer}: {', '.join(tickets)}")
+    lines.extend(["", "## Atividades perdidas"])
+    for activity in snapshot.get("atividades_perdidas", []):
+        lines.append(
+            f"- **{activity.get('ref')}** — {activity.get('finalidade', '')} "
+            f"· {activity.get('sessoes_sem_toque')} sessões sem toque"
+        )
+    lines.extend(["", "## Contested — faixa reservada"])
+    for item in snapshot.get("contested", []):
+        evidence = f" · evidência {item['evidencia']}" if item.get("evidencia") else ""
+        event_seq = f" · seq {item['seq']}" if item.get("seq") is not None else ""
+        lines.append(f"- **{item['alvo']}** — {item['detalhe']}{evidence}{event_seq}")
+    lines.extend(["", "## Agenda pull bounded"])
+    for item in snapshot.get("agenda", []):
+        kind = item.get("tipo")
+        detail = (item.get("body") or item.get("rationale") or item.get("pergunta")
+                  or item.get("texto")
+                  or (f"eval {item['eval']}" if item.get("eval") else ""))
+        locator = item.get("ref") or ""
+        suffix = f" — {detail}" if detail else ""
+        lines.append(f"- [{kind}] {locator}{suffix}")
+    lines.extend(["", "## Admissibilidade suspeita"])
+    for item in snapshot.get("admissibilidade", []):
+        details = [f"leva {item.get('leva')}"]
+        if item.get("instrumento"):
+            details.append(f"instrumento {item['instrumento']}")
+        details.append(str(item.get("admissibilidade")))
+        lines.append(f"- [{item.get('tipo')}] **{item.get('ref')}** · " + " · ".join(details))
+    return compose_recall_brief(subgraph=subgraph, group=group) + "\n" + "\n".join(lines) + "\n"
