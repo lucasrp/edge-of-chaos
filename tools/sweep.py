@@ -12,13 +12,14 @@ The pure planning (`plan_sweep`, cursors) carries no graph/LLM; `execute` takes 
 
 Run:  tools/edge-python tools/sweep.py          (sweep + re-project)
       python3 tools/sweep.py --plan             (re-execs into .venv when present)
+      tools/edge-python tools/sweep.py --rationalize-only  (explicit sleep-time backlog)
 """
 import json
 import math
 import os
 import sys
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -48,6 +49,9 @@ MAX_EPISODE_CHARS = 48_000
 # past the giants). We pass previous_episode_uuids explicitly, greedy most-recent-first under this
 # deterministic char budget (~30k tokens), skipping any single episode over MAX_EPISODE_CHARS.
 PREV_CONTEXT_MAX_CHARS = 120_000
+DEFAULT_MAX_SESSIONS_PER_SWEEP = 5
+DEFAULT_SWEEP_TOKEN_BUDGET = 20_000
+DEFAULT_SCENE_TURN_LIMIT = 40
 
 
 def _reexec_repo_venv():
@@ -175,6 +179,290 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None):
              "turns": turns, "watermark": watermark,
              "body": (body := clean_body(turns)), "skip": not _qualifies(turns, body)}
             for _, s, turns, watermark, sid in found]
+
+
+# --- bounded a-posteriori rationalization (log-checkpointed; no cursor) ---
+def _substantial_for_rationalization(turns):
+    """The quente criterion, applied to the already-normalized persisted dialogue."""
+    human = [turn for turn in turns if turn.role == "human"]
+    return len(human) >= 5 and sum(len(turn.text) for turn in human) >= 1000
+
+
+def _validate_lentes_limit(value, name, *, allow_zero=False):
+    floor = 0 if allow_zero else 1
+    if (not isinstance(value, int) or isinstance(value, bool) or value < floor):
+        qualifier = "non-negative" if allow_zero else "positive"
+        raise ValueError(f"lentes.{name} must be a {qualifier} integer")
+    return value
+
+
+def _lentes_config(path=None):
+    """Read only the phenotype knobs owned by the lenses coordinator."""
+    path = REPO / "agent.yaml" if path is None else Path(path)
+    try:
+        import yaml
+        raw = yaml.safe_load(path.read_text()) or {}
+    except FileNotFoundError:
+        raw = {}
+    lenses = raw.get("lentes") if isinstance(raw, dict) else None
+    lenses = lenses if isinstance(lenses, dict) else {}
+    config = {
+        "backfill_days": lenses.get("backfill_days"),
+        "max_sessions_per_sweep": lenses.get(
+            "max_sessions_per_sweep", DEFAULT_MAX_SESSIONS_PER_SWEEP),
+        "sweep_token_budget": lenses.get(
+            "sweep_token_budget", DEFAULT_SWEEP_TOKEN_BUDGET),
+        "scene_turn_limit": lenses.get(
+            "scene_turn_limit", DEFAULT_SCENE_TURN_LIMIT),
+    }
+    if config["backfill_days"] is not None:
+        _validate_lentes_limit(config["backfill_days"], "backfill_days", allow_zero=True)
+    _validate_lentes_limit(config["max_sessions_per_sweep"], "max_sessions_per_sweep")
+    _validate_lentes_limit(config["sweep_token_budget"], "sweep_token_budget")
+    _validate_lentes_limit(config["scene_turn_limit"], "scene_turn_limit")
+    return config
+
+
+def rationalization_identity(session_id, turns, *, surface="claude", watermark=None,
+                             racionalizador_version="racionalizador-v1"):
+    """Compute the exact public checkpoint identity using the rationalizer's normalization."""
+    import racionalizador
+    normalized_turns = racionalizador._normalized_turns(turns)
+    if watermark is None:
+        watermark = len(normalized_turns)
+    source_hash = racionalizador._digest({
+        "session_id": session_id,
+        "surface": surface,
+        "watermark": watermark,
+        "turns": normalized_turns,
+    })
+    return {
+        "source_hash": source_hash,
+        "rationalization_id": racionalizador._digest({
+            "source_hash": source_hash,
+            "racionalizador_version": racionalizador_version,
+        }),
+    }
+
+
+def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
+                          backfill_days=None, now=None,
+                          racionalizador_version="racionalizador-v1"):
+    """Return current substantial inputs lacking a log checkpoint, oldest first.
+
+    The raw transcript is append-only, so ``session + surface + watermark + version`` identifies
+    the current input cheaply.  ``rationalization_id`` being present on that checkpoint is the
+    authority; there is deliberately no second cursor.  A grown session gets a new watermark and
+    becomes pending again.  ``backfill_days`` is only a scan/cost horizon and never mutates files.
+    """
+    if backfill_days is not None:
+        _validate_lentes_limit(backfill_days, "backfill_days", allow_zero=True)
+    if not isinstance(racionalizador_version, str) or not racionalizador_version.strip():
+        raise ValueError("racionalizador_version must be a non-blank string")
+    include_codex = _codex_enabled(project_dir, codex_dir)
+    if project_dir is None:
+        project_dir = _identity.project_dir()
+    now = datetime.now(timezone.utc) if now is None else now
+    if isinstance(now, str):
+        now = datetime.fromisoformat(now.replace("Z", "+00:00"))
+    if not isinstance(now, datetime):
+        raise ValueError("now must be a datetime or ISO timestamp")
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    floor = ((now - timedelta(days=backfill_days)).timestamp()
+             if backfill_days is not None else None)
+
+    checkpoints = set()
+    for event in eventlog.read(types=["sessao.racionalizada"], log=log):
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        rationalization_id = payload.get("rationalization_id")
+        if not isinstance(rationalization_id, str) or not rationalization_id.strip():
+            continue
+        checkpoints.add(rationalization_id)
+
+    discovered = list(sessions.list_sessions(project_dir))
+    if include_codex:
+        discovered.extend(sessions.list_codex_sessions(codex_dir))
+    pending = []
+    for session in discovered:
+        if not sessions.is_user_session(session):
+            continue
+        path = Path(session.path)
+        mtime = path.stat().st_mtime
+        if floor is not None and mtime < floor:
+            continue
+        turns, watermark = sessions.delta(path, 0, surface=session.surface)
+        if not turns or not _substantial_for_rationalization(turns):
+            continue
+        session_id = _cursor_id(session)
+        identity = rationalization_identity(
+            session_id, turns, surface=session.surface, watermark=watermark,
+            racionalizador_version=racionalizador_version,
+        )
+        if identity["rationalization_id"] in checkpoints:
+            continue
+        pending.append({
+            "id": session_id,
+            "raw_id": session.id,
+            "surface": session.surface,
+            "path": str(path),
+            "mtime": mtime,
+            "turns": turns,
+            "watermark": watermark,
+            **identity,
+        })
+    pending.sort(key=lambda item: (item["mtime"], item["surface"], item["id"]))
+    return pending
+
+
+def _add_usage(total, addition):
+    addition = addition if isinstance(addition, dict) else {}
+    for field in ("calls", "input_tokens", "output_tokens", "estimated_tokens"):
+        value = addition.get(field, 0)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            total[field] += value
+
+
+def _estimated_tokens(value):
+    rendered = value if isinstance(value, str) else json.dumps(
+        value, ensure_ascii=False, sort_keys=True)
+    return max(1, math.ceil(len(rendered.encode("utf-8")) / 4))
+
+
+def _bounded_sweep_completer(complete_fn, completer_factory, token_budget):
+    """Cap every model output by the aggregate budget; instantiate providers only on demand."""
+    spent = 0
+
+    def complete(prompt):
+        nonlocal spent
+        input_cost = _estimated_tokens(prompt)
+        available = None if token_budget is None else token_budget - spent - input_cost
+        if available is not None and available < 1:
+            # Same sentinel rationalize catches for its own pre-call budget check. No provider is
+            # constructed and its usage remains at/below the hard aggregate ceiling.
+            import racionalizador
+            raise racionalizador._BudgetExhausted
+        if completer_factory is not None:
+            call = completer_factory(max_tokens=available)
+            raw = call(prompt)
+        else:
+            raw = complete_fn(prompt)
+        rendered = raw if isinstance(raw, str) else json.dumps(
+            raw, ensure_ascii=False, sort_keys=True)
+        if available is not None and _estimated_tokens(rendered) > available:
+            # The production provider already received max_tokens=available. Truncation is a
+            # fail-safe for injected/non-conforming transports: invalid JSON keeps the session
+            # pending, while rationalizer's accounted consumption can never cross the ceiling.
+            rendered = rendered.encode("utf-8")[:available * 4].decode("utf-8", errors="ignore")
+            while rendered and _estimated_tokens(rendered) > available:
+                rendered = rendered[:-1]
+            raw = rendered
+        spent += input_cost + _estimated_tokens(raw)
+        return raw
+
+    return complete
+
+
+def rationalize_pending_sessions(
+    project_dir,
+    complete_fn,
+    *,
+    completer_factory=None,
+    log=eventlog.LOG,
+    codex_dir=None,
+    rationalize_fn=None,
+    backfill_days=None,
+    max_sessions_per_sweep=DEFAULT_MAX_SESSIONS_PER_SWEEP,
+    sweep_token_budget=DEFAULT_SWEEP_TOKEN_BUDGET,
+    scene_turn_limit=DEFAULT_SCENE_TURN_LIMIT,
+    racionalizador_version="racionalizador-v1",
+):
+    """Rationalize an oldest-first prefix under one aggregate sweep budget.
+
+    Planning and execution share a coordinator lock.  The per-session writer still performs its
+    authoritative ``rationalization_id`` CAS under the event-log lock; this outer lock prevents two
+    sweeps from spending model budget on the same oldest backlog item before either CAS lands.
+    """
+    _validate_lentes_limit(max_sessions_per_sweep, "max_sessions_per_sweep")
+    if sweep_token_budget is not None:
+        _validate_lentes_limit(sweep_token_budget, "sweep_token_budget")
+    _validate_lentes_limit(scene_turn_limit, "scene_turn_limit")
+    if (complete_fn is None) == (completer_factory is None):
+        raise ValueError("provide exactly one of complete_fn or completer_factory")
+    if complete_fn is not None and not callable(complete_fn):
+        raise ValueError("complete_fn must be callable")
+    if completer_factory is not None and not callable(completer_factory):
+        raise ValueError("completer_factory must be callable")
+    if rationalize_fn is None:
+        import racionalizador
+        rationalize_fn = racionalizador.rationalize
+
+    import fcntl
+    coordinator_lock = Path(log).with_name(Path(log).name + ".rationalize.lock")
+    coordinator_lock.parent.mkdir(parents=True, exist_ok=True)
+    usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "estimated_tokens": 0}
+    rationalized = []
+    attempted = []
+    stopped_reason = None
+    bounded_complete_fn = _bounded_sweep_completer(
+        complete_fn, completer_factory, sweep_token_budget)
+    with coordinator_lock.open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            pending = plan_rationalizations(
+                project_dir,
+                log=log,
+                codex_dir=codex_dir,
+                backfill_days=backfill_days,
+                racionalizador_version=racionalizador_version,
+            )
+            for item in pending:
+                if len(rationalized) >= max_sessions_per_sweep:
+                    stopped_reason = "max_sessions_per_sweep"
+                    break
+                remaining = (None if sweep_token_budget is None else
+                             max(0, sweep_token_budget - usage["estimated_tokens"]))
+                if remaining == 0:
+                    stopped_reason = "budget_exhausted"
+                    break
+                attempted.append(item["id"])
+                result = rationalize_fn(
+                    item["id"],
+                    item["turns"],
+                    bounded_complete_fn,
+                    log,
+                    surface=item["surface"],
+                    watermark=item["watermark"],
+                    racionalizador_version=racionalizador_version,
+                    sweep_token_budget=remaining,
+                    scene_turn_limit=scene_turn_limit,
+                )
+                if not isinstance(result, dict):
+                    raise TypeError("rationalize_fn must return a dict")
+                _add_usage(usage, result.get("usage"))
+                reason = result.get("skipped_reason")
+                if reason == "already_rationalized":
+                    continue
+                if reason:
+                    stopped_reason = reason
+                    break
+                rationalized.append(item["id"])
+            current_pending = plan_rationalizations(
+                project_dir,
+                log=log,
+                codex_dir=codex_dir,
+                backfill_days=backfill_days,
+                racionalizador_version=racionalizador_version,
+            )
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+    return {
+        "attempted": attempted,
+        "rationalized": rationalized,
+        "pending": [item["id"] for item in current_pending],
+        "usage": usage,
+        "stopped_reason": stopped_reason,
+    }
 
 
 # --- effectful execute: log + ingest + advance cursor ---
@@ -523,6 +811,7 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
                                                        log=log)
         finally:
             fcntl.flock(lk, fcntl.LOCK_UN)
+
     if (n or proposed) and reproject_fn is not False:
         (reproject_fn or reproject)()
     elif reproject_fn is None:
@@ -537,6 +826,134 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
     return n
 
 
+def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
+                                complete_fn=None, completer_factory=None,
+                                rationalize_fn=None, lentes_config=None,
+                                reconcile_fn=None, project_fn=None, render_fn=None,
+                                graph_store=None, graph_store_factory=None):
+    """Explicit sleep-time entrypoint; deliberately absent from mechanical ``run()``.
+
+    The provider is lazy and only constructed after a substantial pending session is found. A
+    service/timer may execute this entrypoint with its own runtime timeout; predispatch never waits
+    for cognition and needs no thread/subprocess lifecycle inside this module.
+    """
+    config = _lentes_config() if lentes_config is None else dict(lentes_config)
+    backfill_days = config.get("backfill_days")
+    version = config.get("racionalizador_version", "racionalizador-v1")
+    pending = plan_rationalizations(
+        project_dir, log=log, codex_dir=codex_dir, backfill_days=backfill_days,
+        racionalizador_version=version,
+    )
+    if pending:
+        if complete_fn is None and completer_factory is None:
+            def completer_factory(*, max_tokens):
+                import llm_routes
+                return llm_routes.completer_for("chat", max_tokens=max_tokens)
+        result = rationalize_pending_sessions(
+            project_dir,
+            complete_fn,
+            completer_factory=completer_factory,
+            log=log,
+            codex_dir=codex_dir,
+            rationalize_fn=rationalize_fn,
+            backfill_days=backfill_days,
+            max_sessions_per_sweep=config.get(
+                "max_sessions_per_sweep", DEFAULT_MAX_SESSIONS_PER_SWEEP),
+            sweep_token_budget=config.get(
+                "sweep_token_budget", DEFAULT_SWEEP_TOKEN_BUDGET),
+            scene_turn_limit=config.get("scene_turn_limit", DEFAULT_SCENE_TURN_LIMIT),
+            racionalizador_version=version,
+        )
+    else:
+        result = {"attempted": [], "rationalized": [], "pending": [],
+                  "usage": {"calls": 0, "input_tokens": 0, "output_tokens": 0,
+                            "estimated_tokens": 0},
+                  "stopped_reason": None}
+
+    downstream = {}
+
+    def _best_effort(name, call):
+        try:
+            value = call()
+            complete = getattr(value, "complete", True)
+            downstream[name] = {"ok": bool(complete), "result": value}
+        except Exception as exc:  # noqa: BLE001 — log is truth; projections retry next worker
+            downstream[name] = {"ok": False,
+                                "error": f"{type(exc).__name__}: {exc}"}
+            print(f"sweep: lenses {name} skipped ({type(exc).__name__}: {exc}) — "
+                  "checkpoint retained")
+
+    def _reconcile():
+        nonlocal reconcile_fn
+        if reconcile_fn is None:
+            import portfolio
+            reconcile_fn = portfolio.reconcile
+        return reconcile_fn(log)
+
+    def _project():
+        nonlocal project_fn, graph_store
+        if project_fn is None:
+            import publisher
+            project_fn = publisher.project_lentes
+        close_fn = None
+        if graph_store is None:
+            factory = graph_store_factory or _live_lenses_graph_store
+            built = factory()
+            if isinstance(built, tuple) and len(built) == 2:
+                graph_store, close_fn = built
+            else:
+                graph_store = built
+        try:
+            return project_fn(log, graph_store)
+        finally:
+            if close_fn is not None:
+                close_fn()
+
+    def _render():
+        nonlocal render_fn
+        if render_fn is None:
+            import portfolio
+            render_fn = portfolio.render
+        return render_fn(log)
+
+    _best_effort("reconcile", _reconcile)
+    _best_effort("project", _project)
+    _best_effort("render", _render)
+    result["downstream"] = downstream
+    return result
+
+
+def _live_lenses_graph_store():
+    """Construct the live adapter lazily; return ``(store, close)`` for worker cleanup."""
+    import _identity
+    from graph_store import Neo4jGraphStore
+    from neo4j import GraphDatabase
+    uri, user, password = _identity.neo4j_conn()
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    try:
+        store = Neo4jGraphStore(driver, group_id=_identity.require_group())
+    except Exception:
+        driver.close()
+        raise
+    return store, driver.close
+
+
+def enqueue_rationalization(run_fn=None, timeout=2):
+    """Ask systemd to start the detached worker; never spawn cognition in predispatch."""
+    if run_fn is None:
+        import subprocess
+        run_fn = subprocess.run
+    result = run_fn(
+        ["systemctl", "--user", "start", "--no-block", "edge-rationalize.service"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        shell=False,
+    )
+    return result.returncode == 0
+
+
 def _recent_arg(argv):
     if "--recent" in argv:
         i = argv.index("--recent")
@@ -546,6 +963,12 @@ def _recent_arg(argv):
 
 def main(argv):
     recent = _recent_arg(argv)
+    if "--rationalize-only" in argv:
+        result = run_rationalization_backlog()
+        print(f"sweep: rationalized {len(result['rationalized'])} session(s); "
+              f"{len(result['pending'])} pending; "
+              f"{result['usage']['estimated_tokens']} estimated tokens")
+        return
     if "--plan" in argv:
         cursors = load_cursors()
         if _codex_enabled(None, None):

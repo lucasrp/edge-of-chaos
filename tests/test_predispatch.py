@@ -4,9 +4,11 @@ the one mechanical wall every real publish crosses (the close's publish stage) â
 a stamp newer than the last `artefato.published`. One wake per publish. Delta stays agentic and
 is never stamped nor gated (ADR-0001/0011)."""
 
+import io
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -265,6 +267,81 @@ class EntryDriverRealWiring(unittest.TestCase):
                                 recall_fn=lambda: "R", harvest_fn=lambda: 0, log=log)
             self.assertFalse(eventlog.wake_fresh(log=log),
                              "a lobotomized install must not look woken")
+
+
+class BackgroundRationalizationWiring(unittest.TestCase):
+    def test_enqueues_only_after_identity_and_grounding_are_durable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            observed_types = []
+
+            def enqueue():
+                observed_types.extend(event["type"] for event in eventlog.read(log=log))
+                return True
+
+            result = predispatch.run(
+                sweep_fn=lambda: 0,
+                briefing_fn=lambda: "B",
+                recall_fn=lambda: "R",
+                harvest_fn=lambda: 0,
+                probe_fn=lambda _spec: None,
+                enqueue_fn=enqueue,
+                log=log,
+            )
+
+            self.assertEqual(result, ("B", "R"))
+            self.assertEqual(observed_types, ["dispatch.open", "dispatch.grounding"])
+
+    def test_enqueue_failure_is_visible_but_never_unstamps_or_blocks_the_wake(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            output = io.StringIO()
+
+            def unavailable():
+                raise RuntimeError("systemd user manager unavailable")
+
+            with redirect_stdout(output):
+                result = predispatch.run(
+                    sweep_fn=lambda: 0,
+                    briefing_fn=lambda: "B",
+                    recall_fn=lambda: "R",
+                    harvest_fn=lambda: 0,
+                    probe_fn=lambda _spec: None,
+                    enqueue_fn=unavailable,
+                    log=log,
+                )
+
+            self.assertEqual(result, ("B", "R"))
+            self.assertEqual(
+                [event["type"] for event in eventlog.read(log=log)],
+                ["dispatch.open", "dispatch.grounding"],
+            )
+            self.assertIn("rationalization enqueue", output.getvalue())
+            self.assertIn("systemd user manager unavailable", output.getvalue())
+
+    def test_nonzero_systemd_result_is_visible_but_never_blocks_the_wake(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            output = io.StringIO()
+
+            with redirect_stdout(output):
+                result = predispatch.run(
+                    sweep_fn=lambda: 0,
+                    briefing_fn=lambda: "B",
+                    recall_fn=lambda: "R",
+                    harvest_fn=lambda: 0,
+                    probe_fn=lambda _spec: None,
+                    enqueue_fn=lambda: False,
+                    log=log,
+                )
+
+            self.assertEqual(result, ("B", "R"))
+            self.assertEqual(
+                [event["type"] for event in eventlog.read(log=log)],
+                ["dispatch.open", "dispatch.grounding"],
+            )
+            self.assertIn("rationalization enqueue", output.getvalue())
+            self.assertIn("systemd start returned failure", output.getvalue())
 
 
 class TheDriverIsPinnedInProse(unittest.TestCase):

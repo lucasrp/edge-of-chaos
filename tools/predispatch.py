@@ -22,7 +22,8 @@ annotated dark leg, the stamp still lands (R3.2: grounding annotates, it never g
 briefing compose aborts too: `BriefingIdentityError` is a lobotomized install
 (ADR-0009 fail-closed), not an outage. A crash anywhere in the sweep→stamp gap is safe by the
 same shape: the sweep's effects are durable and idempotent, no stamp means the publisher refuses,
-and re-running this driver recovers.
+and re-running this driver recovers. After identity and grounding are durable, the driver enqueues
+the log-checkpointed rationalizer's systemd worker; enqueue failure is visible but never gates wake.
 """
 import argparse
 import contextlib
@@ -70,7 +71,7 @@ def mint_dispatch_id():
 
 def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_fn=None,
         log=eventlog.LOG, dispatch_id=None, theme=None, intent=None, geometry=None,
-        id_sink=None, origin=None):
+        id_sink=None, origin=None, enqueue_fn=None):
     """The mechanical floor, in order: sweep → briefing → STAMP dispatch.open (+ emit the id to
     `id_sink`) → grounding legs (harvest → recall brief → canary) → dispatch.grounding. Returns
     (briefing_text, recall_text) for the dispatch to read. Injectable (house style) so it runs
@@ -90,6 +91,8 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
     dark leg, not a crash. The read-side metrics `harvested` (rows this wake emitted) and
     `ambient_rows` (the ambient read volume in the log) land on a SEPARATE `dispatch.grounding`
     event — never on the identity stamp (they had zero downstream readers there and gated nothing).
+    Only after those durable effects, ``enqueue_fn`` schedules sleep-time rationalization and returns;
+    its worker is process-owned elsewhere and never executes cognition in this wake process.
     Only a raising SWEEP or BRIEFING aborts before the stamp: a dispatch that could not wake must
     not look woken.
 
@@ -193,6 +196,16 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
     except Exception as e:  # noqa: BLE001 — the grounding summary never gates a stamped wake
         print(f"predispatch: dispatch.grounding annotation DARK ({type(e).__name__}: {e}) — "
               "id already stamped; counts not recorded this wake.")
+    if enqueue_fn is not None or Path(log).resolve() == Path(eventlog.LOG).resolve():
+        try:
+            if enqueue_fn is None:
+                import sweep as _sweep
+                enqueue_fn = _sweep.enqueue_rationalization
+            if enqueue_fn() is False:
+                raise RuntimeError("systemd start returned failure")
+        except Exception as e:  # noqa: BLE001 — the log-checkpointed backlog survives enqueue dark
+            print(f"predispatch: rationalization enqueue DARK ({type(e).__name__}: {e}) — "
+                  "wake already stamped; backlog retained for the next trigger.")
     return briefing_text, recall_text
 
 

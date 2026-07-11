@@ -1,0 +1,636 @@
+"""S6 — racionalizador a-posteriori, bounded e idempotente pela entrada."""
+
+import ast
+import json
+import sys
+import tempfile
+import threading
+import unittest
+from pathlib import Path
+
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "tools"))
+
+import eventlog  # noqa: E402
+import racionalizador  # noqa: E402
+
+
+def _nothing_changed():
+    return {
+        "operacoes": ["edge"],
+        "stitch": {
+            "goal": "implementar as lentes",
+            "acao": "revisou o contrato",
+            "entidades": [],
+        },
+        "epistemico": {"presuncoes": []},
+        "organizacional": {"enderecos": []},
+        "derived_events": [],
+    }
+
+
+class NothingChangedTracerBullet(unittest.TestCase):
+    def test_emits_only_audit_batch_and_identical_rerun_is_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            calls = []
+
+            def complete_fn(prompt):
+                calls.append(prompt)
+                return json.dumps(_nothing_changed())
+
+            turns = [
+                {"role": "human", "text": "A spec está pronta."},
+                {"role": "edge", "text": "Revisei; nada muda no que fazemos."},
+            ]
+            first = racionalizador.rationalize(
+                "session-1",
+                turns,
+                complete_fn,
+                log=log,
+                surface="codex",
+                watermark=2,
+                racionalizador_version="model-x/prompt-v1",
+            )
+            second = racionalizador.rationalize(
+                "session-1",
+                turns,
+                complete_fn,
+                log=log,
+                surface="codex",
+                watermark=2,
+                racionalizador_version="model-x/prompt-v1",
+            )
+
+            written = eventlog.read(log=log)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(first["emitted"], written)
+            self.assertEqual(second, {"emitted": [], "skipped_reason": "already_rationalized"})
+            self.assertEqual([event["type"] for event in written], ["sessao.racionalizada"])
+            payload = written[0]["payload"]
+            self.assertEqual(payload["sessao_id"], "session-1")
+            self.assertEqual(payload["surface"], "codex")
+            self.assertEqual(payload["watermark"], 2)
+            self.assertEqual(payload["racionalizador_version"], "model-x/prompt-v1")
+            self.assertEqual(len(payload["source_hash"]), 64)
+            self.assertEqual(len(payload["rationalization_id"]), 64)
+            self.assertNotIn("supersedes", payload)
+
+
+class AllOrNothingValidation(unittest.TestCase):
+    def test_one_malformed_item_in_four_writes_zero_and_names_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            output = _nothing_changed()
+            output["epistemico"]["presuncoes"] = [
+                {"texto": "p1", "confirmaria": "c1", "refutaria": "r1"},
+                {"texto": "p2", "confirmaria": "c2", "refutaria": "r2"},
+                {"texto": "p3", "confirmaria": "c3"},
+                {"texto": "p4", "confirmaria": "c4", "refutaria": "r4"},
+            ]
+
+            result = racionalizador.rationalize(
+                "session-invalid",
+                [{"role": "human", "text": "quatro presunções"}],
+                lambda _prompt: json.dumps(output),
+                log=log,
+            )
+
+            self.assertEqual(result["emitted"], [])
+            self.assertEqual(result["skipped_reason"], "invalid_output")
+            self.assertIn("presuncoes[2].refutaria", result["error"])
+            self.assertEqual(eventlog.read(log=log), [])
+
+    def test_one_malformed_derived_event_in_four_is_rejected_before_dependency(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            output = _nothing_changed()
+            output["derived_events"] = [
+                {"type": "claim.hypothesized", "subject": "claim:a",
+                 "payload": {"statement": "claim válido 1"}},
+                {"type": "claim.hypothesized", "subject": "claim:b",
+                 "payload": {"statement": "claim válido 2"}},
+                {"type": "claim.hypothesized", "subject": "claim:c",
+                 "payload": {"statement": "claim inválido", "falsifier": "prosa"}},
+                {"type": "claim.hypothesized", "subject": "claim:d",
+                 "payload": {"statement": "claim válido 4"}},
+            ]
+
+            result = racionalizador.rationalize(
+                "session-invalid-derived",
+                [{"role": "human", "text": "batch parcial"}],
+                lambda _prompt: json.dumps(output),
+                log=log,
+            )
+
+            self.assertEqual(result["skipped_reason"], "invalid_output")
+            self.assertIn("falsifier", result["error"])
+            self.assertEqual(eventlog.read(log=log), [])
+
+    def test_activity_close_from_rationalizer_is_a_typed_move_not_direct_event_a20(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            opened = eventlog.open_atividade(
+                operacao="edge", finalidade="Fechar por proposta",
+                tier="asserted", author="operador", log=log,
+            )
+            activity_ref = f"edge/{opened['payload']['num']}"
+            activity_ulid = opened["payload"]["ulid"]
+            output = _nothing_changed()
+            output["derived_events"] = [{
+                "type": "move.proposed", "subject": "move:derived",
+                "payload": {
+                    "kind": "atividade.close", "alvo": activity_ref,
+                    "effect": {
+                        "event_type": "atividade.closed",
+                        "subject": f"atividade:{activity_ulid}",
+                        "payload": {
+                            "ref": activity_ulid, "estado": "cumprida",
+                            "julgamento": "Finalidade cumprida", "superada_por": None,
+                            "tier": "asserted", "author": "grill",
+                            "rationale": "Candidato para ratificação",
+                            "dispatch_id": "dispatch-future",
+                        },
+                    },
+                    "expects": {"estado": "aberta"}, "evidencia": [activity_ref],
+                    "rationale": "A sessão indica fecho",
+                    "basis_seq": eventlog.read(log=log)[-1]["seq"],
+                },
+            }]
+            result = racionalizador.rationalize(
+                "session-move-close", [{"role": "human", "text": "terminamos"}],
+                lambda _prompt: json.dumps(output), log=log,
+            )
+            self.assertEqual([event["type"] for event in result["emitted"]],
+                             ["sessao.racionalizada", "move.proposed"])
+            self.assertEqual(eventlog.read(types=["atividade.closed"], log=log), [])
+            self.assertEqual(result["emitted"][1]["payload"]["kind"], "atividade.close")
+
+    def test_activity_close_is_never_a_direct_rationalizer_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            output = _nothing_changed()
+            output["derived_events"] = [{
+                "type": "atividade.closed",
+                "subject": "atividade:a",
+                "payload": {"estado": "cumprida"},
+            }]
+
+            result = racionalizador.rationalize(
+                "session-close",
+                [{"role": "human", "text": "acabamos"}],
+                lambda _prompt: json.dumps(output),
+                log=log,
+            )
+
+            self.assertEqual(result["skipped_reason"], "invalid_output")
+            self.assertIn("move.proposed", result["error"])
+            self.assertEqual(eventlog.read(log=log), [])
+
+    def test_valid_derived_output_materializes_atomically_with_the_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            output = _nothing_changed()
+            output["derived_events"] = [{
+                "type": "claim.hypothesized",
+                "subject": "claim:c",
+                "payload": {"statement": "hipótese"},
+            }]
+
+            result = racionalizador.rationalize(
+                "session-derived",
+                [{"role": "human", "text": "extraímos uma hipótese"}],
+                lambda _prompt: json.dumps(output),
+                log=log,
+            )
+
+            self.assertEqual(
+                [event["type"] for event in result["emitted"]],
+                ["sessao.racionalizada", "claim.hypothesized"],
+            )
+            claim = result["emitted"][1]["payload"]
+            self.assertEqual(claim["statement"], "hipótese")
+            self.assertEqual(claim["origem_sessao"], "session-derived")
+            self.assertEqual(claim["tier"], "llm_judged")
+
+    def test_operations_stitch_and_addresses_are_semantically_validated_before_append(self):
+        invalid_outputs = []
+
+        bad_operation = _nothing_changed()
+        bad_operation["operacoes"] = ["Edge Project"]
+        invalid_outputs.append((bad_operation, "operacoes[0]"))
+
+        short_stitch_ref = _nothing_changed()
+        short_stitch_ref["stitch"]["entidades"] = ["atv-001"]
+        invalid_outputs.append((short_stitch_ref, "stitch.entidades[0]"))
+
+        mismatched_stitch_ref = _nothing_changed()
+        mismatched_stitch_ref["stitch"]["entidades"] = [
+            {"operacao": "other", "num": "atv-001"}
+        ]
+        invalid_outputs.append((mismatched_stitch_ref, "stitch.entidades[0].operacao"))
+
+        missing_activity = _nothing_changed()
+        missing_activity["organizacional"]["enderecos"] = [
+            {"path": "tools/eventlog.py", "papel": "editado"}
+        ]
+        invalid_outputs.append((missing_activity, "enderecos[0].atividade"))
+
+        bad_sha = _nothing_changed()
+        bad_sha["organizacional"]["enderecos"] = [{
+            "atividade": "edge/atv-001",
+            "path": "tools/eventlog.py",
+            "papel": "editado",
+            "sha256": "not-a-sha",
+        }]
+        invalid_outputs.append((bad_sha, "enderecos[0].sha256"))
+
+        bad_stat = _nothing_changed()
+        bad_stat["organizacional"]["enderecos"] = [{
+            "atividade": "edge/atv-001",
+            "path": "tools/eventlog.py",
+            "papel": "editado",
+            "stat": {},
+        }]
+        invalid_outputs.append((bad_stat, "enderecos[0].stat"))
+
+        for index, (output, error_field) in enumerate(invalid_outputs):
+            with self.subTest(error_field=error_field), tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                result = racionalizador.rationalize(
+                    f"session-semantic-{index}",
+                    [{"role": "human", "text": "validar tudo"}],
+                    lambda _prompt, output=output: json.dumps(output),
+                    log=log,
+                )
+                self.assertEqual(result["skipped_reason"], "invalid_output")
+                self.assertIn(error_field, result["error"])
+                self.assertEqual(eventlog.read(log=log), [])
+
+    def test_full_stitch_refs_and_verifiable_addresses_survive_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            output = _nothing_changed()
+            output["stitch"]["entidades"] = [
+                "edge/atv-001", {"operacao": "edge", "num": "tkt-002"}
+            ]
+            output["organizacional"]["enderecos"] = [
+                {
+                    "atividade": "edge/atv-001",
+                    "path": "tools/eventlog.py",
+                    "papel": "editado",
+                    "sha256": "A" * 64,
+                },
+                {
+                    "atividade": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "path": "tests/test_eventlog.py",
+                    "papel": "consultado",
+                    "stat": {"size": 123, "mtime_ns": 456},
+                },
+            ]
+
+            result = racionalizador.rationalize(
+                "session-valid-semantics",
+                [{"role": "human", "text": "refs completas"}],
+                lambda _prompt: json.dumps(output),
+                log=log,
+            )
+
+            payload = result["emitted"][0]["payload"]
+            self.assertEqual(payload["stitch"]["entidades"], output["stitch"]["entidades"])
+            self.assertEqual(
+                payload["organizacional"]["enderecos"][0]["sha256"], "a" * 64
+            )
+            self.assertEqual(
+                payload["organizacional"]["enderecos"][1]["stat"]["size"], 123
+            )
+
+
+class InputIdentityAndOverlay(unittest.TestCase):
+    def test_grown_session_changes_identity_and_audit_supersedes_pointer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            complete_fn = lambda _prompt: json.dumps(_nothing_changed())
+            initial = [{"role": "human", "text": "primeiro turno"}]
+            grown = initial + [{"role": "edge", "text": "a sessão cresceu"}]
+
+            first = racionalizador.rationalize(
+                "session-growing", initial, complete_fn, log=log, watermark=1
+            )
+            second = racionalizador.rationalize(
+                "session-growing", grown, complete_fn, log=log, watermark=2
+            )
+
+            first_payload = first["emitted"][0]["payload"]
+            second_payload = second["emitted"][0]["payload"]
+            self.assertNotEqual(second_payload["source_hash"], first_payload["source_hash"])
+            self.assertNotEqual(
+                second_payload["rationalization_id"], first_payload["rationalization_id"]
+            )
+            self.assertEqual(
+                second_payload["supersedes"], first_payload["rationalization_id"]
+            )
+            self.assertEqual(len(eventlog.read(log=log)), 2)
+
+    def test_version_changes_rationalization_identity_not_evidence_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            complete_fn = lambda _prompt: json.dumps(_nothing_changed())
+            turns = [{"role": "human", "text": "mesma evidência"}]
+
+            first = racionalizador.rationalize(
+                "session-versioned", turns, complete_fn, log=log,
+                racionalizador_version="prompt-v1",
+            )["emitted"][0]["payload"]
+            second = racionalizador.rationalize(
+                "session-versioned", turns, complete_fn, log=log,
+                racionalizador_version="prompt-v2",
+            )["emitted"][0]["payload"]
+
+            self.assertEqual(second["source_hash"], first["source_hash"])
+            self.assertNotEqual(second["rationalization_id"], first["rationalization_id"])
+            self.assertEqual(second["supersedes"], first["rationalization_id"])
+
+    def test_concurrent_identical_inputs_land_once_under_append_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            rendezvous = threading.Barrier(2)
+            results = []
+
+            def complete_fn(_prompt):
+                rendezvous.wait(timeout=2)
+                return json.dumps(_nothing_changed())
+
+            def worker():
+                results.append(racionalizador.rationalize(
+                    "session-race",
+                    [{"role": "human", "text": "mesma entrada concorrente"}],
+                    complete_fn,
+                    log=log,
+                ))
+
+            threads = [threading.Thread(target=worker) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=3)
+
+            self.assertFalse(any(thread.is_alive() for thread in threads))
+            self.assertEqual(len(eventlog.read(log=log)), 1)
+            self.assertEqual(sorted(len(result["emitted"]) for result in results), [0, 1])
+
+    def test_corrupt_rationalization_payload_is_ignored_fail_dark(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.append(
+                "sessao.racionalizada", "sessao:corrupt", "not-an-object", log=log
+            )
+
+            result = racionalizador.rationalize(
+                "session-after-corrupt",
+                [{"role": "human", "text": "o log segue navegável"}],
+                lambda _prompt: json.dumps(_nothing_changed()),
+                log=log,
+            )
+
+            self.assertEqual(len(result["emitted"]), 1)
+            self.assertEqual(len(eventlog.read(log=log)), 2)
+
+    def test_a29_different_rebackfill_output_reuses_activity_instead_of_parallel_grain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            first_output = _nothing_changed()
+            first_output["derived_events"] = [{
+                "type": "atividade.opened", "subject": "atividade:first",
+                "payload": {"operacao": "edge", "finalidade": "Primeira segmentação"},
+            }]
+            second_output = _nothing_changed()
+            second_output["derived_events"] = [{
+                "type": "atividade.opened", "subject": "atividade:second",
+                "payload": {"operacao": "edge", "finalidade": "Output completamente diferente",
+                            "novo": "backfill maior releu a sessão"},
+            }]
+            first = racionalizador.rationalize(
+                "session-rebackfill", [{"role": "human", "text": "parte 1"}],
+                lambda _prompt: json.dumps(first_output), log=log, watermark=1,
+            )
+            second = racionalizador.rationalize(
+                "session-rebackfill",
+                [{"role": "human", "text": "parte 1"},
+                 {"role": "human", "text": "parte descoberta no backfill"}],
+                lambda _prompt: json.dumps(second_output), log=log, watermark=2,
+            )
+            self.assertEqual(len(eventlog.atividades_at(log=log)), 1)
+            self.assertEqual(len(eventlog.read(types=["atividade.opened"], log=log)), 1)
+            self.assertNotEqual(first["emitted"][0]["payload"]["rationalization_id"],
+                                second["emitted"][0]["payload"]["rationalization_id"])
+            self.assertEqual([event["type"] for event in second["emitted"]],
+                             ["sessao.racionalizada", "atividade.touched"])
+
+
+class MarathonMechanicalCoreAndLocalBudget(unittest.TestCase):
+    def test_uniform_scene_cut_covers_start_middle_end_before_consolidation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            turns = [
+                {"role": "human", "text": f"turn-{index}"}
+                for index in range(20)
+            ]
+            turns[10]["text"] = "turn-10 MIDDLE_OBJECTIVE_CHANGE"
+            requests = []
+
+            def complete_fn(prompt):
+                request = json.loads(prompt)
+                requests.append(request)
+                if request["stage"] == "scene":
+                    return json.dumps({
+                        "summary": " | ".join(turn["text"] for turn in request["turns"])
+                    })
+                output = _nothing_changed()
+                output["stitch"]["goal"] = "MIDDLE_OBJECTIVE_CHANGE"
+                return json.dumps(output)
+
+            result = racionalizador.rationalize(
+                "session-marathon",
+                turns,
+                complete_fn,
+                log=log,
+                scene_turn_limit=2,
+                max_scenes=3,
+                sweep_token_budget=10_000,
+            )
+
+            scene_requests = [request for request in requests if request["stage"] == "scene"]
+            self.assertEqual(len(scene_requests), 3)
+            scene_text = " ".join(
+                turn["text"] for request in scene_requests for turn in request["turns"]
+            )
+            self.assertIn("turn-0", scene_text)
+            self.assertIn("MIDDLE_OBJECTIVE_CHANGE", scene_text)
+            self.assertIn("turn-19", scene_text)
+            self.assertEqual(requests[-1]["stage"], "consolidate")
+            self.assertEqual(result["usage"]["calls"], 4)
+            self.assertLessEqual(result["usage"]["estimated_tokens"], 10_000)
+            self.assertEqual(
+                result["emitted"][0]["payload"]["stitch"]["goal"],
+                "MIDDLE_OBJECTIVE_CHANGE",
+            )
+
+    def test_budget_exhaustion_leaves_no_checkpoint_and_next_call_resumes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            turns = [{"role": "human", "text": f"turn-{index}"} for index in range(6)]
+            calls = []
+
+            def complete_fn(prompt):
+                request = json.loads(prompt)
+                calls.append(request)
+                if request["stage"] == "scene":
+                    return json.dumps({"summary": request["turns"][0]["text"]})
+                return json.dumps(_nothing_changed())
+
+            exhausted = racionalizador.rationalize(
+                "session-pending",
+                turns,
+                complete_fn,
+                log=log,
+                scene_turn_limit=2,
+                sweep_token_budget=1,
+            )
+            resumed = racionalizador.rationalize(
+                "session-pending",
+                turns,
+                complete_fn,
+                log=log,
+                scene_turn_limit=2,
+                sweep_token_budget=10_000,
+            )
+
+            self.assertEqual(exhausted["skipped_reason"], "budget_exhausted")
+            self.assertEqual(exhausted["usage"]["calls"], 0)
+            self.assertEqual(len(resumed["emitted"]), 1)
+            self.assertEqual(len(eventlog.read(log=log)), 1)
+
+    def test_completer_output_is_charged_and_oversize_response_cannot_append(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            output = _nothing_changed()
+            output["unexpected_padding"] = "x" * 1_000_000
+
+            result = racionalizador.rationalize(
+                "session-oversize-output",
+                [{"role": "human", "text": "resposta enorme"}],
+                lambda _prompt: json.dumps(output),
+                log=log,
+                sweep_token_budget=100,
+            )
+
+            self.assertEqual(result["skipped_reason"], "budget_exhausted")
+            self.assertGreater(result["usage"]["output_tokens"], 100)
+            self.assertEqual(
+                result["usage"]["estimated_tokens"],
+                result["usage"]["input_tokens"] + result["usage"]["output_tokens"],
+            )
+            self.assertEqual(eventlog.read(log=log), [])
+
+
+class ProviderFreeModule(unittest.TestCase):
+    def test_only_the_injected_completer_can_reach_a_model(self):
+        tree = ast.parse(Path(racionalizador.__file__).read_text())
+        imported_roots = {
+            alias.name.split(".")[0]
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+            for alias in node.names
+        }
+
+        self.assertTrue({"openai", "graphiti_core"}.isdisjoint(imported_roots))
+
+
+class PendingS6Integrations(unittest.TestCase):
+    """S6 local integrations; only the external sweep coordinator remains pending."""
+
+    def test_a28_grown_session_has_one_current_derived_contribution_and_pins_asserted_grains(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            initial_output = _nothing_changed()
+            initial_output["derived_events"] = [{
+                "type": "atividade.opened", "subject": "atividade:new",
+                "payload": {"operacao": "edge", "finalidade": "Atividade original",
+                            "novo": "abriu no começo"},
+            }]
+            first = racionalizador.rationalize(
+                "session-overlay", [{"role": "human", "text": "começo"}],
+                lambda _prompt: json.dumps(initial_output), log=log, watermark=1,
+            )
+            activity = next(iter(eventlog.atividades_at(log=log).values()))
+            eventlog.touch_atividade(
+                ref=activity["ref"], sessao="grill-pin", novo="confirmado pelo grill",
+                tier="asserted", log=log,
+            )
+            grown_output = _nothing_changed()
+            grown_output["derived_events"] = [{
+                "type": "atividade.opened", "subject": "atividade:changed",
+                "payload": {"operacao": "edge", "finalidade": "Segmentação diferente",
+                            "novo": "sessão cresceu"},
+            }]
+            second = racionalizador.rationalize(
+                "session-overlay",
+                [{"role": "human", "text": "começo"},
+                 {"role": "human", "text": "cresceu"}],
+                lambda _prompt: json.dumps(grown_output), log=log, watermark=2,
+            )
+            folded = eventlog.atividades_at(log=log)
+            self.assertEqual(len(folded), 1)
+            current = next(iter(folded.values()))
+            self.assertTrue(any(touch["tier"] == "asserted" for touch in current["toques"]))
+            self.assertEqual([event["type"] for event in first["emitted"]],
+                             ["sessao.racionalizada", "atividade.opened", "atividade.touched"])
+            self.assertEqual([event["type"] for event in second["emitted"]],
+                             ["sessao.racionalizada", "atividade.touched"])
+            latest_id = second["emitted"][0]["payload"]["rationalization_id"]
+            current_contributions = [touch for touch in current["toques"]
+                                     if touch.get("rationalization_id") == latest_id]
+            self.assertEqual(len(current_contributions), 1)
+            self.assertEqual(second["emitted"][0]["payload"]["supersedes"],
+                             first["emitted"][0]["payload"]["rationalization_id"])
+
+    def test_a30_middle_objective_change_materializes_the_middle_activity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            turns = [{"role": "human", "text": f"turn-{index}"} for index in range(20)]
+            turns[10]["text"] = "MIDDLE_OBJECTIVE_CHANGE"
+
+            def complete_fn(prompt):
+                request = json.loads(prompt)
+                if request["stage"] == "scene":
+                    return json.dumps({
+                        "summary": " | ".join(turn["text"] for turn in request["turns"])
+                    })
+                output = _nothing_changed()
+                output["derived_events"] = [{
+                    "type": "atividade.opened", "subject": "atividade:middle",
+                    "payload": {"operacao": "edge",
+                                "finalidade": "MIDDLE_OBJECTIVE_CHANGE",
+                                "novo": "objetivo mudou no meio"},
+                }]
+                return json.dumps(output)
+
+            result = racionalizador.rationalize(
+                "session-middle", turns, complete_fn, log=log,
+                scene_turn_limit=2, max_scenes=3, sweep_token_budget=10_000,
+            )
+            self.assertIn("atividade.opened", [event["type"] for event in result["emitted"]])
+            activities = eventlog.atividades_at(log=log)
+            self.assertEqual(len(activities), 1)
+            self.assertEqual(next(iter(activities.values()))["finalidade"],
+                             "MIDDLE_OBJECTIVE_CHANGE")
+
+    @unittest.skip("owned by sweep wiring: max_sessions, oldest-first, aggregate token budget")
+    def test_a30_sweep_coordinator_bounds_and_resumes_multiple_sessions_oldest_first(self):
+        self.fail("rationalize exposes per-session cost; sweep must coordinate the aggregate")
+
+
+if __name__ == "__main__":
+    unittest.main()
