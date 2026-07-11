@@ -55,6 +55,31 @@ things explicitly: promote to `direction.set` only when the mentee ratifies it, 
 wrong or stale, split/merge it when the topic cluster conflates threads, or leave it proposed with
 a sharper falsifiable inscription. Never promote an inferred topic just because it recurs.
 
+**Abrir mapa passa pela superfície bound, nunca pela caneta crua.** Use este writeback executável,
+copiando literalmente o dispatch id do envelope atual e escolhendo a operação explicitamente:
+
+```sh
+tools/edge-python <<'PY'
+import sys
+sys.path.insert(0, "tools")
+import eventlog
+import portfolio
+
+DISPATCH_ID = "<dispatch-id literal do envelope atual>"
+portfolio.turn(DISPATCH_ID, "edge", eventlog.LOG).map(
+    titulo="<titulo do mapa>",
+    rationale="<por que este mapa deve existir>",
+    thread="<label>",
+)
+PY
+```
+
+Troque `"edge"` pelo slug explícito da operação quando necessário. Quando houver thread, passe o
+**label humano**; o resolver da instalação fixa `{uuid, display}` na borda. Sem thread, omita esse
+argumento — o caminho permanece local e não abre Neo4j. Nunca derive o dispatch por “latest”,
+timestamp ou leitura do log. Nunca chame `eventlog.open_map` diretamente e nunca forneça um snapshot
+`{uuid, display}` confiado pelo caller.
+
 **The evidence ladder of the stranger (onboarding):** (1) the **seed yaml** — sources, objetivos:
 an explosion of knowledge, you never start from 0; (2) empty yaml → there are **always the Claude
 sessions**; (3) the extreme case (fresh VPS, no source at all) → **ask for anything, honestly**:
