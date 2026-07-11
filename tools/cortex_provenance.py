@@ -28,7 +28,11 @@ consume ONLY `computed` items — `assert_rollup_computed` is the one gate. Fail
 # The TRUST tier per label. Mirrors blog/server._TRUST_BY_LABEL's split, collapsed to the two-value
 # trust axis F9 names (space0/episodic are rendering shades of the same two trust classes here):
 #   spine (folds from the log) → asserted; Graphiti (hypothesis) → extracted.
-_ASSERTED_LABELS = {"Genesis", "Objective", "Direction", "Artefato", "Experiment"}
+_ASSERTED_LABELS = {
+    "Genesis", "Objective", "Direction", "Artefato", "Experiment",
+    # Structured Activity/Direction lenses: every node is a deterministic log fold (A40).
+    "Atividade", "Run", "Fato", "Arco", "Map", "Ticket", "Move", "Claim",
+}
 _EXTRACTED_LABELS = {"Entity", "Source", "Episodic", "Topic", "VozFragment"}
 
 
@@ -82,6 +86,10 @@ _CLASS_BY_TYPE = {
     "supersede": "asserted", "supersedes": "asserted",  # §0 names singular; the graph edge is plural
     "via": "asserted", "deriva_de": "asserted",
     "tem": "asserted", "spine": "asserted",
+    # Structured Activity/Direction lens topology folds from the log. This is the structural
+    # ceiling; a per-event stamp may still demote it, never promote it toward computed (A40).
+    "blocked_by": "asserted", "part_of": "asserted", "touches": "asserted",
+    "inscribes": "asserted", "marco_of": "asserted", "bears_on": "asserted",
     # Judgment plane — reified gate verdicts; rigor teto lead, NEVER computed.
     "assesses": "llm_judged",
     # Valenced bearing declarations (ticket A, §2b) — AUTHOR-declared (asserted), rigor teto
@@ -112,9 +120,10 @@ _TYPE_KEYS = ("edge_type", "type", "label")
 
 def _rollup_class_of(item):
     """Resolve an item's plane for the CX-1 gate. Derivation from type WINS when present (a stamp
-    can DEMOTE, never promote — an `assesses` stamped "computed" stays llm_judged, but a `bearing`
-    stamped non-computed is honored down). Fail-safe `extracted` on ANY malformation: a non-dict
-    item, a type key present-but-blank, a stamp present-but-invalid (never silently dropped)."""
+    can DEMOTE, never promote — an `assesses` stamped "computed" stays llm_judged, while an
+    asserted structural edge stamped llm_judged and a `bearing` stamped non-computed are honored
+    down). Fail-safe `extracted` on ANY malformation: a non-dict item, a type key present-but-blank,
+    a stamp present-but-invalid (never silently dropped)."""
     if not isinstance(item, dict):
         return "extracted"
     stamped = item.get("provenance_class")
@@ -126,9 +135,12 @@ def _rollup_class_of(item):
         return "extracted"  # a type key present but blank/non-str = unknown type, not stampable
     if t is not None:
         derived = provenance_class_for(t)
-        if derived == "computed" and stamped and stamped != "computed":
-            return stamped  # the stamp demotes
-        return derived  # the type is the ceiling — a stamp never promotes
+        if stamped:
+            # Tuple order is the rigor ceiling: a larger index is a demotion. The type always wins
+            # against an attempted promotion (e.g. asserted + computed), while lower stamps remain
+            # visible (e.g. a rationalizer's asserted structural type + llm_judged event stamp).
+            return max((derived, stamped), key=PROVENANCE_CLASSES.index)
+        return derived
     return stamped or "extracted"  # a bare annotation may pass by a valid computed stamp
 
 
