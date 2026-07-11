@@ -17,6 +17,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
+sys.path.insert(0, str(REPO))  # tests.* namespace imports (test_rito_runtime harness) under the file runner
 import close  # noqa: E402
 import eventlog  # noqa: E402
 import producer_descriptor  # noqa: E402

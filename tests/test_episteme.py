@@ -845,21 +845,42 @@ class ProducerSnippetsForwardBearsOnParaAndReportsOn(unittest.TestCase):
         for p in self.PRODUCERS:
             doc = (REPO / "skills" / p / "SKILL.md").read_text()
             i = doc.find("publish_fn=lambda art, proof")
-            self.assertNotEqual(i, -1, f"{p}: publish_fn lambda not found")
-            region = doc[i:i + 600]
-            for arg in ("bears_on=art.get('bears_on')",
-                        "para=art.get('para')",
-                        "reports_on=art.get('reports_on')"):
-                self.assertIn(arg, region,
-                              f"{p}: publish_fn must forward {arg} (mint binds it — an "
-                              "adopted key with the old lambda is a digest mismatch)")
+            if i != -1:  # legacy road (interactive producers stay on run_close — operator pin)
+                region = doc[i:i + 600]
+                for arg in ("bears_on=art.get('bears_on')",
+                            "para=art.get('para')",
+                            "reports_on=art.get('reports_on')"):
+                    self.assertIn(arg, region,
+                                  f"{p}: publish_fn must forward {arg} (mint binds it — an "
+                                  "adopted key with the old lambda is a digest mismatch)")
+                continue
+            # rito road: the skill drives rito.run_rito; the keys ride publish_meta into
+            # publisher.publish_rito (forwarding asserted on the seam below).
+            self.assertIn("run_rito", doc,
+                          f"{p}: no publish_fn lambda and no run_rito — which road is this?")
+            for key in ("'bears_on'", "'para'", "'reports_on'"):
+                self.assertIn(key, doc,
+                              f"{p}: rito producer must instruct {key} in publish_meta")
 
-    def test_report_publish_fn_forwards_experiment_curation(self):
+    def test_rito_publish_seam_forwards_curation_fields(self):
+        src = (REPO / "tools" / "publisher.py").read_text()
+        i = src.find("def publish_rito")
+        self.assertNotEqual(i, -1, "publisher.publish_rito not found")
+        body = src[i:src.find("\ndef ", i + 1)]
+        for arg in ("bears_on=bears_on", "para=para", "reports_on=reports_on",
+                    "experiment_curation=experiment_curation"):
+            self.assertIn(arg, body,
+                          f"publish_rito must forward {arg} into the atomic publish "
+                          "(the rito road may never drop a curation field the mint binds)")
+
+    def test_report_publish_forwards_experiment_curation(self):
         doc = (REPO / "skills" / "report" / "SKILL.md").read_text()
         i = doc.find("publish_fn=lambda art, proof")
-        self.assertNotEqual(i, -1, "report: publish_fn lambda not found")
-        region = doc[i:i + 800]
-        self.assertIn("experiment_curation=art.get('experiment_curation')", region)
+        if i != -1:
+            self.assertIn("experiment_curation=art.get('experiment_curation')", doc[i:i + 800])
+        else:
+            self.assertIn("'experiment_curation'", doc,
+                          "report (rito road) must instruct experiment_curation in publish_meta")
 
 
 class OntologiaSchemaIsTheMeasurementInstrument(unittest.TestCase):
